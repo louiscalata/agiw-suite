@@ -4,6 +4,9 @@ import io
 import os
 import signal
 import socket
+import stat
+import struct
+import subprocess
 import sys
 import tempfile
 import threading
@@ -513,7 +516,7 @@ class ShutdownTest(unittest.TestCase):
 
         with patch.object(server, 'MonitorServer', return_value=FakeServer()), \
              patch.object(server, 'sample') as sampler, \
-             patch.object(server, 'memory_guard', return_value=guard), \
+             patch.object(server, 'memory_guard', return_value=guard) as build_guard, \
              patch.object(server, 'cancel_windows_worker_probe') as cancel, \
              patch.object(server, 'stop_windows_worker_probe', return_value=True) as stop, \
              patch.object(server, 'write_endpoint') as endpoint, \
@@ -534,6 +537,9 @@ class ShutdownTest(unittest.TestCase):
         self.assertLess(events.index(('model-join', .45)), events.index('server-close'))
         # The sampler gets the monitor's guard; shutdown resumes anything it paused.
         self.assertIs(sampler.call_args.kwargs['guard'], guard)
+        build_guard.assert_called_once()
+        self.assertEqual(set(build_guard.call_args.kwargs), {'level_file'})
+        self.assertIsInstance(build_guard.call_args.kwargs['level_file'], server.LevelFile)
         self.assertGreaterEqual(events.count('guard-close'), 1)  # the handler, then the finally (idempotent)
         self.assertLess(events.index('guard-close'), events.index('server-close'))
 
@@ -750,6 +756,65 @@ class MemoryGuardSampleTest(unittest.TestCase):
         with patch('server.memory_guard', return_value=self.FakeGuard()) as build:
             self.run_sampler(None)
         build.assert_called_once_with(watchdog=False)
+
+    def test_production_guard_publishes_only_valid_sysctl_samples_to_a_private_level_file(self):
+        import mem_guard
+        import server
+
+        class PassiveRegistry:
+            def paused(self):
+                return []
+
+        def runner(args, **_):
+            if args == ['/usr/bin/memory_pressure', '-Q']:
+                return subprocess.CompletedProcess(args, 0,
+                    'System-wide memory free percentage: 45%\n', '')
+            raise PermissionError('fixture: no subprocess probes')
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'mem-guard' / 'level.json'
+            level_file = server.LevelFile(path)
+
+            def guard_for(sysctls, *, fallback=False):
+                probes = mem_guard.Probes(sysctl=sysctls.get, runner=runner,
+                    statvfs=lambda _: None, level_file=level_file if fallback else None,
+                    memory_pressure=fallback)
+                return server.memory_guard(cfg=mem_guard.default_config(), probes=probes,
+                    registry=PassiveRegistry(), watchdog=False, level_file=level_file)
+
+            valid = {'kern.memorystatus_vm_pressure_level': struct.pack('=i', 1),
+                     'kern.memorystatus_level': struct.pack('=i', 50),
+                     'hw.memsize': struct.pack('=Q', 64 << 30)}
+            guard = guard_for(valid)
+            self.assertIsNotNone(guard)
+            self.assertFalse(path.parent.exists(), 'constructing the guard must not publish')
+            published = self.run_sampler(guard)
+            self.assertEqual(published['memory']['availablePercent'], 50)
+            self.assertEqual([s['state'] for s in published['sources'] if s['id'] == 'mem-guard'], ['live'])
+            self.assertEqual((level_file.read()['pressure'], level_file.read()['availablePercent']), (1, 50))
+            self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+            self.assertEqual(stat.S_IMODE(path.parent.stat().st_mode), 0o700)
+            self.assertEqual(json.loads(path.read_text())['source'], 'sysctl')
+
+            before = (path.stat().st_ino, path.stat().st_mtime_ns, path.read_bytes())
+            fallback = self.run_sampler(guard_for({}, fallback=True))
+            self.assertEqual(fallback['memory']['availablePercent'], 50)
+            self.assertIn('read from the monitor\'s level file', ' '.join(fallback['memory']['reasons']))
+            self.assertEqual((path.stat().st_ino, path.stat().st_mtime_ns, path.read_bytes()), before,
+                             'a level-file fallback must not renew its own freshness')
+
+            path.unlink()
+            pressure_fallback = self.run_sampler(guard_for({}, fallback=True))
+            self.assertEqual(pressure_fallback['memory']['availablePercent'], 45)
+            self.assertIn('availability from memory_pressure -Q',
+                          ' '.join(pressure_fallback['memory']['reasons']))
+            self.assertFalse(path.exists(), 'memory_pressure availability is never published')
+
+            invalid = {'kern.memorystatus_vm_pressure_level': struct.pack('=i', 3),
+                       'kern.memorystatus_level': struct.pack('=i', 140)}
+            invalid_sample = self.run_sampler(guard_for(invalid))
+            self.assertEqual(invalid_sample['memory']['level'], 'unknown')
+            self.assertFalse(path.exists(), 'invalid sysctl values are never published')
 
 class TransportTest(unittest.TestCase):
     def setUp(self):

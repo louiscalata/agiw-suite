@@ -5,7 +5,7 @@
                                      (exit 0 ok/watch, 10 tight, 11 critical, 3 unknown)
   mem-guard admit --need-gb N [--kind light|heavy] [--wait SECONDS] [--label TEXT]
                                      exit 0 admitted, 75 refused
-  mem-guard register --pid PID --label TEXT / unregister --pid PID
+  mem-guard register --pid PID --label TEXT [--json] / unregister --pid PID
   mem-guard resume-all               SIGCONT everything it paused (identity-checked); always safe
   mem-guard resume-overdue           SIGCONT paused jobs past their limit or whose pauser is gone
   mem-guard watch [--interval 2]     foreground watchdog (for use without the monitor)
@@ -15,6 +15,12 @@ It never kills a process, never unloads a model and only pauses (SIGSTOP) work t
 itself; everything it stopped is recorded so it can be resumed after a crash.
 Stdlib only, Python 3.9+. Every probe, clock, path, runner, signal sender and notifier is injectable.
 Config: ~/.config/agiw/mem-guard.json (closed reader, see DEFAULTS); state: ~/.local/state/agiw/mem-guard/.
+
+Inside an agent sandbox (2026-09-27): /bin/ps and the memorystatus/swap sysctls are refused, so the
+process table is read through libproc (ctypes; ps stays the fallback) and the memory level comes from
+level.json (written by a process that can read the sysctls: the monitor's sampler or an unsandboxed
+`mem-guard status`; owner-checked, 0600, at most `level_file_max_age_seconds` old), then from
+`memory_pressure -Q` (availability only).
 """
 from __future__ import annotations
 
@@ -133,6 +139,7 @@ DEFAULTS: dict[str, Any] = {
     "max_pause_seconds": 1200.0,
     "notify_cooldown_seconds": 300.0,
     "notifications": True,
+    "level_file_max_age_seconds": 3.0,
 }
 _BOUNDS = {
     "critical_available_percent": (0, 100), "tight_available_percent": (0, 100),
@@ -142,6 +149,7 @@ _BOUNDS = {
     "critical_vm_free_gib": (0, 1024), "floor_gib": (0, 1024), "floor_fraction": (0, 0.9),
     "pause_after_seconds": (1, 3600), "resume_after_seconds": (1, 3600),
     "max_pause_seconds": (60, 86400), "notify_cooldown_seconds": (0, 86400),
+    "level_file_max_age_seconds": (1, 600),
 }
 
 
@@ -443,12 +451,214 @@ def _ctypes_sysctl(name: str, size: int) -> Optional[bytes]:
         return None
 
 
+_PROC_PIDTBSDINFO = 3
+_PROC_PIDT_SHORTBSDINFO = 13
+_PROC_PIDPATHINFO_MAXSIZE = 4096
+SSTOP = 4  # pbi_status of a stopped (SIGSTOP) process
+
+
+class LibProc:
+    """The process table through /usr/lib/libproc.dylib (ctypes). Agent sandboxes refuse /bin/ps but
+    allow proc_listallpids, proc_pidinfo and proc_pidpath: PROC_PIDT_SHORTBSDINFO (ppid, uid, pgid,
+    status) answers for every process, PROC_PIDTBSDINFO (start time) and proc_pidpath for the
+    caller's own. Methods return ('ok', value), ('gone', None) or ('denied', None); only ESRCH is
+    'gone' (a zombie reads as gone too), every other failure is 'denied'. Construction raises when
+    the library or the struct layout is not what this code expects; callers then use ps."""
+
+    def __init__(self, path: str = "/usr/lib/libproc.dylib"):
+        import ctypes
+        lib = ctypes.CDLL(path, use_errno=True)
+        lib.proc_listallpids.argtypes = [ctypes.c_void_p, ctypes.c_int]
+        lib.proc_listallpids.restype = ctypes.c_int
+        lib.proc_pidinfo.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_uint64, ctypes.c_void_p, ctypes.c_int]
+        lib.proc_pidinfo.restype = ctypes.c_int
+        lib.proc_pidpath.argtypes = [ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32]
+        lib.proc_pidpath.restype = ctypes.c_int
+        u32 = ctypes.c_uint32
+
+        class Short(ctypes.Structure):  # struct proc_bsdshortinfo
+            _fields_ = [("pid", u32), ("ppid", u32), ("pgid", u32), ("status", u32), ("comm", ctypes.c_char * 16),
+                        ("flags", u32), ("uid", u32), ("gid", u32), ("ruid", u32), ("rgid", u32),
+                        ("svuid", u32), ("svgid", u32), ("rfu", u32)]
+
+        class Bsd(ctypes.Structure):  # struct proc_bsdinfo
+            _fields_ = [("flags", u32), ("status", u32), ("xstatus", u32), ("pid", u32), ("ppid", u32),
+                        ("uid", u32), ("gid", u32), ("ruid", u32), ("rgid", u32), ("svuid", u32), ("svgid", u32),
+                        ("rfu", u32), ("comm", ctypes.c_char * 16), ("name", ctypes.c_char * 32),
+                        ("nfiles", u32), ("pgid", u32), ("pjobc", u32), ("tdev", u32), ("tpgid", u32),
+                        ("nice", ctypes.c_int32), ("start_sec", ctypes.c_uint64), ("start_usec", ctypes.c_uint64)]
+
+        if ctypes.sizeof(Short) != 64 or ctypes.sizeof(Bsd) != 136:
+            raise OSError("unexpected proc_bsdinfo layout")
+        self._ctypes, self._lib, self._Short, self._Bsd = ctypes, lib, Short, Bsd
+
+    def _info(self, pid: int, flavor: int, struct_type: Any) -> tuple[str, Any]:
+        ctypes = self._ctypes
+        if type(pid) is not int or not 0 < pid <= _PID_MAX:
+            return "gone", None
+        info = struct_type()
+        ctypes.set_errno(0)
+        size = self._lib.proc_pidinfo(pid, flavor, 0, ctypes.byref(info), ctypes.sizeof(info))
+        if size == ctypes.sizeof(info) and info.pid == pid:
+            return "ok", info
+        return ("gone" if ctypes.get_errno() == errno.ESRCH else "denied"), None
+
+    def pids(self) -> Optional[list[int]]:
+        """Every pid, or None when the list cannot be read."""
+        ctypes = self._ctypes
+        for _ in range(4):
+            count = self._lib.proc_listallpids(None, 0)
+            if count <= 0:
+                return None
+            capacity = min(count + 256, 1 << 20)
+            buf = (ctypes.c_int * capacity)()
+            got = self._lib.proc_listallpids(buf, ctypes.sizeof(buf))
+            if got <= 0:
+                return None
+            if got < capacity:  # a full buffer may have been truncated: read again, larger
+                return [buf[i] for i in range(got) if buf[i] > 0]
+        return None
+
+    def short(self, pid: int) -> tuple[str, Optional[tuple[int, int, int, int]]]:
+        """(ppid, uid, pgid, status)."""
+        state, info = self._info(pid, _PROC_PIDT_SHORTBSDINFO, self._Short)
+        return state, ((info.ppid, info.uid, info.pgid, info.status) if info is not None else None)
+
+    def bsd(self, pid: int) -> tuple[str, Optional[tuple[int, int, int, str]]]:
+        """(ppid, uid, start time in epoch seconds, 16-character kernel comm)."""
+        state, info = self._info(pid, _PROC_PIDTBSDINFO, self._Bsd)
+        if info is None:
+            return state, None
+        return state, (info.ppid, info.uid, int(info.start_sec), info.comm.decode("utf-8", "replace"))
+
+    def path(self, pid: int) -> Optional[str]:
+        """The executable's path (proc_pidpath), or None."""
+        ctypes = self._ctypes
+        buf = ctypes.create_string_buffer(_PROC_PIDPATHINFO_MAXSIZE)
+        size = self._lib.proc_pidpath(pid, buf, _PROC_PIDPATHINFO_MAXSIZE)
+        if size <= 0:
+            return None
+        return buf.raw[:size].decode("utf-8", "replace")
+
+
+_LIBPROC: Any = None
+
+
+def default_procs() -> Optional[LibProc]:
+    """The process-wide LibProc, or None where libproc is unavailable (then callers use ps)."""
+    global _LIBPROC
+    if _LIBPROC is None:
+        try:
+            _LIBPROC = LibProc()
+        except Exception:
+            _LIBPROC = False
+    return _LIBPROC or None
+
+
+LEVEL_FILE_MAX = 4 << 10
+_LEVEL_FIELDS = ("pressure", "availablePercent", "ramBytes", "swapUsedBytes", "swapTotalBytes")
+
+
+class LevelFile:
+    """level.json in the mem-guard state directory: the kernel's memory numbers as last read by a
+    process allowed to read them (the monitor's sampler, an unsandboxed `mem-guard status`), for
+    callers inside agent sandboxes that refuse the memorystatus and swap sysctls. Advisory only: it is
+    read only when it is a regular file owned by the caller with no group or other permission bits,
+    opened without following a symlink, written from sysctl readings (never from another level
+    file) and at most `max_age` seconds old. write() and read() never raise."""
+
+    def __init__(self, path: Optional[os.PathLike] = None, *, max_age: float = DEFAULTS["level_file_max_age_seconds"],
+                 clock: Optional[Callable[[], float]] = None, uid: Optional[int] = None):
+        self.path = Path(path) if path is not None else STATE_ROOT / "level.json"
+        self.max_age = float(max_age)
+        self._clock = clock or time.time
+        self._uid = os.getuid() if uid is None else uid
+
+    def write(self, state: Any) -> bool:
+        """Publish the kernel reading in `state` (only a state whose levelSource is 'sysctl')."""
+        try:
+            if not isinstance(state, dict) or state.get("levelSource") != "sysctl":
+                return False
+            record: dict[str, Any] = {"schemaVersion": 1, "source": "sysctl", "writtenAt": round(self._clock(), 3),
+                                      "pid": os.getpid()}
+            record.update(_level_fields(state))
+            if record["pressure"] is None and record["availablePercent"] is None:
+                return False
+            directory = self.path.parent
+            _ensure_private_dir(directory, self._uid)
+            tmp = directory / f".{self.path.name}.{os.getpid()}.{secrets.token_hex(4)}.tmp"
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+            try:
+                try:
+                    _write_all(fd, _dumps(record))
+                finally:
+                    os.close(fd)
+                os.replace(tmp, self.path)
+            finally:
+                with contextlib.suppress(FileNotFoundError):
+                    os.unlink(tmp)
+            return True
+        except Exception:
+            return False
+
+    def read(self) -> Optional[dict]:
+        """{pressure, availablePercent, ramBytes, swapUsedBytes, swapTotalBytes, ageSeconds} or None."""
+        try:
+            fd = os.open(self.path, os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_NONBLOCK", 0))
+        except OSError:
+            return None
+        try:
+            info = os.fstat(fd)
+            if (not stat.S_ISREG(info.st_mode) or info.st_uid != self._uid or info.st_mode & 0o077
+                    or info.st_size > LEVEL_FILE_MAX):
+                return None
+            data = os.read(fd, LEVEL_FILE_MAX + 1)
+            if len(data) > LEVEL_FILE_MAX:
+                return None
+            raw = json.loads(data.decode("utf-8"))
+        except (OSError, ValueError, RecursionError):
+            return None
+        finally:
+            os.close(fd)
+        if not isinstance(raw, dict) or raw.get("schemaVersion") != 1 or raw.get("source") != "sysctl":
+            return None
+        written = _number_in(raw.get("writtenAt"), 0, 1 << 40)
+        if written is None:
+            return None
+        age = self._clock() - written
+        if not -1.0 <= age <= self.max_age:  # stale, or written by a clock ahead of ours
+            return None
+        level = _level_fields(raw)
+        if level["pressure"] is None and level["availablePercent"] is None:
+            return None
+        level["ageSeconds"] = max(0.0, age)
+        return level
+
+
+def _level_fields(source: dict) -> dict[str, Any]:
+    pressure = _int_in(source.get("pressure"), 1, 4)
+    return {"pressure": pressure if pressure in PRESSURE_LABEL else None,
+            "availablePercent": _int_in(source.get("availablePercent"), 0, 100),
+            "ramBytes": _int_in(source.get("ramBytes"), GiB // 4, 1 << 50),
+            "swapUsedBytes": _bytes_or_none(source.get("swapUsedBytes")),
+            "swapTotalBytes": _bytes_or_none(source.get("swapTotalBytes"))}
+
+
+_MEMORY_PRESSURE = re.compile(r"System-wide memory free percentage:\s*(\d{1,3})%")
+
+
 class Probes:
     """Read-only memory probes. Every failure becomes None; nothing here raises to callers.
 
     background=True (the monitor): the slow probes (vm_stat, statvfs, ps, simctl) are refreshed on
     short-lived daemon threads and a call returns the latest value at once, so the 1 Hz sampler
-    never waits on a subprocess. The CLI keeps the default, synchronous reads."""
+    never waits on a subprocess. The CLI keeps the default, synchronous reads.
+
+    When neither the pressure level nor the availability sysctl answers (an agent sandbox), read()
+    falls back to `level_file` (a fresh LevelFile) and then, with memory_pressure=True, to
+    `memory_pressure -Q` for the availability alone. state['levelSource'] says which answered:
+    'sysctl', 'level-file', 'memory_pressure' or None. Both fallbacks are off unless asked for (the
+    CLI's Context turns them on; the monitor, which can read the sysctls, does not need them)."""
 
     VM_STAT_EVERY = 5.0
     VM_FREE_EVERY = 10.0
@@ -459,7 +669,10 @@ class Probes:
     def __init__(self, *, sysctl: Optional[Callable[[str, int], Optional[bytes]]] = None,
                  runner: Optional[Callable[..., Any]] = None, statvfs: Optional[Callable[[str], Any]] = None,
                  clock: Optional[Callable[[], float]] = None, wall: Optional[Callable[[], float]] = None,
-                 vm_path: str = VM_PATH, background: bool = False):
+                 vm_path: str = VM_PATH, background: bool = False, level_file: Optional[LevelFile] = None,
+                 memory_pressure: bool = False):
+        self._level_file = level_file
+        self._memory_pressure = memory_pressure
         self._sysctl = sysctl if sysctl is not None else _ctypes_sysctl
         self._runner = runner or subprocess.run
         self._statvfs = statvfs or os.statvfs
@@ -642,10 +855,13 @@ class Probes:
 
         state["pressure"] = safe(self.pressure)
         state["availablePercent"] = safe(self.available_percent)
+        state["levelSource"] = "sysctl" if state["pressure"] is not None or state["availablePercent"] is not None else None
         state["ramBytes"] = safe(self.ram_bytes)
         swap = safe(self.swap)
         if swap:
             state["swapTotalBytes"], state["swapUsedBytes"] = swap
+        if state["levelSource"] is None:
+            safe(lambda: self._fallback(state))
         vm = safe(self.vm_stat)
         if vm:
             state["compressedBytes"] = vm.get("compressedBytes")
@@ -653,6 +869,38 @@ class Probes:
         state["vmFreeBytes"] = safe(self.vm_free)
         state["gpuAllocBytes"] = _bytes_or_none(gpu_alloc_bytes)
         return state
+
+    def _fallback(self, state: dict) -> None:
+        """The sysctls were refused: a fresh level file first, then memory_pressure -Q."""
+        level = self._level_file.read() if self._level_file is not None else None
+        if level:
+            state["pressure"], state["availablePercent"] = level["pressure"], level["availablePercent"]
+            for key in ("ramBytes", "swapUsedBytes", "swapTotalBytes"):
+                if state.get(key) is None and level.get(key) is not None:
+                    state[key] = level[key]
+            state["levelSource"] = "level-file"
+            state["levelAgeSeconds"] = round(level["ageSeconds"], 1)
+            return
+        if self._memory_pressure:
+            percent = self._memory_pressure_percent()
+            if percent is not None:
+                state["availablePercent"] = percent
+                state["levelSource"] = "memory_pressure"
+
+    def _memory_pressure_percent(self) -> Optional[int]:
+        """`memory_pressure -Q` prints the same number as kern.memorystatus_level (checked 2026-09-27:
+        87% from both) and runs inside agent sandboxes. A failure backs off like the sysctl CLI."""
+        now = self._clock()
+        failed = self._cli_failed.get("memory_pressure")
+        if failed is not None and now - failed < self.CLI_RETRY:
+            return None
+        out = _run(self._runner, ["/usr/bin/memory_pressure", "-Q"], 2.0)
+        match = _MEMORY_PRESSURE.search(out or "")
+        if match is None:
+            self._cli_failed["memory_pressure"] = now
+            return None
+        self._cli_failed.pop("memory_pressure", None)
+        return _int_in(int(match.group(1)), 0, 100)
 
 
 # ---------------------------------------------------------------------------------------------
@@ -718,6 +966,15 @@ def classify(state: Optional[dict], cfg: Optional[dict] = None) -> tuple[str, li
         level = "unknown"
         reasons.insert(0, "memory state unknown: macOS pressure and availability unreadable")
     reasons.extend(str(note) for note in cfg.get("notes") or [])
+    # Said last, so a refusal's first reason is still the memory reason itself.
+    source = s.get("levelSource")
+    if level != "unknown" and source == "level-file":
+        age = _number_in(s.get("levelAgeSeconds"), 0, 86400)
+        reasons.append("read from the monitor's level file" + (f" ({age:.0f} s old)" if age is not None else "")
+                       + ": this process cannot read the kernel's memory sysctls")
+    elif level != "unknown" and source == "memory_pressure":
+        reasons.append("availability from memory_pressure -Q: this process cannot read the kernel's "
+                       "pressure level or swap (no fresh level file)")
     return level, reasons
 
 
@@ -1056,14 +1313,22 @@ def _valid_pid(pid: Any) -> int:
 
 class Registry:
     """Jobs WE started that may be paused under critical memory. Only registered pids and their
-    live same-user descendants are ever signalled, and only after an identity check."""
+    live same-user descendants are ever signalled, and only after an identity check.
+
+    Process facts come from libproc (`procs`, default LibProc) and fall back to /bin/ps when libproc
+    is unavailable or cannot answer for one of our own processes. An explicitly injected ps `runner`
+    without `procs` keeps the registry on ps alone (the ps-based tests). Both sources give the same
+    identity: start time as `ps -o lstart` prints it under TZ=UTC0, comm the executable's basename
+    (libproc: proc_pidpath; ps: the comm column); a process that renamed its argv[0] reads
+    differently under the two and is then treated as a different process (dropped, never signalled)."""
 
     def __init__(self, root: Optional[os.PathLike] = None, *, runner: Optional[Callable[..., Any]] = None,
                  kill: Optional[Callable[[int, int], None]] = None, uid: Optional[int] = None,
-                 pid: Optional[int] = None, clock: Optional[Callable[[], float]] = None):
+                 pid: Optional[int] = None, clock: Optional[Callable[[], float]] = None, procs: Any = None):
         self.root = Path(root) if root is not None else STATE_ROOT
         self.pausable_dir = self.root / "pausable"
         self.paused_path = self.root / "paused.json"
+        self._procs = procs if procs is not None else (None if runner is not None else default_procs())
         self._runner = runner or subprocess.run
         self._kill = kill or os.kill
         self._uid = os.getuid() if uid is None else uid
@@ -1085,11 +1350,48 @@ class Registry:
 
     # -- process facts ------------------------------------------------------------------------
     def identities(self, pids: Iterable[int]) -> Optional[dict[int, dict]]:
-        """{pid: {ppid, uid, startTime, comm, path}} for live pids; None when ps itself fails.
-        startTime is `lstart` in UTC; comm is the executable's basename (never empty)."""
+        """{pid: {ppid, uid, startTime, comm, path}} for live pids; None when neither libproc nor ps
+        can answer. startTime is `lstart` in UTC; comm is the executable's basename (never empty).
+        Another user's process that libproc may not read in full is reported with its ppid and uid
+        and an empty startTime (every caller rejects it on the uid first)."""
         wanted = sorted({p for p in pids if type(p) is int and 1 < p <= _PID_MAX})
         if not wanted:
             return {}
+        if self._procs is not None:
+            try:
+                found = self._identities_libproc(wanted)
+            except Exception:
+                found = None
+            if found is not None:
+                return found
+        return self._identities_ps(wanted)
+
+    def _identities_libproc(self, wanted: list[int]) -> Optional[dict[int, dict]]:
+        procs = self._procs
+        found: dict[int, dict] = {}
+        for pid in wanted:
+            state, info = procs.bsd(pid)
+            if state == "gone":
+                continue
+            if state == "ok":
+                ppid, uid, start, kernel_comm = info
+                path = _clean_text(procs.path(pid) or "", 1024)
+                comm = _clean_text(path.rsplit("/", 1)[-1], 255) or _clean_text(kernel_comm, 255) or "?"
+                try:
+                    start_text = _lstart_text(time.gmtime(start))
+                except (OverflowError, OSError, ValueError):
+                    return None
+                found[pid] = {"ppid": int(ppid), "uid": int(uid), "startTime": start_text, "comm": comm, "path": path}
+                continue
+            short_state, short = procs.short(pid)
+            if short_state == "gone":
+                continue
+            if short_state != "ok" or short[1] == self._uid:
+                return None  # one of ours that libproc cannot read in full: ask ps instead
+            found[pid] = {"ppid": int(short[0]), "uid": int(short[1]), "startTime": "", "comm": "?", "path": ""}
+        return found
+
+    def _identities_ps(self, wanted: list[int]) -> Optional[dict[int, dict]]:
         try:
             result = self._runner(["/bin/ps", "-o", "pid=,ppid=,uid=,lstart=,comm=", "-p", ",".join(map(str, wanted))],
                                   capture_output=True, text=True, timeout=2.0, check=False, env=_PS_ENV)
@@ -1111,7 +1413,15 @@ class Registry:
         return found
 
     def tree(self) -> Optional[dict[int, tuple[int, int]]]:
-        """{pid: (ppid, uid)} for every process; None when ps fails or omits our own pid."""
+        """{pid: (ppid, uid)} for every process; None when neither libproc nor ps can list the
+        process table with our own pid in it."""
+        if self._procs is not None:
+            try:
+                rows = self._tree_libproc()
+            except Exception:
+                rows = None
+            if rows is not None:
+                return rows
         out = _run(self._runner, ["/bin/ps", "-axo", "pid=,ppid=,uid="], 2.0, env=_PS_ENV)
         if out is None:
             return None
@@ -1120,6 +1430,17 @@ class Registry:
             match = _TREE_ROW.match(line)
             if match:
                 rows[int(match.group(1))] = (int(match.group(2)), int(match.group(3)))
+        return rows if self._pid in rows else None
+
+    def _tree_libproc(self) -> Optional[dict[int, tuple[int, int]]]:
+        pids = self._procs.pids()
+        if not pids:
+            return None
+        rows = {}
+        for pid in pids[:50000]:
+            state, short = self._procs.short(pid)
+            if state == "ok" and 0 < pid <= _PID_MAX:
+                rows[pid] = (int(short[0]), int(short[1]))
         return rows if self._pid in rows else None
 
     def _protected(self, tree: dict[int, tuple[int, int]]) -> set[int]:
@@ -1309,6 +1630,9 @@ class Registry:
         except OSError:
             return "failed"
 
+    def _sources_failed(self) -> str:
+        return "libproc and ps both failed" if self._procs is not None else "ps failed"
+
     # -- public API ------------------------------------------------------------------------
     def register(self, pid: Any, label: Any) -> dict:
         """Make a job pausable. Only work the caller started itself: the pid must be the process
@@ -1319,7 +1643,7 @@ class Registry:
             raise RegistryError("refusing to register mem-guard itself")
         tree = self.tree()
         if tree is None:
-            raise RegistryError("cannot read the process table (ps failed)")
+            raise RegistryError(f"cannot read the process table ({self._sources_failed()})")
         if pid not in tree:
             raise RegistryError(f"no process {pid}")
         caller = tree[self._pid][0]
@@ -1334,7 +1658,7 @@ class Registry:
             raise RegistryError(f"process {pid} was started by launchd (an app or a daemon); refusing")
         ids = self.identities([pid])
         if ids is None:
-            raise RegistryError("cannot read the process identity (ps failed)")
+            raise RegistryError(f"cannot read the process identity ({self._sources_failed()})")
         ident = ids.get(pid)
         if ident is None:
             raise RegistryError(f"no process {pid}")
@@ -1799,7 +2123,10 @@ class Guard:
 
     def __init__(self, *, cfg: Optional[dict] = None, probes: Any = None, registry: Optional[Registry] = None,
                  notifier: Optional[Callable[[str, str], Any]] = None, clock: Optional[Callable[[], float]] = None,
-                 watchdog: bool = True):
+                 watchdog: bool = True, level_file: Optional[LevelFile] = None):
+        # level_file: when given, every sample's kernel reading is published there for sandboxed
+        # mem-guard callers (the monitor's sampler passes LevelFile(); off by default).
+        self.level_file = level_file
         self.cfg = cfg if cfg is not None else load_config()
         # background: the sampler never waits on ps, simctl, vm_stat or statvfs.
         self.probes = probes if probes is not None else Probes(background=True)
@@ -1821,6 +2148,8 @@ class Guard:
     def sample(self, gpu_alloc_bytes: Optional[int] = None, models: Optional[list] = None) -> tuple[dict, dict]:
         try:
             state = self.probes.read(gpu_alloc_bytes)
+            if self.level_file is not None:
+                self.level_file.write(state)  # never raises; publishes sysctl readings only
             level, _reasons = classify(state, self.cfg)
             consumers = None
             if level != "ok":
@@ -2073,15 +2402,22 @@ def hook_match(payload: Any) -> Optional[tuple[str, str]]:
 
 
 def hook_decide(payload: Any, probes: Any, cfg: Optional[dict] = None,
-                gpu: Optional[Callable[[], Optional[int]]] = None) -> Optional[tuple[Decision, str, list]]:
+                gpu: Optional[Callable[[], Optional[int]]] = None,
+                publish: Optional[Callable[[dict], Any]] = None) -> Optional[tuple[Decision, str, list]]:
     """None to allow silently, else (refused decision, what, consumers). The GPU allocation is
-    read only on the refusal path, so the local LLM server ranks by what it really holds."""
+    read only on the refusal path, so the local LLM server ranks by what it really holds.
+    `publish` (LevelFile.write) receives the reading: the hook runs outside the agent sandbox, so
+    it can refresh level.json just before a sandboxed review asks mem-guard for admission."""
     match = hook_match(payload)
     if match is None:
         return None
     what, category = match
     need, kind = HOOK_NEEDS[category]
-    decision = admit(need, kind, probes.read(), cfg)
+    state = probes.read()
+    if publish is not None:
+        with contextlib.suppress(Exception):
+            publish(state)
+    decision = admit(need, kind, state, cfg)
     # An unknown level never refuses from the hook: a hook must not wedge the session.
     if decision.allowed or decision.level == "unknown":
         return None
@@ -2142,9 +2478,15 @@ class Context:
         return self._cfg
 
     @property
+    def level_file(self) -> LevelFile:
+        max_age = self.cfg.get("level_file_max_age_seconds", DEFAULTS["level_file_max_age_seconds"])
+        return LevelFile(self.state_root / "level.json", max_age=max_age, clock=self.clock)
+
+    @property
     def probes(self) -> Any:
         if self._probes is None:
-            self._probes = Probes()
+            # The CLI may run inside an agent sandbox: fall back to the level file, then memory_pressure.
+            self._probes = Probes(level_file=self.level_file, memory_pressure=True)
         return self._probes
 
     @property
@@ -2211,9 +2553,17 @@ def _resume_overdue(ctx: Context) -> list[dict]:
     return resumed
 
 
+def _read_and_publish(ctx: Context, gpu: Optional[int] = None) -> dict:
+    """A probe read; a kernel (sysctl) reading is also published to level.json for callers inside
+    agent sandboxes. Publishing is best effort and never raises (LevelFile.write)."""
+    state = ctx.probes.read(gpu)
+    ctx.level_file.write(state)  # writes only a state whose levelSource is 'sysctl'
+    return state
+
+
 def _cmd_status(ctx: Context, as_json: bool) -> int:
     gpu = ctx.gpu()
-    state = ctx.probes.read(gpu)
+    state = _read_and_publish(ctx, gpu)
     level, _reasons = classify(state, ctx.cfg)
     consumers = ctx.probes.consumers(gpu_alloc_bytes=state.get("gpuAllocBytes")) if level != "ok" else None
     block = memory_block(state, ctx.cfg, consumers=consumers, paused=ctx.registry.paused())
@@ -2221,13 +2571,25 @@ def _cmd_status(ctx: Context, as_json: bool) -> int:
     return STATUS_EXIT.get(block["level"], 3)
 
 
+def _source_note(state: dict) -> str:
+    """Where the level came from, when it was not the kernel itself (inside an agent sandbox)."""
+    source = state.get("levelSource") if isinstance(state, dict) else None
+    if source == "level-file":
+        age = _number_in(state.get("levelAgeSeconds"), 0, 86400)
+        return f" [level from level.json{f', {age:.0f} s old' if age is not None else ''}; the sysctls are refused here]"
+    if source == "memory_pressure":
+        return " [availability from memory_pressure -Q only; the sysctls are refused here and level.json is not fresh]"
+    return ""
+
+
 def _cmd_admit(ctx: Context, need_gb: float, kind: Optional[str], wait: float, label: str) -> int:
     need = int(need_gb * GiB)
     deadline = ctx.clock() + wait
     while True:
-        decision = admit(need, kind, ctx.probes.read(), ctx.cfg)
+        state = _read_and_publish(ctx)
+        decision = admit(need, kind, state, ctx.cfg)
         if decision.allowed:
-            ctx.out(f"admitted: {decision.reason}")
+            ctx.out(f"admitted: {decision.reason}{_source_note(state)}")
             return 0
         remaining = deadline - ctx.clock()
         if remaining <= 0:
@@ -2235,7 +2597,7 @@ def _cmd_admit(ctx: Context, need_gb: float, kind: Optional[str], wait: float, l
         ctx.sleep(min(2.0, remaining))
     ctx.journal.write({"type": "refusal", "via": "admit", "label": label, "kind": decision.kind,
                        "needBytes": decision.needBytes, "level": decision.level, "reason": decision.reason})
-    ctx.out(f"refused: {decision.reason}")
+    ctx.out(f"refused: {decision.reason}{_source_note(state)}")
     return EXIT_REFUSED
 
 
@@ -2250,7 +2612,7 @@ def _cmd_watch(ctx: Context, interval: float, ticks: int) -> int:
     count = 0
     try:
         while True:
-            state = ctx.probes.read()
+            state = _read_and_publish(ctx)
             level, _reasons = classify(state, ctx.cfg)
             consumers = None
             if _RANK.get(level, 1) >= 2:
@@ -2277,7 +2639,7 @@ def _cmd_hook(ctx: Context) -> int:
         if hook_match(payload) is None:
             return 0
         _resume_overdue(ctx)  # the slow path only: unrelated calls never touch the registry
-        found = hook_decide(payload, ctx.probes, ctx.cfg, ctx.gpu)
+        found = hook_decide(payload, ctx.probes, ctx.cfg, ctx.gpu, publish=ctx.level_file.write)
         if found is None:
             return 0
         decision, what, consumers = found
@@ -2302,6 +2664,7 @@ def _parser() -> argparse.ArgumentParser:
     register = sub.add_parser("register", help="make a job we started pausable")
     register.add_argument("--pid", type=int, required=True)
     register.add_argument("--label", required=True)
+    register.add_argument("--json", action="store_true", help="print the entry (or the error) as JSON")
     unregister = sub.add_parser("unregister", help="forget a job (resumes it first if paused)")
     unregister.add_argument("--pid", type=int, required=True)
     sub.add_parser("resume-all", help="SIGCONT everything mem-guard paused")
@@ -2336,8 +2699,14 @@ def main(argv: Optional[list[str]] = None, ctx: Optional[Context] = None) -> int
             entry = ctx.registry.register(args.pid, args.label)
         except (RegistryError, OSError) as error:
             ctx.stderr.write(f"mem-guard: register failed: {error}\n")
+            if args.json:
+                ctx.out(json.dumps({"ok": False, "error": _clean_text(str(error), 300)}))
             return 1
-        ctx.out(f"registered pid {entry['pid']} ({entry['label']})")
+        if args.json:
+            ctx.out(json.dumps({"ok": True, "pid": entry["pid"], "startTime": entry["startTime"],
+                                "comm": entry["comm"], "label": entry["label"]}))
+        else:
+            ctx.out(f"registered pid {entry['pid']} ({entry['label']})")
         return 0
     if args.command == "unregister":
         try:
