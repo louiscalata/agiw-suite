@@ -31,6 +31,6 @@ jobs:
         run: node --test test_*.mjs
       - name: Mac build input checks
         run: |
-          bash -n build.sh login-agent.sh
+          bash -n build.sh login-agent.sh package-release.sh
           plutil -lint Info.plist
           xcrun swiftc -typecheck -target "$(uname -m)-apple-macosx13.0" -framework Cocoa -framework WebKit Monitor.swift

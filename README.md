@@ -35,4 +35,12 @@ From this directory, run `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover
 
 `build.sh` is an **installer**: it compiles and signs the app, then replaces `$HOME/Applications/Inference Monitor.app` when its owner lock permits. Do not run it as a read-only build check. The app may require installed companion commands for some controls; missing companions are reported as unavailable.
 
+### GitHub download candidate
+
+`package-release.sh` builds a separate, Apple silicon or Intel Developer ID signed DMG in `dist/`; it does not install or launch the app. It requires a clean source tree, an exact Developer ID Application identity in `MONITOR_RELEASE_SIGN_IDENTITY`, a secure Apple timestamp for both the app and DMG, and the version in `Info.plist`. Set `MONITOR_RELEASE_OUTPUT_DIR` to write elsewhere. The script refuses to overwrite an existing output, verifies the mounted DMG contents against frozen inputs, and emits a sidecar manifest with source, script, toolchain, and input hashes. `MONITOR_RELEASE_ALLOW_DIRTY=1` is only for local candidate checks: it adds `-dirty` to the filename and records `sourceDirty: true` in the manifest. That candidate must not be treated as a releasable build.
+
+After choosing the Developer ID Application identity from `security find-identity -v -p codesigning`, run `MONITOR_RELEASE_SIGN_IDENTITY=<certificate-SHA-1> ./package-release.sh` from a clean checkout. The output remains a local candidate until the later distribution gates pass.
+
+The DMG is **not a downloadable release** until Apple notarization accepts that exact asset, its ticket is stapled and validated, the final hash is recorded, and the quarantined download passes a clean-Mac test. No notarization credentials, model files, private network settings or installed app state are included in this source repository. The runtime still needs a Python 3 interpreter; model serving and network/router integrations are separate components.
+
 The [roadmap](roadmap.md) records this source package's verification state and remaining integration work.
