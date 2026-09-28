@@ -174,7 +174,7 @@ test('partial, unverified, unknown, and repeated results never become completion
 });
 const coreSixIds = [
   'openai/gpt-oss-20b', 'qwen/qwen3.8-27b', 'google/gemma-4-26b-a4b-qat',
-  'qwen/qwen3.6-35b-a3b', 'google/gemma-3-4b', 'text-embedding-nomic-embed-text-v2-moe',
+  'qwen/qwen3.6-35b-a3b', 'google/gemma-3-4b', 'text-embedding-nomic-embed-text-v1.5',
 ];
 
 test('AFM is a separate on-device lane with its own passive inspector and stale state', () => {
@@ -243,7 +243,7 @@ test('Core 6 starts as the accessible default for both map and list; All restore
   assert.match(html, /data-model-scope="all" aria-pressed="false"[^>]*>All discovered<\/button>/);
   assert.match(appSource, /\[data-model-scope\][^\n]*addEventListener\('click',\(\)=>setModelScope/);
   const { api, $ } = harness();
-  const extras = ['gemma-4-26b-tuned', 'gemma-4-26b-a4b-mtp-mlx', 'text-embedding-nomic-embed-text-v1.5'];
+  const extras = ['gemma-4-26b-tuned', 'gemma-4-26b-a4b-mtp-mlx', 'text-embedding-nomic-embed-text-v2-moe'];
   const rows = [...coreSixIds, ...extras].map(id => ({ id, host: 'mac', state: 'unloaded', loaded: false, ageSeconds: 0 }));
   api.setFeed({ schemaVersion: 1, host: 'mac', sampledAt: nowSeconds(), models: rows, sources: [], clients: [], pipeline: { status: 'idle' } });
   api.spyScope();
@@ -265,6 +265,14 @@ test('Core 6 starts as the accessible default for both map and list; All restore
   assert.equal($('drawer').hidden, true);
   assert.equal($('modelActionDock').hidden, true);
   assert.equal(modelItems().length, 6);
+
+  // After the separate physical catalog cutover, All still reports only what LM Studio discovers.
+  api.setFeed({ schemaVersion: 1, host: 'mac', sampledAt: nowSeconds(),
+    models: coreSixIds.map(id => ({ id, host: 'mac', state: 'unloaded', loaded: false, ageSeconds: 0 })),
+    sources: [], clients: [], pipeline: { status: 'idle' } });
+  api.setModelScope('all');
+  assert.equal(modelItems().length, 6);
+  assert.match($('modelScopeNote').textContent, /All 6 discovered Mac models shown/);
 });
 
 test('client inspector separates model IDs from unavailable live subagent evidence', () => {

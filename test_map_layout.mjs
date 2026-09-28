@@ -9,11 +9,11 @@ import { fitGraph, constellationLayout, prioritizeRuntimeModels, hasAdvertisedWi
 test('Core 6 is an exact Mac presentation filter; All keeps the complete discovered inventory', () => {
   const expected = [
     'openai/gpt-oss-20b', 'qwen/qwen3.8-27b', 'google/gemma-4-26b-a4b-qat',
-    'qwen/qwen3.6-35b-a3b', 'google/gemma-3-4b', 'text-embedding-nomic-embed-text-v2-moe',
+    'qwen/qwen3.6-35b-a3b', 'google/gemma-3-4b', 'text-embedding-nomic-embed-text-v1.5',
   ];
   assert.deepEqual(layoutModule.CORE_MODEL_IDS, expected);
   const rows = [...expected.map(id => ({ id, host: 'mac', state: 'unloaded', loaded: false })),
-    ...['gemma-4-26b-tuned', 'gemma-4-26b-a4b-mtp-mlx', 'text-embedding-nomic-embed-text-v1.5']
+    ...['gemma-4-26b-tuned', 'gemma-4-26b-a4b-mtp-mlx', 'text-embedding-nomic-embed-text-v2-moe']
       .map(id => ({ id, host: 'mac', state: 'unloaded', loaded: false })),
     { id: 'pc-model', host: 'windows', state: 'unloaded', loaded: false }];
   const before = JSON.stringify(rows);
@@ -25,11 +25,22 @@ test('Core 6 is an exact Mac presentation filter; All keeps the complete discove
   assert.equal(JSON.stringify(rows), before, 'the complete source inventory is unchanged');
 });
 
+test('the proposed six-entry catalog shows all six in either scope', () => {
+  const rows = layoutModule.CORE_MODEL_IDS.map(id => ({ id, host: 'mac', state: 'unloaded', loaded: false }));
+  const core = layoutModule.runtimeModelRoster(rows);
+  const all = layoutModule.runtimeModelRoster(rows, { scope: 'all' });
+  assert.deepEqual(core.visible, rows);
+  assert.deepEqual(all.visible, rows);
+  assert.deepEqual(core.hidden, []);
+  assert.equal(core.coreDiscovered, 6);
+  assert.equal(core.macDiscovered, 6);
+});
+
 test('Core 6 retains exact non-core Mac rows with observed work or load, including a separate CLI alias', () => {
   const extra = [
     { id: 'gemma-4-26b-tuned', host: 'mac', state: 'idle', loaded: true },
     { id: 'gemma-4-26b-a4b-mtp-mlx', host: 'mac', state: 'busy', loaded: false },
-    { id: 'text-embedding-nomic-embed-text-v1.5', host: 'mac', state: 'idle', loaded: false, queued: 1 },
+    { id: 'text-embedding-nomic-embed-text-v2-moe', host: 'mac', state: 'idle', loaded: false, queued: 1 },
     { id: 'loaded-alias', modelKey: 'qwen/qwen3.8-27b', host: 'mac', state: 'idle', loaded: true },
     { id: 'idle-alias', modelKey: 'qwen/qwen3.8-27b', host: 'mac', state: 'unloaded', loaded: false },
     { id: 'uncertain-queue', host: 'mac', state: 'idle', loaded: false, queued: '1' },

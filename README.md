@@ -4,6 +4,8 @@ The Inference Monitor is a local Mac view of AGIW Suite's inference activity. It
 
 The monitor observes local inference and recorded router state. Explicit controls can inspect or repair narrow owner states; launching the app does not start a coding task or load a model. The Windows observer, Nisi runtime, router, security scanner and report generator have separate source ownership and are outside this first package.
 
+The **Core 6** control is a display filter for five local LLM roles and the bundled Nomic Embed Text v1.5 embedding model. **All discovered** shows the rest of LM Studio's inventory. Switching views does not install, load, unload or remove models; the owner's current catalog can contain more than six.
+
 ## Try the local view
 
 On a Mac with Python 3, clone this repository and run from its root:
