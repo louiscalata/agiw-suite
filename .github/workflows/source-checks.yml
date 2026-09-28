@@ -1,0 +1,33 @@
+name: Source checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  monitor:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Python tests
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: python3 -B -m unittest discover -p 'test_*.py' -q
+      - name: JavaScript tests
+        run: node --test test_*.mjs
+      - name: Mac build input checks
+        run: |
+          bash -n build.sh login-agent.sh
+          plutil -lint Info.plist
+          xcrun swiftc -typecheck -target "$(uname -m)-apple-macosx13.0" -framework Cocoa -framework WebKit Monitor.swift

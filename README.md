@@ -1,0 +1,34 @@
+# AGIW Suite · Inference Monitor
+
+The Inference Monitor is a local Mac view of AGIW Suite's inference activity. It helps the machine's owner see which model and client are active, inspect recorded route state, and request a guarded repair when the route is unhealthy. This repository contains the Monitor application source and its tests. It is a source snapshot, not an installed app or a signed release.
+
+The monitor observes local inference and recorded router state. Explicit controls can inspect or repair narrow owner states; launching the app does not start a coding task or load a model. The Windows observer, Nisi runtime, router, security scanner and report generator have separate source ownership and are outside this first package.
+
+## Try the local view
+
+On a Mac with Python 3, clone this repository and run from its root:
+
+```sh
+python3 -B server.py --port 8765
+```
+
+The server prints a JSON line containing its port and process ID. Open `http://127.0.0.1:8765/` in a browser; press Ctrl-C in the terminal to stop it. This starts the observer on loopback. Runtime cards can show unavailable or unknown when the optional local model server, router, or Windows worker is absent. The Mac menu bar wrapper can be built with `build.sh`, which compiles, signs, and **installs** the app into `$HOME/Applications`; review that script before using it on your machine.
+
+## Share recovery settings
+
+The source contains no address or login name for the owner's actual PC. To enable the explicit Fix Route remount on a Mac, set both environment variables in the **Inference Monitor process environment** before starting the app:
+
+```sh
+AGIW_SHARE_HOSTS='10.222.33.10,10.222.33.20,pc.example.invalid'
+AGIW_SHARE_USERNAME='registered-user'
+```
+
+Those addresses and the name are documentation examples; replace them with the owner's actual LAN values. `AGIW_SHARE_HOSTS` accepts one or two numeric IPv4 addresses in the `10/8`, `172.16/12`, or `192.168/16` private LAN ranges for bounded SMB reachability, and optionally a third trusted DNS name or address for matching the mounted share. `AGIW_SHARE_USERNAME` is the registered SMB account, with no password stored in this repository. Guest and Anonymous are refused. The values must be available to the app process. If `login-agent.sh install` is run with both variables exported, it stores only these non-password settings in the private per-user LaunchAgent plist so later login starts retain them. If neither is set, the agent installs without share recovery settings; a partial pair is refused. An existing login agent with different settings is not changed automatically: quit the Monitor, run `login-agent.sh uninstall`, then reinstall with both settings exported. When either value is missing or invalid at app runtime, Fix Route reports that the share cannot be safely assessed and does not probe, unmount or remount it. A share already mounted as Guest or from an unconfigured host is not treated as healthy; Fix Route stops without remounting it, so eject that mount in Finder and reconnect using the registered account.
+
+## Source checks
+
+From this directory, run `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -p 'test_*.py' -q` and `node --test test_*.mjs`. The full copied Python suite was checked with Python 3.14.7; the share, login-agent, repair and memory tests were also checked with macOS `/usr/bin/python3` 3.9.6 using `PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B -m unittest -q test_login_agent test_share_and_probe test_online_code_repair test_mem_guard`. The tests use fake owners, local fixtures and mocked network or model calls; they do not establish a live route. `bash -n build.sh login-agent.sh`, `plutil -lint Info.plist` and a Swift typecheck can validate the build inputs without installing an app. GitHub Actions runs these source checks on a clean macOS runner; its first result must be inspected after the push.
+
+`build.sh` is an **installer**: it compiles and signs the app, then replaces `$HOME/Applications/Inference Monitor.app` when its owner lock permits. Do not run it as a read-only build check. The app may require installed companion commands for some controls; missing companions are reported as unavailable.
+
+The [roadmap](roadmap.md) records this source package's verification state and remaining integration work.
