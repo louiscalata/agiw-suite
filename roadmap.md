@@ -10,9 +10,9 @@ This is the canonical roadmap for this source-only repository. The Monitor's act
 - [x] Run the copied Python and JavaScript tests and non-installing build checks; exact results are below.
 - [x] Compare the publish copy against its source baseline. Only `.gitignore`, `README.md`, `roadmap.md`, `online_code_repair.py`, `login-agent.sh`, `test_share_and_probe.py`, `test_mem_guard.py` and the new `test_login_agent.py` intentionally differ from the original checkout.
 - [x] Create a new, empty private GitHub repository for this source package.
-- [ ] Commit and push the explicit source allowlist after outgoing-change review, then verify the remote commit and CI separately.
+- [x] Commit and push the explicit source allowlist after outgoing-change review. Private `main` is verified at `fe8b8cf`; the first CI run failed and is tracked below.
 - [x] Add a macOS GitHub Actions source-check workflow for Python, JavaScript, shell, plist and Swift build inputs.
-- [ ] Inspect the first clean-runner CI result and repair any relevant failure; local checks alone do not close this gate.
+- [ ] Repair and inspect clean-runner CI. The first run failed 45 router dual-read tests because their state-writer fixtures live in the separate router project, plus one test that assumed an initialized host router journal. The workflow now explicitly permits only the 45 integration tests to skip; the other test creates its own private journal fixture. A second run must confirm the self-contained checks pass and report the skip count.
 
 ## Excluded from this package
 
