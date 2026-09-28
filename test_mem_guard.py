@@ -90,6 +90,14 @@ def mem_state(pressure=1, avail=50, swap=0, compressed=0, vm_free=200 * GiB, ram
             "vmFreeBytes": vm_free, "gpuAllocBytes": None, "sampledAt": 1000.0}
 
 
+def swap_trend_state(**changes):
+    state = mem_state(pressure=1, avail=90, swap=18 * GiB, compressed=GiB, vm_free=100 * GiB)
+    state.update(swapTotalBytes=20 * GiB, swapInBytes=100 * GiB,
+                 swapOutBytes=200 * GiB, vmStatSampledAt=100.0, levelSource="sysctl")
+    state.update(changes)
+    return state
+
+
 OK = mem_state(1, 50)
 WATCH = mem_state(1, 30)
 TIGHT = mem_state(2, 30)
@@ -150,6 +158,17 @@ class FakeProbes:
         return self.rows
 
 
+class SequenceProbes(FakeProbes):
+    def __init__(self, states):
+        super().__init__(states[0])
+        self.states = states
+
+    def read(self, gpu_alloc_bytes=None):
+        state = self.states[min(self.reads, len(self.states) - 1)]
+        self.reads += 1
+        return dict(state)
+
+
 class Notes:
     def __init__(self):
         self.sent = []
@@ -170,6 +189,10 @@ class ParserTests(unittest.TestCase):
     def test_vm_stat_full_capture_ignores_other_lines(self):
         vm = mem_guard.parse_vm_stat(VM_STAT_LIVE)
         self.assertEqual((vm["compressedBytes"], vm["wiredBytes"]), (2183458 * 16384, 369241 * 16384))
+        self.assertIsNone(vm["swapInBytes"], "a missing swap counter cannot confirm quiet swap")
+        self.assertEqual(vm["swapOutBytes"], 5536262 * 16384)
+        vm = mem_guard.parse_vm_stat(VM_STAT_LIVE + "Swapins: 123.\n")
+        self.assertEqual(vm["swapInBytes"], 123 * 16384)
 
     def test_vm_stat_without_header_or_odd_page_size_is_rejected(self):
         with self.assertRaises(ValueError):
@@ -329,6 +352,26 @@ class ProbeTests(unittest.TestCase):
         probes.read()
         self.assertEqual(len(statvfs.calls), 4, "statvfs at most every 10 s")
 
+    def test_swap_counter_generation_requires_a_refreshed_vm_stat(self):
+        clock = Clock()
+        outputs = iter((VM_STAT_INCIDENT + "Swapins: 100.\nSwapouts: 200.\n",
+                        VM_STAT_INCIDENT + "Swapins: 100.\nSwapouts: 201.\n"))
+
+        def runner(args, **kwargs):
+            self.assertEqual(args, ["/usr/bin/vm_stat"])
+            return completed(next(outputs))
+
+        probes = mem_guard.Probes(sysctl=self.SYSCTL.get, runner=runner,
+                                  statvfs=self.StatVfs(), clock=clock, wall=clock)
+        first = probes.read()
+        cached = probes.read()
+        self.assertEqual((first["swapOutBytes"], first["vmStatSampledAt"]),
+                         (cached["swapOutBytes"], cached["vmStatSampledAt"]))
+        clock.advance(5.1)
+        refreshed = probes.read()
+        self.assertEqual(refreshed["swapOutBytes"] - first["swapOutBytes"], 16384)
+        self.assertGreater(refreshed["vmStatSampledAt"], first["vmStatSampledAt"])
+
     def test_every_probe_failing_yields_unknown_without_raising(self):
         def boom(*_a, **_k):
             raise PermissionError("sandbox")
@@ -382,6 +425,65 @@ class ClassifyTests(unittest.TestCase):
         for fraction, level in cases.items():
             self.assertEqual(self.level(swap=int(RAM * fraction + (1 if fraction in (0.5, 0.25, 0.1) else 0))),
                              level, fraction)
+
+    def test_high_swap_with_one_normal_sample_remains_tight(self):
+        state = swap_trend_state()
+        self.assertEqual(mem_guard.classify(state)[0], "tight")
+        self.assertFalse(mem_guard.admit(6 * GiB, "heavy", state).allowed)
+
+    def test_quiet_two_sample_swap_only_tight_can_be_watch(self):
+        first, second = swap_trend_state(), swap_trend_state(vmStatSampledAt=105.1)
+        evidence = mem_guard.SwapEvidence(first, second, 5.1, 0.0)
+        self.assertEqual(mem_guard.classify(second, swap_evidence=evidence)[0], "watch")
+        decision = mem_guard.admit(6 * GiB, "heavy", second, swap_evidence=evidence)
+        self.assertTrue(decision.allowed)
+        self.assertIn("fresh confirmation", decision.reason)
+        self.assertFalse(mem_guard.admit(52 * GiB, "heavy", second, swap_evidence=evidence).allowed,
+                         "the estimated headroom floor still applies after the swap cap")
+
+    def test_swap_cap_fails_closed_for_missing_stale_or_active_evidence(self):
+        cases = {
+            "first sample missing": ({"swapInBytes": None}, {}, 5.1, 0.0),
+            "second sample missing": ({}, {"swapOutBytes": None}, 5.1, 0.0),
+            "sandbox source": ({}, {"levelSource": "level-file"}, 5.1, 0.0),
+            "abnormal first pressure": ({"pressure": 2}, {}, 5.1, 0.0),
+            "abnormal second pressure": ({}, {"pressure": 2}, 5.1, 0.0),
+            "low first availability": ({"availablePercent": 49}, {}, 5.1, 0.0),
+            "low second availability": ({}, {"availablePercent": 49}, 5.1, 0.0),
+            "missing VM headroom": ({}, {"vmFreeBytes": None}, 5.1, 0.0),
+            "low VM headroom": ({}, {"vmFreeBytes": 19 * GiB}, 5.1, 0.0),
+            "swap grew": ({}, {"swapUsedBytes": 18 * GiB + 1}, 5.1, 0.0),
+            "swapouts grew": ({}, {"swapOutBytes": 200 * GiB + 16384}, 5.1, 0.0),
+            "swapins too fast": ({}, {"swapInBytes": 100 * GiB + 2 * (1 << 20)}, 5.1, 0.0),
+            "counter rolled back": ({}, {"swapInBytes": 100 * GiB - 16384}, 5.1, 0.0),
+            "cached counters reused": ({}, {"vmStatSampledAt": 100.0}, 5.1, 0.0),
+            "window too short": ({}, {}, 4.9, 0.0),
+            "window too old": ({}, {}, 15.1, 0.0),
+            "sample stale": ({}, {}, 5.1, 1.1),
+        }
+        for label, (first_changes, second_changes, window, age) in cases.items():
+            with self.subTest(label=label):
+                first = swap_trend_state(**first_changes)
+                second = swap_trend_state(**dict({"vmStatSampledAt": 105.1}, **second_changes))
+                evidence = mem_guard.SwapEvidence(first, second, window, age)
+                self.assertEqual(mem_guard.classify(second, swap_evidence=evidence)[0], "tight")
+                self.assertFalse(mem_guard.admit(6 * GiB, "heavy", second, swap_evidence=evidence).allowed)
+
+    def test_swap_cap_never_erases_independent_tight_or_critical_reasons(self):
+        first, second = swap_trend_state(), swap_trend_state(vmStatSampledAt=105.1)
+        evidence = mem_guard.SwapEvidence(first, second, 5.1, 0.0)
+        tight_cfg = mem_guard.default_config()
+        tight_cfg["tight_available_percent"] = 95.0
+        self.assertEqual(mem_guard.classify(second, tight_cfg, swap_evidence=evidence)[0], "tight")
+        self.assertFalse(mem_guard.admit(6 * GiB, "heavy", second, tight_cfg,
+                                         swap_evidence=evidence).allowed)
+        critical_cfg = mem_guard.default_config()
+        critical_cfg["critical_available_percent"] = 95.0
+        self.assertEqual(mem_guard.classify(second, critical_cfg, swap_evidence=evidence)[0], "critical")
+        self.assertFalse(mem_guard.admit(6 * GiB, "heavy", second, critical_cfg,
+                                         swap_evidence=evidence).allowed)
+        self.assertEqual(mem_guard.classify(dict(second), swap_evidence=evidence)[0], "tight",
+                         "evidence for another state object must not be reused")
 
     def test_compressor_boundaries(self):
         # Corroborated (availability below the watch threshold): the full tight/watch ladder.
@@ -1116,6 +1218,46 @@ class StatusAndAdmitCliTests(CliCase):
         self.assertEqual((refusal["type"], refusal["via"], refusal["label"], refusal["kind"], refusal["level"]),
                          ("refusal", "admit", "sim boot", "heavy", "tight"))
         self.assertEqual(self.run_cli(["admit", "--need-gb", "-1"], OK), 2)
+
+    def test_wait_zero_confirms_quiet_swap_with_two_in_process_samples(self):
+        probes = SequenceProbes([swap_trend_state(), swap_trend_state(vmStatSampledAt=105.1)])
+        sleeps = []
+
+        def sleep(seconds):
+            sleeps.append(seconds)
+            self.clock.advance(seconds)
+
+        self.assertEqual(self.run_cli(["admit", "--need-gb", "6", "--kind", "heavy", "--wait", "0"],
+                                      probes, sleep=sleep), 0)
+        self.assertEqual((probes.reads, sleeps), (2, [mem_guard.SWAP_CONFIRM_SECONDS]))
+        self.assertIn("fresh confirmation", self.stdout.getvalue())
+        record = json.loads((self.root / "level.json").read_text())
+        self.assertNotIn("swapInBytes", record, "the existing level-file contract is unchanged")
+        self.assertNotIn("swapOutBytes", record)
+
+    def test_wait_zero_refuses_swap_growth_during_confirmation(self):
+        probes = SequenceProbes([swap_trend_state(),
+                                 swap_trend_state(swapUsedBytes=18 * GiB + 1, vmStatSampledAt=105.1)])
+        sleeps = []
+
+        def sleep(seconds):
+            sleeps.append(seconds)
+            self.clock.advance(seconds)
+
+        self.assertEqual(self.run_cli(["admit", "--need-gb", "6", "--wait", "0"],
+                                      probes, sleep=sleep), 75)
+        self.assertEqual((probes.reads, sleeps), (2, [mem_guard.SWAP_CONFIRM_SECONDS]))
+        self.assertIn("memory is tight (swap", self.stdout.getvalue())
+
+    def test_wait_zero_refuses_missing_or_sandbox_swap_trend_without_waiting(self):
+        for first in (swap_trend_state(swapInBytes=None),
+                      swap_trend_state(levelSource="level-file")):
+            with self.subTest(source=first["levelSource"], counter=first["swapInBytes"]):
+                probes = SequenceProbes([first, swap_trend_state(vmStatSampledAt=105.1)])
+                sleeps = []
+                self.assertEqual(self.run_cli(["admit", "--need-gb", "6", "--wait", "0"], probes,
+                                              sleep=lambda seconds: sleeps.append(seconds)), 75)
+                self.assertEqual((probes.reads, sleeps), (1, []))
 
     def test_admit_waits_polling_every_2s(self):
         probes = FakeProbes(CRITICAL)
