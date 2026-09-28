@@ -5,6 +5,7 @@ project_dir="$(cd -- "$(dirname -- "$0")" && pwd)"
 applications_dir="$HOME/Applications"
 app_path="$applications_dir/Inference Monitor.app"
 python_path="/opt/homebrew/bin/python3"
+if [[ ! -x "$python_path" ]]; then python_path="/usr/local/bin/python3"; fi
 if [[ ! -x "$python_path" ]]; then python_path="/usr/bin/python3"; fi
 if [[ ! -x "$python_path" ]]; then
     echo "Python 3 is required to safely install Inference Monitor." >&2

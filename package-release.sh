@@ -126,12 +126,17 @@ if [[ "$(lipo -archs "$stage_app/Contents/MacOS/InferenceMonitor")" != "$arch" ]
 fi
 
 cat > "$payload_dir/INSTALL.txt" <<'EOF'
-AGIW Suite Inference Monitor — GitHub download candidate
+AGIW Suite Inference Monitor — installation
 
-Copy Inference Monitor.app to Applications, then open it. This build observes
-local inference on this Mac. Model serving, Nisi/Jev routing, Windows worker,
+Requires macOS 13 or later on a Mac matching this DMG's architecture, plus
+Python 3.9 or later at /opt/homebrew/bin/python3, /usr/local/bin/python3,
+or /usr/bin/python3. In Terminal, run the available path with --version
+(for example, /opt/homebrew/bin/python3 --version) before opening the app.
+
+Copy Inference Monitor.app to Applications, then open it. The app observes local
+inference on this Mac. Model serving, Nisi/Jev routing, Windows worker,
 SharedChami recovery, and optional controls require separately installed and
-configured components.
+configured components. No models or Python interpreter are bundled in the DMG.
 EOF
 hdiutil create -volname "AGIW Inference Monitor $version" -srcfolder "$payload_dir" \
     -format UDZO -fs HFS+ "$stage_dmg" >/dev/null
@@ -188,13 +193,13 @@ if [[ "$source_dirty" == 0 && -n "$(git -C "$project_dir" status --porcelain --u
 fi
 
 dmg_sha256="$(shasum -a 256 "$stage_dmg" | awk '{print $1}')"
-/usr/bin/python3 - "$stage_dir/manifest.json" "$input_dir" "$source_commit" "$source_dirty" "$script_sha256" "$version" "$build" "$bundle_id" "$arch" "$developer_dir" "$xcode_version" "$sdk_version" "$swiftc_path" "$swiftc_version" "$dmg_sha256" "${resources[@]}" <<'PY'
+/usr/bin/python3 - "$stage_dir/manifest.json" "$input_dir" "$source_commit" "$source_dirty" "$script_sha256" "$version" "$build" "$bundle_id" "$arch" "$xcode_version" "$sdk_version" "$swiftc_version" "$dmg_sha256" "${resources[@]}" <<'PY'
 import hashlib
 import json
 import sys
 from pathlib import Path
 
-out, frozen, commit, dirty, script_hash, version, build, bundle_id, arch, developer_dir, xcode_version, sdk_version, swiftc_path, swiftc_version, dmg_hash, *resources = sys.argv[1:]
+out, frozen, commit, dirty, script_hash, version, build, bundle_id, arch, xcode_version, sdk_version, swiftc_version, dmg_hash, *resources = sys.argv[1:]
 frozen = Path(frozen)
 inputs = resources + ['Info.plist', 'Monitor.swift']
 # The manifest records exact relative inputs. The caller passes source files by
@@ -208,10 +213,8 @@ record = {
     'build': build,
     'bundleId': bundle_id,
     'architecture': arch,
-    'developerDir': developer_dir,
     'xcodeVersion': xcode_version,
     'macosSdkVersion': sdk_version,
-    'swiftcPath': swiftc_path,
     'swiftcVersion': swiftc_version,
     'dmgSha256BeforeNotarization': dmg_hash,
     'candidateStatus': 'signed_unnotarized',
