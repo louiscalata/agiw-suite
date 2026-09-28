@@ -51,6 +51,13 @@ LEVELS = ("ok", "watch", "tight", "critical")
 _RANK = {"ok": 0, "watch": 1, "unknown": 1, "tight": 2, "critical": 3}
 PRESSURE_LABEL = {1: "normal", 2: "warning", 4: "critical"}
 HEAVY_BYTES = 2 * GiB
+SWAP_CONFIRM_SECONDS = 5.1  # longer than the vm_stat cache's five-second refresh interval
+SWAP_TREND_MIN_SECONDS = 5.0
+SWAP_TREND_MAX_SECONDS = 15.0
+SWAP_TREND_MAX_AGE_SECONDS = 1.0
+SWAP_TREND_MAX_SWAPINS_BYTES = 1 << 20
+SWAP_TREND_MIN_AVAILABLE_PERCENT = 50.0
+SWAP_TREND_MIN_VM_FREE_GIB = 20.0
 STATUS_EXIT = {"ok": 0, "watch": 0, "tight": 10, "critical": 11, "unknown": 3}
 EXIT_REFUSED = 75
 
@@ -235,7 +242,7 @@ _VM_LINE = re.compile(r'^"?([A-Za-z][A-Za-z -]{0,60})"?:\s+(\d{1,20})\.?\s*$', r
 
 
 def parse_vm_stat(text: str, page_size: Optional[int] = None) -> dict[str, Optional[int]]:
-    """vm_stat output -> page size and compressor / wired / free bytes (unknown -> None).
+    """vm_stat output -> page size, memory occupancy and cumulative swap I/O (unknown -> None).
     The header's page size wins; `page_size` (hw.pagesize) is the fallback."""
     header = _VM_PAGE.search(text or "")
     page = int(header.group(1)) if header else page_size
@@ -248,7 +255,8 @@ def parse_vm_stat(text: str, page_size: Optional[int] = None) -> dict[str, Optio
         return count * page if count is not None and count < 1 << 40 else None
 
     return {"pageSize": page, "compressedBytes": as_bytes("Pages occupied by compressor"),
-            "wiredBytes": as_bytes("Pages wired down"), "freeBytes": as_bytes("Pages free")}
+            "wiredBytes": as_bytes("Pages wired down"), "freeBytes": as_bytes("Pages free"),
+            "swapInBytes": as_bytes("Swapins"), "swapOutBytes": as_bytes("Swapouts")}
 
 
 _SWAP_TEXT = re.compile(r"total\s*=\s*([\d.]+)([KMGT]?)\s+used\s*=\s*([\d.]+)([KMGT]?)")
@@ -866,6 +874,10 @@ class Probes:
         if vm:
             state["compressedBytes"] = vm.get("compressedBytes")
             state["wiredBytes"] = vm.get("wiredBytes")
+            state["swapInBytes"] = vm.get("swapInBytes")
+            state["swapOutBytes"] = vm.get("swapOutBytes")
+            cached_vm = self._cache.get("vm_stat")
+            state["vmStatSampledAt"] = cached_vm[0] if cached_vm is not None else None
         state["vmFreeBytes"] = safe(self.vm_free)
         state["gpuAllocBytes"] = _bytes_or_none(gpu_alloc_bytes)
         return state
@@ -907,7 +919,62 @@ class Probes:
 # Classification
 
 
-def classify(state: Optional[dict], cfg: Optional[dict] = None) -> tuple[str, list[str]]:
+@dataclasses.dataclass(frozen=True)
+class SwapEvidence:
+    """Two samples taken by one caller. A prior CLI status or level file cannot supply this."""
+    first: dict
+    second: dict
+    windowSeconds: float
+    ageSeconds: float
+
+
+def _swap_sample_eligible(state: Any, cfg: dict) -> bool:
+    """A kernel sample with ample signals; availability is not free physical bytes."""
+    if not isinstance(state, dict) or state.get("levelSource") != "sysctl":
+        return False
+    ram = _int_in(state.get("ramBytes"), 1, 1 << 52)
+    swap = _bytes_or_none(state.get("swapUsedBytes"))
+    avail = _number_in(state.get("availablePercent"), 0, 100)
+    vm_free = _bytes_or_none(state.get("vmFreeBytes"))
+    if (_int_in(state.get("pressure"), 1, 4) != 1 or ram is None or swap is None
+            or avail is None or vm_free is None
+            or avail < max(SWAP_TREND_MIN_AVAILABLE_PERCENT, cfg["watch_available_percent"])
+            or vm_free < max(SWAP_TREND_MIN_VM_FREE_GIB, 2 * cfg["critical_vm_free_gib"]) * GiB):
+        return False
+    fraction = swap / ram
+    if not cfg["tight_swap_fraction"] <= fraction < cfg["critical_swap_fraction"]:
+        return False
+    return (_bytes_or_none(state.get("swapInBytes")) is not None
+            and _bytes_or_none(state.get("swapOutBytes")) is not None
+            and _number_in(state.get("vmStatSampledAt"), 0, 1 << 40) is not None)
+
+
+def _swap_only_tight(state: dict, cfg: dict) -> bool:
+    if not _swap_sample_eligible(state, cfg):
+        return False
+    # A concurrent pressure, availability, compressor or VM-space reason retains its own level.
+    without_swap = dict(state, swapUsedBytes=None)
+    return classify(without_swap, cfg)[0] in ("ok", "watch")
+
+
+def _quiet_swap_evidence(state: dict, cfg: dict, evidence: Any) -> bool:
+    if (not isinstance(evidence, SwapEvidence) or evidence.second is not state
+            or _number_in(evidence.windowSeconds, SWAP_TREND_MIN_SECONDS, SWAP_TREND_MAX_SECONDS) is None
+            or _number_in(evidence.ageSeconds, 0, SWAP_TREND_MAX_AGE_SECONDS) is None
+            or not _swap_sample_eligible(evidence.first, cfg) or not _swap_only_tight(state, cfg)
+            or evidence.first["ramBytes"] != state["ramBytes"]
+            or state["vmStatSampledAt"] <= evidence.first["vmStatSampledAt"]):
+        return False
+    first, second = evidence.first, state
+    if second["swapUsedBytes"] > first["swapUsedBytes"]:
+        return False
+    swapins = second["swapInBytes"] - first["swapInBytes"]
+    swapouts = second["swapOutBytes"] - first["swapOutBytes"]
+    return 0 <= swapins <= SWAP_TREND_MAX_SWAPINS_BYTES and swapouts == 0
+
+
+def classify(state: Optional[dict], cfg: Optional[dict] = None, *,
+             swap_evidence: Optional[SwapEvidence] = None) -> tuple[str, list[str]]:
     """(level, reasons): ok < watch < tight < critical, or 'unknown' when neither the kernel's
     pressure level nor its available percentage is readable. Missing inputs never raise the
     level by themselves."""
@@ -940,7 +1007,10 @@ def classify(state: Optional[dict], cfg: Optional[dict] = None) -> tuple[str, li
         if fraction >= cfg["critical_swap_fraction"]:
             hits["critical"].append(text)
         elif fraction >= cfg["tight_swap_fraction"]:
-            hits["tight"].append(text)
+            if _quiet_swap_evidence(s, cfg, swap_evidence):
+                hits["watch"].append(text + " (no swap growth or swapouts during fresh confirmation)")
+            else:
+                hits["tight"].append(text)
         elif fraction >= cfg["watch_swap_fraction"]:
             hits["watch"].append(text)
     if compressed is not None and ram:
@@ -1007,11 +1077,11 @@ def _kind_and_need(need_bytes: Any, kind: Optional[str]) -> tuple[str, int]:
 
 
 def admit(need_bytes: Any, kind: Optional[str] = None, state: Optional[dict] = None,
-          cfg: Optional[dict] = None) -> Decision:
+          cfg: Optional[dict] = None, *, swap_evidence: Optional[SwapEvidence] = None) -> Decision:
     """May this work start? Never raises: on any internal failure light work is admitted
     (fail-open) and heavy work refused (fail-closed)."""
     try:
-        return _admit(need_bytes, kind, state or {}, _cfg(cfg))
+        return _admit(need_bytes, kind, state or {}, _cfg(cfg), swap_evidence)
     except Exception:
         k, need = ("heavy", HEAVY_BYTES)
         try:
@@ -1023,9 +1093,10 @@ def admit(need_bytes: Any, kind: Optional[str] = None, state: Optional[dict] = N
         return Decision(False, "unknown", f"memory state unknown; heavy work ({gb(need)}) refused", None, k, need)
 
 
-def _admit(need_bytes: Any, kind: Optional[str], state: dict, cfg: dict) -> Decision:
+def _admit(need_bytes: Any, kind: Optional[str], state: dict, cfg: dict,
+           swap_evidence: Optional[SwapEvidence] = None) -> Decision:
     k, need = _kind_and_need(need_bytes, kind)
-    level, reasons = classify(state, cfg)
+    level, reasons = classify(state, cfg, swap_evidence=swap_evidence)
     ram = _int_in(state.get("ramBytes"), 1, 1 << 52)
     percent = _number_in(state.get("availablePercent"), 0, 100)
     available = int(percent * ram / 100) if percent is not None and ram else None
@@ -2588,6 +2659,16 @@ def _cmd_admit(ctx: Context, need_gb: float, kind: Optional[str], wait: float, l
     while True:
         state = _read_and_publish(ctx)
         decision = admit(need, kind, state, ctx.cfg)
+        if not decision.allowed and decision.kind == "heavy" and _swap_only_tight(state, ctx.cfg):
+            # Even --wait 0 collects a second sample in this process. A previous status or a
+            # sandbox level-file reading cannot establish a quiet trend. Missing evidence refuses.
+            first = state
+            first_at = ctx.clock()
+            ctx.sleep(SWAP_CONFIRM_SECONDS)
+            state = _read_and_publish(ctx)
+            last_at = ctx.clock()
+            evidence = SwapEvidence(first, state, last_at - first_at, ctx.clock() - last_at)
+            decision = admit(need, kind, state, ctx.cfg, swap_evidence=evidence)
         if decision.allowed:
             ctx.out(f"admitted: {decision.reason}{_source_note(state)}")
             return 0

@@ -2,6 +2,12 @@
 
 This is the canonical roadmap for this source-only repository. The Monitor's active engineering roadmap remains in its original checkout until an owner accepts a cutover. Verified local installation is recorded separately from repository source checks; this file does not claim distribution or release acceptance.
 
+## Memory admission source update — 2026-09-28
+
+- [x] Add a fail-closed two-sample exception for swap-only TIGHT in the `mem-guard admit` CLI. It requires fresh direct kernel readings, normal pressure, ample reported availability and VM headroom, unchanged swap use and swapouts, bounded swapins, and a newer `vm_stat` generation. `status` and the published `level.json` retain their one-sample contract. A one-shot `--wait 0` call can take 5.1 seconds to confirm a quiet trend.
+- [x] Review the isolated candidate and verify the integrated source: 145/145 guard tests on both Python 3.14.7 and macOS Python 3.9.6, 704/704 full Python tests with the external router writers available locally, 229/229 Node tests, shell syntax, plist lint, Swift typecheck, and whitespace checks passed locally. The source files byte-match the independently reviewed candidate. CI uses an explicit skip flag when those separate writers are absent; its result must be read separately.
+- [ ] Verify the pushed commit's CI, then make an owner-backed installed guard update with a retained rollback copy. Run a fresh 6 GiB admission before any App Store Xcode build. A successful source test does not itself change the installed guard or prove the build will be admitted.
+
 ## Current source state — 2026-09-28
 
 - [x] Copy the Mac Inference Monitor's explicit build resource list, installer and login-agent source into an isolated package, with meaningful source tests.
