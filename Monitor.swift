@@ -344,7 +344,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             failService("The application resources are missing. Rebuild Inference Monitor.")
             return
         }
-        let candidates = ["/opt/homebrew/bin/python3", "/usr/bin/python3"]
+        let candidates = ["/opt/homebrew/bin/python3", "/usr/local/bin/python3", "/usr/bin/python3"]
         guard let python = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else {
             failService("Python 3 is unavailable. Install Python 3, then reopen Inference Monitor.")
             return
