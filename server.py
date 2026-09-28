@@ -26,7 +26,7 @@ from online_code_repair import OnlineCodeRepair
 from live_feed import LiveFeed
 from gpu_probe import mac_gpu
 from local_callers import LocalCallers
-from mem_guard import Guard, unknown_block
+from mem_guard import Guard, LevelFile, unknown_block
 
 ROOT = Path(__file__).resolve().parent / 'web'
 ASSETS = {'/': ('index.html', 'text/html; charset=utf-8'),
@@ -530,7 +530,7 @@ def router_unload_guard(*, lock_path=None, route_read=None, install_read=None):
 def sample(store, stop, feed=None, tick=0.15, full_interval=1.0, guard=None, auto_unloader=None):
     """One loop: a full sample every second and, between them, change-driven overlays every tick.
     main() passes the monitor's memory guard (with its watchdog); without one, the memory block
-    comes from a read-only guard that never pauses, notifies or journals."""
+    comes from a read-only guard that never pauses, notifies, journals or publishes level.json."""
     feed = feed or LiveFeed()
     callers = LocalCallers()
     if guard is None:
@@ -630,7 +630,8 @@ def main():
               if args.durable_model_control else MonitorServer(('127.0.0.1', args.port), store))
     stop = threading.Event()
     # Built before sampling starts: it resumes any job a crashed monitor left paused.
-    guard = memory_guard()
+    # Only this production guard publishes valid sysctl readings for sandboxed CLI callers.
+    guard = memory_guard(level_file=LevelFile())
     auto = None
     if args.parent_pid and args.parent_pid == os.getppid() and mac_online_code_controls_enabled():
         auto = AutoUnloader(

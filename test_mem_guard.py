@@ -16,6 +16,7 @@ import signal
 import stat
 import struct
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -1788,6 +1789,534 @@ class HookReviewTests(CliCase):
                                 stdout=io.StringIO(), stderr=err)
         self.assertEqual(mem_guard.main(["hook"], ctx), 2)
         self.assertIn("Local LLM server about 0.8 GB (+ GPU allocation 40.0 GB)", err.getvalue())
+# -------------------------------------------------------------------------------------------------
+# Row 5 (2026-09-27): mem-guard inside agent sandboxes. /bin/ps and the memorystatus/swap sysctls
+# are refused there, so the registry reads the process table through libproc and the memory level
+# comes from level.json, then memory_pressure -Q. Fakes for everything except the LibProcRealTests,
+# which read this Mac's real libproc for this test process and its own /bin/sleep children.
+
+
+def start_epoch(text):
+    """The inverse of lstart_text for a UTC moment."""
+    import calendar
+    return calendar.timegm(time.strptime(text, "%a %b %d %H:%M:%S %Y"))
+
+
+class FakeProcs:
+    """A LibProc stand-in over the same process table as a FakePs (so the two sources can be compared).
+    `denied` pids answer 'denied' to bsd(); `short_denied` also to short(); `fail_list` breaks pids()."""
+
+    def __init__(self, ps, paths=None):
+        self.ps = ps
+        self.denied, self.short_denied = set(), set()
+        self.fail_list = False
+        self.status = {}
+        self.calls = []
+
+    def pids(self):
+        self.calls.append("pids")
+        return None if self.fail_list else sorted(self.ps.procs)
+
+    def short(self, pid):
+        self.calls.append(("short", pid))
+        if pid not in self.ps.procs:
+            return "gone", None
+        if pid in self.short_denied:
+            return "denied", None
+        ppid, uid, _start, _comm = self.ps.procs[pid]
+        return "ok", (ppid, uid, pid, self.status.get(pid, 2))
+
+    def bsd(self, pid):
+        self.calls.append(("bsd", pid))
+        if pid not in self.ps.procs:
+            return "gone", None
+        if pid in self.denied or pid in self.short_denied:
+            return "denied", None
+        ppid, uid, start, comm = self.ps.procs[pid]
+        return "ok", (ppid, uid, start_epoch(start), comm.rsplit("/", 1)[-1][:16])
+
+    def path(self, pid):
+        return self.ps.procs[pid][3] if pid in self.ps.procs else None
+
+
+class LibProcRegistryTests(ChildCase):
+    """The registry on libproc: same identity rules, ps only as a fallback."""
+
+    def setUp(self):
+        super().setUp()
+        self.procs = FakeProcs(self.ps)
+        self.registry = mem_guard.Registry(self.root, runner=self.ps, kill=self.kill, clock=self.clock, procs=self.procs)
+
+    def ps_calls(self):
+        return [call for call in self.ps.calls if call[0] == "/bin/ps"]
+
+    def test_register_and_pause_resume_use_libproc_without_ps(self):
+        self.ps.add(VIRTUAL, self.child.pid)
+        entry = self.registry.register(self.child.pid, "astra-review repo")
+        self.assertEqual((entry["startTime"], entry["comm"]), (START, "sleep"))
+        jobs = self.registry.pause_all()
+        self.assertEqual([m["pid"] for m in jobs[0]["members"]], [self.child.pid, VIRTUAL])
+        self.assertTrue(stopped(self.child.pid))
+        self.assertEqual(len(self.registry.resume()), 1)
+        self.assertTrue(continued(self.child.pid))
+        self.assertEqual(self.ps_calls(), [], "libproc answered everything: ps never ran")
+
+    def test_identity_rules_are_unchanged(self):
+        self.ps.add(VIRTUAL, 1, uid=self.uid + 1)                                   # another user's
+        self.ps.add(VIRTUAL + 1, self.me, comm="/Applications/X.app/Contents/MacOS/X")  # an app
+        self.procs.denied.add(VIRTUAL)  # libproc may not read another user's process in full
+        for pid, why in ((VIRTUAL, "no process|another user|launchd|not started"), (VIRTUAL + 1, "is an app"),
+                         (self.me, "mem-guard itself"), (FAKE_PARENT, "ancestors|launchd|own script")):
+            with self.assertRaisesRegex(mem_guard.RegistryError, why, msg=str(pid)):
+                self.registry.register(pid, "x")
+        self.ps.add(VIRTUAL + 2, self.me, uid=self.uid + 1)
+        self.procs.denied.add(VIRTUAL + 2)
+        with self.assertRaisesRegex(mem_guard.RegistryError, "another user"):
+            self.registry.register(VIRTUAL + 2, "x")
+        self.assertEqual(self.ps_calls(), [], "another user's process is answered by SHORTBSDINFO, not ps")
+
+    def test_an_entry_registered_through_ps_verifies_through_libproc_and_back(self):
+        ps_only = mem_guard.Registry(self.root, runner=self.ps, kill=self.kill, clock=self.clock)
+        entry = ps_only.register(self.child.pid, "job")
+        self.assertEqual([e["pid"] for e in self.registry.list_pausable()], [self.child.pid])
+        self.assertEqual(self.registry.register(self.child.pid, "job"), entry, "same identity: idempotent")
+        self.ps.add(self.child.pid, self.me, start="Sat Sep 26 13:39:03 2026")
+        self.assertEqual(self.registry.list_pausable(), [], "one second apart is another process")
+        self.assertEqual(self.kill.calls, [])
+
+    def test_our_own_process_unreadable_by_libproc_falls_back_to_ps(self):
+        self.registry.register(self.child.pid, "job")
+        self.registry.pause_all()
+        self.assertTrue(stopped(self.child.pid))
+        self.procs.short_denied.add(self.child.pid)
+        before = len(self.ps_calls())
+        self.assertEqual(len(self.registry.resume()), 1)
+        self.assertTrue(continued(self.child.pid))
+        self.assertGreater(len(self.ps_calls()), before, "ps answered what libproc could not")
+
+    def test_our_own_process_with_bsd_info_denied_is_asked_of_ps(self):
+        """SHORTBSDINFO says it is ours but the start time is unreadable: never guess an identity."""
+        self.procs.denied.add(self.child.pid)
+        entry = self.registry.register(self.child.pid, "job")
+        self.assertEqual((entry["startTime"], entry["comm"]), (START, "sleep"))
+        self.assertTrue(self.ps_calls(), "ps supplied the identity")
+
+    def test_a_long_executable_name_matches_across_both_sources(self):
+        """The kernel's comm is cut to 16 bytes; the identity uses the executable path's basename,
+        which ps also prints in full, so an entry written through one verifies through the other."""
+        long_name = "/usr/local/bin/review-lane-with-a-long-name"
+        self.ps.add(self.child.pid, self.me, comm=long_name)
+        entry = self.registry.register(self.child.pid, "job")
+        self.assertEqual(entry["comm"], "review-lane-with-a-long-name")
+        ps_only = mem_guard.Registry(self.root, runner=self.ps, kill=self.kill, clock=self.clock)
+        self.assertEqual([e["pid"] for e in ps_only.list_pausable()], [self.child.pid])
+
+    def test_libproc_and_ps_both_failing_keep_every_record_and_signal_nothing(self):
+        self.registry.register(self.child.pid, "job")
+        self.registry.pause_all()
+        self.assertTrue(stopped(self.child.pid))
+        self.kill.calls.clear()
+        self.procs.short_denied.add(self.child.pid)
+        self.procs.fail_list = True
+        self.ps.fail = True
+        self.assertEqual(self.registry.resume(), [])
+        self.assertEqual(len(self.registry.paused()), 1, "an unverifiable pause stays recorded")
+        self.assertEqual(self.registry.list_pausable(), [])
+        self.assertTrue((self.root / "pausable" / f"{self.child.pid}.json").exists(), "nothing deleted")
+        self.assertEqual(self.kill.calls, [])
+        with self.assertRaisesRegex(mem_guard.RegistryError, "libproc and ps both failed"):
+            self.registry.register(self.child.pid, "again")
+        self.procs.short_denied.clear()
+        self.procs.fail_list = False
+        self.ps.fail = False
+        self.assertEqual(len(self.registry.resume()), 1)
+        self.assertTrue(continued(self.child.pid))
+
+    def test_a_gone_or_reused_pid_is_never_signalled(self):
+        self.registry.register(self.child.pid, "job")
+        self.registry.pause_all()
+        self.assertTrue(stopped(self.child.pid))
+        self.kill.calls.clear()
+        self.ps.add(self.child.pid, self.me, start="Sat Sep 26 15:00:00 2026")  # reused pid
+        self.assertEqual(self.registry.resume()[0]["resumed"], [])
+        self.assertEqual(self.kill.calls, [])
+        os.kill(self.child.pid, signal.SIGCONT)
+
+    def test_tree_lists_every_readable_process_and_needs_our_own_pid(self):
+        self.ps.add(VIRTUAL, self.child.pid)
+        self.procs.short_denied.add(VIRTUAL)
+        tree = self.registry.tree()
+        self.assertEqual(tree[self.child.pid], (self.me, self.uid))
+        self.assertNotIn(VIRTUAL, tree)
+        self.procs.short_denied.add(self.me)
+        self.assertIsNotNone(self.registry.tree(), "without our own pid libproc is not trusted: ps answers")
+        self.assertTrue(self.ps_calls())
+
+    def test_an_injected_ps_runner_alone_keeps_the_registry_on_ps(self):
+        registry = mem_guard.Registry(self.root, runner=self.ps, kill=self.kill, clock=self.clock)
+        self.assertIsNone(registry._procs)
+        default = mem_guard.Registry(self.root)
+        self.assertIs(default._procs, mem_guard.default_procs(),
+                      "the default uses libproc only where it is available")
+
+
+class LibProcRealTests(unittest.TestCase):
+    """This Mac's real libproc, read for this test process and its own /bin/sleep children."""
+
+    def setUp(self):
+        self.procs = mem_guard.default_procs()
+        if self.procs is None:
+            self.skipTest("libproc unavailable")
+
+    def child(self):
+        proc = subprocess.Popen(["/bin/sleep", "30"])
+
+        def reap():
+            if proc.poll() is None:
+                proc.kill()
+            proc.wait()
+        self.addCleanup(reap)
+        return proc
+
+    def test_short_bsd_and_path_for_our_own_child(self):
+        proc = self.child()
+        before = int(time.time())
+        state, short = self.procs.short(proc.pid)
+        self.assertEqual((state, short[0], short[1], short[2]), ("ok", os.getpid(), os.getuid(), os.getpgrp()))
+        state, bsd = self.procs.bsd(proc.pid)
+        self.assertEqual((state, bsd[0], bsd[1]), ("ok", os.getpid(), os.getuid()))
+        self.assertLessEqual(abs(bsd[2] - before), 5)
+        self.assertEqual(self.procs.path(proc.pid), "/bin/sleep")
+        self.assertIn(os.getpid(), self.procs.pids())
+
+    def test_stopped_zombie_and_reaped(self):
+        proc = self.child()
+        os.kill(proc.pid, signal.SIGSTOP)
+        self.assertTrue(stopped(proc.pid))
+        self.assertEqual(self.procs.short(proc.pid)[1][3], mem_guard.SSTOP)
+        os.kill(proc.pid, signal.SIGCONT)
+        proc.kill()
+        deadline = time.monotonic() + 3
+        while self.procs.short(proc.pid)[0] == "ok" and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertEqual(self.procs.short(proc.pid), ("gone", None), "a zombie reads as gone")
+        proc.wait()
+        self.assertEqual(self.procs.bsd(proc.pid), ("gone", None))
+        self.assertEqual(self.procs.short(2 ** 31 - 1)[0], "gone")
+
+    def test_another_users_process_reads_denied_not_gone(self):
+        """launchd (root): SHORTBSDINFO answers, BSDINFO is refused. Denied must never read as gone,
+        or an unreadable process would look absent instead of foreign."""
+        state, short = self.procs.short(1)
+        self.assertEqual((state, short[1]), ("ok", 0))
+        if os.getuid() == 0:
+            self.skipTest("running as root: nothing is denied")
+        self.assertEqual(self.procs.bsd(1), ("denied", None))
+
+    def test_registry_on_libproc_registers_without_ps(self):
+        """What the sandbox allows: ps is refused (the runner raises) and registration still works."""
+        proc = self.child()
+
+        def refused(*_a, **_k):
+            raise PermissionError("operation not permitted: /bin/ps")
+        with tempfile.TemporaryDirectory() as tmp:
+            registry = mem_guard.Registry(Path(tmp) / "state", runner=refused, procs=self.procs,
+                                          kill=SafeKill([proc.pid]))
+            entry = registry.register(proc.pid, "sandboxed review")
+            self.assertEqual((entry["pid"], entry["comm"]), (proc.pid, "sleep"))
+            self.assertEqual(entry["startTime"], lstart_text(time.gmtime(self.procs.bsd(proc.pid)[1][2])))
+            self.assertEqual([e["pid"] for e in registry.list_pausable()], [proc.pid])
+            self.assertEqual(registry.tree()[proc.pid], (os.getpid(), os.getuid()))
+            self.assertEqual(len(registry.pause_all()), 1)
+            self.assertTrue(stopped(proc.pid))
+            self.assertEqual(len(registry.resume()), 1)
+            self.assertTrue(continued(proc.pid))
+
+    def test_app_bundles_are_refused_by_their_real_executable_path(self):
+        """codex runs from CodexCLI.app/Contents/MacOS, so registering it directly is refused (the
+        review wrappers register a /bin/bash keeper instead). Shown on a Python.app child."""
+        proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+
+        def reap():
+            proc.kill()
+            proc.wait()
+        self.addCleanup(reap)
+        deadline = time.monotonic() + 3
+        path = ""
+        while time.monotonic() < deadline and ".app/Contents/MacOS/" not in path:
+            path = self.procs.path(proc.pid) or ""
+            time.sleep(0.02)
+        if ".app/Contents/MacOS/" not in path:
+            self.skipTest(f"this Python does not run from an app bundle ({path})")
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaisesRegex(mem_guard.RegistryError, "is an app"):
+                mem_guard.Registry(Path(tmp) / "s", procs=self.procs, kill=SafeKill([])).register(proc.pid, "x")
+
+
+class LevelFileTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = Path(self.tmp.name) / "mem-guard" / "level.json"
+        self.clock = Clock(1000.0)
+        self.level = mem_guard.LevelFile(self.path, max_age=3.0, clock=self.clock)
+        self.state = dict(mem_state(2, 18, swap=5 * GiB), levelSource="sysctl")
+
+    def test_round_trip_is_private_and_fresh_only(self):
+        self.assertTrue(self.level.write(self.state))
+        self.assertEqual(stat.S_IMODE(os.stat(self.path).st_mode), 0o600)
+        self.assertEqual(stat.S_IMODE(os.stat(self.path.parent).st_mode), 0o700)
+        got = self.level.read()
+        self.assertEqual({k: got[k] for k in ("pressure", "availablePercent", "ramBytes", "swapUsedBytes", "swapTotalBytes")},
+                         {"pressure": 2, "availablePercent": 18, "ramBytes": RAM, "swapUsedBytes": 5 * GiB,
+                          "swapTotalBytes": SWAP_TOTAL})
+        self.clock.advance(3.0)
+        self.assertIsNotNone(self.level.read(), "exactly max_age old is still fresh")
+        self.clock.advance(0.1)
+        self.assertIsNone(self.level.read(), "older than max_age is ignored")
+        self.clock.t = 998.9
+        self.assertIsNone(self.level.read(), "written more than 1 s in our future is ignored")
+        self.assertEqual(sorted(os.listdir(self.path.parent)), ["level.json"], "no temp file left behind")
+
+    def test_only_sysctl_readings_are_published(self):
+        for source in (None, "level-file", "memory_pressure"):
+            self.assertFalse(self.level.write(dict(self.state, levelSource=source)))
+        self.assertFalse(self.level.write(dict(mem_state(None, None), levelSource="sysctl")))
+        self.assertFalse(self.level.write("not a state"))
+        self.assertFalse(self.path.exists())
+
+    def test_untrusted_files_are_ignored(self):
+        self.assertTrue(self.level.write(self.state))
+        good = self.path.read_bytes()
+
+        def reset(data=good, mode=0o600):
+            if self.path.is_symlink() or self.path.exists():
+                os.unlink(self.path)
+            self.path.write_bytes(data)
+            os.chmod(self.path, mode)
+        for mode in (0o640, 0o604, 0o660):
+            reset(mode=mode)
+            self.assertIsNone(self.level.read(), oct(mode))
+        reset()
+        self.assertIsNone(mem_guard.LevelFile(self.path, clock=self.clock, uid=os.getuid() + 1).read(), "owner")
+        target = self.path.with_name("elsewhere.json")
+        target.write_bytes(good)
+        os.chmod(target, 0o600)
+        os.unlink(self.path)
+        os.symlink(target, self.path)
+        self.assertIsNone(self.level.read(), "a symlink is never followed")
+        record = json.loads(good)
+        for bad in (b"[1]", b"{", b"x" * 5000, json.dumps(dict(record, schemaVersion=2)).encode(),
+                    json.dumps(dict(record, source="level-file")).encode(),
+                    json.dumps(dict(record, writtenAt="now")).encode(),
+                    json.dumps(dict(record, pressure=None, availablePercent=None)).encode(),
+                    b"[" * 100000 + b"]" * 100000):
+            reset(bad)
+            self.assertIsNone(self.level.read(), bad[:40])
+        reset(json.dumps(dict(record, pressure=3, availablePercent=140, swapUsedBytes=-1)).encode())
+        self.assertIsNone(self.level.read(), "every value out of range: nothing usable")
+        reset(json.dumps(dict(record, pressure=3, availablePercent=40, swapUsedBytes=-1)).encode())
+        got = self.level.read()
+        self.assertEqual((got["pressure"], got["availablePercent"], got["swapUsedBytes"]), (None, 40, None))
+
+    def test_a_fifo_is_ignored_without_blocking(self):
+        self.path.parent.mkdir(mode=0o700)
+        os.mkfifo(self.path, 0o600)
+        started = time.monotonic()
+        self.assertIsNone(self.level.read())
+        self.assertLess(time.monotonic() - started, 1.0)
+
+    def test_write_never_raises(self):
+        blocked = Path(self.tmp.name) / "file"
+        blocked.write_text("x")
+        self.assertFalse(mem_guard.LevelFile(blocked / "level.json", clock=self.clock).write(self.state))
+
+
+class SandboxFallbackTests(unittest.TestCase):
+    """Probes when the memorystatus and swap sysctls are refused (as inside an agent sandbox)."""
+
+    SANDBOX_SYSCTL = {"hw.memsize": struct.pack("=Q", RAM)}
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.clock = Clock(1000.0)
+        self.level = mem_guard.LevelFile(Path(self.tmp.name) / "level.json", max_age=3.0, clock=self.clock)
+
+    def probes(self, table=None, sysctl=None, level=True, memory_pressure=True):
+        table = table if table is not None else {
+            "/usr/bin/vm_stat": completed(VM_STAT_INCIDENT),
+            "/usr/bin/memory_pressure -Q": completed(
+                "The system has 68719476736 (4194304 pages with a page size of 16384).\n"
+                "System-wide memory free percentage: 45%\n")}
+        runner = Runner(table)
+        probes = mem_guard.Probes(sysctl=(sysctl or self.SANDBOX_SYSCTL).get, runner=runner,
+                                  statvfs=ProbeTests.StatVfs(), clock=self.clock, wall=self.clock,
+                                  level_file=self.level if level else None, memory_pressure=memory_pressure)
+        return probes, runner
+
+    def publish(self, pressure=4, avail=8, swap=9 * GiB):
+        self.assertTrue(self.level.write(dict(mem_state(pressure, avail, swap=swap), levelSource="sysctl")))
+
+    def test_a_fresh_level_file_answers_before_memory_pressure(self):
+        self.publish()
+        self.clock.advance(1.5)
+        probes, runner = self.probes()
+        state = probes.read()
+        self.assertEqual((state["pressure"], state["availablePercent"], state["swapUsedBytes"], state["levelSource"],
+                          state["levelAgeSeconds"]), (4, 8, 9 * GiB, "level-file", 1.5))
+        self.assertEqual(runner.count("/usr/bin/memory_pressure"), 0)
+        level, reasons = mem_guard.classify(state)
+        self.assertEqual(level, "critical")
+        self.assertIn("macOS memory pressure: critical", reasons[0])
+        self.assertIn("level file (2 s old)", reasons[-1])
+        self.assertFalse(mem_guard.admit(1 * GiB, "light", state).allowed, "a sandboxed review is refused")
+
+    def test_a_stale_level_file_falls_back_to_memory_pressure(self):
+        self.publish()
+        self.clock.advance(10)
+        probes, runner = self.probes()
+        state = probes.read()
+        self.assertEqual((state["pressure"], state["availablePercent"], state["levelSource"]), (None, 45, "memory_pressure"))
+        level, reasons = mem_guard.classify(state)
+        self.assertEqual(level, "watch", "45% available; the incident's 38% compressor alone reads watch")
+        self.assertIn("compressor", reasons[0])
+        self.assertIn("memory_pressure -Q", reasons[-1])
+        self.assertTrue(mem_guard.admit(1 * GiB, "light", state).allowed)
+
+    def test_memory_pressure_failure_is_unknown_and_backs_off(self):
+        probes, runner = self.probes(table={"/usr/bin/vm_stat": completed(VM_STAT_INCIDENT),
+                                            "/usr/bin/memory_pressure -Q": completed("garbage")})
+        state = probes.read()
+        self.assertEqual((mem_guard.classify(state)[0], state["levelSource"]), ("unknown", None))
+        probes.read()
+        self.assertEqual(runner.count("/usr/bin/memory_pressure"), 1, "a failed read backs off")
+        self.clock.advance(31)
+        probes.read()
+        self.assertEqual(runner.count("/usr/bin/memory_pressure"), 2)
+
+    def test_readable_sysctls_never_consult_the_fallbacks(self):
+        self.publish(pressure=4, avail=5)
+        probes, runner = self.probes(sysctl=ProbeTests.SYSCTL)
+        state = probes.read()
+        self.assertEqual((state["pressure"], state["availablePercent"], state["levelSource"]), (2, 18, "sysctl"))
+        self.assertEqual(runner.count("/usr/bin/memory_pressure"), 0)
+
+    def test_fallbacks_are_off_unless_asked_for(self):
+        self.publish()
+        probes, runner = self.probes(level=False, memory_pressure=False)
+        self.assertEqual(mem_guard.classify(probes.read())[0], "unknown")
+        self.assertEqual(runner.count("/usr/bin/memory_pressure"), 0)
+        self.assertIsNone(mem_guard.Probes()._level_file)
+
+    def test_the_cli_context_turns_both_fallbacks_on(self):
+        ctx = mem_guard.Context(state_root=self.tmp.name, cfg=mem_guard.default_config())
+        self.assertTrue(ctx.probes._memory_pressure)
+        self.assertEqual(ctx.probes._level_file.path, Path(self.tmp.name) / "level.json")
+        self.assertEqual(ctx.probes._level_file.max_age, 3.0)
+        cfg = dict(mem_guard.default_config(), level_file_max_age_seconds=20.0)
+        self.assertEqual(mem_guard.Context(state_root=self.tmp.name, cfg=cfg).probes._level_file.max_age, 20.0)
+        self.assertEqual(mem_guard.Context(state_root=self.tmp.name, cfg={}).level_file.max_age, 3.0)
+
+    def test_config_bounds_for_the_level_file_age(self):
+        path = Path(self.tmp.name) / "cfg.json"
+        for value, expected in ((10, 10.0), (0, 3.0), (601, 3.0), ("5", 3.0)):
+            path.write_text(json.dumps({"level_file_max_age_seconds": value}))
+            os.chmod(path, 0o600)
+            self.assertEqual(mem_guard.load_config(path)["level_file_max_age_seconds"], expected, value)
+
+
+class LevelFilePublishingTests(CliCase):
+    def test_status_publishes_sysctl_readings_only(self):
+        level = self.root / "level.json"
+        self.assertEqual(self.run_cli(["status"], dict(OK, levelSource="sysctl")), 0)
+        self.assertEqual(json.loads(level.read_text())["availablePercent"], 50)
+        os.unlink(level)
+        self.assertEqual(self.run_cli(["status"], dict(OK, levelSource="level-file")), 0)
+        self.assertEqual(self.run_cli(["status"], dict(OK, levelSource="memory_pressure")), 0)
+        self.assertFalse(level.exists(), "never re-published from a level file or memory_pressure")
+
+    def test_admit_watch_and_the_hook_slow_path_publish_too(self):
+        level = self.root / "level.json"
+        sysctl_ok = dict(OK, levelSource="sysctl")
+        self.assertEqual(self.run_cli(["admit", "--need-gb", "1"], sysctl_ok), 0)
+        self.assertTrue(level.exists(), "an unsandboxed admit publishes its kernel reading")
+        os.unlink(level)
+        self.assertEqual(self.run_cli(["watch", "--interval", "1", "--ticks", "1"], sysctl_ok), 0)
+        self.assertTrue(level.exists(), "the foreground watchdog publishes every tick")
+        os.unlink(level)
+        payload = hook_payload("Bash", command="astra-review . prompt.md out.md")
+        self.assertEqual(self.run_cli(["hook"], sysctl_ok, stdin=payload), 0)
+        record = json.loads(level.read_text())
+        self.assertEqual((record["source"], record["availablePercent"]), ("sysctl", 50))
+        self.assertEqual(stat.S_IMODE(os.stat(level).st_mode), 0o600)
+        os.unlink(level)
+        self.assertEqual(self.run_cli(["hook"], sysctl_ok, stdin=hook_payload("Bash", command="ls -la")), 0)
+        self.assertFalse(level.exists(), "an unrelated tool call never reads or publishes")
+        self.assertEqual(self.run_cli(["hook"], dict(TIGHT, levelSource="sysctl"),
+                                      stdin=hook_payload("Bash", command="xcodebuild -scheme App build")), 2)
+        self.assertEqual(json.loads(level.read_text())["availablePercent"], TIGHT["availablePercent"],
+                         "a refusal publishes the reading it refused on")
+
+    def test_admit_says_where_a_sandboxed_level_came_from(self):
+        self.assertEqual(self.run_cli(["admit", "--need-gb", "1"], dict(OK, levelSource="level-file",
+                                                                         levelAgeSeconds=1.4)), 0)
+        self.assertEqual(self.stdout.getvalue(),
+                         "admitted: memory ok; 32.0 GB available, light work (1.0 GB) would leave 31.0 GB "
+                         "(floor 6.4 GB); admitted [level from level.json, 1 s old; the sysctls are refused here]\n")
+        self.assertEqual(self.run_cli(["admit", "--need-gb", "1"], dict(CRITICAL, levelSource="memory_pressure")), 75)
+        self.assertTrue(self.stdout.getvalue().startswith("refused: memory is critical"))
+        self.assertIn("[availability from memory_pressure -Q only;", self.stdout.getvalue())
+        self.assertEqual(self.journal()[-1]["reason"].count("["), 0, "the journal keeps the plain reason")
+        self.assertEqual(self.run_cli(["admit", "--need-gb", "1"], dict(OK, levelSource="sysctl")), 0)
+        self.assertNotIn("[", self.stdout.getvalue(), "a kernel reading needs no note")
+
+    def test_a_failing_publish_never_changes_the_hook_decision(self):
+        def boom(_state):
+            raise OSError("disk full")
+        payload = {"tool_name": "Bash", "tool_input": {"command": "xcodebuild -scheme App build"}}
+        found = mem_guard.hook_decide(payload, FakeProbes(dict(TIGHT, levelSource="sysctl"), CONSUMERS), None,
+                                      publish=boom)
+        self.assertIsNotNone(found)
+        self.assertIsNone(mem_guard.hook_decide(payload, FakeProbes(dict(OK, levelSource="sysctl")), None,
+                                                publish=boom))
+        blocked = self.root / "blocked"
+        self.root.mkdir(parents=True, exist_ok=True)
+        blocked.write_text("a file where the state directory should be")
+        self.stdout, self.stderr = io.StringIO(), io.StringIO()
+        ctx = mem_guard.Context(state_root=blocked, cfg=mem_guard.default_config(),
+                                probes=FakeProbes(dict(OK, levelSource="sysctl")), notifier=Notes(), clock=self.clock,
+                                gpu=lambda: None, stdin=io.BytesIO(hook_payload("Bash", command="astra-review . p")),
+                                stdout=self.stdout, stderr=self.stderr)
+        self.assertEqual(mem_guard.main(["hook"], ctx), 0, "an unwritable level file never blocks a tool call")
+
+    def test_the_monitor_guard_publishes_when_given_a_level_file(self):
+        level = mem_guard.LevelFile(self.root / "level.json", clock=self.clock)
+        guard = mem_guard.Guard(cfg=mem_guard.default_config(), probes=FakeProbes(dict(WATCH, levelSource="sysctl")),
+                                registry=mem_guard.Registry(self.root / "r"), notifier=Notes(), clock=self.clock,
+                                level_file=level)
+        block, source = guard.sample()
+        self.assertEqual((block["level"], source["state"]), ("watch", "live"))
+        self.assertEqual(level.read()["availablePercent"], 30)
+        self.assertNotIn("levelSource", block, "the snapshot block keeps its exact key set")
+        plain = mem_guard.Guard(cfg=mem_guard.default_config(), probes=FakeProbes(dict(OK, levelSource="sysctl")),
+                                registry=mem_guard.Registry(self.root / "r2"), notifier=Notes(), clock=self.clock)
+        self.assertIsNone(plain.level_file)
+
+
+class RegisterReceiptTests(RegistryCliTests):
+    def test_register_json_carries_pid_start_time_and_the_real_error(self):
+        pid = str(self.child.pid)
+        self.assertEqual(self.run_cli(["register", "--pid", pid, "--label", "lane", "--json"], registry=self.registry), 0)
+        receipt = json.loads(self.stdout.getvalue())
+        self.assertEqual(receipt, {"ok": True, "pid": self.child.pid, "startTime": START, "comm": "sleep", "label": "lane"})
+        self.ps.fail = True
+        self.assertEqual(self.run_cli(["register", "--pid", pid, "--label", "lane", "--json"], registry=self.registry), 1)
+        failure = json.loads(self.stdout.getvalue())
+        self.assertEqual(failure, {"ok": False, "error": "cannot read the process table (ps failed)"})
+        self.assertIn("mem-guard: register failed: cannot read the process table (ps failed)", self.stderr.getvalue())
+        self.assertEqual(self.run_cli(["register", "--pid", pid, "--label", "lane"], registry=self.registry), 1)
+        self.assertEqual(self.stdout.getvalue(), "", "without --json stdout stays as it was")
 
 
 if __name__ == "__main__":
