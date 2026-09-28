@@ -8,7 +8,7 @@ export const CORE_MODEL_IDS = Object.freeze([
   'google/gemma-4-26b-a4b-qat',
   'qwen/qwen3.6-35b-a3b',
   'google/gemma-3-4b',
-  'text-embedding-nomic-embed-text-v2-moe',
+  'text-embedding-nomic-embed-text-v1.5',
 ]);
 const CORE_MODEL_SET = new Set(CORE_MODEL_IDS);
 const modelRowKey = row => `${row?.host}\n${row?.id}`;
