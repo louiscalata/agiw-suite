@@ -556,6 +556,60 @@ test('Follow-up 5: a choice made in the compact Browse sidebar closes it and han
   assert.match(appSource, /\$\('runtimeSidebar'\)\.addEventListener\('keydown',event=>\{if\(event\.key==='Escape'&&document\.body\.classList\.contains\('sidebar-open'\)\)\{event\.preventDefault\(\);setSidebarOpen\(false\);\}\}\);/);
 });
 
+test('portfolio split docks an interactive browser on wide screens and retains the compact Browse gate', () => {
+  assert.match(html, /<span class="brand-monogram" aria-hidden="true">AS<\/span>/);
+  assert.match(html, /<span class="brand-wordmark"><strong>AGIW Suite<\/strong><small>Inference Monitor<\/small><\/span>/);
+  const wide = cssRules(css).filter(([media]) => media === '(min-width:980px)');
+  const has = (selector, pattern) => wide.some(([, head, body]) => selectors(head).includes(selector) && pattern.test(body));
+  assert.ok(has('main', /display:grid;grid-template-columns:minmax\(0,1fr\) var\(--portfolio-rail\)/));
+  assert.ok(has('.graph-region', /position:relative;inset:auto/));
+  assert.ok(has('.sidebar', /transform:none;overflow-y:auto/));
+  assert.ok(has('.evidence-rail', /width:var\(--portfolio-rail\)/));
+  assert.match(html, /<aside id="drawer" class="drawer panel" hidden tabindex="-1"/);
+  for (const method of ['nodeSelect', 'selectRun']) {
+    const line = appSource.slice(appSource.indexOf(`function ${method}(`)).split('\n')[0];
+    assert.match(line, /fromDockedBrowser=dockedSidebar\(\)&&\$\('runtimeSidebar'\)\.contains\(document\.activeElement\)/,
+      `${method} records focus before the sidebar is visually replaced`);
+    assert.match(line, /if\(fromDockedBrowser\)\$\('drawer'\)\.focus\(\{preventScroll:true\}\)/,
+      `${method} moves focus to the visible inspector`);
+  }
+  const { api, $, view, doc } = harness({ width: 1150 });
+  api.syncCompactUI();
+  assert.equal(doc.body.classList.contains('portfolio-docked'), true);
+  assert.equal($('runtimeSidebar').inert, false, 'wide information column remains interactive');
+  assert.equal($('sidebarToggle').hidden, true, 'no redundant Browse toggle beside the docked column');
+  view.width = 800;
+  api.syncCompactUI();
+  assert.equal(doc.body.classList.contains('portfolio-docked'), false);
+  assert.equal($('runtimeSidebar').inert, true, 'compact drawer is inert until opened');
+  assert.equal($('sidebarToggle').hidden, false);
+  $('runtimeSidebar').append($('search'));
+  api.setSidebarOpen(true, true);
+  assert.equal($('runtimeSidebar').inert, false);
+  assert.equal(doc.activeElement, $('search'));
+  view.width = 900;
+  api.syncCompactUI();
+  assert.equal($('sidebarToggle').hidden, false, 'the intermediate width still uses Browse');
+  assert.equal(api.closeCompactSidebar(), true, 'a choice closes the overlay at intermediate width');
+  assert.equal($('runtimeSidebar').inert, true);
+});
+
+test('portfolio compact layout keeps the complete status route and controls in the viewport', () => {
+  const rules = cssRules(css);
+  const hasRule = (media, selector, pattern) => rules.some(([query, head, body]) =>
+    query === media && selectors(head).includes(selector) && pattern.test(body));
+  assert.ok(hasRule('(min-width:821px) and (max-width:979px) and (max-height:700px)', 'main',
+    /height:calc\(100% - 58px\)/), 'the map fills the space below a short intermediate-width header');
+  assert.ok(hasRule('(max-width:720px)', '.vitals',
+    /display:grid;grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/), 'narrow status chips use two columns');
+  assert.ok(hasRule('(max-width:720px)', '#vitalRoute', /display:flex/), 'the Nisi chip remains visible');
+  assert.ok(hasRule('(max-width:720px)', '.topbar', /height:96px;display:grid/),
+    'small screens give the AS identity and action controls separate rows');
+  assert.ok(hasRule('(max-width:720px)', 'main', /height:calc\(100% - 96px\)/),
+    'the map fills the viewport below the two-row header');
+  assert.match(html, /id="pcSwitch"[^>]*aria-label="PC LLM"/, 'compact PC switch retains an accessible name');
+});
+
 test('Follow-up 6: a hidden status chip leaves the strip', () => {
   assert.ok(cssRules(css).some(([media, head, body]) => !media && head === '.vital[hidden]' && /display:none/.test(body)));
 });
