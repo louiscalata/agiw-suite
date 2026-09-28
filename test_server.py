@@ -276,7 +276,14 @@ class AutoUnloadRouteTest(unittest.TestCase):
                   'collisions': [], 'lanes': {}}
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp)
+            root = path / 'router'
+            for directory in (root, root / 'archive', root / 'checkpoints'):
+                directory.mkdir(mode=0o700)
+                directory.chmod(0o700)
+            (root / 'owner.lock').write_bytes(b'')
+            (root / 'owner.lock').chmod(0o600)
             with patch.object(telemetry, '_router_observation', return_value=router) as read, \
+                 patch.object(telemetry, '_ROUTER_ROOT', root), \
                  patch.object(telemetry, '_PENDING_PATH', path / 'pending'), \
                  patch.object(telemetry, '_LAUNCHER_ROOT', path / 'launcher'), \
                  patch.object(telemetry, '_READINESS_PATH', path / 'readiness'):
