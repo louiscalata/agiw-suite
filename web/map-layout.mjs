@@ -247,7 +247,9 @@ export function constellationLayout(runtimeCount, clients, { viewportWidth = 820
     const count = Math.max(1, client.modelCount);
     if (portrait) {
       const x = width * ((index + 1) / (clients.length + 1));
-      const y = Math.max(height * .69, modelCenter.y + (rows - 1) * cellY / 2 + 120);
+      // Keep the client branches close enough to read as one constellation,
+      // while leaving room for the last model row and its captions.
+      const y = Math.max(height * .60, modelCenter.y + (rows - 1) * cellY / 2 + 116);
       const offsets = Array.from({ length: count }, (_, i) => (i - (count - 1) / 2) * 30);
       return { x, y, models: offsets.map((offset, i) => ({ x, y: y + 44 + i * 34 + offset * .25 })) };
     }
@@ -263,7 +265,7 @@ export function constellationLayout(runtimeCount, clients, { viewportWidth = 820
     })) };
   });
   const pipeline = portrait
-    ? { x: Math.max(40, center.x - Math.min(width * .32, 145)), y: center.y - 12 }
+    ? { x: Math.max(40, center.x - Math.min(width * .35, 175)), y: center.y - 12 }
     : { x: center.x, y: Math.max(55, center.y - Math.min(height * .34, 210)) };
   // Jev is a child of Nisi Inference, offset from AFM and the Mac hub in both layouts.
   const jev = portrait
@@ -275,7 +277,7 @@ export function constellationLayout(runtimeCount, clients, { viewportWidth = 820
   // The Windows PC is its own constellation: below the Mac hub in wide views,
   // beside it in portrait. Its lanes fan out under the PC hub, clear of clients.
   const windows = portrait
-    ? { x: Math.min(width - 40, center.x + Math.min(width * .32, 145)), y: center.y - 12 }
+    ? { x: Math.min(width - 40, center.x + Math.min(width * .35, 175)), y: center.y - 12 }
     : { x: center.x, y: center.y + (compactLandscape ? 170 : Math.max(180, Math.min(height * .36, 240))) };
   const windowsLanes = portrait
     ? [0, 1].map(i => ({ x: windows.x, y: windows.y + 58 + i * 54 }))

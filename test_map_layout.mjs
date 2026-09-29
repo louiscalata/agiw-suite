@@ -676,7 +676,7 @@ test('Follow-up 1: flipped above the hub, the PC subtitle is short and clears ev
       assert.ok(boxesMeet(medium, { left: fifth.x - 12, right: fifth.x + 12, top: fifth.y - 12, bottom: fifth.y + 12 }));
     }
   }
-  // The app gives the PC hub its short form and hides the "WINDOWS PC · …" header while the subtitle is up there.
+  // The app gives the PC hub its short form and hides the static "WINDOWS PC" header while the subtitle is up there.
   const app = readFileSync(new URL('./web/app.js', import.meta.url), 'utf8');
   assert.match(app, /subtitleAbove:brief,kind:'windows-worker'/);
   assert.match(app, /const subText=place\.subText\?\?n\.subtitle\?\?'';if\(sub\.textContent!==subText\)sub\.textContent=subText;if\(n\.kind==='windows-worker'\)pcSubAbove=place\.subAbove;/);
