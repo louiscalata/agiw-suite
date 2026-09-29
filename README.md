@@ -1,21 +1,19 @@
 # AGIW Suite · Inference Monitor
 
-The Inference Monitor is a local Mac view of AGIW Suite's inference activity. It helps the machine's owner see which model and client are active, inspect recorded route state, and request a guarded recovery action when a local route or worker needs intervention.
+The Inference Monitor is a local Mac view of AGIW Suite's inference activity. It helps the machine's owner see which local models are working, inspect recorded client identities and route state, and request a guarded recovery action when a local route or worker needs intervention.
 
 The monitor observes local inference and recorded router state. Explicit controls can inspect or repair narrow owner states; launching the app does not start a coding task or load a model. The Windows and SharedChami route repair flows are optional and require separately managed components.
 
-The Core 6 control is a display filter for five local LLM roles and the bundled Nomic Embed Text v1.5 embedding model. All discovered shows the rest of LM Studio's inventory. Switching views remains local to the machine and the app does not upload activity data elsewhere.
+The Core 6 control is a display filter for five local LLM roles and the Nomic Embed Text v1.5 embedding role. All discovered shows the rest of LM Studio's inventory. Switching views does not install, load, unload, or remove models. This source package does not include model weights.
 
-## Public release status
+## Release status
 
-This repository is intended as a source-release project for public use. It is a macOS-focused application with Python, JavaScript, and Swift components, and it expects a local runtime environment rather than bundled model services.
+This private repository contains a macOS-focused source candidate with Python, JavaScript, and Swift components. It is not a published binary release. It expects a local runtime environment; model services are not bundled.
 
 Before publishing or distributing binaries:
 - verify that no real machine names, credentials, tokens, or local-only state are embedded in the source tree
 - confirm the local security model and release signing identity are appropriate for your environment
 - review the package-release workflow before shipping a notarized DMG
-
-The project is provided under the MIT license; see the LICENSE file for details.
 
 ## Try the local view
 
@@ -25,7 +23,13 @@ On a Mac with Python 3, clone this repository and run from its root:
 python3 -B server.py --port 8765
 ```
 
-The server prints a JSON line containing its port and process ID. Open `http://127.0.0.1:8765/` in a browser; press Ctrl-C in the terminal to stop it. This starts the observer on loopback. Runtime behavior is intentionally local-only.
+The server prints a JSON line containing its port and process ID. Open `http://127.0.0.1:8765/` in a browser; press Ctrl-C in the terminal to stop it. This starts the observer on loopback. Runtime cards can show unavailable or unknown when optional local model, router, or Windows worker services are absent.
+
+## Resident model budget
+
+The Mac Nisi route selects two distinct LLMs already resident in LM Studio. It prefers Gemma 4 as author when present and chooses another resident LLM as reviewer; it does not load an extra model for those roles. Jev uses a separate remote adapter and does not need a Mac model resident. Core 6 is a catalog view, not a request to hold six models in RAM.
+
+Automatic unloading is off by default. When explicitly enabled, it protects the current resident Nisi pair, considers only other observed idle Mac models, and refuses to unload anything if the pair cannot be established from a fresh snapshot. These policies do not establish that a live routed task succeeded.
 
 ## Share recovery settings
 
@@ -36,27 +40,27 @@ AGIW_SHARE_HOSTS='10.222.33.10,10.222.33.20,pc.example.invalid'
 AGIW_SHARE_USERNAME='registered-user'
 ```
 
-Those addresses and the name are documentation examples; replace them with the owner's actual LAN values. `AGIW_SHARE_HOSTS` accepts one or two numeric IPv4 addresses in the `10/8`, `172.16/12`, or `192.168/16` ranges or a hostname value that resolves on the LAN. The app validates them again before any share recovery action.
+Those addresses and the name are examples; replace them with the owner's actual LAN values. `AGIW_SHARE_HOSTS` accepts one or two numeric IPv4 addresses in the `10/8`, `172.16/12`, or `192.168/16` private ranges and optionally a third trusted DNS name or address for matching the mounted share. `AGIW_SHARE_USERNAME` is the registered SMB account; this repository stores no password. Guest and Anonymous are refused. If `login-agent.sh install` runs with both variables exported, it stores only these non-password settings in the private per-user LaunchAgent. A partial pair is refused. A share already mounted as Guest or from an unconfigured host is not treated as healthy; Fix Route stops without remounting it.
 
 ## Memory readings for sandboxed callers
 
-When the Mac Monitor can read the kernel memory counters, its sampler writes a short-lived `level.json` under `~/.local/state/agiw/mem-guard/`. The directory is owner-only and the file is mode `0600` or stricter. The app does not persist unnecessary memory detail outside the local host.
+When the Mac Monitor can read the kernel memory counters, its sampler writes a short-lived `level.json` under `~/.local/state/agiw/mem-guard/`. The directory is owner-only and the file is mode `0600`. A sandboxed memory-guard caller can use this file for up to three seconds when it cannot read the counters directly. The sampler never renews the file from an older file reading or fallback.
 
-`mem-guard status` reports one sample. When high swap use is its only TIGHT signal, `mem-guard admit` can take 5.1 seconds for a second direct kernel sample, even with `--wait 0`. It admits heavy memory pressure only after a second signal is observed.
+`mem-guard status` reports one sample. When high swap use is its only TIGHT signal, `mem-guard admit` can take 5.1 seconds for a second direct kernel sample, even with `--wait 0`. Heavy work is admitted in that special case only if pressure and headroom remain healthy and swap use and swapouts do not grow. Missing counters, fallback data, or another TIGHT reason still refuse admission. Use the `admit` exit code as the gate; `status` is informational.
 
 ## Source checks
 
-From this directory, run `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -p 'test_*.py' -q` and `node --test test_*.mjs`. The full copied Python suite was checked with Python 3.14.7 on the macOS runner in CI.
+From this directory, run `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -p 'test_*.py' -q` and `node --test test_*.mjs`. Forty-five router integration cases need writers from a separate project; the clean GitHub runner explicitly sets `MONITOR_ALLOW_ROUTER_FIXTURE_SKIP=1` for them. The tests use fixtures and mocked model calls, so a passing source suite does not establish a live route.
 
 `build.sh` is an installer: it compiles and signs the app, then replaces `$HOME/Applications/Inference Monitor.app` when its owner lock permits. Do not run it as a read-only build check. The installer intentionally writes into the local Applications directory and does not publish content elsewhere.
 
 ### GitHub download candidate
 
-`package-release.sh` builds a separate, Apple silicon or Intel Developer ID signed DMG in `dist/`; it does not install or launch the app. It requires a clean source tree, an exact Developer ID App signing identity, and a macOS build host. The script is designed for a release candidate process and deliberately rejects a dirty source tree unless explicitly allowed.
+`package-release.sh` builds a separate Developer ID signed DMG in `dist/`; it does not install or launch the app. It requires a clean source tree, an exact Developer ID Application identity in `MONITOR_RELEASE_SIGN_IDENTITY`, and secure Apple timestamps. It verifies the mounted DMG against frozen inputs and writes a manifest with source, toolchain, and input hashes. `MONITOR_RELEASE_ALLOW_DIRTY=1` is only for local candidate checks; it marks the output dirty and must not be used for a release.
 
 The current packaged app targets macOS 13 or later and needs Python 3.9 or later at `/opt/homebrew/bin/python3`, `/usr/local/bin/python3`, or `/usr/bin/python3`. The DMG contains the app and an `INSTALL.txt` note; it is not a downloadable release until Apple notarization accepts that exact asset, the ticket is stapled and validated, the final hash is recorded, and the quarantined download passes a clean-Mac assessment.
 
-After choosing the Developer ID Application identity from `security find-identity -v -p codesigning`, run `MONITOR_RELEASE_SIGN_IDENTITY=<certificate-SHA-1> ./package-release.sh` from a clean checkout to create a signed candidate. All release metadata is kept local to the build host until notarization and publication are complete.
+After choosing the Developer ID Application identity from `security find-identity -v -p codesigning`, run `MONITOR_RELEASE_SIGN_IDENTITY=<certificate-SHA-1> ./package-release.sh` from a clean checkout to create a signed candidate. Notarization, stapling, final hash verification, and a quarantined clean-Mac test remain separate gates.
 
 The [roadmap](roadmap.md) records this source package's verification state and remaining integration work.
 
@@ -69,12 +73,12 @@ Before submitting a change:
 - avoid adding credentials, hostnames, or sensitive local state to the repo
 - keep examples generic and safe for public review
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for more details.
+The contribution guide has not been written yet; keep proposed changes focused and include the relevant test results.
 
 ## Security
 
-Please review [SECURITY.md](SECURITY.md) before reporting vulnerabilities or sensitive security issues.
+Do not put credentials, private hostnames, or sensitive machine state in issues. A dedicated security reporting policy has not been published yet.
 
 ## License
 
-This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
+No license file has been added. Select and publish reuse terms before making a public release.
