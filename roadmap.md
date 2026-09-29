@@ -2,6 +2,15 @@
 
 This is the canonical roadmap for this source-only repository. The Monitor's active engineering roadmap remains in its original checkout until an owner accepts a cutover. Verified local installation is recorded separately from repository source checks; this file does not claim distribution or release acceptance.
 
+## Inference map visual update — 2026-09-29
+
+- [x] Rebalance the portrait constellation: separate the Mac, Nisi and Windows anchors, pull client branches closer to the local model cluster, and turn narrow PC lane captions inward so they remain in the viewport. Keep the wide layout geometry and evidence states intact.
+- [x] Strengthen the neutral web and restrained warm, blue and violet ambient light on the black map. Give the three anchor types quiet identity rings and freshly loaded models a soft static shadow. Keep green motion for observed work and hollow unknown nodes.
+- [x] Use a short, static `WINDOWS PC` cluster header and show current slot occupancy on its lane captions. The changing status remains in the PC chip and inspector; the prior generation speed is still available there instead of being presented beside a live slot count.
+- [x] Verify the source change with 229/229 JavaScript tests and syntax/diff checks. A populated, read-only preview was inspected in wide, tall and 390 px layouts; a clipped deep-lane caption found at 390 px was corrected and remeasured inside the map.
+- [x] Apply only the three changed web resources to an isolated copy of the previously installed source revision, preserve a byte-identical signed rollback copy, then rebuild and install with the existing Developer ID identity. That isolated base passed 228/228 JavaScript tests plus Swift, plist and shell build-input checks. The installed app signature and all 21 bundled resource hashes verified, the login agent restarted, and its loopback snapshot and served UI returned successfully. This local install does not include the newer memory-admission or Core 6 source changes in this repository, and it is not a notarized distribution build.
+- [ ] Verify the map in native WebKit and evaluate this repository's source revision in clean-runner CI before treating this visual update as a distribution input. No GitHub push was made for this update.
+
 ## Memory admission source update — 2026-09-28
 
 - [x] Add a fail-closed two-sample exception for swap-only TIGHT in the `mem-guard admit` CLI. It requires fresh direct kernel readings, normal pressure, ample reported availability and VM headroom, unchanged swap use and swapouts, bounded swapins, and a newer `vm_stat` generation. `status` and the published `level.json` retain their one-sample contract. A one-shot `--wait 0` call can take 5.1 seconds to confirm a quiet trend.

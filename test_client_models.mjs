@@ -172,7 +172,7 @@ test('in-flight Windows job animates the link and node without claiming generati
   const link=result.edges.find(edge=>edge.a==='runtime'&&edge.b==='windows-worker');
   assert.equal(link.flow,true);
   assert.equal(link.dim,false);
-  assert.ok(result.labels.some(label=>/^WINDOWS PC · JOB \d+s$/.test(label.text)));
+  assert.ok(result.labels.some(label=>label.text==='WINDOWS PC'));
 });
 
 test('last validated Windows result is shown when nothing is in flight',()=>{
@@ -196,7 +196,7 @@ test('an old or superseded Windows success does not paint the node verified',()=
   const windows=result.nodes.find(node=>node.kind==='windows-worker');
   assert.equal(windows.verified,false);
   assert.equal(windows.subtitle,'WORKER UNVERIFIED · INFERENCE UNKNOWN');
-  assert.ok(result.labels.some(label=>label.text==='WINDOWS PC · UNVERIFIED'));
+  assert.ok(result.labels.some(label=>label.text==='WINDOWS PC'));
 });
 
 test('a degraded Windows worker says so instead of looking unverified',()=>{
@@ -205,19 +205,19 @@ test('a degraded Windows worker says so instead of looking unverified',()=>{
   const result=JSON.parse(JSON.stringify(runInNewContext(script,{...layoutContext,Date,Set,Map,Math,Number,String,Array,Object,JSON,window:{innerWidth:820},document:{getElementById:id=>id==='graphRegion'?{clientWidth:590,clientHeight:546}:null}})));
   const windows=result.nodes.find(node=>node.kind==='windows-worker');
   assert.equal(windows.subtitle,'WORKER DEGRADED · NO MODEL LANE');
-  assert.ok(result.labels.some(label=>label.text==='WINDOWS PC · DEGRADED'));
+  assert.ok(result.labels.some(label=>label.text==='WINDOWS PC'));
 });
 
 test('Windows lanes hang off the PC node and link journaled clients, live only while in flight',()=>{
   const now=Date.now()/1000;
   const lanes={fast:{up:true,model:'gpt-oss-20b',kind:'gpt-oss',slotsBusy:1,slotsTotal:2},deep:{up:false,model:'Qwen3.8-27B',kind:'qwen',slotsBusy:null,slotsTotal:null}};
-  const jobs={schemaVersion:1,inFlight:[{id:'mac-1',model:'gpt-oss-20b',ageSeconds:3,timeoutSeconds:120,client:'claude',lane:'fast'}],recent:[{id:'mac-0',state:'success',model:'Qwen3.8-27B',ageSeconds:90,client:'codex',lane:'deep'},{id:'mac-z',state:'success',ageSeconds:95,client:'nisi',lane:'fast'}],lastSuccess:null};
+  const jobs={schemaVersion:1,inFlight:[{id:'mac-1',model:'gpt-oss-20b',ageSeconds:3,timeoutSeconds:120,client:'claude',lane:'fast'}],recent:[{id:'mac-0',state:'success',model:'Qwen3.8-27B',ageSeconds:90,client:'codex',lane:'deep'},{id:'mac-z',state:'success',ageSeconds:95,client:'nisi',lane:'fast',predictedPerSecond:135}],lastSuccess:null};
   const script=`${source}\nsnapshot={host:'mac',sampledAt:${now},models:[],clients:[],sources:[],windowsWorker:{state:'advertised',ageSeconds:4,modelsAdvertised:['gpt-oss-20b'],detail:'x',lanes:${JSON.stringify(lanes)},headless:{state:'on',reason:null,expiresInSeconds:7530,grantedBy:'inference-monitor'}},windowsJobs:${JSON.stringify(jobs)},pipeline:{status:'idle'}};connected=true;runtimeGraph();({nodes:graph.nodes,edges:graph.edges})`;
   const result=JSON.parse(JSON.stringify(runInNewContext(script,{...layoutContext,Date,Set,Map,Math,Number,String,Array,Object,JSON,window:{innerWidth:820},document:{getElementById:id=>id==='graphRegion'?{clientWidth:590,clientHeight:546}:null}})));
   const windows=result.nodes.find(node=>node.kind==='windows-worker');
   assert.match(windows.subtitle,/ · HEADLESS ON · 2H 5M LEFT$/);
   const fast=result.nodes.find(node=>node.id==='windows-lane:fast'),deep=result.nodes.find(node=>node.id==='windows-lane:deep');
-  assert.equal(fast.label,'fast · gpt-oss-20b');assert.equal(fast.subtitle,'1/2 BUSY');assert.equal(fast.inFlight,true);assert.equal(fast.active,true);
+  assert.equal(fast.label,'fast · gpt-oss-20b');assert.equal(fast.lane.rate,135);assert.equal(fast.subtitle,'1/2 BUSY');assert.equal(fast.inFlight,true);assert.equal(fast.active,true);
   assert.equal(deep.subtitle,'DOWN');assert.equal(deep.unknown,true);assert.equal(deep.inFlight,false);
   assert.ok(Math.hypot(fast.x-windows.x,fast.y-windows.y)<160);
   assert.ok(result.edges.some(e=>e.a==='windows-worker'&&e.b==='windows-lane:fast'&&e.flow&&!e.dim));

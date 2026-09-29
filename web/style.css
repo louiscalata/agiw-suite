@@ -618,12 +618,12 @@ body>footer,body>footer button{font-size:10px}
 #glows,#web{pointer-events:none}
 #web{transition:opacity .16s ease}
 #web path{fill:none;stroke:var(--web-thread);stroke-width:1;vector-effect:non-scaling-stroke;stroke-linecap:round;stroke-linejoin:round}
-#web .web-spoke{opacity:.2}
-#web .web-filler{opacity:.11}
-#web .ring-in{opacity:.21}
-#web .ring-mid{opacity:.15}
-#web .ring-out{opacity:.1}
-#web .web-bridge{opacity:.17}
+#web .web-spoke{opacity:.27}
+#web .web-filler{opacity:.14}
+#web .ring-in{opacity:.28}
+#web .ring-mid{opacity:.2}
+#web .ring-out{opacity:.13}
+#web .web-bridge{opacity:.22}
 /* Zoomed far out (camera below .6) the small client and route webs are a few pixels across: they step aside. */
 #web.far .web-minor{display:none}
 /* Dew marks the live threads under reduced motion only (no travelling cue anywhere). */
@@ -728,7 +728,11 @@ body>footer,body>footer button{font-size:10px}
 .tools #pause,.tools #expand,.tools #quit{border-radius:2px}
 .connection.live{color:#88e6c1}
 main{height:calc(100% - 108px)}
-.graph-region{background:radial-gradient(circle at 43% 48%,#329eea18,transparent 38%),radial-gradient(circle at 72% 70%,#7b5de31a,transparent 40%),#000}
+.graph-region{background:radial-gradient(circle at 49% 31%,#ff895214,transparent 27%),radial-gradient(circle at 73% 33%,#82b7ff12,transparent 30%),radial-gradient(circle at 27% 35%,#b6a1e812,transparent 31%),radial-gradient(circle at 50% 74%,#7b5de318,transparent 43%),#000}
+.node.hub .ring,.node.windows-worker .ring,.node.pipeline .ring{opacity:.34;stroke-width:1.2}
+.node.model.loaded .core{filter:drop-shadow(0 0 7px currentColor)}
+.node.hub.selected .ring,.node.windows-worker.selected .ring,.node.pipeline.selected .ring,
+.node.hub:focus .ring,.node.windows-worker:focus .ring,.node.pipeline:focus .ring{opacity:.96;stroke-width:2.2}
 .sidebar h1{font:600 clamp(40px,3.55vw,57px)/.99 var(--type-display);letter-spacing:-.055em}
 .sidebar h1 em{color:#f0d7c8;font-weight:500}
 .sidebar .eyebrow{font-size:10px;letter-spacing:.23em;color:#bdc3cc}

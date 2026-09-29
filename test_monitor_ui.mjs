@@ -1054,7 +1054,7 @@ test('Orb web: hairline thread token mixed from the ink, rings fading outward, f
   assert.doesNotMatch(css.slice(css.indexOf('/* Orb web (spiderweb')), /light-dark\(/, 'no light-dark(): Safari before 17.5 lacks it');
   assert.match(rule('#web path'), /^fill:none;stroke:var\(--web-thread\);stroke-width:1;vector-effect:non-scaling-stroke;/);
   assert.ok(opacity('#web .ring-in') > opacity('#web .ring-mid') && opacity('#web .ring-mid') > opacity('#web .ring-out'), 'rings fade outward');
-  assert.ok(opacity('#web .web-filler') < opacity('#web .web-spoke') && opacity('#web .web-spoke') <= .25, 'faint fillers, low-opacity spokes');
+  assert.ok(opacity('#web .web-filler') < opacity('#web .web-spoke') && opacity('#web .web-spoke') <= .30, 'faint fillers, low-opacity spokes');
   // High contrast: the data edges and captions get stronger (the prefers-contrast block), the decorative web steps back.
   assert.match(css, /@media\(prefers-contrast:more\)\{#web \.web-ring,#web \.web-filler,#web \.web-spoke,#web \.web-bridge\{stroke-opacity:\.6\}\}/);
   assert.doesNotMatch(css, /prefers-contrast:more\)\{#web[^}]*\{opacity/, 'never raised under high contrast');
