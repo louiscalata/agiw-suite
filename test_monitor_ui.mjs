@@ -995,7 +995,7 @@ test('Round 3 (HIGH 1, MEDIUM, LOW): panel footers never inherit page-footer rul
 
 // Orb web wiring, 26-27 Sep 2026: the web layer, its cache, the poke and the heartbeat, against the same fake DOM with SVG
 // elements, a fake animation frame, fake timers and a fake clock (nothing here waits on real time).
-function webHarness({ reduced = false, forced = false } = {}) {
+function webHarness({ reduced = false, forced = false, hiddenWeb = false } = {}) {
   const doc = { elements: new Map() };
   doc.body = new FakeElement(doc, 'body');
   doc.activeElement = doc.body;
@@ -1011,13 +1011,15 @@ function webHarness({ reduced = false, forced = false } = {}) {
     return doc.elements.get(id);
   };
   let clock = 5000, nextId = 1;
-  const frames = new Map(), timers = new Map(), media = { reduce: reduced, forced };
+  const frames = new Map(), timers = new Map(), media = { reduce: reduced, forced, hiddenWeb };
   const window = { innerWidth: 1150, matchMedia: query => ({ matches: query.includes('reduced-motion') ? media.reduce : query.includes('forced-colors') ? media.forced : false }),
+    getComputedStyle: node => ({ display: node.id === 'web' && media.hiddenWeb ? 'none' : 'block' }),
+    setWebHidden: value => { media.hiddenWeb = value; },
     requestAnimationFrame: f => { const id = nextId++; frames.set(id, f); return id; }, cancelAnimationFrame: id => frames.delete(id) };
   const api = runInNewContext(`${definitions}
 ;({renderWeb,renderGlows,pokeWeb,syncWebPulse,build(){makeGraph();},
   get graph(){return graph;},get motion(){return webMotion;},get layout(){return webLayout;},get paths(){return webPathEls;},
-  setFeed(value,isConnected=true){snapshot=value;connected=isConnected;},setPaused(value){paused=value;}})`,
+  setFeed(value,isConnected=true){snapshot=value;connected=isConnected;},setPaused(value){paused=value;},setWebHidden(value){window.setWebHidden(value);}})`,
   { ...layout, ...usage, ...onlineMode, ...modelControl, document: doc, window, performance: { now: () => clock },
     setTimeout: (f, ms) => { const id = nextId++; timers.set(id, { f, at: clock + ms }); return id; }, clearTimeout: id => timers.delete(id) });
   const runFrames = (limit = 400) => { let n = 0; while (frames.size && n++ < limit) { clock += 1000 / 60; const [id, f] = frames.entries().next().value; frames.delete(id); f(clock); } return n; };
@@ -1190,6 +1192,26 @@ test('Orb web: a live job arms one heartbeat on the next 2 s boundary; pause, a 
   w.media.reduce = false; w.api.syncWebPulse(); assert.equal(w.timers.size, 1);
   w.api.setFeed(webFeed(true), false); w.api.syncWebPulse();
   assert.equal(w.timers.size, 0, 'a lost feed disarms it');
+});
+
+test('Orb web: CSS hiding stops heartbeat and poke motion while preserving static edge layout', () => {
+  const w = webHarness();
+  w.api.setFeed(webFeed(true)); w.api.build(); w.api.renderWeb();
+  assert.ok(w.api.layout.pathCount > 0, 'the cached layout remains available for static edge bends');
+  assert.equal(w.api.layout.edgeBends.length, w.api.graph.edges.length);
+  w.api.syncWebPulse();
+  assert.equal(w.timers.size, 1, 'visible web retains its heartbeat');
+  const [timer] = w.timers.values(); w.advance(timer.at - w.clock); w.timers.clear(); timer.f();
+  assert.equal(w.frames.size, 1, 'visible web starts its heartbeat animation');
+  w.api.setWebHidden(true); w.api.syncWebPulse();
+  assert.deepEqual([w.frames.size, w.timers.size], [0, 0], 'hiding the web cancels scheduled work');
+  assert.equal(w.api.motion.state.pulse, false, 'the hidden heartbeat is disarmed');
+  assert.equal(w.api.motion.state.framePending, false, 'the queued frame is canceled');
+  w.api.pokeWeb('runtime');
+  assert.deepEqual([w.frames.size, w.timers.size], [0, 0], 'hidden web does not start a poke');
+  assert.equal(w.$('web').querySelector('.web-flash').getAttribute('d'), '', 'hidden web does not build a flash path');
+  w.api.setWebHidden(false); w.api.syncWebPulse();
+  assert.equal(w.timers.size, 1, 'showing the web restores its live heartbeat');
 });
 
 // Fix Nisi + Jev and memory, 27 Sep 2026: the inspector's recovery summary and sticky action, the Fix panel's fourth

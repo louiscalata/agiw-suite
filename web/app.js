@@ -148,6 +148,7 @@ let webKey='',webLayout=null,webOverlayKey='',webBuilds=0,webPathEls=new Map(),w
 let webMotion=null,pulseKey='',flashTimer=null,glowKey='',glowZoom=NaN,webPlucking=false;
 const reducedMotion=()=>window.matchMedia?.('(prefers-reduced-motion: reduce)').matches===true,WEB_MINOR_ZOOM=.6;
 const forcedColors=()=>window.matchMedia?.('(forced-colors: active)').matches===true;
+function webHidden(){try{return window.getComputedStyle?.($('web')).display==='none';}catch(_){return false;}}
 function renderWeb(){
   const layer=$('web');if(!layer)return null;
   if(!graph.web){const key=orbWebKey(graph.nodes,graph.edges);if(key!==webKey||!webLayout){webMotion?.stop();webKey=key;webLayout=orbWebLayout(graph.nodes,graph.edges);webOverlayKey='';pulseKey='';webPathEls=new Map();webRest=new Map();webTouched=new Set();
@@ -191,14 +192,14 @@ function drawWebMotion(state){
 }
 // The heartbeat wobble runs only on a live feed (fresh, unpaused) with motion allowed; otherwise everything returns to rest.
 function syncWebPulse(){
-  if(!liveNow()||reducedMotion()||forcedColors()||!webLayout){if(webMotion&&pulseKey!=='off'){pulseKey='off';webMotion.stop();}return;}
+  if(webHidden()||!liveNow()||reducedMotion()||forcedColors()||!webLayout){if(webMotion){pulseKey='off';webMotion.stop();}return;}
   const ids=graph.nodes.filter(n=>n.active||n.inFlight).map(n=>n.id),key=`${webKey}#${ids.join('|')}`;if(key===pulseKey)return;
   const loop=webMotionLoop();if(!loop)return;pulseKey=key;loop.pulse(ids.length?orbWebPluck(webLayout,graph.nodes,graph.edges,ids,{beat:true}):null);
 }
 // A poke (click, tap, Enter or Space on a star) plucks its threads. A new poke restarts the wobble, it never stacks. Reduced motion or a
 // paused or stale feed gets one brief highlight of those threads instead; forced colours get nothing.
 function pokeWeb(id){
-  if(forcedColors()||!webLayout)return;
+  const hidden=webHidden();if(hidden||forcedColors()||!webLayout){if(hidden&&webMotion){pulseKey='off';webMotion.stop();}return;}
   const plan=orbWebPluck(webLayout,graph.nodes,graph.edges,[id]);
   if(reducedMotion()||!liveNow()){flashWeb(plan);return;}
   webMotionLoop()?.poke(plan);
