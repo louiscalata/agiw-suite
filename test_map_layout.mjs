@@ -759,6 +759,12 @@ test('C and follow-up 2: the Mac chip adds a known GPU sample; only a live activ
   assert.equal(vitalsView({ ...base, activityKnown: false, gpu: { known: true, chip: 'GPU 46%' } }).mac.short, 'Activity unknown · GPU 46%');
   assert.deepEqual(vitalsView({ ...base, models: [{ state: 'generating', loaded: true }], gpu: { known: true, chip: 'GPU 92%' } }).mac,
     { tone: 'live', detail: '1 generating · GPU 92%', short: '1 generating · GPU 92%' });
+  assert.deepEqual(vitalsView({ ...base, models: [{ state: 'busy', loaded: true }], gpu: { known: true, chip: 'GPU 92%' } }).mac,
+    { tone: 'live', detail: '1 busy · GPU 92%', short: '1 busy · GPU 92%' });
+  assert.equal(vitalsView({ ...base, activityKnown: false, models: [{ state: 'generating', loaded: true }] }).mac.detail,
+    '1 loaded · activity unknown');
+  assert.deepEqual(vitalsView({ ...base, activityLive: false, models: [{ state: 'generating', loaded: true }] }).mac,
+    { tone: 'muted', detail: '1 loaded · activity unknown' });
   assert.deepEqual(vitalsView({ ...base, gpu: { known: false, chip: null } }).mac, { tone: 'ok', detail: '1 loaded · idle' });
   assert.deepEqual(vitalsView({ ...base, fresh: false, gpu: { known: true, chip: 'GPU 46%' } }).mac, { tone: 'muted', detail: 'Signal stale' });
   const open = activityFeed({ inFlight: [{ id: 'j', client: 'claude', lane: 'deep', ageSeconds: 1 }] }, [], { feedFresh: true });

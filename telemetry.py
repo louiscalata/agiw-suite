@@ -1662,7 +1662,9 @@ def _model_row(model_id: str, name: str, *, state: str, loaded: bool | None,
     raw_status = raw.get("status")
     if raw_status == "generating":
         state = "generating"
-    elif raw_status == "busy":
+    elif raw_status in ("busy", "processingPrompt"):
+        # LM Studio reports this exact phase while evaluating the prompt,
+        # before it transitions to generating output tokens.
         state = "busy"
     elif raw_status == "idle":
         state = "idle"

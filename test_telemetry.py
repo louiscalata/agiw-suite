@@ -552,12 +552,14 @@ class TelemetryParsingTests(unittest.TestCase):
         payload = {"models": [
             {"identifier": "provider/idle", "displayName": "Idle", "status": "idle", "queued": 0},
             {"identifier": "provider/generating", "status": "generating", "queued": 0},
+            {"identifier": "provider/prompt", "status": "processingPrompt", "queued": 0},
             {"identifier": "provider/queued", "status": "idle", "queued": 2},
             {"identifier": "provider/future", "status": "warming-up", "queued": 0},
         ]}
         rows = {row["id"]: row for row in telemetry._parse_lms(payload, time.time())}
         self.assertEqual(rows["provider/idle"]["state"], "idle")
         self.assertEqual(rows["provider/generating"]["state"], "generating")
+        self.assertEqual(rows["provider/prompt"]["state"], "busy")
         self.assertEqual(rows["provider/queued"]["state"], "idle")
         self.assertEqual(rows["provider/queued"]["queued"], 2)
         self.assertEqual(rows["provider/future"]["state"], "loaded")

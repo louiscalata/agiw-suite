@@ -80,6 +80,21 @@ test('future snapshot cannot keep a busy runtime model live',()=>{
   assert.equal(result.activeNodes,0);
 });
 
+test('aura cadence follows only a fresh, verified model phase and stops for pause or stale evidence',()=>{
+  const projectActivity=(state,{activityKnown=true,paused=false,ageSeconds=0,sampledAt=Date.now()/1000,loaded=true}={})=>{
+    const row={id:'google/gemma-3-4b',host:'mac',state,loaded,ageSeconds,queued:1,source:'lms-ps'};
+    const script=`${source}\nsnapshot={host:'mac',sampledAt:${sampledAt},fullSampledAt:${sampledAt},models:${JSON.stringify([row])},clients:[],sources:[{id:'lms-ps',state:'live'}],activityKnown:${activityKnown},pipeline:{status:'idle'}};connected=true;paused=${paused};runtimeGraph();({active:graph.nodes.find(n=>n.kind==='model').active,periodMs:graph.nodes.find(n=>n.kind==='model').auraPeriodMs,subtitle:graph.nodes.find(n=>n.kind==='model').subtitle})`;
+    return JSON.parse(JSON.stringify(runInNewContext(script,{...layoutContext,Date,Set,Map,Math,Number,String,Array,Object,window:{innerWidth:820},document:{getElementById:id=>id==='graphRegion'?{clientWidth:590,clientHeight:546}:null}})));
+  };
+  assert.deepEqual(projectActivity('busy'),{active:true,periodMs:2400,subtitle:'Busy'});
+  assert.deepEqual(projectActivity('generating'),{active:true,periodMs:1200,subtitle:'Generating'});
+  assert.deepEqual(projectActivity('idle'),{active:false,periodMs:null,subtitle:'Idle'});
+  assert.deepEqual(projectActivity('generating',{activityKnown:false}),{active:false,periodMs:null,subtitle:'Activity unverified'});
+  assert.deepEqual(projectActivity('generating',{paused:true}),{active:false,periodMs:null,subtitle:'At pause: Generating'});
+  assert.deepEqual(projectActivity('generating',{sampledAt:Date.now()/1000-8}),{active:false,periodMs:null,subtitle:'Stale'});
+  assert.deepEqual(projectActivity('generating',{loaded:false}),{active:false,periodMs:null,subtitle:'Activity unverified'});
+});
+
 test('Windows and Mac snapshots retain the same client identity branches',()=>{
   const clients=[{id:'opencode',model:'qwen3',modelState:'configured',models:[{id:'qwen3',modelState:'configured',source:'config'}]}];
   for(const host of ['mac','windows']){

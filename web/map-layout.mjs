@@ -694,22 +694,25 @@ export function routeQueuedWords(pipeline) {
 
 export function vitalsView({fresh = false, pcFresh = fresh, models = [], activityKnown = false, loadedKnown = false, lanes = null, worker = null,
   jobs = null, pipeline = null, nisi = null, feed = [], gpu = null, pcGpu = null, memory = null, activityLive = fresh } = {}) {
-  const active = models.filter(m => ACTIVE_STATES.has(m.state)).length, loaded = models.filter(m => m.loaded === true).length;
+  const knownNow = activityKnown && activityLive;
+  const activeModels = fresh && knownNow ? models.filter(m => m.loaded === true && ACTIVE_STATES.has(m.state)) : [];
+  const active = activeModels.length, loaded = models.filter(m => m.loaded === true).length;
+  const activityLabel = active ? `${active} ${activeModels.every(m => m.state === 'generating') ? 'generating' : activeModels.every(m => m.state === 'busy') ? 'busy' : 'working'}` : null;
   const mac = !fresh ? { tone: 'muted', detail: 'Signal stale' }
-    : active ? { tone: 'live', detail: `${active} generating` }
-      : { tone: 'ok', detail: `${loadedKnown ? `${loaded} loaded` : 'Loaded unknown'} · ${activityKnown ? 'idle' : 'activity unknown'}` };
+    : active ? { tone: 'live', detail: activityLabel }
+      : { tone: knownNow ? 'ok' : 'muted', detail: `${loadedKnown ? `${loaded} loaded` : 'Loaded unknown'} · ${knownNow ? 'idle' : 'activity unknown'}` };
   // A fresh GPU sample joins the Mac chip after what the models are doing ("1 loaded · idle · GPU 46%"), so a
   // whole-GPU figure never reads as a model at work. The short chip keeps the state and the GPU ("Idle · GPU 46%").
   if (fresh && gpu?.known) {
-    mac.short = `${active ? `${active} generating` : activityKnown ? 'Idle' : 'Activity unknown'} · ${gpu.chip}`;
+    mac.short = `${activityLabel || (knownNow ? 'Idle' : 'Activity unknown')} · ${gpu.chip}`;
     mac.detail = `${mac.detail} · ${gpu.chip}`;
   }
   // Tight or critical memory (memoryView) adds its word: last in the long form, first in the short and tiny ones so an
-  // ellipsis never cuts it. The chip turns warn unless a model is generating; the word, not the colour, says why.
+  // ellipsis never cuts it. The chip turns warn unless a model is working; the word, not the colour, says why.
   const memoryWord = fresh && memory?.alert && typeof memory.word === 'string' ? memory.word : null;
   if (memoryWord) {
     if (mac.tone !== 'live') mac.tone = 'warn';
-    mac.short = `${memoryWord} · ${active ? `${active} generating` : activityKnown ? 'Idle' : 'Activity unknown'}${gpu?.known ? ` · ${gpu.chip}` : ''}`;
+    mac.short = `${memoryWord} · ${activityLabel || (knownNow ? 'Idle' : 'Activity unknown')}${gpu?.known ? ` · ${gpu.chip}` : ''}`;
     mac.detail = `${mac.detail} · ${memoryWord}`;
   }
   const laneUp = lanes?.visible ? lanes.lanes.filter(lane => lane.up) : [];
@@ -753,7 +756,7 @@ export function vitalsView({fresh = false, pcFresh = fresh, models = [], activit
         running ? 'running' : open ? 'in flight at last sample' : last.state === 'cancelled' ? 'cancelled' : last.rate].filter(Boolean).join(' ') };
   const short = { ...activity, detail: !last ? 'None yet' : [last.probe ? 'probe' : last.client || 'unknown', '→', last.target.replace('Nisi Inference → ', '').replace('Nisi Inference route', 'route')].join(' ') };
   // Tiny forms: what each chip still says when even its short form does not fit (the app steps down to them).
-  const macTiny = active ? `${active} generating` : activityKnown ? 'Idle' : 'Activity unknown';
+  const macTiny = activityLabel || (knownNow ? 'Idle' : 'Activity unknown');
   const tiny = !fresh ? {} : { mac: memoryWord ? `${memoryWord} · ${macTiny}` : macTiny,
     pc: !pcFresh ? 'Heartbeat stale' : ['degraded', 'stopped'].includes(worker?.state) ? pcShort : fast && Number.isFinite(fast.rate) ? `fast ${rateText(fast.rate)}` : headlessShort,
     route: route.detail.split(' · ')[0] };
@@ -1168,6 +1171,6 @@ export function glowRadius(zoom, { radius = 110, maxScreen = 150 } = {}) {
 export function webGlows(nodes, { fresh = false } = {}) {
   if (fresh !== true) return { glows: [], key: '' };
   const glows = [...webNodes(nodes).values()].filter(node => node.active === true || node.inFlight === true).slice(0, ORB_WEB_LIMITS.glows)
-    .map(node => ({ id: node.id, x: node.x, y: node.y, tone: node.active === true ? 'working' : 'flight', color: node.active === true ? GLOW_WORKING : safeGlowColor(node.color) }));
-  return { glows, key: glows.map(glow => `${glow.id}|${webNum(glow.x)}|${webNum(glow.y)}|${glow.color}`).join(';') };
+    .map(node => ({ id: node.id, x: node.x, y: node.y, tone: node.active === true ? 'working' : 'flight', color: node.active === true ? GLOW_WORKING : safeGlowColor(node.color), periodMs: [1200, 2400].includes(node.auraPeriodMs) ? node.auraPeriodMs : null }));
+  return { glows, key: glows.map(glow => `${glow.id}|${webNum(glow.x)}|${webNum(glow.y)}|${glow.color}|${glow.periodMs ?? ''}`).join(';') };
 }

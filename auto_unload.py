@@ -3,8 +3,8 @@
 Policy
   * Automatic unloading starts disabled. A private config or the app-only API must explicitly
     enable it after the router admission hold is available; idle tracking still runs while off.
-  * The Nisi Inference route pair (ROUTE_PAIR) is never auto-unloaded. The config's ``protect``
-    list adds to the pair; it cannot remove it.
+  * The exact resident Nisi author/reviewer pair is never auto-unloaded. The config's ``protect``
+    list adds to the pair; it cannot remove it. Uncertain pair evidence blocks unloading.
   * Any other loaded Mac LM Studio instance (LLM or embedding) is unloaded once the monitor
     has watched it idle for ``idleMinutes`` (default 20). An LLM instance waits only
     ``tightIdleMinutes`` (default 5) once mem-guard's level has stayed tight or critical for
@@ -55,7 +55,7 @@ try:
 except ImportError:  # no flock (not macOS/Linux): this unloader never owns the lock, never unloads
     fcntl = None
 
-ROUTE_PAIR = ("google/gemma-4-26b-a4b-qat", "qwen/qwen3.8-27b")
+ROUTE_DEFAULT_AUTHOR = "google/gemma-4-26b-a4b-qat"
 DEFAULT_CONFIG_PATH = Path.home() / ".config/agiw/auto-unload.json"
 DEFAULT_JOURNAL_PATH = Path.home() / ".local/state/inference-monitor/auto-unload.jsonl"
 LOCK_NAME = "auto-unload.lock"
@@ -97,7 +97,7 @@ UNRESOLVED_ROUTE = "an unresolved route record exists; reconcile it"
 CONFIG_KEYS = frozenset({"enabled", "idleMinutes", "tightIdleMinutes", "protect", "maxPerHour"})
 CONFIG_RANGES = {"idleMinutes": (5, 240), "tightIdleMinutes": (1, 60), "maxPerHour": (1, 60)}
 DEFAULT_CONFIG = {"enabled": False, "idleMinutes": 20, "tightIdleMinutes": 5,
-                  "protect": list(ROUTE_PAIR), "maxPerHour": 6}
+                  "protect": [], "maxPerHour": 6}
 
 JOURNAL_KEYS = ("ts", "attemptTs", "model", "instanceId", "idleSeconds", "reason",
                 "memoryLevel", "result", "message", "operationId")
@@ -346,6 +346,46 @@ def route_problem(snapshot: dict) -> Optional[str]:
     return None
 
 
+def resident_route_pair(rows: Any) -> Optional[tuple[str, str]]:
+    """Return the exact pair selected by the Nisi Mac route, or None if uncertain."""
+    if not isinstance(rows, list):
+        return None
+    found_source = False
+    identifiers: list[str] = []
+    all_identifiers: list[str] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            return None
+        if row.get("source") != "lms-ps":
+            continue
+        found_source = True
+        if row.get("host") != "mac":
+            return None
+        loaded = row.get("loaded")
+        if loaded is not True:
+            return None
+        metadata = row.get("metadata")
+        kind = metadata.get("type") if isinstance(metadata, dict) else None
+        if kind not in ("llm", "embedding"):
+            return None
+        identifier, model_key = row.get("id"), row.get("modelKey")
+        if (not isinstance(identifier, str) or not MODEL_ID.fullmatch(identifier)
+                or not isinstance(model_key, str) or not MODEL_ID.fullmatch(model_key)):
+            return None
+        all_identifiers.append(identifier)
+        if kind == "llm":
+            if identifier != model_key:
+                return None
+            identifiers.append(identifier)
+    if (not found_source or len(set(all_identifiers)) != len(all_identifiers)
+            or len(identifiers) < 2 or len(set(identifiers)) != len(identifiers)):
+        return None
+    ids = sorted(identifiers)
+    author = ROUTE_DEFAULT_AUTHOR if ROUTE_DEFAULT_AUTHOR in ids else ids[0]
+    reviewer = next((model for model in ids if model != author), None)
+    return (author, reviewer) if reviewer is not None else None
+
+
 class AutoUnloader:
     """Idle tracking and bounded auto-unload; call tick(snapshot) once per full sample."""
 
@@ -381,6 +421,8 @@ class AutoUnloader:
         self._unwritten: collections.deque = collections.deque(maxlen=UNWRITTEN_MAX)
         self._recent: collections.deque = collections.deque(maxlen=RECENT_LIMIT)
         self._config = dict(DEFAULT_CONFIG, protect=list(DEFAULT_CONFIG["protect"]))
+        self._route_pair: Optional[tuple[str, str]] = None
+        self._route_pair_uncertain = True
         self._config_error: Optional[str] = None
         self._config_sig: Any = ("unread",)
         self._journal_error: Optional[str] = None
@@ -446,7 +488,7 @@ class AutoUnloader:
         except Exception as error:
             return {"enabled": False, "idleMinutes": DEFAULT_CONFIG["idleMinutes"],
                     "tightIdleMinutes": DEFAULT_CONFIG["tightIdleMinutes"],
-                    "maxPerHour": DEFAULT_CONFIG["maxPerHour"], "protect": list(ROUTE_PAIR),
+                    "maxPerHour": DEFAULT_CONFIG["maxPerHour"], "protect": list(self._protect_list()),
                     "thresholdSeconds": None, "memoryLevel": None,
                     "blocked": f"state unavailable ({type(error).__name__})", "candidates": [],
                     "recent": [], "unloadsLastHour": 0, "configError": None,
@@ -570,7 +612,8 @@ class AutoUnloader:
             raise
 
     def _protect_list(self) -> list:
-        return list(dict.fromkeys(list(ROUTE_PAIR) + list(self._config["protect"])))
+        pair = list(self._route_pair) if self._route_pair is not None else []
+        return list(dict.fromkeys(pair + list(self._config["protect"])))
 
     def _protected(self, row: dict, protect: frozenset) -> bool:
         for name in (row.get("modelKey"), row.get("id"), row.get("instanceId")):
@@ -748,13 +791,19 @@ class AutoUnloader:
         self._threshold = threshold
         problem = feed_problem(snapshot, wall)
         if problem is None:
-            self._candidates = self._observe(snapshot, mono, threshold, normal)
+            self._route_pair = resident_route_pair(snapshot["models"])
+            self._route_pair_uncertain = self._route_pair is None
+            self._candidates = ([] if self._route_pair_uncertain else
+                                self._observe(snapshot, mono, threshold, normal))
         else:
+            self._route_pair = None
+            self._route_pair_uncertain = True
             self._candidates = []
         blocked = (f"config invalid: {self._config_error}" if self._config_error is not None
                    else "auto-unload is off" if not config["enabled"]
                    else self._owner_problem if not owner
-                   else problem or route_problem(snapshot)
+                   else problem or ("Nisi resident model pair is uncertain" if self._route_pair_uncertain else None)
+                   or route_problem(snapshot)
                    or ("waiting for the previous auto-unload to confirm" if self._pending is not None else None)
                    or ("journal write failed; retrying it before any further unload" if self._unwritten else None)
                    or self._busy()

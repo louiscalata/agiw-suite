@@ -1061,7 +1061,7 @@ test('Orb web: hairline thread token mixed from the ink, rings fading outward, f
   assert.match(css, /@media\(prefers-contrast:more\)\{#web \.web-ring,#web \.web-filler,#web \.web-spoke,#web \.web-bridge\{stroke-opacity:\.6\}\}/);
   assert.doesNotMatch(css, /prefers-contrast:more\)\{#web[^}]*\{opacity/, 'never raised under high contrast');
   // Forced colours hide both layers and stop the hidden glows' animation (renderGlows builds none there either).
-  assert.match(css, /@media\(forced-colors:active\)\{#web,#glows\{display:none\}#glows \.glow\{animation:none\}\}/);
+  assert.match(css, /@media\(forced-colors:active\)\{#web,#glows\{display:none\}#glows \.glow\{animation:none\}\.node\.model\.active \.halo\{filter:none\}\}/);
   // The monitor ships one dark theme; the stylesheet says so instead of claiming a light palette that does not exist.
   assert.match(css, /:root\{--paper:#000;[^}]*color-scheme:dark;/);
   assert.match(css, /\.graph-region\{position:absolute;inset:0;background:#000\}/);
@@ -1086,9 +1086,9 @@ test('Orb web: nothing travels along a thread; reduced motion, pause and a stale
   assert.match(css, /@media\(prefers-reduced-motion:reduce\)\{\.node\.active \.halo\{animation:none!important\}\}/);
   assert.match(css, /@media\(prefers-reduced-motion:reduce\)\{\.node\.in-flight \.halo\{animation:none!important\}\}/);
   assert.match(css, /\.edge\.in-flight\{stroke-dasharray:6 6;opacity:\.95;stroke-width:2\.2\}/);
-  // One clock: every breathe and glow-beat animation is pinned to a 2 s boundary of the document timeline.
+  // Each model halo and its glow align to their own phase cadence; other live nodes keep the 2 s default.
   assert.match(appSource, /const BEAT_MS=2000,BEAT_ANIMATIONS=new Set\(\['breathe','glow-beat'\]\);/);
-  assert.match(appSource, /const aligned=Math\.floor\(start\/BEAT_MS\)\*BEAT_MS;if\(a\.startTime!==aligned\)\{try\{a\.startTime=aligned;\}catch\(_\)\{\}\}/);
+  assert.match(appSource, /period=Number\.isFinite\(duration\)&&duration>0\?duration:BEAT_MS,aligned=Math\.floor\(start\/period\)\*period;/);
   assert.match(appSource, /applyCamera\(\);renderModelAction\(\);syncWebPulse\(\);syncBeat\(\);\n\}/);
   assert.match(appSource, /document\.body\.classList\.toggle\('disconnected',!fresh\(\)\);syncWebPulse\(\);/);
 });
@@ -1171,6 +1171,26 @@ test('Orb web: a live job with motion allowed puts nothing on the threads; reduc
   forced.api.setFeed(webFeed(true)); forced.api.build(); forced.api.renderWeb(); forced.api.renderGlows();
   assert.equal(forced.$('glows').children.length, 0, 'the layer is hidden there, so no glow (and no glow animation) is built');
   assert.equal(forced.$('web').querySelector('.web-live').children.length, 0);
+});
+
+test('a verified model aura follows busy to generating cadence and stops when activity is paused or idle', () => {
+  const w = webHarness();
+  const modelGlow = () => w.$('glows').querySelectorAll('.glow').find(node => node.getAttribute('data-node')?.startsWith('model:'));
+  const busy = webFeed(true); busy.models[0].state = 'busy';
+  w.api.setFeed(busy); w.api.build(); w.api.renderGlows();
+  assert.equal(w.api.graph.nodes.find(node => node.kind === 'model').auraPeriodMs, 2400);
+  assert.equal(modelGlow()?.getAttribute('style'), 'animation-duration:2400ms');
+  const first = modelGlow();
+  const generating = webFeed(true);
+  w.api.setFeed(generating); w.api.build(); w.api.renderGlows();
+  assert.equal(w.api.graph.nodes.find(node => node.kind === 'model').auraPeriodMs, 1200);
+  assert.equal(modelGlow()?.getAttribute('style'), 'animation-duration:1200ms');
+  assert.notEqual(modelGlow(), first, 'the phase change refreshes the glow cadence');
+  w.api.setPaused(true); w.api.build(); w.api.renderGlows();
+  assert.equal(modelGlow(), undefined, 'a paused model has no active aura');
+  w.api.setPaused(false); w.api.setFeed(webFeed(false)); w.api.build(); w.api.renderGlows();
+  assert.equal(modelGlow(), undefined, 'an idle model has no active aura');
+  assert.match(appSource, /halo\.setAttribute\('style',n\.auraPeriodMs\?`animation-duration:\$\{n\.auraPeriodMs\}ms`:''\)/);
 });
 
 test('Orb web: a live job arms one heartbeat on the next 2 s boundary; pause, a stale feed or reduced motion disarm it', () => {
