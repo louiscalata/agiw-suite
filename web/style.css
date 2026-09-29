@@ -119,10 +119,10 @@ main{display:block;position:relative}
 .node .label,.node .sub{opacity:0;transition:opacity .13s ease;paint-order:stroke;stroke:#000;stroke-width:4px;stroke-linejoin:round}
 .node:hover .label,.node:hover .sub,.node:focus-visible .label,.node:focus-visible .sub,.node:focus .label,.node:focus .sub,.node.selected .label,.node.selected .sub{opacity:1}
 .node.hub .label,.node.windows-worker .label{opacity:.96}
-.node.hub .label{fill:#ffe1d0;font-family:Georgia,serif;letter-spacing:-.3px}
+.node.hub .label{fill:#ededed;font-family:Georgia,serif;letter-spacing:-.3px}
 .node.pipeline .label{opacity:0}
 .node .core{stroke:#000;stroke-width:2.5}
-.node.hub .core{stroke:#ffd2b4;stroke-width:1.5;filter:drop-shadow(0 0 6px #ff9b65dd) drop-shadow(0 0 18px #ff9b6580)}
+.node.hub .core{stroke:#dedede;stroke-width:1.5;filter:drop-shadow(0 0 6px #d6d6d6c0) drop-shadow(0 0 18px #a5abb580)}
 .node.client .core{stroke:#d9c9ff;stroke-width:1.25}
 .node.client-model .core{stroke:#000;stroke-width:2}
 .node.unknown .core{fill:#000;stroke:currentColor;stroke-width:1.8}
@@ -648,12 +648,13 @@ body>footer,body>footer button{font-size:10px}
    animation to 2 s boundaries of the document timeline, and the wobble (at most 30 frames a second) fires on the same
    boundaries. The glow brightens as the halo ring expands. */
 .node.active .halo,.node.in-flight .halo{transform-box:fill-box;transform-origin:center;animation:breathe 2s ease-out infinite}
+.node.model.active .halo{stroke-width:2.4;filter:drop-shadow(0 0 5px #63d6ac) drop-shadow(0 0 14px #63d6ac99)}
 #glows{opacity:var(--glow-peak)}
 #glows .glow{opacity:.4;animation:glow-beat 2s ease-in-out infinite}
 @keyframes glow-beat{0%{opacity:.4}28%{opacity:1}100%{opacity:.4}}
 .paused #glows .glow,.disconnected #glows .glow{animation:none;opacity:.2}
 @media(prefers-reduced-motion:reduce){#glows .glow{animation:none;opacity:.5}}
-@media(forced-colors:active){#web,#glows{display:none}#glows .glow{animation:none}}
+@media(forced-colors:active){#web,#glows{display:none}#glows .glow{animation:none}.node.model.active .halo{filter:none}}
 
 /* Fix Nisi Inference and memory (27 Sep). */
 /* The fourth scope segment is a little wider ("Nisi Inference"); every segment keeps its label on one line. */
@@ -719,7 +720,7 @@ body>footer,body>footer button{font-size:10px}
 :root{--portfolio-rail:clamp(354px,31vw,464px);--portfolio-rule:#303137;--portfolio-soft:#aeb3bd}
 .topbar{height:74px;padding:0 clamp(18px,2.5vw,36px);gap:18px;background:#000;border-bottom:1px solid var(--portfolio-rule)}
 .brand{gap:14px;flex:0 0 auto;min-width:0}
-.brand-monogram{display:grid;place-items:center;width:46px;height:46px;flex:none;border:1px solid #b6c4db;border-radius:1px;background:#090909;color:#f5f5f4;font:700 16px/1 var(--type-display);letter-spacing:-.05em;box-shadow:0 0 22px #82b7ff20,inset 0 0 12px #82b7ff0c}
+.brand-monogram{display:grid;place-items:center;width:46px;height:46px;flex:none;border:1px solid #c2ddff;border-radius:1px;background:radial-gradient(circle at 30% 22%,#1b2b42 0,#080b12 55%,#050506 100%);color:#fff;font:700 16px/1 var(--type-display);letter-spacing:-.05em;text-shadow:0 0 9px #e9f4ffb3,0 0 19px #86baff8c;box-shadow:0 0 0 1px #b7d8ff36,0 0 15px #82b7ff9c,0 0 38px #659cff5c,0 0 48px #f5a77529,inset 0 0 15px #82b7ff36}
 .brand-wordmark{display:flex;flex-direction:column;gap:3px;min-width:0}
 .brand-wordmark strong{font:600 13px/1.05 var(--type-display);letter-spacing:.15em;text-transform:uppercase;white-space:nowrap}
 .brand-wordmark small{font:500 10px/1.1 var(--type-body);letter-spacing:.16em;text-transform:uppercase;color:var(--portfolio-soft);white-space:nowrap}
@@ -730,8 +731,16 @@ body>footer,body>footer button{font-size:10px}
 .tools #pause,.tools #expand,.tools #quit{border-radius:2px}
 .connection.live{color:#88e6c1}
 main{height:calc(100% - 108px)}
-.graph-region{background:radial-gradient(circle at 49% 31%,#ff895214,transparent 27%),radial-gradient(circle at 73% 33%,#82b7ff12,transparent 30%),radial-gradient(circle at 27% 35%,#b6a1e812,transparent 31%),radial-gradient(circle at 50% 74%,#7b5de318,transparent 43%),#000}
+.graph-region{background:radial-gradient(circle at 49% 31%,#e4e4e412,transparent 27%),radial-gradient(circle at 73% 33%,#82b7ff12,transparent 30%),radial-gradient(circle at 27% 35%,#b6a1e812,transparent 31%),radial-gradient(circle at 50% 74%,#7b5de318,transparent 43%),#000}
 .node.hub .ring,.node.windows-worker .ring,.node.pipeline .ring{opacity:.34;stroke-width:1.2}
+.node.client .ring{opacity:.72;stroke-width:1.9}
+.node.client .halo{opacity:.35;stroke-width:1.4}
+.node.client .core{stroke:currentColor;stroke-width:2.1}
+.node.client:not(.unknown) .core{filter:drop-shadow(0 0 5px currentColor)}
+.node.client.unknown .ring{opacity:.62}
+.node.client .label{opacity:1;fill:currentColor;font-weight:650}
+.node.client-model .ring{opacity:.27;stroke-width:1.1}
+.node.client-model .halo{opacity:.23}
 .node.model.loaded .core{filter:drop-shadow(0 0 7px currentColor)}
 .node.model.loaded:not(.active) .core{filter:drop-shadow(0 0 5px currentColor) drop-shadow(0 0 14px currentColor)}
 .node.hub.selected .ring,.node.windows-worker.selected .ring,.node.pipeline.selected .ring,
@@ -761,6 +770,15 @@ main{height:calc(100% - 108px)}
 .sidebar .item:hover,.sidebar .item.selected{background:#17191f}
 .sidebar .source-details{border-top-color:var(--portfolio-rule)}
 .panel,.drawer,.mode-details,.map-controls,.legend,.about-panel{border-color:var(--portfolio-rule)}
+.legend .agent-key{display:flex;flex:1 0 100%;flex-wrap:wrap;align-items:center;gap:7px 12px;padding-top:8px;border-top:1px solid #353841}
+.legend .agent-key strong{font:700 10px/1 var(--type-body);letter-spacing:.13em;color:#cbd2df}
+.legend .agent-key span{display:inline-flex;align-items:center;gap:5px;white-space:nowrap;color:#e2e5eb}
+.legend .agent-color{display:inline-block;width:8px;height:8px;border-radius:50%;border:1px solid currentColor;background:currentColor;box-shadow:0 0 7px currentColor}
+.legend .agent-color.codex{color:#70bbff}
+.legend .agent-color.claude{color:#ffae73}
+.legend .agent-color.opencode{color:#65e3b2}
+.legend .agent-color.cursor{color:#b99aff}
+.legend .agent-color.grok{color:#ff91c1}
 
 @media (min-width:980px){
   main{display:grid;grid-template-columns:minmax(0,1fr) var(--portfolio-rail);isolation:isolate;min-height:0}
@@ -818,5 +836,5 @@ main{height:calc(100% - 108px)}
   .tools #expand,.tools #quit{width:36px;min-width:36px;min-height:36px;padding:0}
 }
 @media (prefers-contrast:more){.brand-monogram{border-color:#fff}.sidebar,.evidence-rail{border-color:#a0a7b5}.sidebar .view-tabs button[aria-pressed=true]{outline:2px solid var(--blue);outline-offset:-2px}}
-@media (forced-colors:active){.brand-monogram{border:1px solid CanvasText;color:CanvasText;box-shadow:none}.graph-region::before{display:none}.node.hub .core,.node.model.loaded .core,.node.model.loaded:not(.active) .core{filter:none}}
+@media (forced-colors:active){.brand-monogram{border:1px solid CanvasText;color:CanvasText;background:Canvas;text-shadow:none;box-shadow:none}.graph-region::before{display:none}.node.hub .core,.node.model.loaded .core,.node.model.loaded:not(.active) .core,.node.client .core{filter:none}.legend .agent-color{color:CanvasText;box-shadow:none}}
 .vital strong{font-size:10px}

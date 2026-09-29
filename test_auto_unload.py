@@ -15,9 +15,11 @@ from unittest import mock
 
 import auto_unload as au
 
-GEMMA, QWEN = au.ROUTE_PAIR
-OTHER = "openai/gpt-oss-20b"
-SECOND = "lab/second-llm"
+GEMMA = "google/gemma-4-26b-a4b-qat"
+GEMMA3 = "google/gemma-3-4b"
+QWEN = "qwen/qwen3.8-27b"
+OTHER = "t/openai/gpt-oss-20b"
+SECOND = "s/second-llm"
 EMBED = "text-embedding-nomic-embed-text-v1.5"
 MINUTE = 60.0
 
@@ -42,7 +44,8 @@ def row(key, *, state="idle", queued=0, instance=None, age=0.0, confirm=True, **
     instance = instance or key
     value = {"id": instance, "name": key, "host": "mac", "state": state, "loaded": True,
              "queued": queued, "source": "lms-ps", "ageSeconds": age, "modelKey": key,
-             "instanceId": instance, "loadedInstanceIds": [instance] if confirm else None}
+             "instanceId": instance, "loadedInstanceIds": [instance] if confirm else None,
+             "metadata": {"type": "embedding" if "embed" in key.casefold() else "llm"}}
     value.update(extra)
     return value
 
@@ -301,9 +304,9 @@ class RequestEvidenceTests(Base):
 
         def make():
             api = {"id": OTHER, "host": "mac", "source": "lmstudio-api", "loaded": True, "state": "loaded",
-                   "modelKey": OTHER, "loadedInstanceIds": ["alias"],
-                   "metadata": metadata("alias", ttl=600 - (elapsed["s"] % 120))}
-            return snapshot(self.clock, self.pair_and(row(OTHER, instance="alias", confirm=False), api))
+                   "modelKey": OTHER, "loadedInstanceIds": [OTHER],
+                   "metadata": metadata(OTHER, ttl=600 - (elapsed["s"] % 120))}
+            return snapshot(self.clock, self.pair_and(row(OTHER), api))
         unloader.tick(make())
         while elapsed["s"] < 40 * MINUTE:
             self.clock.advance(5)
@@ -426,12 +429,38 @@ class ThresholdTests(Base):
 class ProtectionTests(Base):
     def test_route_pair_is_never_unloaded(self):
         unloader = self.make()
-        rows = [row(GEMMA), row(QWEN), row(QWEN, instance=f"{QWEN}:2"),
-                row(GEMMA.upper(), instance="alias-without-key", modelKey=GEMMA.upper())]
+        rows = [row(GEMMA), row(QWEN)]
         state = self.drive(unloader, 3 * 3600, lambda: snapshot(self.clock, rows, memory="critical"), step=10)
         self.assertEqual(self.control.calls, [])
         self.assertEqual(state["candidates"], [])
-        self.assertEqual(state["protect"], list(au.ROUTE_PAIR))
+        self.assertEqual(state["protect"], [GEMMA, QWEN])
+
+    def test_selected_resident_pair_is_protected_and_unselected_qwen_can_unload(self):
+        unloader = self.make()
+        rows = [row(GEMMA), row(GEMMA3), row(QWEN)]
+        make = lambda: snapshot(self.clock, [item for item in rows if item["id"] not in self.control.calls],
+                                memory="critical")
+        state = self.drive(unloader, 25 * MINUTE, make)
+        self.assertEqual(self.control.calls, [QWEN])
+        self.assertEqual(state["protect"], [GEMMA, GEMMA3])
+
+    def test_uncertain_resident_pair_blocks_all_unloads(self):
+        unloader = self.make()
+        rows = [row(GEMMA), row(QWEN, instance=f"{QWEN}:3")]
+        state = self.drive(unloader, 30 * MINUTE,
+                           lambda: snapshot(self.clock, rows, memory="critical"))
+        self.assertEqual(self.control.calls, [])
+        self.assertEqual(state["candidates"], [])
+        self.assertEqual(state["blocked"], "Nisi resident model pair is uncertain")
+        self.assertEqual(state["protect"], [])
+
+    def test_single_resident_model_blocks_all_unloads(self):
+        unloader = self.make()
+        state = self.drive(unloader, 30 * MINUTE,
+                           lambda: snapshot(self.clock, [row(GEMMA)], memory="critical"))
+        self.assertEqual(self.control.calls, [])
+        self.assertEqual(state["candidates"], [])
+        self.assertEqual(state["blocked"], "Nisi resident model pair is uncertain")
 
     def test_suffixed_pair_instance_without_a_model_key_is_still_protected(self):
         unloader = self.make()
@@ -449,7 +478,7 @@ class ProtectionTests(Base):
         self.assertEqual(state["protect"], [GEMMA, QWEN, OTHER])
         self.write_config({"protect": [], "enabled": True})
         state = self.drive(unloader, 30 * MINUTE, make)
-        self.assertEqual(state["protect"], list(au.ROUTE_PAIR))
+        self.assertEqual(state["protect"], [GEMMA, QWEN])
         self.assertEqual(self.control.calls, [EMBED, OTHER])
 
 
@@ -689,14 +718,10 @@ class RateLimitTests(Base):
         unloader = self.make()
         make = lambda: snapshot(self.clock, self.live(
             row(OTHER, loadedInstanceIds=[OTHER, f"{OTHER}:2"]), row(OTHER, instance=f"{OTHER}:2", confirm=False)))
-        self.until_call(unloader, make, 21 * MINUTE)
-        self.assertEqual(self.control.calls, [f"{OTHER}:2"])
-        state = self.drive(unloader, 115, make)
-        self.assertEqual(self.control.calls, [f"{OTHER}:2"])
-        self.assertEqual([(c["instanceId"], c["blocked"]) for c in state["candidates"]],
-                         [(OTHER, "auto-unloaded less than 2 min ago")])
-        self.drive(unloader, 5, make)
-        self.assertEqual(self.control.calls, [f"{OTHER}:2", OTHER])
+        state = self.drive(unloader, 21 * MINUTE, make)
+        self.assertEqual(self.control.calls, [])
+        self.assertEqual(state["blocked"], "Nisi resident model pair is uncertain")
+        self.assertEqual(state["candidates"], [])
 
     def test_hourly_limit(self):
         models = [row(f"lab/model-{index}") for index in range(8)]
@@ -1066,12 +1091,12 @@ class ConfigTests(Base):
         self.assertFalse(state["enabled"])
         self.assertIsNotNone(state["configError"])
         self.assertTrue(state["blocked"].startswith("config invalid"))
-        self.assertEqual(state["protect"], list(au.ROUTE_PAIR))
+        self.assertEqual(state["protect"], [GEMMA, QWEN])
 
     def test_missing_file_is_the_defaults(self):
         state = self.make(default_enabled=False).state()
         self.assertEqual((state["enabled"], state["idleMinutes"], state["tightIdleMinutes"], state["maxPerHour"],
-                          state["protect"], state["configError"]), (False, 20, 5, 6, list(au.ROUTE_PAIR), None))
+                          state["protect"], state["configError"]), (False, 20, 5, 6, [], None))
 
     def test_missing_config_tracks_idle_but_requires_explicit_opt_in(self):
         unloader = self.make(default_enabled=False)
@@ -1138,7 +1163,7 @@ class ConfigTests(Base):
         self.assertEqual(stat.S_IMODE(self.config.stat().st_mode), 0o600)
         self.assertEqual(json.loads(self.config.read_text()),
                          {"enabled": False, "idleMinutes": 20, "maxPerHour": 6,
-                          "protect": list(au.ROUTE_PAIR), "tightIdleMinutes": 5})
+                          "protect": [], "tightIdleMinutes": 5})
         self.write_config({"idleMinutes": 45, "protect": [OTHER]})
         state = unloader.set_enabled(True)
         self.assertTrue(state["enabled"])
