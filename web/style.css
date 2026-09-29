@@ -617,6 +617,8 @@ body>footer,body>footer button{font-size:10px}
 @supports (color:color-mix(in oklab,red,blue)){:root{--web-thread:color-mix(in oklab,var(--ink) 80%,var(--blue));--web-dew:color-mix(in oklab,var(--ink) 92%,var(--blue))}}
 #glows,#web{pointer-events:none}
 #web{transition:opacity .16s ease}
+/* The ornamental spiderweb is hidden; evidence edges and activity glows are separate SVG layers. */
+#web{display:none}
 #web path{fill:none;stroke:var(--web-thread);stroke-width:1;vector-effect:non-scaling-stroke;stroke-linecap:round;stroke-linejoin:round}
 #web .web-spoke{opacity:.27}
 #web .web-filler{opacity:.14}
