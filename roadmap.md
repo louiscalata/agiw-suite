@@ -44,7 +44,7 @@ This is the canonical roadmap for this source-only repository. The Monitor's act
 - [x] Build and verify an exact-source signed arm64 DMG from `76d1ad7`. Its pre-notarization hash is `7918a7914e316c2651dab53a3e5461a9dfd46b5b8f600fb411599ce72ed7cf2a`; the mounted app signature, architecture and bundled resources match the manifest. This is a local candidate, not a published release.
 - [x] Rebuild the signed DMG after the Python path and install-instruction update. The clean `d24642b03b7e56791435463f411be77d39ad8f9c` source produced `AGIW-Inference-Monitor-1.0.0-arm64.dmg` with pre-notarization SHA-256 `ea0aa372c8fa1a141576eec518238ee4823a6271c11d30c9d511ae67c8a48196`. Its 23 source inputs and package script matched the manifest; the DMG integrity check, mounted-app strict signature, arm64 architecture and bundled resources passed. [Exact-source CI run 36616169056](https://github.com/louiscalata/agiw-suite/actions/runs/36616169056) succeeded. This is a signed local candidate; `stapler validate` found no ticket and no clean-Mac download test has run.
 - [ ] Submit the exact DMG to Apple notarization, require an accepted result, staple and validate its ticket, then test the quarantined download on a clean supported Mac. No notary profile or accepted submission is evidenced yet.
-- [ ] Before public source or binary release, choose and add an actual license file. The contribution and security reporting guides are now present, as recorded below; they do not grant reuse terms. The repository remains private and has no `LICENSE`.
+- [x] Apply the owner's selected Apache-2.0 license, matching the public Nisi release, with an AGIW project notice. Separately managed private runtime material is excluded.
 
 ## Excluded from this package
 
@@ -54,9 +54,16 @@ Router development and installed scripts, Nisi and Jev runtime source, the Windo
 
 On this Mac, Python 3.14.7 ran `PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest discover -p 'test_*.py' -q`: **661/661** copied tests passed at the initial source cut. The installed macOS `/usr/bin/python3` 3.9.6 ran `PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B -m unittest -q test_login_agent test_share_and_probe test_online_code_repair test_mem_guard`: **276/276** focused tests passed, and `/usr/bin/python3 -B -m py_compile online_code_repair.py` passed. The Core 6 source revision passed 696 Python tests with the 45 router-writer fixture skips enabled and 229/229 JavaScript tests. Shell syntax, plist lint and diff checks passed. The earlier Swift typecheck and isolated loopback smoke tested the initial package. A bounded source scan of the initial package found no occurrence of the original machine's account name, LAN addresses, host name or personal home path, and no high-confidence PEM, GitHub, OpenAI or AWS key string. This scan is not a full credential audit. The exact `76d1ad7` clean-runner result is recorded above. The `/usr/bin/python3` 3.9.6 observer served the dashboard and snapshot locally after a brief initial 503 while sampling started; this was not a clean-Mac download test.
 
-These checks establish a reviewed private source revision and a signed local install. They do not establish live model inference, native Windows acceptance, a signed and notarized distribution, or release readiness.
+These historical checks establish reviewed source revisions and a signed local install. They do not establish live model inference, native Windows acceptance or a notarized binary distribution.
 
 ## Release documentation candidate · 29 September 2026
 
 - [x] Add CONTRIBUTING.md and SECURITY.md with README links after scoped outgoing review. The contribution guide distinguishes isolated source checks from the external router fixture cases; private vulnerability reports use the selected public contact, with no response or fix guarantee. Local content/link and diff checks passed. This documentation does not change app code, the signed DMG or release acceptance.
-- [ ] Owner chooses reuse terms and adds the corresponding LICENSE before public source or binary release. The guides do not settle this decision.
+- [x] Owner selected the same license as public Nisi; the 30 September UTC source-preview preparation adds its exact Apache-2.0 license text and the AGIW project notice.
+
+## Public source preview — 30 September 2026 UTC
+
+- [x] Review the current tracked source independently before public exposure. The bounded scan found no concrete credential or private machine/account disclosure; the selected support email and author identity are intentionally public.
+- [x] Prepare source-only release documentation and apply the selected Apache-2.0 license. No model weights, prebuilt application, DMG, router runtime, Windows worker or private runtime artifacts are included.
+- [ ] Publish `v1.0.0-source-preview.1` from the reviewed final commit, make the repository public and verify anonymous repository, release and source archive access. Read the exact tagged revision's Source checks result separately from publication success.
+- [ ] Complete binary notarization and clean-Mac distribution assessment before publishing a downloadable application. The Mac App Store edition follows its separate validation and release process.
