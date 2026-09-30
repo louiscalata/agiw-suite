@@ -8,14 +8,13 @@ Core 6 filters the Mac's LM Studio inventory to six pinned model IDs: five LLMs 
 
 ## Release status
 
-This repository provides a source preview of the macOS Inference Monitor, with Python, JavaScript and Swift components. The preview contains source only; no prebuilt application, DMG or model weights are included. Local model services and optional router/Windows integrations are managed separately.
+[Download the Apple-silicon release candidate](https://github.com/louiscalata/agiw-suite/releases/tag/v1.0.0-macos-rc.1) — version **1.0.0 (5)**, macOS **13 or later**. The ZIP includes the Developer ID signed application with a validated Apple notarization ticket, installation instructions, LICENSE and NOTICE. With the ZIP and accompanying `SHA256SUMS.txt` in the same folder, run `shasum -a 256 -c SHA256SUMS.txt` before installing; the expected result is `OK`.
 
-**No ready-to-install binary is published yet.** The [source-preview release](https://github.com/louiscalata/agiw-suite/releases/tag/v1.0.0-source-preview.1) contains source downloads only. The signed Build 5 candidate is awaiting notarization and native distribution acceptance.
+The candidate was installed on the maintainer's Mac, and its live dashboard and Mac/PC details were inspected in a browser. **Native window rendering, animation and a clean-Mac first install remain unverified.** These remain stable-release acceptance checks.
 
-Before distributing a binary:
-- verify that no real machine names, credentials, tokens, or local-only state are embedded in the source tree
-- confirm the local security model and release signing identity are appropriate for your environment
-- review the package-release workflow before shipping a notarized DMG
+To install, extract the ZIP, copy `Inference Monitor.app` into your Applications folder, and open it after quitting any running AGIW Monitor edition. It starts in the menu bar: click the chip icon for the compact monitor, or right-click it and choose **Open Dashboard Window**. Python 3.9 or later must be available at `/opt/homebrew/bin/python3`, `/usr/local/bin/python3`, or `/usr/bin/python3`.
+
+Model weights, local model services, and optional router/Windows integrations are configured separately. The Mac App Store edition is a separate application and is not included in this download. The earlier [source-preview release](https://github.com/louiscalata/agiw-suite/releases/tag/v1.0.0-source-preview.1) remains available for source-only use.
 
 ## Try the local view
 
@@ -69,13 +68,13 @@ Forty-five router integration cases need writers from a separate project. The ex
 
 The native app supports Apple silicon only. `build.sh` requires a native arm64 macOS terminal; Intel Macs and Rosetta shells are refused before creating installation paths. It compiles and signs the app, then replaces `$HOME/Applications/Inference Monitor.app` when its owner lock permits. Do not run it as a read-only build check. The installer intentionally writes into the local Applications directory and does not publish content elsewhere.
 
-### GitHub download candidate
+### Build a distribution candidate
 
-These instructions package the full Developer ID edition. The Mac App Store edition is a separate application with its own feature scope and validation; it is not yet available on the Store.
+These instructions package the full Developer ID edition. The Mac App Store edition is a separate application with its own feature scope and validation; it has a separate release process.
 
 `package-release.sh` builds a separate Developer ID signed DMG in `dist/`; it does not install or launch the app. It requires a clean source tree, an exact Developer ID Application identity in `MONITOR_RELEASE_SIGN_IDENTITY`, and secure Apple timestamps. It verifies the mounted DMG against frozen inputs, including LICENSE and NOTICE, and writes a manifest with source, toolchain, input and installation-note hashes. Missing, empty or symlinked legal inputs stop the build before output creation. `MONITOR_RELEASE_ALLOW_DIRTY=1` is only for local candidate checks; it marks the output dirty and must not be used for a release.
 
-The packager always produces an arm64 app for Apple silicon Macs, independent of the macOS build host architecture. The app targets macOS 13 or later and needs Python 3.9 or later at `/opt/homebrew/bin/python3`, `/usr/local/bin/python3`, or `/usr/bin/python3`. The DMG contains the app, an `INSTALL.txt` note, LICENSE and NOTICE. The legal files also travel with the app in `Contents/Resources/Legal`. It is not a downloadable release until Apple notarization accepts that exact asset, the ticket is stapled and validated, the final hash is recorded, and the quarantined download passes a clean-Mac assessment.
+The packager always produces an arm64 app for Apple silicon Macs, independent of the macOS build host architecture. The app targets macOS 13 or later and needs Python 3.9 or later at `/opt/homebrew/bin/python3`, `/usr/local/bin/python3`, or `/usr/bin/python3`. The DMG contains the app, an `INSTALL.txt` note, LICENSE and NOTICE. The legal files also travel with the app in `Contents/Resources/Legal`. Stable publication requires Apple notarization, ticket validation, a recorded final hash and a quarantined clean-Mac assessment. The current prerelease ZIP was exported through Xcode with its app ticket attached; the earlier candidate DMG is unsubmitted and is not a download asset.
 
 After choosing the Developer ID Application identity from `security find-identity -v -p codesigning`, run `MONITOR_RELEASE_SIGN_IDENTITY=<certificate-SHA-1> ./package-release.sh` from a clean checkout to create a signed candidate. Notarization, stapling, final hash verification, and a quarantined clean-Mac test remain separate gates.
 
