@@ -31,6 +31,10 @@ The Mac Nisi route selects two distinct LLMs already resident in LM Studio. It p
 
 Automatic unloading is off by default. When explicitly enabled, it protects the current resident Nisi pair, considers only other observed idle Mac models, and refuses to unload anything if the pair cannot be established from a fresh snapshot. These policies do not establish that a live routed task succeeded.
 
+## Optional hardware access for nearby workers
+
+For setup or recovery of nearby headless machines, an [Openterface Mini-KVM](https://openterface.com/minikvm/) or compatible KVM is recommended for direct keyboard, video and mouse access through USB and HDMI. See the [Mini-KVM FAQ](https://docs.openterface.com/products/minikvm/faq/) for connection requirements. Network inference still requires configured workers/model endpoints and their network transport; a KVM is optional and does not pool RAM or GPUs or increase token throughput. Native AGIW KVM integration has not been verified.
+
 ## Share recovery settings
 
 The source contains no address or login name for the owner's actual PC. To enable the explicit Fix Route remount on a Mac, set both environment variables in the Inference Monitor process environment before launch:
