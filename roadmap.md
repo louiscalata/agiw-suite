@@ -1,6 +1,6 @@
 # AGIW Suite repository candidate roadmap
 
-This is the canonical roadmap for this source-only repository. The Monitor's active engineering roadmap remains in its original checkout until an owner accepts a cutover. Verified local installation is recorded separately from repository source checks; this file does not claim distribution or release acceptance.
+This is the canonical roadmap for this source-only repository. The Monitor's active engineering roadmap remains in its original checkout until an owner accepts a cutover. Source publication, verified local installation and binary distribution acceptance are recorded separately.
 
 ## Inference map visual update — 2026-09-29
 
@@ -65,5 +65,6 @@ These historical checks establish reviewed source revisions and a signed local i
 
 - [x] Review the current tracked source independently before public exposure. The bounded scan found no concrete credential or private machine/account disclosure; the selected support email and author identity are intentionally public.
 - [x] Prepare source-only release documentation and apply the selected Apache-2.0 license. No model weights, prebuilt application, DMG, router runtime, Windows worker or private runtime artifacts are included.
-- [ ] Publish `v1.0.0-source-preview.1` from the reviewed final commit, make the repository public and verify anonymous repository, release and source archive access. Read the exact tagged revision's Source checks result separately from publication success.
+- [x] Make the repository public and publish [v1.0.0-source-preview.1](https://github.com/louiscalata/agiw-suite/releases/tag/v1.0.0-source-preview.1) from reviewed commit `34741914d63d224ad035a983e6e02b262dfc1bac`. [Exact tagged-revision CI run 36658854392](https://github.com/louiscalata/agiw-suite/actions/runs/36658854392) passed: 707 Python cases ran with 45 explicit skips (662 non-skipped passes), all 232 JavaScript tests passed without skips, and shell/plist/Swift build-input checks passed. Anonymous repository, release and source ZIP requests returned HTTP 200; all 63 source-file bytes matched the tagged commit. ZIP SHA-256: `b435783e206c50cd84814c67f78331ba282df18341d4756d3df9103158391daf`. No binary asset is attached.
+- [x] Verify the selected license matches public Nisi v0.2.0. Apache-2.0 legal text is unchanged; only its extra terminal blank line was removed. Public Nisi's release is a Node.js package and has no evidenced Apple notarization workflow. AGIW's proposed `AGIW-GitHub-Notary` Keychain profile is absent; no notarization submission is claimed.
 - [ ] Complete binary notarization and clean-Mac distribution assessment before publishing a downloadable application. The Mac App Store edition follows its separate validation and release process.
