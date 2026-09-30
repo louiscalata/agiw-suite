@@ -130,7 +130,7 @@ if args == ["status"] {
     app.activate(ignoringOtherApps: true)
     let alert = NSAlert()
     alert.messageText = "Connect to hosted Jev"
-    alert.informativeText = "Enter your own TypeSafe API key. AGIW stores it in this Mac’s login Keychain. Saving it makes no network request. The explicit connection check sends only a fixed synthetic test to TypeSafe; it never sends your files, prompts, or model inventory. Provider usage charges may apply."
+    alert.informativeText = "Enter your own TypeSafe API key. AGIW stores it in this Mac’s login Keychain. Saving it makes no network request. The explicit connection check sends the saved API key and a fixed synthetic test to TypeSafe over HTTPS. TypeSafe receives your IP address and standard request metadata. This check sends no files, task prompts, or model inventory. Provider usage charges may apply."
     alert.addButton(withTitle: "Save connection")
     alert.addButton(withTitle: "Cancel")
     alert.addButton(withTitle: "Remove saved connection")

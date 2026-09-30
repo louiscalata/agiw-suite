@@ -169,7 +169,10 @@ No models, Node interpreter or Python interpreter are bundled in this DMG.
 The optional Jev connector uses TypeSafe's hosted API. Configure your own API key
 in AGIW's native Components screen; it is stored in this Mac's login Keychain.
 Saving the key makes no network request. An explicit Check Jev connection sends
-only a fixed synthetic test. Provider usage terms and charges apply.
+the saved API key in the authorization header and a fixed synthetic test to
+TypeSafe over HTTPS. TypeSafe receives your IP address and standard request
+metadata. This check sends no files, task prompts or model inventory.
+Provider usage terms and charges apply.
 
 AGIW Inference Monitor is licensed under the Apache License, Version 2.0.
 See LICENSE and NOTICE beside the app and in the app's Contents/Resources/Legal
