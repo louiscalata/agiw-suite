@@ -4,6 +4,11 @@ Copyright 2026 Louis Calata
 Licensed under the Apache License, Version 2.0.
 See LICENSE for the full terms.
 
-External model weights and separately managed model services, Nisi/Jev
-runtime source, router infrastructure and Windows workers are not included
-in this source release. Their own terms apply separately.
+This distribution includes the public Nisi 0.2.0 workflow library, journal,
+and CLI, licensed under Apache-2.0. Its original LICENSE and pinned provenance
+manifest are included alongside the Nisi package.
+
+The optional Jev connector is included. The TypeSafe-hosted Jev service,
+private Nisi/Jev router infrastructure, external model weights, separately
+managed model services and Windows workers are not bundled. Their own terms
+apply separately. Node.js and Python are separate runtime prerequisites.
