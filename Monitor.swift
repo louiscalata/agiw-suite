@@ -8,6 +8,7 @@ private let appName = "Inference Monitor"
 // BEGIN MONITOR INSTANCE POLICY
 struct MonitorInstanceCandidate: Equatable, Sendable {
     let bundleIdentifier: String
+    let executableName: String?
     let processIdentifier: Int32
     let launchDate: Date?
     let isTerminated: Bool
@@ -16,17 +17,22 @@ struct MonitorInstanceCandidate: Equatable, Sendable {
 enum MonitorInstancePhase { case startup, running }
 
 enum MonitorInstancePolicy {
-    static let bundleIdentifiers: Set<String> = [
-        "local.codemode.inference-monitor",
-        "com.louiscalata.agiw.inference-monitor.mas"
+    static let executableNames: [String: String] = [
+        "local.codemode.inference-monitor": "InferenceMonitor",
+        "com.louiscalata.agiw.inference-monitor.mas": "AgiwInferenceMonitor"
     ]
+    static let bundleIdentifiers = Set(executableNames.keys)
 
     static func shouldExit(current: MonitorInstanceCandidate,
                            others: [MonitorInstanceCandidate],
                            phase: MonitorInstancePhase) -> Bool {
         guard bundleIdentifiers.contains(current.bundleIdentifier), !current.isTerminated else { return false }
+        // AppKit helpers can inherit the enclosing application's bundle ID.
+        // Only the two main executables may participate in this election.
+        guard executableNames[current.bundleIdentifier] == current.executableName else { return true }
         let peers = others.filter {
             bundleIdentifiers.contains($0.bundleIdentifier) && !$0.isTerminated &&
+                executableNames[$0.bundleIdentifier] == $0.executableName &&
                 $0.processIdentifier != current.processIdentifier
         }
         let candidates = [current] + peers
@@ -63,6 +69,7 @@ final class MonitorInstanceCoordinator {
     convenience init(requestSelfTermination: @escaping () -> Void) {
         func candidate(_ app: NSRunningApplication) -> MonitorInstanceCandidate {
             MonitorInstanceCandidate(bundleIdentifier: app.bundleIdentifier ?? "",
+                                     executableName: app.executableURL?.lastPathComponent,
                                      processIdentifier: app.processIdentifier,
                                      launchDate: app.launchDate, isTerminated: app.isTerminated)
         }

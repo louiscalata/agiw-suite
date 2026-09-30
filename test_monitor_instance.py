@@ -17,8 +17,11 @@ class MonitorInstanceTests(unittest.TestCase):
         harness = r'''
 let full = "local.codemode.inference-monitor"
 let mas = "com.louiscalata.agiw.inference-monitor.mas"
-func app(_ id: String, _ pid: Int32, _ date: Double?, _ terminated: Bool = false) -> MonitorInstanceCandidate {
-    MonitorInstanceCandidate(bundleIdentifier: id, processIdentifier: pid,
+func app(_ id: String, _ pid: Int32, _ date: Double?, _ terminated: Bool = false,
+         executableName: String? = nil) -> MonitorInstanceCandidate {
+    MonitorInstanceCandidate(bundleIdentifier: id,
+                             executableName: executableName ?? (id == full ? "InferenceMonitor" : "AgiwInferenceMonitor"),
+                             processIdentifier: pid,
                              launchDate: date.map { Date(timeIntervalSince1970: $0) }, isTerminated: terminated)
 }
 var checks = 0
@@ -31,6 +34,23 @@ let older = app(mas, 10, 10)
 let newer = app(mas, 30, 30)
 func exits(_ others: [MonitorInstanceCandidate], _ phase: MonitorInstancePhase = .running) -> Bool {
     MonitorInstancePolicy.shouldExit(current: current, others: others, phase: phase)
+}
+let jevHelper = app(full, 12750, nil, executableName: "JevKeychain")
+let observedMain = app(full, 96375, nil)
+let missingExecutable = MonitorInstanceCandidate(bundleIdentifier: full, executableName: nil,
+                                                processIdentifier: 1, launchDate: nil, isTerminated: false)
+let unknownMASExecutable = MonitorInstanceCandidate(bundleIdentifier: mas, executableName: nil,
+                                                   processIdentifier: 2, launchDate: nil, isTerminated: false)
+for phase in [MonitorInstancePhase.startup, .running] {
+    check(!MonitorInstancePolicy.shouldExit(current: observedMain, others: [observedMain, jevHelper], phase: phase), "observed lower-PID Jev helper cannot evict real main")
+    for peer in [jevHelper, app(full, 1, nil, executableName: "Other"), app(mas, 1, nil, executableName: "InferenceMonitor"), app(full, 1, nil, executableName: "AgiwInferenceMonitor"), app(mas, 1, nil, executableName: "NisiNode"), missingExecutable, unknownMASExecutable] {
+        check(!exits([peer], phase), "same-bundle helper/wrong executable/missing executable cannot win election")
+    }
+    for invalidCurrent in [jevHelper, missingExecutable, unknownMASExecutable, app(full, 1, nil, executableName: ""), app(mas, 1, nil, executableName: "Wrong")] {
+        check(MonitorInstancePolicy.shouldExit(current: invalidCurrent, others: [], phase: phase), "recognized current without qualified main executable refuses admission")
+    }
+    check(exits([older], phase), "real MAS main executable retains lower-PID preference")
+    check(MonitorInstancePolicy.shouldExit(current: older, others: [app(full, 1, nil)], phase: phase), "real full main executable retains lower-PID preference")
 }
 check(!exits([newer], .startup), "startup lower PID current remains")
 check(exits([older], .startup), "startup lower PID peer wins")
@@ -99,6 +119,9 @@ check(!gap.start() && cancellations == 1, "peer appearing during subscription bl
 inventory = []
 let live = coordinator()
 check(live.start(), "empty inventory admits startup")
+inventory = [jevHelper, missingExecutable]
+callback?()
+check(selfExits == 0 && cancellations == 1, "live helper arrival keeps main and its observation active")
 inventory = [newer]
 callback?()
 check(selfExits == 0, "running winner keeps itself")
