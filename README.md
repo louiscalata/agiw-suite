@@ -8,9 +8,9 @@ The Core 6 control is a display filter for five local LLM roles and the Nomic Em
 
 ## Release status
 
-This private repository contains a macOS-focused source candidate with Python, JavaScript, and Swift components. It is not a published binary release. It expects a local runtime environment; model services are not bundled.
+This repository provides a source preview of the macOS Inference Monitor, with Python, JavaScript and Swift components. The preview contains source only; no prebuilt application, DMG or model weights are included. Local model services and optional router/Windows integrations are managed separately.
 
-Before publishing or distributing binaries:
+Before distributing a binary:
 - verify that no real machine names, credentials, tokens, or local-only state are embedded in the source tree
 - confirm the local security model and release signing identity are appropriate for your environment
 - review the package-release workflow before shipping a notarized DMG
@@ -50,7 +50,14 @@ When the Mac Monitor can read the kernel memory counters, its sampler writes a s
 
 ## Source checks
 
-From this directory, run `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -p 'test_*.py' -q` and `node --test test_*.mjs`. Forty-five router integration cases need writers from a separate project; the clean GitHub runner explicitly sets `MONITOR_ALLOW_ROUTER_FIXTURE_SKIP=1` for them. The tests use fixtures and mocked model calls, so a passing source suite does not establish a live route.
+For an isolated source checkout, run the same commands as the clean GitHub runner:
+
+```sh
+MONITOR_ALLOW_ROUTER_FIXTURE_SKIP=1 PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest discover -p 'test_*.py' -q
+node --test test_*.mjs
+```
+
+Forty-five router integration cases need writers from a separate project. The explicit allowance permits a skip only when those writers are absent; without it, missing writers fail the test. Report the actual skips alongside passes. The tests use fixtures and mocked model calls, so a passing source suite does not establish a live route.
 
 `build.sh` is an installer: it compiles and signs the app, then replaces `$HOME/Applications/Inference Monitor.app` when its owner lock permits. Do not run it as a read-only build check. The installer intentionally writes into the local Applications directory and does not publish content elsewhere.
 
@@ -81,4 +88,4 @@ See [SECURITY.md](SECURITY.md) for private vulnerability reporting. Do not put c
 
 ## License
 
-No license file has been added. Select and publish reuse terms before making a public release.
+Licensed under the [Apache License, Version 2.0](LICENSE), matching the public Nisi release. Copyright 2026 Louis Calata. See [NOTICE](NOTICE) for the project notice. The license covers this repository's source; external model weights and separately managed services are not included.

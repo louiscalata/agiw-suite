@@ -1,0 +1,9 @@
+AGIW Suite - Inference Monitor
+Copyright 2026 Louis Calata
+
+Licensed under the Apache License, Version 2.0.
+See LICENSE for the full terms.
+
+External model weights and separately managed model services, Nisi/Jev
+runtime source, router infrastructure and Windows workers are not included
+in this source release. Their own terms apply separately.

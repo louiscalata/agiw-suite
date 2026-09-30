@@ -1,6 +1,6 @@
 # Contributing to AGIW Inference Monitor
 
-This private repository contains the macOS Monitor source. Optional router, Windows worker and model services are managed separately. Access to the private repository is required to open an issue or pull request.
+This repository contains the macOS Monitor source. Optional router, Windows worker and model services are managed separately. Use issues for focused bug reports and pull requests for proposed changes.
 
 ## Propose a focused change
 
@@ -29,4 +29,4 @@ Use existing focused tests appropriate to the change. The source suites use fixt
 
 `build.sh` installs and replaces the local application when its owner lock permits. Running it is an installation action. `package-release.sh` creates a separately signed DMG candidate and requires its documented release inputs. Neither source-test success nor a signed candidate establishes notarization or publication. Follow the README and canonical roadmap for those separate gates.
 
-The owner has not chosen a license. No reuse terms are granted by this guide; resolve the license decision before public release.
+This source is licensed under [Apache-2.0](LICENSE). Unless explicitly stated otherwise, intentionally submitted contributions are provided under those terms. Include the origin and required attribution of any third-party material in a proposed change.
