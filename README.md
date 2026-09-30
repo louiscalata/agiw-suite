@@ -1,14 +1,16 @@
 # AGIW Suite · Inference Monitor
 
-The Inference Monitor is a local Mac view of AGIW Suite's inference activity. It helps the machine's owner see which local models are working, inspect recorded client identities and route state, and request a guarded recovery action when a local route or worker needs intervention.
+The Inference Monitor is a local Mac view of AGIW Suite's inference activity. It shows model activity when fresh local telemetry can verify it, displays recorded client identities and route state, and provides guarded recovery controls for configured routes and workers. Missing or stale evidence is shown as unknown.
 
 The monitor observes local inference and recorded router state. Explicit controls can inspect or repair narrow owner states; launching the app does not start a coding task or load a model. The Windows and SharedChami route repair flows are optional and require separately managed components.
 
-The Core 6 control is a display filter for five local LLM roles and the Nomic Embed Text v1.5 embedding role. All discovered shows the rest of LM Studio's inventory. Switching views does not install, load, unload, or remove models. This source package does not include model weights.
+Core 6 filters the Mac's LM Studio inventory to six pinned model IDs: five LLMs and Nomic Embed Text v1.5. Reported in-use models outside that set remain visible. All discovered shows the full Mac inventory. The filter does not imply that the six models are installed, loaded, or active; switching views does not change model state. Model weights are managed separately.
 
 ## Release status
 
 This repository provides a source preview of the macOS Inference Monitor, with Python, JavaScript and Swift components. The preview contains source only; no prebuilt application, DMG or model weights are included. Local model services and optional router/Windows integrations are managed separately.
+
+**No ready-to-install binary is published yet.** The [source-preview release](https://github.com/louiscalata/agiw-suite/releases/tag/v1.0.0-source-preview.1) contains source downloads only. The signed Build 5 candidate is awaiting notarization and native distribution acceptance.
 
 Before distributing a binary:
 - verify that no real machine names, credentials, tokens, or local-only state are embedded in the source tree
@@ -68,6 +70,8 @@ Forty-five router integration cases need writers from a separate project. The ex
 The native app supports Apple silicon only. `build.sh` requires a native arm64 macOS terminal; Intel Macs and Rosetta shells are refused before creating installation paths. It compiles and signs the app, then replaces `$HOME/Applications/Inference Monitor.app` when its owner lock permits. Do not run it as a read-only build check. The installer intentionally writes into the local Applications directory and does not publish content elsewhere.
 
 ### GitHub download candidate
+
+These instructions package the full Developer ID edition. The Mac App Store edition is a separate application with its own feature scope and validation; it is not yet available on the Store.
 
 `package-release.sh` builds a separate Developer ID signed DMG in `dist/`; it does not install or launch the app. It requires a clean source tree, an exact Developer ID Application identity in `MONITOR_RELEASE_SIGN_IDENTITY`, and secure Apple timestamps. It verifies the mounted DMG against frozen inputs, including LICENSE and NOTICE, and writes a manifest with source, toolchain, input and installation-note hashes. Missing, empty or symlinked legal inputs stop the build before output creation. `MONITOR_RELEASE_ALLOW_DIRTY=1` is only for local candidate checks; it marks the output dirty and must not be used for a release.
 
