@@ -5,6 +5,102 @@ import Darwin
 private let bundleIdentifier = "local.codemode.inference-monitor"
 private let appName = "Inference Monitor"
 
+// BEGIN MONITOR INSTANCE POLICY
+struct MonitorInstanceCandidate: Equatable, Sendable {
+    let bundleIdentifier: String
+    let processIdentifier: Int32
+    let launchDate: Date?
+    let isTerminated: Bool
+}
+
+enum MonitorInstancePhase { case startup, running }
+
+enum MonitorInstancePolicy {
+    static let bundleIdentifiers: Set<String> = [
+        "local.codemode.inference-monitor",
+        "com.louiscalata.agiw.inference-monitor.mas"
+    ]
+
+    static func shouldExit(current: MonitorInstanceCandidate,
+                           others: [MonitorInstanceCandidate],
+                           phase: MonitorInstancePhase) -> Bool {
+        guard bundleIdentifiers.contains(current.bundleIdentifier), !current.isTerminated else { return false }
+        let peers = others.filter {
+            bundleIdentifiers.contains($0.bundleIdentifier) && !$0.isTerminated &&
+                $0.processIdentifier != current.processIdentifier
+        }
+        let candidates = [current] + peers
+        // A fixed PID ordering cannot change when another candidate's date is
+        // missing or that candidate departs. It makes no chronology claim.
+        switch phase {
+        case .startup, .running:
+            let winner = candidates.min { $0.processIdentifier < $1.processIdentifier }
+            return winner?.processIdentifier != current.processIdentifier
+        }
+    }
+}
+// END MONITOR INSTANCE POLICY
+
+/// Coordinates only the two Monitor apps; it never discovers or signals worker processes.
+final class MonitorInstanceCoordinator {
+    private var cancelObservation: (() -> Void)?
+    private let current: () -> MonitorInstanceCandidate
+    private let snapshot: () -> [MonitorInstanceCandidate]
+    private let subscribe: (@escaping () -> Void) -> (() -> Void)
+    private let requestSelfTermination: () -> Void
+    private var stopping = false
+
+    init(current: @escaping () -> MonitorInstanceCandidate,
+         snapshot: @escaping () -> [MonitorInstanceCandidate],
+         subscribe: @escaping (@escaping () -> Void) -> (() -> Void),
+         requestSelfTermination: @escaping () -> Void) {
+        self.current = current
+        self.snapshot = snapshot
+        self.subscribe = subscribe
+        self.requestSelfTermination = requestSelfTermination
+    }
+
+    convenience init(requestSelfTermination: @escaping () -> Void) {
+        func candidate(_ app: NSRunningApplication) -> MonitorInstanceCandidate {
+            MonitorInstanceCandidate(bundleIdentifier: app.bundleIdentifier ?? "",
+                                     processIdentifier: app.processIdentifier,
+                                     launchDate: app.launchDate, isTerminated: app.isTerminated)
+        }
+        self.init(current: { candidate(.current) },
+                  snapshot: { NSWorkspace.shared.runningApplications.map(candidate) },
+                  subscribe: { changed in
+                      let token = NSWorkspace.shared.observe(\.runningApplications, options: [.new]) { _, _ in
+                          DispatchQueue.main.async(execute: changed)
+                      }
+                      return { token.invalidate() }
+                  }, requestSelfTermination: requestSelfTermination)
+    }
+
+    private func shouldExit(_ phase: MonitorInstancePhase) -> Bool {
+        MonitorInstancePolicy.shouldExit(current: current(), others: snapshot(), phase: phase)
+    }
+
+    func start() -> Bool {
+        guard !shouldExit(.startup) else { return false }
+        // LSUIElement apps do not produce Workspace didLaunch notifications.
+        cancelObservation = subscribe { [weak self] in
+            guard let self = self, !self.stopping, self.shouldExit(.running) else { return }
+            self.stop()
+            self.requestSelfTermination()
+        }
+        // Close the snapshot/subscription gap before any status item or observer starts.
+        guard !shouldExit(.startup) else { stop(); return false }
+        return true
+    }
+
+    func stop() {
+        stopping = true
+        cancelObservation?()
+        cancelObservation = nil
+    }
+}
+// END MONITOR INSTANCE COORDINATOR
+
 // This lock belongs only to the observer app. Pipeline and model locks are never touched.
 final class InstanceLock {
     private var descriptor: Int32 = -1
@@ -170,6 +266,7 @@ final class DashboardController: NSViewController {
 
 final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScriptMessageHandler, NSWindowDelegate {
     private var instanceLock: InstanceLock?
+    private var instanceCoordinator: MonitorInstanceCoordinator?
     private var statusItem: NSStatusItem!
     private var popover: NSPopover!
     private var popoverDashboard: DashboardController!
@@ -206,6 +303,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             instanceLock = try InstanceLock()
         } catch {
             // LaunchServices normally coalesces opens; flock handles simultaneous direct launches.
+            NSApp.terminate(nil)
+            return
+        }
+        let coordinator = MonitorInstanceCoordinator { NSApp.terminate(nil) }
+        instanceCoordinator = coordinator
+        guard coordinator.start() else {
             NSApp.terminate(nil)
             return
         }
@@ -654,6 +757,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
 
     func applicationWillTerminate(_ notification: Notification) {
         terminating = true
+        instanceCoordinator?.stop()
+        instanceCoordinator = nil
         startupTimer?.invalidate()
         pollingTimer?.invalidate()
         restartTimer?.invalidate()
