@@ -60,11 +60,8 @@ if [[ "$bundle_id" != local.codemode.inference-monitor ]]; then
     echo "Unexpected bundle ID: $bundle_id" >&2
     exit 2
 fi
-arch="$(uname -m)"
-if [[ "$arch" != arm64 && "$arch" != x86_64 ]]; then
-    echo "Unsupported release architecture: $arch" >&2
-    exit 2
-fi
+# The release target is fixed, independent of the build host's architecture.
+arch=arm64
 source_commit="$(git -C "$project_dir" rev-parse HEAD)"
 script_sha256="$(shasum -a 256 "$project_dir/package-release.sh" | awk '{print $1}')"
 developer_dir="${DEVELOPER_DIR:-$(xcode-select -p)}"
@@ -139,7 +136,7 @@ fi
 cat > "$stage_dir/INSTALL.txt" <<'EOF'
 AGIW Suite Inference Monitor — installation
 
-Requires macOS 13 or later on a Mac matching this DMG's architecture, plus
+Requires an Apple silicon Mac with macOS 13 or later, plus
 Python 3.9 or later at /opt/homebrew/bin/python3, /usr/local/bin/python3,
 or /usr/bin/python3. In Terminal, run the available path with --version
 (for example, /opt/homebrew/bin/python3 --version) before opening the app.

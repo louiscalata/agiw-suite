@@ -1,6 +1,12 @@
 #!/bin/bash
 set -euo pipefail
 
+# Installation requires a native Apple silicon shell; refuse before creating paths.
+if [[ "$(uname -s)" != Darwin || "$(uname -m)" != arm64 ]]; then
+    echo "Apple silicon is required. Run this installer in a native arm64 macOS terminal (not Rosetta)." >&2
+    exit 2
+fi
+
 project_dir="$(cd -- "$(dirname -- "$0")" && pwd)"
 applications_dir="$HOME/Applications"
 app_path="$applications_dir/Inference Monitor.app"
@@ -23,9 +29,13 @@ trap 'rm -rf -- "$stage_dir"' EXIT
 stage_app="$stage_dir/Inference Monitor.app"
 mkdir -p "$stage_app/Contents/MacOS" "$stage_app/Contents/Resources/web"
 
-xcrun swiftc -O -target "$(uname -m)-apple-macosx13.0" \
+xcrun swiftc -O -target arm64-apple-macosx13.0 \
     -framework Cocoa -framework WebKit \
     "$project_dir/Monitor.swift" -o "$stage_app/Contents/MacOS/InferenceMonitor"
+if [[ "$(lipo -archs "$stage_app/Contents/MacOS/InferenceMonitor")" != arm64 ]]; then
+    echo "Compiled app must contain only arm64; installation refused." >&2
+    exit 1
+fi
 cp "$project_dir/Info.plist" "$stage_app/Contents/Info.plist"
 cp "$project_dir/server.py" "$project_dir/telemetry.py" "$project_dir/activity.py" "$project_dir/client_models.py" "$project_dir/model_control.py" "$project_dir/durable_model_journal.py" "$project_dir/auto_unload.py" "$project_dir/online_code_repair.py" "$project_dir/nisi_v02.py" "$project_dir/windows_probe.py" "$project_dir/live_feed.py" "$project_dir/gpu_probe.py" "$project_dir/local_callers.py" "$project_dir/mem_guard.py" "$project_dir/usage-format.mjs" "$stage_app/Contents/Resources/"
 cp "$project_dir/web/index.html" "$project_dir/web/app.js" "$project_dir/web/online-code-mode.mjs" "$project_dir/web/map-layout.mjs" "$project_dir/web/model-control-view.mjs" "$project_dir/web/style.css" "$stage_app/Contents/Resources/web/"

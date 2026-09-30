@@ -61,15 +61,17 @@ MONITOR_ALLOW_ROUTER_FIXTURE_SKIP=1 PYTHONDONTWRITEBYTECODE=1 python3 -B -m unit
 node --test test_*.mjs
 ```
 
+The CI app typecheck targets arm64. Source tests and the isolated Swift policy harness run on the CI host architecture; passing those on Intel does not establish native Apple silicon runtime acceptance.
+
 Forty-five router integration cases need writers from a separate project. The explicit allowance permits a skip only when those writers are absent; without it, missing writers fail the test. Report the actual skips alongside passes. The tests use fixtures and mocked model calls, so a passing source suite does not establish a live route.
 
-`build.sh` is an installer: it compiles and signs the app, then replaces `$HOME/Applications/Inference Monitor.app` when its owner lock permits. Do not run it as a read-only build check. The installer intentionally writes into the local Applications directory and does not publish content elsewhere.
+The native app supports Apple silicon only. `build.sh` requires a native arm64 macOS terminal; Intel Macs and Rosetta shells are refused before creating installation paths. It compiles and signs the app, then replaces `$HOME/Applications/Inference Monitor.app` when its owner lock permits. Do not run it as a read-only build check. The installer intentionally writes into the local Applications directory and does not publish content elsewhere.
 
 ### GitHub download candidate
 
 `package-release.sh` builds a separate Developer ID signed DMG in `dist/`; it does not install or launch the app. It requires a clean source tree, an exact Developer ID Application identity in `MONITOR_RELEASE_SIGN_IDENTITY`, and secure Apple timestamps. It verifies the mounted DMG against frozen inputs, including LICENSE and NOTICE, and writes a manifest with source, toolchain, input and installation-note hashes. Missing, empty or symlinked legal inputs stop the build before output creation. `MONITOR_RELEASE_ALLOW_DIRTY=1` is only for local candidate checks; it marks the output dirty and must not be used for a release.
 
-The current packaged app targets macOS 13 or later and needs Python 3.9 or later at `/opt/homebrew/bin/python3`, `/usr/local/bin/python3`, or `/usr/bin/python3`. The DMG contains the app, an `INSTALL.txt` note, LICENSE and NOTICE. The legal files also travel with the app in `Contents/Resources/Legal`. It is not a downloadable release until Apple notarization accepts that exact asset, the ticket is stapled and validated, the final hash is recorded, and the quarantined download passes a clean-Mac assessment.
+The packager always produces an arm64 app for Apple silicon Macs, independent of the macOS build host architecture. The app targets macOS 13 or later and needs Python 3.9 or later at `/opt/homebrew/bin/python3`, `/usr/local/bin/python3`, or `/usr/bin/python3`. The DMG contains the app, an `INSTALL.txt` note, LICENSE and NOTICE. The legal files also travel with the app in `Contents/Resources/Legal`. It is not a downloadable release until Apple notarization accepts that exact asset, the ticket is stapled and validated, the final hash is recorded, and the quarantined download passes a clean-Mac assessment.
 
 After choosing the Developer ID Application identity from `security find-identity -v -p codesigning`, run `MONITOR_RELEASE_SIGN_IDENTITY=<certificate-SHA-1> ./package-release.sh` from a clean checkout to create a signed candidate. Notarization, stapling, final hash verification, and a quarantined clean-Mac test remain separate gates.
 
