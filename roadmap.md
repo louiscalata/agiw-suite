@@ -1,5 +1,19 @@
 # AGIW Suite repository candidate roadmap
 
+## Default public Nisi package and optional Jev — 2026-09-30
+
+- [x] Select the owner's approved public Nisi 0.2.0 release at `41fb6aeb67713011abc40b1434f5a939a5704aa4`; verify the published archive SHA-256 `aa46147005814c4e72aaa87099894552122ebe2bed91dad89a61b61388be3737`. Bundle all 18 released files unchanged with their Apache-2.0 license and pinned provenance manifest. Exclude the private Nisi/Jev workspace.
+- [x] Extend the existing full Monitor build and release scripts to copy that payload by default, verify integrity before signing, compare the mounted payload, and record every vendor input hash. Keep Node.js 22+ as an explicit prerequisite; no additional local model is loaded.
+- [x] Add Components setup and the explicit fixed Nisi demo check. Independent review identified first-runtime selection and thread-start recovery bugs; both were corrected with focused regression coverage. The actual public CLI returned 0.2.0 and completed its demo on Node 24.18.0 with zero model calls.
+- [x] Implement the optional hosted Jev connector with native credential entry, Keychain-only key handling, a fixed HTTPS probe, bounded response validation and disabled-by-default behavior. Offline tests cover 16 actual native response-delegate cases and the Python/HTTP boundary. A connection check is separate from coding-task routing.
+- [x] Verify the integrated source locally: 737 Python tests and 232 JavaScript tests passed; Swift typechecks, shell syntax, plist lint, pinned-payload verification and whitespace checks passed. The browser-triggered Nisi self-check passed. Independent review found no source-push blocker. This is source acceptance; CI is recorded separately.
+- [ ] Verify actual native Jev credential entry/access and an authorized hosted probe on the signed successor. No Jev credentials were configured and no hosted request was sent during these checks.
+- [ ] Build/sign/install full Monitor Build 6, verify the final installed components, and notarize the successor before changing the public binary release. Preserve notarized Build 5 for rollback.
+- [ ] Review the Mac App Store successor's sandbox, runtime and optional-service privacy design. Uploaded MAS Build 7 remains unchanged and does not include these components.
+
+The public GitHub release remains the notarized Build 5 prerelease. The Nisi/Jev successor is development work until its exact build and acceptance receipts are recorded.
+The first 6-GiB heavy-build admission was refused (exit 75, macOS memory pressure warning). No new archive was built or installed; resident models and the working Build 5 application were preserved.
+
 This is the canonical roadmap for this repository and its GitHub distribution candidates. The Monitor's active engineering roadmap remains in its original checkout until an owner accepts a cutover. Source publication, verified local installation and binary distribution acceptance are recorded separately.
 
 ## Inference map visual update — 2026-09-29

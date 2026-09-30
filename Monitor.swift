@@ -273,6 +273,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     private var windowDashboard: DashboardController?
     private var dashboardWindow: NSWindow?
     private var observer: Process?
+    private var jevSetupProcess: Process?
     private var stdoutPipe: Pipe?
     private var stderrPipe: Pipe?
     private var startupBytes = Data()
@@ -703,7 +704,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
 
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
                  decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-        // No external browser launches, subframes, file URLs, or arbitrary loopback services.
+        let documentation = Set(["https://nodejs.org/en/download", "https://docs.typesafe.ai/",
+                                 "https://github.com/louiscalata/nisi/tree/v0.2.0#command-line"])
+        if navigationAction.navigationType == .linkActivated,
+           let url = navigationAction.request.url, documentation.contains(url.absoluteString) {
+            NSWorkspace.shared.open(url)
+            decisionHandler(.cancel)
+            return
+        }
+        // Only the explicit documentation links above may leave this origin.
+        // Subframes, file URLs and arbitrary loopback services remain blocked.
         decisionHandler(navigationAction.targetFrame?.isMainFrame == true && allowedOrigin(navigationAction.request.url) ? .allow : .cancel)
     }
 
@@ -751,6 +761,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         switch action {
         case "expand": openDashboardWindow(nil)
         case "quit": quitMonitor(nil)
+        case "jev-configure":
+            guard jevSetupProcess?.isRunning != true,
+                  let executable = Bundle.main.executableURL?.deletingLastPathComponent().appendingPathComponent("JevKeychain") else { return }
+            let setup = Process()
+            setup.executableURL = executable
+            setup.arguments = ["configure"]
+            setup.environment = ["PATH": "/usr/bin:/bin"]
+            setup.standardInput = FileHandle.nullDevice
+            setup.standardOutput = FileHandle.nullDevice
+            setup.standardError = FileHandle.nullDevice
+            setup.terminationHandler = { [weak webView] _ in
+                DispatchQueue.main.async {
+                    webView?.evaluateJavaScript("window.dispatchEvent(new Event('focus'))", completionHandler: nil)
+                }
+            }
+            do { try setup.run(); jevSetupProcess = setup } catch {
+                let alert = NSAlert()
+                alert.messageText = "Jev setup is unavailable"
+                alert.informativeText = "The signed Keychain helper could not start. Reinstall this AGIW build."
+                alert.runModal()
+            }
         default: break
         }
     }

@@ -27,9 +27,14 @@ from live_feed import LiveFeed
 from gpu_probe import mac_gpu
 from local_callers import LocalCallers
 from mem_guard import Guard, LevelFile, unknown_block
+from bundled_components import BundledComponents
+from jev_connection import JevConnection
 
 ROOT = Path(__file__).resolve().parent / 'web'
 ASSETS = {'/': ('index.html', 'text/html; charset=utf-8'),
+          '/components': ('components.html', 'text/html; charset=utf-8'),
+          '/components.js': ('components.js', 'text/javascript; charset=utf-8'),
+          '/components.css': ('components.css', 'text/css; charset=utf-8'),
           '/app.js': ('app.js', 'text/javascript; charset=utf-8'),
           '/online-code-mode.mjs': ('online-code-mode.mjs', 'text/javascript; charset=utf-8'),
           '/map-layout.mjs': ('map-layout.mjs', 'text/javascript; charset=utf-8'),
@@ -167,6 +172,8 @@ class MonitorServer(ThreadingHTTPServer):
                               if durable_model_control else ModelControl(store))
         self.auto_unloader = None
         self.online_code_repair = OnlineCodeRepair() if mac_online_code_controls_enabled() else None
+        self.bundled_components = BundledComponents()
+        self.jev_connection = JevConnection()
         self._slots = threading.BoundedSemaphore(self.max_connections)
         self._active_connections = 0
         self._active_lock = threading.Lock()
@@ -258,6 +265,10 @@ class Handler(BaseHTTPRequestHandler):
         if not self.same_origin():
             return self.reply(403, b'Invalid host or origin', 'text/plain')
         path = urlsplit(self.path).path
+        if path == '/api/components':
+            return self.reply(200, json.dumps(self.server.bundled_components.status()).encode(), 'application/json')
+        if path == '/api/components/jev':
+            return self.reply(200, json.dumps(self.server.jev_connection.status()).encode(), 'application/json')
         if path == '/api/stream':
             return self.stream()
         if path == '/api/snapshot':
@@ -296,6 +307,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         if self.path not in {'/api/models/control', '/api/models/auto-unload',
+                             '/api/components/nisi/check',
+                             '/api/components/jev/check',
                              '/api/online-code-mode/repair',
                              '/api/online-code-mode/entry', '/api/online-code-mode/headless',
                              '/api/inference/fix'}:
@@ -332,7 +345,15 @@ class Handler(BaseHTTPRequestHandler):
                 return value
             data = json.loads(raw.decode('utf-8'), object_pairs_hook=distinct,
                               parse_constant=lambda _: (_ for _ in ()).throw(ValueError('invalid number')))
-            if self.path == '/api/online-code-mode/repair':
+            if self.path == '/api/components/jev/check':
+                if data != {'action': 'connection-check'}:
+                    return self.control_error(400, 'Body must contain only action: connection-check.')
+                accepted = self.server.jev_connection.request_check()
+            elif self.path == '/api/components/nisi/check':
+                if data != {'action': 'self-check'}:
+                    return self.control_error(400, 'Body must contain only action: self-check.')
+                accepted = self.server.bundled_components.request_check()
+            elif self.path == '/api/online-code-mode/repair':
                 if data != {'action': 'check-and-repair'}:
                     return self.control_error(400, 'Body must contain only action: check-and-repair.')
                 accepted = self.server.online_code_repair.request()

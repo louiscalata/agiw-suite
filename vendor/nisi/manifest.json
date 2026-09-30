@@ -1,0 +1,32 @@
+{
+  "archive_bytes": 42439,
+  "archive_sha256": "aa46147005814c4e72aaa87099894552122ebe2bed91dad89a61b61388be3737",
+  "archive_url": "https://github.com/louiscalata/nisi/releases/download/v0.2.0/nisi-0.2.0.tgz",
+  "files": {
+    "LICENSE": "c95bae1d1ce0235ecccd3560b772ec1efb97f348a79f0fbe0a634f0c2ccefe2c",
+    "README.md": "9db0e88aca6f53847e05bc0f19165309eda0e185b691a1a500a957b4da3fa62e",
+    "adapters/apple-foundation-models.mjs": "311f4898c31b4e0693093361fc19c344086c1f24946909fe134c14d37e25d080",
+    "adapters/local-chat.mjs": "75dc8b128883fb14e524ceb05b4696e53406c2c8038ec4340b42f0ca471fe043",
+    "bin/nisi.mjs": "56d758021043684a0d6ff35c443a57dea5de3e11828fff3afa61cc476479198f",
+    "canonical/canonical-json-v1.mjs": "d1049a26d2bea0d14e959c0af22af15b975345091c5fa5360e8bd685637f8e59",
+    "examples/local-model-workflow.mjs": "10bebdef922bb63c3716baa107cd037d3de6432b93a2e058e22151578738a2c1",
+    "examples/workflow.mjs": "0d365578db02cb9aeda0aaa500aef61cad506e1dfdd0ce36a76235781d9795fd",
+    "gate/afm-content-executor.mjs": "6a4c23a3495a00dbf98e9ff5c68a9008f421d6fe225a3768b6863d4e12324ed6",
+    "gate/content-consent.mjs": "a735eb35cb1373b3f3744dc7b3caa8b24ebbf394babba53d4f722136c72a0820",
+    "history/run-journal-store-v1.mjs": "772bee640e246d14da4bfe6d6d52e62f750436aa5c4caf1457eeef703f058eaf",
+    "history/run-journal-v1.mjs": "ab51ddd2ca2e3e1dcc24560991b1ffd703d015f584882613731a58814bc5db3b",
+    "index.mjs": "066c90d65209854cd6aeb838924ce28dca90d7dc75d0cd533d17fbba8e1c3db7",
+    "package.json": "f00a8fa85371b4f3146bf8f2ad2d02ad6fd4974a1a5e0080d6294af03d9205c4",
+    "policy/file-access.mjs": "92f9f60220e1869ad0d6571ae2b5a8ddc9259b2463c4cf617d4cecee6eacc1d3",
+    "serialization/canonical-json-v1.mjs": "1e5eb6222da2c7baae3cd45a5077ccc1e8ae25b5bc184646d9e55170dec53625",
+    "workflow/contracts.mjs": "c28a3ee3db6e9a936cd58fca8b8ee3f2744ca25c259e2ea278b3b09cdbb73d82",
+    "workflow/engine.mjs": "c67c63baeadc725a8487af7108b01d3a38dd50e64ff35f1be66471c81e5f979b"
+  },
+  "license": "Apache-2.0",
+  "name": "nisi",
+  "node_requirement": ">=22",
+  "schema": 1,
+  "source_commit": "41fb6aeb67713011abc40b1434f5a939a5704aa4",
+  "source_url": "https://github.com/louiscalata/nisi/releases/tag/v0.2.0",
+  "version": "0.2.0"
+}

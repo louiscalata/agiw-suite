@@ -1,0 +1,4 @@
+# Preserve the exact public release bytes used by the pinned Nisi manifest.
+vendor/nisi/package/** -text
+# The upstream Apache license ends with a blank line; preserve it unchanged.
+vendor/nisi/package/LICENSE whitespace=-blank-at-eof

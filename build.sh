@@ -23,22 +23,39 @@ for resource in server.py telemetry.py activity.py client_models.py model_contro
         exit 1
     fi
 done
+for resource in bundle_nisi.py bundled_components.py jev_connection.py JevKeychain.swift web/components.html web/components.js web/components.css; do
+    if [[ ! -f "$project_dir/$resource" || -L "$project_dir/$resource" ]]; then
+        echo "Missing or symlinked component resource: $resource" >&2
+        exit 1
+    fi
+done
+"$python_path" "$project_dir/bundle_nisi.py" --verify
 mkdir -p "$applications_dir"
 stage_dir="$(mktemp -d "$applications_dir/.inference-monitor-build.XXXXXX")"
+stage_dir="$(cd -- "$stage_dir" && pwd -P)"
 trap 'rm -rf -- "$stage_dir"' EXIT
 stage_app="$stage_dir/Inference Monitor.app"
 mkdir -p "$stage_app/Contents/MacOS" "$stage_app/Contents/Resources/web"
+"$python_path" "$project_dir/bundle_nisi.py" --destination "$stage_app/Contents/Resources/nisi"
 
 xcrun swiftc -O -target arm64-apple-macosx13.0 \
     -framework Cocoa -framework WebKit \
     "$project_dir/Monitor.swift" -o "$stage_app/Contents/MacOS/InferenceMonitor"
+xcrun swiftc -O -target arm64-apple-macosx13.0 -framework Cocoa -framework Security \
+    "$project_dir/JevKeychain.swift" -o "$stage_app/Contents/MacOS/JevKeychain"
 if [[ "$(lipo -archs "$stage_app/Contents/MacOS/InferenceMonitor")" != arm64 ]]; then
     echo "Compiled app must contain only arm64; installation refused." >&2
+    exit 1
+fi
+if [[ "$(lipo -archs "$stage_app/Contents/MacOS/JevKeychain")" != arm64 ]]; then
+    echo "Jev helper must contain only arm64; installation refused." >&2
     exit 1
 fi
 cp "$project_dir/Info.plist" "$stage_app/Contents/Info.plist"
 cp "$project_dir/server.py" "$project_dir/telemetry.py" "$project_dir/activity.py" "$project_dir/client_models.py" "$project_dir/model_control.py" "$project_dir/durable_model_journal.py" "$project_dir/auto_unload.py" "$project_dir/online_code_repair.py" "$project_dir/nisi_v02.py" "$project_dir/windows_probe.py" "$project_dir/live_feed.py" "$project_dir/gpu_probe.py" "$project_dir/local_callers.py" "$project_dir/mem_guard.py" "$project_dir/usage-format.mjs" "$stage_app/Contents/Resources/"
 cp "$project_dir/web/index.html" "$project_dir/web/app.js" "$project_dir/web/online-code-mode.mjs" "$project_dir/web/map-layout.mjs" "$project_dir/web/model-control-view.mjs" "$project_dir/web/style.css" "$stage_app/Contents/Resources/web/"
+cp "$project_dir/bundle_nisi.py" "$project_dir/bundled_components.py" "$project_dir/jev_connection.py" "$stage_app/Contents/Resources/"
+cp "$project_dir/web/components.html" "$project_dir/web/components.js" "$project_dir/web/components.css" "$stage_app/Contents/Resources/web/"
 plutil -lint "$stage_app/Contents/Info.plist"
 sign_identity="${MONITOR_SIGN_IDENTITY:-}"
 if [[ -n "$sign_identity" ]]; then
@@ -49,13 +66,15 @@ if [[ -n "$sign_identity" ]]; then
     # Local installation only. The explicit identity gives macOS a stable
     # certificate-based requirement across source rebuilds; it does not
     # notarize or publish the app.
+    codesign --force --sign "$sign_identity" --options runtime --timestamp=none "$stage_app/Contents/MacOS/JevKeychain"
     codesign --force --sign "$sign_identity" --options runtime --timestamp=none "$stage_app"
     echo "Signing mode: explicit certificate identity ($sign_identity)."
 else
+    codesign --force --sign - "$stage_app/Contents/MacOS/JevKeychain"
     codesign --force --sign - "$stage_app"
     echo "Signing mode: ad hoc (the designated requirement is build-specific)."
 fi
-codesign --verify --strict "$stage_app"
+codesign --verify --deep --strict "$stage_app"
 
 # Hold the same observer-only lock across replacement. A running application is
 # never overwritten, and a simultaneous launch cannot overlap installation.
