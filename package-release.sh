@@ -35,6 +35,13 @@ resources=(
     usage-format.mjs web/index.html web/app.js web/online-code-mode.mjs
     web/map-layout.mjs web/model-control-view.mjs web/style.css
 )
+legal_files=(LICENSE NOTICE)
+for legal_file in "${legal_files[@]}"; do
+    if [[ ! -f "$project_dir/$legal_file" || -L "$project_dir/$legal_file" || ! -s "$project_dir/$legal_file" ]]; then
+        echo "Missing, empty or symlinked legal release input: $legal_file" >&2
+        exit 2
+    fi
+done
 for resource in "${resources[@]}" Info.plist Monitor.swift; do
     if [[ ! -f "$project_dir/$resource" ]]; then
         echo "Missing release input: $resource" >&2
@@ -60,7 +67,7 @@ if [[ "$arch" != arm64 && "$arch" != x86_64 ]]; then
 fi
 source_commit="$(git -C "$project_dir" rev-parse HEAD)"
 script_sha256="$(shasum -a 256 "$project_dir/package-release.sh" | awk '{print $1}')"
-developer_dir="$(xcode-select -p)"
+developer_dir="${DEVELOPER_DIR:-$(xcode-select -p)}"
 xcode_version="$(xcodebuild -version)"
 sdk_version="$(xcrun --sdk macosx --show-sdk-version)"
 swiftc_path="$(xcrun --find swiftc)"
@@ -98,8 +105,8 @@ input_dir="$stage_dir/inputs"
 payload_dir="$stage_dir/payload"
 stage_app="$payload_dir/Inference Monitor.app"
 stage_dmg="$stage_dir/$release_name.dmg"
-mkdir -p "$input_dir/web" "$stage_app/Contents/MacOS" "$stage_app/Contents/Resources/web" "$mount_dir"
-for resource in "${resources[@]}" Info.plist Monitor.swift; do
+mkdir -p "$input_dir/web" "$stage_app/Contents/MacOS" "$stage_app/Contents/Resources/web" "$stage_app/Contents/Resources/Legal" "$mount_dir"
+for resource in "${resources[@]}" Info.plist Monitor.swift "${legal_files[@]}"; do
     cp "$project_dir/$resource" "$input_dir/$resource"
 done
 
@@ -109,6 +116,10 @@ xcrun swiftc -O -target "$arch-apple-macosx13.0" \
 cp "$input_dir/Info.plist" "$stage_app/Contents/Info.plist"
 for resource in "${resources[@]}"; do
     cp "$input_dir/$resource" "$stage_app/Contents/Resources/$resource"
+done
+for legal_file in "${legal_files[@]}"; do
+    cp "$input_dir/$legal_file" "$payload_dir/$legal_file"
+    cp "$input_dir/$legal_file" "$stage_app/Contents/Resources/Legal/$legal_file"
 done
 plutil -lint "$stage_app/Contents/Info.plist"
 
@@ -125,7 +136,7 @@ if [[ "$(lipo -archs "$stage_app/Contents/MacOS/InferenceMonitor")" != "$arch" ]
     exit 1
 fi
 
-cat > "$payload_dir/INSTALL.txt" <<'EOF'
+cat > "$stage_dir/INSTALL.txt" <<'EOF'
 AGIW Suite Inference Monitor — installation
 
 Requires macOS 13 or later on a Mac matching this DMG's architecture, plus
@@ -137,7 +148,13 @@ Copy Inference Monitor.app to Applications, then open it. The app observes local
 inference on this Mac. Model serving, Nisi/Jev routing, Windows worker,
 SharedChami recovery, and optional controls require separately installed and
 configured components. No models or Python interpreter are bundled in the DMG.
+
+AGIW Inference Monitor is licensed under the Apache License, Version 2.0.
+See LICENSE and NOTICE beside the app and in the app's Contents/Resources/Legal
+folder. External model weights and separately managed services are not included;
+their own licenses and terms apply.
 EOF
+cp "$stage_dir/INSTALL.txt" "$payload_dir/INSTALL.txt"
 hdiutil create -volname "AGIW Inference Monitor $version" -srcfolder "$payload_dir" \
     -format UDZO -fs HFS+ "$stage_dmg" >/dev/null
 codesign --force --sign "$sign_identity" --timestamp \
@@ -150,7 +167,7 @@ if ! grep -q '^Timestamp=' <<< "$dmg_signature" ||
     exit 1
 fi
 
-hdiutil attach -readonly -nobrowse -mountpoint "$mount_dir" "$stage_dmg" >/dev/null
+hdiutil attach -readonly -noautoopen -nobrowse -mountpoint "$mount_dir" "$stage_dmg" >/dev/null
 mounted=1
 mounted_app="$mount_dir/Inference Monitor.app"
 codesign --verify --strict --verbose=2 "$mounted_app"
@@ -168,12 +185,23 @@ for resource in "${resources[@]}"; do
         exit 1
     fi
 done
+for legal_file in "${legal_files[@]}"; do
+    if ! cmp -s "$input_dir/$legal_file" "$mount_dir/$legal_file" ||
+       ! cmp -s "$input_dir/$legal_file" "$mounted_app/Contents/Resources/Legal/$legal_file"; then
+        echo "Mounted legal file differs from the frozen input: $legal_file" >&2
+        exit 1
+    fi
+done
+if ! cmp -s "$stage_dir/INSTALL.txt" "$mount_dir/INSTALL.txt"; then
+    echo "Mounted installation note differs from the generated input." >&2
+    exit 1
+fi
 hdiutil detach "$mount_dir" >/dev/null
 mounted=0
 
 if [[ "$(git -C "$project_dir" rev-parse HEAD)" != "$source_commit" ]] ||
    [[ "$(shasum -a 256 "$project_dir/package-release.sh" | awk '{print $1}')" != "$script_sha256" ]] ||
-   [[ "$(xcode-select -p)" != "$developer_dir" ]] ||
+   [[ "${DEVELOPER_DIR:-$(xcode-select -p)}" != "$developer_dir" ]] ||
    [[ "$(xcodebuild -version)" != "$xcode_version" ]] ||
    [[ "$(xcrun --sdk macosx --show-sdk-version)" != "$sdk_version" ]] ||
    [[ "$(xcrun --find swiftc)" != "$swiftc_path" ]] ||
@@ -181,7 +209,7 @@ if [[ "$(git -C "$project_dir" rev-parse HEAD)" != "$source_commit" ]] ||
     echo "Source revision, release script, or selected toolchain changed during the build." >&2
     exit 1
 fi
-for resource in "${resources[@]}" Info.plist Monitor.swift; do
+for resource in "${resources[@]}" Info.plist Monitor.swift "${legal_files[@]}"; do
     if ! cmp -s "$project_dir/$resource" "$input_dir/$resource"; then
         echo "Release input changed during the build: $resource" >&2
         exit 1
@@ -193,15 +221,15 @@ if [[ "$source_dirty" == 0 && -n "$(git -C "$project_dir" status --porcelain --u
 fi
 
 dmg_sha256="$(shasum -a 256 "$stage_dmg" | awk '{print $1}')"
-/usr/bin/python3 - "$stage_dir/manifest.json" "$input_dir" "$source_commit" "$source_dirty" "$script_sha256" "$version" "$build" "$bundle_id" "$arch" "$xcode_version" "$sdk_version" "$swiftc_version" "$dmg_sha256" "${resources[@]}" <<'PY'
+install_sha256="$(shasum -a 256 "$stage_dir/INSTALL.txt" | awk '{print $1}')"
+/usr/bin/python3 - "$stage_dir/manifest.json" "$input_dir" "$source_commit" "$source_dirty" "$script_sha256" "$version" "$build" "$bundle_id" "$arch" "$xcode_version" "$sdk_version" "$swiftc_version" "$dmg_sha256" "$install_sha256" "${resources[@]}" Info.plist Monitor.swift "${legal_files[@]}" <<'PY'
 import hashlib
 import json
 import sys
 from pathlib import Path
 
-out, frozen, commit, dirty, script_hash, version, build, bundle_id, arch, xcode_version, sdk_version, swiftc_version, dmg_hash, *resources = sys.argv[1:]
+out, frozen, commit, dirty, script_hash, version, build, bundle_id, arch, xcode_version, sdk_version, swiftc_version, dmg_hash, install_hash, *inputs = sys.argv[1:]
 frozen = Path(frozen)
-inputs = resources + ['Info.plist', 'Monitor.swift']
 # The manifest records exact relative inputs. The caller passes source files by
 # name so no owner's absolute path is written into the distributable metadata.
 record = {
@@ -218,6 +246,11 @@ record = {
     'swiftcVersion': swiftc_version,
     'dmgSha256BeforeNotarization': dmg_hash,
     'candidateStatus': 'signed_unnotarized',
+    'installationNoteSha256': install_hash,
+    'legalFiles': {
+        name: [name, f'Inference Monitor.app/Contents/Resources/Legal/{name}']
+        for name in ('LICENSE', 'NOTICE')
+    },
     'inputSha256': {
         name: hashlib.sha256((frozen / name).read_bytes()).hexdigest()
         for name in inputs
