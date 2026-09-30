@@ -1,5 +1,11 @@
 # AGIW Suite repository candidate roadmap
 
+## Public page polish — 30 September 2026
+
+- [x] Put downloads, requirements and first-run steps at the front of the README; add a static glowing AS brand mark. Move optional routing/resource/share configuration and source/build instructions into linked guides, preserving their commands and requirements.
+- [x] Clarify first-launch missing data, Core 6 as an inventory filter, the separately managed coding router and the optional Jev connection check. Keep provider data flow, possible charges, support, license and outstanding native validation visible.
+- [x] Review the documentation against the shipped UI and release evidence. This presentation update leaves the signed Build 7 application, release tag, download bytes and open acceptance checks unchanged.
+
 ## Public v1.0.0 release — 30 September 2026, 13:44 PDT
 
 - [x] Prepare the reviewed, notarized Build 7 for the requested complete public GitHub release. Preserve all 53 signed application files and modes from compiled source `caaa7d482a1f168d86c496af4f573dfcbf0490b8`; clarify the outer `INSTALL.txt` and add `RELEASE-NOTES.md`. The final 494,134-byte ZIP has SHA-256 `9a995fb8e3f6e6c5a12d76ec0d8b7f485643dd02cccf45db7c15ce1314f473a2`. Final extraction passed strict signatures, attached-ticket validation, Gatekeeper and exact app parity; no app rebuild or re-sign occurred.
