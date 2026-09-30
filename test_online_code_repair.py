@@ -458,30 +458,68 @@ class OnlineCodeRepairTests(unittest.TestCase):
                                     capture_output=True, text=True, timeout=2)
             return result.returncode == 0 and result.stdout.strip()[:1] not in ("", "Z")
 
-        for stall in (False, True):
-            # A pid left by the first pass must not stand in for a stall launcher
-            # that never started its nested child before the deadline.
-            pid_path.unlink(missing_ok=True)
-            prewarmed_script(script, "import subprocess,time\n"
-                             f"child=subprocess.Popen(['/usr/bin/python3','-c',{child!r}],"
-                             "stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)\n"
-                             f"open({str(pid_path)!r},'w').write(str(child.pid))\n"
-                             + ("time.sleep(30)\n" if stall else "print('done')\n"))
-            with mock.patch.object(repair, "LAUNCHER", script):
-                if stall:
-                    with self.assertRaises(subprocess.TimeoutExpired):
-                        repair.launcher_runner(repair.ROUTE_STATUS, None, 0.2)
-                else:
-                    self.assertEqual(repair.launcher_runner(repair.ROUTE_STATUS, None, 2).stdout.strip(), b"done")
-            nested_pid = int(pid_path.read_text())
+        real_popen = subprocess.Popen
+
+        def ready_launcher(command, *args, **kwargs):
+            process = real_popen(command, *args, **kwargs)
+            if command[0] != str(script):
+                return process
+            # Start the runner's unchanged deadline only once this cleanup
+            # fixture has a live descendant, independent of host exec latency.
+            ready_until = time.monotonic() + 5
             try:
-                deadline = time.monotonic() + 2
-                while live(nested_pid) and time.monotonic() < deadline:
-                    time.sleep(0.02)
-                self.assertFalse(live(nested_pid), "nested launcher child remained alive")
-            finally:
-                if live(nested_pid):
-                    os.kill(nested_pid, signal.SIGKILL)
+                while time.monotonic() < ready_until:
+                    if pid_path.exists():
+                        try:
+                            nested_pid = int(pid_path.read_text())
+                        except ValueError:
+                            pass  # The launcher's pid write may be in progress.
+                        else:
+                            if live(nested_pid):
+                                return process
+                    time.sleep(0.01)
+                self.fail("launcher fixture did not create a live nested child")
+            except BaseException:
+                try:
+                    try:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                finally:
+                    try:
+                        process.wait(timeout=2)
+                    finally:
+                        if process.stdout is not None:
+                            process.stdout.close()
+                raise
+
+        for stall, startup_delay in ((False, 0), (True, 0.4)):
+            with self.subTest(stall=stall, startup_delay=startup_delay):
+                # A pid left by the first pass must not stand in for a stall launcher
+                # that never started its nested child before the deadline.
+                pid_path.unlink(missing_ok=True)
+                prewarmed_script(script, "import subprocess,time\n"
+                                 f"time.sleep({startup_delay})\n"
+                                 f"child=subprocess.Popen(['/usr/bin/python3','-c',{child!r}],"
+                                 "stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)\n"
+                                 f"open({str(pid_path)!r},'w').write(str(child.pid))\n"
+                                 + ("time.sleep(30)\n" if stall else "print('done')\n"))
+                with mock.patch.object(repair, "LAUNCHER", script), \
+                        mock.patch.object(repair.subprocess, "Popen", side_effect=ready_launcher):
+                    if stall:
+                        with self.assertRaises(subprocess.TimeoutExpired):
+                            repair.launcher_runner(repair.ROUTE_STATUS, None, 0.2)
+                    else:
+                        self.assertEqual(repair.launcher_runner(repair.ROUTE_STATUS, None, 2).stdout.strip(), b"done")
+                nested_pid = int(pid_path.read_text())
+                try:
+                    deadline = time.monotonic() + 2
+                    while live(nested_pid) and time.monotonic() < deadline:
+                        time.sleep(0.02)
+                    self.assertFalse(live(nested_pid), "nested launcher child remained alive")
+                finally:
+                    if live(nested_pid):
+                        os.kill(nested_pid, signal.SIGKILL)
 
     def test_universal_entry_rejects_symlinks_and_writable_source(self):
         source = Path(self.temporary.name) / "trusted"
