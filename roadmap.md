@@ -12,7 +12,7 @@
 - [ ] Review the Mac App Store successor's sandbox, runtime and optional-service privacy design. Uploaded MAS Build 7 remains unchanged and does not include these components.
 
 The public GitHub release remains the notarized Build 5 prerelease. The Nisi/Jev successor is development work until its exact build and acceptance receipts are recorded.
-The first 6-GiB heavy-build admission was refused (exit 75, macOS memory pressure warning). No new archive was built or installed; resident models and the working Build 5 application were preserved.
+The first 6-GiB heavy-build admission was refused (exit 75, macOS memory pressure warning). After the owner authorized unloading the two resident models, memory returned to normal and a signed Build 6 candidate was produced from `efab5c1`. Publication review caught an outdated NOTICE claiming Nisi runtime source was excluded; the notice is corrected in this successor. A fresh signed candidate is required before notarization. The published Build 5 application is preserved.
 
 This is the canonical roadmap for this repository and its GitHub distribution candidates. The Monitor's active engineering roadmap remains in its original checkout until an owner accepts a cutover. Source publication, verified local installation and binary distribution acceptance are recorded separately.
 
@@ -62,7 +62,7 @@ This is the canonical roadmap for this repository and its GitHub distribution ca
 
 ## Excluded from this package
 
-Router development and installed scripts, Nisi and Jev runtime source, the Windows observer and worker, the security scanner, the generated suite report and its evidence, model files, credentials, local configuration, receipts, logs, staged candidates, installed app bundles and archives remain outside this candidate. They require their own source and acceptance decisions before any later inclusion.
+Private router development and installed scripts, hosted Jev service implementation, Windows workers, the separate security scanner, generated suite report and its private evidence, model weights, credentials, local configuration, receipts, logs, staged candidates, installed app bundles and archives remain outside this source package. The public Nisi 0.2.0 package, optional Jev connector and Mac-side Windows observer are included. External components require their own source and acceptance decisions before any later inclusion.
 
 ## Verification record
 
