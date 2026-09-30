@@ -73,11 +73,11 @@ Before submitting a change:
 - avoid adding credentials, hostnames, or sensitive local state to the repo
 - keep examples generic and safe for public review
 
-The contribution guide has not been written yet; keep proposed changes focused and include the relevant test results.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for source-check commands, external router fixture boundaries and change scope.
 
 ## Security
 
-Do not put credentials, private hostnames, or sensitive machine state in issues. A dedicated security reporting policy has not been published yet.
+See [SECURITY.md](SECURITY.md) for private vulnerability reporting. Do not put credentials, private hostnames or sensitive machine state in issues.
 
 ## License
 
