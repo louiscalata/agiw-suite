@@ -34,3 +34,6 @@ jobs:
           bash -n build.sh login-agent.sh package-release.sh
           plutil -lint Info.plist
           xcrun swiftc -typecheck -target arm64-apple-macosx13.0 -framework Cocoa -framework WebKit Monitor.swift
+          xcrun swiftc -typecheck -target arm64-apple-macosx13.0 -framework Cocoa -framework Security JevKeychain.swift
+          python3 -B bundle_nisi.py --verify
+          node --check web/components.js

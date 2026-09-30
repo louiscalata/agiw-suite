@@ -1,0 +1,92 @@
+{
+  "name": "nisi",
+  "version": "0.2.0",
+  "private": false,
+  "description": "A Node.js CLI and library for bounded AI-assisted coding workflows and validated run reports.",
+  "license": "Apache-2.0",
+  "author": "Louis Calata",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/louiscalata/nisi.git"
+  },
+  "homepage": "https://github.com/louiscalata/nisi#readme",
+  "bugs": {
+    "url": "https://github.com/louiscalata/nisi/issues"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node scripts/require-node.cjs && node --test tests/*.test.mjs",
+    "check:structural": "node scripts/require-node.cjs && node scripts/structural-check.mjs",
+    "check": "npm run check:structural && npm test",
+    "check:cli-package": "node scripts/require-node.cjs && node scripts/check-cli-package.mjs",
+    "bench": "node scripts/bench.mjs",
+    "ab:purity": "node scripts/ab-purity.mjs contracts/structural-fixtures.json ${AFM:-afm}",
+    "check:static": "node scripts/require-node.cjs && node tools/check-side-effects.mjs",
+    "example:workflow": "node scripts/require-node.cjs && node examples/workflow.mjs",
+    "preflight": "node scripts/require-node.cjs",
+    "example:local-model": "node scripts/require-node.cjs && node examples/local-model-workflow.mjs"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3"
+  },
+  "files": [
+    "README.md",
+    "LICENSE",
+    "bin/nisi.mjs",
+    "examples/workflow.mjs",
+    "examples/local-model-workflow.mjs",
+    "index.mjs",
+    "adapters/*.mjs",
+    "canonical/*.mjs",
+    "gate/*.mjs",
+    "history/run-journal-v1.mjs",
+    "history/run-journal-store-v1.mjs",
+    "policy/*.mjs",
+    "serialization/*.mjs",
+    "workflow/*.mjs"
+  ],
+  "keywords": [
+    "canonical-json",
+    "capability-security",
+    "static-analysis",
+    "mutation-testing",
+    "foundation-models"
+  ],
+  "main": "./index.mjs",
+  "bin": {
+    "nisi": "./bin/nisi.mjs"
+  },
+  "exports": {
+    ".": "./index.mjs",
+    "./workflow": "./workflow/engine.mjs",
+    "./policy": "./policy/file-access.mjs",
+    "./serialization": "./serialization/canonical-json-v1.mjs",
+    "./adapters/apple-foundation-models": "./adapters/apple-foundation-models.mjs",
+    "./adapters/local-chat": "./adapters/local-chat.mjs",
+    "./history/run-journal": "./history/run-journal-v1.mjs",
+    "./history/run-journal-store": "./history/run-journal-store-v1.mjs",
+    "./index.mjs": "./index.mjs",
+    "./package.json": "./package.json",
+    "./workflow/engine.mjs": "./workflow/engine.mjs",
+    "./workflow/contracts.mjs": "./workflow/contracts.mjs",
+    "./policy/file-access.mjs": "./policy/file-access.mjs",
+    "./serialization/canonical-json-v1.mjs": "./serialization/canonical-json-v1.mjs",
+    "./adapters/apple-foundation-models.mjs": "./adapters/apple-foundation-models.mjs",
+    "./adapters/local-chat.mjs": "./adapters/local-chat.mjs",
+    "./canonical/canonical-json-v1.mjs": "./canonical/canonical-json-v1.mjs",
+    "./gate/content-consent.mjs": "./gate/content-consent.mjs",
+    "./gate/afm-content-executor.mjs": "./gate/afm-content-executor.mjs",
+    "./history/run-journal-v1.mjs": "./history/run-journal-v1.mjs",
+    "./history/run-journal-store-v1.mjs": "./history/run-journal-store-v1.mjs"
+  },
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": ">=22",
+      "onFail": "error"
+    }
+  }
+}

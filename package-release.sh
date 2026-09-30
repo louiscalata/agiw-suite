@@ -34,6 +34,7 @@ resources=(
     windows_probe.py live_feed.py gpu_probe.py local_callers.py mem_guard.py
     usage-format.mjs web/index.html web/app.js web/online-code-mode.mjs
     web/map-layout.mjs web/model-control-view.mjs web/style.css
+    bundle_nisi.py bundled_components.py jev_connection.py web/components.html web/components.js web/components.css
 )
 legal_files=(LICENSE NOTICE)
 for legal_file in "${legal_files[@]}"; do
@@ -42,12 +43,18 @@ for legal_file in "${legal_files[@]}"; do
         exit 2
     fi
 done
-for resource in "${resources[@]}" Info.plist Monitor.swift; do
-    if [[ ! -f "$project_dir/$resource" ]]; then
-        echo "Missing release input: $resource" >&2
+for resource in "${resources[@]}" Info.plist Monitor.swift JevKeychain.swift; do
+    if [[ ! -f "$project_dir/$resource" || -L "$project_dir/$resource" ]]; then
+        echo "Missing or symlinked release input: $resource" >&2
         exit 2
     fi
 done
+nisi_inputs=()
+# Verify the pinned public release before invoking build/sign tools.
+nisi_input_list="$(/usr/bin/python3 "$project_dir/bundle_nisi.py" --list-inputs)"
+while IFS= read -r resource; do
+    nisi_inputs+=("$resource")
+done <<< "$nisi_input_list"
 
 version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$project_dir/Info.plist")"
 build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$project_dir/Info.plist")"
@@ -103,13 +110,17 @@ payload_dir="$stage_dir/payload"
 stage_app="$payload_dir/Inference Monitor.app"
 stage_dmg="$stage_dir/$release_name.dmg"
 mkdir -p "$input_dir/web" "$stage_app/Contents/MacOS" "$stage_app/Contents/Resources/web" "$stage_app/Contents/Resources/Legal" "$mount_dir"
-for resource in "${resources[@]}" Info.plist Monitor.swift "${legal_files[@]}"; do
+for resource in "${resources[@]}" "${nisi_inputs[@]}" Info.plist Monitor.swift JevKeychain.swift "${legal_files[@]}"; do
+    mkdir -p "$(dirname "$input_dir/$resource")"
     cp "$project_dir/$resource" "$input_dir/$resource"
 done
+/usr/bin/python3 "$input_dir/bundle_nisi.py" --destination "$stage_app/Contents/Resources/nisi"
 
 xcrun swiftc -O -target "$arch-apple-macosx13.0" \
     -framework Cocoa -framework WebKit \
     "$input_dir/Monitor.swift" -o "$stage_app/Contents/MacOS/InferenceMonitor"
+xcrun swiftc -O -target "$arch-apple-macosx13.0" -framework Cocoa -framework Security \
+    "$input_dir/JevKeychain.swift" -o "$stage_app/Contents/MacOS/JevKeychain"
 cp "$input_dir/Info.plist" "$stage_app/Contents/Info.plist"
 for resource in "${resources[@]}"; do
     cp "$input_dir/$resource" "$stage_app/Contents/Resources/$resource"
@@ -120,8 +131,9 @@ for legal_file in "${legal_files[@]}"; do
 done
 plutil -lint "$stage_app/Contents/Info.plist"
 
+codesign --force --sign "$sign_identity" --options runtime --timestamp "$stage_app/Contents/MacOS/JevKeychain"
 codesign --force --sign "$sign_identity" --options runtime --timestamp "$stage_app"
-codesign --verify --strict --verbose=2 "$stage_app"
+codesign --verify --deep --strict --verbose=2 "$stage_app"
 app_signature="$(codesign -dv --verbose=4 "$stage_app" 2>&1)"
 if ! grep -q '^Timestamp=' <<< "$app_signature" ||
    ! grep -q '^Authority=Developer ID Application:' <<< "$app_signature"; then
@@ -130,6 +142,10 @@ if ! grep -q '^Timestamp=' <<< "$app_signature" ||
 fi
 if [[ "$(lipo -archs "$stage_app/Contents/MacOS/InferenceMonitor")" != "$arch" ]]; then
     echo "Compiled app architecture differs from the selected release architecture." >&2
+    exit 1
+fi
+if [[ "$(lipo -archs "$stage_app/Contents/MacOS/JevKeychain")" != "$arch" ]]; then
+    echo "Jev Keychain helper must be arm64." >&2
     exit 1
 fi
 
@@ -142,14 +158,25 @@ or /usr/bin/python3. In Terminal, run the available path with --version
 (for example, /opt/homebrew/bin/python3 --version) before opening the app.
 
 Copy Inference Monitor.app to Applications, then open it. The app observes local
-inference on this Mac. Model serving, Nisi/Jev routing, Windows worker,
-SharedChami recovery, and optional controls require separately installed and
-configured components. No models or Python interpreter are bundled in the DMG.
+inference on this Mac. Public Nisi 0.2.0 is included by default: its Apache-2.0
+workflow library, journal and CLI. Open Browse > Nisi & optional components to
+inspect the package and run a fixed self-check without calling a model.
+Using Nisi requires Node.js 22 or newer for Apple silicon, installed separately.
+The public CLI offers a fixed demo and a fixed local-model example; the owner's
+private Nisi/Jev router is a separately installed integration. Model serving,
+Windows workers and SharedChami recovery also require configured components.
+No models, Node interpreter or Python interpreter are bundled in this DMG.
+The optional Jev connector uses TypeSafe's hosted API. Configure your own API key
+in AGIW's native Components screen; it is stored in this Mac's login Keychain.
+Saving the key makes no network request. An explicit Check Jev connection sends
+only a fixed synthetic test. Provider usage terms and charges apply.
 
 AGIW Inference Monitor is licensed under the Apache License, Version 2.0.
 See LICENSE and NOTICE beside the app and in the app's Contents/Resources/Legal
 folder. External model weights and separately managed services are not included;
 their own licenses and terms apply.
+Nisi's original license and provenance manifest are inside the app at
+Contents/Resources/nisi/package/LICENSE and Contents/Resources/nisi/manifest.json.
 EOF
 cp "$stage_dir/INSTALL.txt" "$payload_dir/INSTALL.txt"
 hdiutil create -volname "AGIW Inference Monitor $version" -srcfolder "$payload_dir" \
@@ -167,7 +194,7 @@ fi
 hdiutil attach -readonly -noautoopen -nobrowse -mountpoint "$mount_dir" "$stage_dmg" >/dev/null
 mounted=1
 mounted_app="$mount_dir/Inference Monitor.app"
-codesign --verify --strict --verbose=2 "$mounted_app"
+codesign --verify --deep --strict --verbose=2 "$mounted_app"
 if [[ "$(lipo -archs "$mounted_app/Contents/MacOS/InferenceMonitor")" != "$arch" ]]; then
     echo "Mounted app architecture does not match the release label." >&2
     exit 1
@@ -179,6 +206,12 @@ fi
 for resource in "${resources[@]}"; do
     if ! cmp -s "$input_dir/$resource" "$mounted_app/Contents/Resources/$resource"; then
         echo "Mounted app resource differs from the frozen input: $resource" >&2
+        exit 1
+    fi
+done
+for resource in "${nisi_inputs[@]}"; do
+    if ! cmp -s "$input_dir/$resource" "$mounted_app/Contents/Resources/${resource#vendor/}"; then
+        echo "Mounted Nisi resource differs from the pinned input: $resource" >&2
         exit 1
     fi
 done
@@ -206,7 +239,7 @@ if [[ "$(git -C "$project_dir" rev-parse HEAD)" != "$source_commit" ]] ||
     echo "Source revision, release script, or selected toolchain changed during the build." >&2
     exit 1
 fi
-for resource in "${resources[@]}" Info.plist Monitor.swift "${legal_files[@]}"; do
+for resource in "${resources[@]}" "${nisi_inputs[@]}" Info.plist Monitor.swift JevKeychain.swift "${legal_files[@]}"; do
     if ! cmp -s "$project_dir/$resource" "$input_dir/$resource"; then
         echo "Release input changed during the build: $resource" >&2
         exit 1
@@ -219,7 +252,7 @@ fi
 
 dmg_sha256="$(shasum -a 256 "$stage_dmg" | awk '{print $1}')"
 install_sha256="$(shasum -a 256 "$stage_dir/INSTALL.txt" | awk '{print $1}')"
-/usr/bin/python3 - "$stage_dir/manifest.json" "$input_dir" "$source_commit" "$source_dirty" "$script_sha256" "$version" "$build" "$bundle_id" "$arch" "$xcode_version" "$sdk_version" "$swiftc_version" "$dmg_sha256" "$install_sha256" "${resources[@]}" Info.plist Monitor.swift "${legal_files[@]}" <<'PY'
+/usr/bin/python3 - "$stage_dir/manifest.json" "$input_dir" "$source_commit" "$source_dirty" "$script_sha256" "$version" "$build" "$bundle_id" "$arch" "$xcode_version" "$sdk_version" "$swiftc_version" "$dmg_sha256" "$install_sha256" "${resources[@]}" "${nisi_inputs[@]}" Info.plist Monitor.swift JevKeychain.swift "${legal_files[@]}" <<'PY'
 import hashlib
 import json
 import sys

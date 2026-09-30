@@ -26,6 +26,24 @@ python3 -B server.py --port 8765
 
 The server prints a JSON line containing its port and process ID. Open `http://127.0.0.1:8765/` in a browser; press Ctrl-C in the terminal to stop it. This starts the observer on loopback. Runtime cards can show unavailable or unknown when optional local model, router, or Windows worker services are absent.
 
+## Included Nisi and optional Jev connection
+
+The **Build 6 source** adds the public **Nisi 0.2.0** package by default. The published Build 5 release candidate above predates this integration. The bundled release contains Nisi's workflow engine, journal, CLI, original Apache-2.0 license, and a pinned file manifest. It loads no extra model and installs no weights. The bundle is copied and verified offline; it never copies the maintainer's private Nisi checkout.
+
+Open **Browse → Nisi & optional components** to inspect the package or run its fixed, model-free self-check. To run the same CLI from this checkout, install **Node.js 22 or newer**, then use:
+
+```sh
+python3 -B bundle_nisi.py --verify
+node vendor/nisi/package/bin/nisi.mjs --version
+node vendor/nisi/package/bin/nisi.mjs demo
+```
+
+Expected results are package verification `PASS`, version `0.2.0`, and a demo report with `outcome: COMPLETED`, `reportStored: true`, and `modelCalls: 0`. The native app checks for an Apple-silicon Node installation at `/opt/homebrew/bin/node` or `/usr/local/bin/node`. Node is a separate prerequisite. Nisi's public CLI provides fixed demonstrations; applications can use its library APIs to define broader workflows. It does not include the private shared router or run arbitrary repository tasks from the command line. See the [public Nisi release](https://github.com/louiscalata/nisi/releases/tag/v0.2.0).
+
+**Jev is optional and hosted by TypeSafe.** The Build 6 source includes a connector, disabled until configured. In the native app's Components page, **Set up Jev** opens a secure native dialog for your own TypeSafe API key. The signed helper stores it in the login Keychain; credentials are never bundled, passed through the browser, or returned to the Python observer. Saving the key makes no network request. **Check Jev connection** explicitly sends one fixed synthetic classification test to TypeSafe; provider usage charges may apply. No files, task prompts, or model inventory are sent by this check. It verifies connectivity only and does not enable coding-task routing. Existing external Nisi/Jev router settings are separate. See [TypeSafe's API documentation](https://docs.typesafe.ai/api).
+
+The hosted probe, native Keychain prompts, and successor notarization require their own acceptance. This source change does not alter the uploaded Mac App Store Build 7, its privacy declaration, or the published GitHub Build 5 binary.
+
 ## Resident model budget
 
 The Mac Nisi route selects two distinct LLMs already resident in LM Studio. It prefers Gemma 4 as author when present and chooses another resident LLM as reviewer; it does not load an extra model for those roles. Jev uses a separate remote adapter and does not need a Mac model resident. Core 6 is a catalog view, not a request to hold six models in RAM.
