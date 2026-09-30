@@ -85,3 +85,11 @@ These historical checks establish reviewed source revisions and a signed local i
 ## Optional multi-machine hardware access — 2026-09-30
 
 - [x] Document Openterface Mini-KVM or compatible KVM as an optional USB/HDMI console for nearby headless-worker setup and recovery, with primary product/FAQ links. Network inference continues to require configured worker/model endpoints and network transport. No memory/GPU pooling, token-throughput benefit or native AGIW KVM integration is claimed.
+
+## Apple silicon build scope — 2026-09-30
+
+- [x] Pin both native app compile paths to arm64 while retaining the full Monitor's macOS 13 minimum. The local installer refuses Intel and Rosetta invocations before creating installation paths and rejects any compiled executable whose architecture is not exactly arm64 before signing or installation. The DMG packager selects arm64 independently of the macOS build host and retains its staged/mounted architecture checks.
+- [x] State Apple silicon support in the README and generated DMG installation note. Target arm64 explicitly in the CI app typecheck; source tests and the isolated Swift policy harness may execute on the CI host architecture and do not establish Apple silicon runtime acceptance.
+- [x] Pass six focused Python test methods on both the local Python and macOS system Python: seven architecture scenarios and twelve existing legal-input scenarios, with compiler/signing/image operations intercepted. Verify shell syntax, Info.plist lint, whitespace, and the complete Swift app's arm64/macOS 13 typecheck using released Xcode. No application was built, signed, packaged or installed by this change.
+- [x] Advance the full Monitor candidate to version 1.0.0 build 5 to distinguish its packaging policy from Build 4. The existing arm64 Build 4 DMG keeps its original source, manifest and hash. The separate MAS Build 7 already enforces arm64 and requires no architecture rebuild.
+- [ ] Publish the reviewed source revision and inspect its separate CI result. Package Build 5 into a fresh output directory because DMG filenames omit the build number; notarization and native distribution acceptance must bind to that exact successor before binary publication.
