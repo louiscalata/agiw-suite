@@ -1,16 +1,16 @@
-<img src="docs/assets/agiw-suite-overview.svg" width="1280" alt="AGIW Suite — inventory and activity, memory and GPU readings, guarded actions, public Nisi and optional Jev">
+<img src="docs/assets/agiw-suite-overview.svg" width="1280" alt="AGIW Suite — local inference, with a clear view">
 
 # AGIW Suite · Inference Monitor
 
-Inspect local model activity, resource pressure and configured route evidence from one Mac menu bar, then use explicit recovery controls when work needs attention.
+A Mac menu-bar monitor for engineers running local models. See model activity, memory pressure and configured worker status, then use explicit controls when a model or service needs attention.
 
 **[Download 1.0.0 for Apple silicon](https://github.com/louiscalata/agiw-suite/releases/download/v1.0.0/AGIW-Inference-Monitor-1.0.0-7-arm64.zip)** · [Release notes](https://github.com/louiscalata/agiw-suite/releases/tag/v1.0.0) · [SHA256SUMS.txt](https://github.com/louiscalata/agiw-suite/releases/download/v1.0.0/SHA256SUMS.txt)
 
-[First run](#first-run) · [Features](#what-you-can-see-and-control) · [Architecture & API](docs/architecture.md) · [Configuration](docs/advanced-configuration.md) · [Development](docs/development.md) · [Validation limits](#known-validation-limits)
+[First run](#first-run) · [Features](#what-you-can-see-and-control) · [Local pipeline](#local-only-pipeline) · [Architecture & API](docs/architecture.md) · [Configuration](docs/advanced-configuration.md) · [Development](docs/development.md) · [Validation limits](#known-validation-limits)
 
-## Release status
+**1.0.0 (7) · Apple silicon · macOS 13+ · Apache-2.0**
 
-**1.0.0 (7)** is available for Apple silicon. The ZIP contains the Developer ID signed, Apple-notarized app, installation notes, LICENSE and NOTICE. See [known validation limits](#known-validation-limits) below. The Mac App Store edition follows a separate release process.
+The download is Developer ID signed and Apple-notarized. [Known validation limits](#known-validation-limits) remain open; the Mac App Store edition follows a separate release process.
 
 ## Requirements
 
@@ -33,33 +33,60 @@ Inspect local model activity, resource pressure and configured route evidence fr
 
 ## What you can see and control
 
-| Feature | Included behavior | Prerequisite or boundary |
-| --- | --- | --- |
-| Model and resource view | Inventory, activity supported by fresh telemetry, Mac readings and recorded client/route state | Local services/weights configured separately; stale or missing evidence stays unknown |
-| Evidence inspection | **Browse → Feeds & evidence** explains available observations | Recorded state does not prove a live route succeeded |
-| Catalog views | **Core 6** filters five pinned LLM IDs plus Nomic Embed Text v1.5; **All discovered** shows the full Mac inventory | Other reported in-use models remain visible; filtering loads/unloads nothing |
-| Recovery controls | Explicit guarded model, route and worker actions | Supported external components must be configured; opening the app starts no task or model |
-| Resident-model policy | Optional automatic unloading with fresh pair/route admission checks | Off by default; the coding router is separately managed |
-| Public Nisi | Bundled 0.2.0 workflow engine, journal, CLI and fixed offline check | External Node 22+; fixed examples rather than arbitrary repository execution |
-| Optional Jev | Native secure setup and explicitly requested fixed hosted check | Your TypeSafe key; connectivity only, with disclosed hosted data/charges |
+| Capability | What you can do |
+| --- | --- |
+| **Observe models** | Inspect inventory, activity supported by fresh telemetry, and recorded client/route state. **Browse → Feeds & evidence** explains the observations. |
+| **Understand resources** | See Mac memory pressure and best-effort GPU readings. Model-load admission estimates size and headroom before an explicit load. |
+| **Choose an inventory view** | **Core 6** filters five pinned LLM IDs plus Nomic Embed Text v1.5. **All discovered** expands the Mac inventory; other reported in-use models stay visible. |
+| **Control and recover** | Request guarded model load/unload and supported route/worker recovery. Optional automatic unloading uses fresh resident-pair and route checks; it is off by default. |
+| **Inspect public Nisi** | Run the bundled 0.2.0 package’s fixed offline self-check, or explore its workflow engine, journal and CLI. External Node 22+ is required. |
+| **Check optional Jev** | Set up your TypeSafe key securely and request a fixed hosted connectivity check. See the [execution and data details](#included-nisi-and-optional-jev-connection). |
+
+Local services and weights are configured separately. Opening AGIW starts no coding task or model; changing a catalog view loads or unloads nothing. Missing or stale observations remain unknown. A loaded model or recorded worker state alone does not prove active generation or a successful route.
 
 [Explore the component reference](docs/architecture.md) for runtime responsibilities, data flow, local HTTP routes and enforced guardrails.
 
 See [advanced configuration](docs/advanced-configuration.md) for resident-model policy, share recovery and memory admission. For direct keyboard, video and mouse access to nearby headless workers, an optional [Mini-KVM](docs/advanced-configuration.md#optional-hardware-access-for-nearby-workers) can help with setup and recovery; native AGIW KVM integration remains unverified.
 
+## Local-only pipeline
+
+Use Nisi’s public CLI with a model server configured to run both models on this machine:
+
+**Local author → JSON checks → four assertions → local reviewer → run report**
+
+The fixed JSON-configuration example uses a loopback chat endpoint and different configured author/reviewer models. It allows one repair attempt and stops at its deadline. Generated JSON is checked as data; generated programs are never executed.
+
+[Run the local-model example](docs/development.md#local-only-model-example). The GitHub app’s **Nisi self-check** is a separate, model-free example; the CLI does not run arbitrary repository tasks. Optional hosted Jev is separate from this local flow.
+
 ## Included Nisi and optional Jev connection
 
-**Public Nisi 0.2.0 is included.** Its workflow engine, journal, CLI, Apache-2.0 license and pinned manifest are bundled and verified offline. The native fixed self-check loads no model and installs no weights; its expected report includes `outcome: COMPLETED`, `reportStored: true` and `modelCalls: 0`. Node remains an external prerequisite. The public CLI provides fixed demonstrations; library APIs can define broader workflows. The private shared coding router is separately managed and is not bundled. See the [public Nisi release](https://github.com/louiscalata/nisi/releases/tag/v0.2.0) and [CLI instructions](docs/development.md#public-nisi-cli).
+### Nisi · included
 
-**Jev is an optional TypeSafe connection, disabled until configured.** On the Components page, **Set up Jev** opens a secure native dialog for your own API key. The signed helper stores it in the login Keychain; the key is never bundled, passed through the browser or returned to the Python observer. Saving the key sends no network request.
+The public 0.2.0 workflow engine, journal, CLI, Apache-2.0 license and pinned manifest are bundled and verified offline. Its native fixed self-check uses the external Node runtime, loads no model and installs no weights. Expected report fields:
 
-**Check Jev connection** sends the saved key in the authorization header and one fixed synthetic classification test to TypeSafe over HTTPS. TypeSafe receives your IP address and standard request metadata; usage charges may apply. The check sends no files, task prompts or model inventory. It checks connectivity only and does not enable coding-task routing or verify provider model identity. External Nisi/Jev router settings are separate. See [TypeSafe’s API documentation](https://docs.typesafe.ai/api).
+```json
+{"outcome":"COMPLETED","reportStored":true,"modelCalls":0}
+```
+
+The public CLI provides fixed demonstrations; library APIs can define broader workflows. The private shared coding router is separately managed and is not bundled. [Public Nisi release](https://github.com/louiscalata/nisi/releases/tag/v0.2.0) · [CLI instructions](docs/development.md#public-nisi-cli)
+
+### Jev · optional
+
+On the Components page, **Set up Jev** opens a secure native dialog for your own TypeSafe API key. The signed helper stores it in the login Keychain. The key stays out of the browser and Python observer; saving it sends no network request.
+
+**Check Jev connection** sends the key in an HTTPS authorization header and one fixed synthetic classification test to TypeSafe. The provider receives your IP address and standard request metadata; usage charges may apply. No files, task prompts or model inventory are sent.
+
+This checks connectivity only. It does not enable coding-task routing or verify provider model identity. External Nisi/Jev router settings are separate. [TypeSafe API documentation](https://docs.typesafe.ai/api)
 
 ## Known validation limits
 
-Build 7 passed [exact-source CI](https://github.com/louiscalata/agiw-suite/actions/runs/36758069996), notarization, signature/Gatekeeper checks, ZIP verification and installation parity on the maintainer’s Mac. Its native Nisi offline self-check passed without model calls. One authorized fixed hosted Jev probe with an existing Keychain credential returned `connected`. See the [roadmap](roadmap.md) for compiled source, package provenance and regression evidence; [rc.2](https://github.com/louiscalata/agiw-suite/releases/tag/v1.0.0-macos-rc.2) and [rc.1](https://github.com/louiscalata/agiw-suite/releases/tag/v1.0.0-macos-rc.1) remain available for rollback.
+| Evidence | Build 7 status |
+| --- | --- |
+| **Distribution** | [Exact-source CI](https://github.com/louiscalata/agiw-suite/actions/runs/36758069996), notarization, signature/Gatekeeper checks, ZIP verification and installation parity passed on the maintainer’s Mac. |
+| **Component checks** | Native Nisi offline self-check passed with zero model calls. One authorized fixed hosted Jev probe using an existing Keychain credential returned `connected`. |
+| **Still open** | Complete native rendering/animation, a quarantined clean-Mac first install, and Jev Cancel/reopen and credential entry/save/remove remain unverified. |
 
-**Complete native rendering/animation, a quarantined clean-Mac first install, and Jev Cancel/reopen and credential entry/save/remove remain unverified.** These are open [roadmap](roadmap.md) follow-ups. Publication and the successful connection probe do not establish native setup acceptance, live task routing or provider model identity.
+The [roadmap](roadmap.md) records compiled source, package provenance and remaining acceptance work. The successful connection probe does not establish native setup acceptance, live task routing or provider model identity. [rc.2](https://github.com/louiscalata/agiw-suite/releases/tag/v1.0.0-macos-rc.2) and [rc.1](https://github.com/louiscalata/agiw-suite/releases/tag/v1.0.0-macos-rc.1) remain available for rollback.
 
 ## Development
 
