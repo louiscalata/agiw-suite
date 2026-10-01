@@ -1,67 +1,57 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="480" viewBox="0 0 1280 480" role="img" aria-labelledby="title desc">
-  <title id="title">AGIW Suite — local inference, in view</title>
-  <desc id="desc">A black engineering overview with a glowing AS mark. Four capability cards summarize model inventory and evidence-based activity, memory and GPU readings, explicit guarded controls, and bundled public Nisi with optional Jev connectivity. Apple silicon, macOS, and a local observer.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="420" viewBox="0 0 1280 420" role="img" aria-labelledby="title desc">
+  <title id="title">AGIW Suite — local inference, with a clear view</title>
+  <desc id="desc">A black banner with a glowing AS mark. AGIW Inference Monitor brings model activity, resource readings, explicit controls and optional connections into view. Requirements and capability details follow as readable page text.</desc>
   <defs>
     <linearGradient id="edge" x1="0" y1="0" x2="1" y2="1">
-      <stop stop-color="#91eaff"/>
-      <stop offset="1" stop-color="#b5a4ff"/>
+      <stop stop-color="#8ceaff"/>
+      <stop offset=".5" stop-color="#b6d8ff"/>
+      <stop offset="1" stop-color="#bfa8ff"/>
     </linearGradient>
     <radialGradient id="cyan">
-      <stop stop-color="#46cfee" stop-opacity=".14"/>
-      <stop offset="1" stop-color="#46cfee" stop-opacity="0"/>
+      <stop stop-color="#41d9ff" stop-opacity=".16"/>
+      <stop offset="1" stop-color="#41d9ff" stop-opacity="0"/>
     </radialGradient>
     <radialGradient id="violet">
-      <stop stop-color="#9b79f8" stop-opacity=".13"/>
-      <stop offset="1" stop-color="#9b79f8" stop-opacity="0"/>
+      <stop stop-color="#9974ff" stop-opacity=".12"/>
+      <stop offset="1" stop-color="#9974ff" stop-opacity="0"/>
     </radialGradient>
-    <filter id="halo" x="-50%" y="-50%" width="200%" height="200%" color-interpolation-filters="sRGB">
-      <feGaussianBlur stdDeviation="7"/>
+    <filter id="halo" x="-75%" y="-75%" width="250%" height="250%" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="9"/>
     </filter>
+    <filter id="letterGlow" x="-50%" y="-50%" width="200%" height="200%" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="3"/>
+    </filter>
+    <clipPath id="panel"><rect width="1280" height="420" rx="24"/></clipPath>
   </defs>
-  <rect width="1280" height="480" rx="24" fill="#030405"/>
-  <rect x=".5" y=".5" width="1279" height="479" rx="23.5" fill="none" stroke="#242b33"/>
-  <ellipse cx="168" cy="92" rx="265" ry="174" fill="url(#cyan)"/>
-  <ellipse cx="1124" cy="360" rx="290" ry="200" fill="url(#violet)"/>
+  <g clip-path="url(#panel)">
+    <rect width="1280" height="420" fill="#020304"/>
+    <ellipse cx="128" cy="132" rx="292" ry="235" fill="url(#cyan)"/>
+    <ellipse cx="1140" cy="390" rx="360" ry="218" fill="url(#violet)"/>
+  </g>
+  <rect x=".5" y=".5" width="1279" height="419" rx="23.5" fill="none" stroke="#293039"/>
   <g font-family="-apple-system, BlinkMacSystemFont, Helvetica, Arial, sans-serif">
-    <rect x="49" y="47" width="88" height="88" rx="18" fill="none" stroke="url(#edge)" stroke-width="4" opacity=".7" filter="url(#halo)"/>
-    <rect x="49" y="47" width="88" height="88" rx="18" fill="#050608" stroke="url(#edge)" stroke-width="1.2"/>
-    <text x="91" y="106" fill="#f5f7fa" font-size="45" font-weight="700" letter-spacing="-3.5" text-anchor="middle">AS</text>
-    <text x="165" y="77" fill="#a8bbcd" font-size="15" font-weight="600" letter-spacing="3">AGIW SUITE / INFERENCE MONITOR</text>
-    <text x="162" y="124" fill="#f3f6fb" font-size="42" font-weight="650" letter-spacing="-1.1">Local inference, in view.</text>
-    <text x="49" y="181" fill="#b9c6d4" font-size="20">Inspect model state. Understand resource pressure. Act with context.</text>
-    <g font-size="12" font-weight="600" letter-spacing="1.6" fill="#b9c9d9">
-      <text x="50" y="215">APPLE SILICON</text>
-      <text x="204" y="215">macOS</text>
-      <text x="290" y="215">LOCAL OBSERVER</text>
+    <rect x="64" y="72" width="132" height="132" rx="29" fill="none" stroke="url(#edge)" stroke-width="5" opacity=".85" filter="url(#halo)"/>
+    <rect x="64" y="72" width="132" height="132" rx="29" fill="#030507" stroke="url(#edge)" stroke-width="1.5"/>
+    <text x="127" y="160" fill="#93e5ff" opacity=".45" font-size="66" font-weight="700" letter-spacing="-5" text-anchor="middle" filter="url(#letterGlow)">AS</text>
+    <text x="127" y="160" fill="#f5faff" font-size="66" font-weight="700" letter-spacing="-5" text-anchor="middle">AS</text>
+    <text x="244" y="81" fill="#a7bfd1" font-size="17" font-weight="600" letter-spacing="3">AGIW SUITE / INFERENCE MONITOR</text>
+    <g fill="#f2f7fc" font-size="58" font-weight="700" letter-spacing="-1.8">
+      <text x="240" y="145">Local inference,</text>
+      <text x="240" y="209">with a clear view.</text>
     </g>
-    <g>
-      <rect x="48" y="249" width="280" height="166" rx="14" fill="#080d12" stroke="#254754"/>
-      <rect x="350" y="249" width="280" height="166" rx="14" fill="#0a0d13" stroke="#304157"/>
-      <rect x="652" y="249" width="280" height="166" rx="14" fill="#0c0c13" stroke="#413c59"/>
-      <rect x="954" y="249" width="278" height="166" rx="14" fill="#0e0b13" stroke="#4a3a57"/>
-      <g font-size="12" font-weight="650" letter-spacing="1.5">
-        <text x="70" y="278" fill="#8fe7ff">01 / OBSERVE</text>
-        <text x="372" y="278" fill="#a9d4ff">02 / UNDERSTAND</text>
-        <text x="674" y="278" fill="#c0b4ff">03 / CONTROL</text>
-        <text x="976" y="278" fill="#d4b8ff">04 / CONNECT</text>
-      </g>
-      <g fill="#eff3fa" font-size="22" font-weight="600">
-        <text x="70" y="316">Inventory &amp; activity</text>
-        <text x="372" y="316">Memory &amp; GPU</text>
-        <text x="674" y="316">Guarded actions</text>
-        <text x="976" y="316">Nisi &amp; optional Jev</text>
-      </g>
-      <g fill="#aebdce" font-size="16">
-        <text x="70" y="350">Core 6 or all discovered.</text>
-        <text x="70" y="375">Fresh evidence, visible limits.</text>
-        <text x="372" y="350">Pressure and local readings.</text>
-        <text x="372" y="375">Admission before model loads.</text>
-        <text x="674" y="350">Explicit model controls.</text>
-        <text x="674" y="375">Configured-route recovery.</text>
-        <text x="976" y="350">Public Nisi self-check.</text>
-        <text x="976" y="375">Explicit Jev connectivity test.</text>
-      </g>
+    <text x="64" y="269" fill="#bdcbd9" font-size="23">Model activity. Resource pressure. Explicit controls.</text>
+    <path d="M64 311H1216" stroke="#26323d"/>
+    <g font-size="12" font-weight="600" letter-spacing="1.6">
+      <text x="64" y="346" fill="#8ee9ff">01 / OBSERVE</text>
+      <text x="360" y="346" fill="#a8d2ff">02 / UNDERSTAND</text>
+      <text x="656" y="346" fill="#c0b4ff">03 / CONTROL</text>
+      <text x="952" y="346" fill="#d3b9ff">04 / CONNECT</text>
     </g>
-    <text x="49" y="450" fill="#93a5b8" font-size="13">CAPABILITY OVERVIEW · Services and model weights are configured separately. See the engineering guide for scope and prerequisites.</text>
+    <g fill="#e6edf6" font-size="22" font-weight="500">
+      <text x="64" y="380">Inventory &amp; activity</text>
+      <text x="360" y="380">Memory &amp; GPU</text>
+      <text x="656" y="380">Guarded actions</text>
+      <text x="952" y="380">Nisi &amp; optional Jev</text>
+    </g>
   </g>
 </svg>

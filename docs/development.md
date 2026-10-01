@@ -49,3 +49,16 @@ node vendor/nisi/package/bin/nisi.mjs demo
 ```
 
 Expected results are package verification `PASS`, version `0.2.0`, and a demo report with `outcome: COMPLETED`, `reportStored: true`, and `modelCalls: 0`. The native app checks for an Apple-silicon Node installation at `/opt/homebrew/bin/node` or `/usr/local/bin/node`. Node is a separate prerequisite. Nisi's public CLI provides fixed demonstrations; applications can use its library APIs to define broader workflows. It does not include the private shared router or run arbitrary repository tasks from the command line. See the [public Nisi release](https://github.com/louiscalata/nisi/releases/tag/v0.2.0).
+
+### Local-only model example
+
+Configure a compatible local chat server with JSON-schema output support and two different local models. With Node.js 22+, run from this repository’s root, replacing the two model-name placeholders:
+
+```sh
+node vendor/nisi/package/bin/nisi.mjs local-model \
+  http://127.0.0.1:1234/v1/chat/completions AUTHOR_MODEL REVIEWER_MODEL
+```
+
+The fixed task generates `retry-config.json` as data. Nisi validates JSON, runs four assertions and sends the exact candidate and results to the reviewer. It allows one repair attempt within the total deadline; it prints a run report and returns a nonzero exit code when the workflow does not complete. Invalid endpoint/model arguments fail before inference.
+
+Use a server configured to execute both models locally; a loopback address alone does not establish where a proxy runs inference. No Jev key or hosted provider is required by this example. It does not run arbitrary repository tasks or execute generated programs. The native GitHub app’s model-free self-check remains a separate entry point. Model weights and the server are installed and managed separately.

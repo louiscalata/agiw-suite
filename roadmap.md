@@ -1,5 +1,9 @@
 # AGIW Suite roadmap and release evidence
 
+## Presentation polish
+
+The repository and release overview now use a simpler glowing AS banner, a two-column capability guide, separate Nisi/Jev sections and scannable verification evidence. Runtime requirements and open native acceptance work are retained. This documentation pass does not rebuild the app or change the release assets.
+
 ## Engineering guide expansion — 30 September 2026
 
 - [x] Expand the README with a source-backed capability matrix and direct navigation to setup, configuration, architecture, API and development material. Add a black overview banner with the glowing AS mark and four readable capability groups.
