@@ -1,4 +1,11 @@
-# AGIW Suite repository candidate roadmap
+# AGIW Suite roadmap and release evidence
+
+## Engineering guide expansion — 30 September 2026
+
+- [x] Expand the README with a source-backed capability matrix and direct navigation to setup, configuration, architecture, API and development material. Add a black overview banner with the glowing AS mark and four readable capability groups.
+- [x] Add the [architecture and capability reference](docs/architecture.md): component responsibilities and source links, runtime data flow, local HTTP interface, request boundaries, resource estimates and optional-service behavior.
+- [x] Keep explicit model controls, mutating recovery, external routing/PC prerequisites and hosted Jev data flow distinct. Preserve the current binary's provenance and incomplete native/clean-Mac acceptance. This documentation update changes no app code, installer, release tag, model state or build requirement.
+
 
 ## Public page polish — 30 September 2026
 

@@ -1,10 +1,12 @@
-<img src="docs/assets/agiw-mark.svg" width="88" height="88" alt="AS — AGIW Suite">
+<img src="docs/assets/agiw-suite-overview.svg" width="1280" alt="AGIW Suite — inventory and activity, memory and GPU readings, guarded actions, public Nisi and optional Jev">
 
 # AGIW Suite · Inference Monitor
 
-A menu-bar monitor for local model inventory, activity and Mac resource use.
+Inspect local model activity, resource pressure and configured route evidence from one Mac menu bar, then use explicit recovery controls when work needs attention.
 
 **[Download 1.0.0 for Apple silicon](https://github.com/louiscalata/agiw-suite/releases/download/v1.0.0/AGIW-Inference-Monitor-1.0.0-7-arm64.zip)** · [Release notes](https://github.com/louiscalata/agiw-suite/releases/tag/v1.0.0) · [SHA256SUMS.txt](https://github.com/louiscalata/agiw-suite/releases/download/v1.0.0/SHA256SUMS.txt)
+
+[First run](#first-run) · [Features](#what-you-can-see-and-control) · [Architecture & API](docs/architecture.md) · [Configuration](docs/advanced-configuration.md) · [Development](docs/development.md) · [Validation limits](#known-validation-limits)
 
 ## Release status
 
@@ -31,9 +33,17 @@ A menu-bar monitor for local model inventory, activity and Mac resource use.
 
 ## What you can see and control
 
-- Model activity supported by fresh local telemetry, recorded client identities and route state. Missing or stale evidence stays unknown. Use **Browse → Feeds & evidence** to inspect the available evidence.
-- A **Core 6** inventory filter for five pinned LLM IDs and Nomic Embed Text v1.5. Reported in-use models outside that set remain visible; **All discovered** shows the full Mac inventory. Changing the view does not load, unload or install models.
-- Explicit, guarded recovery actions for configured routes and workers. Opening the app does not start a coding task or load a model. Automatic unloading is off by default.
+| Feature | Included behavior | Prerequisite or boundary |
+| --- | --- | --- |
+| Model and resource view | Inventory, activity supported by fresh telemetry, Mac readings and recorded client/route state | Local services/weights configured separately; stale or missing evidence stays unknown |
+| Evidence inspection | **Browse → Feeds & evidence** explains available observations | Recorded state does not prove a live route succeeded |
+| Catalog views | **Core 6** filters five pinned LLM IDs plus Nomic Embed Text v1.5; **All discovered** shows the full Mac inventory | Other reported in-use models remain visible; filtering loads/unloads nothing |
+| Recovery controls | Explicit guarded model, route and worker actions | Supported external components must be configured; opening the app starts no task or model |
+| Resident-model policy | Optional automatic unloading with fresh pair/route admission checks | Off by default; the coding router is separately managed |
+| Public Nisi | Bundled 0.2.0 workflow engine, journal, CLI and fixed offline check | External Node 22+; fixed examples rather than arbitrary repository execution |
+| Optional Jev | Native secure setup and explicitly requested fixed hosted check | Your TypeSafe key; connectivity only, with disclosed hosted data/charges |
+
+[Explore the component reference](docs/architecture.md) for runtime responsibilities, data flow, local HTTP routes and enforced guardrails.
 
 See [advanced configuration](docs/advanced-configuration.md) for resident-model policy, share recovery and memory admission. For direct keyboard, video and mouse access to nearby headless workers, an optional [Mini-KVM](docs/advanced-configuration.md#optional-hardware-access-for-nearby-workers) can help with setup and recovery; native AGIW KVM integration remains unverified.
 
@@ -53,7 +63,7 @@ Build 7 passed [exact-source CI](https://github.com/louiscalata/agiw-suite/actio
 
 ## Development
 
-Use the [development guide](docs/development.md) for the local browser view, source checks, Nisi CLI and distribution packaging. The earlier [source-preview release](https://github.com/louiscalata/agiw-suite/releases/tag/v1.0.0-source-preview.1) remains available.
+Read the [architecture and capability reference](docs/architecture.md) for implementation boundaries. Use the [development guide](docs/development.md) for the local browser view, source checks, Nisi CLI and distribution packaging. The earlier [source-preview release](https://github.com/louiscalata/agiw-suite/releases/tag/v1.0.0-source-preview.1) remains available.
 
 ## Support and contributing
 
