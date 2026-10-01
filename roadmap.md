@@ -1,5 +1,12 @@
 # AGIW Suite roadmap and release evidence
 
+## Architecture and activation guide — 1 October 2026 UTC
+
+- [x] Expand [architecture.md](docs/architecture.md) with process topology, startup/snapshot flow, evidence semantics, operation settlement, memory watchdog versus model unloading, Nisi engine/journals, Jev credential/network boundaries, guarded recovery, storage, HTTP contracts and platform/distribution scope. Add four source-backed diagrams and direct implementation links.
+- [x] Add [activation.md](docs/activation.md) and link it from the README: launch, LM Studio setup, offline Nisi check, the local-model CLI example, optional Jev, existing router/PC integration, login startup and troubleshooting. Document expected results and actual action side effects.
+- [x] Reconcile the direct Fix inference action with the inspector entry: the top-bar button starts a guarded repair immediately; the inspector shortcut only opens the panel. Dismissal does not cancel the repair. Describe Pause as a display control and PC LLM as a separate guarded headless action.
+- [x] Review claims against the public implementation with independent Sol and Luna readers. Keep external router/worker installation, optional durable journaling and platform-port acceptance explicit. This documentation change does not rebuild or replace the downloadable Build 7.
+
 ## Presentation polish
 
 The repository and release overview now use a simpler glowing AS banner, a two-column capability guide, separate Nisi/Jev sections and scannable verification evidence. Runtime requirements and open native acceptance work are retained. This documentation pass does not rebuild the app or change the release assets.
