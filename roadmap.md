@@ -1,5 +1,13 @@
 # AGIW Suite roadmap and release evidence
 
+## Historical inference charts and comparison data — 1 October 2026
+
+- [x] Review retained Windows worker and dedicated lane-layout records and the Mac repeated streaming benchmark against their measurement scripts. Add [performance.md](docs/performance.md), two accessible figures and a sanitized [aggregate dataset](docs/data/inference-performance.json), linked from the README.
+- [x] Record the highest reviewed server decoding observation, 139.7561149917549 tokens/s for one Windows GPT-OSS 20B advisory; keep it distinct from the dedicated fixed-code layout rates and the Mac's 21-request median full-request throughput of 72.482 tokens/s. Retain workload, date, denominator, counts and uncertainty limits.
+- [ ] Run a controlled No AGIW / AGIW on Mac / AGIW on Mac + PC comparison with matched work and validated task outcomes. All three conditions remain NOT_RUN; missing values are null and no AGIW acceleration percentage is claimed.
+
+This documentation extracts existing observations. It makes no inference requests, changes no model or worker configuration, and does not rebuild or replace the signed Build 7 download. Source publication and its CI result are recorded separately after the final outgoing-change review.
+
 ## Architecture and activation guide — 1 October 2026 UTC
 
 - [x] Expand [architecture.md](docs/architecture.md) with process topology, startup/snapshot flow, evidence semantics, operation settlement, memory watchdog versus model unloading, Nisi engine/journals, Jev credential/network boundaries, guarded recovery, storage, HTTP contracts and platform/distribution scope. Add four source-backed diagrams and direct implementation links.
