@@ -1,0 +1,232 @@
+{
+  "schema_version": 1,
+  "reviewed_date": "2026-10-01",
+  "scope": "Historical inference observations; not controlled measurements of AGIW acceleration",
+  "metric_definitions": {
+    "server_decode_tokens_per_second": "Server-reported timings.predicted_per_second; decode phase only.",
+    "effective_completion_tokens_per_second": "Provider-reported completion tokens divided by full streaming request duration, including waiting and any reported reasoning tokens."
+  },
+  "windows_peak": {
+    "date": "2026-09-28",
+    "platform": "Windows worker",
+    "lane": "fast",
+    "model": "openai/gpt-oss-20b",
+    "workload": "bounded failure-mode advisory",
+    "trials": 1,
+    "status": "success",
+    "server_decode_tokens_per_second": 139.7561149917549,
+    "prompt_tokens": 201,
+    "completion_tokens": 265,
+    "recorded_job_elapsed_seconds": 6.7,
+    "gpu_binding": "not established by this receipt",
+    "source_kind": "retained successful worker job receipt",
+    "recorded_decode_duration_ms": null,
+    "task_accuracy_percent": null,
+    "task_accuracy_status": "Not graded by a deterministic task oracle",
+    "approx_completion_tokens_per_recorded_job_second": 39.6,
+    "approx_job_rate_limit": "Computed from completion count divided by rounded recorded elapsed time; not server decoding rate or validated-task throughput"
+  },
+  "windows_lane_layouts": {
+    "date": "2026-09-26",
+    "platform": "Windows worker",
+    "model_weights": "GPT-OSS 20B MXFP4",
+    "temperature": 0,
+    "reasoning_effort": "low",
+    "max_tokens": 400,
+    "warmup": "one short request per lane per layout, excluded",
+    "comparison_limit": "A/C/D are from one pass; B is from an earlier pass. Layouts change backend, context capacity and offload settings. One recorded code request per layout, with no repeated-trial uncertainty estimate.",
+    "source_kind": "retained dedicated lane-layout benchmark JSON and measurement script",
+    "observations": [
+      {
+        "layout": "A-current",
+        "label": "A \u00b7 existing layout",
+        "run_started_utc": "20260926T165440Z",
+        "model": "openai/gpt-oss-20b",
+        "workload": "fixed JavaScript clamp code task",
+        "trials": 1,
+        "server_decode_tokens_per_second": 18.5,
+        "prompt_tokens": 106,
+        "completion_tokens": 141,
+        "request_wall_seconds": 8.8,
+        "recorded_decode_duration_ms": 7631.21,
+        "raw_log_decode_tokens_per_second": 18.48,
+        "task_accuracy_percent": null
+      },
+      {
+        "layout": "B-qwen-both-gpus",
+        "label": "B \u00b7 GPT-OSS on CPU",
+        "run_started_utc": "20260926T163804Z",
+        "model": "openai/gpt-oss-20b",
+        "workload": "fixed JavaScript clamp code task",
+        "trials": 1,
+        "server_decode_tokens_per_second": 12.3,
+        "prompt_tokens": 106,
+        "completion_tokens": 141,
+        "request_wall_seconds": 12.71,
+        "recorded_decode_duration_ms": 11483.33,
+        "raw_log_decode_tokens_per_second": 12.28,
+        "task_accuracy_percent": null
+      },
+      {
+        "layout": "C-oss-on-3080",
+        "label": "C \u00b7 GPT-OSS on CUDA",
+        "run_started_utc": "20260926T165440Z",
+        "model": "openai/gpt-oss-20b",
+        "workload": "fixed JavaScript clamp code task",
+        "trials": 1,
+        "server_decode_tokens_per_second": 111.4,
+        "prompt_tokens": 106,
+        "completion_tokens": 141,
+        "request_wall_seconds": 1.46,
+        "recorded_decode_duration_ms": 1257.03,
+        "raw_log_decode_tokens_per_second": 111.37,
+        "task_accuracy_percent": null
+      },
+      {
+        "layout": "D-oss-3080-qwen-cpu",
+        "label": "D \u00b7 CUDA; Qwen on CPU",
+        "run_started_utc": "20260926T165440Z",
+        "model": "openai/gpt-oss-20b",
+        "workload": "fixed JavaScript clamp code task",
+        "trials": 1,
+        "server_decode_tokens_per_second": 106,
+        "prompt_tokens": 106,
+        "completion_tokens": 141,
+        "request_wall_seconds": 1.53,
+        "recorded_decode_duration_ms": 1320.25,
+        "raw_log_decode_tokens_per_second": 106.04,
+        "task_accuracy_percent": null
+      }
+    ]
+  },
+  "mac_repeated_benchmark": {
+    "date": "2026-08-10",
+    "platform": "Apple silicon Mac",
+    "hardware": "MacBook Pro M5 Pro / 20-core GPU, as recorded by the benchmark",
+    "model": "openai/gpt-oss-20b",
+    "successful_trials": 21,
+    "total_trials": 21,
+    "temperature": 0,
+    "max_tokens": 512,
+    "warmups_excluded": 1,
+    "overall_median_effective_completion_tokens_per_second": 72.482,
+    "population_stdev_tokens_per_second": 2.811,
+    "median_time_to_first_visible_text_seconds": 1.0959,
+    "source_kind": "retained streaming benchmark JSON and measurement script",
+    "tasks": [
+      {
+        "task": "generation",
+        "successful_trials": 7,
+        "trial_effective_completion_tokens_per_second": [
+          59.5,
+          72.711,
+          71.758,
+          72.302,
+          72.546,
+          72.482,
+          72.231
+        ],
+        "median_tokens_per_second": 72.302,
+        "min_tokens_per_second": 59.5,
+        "max_tokens_per_second": 72.711,
+        "completion_tokens_per_trial": [
+          173,
+          166,
+          166,
+          166,
+          166,
+          166,
+          166
+        ],
+        "task_accuracy_percent": null
+      },
+      {
+        "task": "coding",
+        "successful_trials": 7,
+        "trial_effective_completion_tokens_per_second": [
+          73.156,
+          72.972,
+          72.842,
+          73.103,
+          72.797,
+          72.764,
+          72.743
+        ],
+        "median_tokens_per_second": 72.842,
+        "min_tokens_per_second": 72.743,
+        "max_tokens_per_second": 73.156,
+        "completion_tokens_per_trial": [
+          180,
+          180,
+          180,
+          180,
+          180,
+          180,
+          180
+        ],
+        "task_accuracy_percent": null
+      },
+      {
+        "task": "reasoning",
+        "successful_trials": 7,
+        "trial_effective_completion_tokens_per_second": [
+          72.646,
+          70.431,
+          71.961,
+          72.425,
+          72.39,
+          72.24,
+          71.619
+        ],
+        "median_tokens_per_second": 72.24,
+        "min_tokens_per_second": 70.431,
+        "max_tokens_per_second": 72.646,
+        "completion_tokens_per_trial": [
+          171,
+          171,
+          171,
+          171,
+          171,
+          171,
+          171
+        ],
+        "task_accuracy_percent": null
+      }
+    ],
+    "response_availability_percent": 100.0,
+    "task_accuracy_percent": null,
+    "task_accuracy_status": "All requests returned output; no deterministic correctness grading was performed",
+    "recorded_decode_duration_ms": null,
+    "overall_agiw_performance_score": null
+  },
+  "matched_agiw_comparison": {
+    "status": "NOT_RUN",
+    "completed_conditions": 0,
+    "total_conditions": 3,
+    "conditions": [
+      {
+        "condition": "No AGIW Suite",
+        "definition": "Same Mac, model, runtime, prompt set and token budget, with the AGIW monitor stopped",
+        "status": "NOT_RUN",
+        "effective_tokens_per_second": null,
+        "validated_tasks_per_minute": null
+      },
+      {
+        "condition": "AGIW Suite on Mac",
+        "definition": "Same Mac workload with the AGIW monitor running",
+        "status": "NOT_RUN",
+        "effective_tokens_per_second": null,
+        "validated_tasks_per_minute": null
+      },
+      {
+        "condition": "AGIW Suite on Mac + PC",
+        "definition": "Same total validated workload split across configured Mac and PC workers; report per-host rates separately",
+        "status": "NOT_RUN",
+        "effective_tokens_per_second": null,
+        "validated_tasks_per_minute": null
+      }
+    ],
+    "percentage_speedup": null,
+    "missing_value_semantics": "null means unmeasured, never zero"
+  }
+}

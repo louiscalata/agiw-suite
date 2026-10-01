@@ -6,7 +6,7 @@ A Mac menu-bar monitor for engineers running local models. See model activity, m
 
 **[Download 1.0.0 for Apple silicon](https://github.com/louiscalata/agiw-suite/releases/download/v1.0.0/AGIW-Inference-Monitor-1.0.0-7-arm64.zip)** · [Release notes](https://github.com/louiscalata/agiw-suite/releases/tag/v1.0.0) · [SHA256SUMS.txt](https://github.com/louiscalata/agiw-suite/releases/download/v1.0.0/SHA256SUMS.txt)
 
-[First run](#first-run) · [Activation guide](docs/activation.md) · [Features](#what-you-can-see-and-control) · [Local pipeline](#local-only-pipeline) · [Architecture & API](docs/architecture.md) · [Configuration](docs/advanced-configuration.md) · [Development](docs/development.md) · [Validation limits](#known-validation-limits)
+[First run](#first-run) · [Activation guide](docs/activation.md) · [Features](#what-you-can-see-and-control) · [Performance & data](docs/performance.md) · [Local pipeline](#local-only-pipeline) · [Architecture & API](docs/architecture.md) · [Configuration](docs/advanced-configuration.md) · [Development](docs/development.md) · [Validation limits](#known-validation-limits)
 
 **1.0.0 (7) · Apple silicon · macOS 13+ · Apache-2.0**
 
@@ -49,6 +49,22 @@ Local services and weights are configured separately. Opening AGIW starts no cod
 [Explore the component reference](docs/architecture.md) for runtime responsibilities, data flow, local HTTP routes and enforced guardrails.
 
 See [advanced configuration](docs/advanced-configuration.md) for resident-model policy, share recovery and memory admission. For direct keyboard, video and mouse access to nearby headless workers, an optional [Mini-KVM](docs/advanced-configuration.md#optional-hardware-access-for-nearby-workers) can help with setup and recovery; native AGIW KVM integration remains unverified.
+
+## Recorded inference performance
+
+**139.8 tokens/s** is the highest server-reported decoding rate found in the reviewed records: one successful Windows fast-lane GPT-OSS 20B advisory on 28 September 2026, with 201 prompt tokens and 265 completion tokens. Across its broader recorded 6.7-second job time, the approximate output rate was **39.6 tokens/s**; these are separate timing metrics. It is a historical observation of the separately configured inference worker. It does not measure AGIW's speedup or the downloadable application's performance.
+
+<img src="docs/assets/inference-windows-layouts.svg" width="1280" alt="Windows GPT-OSS 20B fixed code-task decoding rates: layout A 18.5, B 12.3, C 111.4 and D 106.0 tokens per second. One observation per layout; all had 106 prompt tokens and 141 completion tokens. The separate historical advisory peak was 139.8 tokens per second.">
+
+The retained Apple-silicon Mac benchmark recorded **72.482 tokens/s median effective completion throughput across 21 requests**. That metric divides reported completion tokens by the **full request duration**; it is a different denominator from Windows server decoding speed. The two values cannot establish which machine is faster by a percentage.
+
+| Requested before/after comparison | Matched measurement |
+| --- | --- |
+| No AGIW Suite | Not run |
+| AGIW Suite on Mac | Not run |
+| AGIW Suite on Mac + PC | Not run |
+
+No controlled speedup percentage is available for these three conditions. The Mac benchmark's **21/21 non-empty responses measure availability, not graded accuracy**. [See the charts, generated-token counts, decode timings, methods and comparison protocol](docs/performance.md), [compare roles and instrumentation with Ollama and vLLM](docs/performance.md#agiw-ollama-and-vllm-roles-and-performance-instrumentation), or [download the sanitized aggregate data](docs/data/inference-performance.json). These records do not change the signed release or close native acceptance checks.
 
 ## Local-only pipeline
 
