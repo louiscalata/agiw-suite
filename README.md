@@ -6,7 +6,7 @@ A Mac menu-bar monitor for engineers running local models. See model activity, m
 
 **[Download 1.0.0 for Apple silicon](https://github.com/louiscalata/agiw-suite/releases/download/v1.0.0/AGIW-Inference-Monitor-1.0.0-7-arm64.zip)** · [Release notes](https://github.com/louiscalata/agiw-suite/releases/tag/v1.0.0) · [SHA256SUMS.txt](https://github.com/louiscalata/agiw-suite/releases/download/v1.0.0/SHA256SUMS.txt)
 
-[First run](#first-run) · [Activation guide](docs/activation.md) · [Features](#what-you-can-see-and-control) · [Performance & data](docs/performance.md) · [Local pipeline](#local-only-pipeline) · [Architecture & API](docs/architecture.md) · [Configuration](docs/advanced-configuration.md) · [Development](docs/development.md) · [Validation limits](#known-validation-limits)
+[First run](#first-run) · [Activation guide](docs/activation.md) · [Features](#what-you-can-see-and-control) · [Implementation & checks](#inspect-the-implementation) · [Local pipeline](#local-only-pipeline) · [Performance & data](docs/performance.md) · [Architecture & API](docs/architecture.md) · [Configuration](docs/advanced-configuration.md) · [Development](docs/development.md) · [Validation limits](#known-validation-limits)
 
 **1.0.0 (7) · Apple silicon · macOS 13+ · Apache-2.0**
 
@@ -48,23 +48,26 @@ Local services and weights are configured separately. Opening AGIW starts no cod
 
 [Explore the component reference](docs/architecture.md) for runtime responsibilities, data flow, local HTTP routes and enforced guardrails.
 
-See [advanced configuration](docs/advanced-configuration.md) for resident-model policy, share recovery and memory admission. For direct keyboard, video and mouse access to nearby headless workers, an optional [Mini-KVM](docs/advanced-configuration.md#optional-hardware-access-for-nearby-workers) can help with setup and recovery; native AGIW KVM integration remains unverified.
+See [advanced configuration](docs/advanced-configuration.md) for resident-model policy, share recovery and memory admission.
 
-## Recorded inference performance
+## Inspect the implementation
 
-**139.8 tokens/s** is the highest server-reported decoding rate found in the reviewed records: one successful Windows fast-lane GPT-OSS 20B advisory on 28 September 2026, with 201 prompt tokens and 265 completion tokens. Across its broader recorded 6.7-second job time, the approximate output rate was **39.6 tokens/s**; these are separate timing metrics. It is a historical observation of the separately configured inference worker. It does not measure AGIW's speedup or the downloadable application's performance.
+The public repository shows how the monitor turns local observations into a fresh snapshot, then checks evidence again before an explicit model action. Start with the [process and data-flow guide](docs/architecture.md), or follow one layer through its source and focused tests:
 
-<img src="docs/assets/inference-windows-layouts.svg" width="1280" alt="Windows GPT-OSS 20B fixed code-task decoding rates: layout A 18.5, B 12.3, C 111.4 and D 106.0 tokens per second. One observation per layout; all had 106 prompt tokens and 141 completion tokens. The separate historical advisory peak was 139.8 tokens per second.">
+| Layer | Implementation | Focused checks |
+| --- | --- | --- |
+| Model and activity observations | [telemetry.py](telemetry.py), [activity.py](activity.py) | [test_telemetry.py](test_telemetry.py), [test_activity.py](test_activity.py) |
+| Snapshot publication and live updates | [server.py](server.py), [live_feed.py](live_feed.py) | [test_server.py](test_server.py), [test_live_feed.py](test_live_feed.py) |
+| Guarded load/unload; optional source-server journal | [model_control.py](model_control.py), [durable_model_journal.py](durable_model_journal.py) | [test_model_control.py](test_model_control.py), [test_durable_model_journal.py](test_durable_model_journal.py) |
+| Bundled workflow boundary | [Nisi workflow engine](vendor/nisi/package/workflow/engine.mjs), [fixed local-model example](vendor/nisi/package/examples/local-model-workflow.mjs) | [Payload verification](bundle_nisi.py), [bundle checks](test_bundle_nisi.py) |
 
-The retained Apple-silicon Mac benchmark recorded **72.482 tokens/s median effective completion throughput across 21 requests**. That metric divides reported completion tokens by the **full request duration**; it is a different denominator from Windows server decoding speed. The two values cannot establish which machine is faster by a percentage.
+The fixed Nisi example checks JSON data with four assertions, separate review, one repair attempt and a deadline. Those checks demonstrate a bounded workflow for one task; they are not a general model-accuracy or retrieval evaluation. [Run the example](docs/development.md#local-only-model-example) or [repeat the source checks](docs/development.md#source-checks). The external coding router and worker programs are separate.
 
-| Requested before/after comparison | Matched measurement |
-| --- | --- |
-| No AGIW Suite | Not run |
-| AGIW Suite on Mac | Not run |
-| AGIW Suite on Mac + PC | Not run |
+## Performance evidence and limits
 
-No controlled speedup percentage is available for these three conditions. The Mac benchmark's **21/21 non-empty responses measure availability, not graded accuracy**. [See the charts, generated-token counts, decode timings, methods and comparison protocol](docs/performance.md), [compare roles and instrumentation with Ollama and vLLM](docs/performance.md#agiw-ollama-and-vllm-roles-and-performance-instrumentation), or [download the sanitized aggregate data](docs/data/inference-performance.json). These records do not change the signed release or close native acceptance checks.
+The reviewed records contain a **139.8 tokens/s server-reported decoding rate** from one Windows worker advisory and a **72.482 tokens/s median effective completion throughput** across 21 Mac requests. The latter divides completion tokens by full request duration. Different workloads and timing denominators prevent a machine-speed comparison. Neither record measures the downloadable app's performance gain.
+
+No matched **No AGIW / AGIW on Mac / AGIW on Mac + PC** experiment has been run, so there is no controlled speedup percentage. The Mac benchmark's **21/21 non-empty responses measure availability, not graded accuracy**. [Review charts, token counts, methods and comparison limits](docs/performance.md), [Ollama and vLLM roles](docs/performance.md#agiw-ollama-and-vllm-roles-and-performance-instrumentation), and the [sanitized aggregate data](docs/data/inference-performance.json). These records do not change the signed release or close native acceptance checks.
 
 ## Local-only pipeline
 

@@ -1,16 +1,18 @@
 # Development
 
-Run these commands from the repository root. See the [README](../README.md) for the released application and prerequisites.
+Except for `git clone`, run these commands from the repository root. See the [README](../README.md) for the released application and prerequisites.
 
 ## Try the local view
 
-On a Mac with Python 3, clone this repository and run from its root:
+On a Mac with Python 3.9 or newer, run this from a directory where you want a new checkout:
 
 ```sh
+git clone https://github.com/louiscalata/agiw-suite.git
+cd agiw-suite
 python3 -B server.py --port 8765
 ```
 
-The server prints a JSON line containing its port and process ID. Open `http://127.0.0.1:8765/` in a browser; press Ctrl-C in the terminal to stop it. This starts the observer on loopback. Runtime cards can show unavailable or unknown when optional local model, router, or Windows worker services are absent.
+The server prints a JSON line containing its port and process ID. Open `http://127.0.0.1:8765/` in a browser; press Ctrl-C in the terminal to stop it. This starts the observer on loopback. It does not install the native app or start a model. Runtime cards can show unavailable or unknown when optional local model, router, or Windows worker services are absent.
 
 ## Source checks
 
@@ -22,6 +24,8 @@ node --test test_*.mjs
 ```
 
 The CI app typecheck targets arm64. Source tests and the isolated Swift policy harness run on the CI host architecture; passing those on Intel does not establish native Apple silicon runtime acceptance.
+
+For a short code review path, follow [observation and freshness](../telemetry.py) into [snapshot publication](../server.py), then inspect [guarded model operations](../model_control.py) and their [focused tests](../test_model_control.py). The [architecture guide](architecture.md) maps the other readers and failure states. The [Nisi example](../vendor/nisi/package/examples/local-model-workflow.mjs) demonstrates a fixed, four-assertion JSON task; the bundled payload and its [integrity checks](../test_bundle_nisi.py) are separate from the Python observer tests.
 
 Forty-five router integration cases need writers from a separate project. The explicit allowance permits a skip only when those writers are absent; without it, missing writers fail the test. Report the actual skips alongside passes. The tests use fixtures and mocked model calls, so a passing source suite does not establish a live route.
 
@@ -38,6 +42,7 @@ The packager always produces an arm64 app for Apple silicon Macs, independent of
 After choosing the Developer ID Application identity from `security find-identity -v -p codesigning`, run `MONITOR_RELEASE_SIGN_IDENTITY=<certificate-SHA-1> ./package-release.sh` from a clean checkout to create a signed candidate. Notarization, stapling, final hash verification, and a quarantined clean-Mac test remain separate gates.
 
 The [roadmap](../roadmap.md) records this source package's verification state and remaining integration work.
+
 ## Public Nisi CLI
 
 To run the fixed demonstrations from this checkout, install **Node.js 22 or newer**, then use:
