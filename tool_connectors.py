@@ -8,6 +8,7 @@ Streamable HTTP lifecycle to an explicitly saved IPv4 loopback endpoint.
 from __future__ import annotations
 
 from contextlib import contextmanager
+import errno
 import fcntl
 import http.client
 import json
@@ -298,6 +299,38 @@ def _save_managed(path: Path, rows: list[dict]) -> None:
             os.close(fd)
     except (OSError, ValueError) as exc:
         raise ConnectorError('SAVE_FAILED', 'Connector settings could not be saved safely.', 503) from exc
+
+
+def _acquire_test_slot(path: Path) -> int:
+    """Hold separate, per-registry admission until the test worker exits.
+
+    The registry write lock stays short. The kernel releases this lock on a
+    process crash; its private file is permanent and must never be unlinked.
+    """
+    try:
+        _safe_parent(path, create=False)
+        fd = os.open(path.with_name(path.name + '.test.lock'),
+                     os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
+    except (OSError, ValueError) as exc:
+        raise ConnectorError('CONFIG_UNSAFE', 'Connector test admission cannot be secured.', 503) from exc
+    try:
+        info = os.fstat(fd)
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
+                or info.st_mode & 0o077 or info.st_nlink != 1):
+            raise ValueError('unsafe test lock')
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
+            if exc.errno in (errno.EAGAIN, errno.EWOULDBLOCK):
+                raise ConnectorError('TEST_BUSY', 'A connector test is already running.', 409) from exc
+            raise
+        return fd
+    except ConnectorError:
+        os.close(fd)
+        raise
+    except (OSError, ValueError) as exc:
+        os.close(fd)
+        raise ConnectorError('CONFIG_UNSAFE', 'Connector test admission cannot be secured.', 503) from exc
 
 
 def _opencode_discovery(path: Path) -> tuple[dict, list[dict]]:
@@ -717,60 +750,73 @@ class ToolConnectors:
                 raise ConnectorError('NOT_MANAGED', 'Only saved AGIW loopback connectors can be tested.', 404)
             if self._testing is not None:
                 raise ConnectorError('TEST_BUSY', 'A connector test is already running.', 409)
+            slot_fd = _acquire_test_slot(self.path)
+            started = False
             try:
-                with locked(self.path.parent, CONFIG_NAME + '.lock'):
-                    rows = _load_managed(self.path)
-                    item = next((row for row in rows if row['id'] == identifier), None)
-                    if item is None:
-                        raise ConnectorError('NOT_MANAGED',
-                                             'Only saved AGIW loopback connectors can be tested.', 404)
-                    if 'incarnation' not in item:
-                        rows = _incarnated(rows)
-                        _save_managed(self.path, rows)
-                        item = next(row for row in rows if row['id'] == identifier)
-            except (OSError, ValueError) as exc:
-                raise ConnectorError('CONFIG_UNSAFE',
-                                     'Saved connector settings cannot be read safely.', 503) from exc
-            cancel = threading.Event()
-            identity = (identifier, item['url'], item['incarnation'])
-            self._test_cancel = cancel
-            self._testing = identity
-            self._results.pop(identifier, None)
-            self._worker = threading.Thread(target=self._run_test,
-                                            args=(*identity, cancel), daemon=True)
-            try:
-                self._worker.start()
-            except RuntimeError as exc:
-                self._worker = None
-                self._testing = None
-                self._test_cancel = None
-                raise ConnectorError('TEST_UNAVAILABLE', 'Connector test could not start.', 503) from exc
+                try:
+                    with locked(self.path.parent, CONFIG_NAME + '.lock'):
+                        rows = _load_managed(self.path)
+                        item = next((row for row in rows if row['id'] == identifier), None)
+                        if item is None:
+                            raise ConnectorError('NOT_MANAGED',
+                                                 'Only saved AGIW loopback connectors can be tested.', 404)
+                        if 'incarnation' not in item:
+                            rows = _incarnated(rows)
+                            _save_managed(self.path, rows)
+                            item = next(row for row in rows if row['id'] == identifier)
+                except (OSError, ValueError) as exc:
+                    raise ConnectorError('CONFIG_UNSAFE',
+                                         'Saved connector settings cannot be read safely.', 503) from exc
+                cancel = threading.Event()
+                identity = (identifier, item['url'], item['incarnation'])
+                self._test_cancel = cancel
+                self._testing = identity
+                self._results.pop(identifier, None)
+                self._worker = threading.Thread(target=self._run_test,
+                                                args=(*identity, cancel, slot_fd), daemon=True)
+                try:
+                    self._worker.start()
+                except RuntimeError as exc:
+                    raise ConnectorError('TEST_UNAVAILABLE', 'Connector test could not start.', 503) from exc
+                started = True
+            finally:
+                if not started:
+                    self._worker = None
+                    self._testing = None
+                    self._test_cancel = None
+                    os.close(slot_fd)
         return self.read()
 
     def _run_test(self, identifier: str, url: str, incarnation: str,
-                  cancel: threading.Event) -> None:
+                  cancel: threading.Event, slot_fd: int) -> None:
         try:
-            result = self.test_fn(url, stopping=cancel, active=self._active,
-                                  active_lock=self._active_lock)
-        except ConnectorError as exc:
-            result = {'state': 'error', 'code': exc.code, 'checkedAtUnix': round(time.time(), 3)}
-        except Exception:
-            result = {'state': 'error', 'code': 'TEST_FAILED', 'checkedAtUnix': round(time.time(), 3)}
-        with self._lock:
-            if not self._stopping.is_set() and not cancel.is_set():
-                try:
-                    # Atomic private-file reads suffice here: read() checks the
-                    # persisted identity again before exposing this local result.
-                    # Do not contend with an unrelated writer's nonblocking lock.
-                    rows = _load_managed(self.path)
-                    if any((row['id'], row['url'], row.get('incarnation')) ==
-                           (identifier, url, incarnation) for row in rows):
-                        self._results[identifier] = (url, incarnation, result)
-                except (ConnectorError, OSError, ValueError):
-                    pass  # A changed or unsafe registry cannot certify this result.
-            if self._testing == (identifier, url, incarnation):
-                self._testing = None
-                self._test_cancel = None
+            try:
+                result = self.test_fn(url, stopping=cancel, active=self._active,
+                                      active_lock=self._active_lock)
+            except ConnectorError as exc:
+                result = {'state': 'error', 'code': exc.code, 'checkedAtUnix': round(time.time(), 3)}
+            except Exception:
+                result = {'state': 'error', 'code': 'TEST_FAILED', 'checkedAtUnix': round(time.time(), 3)}
+            with self._lock:
+                if not self._stopping.is_set() and not cancel.is_set():
+                    try:
+                        # Atomic private-file reads suffice here: read() checks the
+                        # persisted identity again before exposing this local result.
+                        # Do not contend with an unrelated writer's nonblocking lock.
+                        rows = _load_managed(self.path)
+                        if any((row['id'], row['url'], row.get('incarnation')) ==
+                               (identifier, url, incarnation) for row in rows):
+                            self._results[identifier] = (url, incarnation, result)
+                    except (ConnectorError, OSError, ValueError):
+                        pass  # A changed or unsafe registry cannot certify this result.
+        finally:
+            try:
+                with self._lock:
+                    if self._testing == (identifier, url, incarnation):
+                        self._testing = None
+                        self._test_cancel = None
+            finally:
+                os.close(slot_fd)
 
     def stop(self) -> None:
         self._stopping.set()

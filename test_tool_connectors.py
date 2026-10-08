@@ -4,6 +4,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 from pathlib import Path
+import select
+import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -582,6 +585,207 @@ class ConnectorTests(ConnectorFixture, unittest.TestCase):
                 registry.test('fixture')
         self.assertEqual(raised.exception.code, 'TEST_UNAVAILABLE')
         self.assertIsNone(registry._testing)
+        other = self.registry(test_fn=lambda *_args, **_kwargs: {
+            'state': 'ready', 'toolCount': 0, 'checkedAtUnix': time.time()})
+        other.test('fixture')
+        other._worker.join(1)
+        self.assertFalse(other._worker.is_alive())
+
+    def test_competing_instances_share_one_slot_and_release_after_completion(self):
+        entered = threading.Event()
+        release = threading.Event()
+        self.addCleanup(release.set)
+        calls = []
+
+        def delayed(_url, **_kwargs):
+            entered.set()
+            self.assertTrue(release.wait(3))
+            return {'state': 'ready', 'toolCount': 0, 'checkedAtUnix': time.time()}
+
+        def second_test(_url, **_kwargs):
+            calls.append('entered')
+            return {'state': 'ready', 'toolCount': 0, 'checkedAtUnix': time.time()}
+
+        first = self.registry(test_fn=delayed)
+        second = self.registry(test_fn=second_test)
+        first.add('alpha', 'http://127.0.0.1:3333/mcp')
+        second.add('beta', 'http://127.0.0.1:3334/mcp')
+        first.test('alpha')
+        self.assertTrue(entered.wait(1))
+        # Writers remain available while the separate test slot is held.
+        second.add('gamma', 'http://127.0.0.1:3335/mcp')
+        second.disconnect('gamma')
+        with self.assertRaises(ConnectorError) as raised:
+            second.test('beta')
+        self.assertEqual((raised.exception.code, raised.exception.status), ('TEST_BUSY', 409))
+        self.assertEqual(calls, [])
+        self.assertEqual(next(row for row in first.read()['connectors'] if row['id'] == 'alpha')
+                         ['transportTest']['state'], 'checking')
+        release.set()
+        first._worker.join(1)
+        self.assertFalse(first._worker.is_alive())
+        second.test('beta')
+        second._worker.join(1)
+        self.assertFalse(second._worker.is_alive())
+        self.assertEqual(calls, ['entered'])
+        self.assertEqual(next(row for row in second.read()['connectors'] if row['id'] == 'beta')
+                         ['agentPermission'], 'unknown')
+
+    def test_disconnect_and_readd_cannot_overlap_old_instance_worker(self):
+        entered = threading.Event()
+        release = threading.Event()
+        self.addCleanup(release.set)
+
+        def delayed(_url, **_kwargs):
+            entered.set()
+            self.assertTrue(release.wait(3))
+            return {'state': 'ready', 'toolCount': 1, 'checkedAtUnix': time.time()}
+
+        first = self.registry(test_fn=delayed)
+        second = self.registry(test_fn=lambda *_args, **_kwargs: {
+            'state': 'ready', 'toolCount': 0, 'checkedAtUnix': time.time()})
+        url = 'http://127.0.0.1:3333/mcp'
+        first.add('alpha', url)
+        first.test('alpha')
+        self.assertTrue(entered.wait(1))
+        second.disconnect('alpha')
+        second.add('alpha', url)
+        with self.assertRaises(ConnectorError) as raised:
+            second.test('alpha')
+        self.assertEqual(raised.exception.code, 'TEST_BUSY')
+        self.assertEqual(next(row for row in first.read()['connectors'] if row['id'] == 'alpha')
+                         ['transportTest']['state'], 'not-tested')
+        release.set()
+        first._worker.join(1)
+        self.assertFalse(first._worker.is_alive())
+        second.test('alpha')
+        second._worker.join(1)
+        self.assertFalse(second._worker.is_alive())
+        self.assertEqual(next(row for row in first.read()['connectors'] if row['id'] == 'alpha')
+                         ['transportTest']['state'], 'not-tested')
+
+    def test_stop_keeps_slot_until_worker_actually_exits(self):
+        entered = threading.Event()
+        release = threading.Event()
+        self.addCleanup(release.set)
+
+        def delayed(_url, **_kwargs):
+            entered.set()
+            self.assertTrue(release.wait(3))
+            return {'state': 'ready', 'toolCount': 0, 'checkedAtUnix': time.time()}
+
+        first = self.registry(test_fn=delayed)
+        second = self.registry(test_fn=lambda *_args, **_kwargs: {
+            'state': 'ready', 'toolCount': 0, 'checkedAtUnix': time.time()})
+        first.add('alpha', 'http://127.0.0.1:3333/mcp')
+        first.test('alpha')
+        self.assertTrue(entered.wait(1))
+        first.stop()  # Bounded join returns while this injected worker is held.
+        self.assertTrue(first._worker.is_alive())
+        with self.assertRaises(ConnectorError) as raised:
+            second.test('alpha')
+        self.assertEqual(raised.exception.code, 'TEST_BUSY')
+        release.set()
+        first._worker.join(1)
+        self.assertFalse(first._worker.is_alive())
+        second.test('alpha')
+        second._worker.join(1)
+        self.assertFalse(second._worker.is_alive())
+        self.assertEqual(next(row for row in first.read()['connectors'] if row['id'] == 'alpha')
+                         ['transportTest']['state'], 'not-tested')
+
+    def test_worker_baseexception_releases_slot_and_clears_local_busy(self):
+        def interrupted(_url, **_kwargs):
+            raise SystemExit(7)
+
+        first = self.registry(test_fn=interrupted)
+        second = self.registry(test_fn=lambda *_args, **_kwargs: {
+            'state': 'ready', 'toolCount': 0, 'checkedAtUnix': time.time()})
+        first.add('alpha', 'http://127.0.0.1:3333/mcp')
+        first.test('alpha')
+        first._worker.join(1)
+        self.assertFalse(first._worker.is_alive())
+        self.assertIsNone(first._testing)
+        second.test('alpha')
+        second._worker.join(1)
+        self.assertFalse(second._worker.is_alive())
+
+    def test_slot_scope_unsafe_file_and_crash_release(self):
+        entered = threading.Event()
+        release = threading.Event()
+        self.addCleanup(release.set)
+
+        def delayed(_url, **_kwargs):
+            entered.set()
+            self.assertTrue(release.wait(3))
+            return {'state': 'ready', 'toolCount': 0, 'checkedAtUnix': time.time()}
+
+        first = self.registry(test_fn=delayed)
+        first.add('alpha', 'http://127.0.0.1:3333/mcp')
+        first.test('alpha')
+        self.assertTrue(entered.wait(1))
+        other_path = self.root / 'independent.json'
+        other = ToolConnectors(other_path, self.opencode, test_fn=lambda *_args, **_kwargs: {
+            'state': 'ready', 'toolCount': 0, 'checkedAtUnix': time.time()})
+        self.addCleanup(other.stop)
+        other.add('beta', 'http://127.0.0.1:3334/mcp')
+        other.test('beta')
+        other._worker.join(1)
+        self.assertFalse(other._worker.is_alive())
+
+        # A second process sees the same lock and a crash releases it.
+        slot_path = self.config.with_name(self.config.name + '.test.lock')
+        script = ('import fcntl, os, sys\n'
+                  'fd = os.open(sys.argv[1], os.O_RDWR)\n'
+                  'try: fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)\n'
+                  'except BlockingIOError: os._exit(17)\n'
+                  'print("LOCKED", flush=True)\n'
+                  'sys.stdin.buffer.read(1)\n')
+        active = subprocess.run([sys.executable, '-c', script, str(slot_path)],
+                                input=b'', stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                check=False, timeout=3)
+        self.assertEqual(active.returncode, 17)
+        release.set()
+        first._worker.join(1)
+        self.assertFalse(first._worker.is_alive())
+        holder = subprocess.Popen([sys.executable, '-c', script, str(slot_path)],
+                                  stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                  stderr=subprocess.PIPE)
+        try:
+            readable, _, _ = select.select([holder.stdout], [], [], 3)
+            self.assertTrue(readable, 'lock holder did not announce readiness')
+            self.assertEqual(holder.stdout.readline(), b'LOCKED\n')
+            self.assertIsNone(holder.poll())
+            second = self.registry(test_fn=lambda *_args, **_kwargs: {
+                'state': 'ready', 'toolCount': 0, 'checkedAtUnix': time.time()})
+            with self.assertRaises(ConnectorError) as raised:
+                second.test('alpha')
+            self.assertEqual((raised.exception.code, raised.exception.status), ('TEST_BUSY', 409))
+            holder.kill()
+            holder.wait(timeout=3)
+            self.assertLess(holder.returncode, 0)
+            second.test('alpha')
+            second._worker.join(1)
+            self.assertFalse(second._worker.is_alive())
+        finally:
+            if holder.poll() is None:
+                holder.kill()
+            holder.wait(timeout=3)
+            holder.stdin.close()
+            holder.stdout.close()
+            holder.stderr.close()
+
+        unsafe_path = self.root / 'unsafe.json'
+        unsafe = ToolConnectors(unsafe_path, self.opencode)
+        self.addCleanup(unsafe.stop)
+        unsafe.add('fixture', 'http://127.0.0.1:3335/mcp')
+        target = self.root / 'target.txt'
+        target.write_text('unchanged')
+        unsafe_path.with_name(unsafe_path.name + '.test.lock').symlink_to(target)
+        with self.assertRaises(ConnectorError) as raised:
+            unsafe.test('fixture')
+        self.assertEqual((raised.exception.code, raised.exception.status), ('CONFIG_UNSAFE', 503))
+        self.assertEqual(target.read_text(), 'unchanged')
 
     def test_one_shot_result_expires_instead_of_claiming_live_readiness(self):
         registry = self.registry()
