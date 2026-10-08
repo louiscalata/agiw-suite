@@ -1,16 +1,28 @@
-<img src="docs/assets/agiw-suite-overview.svg" width="1280" alt="AGIW Suite — local inference, with a clear view">
-
 # AGIW Suite · Inference Monitor
+
+<img src="docs/assets/agiw-suite-overview.svg" width="1280" alt="Illustrated AGIW Suite banner listing model activity, memory and GPU, guarded actions, and Nisi and optional Jev">
+
+_Illustrated overview; this is not a screenshot of the released v1.0.0 (7) app._
 
 A Mac menu-bar monitor for engineers running local models. See model activity, memory pressure and configured worker status, then use explicit controls when a model or service needs attention.
 
 **[Download 1.0.0 for Apple silicon](https://github.com/louiscalata/agiw-suite/releases/download/v1.0.0/AGIW-Inference-Monitor-1.0.0-7-arm64.zip)** · [Release notes](https://github.com/louiscalata/agiw-suite/releases/tag/v1.0.0) · [SHA256SUMS.txt](https://github.com/louiscalata/agiw-suite/releases/download/v1.0.0/SHA256SUMS.txt)
 
-[First run](#first-run) · [Activation guide](docs/activation.md) · [Features](#what-you-can-see-and-control) · [Implementation & checks](#inspect-the-implementation) · [Local pipeline](#local-only-pipeline) · [Performance & data](docs/performance.md) · [Architecture & API](docs/architecture.md) · [Configuration](docs/advanced-configuration.md) · [Development](docs/development.md) · [Validation limits](#known-validation-limits)
+[Release contents](#what-the-download-includes) · [First run](#first-run) · [Source quickstart](#try-the-source-view) · [Troubleshooting](#quick-troubleshooting) · [Activation guide](docs/activation.md)
+
+[Features](#what-you-can-see-and-control) · [OpenCode/MCP](#opencode-and-mcp-scope) · [Implementation & checks](#inspect-the-implementation) · [Local pipeline](#local-only-pipeline) · [Performance & data](docs/performance.md) · [Architecture & API](docs/architecture.md) · [Configuration](docs/advanced-configuration.md) · [Development](docs/development.md) · [Validation limits](#known-validation-limits)
 
 **1.0.0 (7) · Apple silicon · macOS 13+ · Apache-2.0**
 
-The download is Developer ID signed and Apple-notarized. [Known validation limits](#known-validation-limits) remain open; the Mac App Store edition follows a separate release process.
+This page describes the signed **GitHub Build 7 download**. Repository source and the separate Mac App Store edition can have different features. The download is Developer ID signed and Apple-notarized; [known validation limits](#known-validation-limits) remain open.
+
+## What the download includes
+
+The [v1.0.0 release](https://github.com/louiscalata/agiw-suite/releases/tag/v1.0.0) provides one Apple-silicon app ZIP and its checksum file. GitHub's automatic source archives are not additional app installers. The ZIP contains `Inference Monitor.app`, installation and release notes, `LICENSE`, and `NOTICE`. The app bundles the pinned public **Nisi 0.2.0** workflow engine, journal, CLI and fixed offline self-check. The signed Jev helper is included for optional native Keychain setup and an explicit hosted connection check.
+
+Python, Node.js, model weights, LM Studio, TypeSafe credentials, the private coding router and Windows workers are **not installed by the ZIP**. The Mac App Store edition and any newer source-only work have separate release and verification states.
+
+The signed app was compiled from [this source commit](https://github.com/louiscalata/agiw-suite/tree/caaa7d482a1f168d86c496af4f573dfcbf0490b8). Cloning the default branch below gives a source preview, not the signed Build 7 binary.
 
 ## Requirements
 
@@ -25,13 +37,39 @@ The download is Developer ID signed and Apple-notarized. [Known validation limit
 
 ## First run
 
-1. Download the ZIP and `SHA256SUMS.txt` into the same folder. In that folder, run `shasum -a 256 -c SHA256SUMS.txt`; expect `OK`.
+1. Download the ZIP and `SHA256SUMS.txt` into the same folder. In that folder, run `shasum -a 256 -c SHA256SUMS.txt`; expect `AGIW-Inference-Monitor-1.0.0-7-arm64.zip: OK`.
 2. Confirm Python is available at one of the paths above. Install the external Node runtime if you want the Nisi self-check.
 3. Extract the ZIP, quit any running AGIW Monitor edition, and copy `Inference Monitor.app` into Applications.
 4. Open the app. Click its menu bar chip icon for the compact monitor, or right-click and choose **Open Dashboard Window**.
 5. Review local readings. Cards show unavailable or unknown when services or fresh evidence are absent. Open **Browse → Nisi & optional components** to inspect Nisi or run its fixed offline self-check.
 
 **Next: [activate the suite](docs/activation.md).** The guide walks through connecting LM Studio, verifying Nisi, running the local-only model pipeline, optional Jev setup, existing router/PC connections and login startup—with expected results and troubleshooting.
+
+## Try the source view
+
+On a Mac with Python 3.9 or newer, run this from a directory where you want a new checkout:
+
+```sh
+git clone https://github.com/louiscalata/agiw-suite.git
+cd agiw-suite
+python3 -B server.py --port 8765
+```
+
+Open `http://127.0.0.1:8765/` in a browser; press Ctrl-C in the terminal to stop the observer. This runs the local source view on loopback. It does not install or open the signed native app, load a model, or start a coding task. Optional services that are not configured can appear unavailable or unknown. For source tests, Nisi CLI examples and packaging details, use the [development guide](docs/development.md).
+
+## Quick troubleshooting
+
+| What you see | Check first |
+| --- | --- |
+| No app window or Dock icon | Look for the menu-bar chip; right-click it and choose **Open Dashboard Window**. The GitHub edition is a menu-bar app. |
+| Observer reconnecting or Python unavailable | Confirm Python 3.9+ is at a [supported path](#requirements), then quit and reopen the app. |
+| Model cards unavailable | Start the LM Studio API server on `127.0.0.1:1234`; models and weights are installed separately. |
+| Loaded model, activity unknown | Inspect the reading's source and age and the LM Studio CLI activity feed. Inventory alone cannot prove generation. |
+| Nisi self-check cannot run | Install Apple-silicon Node.js 22+ at a [supported path](#requirements); this runtime is separate from the bundle. |
+| Jev setup unavailable | Open Components in the installed native app; setup needs your own TypeSafe key. Never post a key in an issue. |
+| Router or PC status unavailable | Configure the separate router and Windows worker first; the app ZIP does not install them. Keep private host details out of public issues. |
+
+The [activation guide's troubleshooting table](docs/activation.md#when-activation-does-not-work) covers the full set of states and next steps. A failed or unknown check does not mean a model, external route or provider connection is active.
 
 ## What you can see and control
 
@@ -49,6 +87,12 @@ Local services and weights are configured separately. Opening AGIW starts no cod
 [Explore the component reference](docs/architecture.md) for runtime responsibilities, data flow, local HTTP routes and enforced guardrails.
 
 See [advanced configuration](docs/advanced-configuration.md) for resident-model policy, share recovery and memory admission.
+
+## OpenCode and MCP scope
+
+Build 7 can display supported **recorded OpenCode model or session choices** as observation metadata. A recorded choice is not proof that a model is generating now, and it does not grant an agent tool access.
+
+The signed Build 7 download has **no Tool Connections page or MCP connector test/management API**. It does not configure OpenCode MCP servers, change agent permissions, or call MCP tools. Configure external tools in their own client and check that client's permissions separately. Source work added after the signed build does not change what the Build 7 ZIP contains.
 
 ## Inspect the implementation
 
@@ -118,6 +162,8 @@ Read the [architecture and capability reference](docs/architecture.md) for imple
 For bugs or documentation issues, [open an issue](https://github.com/louiscalata/agiw-suite/issues) with sanitized reproduction steps. For contributions, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Security
+
+The observer binds to IPv4 loopback and checks browser Host/Origin headers, but those checks do not authenticate every local process. Use it on a trusted Mac account and do not expose the observer port to the network. The optional Jev check sends the disclosed synthetic request only after you ask for it; the bundled Nisi self-check makes no model call.
 
 Report vulnerabilities privately using [SECURITY.md](SECURITY.md). Keep credentials, private hostnames and sensitive machine state out of public issues.
 
