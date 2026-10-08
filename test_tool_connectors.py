@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 import server
 from tool_connectors import (ConnectorError, ToolConnectors, _opencode_discovery,
-                             test_streamable_http)
+                             _sse_body, test_streamable_http)
 
 
 class MCPFixture(ThreadingHTTPServer):
@@ -71,8 +71,10 @@ class MCPHandler(BaseHTTPRequestHandler):
         if method == 'tools/list':
             body = {'jsonrpc': '2.0', 'id': data['id'], 'result': {'tools': [
                 {'name': 'fixture_echo', 'inputSchema': {'type': 'object', 'properties': {}}}]}}
-            if self.server.mode == 'sse':
+            if self.server.mode in ('sse', 'sse-cr-bom'):
                 wire = b': stream primed\n\n' + b'data: ' + json.dumps(body).encode() + b'\n\n'
+                if self.server.mode == 'sse-cr-bom':
+                    wire = b'\xef\xbb\xbf' + wire.replace(b'\n', b'\r')
                 return self._send(200, wire, 'text/event-stream',
                                   headers={'MCP-Session-Id': 'fixture-session'})
             if self.server.mode == 'wrong-session':
@@ -215,7 +217,7 @@ class ConnectorTests(ConnectorFixture, unittest.TestCase):
         self.assertEqual(outside.read_text(), 'original')
 
     def test_bounded_mcp_lifecycle_json_sse_and_resumption_only_lists_tools(self):
-        for mode in ('json', 'sse', 'sse-resume'):
+        for mode in ('json', 'sse', 'sse-cr-bom', 'sse-resume'):
             with self.subTest(mode=mode):
                 fixture = self.fixture(mode)
                 result = test_streamable_http(fixture.url)
@@ -237,6 +239,18 @@ class ConnectorTests(ConnectorFixture, unittest.TestCase):
                     self.assertEqual(fixture.calls[1][1]['MCP-Session-Id'], 'fixture-session')
                     self.assertEqual(fixture.calls[1][1]['MCP-Protocol-Version'], '2025-11-25')
 
+    def test_sse_accepts_a_split_leading_bom_and_bare_cr_lines(self):
+        payload = b'{"jsonrpc":"2.0","id":2,"result":{"tools":[]}}'
+        chunks = iter((b'\xef', b'\xbb', b'\xbfdata: ' + payload + b'\r', b'\r'))
+
+        class FragmentedResponse:
+            def read1(self, _size):
+                return next(chunks, b'')
+
+        body, token, retry_ms = _sse_body(
+            FragmentedResponse(), 2, {'remaining': 65536, 'events': 0})
+        self.assertEqual((body, token, retry_ms), (payload, None, 0))
+
     def test_redirect_wrong_id_wrong_session_and_oversize_fail_closed(self):
         for mode, code in (('redirect', 'REDIRECT_REFUSED'), ('wrong-id', 'INVALID_MCP_RESPONSE'),
                            ('wrong-session', 'INVALID_SESSION'), ('oversize', 'MCP_RESPONSE_TOO_LARGE'),
@@ -245,8 +259,11 @@ class ConnectorTests(ConnectorFixture, unittest.TestCase):
                            ('sse-repeat-prime', 'SSE_RESUME_LIMIT'),
                            ('bad-version', 'UNSUPPORTED_VERSION')):
             with self.subTest(mode=mode), self.assertRaises(ConnectorError) as raised:
-                test_streamable_http(self.fixture(mode).url)
+                fixture = self.fixture(mode)
+                test_streamable_http(fixture.url)
             self.assertEqual(raised.exception.code, code)
+            if mode == 'bad-version':
+                self.assertEqual([method for method, _ in fixture.calls], ['initialize', 'DELETE'])
 
     def test_async_disconnect_cancels_and_fences_late_success(self):
         entered = threading.Event()

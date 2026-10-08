@@ -346,6 +346,7 @@ def _mcp_result(body: bytes, request_id: int) -> dict:
 
 def _sse_body(response, request_id: int, budget: dict) -> tuple[bytes | None, str | None, int]:
     received = bytearray()
+    at_stream_start = True
     last_id = None
     retry_ms = 0
     while budget['remaining'] >= 0 and budget['events'] < 64:
@@ -358,8 +359,14 @@ def _sse_body(response, request_id: int, budget: dict) -> tuple[bytes | None, st
         received.extend(chunk)
         if budget['remaining'] < 0:
             break
+        if at_stream_start:
+            if bytes(received) in (b'\xef', b'\xef\xbb'):
+                continue
+            if received.startswith(b'\xef\xbb\xbf'):
+                del received[:3]
+            at_stream_start = False
         while True:
-            data = bytes(received).replace(b'\r\n', b'\n')
+            data = bytes(received).replace(b'\r\n', b'\n').replace(b'\r', b'\n')
             ending = data.find(b'\n\n')
             if ending < 0:
                 break
@@ -584,9 +591,9 @@ def test_streamable_http(url: str, *, stopping=None, active=None, active_lock=No
                 raise ConnectorError('INVALID_TOOL_LIST', 'MCP tool cursor is invalid.', 502)
         raise ConnectorError('TOO_MANY_PAGES', 'MCP tool list exceeded the test limit.', 502)
     finally:
-        if session is not None and version is not None and not (stopping and stopping.is_set()):
+        if session is not None and not (stopping and stopping.is_set()):
             try:
-                _http_exchange(url, None, session=session, version=version,
+                _http_exchange(url, None, session=session, version=version or PROTOCOL_VERSION,
                                method='DELETE', **kwargs)
             except ConnectorError:
                 pass
