@@ -10,6 +10,14 @@ import unittest
 
 @unittest.skipUnless(sys.platform == 'darwin', 'build entry points require macOS')
 class ArchitectureTests(unittest.TestCase):
+    def test_connector_module_is_in_both_app_resource_lists(self):
+        repo = Path(__file__).resolve().parent
+        installer = (repo / 'build.sh').read_text()
+        packager = (repo / 'package-release.sh').read_text()
+        self.assertIn('tool_connectors.py JevKeychain.swift', installer)
+        self.assertIn('"$project_dir/tool_connectors.py" "$stage_app/Contents/Resources/"', installer)
+        self.assertIn('jev_connection.py tool_connectors.py', packager)
+
     def run_script(self, script, architecture='arm64', system='Darwin',
                    compiled_architecture=None):
         repo = Path(__file__).resolve().parent

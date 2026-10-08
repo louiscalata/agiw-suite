@@ -34,7 +34,7 @@ resources=(
     windows_probe.py live_feed.py gpu_probe.py local_callers.py mem_guard.py
     usage-format.mjs web/index.html web/app.js web/online-code-mode.mjs
     web/map-layout.mjs web/model-control-view.mjs web/style.css
-    bundle_nisi.py bundled_components.py jev_connection.py web/components.html web/components.js web/components.css
+    bundle_nisi.py bundled_components.py jev_connection.py tool_connectors.py web/components.html web/components.js web/components.css
 )
 legal_files=(LICENSE NOTICE)
 for legal_file in "${legal_files[@]}"; do

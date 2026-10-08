@@ -29,6 +29,7 @@ from local_callers import LocalCallers
 from mem_guard import Guard, LevelFile, unknown_block
 from bundled_components import BundledComponents
 from jev_connection import JevConnection
+from tool_connectors import ToolConnectors, ConnectorError
 
 ROOT = Path(__file__).resolve().parent / 'web'
 ASSETS = {'/': ('index.html', 'text/html; charset=utf-8'),
@@ -160,7 +161,7 @@ class MonitorServer(ThreadingHTTPServer):
     max_streams = 3
     stream_write_timeout_seconds = 5.0
 
-    def __init__(self, address, store, *, durable_model_control=False):
+    def __init__(self, address, store, *, durable_model_control=False, tool_connectors=None):
         if address[0] != '127.0.0.1':
             raise ValueError('Monitor must bind to IPv4 loopback')
         if type(durable_model_control) is not bool:
@@ -174,6 +175,7 @@ class MonitorServer(ThreadingHTTPServer):
         self.online_code_repair = OnlineCodeRepair() if mac_online_code_controls_enabled() else None
         self.bundled_components = BundledComponents()
         self.jev_connection = JevConnection()
+        self.tool_connectors = tool_connectors if tool_connectors is not None else ToolConnectors()
         self._slots = threading.BoundedSemaphore(self.max_connections)
         self._active_connections = 0
         self._active_lock = threading.Lock()
@@ -269,6 +271,12 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(200, json.dumps(self.server.bundled_components.status()).encode(), 'application/json')
         if path == '/api/components/jev':
             return self.reply(200, json.dumps(self.server.jev_connection.status()).encode(), 'application/json')
+        if path == '/api/tool-connectors':
+            try:
+                return self.reply(200, json.dumps(self.server.tool_connectors.read(), allow_nan=False).encode(),
+                                  'application/json')
+            except ConnectorError as error:
+                return self.connector_error(error)
         if path == '/api/stream':
             return self.stream()
         if path == '/api/snapshot':
@@ -311,7 +319,7 @@ class Handler(BaseHTTPRequestHandler):
                              '/api/components/jev/check',
                              '/api/online-code-mode/repair',
                              '/api/online-code-mode/entry', '/api/online-code-mode/headless',
-                             '/api/inference/fix'}:
+                             '/api/inference/fix', '/api/tool-connectors'}:
             return self.reply(404, b'{"status":"error","message":"Not found."}', 'application/json')
         if not self.same_origin(require_origin=True):
             return self.control_error(403, 'Exact same-origin Origin and Host are required.')
@@ -345,6 +353,20 @@ class Handler(BaseHTTPRequestHandler):
                 return value
             data = json.loads(raw.decode('utf-8'), object_pairs_hook=distinct,
                               parse_constant=lambda _: (_ for _ in ()).throw(ValueError('invalid number')))
+            if self.path == '/api/tool-connectors':
+                if type(data) is not dict or type(data.get('action')) is not str:
+                    return self.control_error(400, 'Body requires an explicit connector action.')
+                action = data['action']
+                if action == 'add' and set(data) == {'action', 'id', 'url'}:
+                    result = self.server.tool_connectors.add(data['id'], data['url'])
+                    return self.reply(201, json.dumps(result, allow_nan=False).encode(), 'application/json')
+                if action == 'test' and set(data) == {'action', 'id'}:
+                    result = self.server.tool_connectors.test(data['id'])
+                    return self.reply(202, json.dumps(result, allow_nan=False).encode(), 'application/json')
+                if action == 'disconnect' and set(data) == {'action', 'id'}:
+                    result = self.server.tool_connectors.disconnect(data['id'])
+                    return self.reply(200, json.dumps(result, allow_nan=False).encode(), 'application/json')
+                return self.control_error(400, 'Body must be add (id, url), test (id), or disconnect (id).')
             if self.path == '/api/components/jev/check':
                 if data != {'action': 'connection-check'}:
                     return self.control_error(400, 'Body must contain only action: connection-check.')
@@ -388,11 +410,17 @@ class Handler(BaseHTTPRequestHandler):
                 if not isinstance(data, dict) or set(data) != {'action', 'modelId'}:
                     return self.control_error(400, 'Body must contain only action and modelId.')
                 accepted = self.server.model_control.request(data['action'], data['modelId'])
-        except (UnicodeDecodeError, ValueError, json.JSONDecodeError):
+        except (UnicodeDecodeError, ValueError, RecursionError, json.JSONDecodeError):
             return self.control_error(400, 'Request body must be valid JSON with unique fields.')
         except ControlError as error:
             return self.control_error(error.status, error.message)
+        except ConnectorError as error:
+            return self.connector_error(error)
         return self.reply(202, json.dumps(accepted).encode(), 'application/json')
+
+    def connector_error(self, error):
+        return self.reply(error.status, json.dumps({'status': 'error', 'code': error.code,
+                                                    'message': error.message}).encode(), 'application/json')
 
     def control_error(self, status, message):
         return self.reply(status, json.dumps({'status': 'error', 'message': message}).encode(),
@@ -669,6 +697,8 @@ def main():
         stopping = getattr(server, 'stopping', None)
         if stopping is not None:  # ends open live streams promptly
             stopping.set()
+        if getattr(server, 'tool_connectors', None) is not None:
+            server.tool_connectors.stop()
         cancel_windows_worker_probe()
         if server.online_code_repair is not None:
             # The Swift parent sends SIGKILL after 1.5 seconds. Kill private
@@ -699,6 +729,8 @@ def main():
         stop.set()
         if auto is not None:
             auto.close()
+        if getattr(server, 'tool_connectors', None) is not None:
+            server.tool_connectors.stop()
         if guard is not None:
             guard.close()  # resume every job the memory watchdog paused
         if server.online_code_repair is not None:

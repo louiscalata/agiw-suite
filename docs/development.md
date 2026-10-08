@@ -29,6 +29,12 @@ For a short code review path, follow [observation and freshness](../telemetry.py
 
 Forty-five router integration cases need writers from a separate project. The explicit allowance permits a skip only when those writers are absent; without it, missing writers fail the test. Report the actual skips alongside passes. The tests use fixtures and mocked model calls, so a passing source suite does not establish a live route.
 
+### Unreleased Tool Connections API
+
+This checkout has a loopback-only `/api/tool-connectors` API and [fixture tests](../test_tool_connectors.py). Both build scripts include its module in new app candidates from this branch. It is **not in the published v1.0.0 (7) download**, this branch has no Tool Connections UI, and no new packaged app has passed native acceptance. GET discovers a sanitized view of one global [OpenCode config file](https://opencode.ai/docs/config/) (`opencode.json`, or `opencode.jsonc` when JSON is absent) and AGIW's own saved endpoints. Other OpenCode config layers may change the effective client setup; discovery does not return OpenCode commands, environments or agent permissions.
+
+An explicit same-origin POST can save at most eight literal `http://127.0.0.1:<port>/<path>` endpoints, test one, or remove its saved address. The test performs MCP initialization and `tools/list` only for Streamable HTTP versions `2025-03-26`, `2025-06-18` and `2025-11-25`; a newer-only server cannot pass this probe. It never invokes a tool, changes OpenCode permissions, runs a Nisi workflow or loads a model. `ready` is a one-shot protocol result with a timestamp; it expires from the source status after 60 seconds. Disconnect removes only AGIW's saved row and does not stop the external server. URL paths are saved and returned to local clients, so do not put secrets in them. Host/Origin checks limit browser requests; they do not authenticate other local processes. Use this API only on a trusted local machine and review the [HTTP boundary](architecture.md#9-local-http-interface) before integrating a UI.
+
 The native app supports Apple silicon only. `build.sh` requires a native arm64 macOS terminal; Intel Macs and Rosetta shells are refused before creating installation paths. It compiles and signs the app, then replaces `$HOME/Applications/Inference Monitor.app` when its owner lock permits. Do not run it as a read-only build check. The installer intentionally writes into the local Applications directory and does not publish content elsewhere.
 
 ### Build a distribution candidate

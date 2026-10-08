@@ -243,6 +243,7 @@ The native app chooses its port. For source exploration, `python3 -B server.py -
 | GET | `/api/stream` | SSE snapshots, sequence IDs and heartbeat comments |
 | GET | `/api/components` | Public Nisi integrity, Node availability and self-check status |
 | GET | `/api/components/jev` | Configuration/check status; no key |
+| GET / POST | `/api/tool-connectors` | Sanitized global OpenCode file discovery and AGIW-saved loopback MCP endpoints; explicit `add`, `test`, `disconnect` actions. Bundled in new builds from this branch, not in the published Build 7 download. |
 | GET / POST | `/api/models/control` | Read retained operation / exact `action` (`load` or `unload`) and `modelId` fields |
 | GET / POST | `/api/models/auto-unload` | Read policy / exact Boolean `enabled`; unavailable in standalone observer |
 | POST | `/api/components/nisi/check` | `{"action":"self-check"}` |
@@ -253,6 +254,8 @@ The native app chooses its port. For source exploration, `python3 -B server.py -
 | GET / POST | `/api/inference/fix` | Read recovery / `{"scope":"all"}`; legacy `local`, `route`, `both`, `nisi` also accepted |
 
 Action jobs generally return **202 Accepted**, followed by status reads. The auto-unload setting returns 200 after saving. Invalid requests, stale evidence, unavailable components and conflicts return distinct errors; acceptance is not execution completion. Route controls need the supported Mac-owner/configured recovery context.
+
+The Tool Connections API is separate from Nisi and model controls. Its `ready` status records a bounded MCP initialization and tool-list check for the listed 2025 Streamable HTTP versions, and expires after 60 seconds; it does not establish agent permission, tool execution or an active model route. Newer-only MCP servers are outside this probe's current scope. `disconnect` deletes AGIW's saved address, not the external server. Saved endpoint paths are returned by GET and must not contain secrets. Its local-process trust boundary is the same as the other observer routes below.
 
 ### Request and navigation protections
 
