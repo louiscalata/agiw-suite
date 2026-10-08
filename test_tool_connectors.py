@@ -287,6 +287,55 @@ class ConnectorTests(ConnectorFixture, unittest.TestCase):
         state = next(row for row in registry.read()['connectors'] if row['id'] == 'fixture')
         self.assertEqual(state['transportTest']['state'], 'not-tested')
 
+    def test_unrelated_registry_change_preserves_running_test_and_result(self):
+        entered = threading.Event()
+        release = threading.Event()
+        self.addCleanup(release.set)
+        def delayed(_url, **kwargs):
+            entered.set()
+            release.wait(2)
+            return {'state': 'ready', 'toolCount': 1, 'protocolVersion': '2025-11-25',
+                    'checkedAtUnix': time.time()}
+        registry = self.registry(test_fn=delayed)
+        registry.add('alpha', 'http://127.0.0.1:3333/mcp')
+        registry.test('alpha')
+        self.assertTrue(entered.wait(1))
+        registry.add('beta', 'http://127.0.0.1:3334/mcp')
+        state = next(row for row in registry.read()['connectors'] if row['id'] == 'alpha')
+        self.assertEqual(state['transportTest']['state'], 'checking')
+        registry.disconnect('beta')
+        state = next(row for row in registry.read()['connectors'] if row['id'] == 'alpha')
+        self.assertEqual(state['transportTest']['state'], 'checking')
+        with self.assertRaises(ConnectorError) as raised:
+            registry.test('alpha')
+        self.assertEqual(raised.exception.code, 'TEST_BUSY')
+        release.set()
+        registry._worker.join(1)
+        state = next(row for row in registry.read()['connectors'] if row['id'] == 'alpha')
+        self.assertEqual((state['transportTest']['state'], state['transportTest']['toolCount']),
+                         ('ready', 1))
+
+    def test_same_id_readd_while_old_test_finishes_cannot_replay_result(self):
+        entered = threading.Event()
+        release = threading.Event()
+        self.addCleanup(release.set)
+        def delayed(_url, **kwargs):
+            entered.set()
+            release.wait(2)
+            return {'state': 'ready', 'toolCount': 1, 'protocolVersion': '2025-11-25',
+                    'checkedAtUnix': time.time()}
+        registry = self.registry(test_fn=delayed)
+        url = 'http://127.0.0.1:3333/mcp'
+        registry.add('alpha', url)
+        registry.test('alpha')
+        self.assertTrue(entered.wait(1))
+        registry.disconnect('alpha')
+        registry.add('alpha', url)
+        release.set()
+        registry._worker.join(1)
+        state = next(row for row in registry.read()['connectors'] if row['id'] == 'alpha')
+        self.assertEqual(state['transportTest']['state'], 'not-tested')
+
     def test_thread_start_failure_does_not_latch_busy(self):
         registry = self.registry()
         registry.add('fixture', self.fixture().url)

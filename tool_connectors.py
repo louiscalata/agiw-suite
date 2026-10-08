@@ -621,6 +621,7 @@ class ToolConnectors:
         with self._lock:
             results = dict(self._results)
             testing = self._testing
+            generation = self._generation
         rows = []
         for item in managed:
             current = results.get(item['id'])
@@ -631,7 +632,7 @@ class ToolConnectors:
                          or not 0 <= time.time() - checked_at <= TEST_RESULT_MAX_AGE_SECONDS)):
                 state = {'state': 'not-tested'}
             if (testing is not None and testing[:2] == (item['id'], item['url'])
-                    and testing[2] == self._generation):
+                    and testing[2] == generation):
                 state = {'state': 'checking'}
             rows.append({'id': item['id'], 'source': 'agiw', 'transport': 'streamable-http',
                          'url': item['url'], 'configured': True, 'enabledInOpenCode': False,
@@ -659,7 +660,9 @@ class ToolConnectors:
                             raise ConnectorError('LIMIT_REACHED', 'At most eight managed connectors can be saved.', 409)
                         rows.append({'id': identifier, 'url': url})
                         _save_managed(self.path, rows)
-                        self._generation += 1
+                        # Changes to other IDs do not invalidate a running test.
+                        if self._testing is None or self._testing[0] == identifier:
+                            self._generation += 1
             except (OSError, ValueError) as exc:
                 raise ConnectorError('SAVE_FAILED', 'Connector settings could not be saved safely.', 503) from exc
         return self.read()
@@ -682,7 +685,8 @@ class ToolConnectors:
                                 for sock in tuple(self._active):
                                     _abort_socket(sock)
                         _save_managed(self.path, remaining)
-                        self._generation += 1
+                        if self._testing is None or self._testing[0] == identifier:
+                            self._generation += 1
                     self._results.pop(identifier, None)
             except (OSError, ValueError) as exc:
                 raise ConnectorError('SAVE_FAILED', 'Connector settings could not be saved safely.', 503) from exc
