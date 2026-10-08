@@ -10,7 +10,7 @@ const ACTION_ERRORS = Object.freeze({
   INVALID_URL: 'Use a literal http://127.0.0.1:PORT/path endpoint on port 1024–65535.',
   ID_EXISTS: 'That name is already saved for a different endpoint. Remove the saved endpoint first.',
   LIMIT_REACHED: 'Eight managed endpoints are already saved. Remove one to add another.',
-  TEST_BUSY: 'Another endpoint test is in progress. Wait for its result.',
+  TEST_BUSY: 'Another endpoint test is in progress. Try again shortly.',
   NOT_MANAGED: 'That endpoint is no longer saved. Refresh the list.',
   CONFIG_UNSAFE: 'Saved endpoint settings cannot be read safely.',
   CONFIG_INVALID: 'Saved endpoint settings are invalid.',
