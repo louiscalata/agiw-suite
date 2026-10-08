@@ -170,16 +170,98 @@ test('Test polls to a timestamped protocol result, never an OpenCode grant', asy
   panel.destroy();
 });
 
+test('a result promise ends when another instance removes or replaces the saved endpoint', async () => {
+  for (const next of [envelope(),
+    envelope({...managed('local-tools'), url: 'http://127.0.0.1:3333/new'}),
+    envelope(managed('local-tools'))]) {
+    let visible = envelope(managed());
+    const {panel, get} = fixture(async (_path, options) => {
+      if (options.method === 'POST') {
+        visible = envelope(managed('local-tools', {state: 'checking'}));
+        return response(visible, 202);
+      }
+      return response(visible);
+    });
+    await panel.ready;
+    assert.equal(await panel.submit('test', 'local-tools'), true);
+    visible = next;
+    await panel.refresh();
+    const message = get('tool-action-status').textContent;
+    assert.match(message, next.connectors.length && next.connectors[0].url === managed().url
+      ? /result .* is no longer available/ : /endpoint .* was removed or changed/);
+    visible = envelope(managed('local-tools', {state: 'ready', protocolVersion: '2025-11-25',
+      toolCount: 1, checkedAtUnix: 1791446700}));
+    await panel.refresh();
+    assert.equal(get('tool-action-status').textContent, message,
+      'a later result must not be attributed to the interrupted test');
+    panel.destroy();
+  }
+});
+
 test('typed protocol and action errors remain visible without server-controlled HTML', async () => {
   const row = managed('local-tools', {state: 'error', code: 'MCP_UNREACHABLE', checkedAtUnix: 1791446700});
-  const {panel, get} = fixture(async (_path, options) => options.method === 'POST'
-    ? response({status: 'error', code: 'TEST_BUSY', message: '<img src=x onerror=alert(1)>'}, 409)
-    : response(envelope(row)));
+  let reads = 0;
+  const {panel, get} = fixture(async (_path, options) => {
+    if (options.method === 'POST') {
+      return response({status: 'error', code: 'TEST_BUSY', message: '<img src=x onerror=alert(1)>'}, 409);
+    }
+    reads++;
+    return response(envelope(row));
+  });
   await panel.ready;
-  assert.match(textOf(get('managed-list')), /MCP_UNREACHABLE: The endpoint did not answer/);
+  assert.match(textOf(get('managed-list')), /MCP_UNREACHABLE: The endpoint could not be reached or stopped answering/);
   await panel.submit('test', 'local-tools');
-  assert.match(get('tool-action-status').textContent, /Another endpoint test is in progress/);
+  assert.equal(reads, 2, 'TEST_BUSY prompts an immediate status read');
+  assert.match(get('tool-action-status').textContent, /Another endpoint test is in progress\. Try again shortly\./);
   assert.doesNotMatch(get('tool-action-status').textContent, /img/);
+  panel.destroy();
+});
+
+test('a timed-out POST has an unknown outcome and immediately reads current status', async () => {
+  for (const action of ['test', 'disconnect']) {
+    let visible = envelope(managed());
+    let reads = 0;
+    const {panel, get} = fixture(async (_path, options) => {
+      if (options.method === 'POST') {
+        visible = action === 'test' ? envelope(managed('local-tools', {state: 'checking'})) : envelope();
+        throw Object.assign(new Error('request timed out'), {name: 'TimeoutError'});
+      }
+      reads++;
+      return response(visible);
+    });
+    await panel.ready;
+    assert.equal(await panel.submit(action, 'local-tools'), false);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(reads, 2);
+    assert.match(get('tool-action-status').textContent, /request outcome was not confirmed/i);
+    assert.doesNotMatch(get('tool-action-status').textContent, /action failed|protocol check started|saved endpoint removed/i);
+    assert.equal(get('managed-list').children.length, action === 'test' ? 1 : 0);
+    if (action === 'test') assert.match(textOf(get('managed-list')), /Checking protocol/);
+    panel.destroy();
+  }
+});
+
+test('a timed-out POST queues a fresh status read behind an older GET', async () => {
+  let releaseOldGet, reads = 0, visible = envelope(managed());
+  const {panel, get} = fixture(async (_path, options) => {
+    if (options.method === 'POST') {
+      visible = envelope();
+      throw Object.assign(new Error('request timed out'), {name: 'TimeoutError'});
+    }
+    reads++;
+    if (reads === 2) return new Promise(resolve => { releaseOldGet = resolve; });
+    return response(visible);
+  });
+  await panel.ready;
+  const oldRead = panel.refresh();
+  assert.equal(await panel.submit('disconnect', 'local-tools'), false);
+  assert.equal(reads, 2);
+  releaseOldGet(response(envelope(managed())));
+  await oldRead;
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(reads, 3);
+  assert.equal(get('managed-list').children.length, 0);
+  assert.match(get('tool-action-status').textContent, /outcome was not confirmed/);
   panel.destroy();
 });
 

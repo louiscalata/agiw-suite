@@ -19,7 +19,7 @@ const ACTION_ERRORS = Object.freeze({
   TEST_UNAVAILABLE: 'The endpoint test could not start.',
 });
 const TEST_ERRORS = Object.freeze({
-  MCP_UNREACHABLE: 'The endpoint did not answer within the test limit.',
+  MCP_UNREACHABLE: 'The endpoint could not be reached or stopped answering during the test.',
   MCP_HTTP_ERROR: 'The endpoint rejected the protocol check.',
   REDIRECT_REFUSED: 'The endpoint redirected the protocol check.',
   INVALID_SESSION: 'The endpoint returned an invalid session.',
@@ -119,6 +119,7 @@ export function mountToolConnections(root, {
     managedStatus, managedList].some(node => !node)) return null;
   root.dataset.toolConnectionsMounted = 'true';
   let timer = null, current = null, busy = false, disposed = false, revision = 0, reading = false;
+  let refreshQueued = false;
   let awaitedTest = null;
   let controls = new Map();
   function focusedAction() {
@@ -215,12 +216,17 @@ export function mountToolConnections(root, {
     if (!busy) restoreFocus(focus);
     add.disabled = busy || managed.length >= 8;
     if (awaitedTest) {
-      const tested = managed.find(row => row.id === awaitedTest);
-      if (!tested) awaitedTest = null;
-      else if (tested.transportTest.state === 'ready' || tested.transportTest.state === 'error') {
+      const tested = managed.find(row => row.id === awaitedTest.id);
+      if (!tested || tested.url !== awaitedTest.url) {
+        actionStatus.textContent = `The saved endpoint for ${awaitedTest.id} was removed or changed before its protocol result appeared.`;
+        awaitedTest = null;
+      } else if (tested.transportTest.state === 'not-tested') {
+        actionStatus.textContent = `The protocol result for ${awaitedTest.id} is no longer available. Check its current status before testing again.`;
+        awaitedTest = null;
+      } else if (tested.transportTest.state === 'ready' || tested.transportTest.state === 'error') {
         actionStatus.textContent = tested.transportTest.state === 'ready'
-          ? `Protocol discovery completed for ${awaitedTest}. Agent permission remains unknown.`
-          : `Protocol check failed for ${awaitedTest}: ${testError(tested.transportTest.code)}`;
+          ? `Protocol discovery completed for ${awaitedTest.id}. Agent permission remains unknown.`
+          : `Protocol check failed for ${awaitedTest.id}: ${testError(tested.transportTest.code)}`;
         awaitedTest = null;
       }
     }
@@ -257,8 +263,17 @@ export function mountToolConnections(root, {
       if (!disposed && !busy && version === revision) unavailable(error.message);
     } finally {
       reading = false;
-      schedule();
+      if (refreshQueued && !disposed) {
+        refreshQueued = false;
+        void refresh();
+      } else schedule();
     }
+  }
+  function requestFreshStatus() {
+    cancel(timer);
+    timer = null;
+    if (reading) refreshQueued = true;
+    else void refresh();
   }
   async function submit(action, id, endpoint) {
     if (disposed || busy || !current || !['add', 'test', 'disconnect'].includes(action)) return false;
@@ -274,7 +289,10 @@ export function mountToolConnections(root, {
     }
     revision++;
     busy = true;
+    let refreshAfterAction = false, serverRejected = false;
     const focus = focusedAction();
+    const testedUrl = action === 'test'
+      ? current.connectors.find(row => row.source === 'agiw' && row.id === id).url : null;
     add.disabled = true;
     for (const button of managedList.querySelectorAll('button')) button.disabled = true;
     actionStatus.textContent = action === 'add' ? 'Saving endpoint…'
@@ -286,11 +304,14 @@ export function mountToolConnections(root, {
         body: JSON.stringify(body), signal: AbortSignal.timeout(6000),
       });
       const value = await response.json();
-      if (!response.ok) throw new Error(typeof value?.code === 'string' ? value.code : 'ACTION_FAILED');
+      if (!response.ok) {
+        serverRejected = true;
+        throw new Error(typeof value?.code === 'string' ? value.code : 'ACTION_FAILED');
+      }
       toolConnectionRows(value);
       if (disposed) return true;
-      if (action === 'test') awaitedTest = id;
-      if (action === 'disconnect' && awaitedTest === id) awaitedTest = null;
+      if (action === 'test') awaitedTest = {id, url: testedUrl};
+      if (action === 'disconnect' && awaitedTest?.id === id) awaitedTest = null;
       actionStatus.textContent = action === 'add' ? 'Endpoint saved. Press Test protocol to check it.'
         : action === 'test' ? 'Protocol check started. Its result will appear below.'
           : 'Saved endpoint removed. The server and OpenCode settings are unchanged.';
@@ -298,7 +319,11 @@ export function mountToolConnections(root, {
       if (action === 'add') { name.value = ''; url.value = ''; }
       return true;
     } catch (error) {
-      if (!disposed) actionStatus.textContent = actionError(error.message);
+      if (!disposed) {
+        actionStatus.textContent = serverRejected ? actionError(error.message)
+          : 'The request outcome was not confirmed. Check the current saved endpoint status before retrying.';
+        refreshAfterAction = !serverRejected || error.message === 'TEST_BUSY';
+      }
       return false;
     } finally {
       revision++;
@@ -306,7 +331,8 @@ export function mountToolConnections(root, {
       if (!disposed) {
         if (current) render(current);
         restoreFocus(focus);
-        schedule();
+        if (refreshAfterAction) requestFreshStatus();
+        else schedule();
       }
     }
   }
