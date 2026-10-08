@@ -2,6 +2,7 @@
 from http.client import HTTPConnection
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import os
 from pathlib import Path
 import tempfile
 import threading
@@ -273,8 +274,8 @@ class ConnectorTests(ConnectorFixture, unittest.TestCase):
             release.wait(2)
             return {'state': 'ready', 'toolCount': 1, 'protocolVersion': '2025-11-25'}
         registry = self.registry(test_fn=delayed)
-        fixture = self.fixture()
-        registry.add('fixture', fixture.url)
+        url = 'http://127.0.0.1:3333/mcp'
+        registry.add('fixture', url)
         self.assertEqual(registry.test('fixture')['connectors'][0]['transportTest']['state'], 'checking')
         self.assertTrue(entered.wait(1))
         with self.assertRaises(ConnectorError) as raised:
@@ -283,7 +284,7 @@ class ConnectorTests(ConnectorFixture, unittest.TestCase):
         registry.disconnect('fixture')
         release.set()
         registry._worker.join(1)
-        registry.add('fixture', fixture.url)
+        registry.add('fixture', url)
         state = next(row for row in registry.read()['connectors'] if row['id'] == 'fixture')
         self.assertEqual(state['transportTest']['state'], 'not-tested')
 
@@ -336,6 +337,243 @@ class ConnectorTests(ConnectorFixture, unittest.TestCase):
         state = next(row for row in registry.read()['connectors'] if row['id'] == 'alpha')
         self.assertEqual(state['transportTest']['state'], 'not-tested')
 
+    def test_unrelated_mutation_preserves_in_flight_result_across_instances(self):
+        entered = threading.Event()
+        release = threading.Event()
+        self.addCleanup(release.set)
+
+        def delayed(_url, **_kwargs):
+            entered.set()
+            self.assertTrue(release.wait(2))
+            return {'state': 'ready', 'toolCount': 1, 'protocolVersion': '2025-11-25',
+                    'checkedAtUnix': time.time()}
+
+        first = self.registry(test_fn=delayed)
+        second = self.registry()
+        first.add('alpha', 'http://127.0.0.1:3333/mcp')
+        first.test('alpha')
+        self.assertTrue(entered.wait(1))
+        second.add('beta', 'http://127.0.0.1:3334/mcp')
+        self.assertEqual(next(row for row in first.read()['connectors'] if row['id'] == 'alpha')
+                         ['transportTest']['state'], 'checking')
+        second.disconnect('beta')
+        self.assertEqual(next(row for row in first.read()['connectors'] if row['id'] == 'alpha')
+                         ['transportTest']['state'], 'checking')
+        release.set()
+        first._worker.join(1)
+        self.assertFalse(first._worker.is_alive())
+        self.assertEqual(next(row for row in first.read()['connectors'] if row['id'] == 'alpha')
+                         ['transportTest']['state'], 'ready')
+
+    def test_same_id_readd_changes_incarnation_and_fences_old_result(self):
+        entered = threading.Event()
+        release = threading.Event()
+        self.addCleanup(release.set)
+
+        def delayed(_url, **_kwargs):
+            entered.set()
+            self.assertTrue(release.wait(2))
+            return {'state': 'ready', 'toolCount': 1, 'protocolVersion': '2025-11-25',
+                    'checkedAtUnix': time.time()}
+
+        registry = self.registry(test_fn=delayed)
+        url = 'http://127.0.0.1:3333/mcp'
+        registry.add('alpha', url)
+        before = json.loads(self.config.read_text())['managed'][0]['incarnation']
+        registry.test('alpha')
+        self.assertTrue(entered.wait(1))
+        registry.disconnect('alpha')
+        registry.add('alpha', url)
+        after = json.loads(self.config.read_text())['managed'][0]['incarnation']
+        self.assertNotEqual(before, after)
+        self.assertEqual(next(row for row in registry.read()['connectors'] if row['id'] == 'alpha')
+                         ['transportTest']['state'], 'not-tested')
+        release.set()
+        registry._worker.join(1)
+        self.assertFalse(registry._worker.is_alive())
+        self.assertEqual(next(row for row in registry.read()['connectors'] if row['id'] == 'alpha')
+                         ['transportTest']['state'], 'not-tested')
+        self.assertIsNone(registry._testing)
+
+    def test_second_instance_same_id_same_url_readd_fences_old_result(self):
+        entered = threading.Event()
+        release = threading.Event()
+        self.addCleanup(release.set)
+
+        def delayed(_url, **_kwargs):
+            entered.set()
+            self.assertTrue(release.wait(2))
+            return {'state': 'ready', 'toolCount': 1, 'protocolVersion': '2025-11-25',
+                    'checkedAtUnix': time.time()}
+
+        first = self.registry(test_fn=delayed)
+        second = self.registry()
+        url = 'http://127.0.0.1:3333/mcp'
+        first.add('alpha', url)
+        before = json.loads(self.config.read_text())['managed'][0]['incarnation']
+        first.test('alpha')
+        self.assertTrue(entered.wait(1))
+        second.disconnect('alpha')
+        second.add('alpha', url)
+        after = json.loads(self.config.read_text())['managed'][0]['incarnation']
+        self.assertNotEqual(before, after)
+        self.assertEqual(next(row for row in first.read()['connectors'] if row['id'] == 'alpha')
+                         ['transportTest']['state'], 'not-tested')
+        release.set()
+        first._worker.join(1)
+        self.assertFalse(first._worker.is_alive())
+        self.assertIsNone(first._testing)
+        self.assertEqual(next(row for row in first.read()['connectors'] if row['id'] == 'alpha')
+                         ['transportTest']['state'], 'not-tested')
+        self.assertEqual(next(row for row in second.read()['connectors'] if row['id'] == 'alpha')
+                         ['transportTest']['state'], 'not-tested')
+
+    def test_second_instance_readd_invalidates_completed_cached_result(self):
+        def checked(_url, **_kwargs):
+            return {'state': 'ready', 'toolCount': 1, 'protocolVersion': '2025-11-25',
+                    'checkedAtUnix': time.time()}
+
+        first = self.registry(test_fn=checked)
+        second = self.registry()
+        url = 'http://127.0.0.1:3333/mcp'
+        first.add('alpha', url)
+        before = json.loads(self.config.read_text())['managed'][0]['incarnation']
+        first.test('alpha')
+        first._worker.join(1)
+        self.assertFalse(first._worker.is_alive())
+        self.assertEqual(next(row for row in first.read()['connectors'] if row['id'] == 'alpha')
+                         ['transportTest']['state'], 'ready')
+
+        second.disconnect('alpha')
+        second.add('alpha', url)
+        after = json.loads(self.config.read_text())['managed'][0]['incarnation']
+        self.assertNotEqual(before, after)
+        self.assertEqual(next(row for row in first.read()['connectors'] if row['id'] == 'alpha')
+                         ['transportTest']['state'], 'not-tested')
+
+    def test_legacy_registry_upgrades_before_test_and_keeps_public_shape(self):
+        self.config.write_text(json.dumps({'schemaVersion': 1, 'managed': [
+            {'id': 'alpha', 'url': 'http://127.0.0.1:3333/mcp'}]}))
+        os.chmod(self.config, 0o600)
+        entered = threading.Event()
+
+        def checked(_url, **_kwargs):
+            private = json.loads(self.config.read_text())
+            self.assertEqual(private['schemaVersion'], 2)
+            self.assertRegex(private['managed'][0]['incarnation'], r'^[0-9a-f]{32}$')
+            entered.set()
+            return {'state': 'ready', 'toolCount': 1, 'protocolVersion': '2025-11-25',
+                    'checkedAtUnix': time.time()}
+
+        registry = self.registry(test_fn=checked)
+        before = registry.read()
+        self.assertEqual(before['schemaVersion'], 1)
+        self.assertNotIn('incarnation', json.dumps(before))
+        registry.test('alpha')
+        self.assertTrue(entered.wait(1))
+        registry._worker.join(1)
+        self.assertFalse(registry._worker.is_alive())
+        after = registry.read()
+        self.assertEqual(after['schemaVersion'], 1)
+        self.assertNotIn('incarnation', json.dumps(after))
+        self.assertEqual(next(row for row in after['connectors'] if row['id'] == 'alpha')
+                         ['transportTest']['state'], 'ready')
+
+    def test_add_and_disconnect_migrate_all_surviving_legacy_rows(self):
+        url = 'http://127.0.0.1:3333/mcp'
+        registry = self.registry()
+        self.config.write_text(json.dumps({'schemaVersion': 1, 'managed': [
+            {'id': 'alpha', 'url': url}]}))
+        os.chmod(self.config, 0o600)
+        registry.add('alpha', url)
+        migrated = json.loads(self.config.read_text())
+        self.assertEqual(migrated['schemaVersion'], 2)
+        self.assertRegex(migrated['managed'][0]['incarnation'], r'^[0-9a-f]{32}$')
+
+        self.config.write_text(json.dumps({'schemaVersion': 1, 'managed': [
+            {'id': 'alpha', 'url': url},
+            {'id': 'beta', 'url': 'http://127.0.0.1:3334/mcp'}]}))
+        os.chmod(self.config, 0o600)
+        registry.disconnect('beta')
+        remaining = json.loads(self.config.read_text())
+        self.assertEqual(remaining['schemaVersion'], 2)
+        self.assertEqual([row['id'] for row in remaining['managed']], ['alpha'])
+        self.assertRegex(remaining['managed'][0]['incarnation'], r'^[0-9a-f]{32}$')
+
+    def test_worker_completion_does_not_acquire_contended_write_lock(self):
+        entered = threading.Event()
+        release = threading.Event()
+        self.addCleanup(release.set)
+
+        def delayed(_url, **_kwargs):
+            entered.set()
+            self.assertTrue(release.wait(2))
+            return {'state': 'ready', 'toolCount': 1, 'protocolVersion': '2025-11-25',
+                    'checkedAtUnix': time.time()}
+
+        registry = self.registry(test_fn=delayed)
+        registry.add('alpha', 'http://127.0.0.1:3333/mcp')
+        registry.test('alpha')
+        self.assertTrue(entered.wait(1))
+        # Completion only needs an atomic read of the saved identity.
+        with patch('tool_connectors.locked', side_effect=BlockingIOError('lock busy')):
+            release.set()
+            registry._worker.join(1)
+        self.assertFalse(registry._worker.is_alive())
+        self.assertIsNone(registry._testing)
+        self.assertEqual(next(row for row in registry.read()['connectors'] if row['id'] == 'alpha')
+                         ['transportTest']['state'], 'ready')
+
+    def test_unsafe_worker_commit_discards_result_without_busy_latch(self):
+        entered = threading.Event()
+        release = threading.Event()
+        self.addCleanup(release.set)
+
+        def delayed(_url, **_kwargs):
+            entered.set()
+            self.assertTrue(release.wait(2))
+            return {'state': 'ready', 'toolCount': 1, 'protocolVersion': '2025-11-25',
+                    'checkedAtUnix': time.time()}
+
+        registry = self.registry(test_fn=delayed)
+        registry.add('alpha', 'http://127.0.0.1:3333/mcp')
+        registry.test('alpha')
+        self.assertTrue(entered.wait(1))
+        with patch('tool_connectors._load_managed',
+                   side_effect=ConnectorError('CONFIG_UNSAFE', 'unsafe test fixture', 503)):
+            release.set()
+            registry._worker.join(1)
+        self.assertFalse(registry._worker.is_alive())
+        self.assertIsNone(registry._testing)
+        self.assertEqual(next(row for row in registry.read()['connectors'] if row['id'] == 'alpha')
+                         ['transportTest']['state'], 'not-tested')
+
+    def test_unsafe_or_mixed_registry_schema_fails_closed(self):
+        url = 'http://127.0.0.1:3333/mcp'
+        cases = [
+            {'schemaVersion': 2, 'managed': [{'id': 'alpha', 'url': url}]},
+            {'schemaVersion': 2, 'managed': [{'id': 'alpha', 'url': url,
+                                              'incarnation': 'not-a-token'}]},
+            {'schemaVersion': 1, 'managed': [{'id': 'alpha', 'url': url,
+                                              'incarnation': '0' * 32}]},
+            {'schemaVersion': 3, 'managed': []},
+        ]
+        called = []
+        registry = self.registry(test_fn=lambda *_args, **_kwargs: called.append(True))
+        for value in cases:
+            with self.subTest(value=value):
+                wire = json.dumps(value)
+                self.config.write_text(wire)
+                os.chmod(self.config, 0o600)
+                with self.assertRaises(ConnectorError) as raised:
+                    registry.read()
+                self.assertEqual(raised.exception.code, 'CONFIG_INVALID')
+                with self.assertRaises(ConnectorError) as raised:
+                    registry.test('alpha')
+                self.assertEqual(raised.exception.code, 'CONFIG_INVALID')
+                self.assertEqual(self.config.read_text(), wire)
+        self.assertEqual(called, [])
+
     def test_thread_start_failure_does_not_latch_busy(self):
         registry = self.registry()
         registry.add('fixture', self.fixture().url)
@@ -347,9 +585,10 @@ class ConnectorTests(ConnectorFixture, unittest.TestCase):
 
     def test_one_shot_result_expires_instead_of_claiming_live_readiness(self):
         registry = self.registry()
-        fixture = self.fixture()
-        registry.add('fixture', fixture.url)
-        registry._results['fixture'] = (fixture.url, {
+        url = 'http://127.0.0.1:3333/mcp'
+        registry.add('fixture', url)
+        incarnation = json.loads(self.config.read_text())['managed'][0]['incarnation']
+        registry._results['fixture'] = (url, incarnation, {
             'state': 'ready', 'toolCount': 1, 'protocolVersion': '2025-11-25',
             'checkedAtUnix': time.time() - 61})
         row = next(row for row in registry.read()['connectors'] if row['id'] == 'fixture')

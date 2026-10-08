@@ -14,6 +14,7 @@ import json
 import os
 from pathlib import Path
 import re
+import secrets
 import socket
 import stat
 import threading
@@ -32,6 +33,7 @@ _ID = re.compile(r'[a-z][a-z0-9-]{0,31}\Z')
 _DISCOVERED_ID = re.compile(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,63}\Z')
 _TOOL_NAME = re.compile(r'[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}\Z')
 _PATH = re.compile(r'/[A-Za-z0-9._~/-]{0,127}\Z')
+_INCARNATION = re.compile(r'[0-9a-f]{32}\Z')
 
 
 class ConnectorError(Exception):
@@ -256,15 +258,19 @@ def _load_managed(path: Path) -> list[dict]:
     try:
         value = _strict_json(raw)
         if (type(value) is not dict or set(value) != {'schemaVersion', 'managed'}
-                or type(value['schemaVersion']) is not int or value['schemaVersion'] != 1
+                or type(value['schemaVersion']) is not int or value['schemaVersion'] not in (1, 2)
                 or type(value['managed']) is not list or len(value['managed']) > MAX_CONNECTORS):
             raise ValueError('schema')
+        fields = {'id', 'url'} if value['schemaVersion'] == 1 else {'id', 'url', 'incarnation'}
         seen = set()
         for row in value['managed']:
-            if (type(row) is not dict or set(row) != {'id', 'url'}
+            if (type(row) is not dict or set(row) != fields
                     or type(row['id']) is not str or not _ID.fullmatch(row['id'])
                     or row['id'] in seen):
                 raise ValueError('row')
+            if value['schemaVersion'] == 2 and (type(row['incarnation']) is not str
+                    or not _INCARNATION.fullmatch(row['incarnation'])):
+                raise ValueError('incarnation')
             _loopback_url(row['url'])
             seen.add(row['id'])
         return value['managed']
@@ -272,10 +278,19 @@ def _load_managed(path: Path) -> list[dict]:
         raise ConnectorError('CONFIG_INVALID', 'Saved connector settings are invalid.', 503) from exc
 
 
+def _incarnated(rows: list[dict]) -> list[dict]:
+    """Upgrade validated legacy rows; a new identity fences previous tests."""
+    return [row if 'incarnation' in row else
+            {**row, 'incarnation': secrets.token_hex(16)} for row in rows]
+
+
 def _save_managed(path: Path, rows: list[dict]) -> None:
     try:
+        if any(type(row.get('incarnation')) is not str
+               or not _INCARNATION.fullmatch(row['incarnation']) for row in rows):
+            raise ValueError('missing incarnation')
         _safe_parent(path, create=True)
-        write_private(path, {'schemaVersion': 1, 'managed': rows})
+        write_private(path, {'schemaVersion': 2, 'managed': rows})
         fd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         try:
             os.fsync(fd)
@@ -609,30 +624,29 @@ class ToolConnectors:
         self._active_lock = threading.Lock()
         self._active = set()
         self._stopping = threading.Event()
-        self._generation = 0
         self._testing = None
         self._test_cancel = None
         self._worker = None
         self._results = {}
 
     def read(self) -> dict:
-        managed = _load_managed(self.path)
         config_status, discovered = _opencode_discovery(self.opencode_path)
         with self._lock:
+            managed = _load_managed(self.path)
             results = dict(self._results)
             testing = self._testing
-            generation = self._generation
         rows = []
         for item in managed:
             current = results.get(item['id'])
-            state = (current[1] if current and current[0] == item['url'] else {'state': 'not-tested'})
+            identity = (item['id'], item['url'], item.get('incarnation'))
+            state = (current[2] if current and current[:2] == identity[1:]
+                     else {'state': 'not-tested'})
             checked_at = state.get('checkedAtUnix')
             if (state.get('state') in ('ready', 'error')
                     and (type(checked_at) not in (int, float)
                          or not 0 <= time.time() - checked_at <= TEST_RESULT_MAX_AGE_SECONDS)):
                 state = {'state': 'not-tested'}
-            if (testing is not None and testing[:2] == (item['id'], item['url'])
-                    and testing[2] == generation):
+            if testing == identity:
                 state = {'state': 'checking'}
             rows.append({'id': item['id'], 'source': 'agiw', 'transport': 'streamable-http',
                          'url': item['url'], 'configured': True, 'enabledInOpenCode': False,
@@ -658,11 +672,12 @@ class ToolConnectors:
                     if old is None:
                         if len(rows) >= MAX_CONNECTORS:
                             raise ConnectorError('LIMIT_REACHED', 'At most eight managed connectors can be saved.', 409)
-                        rows.append({'id': identifier, 'url': url})
+                        rows = _incarnated(rows)
+                        rows.append({'id': identifier, 'url': url,
+                                     'incarnation': secrets.token_hex(16)})
                         _save_managed(self.path, rows)
-                        # Changes to other IDs do not invalidate a running test.
-                        if self._testing is None or self._testing[0] == identifier:
-                            self._generation += 1
+                    elif 'incarnation' not in old:
+                        _save_managed(self.path, _incarnated(rows))
             except (OSError, ValueError) as exc:
                 raise ConnectorError('SAVE_FAILED', 'Connector settings could not be saved safely.', 503) from exc
         return self.read()
@@ -684,9 +699,7 @@ class ToolConnectors:
                             with self._active_lock:
                                 for sock in tuple(self._active):
                                     _abort_socket(sock)
-                        _save_managed(self.path, remaining)
-                        if self._testing is None or self._testing[0] == identifier:
-                            self._generation += 1
+                        _save_managed(self.path, _incarnated(remaining))
                     self._results.pop(identifier, None)
             except (OSError, ValueError) as exc:
                 raise ConnectorError('SAVE_FAILED', 'Connector settings could not be saved safely.', 503) from exc
@@ -704,12 +717,27 @@ class ToolConnectors:
                 raise ConnectorError('NOT_MANAGED', 'Only saved AGIW loopback connectors can be tested.', 404)
             if self._testing is not None:
                 raise ConnectorError('TEST_BUSY', 'A connector test is already running.', 409)
-            self._test_cancel = threading.Event()
-            self._testing = (identifier, item['url'], self._generation)
+            try:
+                with locked(self.path.parent, CONFIG_NAME + '.lock'):
+                    rows = _load_managed(self.path)
+                    item = next((row for row in rows if row['id'] == identifier), None)
+                    if item is None:
+                        raise ConnectorError('NOT_MANAGED',
+                                             'Only saved AGIW loopback connectors can be tested.', 404)
+                    if 'incarnation' not in item:
+                        rows = _incarnated(rows)
+                        _save_managed(self.path, rows)
+                        item = next(row for row in rows if row['id'] == identifier)
+            except (OSError, ValueError) as exc:
+                raise ConnectorError('CONFIG_UNSAFE',
+                                     'Saved connector settings cannot be read safely.', 503) from exc
+            cancel = threading.Event()
+            identity = (identifier, item['url'], item['incarnation'])
+            self._test_cancel = cancel
+            self._testing = identity
             self._results.pop(identifier, None)
-            generation = self._generation
             self._worker = threading.Thread(target=self._run_test,
-                                            args=(identifier, item['url'], generation), daemon=True)
+                                            args=(*identity, cancel), daemon=True)
             try:
                 self._worker.start()
             except RuntimeError as exc:
@@ -719,18 +747,28 @@ class ToolConnectors:
                 raise ConnectorError('TEST_UNAVAILABLE', 'Connector test could not start.', 503) from exc
         return self.read()
 
-    def _run_test(self, identifier: str, url: str, generation: int) -> None:
+    def _run_test(self, identifier: str, url: str, incarnation: str,
+                  cancel: threading.Event) -> None:
         try:
-            result = self.test_fn(url, stopping=self._test_cancel, active=self._active,
+            result = self.test_fn(url, stopping=cancel, active=self._active,
                                   active_lock=self._active_lock)
         except ConnectorError as exc:
             result = {'state': 'error', 'code': exc.code, 'checkedAtUnix': round(time.time(), 3)}
         except Exception:
             result = {'state': 'error', 'code': 'TEST_FAILED', 'checkedAtUnix': round(time.time(), 3)}
         with self._lock:
-            if self._generation == generation and not self._stopping.is_set():
-                self._results[identifier] = (url, result)
-            if self._testing == (identifier, url, generation):
+            if not self._stopping.is_set() and not cancel.is_set():
+                try:
+                    # Atomic private-file reads suffice here: read() checks the
+                    # persisted identity again before exposing this local result.
+                    # Do not contend with an unrelated writer's nonblocking lock.
+                    rows = _load_managed(self.path)
+                    if any((row['id'], row['url'], row.get('incarnation')) ==
+                           (identifier, url, incarnation) for row in rows):
+                        self._results[identifier] = (url, incarnation, result)
+                except (ConnectorError, OSError, ValueError):
+                    pass  # A changed or unsafe registry cannot certify this result.
+            if self._testing == (identifier, url, incarnation):
                 self._testing = None
                 self._test_cancel = None
 
