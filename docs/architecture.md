@@ -257,6 +257,8 @@ Action jobs generally return **202 Accepted**, followed by status reads. The aut
 
 The Tool Connections API is separate from Nisi and model controls. Its `ready` status records a bounded MCP initialization and tool-list check for the listed 2025 Streamable HTTP versions, and expires after 60 seconds; it does not establish agent permission, tool execution or an active model route. Newer-only MCP servers are outside this probe's current scope. `disconnect` deletes AGIW's saved address, not the external server. Saved endpoint paths are returned by GET and must not contain secrets. Its local-process trust boundary is the same as the other observer routes below.
 
+The source [Components page](../web/components.html) shows inspected global OpenCode entries as discovery-only and AGIW-managed endpoints separately. It renders returned names and addresses as text, labels protocol tests as point-in-time checks, and provides explicit Add, Test protocol, and Remove saved endpoint controls. This web view is included only in new candidates built from this branch; the published Build 7 app has no such page.
+
 ### Request and navigation protections
 
 - Bind only to IPv4 loopback. Require one exact loopback Host header and matching Origin; action POSTs require Origin. This limits browser-origin requests and does not authenticate every local process.

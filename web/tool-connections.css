@@ -1,0 +1,25 @@
+.tool-connections [data-tool-status],.tool-connections [data-tool-action-status]{min-height:1.5em;color:#c9dbed;font-size:13px}
+.tool-connection-group{margin-top:25px;padding-top:19px;border-top:1px solid #293647}
+.tool-connection-group h3{margin:0 0 5px;color:#edf4ff;font-size:17px;font-weight:600}
+.tool-connection-group>p{margin:6px 0 13px}
+.tool-connections .fine{color:#acb8c8;font-size:12px;line-height:1.55}
+.tool-connection-list{list-style:none;display:grid;gap:10px;margin:12px 0 18px;padding:0}
+.tool-connection-row{display:grid;gap:5px;min-width:0;border:1px solid #34465a;border-radius:12px;background:#0c1520;padding:14px}
+.tool-connection-row[data-state=ready]{border-color:#42765e}
+.tool-connection-row[data-state=error]{border-color:#80545a}
+.tool-connection-name{overflow-wrap:anywhere;color:#f0f6ff}
+.tool-connection-endpoint{color:#bfdaff;overflow-wrap:anywhere;font-size:12px}
+.tool-connection-state{color:#c7d7e8;font-weight:600;font-size:13px}
+.tool-connection-row[data-state=ready] .tool-connection-state{color:#bce7cc}
+.tool-connection-row[data-state=error] .tool-connection-state{color:#f1bbc0}
+.tool-connection-detail{margin:0;color:#afbdce;font-size:12px;line-height:1.5;overflow-wrap:anywhere}
+.tool-connection-actions{display:flex;flex-wrap:wrap;gap:9px;margin-top:7px}
+.tool-connection-actions button{font-size:12px;padding:6px 11px}
+.tool-connection-disconnect{background:#22171b;border-color:#815260;color:#ffd9df}
+.tool-connection-form{display:grid;grid-template-columns:minmax(150px,1fr) minmax(240px,2fr) auto;gap:10px;align-items:end;margin-top:17px}
+.tool-connection-form label{display:block;color:#cad4e2;font-size:12px;margin-bottom:5px}
+.tool-connection-form input{display:block;width:100%;min-width:0;min-height:44px;padding:9px 11px;border:1px solid #5c6e82;border-radius:8px;background:#050a10;color:#f4f8ff;font:inherit;font-size:13px}
+.tool-connection-form input::placeholder{color:#8392a5;opacity:1}
+.tool-connection-form input:focus-visible{outline:2px solid #bdd8ff;outline-offset:3px}
+.tool-connection-form button{min-height:44px;white-space:nowrap}
+@media(max-width:700px){.tool-connection-form{grid-template-columns:1fr}.tool-connection-form button{justify-self:start}}

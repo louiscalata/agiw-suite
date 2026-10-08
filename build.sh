@@ -23,7 +23,7 @@ for resource in server.py telemetry.py activity.py client_models.py model_contro
         exit 1
     fi
 done
-for resource in bundle_nisi.py bundled_components.py jev_connection.py tool_connectors.py JevKeychain.swift web/components.html web/components.js web/components.css; do
+for resource in bundle_nisi.py bundled_components.py jev_connection.py tool_connectors.py JevKeychain.swift web/components.html web/components.js web/components.css web/tool-connections.mjs web/tool-connections.css; do
     if [[ ! -f "$project_dir/$resource" || -L "$project_dir/$resource" ]]; then
         echo "Missing or symlinked component resource: $resource" >&2
         exit 1
@@ -55,7 +55,7 @@ cp "$project_dir/Info.plist" "$stage_app/Contents/Info.plist"
 cp "$project_dir/server.py" "$project_dir/telemetry.py" "$project_dir/activity.py" "$project_dir/client_models.py" "$project_dir/model_control.py" "$project_dir/durable_model_journal.py" "$project_dir/auto_unload.py" "$project_dir/online_code_repair.py" "$project_dir/nisi_v02.py" "$project_dir/windows_probe.py" "$project_dir/live_feed.py" "$project_dir/gpu_probe.py" "$project_dir/local_callers.py" "$project_dir/mem_guard.py" "$project_dir/usage-format.mjs" "$stage_app/Contents/Resources/"
 cp "$project_dir/web/index.html" "$project_dir/web/app.js" "$project_dir/web/online-code-mode.mjs" "$project_dir/web/map-layout.mjs" "$project_dir/web/model-control-view.mjs" "$project_dir/web/style.css" "$stage_app/Contents/Resources/web/"
 cp "$project_dir/bundle_nisi.py" "$project_dir/bundled_components.py" "$project_dir/jev_connection.py" "$project_dir/tool_connectors.py" "$stage_app/Contents/Resources/"
-cp "$project_dir/web/components.html" "$project_dir/web/components.js" "$project_dir/web/components.css" "$stage_app/Contents/Resources/web/"
+cp "$project_dir/web/components.html" "$project_dir/web/components.js" "$project_dir/web/components.css" "$project_dir/web/tool-connections.mjs" "$project_dir/web/tool-connections.css" "$stage_app/Contents/Resources/web/"
 plutil -lint "$stage_app/Contents/Info.plist"
 sign_identity="${MONITOR_SIGN_IDENTITY:-}"
 if [[ -n "$sign_identity" ]]; then

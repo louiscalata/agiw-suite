@@ -35,6 +35,7 @@ resources=(
     usage-format.mjs web/index.html web/app.js web/online-code-mode.mjs
     web/map-layout.mjs web/model-control-view.mjs web/style.css
     bundle_nisi.py bundled_components.py jev_connection.py tool_connectors.py web/components.html web/components.js web/components.css
+    web/tool-connections.mjs web/tool-connections.css
 )
 legal_files=(LICENSE NOTICE)
 for legal_file in "${legal_files[@]}"; do
