@@ -1,6 +1,13 @@
 /** Stable, responsive coordinates for the monitor's constellation map. */
 const ACTIVE_STATES = new Set(['busy', 'generating']);
 
+/** Shared display spelling for model IDs; preserve the full ID in evidence. */
+export function friendlyModelName(id) {
+  return String(id).split('/').pop().replaceAll('-', ' ')
+    .replace(/\b(gemma|qwen)\b/gi, s => s[0].toUpperCase() + s.slice(1))
+    .replace(/\bgpt\b/gi, 'GPT').replace(/\boss\b/gi, 'OSS').replace(/^./, s => s.toUpperCase());
+}
+
 /** A presentation choice for this Mac; telemetry and model control keep the full feed. */
 export const CORE_MODEL_IDS = Object.freeze([
   'openai/gpt-oss-20b',
@@ -1289,9 +1296,7 @@ export function windowsMapListEntries(nodes, {host = 'mac', query = '', hostname
     if (node?.kind !== 'client-model' || typeof node.id !== 'string' || typeof node.client?.id !== 'string'
       || !node.id.startsWith(`client-model:${node.client.id}:`)) continue;
     const id = node.clientModel?.id;
-    const title = typeof id === 'string' && id.trim() ? id.split('/').pop().replaceAll('-', ' ')
-      .replace(/\b(gemma|qwen)\b/gi, s => s[0].toUpperCase() + s.slice(1)).replace(/\bgpt\b/gi, 'GPT')
-      .replace(/\boss\b/gi, 'OSS').replace(/^./, s => s.toUpperCase()) : 'Unknown model';
+    const title = typeof id === 'string' && id.trim() ? friendlyModelName(id) : 'Unknown model';
     if (!matches([id, title])) continue;
     const subtitle = ['RECORDED MODEL', 'SAVED SESSION CHOICE', 'MODEL UNKNOWN'].includes(node.subtitle)
       ? sentence(node.subtitle) : 'Model unknown';
@@ -1315,8 +1320,7 @@ export function windowsMacListEntries(peerView, query = '') {
   const inventory = view?.current === true && view.reachable === true && ['linked', 'reachable'].includes(view.state);
   if (inventory && Array.isArray(view.satellites)) view.satellites.slice(0, 2).forEach((model, index) => {
     if (!model || model.state !== 'loaded' || typeof model.id !== 'string' || !PEER_MODEL.test(model.id)) return;
-    const title = model.id.split('/').pop().replaceAll('-', ' ').replace(/\b(gemma|qwen)\b/gi, s => s[0].toUpperCase() + s.slice(1))
-      .replace(/\bgpt\b/gi, 'GPT').replace(/\boss\b/gi, 'OSS').replace(/^./, s => s.toUpperCase());
+    const title = friendlyModelName(model.id);
     if (matches([...aliases, model.id, title])) rows.push({key: `mac-model:${index}`, title,
       subtitle: typeof view.satelliteDetail === 'string' ? view.satelliteDetail : 'Residency unknown',
       tone: view.state === 'linked' ? 'muted' : 'ok'});
