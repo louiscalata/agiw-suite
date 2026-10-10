@@ -109,6 +109,8 @@ main{display:block;position:relative}
 .node.windows-worker.verified .core{stroke:var(--green);stroke-width:2}
 /* PC lane captions ("1/1 BUSY · 104 TOK/S") keep AA contrast over a working node's glow (27 Sep: at .75 they read 4.2:1). */
 .node.windows-lane .label{opacity:.9}.node.windows-lane .sub{opacity:.92}
+/* Windows-only Mac model names stay visible; their source detail appears on interaction. */
+.node.mac-model .label{opacity:.9}
 .node.windows-lane.unknown .core{stroke-dasharray:2 2}
 .paused .node.in-flight .halo,.disconnected .node.in-flight .halo{animation:none}
 @media(prefers-reduced-motion:reduce){.node.in-flight .halo{animation:none!important}}
@@ -426,7 +428,7 @@ body>footer{height:34px}
    every panel). Hidden captions are only opacity 0, which still hit-tests, so they keep
    pointer-events:none and never take a click meant for a neighbour. */
 .node.hub .label,.node.windows-worker .label,.node.windows-lane .label,.node.windows-lane .sub,.node.client .label,
-.node.model.loaded .label,.node.afm .label,.node.jev .label,.node.selected .label,.node.selected .sub,.node.selected .capability-line{pointer-events:visiblePainted}
+.node.model.loaded .label,.node.mac-model .label,.node.afm .label,.node.jev .label,.node.selected .label,.node.selected .sub,.node.selected .capability-line{pointer-events:visiblePainted}
 .node.pipeline .label{pointer-events:none}
 
 /* About stays reachable when the footer is hidden (popover and short windows): a map-controls button. */

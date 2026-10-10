@@ -119,7 +119,7 @@ function runtimeGraph(){
     const peer=macPeerView(snapshot.macPeer,{feedFresh:fresh(),snapshotAge:Math.max(0,sampleAge())});
     const node=addNode('mac-peer','Mac',layout.windows.x,layout.windows.y,{color:'#96acd5',r:12,subtitle:peer.subtitle,subtitleAbove:peer.brief,kind:'mac-peer',macPeer:peer,unknown:!peer.reachable});
     edge(root.id,node.id,node.color,!peer.reachable,18);
-    peer.satellites.forEach((m,i)=>{const pos=layout.windowsLanes[i]||layout.windowsLanes[0],n=addNode(`mac-model:${i}`,shortName(m.id),pos.x,pos.y,{color:'#a99be0',r:7,subtitle:'LOADED ON MAC',kind:'mac-model',macModel:m,macPeer:peer,captionSide:layout.portrait&&region.clientWidth<520?'left':i?'right':'left'});
+    peer.satellites.forEach((m,i)=>{const pos=layout.windowsLanes[i]||layout.windowsLanes[0],n=addNode(`mac-model:${i}`,shortName(m.id),pos.x,pos.y,{color:'#a99be0',r:7,subtitle:peer.satelliteSubtitle,kind:'mac-model',macModel:m,macPeer:peer,captionSide:layout.portrait&&region.clientWidth<520?'left':i?'right':'left'});
       edge(node.id,n.id,n.color,true,(i?1:-1)*10);});
     addLabel({text:'MAC · LAN PEER',x:layout.windowsLabel.x,y:layout.windowsLabel.y,align:'middle',kind:'mac-peer'});
   }
@@ -302,12 +302,12 @@ function applyCamera(){
   placeClusterLabels();
 }
 // Cluster labels are measured at the current zoom and moved off nodes, their always-on captions and each other.
-const CAPTIONED=new Set(['runtime','client','windows-worker','windows-lane']);
+const CAPTIONED=new Set(['runtime','client','windows-worker','windows-lane','mac-model']);
 let labelsPlacedAt=null;
 function placeClusterLabels(){
   const texts=[...$('groups').children];if(!texts.length||texts.length!==graph.labels.length||labelsPlacedAt===camera.z)return;labelsPlacedAt=camera.z;
   const obstacles=[];
-  for(const n of graph.nodes){const pad=n.r+6;obstacles.push({left:n.x-pad,right:n.x+pad,top:n.y-pad,bottom:n.y+pad});const g=nodeElements.get(n.id);if(!g||!(CAPTIONED.has(n.kind)||(n.kind==='model'&&n.model?.loaded===true)))continue;for(const caption of [g.children[4],g.children[5]]){try{const box=caption.getBBox();if(box.width)obstacles.push({left:n.x+box.x,right:n.x+box.x+box.width,top:n.y+box.y,bottom:n.y+box.y+box.height});}catch(_){}}}
+  for(const n of graph.nodes){const pad=n.r+6;obstacles.push({left:n.x-pad,right:n.x+pad,top:n.y-pad,bottom:n.y+pad});const g=nodeElements.get(n.id);if(!g||!(CAPTIONED.has(n.kind)||(n.kind==='model'&&n.model?.loaded===true)))continue;for(const caption of n.kind==='mac-model'?[g.children[4]]:[g.children[4],g.children[5]]){try{const box=caption.getBBox();if(box.width)obstacles.push({left:n.x+box.x,right:n.x+box.x+box.width,top:n.y+box.y,bottom:n.y+box.y+box.height});}catch(_){}}}
   const labels=texts.map((text,i)=>{let box={width:0,height:11/camera.z};try{const b=text.getBBox();box={width:b.width,height:b.height};}catch(_){}const source=graph.labels[i];return{x:source.x,y:source.y,align:source.align,width:box.width,height:box.height*.8};});
   resolveLabelCollisions(labels,obstacles,{step:3/camera.z,maxShift:48/camera.z}).forEach((label,i)=>texts[i].setAttribute('y',label.y));
 }
