@@ -31,6 +31,8 @@ class LaneProcessesTest(unittest.TestCase):
                       row(ESTAB, "127.0.0.1", 50001, "127.0.0.1", 1234, 21), row(ESTAB, "127.0.0.1", 50002, "127.0.0.1", 1234, 21),
                       row(ESTAB, "127.0.0.1", 50003, "127.0.0.1", 1235, 22),
                       row(ESTAB, "127.0.0.1", 1234, "127.0.0.1", 50001, 11),  # server side of the same connection
+                      row(ESTAB, "127.0.0.1", 1234, "127.0.0.1", 50002, 11),
+                      row(ESTAB, "127.0.0.1", 1235, "127.0.0.1", 50003, 12),
                       row(ESTAB, "127.0.0.1", 50009, "127.0.0.1", 1235, 99),  # the observer itself
                       row(ESTAB, "10.0.0.71", 50010, "10.0.0.194", 1234, 22)]  # a LAN connection, not a local caller
         self.lp = winsys.LaneProcesses(table_fn=lambda: self.table, clock=self.clock, cpus=4, self_pid=99,
@@ -67,6 +69,7 @@ class LaneProcessesTest(unittest.TestCase):
         self.table = [r for r in self.table if r["pid"] != 21]
         self.lp.sample({1234: "deep"})
         self.table.append(row(ESTAB, "127.0.0.1", 50011, "127.0.0.1", 1234, 21))
+        self.table.append(row(ESTAB, "127.0.0.1", 1234, "127.0.0.1", 50011, 11))
         _, callers, _ = self.lp.sample({1234: "deep"})
         self.assertEqual(callers[0]["connectedSeconds"], 0.0)
 
@@ -82,9 +85,26 @@ class LaneProcessesTest(unittest.TestCase):
 
     def test_ipv6_caller_counts_when_the_lane_listens_on_ipv6(self):
         # Codex round 2, finding 10.
-        self.table = [row(LISTEN, "::", 1234, "::", 0, 11), row(ESTAB, "::1", 50003, "::1", 1234, 21)]
+        self.table = [row(LISTEN, "::", 1234, "::", 0, 11), row(ESTAB, "::1", 50003, "::1", 1234, 21),
+                      row(ESTAB, "::1", 1234, "::1", 50003, 11)]
         _, callers, _ = self.lp.sample({1234: "deep"})
         self.assertEqual([(c["name"], c["lane"]) for c in callers], [("codex.exe", "deep")])
+
+    def test_same_port_other_listener_pid_does_not_steal_caller(self):
+        self.table = [row(LISTEN, "127.0.0.1", 1234, "0.0.0.0", 0, 11),
+                      row(LISTEN, "::1", 1234, "::", 0, 12),
+                      row(ESTAB, "::1", 50003, "::1", 1234, 21),
+                      row(ESTAB, "::1", 1234, "::1", 50003, 12)]
+        servers, callers, _ = self.lp.sample({1234: "deep"})
+        self.assertEqual(servers["deep"]["pid"], 11)
+        self.assertEqual(callers, [])
+
+    def test_wildcard_listener_matches_local_lan_connection_by_reverse_row(self):
+        self.table = [row(LISTEN, "0.0.0.0", 1234, "0.0.0.0", 0, 11),
+                      row(ESTAB, "10.0.0.71", 50003, "10.0.0.71", 1234, 21),
+                      row(ESTAB, "10.0.0.71", 1234, "10.0.0.71", 50003, 11)]
+        _, callers, _ = self.lp.sample({1234: "deep"})
+        self.assertEqual([(c["pid"], c["lane"]) for c in callers], [(21, "deep")])
 
     def test_unreadable_table_is_a_source_not_a_crash(self):
         def broken():
