@@ -188,27 +188,30 @@ class LaneProcesses:
             listeners = sorted((r for r in rows if r["state"] == MIB_TCP_STATE_LISTEN and ports.get(r["localPort"])
                                 and (r["local"] in LOOPBACK or r["local"] in ANY)),
                                key=lambda r: (r["local"] not in LOOPBACK, r["local"] != "127.0.0.1"))
-            served: dict[int, set[str]] = {}
-            for row in listeners:
-                served.setdefault(row["localPort"], set()).add(row["local"])
+            selected_pids: dict[str, int] = {}
             for row in listeners:
                 lane = ports.get(row["localPort"])
                 if lane and lane not in servers:
                     info = self.info_fn(row["pid"])
                     server_pids.add(row["pid"])
+                    selected_pids[lane] = row["pid"]
                     servers[lane] = ({"pid": row["pid"], "name": info["name"], "workingSetBytes": info["workingSetBytes"],
                                       "cpuPercent": self._cpu_percent(info, now)} if info else
                                      {"pid": row["pid"], "name": "unknown", "workingSetBytes": None, "cpuPercent": None})
+            # Match both sides of a local TCP connection. The reverse row proves that the selected
+            # server PID owns this exact endpoint, including a LAN IP reached through a wildcard bind.
+            server_connections = {
+                (lane, row["remote"], row["remotePort"], row["local"], row["localPort"])
+                for row in rows for lane in (ports.get(row["localPort"]),)
+                if lane and row["state"] == MIB_TCP_STATE_ESTAB and row["pid"] == selected_pids.get(lane)
+            }
             callers: dict[tuple[int, str], dict[str, Any]] = {}
             live_keys = set()
             names: dict[int, str] = {}
             for row in rows:
                 lane = ports.get(row["remotePort"])
-                bound = served.get(row["remotePort"], set())
-                # A caller's connection must end at an address the lane listener actually serves.
-                reaches_lane = row["remote"] in bound or (row["remote"] == "127.0.0.1" and "0.0.0.0" in bound) \
-                    or (row["remote"] == "::1" and "::" in bound)
-                if (not lane or row["state"] != MIB_TCP_STATE_ESTAB or not reaches_lane
+                matched = (lane, row["local"], row["localPort"], row["remote"], row["remotePort"])
+                if (not lane or row["state"] != MIB_TCP_STATE_ESTAB or matched not in server_connections
                         or row["pid"] in server_pids or row["pid"] in (0, self.self_pid)):
                     continue
                 if row["pid"] not in names:
