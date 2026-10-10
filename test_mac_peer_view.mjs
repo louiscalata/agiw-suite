@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {macPeerView,agiwPeersRows} from './web/map-layout.mjs';
+import {macPeerView,agiwPeersRows,pcAdaptersView} from './web/map-layout.mjs';
 
 const peer = (over = {}) => ({state: 'reachable', ageSeconds: 4, latencyMs: 3.6, address: '10.0.0.176', via: 'mdns',
   loadedCount: 1, expectedVerifyModel: 'openai/gpt-oss-20b', expectedVerifyLoaded: true,
@@ -64,4 +64,13 @@ test('the reported loaded count wins over the validated name list, and the gap i
   assert.equal(v.loadedCount, 2);
   assert.match(v.subtitle, /2 LOADED/);
   assert.equal(v.rows.find(([k]) => k === 'Loaded models')[1], 'ok · 1 more with an unreadable name');
+});
+
+test('every PC adapter is listed; the AMD card shows counter load without inventing temperature or power', () => {
+  const v = pcAdaptersView([{name: 'NVIDIA GeForce RTX 3080 Ti', utilizationPercent: 0, memoryUsedMiB: 11769, memoryTotalMiB: 12086, temperatureC: 39, powerW: 7.3},
+    {name: 'AMD Radeon RX 5700 XT', utilizationPercent: 11.3, memoryUsedMiB: 1701, memoryTotalMiB: 8152, temperatureC: null, powerW: null}], {feedFresh: true});
+  assert.equal(v.tile, 'RTX 3080 Ti 0% · RX 5700 XT 11%');
+  assert.equal(v.rows[1][1], '11% busy · 1.7 of 8.0 GB');
+  assert.match(v.rows[0][1], /39 °C · 7 W$/);
+  assert.equal(pcAdaptersView([], {feedFresh: false}).known, false);
 });

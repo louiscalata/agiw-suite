@@ -85,3 +85,25 @@ class LaneProcessesTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MergeAdapters(unittest.TestCase):
+    def test_nvidia_keeps_smi_readings_and_amd_gets_counters(self):
+        from agiw_win.collect import merge_adapters
+        smi = [{"index": 0, "name": "NVIDIA GeForce RTX 3080 Ti", "utilizationPercent": 3.0, "memoryUsedMiB": 11764.0,
+                "memoryTotalMiB": 12288.0, "temperatureC": 39.0, "powerW": 7.3, "vendor": "nvidia"}]
+        adapters = [{"name": "AMD Radeon RX 5700 XT", "vendor": "amd", "luid": "A", "memoryTotalMiB": 8152,
+                     "utilizationPercent": 11.3, "memoryUsedMiB": 1701, "busiestEngine": "3D"},
+                    {"name": "NVIDIA GeForce RTX 3080 Ti", "vendor": "nvidia", "luid": "B", "memoryTotalMiB": 12086,
+                     "utilizationPercent": 0.0, "memoryUsedMiB": 11769, "busiestEngine": "3D"}]
+        rows = merge_adapters(smi, adapters)
+        self.assertEqual([r["name"] for r in rows], ["AMD Radeon RX 5700 XT", "NVIDIA GeForce RTX 3080 Ti"])
+        amd, nvidia = rows
+        self.assertEqual((amd["utilizationPercent"], amd["temperatureC"], amd["source"]), (11.3, None, "windows-gpu-counters"))
+        self.assertEqual((nvidia["index"], nvidia["temperatureC"], nvidia["luid"], nvidia["source"]), (0, 39.0, "B", "nvidia-smi"))
+
+    def test_no_counters_keeps_nvidia_rows(self):
+        from agiw_win.collect import merge_adapters
+        smi = [{"index": 0, "name": "X", "vendor": "nvidia"}]
+        self.assertEqual(merge_adapters(smi, [{"name": "AMD", "vendor": "amd", "luid": "A", "memoryTotalMiB": 1,
+                                               "utilizationPercent": None, "memoryUsedMiB": None}])[1], smi[0])
