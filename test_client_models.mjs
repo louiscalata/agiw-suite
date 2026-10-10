@@ -9,7 +9,7 @@ const layoutContext={fitGraph,constellationLayout,focusedLaneLayout,prioritizeRu
 // Exercise the dashboard's actual projection and graph code without starting
 // its polling loop or requiring a browser DOM.
 const source=readFileSync(new URL('./web/app.js',import.meta.url),'utf8')
-  .replace(/^import .*;\n/gm,'').split("$('pause').addEventListener")[0];
+  .replace(/^import .*;\r?\n/gm,'').split("$('pause').addEventListener")[0];
 function project(clients,host='mac',width=820,height=660,extra={}){
   const script=`${source}\nsnapshot={host,sampledAt:Date.now()/1000,models:[],clients,pipeline:{status:'idle'},...extra};connected=true;runtimeGraph();({rows:clientRows(),ages:clientRows().map(clientAge),counts:clientIdentityCounts(),nodes:graph.nodes,edges:graph.edges})`;
   const context={...layoutContext,clients,host,extra,Date,Set,Map,Math,Number,String,Array,Object,window:{innerWidth:width},document:{getElementById:id=>id==='graphRegion'?{clientWidth:width-230,clientHeight:height-114}:null}};

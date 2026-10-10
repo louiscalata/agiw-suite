@@ -870,7 +870,7 @@ const {
   orbWebKey, orbWebLayout, orbWebActivity, orbWebPluck, orbWebPathsAt, orbWebFlashPath, pluckOffsets, pluckWave, pokeScale,
   createWebMotion, edgeCurvePath, webGlows, glowRadius, ORB_WEB_LIMITS, WEB_PLUCK,
 } = layoutModule;
-const orbAppSource = readFileSync(new URL('./web/app.js', import.meta.url), 'utf8').replace(/^import .*;\n/gm, '').split("$('pause').addEventListener")[0];
+const orbAppSource = readFileSync(new URL('./web/app.js', import.meta.url), 'utf8').replace(/^import .*;\r?\n/gm, '').split("$('pause').addEventListener")[0];
 const ORB_RUN = { runId: 'route-20260926-181200-7c1f', source: 'router-archive', status: 'RESPONSE_VALIDATED', stage: 'review', ageSeconds: 95,
   calls: ['intake', 'author', 'reviewer', 'repair', 'reviewer', 'judge'].map((role, i) => ({ id: `c${i}`, role, model: i % 2 ? 'google/gemma-4-12b' : 'qwen/qwen3.8-27b',
     ...(role === 'intake' ? { decision: { choice: 'mac-local', confidence: .9 } } : {}) })) };

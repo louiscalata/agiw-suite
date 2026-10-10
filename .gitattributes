@@ -2,3 +2,18 @@
 vendor/nisi/package/** -text
 # The upstream Apache license ends with a blank line; preserve it unchanged.
 vendor/nisi/package/LICENSE whitespace=-blank-at-eof
+# Source and web assets are LF on every checkout (Windows clones with core.autocrlf=true included), so
+# byte-sensitive tests and served assets match across editions. Windows launchers stay CRLF.
+*.py text eol=lf
+*.js text eol=lf
+*.mjs text eol=lf
+*.html text eol=lf
+*.css text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.sh text eol=lf
+*.swift text eol=lf
+*.yml text eol=lf
+*.ps1 text eol=crlf
+*.cmd text eol=crlf
+*.vbs text eol=crlf
