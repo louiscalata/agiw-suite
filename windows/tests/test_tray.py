@@ -40,6 +40,9 @@ foreach ($definition in $functions) { Invoke-Expression $definition.Extent.Text 
 
 function Expand-TestValue($Value) {
     if ($Value -is [System.Management.Automation.PSCustomObject]) {
+        if ($Value.PSObject.Properties.Name -contains '__decimal') {
+            return [decimal]::Parse($Value.__decimal, [cultureinfo]::InvariantCulture)
+        }
         if ($Value.PSObject.Properties.Name -contains '__double') {
             switch ($Value.__double) {
                 'nan' { return [double]::NaN }
@@ -228,6 +231,11 @@ class TraySummaryTest(unittest.TestCase):
         busy_max["pcGpus"] = [{"utilizationPercent": 100} for _ in range(8)]
         busy_max["memory"] = {"level": "ok", "availablePercent": 100}
         tooltip("tooltip-busy-max", busy_max)
+        scaled_busy = copy.deepcopy(busy_max)
+        for lane in scaled_busy["windowsWorker"]["lanes"].values():
+            lane["slotsBusy"] = {"__decimal": "32.0000000000000000000000000000"}
+            lane["slotsTotal"] = {"__decimal": "32.0000000000000000000000000000"}
+        tooltip("tooltip-busy-scaled-decimal", scaled_busy)
         cls.tooltip_states = {"idle": "idle", "busy": "32/32", "identity_mismatch": "WRONG MODEL",
                               "loading": "loading", "slots_unknown": "up ?", "stale": "stale",
                               "unreachable": "no answer", "unknown": "?"}
@@ -418,6 +426,15 @@ class TraySummaryTest(unittest.TestCase):
         self.assertIn("deep 32/32 cpu 100%", result["menuText"])
         self.assertIn("GPU " + "/".join(["100"] * 8) + "%", result["menuText"])
         self.assertIn("RAM 100% free", result["menuText"])
+
+    def test_scaled_decimal_slot_counts_cannot_displace_lane_or_mac_tooltip_evidence(self):
+        result = self.result("tooltip-busy-scaled-decimal")
+        self.assertEqual(result["tone"], "live")
+        self.assertLessEqual(len(result["tooltip"]), 63)
+        self.assertEqual(result["tooltip"].split(" | ")[:4],
+                         ["AGIW", "fast 32/32", "deep 32/32", "Mac reported"])
+        self.assertRegex(result["menuText"], r"fast 32\.0{20,}/32\.0{20,}")
+        self.assertRegex(result["menuText"], r"deep 32\.0{20,}/32\.0{20,} cpu 100%")
 
     def test_every_canonical_lane_pair_and_mac_state_fits_as_complete_tokens(self):
         for fast, fast_label in self.tooltip_states.items():

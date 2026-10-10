@@ -229,7 +229,7 @@ function Get-SnapshotSummary($Snapshot, [double]$NowUnix) {
             default             { $lanes += "$id ?"; $unknown = $true }
         }
         # Keep the lane state in the tooltip; the full menu also carries deep CPU.
-        $tooltipLanes += if ($status -ceq 'busy') { "$id $($lane.slotsBusy)/$($lane.slotsTotal)" } else { $lanes[-1] }
+        $tooltipLanes += if ($status -ceq 'busy') { "$id $([int]$lane.slotsBusy)/$([int]$lane.slotsTotal)" } else { $lanes[-1] }
     }
     # Green only for fresh, confirmed idle on both lanes; activity that cannot be confirmed is grey.
     $tone = if ($busy) { 'live' } elseif ($warn) { 'warn' } elseif ($unknown -or $idle -lt 2) { 'muted' } else { 'ok' }
