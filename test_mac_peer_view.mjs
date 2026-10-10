@@ -29,6 +29,87 @@ test('unreachable and malformed inputs', () => {
   for (const bad of [null, [], 'x', {state: 'bogus', ageSeconds: 1}]) assert.equal(macPeerView(bad, {feedFresh: true}).state, 'unknown');
 });
 
+const failureCauseClaim = /offline|asleep|off (?:the )?network|\bMac (?:is )?on (?:the )?(?:network|LAN)\b|LM Studio (?:is )?(?:closed|not[- ](?:open|listening|serving))|firewall (?:is )?(?:blocking|dropping|rejecting)/i;
+const failureSurfaces = view => [view.subtitle, view.brief, view.chip.detail, view.chip.short,
+  view.rows.find(([key]) => key === 'Reachability')[1]];
+
+test('fresh refused and timeout probes have distinct neutral diagnoses on every Mac peer surface', () => {
+  for (const [reason, diagnosis] of [['refused', /refused/i], ['timeout', /no answer|timed out|timeout/i]]) {
+    const view = macPeerView(peer({state: 'unreachable', reason}), {feedFresh: true});
+    assert.equal(view.reason, reason);
+    assert.match(view.failureTitle, diagnosis);
+    assert.match(view.failureDetail, diagnosis);
+    for (const text of failureSurfaces(view)) {
+      assert.match(text, diagnosis);
+      assert.doesNotMatch(text, failureCauseClaim);
+    }
+    assert.doesNotMatch(view.failureTitle + ' ' + view.failureDetail, failureCauseClaim);
+    assert.equal(view.reachable, false);
+    assert.equal(view.loadedKnown, false);
+    assert.equal(view.loadedCount, null);
+    assert.deepEqual(view.models, []);
+    assert.deepEqual(view.loaded, []);
+    assert.deepEqual(view.satellites, []);
+    assert.equal(view.rows.find(([key]) => key === 'Loaded models')[1], 'Unknown');
+    assert.doesNotMatch(view.chip.detail, /\d+ loaded|generating|running/i);
+  }
+});
+
+test('other current canonical probe reasons describe only the failed observation', () => {
+  for (const [reason, description] of [['invalid', /list|invalid/i],
+    ['unresolved', /unresolved|resolv|name|address/i], ['error', /probe.*error|error.*probe|probe failed/i]]) {
+    const view = macPeerView(peer({state: 'unreachable', reason}), {feedFresh: true});
+    assert.equal(view.reason, reason);
+    assert.match(view.failureTitle + ' ' + view.failureDetail, description);
+    assert.doesNotMatch(view.failureTitle + ' ' + view.failureDetail, failureCauseClaim);
+    assert.equal(view.reachable, false);
+    assert.equal(view.loadedKnown, false);
+  }
+});
+
+test('malformed or noncanonical reason values do not impersonate a refused connection or timeout', () => {
+  for (const reason of [undefined, null, true, false, 1, [], ['refused'], {reason: 'timeout'},
+    new String('refused'), 'REFUSED', 'Refused', 'TIMEOUT', ' refused', 'timeout ', 'bogus']) {
+    const view = macPeerView(peer({state: 'unreachable', reason}), {feedFresh: true});
+    assert.equal(view.reason, null);
+    assert.equal(view.state, 'unreachable');
+    const text = [view.failureTitle, view.failureDetail, ...failureSurfaces(view)].join(' ');
+    assert.doesNotMatch(text, /refused|timed out|timeout|bogus/i);
+    assert.doesNotMatch(text, failureCauseClaim);
+  }
+});
+
+test('expired probe or local feed removes its reason and hides the old failure diagnosis', () => {
+  for (const reason of ['refused', 'timeout']) {
+    for (const [ageSeconds, options] of [[46, {feedFresh: true}],
+      [44, {feedFresh: true, snapshotAge: 2}], [0, {feedFresh: false}]]) {
+      const view = macPeerView(peer({state: 'unreachable', ageSeconds, reason,
+        detail: reason === 'refused' ? 'Connection refused on 10.0.0.176 port 1234' : 'Probe timed out'}), options);
+      assert.equal(view.state, 'unknown');
+      assert.equal(view.reason, null);
+      assert.equal(view.failureTitle, null);
+      assert.equal(view.failureDetail, null);
+      assert.doesNotMatch([...failureSurfaces(view), ...view.rows.map(([, value]) => value)].join(' '),
+        /refused|timed out|timeout/i);
+      assert.equal(view.loadedKnown, false);
+    }
+  }
+});
+
+test('linked and reachable observations ignore a retained failed-probe reason', () => {
+  for (const state of ['linked', 'reachable']) {
+    for (const reason of ['refused', 'timeout', ['refused']]) {
+      const view = macPeerView(peer({state, reason}), {feedFresh: true});
+      assert.equal(view.state, state);
+      assert.equal(view.reason, null);
+      assert.equal(view.failureTitle, null);
+      assert.equal(view.failureDetail, null);
+      assert.equal(view.loadedKnown, true);
+      assert.doesNotMatch(failureSurfaces(view).join(' '), /refused|timed out|timeout/i);
+    }
+  }
+});
+
 test('v1 listing without loaded state says so', () => {
   const v = macPeerView(peer({loadedCount: null, models: [{id: 'm', state: 'listed'}]}), {feedFresh: true});
   assert.equal(v.loadedKnown, false);
