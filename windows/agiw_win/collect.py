@@ -12,6 +12,7 @@ from . import VERSION
 from . import probes
 
 WORKER_VERSION = f"win-{VERSION}"  # matches the dashboard's worker-version pattern (<=16 chars)
+LANE_FRESH_SECONDS = 3.0
 GPU_KEYS = ("index", "name", "utilizationPercent", "memoryUsedMiB", "memoryTotalMiB", "temperatureC", "powerW")
 
 
@@ -97,7 +98,14 @@ class Collector:
                     "servedModel": None, "status": "unknown", "slots": [], "slotsBusy": None, "slotsTotal": None,
                     "phase": None, "detail": "First lane probe pending", "device": spec.get("device"), "ageSeconds": None}
         at, lane = latest
-        return {**lane, "ageSeconds": round(max(0.0, now - at), 2)}
+        age = round(max(0.0, now - at), 2)
+        if age > LANE_FRESH_SECONDS:
+            # A poller that stopped refreshing (hung lane, stalled socket) proves nothing about now:
+            # keep identity for the inspector, drop every activity and liveness claim.
+            return {**lane, "ageSeconds": age, "status": "stale", "phase": None, "slotsBusy": None,
+                    "liveTokensPerSecond": None,
+                    "detail": f"Last lane answer is {age:.0f} s old ({lane['status']} then)"}
+        return {**lane, "ageSeconds": age}
 
     def close(self) -> None:
         with self._lock:
@@ -143,10 +151,19 @@ class Collector:
                 self._adapters = []
         return self._adapters
 
+    def _guard(self, sources: list, source_id: str, label: str, fn, fallback):
+        """Run one probe; a crash becomes an error source and a neutral value instead of a lost sample."""
+        try:
+            return fn()
+        except Exception as error:  # noqa: BLE001
+            sources.append(probes._source(source_id, label, "error", f"Probe failed ({type(error).__name__})"))
+            return fallback
+
     def collect(self) -> dict[str, Any]:
         sampled = self.clock()
         observed = dt.datetime.fromtimestamp(sampled, dt.timezone.utc).isoformat().replace("+00:00", "Z")
         sources: list[dict[str, Any]] = []
+        results: dict[str, Any] = {}
         specs, lane_source = probes.lane_specs(self.share_root)
         sources.append(lane_source)
         lanes = [self._lane(spec, sampled) for spec in specs]
@@ -168,24 +185,30 @@ class Collector:
         sources.append(probes._source("lane-inventory", "Lane inventory", "live" if fresh_lanes else "unavailable",
                                       "Every declared lane answered or refused within 3 s" if fresh_lanes
                                       else "A lane result is pending or older than 3 s"))
-        gpus, gpu_source = self._gpus(sampled)
-        sources.append(gpu_source)
-        memory, memory_source = self.memory_fn()
-        sources.append(memory_source)
-        jobs, jobs_source = self._jobs(specs, sampled)
-        sources.append(jobs_source)
-        pipeline, queue_source = probes.route_queue(self.bin_root / "online-code-route-queue", sampled)
-        sources.append(queue_source)
-        share, share_source = probes.share_health(self.share_root)
-        sources.append(share_source)
+        g = lambda sid, label, fn, fallback: self._guard(sources, sid, label, fn, fallback)  # noqa: E731
+        empty_jobs = {"schemaVersion": 1, "journal": "codemode-runs", "inFlight": [], "recent": [], "lastSuccess": None, "clientsRecent": {}}
+        for value_name, sid, label, fn, fallback in (
+                ("gpus", "pc-gpu", "PC GPU", lambda: self._gpus(sampled), ([], None)),
+                ("memory", "mem-guard", "Memory", self.memory_fn, ({"level": "unknown", "consumers": [], "suggestions": [], "reasons": [], "paused": []}, None)),
+                ("jobs", "codemode-runs", "codemode runs", lambda: self._jobs(specs, sampled), (empty_jobs, None)),
+                ("pipeline", "route-queue", "Route queue", lambda: probes.route_queue(self.bin_root / "online-code-route-queue", sampled),
+                 ({"status": None, "runId": None, "pipelines": [], "queue": None}, None)),
+                ("share", "sharedchami", "SharedChami", lambda: probes.share_health(self.share_root), ({"state": "unknown"}, None))):
+            value, source = g(sid, label, fn, fallback)
+            if source is not None:
+                sources.append(source)
+            results[value_name] = value
+        gpus, memory, jobs, pipeline, share = (results[k] for k in ("gpus", "memory", "jobs", "pipeline", "share"))
         if self.mac_peer is not None:
             mac, mac_source = self.mac_peer.read(sampled)
         else:
             mac, mac_source = ({"state": "unknown", "detail": "LAN probe disabled", "models": [], "ageSeconds": None},
                                probes._source("mac-peer", "Mac (LAN)", "unavailable", "LAN probe disabled"))
         sources.append(mac_source)
-        peers, peers_source = probes.read_peers(self.share_root, self.host, sampled)
-        sources.append(peers_source)
+        peers, peers_source = self._guard(sources, "agiw-peers", "AGIW peers",
+                                          lambda: probes.read_peers(self.share_root, self.host, sampled), ([], None))
+        if peers_source is not None:
+            sources.append(peers_source)
         mac_link = next((p for p in peers if p["platform"] == "macos" and p["fresh"]), None)
         if mac_link and mac.get("state") != "reachable":
             # The Mac's AGIW is linked through the share even though its LM Studio is closed to the LAN.

@@ -115,7 +115,8 @@ class EndToEnd(unittest.TestCase):
         time.sleep(1.0)
         data = self.collector.collect()
         fast = next(m for m in data["models"] if m["id"] == "openai/gpt-oss-20b")
-        self.assertEqual((fast["state"], fast["loaded"]), ("unloaded", False))
+        self.assertEqual((fast["state"], fast["loaded"]), ("unknown", None))
+        self.assertEqual(data["windowsWorker"]["lanes"]["fast"]["up"], False)
         self.assertFalse(activity_is_known(data["models"], {s["id"]: s["state"] for s in data["sources"]}))
 
     def test_rejects_foreign_host_and_origin(self):
@@ -185,6 +186,48 @@ class EndToEnd(unittest.TestCase):
         # The Mac LAN probe is off in this test, so the share link is what connects the Mac node.
         self.assertEqual(again["macPeer"]["state"], "linked")
         self.assertEqual(again["macPeer"]["loadedCount"], 2)
+
+    def test_a_stalled_poller_is_stale_not_live(self):
+        # Codex finding 4: an old idle result must not keep the lane looking live.
+        self.collector.collect()
+        poller = next(p for k, p in self.collector._pollers.items() if k[0] == "deep")
+        poller.stop()
+        at, lane = poller.read()
+        poller._latest = (at - 10, lane)
+        data = self.collector.collect()
+        deep = data["windowsWorker"]["lanes"]["deep"]
+        self.assertEqual((deep["status"], deep["up"]), ("stale", False))
+        self.assertNotEqual(next(s for s in data["sources"] if s["id"] == "llama-slots")["state"], "live")
+        self.assertFalse(activity_is_known(data["models"], {s["id"]: s["state"] for s in data["sources"]}))
+
+    def test_one_broken_probe_does_not_lose_the_sample(self):
+        # Codex finding 1 (general): a crashing probe becomes an error source.
+        def broken():
+            raise RuntimeError("boom")
+        self.collector.memory_fn = broken
+        data = self.collector.collect()
+        self.assertEqual(data["memory"]["level"], "unknown")
+        self.assertTrue(any(s["id"] == "mem-guard" and s["state"] == "error" for s in data["sources"]))
+
+    def test_port_in_use_fails_clearly(self):
+        # Codex finding 2: never move to another port.
+        from agiw_win.server import PortUnavailable, bind
+        with self.assertRaises(PortUnavailable):
+            bind(SnapshotStore(), self.server.web_root, self.port, retry_seconds=0.2)
+
+    def test_slow_client_is_cut_off(self):
+        # Codex finding 3: a client that never finishes its request is closed by the deadline.
+        import socket as s_
+        conn = s_.create_connection(("127.0.0.1", self.port), timeout=6)
+        conn.sendall(b"GET /api/health HTTP/1.1\r\nHost: 127.0.0.1\r\n")
+        started = time.time()
+        try:
+            data = conn.recv(10)
+        except OSError:
+            data = b""
+        self.assertEqual(data, b"")
+        self.assertLess(time.time() - started, 5.5)
+        conn.close()
 
     def test_post_is_read_only(self):
         conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=3)

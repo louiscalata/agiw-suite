@@ -114,7 +114,9 @@ class MonitorServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = False
     request_queue_size = 8
+    max_connections = 8
     max_streams = 3
+    connection_deadline_seconds = 3.0
 
     def __init__(self, address, store: SnapshotStore, web_root: Path):
         if address[0] != "127.0.0.1":
@@ -122,7 +124,50 @@ class MonitorServer(ThreadingHTTPServer):
         self.store, self.web_root = store, web_root
         self.stopping = threading.Event()
         self._streams = threading.BoundedSemaphore(self.max_streams)
+        # Accepted sockets beyond the cap are closed before a handler thread exists.
+        self._slots = threading.BoundedSemaphore(self.max_connections)
+        self._deadlines: dict[int, threading.Timer] = {}
+        self._deadline_lock = threading.Lock()
         super().__init__(address, Handler)
+
+    def process_request(self, request, client_address):
+        if not self._slots.acquire(blocking=False):
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except Exception:
+            self._slots.release()
+            self.shutdown_request(request)
+            raise
+
+    def process_request_thread(self, request, client_address):
+        def expire():
+            # A client can drip bytes inside each read timeout indefinitely; the deadline ends it.
+            for action in (lambda: request.shutdown(socket.SHUT_RDWR), request.close):
+                try:
+                    action()
+                except OSError:
+                    pass
+        timer = threading.Timer(self.connection_deadline_seconds, expire)
+        timer.daemon = True
+        with self._deadline_lock:
+            self._deadlines[id(request)] = timer
+        try:
+            timer.start()
+            super().process_request_thread(request, client_address)
+        finally:
+            timer.cancel()
+            with self._deadline_lock:
+                self._deadlines.pop(id(request), None)
+            self._slots.release()
+
+    def release_deadline(self, request) -> None:
+        """Live streams are exempt from the request deadline (they are capped separately)."""
+        with self._deadline_lock:
+            timer = self._deadlines.pop(id(request), None)
+        if timer is not None:
+            timer.cancel()
 
     def server_bind(self):
         # Windows lets a second socket bind a port another process holds unless this is set.
@@ -210,6 +255,7 @@ class Handler(BaseHTTPRequestHandler):
         if not self.server._streams.acquire(blocking=False):
             return self.json_reply(503, {"status": "busy", "message": "Too many live streams"})
         try:
+            self.server.release_deadline(self.request)
             self.connection.settimeout(5)
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream; charset=utf-8")
@@ -260,17 +306,21 @@ def sample(store: SnapshotStore, collector: Collector, stop: threading.Event, in
         stop.wait(max(0.05, interval - (time.monotonic() - started)))
 
 
+class PortUnavailable(RuntimeError):
+    pass
+
+
 def bind(store: SnapshotStore, web_root: Path, port: int, retry_seconds: float = 12.0) -> MonitorServer:
-    """The preferred port, retried briefly (a restart can find it still held by closing sockets), else ephemeral."""
+    """The fixed port, retried briefly (a restart can find it held by closing sockets). It never moves to
+    another port: a second observer at a different address would split the dashboard silently."""
     deadline = time.monotonic() + retry_seconds
     while True:
         try:
             return MonitorServer(("127.0.0.1", port), store, web_root)
-        except OSError:
-            if port == 0:
-                raise
-            if time.monotonic() >= deadline:
-                return MonitorServer(("127.0.0.1", 0), store, web_root)
+        except OSError as error:
+            if port == 0 or time.monotonic() >= deadline:
+                raise PortUnavailable(f"127.0.0.1:{port} is in use ({error.strerror or error}); "
+                                      "another observer or program holds it") from error
             time.sleep(0.5)
 
 
@@ -361,7 +411,13 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     store = SnapshotStore()
-    server = bind(store, find_web_root(here.parent), args.port)
+    try:
+        server = bind(store, find_web_root(here.parent), args.port)
+    except PortUnavailable as error:
+        print(f"{time.strftime('%Y-%m-%dT%H:%M:%S')} {error}", file=sys.stderr)
+        print(json.dumps({"service": SERVICE, "error": "port-unavailable", "port": args.port}), flush=True)
+        collector.close()
+        return 4
     port = server.server_address[1]
     stop = threading.Event()
     if mac_peer:
