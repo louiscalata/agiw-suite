@@ -15,7 +15,6 @@ import math
 import os
 from pathlib import Path
 import secrets
-import shutil
 import socket
 import stat
 import subprocess
@@ -75,7 +74,10 @@ def http_get_json(url: str, timeout: float = HTTP_TIMEOUT, max_bytes: int = HTTP
     parts = urlsplit(url)
     if parts.scheme != "http" or not parts.hostname:
         raise ValueError("only plain http URLs are probed")
-    conn = http.client.HTTPConnection(parts.hostname, parts.port or 80, timeout=timeout)
+    if parts.username is not None or parts.password is not None:
+        raise ValueError("credentials in probe URL refused")
+    port = parts.port or 80
+    conn = http.client.HTTPConnection(parts.hostname, port, timeout=timeout)
     expired = threading.Event()
 
     def expire() -> None:
@@ -93,7 +95,9 @@ def http_get_json(url: str, timeout: float = HTTP_TIMEOUT, max_bytes: int = HTTP
     timer.daemon = True
     timer.start()
     try:
-        conn.request("GET", parts.path or "/", headers={"Accept": "application/json", "Host": parts.netloc})
+        host = f"[{parts.hostname}]" if ":" in parts.hostname else parts.hostname
+        target = (parts.path or "/") + (f"?{parts.query}" if parts.query else "")
+        conn.request("GET", target, headers={"Accept": "application/json", "Host": f"{host}:{port}"})
         response = conn.getresponse()  # http.client never follows redirects
         if response.status >= 300:
             raise OSError(f"HTTP Error {response.status}")
@@ -441,12 +445,12 @@ _NVIDIA_QUERY = "index,name,utilization.gpu,memory.used,memory.total,temperature
 
 
 def nvidia_smi_path() -> str | None:
-    """The driver's protected copy first; PATH only when it is absent (PATH entries can be user-writable)."""
+    """Only run the driver copy, never a user-writable PATH replacement."""
     for candidate in (Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "nvidia-smi.exe",
                       Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "NVIDIA Corporation" / "NVSMI" / "nvidia-smi.exe"):
         if candidate.is_file():
             return str(candidate)
-    return shutil.which("nvidia-smi")
+    return None
 
 
 def parse_nvidia_csv(text: str) -> list[dict[str, Any]]:
@@ -917,7 +921,7 @@ def public_id(value: Any) -> str | None:
     """A model identifier fit to publish on the share: path-shaped values keep only their final name."""
     if not isinstance(value, str) or not value:
         return None
-    if "\\" in value or ":/" in value or ":\\" in value or value.startswith("/"):
+    if value not in INVENTORY_IDS and ("\\" in value or "/" in value):
         value = value.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
     return value[:120] or None
 
@@ -1112,7 +1116,13 @@ def read_peers(share_root: Path, self_host: str, now: float) -> tuple[list[dict[
                         entries.append(entry)
     except OSError:
         entries = []
-    entries = sorted(entries, key=lambda e: e.stat(follow_symlinks=False).st_mtime, reverse=True)[:PEER_MAX_FILES]
+    dated_entries = []
+    for entry in entries:
+        try:
+            dated_entries.append((entry.stat(follow_symlinks=False).st_mtime, entry))
+        except OSError:
+            continue  # A peer can remove its file between enumeration and stat.
+    entries = [entry for _, entry in sorted(dated_entries, key=lambda pair: pair[0], reverse=True)[:PEER_MAX_FILES]]
     seen_hosts: set[str] = set()
     for entry in entries:
         try:
@@ -1128,6 +1138,7 @@ def read_peers(share_root: Path, self_host: str, now: float) -> tuple[list[dict[
     if not any(p["platform"] == "macos" and p["fresh"] for p in peers):
         legacy = _legacy_mac_status(share_root, now)
         if legacy:
+            peers = [peer for peer in peers if peer["host"].lower() != legacy["host"].lower()]
             peers.append(legacy)
     peers.sort(key=lambda p: p["ageSeconds"])
     fresh = [p for p in peers if p["fresh"]]
