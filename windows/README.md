@@ -13,14 +13,16 @@ observer that serves **the same dashboard** as the Mac edition, in its `host: "w
 | Memory | macOS pressure + guard | Physical memory available and commit charge (no pause/resume guard) |
 | Peer | Windows worker heartbeat | The Mac's LM Studio over the LAN (mDNS name, then recorded addresses) |
 | Controls | Guarded load/unload, repair | **Read-only** in 0.1: nothing loads, unloads or restarts a model |
+| Peers | — | AGIW instances meet on SharedChami (`llm-lab/status/agiw-peers/<host>.json`); opt-in in `config.json` |
 
 ## Run
 
 Double-click **`AGIW Monitor.vbs`** (or `AGIW Monitor.cmd`). The tray icon appears and the dashboard opens in an
-Edge app window at `http://127.0.0.1:8767/` (an ephemeral port is used if 8767 is taken).
+Edge app window at `http://127.0.0.1:8767/`. If 8767 is held by something else the observer stops and the tray
+says so, rather than moving to another address.
 
-Tray icon colours: **blue** a lane is working · **green** lanes up and idle · **amber** a lane is down, loading,
-serving the wrong model, or memory is tight · **grey** starting or stale. Right-click for *Restart observer*,
+Tray icon colours: **blue** a lane is working · **green** both lanes confirmed idle · **amber** a lane does not
+answer, is loading, serves the wrong model, or memory is tight · **grey** starting, stale, or activity unconfirmed. Right-click for *Restart observer*,
 *Start at sign-in* and *Open log folder*.
 
 One-shot check without the tray:
@@ -37,6 +39,15 @@ python agiw_observer.py --port 8767      # observer only; open the URL it prints
 - Lanes declared in `C:\SharedChami\windows-llm-pipeline\config.json` → `runtime.lanes` (falls back to
   fast `:1235` gpt-oss-20b / deep `:1234` qwen3.8-27b). Slot activity needs llama-server's `/slots` endpoint.
 - Optional: `C:\SharedChami\llm-lab\mac-reach\hosts.json` for the Mac peer; `nvidia-smi` for NVIDIA load.
+
+## Options (`config.json` beside the observer)
+
+```json
+{ "publishStatus": true, "peerLink": true }
+```
+
+`publishStatus` writes `llm-lab/status/windows-status.json` for the Mac's status reader every 10 s; `peerLink`
+writes this PC's presence to `llm-lab/status/agiw-peers/` and reads the others. Both are off by default.
 
 ## Install from a checkout
 
@@ -55,6 +66,8 @@ node --test test_mac_peer_view.mjs test_client_models.mjs      # dashboard view 
 
 - Read-only: no lane start/stop, model load/unload, Fix Inference or auto-unload.
 - AMD/other GPUs show name and VRAM only; live load is NVIDIA-only.
-- No Windows job journal yet (`windowsJobs` is null), so lane speeds come from nothing recorded here.
+- Job history comes from codemode run manifests in `~/code-runs`. Their rates are whole-request (prompt included), so
+  they are kept apart from decode rates; the lane speed tiles show only the live decode rate measured from `/slots`
+  (it needs llama-server's per-request task id, otherwise no rate is shown).
 - Jev shows as unknown: its triage runs through the route queue and no passive opt-in record is read.
 - The Mac peer probe is inventory only (LM Studio's model listing); it never sends a prompt to the Mac.

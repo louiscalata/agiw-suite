@@ -8,6 +8,7 @@ with CREATE_NO_WINDOW so a windowless observer never flashes a console.
 from __future__ import annotations
 
 import ctypes
+import ipaddress
 import json
 import math
 import os
@@ -71,10 +72,24 @@ _OPENER = build_opener(ProxyHandler({}), _NoRedirect())
 
 
 def http_get_json(url: str, timeout: float = HTTP_TIMEOUT, max_bytes: int = HTTP_MAX_BYTES) -> Any:
-    """GET a fixed URL with a byte cap; JSON when it parses, else a short text prefix."""
+    """GET a fixed URL with a byte cap and a total deadline; JSON when it parses, else a short text prefix.
+
+    The socket timeout bounds each read; the deadline bounds the whole response, so a peer that
+    trickles one byte per timeout cannot hold a poller (it fails at 2 x timeout).
+    """
+    deadline = time.monotonic() + 2 * timeout
     request = Request(url, headers={"Accept": "application/json"}, method="GET")
+    chunks, size = [], 0
     with _OPENER.open(request, timeout=timeout) as response:
-        body = response.read(max_bytes + 1)
+        while size <= max_bytes:
+            if time.monotonic() > deadline:
+                raise TimeoutError("HTTP response exceeded its total deadline")
+            chunk = response.read(min(65536, max_bytes + 1 - size))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            size += len(chunk)
+    body = b"".join(chunks)
     if len(body) > max_bytes:
         raise ValueError("oversized HTTP response")
     raw = body.decode("utf-8", errors="replace")
@@ -113,11 +128,16 @@ def lane_specs(share_root: Path = DEFAULT_SHARE_ROOT) -> tuple[list[dict[str, An
     path = share_root / "windows-llm-pipeline" / "config.json"
     try:
         config = read_json(path)
-        raw = config["runtime"]["lanes"]
+        runtime = config.get("runtime") if isinstance(config, dict) else None
+        raw = runtime.get("lanes") if isinstance(runtime, dict) else None
+        if not isinstance(raw, dict):
+            raise ValueError("runtime.lanes missing")
         specs = []
+        missing = []
         for lane_id in ("fast", "deep"):
-            lane = raw.get(lane_id) if isinstance(raw, dict) else None
+            lane = raw.get(lane_id)
             if not isinstance(lane, dict):
+                missing.append(lane_id)
                 continue
             port, alias = lane.get("port"), _string(lane.get("alias"), 80)
             if isinstance(port, int) and not isinstance(port, bool) and 1 <= port <= 65535 and alias:
@@ -125,12 +145,23 @@ def lane_specs(share_root: Path = DEFAULT_SHARE_ROOT) -> tuple[list[dict[str, An
                               "device": _string(lane.get("device"), 32) or "unknown",
                               "context": _number(lane.get("context"), 1, 1 << 24),
                               "parallel": _number(lane.get("parallel"), 1, 256)})
+            else:
+                missing.append(lane_id)
         if specs:
-            layout = _string(((config.get("runtime") or {}).get("lane_layout") or {}).get("name"), 64)
-            return specs, _source("lane-config", "Lane layout", "live",
-                                  f"Declared in windows-llm-pipeline/config.json{f' · layout {layout}' if layout else ''}")
+            layout_block = runtime.get("lane_layout")
+            layout = _string(layout_block.get("name"), 64) if isinstance(layout_block, dict) else None
+            for lane_id in missing:
+                # Never drop a required lane silently: it stays on the map as an explicit unknown row.
+                default = next(d for d in DEFAULT_LANES if d["id"] == lane_id)
+                specs.append({**default, "undeclared": True})
+            specs.sort(key=lambda spec: ("fast", "deep").index(spec["id"]))
+            detail = f"Declared in windows-llm-pipeline/config.json{f' · layout {layout}' if layout else ''}"
+            if missing:
+                return specs, _source("lane-config", "Lane layout", "error",
+                                      detail + f" · {', '.join(missing)} lane missing or malformed (shown as unknown, not probed)")
+            return specs, _source("lane-config", "Lane layout", "live", detail)
         raise ValueError("no usable lanes")
-    except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError):
+    except (OSError, ValueError, KeyError, TypeError, AttributeError, json.JSONDecodeError):
         return [dict(lane) for lane in DEFAULT_LANES], _source(
             "lane-config", "Lane layout", "unavailable",
             "Pipeline config unreadable; using the built-in fast :1235 / deep :1234 layout")
@@ -148,8 +179,10 @@ def _model_ids(payload: Any) -> list[str | None]:
 def _slot(raw: Any) -> dict[str, Any] | None:
     if not isinstance(raw, dict) or not isinstance(raw.get("is_processing"), bool):
         return None
+    task = raw.get("id_task")
     slot = {"id": _number(raw.get("id"), 0, 4096), "isProcessing": raw["is_processing"],
-            "nCtx": _number(raw.get("n_ctx"), 0, 1 << 24)}
+            "nCtx": _number(raw.get("n_ctx"), 0, 1 << 24),
+            "taskId": task if isinstance(task, int) and not isinstance(task, bool) and task >= 0 else None}
     if slot["isProcessing"]:
         next_token = raw.get("next_token")
         current = next_token[0] if isinstance(next_token, list) and next_token and isinstance(next_token[0], dict) else {}
@@ -170,6 +203,9 @@ def probe_lane(spec: dict[str, Any], fetch: Fetch = http_get_json, host: str = "
     lane = {"id": spec["id"], "port": spec["port"], "endpoint": endpoint, "expectedModel": spec["alias"],
             "servedModel": None, "status": "unknown", "slots": [], "slotsBusy": None, "slotsTotal": None,
             "phase": None, "detail": None, "device": spec.get("device")}
+    if spec.get("undeclared"):
+        lane["status"], lane["detail"] = "undeclared", "Lane missing from windows-llm-pipeline/config.json; not probed"
+        return lane
     try:
         health = fetch(endpoint + "/health", HTTP_TIMEOUT, HTTP_MAX_BYTES)
     except Exception as error:  # noqa: BLE001 - any failure is "unreachable"
@@ -235,7 +271,8 @@ def lane_model_row(lane: dict[str, Any], spec: dict[str, Any], now: float) -> di
     elif status == "identity_mismatch":
         state, loaded, source = "unknown", None, "llama-models"
     else:
-        state, loaded, source = "unloaded" if status == "unreachable" else "unknown", False if status == "unreachable" else None, "llama-health"
+        # No answer is no evidence about residency: a hung or restarting server may still hold the model.
+        state, loaded, source = "unknown", None, "llama-health"
     total = lane["slotsTotal"]
     context = None
     if lane["slots"]:
@@ -470,6 +507,7 @@ def route_queue(root: Path, now: float | None = None) -> tuple[dict[str, Any], d
     counts: dict[str, int] = {}
     oldest_pending = None
     stale_claims = 0
+    stale_pending = 0
     if not root.is_dir():
         return ({"status": None, "runId": None, "pipelines": [], "queue": None},
                 _source("route-queue", "Route queue", "unavailable", f"Route queue folder not found ({root.name})"))
@@ -488,6 +526,8 @@ def route_queue(root: Path, now: float | None = None) -> tuple[dict[str, Any], d
                         age = now - entry.stat(follow_symlinks=False).st_mtime
                         if state == "pending":
                             oldest_pending = age if oldest_pending is None else max(oldest_pending, age)
+                            if age > STALE_PENDING_SECONDS:
+                                stale_pending += 1
                         elif state == "claimed" and age > STALE_CLAIM_SECONDS:
                             stale_claims += 1
             counts[state] = total
@@ -497,18 +537,19 @@ def route_queue(root: Path, now: float | None = None) -> tuple[dict[str, Any], d
     pending = counts.get("pending", 0)
     claimed_live = counts.get("claimed", 0) - stale_claims
     # A job nobody has picked up for a day is a leftover, not work waiting for a lane.
-    pending_live = pending if oldest_pending is None or oldest_pending <= STALE_PENDING_SECONDS else 0
+    pending_live = pending - stale_pending
     status = "running" if claimed_live > 0 else "queued" if pending_live else "idle"
     pipeline = {"status": status, "stage": "claimed" if status == "running" else None, "runId": None, "pipelines": [],
-                "queue": {"pending": pending, "claimed": counts.get("claimed", 0), "staleClaimed": stale_claims,
+                "queue": {"pending": pending, "stalePending": stale_pending, "claimed": counts.get("claimed", 0), "staleClaimed": stale_claims,
                           "completed": counts.get("completed", 0),
                           "oldestPendingSeconds": round(oldest_pending, 1) if oldest_pending is not None else None,
                           "staleAfterSeconds": STALE_CLAIM_SECONDS}}
     detail = f"{pending} pending · {counts.get('claimed', 0)} claimed · {counts.get('completed', 0)} completed"
     if stale_claims:
         detail += f" · {stale_claims} claim{'s' if stale_claims != 1 else ''} older than 15 min (likely abandoned)"
-    if pending and not pending_live:
-        detail += f" · pending jobs untouched for {oldest_pending / 86400:.0f} d (stale, not queued)"
+    if stale_pending:
+        detail += (f" · {stale_pending} pending untouched for over a day (stale, not queued; oldest "
+                   f"{oldest_pending / 86400:.0f} d)")
     if claimed_live > 0:
         detail += " · a recent claim is not proof that a worker is still running"
     return pipeline, _source("route-queue", "Route queue", "live", detail)
@@ -607,7 +648,12 @@ def candidate_addresses(hosts: dict[str, Any], resolve: Callable[[str], list[str
     ordered += [(ip, "recorded-ip") for ip in hosts.get("ips", [])]
     seen, result = set(), []
     for address, via in ordered:
-        if address in seen or address in own or address.startswith("127.") or ":" in address:
+        try:
+            parsed = ipaddress.ip_address(address)
+        except ValueError:
+            continue  # names such as "localhost" are refused: only literal addresses are probed
+        if (parsed.version != 4 or parsed.is_loopback or parsed.is_unspecified or parsed.is_multicast
+                or not (parsed.is_private or parsed.is_link_local) or address in own or address in seen):
             continue
         seen.add(address)
         result.append((address, via))
@@ -660,8 +706,7 @@ def probe_mac(hosts: dict[str, Any] | None, fetch: Fetch = http_get_json,
                     "name": hosts.get("hostname"), "models": models,
                     "loadedCount": len(loaded) if v0 else None,
                     "expectedVerifyModel": expected,
-                    "expectedVerifyLoaded": (any(m["id"] == expected or m["id"].split("/")[-1] == expected.split("/")[-1]
-                                                 for m in loaded) if v0 and expected else None),
+                    "expectedVerifyLoaded": (any(m["id"] == expected for m in loaded) if v0 and expected else None),
                     "detail": (f"LM Studio answered on {address} ({via}); {len(loaded)} loaded" if v0
                                else f"OpenAI-compatible list answered on {address} ({via}); loaded state not reported"),
                     "observedAt": observed, "tried": tried + [address]}
@@ -671,6 +716,9 @@ def probe_mac(hosts: dict[str, Any] | None, fetch: Fetch = http_get_json,
             "detail": ("No answer from the Mac's LM Studio on " + ", ".join(tried) if tried
                        else "The Mac's name did not resolve and no fallback address is recorded"),
             "observedAt": observed, "tried": tried}
+
+
+PEER_PROBE_MAX_AGE = 45.0
 
 
 class MacPeer:
@@ -700,8 +748,10 @@ class MacPeer:
         while not self._stop.is_set():
             try:
                 self.poll_once()
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception as error:  # noqa: BLE001 - recorded, never left looking like the last good probe
+                with self._lock:
+                    self._latest = {"state": "unknown", "detail": f"LAN probe failed ({type(error).__name__})",
+                                    "models": [], "observedAt": time.time(), "address": None}
             self._stop.wait(self.interval)
 
     def read(self, now: float | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -712,23 +762,31 @@ class MacPeer:
             return ({"state": "unknown", "detail": "First LAN probe pending", "models": [], "ageSeconds": None},
                     _source("mac-peer", "Mac (LAN)", "unavailable", "First LAN probe pending"))
         latest["ageSeconds"] = round(max(0.0, now - latest.get("observedAt", now)), 1)
+        if latest["ageSeconds"] > PEER_PROBE_MAX_AGE:
+            # A probe that stopped refreshing says nothing about the Mac now.
+            latest.update(state="unknown", models=[], loadedCount=None,
+                          detail=f"Last LAN probe is {latest['ageSeconds']:.0f} s old; Mac state unknown")
         state = "live" if latest["state"] == "reachable" else "unavailable"
         return latest, _source("mac-peer", "Mac (LAN)", state, latest.get("detail") or "", latest["ageSeconds"])
 
 
 # ------------------------------------------------------------- live decode rate
-def live_decode_rate(previous: dict[int, tuple[float, float]], lane: dict[str, Any], now: float) -> tuple[float | None, dict]:
+def live_decode_rate(previous: dict[tuple[int, int], tuple[float, float]], lane: dict[str, Any], now: float) -> tuple[float | None, dict]:
     """Tokens per second generated across a lane's busy slots, from the change in each slot's decoded count
     between two polls of the same request. Only slots that were generating in both polls count; a new
     request (decoded count went down) or a long gap contributes nothing rather than a guess."""
-    current: dict[int, tuple[float, float]] = {}
+    current: dict[tuple[int, int], tuple[float, float]] = {}
     total, counted = 0.0, 0
     for slot in lane.get("slots") or []:
-        decoded, slot_id = slot.get("decodedTokens"), slot.get("id")
-        if not slot.get("isProcessing") or not isinstance(decoded, (int, float)) or not isinstance(slot_id, int):
+        decoded, slot_id, task = slot.get("decodedTokens"), slot.get("id"), slot.get("taskId")
+        # Keyed by (slot, task): without llama-server's task id, two requests in one slot are
+        # indistinguishable, so no rate is shown rather than a difference across requests.
+        if not slot.get("isProcessing") or not isinstance(decoded, (int, float)) or not isinstance(slot_id, int) \
+                or not isinstance(task, int):
             continue
-        current[slot_id] = (float(decoded), now)
-        before = previous.get(slot_id)
+        key = (slot_id, task)
+        current[key] = (float(decoded), now)
+        before = previous.get(key)
         if before is None:
             continue
         delta, gap = decoded - before[0], now - before[1]
@@ -765,10 +823,15 @@ def codemode_jobs(runs_root: Path, specs: list[dict[str, Any]], now: float) -> t
         return empty, _source("codemode-runs", "codemode runs", "unavailable", "code-runs folder unreadable")
     runs.sort(reverse=True)
     recent: list[dict[str, Any]] = []
+    malformed = 0
     for mtime, manifest in runs[:CODEMODE_RUNS_MAX]:
         try:
             data = read_json(manifest, CODEMODE_MANIFEST_MAX)
         except (OSError, ValueError, json.JSONDecodeError):
+            malformed += 1
+            continue
+        if not isinstance(data, dict) or not isinstance(data.get("metrics", []), list):
+            malformed += 1
             continue
         run_id = _string(data.get("run_id"), 40) or manifest.parent.name
         certified = data.get("verification") == "CERTIFIED"
@@ -798,8 +861,9 @@ def codemode_jobs(runs_root: Path, specs: list[dict[str, Any]], now: float) -> t
             "lastSuccess": ({key: success[key] for key in ("id", "lane", "model", "elapsedSeconds", "ageSeconds", "client")}
                             if success else None)}
     newest = f"; newest run {recent[0]['ageSeconds'] / 86400:.1f} d ago" if recent else ""
+    skipped = f"; {malformed} malformed manifest{'s' if malformed != 1 else ''} skipped" if malformed else ""
     return jobs, _source("codemode-runs", "codemode runs", "live",
-                         f"{len(runs[:CODEMODE_RUNS_MAX])} recent run manifests read{newest}; rates are whole-request, not decode")
+                         f"{len(runs[:CODEMODE_RUNS_MAX])} recent run manifests read{newest}{skipped}; rates are whole-request, not decode")
 
 
 # ------------------------------------------------------------ status publisher
@@ -820,7 +884,8 @@ def pc_status(snapshot: dict[str, Any]) -> dict[str, Any]:
     health = "ok" if lanes and len(up) == len(lanes) else "degraded" if up else "down"
     models = [{"id": INVENTORY_IDS.get(lane.get("expectedModel"), lane.get("expectedModel")),
                "aliases": [lane.get("expectedModel")], "host": "windows", "lane": lane.get("id"), "port": lane.get("port"),
-               "loadedState": "loaded" if lane.get("status") in LANE_UP else "unknown" if lane.get("status") in ("loading", "identity_mismatch", "unknown") else "inactive",
+               # Only an answering lane is evidence of residency; no answer (or a stale one) is unknown, never inactive.
+               "loadedState": "loaded" if lane.get("status") in LANE_UP else "unknown",
                "activity": lane.get("phase") if lane.get("status") in ("idle", "busy") else "unknown",
                "servedModel": lane.get("servedModel"), "slotsBusy": lane.get("slotsBusy"), "slotsTotal": lane.get("slotsTotal"),
                "liveTokensPerSecond": lane.get("liveTokensPerSecond")} for lane in lanes]

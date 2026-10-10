@@ -83,6 +83,7 @@ function Start-Observer {
         $read = $process.StandardOutput.ReadLineAsync()
         if (-not $read.Wait(20000) -or -not $read.Result) { throw 'observer did not report its port within 20 s' }
         $hello = $read.Result | ConvertFrom-Json
+        if ($hello.error -eq 'port-unavailable') { throw "port $($hello.port) is in use by another program or observer" }
         if ($hello.service -ne 'agiw-win-observer' -or -not $hello.port) { throw "unexpected handshake: $($read.Result)" }
         $script:Observer = $process
         $script:ObserverPort = [int]$hello.port
@@ -154,24 +155,32 @@ function Get-StatusSummary {
         return @{ tone = 'muted'; text = 'Feed stale - see Open log folder' }
     }
     $lanes = @()
-    $tone = 'ok'
+    $idle = 0
+    $warn = $false
+    $busy = $false
+    $unknown = $false
     foreach ($id in 'fast', 'deep') {
         $lane = $snap.windowsWorker.lanes.$id
-        if (-not $lane) { continue }
+        if (-not $lane) { $unknown = $true; $lanes += "$id ?"; continue }
         switch ($lane.status) {
-            'busy'              { $lanes += "$id $($lane.slotsBusy)/$($lane.slotsTotal)"; $tone = 'live' }
-            'idle'              { $lanes += "$id idle" }
-            'identity_mismatch' { $lanes += "$id WRONG MODEL"; if ($tone -ne 'live') { $tone = 'warn' } }
-            'loading'           { $lanes += "$id loading"; if ($tone -eq 'ok') { $tone = 'warn' } }
-            'slots_unknown'     { $lanes += "$id up"; }
-            default             { $lanes += "$id down"; if ($tone -ne 'live') { $tone = 'warn' } }
+            'busy'              { $lanes += "$id $($lane.slotsBusy)/$($lane.slotsTotal)"; $busy = $true }
+            'idle'              { $lanes += "$id idle"; $idle++ }
+            'identity_mismatch' { $lanes += "$id WRONG MODEL"; $warn = $true }
+            'loading'           { $lanes += "$id loading"; $warn = $true }
+            'slots_unknown'     { $lanes += "$id up ?"; $unknown = $true }
+            'stale'             { $lanes += "$id stale"; $unknown = $true }
+            'unreachable'       { $lanes += "$id no answer"; $warn = $true }
+            default             { $lanes += "$id ?"; $unknown = $true }
         }
     }
+    # Green only for fresh, confirmed idle on both lanes; activity that cannot be confirmed is grey.
+    $tone = if ($busy) { 'live' } elseif ($warn) { 'warn' } elseif ($unknown -or $idle -lt 2) { 'muted' } else { 'ok' }
     $memory = if ($snap.memory.level -and $snap.memory.level -ne 'unknown') { "RAM $([int]$snap.memory.availablePercent)% free" } else { $null }
     if ($snap.memory.level -in 'tight', 'critical' -and $tone -ne 'live') { $tone = 'warn' }
     $gpu = $snap.windowsWorker.gpus | Select-Object -First 1
     $gpuText = if ($gpu) { "GPU $([int]$gpu.utilizationPercent)%" } else { $null }
-    $mac = switch ($snap.macPeer.state) { 'reachable' { 'Mac ok' } 'unreachable' { 'Mac offline' } default { $null } }
+    $macFresh = $snap.macPeer.ageSeconds -ne $null -and [double]$snap.macPeer.ageSeconds -le 45
+    $mac = if (-not $macFresh) { $null } else { switch ($snap.macPeer.state) { 'reachable' { 'Mac ok' } 'linked' { 'Mac linked' } 'unreachable' { 'Mac offline' } default { $null } } }
     @{ tone = $tone; text = (@($lanes -join ' | ') + @($gpuText, $memory, $mac) | Where-Object { $_ }) -join ' | '; snapshot = $snap }
 }
 
@@ -204,9 +213,19 @@ $Tray.add_DoubleClick({ try { Open-Dashboard } catch { Write-Log "open failed: $
 $copyItem.add_Click({ try { $url = Get-DashboardUrl; if ($url) { [System.Windows.Forms.Clipboard]::SetText($url) } } catch { Write-Log "copy failed: $($_.Exception.Message)" } })
 $restartItem.add_Click({ try { Write-Log 'restart requested'; Stop-Observer; Start-Observer } catch { Write-Log "restart failed: $($_.Exception.Message)" } })
 $logsItem.add_Click({ try { Start-Process explorer.exe $StateDir } catch { } })
+function Test-OwnShortcut {
+    # Only a shortcut that starts this install's launcher is ours to replace or remove.
+    if (-not (Test-Path -LiteralPath $StartupLink)) { return $false }
+    try {
+        $existing = (New-Object -ComObject WScript.Shell).CreateShortcut($StartupLink)
+        return $existing.Arguments -like ('*' + $Launcher + '*')
+    } catch { return $false }
+}
+$startupItem.Checked = Test-OwnShortcut
 $startupItem.add_Click({
     try {
         if (Test-Path -LiteralPath $StartupLink) {
+            if (-not (Test-OwnShortcut)) { Write-Log 'startup shortcut belongs to another install; left unchanged'; return }
             Remove-Item -LiteralPath $StartupLink -Force
         } else {
             $shell = New-Object -ComObject WScript.Shell
@@ -218,7 +237,7 @@ $startupItem.add_Click({
             $link.Save()
         }
     } catch { Write-Log "startup toggle failed: $($_.Exception.Message)" }
-    $startupItem.Checked = Test-Path -LiteralPath $StartupLink
+    $startupItem.Checked = Test-OwnShortcut
 })
 $quitItem.add_Click({
     Write-Log 'quit'

@@ -55,7 +55,11 @@ class LaneProbe(unittest.TestCase):
         self.assertNotIn(row["state"], ("busy", "generating", "idle"))
 
     def test_unreachable_and_loading(self):
-        self.assertEqual(probes.probe_lane(FAST, fake_fetch({}))["status"], "unreachable")
+        down = probes.probe_lane(FAST, fake_fetch({}))
+        self.assertEqual(down["status"], "unreachable")
+        # Codex finding 7: no answer is unknown residency, never "unloaded".
+        row = probes.lane_model_row(down, FAST, 0)
+        self.assertEqual((row["state"], row["loaded"]), ("unknown", None))
         loading = probes.probe_lane(FAST, fake_fetch({"/health": HTTPError("u", 503, "Loading", {}, None)}))
         self.assertEqual(loading["status"], "loading")
 
@@ -91,8 +95,9 @@ class SlowSlots(unittest.TestCase):
 
 
 class LiveRate(unittest.TestCase):
-    def lane(self, *slots):
-        return {"slots": [{"id": i, "isProcessing": busy, "decodedTokens": dec} for i, (busy, dec) in enumerate(slots)]}
+    def lane(self, *slots, task=7):
+        return {"slots": [{"id": i, "isProcessing": busy, "decodedTokens": dec, "taskId": task + i}
+                          for i, (busy, dec) in enumerate(slots)]}
 
     def test_rate_from_two_polls_of_one_request(self):
         rate, prev = probes.live_decode_rate({}, self.lane((True, 10), (False, None)), 100.0)
@@ -106,12 +111,34 @@ class LiveRate(unittest.TestCase):
         _, prev = probes.live_decode_rate({}, self.lane((True, 5)), 100.0)
         self.assertIsNone(probes.live_decode_rate(prev, self.lane((True, 900)), 130.0)[0])
 
+    def test_a_new_request_in_the_same_slot_is_not_a_rate(self):
+        # Codex finding 8: 5 -> 120 decoded across two requests must not read as 115 tok/s.
+        _, prev = probes.live_decode_rate({}, self.lane((True, 5), task=7), 100.0)
+        self.assertIsNone(probes.live_decode_rate(prev, self.lane((True, 120), task=8), 101.0)[0])
+
+    def test_no_task_id_means_no_rate(self):
+        lane = {"slots": [{"id": 0, "isProcessing": True, "decodedTokens": 5, "taskId": None}]}
+        _, prev = probes.live_decode_rate({}, lane, 100.0)
+        lane["slots"][0]["decodedTokens"] = 50
+        self.assertIsNone(probes.live_decode_rate(prev, lane, 101.0)[0])
+
     def test_two_busy_slots_sum(self):
         _, prev = probes.live_decode_rate({}, self.lane((True, 0), (True, 0)), 10.0)
         self.assertEqual(probes.live_decode_rate(prev, self.lane((True, 20), (True, 30)), 11.0)[0], 50.0)
 
 
 class Codemode(unittest.TestCase):
+    def test_malformed_manifests_are_skipped_not_fatal(self):
+        # Codex finding 1: [] or {"metrics": {}} must not stop sampling.
+        with tempfile.TemporaryDirectory() as tmp:
+            for i, value in enumerate(([], {"metrics": {}}, {"metrics": ["x", 3]})):
+                run = Path(tmp) / f"2026092{i}-000000-aaaaaa"
+                run.mkdir()
+                (run / "manifest.json").write_text(json.dumps(value))
+            jobs, source = probes.codemode_jobs(Path(tmp), [], time.time())
+        self.assertEqual(jobs["recent"], [])
+        self.assertIn("2 malformed manifests skipped", source["detail"])
+
     def test_runs_become_lane_jobs_with_whole_request_rates(self):
         specs = [{"id": "fast", "port": 1235, "alias": "g"}, {"id": "deep", "port": 1234, "alias": "q"}]
         with tempfile.TemporaryDirectory() as tmp:
@@ -198,6 +225,30 @@ class LaneConfig(unittest.TestCase):
         self.assertEqual([(s["id"], s["port"], s["alias"]) for s in specs], [("fast", 1235, "a"), ("deep", 1234, "b")])
         self.assertEqual(source["state"], "live")
         self.assertIn("layout L", source["detail"])
+
+    def test_missing_lane_stays_as_explicit_unknown(self):
+        # Codex finding 6: a config with only the fast lane must not drop the deep lane silently.
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "windows-llm-pipeline"
+            path.mkdir()
+            (path / "config.json").write_text(json.dumps({"runtime": {"lanes": {"fast": {"port": 1235, "alias": "a"}}}}))
+            specs, source = probes.lane_specs(Path(tmp))
+        self.assertEqual([s["id"] for s in specs], ["fast", "deep"])
+        self.assertTrue(specs[1]["undeclared"])
+        self.assertEqual(source["state"], "error")
+        lane = probes.probe_lane(specs[1], fake_fetch({"/health": {}}))
+        self.assertEqual(lane["status"], "undeclared")
+
+    def test_malformed_shapes_fall_back(self):
+        # Codex finding 1: valid JSON with the wrong shape must not raise.
+        for config in ([], {"runtime": []}, {"runtime": {"lanes": []}},
+                       {"runtime": {"lane_layout": "x", "lanes": {"fast": {"port": 1, "alias": "a"}, "deep": {"port": 2, "alias": "b"}}}}):
+            with tempfile.TemporaryDirectory() as tmp:
+                path = Path(tmp) / "windows-llm-pipeline"
+                path.mkdir()
+                (path / "config.json").write_text(json.dumps(config))
+                specs, _ = probes.lane_specs(Path(tmp))
+            self.assertEqual(len(specs), 2, config)
 
     def test_falls_back(self):
         specs, source = probes.lane_specs(Path("/nonexistent"))
@@ -286,6 +337,19 @@ class Queue(unittest.TestCase):
         self.assertIsNone(pipeline["status"])
         self.assertEqual(source["state"], "unavailable")
 
+    def test_a_stale_pending_job_does_not_hide_a_fresh_one(self):
+        # Codex finding 12.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "pending").mkdir()
+            for name in ("old", "new"):
+                (root / "pending" / f"{name}.json").write_text("{}")
+            old = time.time() - 3 * 86400
+            os.utime(root / "pending" / "old.json", (old, old))
+            pipeline, source = probes.route_queue(root)
+        self.assertEqual(pipeline["status"], "queued")
+        self.assertEqual(pipeline["queue"]["stalePending"], 1)
+
     def test_only_stale_claims_reads_queued_or_idle(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -338,6 +402,30 @@ class MacPeer(unittest.TestCase):
             self.assertEqual(probes.probe_mac(self.HOSTS, fetch, resolve=lambda _n: [])["state"], "unreachable")
         finally:
             probes._own_addresses = original
+
+    def test_names_and_loopback_in_recorded_ips_are_never_probed(self):
+        # Codex finding 9: "localhost" would reach this PC's own lane on :1234.
+        seen = []
+        def fetch(url, *_):
+            seen.append(url)
+            raise ConnectionRefusedError()
+        hosts = {**self.HOSTS, "ips": ["localhost", "127.0.0.2", "8.8.8.8", "::1", "10.0.0.9"]}
+        probes.probe_mac(hosts, fetch, resolve=lambda _n: [], own=set())
+        self.assertTrue(seen and all("10.0.0.9" in u for u in seen), seen)
+
+    def test_expected_model_needs_the_full_id(self):
+        # Codex finding 10: other/gpt-oss-20b is not openai/gpt-oss-20b.
+        fetch = fake_fetch({"10.0.0.176:1234/api/v0/models": {"data": [{"id": "other/gpt-oss-20b", "type": "llm", "state": "loaded"}]}})
+        result = probes.probe_mac(self.HOSTS, fetch, resolve=lambda _n: ["10.0.0.176"], own=set())
+        self.assertFalse(result["expectedVerifyLoaded"])
+
+    def test_old_probe_result_expires(self):
+        # Codex finding 11.
+        peer = probes.MacPeer(Path("/x"), probe=lambda _h: {"state": "reachable", "observedAt": 100.0, "detail": "ok",
+                                                            "models": [{"id": "m", "state": "loaded"}], "loadedCount": 1})
+        peer.poll_once()
+        data, source = peer.read(now=200.0)
+        self.assertEqual((data["state"], data["models"], source["state"]), ("unknown", [], "unavailable"))
 
     def test_peer_ages_result(self):
         peer = probes.MacPeer(Path("/x"), probe=lambda _h: {"state": "reachable", "observedAt": 100.0, "detail": "ok", "models": []})

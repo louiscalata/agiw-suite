@@ -58,3 +58,10 @@ test('peer rows name each AGIW instance and its freshness', () => {
   assert.match(rows[0][1], /^Linked · macos · mac · 1\.0\.0 · 1 loaded · 4 s ago/);
   assert.deepEqual(agiwPeersRows([], {feedFresh: true}), [['AGIW peers', 'None has published on SharedChami yet']]);
 });
+
+test('the reported loaded count wins over the validated name list, and the gap is disclosed', () => {
+  const v = macPeerView({state: 'reachable', ageSeconds: 1, loadedCount: 2, models: [{id: 'bad name', state: 'loaded'}, {id: 'ok', state: 'loaded'}]}, {feedFresh: true});
+  assert.equal(v.loadedCount, 2);
+  assert.match(v.subtitle, /2 LOADED/);
+  assert.equal(v.rows.find(([k]) => k === 'Loaded models')[1], 'ok · 1 more with an unreadable name');
+});

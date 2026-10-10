@@ -1195,16 +1195,19 @@ export function macPeerView(peer, { feedFresh = false, snapshotAge = 0 } = {}) {
     .filter(m => m && typeof m.id === 'string' && PEER_MODEL.test(m.id) && ['loaded', 'not-loaded', 'listed', 'unknown'].includes(m.state)) : [];
   const loaded = models.filter(m => m.state === 'loaded');
   const loadedKnown = reachable && Number.isSafeInteger(block.loadedCount) && block.loadedCount >= 0;
+  // The probe's own count is the claim; names that failed validation are disclosed, not silently dropped.
+  const loadedCount = loadedKnown ? block.loadedCount : null;
+  const hiddenLoaded = loadedKnown ? Math.max(0, block.loadedCount - loaded.length) : 0;
   const latency = reachable && Number.isFinite(block.latencyMs) && block.latencyMs >= 0 && block.latencyMs < 60000 ? Math.round(block.latencyMs) : null;
   const address = reachable && typeof block.address === 'string' && /^[0-9.]{7,15}$/.test(block.address) ? block.address : null;
   const via = block?.via === 'mdns' ? 'mDNS name' : block?.via === 'recorded-ip' ? 'recorded address' : null;
-  const loadedText = loadedKnown ? `${loaded.length} loaded` : 'loaded state unknown';
+  const loadedText = loadedKnown ? `${loadedCount} loaded` : 'loaded state unknown';
   const subtitle = linked ? `LINKED VIA SHARE · ${loadedText.toUpperCase()}`
     : reachable ? `LAN${latency !== null ? ` ${latency} MS` : ''} · ${loadedText.toUpperCase()}`
     : state === 'unreachable' ? 'NOT ANSWERING ON THE LAN' : 'LAN STATE UNKNOWN';
   const chip = !feedFresh ? { tone: 'muted', detail: 'Signal stale', short: 'Stale' }
-    : linked ? { tone: 'ok', detail: ['Linked via SharedChami', loadedText].join(' · '), short: loadedKnown ? `Linked · ${loaded.length} loaded` : 'Linked' }
-    : reachable ? { tone: 'ok', detail: [`Reachable${latency !== null ? ` · ${latency} ms` : ''}`, loadedText].join(' · '), short: loadedKnown ? `${loaded.length} loaded` : 'Reachable' }
+    : linked ? { tone: 'ok', detail: ['Linked via SharedChami', loadedText].join(' · '), short: loadedKnown ? `Linked · ${loadedCount} loaded` : 'Linked' }
+    : reachable ? { tone: 'ok', detail: [`Reachable${latency !== null ? ` · ${latency} ms` : ''}`, loadedText].join(' · '), short: loadedKnown ? `${loadedCount} loaded` : 'Reachable' }
       : state === 'unreachable' ? { tone: 'warn', detail: 'Not answering on the LAN', short: 'No answer' }
         : { tone: 'muted', detail: 'LAN probe pending or stale', short: 'Unknown' };
   const expected = typeof block?.expectedVerifyModel === 'string' ? block.expectedVerifyModel : null;
@@ -1212,12 +1215,13 @@ export function macPeerView(peer, { feedFresh = false, snapshotAge = 0 } = {}) {
     ['Reachability', linked ? `Linked via SharedChami${Number.isFinite(block.linkAgeSeconds) ? ` (${Math.round(block.linkAgeSeconds)} s old)` : ''}; LM Studio not open to the LAN` : reachable ? 'Answering' : state === 'unreachable' ? 'Not answering' : 'Unknown'],
     ['Address', address ? `${address}${via ? ` (${via})` : ''}` : 'Unknown'],
     ['Round trip', latency !== null ? `${latency} ms` : 'Unknown'],
-    ['Loaded models', loadedKnown ? (loaded.length ? loaded.map(m => m.id).join(', ') : 'None') : reachable ? 'Not reported by this listing' : 'Unknown'],
+    ['Loaded models', loadedKnown ? [loaded.length ? loaded.map(m => m.id).join(', ') : loadedCount ? null : 'None',
+      hiddenLoaded ? `${hiddenLoaded} more with an unreadable name` : null].filter(Boolean).join(' · ') : reachable ? 'Not reported by this listing' : 'Unknown'],
     ['Expected verify model', expected ? `${expected}${reachable && typeof block.expectedVerifyLoaded === 'boolean' ? (block.expectedVerifyLoaded ? ' · loaded' : ' · not loaded') : ''}` : 'Not recorded'],
     ['Probe age', age !== null ? `${Math.round(age)} s` : 'Unknown'],
     ['Detail', typeof block?.detail === 'string' ? block.detail.slice(0, 240) : 'Unknown'],
   ];
-  return { state, reachable, current, age, latency, address, models, loaded, loadedKnown, subtitle,
+  return { state, reachable, current, age, latency, address, models, loaded, loadedKnown, loadedCount, hiddenLoaded, subtitle,
     linked, brief: linked ? `SHARE · ${loadedText.toUpperCase()}` : reachable ? `LAN · ${loadedText.toUpperCase()}` : state === 'unreachable' ? 'NO ANSWER' : 'UNKNOWN',
     satellites: loaded.slice(0, 2), chip, rows };
 }
