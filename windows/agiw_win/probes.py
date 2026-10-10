@@ -741,7 +741,7 @@ def probe_mac(hosts: dict[str, Any] | None, fetch: Fetch = http_get_json,
             try:
                 models = parse_mac_models(fetch(base + path, 1.5, HTTP_MAX_BYTES), v0)
             except ConnectionRefusedError:
-                reasons.add("refused")  # the address answered with a refusal: a host is there, the port is closed
+                reasons.add("refused")  # the address answered with a TCP refusal; the cause is not known
                 continue
             except (TimeoutError, socket.timeout):  # distinct classes before Python 3.10
                 reasons.add("timeout")
@@ -779,8 +779,8 @@ def probe_mac(hosts: dict[str, Any] | None, fetch: Fetch = http_get_json,
     reason = next((r for r in ("invalid", "refused", "timeout", "error") if r in reasons), None) if tried else "unresolved"
     where = ", ".join(tried)
     detail = {"invalid": f"Something answered on {where} port {hosts['port']}, but not with an LM Studio model list",
-              "refused": f"The Mac refused port {hosts['port']} on {where}: the address answered, but LM Studio is "
-                         "not accepting LAN connections there",
+              # A TCP refusal says the address answered; it does not say why (no listener, or a firewall reset).
+              "refused": f"Connection refused on {where} port {hosts['port']}",
               "timeout": f"No answer from the Mac's LM Studio on {where}",
               "error": f"No answer from the Mac's LM Studio on {where}",
               "unresolved": "The Mac's name did not resolve and no fallback address is recorded"}[reason or "error"]

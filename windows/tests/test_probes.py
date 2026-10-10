@@ -707,7 +707,7 @@ class MacPeer(unittest.TestCase):
             def fetch(url, *_):
                 raise error
             return fetch
-        cases = [(ConnectionRefusedError(), "refused", "refused port 1234"), (TimeoutError(), "timeout", "No answer"),
+        cases = [(ConnectionRefusedError(), "refused", "Connection refused on"), (TimeoutError(), "timeout", "No answer"),
                  (OSError("HTTP Error 404"), "invalid", "not with an LM Studio model list"),
                  (ValueError("model list missing"), "invalid", "not with an LM Studio model list"),
                  (OSError("unreachable network"), "error", "No answer")]
@@ -716,6 +716,7 @@ class MacPeer(unittest.TestCase):
             self.assertEqual((result["state"], result["reason"]), ("unreachable", reason), error)
             self.assertIn(wording, result["detail"])
             self.assertIn("<mac-lan-ip>", result["detail"])
+            self.assertNotIn("LM Studio is not", result["detail"])  # a TCP error never names its cause
         # One address refusing beats another timing out: a host is there.
         def mixed(url, *_):
             raise ConnectionRefusedError() if "<lan-ip-194>" in url else TimeoutError()
