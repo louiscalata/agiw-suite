@@ -755,6 +755,61 @@ class MacPeer(unittest.TestCase):
         self.assertEqual(data["ageSeconds"], 12.0)
         self.assertEqual(source["ageSeconds"], 12.0)
 
+    def test_invalid_probe_times_cannot_prove_lan_state(self):
+        from copy import deepcopy
+
+        times = [{}, *({"observedAt": value} for value in
+                      (None, "100", [], {}, True, False, float("nan"), float("inf"),
+                       -float("inf"), -1, 10 ** 1000, 106.0, 3700.0))]
+        for fields in times:
+            with self.subTest(fields=fields):
+                result = {"state": "reachable", "models": [{"id": "m", "state": "loaded"}],
+                          "loadedCount": 1, "expectedVerifyLoaded": True, "reason": "refused", **fields}
+                peer = probes.MacPeer(Path("/x"), probe=lambda _h: result)
+                peer.poll_once()
+                cached = deepcopy(result)
+                data, source = peer.read(now=100.0)
+                self.assertEqual((data["state"], data["models"], source["state"]),
+                                 ("unknown", [], "unavailable"))
+                self.assertIsNone(data["loadedCount"])
+                self.assertIsNone(data.get("expectedVerifyLoaded"))
+                self.assertIsNone(data.get("reason"))
+                self.assertIsNone(data["ageSeconds"])
+                self.assertIn("Mac state unknown", data["detail"])
+                self.assertIsNone(source["ageSeconds"])
+                json.dumps(data, allow_nan=False)
+                self.assertEqual(peer._latest, cached, "reading must not alter the cached probe")
+
+    def test_small_future_skew_is_accepted_up_to_five_seconds(self):
+        for skew, state in ((4.0, "reachable"), (5.0, "reachable"), (5.01, "unknown")):
+            with self.subTest(skew=skew):
+                peer = probes.MacPeer(Path("/x"), probe=lambda _h: {
+                    "state": "reachable", "observedAt": 100.0 + skew, "detail": "ok",
+                    "models": [{"id": "m", "state": "loaded"}], "loadedCount": 1,
+                })
+                peer.poll_once()
+                data, source = peer.read(now=100.0)
+                self.assertEqual(data["state"], state)
+                if state == "reachable":
+                    self.assertEqual(data["ageSeconds"], 0.0)
+                    self.assertEqual((data["loadedCount"], source["state"]), (1, "live"))
+                else:
+                    self.assertIsNone(data["ageSeconds"])
+                    self.assertIn("ahead of this PC's clock", data["detail"])
+
+    def test_probe_expiry_uses_unrounded_age(self):
+        peer = probes.MacPeer(Path("/x"), probe=lambda _h: {
+            "state": "reachable", "observedAt": 100.0, "detail": "ok",
+            "models": [{"id": "m", "state": "loaded"}], "loadedCount": 1,
+            "expectedVerifyLoaded": False,
+        })
+        peer.poll_once()
+        self.assertEqual(peer.read(now=145.0)[0]["state"], "reachable")
+        data, source = peer.read(now=145.01)
+        self.assertEqual((data["state"], data["models"], source["state"]),
+                         ("unknown", [], "unavailable"))
+        self.assertIsNone(data.get("expectedVerifyLoaded"))
+
     def test_hosts_file(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "llm-lab" / "mac-reach"
