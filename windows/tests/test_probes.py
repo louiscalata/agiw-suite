@@ -97,6 +97,33 @@ class SlowSlots(unittest.TestCase):
 class Round2(unittest.TestCase):
     """Codex review round 2 (2026-10-10, PC-run): one test per fixed finding."""
 
+    def test_http_query_and_validated_host_header(self):
+        import socket
+        import threading
+        server = socket.socket()
+        server.bind(("127.0.0.1", 0))
+        server.listen(1)
+        port = server.getsockname()[1]
+        request = []
+        def answer():
+            conn, _ = server.accept()
+            try:
+                request.append(conn.recv(4096).decode("ascii"))
+                conn.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n{}")
+            finally:
+                conn.close()
+        thread = threading.Thread(target=answer, daemon=True)
+        thread.start()
+        try:
+            self.assertEqual(probes.http_get_json(f"http://127.0.0.1:{port}/status?key=value"), {})
+            with self.assertRaises(ValueError):
+                probes.http_get_json(f"http://user@127.0.0.1:{port}/status")
+        finally:
+            server.close()
+            thread.join(2)
+        self.assertIn("GET /status?key=value HTTP/1.1", request[0])
+        self.assertIn(f"Host: 127.0.0.1:{port}", request[0])
+
     def test_deadline_cuts_a_trickling_server(self):
         import socket as s_
         import threading as t_
@@ -201,7 +228,48 @@ class Hardening(unittest.TestCase):
     def test_path_shaped_model_ids_are_not_published(self):
         self.assertEqual(probes.public_id(r"%USERPROFILE%\.lmstudio\models\Qwen.gguf"), "Qwen.gguf")
         self.assertEqual(probes.public_id("/home/x/m.gguf"), "m.gguf")
+        self.assertEqual(probes.public_id("models/foo.gguf"), "foo.gguf")
         self.assertEqual(probes.public_id("openai/gpt-oss-20b"), "openai/gpt-oss-20b")
+
+    def test_peer_removed_during_stat_does_not_hide_other_peers(self):
+        import contextlib
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            directory = probes.peer_dir(root)
+            directory.mkdir(parents=True)
+            (directory / "mac.json").write_text(json.dumps(self.peer("mac")))
+            with os.scandir(directory) as scan:
+                live = next(iter(scan))
+            class Vanished:
+                name = "gone.json"
+                path = str(directory / name)
+                def is_file(self, follow_symlinks=False):
+                    return True
+                def stat(self, follow_symlinks=False):
+                    raise FileNotFoundError()
+            with mock.patch.object(probes.os, "scandir", return_value=contextlib.nullcontext(iter([Vanished(), live]))):
+                peers, _ = probes.read_peers(root, "pc", 1000.0)
+        self.assertEqual([peer["host"] for peer in peers], ["mac"])
+
+    def test_legacy_mac_replaces_stale_duplicate(self):
+        import datetime as dt
+        now = 2_000_000_000.0
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            directory = probes.peer_dir(root)
+            directory.mkdir(parents=True)
+            (directory / "mac.json").write_text(json.dumps(self.peer("mac", now - 3600)))
+            status = directory.parent / "mac-status.json"
+            observed = dt.datetime.fromtimestamp(now - 5, dt.timezone.utc).isoformat().replace("+00:00", "Z")
+            status.write_text(json.dumps({"schemaVersion": 1, "host": "mac", "observedAt": observed, "models": []}))
+            peers, _ = probes.read_peers(root, "pc", now)
+        self.assertEqual([(peer["host"], peer["source"]) for peer in peers], [("mac", "mac-status.json")])
+
+    def test_nvidia_path_does_not_search_user_path(self):
+        from unittest import mock
+        with mock.patch.object(Path, "is_file", return_value=False), mock.patch.dict(os.environ, {"PATH": "C:\\untrusted"}):
+            self.assertIsNone(probes.nvidia_smi_path())
 
     def test_link_local_mac_targets_are_refused(self):
         seen = []
