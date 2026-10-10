@@ -250,6 +250,29 @@ class Hardening(unittest.TestCase):
             self.assertEqual(json.loads((Path(tmp) / "a" / "x.json").read_text()), {"ok": 1})
         self.assertEqual(len(calls), 3)
 
+    @unittest.skipUnless(sys.platform == "win32", "Windows file sharing semantics")
+    def test_publish_replaces_a_file_a_share_reader_holds_open(self):
+        # Live 2026-10-10: the SMB server held windows-status.json open for the Mac with delete sharing,
+        # and classic rename failed with access denied on every publish.
+        import ctypes
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.CreateFileW.argtypes = (ctypes.c_wchar_p, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_void_p,
+                                         ctypes.c_uint32, ctypes.c_uint32, ctypes.c_void_p)
+        kernel32.CreateFileW.restype = ctypes.c_void_p
+        kernel32.CloseHandle.argtypes = (ctypes.c_void_p,)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = root / "llm-lab" / "status" / "x.json"
+            probes.write_json_atomic(target, {"n": 0}, stop_at=root)
+            reader = kernel32.CreateFileW(str(target), 0x80000000, 0x7, None, 3, 0x80, None)  # read, share all
+            self.assertNotEqual(reader, ctypes.c_void_p(-1).value)
+            try:
+                probes.write_json_atomic(target, {"n": 1}, stop_at=root)
+            finally:
+                kernel32.CloseHandle(reader)
+            self.assertEqual(json.loads(target.read_text()), {"n": 1})
+            self.assertEqual([p.name for p in target.parent.iterdir()], ["x.json"])
+
     def test_publisher_holds_parent_against_directory_swap(self):
         from unittest import mock
         with tempfile.TemporaryDirectory() as tmp:

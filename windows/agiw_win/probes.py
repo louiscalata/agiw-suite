@@ -1128,26 +1128,39 @@ def _nt_replace_relative(parent: int, temp: str, target: str, payload: bytes) ->
         if not mark_for_delete(False):  # a delete-pending file cannot be renamed
             raise ctypes.WinError(ctypes.get_last_error())
         encoded = target.encode("utf-16-le")
+        # FILE_RENAME_INFORMATION and its _EX form share this layout: a 4-byte first field (BOOLEAN
+        # ReplaceIfExists plus padding, or ULONG Flags), the root handle, then the name length and name.
         class RenameInfo(ctypes.Structure):
-            _fields_ = [("ReplaceIfExists", ctypes.c_byte), ("RootDirectory", ctypes.c_void_p),
+            _fields_ = [("Flags", ctypes.c_ulong), ("RootDirectory", ctypes.c_void_p),
                         ("FileNameLength", ctypes.c_ulong)]
-        prefix = RenameInfo(1, parent, len(encoded))
+        prefix = RenameInfo(0, parent, len(encoded))
         name_offset = RenameInfo.FileNameLength.offset + ctypes.sizeof(ctypes.c_ulong)
         raw = ctypes.create_string_buffer(name_offset + len(encoded))
-        ctypes.memmove(raw, ctypes.byref(prefix), name_offset)
-        ctypes.memmove(ctypes.addressof(raw) + name_offset, encoded, len(encoded))
         set_info = ctypes.WinDLL("ntdll").NtSetInformationFile
         set_info.argtypes = (ctypes.c_void_p, ctypes.POINTER(_IoStatusBlock), ctypes.c_void_p,
                              ctypes.c_ulong, ctypes.c_int)
         set_info.restype = ctypes.c_long
+        # POSIX semantics replace the name even while a reader holds the old file open with delete
+        # sharing, as the SMB server does for a Mac that keeps the status file open; that reader keeps the
+        # old contents and its next open gets the new file. Classic rename is the fallback where the
+        # volume or Windows version lacks it.
+        info_class, flags = 65, 0x3  # FileRenameInformationEx; REPLACE_IF_EXISTS | POSIX_SEMANTICS
         for attempt in range(6):
+            prefix.Flags = flags
+            ctypes.memmove(raw, ctypes.byref(prefix), name_offset)
+            ctypes.memmove(ctypes.addressof(raw) + name_offset, encoded, len(encoded))
             iosb = _IoStatusBlock()
-            status = set_info(handle, ctypes.byref(iosb), raw, len(raw), 10)  # FileRenameInformation
+            status = set_info(handle, ctypes.byref(iosb), raw, len(raw), info_class)
             if status >= 0:
                 return
-            if status & 0xffffffff not in (0xC0000022, 0xC0000043) or attempt == 5:
+            code = status & 0xffffffff
+            if info_class == 65 and code in (0xC0000003, 0xC00000BB, 0xC000000D):
+                info_class, flags = 10, 1  # FileRenameInformation, ReplaceIfExists
+                continue
+            if code not in (0xC0000022, 0xC0000043) or attempt == 5:
                 raise _nt_error(status, "NtSetInformationFile")
             time.sleep(0.05 * (attempt + 1))
+        raise _nt_error(status, "NtSetInformationFile")  # never report an unfinished rename as success
     except BaseException:
         # The temporary file is tied to this handle even if its parent was renamed.
         mark_for_delete(True)

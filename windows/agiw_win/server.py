@@ -323,18 +323,26 @@ def sample(store: SnapshotStore, collector: Collector, stop: threading.Event, in
             store.publish(data)
             if (publish_to is not None or presence_to is not None) and started - last_publish >= publish_every:
                 last_publish = started
-                try:
-                    if publish_to is not None:
-                        status = probes.pc_status(data)
-                        probes.validate_status(status)
-                        probes.write_json_atomic(publish_to, status, probes.STATUS_MAX_BYTES, stop_at=collector.share_root)
-                    if presence_to is not None:
-                        probes.write_json_atomic(presence_to, probes.peer_presence(data, collector.host), probes.PEER_MAX_BYTES,
-                                                 stop_at=collector.share_root)
+                # Each file is published on its own, so a reader holding one never blocks the other.
+                failures = []
+                for name, target in (("status", publish_to), ("presence", presence_to)):
+                    if target is None:
+                        continue
+                    try:
+                        if name == "status":
+                            value = probes.pc_status(data)
+                            probes.validate_status(value)
+                            probes.write_json_atomic(target, value, probes.STATUS_MAX_BYTES, stop_at=collector.share_root)
+                        else:
+                            probes.write_json_atomic(target, probes.peer_presence(data, collector.host),
+                                                     probes.PEER_MAX_BYTES, stop_at=collector.share_root)
+                    except (OSError, ValueError) as error:
+                        failures.append(f"{name}: {publish_error_name(error)}")
+                        print(f"{time.strftime('%Y-%m-%dT%H:%M:%S')} {name} publish failed: {error!r}", file=sys.stderr)
+                if failures:
+                    outcome["error"] = "; ".join(failures)
+                else:
                     outcome["ok"], outcome["error"] = time.monotonic(), None
-                except (OSError, ValueError) as error:
-                    outcome["error"] = publish_error_name(error)
-                    print(f"{time.strftime('%Y-%m-%dT%H:%M:%S')} status publish failed: {error!r}", file=sys.stderr)
         except Exception as error:  # noqa: BLE001 - a failed sample ages out; it is never re-stamped
             print(f"{time.strftime('%Y-%m-%dT%H:%M:%S')} sample failed: {error!r}", file=sys.stderr)
         stop.wait(max(0.05, interval - (time.monotonic() - started)))

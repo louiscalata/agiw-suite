@@ -343,6 +343,29 @@ class EndToEnd(unittest.TestCase):
         self.assertEqual(target.read_bytes(), old)
         self.assertEqual([p.name for p in target.parent.iterdir()], [target.name])  # no temp file left behind
 
+    @unittest.skipUnless(sys.platform == "win32", "Windows file sharing semantics")
+    def test_a_blocked_status_file_does_not_stop_presence(self):
+        share = Path(self.tmp.name)
+        target = share / "llm-lab" / "status" / probes.STATUS_FILE_NAME
+        presence = probes.peer_dir(share) / "thispc.json"
+        probes.write_json_atomic(target, {"old": True}, stop_at=share)
+        stop = threading.Event()
+        worker = threading.Thread(target=sample, args=(self.store, self.collector, stop, 0.05),
+                                  kwargs={"publish_to": target, "presence_to": presence, "publish_every": 0.0},
+                                  daemon=True)
+        holder = open(target, "rb")  # never shares delete: the status replace is refused
+        try:
+            worker.start()
+            deadline = time.monotonic() + 15
+            while time.monotonic() < deadline and not presence.exists():
+                time.sleep(0.1)
+        finally:
+            stop.set()
+            worker.join(10)
+            holder.close()
+        self.assertTrue(presence.exists(), "presence was not published while the status file was blocked")
+        self.assertEqual(json.loads(target.read_text()), {"old": True})
+
     def test_publish_source_reports_pending_success_and_failure(self):
         from agiw_win.server import publish_error_name, publish_source
         pending = publish_source({"ok": None, "error": None}, 5.0)
