@@ -150,16 +150,29 @@ class EndToEnd(unittest.TestCase):
         finally:
             stop.set()
 
-    def test_pc_status_mirrors_mac_status_shape(self):
+    def test_windows_status_matches_the_mac_reader(self):
         data = self.collector.collect()
         status = probes.pc_status(data)
+        probes.validate_status(status)
         self.assertEqual((status["schemaVersion"], status["host"], status["health"]), (1, "windows", "ok"))
-        self.assertEqual({m["id"] for m in status["models"]}, {"openai/gpt-oss-20b", "qwen3.8-27b"})
+        # The Mac reader reconciles on chami-dispatch inventory names, so those are the ids.
+        self.assertEqual({m["id"] for m in status["models"]}, {"gpt-oss-20b", "Qwen3.8-27B Q4_K_M"})
+        self.assertEqual({m["aliases"][0] for m in status["models"]}, {"openai/gpt-oss-20b", "qwen3.8-27b"})
         self.assertTrue(all(m["loadedState"] == "loaded" and m["activity"] == "idle" for m in status["models"]))
         self.assertNotIn("clients", status)
-        target = Path(self.tmp.name) / "llm-lab" / "status" / "pc-status.json"
-        probes.write_json_atomic(target, status)
-        self.assertEqual(json.loads(target.read_text())["host"], "windows")
+        target = Path(self.tmp.name) / "llm-lab" / "status" / probes.STATUS_FILE_NAME
+        probes.write_json_atomic(target, status, probes.STATUS_MAX_BYTES)
+        self.assertEqual(target.name, "windows-status.json")
+        self.assertLess(target.stat().st_size, probes.STATUS_MAX_BYTES)
+
+    def test_status_validation_refuses_what_the_reader_rejects(self):
+        status = probes.pc_status(self.collector.collect())
+        for broken in ({**status, "host": "mac"}, {**status, "models": [{**status["models"][0], "loadedState": "busy"}]},
+                       {**status, "models": [{**status["models"][0], "id": ""}]}, {**status, "models": status["models"] * 17}):
+            with self.assertRaises(ValueError):
+                probes.validate_status(broken)
+        with self.assertRaises(ValueError):
+            probes.write_json_atomic(Path(self.tmp.name) / "x.json", {"pad": "x" * 70000}, probes.STATUS_MAX_BYTES)
 
     def test_post_is_read_only(self):
         conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=3)

@@ -245,8 +245,10 @@ def sample(store: SnapshotStore, collector: Collector, stop: threading.Event, in
             if publish_to is not None and started - last_publish >= publish_every:
                 last_publish = started
                 try:
-                    probes.write_json_atomic(publish_to, probes.pc_status(data))
-                except OSError as error:
+                    status = probes.pc_status(data)
+                    probes.validate_status(status)
+                    probes.write_json_atomic(publish_to, status, probes.STATUS_MAX_BYTES)
+                except (OSError, ValueError) as error:
                     print(f"{time.strftime('%Y-%m-%dT%H:%M:%S')} status publish failed: {error!r}", file=sys.stderr)
         except Exception as error:  # noqa: BLE001 - a failed sample ages out; it is never re-stamped
             print(f"{time.strftime('%Y-%m-%dT%H:%M:%S')} sample failed: {error!r}", file=sys.stderr)
@@ -311,7 +313,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--once", action="store_true", help="print one snapshot as JSON and exit")
     parser.add_argument("--no-lan", action="store_true", help="skip the Mac LAN probe")
     parser.add_argument("--publish-status", action="store_true",
-                        help="write llm-lab/status/pc-status.json on the share every 10 s (opt-in)")
+                        help="write llm-lab/status/windows-status.json on the share every 10 s for the Mac's status reader (opt-in)")
     parser.add_argument("--log-file", type=Path, help="append stderr here (the tray shell does not read stderr)")
     args = parser.parse_args(argv)
     if args.log_file:
@@ -348,7 +350,7 @@ def main(argv: list[str] | None = None) -> int:
     stop = threading.Event()
     if mac_peer:
         mac_peer.start()
-    publish_to = args.share_root / "llm-lab" / "status" / "pc-status.json" if args.publish_status else None
+    publish_to = args.share_root / "llm-lab" / "status" / probes.STATUS_FILE_NAME if args.publish_status else None
     threading.Thread(target=sample, args=(store, collector, stop), kwargs={"publish_to": publish_to},
                      name="sampler", daemon=True).start()
 
