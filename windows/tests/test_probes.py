@@ -319,6 +319,24 @@ class Hardening(unittest.TestCase):
             peers, _ = probes.read_peers(root, "pc", now)
         self.assertEqual([(peer["host"], peer["source"]) for peer in peers], [("mac", "mac-status.json")])
 
+    def test_legacy_mac_keeps_a_newer_stale_peer_and_survives_bad_models(self):
+        import datetime as dt
+        now = 2_000_000_000.0
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            directory = probes.peer_dir(root)
+            directory.mkdir(parents=True)
+            (directory / "mac.json").write_text(json.dumps(self.peer("mac", now - 60)))
+            status = directory.parent / "mac-status.json"
+            observed = dt.datetime.fromtimestamp(now - 3600, dt.timezone.utc).isoformat().replace("+00:00", "Z")
+            status.write_text(json.dumps({"schemaVersion": 1, "host": "mac", "observedAt": observed, "models": []}))
+            peers, _ = probes.read_peers(root, "pc", now)
+            self.assertEqual([(peer["host"], peer["source"]) for peer in peers], [("mac", "agiw-peers")])
+            for models in (5, {"id": "x"}):
+                status.write_text(json.dumps({"schemaVersion": 1, "host": "mac", "observedAt": observed, "models": models}))
+                peers, _ = probes.read_peers(root, "pc", now)  # malformed legacy file is ignored, not fatal
+                self.assertEqual([peer["source"] for peer in peers], ["agiw-peers"])
+
     def test_nvidia_path_does_not_search_user_path(self):
         from unittest import mock
         with mock.patch.object(Path, "is_file", return_value=False), mock.patch.dict(os.environ, {"PATH": "C:\\untrusted"}):

@@ -1059,6 +1059,14 @@ def _handle_is_reparse(kernel32, handle: int) -> bool:
     return bool(info.FileAttributes & 0x400)
 
 
+def _nt_error(status: int, call: str) -> OSError:
+    """An OSError with the Win32 code, so a sharing or access refusal surfaces as PermissionError."""
+    to_dos = ctypes.WinDLL("ntdll").RtlNtStatusToDosError
+    to_dos.argtypes, to_dos.restype = (ctypes.c_ulong,), ctypes.c_ulong
+    status &= 0xffffffff
+    return OSError(0, f"{call} failed (0x{status:08x})", None, to_dos(status))
+
+
 def _nt_create_relative(parent: int, name: str, directory: bool) -> int:
     """Create/open one child of a checked directory handle without path traversal."""
     buffer = ctypes.create_unicode_buffer(name)
@@ -1081,7 +1089,7 @@ def _nt_create_relative(parent: int, name: str, directory: bool) -> int:
                        None, 0x10 if directory else 0x80, 0x7 if directory else 0,
                        disposition, options, None, 0)
     if status < 0:
-        raise OSError(f"NtCreateFile failed (0x{status & 0xffffffff:08x})")
+        raise _nt_error(status, "NtCreateFile")
     return handle.value
 
 
@@ -1090,11 +1098,24 @@ def _nt_replace_relative(parent: int, temp: str, target: str, payload: bytes) ->
     import msvcrt  # noqa: PLC0415 - Windows only
 
     handle = _nt_create_relative(parent, temp, directory=False)
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    set_disposition = kernel32.SetFileInformationByHandle
+    set_disposition.argtypes = (ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p, ctypes.c_ulong)
+
+    def mark_for_delete(flag: bool) -> bool:
+        delete = ctypes.c_byte(1 if flag else 0)
+        return bool(set_disposition(handle, 4, ctypes.byref(delete), 1))  # FileDispositionInfo
+
+    # Delete-pending until the payload is complete: if this process dies mid-write, closing the
+    # handle removes the temp file instead of leaving it on the share.
+    mark_for_delete(True)
     fd = msvcrt.open_osfhandle(handle, os.O_WRONLY | os.O_BINARY)
     stream = os.fdopen(fd, "wb")
     try:
         stream.write(payload)
         stream.flush()
+        if not mark_for_delete(False):  # a delete-pending file cannot be renamed
+            raise ctypes.WinError(ctypes.get_last_error())
         encoded = target.encode("utf-16-le")
         class RenameInfo(ctypes.Structure):
             _fields_ = [("ReplaceIfExists", ctypes.c_byte), ("RootDirectory", ctypes.c_void_p),
@@ -1114,14 +1135,11 @@ def _nt_replace_relative(parent: int, temp: str, target: str, payload: bytes) ->
             if status >= 0:
                 return
             if status & 0xffffffff not in (0xC0000022, 0xC0000043) or attempt == 5:
-                raise OSError(f"NtSetInformationFile failed (0x{status & 0xffffffff:08x})")
+                raise _nt_error(status, "NtSetInformationFile")
             time.sleep(0.05 * (attempt + 1))
     except BaseException:
         # The temporary file is tied to this handle even if its parent was renamed.
-        delete = ctypes.c_byte(1)
-        set_info = ctypes.WinDLL("kernel32", use_last_error=True).SetFileInformationByHandle
-        set_info.argtypes = (ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p, ctypes.c_ulong)
-        set_info(handle, 4, ctypes.byref(delete), 1)  # FileDispositionInfo
+        mark_for_delete(True)
         raise
     finally:
         stream.close()
@@ -1228,7 +1246,8 @@ def _legacy_mac_status(share_root: Path, now: float) -> dict[str, Any] | None:
         observed = __import__("datetime").datetime.fromisoformat(str(value["observedAt"]).replace("Z", "+00:00")).timestamp()
     except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError):
         return None
-    if value.get("schemaVersion") != 1 or value.get("host") != "mac" or observed > now + 5:
+    if value.get("schemaVersion") != 1 or value.get("host") != "mac" or observed > now + 5 \
+            or not isinstance(value.get("models") or [], list):
         return None
     models = [{"id": m["id"][:120], "loadedState": m.get("loadedState") if m.get("loadedState") in STATUS_LOADED_STATES else "unknown",
                "activity": _string(m.get("activity"), 24) or "unknown"}
@@ -1280,8 +1299,11 @@ def read_peers(share_root: Path, self_host: str, now: float) -> tuple[list[dict[
     if not any(p["platform"] == "macos" and p["fresh"] for p in peers):
         legacy = _legacy_mac_status(share_root, now)
         if legacy:
-            peers = [peer for peer in peers if peer["host"].lower() != legacy["host"].lower()]
-            peers.append(legacy)
+            # Every candidate is stale here; show whichever report for that host is newest.
+            same = [peer for peer in peers if peer["host"].lower() == legacy["host"].lower()]
+            if all(legacy["ageSeconds"] <= peer["ageSeconds"] for peer in same):
+                peers = [peer for peer in peers if peer not in same]
+                peers.append(legacy)
     peers.sort(key=lambda p: p["ageSeconds"])
     fresh = [p for p in peers if p["fresh"]]
     detail = (f"{len(fresh)} reported ({', '.join(p['host'] for p in fresh)}; unsigned share files, not verified)" if fresh
