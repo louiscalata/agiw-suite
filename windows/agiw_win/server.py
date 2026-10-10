@@ -235,19 +235,24 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def sample(store: SnapshotStore, collector: Collector, stop: threading.Event, interval: float = 1.0,
-           publish_to: Path | None = None, publish_every: float = 10.0) -> None:
+           publish_to: Path | None = None, publish_every: float = 10.0, presence_to: Path | None = None,
+           dashboard_port: int | None = None) -> None:
     last_publish = 0.0
     while not stop.is_set():
         started = time.monotonic()
         try:
             data = collector.collect()
+            data["dashboardPort"] = dashboard_port
             store.publish(data)
-            if publish_to is not None and started - last_publish >= publish_every:
+            if (publish_to is not None or presence_to is not None) and started - last_publish >= publish_every:
                 last_publish = started
                 try:
-                    status = probes.pc_status(data)
-                    probes.validate_status(status)
-                    probes.write_json_atomic(publish_to, status, probes.STATUS_MAX_BYTES)
+                    if publish_to is not None:
+                        status = probes.pc_status(data)
+                        probes.validate_status(status)
+                        probes.write_json_atomic(publish_to, status, probes.STATUS_MAX_BYTES)
+                    if presence_to is not None:
+                        probes.write_json_atomic(presence_to, probes.peer_presence(data, collector.host), probes.PEER_MAX_BYTES)
                 except (OSError, ValueError) as error:
                     print(f"{time.strftime('%Y-%m-%dT%H:%M:%S')} status publish failed: {error!r}", file=sys.stderr)
         except Exception as error:  # noqa: BLE001 - a failed sample ages out; it is never re-stamped
@@ -314,6 +319,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--no-lan", action="store_true", help="skip the Mac LAN probe")
     parser.add_argument("--publish-status", action="store_true",
                         help="write llm-lab/status/windows-status.json on the share every 10 s for the Mac's status reader (opt-in)")
+    parser.add_argument("--peer-link", action="store_true",
+                        help="publish presence to llm-lab/status/agiw-peers/<host>.json every 10 s (opt-in)")
+    parser.add_argument("--config", type=Path, help="JSON with publishStatus / peerLink booleans (default: config.json beside the observer)")
     parser.add_argument("--log-file", type=Path, help="append stderr here (the tray shell does not read stderr)")
     args = parser.parse_args(argv)
     if args.log_file:
@@ -325,6 +333,14 @@ def main(argv: list[str] | None = None) -> int:
             pass
 
     here = Path(__file__).resolve().parent
+    # Opt-ins can live in a config file so turning them on needs no change to the tray's command line.
+    config_path = args.config or here.parent / "config.json"
+    try:
+        config = json.loads(config_path.read_text(encoding="utf-8-sig")) if config_path.is_file() else {}
+    except (OSError, ValueError):
+        config = {}
+    publish_status = args.publish_status or config.get("publishStatus") is True
+    peer_link = args.peer_link or config.get("peerLink") is True
     clients_fn = None
     for root in (here.parent, here.parent.parent):
         if (root / "client_models.py").is_file():
@@ -350,8 +366,12 @@ def main(argv: list[str] | None = None) -> int:
     stop = threading.Event()
     if mac_peer:
         mac_peer.start()
-    publish_to = args.share_root / "llm-lab" / "status" / probes.STATUS_FILE_NAME if args.publish_status else None
-    threading.Thread(target=sample, args=(store, collector, stop), kwargs={"publish_to": publish_to},
+    publish_to = args.share_root / "llm-lab" / "status" / probes.STATUS_FILE_NAME if publish_status else None
+    presence_to = probes.peer_dir(args.share_root) / f"{collector.host}.json" if peer_link else None
+    print(f"{time.strftime('%Y-%m-%dT%H:%M:%S')} host {collector.host}; publish status {publish_status}; peer link {peer_link}",
+          file=sys.stderr)
+    threading.Thread(target=sample, args=(store, collector, stop),
+                     kwargs={"publish_to": publish_to, "presence_to": presence_to, "dashboard_port": port},
                      name="sampler", daemon=True).start()
 
     def shutdown(*_):

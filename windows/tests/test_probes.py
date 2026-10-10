@@ -136,6 +136,56 @@ class Codemode(unittest.TestCase):
         self.assertEqual((jobs["recent"], source["state"]), ([], "unavailable"))
 
 
+class PeerLink(unittest.TestCase):
+    def write(self, root, name, value, age=0.0):
+        directory = probes.peer_dir(root)
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / name).write_text(json.dumps(value))
+
+    def peer(self, host, observed, **extra):
+        return {"schemaVersion": 1, "kind": "agiw-peer", "host": host, "platform": "macos", "edition": "mac",
+                "version": "1.0.0", "observedUnix": observed, "health": "ok",
+                "models": [{"id": "qwen/qwen3.8-27b", "loadedState": "loaded", "activity": "idle"}], **extra}
+
+    def test_reads_fresh_and_stale_peers_and_skips_itself(self):
+        now = 1000.0
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write(root, "mac.json", self.peer("louis-m5-pro", now - 4))
+            self.write(root, "old.json", self.peer("macpro51", now - 7200, platform="linux"))
+            self.write(root, "me.json", self.peer("louisaurorar12", now - 1, platform="windows"))
+            self.write(root, "junk.json", {"kind": "other"})
+            peers, source = probes.read_peers(root, "louisaurorar12", now)
+        self.assertEqual([p["host"] for p in peers], ["louis-m5-pro", "macpro51"])
+        self.assertEqual([p["fresh"] for p in peers], [True, False])
+        self.assertEqual(source["state"], "live")
+        self.assertIn("1 linked (louis-m5-pro)", source["detail"])
+
+    def test_legacy_mac_status_counts_when_no_fresh_mac_peer(self):
+        import datetime as dt
+        now = 2_000_000_000.0
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            status = root / "llm-lab" / "status"
+            status.mkdir(parents=True)
+            observed = dt.datetime.fromtimestamp(now - 10, dt.timezone.utc).isoformat().replace("+00:00", "Z")
+            (status / "mac-status.json").write_text(json.dumps({"schemaVersion": 1, "host": "mac", "observedAt": observed,
+                "health": "partial", "models": [{"id": "qwen/qwen3.8-27b", "host": "mac", "loadedState": "loaded"},
+                                                {"id": "x", "host": "windows", "loadedState": "loaded"}]}))
+            peers, source = probes.read_peers(root, "pc", now)
+        self.assertEqual((peers[0]["host"], peers[0]["source"], peers[0]["fresh"]), ("mac", "mac-status.json", True))
+        self.assertEqual([m["id"] for m in peers[0]["models"]], ["qwen/qwen3.8-27b"])
+
+    def test_future_or_malformed_presence_is_ignored(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write(root, "f.json", self.peer("future", 5000.0))
+            self.write(root, "h.json", self.peer("bad host!", 990.0))
+            peers, source = probes.read_peers(root, "pc", 1000.0)
+        self.assertEqual(peers, [])
+        self.assertEqual(source["state"], "unavailable")
+
+
 class LaneConfig(unittest.TestCase):
     def test_reads_declared_lanes(self):
         with tempfile.TemporaryDirectory() as tmp:

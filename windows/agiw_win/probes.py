@@ -866,5 +866,108 @@ def write_json_atomic(path: Path, value: Any, max_bytes: int | None = None) -> N
     os.replace(tmp, path)
 
 
+# ------------------------------------------------------------------ peer link
+# Every AGIW instance keeps its observer on loopback, so instances meet on the share instead of the
+# network: each writes llm-lab/status/agiw-peers/<host>.json every 10 s and reads the others. Nothing
+# here opens a listener, and a peer file is evidence of what that host observed, not a live connection.
+PEER_DIR = ("llm-lab", "status", "agiw-peers")
+PEER_FRESH_SECONDS = 30.0
+PEER_MAX_FILES = 16
+PEER_MAX_BYTES = 65536
+PEER_HOST = __import__("re").compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,62}\Z")
+
+
+def peer_dir(share_root: Path) -> Path:
+    return share_root.joinpath(*PEER_DIR)
+
+
+def host_id() -> str:
+    name = socket.gethostname().split(".")[0].lower()
+    return name if PEER_HOST.match(name) else "windows-pc"
+
+
+def peer_presence(snapshot: dict[str, Any], host: str) -> dict[str, Any]:
+    """This instance's presence: who it is and the verified model states it sees. No paths, prompts or keys."""
+    status = pc_status(snapshot)
+    return {"schemaVersion": 1, "kind": "agiw-peer", "host": host, "platform": "windows",
+            "edition": "windows", "version": snapshot.get("observerVersion"), "observedAt": snapshot.get("observedAt"),
+            "observedUnix": snapshot.get("sampledAt"), "health": status["health"],
+            "models": [{"id": m["id"], "aliases": m["aliases"], "loadedState": m["loadedState"], "activity": m["activity"],
+                        "slotsBusy": m["slotsBusy"], "slotsTotal": m["slotsTotal"]} for m in status["models"]],
+            "gpus": status["gpus"], "memory": status["memory"],
+            "dashboard": {"bind": "loopback", "port": snapshot.get("dashboardPort")},
+            "reads": ["agiw-peers", "mac-status.json"]}
+
+
+def _validate_peer(value: Any, now: float) -> dict[str, Any] | None:
+    if not isinstance(value, dict) or value.get("schemaVersion") != 1 or value.get("kind") != "agiw-peer":
+        return None
+    host = value.get("host")
+    observed = value.get("observedUnix")
+    if not isinstance(host, str) or not PEER_HOST.match(host) or not isinstance(observed, (int, float)) \
+            or isinstance(observed, bool) or observed > now + 5:
+        return None
+    models = []
+    for model in (value.get("models") or [])[:32]:
+        if isinstance(model, dict) and isinstance(model.get("id"), str) and model["id"].strip():
+            models.append({"id": model["id"][:120],
+                           "loadedState": model.get("loadedState") if model.get("loadedState") in STATUS_LOADED_STATES else "unknown",
+                           "activity": _string(model.get("activity"), 24) or "unknown"})
+    age = round(max(0.0, now - observed), 1)
+    return {"host": host, "platform": _string(value.get("platform"), 24) or "unknown",
+            "edition": _string(value.get("edition"), 24), "version": _string(value.get("version"), 24),
+            "health": _string(value.get("health"), 16) or "unknown", "models": models, "ageSeconds": age,
+            "fresh": age <= PEER_FRESH_SECONDS, "source": "agiw-peers"}
+
+
+def _legacy_mac_status(share_root: Path, now: float) -> dict[str, Any] | None:
+    """The Mac's on-demand mac-status.json (written by Codex's status script) as a peer record."""
+    path = share_root / "llm-lab" / "status" / "mac-status.json"
+    try:
+        value = read_json(path, PEER_MAX_BYTES)
+        observed = __import__("datetime").datetime.fromisoformat(str(value["observedAt"]).replace("Z", "+00:00")).timestamp()
+    except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError):
+        return None
+    if value.get("schemaVersion") != 1 or value.get("host") != "mac" or observed > now + 5:
+        return None
+    models = [{"id": m["id"][:120], "loadedState": m.get("loadedState") if m.get("loadedState") in STATUS_LOADED_STATES else "unknown",
+               "activity": _string(m.get("activity"), 24) or "unknown"}
+              for m in (value.get("models") or [])[:32]
+              if isinstance(m, dict) and isinstance(m.get("id"), str) and m.get("host") == "mac"]
+    age = round(max(0.0, now - observed), 1)
+    return {"host": "mac", "platform": "macos", "edition": "mac-status", "version": None,
+            "health": _string(value.get("health"), 16) or "unknown", "models": models, "ageSeconds": age,
+            "fresh": age <= PEER_FRESH_SECONDS, "source": "mac-status.json"}
+
+
+def read_peers(share_root: Path, self_host: str, now: float) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Every other AGIW instance that has published presence, newest first, plus the Mac's status file."""
+    peers: list[dict[str, Any]] = []
+    directory = peer_dir(share_root)
+    try:
+        entries = sorted((e for e in os.scandir(directory) if e.name.endswith(".json") and e.is_file(follow_symlinks=False)),
+                         key=lambda e: e.stat(follow_symlinks=False).st_mtime, reverse=True)[:PEER_MAX_FILES]
+    except OSError:
+        entries = []
+    for entry in entries:
+        try:
+            peer = _validate_peer(read_json(Path(entry.path), PEER_MAX_BYTES), now)
+        except (OSError, ValueError, json.JSONDecodeError):
+            peer = None
+        if peer and peer["host"] != self_host and peer["host"] != host_id():
+            peers.append(peer)
+    if not any(p["platform"] == "macos" and p["fresh"] for p in peers):
+        legacy = _legacy_mac_status(share_root, now)
+        if legacy:
+            peers.append(legacy)
+    peers.sort(key=lambda p: p["ageSeconds"])
+    fresh = [p for p in peers if p["fresh"]]
+    detail = (f"{len(fresh)} linked ({', '.join(p['host'] for p in fresh)})" if fresh else "No AGIW peer has published in the last 30 s")
+    stale = [p for p in peers if not p["fresh"]]
+    if stale:
+        detail += f"; {len(stale)} stale ({', '.join(p['host'] + ' ' + str(int(p['ageSeconds'] // 3600)) + ' h' for p in stale)})"
+    return peers, _source("agiw-peers", "AGIW peers", "live" if fresh else "unavailable", detail)
+
+
 def python_info() -> str:
     return f"Python {sys.version.split()[0]}"

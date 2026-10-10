@@ -174,6 +174,18 @@ class EndToEnd(unittest.TestCase):
         with self.assertRaises(ValueError):
             probes.write_json_atomic(Path(self.tmp.name) / "x.json", {"pad": "x" * 70000}, probes.STATUS_MAX_BYTES)
 
+    def test_presence_round_trip_links_a_second_instance(self):
+        data = self.collector.collect()
+        share = Path(self.tmp.name)
+        probes.write_json_atomic(probes.peer_dir(share) / "otherpc.json",
+                                 {**probes.peer_presence(data, "otherpc"), "platform": "macos"}, probes.PEER_MAX_BYTES)
+        again = self.collector.collect()
+        self.assertEqual([p["host"] for p in again["peers"]], ["otherpc"])
+        self.assertTrue(again["peers"][0]["fresh"])
+        # The Mac LAN probe is off in this test, so the share link is what connects the Mac node.
+        self.assertEqual(again["macPeer"]["state"], "linked")
+        self.assertEqual(again["macPeer"]["loadedCount"], 2)
+
     def test_post_is_read_only(self):
         conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=3)
         origin = f"http://127.0.0.1:{self.port}"
