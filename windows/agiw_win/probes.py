@@ -999,7 +999,16 @@ def write_json_atomic(path: Path, value: Any, max_bytes: int | None = None, stop
     try:
         with os.fdopen(fd, "wb") as handle:
             handle.write(payload)
-        os.replace(tmp, path)
+        # Windows refuses to replace a file another process (e.g. the Mac reading over SMB) holds open at that
+        # instant; the reader closes within milliseconds, so a few short retries ride it out.
+        for attempt in range(6):
+            try:
+                os.replace(tmp, path)
+                break
+            except PermissionError:
+                if attempt == 5:
+                    raise
+                time.sleep(0.05 * (attempt + 1))
     except BaseException:
         try:
             os.unlink(tmp)
