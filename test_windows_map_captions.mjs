@@ -167,3 +167,131 @@ test('actual cluster collision input reserves each visible Mac model name but no
       `${node.id} name is a collision obstacle`);
   }
 });
+
+test('Mac caption spacing uses the lowest model name and needs no shift when already clear', () => {
+  assert.equal(typeof layout.windowsMacCaptionShift, 'function');
+  assert.equal(layout.windowsMacCaptionShift(100, [94, 114]), 10);
+  assert.equal(layout.windowsMacCaptionShift(100, [114, 94]), 10);
+  assert.equal(layout.windowsMacCaptionShift(100, [104, 150]), 0);
+  assert.equal(layout.windowsMacCaptionShift(100, [110]), 0);
+  assert.equal(layout.windowsMacCaptionShift(100, [94], {gap: 8}), 14);
+  assert.equal(layout.windowsMacCaptionShift(-20, [-30], {gap: 0}), 10);
+});
+
+test('invalid caption measurements cannot create a nonfinite shift or numeric coercion', () => {
+  assert.equal(typeof layout.windowsMacCaptionShift, 'function');
+  for (const bottom of [null, undefined, true, '100', NaN, Infinity, -Infinity])
+    assert.equal(layout.windowsMacCaptionShift(bottom, [94]), 0);
+  for (const tops of [null, undefined, true, 94, '94', {}, [], [null, true, '94', NaN, Infinity]])
+    assert.equal(layout.windowsMacCaptionShift(100, tops), 0);
+  for (const gap of [null, true, '4', -1, NaN, Infinity])
+    assert.equal(layout.windowsMacCaptionShift(100, [94], {gap}), 0);
+  assert.equal(layout.windowsMacCaptionShift(100, [94, NaN, '90']), 10,
+    'a bad measurement cannot erase a valid sibling name');
+});
+
+class CaptionElement {
+  constructor(text, {label = false} = {}) {
+    this.textContent = text; this.attributes = {}; this.style = {}; this.label = label;
+  }
+  setAttribute(name, value) { this.attributes[name] = String(value); }
+  getAttribute(name) { return this.attributes[name] ?? null; }
+  getBBox() {
+    const y = Number(this.getAttribute('y')), font = Number.parseFloat(this.getAttribute('font-size'));
+    const width = this.textContent.length * font * .56;
+    return {x: -width / 2, y: y - font * .8, width, height: font};
+  }
+}
+
+// The real camera pass resets normal caption positions, measures SVG boxes,
+// then separates the Mac model captions before measuring cluster obstacles.
+function cameraCaptions({zoom = .42, portrait = false, host = 'windows'} = {}) {
+  const parent = {id: 'mac-peer', kind: 'mac-peer', x: 400, y: 100, r: 12,
+    label: 'Mac', subtitle: 'REPORTED VIA SHARE · 2 LOADED'};
+  const satellites = ['Qwen3.8 27b', 'Gemma 4'].map((label, index) => ({id: `mac-model:${index}`,
+    kind: 'mac-model', x: portrait ? 400 : 400 + (index ? 74 : -74),
+    y: 164 + (portrait ? index * 54 : 0), r: 7, label,
+    subtitle: 'REPORTED ON MAC', captionSide: portrait ? 'left' : index ? 'right' : 'left'}));
+  const elements = new Map();
+  for (const node of [parent, ...satellites]) elements.set(node.id, {children: [
+    new CaptionElement(''), new CaptionElement(''), new CaptionElement(''), new CaptionElement(''),
+    new CaptionElement(node.label, {label: true}), new CaptionElement(node.subtitle),
+    new CaptionElement(''), new CaptionElement('')]});
+  const groups = {children: []}, ids = new Map([
+    ['groups', groups], ['web', {classList: {toggle() {}}}],
+    ['zoomLevel', {textContent: ''}], ['footerNote', {textContent: ''}]]);
+  const api = runInNewContext(`${app}
+    snapshot={host:inputHost}; graph={nodes:inputNodes,edges:[],labels:[]};
+    camera={x:0,y:0,z:inputZoom}; paintCamera='translate(0,0) scale('+inputZoom+')'; glowZoom=inputZoom;
+    for(const [id,element] of inputElements) nodeElements.set(id,element);
+    ({get placementKind(){return typeof placeMacModelCaptions;},
+      place(){placeMacModelCaptions();}, apply(){applyCamera();},
+      spyOrder(){const calls=[],real=placeMacModelCaptions;
+        placeMacModelCaptions=()=>{calls.push('Mac captions');real();};
+        placeClusterLabels=()=>calls.push('cluster captions');return calls;}})`,
+  {...layout, inputHost: host, inputNodes: [parent, ...satellites], inputZoom: zoom,
+    inputElements: elements, document: {getElementById: id => ids.get(id)}});
+  return {api, parent, satellites, elements};
+}
+
+function modelCaptionPositions(fixture) {
+  return fixture.satellites.map(node => {
+    const [label, subtitle] = fixture.elements.get(node.id).children.slice(4, 6);
+    return {id: node.id, label: Number(label.getAttribute('y')), sub: Number(subtitle.getAttribute('y')),
+      top: node.y + label.getBBox().y};
+  });
+}
+
+test('the real Mac caption placement moves both model names and subtitles together below the parent', () => {
+  for (const portrait of [false, true]) {
+    for (const zoom of [.51, .42, .35, .29]) {
+      const fixture = cameraCaptions({zoom, portrait}), {api, parent, elements} = fixture;
+      assert.equal(api.placementKind, 'function');
+      // Set the same normal positions applyCamera supplies before separation.
+      for (const node of [parent, ...fixture.satellites]) {
+        const scale = Math.max(1, .78 / zoom), at = layout.nodeCaptionLayout(node, scale);
+        const [label, sub] = elements.get(node.id).children.slice(4, 6);
+        label.setAttribute('y', at.label.y); label.setAttribute('font-size', 12 * scale);
+        sub.setAttribute('y', at.sub.y); sub.setAttribute('font-size', node.captionSide ? Math.max(7 * scale, 9 / zoom) : 7 * scale);
+      }
+      const before = modelCaptionPositions(fixture);
+      const parentSub = elements.get(parent.id).children[5].getBBox();
+      const parentBottom = parent.y + parentSub.y + parentSub.height;
+      assert.ok(before.some(node => node.top < parentBottom), 'the fixture reproduces the confirmed overlap');
+      api.place();
+      const after = modelCaptionPositions(fixture), shift = after[0].label - before[0].label;
+      assert.ok(shift > 0);
+      after.forEach((node, i) => {
+        assert.ok(node.top >= parentBottom + 4 - 1e-9, `name clears parent at ${zoom}`);
+        assert.ok(Math.abs(node.label - before[i].label - shift) < 1e-9, 'both model names use one offset');
+        assert.ok(Math.abs(node.sub - before[i].sub - shift) < 1e-9, 'source subtitle retains its spacing below the name');
+      });
+      assert.ok(Math.abs((after[1].top - after[0].top) - (before[1].top - before[0].top)) < 1e-9,
+        'the portrait model separation is preserved');
+    }
+  }
+});
+
+test('actual camera passes separate Mac captions before cluster placement and do not accumulate offsets', () => {
+  const fixture = cameraCaptions(), {api} = fixture;
+  assert.equal(api.placementKind, 'function');
+  const calls = api.spyOrder();
+  api.apply(); const first = modelCaptionPositions(fixture);
+  assert.deepEqual(Array.from(calls), ['Mac captions', 'cluster captions']);
+  api.apply(); const second = modelCaptionPositions(fixture);
+  assert.deepEqual(second, first, 'normal camera positioning resets the shift on every pass');
+  assert.deepEqual(Array.from(calls), ['Mac captions', 'cluster captions', 'Mac captions', 'cluster captions']);
+});
+
+test('Mac-edition camera captions retain their ordinary positions without Windows separation', () => {
+  const fixture = cameraCaptions({host: 'mac'}), {api, elements} = fixture;
+  assert.equal(api.placementKind, 'function');
+  for (const element of elements.values()) {
+    element.children[4].setAttribute('y', 12); element.children[5].setAttribute('y', 44);
+  }
+  api.place();
+  for (const element of elements.values()) {
+    assert.equal(element.children[4].getAttribute('y'), '12');
+    assert.equal(element.children[5].getAttribute('y'), '44');
+  }
+});

@@ -1,6 +1,6 @@
 import {formatTokens,summarizeReportedCalls} from '/usage-format.mjs';
 import {onlineCodeModeView,routeQueueRows,nisiV02View,fixNisiStepsView,nisiRecoveryView,fixNisiEvidence,fixNisiMessage} from '/online-code-mode.mjs';
-import {constellationLayout,fitGraph,prioritizeRuntimeModels,runtimeModelRoster,CORE_MODEL_IDS,hasAdvertisedWindowsWorker,afmView,jevView,modelStarSize,windowsJobsView,windowsLaneView,resolveLabelCollisions,clampCamera,nextNodeInDirection,reviewConsistencyView,headlessSwitchView,activityFeed,vitalsView,windowsLaneRows,nodeCaptionLayout,macGpuView,localCallersView,laneSpeeds,speedsText,jobFlags,activitySummary,pcGpuView,orbWebKey,orbWebLayout,orbWebActivity,orbWebPluck,orbWebPathsAt,orbWebFlashPath,pluckOffsets,createWebMotion,edgeCurvePath,webGlows,glowRadius,memoryView,memoryBannerView,memoryDismissal,memoryHoldAt,memoryAnnouncement,routeQueuedWords,macPeerView,windowsMacListEntries,agiwPeersRows,windowsSharePublishRow,pcAdaptersView} from '/map-layout.mjs';
+import {constellationLayout,fitGraph,prioritizeRuntimeModels,runtimeModelRoster,CORE_MODEL_IDS,hasAdvertisedWindowsWorker,afmView,jevView,modelStarSize,windowsJobsView,windowsLaneView,resolveLabelCollisions,clampCamera,nextNodeInDirection,reviewConsistencyView,headlessSwitchView,activityFeed,vitalsView,windowsLaneRows,nodeCaptionLayout,windowsMacCaptionShift,macGpuView,localCallersView,laneSpeeds,speedsText,jobFlags,activitySummary,pcGpuView,orbWebKey,orbWebLayout,orbWebActivity,orbWebPluck,orbWebPathsAt,orbWebFlashPath,pluckOffsets,createWebMotion,edgeCurvePath,webGlows,glowRadius,memoryView,memoryBannerView,memoryDismissal,memoryHoldAt,memoryAnnouncement,routeQueuedWords,macPeerView,windowsMacListEntries,agiwPeersRows,windowsSharePublishRow,pcAdaptersView} from '/map-layout.mjs';
 import {modelControlView,submitModelControl} from '/model-control-view.mjs';
 const $=id=>document.getElementById(id), NS='http://www.w3.org/2000/svg';
 const ACTIVE=new Set(['generating','busy']);
@@ -299,7 +299,18 @@ function applyCamera(){
   // The flipped PC subtitle states what the "WINDOWS PC · …" header would, in the same band above the hub,
   // so the header steps aside while the subtitle is up there.
   [...$('groups').children].forEach((label,i)=>{label.setAttribute('font-size',`${11/camera.z}px`);label.setAttribute('visibility',graph.labels[i]?.kind==='windows'&&pcSubAbove?'hidden':'visible');});
+  placeMacModelCaptions();
   placeClusterLabels();
+}
+function placeMacModelCaptions(){
+  if(snapshot?.host!=='windows')return;
+  const peer=graph.nodes.find(n=>n.kind==='mac-peer'),models=graph.nodes.filter(n=>n.kind==='mac-model');
+  const parentSub=peer&&nodeElements.get(peer.id)?.children[5];if(!parentSub||!models.length)return;
+  let peerBottom;try{const box=parentSub.getBBox();peerBottom=peer.y+box.y+box.height;}catch(_){return;}
+  const captions=models.map(n=>{const g=nodeElements.get(n.id);if(!g)return null;const label=g.children[4],sub=g.children[5];try{return{label,sub,top:n.y+label.getBBox().y};}catch(_){return null;}}).filter(Boolean);
+  const shift=windowsMacCaptionShift(peerBottom,captions.map(c=>c.top),{gap:4/camera.z});if(!shift)return;
+  // applyCamera resets these baselines first; measuring here cannot accumulate offsets.
+  for(const {label,sub} of captions)for(const text of [label,sub]){const y=Number(text.getAttribute('y'));if(Number.isFinite(y))text.setAttribute('y',y+shift);}
 }
 // Cluster labels are measured at the current zoom and moved off nodes, their always-on captions and each other.
 const CAPTIONED=new Set(['runtime','client','windows-worker','windows-lane','mac-model']);
