@@ -799,5 +799,43 @@ def codemode_jobs(runs_root: Path, specs: list[dict[str, Any]], now: float) -> t
                          f"{len(runs[:CODEMODE_RUNS_MAX])} recent run manifests read{newest}; rates are whole-request, not decode")
 
 
+# ------------------------------------------------------------ status publisher
+def pc_status(snapshot: dict[str, Any]) -> dict[str, Any]:
+    """The PC counterpart of llm-lab/status/mac-status.json (same schema 1 shape), built from one snapshot.
+    Model ids, lane states, versions and counts only; no paths, prompts, keys or client metadata."""
+    lanes = snapshot.get("lanes") or []
+    up = [lane for lane in lanes if lane.get("status") in ("idle", "busy")]
+    mismatch = [lane["id"] for lane in lanes if lane.get("status") == "identity_mismatch"]
+    health = "ok" if lanes and len(up) == len(lanes) else "degraded" if up else "down"
+    models = [{"id": lane.get("expectedModel"), "host": "windows", "lane": lane.get("id"), "port": lane.get("port"),
+               "loadedState": "loaded" if lane.get("status") in LANE_UP else "unknown" if lane.get("status") in ("loading", "identity_mismatch", "unknown") else "inactive",
+               "activity": lane.get("phase") if lane.get("status") in ("idle", "busy") else "unknown",
+               "servedModel": lane.get("servedModel"), "slotsBusy": lane.get("slotsBusy"), "slotsTotal": lane.get("slotsTotal"),
+               "liveTokensPerSecond": lane.get("liveTokensPerSecond")} for lane in lanes]
+    gpus = [{key: gpu.get(key) for key in ("index", "name", "utilizationPercent", "memoryUsedMiB", "memoryTotalMiB", "temperatureC")}
+            for gpu in snapshot.get("pcGpus") or []]
+    memory = snapshot.get("memory") or {}
+    queue = (snapshot.get("pipeline") or {}).get("queue") or {}
+    limitations = []
+    if mismatch:
+        limitations.append("lane identity mismatch: " + ", ".join(mismatch))
+    if (snapshot.get("macPeer") or {}).get("state") != "reachable":
+        limitations.append("mac LM Studio not reachable from the PC")
+    return {"schemaVersion": 1, "observedAt": snapshot.get("observedAt"), "host": "windows",
+            "producer": f"agiw-win-observer {snapshot.get('observerVersion')}", "health": health, "tasks": [],
+            "models": models, "gpus": gpus, "adapters": [a.get("name") for a in snapshot.get("pcAdapters") or []],
+            "memory": {"level": memory.get("level"), "availablePercent": memory.get("availablePercent")},
+            "routeQueue": {key: queue.get(key) for key in ("pending", "claimed", "staleClaimed", "completed")} if queue else None,
+            "components": [{"name": c.get("label"), "status": c.get("state")} for c in snapshot.get("components") or []],
+            "limitations": limitations}
+
+
+def write_json_atomic(path: Path, value: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.tmp-{os.getpid()}")
+    tmp.write_text(json.dumps(value, separators=(",", ":")), encoding="utf-8")
+    os.replace(tmp, path)
+
+
 def python_info() -> str:
     return f"Python {sys.version.split()[0]}"
