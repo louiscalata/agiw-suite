@@ -47,9 +47,106 @@ test('linked through SharedChami reads as connected without claiming the LAN', (
   assert.equal(v.reachable, true);
   assert.equal(v.linked, true);
   assert.equal(v.subtitle, 'REPORTED VIA SHARE · 1 LOADED');
-  assert.match(v.rows[0][1], /unsigned file, not verified; LM Studio not open to the LAN/);
+  assert.match(v.rows[0][1], /Reported via SharedChami.*unsigned file, not verified/);
+  assert.doesNotMatch(v.rows[0][1], /LM Studio not open|LM Studio.*answer|closed to the LAN/i);
   assert.equal(v.chip.short, 'Reported · 1 loaded');
   assert.equal(v.chip.tone, 'muted');
+});
+
+test('share reports expire at 30 seconds while LAN probes remain current for 45', () => {
+  const linked = peer({state: 'linked', via: 'sharedchami', ageSeconds: 25, linkAgeSeconds: 25});
+  const atLimit = macPeerView(linked, {feedFresh: true, snapshotAge: 5});
+  assert.equal(atLimit.state, 'linked');
+  assert.equal(atLimit.age, 30);
+  assert.match(atLimit.rows[0][1], /30 s old/);
+  const expired = macPeerView(linked, {feedFresh: true, snapshotAge: 5.01});
+  assert.equal(expired.state, 'unknown');
+  assert.equal(expired.reachable, false);
+  assert.equal(expired.loadedKnown, false);
+  assert.deepEqual(expired.satellites, []);
+  assert.equal(macPeerView(peer({ageSeconds: 40}), {feedFresh: true, snapshotAge: 5}).state, 'reachable');
+  assert.equal(macPeerView(peer({ageSeconds: 40}), {feedFresh: true, snapshotAge: 5.01}).state, 'unknown');
+});
+
+test('an unknown or incomplete model listing never becomes a known loaded total', () => {
+  const incomplete = [
+    [{id: 'a', state: 'unknown'}],
+    [{id: 'a', state: 'listed'}],
+    [{id: 'a', state: 'loaded'}, {id: 'b', state: 'unknown'}],
+    [{id: 'a', state: 'not-loaded'}, {id: 'b', state: 'listed'}],
+    [{id: 'a', state: 'loaded'}, {id: 'b', state: 'busy'}],
+    [{id: 'a', state: 'loaded'}, null],
+  ];
+  for (const state of ['linked', 'reachable']) {
+    for (const models of incomplete) {
+      for (const loadedCount of [0, 1]) {
+        const v = macPeerView(peer({state, models, loadedCount}), {feedFresh: true});
+        assert.equal(v.loadedKnown, false, `${state}: ${JSON.stringify(models)} must not confirm ${loadedCount}`);
+        assert.equal(v.loadedCount, null);
+        assert.match(v.subtitle, /LOADED STATE UNKNOWN/);
+        assert.doesNotMatch(v.chip.short, /\d+ loaded/);
+      }
+    }
+  }
+});
+
+test('an empty LAN listing proves zero loaded while an empty share report leaves residency unknown', () => {
+  const lan = macPeerView(peer({models: [], loadedCount: 0}), {feedFresh: true});
+  assert.equal(lan.loadedKnown, true);
+  assert.equal(lan.loadedCount, 0);
+  assert.match(lan.subtitle, /0 LOADED/);
+  for (const loadedCount of [0, 1]) {
+    const share = macPeerView(peer({state: 'linked', models: [], loadedCount}), {feedFresh: true});
+    assert.equal(share.loadedKnown, false);
+    assert.equal(share.loadedCount, null);
+    assert.match(share.subtitle, /LOADED STATE UNKNOWN/);
+  }
+});
+
+test('fully known model residency keeps loaded and zero-loaded totals', () => {
+  for (const state of ['linked', 'reachable']) {
+    const known = macPeerView(peer({state, loadedCount: 1}), {feedFresh: true});
+    assert.equal(known.loadedKnown, true);
+    assert.equal(known.loadedCount, 1);
+    assert.deepEqual(known.loaded.map(m => m.id), ['openai/gpt-oss-20b']);
+    const inactive = macPeerView(peer({state, loadedCount: 0,
+      models: [{id: 'a', state: 'not-loaded'}, {id: 'b', state: 'not-loaded'}]}), {feedFresh: true});
+    assert.equal(inactive.loadedKnown, true);
+    assert.equal(inactive.loadedCount, 0);
+    assert.match(inactive.subtitle, /0 LOADED/);
+    assert.equal(inactive.rows.find(([k]) => k === 'Loaded models')[1], 'None');
+  }
+});
+
+test('a linked expected-model row follows current share residency instead of an old LAN boolean', () => {
+  const id = 'openai/gpt-oss-20b';
+  for (const [state, expectedVerifyLoaded, label, loadedCount] of [
+    ['loaded', false, 'loaded', 1], ['not-loaded', true, 'not loaded', 0],
+  ]) {
+    const v = macPeerView(peer({state: 'linked', expectedVerifyLoaded, loadedCount,
+      models: [{id, state}]}), {feedFresh: true});
+    assert.equal(v.rows.find(([key]) => key === 'Expected verify model')[1], `${id} · ${label}`);
+  }
+});
+
+test('an old loaded claim cannot fill unknown or absent expected-model residency in a share report', () => {
+  const id = 'openai/gpt-oss-20b';
+  for (const models of [[{id, state: 'unknown'}], [{id, state: 'listed'}], [],
+    [{id: 'qwen/qwen3.8-27b', state: 'loaded'}]]) {
+    const v = macPeerView(peer({state: 'linked', expectedVerifyLoaded: true, models}), {feedFresh: true});
+    const expected = v.rows.find(([key]) => key === 'Expected verify model')[1];
+    assert.ok(expected.includes(id));
+    assert.doesNotMatch(expected, / · (?:not )?loaded(?:$| ·)/,
+      `current share states ${JSON.stringify(models)} do not establish expected-model residency`);
+  }
+});
+
+test('absence from a complete LAN inventory proves the expected model is not loaded', () => {
+  const id = 'openai/gpt-oss-20b';
+  for (const models of [[], [{id: 'qwen/qwen3.8-27b', state: 'loaded'}]]) {
+    const v = macPeerView(peer({expectedVerifyLoaded: true, models, loadedCount: models.length}), {feedFresh: true});
+    assert.equal(v.rows.find(([key]) => key === 'Expected verify model')[1], `${id} · not loaded`);
+  }
 });
 
 test('peer rows name each AGIW instance and its freshness', () => {
@@ -58,6 +155,31 @@ test('peer rows name each AGIW instance and its freshness', () => {
   assert.equal(rows.length, 1);
   assert.match(rows[0][1], /^Reported \(unverified\) · macos · mac · 1\.0\.0 · 1 loaded · 4 s ago/);
   assert.deepEqual(agiwPeersRows([], {feedFresh: true}), [['AGIW peers', 'None has published on SharedChami yet']]);
+});
+
+test('peer rows disclose unknown or partial residency instead of zero loaded', () => {
+  for (const models of [undefined, [], [{id: 'a', loadedState: 'unknown'}],
+    [{id: 'a', loadedState: 'loaded'}, {id: 'b', loadedState: 'unknown'}],
+    [{id: 'a', loadedState: 'inactive'}, {id: 'b'}]]) {
+    const rows = agiwPeersRows([{host: 'mac-peer', fresh: true, ageSeconds: 2, models}], {feedFresh: true});
+    assert.match(rows[0][1], /loaded state unknown/i);
+    assert.doesNotMatch(rows[0][1], /(?:^| · )\d+ loaded(?: · |$)/);
+  }
+  assert.match(agiwPeersRows([{host: 'mac-peer', fresh: true, ageSeconds: 2,
+    models: [{id: 'a', loadedState: 'loaded'}, {id: 'b', loadedState: 'inactive'}]}],
+    {feedFresh: true})[0][1], /1 loaded/);
+  assert.match(agiwPeersRows([{host: 'mac-peer', fresh: true, ageSeconds: 2,
+    models: [{id: 'a', loadedState: 'inactive'}]}], {feedFresh: true})[0][1], /0 loaded/);
+});
+
+test('peer rows age share freshness with the dashboard snapshot', () => {
+  const reported = [{host: 'mac-peer', fresh: true, ageSeconds: 28,
+    models: [{id: 'a', loadedState: 'loaded'}]}];
+  assert.match(agiwPeersRows(reported, {feedFresh: true, snapshotAge: 2})[0][1], /^Reported \(unverified\).*30 s ago/);
+  const expired = agiwPeersRows(reported, {feedFresh: true, snapshotAge: 2.01})[0][1];
+  assert.match(expired, /^Stale/);
+  assert.doesNotMatch(expired, /Reported \(unverified\)|Linked/);
+  assert.match(agiwPeersRows([{...reported[0], fresh: false, ageSeconds: 1}], {feedFresh: true})[0][1], /^Stale/);
 });
 
 test('the reported loaded count wins over the validated name list, and the gap is disclosed', () => {
