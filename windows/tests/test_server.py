@@ -50,7 +50,7 @@ class EndToEnd(unittest.TestCase):
         (share / "llm-lab" / "config.json").write_text("{}")
         gib = 2 ** 30
         self.collector = Collector(
-            share, share / "bin", lane_interval=0.05, lane_wait=3.0,
+            share, share / "bin", lane_interval=0.05, lane_wait=3.0, runs_root=share / "code-runs",
             gpu_fn=lambda: ([{"index": 0, "name": "RTX", "utilizationPercent": 10.0, "memoryUsedMiB": 100.0,
                               "memoryTotalMiB": 12288.0, "temperatureC": 40.0, "powerW": 50.0, "vendor": "nvidia"}],
                             probes._source("pc-gpu", "PC GPU", "live", "ok")),

@@ -21,6 +21,7 @@ class LanePoller:
     def __init__(self, spec: dict[str, Any], fetch: probes.Fetch, clock: Callable[[], float], interval: float = 1.0):
         self.spec, self.fetch, self.clock, self.interval = spec, fetch, clock, interval
         self._latest: tuple[float, dict[str, Any]] | None = None
+        self._decoded: dict[int, tuple[float, float]] = {}
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, name=f"lane-{spec['id']}", daemon=True)
@@ -34,8 +35,10 @@ class LanePoller:
             except Exception:  # noqa: BLE001
                 lane = None
             if lane is not None:
+                at = self.clock()
+                lane["liveTokensPerSecond"], self._decoded = probes.live_decode_rate(self._decoded, lane, at)
                 with self._lock:
-                    self._latest = (self.clock(), lane)
+                    self._latest = (at, lane)
             self._stop.wait(max(0.05, self.interval - (time.monotonic() - started)))
 
     def read(self) -> tuple[float, dict[str, Any]] | None:
@@ -56,7 +59,7 @@ class Collector:
                  memory_fn: Callable[[], tuple[dict, dict]] = probes.memory_block,
                  clients_fn: Callable[[float], tuple[list, list]] | None = None,
                  mac_peer: probes.MacPeer | None = None, clock: Callable[[], float] = time.time,
-                 lane_interval: float = 1.0, lane_wait: float = 0.0):
+                 lane_interval: float = 1.0, lane_wait: float = 0.0, runs_root: Path | None = None):
         self.share_root = share_root
         self.bin_root = bin_root or Path.home() / "bin"
         self.fetch, self.gpu_fn, self.adapters_fn, self.memory_fn = fetch, gpu_fn, adapters_fn, memory_fn
@@ -68,6 +71,8 @@ class Collector:
         self._adapters: list | None = None
         self._lock = threading.Lock()
         self._pollers: dict[tuple, LanePoller] = {}
+        self._jobs_cache: tuple[float, dict, dict] | None = None
+        self.runs_root = runs_root or Path.home() / "code-runs"
         self.lane_interval, self.lane_wait = lane_interval, lane_wait
 
     def _lane(self, spec: dict[str, Any], now: float) -> dict[str, Any]:
@@ -114,6 +119,20 @@ class Collector:
             self._gpu_cache = (now, gpus, source)
         return gpus, source
 
+    # Manifests change only when a codemode run ends; ten seconds of reuse is plenty, re-aged on read.
+    def _jobs(self, specs: list[dict[str, Any]], now: float) -> tuple[dict, dict]:
+        cached = self._jobs_cache
+        if cached is None or now - cached[0] >= 10.0:
+            jobs, source = probes.codemode_jobs(self.runs_root, specs, now)
+            self._jobs_cache = cached = (now, jobs, source)
+        at, jobs, source = cached
+        extra = now - at
+        if extra:
+            jobs = {**jobs, "recent": [{**row, "ageSeconds": round(row["ageSeconds"] + extra, 1)} for row in jobs["recent"]],
+                    "lastSuccess": ({**jobs["lastSuccess"], "ageSeconds": round(jobs["lastSuccess"]["ageSeconds"] + extra, 1)}
+                                    if jobs["lastSuccess"] else None)}
+        return jobs, source
+
     def _adapter_list(self) -> list:
         if self._adapters is None:
             try:
@@ -133,6 +152,7 @@ class Collector:
         for lane, spec in zip(lanes, specs):
             row = probes.lane_model_row(lane, spec, sampled)
             row["ageSeconds"] = lane["ageSeconds"]
+            row["metadata"]["liveTokensPerSecond"] = lane.get("liveTokensPerSecond")
             rows.append(row)
         complete = all(lane["status"] in ("idle", "busy") for lane in lanes)
         any_up = any(lane["status"] in probes.LANE_UP for lane in lanes)
@@ -150,6 +170,8 @@ class Collector:
         sources.append(gpu_source)
         memory, memory_source = self.memory_fn()
         sources.append(memory_source)
+        jobs, jobs_source = self._jobs(specs, sampled)
+        sources.append(jobs_source)
         pipeline, queue_source = probes.route_queue(self.bin_root / "online-code-route-queue", sampled)
         sources.append(queue_source)
         share, share_source = probes.share_health(self.share_root)
@@ -179,7 +201,8 @@ class Collector:
             "lanes": {lane["id"]: {"up": lane["status"] in probes.LANE_UP, "model": lane["expectedModel"],
                                    "slotsBusy": lane["slotsBusy"], "slotsTotal": lane["slotsTotal"],
                                    "status": lane["status"], "servedModel": lane["servedModel"],
-                                   "port": lane["port"], "device": lane["device"]}
+                                   "port": lane["port"], "device": lane["device"],
+                                   "liveTokensPerSecond": lane.get("liveTokensPerSecond")}
                       for lane in lanes},
             # The dashboard voids the whole GPU sample on one unmeasured field, so only fully read cards go here;
             # pcGpus keeps every card with None for what nvidia-smi did not report.
@@ -196,7 +219,7 @@ class Collector:
             "schemaVersion": 1, "host": "windows", "edition": "windows", "observerVersion": VERSION,
             "observedAt": observed, "sampledAt": sampled,
             "models": rows, "sources": sources, "pipeline": pipeline, "components": components,
-            "windowsWorker": worker, "windowsJobs": None, "memory": memory,
+            "windowsWorker": worker, "windowsJobs": jobs, "memory": memory,
             "macPeer": mac, "share": share, "clients": clients,
             "pcAdapters": self._adapter_list(), "pcGpus": gpus,
             "lanes": lanes,

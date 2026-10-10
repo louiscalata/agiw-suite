@@ -713,5 +713,91 @@ class MacPeer:
         return latest, _source("mac-peer", "Mac (LAN)", state, latest.get("detail") or "", latest["ageSeconds"])
 
 
+# ------------------------------------------------------------- live decode rate
+def live_decode_rate(previous: dict[int, tuple[float, float]], lane: dict[str, Any], now: float) -> tuple[float | None, dict]:
+    """Tokens per second generated across a lane's busy slots, from the change in each slot's decoded count
+    between two polls of the same request. Only slots that were generating in both polls count; a new
+    request (decoded count went down) or a long gap contributes nothing rather than a guess."""
+    current: dict[int, tuple[float, float]] = {}
+    total, counted = 0.0, 0
+    for slot in lane.get("slots") or []:
+        decoded, slot_id = slot.get("decodedTokens"), slot.get("id")
+        if not slot.get("isProcessing") or not isinstance(decoded, (int, float)) or not isinstance(slot_id, int):
+            continue
+        current[slot_id] = (float(decoded), now)
+        before = previous.get(slot_id)
+        if before is None:
+            continue
+        delta, gap = decoded - before[0], now - before[1]
+        if delta > 0 and 0.2 <= gap <= 10.0:
+            total += delta / gap
+            counted += 1
+    return (round(total, 1) if counted else None), current
+
+
+# ------------------------------------------------------------ codemode history
+CODEMODE_RUNS_MAX = 20
+CODEMODE_MANIFEST_MAX = 128_000
+
+
+def codemode_jobs(runs_root: Path, specs: list[dict[str, Any]], now: float) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Recent codemode stage calls as dashboard job rows (schemaVersion 1, journal codemode-runs).
+
+    Each stage's rate is completion tokens over the stage's whole request time, prompt included,
+    so it is published as approxPerSecond, never as a decode rate (predictedPerSecond stays null).
+    """
+    ports = {spec["port"]: spec["id"] for spec in specs}
+    empty = {"schemaVersion": 1, "journal": "codemode-runs", "inFlight": [], "recent": [], "lastSuccess": None, "clientsRecent": {}}
+    try:
+        runs = []
+        with os.scandir(runs_root) as entries:
+            for entry in entries:
+                if entry.is_dir(follow_symlinks=False) and len(entry.name) >= 15 and entry.name[:8].isdigit():
+                    manifest = Path(entry.path) / "manifest.json"
+                    try:
+                        runs.append((manifest.stat().st_mtime, manifest))
+                    except OSError:
+                        continue
+    except OSError:
+        return empty, _source("codemode-runs", "codemode runs", "unavailable", "code-runs folder unreadable")
+    runs.sort(reverse=True)
+    recent: list[dict[str, Any]] = []
+    for mtime, manifest in runs[:CODEMODE_RUNS_MAX]:
+        try:
+            data = read_json(manifest, CODEMODE_MANIFEST_MAX)
+        except (OSError, ValueError, json.JSONDecodeError):
+            continue
+        run_id = _string(data.get("run_id"), 40) or manifest.parent.name
+        certified = data.get("verification") == "CERTIFIED"
+        for metric in (data.get("metrics") or [])[:8]:
+            if not isinstance(metric, dict) or metric.get("kind") != "local":
+                continue
+            endpoint = _string(metric.get("endpoint"), 80) or ""
+            try:
+                lane = ports.get(int(endpoint.rsplit(":", 1)[1].split("/")[0]))
+            except (IndexError, ValueError):
+                lane = None
+            tokens, seconds = _number(metric.get("tok"), 0, 1 << 24), _number(metric.get("sec"), 0.001, 86400)
+            stage = _string(metric.get("stage"), 20) or "stage"
+            mismatch = metric.get("served_mismatch") is True
+            recent.append({"id": f"{run_id}:{stage}", "lane": lane, "client": "codemode", "stage": stage,
+                           "model": _string(metric.get("served") or metric.get("model"), 80),
+                           "state": "invalid-result" if mismatch else "success" if metric.get("finish") == "stop" else "error",
+                           "completionTokens": tokens, "elapsedSeconds": seconds,
+                           "approxPerSecond": round(tokens / seconds, 1) if tokens and seconds else None,
+                           "predictedPerSecond": None, "promptPerSecond": None,
+                           "flags": ["hit-token-limit"] if metric.get("finish") == "length" else [],
+                           "runVerification": _string(data.get("verification"), 24), "certified": certified,
+                           "ageSeconds": round(max(0.0, now - mtime), 1)})
+    recent = recent[:40]
+    success = next((row for row in recent if row["state"] == "success" and row["model"] and row["elapsedSeconds"]), None)
+    jobs = {**empty, "recent": recent,
+            "lastSuccess": ({key: success[key] for key in ("id", "lane", "model", "elapsedSeconds", "ageSeconds", "client")}
+                            if success else None)}
+    newest = f"; newest run {recent[0]['ageSeconds'] / 86400:.1f} d ago" if recent else ""
+    return jobs, _source("codemode-runs", "codemode runs", "live",
+                         f"{len(runs[:CODEMODE_RUNS_MAX])} recent run manifests read{newest}; rates are whole-request, not decode")
+
+
 def python_info() -> str:
     return f"Python {sys.version.split()[0]}"
