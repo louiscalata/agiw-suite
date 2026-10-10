@@ -451,12 +451,48 @@ def memory_guard(**options):
         return None
 
 
+def memory_route_context(data):
+    """(route_pair, route_live) for the memory guard's suggestions, from this sample's own Nisi
+    component and pipeline. route_pair maps the Nisi edit pair's model ids to 'author' and
+    'reviewer', only while the component reads 'ready' and names two different models.
+    route_live is True while the pipeline reads 'running' or Nisi reads 'in-use'. A malformed
+    components or pipeline value reads as no context (None, False); this never raises."""
+    pair, live = None, False
+    try:
+        components = data.get('components')
+        nisi = next((row for row in components if isinstance(row, dict) and row.get('id') == 'nisi'),
+                    None) if isinstance(components, list) else None
+        if nisi is not None:
+            state = nisi.get('state')
+            author, reviewer = nisi.get('authorModel'), nisi.get('reviewerModel')
+            if (state == 'ready' and isinstance(author, str) and isinstance(reviewer, str)
+                    and author.strip() and reviewer.strip() and author.casefold() != reviewer.casefold()):
+                pair = {author: 'author', reviewer: 'reviewer'}
+            live = state == 'in-use'
+    except Exception:
+        pair, live = None, False
+    try:
+        pipeline = data.get('pipeline')
+        if isinstance(pipeline, dict) and pipeline.get('status') == 'running':
+            live = True
+    except Exception:
+        pass
+    return pair, live
+
+
 def memory_sample(guard, data):
     """snapshot['memory'] and the mem-guard source row. Any failure reads as level 'unknown' with
-    the source 'unavailable'; it never interrupts the rest of the sample."""
+    the source 'unavailable'; it never interrupts the rest of the sample. The Nisi route context
+    is passed only when there is some, so a guard without those keywords still samples."""
     try:
         gpu = data.get('macGpu') or {}
-        return guard.sample(gpu.get('allocatedBytes'), data.get('models'))
+        route_pair, route_live = memory_route_context(data)
+        context = {}
+        if route_pair is not None:
+            context['route_pair'] = route_pair
+        if route_live:
+            context['route_live'] = True
+        return guard.sample(gpu.get('allocatedBytes'), data.get('models'), **context)
     except Exception:
         return unknown_block(), {'id': 'mem-guard', 'label': 'Memory guard', 'state': 'unavailable',
                                  'ageSeconds': None, 'detail': 'Memory probes failed'}
@@ -548,10 +584,13 @@ def router_unload_guard(*, lock_path=None, route_read=None, install_read=None):
             os.close(fd)
 
 
-def sample(store, stop, feed=None, tick=0.15, full_interval=1.0, guard=None, auto_unloader=None):
+def sample(store, stop, feed=None, tick=0.15, full_interval=1.0, guard=None, auto_unloader=None,
+           publisher=None):
     """One loop: a full sample every second and, between them, change-driven overlays every tick.
     main() passes the monitor's memory guard (with its watchdog); without one, the memory block
-    comes from a read-only guard that never pauses, notifies, journals or publishes level.json."""
+    comes from a read-only guard that never pauses, notifies, journals or publishes level.json.
+    A presence publisher (peer_feed.PresencePublisher) adds its source rows to each full sample and
+    is handed the published snapshot afterwards; it writes on its own thread and never blocks this loop."""
     feed = feed or LiveFeed()
     callers = LocalCallers()
     if guard is None:
@@ -596,7 +635,7 @@ def sample(store, stop, feed=None, tick=0.15, full_interval=1.0, guard=None, aut
             data['memory'], memory_source = memory
             data['sources'].append(memory_source)
             activity = collect_activity()
-            data['activity'] = {'runs': activity['runs']}
+            data['activity'] = {'runs': activity['runs'], 'historyBound': activity.get('historyBound')}
             data['sources'].extend(activity['sources'])
             try:
                 clients, client_sources = collect_clients()
@@ -611,7 +650,19 @@ def sample(store, stop, feed=None, tick=0.15, full_interval=1.0, guard=None, aut
                                         'detail': 'Client model records unavailable'})
             if auto_unloader is not None:
                 data['autoUnload'] = auto_unloader.state()
+            if publisher is not None:
+                try:
+                    data['sources'].extend(publisher.sources())
+                except Exception:
+                    data['sources'].append({'id': 'agiw-presence', 'label': 'AGIW presence (share)',
+                                            'state': 'error', 'ageSeconds': None,
+                                            'detail': 'Presence publisher state unreadable'})
             store.publish(data)
+            if publisher is not None:
+                try:
+                    publisher.offer(store.read)  # due every 10 s; hands over the snapshot, never waits on the share
+                except Exception:
+                    pass
             if prints is not None:
                 feed.set_baseline(prints)
             if auto_unloader is not None:
@@ -640,15 +691,82 @@ def write_endpoint(port, path=None):
         pass
 
 
+def start_peer_link(store, report=None):
+    """Serve this Mac's latest snapshot to paired machines over the LAN; pairing needs a typed PIN.
+
+    Never raises: any failure (a busy port, a corrupt or exposed state file, a slow ACL check) leaves the link
+    off, notes it on stderr and hands the exception to report (PresencePublisher.link_failed, which shows an
+    'agiw-peer-link' error row under Sources). The observer keeps running either way."""
+    try:
+        import socket
+        import peer_feed
+        import peer_link
+        name = socket.gethostname().split('.')[0]
+
+        def provide():
+            with store.lock:
+                snapshot = store.snapshot
+            return peer_feed.mac_presence(snapshot, name.lower())
+
+        return peer_link.PeerLink(peer_link.default_state_dir(), 'mac', name, provide,
+                                  broadcast=peer_link.directed_broadcasts()).start()
+    except Exception as exc:
+        print(json.dumps({'peerLink': 'unavailable', 'reason': type(exc).__name__}), file=sys.stderr, flush=True)
+        if report is not None:
+            try:
+                report(exc)
+            except Exception:
+                pass
+        return None
+
+
+def stop_peer_link(link):
+    """Best effort: a link that fails to stop never skips the rest of shutdown."""
+    try:
+        link.stop()
+    except Exception:
+        pass
+
+
+def peer_options(publish_status=False, peer_link=False, config=None, port=None):
+    """(options, publisher) for the PC edition's opt-ins: flags win, then the AGIW config.json, both off by
+    default. publishStatus or peerLink writes this Mac's presence to SharedChami every 10 s; peerLink also
+    starts the LAN peer link. A missing peer_feed module only turns them off."""
+    try:
+        import peer_feed
+        options = peer_feed.link_options(publish_status, peer_link, config)
+        publisher = peer_feed.PresencePublisher(peer_feed.host_id(), enabled=options['presence'],
+                                                version=peer_feed.app_version(), dashboard_port=port,
+                                                enabled_by=options['enabledBy'],
+                                                config_source=options['configSource'])
+        return options, publisher
+    except Exception:
+        return {'publishStatus': False, 'peerLink': False, 'presence': False, 'lanLink': False,
+                'enabledBy': '', 'configSource': None}, None
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--port', type=int, default=0)
     parser.add_argument('--parent-pid', type=int)
     parser.add_argument('--durable-model-control', action='store_true')
+    parser.add_argument('--publish-status', action='store_true',
+                        help="write this Mac's presence to llm-lab/status/agiw-peers/<host>.json on SharedChami "
+                             'every 10 s for the PC edition (opt-in; mac-status.json belongs to the Mac status script)')
+    parser.add_argument('--peer-link', action='store_true',
+                        help='publish presence as --publish-status does, and announce this Mac on the LAN and serve '
+                             'its status to paired AGIW machines (read-only)')
+    parser.add_argument('--config', type=Path,
+                        help='JSON with publishStatus / peerLink booleans '
+                             '(default: ~/Library/Application Support/AGIW/config.json)')
     args = parser.parse_args()
     store = SnapshotStore()
     server = (MonitorServer(('127.0.0.1', args.port), store, durable_model_control=True)
               if args.durable_model_control else MonitorServer(('127.0.0.1', args.port), store))
+    options, publisher = peer_options(args.publish_status, args.peer_link, args.config, server.server_address[1])
+    print(json.dumps({'host': getattr(publisher, 'host', None), 'publishStatus': options['publishStatus'],
+                      'peerLink': options['peerLink'], 'config': 'error' if options['configSource'] else 'ok'}),
+          file=sys.stderr, flush=True)
     stop = threading.Event()
     # Built before sampling starts: it resumes any job a crashed monitor left paused.
     # Only this production guard publishes valid sysctl readings for sandboxed CLI callers.
@@ -663,7 +781,7 @@ def main():
             route_check_fn=fresh_route)
     server.auto_unloader = auto
     threading.Thread(target=sample, args=(store, stop),
-                     kwargs={'guard': guard, 'auto_unloader': auto}, daemon=True).start()
+                     kwargs={'guard': guard, 'auto_unloader': auto, 'publisher': publisher}, daemon=True).start()
     def shutdown(*_):
         stop.set()
         stopping = getattr(server, 'stopping', None)
@@ -693,6 +811,20 @@ def main():
         threading.Thread(target=watch_parent, daemon=True).start()
     print(json.dumps({'port': server.server_address[1], 'pid': os.getpid()}), flush=True)
     write_endpoint(server.server_address[1])
+    # The LAN link starts off the startup path: the app allows 10 s for the port line and five failed polls
+    # after it, while the link's ACL checks run subprocesses with their own timeouts.
+    link_lock = threading.Lock()
+    link_slot = {'link': None, 'closed': False}
+    if options['lanLink']:
+        def bring_up_link():
+            link = start_peer_link(store, report=getattr(publisher, 'link_failed', None))
+            with link_lock:
+                if not link_slot['closed']:
+                    link_slot['link'] = link
+                    return
+            if link is not None:  # shutdown began while it was starting
+                stop_peer_link(link)
+        threading.Thread(target=bring_up_link, name='agiw-peer-link-start', daemon=True).start()
     try:
         server.serve_forever(poll_interval=.25)
     finally:
@@ -705,6 +837,13 @@ def main():
             server.online_code_repair.cancel()
         if getattr(server, 'model_control', None) is not None:
             server.model_control.cancel()
+        with link_lock:
+            link_slot['closed'] = True
+            link = link_slot['link']
+        if link is not None:
+            stop_peer_link(link)
+        if publisher is not None:
+            publisher.close()  # a write hung on the share is abandoned (daemon thread), never waited on
         stop_windows_worker_probe(timeout=.45)
         if server.online_code_repair is not None:
             server.online_code_repair.join(timeout=.45)

@@ -18,10 +18,16 @@ from http.client import HTTPConnection
 from contextlib import redirect_stdout
 # LIVE_ENDPOINT is the installed monitor's endpoint.json (agiw-status reads it); no test may write it.
 from server import ENDPOINT_PATH as LIVE_ENDPOINT, MonitorServer, SnapshotStore, sample
+import peer_feed
 
+# The real AGIW config.json (main() reads it by default); no test may read it.
+LIVE_CONFIG = peer_feed.CONFIG_PATH
 
 _endpoint_temp = None
 _endpoint_patch = None
+_peer_patches = []
+CONFIG_READS = []   # every config path main() resolved while this module ran
+LINK_STARTS = []    # every start_peer_link call that reached the guard
 
 
 def setUpModule():
@@ -30,17 +36,36 @@ def setUpModule():
     _endpoint_temp = tempfile.TemporaryDirectory()
     _endpoint_patch = patch('server.ENDPOINT_PATH', Path(_endpoint_temp.name) / 'endpoint.json')
     _endpoint_patch.start()
+    # The same net for the AGIW opt-ins: with {"peerLink": true} in the real config.json, main() would start the
+    # real LAN link (identity and control token in the real state folder, binds on 8768/8769, LAN broadcasts),
+    # and a test's never-started thread would leave link.stop() waiting forever. main() reads a missing temp
+    # config here, and start_peer_link only records.
+    real_load = peer_feed.load_config
+
+    def recording_load(path=None):
+        CONFIG_READS.append(peer_feed.CONFIG_PATH if path is None else Path(path))
+        return real_load(path)
+
+    _peer_patches[:] = [patch.object(peer_feed, 'CONFIG_PATH', Path(_endpoint_temp.name) / 'agiw' / 'config.json'),
+                        patch.object(peer_feed, 'load_config', recording_load),
+                        patch('server.start_peer_link', side_effect=lambda *a, **k: LINK_STARTS.append(a))]
+    for item in _peer_patches:
+        item.start()
 
 
 def tearDownModule():
     # Python 3.9's exit-time TemporaryDirectory warning otherwise hides fixture leaks.
     global _endpoint_temp, _endpoint_patch
+    while _peer_patches:
+        _peer_patches.pop().stop()
     if _endpoint_patch is not None:
         _endpoint_patch.stop()
         _endpoint_patch = None
     if _endpoint_temp is not None:
         _endpoint_temp.cleanup()
         _endpoint_temp = None
+    if LIVE_CONFIG in CONFIG_READS or LINK_STARTS:
+        raise AssertionError(f'a server.main() test read the live {LIVE_CONFIG} or started the LAN link')
 
 def snapshot(state='idle', sampled=None):
     return {'schemaVersion':1,'sampledAt':sampled or time.time(), 'models':[
@@ -578,6 +603,7 @@ class EndpointTest(unittest.TestCase):
             return real_replace(source, target, **options)
 
         before = live_signature()
+        reads_before = len(CONFIG_READS)
         with tempfile.TemporaryDirectory() as temp:
             endpoint = Path(temp) / 'state' / 'endpoint.json'
             with patch.object(server, 'ENDPOINT_PATH', endpoint), \
@@ -594,6 +620,11 @@ class EndpointTest(unittest.TestCase):
             self.assertEqual((published['port'], published['pid']), (12345, os.getpid()))
             self.assertEqual([p.name for p in endpoint.parent.iterdir()], ['endpoint.json'])
         self.assertEqual(live_signature(), before, f'a test rewrote the live {LIVE_ENDPOINT}')
+        # main() resolved the opt-ins from the module's temp config.json, never the live one, and started no link.
+        self.assertEqual(CONFIG_READS[reads_before:], [peer_feed.CONFIG_PATH])
+        self.assertNotEqual(peer_feed.CONFIG_PATH, LIVE_CONFIG)
+        self.assertNotIn(LIVE_CONFIG, CONFIG_READS)
+        self.assertEqual(LINK_STARTS, [])
 
 
 class MemoryGuardSampleTest(unittest.TestCase):
@@ -815,6 +846,203 @@ class MemoryGuardSampleTest(unittest.TestCase):
             invalid_sample = self.run_sampler(guard_for(invalid))
             self.assertEqual(invalid_sample['memory']['level'], 'unknown')
             self.assertFalse(path.exists(), 'invalid sysctl values are never published')
+
+
+class MemoryRouteContextTest(unittest.TestCase):
+    """memory_sample hands the guard the Nisi edit pair (only while Nisi reads 'ready') and whether a
+    route is running, from the same sample; a malformed value is no context and never an error."""
+
+    AUTHOR, REVIEWER = 'google/gemma-4-26b-a4b-qat', 'qwen/qwen3.8-27b'
+    MODELS = [{'id': REVIEWER, 'host': 'mac', 'loaded': True, 'state': 'idle', 'sizeBytes': 16081678492},
+              {'id': AUTHOR, 'host': 'mac', 'loaded': True, 'state': 'idle', 'sizeBytes': 15641332573}]
+
+    class RecordingGuard:
+        def __init__(self):
+            self.calls = []
+
+        def sample(self, gpu_alloc_bytes=None, models=None, *, route_pair=None, route_live=False):
+            self.calls.append({'gpu': gpu_alloc_bytes, 'models': models, 'route_pair': route_pair,
+                               'route_live': route_live})
+            return ({'level': 'tight'}, {'id': 'mem-guard', 'state': 'live'})
+
+    def nisi(self, state='ready', **fields):
+        row = {'id': 'nisi', 'label': 'Nisi route adapter', 'state': state}
+        if state == 'ready':
+            row.update(authorModel=self.AUTHOR, reviewerModel=self.REVIEWER)
+        row.update(fields)
+        return row
+
+    def data(self, components=None, pipeline=None):
+        return {'models': self.MODELS, 'macGpu': {'allocatedBytes': 45795885056},
+                'components': [self.nisi(), {'id': 'jev', 'state': 'configured'}] if components is None else components,
+                'pipeline': {'status': 'idle'} if pipeline is None else pipeline}
+
+    def call(self, data):
+        import server
+        guard = self.RecordingGuard()
+        block, source = server.memory_sample(guard, data)
+        self.assertEqual((block['level'], source['state']), ('tight', 'live'), 'the guard was sampled')
+        self.assertEqual(len(guard.calls), 1)
+        return guard.calls[0]
+
+    def test_route_pair_only_for_a_ready_nisi_component(self):
+        call = self.call(self.data())
+        self.assertEqual(call['route_pair'], {self.AUTHOR: 'author', self.REVIEWER: 'reviewer'})
+        self.assertEqual((call['gpu'], call['models'], call['route_live']), (45795885056, self.MODELS, False))
+        for state in ('partial', 'unknown', 'needs-action', 'unresolved', None):
+            with self.subTest(state=state):
+                row = self.nisi(state, authorModel=self.AUTHOR, reviewerModel=self.REVIEWER)
+                self.assertIsNone(self.call(self.data([row]))['route_pair'])
+        # Ready but without two named, different models: no pair.
+        for fields in ({'authorModel': None}, {'reviewerModel': ''}, {'reviewerModel': '   '}, {'authorModel': 7},
+                       {'authorModel': ['x']}, {'authorModel': self.REVIEWER.upper()}):
+            with self.subTest(fields=fields):
+                self.assertIsNone(self.call(self.data([self.nisi(**fields)]))['route_pair'])
+        self.assertIsNone(self.call(self.data([{'id': 'jev', 'state': 'ready'}]))['route_pair'])
+
+    def test_route_live_while_the_pipeline_runs_or_nisi_is_in_use(self):
+        call = self.call(self.data(pipeline={'status': 'running', 'runId': 'r1'}))
+        self.assertEqual((call['route_live'], call['route_pair']),
+                         (True, {self.AUTHOR: 'author', self.REVIEWER: 'reviewer'}))
+        call = self.call(self.data([self.nisi('in-use')]))
+        self.assertEqual((call['route_live'], call['route_pair']), (True, None))
+        for status in ('idle', 'queued', 'stale', 'unresolved', 'recovery-required', 'Running', None):
+            with self.subTest(status=status):
+                self.assertFalse(self.call(self.data(pipeline={'status': status}))['route_live'])
+
+    def test_malformed_components_or_pipeline_never_raise(self):
+        class Exploding(list):
+            def __iter__(self):
+                raise RuntimeError('components exploded')
+
+        components_cases = ('nisi', {'id': 'nisi', 'state': 'ready'}, 42, [None, 'x', 7],
+                            [{'id': 'nisi', 'state': ['ready'], 'authorModel': self.AUTHOR}], Exploding([self.nisi()]))
+        pipeline_cases = ('running', ['running'], {'status': ['running']}, 7, Exploding())
+        for components in components_cases:
+            for pipeline in pipeline_cases:
+                with self.subTest(components=components, pipeline=pipeline):
+                    call = self.call(self.data(components, pipeline))
+                    self.assertEqual((call['route_pair'], call['route_live']), (None, False))
+        import server
+        self.assertEqual(server.memory_route_context({}), (None, False))
+        self.assertEqual(server.memory_route_context({'components': None, 'pipeline': None}), (None, False))
+
+    def test_a_guard_without_the_route_keywords_still_samples_without_context(self):
+        import server
+
+        class OlderGuard:
+            def sample(self, gpu_alloc_bytes=None, models=None):
+                return ({'level': 'watch'}, {'id': 'mem-guard', 'state': 'live'})
+
+        block, _ = server.memory_sample(OlderGuard(), self.data([self.nisi('partial')]))
+        self.assertEqual(block['level'], 'watch')
+
+    def test_real_guard_tags_the_pair_and_credits_the_loaded_models_not_the_mac_gpu(self):
+        import mem_guard
+        import server
+
+        base = [{'group': 'llm-server', 'label': 'Local LLM server', 'residentBytes': 887668736, 'processCount': 8},
+                {'group': 'codex', 'label': 'Codex', 'residentBytes': 3750576128, 'processCount': 26}]
+
+        class TightProbes:
+            def read(self, gpu_alloc_bytes=None):
+                return {'pressure': 2, 'availablePercent': 20, 'ramBytes': 64 << 30, 'swapUsedBytes': 0,
+                        'swapTotalBytes': 0, 'compressedBytes': 0, 'wiredBytes': 5 << 30,
+                        'vmFreeBytes': 200 << 30, 'gpuAllocBytes': gpu_alloc_bytes, 'sampledAt': 1000.0}
+
+            def consumers(self, models=None, gpu_alloc_bytes=None):
+                return mem_guard.decorate_consumers(base, models=models, gpu_alloc_bytes=gpu_alloc_bytes)
+
+        class PassiveRegistry:
+            def paused(self):
+                return []
+
+        guard = mem_guard.Guard(cfg=mem_guard.default_config(), probes=TightProbes(), registry=PassiveRegistry(),
+                                watchdog=False)
+        block, source = server.memory_sample(guard, self.data())
+        self.assertEqual((block['level'], source['state']), ('tight', 'live'))
+        self.assertEqual(block['suggestions'], [
+            f'Unload idle model {self.REVIEWER} from the monitor (Nisi reviewer: Mac edit routes stop until it is reloaded)',
+            f'Unload idle model {self.AUTHOR} from the monitor (Nisi author: Mac edit routes stop until it is reloaded)'])
+        llm = block['consumers'][0]
+        self.assertEqual((llm['group'], llm['loadedModelBytes'], llm['loadedModelCount']), ('llm-server', 31723011065, 2))
+        self.assertNotIn('gpuAllocBytes', llm)
+        self.assertEqual(block['gpuAllocBytes'], 45795885056, 'the Mac-wide figure stays on the block itself')
+        json.dumps(block, allow_nan=False)
+
+    def test_the_pair_tag_follows_the_pair_telemetry_picks_and_what_unloading_leaves(self):
+        """The tag's words are checked against telemetry._route_components (which mirrors the router): with only
+        the pair loaded, unloading one leaves Nisi 'partial' (routes stop); with a third model loaded, the router
+        picks a new pair from what stays, so Nisi is still 'ready' (routes switch)."""
+        import mem_guard
+        import server
+        import telemetry
+
+        with tempfile.TemporaryDirectory() as tmp:
+            router = Path(tmp) / 'router'
+            os.mkdir(router, 0o700)
+            os.mkdir(router / 'archive', 0o700)
+            with patch.object(telemetry, '_JEV_ENV_PATH', Path(tmp) / 'absent.env'), \
+                    patch.object(telemetry, '_ROUTER_ROOT', router):
+                telemetry._JEV_CACHE.update(key=None, when=None, model=None)
+
+                def model(model_id, size):
+                    return {'id': model_id, 'host': 'mac', 'loaded': True, 'state': 'idle', 'sizeBytes': size}
+
+                def nisi(models):
+                    rows = {row['id']: row for row in models}
+                    verified = {'runtimeIntegrity': 'VERIFIED', 'hostBinding': 'VERIFIED'}
+                    return next(c for c in telemetry._route_components({}, verified, rows, time.time())
+                                if c['id'] == 'nisi')
+
+                class Probes:
+                    def read(self, gpu_alloc_bytes=None):
+                        return {'pressure': 2, 'availablePercent': 20, 'ramBytes': 64 << 30, 'swapUsedBytes': 0,
+                                'swapTotalBytes': 0, 'compressedBytes': 0, 'wiredBytes': 5 << 30,
+                                'vmFreeBytes': 200 << 30, 'gpuAllocBytes': gpu_alloc_bytes, 'sampledAt': 1000.0}
+
+                    def consumers(self, models=None, gpu_alloc_bytes=None):
+                        return mem_guard.decorate_consumers([], models=models, gpu_alloc_bytes=gpu_alloc_bytes)
+
+                class Registry:
+                    def paused(self):
+                        return []
+
+                def tips(models):
+                    guard = mem_guard.Guard(cfg=mem_guard.default_config(), probes=Probes(), registry=Registry(),
+                                            watchdog=False)
+                    data = {'models': models, 'macGpu': {'allocatedBytes': 45795885056},
+                            'components': [nisi(models)], 'pipeline': {'status': 'idle'}}
+                    block, _ = server.memory_sample(guard, data)
+                    return [tip for tip in block['suggestions'] if 'Nisi' in tip]
+
+                gemma, qwen = model(self.AUTHOR, 15641332573), model(self.REVIEWER, 16081678492)
+                embed = model('text-embedding-nomic-embed-text-v1.5', 1 << 28)
+                zeta = model('zeta-7b', 4 << 30)
+                stop = ': Mac edit routes stop until it is reloaded)'
+                switch = ': Mac edit routes switch to another loaded model)'
+
+                # The pair (and an embedding model, which never joins a pair): unloading either leaves one model.
+                self.assertEqual(tips([qwen, gemma, embed]), [
+                    f'Unload idle model {self.REVIEWER} from the monitor (Nisi reviewer{stop}',
+                    f'Unload idle model {self.AUTHOR} from the monitor (Nisi author{stop}'])
+                self.assertEqual(nisi([gemma, embed])['state'], 'partial')
+                self.assertEqual(nisi([qwen, embed])['state'], 'partial')
+
+                # gemma + qwen + zeta-7b: telemetry pairs gemma with qwen, and zeta-7b stays outside the pair.
+                trio = nisi([qwen, gemma, zeta])
+                self.assertEqual((trio['authorModel'], trio['reviewerModel']), (self.AUTHOR, self.REVIEWER))
+                self.assertEqual(tips([qwen, gemma, zeta]), [
+                    f'Unload idle model {self.REVIEWER} from the monitor (Nisi reviewer{switch}',
+                    f'Unload idle model {self.AUTHOR} from the monitor (Nisi author{switch}'])
+                # Unloading either pair model leaves a ready pair: the routes switch, they do not stop.
+                after = nisi([gemma, zeta])
+                self.assertEqual((after['state'], after['authorModel'], after['reviewerModel']),
+                                 ('ready', self.AUTHOR, 'zeta-7b'))
+                after = nisi([qwen, zeta])
+                self.assertEqual((after['state'], after['authorModel'], after['reviewerModel']),
+                                 ('ready', self.REVIEWER, 'zeta-7b'))
+
 
 class TransportTest(unittest.TestCase):
     def setUp(self):

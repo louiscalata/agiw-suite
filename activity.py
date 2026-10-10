@@ -263,6 +263,22 @@ def _intake_usage(usage: Any) -> dict[str, Any]:
             "totalTokens": summed, "totalSource": "sum_of_reported_input_output"}
 
 
+class _Listing(list):
+    """The paths an enumerator returns, newest mtime first, and what its bounds left out:
+    ``cut_mtime`` is the newest mtime among the valid names it did not return (None: none),
+    and ``scan_cut`` says the name scan stopped early, so a name of any age may be missing."""
+    cut_mtime: float | None = None
+    scan_cut = False
+
+
+def _listing(rows: list[tuple[float, Path]], scan_cut: bool) -> _Listing:
+    ordered = sorted(rows, reverse=True)
+    result = _Listing(path for _, path in ordered[:_MAX_RUNS])
+    result.cut_mtime = ordered[_MAX_RUNS][0] if len(ordered) > _MAX_RUNS else None
+    result.scan_cut = scan_cut
+    return result
+
+
 def _archive_files() -> list[Path]:
     """Enumerate at most 256 names in the private fixed archive directory."""
     try:
@@ -272,11 +288,13 @@ def _archive_files() -> list[Path]:
                 or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) & 0o077):
             return []
         rows = []
+        scan_cut = False
         with os.scandir(archive) as entries:
             # Scan up to 4096 names, then sort by mtime: the newest runs are never cut off by
             # directory order once the archive grows past a screenful (spec 6.12).
             for index, entry in enumerate(entries):
                 if index >= _MAX_ARCHIVE_SCAN:
+                    scan_cut = True
                     break
                 if not entry.name.endswith(".json") or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}\.json", entry.name):
                     continue
@@ -288,7 +306,7 @@ def _archive_files() -> list[Path]:
                         rows.append((st.st_mtime, Path(entry.path)))
                 except OSError:
                     continue
-        return [path for _, path in sorted(rows, reverse=True)[:_MAX_RUNS]]
+        return _listing(rows, scan_cut)
     except OSError:
         return []
 
@@ -552,9 +570,11 @@ def _receipt_files() -> list[Path]:
                 or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) & 0o077):
             return []
         rows = []
+        scan_cut = False
         with os.scandir(_RECEIPTS) as entries:
             for index, entry in enumerate(entries):
                 if index >= _MAX_ARCHIVE_ENTRIES:
+                    scan_cut = True
                     break
                 if not entry.name.endswith(".json") or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}\.json", entry.name):
                     continue
@@ -566,7 +586,7 @@ def _receipt_files() -> list[Path]:
                         rows.append((st.st_mtime, Path(entry.path)))
                 except OSError:
                     continue
-        return [path for _, path in sorted(rows, reverse=True)[:_MAX_RUNS]]
+        return _listing(rows, scan_cut)
     except OSError:
         return []
 
@@ -654,9 +674,9 @@ def _project_monitor_receipt(receipt: dict[str, Any], now: float) -> dict[str, A
             "_routerRequestSha256": receipt.get("bindings", {}).get("routerRequestSha256") if isinstance(receipt.get("bindings"), dict) and isinstance(receipt.get("bindings", {}).get("routerRequestSha256"), str) and re.fullmatch(r"[a-f0-9]{64}", receipt.get("bindings", {}).get("routerRequestSha256")) else None}
 
 
-def _receipt_runs(now: float) -> list[dict[str, Any]]:
+def _receipt_runs(now: float, paths: list[Path] | None = None) -> list[dict[str, Any]]:
     result = []
-    for path in _receipt_files():
+    for path in _receipt_files() if paths is None else paths:
         try:
             item = _project_monitor_receipt(_read_archive(path), now)
             if item is not None:
@@ -664,6 +684,64 @@ def _receipt_runs(now: float) -> list[dict[str, Any]]:
         except Exception:           # one malformed receipt (a RecursionError included) is skipped
             continue
     return result
+
+
+_MAX_FLAGGED_KEPT = 4           # older flagged history rows kept past the newest-first cut
+
+
+def _flagged(row: dict[str, Any]) -> bool:
+    """A history row the dashboard flags: a REJECTED host decision, or a recorded review flag
+    (the router's summary-consistency verdict, or a receipt's contradicted review summary)."""
+    consistency = row.get("reviewConsistency")
+    return (row.get("hostAcceptance") == "REJECTED" or row.get("reviewSummaryContradiction") is True
+            or isinstance(consistency, dict) and consistency.get("status") in _CONSISTENCY_STATUS)
+
+
+def _bounded_history(runs: list[dict[str, Any]], room: int) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """(kept, dropped): at most ``room`` of ``runs`` (sorted newest first), still newest first.
+
+    A cut by age alone drops a whole source crowded out by another (12 router archives newer
+    than the only receipt) and every old flag with it.  So each source's newest row, then the
+    newest flagged rows (at most 4), are kept first, together at most half of ``room``; the
+    newest rows fill the rest.  A row kept this way keeps its place by age, so it is listed,
+    never put first (the dashboard's default trace) ahead of a newer row."""
+    room = max(0, room)
+    if len(runs) <= room:
+        return list(runs), []
+    pinned: list[int] = []
+    sources: set[Any] = set()
+    for index, row in enumerate(runs):
+        if row.get("source") not in sources:
+            sources.add(row.get("source"))
+            pinned.append(index)
+    pinned += [index for index, row in enumerate(runs) if index not in pinned and _flagged(row)][:_MAX_FLAGGED_KEPT]
+    keep = set(pinned[:room // 2])
+    for index in range(len(runs)):
+        if len(keep) >= room:
+            break
+        keep.add(index)
+    return ([row for index, row in enumerate(runs) if index in keep],
+            [row for index, row in enumerate(runs) if index not in keep])
+
+
+def _history_bound(listings: tuple[list[Path], ...], dropped: list[dict[str, Any]], sampled: float) -> dict[str, Any]:
+    """What the bounds left out of the history rows, for a reader that counts a time window.
+    ``truncated``: some history route may be missing from the list.  ``missingFromAgeSeconds``:
+    the youngest age a missing dated route can have, or None when no dated route is missing.
+    A file the enumerator did not return is at least as old as its mtime says (a route file is
+    written when its run finishes), and a cut name scan can miss a file of any age (0)."""
+    floors: list[float] = []
+    truncated = bool(dropped)
+    for listing in listings:
+        if getattr(listing, "scan_cut", False):
+            truncated = True
+            floors.append(0.0)
+        cut = getattr(listing, "cut_mtime", None)
+        if _finite(cut):
+            truncated = True
+            floors.append(max(0.0, sampled - cut))
+    floors += [row["ageSeconds"] for row in dropped if _finite(row.get("ageSeconds"))]
+    return {"truncated": truncated, "missingFromAgeSeconds": round(min(floors), 3) if floors else None}
 
 
 _LIVE_STATES = ("running", "waiting", "admitting")
@@ -748,19 +826,26 @@ def _active_rows(sampled: float) -> tuple[list[dict[str, Any]], bool, str]:
 
 
 def collect_activity(now: float | None = None) -> dict[str, Any]:
-    """Return bounded sanitized route/call receipts; never reads raw call ledgers."""
+    """Return bounded sanitized route/call receipts; never reads raw call ledgers.
+
+    Order: the router's active records lead (``_active_rows`` puts lock-verified running and
+    queued rows first), then every other row newest first by ``recordedAt``.  The 12-row bound
+    keeps mostly the newest rows, but never cuts a source's newest row or the newest flagged
+    rows (``_bounded_history``).  ``historyBound`` says which dated routes may be missing."""
     sampled = time.time() if now is None else now
     source = {"id": "router-active", "label": "Current router checkpoint",
               "state": "unavailable", "ageSeconds": None,
               "detail": "Router checkpoint unavailable"}
-    runs = _receipt_runs(sampled)
+    receipt_paths = _receipt_files()
+    archive_paths = _archive_files()
+    runs = _receipt_runs(sampled, receipt_paths)
     receipt_fresh = any(row.get("ageSeconds") is not None and row["ageSeconds"] <= _MAX_AGE for row in runs)
     receipt_source = {"id": "monitor-receipts", "label": "Sanitized call receipts",
                       "state": "live" if receipt_fresh else "stale" if runs else "unavailable",
                       "ageSeconds": min((row["ageSeconds"] for row in runs if row.get("ageSeconds") is not None), default=None),
                       "detail": "Bounded local receipt projection" if receipt_fresh else "Only historical or unavailable receipts"}
     receipt_by_id = {row["runId"]: row for row in runs}
-    for path in _archive_files():
+    for path in archive_paths:
         try:
             item = _project_archive(_read_archive(path), sampled)
             if item is not None:
@@ -780,6 +865,11 @@ def collect_activity(now: float | None = None) -> dict[str, Any]:
                 runs.append(item)
         except Exception:           # one malformed archive (a RecursionError included) is skipped
             continue
+    # Newest first across sources, before any truncation: receipts were read first and the
+    # archives appended after them, so a 17-day-old receipt led the list (the dashboard's
+    # default trace) and 12 receipt files would have cut every router route.  The sort is
+    # stable (equal times keep their read order) and a row without a finite time goes last.
+    runs.sort(key=lambda r: r["recordedAt"] if _finite(r.get("recordedAt")) else float("-inf"), reverse=True)
     try:
         active_rows, problem, listing = _active_rows(sampled)
     except Exception:
@@ -805,11 +895,13 @@ def collect_activity(now: float | None = None) -> dict[str, Any]:
         for item in active_rows:
             item["traceKey"] = "router-active:" + item["runId"] + ":" + item["layout"]
         active_ids = {row["runId"] for row in active_rows}
-        all_runs = (active_rows + [r for r in runs if r["runId"] not in active_ids])[:_MAX_RUNS]
+        active_rows = active_rows[:_MAX_RUNS]
+        history, dropped = _bounded_history([r for r in runs if r["runId"] not in active_ids], _MAX_RUNS - len(active_rows))
+        all_runs = active_rows + history
         for item in all_runs:
             if "traceKey" not in item:
                 item["traceKey"] = item.get("source", "router-active") + ":" + item["runId"] + ":" + (item.pop("_routerRequestSha256", None) or "unknown")
-        return {"runs": all_runs,
+        return {"runs": all_runs, "historyBound": _history_bound((receipt_paths, archive_paths), dropped, sampled),
                 "sources": [source, receipt_source, {"id": "router-archive", "label": "Recent completed routes",
                                      "state": "live" if any(r.get("ageSeconds") is not None and r["ageSeconds"] <= _MAX_AGE for r in runs) else "stale",
                                      "ageSeconds": min((r["ageSeconds"] for r in runs if r.get("ageSeconds") is not None), default=None),
@@ -821,12 +913,13 @@ def collect_activity(now: float | None = None) -> dict[str, Any]:
         source.update(state="error", detail="No unresolved router pointer among the listed records" + cut)
     else:
         source["detail"] = "No unresolved router pointer; history is reported separately"
-    runs = runs[:_MAX_RUNS]
+    runs, dropped = _bounded_history(runs, _MAX_RUNS)
     for item in runs:
         item["traceKey"] = item.get("source", "router-active") + ":" + item["runId"] + ":" + (item.pop("_routerRequestSha256", None) or "unknown")
     fresh_archive = any(r.get("source") == "router-archive" and r.get("ageSeconds") is not None and r["ageSeconds"] <= _MAX_AGE for r in runs)
     archive_exists = any(r.get("source") == "router-archive" for r in runs)
-    return {"runs": runs, "sources": [source, receipt_source, {"id": "router-archive",
+    return {"runs": runs, "historyBound": _history_bound((receipt_paths, archive_paths), dropped, sampled),
+            "sources": [source, receipt_source, {"id": "router-archive",
             "label": "Recent completed routes", "state": "live" if fresh_archive else "stale" if archive_exists else "unavailable",
             "ageSeconds": min((r["ageSeconds"] for r in runs if r.get("source") == "router-archive" and r.get("ageSeconds") is not None), default=None),
             "detail": "Bounded sanitized archive records" if fresh_archive else "Only historical or unavailable archive records"}]}

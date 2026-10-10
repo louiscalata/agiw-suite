@@ -31,7 +31,7 @@ fi
 resources=(
     server.py telemetry.py activity.py client_models.py model_control.py
     durable_model_journal.py auto_unload.py online_code_repair.py nisi_v02.py
-    windows_probe.py live_feed.py gpu_probe.py local_callers.py mem_guard.py
+    windows_probe.py live_feed.py gpu_probe.py local_callers.py mem_guard.py peer_feed.py peer_link.py
     usage-format.mjs web/index.html web/app.js web/online-code-mode.mjs
     web/map-layout.mjs web/model-control-view.mjs web/style.css
     bundle_nisi.py bundled_components.py jev_connection.py web/components.html web/components.js web/components.css

@@ -506,17 +506,52 @@ export function pcGpuView(worker, { feedFresh = false, snapshotAge = 0 } = {}) {
         : [['PC GPU', beat ? 'Not reported by the worker heartbeat' : 'Unknown (no fresh worker heartbeat)']])] };
 }
 
+const REPORT_BUSY = new Set(['generating', 'busy', 'processing']);
+
+/**
+ * The PC's own report (snapshot.windowsLive: the paired LAN link or the SharedChami status files), which the PC chip
+ * and node lead with: "Reports 2 loaded · idle". Read through exactly the gate of the inspector's "Live from" rows (a
+ * fresh, unpaused feed and a report at most 30 s old, both ages finite and non-negative); unknown otherwise. Only the
+ * first 8 models count, as there. Every phrase starts "Reports" (the node drops it after its REPORTED / LINKED word),
+ * so it reads as the PC's word, never as the dispatcher's: a report never pulses live. A word outside the known set
+ * (activity or loadedState) counts as unknown, and a busy slot outranks an "idle" word.
+ * The PC's own bad news is never cut: a "down" or "degraded" health stays in the tiny form ("Reports degraded"), and
+ * the node names its subject ("PC REPORTS DOWN"), so after "LINKED VIA LAN" it never reads as the link's state.
+ * `health` is the PC's word (ok, degraded or down; anything else is null), for the chip's tone.
+ */
+export function pcReportView(live, { feedFresh = false, snapshotAge = 0 } = {}) {
+  if (!feedFresh || !live || typeof live !== 'object' || !Array.isArray(live.models) || !Number.isFinite(live.ageSeconds) || live.ageSeconds < 0
+    || !Number.isFinite(snapshotAge) || snapshotAge < 0) return { known: false };
+  const ageSeconds = live.ageSeconds + snapshotAge;
+  if (ageSeconds > 30) return { known: false };
+  const models = live.models.slice(0, 8);
+  const loaded = models.filter(m => m?.loadedState === 'loaded');
+  const busy = loaded.filter(m => REPORT_BUSY.has(m.activity) || (Number.isInteger(m.slotsBusy) && m.slotsBusy > 0));
+  const activity = busy.length ? `${busy.length} busy` : loaded.length && loaded.every(m => m.activity === 'idle') ? 'idle' : 'activity unknown';
+  const residency = models.some(m => m?.loadedState === 'loaded' || m?.loadedState === 'inactive');
+  const health = ['ok', 'degraded', 'down'].includes(live.health) ? live.health : null;
+  const detail = !models.length ? 'no model loaded' : !residency ? 'loaded unknown' : `${loaded.length} loaded · ${activity}`;
+  const state = health === 'down' ? 'down' : health === 'degraded' ? `degraded · ${detail}` : detail;
+  const bad = health === 'down' || health === 'degraded';
+  return { known: true, via: live.via === 'lan' ? 'lan' : 'share', ageSeconds, loaded: loaded.length, busy: busy.length, health,
+    words: `Reports ${state}`, tiny: bad ? `Reports ${health}` : `Reports ${activity}`, node: `${bad ? 'PC REPORTS ' : ''}${state.toUpperCase()}` };
+}
+
 /* Memory (mem_guard's snapshot.memory, 26-27 Sep). Level ok / watch / tight / critical, or unknown when macOS
  * pressure and availability are unreadable. Read only from a fresh feed, and every field is checked again here: a
  * level outside the set reads unknown, a bad number is left out, a bad consumer or suggestion row is dropped. The
  * consumers are grouped processes with approximate resident sizes (shared pages counted once per process), and the
- * guard measures them only when memory is not ok. Suggestions are text only: the guard never quits an app or
+ * guard measures them only when memory is not ok. The local LLM server's row also carries its loaded models' count and
+ * LM Studio inventory file sizes (not measured memory); an older guard's row carried the Mac-wide GPU allocation
+ * instead, which is every app's and is labelled so. Suggestions are text only: the guard never quits an app or
  * unloads a model. Sizes use the guard's own binary gigabytes, so they match its reasons and suggestions. */
 export const MEMORY_RANK = Object.freeze({ ok: 0, watch: 1, tight: 2, critical: 3 });
 const MEMORY_LABEL = { ok: 'OK', watch: 'Watch', tight: 'Tight', critical: 'Critical', unknown: 'Unknown' };
 const MEMORY_TEXT = /^[^\x00-\x1f\x7f]{1,240}$/;
 const GIB = 2 ** 30, MIB = 2 ** 20;
 const memoryBytes = value => Number.isSafeInteger(value) && value >= 0 && value <= 2 ** 52 ? value : null;
+/** A count of loaded models (mem_guard's loadedModelCount): an integer from 0 to 256, else null. */
+const modelCount = value => Number.isSafeInteger(value) && value >= 0 && value <= 256 ? value : null;
 const memoryText = value => typeof value === 'string' && MEMORY_TEXT.test(value) ? value.replaceAll('`', '').trim() || null : null;
 /** A closed reading: only one of the four level strings counts (an array, an inherited key or any other value does not). */
 const isMemoryLevel = value => typeof value === 'string' && Object.hasOwn(MEMORY_RANK, value);
@@ -532,8 +567,9 @@ export function memorySize(bytes) {
 const memoryAmount = bytes => bytes >= GIB ? gigabytes(bytes) : memorySize(bytes);
 /** "about 3.2 GB", or "under 1 MB" (never "about under 1 MB"). */
 const approximately = bytes => { const size = memorySize(bytes); return size.startsWith('under') ? size : `about ${size}`; };
-// The guard (mem_guard.decorate_consumers) already emits its users sorted by this weight, as a short list (named groups
-// plus the top three others). Only a bounded prefix is sorted again here; past it the producer's order is trusted.
+// The guard (mem_guard.decorate_consumers) emits its users as a short list (named groups plus the top three others),
+// sorted by its own weight. Only a bounded prefix is sorted again here, by the view's weight; past it the producer's
+// order is trusted.
 const CONSUMER_PREFIX = 256;
 
 export function memoryView(memory, { feedFresh = false } = {}) {
@@ -544,22 +580,40 @@ export function memoryView(memory, { feedFresh = false } = {}) {
     && block.availablePercent >= 0 && block.availablePercent <= 100 ? block.availablePercent : null;
   const swap = known ? memoryBytes(block.swapUsedBytes) : null, compressed = known ? memoryBytes(block.compressedBytes) : null;
   const gpu = known ? memoryBytes(block.gpuAllocBytes) : null;
-  // Ranked like the guard ranks them: by what a user holds, resident memory or its GPU allocation, whichever is larger.
-  const weight = row => Math.max(row.residentBytes, row.gpuAllocBytes || 0);
+  // Ranked by the larger of a user's resident memory and its loaded models' file sizes (the local LLM server). An older
+  // guard's row may carry the Mac-wide GPU allocation; that figure is every app's, so it never ranks one user (it would
+  // put a server using under 1 GB above 33 GB of simulators). It is shown only as the Mac's figure beside the row.
+  const weight = row => Math.max(row.residentBytes, row.loadedModelBytes || 0);
+  const absent = value => value === undefined || value === null;
   const consumers = (known && Array.isArray(block.consumers) ? block.consumers.slice(0, CONSUMER_PREFIX) : [])
     .filter(row => row && typeof row === 'object' && memoryText(row.label) && memoryBytes(row.residentBytes) !== null
       && Number.isSafeInteger(row.processCount) && row.processCount >= 0 && row.processCount <= 1e6
-      && (row.gpuAllocBytes === undefined || row.gpuAllocBytes === null || memoryBytes(row.gpuAllocBytes) !== null))
-    .map(row => ({ label: memoryText(row.label).slice(0, 80), residentBytes: row.residentBytes, processCount: row.processCount,
-      gpuAllocBytes: memoryBytes(row.gpuAllocBytes) }))
+      && (absent(row.gpuAllocBytes) || memoryBytes(row.gpuAllocBytes) !== null)
+      && (absent(row.loadedModelBytes) || memoryBytes(row.loadedModelBytes) !== null)
+      && (absent(row.loadedModelCount) || modelCount(row.loadedModelCount) !== null))
+    .map(row => {
+      const loadedModelCount = modelCount(row.loadedModelCount);
+      // A model size counts only beside a count of loaded models that says what it is the size of.
+      return { label: memoryText(row.label).slice(0, 80), residentBytes: row.residentBytes, processCount: row.processCount,
+        gpuAllocBytes: memoryBytes(row.gpuAllocBytes), loadedModelCount,
+        loadedModelBytes: loadedModelCount ? memoryBytes(row.loadedModelBytes) : null };
+    })
     .sort((a, b) => weight(b) - weight(a)).slice(0, 3)
     .map(row => {
-      // The banner states the figure the ranking used: the GPU allocation when it is the larger one.
+      const n = row.loadedModelCount || 0, models = `${n} loaded model${n === 1 ? '' : 's'}`;
+      // The banner states the figure the ranking used. The loaded models' file sizes lead when they are the larger
+      // figure; they are inventory sizes, never measured memory, and the claim says so. The GPU allocation (an older
+      // guard's row) is the whole Mac's, every app's, so it is never credited to this user.
+      const modelLed = n > 0 && row.loadedModelBytes !== null && row.loadedModelBytes > row.residentBytes;
       const gpuLed = row.gpuAllocBytes !== null && row.gpuAllocBytes > row.residentBytes;
-      return { ...row, weightBytes: weight(row), gpuLed, size: approximately(row.residentBytes),
-        claim: gpuLed ? `holds ${approximately(row.gpuAllocBytes)} (GPU allocation)` : `uses ${approximately(row.residentBytes)}`,
+      const uses = `uses ${approximately(row.residentBytes)}`;
+      const claim = modelLed ? `holds ${approximately(row.loadedModelBytes)} in ${models} (file size)`
+        : n > 0 && row.loadedModelBytes === null ? `${uses} · loaded model size unknown`
+          : gpuLed ? `${uses} · Mac GPU allocation ${approximately(row.gpuAllocBytes)} (all apps)` : uses;
+      return { ...row, weightBytes: weight(row), modelLed, gpuLed, size: approximately(row.residentBytes), claim,
         text: [approximately(row.residentBytes), `${row.processCount} process${row.processCount === 1 ? '' : 'es'}`,
-          row.gpuAllocBytes ? `+ GPU allocation ${approximately(row.gpuAllocBytes)}` : null].filter(Boolean).join(' · ') };
+          n > 0 ? (row.loadedModelBytes !== null ? `${models} ${approximately(row.loadedModelBytes)} (file size)` : `${models}, size unknown`) : null,
+          row.gpuAllocBytes ? `Mac GPU allocation ${approximately(row.gpuAllocBytes)} (all apps)` : null].filter(Boolean).join(' · ') };
     });
   const suggestions = (known && Array.isArray(block.suggestions) ? block.suggestions.slice(0, 16) : []).map(memoryText).filter(Boolean).slice(0, 3);
   const reasons = (known && Array.isArray(block.reasons) ? block.reasons.slice(0, 16) : []).map(memoryText).filter(Boolean).slice(0, 4);
@@ -570,7 +624,7 @@ export function memoryView(memory, { feedFresh = false } = {}) {
     consumers, suggestions, reasons, paused,
     tile: known ? [MEMORY_LABEL[level], percent, swap === null ? null : swap === 0 ? 'no swap' : `swap ${memoryAmount(swap)}`].filter(Boolean).join(' · ') : 'Unknown',
     rows: known ? [['Level', [MEMORY_LABEL[level], ...reasons].join(' · ')], ['Available', percent], ['Swap used', swap === null ? null : memoryAmount(swap)],
-      ['Compressed', compressed === null ? null : memoryAmount(compressed)], ['GPU allocation', gpu === null ? null : memoryAmount(gpu)],
+      ['Compressed', compressed === null ? null : memoryAmount(compressed)], ['GPU allocation (all apps)', gpu === null ? null : memoryAmount(gpu)],
       ...(paused ? [['Paused jobs', `${paused} paused by the memory guard`]] : [])]
       : [['Level', block ? 'Unknown: macOS memory pressure is unreadable' : 'Unknown (no fresh sample)']] };
 }
@@ -623,6 +677,15 @@ export function memoryAnnouncement(announced, view, { at, shown = false } = {}) 
 // keeps the full label (up to 80 characters).
 const BANNER_LABEL = 32;
 const bannerLabel = label => label.length > BANNER_LABEL ? `${label.slice(0, BANNER_LABEL - 1)}…` : label;
+// The guard tags a tip that would take a model from the Nisi edit pair, or unload one while a route runs, with a caveat
+// at its end ("… from the monitor (Nisi reviewer: Mac edit routes stop until it is reloaded)"). The banner is clipped at
+// its end, so there the caveat leads ("Try (Nisi reviewer: …): Unload idle model …"): wherever the banner is cut, the
+// action is never visible without its caveat. The Memory section lists the tips as the guard wrote them.
+const NISI_CAVEAT = /^(.+) \(((?:Nisi (?:author|reviewer)|a Nisi route is running): [^()]+)\)$/;
+const tryText = suggestion => {
+  const tagged = NISI_CAVEAT.exec(suggestion);
+  return tagged ? `Try (${tagged[2]}): ${tagged[1]}` : `Try: ${suggestion}`;
+};
 
 /**
  * The slim map banner: only for tight (amber) or critical (red, with "!") memory that has not been dismissed at this
@@ -633,12 +696,29 @@ export function memoryBannerView(view, { dismissed = null } = {}) {
   const level = isMemoryLevel(view?.level) ? view.level : 'unknown';
   const held = validHold(dismissed) ? dismissed.level : null;
   if (!view?.alert || !isAlertLevel(level) || (held !== null && MEMORY_RANK[level] <= MEMORY_RANK[held])) return { show: false, level };
-  const top = view.consumers[0], suggestion = view.suggestions[0];
-  const detail = [top ? `${bannerLabel(top.label)} ${top.claim}` : view.reasons[0] || null, suggestion ? `Try: ${suggestion}` : null].filter(Boolean);
-  const full = [top ? `${top.label} ${top.claim}` : view.reasons[0] || null, suggestion ? `Try: ${suggestion}` : null].filter(Boolean);
+  const top = view.consumers[0], suggestion = view.suggestions[0], tip = suggestion ? tryText(suggestion) : null;
+  const detail = [top ? `${bannerLabel(top.label)} ${top.claim}` : view.reasons[0] || null, tip].filter(Boolean);
+  const full = [top ? `${top.label} ${top.claim}` : view.reasons[0] || null, tip].filter(Boolean);
   return { show: true, level, mark: level === 'critical' ? '!' : null, title: view.word,
     text: detail.join(' · ') || 'Close apps you are not using.', full: full.join(' · ') || 'Close apps you are not using.',
-    announce: `${view.word}.${top ? ` ${top.label} ${top.claim}.` : ''}${suggestion ? ` Try: ${suggestion}.` : ''}` };
+    announce: `${view.word}.${top ? ` ${top.label} ${top.claim}.` : ''}${tip ? ` ${tip}.` : ''}` };
+}
+
+/**
+ * Routes newest first, whatever order the observer sent them in (an older observer listed saved
+ * receipts before router archives, so a weeks-old receipt opened as the default trace). Rows the
+ * router lists as running or queued lead; then the router's other current-checkpoint rows (unresolved,
+ * stale, unreadable or changing records, which the observer also lists first) in the observer's order;
+ * then the history by ascending recorded age, and a row whose age is unknown goes last. Stable (equal
+ * ages keep their order); returns a new array.
+ */
+const currentCheckpoint = run => run?.source === 'router-active' || (typeof run?.traceKey === 'string' && run.traceKey.startsWith('router-active:'));
+export function newestRunsFirst(runs) {
+  if (!Array.isArray(runs)) return [];
+  const rank = run => run?.activity === 'running' || run?.activity === 'queued' ? 0 : currentCheckpoint(run) ? 1
+    : Number.isFinite(run?.ageSeconds) ? 2 : 3;
+  return runs.map((run, index) => ({ run, index, rank: rank(run) })).sort((a, b) => a.rank - b.rank
+    || (a.rank === 2 ? a.run.ageSeconds - b.run.ageSeconds : 0) || a.index - b.index).map(entry => entry.run);
 }
 
 /**
@@ -692,8 +772,35 @@ export function routeQueuedWords(pipeline) {
   return lane ? 'queued for a lane' : pipeline?.queuePhase === 'admitting' ? 'being admitted' : 'queued';
 }
 
+/** The Route chip's review window: only routes recorded this recently count toward its review words and tone. */
+export const ROUTE_REVIEW_WINDOW_SECONDS = 86400;
+
+/**
+ * The Route chip's review counts over the window, from the snapshot's whole route list (never the Activity feed,
+ * whose 12 rows PC jobs share). `complete` only when the observer's `historyBound` says no route recorded within the
+ * window can be missing from the list (nothing was cut, or only routes older than the window); otherwise, and for an
+ * observer that sends no bound, the counts are lower bounds. Rows without a finite age are never counted.
+ */
+export function routeReviewCounts(runs, bound, windowSeconds = ROUTE_REVIEW_WINDOW_SECONDS) {
+  const seen = new Set();
+  let defects = 0, warnings = 0;
+  for (const run of Array.isArray(runs) ? runs : []) {
+    if (!run || typeof run.runId !== 'string' || !Number.isFinite(run.ageSeconds) || run.ageSeconds > windowSeconds) continue;
+    const key = `${run.source || 'route'}:${run.runId}`;   // the Activity feed's row key: one count per listed row
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const level = reviewConsistencyView(run).level;
+    if (level === 'block') defects += 1;
+    else if (level === 'warn') warnings += 1;
+  }
+  const missing = bound?.missingFromAgeSeconds;
+  const complete = bound?.truncated === false
+    || (bound?.truncated === true && (missing === null || (Number.isFinite(missing) && missing > windowSeconds)));
+  return { defects, warnings, complete };
+}
+
 export function vitalsView({fresh = false, pcFresh = fresh, models = [], activityKnown = false, loadedKnown = false, lanes = null, worker = null,
-  jobs = null, pipeline = null, nisi = null, feed = [], gpu = null, pcGpu = null, memory = null, activityLive = fresh } = {}) {
+  jobs = null, pipeline = null, nisi = null, feed = [], gpu = null, pcGpu = null, memory = null, activityLive = fresh, routeReviews = null, pcReport = null } = {}) {
   const knownNow = activityKnown && activityLive;
   const activeModels = fresh && knownNow ? models.filter(m => m.loaded === true && ACTIVE_STATES.has(m.state)) : [];
   const active = activeModels.length, loaded = models.filter(m => m.loaded === true).length;
@@ -717,17 +824,28 @@ export function vitalsView({fresh = false, pcFresh = fresh, models = [], activit
   }
   const laneUp = lanes?.visible ? lanes.lanes.filter(lane => lane.up) : [];
   const fast = lanes?.visible ? lanes.lanes.find(lane => lane.id === 'fast') : null;
+  // The PC's own fresh report (pcReportView) leads the chip: "Reports 2 loaded · idle · Headless off", so a narrow
+  // chip no longer reads "PC · Headless off" as "the PC is off". It never raises the tone (only a dispatcher job is
+  // live), but its own bad news lowers an OK chip: a report of "down" or "degraded" turns 'ok' to 'warn'.
+  const report = fresh && pcReport?.known === true && typeof pcReport.words === 'string' && typeof pcReport.tiny === 'string' ? pcReport : null;
+  const reportBad = report?.health === 'down' || report?.health === 'degraded';
   // Like the Activity chip, only a live (fresh, unpaused) view pulses for a running job.
-  const pcState = !fresh || !pcFresh ? 'muted' : jobs?.running && activityLive ? 'live' : ['degraded', 'stopped'].includes(worker?.state) ? 'warn'
+  const pcTone = !fresh || !pcFresh ? 'muted' : jobs?.running && activityLive ? 'live' : ['degraded', 'stopped'].includes(worker?.state) ? 'warn'
     : worker?.state === 'advertised' ? 'ok' : 'muted';
-  const pcDetail = !fresh ? 'Signal stale' : !pcFresh ? 'Worker heartbeat stale or unknown' : worker?.state === 'degraded' ? 'Worker degraded · no lane answers'
-    : worker?.state === 'stopped' ? 'Worker stopped'
-      : [lanes?.headless?.on ? `Headless ${lanes.headless.label.replace(/^Headless on · /, '').replace(/ left$/, '')}` : lanes?.headless?.label === 'Headless off' ? 'Headless off' : 'Headless unknown',
+  const pcState = pcTone === 'ok' && reportBad ? 'warn' : pcTone;
+  const pcDetail = !fresh ? 'Signal stale' : !pcFresh ? ['Worker heartbeat stale or unknown', report?.words].filter(Boolean).join(' · ')
+    : worker?.state === 'degraded' ? ['Worker degraded · no lane answers', report?.words].filter(Boolean).join(' · ')
+    : worker?.state === 'stopped' ? ['Worker stopped', report?.words].filter(Boolean).join(' · ')
+      : [report?.words, lanes?.headless?.on ? `Headless ${lanes.headless.label.replace(/^Headless on · /, '').replace(/ left$/, '')}` : lanes?.headless?.label === 'Headless off' ? 'Headless off' : 'Headless unknown',
         lanes?.visible ? `${laneUp.length}/${lanes.lanes.length} lanes` : null,
         fast && Number.isFinite(fast.rate) ? `fast ${rateText(fast.rate)}` : null, pcGpu?.known ? pcGpu.text : null].filter(Boolean).join(' · ');
-  // A 'block' review stopped its route (a defect); a 'warn' was only recorded for the owner.
-  const reviewDefects = feed.filter(row => row.kind === 'route' && row.review === 'block').length;
-  const reviewWarnings = feed.filter(row => row.kind === 'route' && row.review === 'warn').length;
+  // A 'block' review stopped its route (a defect); a 'warn' was only recorded for the owner. The chip says what
+  // holds now, so it counts only routes recorded in the last 24 h (routeReviewCounts over the whole route list, not
+  // the shared feed); older flagged routes keep their badges and ages wherever they are listed. When the observer
+  // may have left a route of the window out of its bounded list, the counts read 'at least'. No counts, no words.
+  const count = value => Number.isSafeInteger(value) && value >= 0 ? value : 0;
+  const reviewDefects = count(routeReviews?.defects), reviewWarnings = count(routeReviews?.warnings);
+  const atLeast = routeReviews?.complete === true ? '' : 'at least ';
   // Several routed tasks may run at once (router concurrency): the chip counts them.
   const runningRoutes = Array.isArray(pipeline?.pipelines) ? pipeline.pipelines.filter(p => p && p.live === true && p.status === 'running').length : 0;
   const route = !fresh ? { tone: 'muted', detail: 'Route age unknown' }
@@ -742,12 +860,12 @@ export function vitalsView({fresh = false, pcFresh = fresh, models = [], activit
         : pipeline?.status === 'recovery-required' || nisi?.state === 'unresolved' ? { tone: 'warn', detail: 'Nisi record pending' }
         : { tone: reviewDefects ? 'warn' : nisi?.state === 'ready' ? 'ok' : 'muted', detail: [pipeline?.status === 'idle' ? 'Idle' : 'State unknown',
           nisi?.state === 'ready' ? 'pair ready' : nisi?.state === 'partial' ? 'needs 2nd model' : null,
-          reviewDefects ? `${reviewDefects} review defect${reviewDefects === 1 ? '' : 's'}` : null,
-          reviewWarnings ? `${reviewWarnings} review warning${reviewWarnings === 1 ? '' : 's'}` : null].filter(Boolean).join(' · ') };
+          reviewDefects ? `${atLeast}${reviewDefects} review defect${reviewDefects === 1 ? '' : 's'} in 24 h` : null,
+          reviewWarnings ? `${atLeast}${reviewWarnings} review warning${reviewWarnings === 1 ? '' : 's'} in 24 h` : null].filter(Boolean).join(' · ') };
   const headlessShort = lanes?.headless?.on ? `On ${lanes.headless.label.replace(/^Headless on · /, '').replace(/ left$/, '')}`
     : lanes?.headless?.label === 'Headless off' ? 'Headless off' : 'Headless unknown';
-  const pcShort = !fresh ? 'Stale' : !pcFresh ? 'Heartbeat stale' : worker?.state === 'degraded' ? 'Degraded' : worker?.state === 'stopped' ? 'Stopped'
-    : [headlessShort, fast && Number.isFinite(fast.rate) ? `fast ${rateText(fast.rate)}` : null].filter(Boolean).join(' · ');
+  const pcShort = !fresh ? 'Stale' : !pcFresh ? (report ? `Heartbeat stale · ${report.tiny}` : 'Heartbeat stale') : worker?.state === 'degraded' ? 'Degraded' : worker?.state === 'stopped' ? 'Stopped'
+    : [report?.words, headlessShort, fast && Number.isFinite(fast.rate) ? `fast ${rateText(fast.rate)}` : null].filter(Boolean).join(' · ');
   const last = feed.find(row => !row.probe) || feed[0];
   // Only a fresh, unpaused feed can say a job is running now; otherwise it was in flight at the last sample.
   const open = last && (last.state === 'in-flight' || last.state === 'in-flight-stale');
@@ -760,7 +878,8 @@ export function vitalsView({fresh = false, pcFresh = fresh, models = [], activit
   // Tiny forms: what each chip still says when even its short form does not fit (the app steps down to them).
   const macTiny = activityLabel || (knownNow ? 'Idle' : 'Activity unknown');
   const tiny = !fresh ? {} : { mac: memoryWord ? `${memoryWord} · ${macTiny}` : macTiny,
-    pc: !pcFresh ? 'Heartbeat stale' : ['degraded', 'stopped'].includes(worker?.state) ? pcShort : fast && Number.isFinite(fast.rate) ? `fast ${rateText(fast.rate)}` : headlessShort,
+    pc: pcFresh && ['degraded', 'stopped'].includes(worker?.state) ? pcShort : report ? report.tiny : !pcFresh ? 'Heartbeat stale'
+      : fast && Number.isFinite(fast.rate) ? `fast ${rateText(fast.rate)}` : headlessShort,
     route: route.detail.split(' · ')[0] };
   // Micro form (the popover can be 360 px wide): tight or critical memory keeps only its words on the Mac chip.
   const micro = fresh && memoryWord ? { mac: memoryWord } : {};
