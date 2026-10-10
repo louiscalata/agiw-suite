@@ -283,18 +283,20 @@ class Collector:
             sources.append(peers_source)
         mac_link = next((p for p in peers if p["platform"] == "macos" and p["fresh"]), None)
         if mac_link and mac.get("state") != "reachable":
-            # The Mac's AGIW is linked through the share even though its LM Studio is closed to the LAN.
+            # A share report does not establish why the Mac's LAN probe did not answer.
             # The link is aged by the presence record itself (30 s window), not by the LAN probe's result,
             # and its models are normalized to the peer view's {id, state} shape.
             mac = {**mac, "state": "linked", "via": "sharedchami", "ageSeconds": mac_link["ageSeconds"],
                    "models": [{"id": m["id"], "state": {"loaded": "loaded", "inactive": "not-loaded"}.get(m["loadedState"], "unknown")}
                               for m in mac_link["models"]],
-                   "loadedCount": sum(m["loadedState"] == "loaded" for m in mac_link["models"]),
+                   "loadedCount": (sum(m["loadedState"] == "loaded" for m in mac_link["models"])
+                                   if mac_link["models"] and all(m["loadedState"] in ("loaded", "inactive")
+                                                                for m in mac_link["models"]) else None),
                    "latencyMs": None, "address": None,
                    "linkAgeSeconds": mac_link["ageSeconds"], "linkSource": mac_link["source"],
                    "verified": False,
                    "detail": f"Reported through SharedChami ({mac_link['source']}, {mac_link['ageSeconds']:.0f} s old); "
-                             "unsigned share file, not verified; LM Studio itself is not open to the LAN"}
+                             "unsigned share file, not verified; LAN reachability is not established by this report"}
 
         clients: list = []
         if self.clients_fn is not None:
