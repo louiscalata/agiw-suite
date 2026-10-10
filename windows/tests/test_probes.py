@@ -679,6 +679,19 @@ class MacPeer(unittest.TestCase):
         result = probes.probe_mac(self.HOSTS, fetch, resolve=lambda _n: ["10.0.0.176"], own=set())
         self.assertFalse(result["expectedVerifyLoaded"])
 
+    def test_unknown_residency_does_not_prove_a_total(self):
+        partial = fake_fetch({"10.0.0.176:1234/api/v0/models": {"data": [
+            {"id": "qwen/qwen3.8-27b", "type": "llm", "state": "loaded"},
+            {"id": "openai/gpt-oss-20b", "type": "llm", "state": "loading"}]}})
+        result = probes.probe_mac(self.HOSTS, partial, resolve=lambda _n: ["10.0.0.176"], own=set())
+        self.assertIsNone(result["loadedCount"])
+        self.assertIsNone(result["expectedVerifyLoaded"])  # its own row is unknown, not proven unloaded
+        self.assertIn("at least 1 loaded", result["detail"])
+        empty = fake_fetch({"10.0.0.176:1234/api/v0/models": {"data": []}})
+        result = probes.probe_mac(self.HOSTS, empty, resolve=lambda _n: ["10.0.0.176"], own=set())
+        self.assertEqual((result["loadedCount"], result["expectedVerifyLoaded"]), (0, False))
+        self.assertIn("; 0 loaded", result["detail"])
+
     def test_old_probe_result_expires(self):
         # Codex finding 11.
         peer = probes.MacPeer(Path("/x"), probe=lambda _h: {"state": "reachable", "observedAt": 100.0, "detail": "ok",
