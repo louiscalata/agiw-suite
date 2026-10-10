@@ -702,6 +702,28 @@ class MacPeer(unittest.TestCase):
         result = probes.probe_mac(self.HOSTS, fetch, resolve=lambda _n: ["<mac-lan-ip>"], own=set())
         self.assertFalse(result["expectedVerifyLoaded"])
 
+    def test_unreachable_reports_why(self):
+        def failing(error):
+            def fetch(url, *_):
+                raise error
+            return fetch
+        cases = [(ConnectionRefusedError(), "refused", "refused port 1234"), (TimeoutError(), "timeout", "No answer"),
+                 (OSError("HTTP Error 404"), "invalid", "not with an LM Studio model list"),
+                 (ValueError("model list missing"), "invalid", "not with an LM Studio model list"),
+                 (OSError("unreachable network"), "error", "No answer")]
+        for error, reason, wording in cases:
+            result = probes.probe_mac(self.HOSTS, failing(error), resolve=lambda _n: [], own=set())
+            self.assertEqual((result["state"], result["reason"]), ("unreachable", reason), error)
+            self.assertIn(wording, result["detail"])
+            self.assertIn("<mac-lan-ip>", result["detail"])
+        # One address refusing beats another timing out: a host is there.
+        def mixed(url, *_):
+            raise ConnectionRefusedError() if "<lan-ip-194>" in url else TimeoutError()
+        self.assertEqual(probes.probe_mac(self.HOSTS, mixed, resolve=lambda _n: [], own=set())["reason"], "refused")
+        nowhere = {**self.HOSTS, "ips": []}
+        result = probes.probe_mac(nowhere, failing(TimeoutError()), resolve=lambda _n: [], own=set())
+        self.assertEqual(result["reason"], "unresolved")
+
     def test_unknown_residency_does_not_prove_a_total(self):
         partial = fake_fetch({"<mac-lan-ip>:1234/api/v0/models": {"data": [
             {"id": "qwen/qwen3.8-27b", "type": "llm", "state": "loaded"},
