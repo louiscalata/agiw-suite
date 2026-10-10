@@ -592,9 +592,11 @@ def _own_addresses() -> set[str]:
     return addresses
 
 
-def candidate_addresses(hosts: dict[str, Any], resolve: Callable[[str], list[str]]) -> list[tuple[str, str]]:
-    """(address, via) in probe order: mDNS name first, then the recorded fallbacks; never this PC."""
-    own = _own_addresses() | ({hosts["ownIp"]} if hosts.get("ownIp") else set())
+def candidate_addresses(hosts: dict[str, Any], resolve: Callable[[str], list[str]],
+                        own: set[str] | None = None) -> list[tuple[str, str]]:
+    """(address, via) in probe order: mDNS name first, then the recorded fallbacks; never this machine.
+    ``own`` defaults to this machine's addresses; tests pass their own set so results do not depend on the host."""
+    own = (_own_addresses() if own is None else set(own)) | ({hosts["ownIp"]} if hosts.get("ownIp") else set())
     ordered: list[tuple[str, str]] = []
     if hosts.get("mdns"):
         try:
@@ -635,14 +637,15 @@ def parse_mac_models(payload: Any, v0: bool) -> list[dict[str, Any]]:
 
 
 def probe_mac(hosts: dict[str, Any] | None, fetch: Fetch = http_get_json,
-              resolve: Callable[[str], list[str]] = _resolve_ipv4, clock: Callable[[], float] = time.time) -> dict[str, Any]:
+              resolve: Callable[[str], list[str]] = _resolve_ipv4, clock: Callable[[], float] = time.time,
+              own: set[str] | None = None) -> dict[str, Any]:
     """Reach the Mac's LM Studio over the LAN: LM Studio's REST list first (has loaded state), then /v1/models."""
     observed = clock()
     if not hosts:
         return {"state": "unknown", "detail": "llm-lab/mac-reach/hosts.json unreadable", "observedAt": observed,
                 "address": None, "via": None, "latencyMs": None, "models": [], "loadedCount": None, "tried": []}
     tried = []
-    for address, via in candidate_addresses(hosts, resolve):
+    for address, via in candidate_addresses(hosts, resolve, own):
         base = f"http://{address}:{hosts['port']}"
         started = time.monotonic()
         for path, v0 in (("/api/v0/models", True), ("/v1/models", False)):

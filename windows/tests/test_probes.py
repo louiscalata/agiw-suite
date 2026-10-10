@@ -256,7 +256,7 @@ class MacPeer(unittest.TestCase):
             {"id": "openai/gpt-oss-20b", "type": "llm", "state": "loaded"},
             {"id": "qwen/qwen3.8-27b", "type": "llm", "state": "not-loaded"},
             {"id": "text-embedding-nomic", "type": "embeddings", "state": "loaded"}]}})
-        result = probes.probe_mac(self.HOSTS, fetch, resolve=lambda _n: ["10.0.0.176"])
+        result = probes.probe_mac(self.HOSTS, fetch, resolve=lambda _n: ["10.0.0.176"], own=set())
         self.assertEqual(result["state"], "reachable")
         self.assertEqual(result["via"], "mdns")
         self.assertEqual(result["loadedCount"], 1)
@@ -264,7 +264,7 @@ class MacPeer(unittest.TestCase):
 
     def test_falls_back_to_recorded_ip_and_v1(self):
         fetch = fake_fetch({"10.0.0.194:1234/v1/models": {"data": [{"id": "m"}]}})
-        result = probes.probe_mac(self.HOSTS, fetch, resolve=lambda _n: (_ for _ in ()).throw(OSError("no mdns")))
+        result = probes.probe_mac(self.HOSTS, fetch, resolve=lambda _n: (_ for _ in ()).throw(OSError("no mdns")), own=set())
         self.assertEqual((result["state"], result["address"], result["via"]), ("reachable", "10.0.0.194", "recorded-ip"))
         self.assertIsNone(result["loadedCount"])
 
@@ -273,9 +273,21 @@ class MacPeer(unittest.TestCase):
         def fetch(url, *_):
             seen.append(url)
             raise ConnectionRefusedError()
-        result = probes.probe_mac(self.HOSTS, fetch, resolve=lambda _n: ["10.0.0.71", "127.0.0.1"])
+        result = probes.probe_mac(self.HOSTS, fetch, resolve=lambda _n: ["10.0.0.71", "127.0.0.1", "10.0.0.50"],
+                                  own={"10.0.0.50"})
         self.assertEqual(result["state"], "unreachable")
-        self.assertFalse(any("10.0.0.71" in u or "127.0.0.1" in u for u in seen))
+        self.assertFalse(any("10.0.0.71" in u or "127.0.0.1" in u or "10.0.0.50" in u for u in seen))
+
+    def test_results_do_not_depend_on_the_test_machine(self):
+        # On the Mac, 10.0.0.176/.194 are its own addresses; an explicit own set keeps the test hermetic.
+        fetch = fake_fetch({"10.0.0.176:1234/v1/models": {"data": [{"id": "m"}]}})
+        original = probes._own_addresses
+        probes._own_addresses = lambda: {"10.0.0.176", "10.0.0.194"}
+        try:
+            self.assertEqual(probes.probe_mac(self.HOSTS, fetch, resolve=lambda _n: [], own=set())["state"], "reachable")
+            self.assertEqual(probes.probe_mac(self.HOSTS, fetch, resolve=lambda _n: [])["state"], "unreachable")
+        finally:
+            probes._own_addresses = original
 
     def test_peer_ages_result(self):
         peer = probes.MacPeer(Path("/x"), probe=lambda _h: {"state": "reachable", "observedAt": 100.0, "detail": "ok", "models": []})
