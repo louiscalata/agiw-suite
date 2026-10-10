@@ -293,6 +293,67 @@ class EndToEnd(unittest.TestCase):
         finally:
             log.stream.close()
 
+    def test_observer_log_keeps_writing_when_rotation_is_blocked(self):
+        from unittest import mock
+        from agiw_win.server import RateLimitedLog
+        path = Path(self.tmp.name) / "observer.log"
+        log = RateLimitedLog(open(path, "a", encoding="utf-8", buffering=1), path, max_bytes=100)
+        try:
+            with mock.patch("agiw_win.server.os.replace", side_effect=PermissionError(13, "locked")):
+                for i in range(8):
+                    log.write(f"2026-10-10T10:00:0{i} distinct error number {i} with some detail\n")
+            log.flush()
+            text = path.read_text()
+            self.assertIn("distinct error number 0", text)
+            self.assertIn("distinct error number 2", text)  # past the cap, not silenced
+            self.assertLessEqual(path.stat().st_size, 200)  # but still bounded at twice the cap
+        finally:
+            log.stream.close()
+
+    @unittest.skipUnless(sys.platform == "win32", "Windows file sharing semantics")
+    def test_persistent_publish_failure_keeps_the_old_file_and_keeps_sampling(self):
+        share = Path(self.tmp.name)
+        target = share / "llm-lab" / "status" / probes.STATUS_FILE_NAME
+        probes.write_json_atomic(target, {"old": True}, stop_at=share)
+        old = target.read_bytes()
+        stop = threading.Event()
+        worker = threading.Thread(target=sample, args=(self.store, self.collector, stop, 0.05),
+                                  kwargs={"publish_to": target, "publish_every": 0.0}, daemon=True)
+        holder = open(target, "rb")  # a reader that never shares delete: every replace is refused
+        try:
+            worker.start()
+            deadline, first, failed = time.monotonic() + 15, None, None
+            while time.monotonic() < deadline and failed is None:
+                data, sequence = self.store.wait_for_change(None, timeout=1.0)
+                first = first or sequence
+                source = next((s for s in (data or {}).get("sources", []) if s["id"] == "share-publish"), None)
+                if source and source["state"] == "unavailable" and "failed" in source["detail"]:
+                    failed = (sequence, source)
+            self.assertIsNotNone(failed, "the publish failure never reached the dashboard")
+            sequence, source = failed
+            self.assertGreater(sequence, first)  # sampling kept advancing while publishing failed
+            self.assertIn("PermissionError", source["detail"])
+            self.assertNotIn(str(share), source["detail"])
+        finally:
+            stop.set()
+            worker.join(10)
+            holder.close()
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(target.read_bytes(), old)
+        self.assertEqual([p.name for p in target.parent.iterdir()], [target.name])  # no temp file left behind
+
+    def test_publish_source_reports_pending_success_and_failure(self):
+        from agiw_win.server import publish_error_name, publish_source
+        self.assertEqual(publish_source({"ok": None, "error": None}, 5.0)["state"], "unavailable")
+        live = publish_source({"ok": 100.0, "error": None}, 103.0)
+        self.assertEqual((live["state"], live["ageSeconds"]), ("live", 3.0))
+        failed = publish_source({"ok": 100.0, "error": publish_error_name(PermissionError(13, "Access is denied", "C:/x"))},
+                                130.0)
+        self.assertEqual((failed["state"], failed["ageSeconds"]), ("unavailable", None))
+        self.assertIn("last success 30 s ago", failed["detail"])
+        self.assertNotIn("C:/x", failed["detail"])
+        self.assertIn("no successful publish", publish_source({"ok": None, "error": "OSError"}, 1.0)["detail"])
+
     def test_post_is_read_only(self):
         conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=3)
         origin = f"http://127.0.0.1:{self.port}"

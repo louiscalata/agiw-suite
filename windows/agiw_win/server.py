@@ -11,6 +11,7 @@ import socket
 import sys
 import threading
 import time
+from typing import Any
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
 
@@ -280,15 +281,40 @@ class Handler(BaseHTTPRequestHandler):
             self.server._streams.release()
 
 
+def publish_error_name(error: Exception) -> str:
+    """A short, path-free name for a publish failure, safe to show on the dashboard."""
+    if isinstance(error, ValueError):
+        return f"refused: {str(error)[:80]}"
+    code = getattr(error, "winerror", None) or getattr(error, "errno", None)
+    return f"{type(error).__name__}{f' {code}' if code else ''}"
+
+
+def publish_source(outcome: dict[str, Any], now: float) -> dict[str, Any]:
+    """The share publisher as a dashboard source: a failure reaches the dashboard, not only stderr."""
+    ok, error = outcome.get("ok"), outcome.get("error")
+    age = None if ok is None else round(max(0.0, now - ok), 1)
+    if error is None and ok is None:
+        return probes._source("share-publish", "Share publish", "unavailable", "First publish to SharedChami pending")
+    if error is not None:
+        since = f"last success {age:.0f} s ago" if age is not None else "no successful publish since start"
+        return probes._source("share-publish", "Share publish", "unavailable",
+                              f"Publishing to SharedChami failed ({error}); {since}; any previous file is kept")
+    return probes._source("share-publish", "Share publish", "live",
+                          f"Status and presence published to SharedChami {age:.0f} s ago", age)
+
+
 def sample(store: SnapshotStore, collector: Collector, stop: threading.Event, interval: float = 1.0,
            publish_to: Path | None = None, publish_every: float = 10.0, presence_to: Path | None = None,
            dashboard_port: int | None = None) -> None:
     last_publish = 0.0
+    outcome: dict[str, Any] = {"ok": None, "error": None}  # monotonic time of the last success; last failure
     while not stop.is_set():
         started = time.monotonic()
         try:
             data = collector.collect()
             data["dashboardPort"] = dashboard_port
+            if publish_to is not None or presence_to is not None:
+                data["sources"] = [*data.get("sources", []), publish_source(outcome, started)]
             store.publish(data)
             if (publish_to is not None or presence_to is not None) and started - last_publish >= publish_every:
                 last_publish = started
@@ -300,7 +326,9 @@ def sample(store: SnapshotStore, collector: Collector, stop: threading.Event, in
                     if presence_to is not None:
                         probes.write_json_atomic(presence_to, probes.peer_presence(data, collector.host), probes.PEER_MAX_BYTES,
                                                  stop_at=collector.share_root)
+                    outcome["ok"], outcome["error"] = time.monotonic(), None
                 except (OSError, ValueError) as error:
+                    outcome["error"] = publish_error_name(error)
                     print(f"{time.strftime('%Y-%m-%dT%H:%M:%S')} status publish failed: {error!r}", file=sys.stderr)
         except Exception as error:  # noqa: BLE001 - a failed sample ages out; it is never re-stamped
             print(f"{time.strftime('%Y-%m-%dT%H:%M:%S')} sample failed: {error!r}", file=sys.stderr)
@@ -327,14 +355,17 @@ class RateLimitedLog:
             self.stream = open(self.path, "a", encoding="utf-8", buffering=1)
             return True
         except OSError:
-            # A reader may temporarily lock the old log. Drop this line and retry rotation on the
-            # next write; never let a logging failure terminate the sampler.
+            # A reader may lock the old log. Keep writing up to twice the cap so a lasting lock does not
+            # silence the log, and retry rotation on the next write; never let logging stop the sampler.
             if self.stream.closed:
                 try:
                     self.stream = open(self.path, "a", encoding="utf-8", buffering=1)
                 except OSError:
-                    pass
-            return False
+                    return False
+            try:
+                return self.path.stat().st_size + len(line.encode("utf-8")) <= 2 * self.max_bytes
+            except OSError:
+                return False
 
     def write(self, text: str) -> int:
         # A write is one record. Escape embedded newlines before finding its end, so an untrusted
