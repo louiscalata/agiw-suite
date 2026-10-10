@@ -6,7 +6,7 @@ import test from 'node:test';
 // Spec A (26 Sep 2026): the page follows /api/stream and polls only while the stream is down. The
 // dashboard's own feed functions run here against a fake EventSource, fetch and timers.
 const appSource = readFileSync(new URL('./web/app.js', import.meta.url), 'utf8');
-const definitions = appSource.replace(/^import .*;\n/gm, '').split("$('pause').addEventListener")[0];
+const definitions = appSource.replace(/^import .*;\r?\n/gm, '').split("$('pause').addEventListener")[0];
 
 function harness({ eventSource = true } = {}) {
   const timers = [], frames = [], fetches = [], sources = [];

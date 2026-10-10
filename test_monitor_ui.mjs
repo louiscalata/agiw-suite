@@ -12,7 +12,7 @@ import * as modelControl from './web/model-control-view.mjs';
 const html = readFileSync(new URL('./web/index.html', import.meta.url), 'utf8');
 const css = readFileSync(new URL('./web/style.css', import.meta.url), 'utf8');
 const appSource = readFileSync(new URL('./web/app.js', import.meta.url), 'utf8');
-const definitions = appSource.replace(/^import .*;\n/gm, '').split("$('pause').addEventListener")[0];
+const definitions = appSource.replace(/^import .*;\r?\n/gm, '').split("$('pause').addEventListener")[0];
 
 class FakeClassList {
   constructor(node) { this.node = node; }
