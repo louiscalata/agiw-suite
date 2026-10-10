@@ -276,6 +276,22 @@ class EndToEnd(unittest.TestCase):
         lines = sink.getvalue().splitlines()
         self.assertEqual(sum("boom" in l for l in lines), 1)
         self.assertFalse(any("\x1b" in l for l in lines))
+        self.assertEqual(sum("forged" in l for l in lines), 1)
+        self.assertFalse(any(l.startswith("2026-01-01T00:00:00") for l in lines))
+
+    def test_observer_log_rotates_during_long_run(self):
+        from agiw_win.server import RateLimitedLog
+        path = Path(self.tmp.name) / "observer.log"
+        log = RateLimitedLog(open(path, "a", encoding="utf-8", buffering=1), path, max_bytes=100)
+        try:
+            log.write("2026-10-10T10:00:00 first distinct error with enough detail\n")
+            log.write("2026-10-10T10:00:01 second distinct error with enough detail\n")
+            log.flush()
+            self.assertIn("first distinct error", path.with_suffix(".log.1").read_text())
+            self.assertIn("second distinct error", path.read_text())
+            self.assertLessEqual(path.stat().st_size, 100)
+        finally:
+            log.stream.close()
 
     def test_post_is_read_only(self):
         conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=3)
