@@ -59,7 +59,8 @@ class Collector:
                  memory_fn: Callable[[], tuple[dict, dict]] = probes.memory_block,
                  clients_fn: Callable[[float], tuple[list, list]] | None = None,
                  mac_peer: probes.MacPeer | None = None, clock: Callable[[], float] = time.time,
-                 lane_interval: float = 1.0, lane_wait: float = 0.0, runs_root: Path | None = None):
+                 lane_interval: float = 1.0, lane_wait: float = 0.0, runs_root: Path | None = None,
+                 host: str | None = None):
         self.share_root = share_root
         self.bin_root = bin_root or Path.home() / "bin"
         self.fetch, self.gpu_fn, self.adapters_fn, self.memory_fn = fetch, gpu_fn, adapters_fn, memory_fn
@@ -73,6 +74,7 @@ class Collector:
         self._pollers: dict[tuple, LanePoller] = {}
         self._jobs_cache: tuple[float, dict, dict] | None = None
         self.runs_root = runs_root or Path.home() / "code-runs"
+        self.host = host or probes.host_id()
         self.lane_interval, self.lane_wait = lane_interval, lane_wait
 
     def _lane(self, spec: dict[str, Any], now: float) -> dict[str, Any]:
@@ -182,6 +184,16 @@ class Collector:
             mac, mac_source = ({"state": "unknown", "detail": "LAN probe disabled", "models": [], "ageSeconds": None},
                                probes._source("mac-peer", "Mac (LAN)", "unavailable", "LAN probe disabled"))
         sources.append(mac_source)
+        peers, peers_source = probes.read_peers(self.share_root, self.host, sampled)
+        sources.append(peers_source)
+        mac_link = next((p for p in peers if p["platform"] == "macos" and p["fresh"]), None)
+        if mac_link and mac.get("state") != "reachable":
+            # The Mac's AGIW is linked through the share even though its LM Studio is closed to the LAN.
+            mac = {**mac, "state": "linked", "via": "sharedchami", "models": mac_link["models"],
+                   "loadedCount": sum(m["loadedState"] == "loaded" for m in mac_link["models"]),
+                   "linkAgeSeconds": mac_link["ageSeconds"], "linkSource": mac_link["source"],
+                   "detail": f"Linked through SharedChami ({mac_link['source']}, {mac_link['ageSeconds']:.0f} s old); "
+                             "LM Studio itself is not open to the LAN"}
 
         clients: list = []
         if self.clients_fn is not None:
@@ -220,7 +232,7 @@ class Collector:
             "observedAt": observed, "sampledAt": sampled,
             "models": rows, "sources": sources, "pipeline": pipeline, "components": components,
             "windowsWorker": worker, "windowsJobs": jobs, "memory": memory,
-            "macPeer": mac, "share": share, "clients": clients,
+            "macPeer": mac, "share": share, "clients": clients, "peers": peers, "hostId": self.host,
             "pcAdapters": self._adapter_list(), "pcGpus": gpus,
             "lanes": lanes,
             "modelControl": {"supported": False,

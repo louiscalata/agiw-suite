@@ -1187,8 +1187,10 @@ export function macPeerView(peer, { feedFresh = false, snapshotAge = 0 } = {}) {
   const block = peer && typeof peer === 'object' && !Array.isArray(peer) ? peer : null;
   const age = block && Number.isFinite(block.ageSeconds) && block.ageSeconds >= 0 ? block.ageSeconds + extra : null;
   const current = Boolean(feedFresh) && age !== null && age <= PEER_FRESH_SECONDS;
-  const state = current && ['reachable', 'unreachable'].includes(block.state) ? block.state : 'unknown';
-  const reachable = state === 'reachable';
+  const state = current && ['reachable', 'linked', 'unreachable'].includes(block.state) ? block.state : 'unknown';
+  // 'linked': the Mac's AGIW published through SharedChami; its LM Studio may still be closed to the LAN.
+  const linked = state === 'linked';
+  const reachable = state === 'reachable' || linked;
   const models = reachable && Array.isArray(block.models) ? block.models.slice(0, 64)
     .filter(m => m && typeof m.id === 'string' && PEER_MODEL.test(m.id) && ['loaded', 'not-loaded', 'listed', 'unknown'].includes(m.state)) : [];
   const loaded = models.filter(m => m.state === 'loaded');
@@ -1197,15 +1199,17 @@ export function macPeerView(peer, { feedFresh = false, snapshotAge = 0 } = {}) {
   const address = reachable && typeof block.address === 'string' && /^[0-9.]{7,15}$/.test(block.address) ? block.address : null;
   const via = block?.via === 'mdns' ? 'mDNS name' : block?.via === 'recorded-ip' ? 'recorded address' : null;
   const loadedText = loadedKnown ? `${loaded.length} loaded` : 'loaded state unknown';
-  const subtitle = reachable ? `LAN${latency !== null ? ` ${latency} MS` : ''} · ${loadedText.toUpperCase()}`
+  const subtitle = linked ? `LINKED VIA SHARE · ${loadedText.toUpperCase()}`
+    : reachable ? `LAN${latency !== null ? ` ${latency} MS` : ''} · ${loadedText.toUpperCase()}`
     : state === 'unreachable' ? 'NOT ANSWERING ON THE LAN' : 'LAN STATE UNKNOWN';
   const chip = !feedFresh ? { tone: 'muted', detail: 'Signal stale', short: 'Stale' }
+    : linked ? { tone: 'ok', detail: ['Linked via SharedChami', loadedText].join(' · '), short: loadedKnown ? `Linked · ${loaded.length} loaded` : 'Linked' }
     : reachable ? { tone: 'ok', detail: [`Reachable${latency !== null ? ` · ${latency} ms` : ''}`, loadedText].join(' · '), short: loadedKnown ? `${loaded.length} loaded` : 'Reachable' }
       : state === 'unreachable' ? { tone: 'warn', detail: 'Not answering on the LAN', short: 'No answer' }
         : { tone: 'muted', detail: 'LAN probe pending or stale', short: 'Unknown' };
   const expected = typeof block?.expectedVerifyModel === 'string' ? block.expectedVerifyModel : null;
   const rows = [
-    ['Reachability', reachable ? 'Answering' : state === 'unreachable' ? 'Not answering' : 'Unknown'],
+    ['Reachability', linked ? `Linked via SharedChami${Number.isFinite(block.linkAgeSeconds) ? ` (${Math.round(block.linkAgeSeconds)} s old)` : ''}; LM Studio not open to the LAN` : reachable ? 'Answering' : state === 'unreachable' ? 'Not answering' : 'Unknown'],
     ['Address', address ? `${address}${via ? ` (${via})` : ''}` : 'Unknown'],
     ['Round trip', latency !== null ? `${latency} ms` : 'Unknown'],
     ['Loaded models', loadedKnown ? (loaded.length ? loaded.map(m => m.id).join(', ') : 'None') : reachable ? 'Not reported by this listing' : 'Unknown'],
@@ -1214,6 +1218,16 @@ export function macPeerView(peer, { feedFresh = false, snapshotAge = 0 } = {}) {
     ['Detail', typeof block?.detail === 'string' ? block.detail.slice(0, 240) : 'Unknown'],
   ];
   return { state, reachable, current, age, latency, address, models, loaded, loadedKnown, subtitle,
-    brief: reachable ? `LAN · ${loadedText.toUpperCase()}` : state === 'unreachable' ? 'NO ANSWER' : 'UNKNOWN',
+    linked, brief: linked ? `SHARE · ${loadedText.toUpperCase()}` : reachable ? `LAN · ${loadedText.toUpperCase()}` : state === 'unreachable' ? 'NO ANSWER' : 'UNKNOWN',
     satellites: loaded.slice(0, 2), chip, rows };
+}
+
+/** Windows edition: every AGIW instance that published presence on SharedChami (snapshot.peers), for the inspector. */
+export function agiwPeersRows(peers, { feedFresh = false } = {}) {
+  const rows = feedFresh && Array.isArray(peers) ? peers.slice(0, 16).filter(p => p && typeof p.host === 'string'
+    && /^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$/.test(p.host) && Number.isFinite(p.ageSeconds)) : [];
+  return rows.length ? rows.map(p => [p.host, [p.fresh ? 'Linked' : 'Stale', p.platform, p.edition, p.version,
+    `${Array.isArray(p.models) ? p.models.filter(m => m && m.loadedState === 'loaded').length : 0} loaded`,
+    p.ageSeconds < 120 ? `${Math.round(p.ageSeconds)} s ago` : `${Math.round(p.ageSeconds / 3600)} h ago`, p.source].filter(Boolean).join(' · ')])
+    : [['AGIW peers', feedFresh ? 'None has published on SharedChami yet' : 'Unknown (feed stale)']];
 }
