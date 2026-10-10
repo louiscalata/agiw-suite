@@ -10,6 +10,7 @@ from typing import Any, Callable
 
 from . import VERSION
 from . import probes
+from . import winsys
 
 WORKER_VERSION = f"win-{VERSION}"  # matches the dashboard's worker-version pattern (<=16 chars)
 LANE_FRESH_SECONDS = 3.0
@@ -61,7 +62,7 @@ class Collector:
                  clients_fn: Callable[[float], tuple[list, list]] | None = None,
                  mac_peer: probes.MacPeer | None = None, clock: Callable[[], float] = time.time,
                  lane_interval: float = 1.0, lane_wait: float = 0.0, runs_root: Path | None = None,
-                 host: str | None = None):
+                 host: str | None = None, lane_processes: "winsys.LaneProcesses | None" = None):
         self.share_root = share_root
         self.bin_root = bin_root or Path.home() / "bin"
         self.fetch, self.gpu_fn, self.adapters_fn, self.memory_fn = fetch, gpu_fn, adapters_fn, memory_fn
@@ -76,6 +77,8 @@ class Collector:
         self._jobs_cache: tuple[float, dict, dict] | None = None
         self.runs_root = runs_root or Path.home() / "code-runs"
         self.host = host or probes.host_id()
+        self.lane_processes = lane_processes if lane_processes is not None else (
+            winsys.LaneProcesses() if winsys.IS_WINDOWS else None)
         self.lane_interval, self.lane_wait = lane_interval, lane_wait
 
     def _lane(self, spec: dict[str, Any], now: float) -> dict[str, Any]:
@@ -167,11 +170,24 @@ class Collector:
         specs, lane_source = probes.lane_specs(self.share_root)
         sources.append(lane_source)
         lanes = [self._lane(spec, sampled) for spec in specs]
+        servers: dict[str, Any] = {}
+        callers: list[dict[str, Any]] = []
+        if self.lane_processes is not None:
+            ports = {spec["port"]: spec["id"] for spec in specs if not spec.get("undeclared")}
+            servers, callers, process_source = self._guard(sources, "lane-processes", "Lane processes",
+                                                          lambda: self.lane_processes.sample(ports), ({}, [], None))
+            if process_source is not None:
+                sources.append(process_source)
+        for lane in lanes:
+            lane["process"] = servers.get(lane["id"])
+            lane["callers"] = [c for c in callers if c["lane"] == lane["id"]]
         rows = []
         for lane, spec in zip(lanes, specs):
             row = probes.lane_model_row(lane, spec, sampled)
             row["ageSeconds"] = lane["ageSeconds"]
             row["metadata"]["liveTokensPerSecond"] = lane.get("liveTokensPerSecond")
+            row["metadata"]["process"] = lane.get("process")
+            row["metadata"]["callers"] = [{k: c[k] for k in ("name", "client", "connections")} for c in lane.get("callers", [])]
             rows.append(row)
         complete = all(lane["status"] in ("idle", "busy") for lane in lanes)
         any_up = any(lane["status"] in probes.LANE_UP for lane in lanes)
@@ -237,7 +253,9 @@ class Collector:
                                    "slotsBusy": lane["slotsBusy"], "slotsTotal": lane["slotsTotal"],
                                    "status": lane["status"], "servedModel": lane["servedModel"],
                                    "port": lane["port"], "device": lane["device"],
-                                   "liveTokensPerSecond": lane.get("liveTokensPerSecond")}
+                                   "liveTokensPerSecond": lane.get("liveTokensPerSecond"),
+                                   "cpuPercent": (lane.get("process") or {}).get("cpuPercent"),
+                                   "workingSetBytes": (lane.get("process") or {}).get("workingSetBytes")}
                       for lane in lanes},
             # The dashboard voids the whole GPU sample on one unmeasured field, so only fully read cards go here;
             # pcGpus keeps every card with None for what nvidia-smi did not report.
@@ -256,6 +274,9 @@ class Collector:
             "models": rows, "sources": sources, "pipeline": pipeline, "components": components,
             "windowsWorker": worker, "windowsJobs": jobs, "memory": memory,
             "macPeer": mac, "share": share, "clients": clients, "peers": peers, "hostId": self.host,
+            # Mac-compatible shape (localCallersView reads name); lane and client are Windows additions.
+            "localCallers": [{k: c[k] for k in ("pid", "name", "lane", "client", "connections", "connectedSeconds")}
+                             for c in callers] if self.lane_processes is not None else None,
             "pcAdapters": self._adapter_list(), "pcGpus": gpus,
             "lanes": lanes,
             "modelControl": {"supported": False,
