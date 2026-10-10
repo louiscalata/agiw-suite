@@ -290,17 +290,22 @@ def publish_error_name(error: Exception) -> str:
 
 
 def publish_source(outcome: dict[str, Any], now: float) -> dict[str, Any]:
-    """The share publisher as a dashboard source: a failure reaches the dashboard, not only stderr."""
+    """The share publisher as a dashboard source: a failure reaches the dashboard, not only stderr.
+
+    ``outcome`` (pending / ok / failed) is the machine-readable result for the tray; detail is prose for people.
+    """
     ok, error = outcome.get("ok"), outcome.get("error")
     age = None if ok is None else round(max(0.0, now - ok), 1)
     if error is None and ok is None:
-        return probes._source("share-publish", "Share publish", "unavailable", "First publish to SharedChami pending")
+        return {**probes._source("share-publish", "Share publish", "unavailable", "First publish to SharedChami pending"),
+                "outcome": "pending"}
     if error is not None:
         since = f"last success {age:.0f} s ago" if age is not None else "no successful publish since start"
-        return probes._source("share-publish", "Share publish", "unavailable",
-                              f"Publishing to SharedChami failed ({error}); {since}; any previous file is kept")
-    return probes._source("share-publish", "Share publish", "live",
-                          f"Status and presence published to SharedChami {age:.0f} s ago", age)
+        return {**probes._source("share-publish", "Share publish", "unavailable",
+                                 f"Publishing to SharedChami failed ({error}); {since}; any previous file is kept"),
+                "outcome": "failed"}
+    return {**probes._source("share-publish", "Share publish", "live",
+                             f"Status and presence published to SharedChami {age:.0f} s ago", age), "outcome": "ok"}
 
 
 def sample(store: SnapshotStore, collector: Collector, stop: threading.Event, interval: float = 1.0,
