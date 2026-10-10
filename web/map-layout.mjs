@@ -1268,6 +1268,38 @@ export function macPeerView(peer, { feedFresh = false, snapshotAge = 0 } = {}) {
     satellites: loaded.slice(0, 2), chip, rows };
 }
 
+/** Windows sidebar: select existing map nodes; client identities expand only for model searches. */
+export function windowsMapListEntries(nodes, {host = 'mac', query = '', hostname = '', pcSummary = null, paused = false} = {}) {
+  if (host !== 'windows' || !Array.isArray(nodes)) return [];
+  const search = typeof query === 'string' ? query.trim().toLowerCase() : '';
+  const matches = values => values.some(value => typeof value === 'string' && value.toLowerCase().includes(search));
+  const sentence = value => typeof value === 'string' && value.trim()
+    ? value.toLowerCase().replace(/^./, s => s.toUpperCase()) : 'State unknown';
+  const rows = [];
+  const hub = nodes.find(n => n?.id === 'runtime' && n.kind === 'runtime');
+  if (hub && matches(['this pc', 'windows', 'hub', typeof hostname === 'string' && PEER_NAME.test(hostname) ? hostname : '']))
+    rows.push({key: hub.id, title: 'This PC', subtitle: paused ? 'View paused'
+      : typeof pcSummary?.detail === 'string' ? pcSummary.detail : 'Local hub',
+      tone: !paused && ['muted', 'ok', 'live', 'warn'].includes(pcSummary?.tone) ? pcSummary.tone : 'muted'});
+  const route = nodes.find(n => n?.id === 'pipeline' && n.kind === 'pipeline');
+  if (route && matches(['nisi', 'inference', 'route'])) rows.push({key: route.id, title: 'Nisi Inference',
+    subtitle: `${paused ? 'At pause: ' : ''}${sentence(route.subtitle)}`, tone: 'muted'});
+  if (!search) return rows;
+  for (const node of nodes) {
+    if (node?.kind !== 'client-model' || typeof node.id !== 'string' || typeof node.client?.id !== 'string'
+      || !node.id.startsWith(`client-model:${node.client.id}:`)) continue;
+    const id = node.clientModel?.id;
+    const title = typeof id === 'string' && id.trim() ? id.split('/').pop().replaceAll('-', ' ')
+      .replace(/\b(gemma|qwen)\b/gi, s => s[0].toUpperCase() + s.slice(1)).replace(/\bgpt\b/gi, 'GPT')
+      .replace(/\boss\b/gi, 'OSS').replace(/^./, s => s.toUpperCase()) : 'Unknown model';
+    if (!matches([id, title])) continue;
+    const subtitle = ['RECORDED MODEL', 'SAVED SESSION CHOICE', 'MODEL UNKNOWN'].includes(node.subtitle)
+      ? sentence(node.subtitle) : 'Model unknown';
+    rows.push({key: node.id, title, subtitle, tone: 'muted', clientId: node.client.id});
+  }
+  return rows;
+}
+
 /** Windows sidebar: project the same validated peer view and satellite order as the map. */
 export function windowsMacListEntries(peerView, query = '') {
   const view = peerView && typeof peerView === 'object' && !Array.isArray(peerView) ? peerView : null;
