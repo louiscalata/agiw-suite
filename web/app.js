@@ -400,6 +400,8 @@ async function fetchAutoUnload(enabled){
   }finally{clearTimeout(timer);}
 }
 async function pollAutoUnload(force=false){
+  // Auto-unload manages Mac LM Studio models only; the Windows edition has no such control to read.
+  if(snapshot?.host==='windows')return;
   if(autoUnloadPolling||autoUnloadPosting)return;
   autoUnloadPolling=true;const revision=autoUnloadRevision;
   if(force)autoUnloadState=null;
@@ -596,6 +598,8 @@ function updateOnlineCodeMode(){
   const macOwner=snapshot?.host==='mac';
   // Readiness, Fix and the PC LLM switch are Mac-owner actions; the Windows edition is read-only.
   const windowsHost=snapshot?.host==='windows';for(const id of ['onlineCodeMode','fixInference','pcSwitch'])if($(id).hidden!==windowsHost)$(id).hidden=windowsHost;
+  // Mac-only panels: auto-unload (Mac LM Studio models) and the components page (not served on Windows yet).
+  if(typeof document.querySelector==='function')for(const node of [document.querySelector('.auto-unload-control'),document.querySelector('a[href="/components"]')])if(node&&node.hidden!==windowsHost)node.hidden=windowsHost;
   const actionState=onlineCodeActionPosting?'submitting':onlineCodeActionStatus?.status||'idle';
   const action=onlineCodeActionPosting?onlineCodeSubmittingAction:onlineCodeActionStatus?.action;
   const actionActive=actionState==='submitting'||actionState==='running'||actionState==='uncertain';

@@ -163,7 +163,7 @@ function Get-StatusSummary {
         $lane = $snap.windowsWorker.lanes.$id
         if (-not $lane) { $unknown = $true; $lanes += "$id ?"; continue }
         switch ($lane.status) {
-            'busy'              { $lanes += "$id $($lane.slotsBusy)/$($lane.slotsTotal)"; $busy = $true }
+            'busy'              { $cpu = if ($id -eq 'deep' -and $lane.cpuPercent -ne $null) { " cpu $([int]$lane.cpuPercent)%" } else { '' }; $lanes += "$id $($lane.slotsBusy)/$($lane.slotsTotal)$cpu"; $busy = $true }
             'idle'              { $lanes += "$id idle"; $idle++ }
             'identity_mismatch' { $lanes += "$id WRONG MODEL"; $warn = $true }
             'loading'           { $lanes += "$id loading"; $warn = $true }
@@ -177,8 +177,9 @@ function Get-StatusSummary {
     $tone = if ($busy) { 'live' } elseif ($warn) { 'warn' } elseif ($unknown -or $idle -lt 2) { 'muted' } else { 'ok' }
     $memory = if ($snap.memory.level -and $snap.memory.level -ne 'unknown') { "RAM $([int]$snap.memory.availablePercent)% free" } else { $null }
     if ($snap.memory.level -in 'tight', 'critical' -and $tone -ne 'live') { $tone = 'warn' }
-    $gpu = $snap.windowsWorker.gpus | Select-Object -First 1
-    $gpuText = if ($gpu) { "GPU $([int]$gpu.utilizationPercent)%" } else { $null }
+    # Every adapter with a live load reading (NVIDIA from nvidia-smi, the AMD card from Windows counters).
+    $loads = @($snap.pcGpus | Where-Object { $_.utilizationPercent -ne $null } | ForEach-Object { [int]$_.utilizationPercent })
+    $gpuText = if ($loads.Count) { "GPU " + ($loads -join '/') + '%' } else { $null }
     $macFresh = $snap.macPeer.ageSeconds -ne $null -and [double]$snap.macPeer.ageSeconds -le 45
     $mac = if (-not $macFresh) { $null } else { switch ($snap.macPeer.state) { 'reachable' { 'Mac ok' } 'linked' { 'Mac linked' } 'unreachable' { 'Mac offline' } default { $null } } }
     @{ tone = $tone; text = (@($lanes -join ' | ') + @($gpuText, $memory, $mac) | Where-Object { $_ }) -join ' | '; snapshot = $snap }
