@@ -184,6 +184,20 @@ class Hardening(unittest.TestCase):
             self.assertEqual(json.loads((root / "llm-lab" / "ok" / "x.json").read_text()), {"a": 1})
             self.assertEqual([p.name for p in (root / "llm-lab" / "ok").iterdir()], ["x.json"])  # no temp left
 
+    def test_replace_retries_a_transiently_locked_target(self):
+        import unittest.mock as m
+        real = os.replace
+        calls = []
+        def flaky(src, dst):
+            calls.append(1)
+            if len(calls) < 3:
+                raise PermissionError(13, "Access is denied")
+            return real(src, dst)
+        with tempfile.TemporaryDirectory() as tmp, m.patch.object(probes.os, "replace", flaky):
+            probes.write_json_atomic(Path(tmp) / "a" / "x.json", {"ok": 1}, stop_at=Path(tmp))
+            self.assertEqual(json.loads((Path(tmp) / "a" / "x.json").read_text()), {"ok": 1})
+        self.assertEqual(len(calls), 3)
+
     def test_path_shaped_model_ids_are_not_published(self):
         self.assertEqual(probes.public_id(r"C:\Users\jlcal\.lmstudio\models\Qwen.gguf"), "Qwen.gguf")
         self.assertEqual(probes.public_id("/home/x/m.gguf"), "m.gguf")
