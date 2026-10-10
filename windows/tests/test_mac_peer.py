@@ -88,6 +88,14 @@ class MacPeerEvidence(unittest.TestCase):
         self.assertFalse(snapshot["peers"][0]["fresh"])
         self.assertEqual(snapshot["macPeer"]["models"], [])
 
+    def test_windows_model_control_remains_unavailable_with_plain_explanation(self):
+        snapshot = self.collector.collect()
+        self.assertEqual(snapshot["host"], "windows")
+        self.assertEqual(snapshot["modelControl"], {
+            "supported": False,
+            "reason": "This Windows dashboard monitors models only. Load and unload are unavailable.",
+        })
+
 
 if __name__ == "__main__":
     unittest.main()
