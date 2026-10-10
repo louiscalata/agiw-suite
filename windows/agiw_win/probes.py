@@ -835,7 +835,7 @@ class MacPeer:
         latest["ageSeconds"] = round(max(0.0, now - latest.get("observedAt", now)), 1)
         if latest["ageSeconds"] > PEER_PROBE_MAX_AGE:
             # A probe that stopped refreshing says nothing about the Mac now.
-            latest.update(state="unknown", models=[], loadedCount=None,
+            latest.update(state="unknown", models=[], loadedCount=None, reason=None,
                           detail=f"Last LAN probe is {latest['ageSeconds']:.0f} s old; Mac state unknown")
         state = "live" if latest["state"] == "reachable" else "unavailable"
         return latest, _source("mac-peer", "Mac (LAN)", state, latest.get("detail") or "", latest["ageSeconds"])
@@ -978,8 +978,19 @@ def pc_status(snapshot: dict[str, Any]) -> dict[str, Any]:
     limitations = []
     if mismatch:
         limitations.append("lane identity mismatch: " + ", ".join(mismatch))
-    if (snapshot.get("macPeer") or {}).get("state") != "reachable":
-        limitations.append("mac LM Studio not reachable from the PC")
+    mac_peer = snapshot.get("macPeer")
+    mac_peer = mac_peer if isinstance(mac_peer, dict) else {}
+    if mac_peer.get("state") != "reachable":
+        reason = mac_peer.get("reason")
+        sampled_at = _number(snapshot.get("sampledAt"), low=0)
+        probed_at = _number(mac_peer.get("observedAt"), low=0)
+        # A linked peer's ageSeconds describes the share report, not its LAN check.
+        fresh_probe = sampled_at is not None and probed_at is not None \
+            and -5 <= sampled_at - probed_at <= PEER_PROBE_MAX_AGE
+        failed_probe = fresh_probe and mac_peer.get("state") in ("unreachable", "linked") \
+            and isinstance(reason, str) and reason in ("refused", "timeout", "invalid", "error", "unresolved")
+        limitations.append(f"mac LM Studio LAN check failed ({reason}); cause unknown" if failed_probe
+                           else "mac LM Studio LAN reachability unknown")
     return {"schemaVersion": 1, "observedAt": snapshot.get("observedAt"), "host": "windows",
             "producer": f"agiw-win-observer {snapshot.get('observerVersion')}", "health": health, "tasks": [],
             "models": models, "gpus": gpus, "adapters": [a.get("name") for a in snapshot.get("pcAdapters") or []],
