@@ -1192,6 +1192,22 @@ export function macPeerView(peer, { feedFresh = false, snapshotAge = 0 } = {}) {
   const age = block && Number.isFinite(block.ageSeconds) && block.ageSeconds >= 0 ? block.ageSeconds + extra : null;
   const current = Boolean(feedFresh) && age !== null && age <= (block.state === 'linked' ? SHARE_PEER_FRESH_SECONDS : PEER_FRESH_SECONDS);
   const state = current && ['reachable', 'linked', 'unreachable'].includes(block.state) ? block.state : 'unknown';
+  // A failed LAN reason belongs only to a current failed probe, not to a later share report.
+  const reason = state === 'unreachable' && ['refused', 'timeout', 'invalid', 'unresolved', 'error'].includes(block.reason)
+    ? block.reason : null;
+  const failure = state === 'unreachable' ? ({
+    refused: { title: 'Mac connection refused', detail: "The LAN connection for checking the Mac's model list was refused. The cause is unknown.",
+      reachability: 'Connection refused', subtitle: 'LAN CONNECTION REFUSED', brief: 'CONNECTION REFUSED', short: 'Refused' },
+    timeout: { title: 'No answer from the Mac', detail: "The Mac's model list did not answer before the check timed out. The cause is unknown.",
+      reachability: 'No answer (timed out)', subtitle: 'NO ANSWER ON THE LAN', brief: 'NO ANSWER', short: 'No answer' },
+    invalid: { title: 'Mac model listing unavailable', detail: 'The LAN check did not obtain a valid model list; current model state is unknown.',
+      reachability: 'No valid model listing', subtitle: 'NO VALID MODEL LISTING', brief: 'NO VALID LISTING', short: 'No valid listing' },
+    unresolved: { title: 'Mac address unknown', detail: 'No usable Mac address was available to the LAN check.',
+      reachability: 'Address unknown', subtitle: 'MAC ADDRESS UNKNOWN', brief: 'ADDRESS UNKNOWN', short: 'Address unknown' },
+    error: { title: 'Mac probe error', detail: 'The LAN probe failed; current reachability is unknown. See the probe details.',
+      reachability: 'Probe error', subtitle: 'LAN PROBE ERROR', brief: 'PROBE ERROR', short: 'Probe error' },
+  }[reason] || { title: 'Mac not answering', detail: "The LAN check did not confirm the Mac's model list. The cause is unknown.",
+    reachability: 'Not answering', subtitle: 'NOT ANSWERING ON THE LAN', brief: 'NO ANSWER', short: 'No answer' }) : null;
   // 'linked' is evidence from a shared file; it does not establish LAN reachability.
   const linked = state === 'linked';
   const reachable = state === 'reachable' || linked;
@@ -1212,28 +1228,29 @@ export function macPeerView(peer, { feedFresh = false, snapshotAge = 0 } = {}) {
   // Share files are unsigned, so a share report is labelled as reported, not verified.
   const subtitle = linked ? `REPORTED VIA SHARE · ${loadedText.toUpperCase()}`
     : reachable ? `LAN${latency !== null ? ` ${latency} MS` : ''} · ${loadedText.toUpperCase()}`
-    : state === 'unreachable' ? 'NOT ANSWERING ON THE LAN' : 'LAN STATE UNKNOWN';
+    : failure ? failure.subtitle : 'LAN STATE UNKNOWN';
   const chip = !feedFresh ? { tone: 'muted', detail: 'Signal stale', short: 'Stale' }
     : linked ? { tone: 'muted', detail: ['Reported via SharedChami (unverified)', loadedText].join(' · '), short: loadedKnown ? `Reported · ${loadedCount} loaded` : 'Reported' }
     : reachable ? { tone: 'ok', detail: [`Reachable${latency !== null ? ` · ${latency} ms` : ''}`, loadedText].join(' · '), short: loadedKnown ? `${loadedCount} loaded` : 'Reachable' }
-      : state === 'unreachable' ? { tone: 'warn', detail: 'Not answering on the LAN', short: 'No answer' }
+      : failure ? { tone: 'warn', detail: failure.reachability, short: failure.short }
         : { tone: 'muted', detail: 'LAN probe pending or stale', short: 'Unknown' };
   const expected = typeof block?.expectedVerifyModel === 'string' ? block.expectedVerifyModel : null;
   const expectedModel = expected ? models.find(m => m.id === expected) : null;
   const expectedLoaded = expectedModel?.state === 'loaded' ? true : expectedModel?.state === 'not-loaded' ? false
     : state === 'reachable' && loadedKnown && !expectedModel ? false : null;
   const rows = [
-    ['Reachability', linked ? `Reported via SharedChami${Number.isFinite(block.linkAgeSeconds) ? ` (${Math.round(block.linkAgeSeconds + extra)} s old)` : ''}; unsigned file, not verified; LAN reachability unknown` : reachable ? 'Answering' : state === 'unreachable' ? 'Not answering' : 'Unknown'],
+    ['Reachability', linked ? `Reported via SharedChami${Number.isFinite(block.linkAgeSeconds) ? ` (${Math.round(block.linkAgeSeconds + extra)} s old)` : ''}; unsigned file, not verified; LAN reachability unknown` : reachable ? 'Answering' : failure ? failure.reachability : 'Unknown'],
     ['Address', address ? `${address}${via ? ` (${via})` : ''}` : 'Unknown'],
     ['Round trip', latency !== null ? `${latency} ms` : 'Unknown'],
     ['Loaded models', loadedKnown ? [loaded.length ? loaded.map(m => m.id).join(', ') : loadedCount ? null : 'None',
       hiddenLoaded ? `${hiddenLoaded} more with an unreadable name` : null].filter(Boolean).join(' · ') : reachable ? 'Not reported by this listing' : 'Unknown'],
     ['Expected verify model', expected ? `${expected}${typeof expectedLoaded === 'boolean' ? (expectedLoaded ? ' · loaded' : ' · not loaded') : ''}` : 'Not recorded'],
     ['Probe age', age !== null ? `${Math.round(age)} s` : 'Unknown'],
-    ['Detail', typeof block?.detail === 'string' ? block.detail.slice(0, 240) : 'Unknown'],
+    ['Detail', state !== 'unknown' && typeof block?.detail === 'string' ? block.detail.slice(0, 240) : 'Unknown'],
   ];
-  return { state, reachable, current, age, latency, address, models, loaded, loadedKnown, loadedCount, hiddenLoaded, subtitle,
-    linked, brief: linked ? `SHARE REPORT · ${loadedText.toUpperCase()}` : reachable ? `LAN · ${loadedText.toUpperCase()}` : state === 'unreachable' ? 'NO ANSWER' : 'UNKNOWN',
+  return { state, reason, failureTitle: failure?.title ?? null, failureDetail: failure?.detail ?? null,
+    reachable, current, age, latency, address, models, loaded, loadedKnown, loadedCount, hiddenLoaded, subtitle,
+    linked, brief: linked ? `SHARE REPORT · ${loadedText.toUpperCase()}` : reachable ? `LAN · ${loadedText.toUpperCase()}` : failure ? failure.brief : 'UNKNOWN',
     satellites: loaded.slice(0, 2), chip, rows };
 }
 

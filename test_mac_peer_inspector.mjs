@@ -56,6 +56,15 @@ const publicationUnknown = value => {
 
 const linked = {state: 'linked', via: 'sharedchami', ageSeconds: 2, linkAgeSeconds: 2,
   loadedCount: 1, models: [{id: 'a', state: 'loaded'}]};
+const failureCauseClaim = /offline|asleep|off (?:the )?network|\bMac (?:is )?on (?:the )?(?:network|LAN)\b|LM Studio (?:is )?(?:closed|not[- ](?:open|listening|serving))|firewall (?:is )?(?:blocking|dropping|rejecting)/i;
+
+function inspectorPair(body, label) {
+  for (const pairs of body.descendants().filter(node => node.tagName === 'dl')) {
+    const key = pairs.children.find(node => node.tagName === 'dt' && node.textContent === label);
+    if (key) return pairs.children[pairs.children.indexOf(key) + 1].textContent;
+  }
+  assert.fail(`missing inspector detail ${label}`);
+}
 
 test('the Windows linked-peer inspector identifies a share report without a LAN answer or closed-server claim', () => {
   const body = inspector(linked);
@@ -78,6 +87,67 @@ test('the Windows LAN-peer inspector still explains a proven model-listing answe
   assert.match(body.textContent, /Mac answering on the LAN/);
   assert.match(body.textContent, /LM Studio answered/);
   assert.doesNotMatch(body.textContent, /Reported via SharedChami/);
+});
+
+test('both Windows Mac inspectors distinguish connection refusal from timeout without guessing a cause', () => {
+  for (const kind of ['mac-peer', 'mac-model']) {
+    for (const [reason, diagnosis] of [['refused', /refused/i], ['timeout', /no answer|timed out|timeout/i]]) {
+      const body = inspector({...linked, state: 'unreachable', reason}, {kind});
+      const summary = body.children.find(node => node.className === 'panel-summary');
+      assert.equal(summary.dataset.tone, 'warn');
+      assert.match(summary.descendants().find(node => node.tagName === 'strong').textContent, diagnosis);
+      assert.match(summary.textContent, diagnosis);
+      assert.match(inspectorPair(body, 'Reachability'), diagnosis);
+      assert.doesNotMatch(body.textContent, failureCauseClaim);
+      assert.equal(inspectorPair(body, 'Loaded models'), 'Unknown');
+      assert.doesNotMatch(body.textContent, /was (?:listed|reported) as loaded|LM Studio answered|Mac (?:is )?generating/i);
+      if (kind === 'mac-model') assert.match(summary.textContent, /residency.*unknown|unknown.*residency/i);
+    }
+  }
+});
+
+test('Windows Mac inspectors reject malformed reasons and keep generic failures free of cause claims', () => {
+  for (const reason of [null, ['refused'], {reason: 'timeout'}, true, 'REFUSED', 'TIMEOUT', 'bogus',
+    'invalid', 'unresolved', 'error']) {
+    const body = inspector({...linked, state: 'unreachable', reason});
+    const summary = body.children.find(node => node.className === 'panel-summary');
+    assert.equal(summary.dataset.tone, 'warn');
+    assert.doesNotMatch(body.textContent, /refused|timed out|timeout|bogus/i);
+    assert.doesNotMatch(body.textContent, failureCauseClaim);
+    assert.equal(inspectorPair(body, 'Loaded models'), 'Unknown');
+  }
+});
+
+test('both Windows Mac inspectors hide failure diagnoses after the probe or feed expires', () => {
+  for (const kind of ['mac-peer', 'mac-model']) {
+    for (const reason of ['refused', 'timeout']) {
+      for (const options of [{snapshotAge: 2}, {feedAge: 4}, {connected: false}]) {
+        const body = inspector({...linked, state: 'unreachable', ageSeconds: 44, reason,
+          detail: reason === 'refused' ? 'Connection refused on <mac-lan-ip> port 1234' : 'Probe timed out'},
+        {kind, ...options});
+        const summary = body.children.find(node => node.className === 'panel-summary');
+        assert.equal(summary.dataset.tone, 'muted');
+        assert.match(summary.textContent, /unknown|stale/i);
+        assert.doesNotMatch(body.textContent, /refused|timed out|timeout/i);
+        assert.equal(inspectorPair(body, 'Loaded models'), 'Unknown');
+      }
+    }
+  }
+});
+
+test('both Windows Mac inspectors ignore an old failure reason on a fresh share report or LAN answer', () => {
+  for (const kind of ['mac-peer', 'mac-model']) {
+    for (const state of ['linked', 'reachable']) {
+      for (const reason of ['refused', 'timeout']) {
+        const body = inspector({...linked, state, reason}, {kind});
+        const summary = body.children.find(node => node.className === 'panel-summary');
+        assert.equal(summary.dataset.tone, state === 'linked' ? 'muted' : 'ok');
+        assert.match(summary.textContent, state === 'linked' ? /reported.*SharedChami/i : /LM Studio/i);
+        assert.doesNotMatch(body.textContent, /refused|timed out|timeout/i);
+        assert.equal(inspectorPair(body, 'Loaded models'), 'a');
+      }
+    }
+  }
 });
 
 test('a selected Mac model loses its loaded claim after either evidence source expires', () => {
