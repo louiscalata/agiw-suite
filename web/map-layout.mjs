@@ -1235,3 +1235,22 @@ export function agiwPeersRows(peers, { feedFresh = false } = {}) {
     p.ageSeconds < 120 ? `${Math.round(p.ageSeconds)} s ago` : `${Math.round(p.ageSeconds / 3600)} h ago`, p.source].filter(Boolean).join(' · ')])
     : [['AGIW peers', feedFresh ? 'None has published on SharedChami yet' : 'Unknown (feed stale)']];
 }
+
+/** Windows edition: every graphics adapter (snapshot.pcGpus). NVIDIA rows carry nvidia-smi temperature and power;
+ * other adapters (the AMD card) only Windows counter load and memory. A reading is load on the card from every app,
+ * not proof a model is running. */
+export function pcAdaptersView(gpus, { feedFresh = false } = {}) {
+  const rows = feedFresh && Array.isArray(gpus) ? gpus.slice(0, 8).filter(g => g && typeof g.name === 'string' && GPU_NAME.test(g.name)) : [];
+  const num = (v, lo, hi) => typeof v === 'number' && Number.isFinite(v) && v >= lo && v <= hi ? v : null;
+  const line = g => {
+    const util = num(g.utilizationPercent, 0, 100), used = num(g.memoryUsedMiB, 0, 1048576), total = num(g.memoryTotalMiB, 1, 1048576);
+    const temp = num(g.temperatureC, 0, 150), power = num(g.powerW, 0, 2000);
+    return [util !== null ? `${Math.round(util)}% busy` : 'load unknown', used !== null && total !== null && used <= total ? `${gib(used)} of ${gib(total)} GB` : null,
+      temp !== null ? `${Math.round(temp)} °C` : null, power !== null ? `${Math.round(power)} W` : null].filter(Boolean).join(' · ');
+  };
+  const known = rows.filter(g => num(g.utilizationPercent, 0, 100) !== null);
+  return { known: known.length > 0,
+    tile: known.length ? known.map(g => `${String(g.name).replace(/^(NVIDIA GeForce|AMD Radeon) /, '')} ${Math.round(g.utilizationPercent)}%`).join(' · ') : 'Unknown',
+    chip: known.length ? `GPU ${known.map(g => Math.round(g.utilizationPercent) + '%').join('/')}` : null,
+    rows: rows.length ? rows.map(g => [g.name, line(g)]) : [['Graphics', feedFresh ? 'No adapter reading' : 'Unknown (feed stale)']] };
+}

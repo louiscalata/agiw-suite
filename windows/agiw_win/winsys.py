@@ -193,3 +193,131 @@ class LaneProcesses:
                      if caller_list else "no local process is connected to a lane"))
         return servers, caller_list, {"id": "lane-processes", "label": "Lane processes", "state": "live",
                                       "ageSeconds": 0.0, "detail": detail}
+
+
+# ------------------------------------------------------------------------ GPUs
+# Windows' own GPU counters (what Task Manager shows) cover every adapter, including the AMD card that
+# nvidia-smi cannot see. Counter instances name an adapter by LUID; DXGI maps each LUID to its description,
+# so attribution is exact rather than inferred from memory sizes.
+PDH_FMT_DOUBLE = 0x00000200
+PDH_MORE_DATA = 0x800007D2
+_LUID = re.compile(r"luid_0x([0-9A-Fa-f]{8})_0x([0-9A-Fa-f]{8})_phys_(\d+)")
+_ENGTYPE = re.compile(r"engtype_([A-Za-z0-9 ]+)$")
+
+
+class _Luid(ctypes.Structure):
+    _fields_ = [("LowPart", ctypes.c_uint32), ("HighPart", ctypes.c_int32)]
+
+
+class _AdapterDesc1(ctypes.Structure):
+    _fields_ = [("Description", ctypes.c_wchar * 128), ("VendorId", ctypes.c_uint), ("DeviceId", ctypes.c_uint),
+                ("SubSysId", ctypes.c_uint), ("Revision", ctypes.c_uint), ("DedicatedVideoMemory", ctypes.c_size_t),
+                ("DedicatedSystemMemory", ctypes.c_size_t), ("SharedSystemMemory", ctypes.c_size_t),
+                ("AdapterLuid", _Luid), ("Flags", ctypes.c_uint)]
+
+
+class _Guid(ctypes.Structure):
+    _fields_ = [("a", ctypes.c_uint32), ("b", ctypes.c_uint16), ("c", ctypes.c_uint16), ("d", ctypes.c_ubyte * 8)]
+
+
+_IID_IDXGIFactory1 = _Guid(0x770AAE78, 0xF26F, 0x4DBA, (ctypes.c_ubyte * 8)(0xA8, 0x29, 0x25, 0x3C, 0x83, 0xD1, 0xB3, 0x87))
+VENDORS = {0x10DE: "nvidia", 0x1002: "amd", 0x8086: "intel", 0x1414: "microsoft"}
+
+
+def _vcall(obj: ctypes.c_void_p, index: int, restype, argtypes: tuple = (), *args):
+    """Call COM vtable slot `index` on obj (this pointer first) with explicit argument types."""
+    vtable = ctypes.cast(obj, ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p))).contents
+    prototype = ctypes.WINFUNCTYPE(restype, ctypes.c_void_p, *argtypes)
+    return prototype(vtable[index])(obj, *args)
+
+
+def dxgi_adapters() -> list[dict[str, Any]]:
+    """Hardware adapters from DXGI: description, vendor, dedicated VRAM and LUID (software adapters skipped)."""
+    if not IS_WINDOWS:
+        return []
+    dxgi = ctypes.windll.dxgi  # type: ignore[attr-defined]
+    factory = ctypes.c_void_p()
+    if dxgi.CreateDXGIFactory1(ctypes.byref(_IID_IDXGIFactory1), ctypes.byref(factory)) != 0 or not factory:
+        raise OSError("CreateDXGIFactory1 failed")
+    adapters = []
+    try:
+        for index in range(16):
+            adapter = ctypes.c_void_p()
+            if _vcall(factory, 12, ctypes.c_long, (ctypes.c_uint, ctypes.c_void_p), index, ctypes.addressof(adapter)) != 0:  # EnumAdapters1
+                break
+            try:
+                desc = _AdapterDesc1()
+                if _vcall(adapter, 10, ctypes.c_long, (ctypes.c_void_p,), ctypes.addressof(desc)) == 0 and not desc.Flags & 0x2:  # GetDesc1; skip SOFTWARE
+                    luid = f"{desc.AdapterLuid.HighPart & 0xFFFFFFFF:08X}{desc.AdapterLuid.LowPart:08X}"
+                    adapters.append({"name": desc.Description.strip()[:64], "vendor": VENDORS.get(desc.VendorId, "other"),
+                                     "luid": luid, "memoryTotalMiB": round(desc.DedicatedVideoMemory / 2**20)})
+            finally:
+                _vcall(adapter, 2, ctypes.c_ulong)  # Release (no arguments)
+    finally:
+        _vcall(factory, 2, ctypes.c_ulong)
+    return adapters
+
+
+class _PdhItem(ctypes.Structure):
+    class _Value(ctypes.Structure):
+        _fields_ = [("CStatus", ctypes.c_uint32), ("doubleValue", ctypes.c_double)]
+    _fields_ = [("szName", ctypes.c_wchar_p), ("FmtValue", _Value)]
+
+
+class GpuCounters:
+    """Per-adapter engine load and dedicated memory from PDH, kept open so rate counters have a baseline."""
+
+    def __init__(self):
+        if not IS_WINDOWS:
+            raise OSError("PDH is Windows-only")
+        self.pdh = ctypes.windll.pdh  # type: ignore[attr-defined]
+        self.query = ctypes.c_void_p()
+        if self.pdh.PdhOpenQueryW(None, None, ctypes.byref(self.query)) != 0:
+            raise OSError("PdhOpenQuery failed")
+        self.engine, self.memory = ctypes.c_void_p(), ctypes.c_void_p()
+        for path, handle in (("\\GPU Engine(*)\\Utilization Percentage", self.engine),
+                             ("\\GPU Adapter Memory(*)\\Dedicated Usage", self.memory)):
+            if self.pdh.PdhAddEnglishCounterW(self.query, path, None, ctypes.byref(handle)) != 0:
+                raise OSError(f"counter unavailable: {path}")
+        self.pdh.PdhCollectQueryData(self.query)
+        self.adapters = dxgi_adapters()
+
+    def _array(self, counter: ctypes.c_void_p) -> list[tuple[str, float]]:
+        size, count = ctypes.c_ulong(0), ctypes.c_ulong(0)
+        # PDH returns 32-bit status codes; ctypes hands them back as signed ints, so mask before comparing.
+        status = self.pdh.PdhGetFormattedCounterArrayW(counter, PDH_FMT_DOUBLE, ctypes.byref(size), ctypes.byref(count), None) & 0xFFFFFFFF
+        if status not in (0, PDH_MORE_DATA) or size.value == 0:
+            return []
+        buffer = ctypes.create_string_buffer(size.value)
+        if self.pdh.PdhGetFormattedCounterArrayW(counter, PDH_FMT_DOUBLE, ctypes.byref(size), ctypes.byref(count), buffer) & 0xFFFFFFFF:
+            return []
+        items = ctypes.cast(buffer, ctypes.POINTER(_PdhItem))
+        return [(items[i].szName, items[i].FmtValue.doubleValue) for i in range(count.value)
+                if items[i].FmtValue.CStatus in (0, 1)]  # PDH_CSTATUS_VALID_DATA / NEW_DATA
+
+    def sample(self) -> list[dict[str, Any]]:
+        if self.pdh.PdhCollectQueryData(self.query) & 0xFFFFFFFF:
+            raise OSError("PdhCollectQueryData failed")
+        # Engine load: per adapter, the busiest engine type (sum of that type's instances across processes),
+        # which is how Task Manager reports a GPU's overall utilisation.
+        by_type: dict[str, dict[str, float]] = {}
+        for name, value in self._array(self.engine):
+            luid, engtype = _LUID.search(name), _ENGTYPE.search(name)
+            if luid and engtype:
+                key = (luid.group(1) + luid.group(2)).upper()
+                by_type.setdefault(key, {}).setdefault(engtype.group(1), 0.0)
+                by_type[key][engtype.group(1)] += value
+        used: dict[str, float] = {}
+        for name, value in self._array(self.memory):
+            luid = _LUID.search(name)
+            if luid:
+                key = (luid.group(1) + luid.group(2)).upper()
+                used[key] = used.get(key, 0.0) + value
+        rows = []
+        for adapter in self.adapters:
+            engines = by_type.get(adapter["luid"])
+            rows.append({**adapter,
+                         "utilizationPercent": round(min(100.0, max(engines.values())), 1) if engines else None,
+                         "memoryUsedMiB": round(used[adapter["luid"]] / 2**20) if adapter["luid"] in used else None,
+                         "busiestEngine": max(engines, key=engines.get) if engines else None})
+        return rows

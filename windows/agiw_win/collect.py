@@ -17,6 +17,25 @@ LANE_FRESH_SECONDS = 3.0
 GPU_KEYS = ("index", "name", "utilizationPercent", "memoryUsedMiB", "memoryTotalMiB", "temperatureC", "powerW")
 
 
+def merge_adapters(nvidia: list[dict[str, Any]], adapters: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """One row per hardware adapter. NVIDIA rows keep nvidia-smi's readings (temperature, power) and gain the
+    adapter name/LUID; other adapters (the AMD card) get load and memory from the Windows counters only."""
+    rows, used = [], set()
+    for adapter in adapters:
+        smi = next((g for i, g in enumerate(nvidia) if adapter["vendor"] == "nvidia" and i not in used
+                    and (g["name"] == adapter["name"] or len([a for a in adapters if a["vendor"] == "nvidia"]) == 1)), None)
+        if smi is not None:
+            used.add(nvidia.index(smi))
+            rows.append({**smi, "luid": adapter["luid"], "source": "nvidia-smi"})
+        else:
+            rows.append({"index": 100 + len(rows), "name": adapter["name"], "vendor": adapter["vendor"], "luid": adapter["luid"],
+                         "utilizationPercent": adapter["utilizationPercent"], "memoryUsedMiB": adapter["memoryUsedMiB"],
+                         "memoryTotalMiB": adapter["memoryTotalMiB"], "temperatureC": None, "powerW": None,
+                         "busiestEngine": adapter.get("busiestEngine"), "source": "windows-gpu-counters"})
+    rows += [g for i, g in enumerate(nvidia) if i not in used]
+    return rows
+
+
 class LanePoller:
     """One lane polled on its own thread: a busy CPU lane can take seconds to answer /slots."""
 
@@ -75,6 +94,8 @@ class Collector:
         self._lock = threading.Lock()
         self._pollers: dict[tuple, LanePoller] = {}
         self._jobs_cache: tuple[float, dict, dict] | None = None
+        self.gpu_counters = None
+        self._gpu_counters_failed = gpu_fn is not probes.nvidia_gpus  # tests inject gpu_fn and skip PDH
         self.runs_root = runs_root or Path.home() / "code-runs"
         self.host = host or probes.host_id()
         self.lane_processes = lane_processes if lane_processes is not None else (
@@ -118,6 +139,18 @@ class Collector:
         if self.mac_peer:
             self.mac_peer.stop()
 
+    def _adapter_load(self) -> list[dict[str, Any]]:
+        """Every adapter's load and memory from Windows' GPU counters (PDH + DXGI); [] when unavailable."""
+        if self.gpu_counters is None:
+            if self._gpu_counters_failed or not winsys.IS_WINDOWS:
+                return []
+            try:
+                self.gpu_counters = winsys.GpuCounters()
+            except Exception:  # noqa: BLE001 - counters are optional detail
+                self._gpu_counters_failed = True
+                return []
+        return self.gpu_counters.sample()
+
     # nvidia-smi costs ~100-300 ms; two seconds of reuse keeps the sampler at 1 Hz.
     def _gpus(self, now: float) -> tuple[list, dict]:
         with self._lock:
@@ -128,6 +161,14 @@ class Collector:
                 source["ageSeconds"] = round(now - cached[0], 1)
             return gpus, source
         gpus, source = self.gpu_fn()
+        try:
+            adapters = self._adapter_load()
+        except Exception:  # noqa: BLE001
+            adapters = []
+        if adapters:
+            gpus = merge_adapters(gpus, adapters)
+            source = {**source, "state": "live", "ageSeconds": 0.0,
+                      "detail": "Every adapter's load and memory from Windows GPU counters; NVIDIA temperature and power from nvidia-smi"}
         with self._lock:
             self._gpu_cache = (now, gpus, source)
         return gpus, source
