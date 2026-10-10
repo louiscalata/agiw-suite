@@ -308,27 +308,61 @@ def sample(store: SnapshotStore, collector: Collector, stop: threading.Event, in
 
 
 class RateLimitedLog:
-    """stderr for the observer log: control characters escaped, lines capped, an identical line at most once a minute."""
+    """Bounded stderr log with escaped controls, repeat suppression and rotation during writes."""
 
-    def __init__(self, stream):
-        self.stream, self._last = stream, {}
+    def __init__(self, stream, path: Path | None = None, max_bytes: int = 1 << 20):
+        self.stream, self.path, self.max_bytes = stream, path, max_bytes
+        self._last = {}
+        self._lock = threading.Lock()
+
+    def _rotate_for(self, line: str) -> bool:
+        if self.path is None:
+            return True
+        try:
+            self.stream.flush()
+            if self.path.stat().st_size + len(line.encode("utf-8")) <= self.max_bytes:
+                return True
+            self.stream.close()
+            os.replace(self.path, self.path.with_suffix(self.path.suffix + ".1"))
+            self.stream = open(self.path, "a", encoding="utf-8", buffering=1)
+            return True
+        except OSError:
+            # A reader may temporarily lock the old log. Drop this line and retry rotation on the
+            # next write; never let a logging failure terminate the sampler.
+            if self.stream.closed:
+                try:
+                    self.stream = open(self.path, "a", encoding="utf-8", buffering=1)
+                except OSError:
+                    pass
+            return False
 
     def write(self, text: str) -> int:
-        for line in text.splitlines():
-            line = "".join(c if c.isprintable() else repr(c)[1:-1] for c in line)[:500]
-            if not line:
-                continue
+        # A write is one record. Escape embedded newlines before finding its end, so an untrusted
+        # message cannot create a second timestamped record.
+        line = "".join(c if c.isprintable() else repr(c)[1:-1] for c in text.rstrip("\r\n"))[:500]
+        if not line:
+            return len(text)
+        with self._lock:
             key, now = line[19:], time.monotonic()
             if now - self._last.get(key, -1e9) < 60:
-                continue
+                return len(text)
             if len(self._last) > 512:
                 self._last.clear()
             self._last[key] = now
-            self.stream.write(line + "\n")
+            record = line + "\n"
+            if self._rotate_for(record):
+                try:
+                    self.stream.write(record)
+                except OSError:
+                    pass
         return len(text)
 
     def flush(self) -> None:
-        self.stream.flush()
+        with self._lock:
+            try:
+                self.stream.flush()
+            except OSError:
+                pass
 
 
 class PortUnavailable(RuntimeError):
@@ -402,10 +436,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.log_file:
         try:
             args.log_file.parent.mkdir(parents=True, exist_ok=True)
-            # Rotate at 1 MiB and rate-limit repeats, so hostile input cannot grow the log without bound.
-            if args.log_file.is_file() and args.log_file.stat().st_size > 1 << 20:
-                os.replace(args.log_file, args.log_file.with_suffix(args.log_file.suffix + ".1"))
-            sys.stderr = RateLimitedLog(open(args.log_file, "a", encoding="utf-8", buffering=1))  # noqa: SIM115
+            sys.stderr = RateLimitedLog(open(args.log_file, "a", encoding="utf-8", buffering=1), args.log_file)  # noqa: SIM115
             print(f"{time.strftime('%Y-%m-%dT%H:%M:%S')} observer {VERSION} starting (pid {os.getpid()})", file=sys.stderr)
         except OSError:
             pass
