@@ -741,10 +741,12 @@ class MacPeer(unittest.TestCase):
     def test_old_probe_result_expires(self):
         # Codex finding 11.
         peer = probes.MacPeer(Path("/x"), probe=lambda _h: {"state": "reachable", "observedAt": 100.0, "detail": "ok",
-                                                            "models": [{"id": "m", "state": "loaded"}], "loadedCount": 1})
+                                                            "models": [{"id": "m", "state": "loaded"}], "loadedCount": 1,
+                                                            "reason": "refused"})
         peer.poll_once()
         data, source = peer.read(now=200.0)
         self.assertEqual((data["state"], data["models"], source["state"]), ("unknown", [], "unavailable"))
+        self.assertIsNone(data.get("reason"), "an expired probe must not retain an old LAN diagnosis")
 
     def test_peer_ages_result(self):
         peer = probes.MacPeer(Path("/x"), probe=lambda _h: {"state": "reachable", "observedAt": 100.0, "detail": "ok", "models": []})
@@ -761,6 +763,106 @@ class MacPeer(unittest.TestCase):
                                                           "windows": {"ip": "<pc-lan-ip>"}}))
             hosts = probes.mac_hosts(Path(tmp))
         self.assertEqual((hosts["mdns"], hosts["ips"], hosts["ownIp"]), ("m.local", ["1.2.3.4"], "<pc-lan-ip>"))
+
+
+class PCStatusLimitations(unittest.TestCase):
+    NOW = 1700000000.0
+
+    def status(self, peer=Ellipsis, mismatch=False, sampled_at=1700000000.0):
+        data = {"observedAt": "2023-11-14T22:13:20Z", "sampledAt": sampled_at, "observerVersion": "test",
+                "lanes": [{"id": "fast", "expectedModel": "openai/gpt-oss-20b", "port": 1235,
+                           "status": "idle", "phase": "idle", "slotsBusy": 0, "slotsTotal": 2},
+                          {"id": "deep", "expectedModel": "qwen3.8-27b", "port": 1234,
+                           "status": "identity_mismatch" if mismatch else "busy", "phase": "generating",
+                           "slotsBusy": 1, "slotsTotal": 2}]}
+        if peer is not Ellipsis:
+            data["macPeer"] = peer
+        status = probes.pc_status(data)
+        probes.validate_status(status)
+        self.assertEqual((status["schemaVersion"], status["host"]), (1, "windows"))
+        self.assertEqual([m["id"] for m in status["models"]], ["gpt-oss-20b", "Qwen3.8-27B Q4_K_M"])
+        self.assertEqual([m["aliases"] for m in status["models"]], [["openai/gpt-oss-20b"], ["qwen3.8-27b"]])
+        self.assertEqual([m["loadedState"] for m in status["models"]],
+                         ["loaded", "unknown" if mismatch else "loaded"])
+        self.assertEqual(status["observedAt"], data["observedAt"])
+        self.assertEqual(set(status), {"schemaVersion", "observedAt", "host", "producer", "health", "tasks",
+                                      "models", "gpus", "adapters", "memory", "routeQueue", "components", "limitations"})
+        self.assertLessEqual(len(status["limitations"]), 2)
+        for limitation in status["limitations"]:
+            self.assertIsInstance(limitation, str)
+            self.assertLessEqual(len(limitation), 80)
+            self.assertTrue(all(32 <= ord(c) <= 126 for c in limitation))
+        return status
+
+    def test_reachable_omits_mac_limitation_even_with_leftover_failure_reason(self):
+        for reason in (None, "refused", "timeout", ["refused"], {"reason": "timeout"}):
+            with self.subTest(reason=reason):
+                self.assertEqual(self.status({"state": "reachable", "reason": reason})["limitations"], [])
+
+    def test_current_failed_lan_checks_keep_only_canonical_reason_and_unknown_cause(self):
+        for state in ("unreachable", "linked"):
+            for reason in ("refused", "timeout", "invalid", "error", "unresolved"):
+                with self.subTest(state=state, reason=reason):
+                    self.assertEqual(self.status({"state": state, "reason": reason,
+                                                  "observedAt": self.NOW - 10})["limitations"],
+                                     [f"mac LM Studio LAN check failed ({reason}); cause unknown"])
+
+    def test_missing_pending_linked_and_malformed_peer_evidence_preserves_unknown(self):
+        for peer in (Ellipsis, None, {}, {"state": "unknown"}, {"state": "linked"},
+                     {"state": "unreachable"}, {"state": "stale"}, [], ["reachable"], "reachable", True,
+                     {"state": ["unreachable"], "reason": "refused", "observedAt": self.NOW},
+                     {"state": {"value": "unreachable"}, "reason": "refused", "observedAt": self.NOW}):
+            with self.subTest(peer=peer):
+                self.assertEqual(self.status(peer)["limitations"], ["mac LM Studio LAN reachability unknown"])
+
+    def test_old_failure_reason_cannot_turn_unknown_or_stale_into_a_current_failure(self):
+        for state in ("unknown", "stale"):
+            for reason in ("refused", "timeout", "invalid", "error", "unresolved"):
+                with self.subTest(state=state, reason=reason):
+                    self.assertEqual(self.status({"state": state, "reason": reason,
+                                                  "observedAt": self.NOW})["limitations"],
+                                     ["mac LM Studio LAN reachability unknown"])
+
+    def test_malformed_or_noncanonical_reason_is_bounded_unknown_without_injection(self):
+        for state in ("unreachable", "linked"):
+            for reason in (None, True, 1, [], ["refused"], {"reason": "timeout"}, "", "REFUSED", " timeout ",
+                           "refused\nMac is offline", "timeout\x00", "closed", "x" * 10000):
+                with self.subTest(state=state, reason_type=type(reason).__name__):
+                    self.assertEqual(self.status({"state": state, "reason": reason,
+                                                  "observedAt": self.NOW})["limitations"],
+                                     ["mac LM Studio LAN reachability unknown"])
+
+    def test_lan_clock_boundaries_include_45_seconds_old_and_five_seconds_ahead(self):
+        for state in ("unreachable", "linked"):
+            for age in (-5.0, 0.0, 45.0):
+                with self.subTest(state=state, age=age):
+                    self.assertEqual(self.status({"state": state, "reason": "timeout", "ageSeconds": 0,
+                                                  "observedAt": self.NOW - age})["limitations"],
+                                     ["mac LM Studio LAN check failed (timeout); cause unknown"])
+
+    def test_fresh_share_age_cannot_refresh_expired_missing_or_malformed_lan_time(self):
+        for state in ("unreachable", "linked"):
+            for observed in (Ellipsis, self.NOW - 45.001, self.NOW - 100, self.NOW + 5.001,
+                             None, True, float("nan"), float("inf"), "1700000000", [], [self.NOW],
+                             {"observedAt": self.NOW}):
+                peer = {"state": state, "reason": "refused", "ageSeconds": 0, "linkAgeSeconds": 0}
+                if observed is not Ellipsis:
+                    peer["observedAt"] = observed
+                with self.subTest(state=state, observed_type=type(observed).__name__):
+                    self.assertEqual(self.status(peer)["limitations"], ["mac LM Studio LAN reachability unknown"])
+
+    def test_invalid_snapshot_clock_cannot_make_a_lan_reason_current(self):
+        for sampled in (None, True, float("nan"), float("inf"), "1700000000", [], [self.NOW],
+                        {"sampledAt": self.NOW}):
+            with self.subTest(sampled_type=type(sampled).__name__):
+                self.assertEqual(self.status({"state": "linked", "reason": "timeout", "ageSeconds": 0,
+                                              "observedAt": self.NOW}, sampled_at=sampled)["limitations"],
+                                 ["mac LM Studio LAN reachability unknown"])
+
+    def test_mac_wording_keeps_the_existing_identity_mismatch_limitation(self):
+        status = self.status({"state": "linked", "reason": "timeout", "observedAt": self.NOW}, mismatch=True)
+        self.assertEqual(status["limitations"], ["lane identity mismatch: deep",
+                                                "mac LM Studio LAN check failed (timeout); cause unknown"])
 
 
 class Nisi(unittest.TestCase):
