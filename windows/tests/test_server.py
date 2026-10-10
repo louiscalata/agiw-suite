@@ -256,7 +256,7 @@ class EndToEnd(unittest.TestCase):
         # Codex round 2, findings 12 and 13.
         share = Path(self.tmp.name)
         data = self.collector.collect()
-        probes.write_json_atomic(probes.peer_dir(share) / "mac.json",
+        probes.write_json_atomic(probes.peer_dir(share) / "louis-mac.json",
                                  {**probes.peer_presence(data, "louis-mac"), "platform": "macos"}, probes.PEER_MAX_BYTES)
         snap = self.collector.collect()
         mac = snap["macPeer"]
@@ -264,6 +264,18 @@ class EndToEnd(unittest.TestCase):
         self.assertIsNotNone(mac["ageSeconds"])
         self.assertLessEqual(mac["ageSeconds"], 30)
         self.assertTrue(all(set(m) == {"id", "state"} and m["state"] == "loaded" for m in mac["models"]))
+
+    def test_observer_log_escapes_and_rate_limits(self):
+        import io
+        from agiw_win.server import RateLimitedLog
+        sink = io.StringIO()
+        log = RateLimitedLog(sink)
+        for _ in range(5):
+            log.write("2026-10-10T10:00:00 sample failed: boom\n")
+        log.write("2026-10-10T10:00:01 forged\r2026-01-01T00:00:00 fake line\x1b[31m\n")
+        lines = sink.getvalue().splitlines()
+        self.assertEqual(sum("boom" in l for l in lines), 1)
+        self.assertFalse(any("\x1b" in l for l in lines))
 
     def test_post_is_read_only(self):
         conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=3)

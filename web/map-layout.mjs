@@ -1204,17 +1204,18 @@ export function macPeerView(peer, { feedFresh = false, snapshotAge = 0 } = {}) {
   const address = reachable && typeof block.address === 'string' && /^[0-9.]{7,15}$/.test(block.address) ? block.address : null;
   const via = block?.via === 'mdns' ? 'mDNS name' : block?.via === 'recorded-ip' ? 'recorded address' : null;
   const loadedText = loadedKnown ? `${loadedCount} loaded` : 'loaded state unknown';
-  const subtitle = linked ? `LINKED VIA SHARE · ${loadedText.toUpperCase()}`
+  // Share files are unsigned, so a share report is labelled as reported, not verified.
+  const subtitle = linked ? `REPORTED VIA SHARE · ${loadedText.toUpperCase()}`
     : reachable ? `LAN${latency !== null ? ` ${latency} MS` : ''} · ${loadedText.toUpperCase()}`
     : state === 'unreachable' ? 'NOT ANSWERING ON THE LAN' : 'LAN STATE UNKNOWN';
   const chip = !feedFresh ? { tone: 'muted', detail: 'Signal stale', short: 'Stale' }
-    : linked ? { tone: 'ok', detail: ['Linked via SharedChami', loadedText].join(' · '), short: loadedKnown ? `Linked · ${loadedCount} loaded` : 'Linked' }
+    : linked ? { tone: 'muted', detail: ['Reported via SharedChami (unverified)', loadedText].join(' · '), short: loadedKnown ? `Reported · ${loadedCount} loaded` : 'Reported' }
     : reachable ? { tone: 'ok', detail: [`Reachable${latency !== null ? ` · ${latency} ms` : ''}`, loadedText].join(' · '), short: loadedKnown ? `${loadedCount} loaded` : 'Reachable' }
       : state === 'unreachable' ? { tone: 'warn', detail: 'Not answering on the LAN', short: 'No answer' }
         : { tone: 'muted', detail: 'LAN probe pending or stale', short: 'Unknown' };
   const expected = typeof block?.expectedVerifyModel === 'string' ? block.expectedVerifyModel : null;
   const rows = [
-    ['Reachability', linked ? `Linked via SharedChami${Number.isFinite(block.linkAgeSeconds) ? ` (${Math.round(block.linkAgeSeconds)} s old)` : ''}; LM Studio not open to the LAN` : reachable ? 'Answering' : state === 'unreachable' ? 'Not answering' : 'Unknown'],
+    ['Reachability', linked ? `Reported via SharedChami${Number.isFinite(block.linkAgeSeconds) ? ` (${Math.round(block.linkAgeSeconds)} s old)` : ''}; unsigned file, not verified; LM Studio not open to the LAN` : reachable ? 'Answering' : state === 'unreachable' ? 'Not answering' : 'Unknown'],
     ['Address', address ? `${address}${via ? ` (${via})` : ''}` : 'Unknown'],
     ['Round trip', latency !== null ? `${latency} ms` : 'Unknown'],
     ['Loaded models', loadedKnown ? [loaded.length ? loaded.map(m => m.id).join(', ') : loadedCount ? null : 'None',
@@ -1224,7 +1225,7 @@ export function macPeerView(peer, { feedFresh = false, snapshotAge = 0 } = {}) {
     ['Detail', typeof block?.detail === 'string' ? block.detail.slice(0, 240) : 'Unknown'],
   ];
   return { state, reachable, current, age, latency, address, models, loaded, loadedKnown, loadedCount, hiddenLoaded, subtitle,
-    linked, brief: linked ? `SHARE · ${loadedText.toUpperCase()}` : reachable ? `LAN · ${loadedText.toUpperCase()}` : state === 'unreachable' ? 'NO ANSWER' : 'UNKNOWN',
+    linked, brief: linked ? `SHARE REPORT · ${loadedText.toUpperCase()}` : reachable ? `LAN · ${loadedText.toUpperCase()}` : state === 'unreachable' ? 'NO ANSWER' : 'UNKNOWN',
     satellites: loaded.slice(0, 2), chip, rows };
 }
 
@@ -1232,7 +1233,7 @@ export function macPeerView(peer, { feedFresh = false, snapshotAge = 0 } = {}) {
 export function agiwPeersRows(peers, { feedFresh = false } = {}) {
   const rows = feedFresh && Array.isArray(peers) ? peers.slice(0, 16).filter(p => p && typeof p.host === 'string'
     && /^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$/.test(p.host) && Number.isFinite(p.ageSeconds)) : [];
-  return rows.length ? rows.map(p => [p.host, [p.fresh ? 'Linked' : 'Stale', p.platform, p.edition, p.version,
+  return rows.length ? rows.map(p => [p.host, [p.fresh ? (p.verified === true ? 'Linked' : 'Reported (unverified)') : 'Stale', p.platform, p.edition, p.version,
     `${Array.isArray(p.models) ? p.models.filter(m => m && m.loadedState === 'loaded').length : 0} loaded`,
     p.ageSeconds < 120 ? `${Math.round(p.ageSeconds)} s ago` : `${Math.round(p.ageSeconds / 3600)} h ago`, p.source].filter(Boolean).join(' · ')])
     : [['AGIW peers', feedFresh ? 'None has published on SharedChami yet' : 'Unknown (feed stale)']];

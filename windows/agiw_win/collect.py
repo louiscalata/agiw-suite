@@ -292,8 +292,9 @@ class Collector:
                    "loadedCount": sum(m["loadedState"] == "loaded" for m in mac_link["models"]),
                    "latencyMs": None, "address": None,
                    "linkAgeSeconds": mac_link["ageSeconds"], "linkSource": mac_link["source"],
-                   "detail": f"Linked through SharedChami ({mac_link['source']}, {mac_link['ageSeconds']:.0f} s old); "
-                             "LM Studio itself is not open to the LAN"}
+                   "verified": False,
+                   "detail": f"Reported through SharedChami ({mac_link['source']}, {mac_link['ageSeconds']:.0f} s old); "
+                             "unsigned share file, not verified; LM Studio itself is not open to the LAN"}
 
         clients: list = []
         if self.clients_fn is not None:

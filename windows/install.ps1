@@ -10,6 +10,13 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
+# The install runs code at sign-in, so it must live in a private folder: never on a network path or the
+# guest-writable SharedChami share, and never under a junction or symlink.
+$full = [IO.Path]::GetFullPath($Destination)
+if ($full.StartsWith('\\') -or $full -like 'C:\SharedChami*' -or (Test-Path -LiteralPath $full -PathType Container) -and
+        ((Get-Item -LiteralPath $full -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+    throw "$Destination is shared, remote or a link; install into a private folder such as $HOME\bin\agiw-win."
+}
 $sourceWindows = $PSScriptRoot
 $marker = Join-Path $Destination '.agiw-win-install'
 # Only overwrite a folder this installer created (it leaves a marker), or an empty or new one.

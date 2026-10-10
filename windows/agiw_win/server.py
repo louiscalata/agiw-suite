@@ -296,14 +296,39 @@ def sample(store: SnapshotStore, collector: Collector, stop: threading.Event, in
                     if publish_to is not None:
                         status = probes.pc_status(data)
                         probes.validate_status(status)
-                        probes.write_json_atomic(publish_to, status, probes.STATUS_MAX_BYTES)
+                        probes.write_json_atomic(publish_to, status, probes.STATUS_MAX_BYTES, stop_at=collector.share_root)
                     if presence_to is not None:
-                        probes.write_json_atomic(presence_to, probes.peer_presence(data, collector.host), probes.PEER_MAX_BYTES)
+                        probes.write_json_atomic(presence_to, probes.peer_presence(data, collector.host), probes.PEER_MAX_BYTES,
+                                                 stop_at=collector.share_root)
                 except (OSError, ValueError) as error:
                     print(f"{time.strftime('%Y-%m-%dT%H:%M:%S')} status publish failed: {error!r}", file=sys.stderr)
         except Exception as error:  # noqa: BLE001 - a failed sample ages out; it is never re-stamped
             print(f"{time.strftime('%Y-%m-%dT%H:%M:%S')} sample failed: {error!r}", file=sys.stderr)
         stop.wait(max(0.05, interval - (time.monotonic() - started)))
+
+
+class RateLimitedLog:
+    """stderr for the observer log: control characters escaped, lines capped, an identical line at most once a minute."""
+
+    def __init__(self, stream):
+        self.stream, self._last = stream, {}
+
+    def write(self, text: str) -> int:
+        for line in text.splitlines():
+            line = "".join(c if c.isprintable() else repr(c)[1:-1] for c in line)[:500]
+            if not line:
+                continue
+            key, now = line[19:], time.monotonic()
+            if now - self._last.get(key, -1e9) < 60:
+                continue
+            if len(self._last) > 512:
+                self._last.clear()
+            self._last[key] = now
+            self.stream.write(line + "\n")
+        return len(text)
+
+    def flush(self) -> None:
+        self.stream.flush()
 
 
 class PortUnavailable(RuntimeError):
@@ -377,7 +402,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.log_file:
         try:
             args.log_file.parent.mkdir(parents=True, exist_ok=True)
-            sys.stderr = open(args.log_file, "a", encoding="utf-8", buffering=1)  # noqa: SIM115 - lives for the process
+            # Rotate at 1 MiB and rate-limit repeats, so hostile input cannot grow the log without bound.
+            if args.log_file.is_file() and args.log_file.stat().st_size > 1 << 20:
+                os.replace(args.log_file, args.log_file.with_suffix(args.log_file.suffix + ".1"))
+            sys.stderr = RateLimitedLog(open(args.log_file, "a", encoding="utf-8", buffering=1))  # noqa: SIM115
             print(f"{time.strftime('%Y-%m-%dT%H:%M:%S')} observer {VERSION} starting (pid {os.getpid()})", file=sys.stderr)
         except OSError:
             pass
