@@ -743,13 +743,24 @@ def probe_mac(hosts: dict[str, Any] | None, fetch: Fetch = http_get_json,
                 continue
             latency = round((time.monotonic() - started) * 1000)
             loaded = [m for m in models if m["state"] == "loaded"]
+            unknown = sum(m["state"] == "unknown" for m in models)
+            # Only a listing with every residency reported proves a total; an empty listing proves 0.
+            complete = v0 and not unknown
             expected = hosts.get("expectedVerify")
+            expected_loaded = None
+            if v0 and expected:
+                if any(m["id"] == expected for m in loaded):
+                    expected_loaded = True
+                elif complete or any(m["id"] == expected and m["state"] == "not-loaded" for m in models):
+                    expected_loaded = False
+            residency = (f"{len(loaded)} loaded" if complete
+                         else f"at least {len(loaded)} loaded; residency unknown for {unknown} model(s)")
             return {"state": "reachable", "address": address, "via": via, "latencyMs": latency,
                     "name": hosts.get("hostname"), "models": models,
-                    "loadedCount": len(loaded) if v0 else None,
+                    "loadedCount": len(loaded) if complete else None,
                     "expectedVerifyModel": expected,
-                    "expectedVerifyLoaded": (any(m["id"] == expected for m in loaded) if v0 and expected else None),
-                    "detail": (f"LM Studio answered on {address} ({via}); {len(loaded)} loaded" if v0
+                    "expectedVerifyLoaded": expected_loaded,
+                    "detail": (f"LM Studio answered on {address} ({via}); {residency}" if v0
                                else f"OpenAI-compatible list answered on {address} ({via}); loaded state not reported"),
                     "observedAt": observed, "tried": tried + [address]}
         tried.append(address)
