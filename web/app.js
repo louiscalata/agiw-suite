@@ -1,6 +1,6 @@
 import {formatTokens,summarizeReportedCalls} from '/usage-format.mjs';
 import {onlineCodeModeView,routeQueueRows,nisiV02View,fixNisiStepsView,nisiRecoveryView,fixNisiEvidence,fixNisiMessage} from '/online-code-mode.mjs';
-import {constellationLayout,fitGraph,prioritizeRuntimeModels,runtimeModelRoster,CORE_MODEL_IDS,hasAdvertisedWindowsWorker,afmView,jevView,modelStarSize,windowsJobsView,windowsLaneView,resolveLabelCollisions,clampCamera,nextNodeInDirection,reviewConsistencyView,headlessSwitchView,activityFeed,vitalsView,windowsLaneRows,nodeCaptionLayout,windowsMacCaptionShift,macGpuView,localCallersView,laneSpeeds,speedsText,jobFlags,activitySummary,pcGpuView,orbWebKey,orbWebLayout,orbWebActivity,orbWebPluck,orbWebPathsAt,orbWebFlashPath,pluckOffsets,createWebMotion,edgeCurvePath,webGlows,glowRadius,memoryView,memoryBannerView,memoryDismissal,memoryHoldAt,memoryAnnouncement,routeQueuedWords,macPeerView,windowsMacListEntries,windowsMapListEntries,agiwPeersRows,windowsSharePublishRow,pcAdaptersView} from '/map-layout.mjs';
+import {constellationLayout,fitGraph,prioritizeRuntimeModels,runtimeModelRoster,CORE_MODEL_IDS,hasAdvertisedWindowsWorker,afmView,jevView,modelStarSize,windowsJobsView,windowsLaneView,resolveLabelCollisions,clampCamera,nextNodeInDirection,reviewConsistencyView,headlessSwitchView,activityFeed,vitalsView,windowsLaneRows,nodeCaptionLayout,windowsMacCaptionShift,macGpuView,localCallersView,laneSpeeds,speedsText,jobFlags,activitySummary,pcGpuView,orbWebKey,orbWebLayout,orbWebActivity,orbWebPluck,orbWebPathsAt,orbWebFlashPath,pluckOffsets,createWebMotion,edgeCurvePath,webGlows,glowRadius,memoryView,memoryBannerView,memoryDismissal,memoryHoldAt,memoryAnnouncement,routeQueuedWords,macPeerView,windowsMacListEntries,windowsMapListEntries,friendlyModelName,agiwPeersRows,windowsSharePublishRow,pcAdaptersView} from '/map-layout.mjs';
 import {modelControlView,submitModelControl} from '/model-control-view.mjs';
 const $=id=>document.getElementById(id), NS='http://www.w3.org/2000/svg';
 const ACTIVE=new Set(['generating','busy']);
@@ -26,7 +26,7 @@ let reparenting=false;
 const el=(tag,cls,text)=>{const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n;};
 const svg=(tag,attrs={})=>{const n=document.createElementNS(NS,tag);for(const [k,v]of Object.entries(attrs))n.setAttribute(k,v);return n;};
 const ageText=n=>!Number.isFinite(n)?'Age unknown':n< -1?'Clock mismatch':n<3?'Just sampled':n<60?`${Math.floor(n)}s ago`:n<3600?`${Math.floor(n/60)}m ago`:n<86400?`${Math.floor(n/3600)}h ago`:`${Math.floor(n/86400)}d ago`;
-const name=id=>String(id).split('/').pop().replaceAll('-',' ').replace(/\b(gemma|qwen)\b/gi,s=>s[0].toUpperCase()+s.slice(1)).replace(/\bgpt\b/gi,'GPT').replace(/\boss\b/gi,'OSS').replace(/^./,s=>s.toUpperCase());
+const name=id=>friendlyModelName(id);
 const decisionText=d=>typeof d==='string'?d:d&&typeof d==='object'?[d.choice,d.routeState,Number.isFinite(d.confidence)?'Classifier confidence '+Math.round(d.confidence*100)+'%':null].filter(Boolean).join(' · '):null;
 const trim=(text,max=27)=>text.length>max?text.slice(0,max-1)+'…':text;
 // Map captions use the family and size ("Gemma 4", "Qwen3.8 27b"); the inspector keeps the full ID.
