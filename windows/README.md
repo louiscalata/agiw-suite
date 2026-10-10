@@ -83,8 +83,9 @@ node --test (Get-ChildItem test_*.mjs).Name              # dashboard view logic 
 
 - Read-only: no lane start/stop, model load/unload, Fix Inference or auto-unload.
 - GPU temperature and power are NVIDIA-only (from `nvidia-smi`).
-- A reader that opens `windows-status.json` at the instant it is replaced can be refused once; it reads the next
-  copy on its next poll.
+- A reader that opens `windows-status.json` while it is being replaced can be refused; the refusal can recur until
+  the replace completes. A reader that keeps the file open keeps seeing the old contents (the replace swaps the
+  name, not the open file), so readers must reopen the file on every poll.
 - Job history comes from codemode run manifests in `~/code-runs`. Their rates are whole-request (prompt included), so
   they are kept apart from decode rates; the lane speed tiles show only the live decode rate measured from `/slots`
   (it needs llama-server's per-request task id, otherwise no rate is shown).

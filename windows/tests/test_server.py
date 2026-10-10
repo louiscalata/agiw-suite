@@ -378,6 +378,11 @@ class EndToEnd(unittest.TestCase):
         self.assertIn("last success 30 s ago", failed["detail"])
         self.assertNotIn("C:/x", failed["detail"])
         self.assertIn("no successful publish", publish_source({"ok": None, "error": "OSError"}, 1.0)["detail"])
+        # Success names only the files this observer is configured to write.
+        done = {"ok": 100.0, "error": None}
+        self.assertTrue(publish_source(done, 101.0, ("status",))["detail"].startswith("Status published"))
+        self.assertTrue(publish_source(done, 101.0, ("presence",))["detail"].startswith("Presence published"))
+        self.assertTrue(publish_source(done, 101.0, ("status", "presence"))["detail"].startswith("Status and presence published"))
 
     def test_post_is_read_only(self):
         conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=3)
