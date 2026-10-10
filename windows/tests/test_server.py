@@ -345,12 +345,13 @@ class EndToEnd(unittest.TestCase):
 
     def test_publish_source_reports_pending_success_and_failure(self):
         from agiw_win.server import publish_error_name, publish_source
-        self.assertEqual(publish_source({"ok": None, "error": None}, 5.0)["state"], "unavailable")
+        pending = publish_source({"ok": None, "error": None}, 5.0)
+        self.assertEqual((pending["state"], pending["outcome"]), ("unavailable", "pending"))
         live = publish_source({"ok": 100.0, "error": None}, 103.0)
-        self.assertEqual((live["state"], live["ageSeconds"]), ("live", 3.0))
+        self.assertEqual((live["state"], live["ageSeconds"], live["outcome"]), ("live", 3.0, "ok"))
         failed = publish_source({"ok": 100.0, "error": publish_error_name(PermissionError(13, "Access is denied", "C:/x"))},
                                 130.0)
-        self.assertEqual((failed["state"], failed["ageSeconds"]), ("unavailable", None))
+        self.assertEqual((failed["state"], failed["ageSeconds"], failed["outcome"]), ("unavailable", None, "failed"))
         self.assertIn("last success 30 s ago", failed["detail"])
         self.assertNotIn("C:/x", failed["detail"])
         self.assertIn("no successful publish", publish_source({"ok": None, "error": "OSError"}, 1.0)["detail"])
