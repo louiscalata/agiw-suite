@@ -347,5 +347,5 @@ class Collector:
             "pcAdapters": self._adapter_list(), "pcGpus": gpus,
             "lanes": lanes,
             "modelControl": {"supported": False,
-                             "reason": "The PC lanes are detached llama-server processes; load and unload are not offered here."},
+                             "reason": "This Windows dashboard monitors models only. Load and unload are unavailable."},
         }
