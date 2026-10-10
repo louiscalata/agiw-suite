@@ -8,6 +8,7 @@ with CREATE_NO_WINDOW so a windowless observer never flashes a console.
 from __future__ import annotations
 
 import ctypes
+from contextlib import contextmanager
 import http.client
 import ipaddress
 import json
@@ -980,6 +981,152 @@ def is_link_or_junction(path: Path) -> bool:
     return stat.S_ISLNK(info.st_mode) or bool(attributes & 0x400)  # FILE_ATTRIBUTE_REPARSE_POINT
 
 
+@contextmanager
+def _locked_publish_parent(path: Path, stop_at: Path | None):
+    """Walk from the volume root by handle, never following a directory reparse point."""
+    path = Path(os.path.abspath(path))
+    top = Path(os.path.abspath(stop_at)) if stop_at is not None else path.parent.parent
+    if top != path.parent and top not in path.parent.parents:
+        raise ValueError("publish target is outside its root")
+    directories = list(reversed((path.parent, *path.parent.parents)))
+    if not IS_WINDOWS:
+        for directory in directories:
+            if is_link_or_junction(directory):
+                raise ValueError("linked status directory refused")
+            directory.mkdir(exist_ok=True)
+        if is_link_or_junction(path):
+            raise ValueError("linked status directory refused")
+        yield None
+        return
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    create = kernel32.CreateFileW
+    create.argtypes = (ctypes.c_wchar_p, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_void_p,
+                       ctypes.c_uint32, ctypes.c_uint32, ctypes.c_void_p)
+    create.restype = ctypes.c_void_p
+    close = kernel32.CloseHandle
+    close.argtypes = (ctypes.c_void_p,)
+    invalid = ctypes.c_void_p(-1).value
+    handles = []
+    try:
+        # The volume root is stable. Each child is opened relative to the preceding handle,
+        # so renaming any visible path while this runs cannot redirect later operations.
+        handle = create(str(directories[0]), 0x80, 0x7, None, 3, 0x02200000, None)
+        if handle == invalid:
+            raise ctypes.WinError(ctypes.get_last_error())
+        handles.append(handle)
+        if _handle_is_reparse(kernel32, handle):
+            raise ValueError("linked status directory refused")
+        for directory in directories[1:]:
+            handle = _nt_create_relative(handles[-1], directory.name, directory=True)
+            if handle == invalid:
+                raise ctypes.WinError(ctypes.get_last_error())
+            handles.append(handle)
+            if _handle_is_reparse(kernel32, handle) or is_link_or_junction(directory):
+                raise ValueError("linked status directory refused")
+        if is_link_or_junction(path):
+            raise ValueError("linked status directory refused")
+        yield handles[-1]
+    finally:
+        for handle in reversed(handles):
+            close(handle)
+
+
+class _UnicodeString(ctypes.Structure):
+    _fields_ = [("Length", ctypes.c_ushort), ("MaximumLength", ctypes.c_ushort), ("Buffer", ctypes.c_wchar_p)]
+
+
+class _ObjectAttributes(ctypes.Structure):
+    _fields_ = [("Length", ctypes.c_ulong), ("RootDirectory", ctypes.c_void_p),
+                ("ObjectName", ctypes.POINTER(_UnicodeString)), ("Attributes", ctypes.c_ulong),
+                ("SecurityDescriptor", ctypes.c_void_p), ("SecurityQualityOfService", ctypes.c_void_p)]
+
+
+class _IoStatusBlock(ctypes.Structure):
+    _fields_ = [("Status", ctypes.c_void_p), ("Information", ctypes.c_size_t)]
+
+
+class _AttributeTagInfo(ctypes.Structure):
+    _fields_ = [("FileAttributes", ctypes.c_ulong), ("ReparseTag", ctypes.c_ulong)]
+
+
+def _handle_is_reparse(kernel32, handle: int) -> bool:
+    info = _AttributeTagInfo()
+    get_info = kernel32.GetFileInformationByHandleEx
+    get_info.argtypes = (ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p, ctypes.c_ulong)
+    if not get_info(handle, 9, ctypes.byref(info), ctypes.sizeof(info)):  # FileAttributeTagInfo
+        raise ctypes.WinError(ctypes.get_last_error())
+    return bool(info.FileAttributes & 0x400)
+
+
+def _nt_create_relative(parent: int, name: str, directory: bool) -> int:
+    """Create/open one child of a checked directory handle without path traversal."""
+    buffer = ctypes.create_unicode_buffer(name)
+    chars = len(name.encode("utf-16-le"))
+    unicode_name = _UnicodeString(chars, chars + 2, ctypes.cast(buffer, ctypes.c_wchar_p))
+    attributes = _ObjectAttributes(ctypes.sizeof(_ObjectAttributes), parent, ctypes.pointer(unicode_name),
+                                   0x40, None, None)  # OBJ_CASE_INSENSITIVE
+    iosb = _IoStatusBlock()
+    handle = ctypes.c_void_p()
+    nt_create = ctypes.WinDLL("ntdll").NtCreateFile
+    nt_create.argtypes = (ctypes.POINTER(ctypes.c_void_p), ctypes.c_ulong, ctypes.POINTER(_ObjectAttributes),
+                          ctypes.POINTER(_IoStatusBlock), ctypes.c_void_p, ctypes.c_ulong, ctypes.c_ulong,
+                          ctypes.c_ulong, ctypes.c_ulong, ctypes.c_void_p, ctypes.c_ulong)
+    nt_create.restype = ctypes.c_long
+    # FILE_READ_ATTRIBUTES for directories; WRITE_DATA, READ_ATTRIBUTES and DELETE for a temp file.
+    access = 0x80 if directory else 0x110082  # file also needs SYNCHRONIZE for CRT writes
+    disposition = 3 if directory else 2  # FILE_OPEN_IF / FILE_CREATE (exclusive)
+    options = 0x200000 | (0x1 if directory else 0x60)  # file adds SYNCHRONOUS_IO_NONALERT
+    status = nt_create(ctypes.byref(handle), access, ctypes.byref(attributes), ctypes.byref(iosb),
+                       None, 0x10 if directory else 0x80, 0x7 if directory else 0,
+                       disposition, options, None, 0)
+    if status < 0:
+        raise OSError(f"NtCreateFile failed (0x{status & 0xffffffff:08x})")
+    return handle.value
+
+
+def _nt_replace_relative(parent: int, temp: str, target: str, payload: bytes) -> None:
+    """Write and replace one file relative to the same checked parent handle."""
+    import msvcrt  # noqa: PLC0415 - Windows only
+
+    handle = _nt_create_relative(parent, temp, directory=False)
+    fd = msvcrt.open_osfhandle(handle, os.O_WRONLY | os.O_BINARY)
+    stream = os.fdopen(fd, "wb")
+    try:
+        stream.write(payload)
+        stream.flush()
+        encoded = target.encode("utf-16-le")
+        class RenameInfo(ctypes.Structure):
+            _fields_ = [("ReplaceIfExists", ctypes.c_byte), ("RootDirectory", ctypes.c_void_p),
+                        ("FileNameLength", ctypes.c_ulong)]
+        prefix = RenameInfo(1, parent, len(encoded))
+        name_offset = RenameInfo.FileNameLength.offset + ctypes.sizeof(ctypes.c_ulong)
+        raw = ctypes.create_string_buffer(name_offset + len(encoded))
+        ctypes.memmove(raw, ctypes.byref(prefix), name_offset)
+        ctypes.memmove(ctypes.addressof(raw) + name_offset, encoded, len(encoded))
+        set_info = ctypes.WinDLL("ntdll").NtSetInformationFile
+        set_info.argtypes = (ctypes.c_void_p, ctypes.POINTER(_IoStatusBlock), ctypes.c_void_p,
+                             ctypes.c_ulong, ctypes.c_int)
+        set_info.restype = ctypes.c_long
+        for attempt in range(6):
+            iosb = _IoStatusBlock()
+            status = set_info(handle, ctypes.byref(iosb), raw, len(raw), 10)  # FileRenameInformation
+            if status >= 0:
+                return
+            if status & 0xffffffff not in (0xC0000022, 0xC0000043) or attempt == 5:
+                raise OSError(f"NtSetInformationFile failed (0x{status & 0xffffffff:08x})")
+            time.sleep(0.05 * (attempt + 1))
+    except BaseException:
+        # The temporary file is tied to this handle even if its parent was renamed.
+        delete = ctypes.c_byte(1)
+        set_info = ctypes.WinDLL("kernel32", use_last_error=True).SetFileInformationByHandle
+        set_info.argtypes = (ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p, ctypes.c_ulong)
+        set_info(handle, 4, ctypes.byref(delete), 1)  # FileDispositionInfo
+        raise
+    finally:
+        stream.close()
+
+
 def write_json_atomic(path: Path, value: Any, max_bytes: int | None = None, stop_at: Path | None = None) -> None:
     """Write via an unpredictable, exclusively created temp file, refusing links/junctions on the way.
 
@@ -989,36 +1136,31 @@ def write_json_atomic(path: Path, value: Any, max_bytes: int | None = None, stop
     payload = json.dumps(value, separators=(",", ":")).encode("utf-8")
     if max_bytes is not None and len(payload) > max_bytes:
         raise ValueError("payload too large")
-    top = stop_at or path.parent.parent
-    chain = [path.parent]
-    while chain[-1] != top and chain[-1].parent != chain[-1] and top in chain[-1].parents:
-        chain.append(chain[-1].parent)
-    if top not in chain:
-        chain.append(top)
-    if any(is_link_or_junction(directory) for directory in chain) or is_link_or_junction(path):
-        raise ValueError("linked status directory refused")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f".{path.name}.{secrets.token_hex(8)}.tmp")
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0), 0o600)
-    try:
-        with os.fdopen(fd, "wb") as handle:
-            handle.write(payload)
-        # Windows refuses to replace a file another process (e.g. the Mac reading over SMB) holds open at that
-        # instant; the reader closes within milliseconds, so a few short retries ride it out.
-        for attempt in range(6):
-            try:
-                os.replace(tmp, path)
-                break
-            except PermissionError:
-                if attempt == 5:
-                    raise
-                time.sleep(0.05 * (attempt + 1))
-    except BaseException:
+    with _locked_publish_parent(path, stop_at) as parent:
+        tmp = path.with_name(f".{path.name}.{secrets.token_hex(8)}.tmp")
+        if IS_WINDOWS:
+            _nt_replace_relative(parent, tmp.name, path.name, payload)
+            return
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0), 0o600)
         try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-        raise
+            with os.fdopen(fd, "wb") as handle:
+                handle.write(payload)
+            # Windows refuses to replace a file another process (e.g. the Mac reading over SMB) holds open at that
+            # instant; the reader closes within milliseconds, so a few short retries ride it out.
+            for attempt in range(6):
+                try:
+                    os.replace(tmp, path)
+                    break
+                except PermissionError:
+                    if attempt == 5:
+                        raise
+                    time.sleep(0.05 * (attempt + 1))
+        except BaseException:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
 
 
 # ------------------------------------------------------------------ peer link

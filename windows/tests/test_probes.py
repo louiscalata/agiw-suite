@@ -212,6 +212,31 @@ class Hardening(unittest.TestCase):
             self.assertEqual([p.name for p in (root / "llm-lab" / "ok").iterdir()], ["x.json"])  # no temp left
 
     def test_replace_retries_a_transiently_locked_target(self):
+        if os.name == "nt":
+            import ctypes
+            import threading
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                target = root / "x.json"
+                target.write_text("old")
+                kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+                create = kernel32.CreateFileW
+                create.argtypes = (ctypes.c_wchar_p, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_void_p,
+                                   ctypes.c_uint32, ctypes.c_uint32, ctypes.c_void_p)
+                create.restype = ctypes.c_void_p
+                held = create(str(target), 0x80, 0x1, None, 3, 0, None)
+                self.assertNotEqual(held, ctypes.c_void_p(-1).value)
+                def release():
+                    time.sleep(0.15)
+                    kernel32.CloseHandle(ctypes.c_void_p(held))
+                thread = threading.Thread(target=release)
+                thread.start()
+                try:
+                    probes.write_json_atomic(target, {"ok": 1}, stop_at=root)
+                finally:
+                    thread.join(2)
+                self.assertEqual(json.loads(target.read_text()), {"ok": 1})
+            return
         import unittest.mock as m
         real = os.replace
         calls = []
@@ -224,6 +249,34 @@ class Hardening(unittest.TestCase):
             probes.write_json_atomic(Path(tmp) / "a" / "x.json", {"ok": 1}, stop_at=Path(tmp))
             self.assertEqual(json.loads((Path(tmp) / "a" / "x.json").read_text()), {"ok": 1})
         self.assertEqual(len(calls), 3)
+
+    def test_publisher_holds_parent_against_directory_swap(self):
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            directory = root / "publish"
+            directory.mkdir()
+            outside = root / "outside"
+            outside.mkdir()
+            original_check = probes.is_link_or_junction
+            attempted = []
+            def swap_during_check(path):
+                result = original_check(path)
+                if path == directory and not attempted:
+                    try:
+                        directory.rename(root / "old-publish")
+                        os.symlink(outside, directory, target_is_directory=True)
+                        attempted.append(True)
+                    except OSError:
+                        attempted.append(False)  # the open directory handle blocks replacement
+                return result
+            with mock.patch.object(probes, "is_link_or_junction", side_effect=swap_during_check):
+                try:
+                    probes.write_json_atomic(directory / "x.json", {"ok": 1}, stop_at=root)
+                except (OSError, ValueError):
+                    pass
+            self.assertEqual(attempted, [True])
+            self.assertEqual(list(outside.iterdir()), [])
 
     def test_path_shaped_model_ids_are_not_published(self):
         self.assertEqual(probes.public_id(r"C:\Users\jlcal\.lmstudio\models\Qwen.gguf"), "Qwen.gguf")
