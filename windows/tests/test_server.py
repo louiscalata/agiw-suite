@@ -1,6 +1,7 @@
 """End to end: fake llama-server lanes on real sockets -> collector -> store -> HTTP + SSE."""
 import http.client
 import json
+import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import sys
@@ -360,6 +361,70 @@ class EndToEnd(unittest.TestCase):
         conn.request("POST", "/api/models/control", body=b"{}", headers={"Host": f"127.0.0.1:{self.port}",
                                                                           "Origin": origin, "Content-Type": "application/json"})
         self.assertEqual(conn.getresponse().status, 501)
+
+
+class ObserverRecovery(unittest.TestCase):
+    """The real observer process, run from a copy so its source can change: the tray relies on these exits."""
+
+    def setUp(self):
+        import shutil
+        import socket
+        self.tmp = tempfile.TemporaryDirectory()
+        root = Path(self.tmp.name)
+        self.install = root / "install"
+        windows = Path(__file__).resolve().parents[1]
+        shutil.copytree(windows / "agiw_win", self.install / "agiw_win", ignore=shutil.ignore_patterns("__pycache__"))
+        shutil.copy2(windows / "agiw_observer.py", self.install / "agiw_observer.py")
+        (self.install / "web").mkdir()
+        (self.install / "web" / "index.html").write_text("<!doctype html>")
+        (root / "config.json").write_text(json.dumps({"publishStatus": False, "peerLink": False}))
+        (root / "share").mkdir()
+        with socket.socket() as probe:
+            probe.bind(("127.0.0.1", 0))
+            self.port = probe.getsockname()[1]
+        self.root = root
+
+    def tearDown(self):
+        for process in getattr(self, "processes", []):
+            if process.poll() is None:
+                process.kill()
+                process.wait(5)
+            if process.stdout:
+                process.stdout.close()
+        self.tmp.cleanup()
+
+    def start(self, parent_pid: int):
+        import subprocess
+        process = subprocess.Popen(
+            [sys.executable, "-I", "-B", str(self.install / "agiw_observer.py"), "--port", str(self.port),
+             "--parent-pid", str(parent_pid), "--no-lan", "--config", str(self.root / "config.json"),
+             "--share-root", str(self.root / "share"), "--log-file", str(self.root / "observer.log")],
+            stdout=subprocess.PIPE, text=True)
+        self.processes = [*getattr(self, "processes", []), process]
+        ready = json.loads(process.stdout.readline())
+        self.assertEqual(ready["port"], self.port)
+        return process
+
+    def test_source_change_exits_for_reload(self):
+        process = self.start(os.getpid())
+        time.sleep(2.5)  # past the first fingerprint
+        source = self.install / "agiw_win" / "probes.py"
+        source.write_text(source.read_text() + "\n# changed\n")
+        self.assertEqual(process.wait(15), 3)  # exit code 3 tells the tray this is an update
+        self.assertIn("source changed; exiting for reload", (self.root / "observer.log").read_text())
+
+    def test_parent_exit_stops_the_observer(self):
+        import subprocess
+        parent = subprocess.Popen([sys.executable, "-I", "-c", "import time; time.sleep(60)"])
+        self.processes = [parent]
+        process = self.start(parent.pid)
+        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=3)
+        conn.request("GET", "/api/health", headers={"Host": f"127.0.0.1:{self.port}"})
+        self.assertEqual(conn.getresponse().status, 200)
+        conn.close()
+        parent.kill()
+        parent.wait(5)
+        self.assertEqual(process.wait(15), 0)  # an orphaned observer must not keep the port
 
 
 if __name__ == "__main__":
