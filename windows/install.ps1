@@ -13,10 +13,31 @@ $repo = Split-Path -Parent $PSScriptRoot
 # The install runs code at sign-in, so it must live in a private folder: never on a network path or the
 # guest-writable SharedChami share, and never under a junction or symlink.
 $full = [IO.Path]::GetFullPath($Destination)
-if ($full.StartsWith('\\') -or $full -like 'C:\SharedChami*' -or (Test-Path -LiteralPath $full -PathType Container) -and
-        ((Get-Item -LiteralPath $full -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+if ($full.StartsWith('\\')) {
     throw "$Destination is shared, remote or a link; install into a private folder such as $HOME\bin\agiw-win."
 }
+$shared = [IO.Path]::GetFullPath('C:\SharedChami').TrimEnd('\')
+if ($full.Equals($shared, [StringComparison]::OrdinalIgnoreCase) -or
+        $full.StartsWith($shared + '\', [StringComparison]::OrdinalIgnoreCase)) {
+    throw "$Destination is shared, remote or a link; install into a private folder such as $HOME\bin\agiw-win."
+}
+$drive = New-Object IO.DriveInfo ([IO.Path]::GetPathRoot($full))
+if ($drive.DriveType -eq [IO.DriveType]::Network) {
+    throw "$Destination is shared, remote or a link; install into a private folder such as $HOME\bin\agiw-win."
+}
+$part = $full
+while ($part) {
+    if (Test-Path -LiteralPath $part) {
+        $item = Get-Item -LiteralPath $part -Force
+        if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+            throw "$Destination is shared, remote or a link; install into a private folder such as $HOME\bin\agiw-win."
+        }
+    }
+    $parent = Split-Path -Parent $part
+    if (-not $parent -or $parent -eq $part) { break }
+    $part = $parent
+}
+$Destination = $full
 $sourceWindows = $PSScriptRoot
 $marker = Join-Path $Destination '.agiw-win-install'
 # Only overwrite a folder this installer created (it leaves a marker), or an empty or new one.
@@ -53,4 +74,4 @@ if ($StartAtSignIn) {
     $shortcut.Save()
 }
 Write-Host "Installed to $Destination"
-if ($Launch) { Start-Process wscript.exe -ArgumentList ('"{0}"' -f (Join-Path $Destination 'AGIW Monitor.vbs')) }
+if ($Launch) { Start-Process (Join-Path $env:SystemRoot 'System32\wscript.exe') -ArgumentList ('"{0}"' -f (Join-Path $Destination 'AGIW Monitor.vbs')) }
