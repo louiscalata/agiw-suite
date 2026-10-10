@@ -8,6 +8,7 @@ with CREATE_NO_WINDOW so a windowless observer never flashes a console.
 from __future__ import annotations
 
 import ctypes
+import http.client
 import ipaddress
 import json
 import math
@@ -20,7 +21,7 @@ import sys
 import threading
 import time
 from typing import Any, Callable
-from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
+from urllib.parse import urlsplit
 
 IS_WINDOWS = os.name == "nt"
 CREATE_NO_WINDOW = 0x08000000 if IS_WINDOWS else 0
@@ -63,39 +64,53 @@ def _source(source_id: str, label: str, state: str, detail: str, age: float | No
             "ageSeconds": age if state == "live" else None, "detail": detail}
 
 
-class _NoRedirect(HTTPRedirectHandler):
-    def redirect_request(self, *_args, **_kwargs):
-        return None
-
-
-_OPENER = build_opener(ProxyHandler({}), _NoRedirect())
-
-
 def http_get_json(url: str, timeout: float = HTTP_TIMEOUT, max_bytes: int = HTTP_MAX_BYTES) -> Any:
     """GET a fixed URL with a byte cap and a total deadline; JSON when it parses, else a short text prefix.
 
     The socket timeout bounds each read; the deadline bounds the whole response, so a peer that
     trickles one byte per timeout cannot hold a poller (it fails at 2 x timeout).
     """
-    deadline = time.monotonic() + 2 * timeout
-    request = Request(url, headers={"Accept": "application/json"}, method="GET")
-    chunks, size = [], 0
-    with _OPENER.open(request, timeout=timeout) as response:
-        while size <= max_bytes:
-            if time.monotonic() > deadline:
-                raise TimeoutError("HTTP response exceeded its total deadline")
-            chunk = response.read(min(65536, max_bytes + 1 - size))
-            if not chunk:
-                break
-            chunks.append(chunk)
-            size += len(chunk)
-    body = b"".join(chunks)
+    parts = urlsplit(url)
+    if parts.scheme != "http" or not parts.hostname:
+        raise ValueError("only plain http URLs are probed")
+    conn = http.client.HTTPConnection(parts.hostname, parts.port or 80, timeout=timeout)
+    expired = threading.Event()
+
+    def expire() -> None:
+        # A blocking recv cannot see a deadline; shutting the socket down makes it return at once,
+        # whether the peer is stalling the headers or trickling the body.
+        expired.set()
+        sock = conn.sock
+        if sock is not None:
+            try:
+                sock.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+
+    timer = threading.Timer(2 * timeout, expire)
+    timer.daemon = True
+    timer.start()
+    try:
+        conn.request("GET", parts.path or "/", headers={"Accept": "application/json", "Host": parts.netloc})
+        response = conn.getresponse()  # http.client never follows redirects
+        if response.status >= 300:
+            raise OSError(f"HTTP Error {response.status}")
+        body = response.read(max_bytes + 1)
+    except (OSError, http.client.HTTPException) as error:
+        if expired.is_set():
+            raise TimeoutError("HTTP response exceeded its total deadline") from error
+        raise
+    finally:
+        timer.cancel()
+        conn.close()
+    if expired.is_set():
+        raise TimeoutError("HTTP response exceeded its total deadline")
     if len(body) > max_bytes:
         raise ValueError("oversized HTTP response")
     raw = body.decode("utf-8", errors="replace")
     try:
-        return json.loads(raw)
-    except json.JSONDecodeError:
+        return loads_strict(raw)
+    except (json.JSONDecodeError, ValueError):
         return raw[:256]
 
 
@@ -109,7 +124,19 @@ def read_json(path: Path, max_bytes: int = 256_000) -> Any:
         payload = stream.read(max_bytes + 1)
     if len(payload) > max_bytes:
         raise ValueError("oversized file")
-    return json.loads(payload.decode("utf-8-sig"))
+    return loads_strict(payload.decode("utf-8-sig"))
+
+
+def _reject_constant(token: str):
+    raise ValueError(f"non-finite JSON number {token}")
+
+
+def loads_strict(text: str) -> Any:
+    """json.loads that refuses NaN/Infinity and turns pathological nesting into ValueError."""
+    try:
+        return json.loads(text, parse_constant=_reject_constant)
+    except RecursionError as error:
+        raise ValueError("JSON nested too deeply") from error
 
 
 def run_quiet(args: list[str], timeout: float) -> str:
@@ -180,7 +207,9 @@ def _slot(raw: Any) -> dict[str, Any] | None:
     if not isinstance(raw, dict) or not isinstance(raw.get("is_processing"), bool):
         return None
     task = raw.get("id_task")
-    slot = {"id": _number(raw.get("id"), 0, 4096), "isProcessing": raw["is_processing"],
+    slot_id = raw.get("id")
+    slot = {"id": slot_id if isinstance(slot_id, int) and not isinstance(slot_id, bool) and 0 <= slot_id <= 4096 else None,
+            "isProcessing": raw["is_processing"],
             "nCtx": _number(raw.get("n_ctx"), 0, 1 << 24),
             "taskId": task if isinstance(task, int) and not isinstance(task, bool) and task >= 0 else None}
     if slot["isProcessing"]:
@@ -241,8 +270,11 @@ def probe_lane(spec: dict[str, Any], fetch: Fetch = http_get_json, host: str = "
         lane["status"], lane["detail"] = "slots_unknown", "Slot list malformed or too long"
         return lane
     slots = [_slot(raw) for raw in raw_slots]
-    if any(slot is None for slot in slots):
-        lane["status"], lane["detail"] = "slots_unknown", "Slot state incomplete"
+    ids = [slot["id"] if slot else None for slot in slots]
+    # Complete evidence only: every slot has a distinct integer id, so none can hide behind a duplicate.
+    if any(slot is None for slot in slots) or any(not isinstance(i, int) or isinstance(i, bool) for i in ids) \
+            or len(set(ids)) != len(ids):
+        lane["status"], lane["detail"] = "slots_unknown", "Slot state incomplete or ambiguous"
         return lane
     busy = [slot for slot in slots if slot["isProcessing"]]
     lane.update(slots=slots, slotsBusy=len(busy), slotsTotal=len(slots),
@@ -538,8 +570,10 @@ def route_queue(root: Path, now: float | None = None) -> tuple[dict[str, Any], d
     claimed_live = counts.get("claimed", 0) - stale_claims
     # A job nobody has picked up for a day is a leftover, not work waiting for a lane.
     pending_live = pending - stale_pending
-    status = "running" if claimed_live > 0 else "queued" if pending_live else "idle"
-    pipeline = {"status": status, "stage": "claimed" if status == "running" else None, "runId": None, "pipelines": [],
+    # A claim file says a worker took a job, not that it is still executing (it may have crashed), so
+    # recent claims read "claimed" (execution unknown) and never "running".
+    status = "claimed" if claimed_live > 0 else "queued" if pending_live else "idle"
+    pipeline = {"status": status, "stage": None, "runId": None, "pipelines": [],
                 "queue": {"pending": pending, "stalePending": stale_pending, "claimed": counts.get("claimed", 0), "staleClaimed": stale_claims,
                           "completed": counts.get("completed", 0),
                           "oldestPendingSeconds": round(oldest_pending, 1) if oldest_pending is not None else None,
@@ -551,7 +585,7 @@ def route_queue(root: Path, now: float | None = None) -> tuple[dict[str, Any], d
         detail += (f" · {stale_pending} pending untouched for over a day (stale, not queued; oldest "
                    f"{oldest_pending / 86400:.0f} d)")
     if claimed_live > 0:
-        detail += " · a recent claim is not proof that a worker is still running"
+        detail += f" · {claimed_live} recent claim{'s' if claimed_live != 1 else ''}; execution unknown"
     return pipeline, _source("route-queue", "Route queue", "live", detail)
 
 
@@ -970,7 +1004,9 @@ def _validate_peer(value: Any, now: float) -> dict[str, Any] | None:
     host = value.get("host")
     observed = value.get("observedUnix")
     if not isinstance(host, str) or not PEER_HOST.match(host) or not isinstance(observed, (int, float)) \
-            or isinstance(observed, bool) or observed > now + 5:
+            or isinstance(observed, bool) or not math.isfinite(observed) or observed > now + 5:
+        return None
+    if not isinstance(value.get("models", []), list):
         return None
     models = []
     for model in (value.get("models") or [])[:32]:

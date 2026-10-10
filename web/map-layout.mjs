@@ -735,6 +735,8 @@ export function vitalsView({fresh = false, pcFresh = fresh, models = [], activit
     : pipeline?.status === 'running' && runningRoutes > 1 ? { tone: 'live', detail: `${runningRoutes} routes running` }
     : pipeline?.status === 'running' ? { tone: 'live', detail: `Running · ${String(pipeline.stage || 'stage unknown').replaceAll('_', ' ')}` }
       : pipeline?.status === 'queued' ? { tone: 'live', detail: routeQueuedWords(pipeline).replace(/^./, s => s.toUpperCase()) }
+      // Windows route queue: a claim file says a worker took a job, not that it is still running.
+      : pipeline?.status === 'claimed' ? { tone: 'muted', detail: 'Claim recorded · execution unknown' }
       : pipeline?.runId ? { tone: 'warn', detail: 'Unsettled run recorded' }
         // A Nisi call left its pending record (a live direct call writes one too, so the words stay neutral).
         : pipeline?.status === 'recovery-required' || nisi?.state === 'unresolved' ? { tone: 'warn', detail: 'Nisi record pending' }

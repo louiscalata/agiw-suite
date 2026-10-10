@@ -104,6 +104,12 @@ class Collector:
 
     def _lane(self, spec: dict[str, Any], now: float) -> dict[str, Any]:
         """The newest result for this lane (a new poller starts if the declared lane changed)."""
+        if spec.get("undeclared"):
+            # Never served from a poller: a lane removed from config must not keep its old evidence.
+            with self._lock:
+                for old_key in [k for k in self._pollers if k[0] == spec["id"]]:
+                    self._pollers.pop(old_key).stop()
+            return {**probes.probe_lane(spec, self.fetch), "ageSeconds": 0.0}
         key = (spec["id"], spec["port"], spec["alias"])
         with self._lock:
             poller = self._pollers.get(key)
@@ -135,6 +141,9 @@ class Collector:
         with self._lock:
             for poller in self._pollers.values():
                 poller.stop()
+        if self.gpu_counters is not None:
+            self.gpu_counters.close()
+            self.gpu_counters = None
         self._pool.shutdown(wait=False, cancel_futures=True)
         if self.mac_peer:
             self.mac_peer.stop()
@@ -208,27 +217,33 @@ class Collector:
         observed = dt.datetime.fromtimestamp(sampled, dt.timezone.utc).isoformat().replace("+00:00", "Z")
         sources: list[dict[str, Any]] = []
         results: dict[str, Any] = {}
-        specs, lane_source = probes.lane_specs(self.share_root)
-        sources.append(lane_source)
+        specs, lane_source = self._guard(
+            sources, "lane-config", "Lane layout", lambda: probes.lane_specs(self.share_root),
+            ([dict(lane) for lane in probes.DEFAULT_LANES], None))
+        if lane_source is not None:
+            sources.append(lane_source)
         lanes = [self._lane(spec, sampled) for spec in specs]
         servers: dict[str, Any] = {}
-        callers: list[dict[str, Any]] = []
+        callers: list[dict[str, Any]] | None = None  # None = not checked; [] only after a complete read
         if self.lane_processes is not None:
             ports = {spec["port"]: spec["id"] for spec in specs if not spec.get("undeclared")}
             servers, callers, process_source = self._guard(sources, "lane-processes", "Lane processes",
-                                                          lambda: self.lane_processes.sample(ports), ({}, [], None))
+                                                          lambda: self.lane_processes.sample(ports), ({}, None, None))
             if process_source is not None:
                 sources.append(process_source)
+                if process_source.get("state") != "live":
+                    callers = None
         for lane in lanes:
             lane["process"] = servers.get(lane["id"])
-            lane["callers"] = [c for c in callers if c["lane"] == lane["id"]]
+            lane["callers"] = None if callers is None else [c for c in callers if c["lane"] == lane["id"]]
         rows = []
         for lane, spec in zip(lanes, specs):
             row = probes.lane_model_row(lane, spec, sampled)
             row["ageSeconds"] = lane["ageSeconds"]
             row["metadata"]["liveTokensPerSecond"] = lane.get("liveTokensPerSecond")
             row["metadata"]["process"] = lane.get("process")
-            row["metadata"]["callers"] = [{k: c[k] for k in ("name", "client", "connections")} for c in lane.get("callers", [])]
+            row["metadata"]["callers"] = (None if lane.get("callers") is None else
+                                          [{k: c[k] for k in ("name", "client", "connections")} for c in lane["callers"]])
             rows.append(row)
         complete = all(lane["status"] in ("idle", "busy") for lane in lanes)
         any_up = any(lane["status"] in probes.LANE_UP for lane in lanes)
@@ -269,8 +284,13 @@ class Collector:
         mac_link = next((p for p in peers if p["platform"] == "macos" and p["fresh"]), None)
         if mac_link and mac.get("state") != "reachable":
             # The Mac's AGIW is linked through the share even though its LM Studio is closed to the LAN.
-            mac = {**mac, "state": "linked", "via": "sharedchami", "models": mac_link["models"],
+            # The link is aged by the presence record itself (30 s window), not by the LAN probe's result,
+            # and its models are normalized to the peer view's {id, state} shape.
+            mac = {**mac, "state": "linked", "via": "sharedchami", "ageSeconds": mac_link["ageSeconds"],
+                   "models": [{"id": m["id"], "state": {"loaded": "loaded", "inactive": "not-loaded"}.get(m["loadedState"], "unknown")}
+                              for m in mac_link["models"]],
                    "loadedCount": sum(m["loadedState"] == "loaded" for m in mac_link["models"]),
+                   "latencyMs": None, "address": None,
                    "linkAgeSeconds": mac_link["ageSeconds"], "linkSource": mac_link["source"],
                    "detail": f"Linked through SharedChami ({mac_link['source']}, {mac_link['ageSeconds']:.0f} s old); "
                              "LM Studio itself is not open to the LAN"}
@@ -291,6 +311,7 @@ class Collector:
             "scope": "local-observer",
             "detail": "Lanes read directly on this PC" if up else "No lane answers on this PC",
             "lanes": {lane["id"]: {"up": lane["status"] in probes.LANE_UP, "model": lane["expectedModel"],
+                                   "ageSeconds": lane.get("ageSeconds"),
                                    "slotsBusy": lane["slotsBusy"], "slotsTotal": lane["slotsTotal"],
                                    "status": lane["status"], "servedModel": lane["servedModel"],
                                    "port": lane["port"], "device": lane["device"],
@@ -305,7 +326,9 @@ class Collector:
         mismatch = [lane["id"] for lane in lanes if lane["status"] == "identity_mismatch"]
         if mismatch:
             worker["lanesError"] = "identity mismatch on " + ", ".join(mismatch)
-        components = [probes.nisi_component(lanes, self.bin_root),
+        nisi = self._guard(sources, "nisi", "Nisi gate", lambda: probes.nisi_component(lanes, self.bin_root),
+                           {"id": "nisi", "label": "Nisi gate", "state": "unknown", "detail": "Nisi check failed"})
+        components = [nisi,
                       {"id": "jev", "label": "Jev", "state": "unknown",
                        "detail": "Jev triage runs through the route queue on this PC; no passive opt-in record is read",
                        "lastJudgedAgeSeconds": None}]
@@ -317,7 +340,7 @@ class Collector:
             "macPeer": mac, "share": share, "clients": clients, "peers": peers, "hostId": self.host,
             # Mac-compatible shape (localCallersView reads name); lane and client are Windows additions.
             "localCallers": [{k: c[k] for k in ("pid", "name", "lane", "client", "connections", "connectedSeconds")}
-                             for c in callers] if self.lane_processes is not None else None,
+                             for c in callers] if callers is not None else None,
             "pcAdapters": self._adapter_list(), "pcGpus": gpus,
             "lanes": lanes,
             "modelControl": {"supported": False,

@@ -159,10 +159,14 @@ function Get-StatusSummary {
     $warn = $false
     $busy = $false
     $unknown = $false
+    $elapsed = [Math]::Max(0, $nowUnix - [double]$snap.sampledAt)
     foreach ($id in 'fast', 'deep') {
         $lane = $snap.windowsWorker.lanes.$id
         if (-not $lane) { $unknown = $true; $lanes += "$id ?"; continue }
-        switch ($lane.status) {
+        # A lane answer counts as current only while its own age plus the snapshot's age is within 3 s.
+        $status = $lane.status
+        if ($lane.ageSeconds -eq $null -or ([double]$lane.ageSeconds + $elapsed) -gt 3) { if ($status -in 'idle', 'busy', 'slots_unknown') { $status = 'stale' } }
+        switch ($status) {
             'busy'              { $cpu = if ($id -eq 'deep' -and $lane.cpuPercent -ne $null) { " cpu $([int]$lane.cpuPercent)%" } else { '' }; $lanes += "$id $($lane.slotsBusy)/$($lane.slotsTotal)$cpu"; $busy = $true }
             'idle'              { $lanes += "$id idle"; $idle++ }
             'identity_mismatch' { $lanes += "$id WRONG MODEL"; $warn = $true }
@@ -180,7 +184,7 @@ function Get-StatusSummary {
     # Every adapter with a live load reading (NVIDIA from nvidia-smi, the AMD card from Windows counters).
     $loads = @($snap.pcGpus | Where-Object { $_.utilizationPercent -ne $null } | ForEach-Object { [int]$_.utilizationPercent })
     $gpuText = if ($loads.Count) { "GPU " + ($loads -join '/') + '%' } else { $null }
-    $macFresh = $snap.macPeer.ageSeconds -ne $null -and [double]$snap.macPeer.ageSeconds -le 45
+    $macFresh = $snap.macPeer.ageSeconds -ne $null -and ([double]$snap.macPeer.ageSeconds + $elapsed) -le 45
     $mac = if (-not $macFresh) { $null } else { switch ($snap.macPeer.state) { 'reachable' { 'Mac ok' } 'linked' { 'Mac linked' } 'unreachable' { 'Mac offline' } default { $null } } }
     @{ tone = $tone; text = (@($lanes -join ' | ') + @($gpuText, $memory, $mac) | Where-Object { $_ }) -join ' | '; snapshot = $snap }
 }
@@ -219,7 +223,10 @@ function Test-OwnShortcut {
     if (-not (Test-Path -LiteralPath $StartupLink)) { return $false }
     try {
         $existing = (New-Object -ComObject WScript.Shell).CreateShortcut($StartupLink)
-        return $existing.Arguments -like ('*' + $Launcher + '*')
+        # Literal, case-insensitive comparison: wildcard matching would misread [ ] in an install path.
+        $wscript = Join-Path $env:SystemRoot 'System32\wscript.exe'
+        return ($existing.TargetPath -ieq $wscript) -and
+            $existing.Arguments.ToLowerInvariant().Contains(('"' + $Launcher + '"').ToLowerInvariant())
     } catch { return $false }
 }
 $startupItem.Checked = Test-OwnShortcut

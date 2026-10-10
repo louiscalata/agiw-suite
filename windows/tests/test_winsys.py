@@ -70,6 +70,22 @@ class LaneProcessesTest(unittest.TestCase):
         _, callers, _ = self.lp.sample({1234: "deep"})
         self.assertEqual(callers[0]["connectedSeconds"], 0.0)
 
+    def test_listener_on_another_address_is_not_the_lane(self):
+        # Codex round 2, finding 9: 127.0.0.2:1234 or a LAN address on the same port is another program.
+        self.table = [row(LISTEN, "127.0.0.2", 1234, "0.0.0.0", 0, 22), row(LISTEN, "10.0.0.71", 1234, "0.0.0.0", 0, 21),
+                      row(LISTEN, "127.0.0.1", 1234, "0.0.0.0", 0, 11),
+                      row(ESTAB, "127.0.0.1", 50001, "127.0.0.2", 1234, 21),  # talks to the impostor
+                      row(ESTAB, "::1", 50002, "::1", 1234, 21)]                # IPv6 to a v4-only listener: refused
+        servers, callers, _ = self.lp.sample({1234: "deep"})
+        self.assertEqual(servers["deep"]["pid"], 11)
+        self.assertEqual(callers, [])
+
+    def test_ipv6_caller_counts_when_the_lane_listens_on_ipv6(self):
+        # Codex round 2, finding 10.
+        self.table = [row(LISTEN, "::", 1234, "::", 0, 11), row(ESTAB, "::1", 50003, "::1", 1234, 21)]
+        _, callers, _ = self.lp.sample({1234: "deep"})
+        self.assertEqual([(c["name"], c["lane"]) for c in callers], [("codex.exe", "deep")])
+
     def test_unreadable_table_is_a_source_not_a_crash(self):
         def broken():
             raise OSError("no")
@@ -107,3 +123,23 @@ class MergeAdapters(unittest.TestCase):
         smi = [{"index": 0, "name": "X", "vendor": "nvidia"}]
         self.assertEqual(merge_adapters(smi, [{"name": "AMD", "vendor": "amd", "luid": "A", "memoryTotalMiB": 1,
                                                "utilizationPercent": None, "memoryUsedMiB": None}])[1], smi[0])
+
+
+class GpuEngines(unittest.TestCase):
+    """Codex round 2, finding 14: utilisation is the busiest physical engine, not a sum across engines."""
+
+    def test_busiest_engine_not_engine_type_sum(self):
+        import types
+        luid = "luid_0x00000000_0x0001123A_phys_0"
+        counters = types.SimpleNamespace()
+        counters.adapters = [{"name": "N", "vendor": "nvidia", "luid": "000000000001123A", "memoryTotalMiB": 1}]
+        counters.pdh = types.SimpleNamespace(PdhCollectQueryData=lambda _q: 0)
+        counters.query = None
+        engine_rows = [(f"pid_1_{luid}_eng_0_engtype_3D", 40.0), (f"pid_2_{luid}_eng_1_engtype_3D", 40.0),
+                       (f"pid_1_{luid}_eng_2_engtype_Compute_0", 30.0), (f"pid_2_{luid}_eng_2_engtype_Compute_0", 25.0)]
+        counters.engine, counters.memory = "engine", "memory"
+        counters._array = lambda which: engine_rows if which == "engine" else [(luid, 2 ** 30)]
+        rows = winsys.GpuCounters.sample(counters)
+        self.assertEqual(rows[0]["utilizationPercent"], 55.0)
+        self.assertEqual(rows[0]["busiestEngine"], "Compute_0")
+        self.assertEqual(rows[0]["memoryUsedMiB"], 1024)

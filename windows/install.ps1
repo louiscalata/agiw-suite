@@ -36,7 +36,7 @@ if ($StartAtSignIn) {
     $link = Join-Path ([Environment]::GetFolderPath('Startup')) 'AGIW Inference Monitor.lnk'
     $shell = New-Object -ComObject WScript.Shell
     $launcher = Join-Path $Destination 'AGIW Monitor.vbs'
-    if ((Test-Path -LiteralPath $link) -and ($shell.CreateShortcut($link).Arguments -notlike ('*' + $launcher + '*'))) {
+    if ((Test-Path -LiteralPath $link) -and -not $shell.CreateShortcut($link).Arguments.ToLowerInvariant().Contains(('"' + $launcher + '"').ToLowerInvariant())) {
         throw "A different 'AGIW Inference Monitor' sign-in shortcut exists; remove it first."
     }
     $shortcut = $shell.CreateShortcut($link)

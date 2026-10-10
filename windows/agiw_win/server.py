@@ -386,8 +386,11 @@ def main(argv: list[str] | None = None) -> int:
     # Opt-ins can live in a config file so turning them on needs no change to the tray's command line.
     config_path = args.config or here.parent / "config.json"
     try:
-        config = json.loads(config_path.read_text(encoding="utf-8-sig")) if config_path.is_file() else {}
+        config = probes.read_json(config_path, 16384) if config_path.is_file() else {}
     except (OSError, ValueError):
+        config = {}
+    if not isinstance(config, dict):  # [] or null must not stop the observer starting
+        print(f"{time.strftime('%Y-%m-%dT%H:%M:%S')} config.json ignored: root is not an object", file=sys.stderr)
         config = {}
     publish_status = args.publish_status or config.get("publishStatus") is True
     peer_link = args.peer_link or config.get("peerLink") is True
