@@ -120,7 +120,7 @@ test('both Windows Mac inspectors show publishing failure, pending, and recovery
     const failed = publishingValue(inspector(linked, {kind,
       sources: [publishSource('failed', {detail: 'status: PermissionError 32; any previous file is kept'})]}));
     assert.match(failed.textContent, /publishing failed/i);
-    assert.match(failed.textContent, /previous file is kept/i);
+    assert.match(failed.textContent, /previous file(?: is)? kept/i);
     assert.doesNotMatch(failed.textContent, /published\s+\d/i);
     const pending = publishingValue(inspector(linked, {kind, sources: [publishSource('pending')]}));
     assert.match(pending.textContent, /first publish pending/i);
@@ -128,6 +128,20 @@ test('both Windows Mac inspectors show publishing failure, pending, and recovery
     const recovered = publishingValue(inspector(linked, {kind, sources: [publishSource('ok', {ageSeconds: 0})]}));
     assert.match(recovered.textContent, /published\s+0\s+s\s+ago/i);
     assert.doesNotMatch(recovered.textContent, /failed|pending/i);
+  }
+});
+
+test('both Windows Mac inspectors show one concise publishing failure without losing its evidence', () => {
+  const detail = 'Publishing to SharedChami failed (status: PermissionError 32); last success 11 s ago; any previous file is kept';
+  for (const kind of ['mac-peer', 'mac-model']) {
+    const value = publishingValue(inspector(linked, {kind, sources: [publishSource('failed', {detail})]}));
+    assert.equal(value.textContent,
+      'Publishing failed (status: PermissionError 32); last success 11 s ago; previous file kept');
+    assert.equal((value.textContent.match(/\bpublishing\b/gi) || []).length, 1);
+    assert.match(value.textContent, /PermissionError 32/);
+    assert.match(value.textContent, /last success 11 s ago/);
+    assert.match(value.textContent, /previous file kept/);
+    assert.equal(value.children.length, 0);
   }
 });
 
