@@ -832,10 +832,21 @@ class MacPeer:
         if latest is None:
             return ({"state": "unknown", "detail": "First LAN probe pending", "models": [], "ageSeconds": None},
                     _source("mac-peer", "Mac (LAN)", "unavailable", "First LAN probe pending"))
-        latest["ageSeconds"] = round(max(0.0, now - latest.get("observedAt", now)), 1)
-        if latest["ageSeconds"] > PEER_PROBE_MAX_AGE:
+        observed = _number(latest.get("observedAt"), low=0)
+        sampled = _number(now, low=0)
+        age = sampled - observed if sampled is not None and observed is not None else None
+        # Invalid clocks prove neither reachability nor residency and must remain JSON-safe.
+        latest["observedAt"] = observed
+        latest["ageSeconds"] = round(max(0.0, age), 1) if age is not None and age >= -5 else None
+        if age is None or age < -5:
+            detail = ("LAN probe time invalid; Mac state unknown" if age is None else
+                      "LAN probe time is ahead of this PC's clock; Mac state unknown")
+            latest.update(state="unknown", models=[], loadedCount=None, reason=None,
+                          expectedVerifyLoaded=None, detail=detail)
+        elif age > PEER_PROBE_MAX_AGE:
             # A probe that stopped refreshing says nothing about the Mac now.
             latest.update(state="unknown", models=[], loadedCount=None, reason=None,
+                          expectedVerifyLoaded=None,
                           detail=f"Last LAN probe is {latest['ageSeconds']:.0f} s old; Mac state unknown")
         state = "live" if latest["state"] == "reachable" else "unavailable"
         return latest, _source("mac-peer", "Mac (LAN)", state, latest.get("detail") or "", latest["ageSeconds"])

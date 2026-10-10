@@ -8,6 +8,7 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from agiw_win import probes  # noqa: E402
 from agiw_win.collect import Collector  # noqa: E402
+from agiw_win.server import Handler  # noqa: E402
 
 
 class NoLaneProcesses:
@@ -87,6 +88,40 @@ class MacPeerEvidence(unittest.TestCase):
         self.assertEqual(snapshot["macPeer"]["state"], "unknown")
         self.assertFalse(snapshot["peers"][0]["fresh"])
         self.assertEqual(snapshot["macPeer"]["models"], [])
+
+    def test_invalid_lan_times_preserve_the_sample_and_share_fallback(self):
+        from unittest.mock import Mock
+
+        times = [{}, *({"observedAt": value} for value in
+                      (None, "1000", [], {}, True, float("nan"), float("inf"), 1006.0, 940.0))]
+        for share_present in (False, True):
+            if share_present:
+                self.report("loaded")
+            for fields in times:
+                with self.subTest(share_present=share_present, fields=fields):
+                    result = {"state": "reachable", "models": [{"id": "old-lan-model", "state": "loaded"}],
+                              "loadedCount": 1, "expectedVerifyLoaded": True, "reason": "refused", **fields}
+                    peer = probes.MacPeer(self.share, probe=lambda _h: result)
+                    peer.poll_once()
+                    self.collector.mac_peer = peer
+                    snapshot = self.collector.collect()
+                    mac = snapshot["macPeer"]
+                    self.assertEqual(snapshot["sampledAt"], self.now)
+                    self.assertEqual(mac["state"], "linked" if share_present else "unknown")
+                    self.assertEqual([model["id"] for model in mac["models"]],
+                                     ["model-0"] if share_present else [])
+                    self.assertIsNone(mac.get("reason"))
+                    self.assertIsNone(mac.get("expectedVerifyLoaded"))
+                    if share_present:
+                        self.assertFalse(mac["verified"])
+                        self.assertEqual(mac["loadedCount"], 1)
+                    else:
+                        self.assertIsNone(mac["loadedCount"])
+                    handler = Mock()
+                    Handler.json_reply(handler, 200, snapshot)
+                    status, payload, mime = handler.reply.call_args.args
+                    self.assertEqual((status, mime), (200, "application/json"))
+                    self.assertEqual(json.loads(payload)["sampledAt"], self.now)
 
     def test_windows_model_control_remains_unavailable_with_plain_explanation(self):
         snapshot = self.collector.collect()
