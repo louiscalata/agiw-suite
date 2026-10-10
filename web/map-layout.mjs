@@ -1253,6 +1253,8 @@ export function macPeerView(peer, { feedFresh = false, snapshotAge = 0 } = {}) {
   return { state, name, reason, failureTitle: failure?.title ?? null, failureDetail: failure?.detail ?? null,
     reachable, current, age, latency, address, models, loaded, loadedKnown, loadedCount, hiddenLoaded, subtitle,
     linked, brief: linked ? `SHARE REPORT · ${loadedText.toUpperCase()}` : reachable ? `LAN · ${loadedText.toUpperCase()}` : failure ? failure.brief : 'UNKNOWN',
+    satelliteSubtitle: linked ? 'REPORTED ON MAC' : reachable ? 'LISTED ON MAC' : 'RESIDENCY UNKNOWN',
+    satelliteDetail: linked ? 'Reported loaded on the Mac' : reachable ? 'Listed loaded by LM Studio' : 'Residency unknown',
     satellites: loaded.slice(0, 2), chip, rows };
 }
 
@@ -1274,7 +1276,7 @@ export function windowsMacListEntries(peerView, query = '') {
     const title = model.id.split('/').pop().replaceAll('-', ' ').replace(/\b(gemma|qwen)\b/gi, s => s[0].toUpperCase() + s.slice(1))
       .replace(/\bgpt\b/gi, 'GPT').replace(/\boss\b/gi, 'OSS').replace(/^./, s => s.toUpperCase());
     if (matches([...aliases, model.id, title])) rows.push({key: `mac-model:${index}`, title,
-      subtitle: view.state === 'linked' ? 'Reported loaded on the Mac' : 'Listed loaded by LM Studio',
+      subtitle: typeof view.satelliteDetail === 'string' ? view.satelliteDetail : 'Residency unknown',
       tone: view.state === 'linked' ? 'muted' : 'ok'});
   });
   return rows;
