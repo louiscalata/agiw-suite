@@ -185,6 +185,16 @@ export function nodeCaptionLayout(node, scale, { laneGap = Infinity } = {}) {
   return { label, sub: { x: 0, y: subAbove ? -(r + 9 * scale) : below, anchor: 'middle' }, subAbove, subText };
 }
 
+// Keep Windows Mac satellites below their parent's status at readable zooms.
+// One offset preserves the separation between portrait satellites.
+export function windowsMacCaptionShift(peerBottom, modelTops, { gap = 4 } = {}) {
+  if (!Number.isFinite(peerBottom) || !Array.isArray(modelTops) || !Number.isFinite(gap) || gap < 0) return 0;
+  const tops = modelTops.filter(Number.isFinite);
+  if (!tops.length) return 0;
+  const shift = Math.max(0, peerBottom + gap - Math.min(...tops));
+  return Number.isFinite(shift) ? shift : 0;
+}
+
 export function parseParameterCount(value) {
   if (typeof value === 'number') return Number.isFinite(value) && value > 0 && value <= 1e15 ? value : null;
   if (typeof value !== 'string') return null;
