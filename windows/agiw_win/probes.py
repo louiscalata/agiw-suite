@@ -803,14 +803,23 @@ def codemode_jobs(runs_root: Path, specs: list[dict[str, Any]], now: float) -> t
 
 
 # ------------------------------------------------------------ status publisher
+STATUS_FILE_NAME = "windows-status.json"  # the name the Mac's pipeline_status_snapshot.py reads (Codex-owned)
+STATUS_MAX_BYTES = 65536
+STATUS_LOADED_STATES = ("loaded", "inactive", "unknown")  # any other value voids the whole file for that reader
+# The Mac reader reconciles against chami-dispatch inventory names; lanes serve under their aliases.
+INVENTORY_IDS = {"openai/gpt-oss-20b": "gpt-oss-20b", "qwen3.8-27b": "Qwen3.8-27B Q4_K_M"}
+
+
 def pc_status(snapshot: dict[str, Any]) -> dict[str, Any]:
-    """The PC counterpart of llm-lab/status/mac-status.json (same schema 1 shape), built from one snapshot.
-    Model ids, lane states, versions and counts only; no paths, prompts, keys or client metadata."""
+    """llm-lab/status/windows-status.json for the Mac's status reader (schema 1, host windows), built from one
+    snapshot. ``id`` is the inventory name the reader expects; the lane alias and served name ride along as
+    ``aliases``/``servedModel``. Model ids, lane states, versions and counts only; no paths, prompts or keys."""
     lanes = snapshot.get("lanes") or []
     up = [lane for lane in lanes if lane.get("status") in ("idle", "busy")]
     mismatch = [lane["id"] for lane in lanes if lane.get("status") == "identity_mismatch"]
     health = "ok" if lanes and len(up) == len(lanes) else "degraded" if up else "down"
-    models = [{"id": lane.get("expectedModel"), "host": "windows", "lane": lane.get("id"), "port": lane.get("port"),
+    models = [{"id": INVENTORY_IDS.get(lane.get("expectedModel"), lane.get("expectedModel")),
+               "aliases": [lane.get("expectedModel")], "host": "windows", "lane": lane.get("id"), "port": lane.get("port"),
                "loadedState": "loaded" if lane.get("status") in LANE_UP else "unknown" if lane.get("status") in ("loading", "identity_mismatch", "unknown") else "inactive",
                "activity": lane.get("phase") if lane.get("status") in ("idle", "busy") else "unknown",
                "servedModel": lane.get("servedModel"), "slotsBusy": lane.get("slotsBusy"), "slotsTotal": lane.get("slotsTotal"),
@@ -833,10 +842,27 @@ def pc_status(snapshot: dict[str, Any]) -> dict[str, Any]:
             "limitations": limitations}
 
 
-def write_json_atomic(path: Path, value: Any) -> None:
+def validate_status(value: dict[str, Any]) -> None:
+    """The reader's own rules, checked before writing so a bad file never replaces a good one."""
+    models = value.get("models")
+    if value.get("schemaVersion") != 1 or value.get("host") != "windows" or not isinstance(models, list) or len(models) > 32:
+        raise ValueError("status header invalid")
+    for model in models:
+        if not isinstance(model.get("id"), str) or not model["id"] or model.get("host") != "windows" \
+                or model.get("loadedState") not in STATUS_LOADED_STATES:
+            raise ValueError("status model row invalid")
+
+
+def write_json_atomic(path: Path, value: Any, max_bytes: int | None = None) -> None:
+    payload = json.dumps(value, separators=(",", ":")).encode("utf-8")
+    if max_bytes is not None and len(payload) > max_bytes:
+        raise ValueError("payload too large")
+    for parent in (path.parent, path.parent.parent):
+        if parent.is_symlink():
+            raise ValueError("linked status directory refused")
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f".{path.name}.tmp-{os.getpid()}")
-    tmp.write_text(json.dumps(value, separators=(",", ":")), encoding="utf-8")
+    tmp.write_bytes(payload)
     os.replace(tmp, path)
 
 
