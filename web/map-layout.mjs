@@ -1174,3 +1174,46 @@ export function webGlows(nodes, { fresh = false } = {}) {
     .map(node => ({ id: node.id, x: node.x, y: node.y, tone: node.active === true ? 'working' : 'flight', color: node.active === true ? GLOW_WORKING : safeGlowColor(node.color), periodMs: [1200, 2400].includes(node.auraPeriodMs) ? node.auraPeriodMs : null }));
   return { glows, key: glows.map(glow => `${glow.id}|${webNum(glow.x)}|${webNum(glow.y)}|${glow.color}|${glow.periodMs ?? ''}`).join(';') };
 }
+
+/**
+ * Windows edition: the Mac as a LAN peer (snapshot.macPeer from the PC observer's background probe of the Mac's
+ * LM Studio). The probe runs about every 10 s, so its result is aged by its own age plus the snapshot's and counts as
+ * current for 45 s. A reachable listing is inventory only: it never says the Mac is generating.
+ */
+const PEER_MODEL = /^[\x21-\x7e]{1,120}$/;
+const PEER_FRESH_SECONDS = 45;
+export function macPeerView(peer, { feedFresh = false, snapshotAge = 0 } = {}) {
+  const extra = Math.max(0, Number.isFinite(snapshotAge) ? snapshotAge : 0);
+  const block = peer && typeof peer === 'object' && !Array.isArray(peer) ? peer : null;
+  const age = block && Number.isFinite(block.ageSeconds) && block.ageSeconds >= 0 ? block.ageSeconds + extra : null;
+  const current = Boolean(feedFresh) && age !== null && age <= PEER_FRESH_SECONDS;
+  const state = current && ['reachable', 'unreachable'].includes(block.state) ? block.state : 'unknown';
+  const reachable = state === 'reachable';
+  const models = reachable && Array.isArray(block.models) ? block.models.slice(0, 64)
+    .filter(m => m && typeof m.id === 'string' && PEER_MODEL.test(m.id) && ['loaded', 'not-loaded', 'listed', 'unknown'].includes(m.state)) : [];
+  const loaded = models.filter(m => m.state === 'loaded');
+  const loadedKnown = reachable && Number.isSafeInteger(block.loadedCount) && block.loadedCount >= 0;
+  const latency = reachable && Number.isFinite(block.latencyMs) && block.latencyMs >= 0 && block.latencyMs < 60000 ? Math.round(block.latencyMs) : null;
+  const address = reachable && typeof block.address === 'string' && /^[0-9.]{7,15}$/.test(block.address) ? block.address : null;
+  const via = block?.via === 'mdns' ? 'mDNS name' : block?.via === 'recorded-ip' ? 'recorded address' : null;
+  const loadedText = loadedKnown ? `${loaded.length} loaded` : 'loaded state unknown';
+  const subtitle = reachable ? `LAN${latency !== null ? ` ${latency} MS` : ''} · ${loadedText.toUpperCase()}`
+    : state === 'unreachable' ? 'NOT ANSWERING ON THE LAN' : 'LAN STATE UNKNOWN';
+  const chip = !feedFresh ? { tone: 'muted', detail: 'Signal stale', short: 'Stale' }
+    : reachable ? { tone: 'ok', detail: [`Reachable${latency !== null ? ` · ${latency} ms` : ''}`, loadedText].join(' · '), short: loadedKnown ? `${loaded.length} loaded` : 'Reachable' }
+      : state === 'unreachable' ? { tone: 'warn', detail: 'Not answering on the LAN', short: 'No answer' }
+        : { tone: 'muted', detail: 'LAN probe pending or stale', short: 'Unknown' };
+  const expected = typeof block?.expectedVerifyModel === 'string' ? block.expectedVerifyModel : null;
+  const rows = [
+    ['Reachability', reachable ? 'Answering' : state === 'unreachable' ? 'Not answering' : 'Unknown'],
+    ['Address', address ? `${address}${via ? ` (${via})` : ''}` : 'Unknown'],
+    ['Round trip', latency !== null ? `${latency} ms` : 'Unknown'],
+    ['Loaded models', loadedKnown ? (loaded.length ? loaded.map(m => m.id).join(', ') : 'None') : reachable ? 'Not reported by this listing' : 'Unknown'],
+    ['Expected verify model', expected ? `${expected}${reachable && typeof block.expectedVerifyLoaded === 'boolean' ? (block.expectedVerifyLoaded ? ' · loaded' : ' · not loaded') : ''}` : 'Not recorded'],
+    ['Probe age', age !== null ? `${Math.round(age)} s` : 'Unknown'],
+    ['Detail', typeof block?.detail === 'string' ? block.detail.slice(0, 240) : 'Unknown'],
+  ];
+  return { state, reachable, current, age, latency, address, models, loaded, loadedKnown, subtitle,
+    brief: reachable ? `LAN · ${loadedText.toUpperCase()}` : state === 'unreachable' ? 'NO ANSWER' : 'UNKNOWN',
+    satellites: loaded.slice(0, 2), chip, rows };
+}

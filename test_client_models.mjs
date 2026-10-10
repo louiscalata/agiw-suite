@@ -2,17 +2,17 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {runInNewContext} from 'node:vm';
 import test from 'node:test';
-import {fitGraph,constellationLayout,focusedLaneLayout,prioritizeRuntimeModels,runtimeModelRoster,CORE_MODEL_IDS,hasAdvertisedWindowsWorker,afmView,jevView,modelStarSize,windowsJobsView,windowsLaneView} from './web/map-layout.mjs';
+import {fitGraph,constellationLayout,focusedLaneLayout,prioritizeRuntimeModels,runtimeModelRoster,CORE_MODEL_IDS,hasAdvertisedWindowsWorker,afmView,jevView,modelStarSize,windowsJobsView,windowsLaneView,macPeerView} from './web/map-layout.mjs';
 
-const layoutContext={fitGraph,constellationLayout,focusedLaneLayout,prioritizeRuntimeModels,runtimeModelRoster,CORE_MODEL_IDS,hasAdvertisedWindowsWorker,afmView,jevView,modelStarSize,windowsJobsView,windowsLaneView};
+const layoutContext={fitGraph,constellationLayout,focusedLaneLayout,prioritizeRuntimeModels,runtimeModelRoster,CORE_MODEL_IDS,hasAdvertisedWindowsWorker,afmView,jevView,modelStarSize,windowsJobsView,windowsLaneView,macPeerView};
 
 // Exercise the dashboard's actual projection and graph code without starting
 // its polling loop or requiring a browser DOM.
 const source=readFileSync(new URL('./web/app.js',import.meta.url),'utf8')
   .replace(/^import .*;\n/gm,'').split("$('pause').addEventListener")[0];
-function project(clients,host='mac',width=820,height=660){
-  const script=`${source}\nsnapshot={host,sampledAt:Date.now()/1000,models:[],clients,pipeline:{status:'idle'}};connected=true;runtimeGraph();({rows:clientRows(),ages:clientRows().map(clientAge),counts:clientIdentityCounts(),nodes:graph.nodes,edges:graph.edges})`;
-  const context={...layoutContext,clients,host,Date,Set,Map,Math,Number,String,Array,Object,window:{innerWidth:width},document:{getElementById:id=>id==='graphRegion'?{clientWidth:width-230,clientHeight:height-114}:null}};
+function project(clients,host='mac',width=820,height=660,extra={}){
+  const script=`${source}\nsnapshot={host,sampledAt:Date.now()/1000,models:[],clients,pipeline:{status:'idle'},...extra};connected=true;runtimeGraph();({rows:clientRows(),ages:clientRows().map(clientAge),counts:clientIdentityCounts(),nodes:graph.nodes,edges:graph.edges})`;
+  const context={...layoutContext,clients,host,extra,Date,Set,Map,Math,Number,String,Array,Object,window:{innerWidth:width},document:{getElementById:id=>id==='graphRegion'?{clientWidth:width-230,clientHeight:height-114}:null}};
   return JSON.parse(JSON.stringify(runInNewContext(script,context)));
 }
 
@@ -244,4 +244,24 @@ test('Windows lanes hang off the PC node and link journaled clients, live only w
   const old=JSON.parse(JSON.stringify(runInNewContext(stale,{...layoutContext,Date,Set,Map,Math,Number,String,Array,Object,JSON,window:{innerWidth:820},document:{getElementById:id=>id==='graphRegion'?{clientWidth:590,clientHeight:546}:null}})));
   assert.equal(old.nodes.filter(node=>node.kind==='windows-lane').length,0);
   assert.doesNotMatch(old.nodes.find(node=>node.kind==='windows-worker').subtitle,/HEADLESS/);
+});
+
+test('Windows host shows the Mac as a LAN peer with its loaded models, never the PC worker cluster',()=>{
+  const macPeer={state:'reachable',ageSeconds:2,latencyMs:3,address:'10.0.0.176',via:'mdns',loadedCount:1,
+    models:[{id:'openai/gpt-oss-20b',state:'loaded'},{id:'qwen/qwen3.8-27b',state:'not-loaded'}]};
+  const nodes=project([], 'windows', 820, 660, {macPeer}).nodes;
+  const peer=nodes.find(n=>n.id==='mac-peer');
+  assert.ok(peer&&!peer.unknown);
+  assert.equal(peer.subtitle,'LAN 3 MS · 1 LOADED');
+  assert.deepEqual(nodes.filter(n=>n.kind==='mac-model').map(n=>n.macModel.id),['openai/gpt-oss-20b']);
+  assert.equal(nodes.some(n=>n.kind==='windows-worker'||n.kind==='afm'),false);
+  assert.equal(nodes.find(n=>n.id==='runtime').label,'This PC');
+  const down=project([], 'windows', 820, 660, {macPeer:{state:'unreachable',ageSeconds:1,models:[]}}).nodes.find(n=>n.id==='mac-peer');
+  assert.ok(down.unknown);
+  assert.equal(down.subtitle,'NOT ANSWERING ON THE LAN');
+});
+
+test('Mac host never draws a LAN peer node',()=>{
+  const nodes=project([], 'mac', 820, 660, {macPeer:{state:'reachable',ageSeconds:1,models:[]}}).nodes;
+  assert.equal(nodes.some(n=>n.kind==='mac-peer'||n.kind==='mac-model'),false);
 });
