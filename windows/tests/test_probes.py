@@ -94,6 +94,54 @@ class SlowSlots(unittest.TestCase):
         self.assertLess(seen["health"], 1.0)
 
 
+class Round2(unittest.TestCase):
+    """Codex review round 2 (2026-10-10, PC-run): one test per fixed finding."""
+
+    def test_deadline_cuts_a_trickling_server(self):
+        import socket as s_
+        import threading as t_
+        server = s_.socket()
+        server.bind(("127.0.0.1", 0))
+        server.listen(1)
+        port = server.getsockname()[1]
+        stop = t_.Event()
+        def trickle():
+            conn, _ = server.accept()
+            conn.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 100000\r\n\r\n")
+            while not stop.is_set():
+                try:
+                    conn.sendall(b"x")
+                except OSError:
+                    break
+                time.sleep(0.15)
+            conn.close()
+        t_.Thread(target=trickle, daemon=True).start()
+        started = time.monotonic()
+        try:
+            with self.assertRaises(TimeoutError):
+                probes.http_get_json(f"http://127.0.0.1:{port}/slots", timeout=0.4)
+        finally:
+            stop.set()
+            server.close()
+        self.assertLess(time.monotonic() - started, 2.0)
+
+    def test_nan_and_deep_nesting_are_malformed(self):
+        with self.assertRaises(ValueError):
+            probes.loads_strict('{"observedUnix": NaN}')
+        with self.assertRaises(ValueError):
+            probes.loads_strict("[" * 100000 + "]" * 100000)
+        self.assertIsNone(probes._validate_peer({"schemaVersion": 1, "kind": "agiw-peer", "host": "m",
+                                                 "observedUnix": float("nan")}, 1000.0))
+
+    def test_duplicate_or_missing_slot_ids_are_not_evidence(self):
+        for payload in ([{"id": 0, "is_processing": False}, {"id": 0, "is_processing": False}],
+                        [{"is_processing": False}, {"id": 1, "is_processing": False}],
+                        [{"id": 0.5, "is_processing": False}]):
+            lane = probes.probe_lane(FAST, fake_fetch({"/health": {}, "/v1/models": {"data": [{"id": "openai/gpt-oss-20b"}]},
+                                                       "/slots": payload}))
+            self.assertEqual(lane["status"], "slots_unknown", payload)
+
+
 class LiveRate(unittest.TestCase):
     def lane(self, *slots, task=7):
         return {"slots": [{"id": i, "isProcessing": busy, "decodedTokens": dec, "taskId": task + i}
@@ -318,7 +366,9 @@ class Queue(unittest.TestCase):
             os.utime(root / "claimed" / "c.json", (old, old))
             pipeline, source = probes.route_queue(root)
         self.assertEqual(pipeline["queue"]["staleClaimed"], 1)
-        self.assertEqual(pipeline["status"], "running")
+        # Codex round 2, finding 6: a recent claim is "claimed" (execution unknown), never "running".
+        self.assertEqual(pipeline["status"], "claimed")
+        self.assertIn("execution unknown", source["detail"])
         self.assertIn("older than 15 min", source["detail"])
 
     def test_day_old_pending_is_stale_not_queued(self):

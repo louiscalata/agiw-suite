@@ -229,6 +229,42 @@ class EndToEnd(unittest.TestCase):
         self.assertLess(time.time() - started, 5.5)
         conn.close()
 
+    def test_removed_lane_does_not_keep_old_evidence(self):
+        # Codex round 2, finding 4: an undeclared lane must not be served from its old poller.
+        self.collector.collect()
+        share = Path(self.tmp.name)
+        config = share / "windows-llm-pipeline" / "config.json"
+        data = json.loads(config.read_text())
+        del data["runtime"]["lanes"]["deep"]
+        config.write_text(json.dumps(data))
+        snap = self.collector.collect()
+        self.assertEqual(snap["windowsWorker"]["lanes"]["deep"]["status"], "undeclared")
+        self.assertFalse(any(k[0] == "deep" for k in self.collector._pollers))
+
+    def test_failed_tcp_read_is_unknown_not_empty(self):
+        # Codex round 2, finding 11.
+        class Broken:
+            def sample(self, _ports):
+                return {}, [], {"id": "lane-processes", "label": "Lane processes", "state": "unavailable",
+                                "ageSeconds": None, "detail": "no table"}
+        self.collector.lane_processes = Broken()
+        snap = self.collector.collect()
+        self.assertIsNone(snap["localCallers"])
+        self.assertIsNone(snap["models"][0]["metadata"]["callers"])
+
+    def test_share_link_is_aged_by_presence_and_normalized(self):
+        # Codex round 2, findings 12 and 13.
+        share = Path(self.tmp.name)
+        data = self.collector.collect()
+        probes.write_json_atomic(probes.peer_dir(share) / "mac.json",
+                                 {**probes.peer_presence(data, "louis-mac"), "platform": "macos"}, probes.PEER_MAX_BYTES)
+        snap = self.collector.collect()
+        mac = snap["macPeer"]
+        self.assertEqual(mac["state"], "linked")
+        self.assertIsNotNone(mac["ageSeconds"])
+        self.assertLessEqual(mac["ageSeconds"], 30)
+        self.assertTrue(all(set(m) == {"id", "state"} and m["state"] == "loaded" for m in mac["models"]))
+
     def test_post_is_read_only(self):
         conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=3)
         origin = f"http://127.0.0.1:{self.port}"

@@ -74,3 +74,10 @@ test('every PC adapter is listed; the AMD card shows counter load without invent
   assert.match(v.rows[0][1], /39 °C · 7 W$/);
   assert.equal(pcAdaptersView([], {feedFresh: false}).known, false);
 });
+
+test('a claimed Windows route reads as a recorded claim, never as running', async () => {
+  const {vitalsView} = await import('./web/map-layout.mjs');
+  const v = vitalsView({fresh: true, pipeline: {status: 'claimed'}});
+  assert.equal(v.route.detail, 'Claim recorded · execution unknown');
+  assert.equal(v.route.tone, 'muted');
+});

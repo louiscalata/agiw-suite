@@ -10,6 +10,7 @@ sample moment; it is not proof that the client is generating.
 from __future__ import annotations
 
 import ctypes
+import ipaddress
 import os
 from pathlib import Path
 import re
@@ -21,6 +22,9 @@ from typing import Any
 
 IS_WINDOWS = os.name == "nt"
 AF_INET = 2
+AF_INET6 = 23
+LOOPBACK = {"127.0.0.1", "::1"}
+ANY = {"0.0.0.0", "::"}
 TCP_TABLE_OWNER_PID_ALL = 5
 MIB_TCP_STATE_LISTEN = 2
 MIB_TCP_STATE_ESTAB = 5
@@ -45,27 +49,49 @@ def _addr(raw: int) -> str:
     return socket.inet_ntoa(struct.pack("<I", raw))
 
 
-def tcp_table() -> list[dict[str, Any]]:
-    """IPv4 TCP connections with owning process ids (GetExtendedTcpTable)."""
-    if not IS_WINDOWS:
-        raise OSError("TCP table is Windows-only")
+class _Row6(ctypes.Structure):
+    _fields_ = [("localAddr", ctypes.c_ubyte * 16), ("localScope", ctypes.c_uint32), ("localPort", ctypes.c_uint32),
+                ("remoteAddr", ctypes.c_ubyte * 16), ("remoteScope", ctypes.c_uint32), ("remotePort", ctypes.c_uint32),
+                ("state", ctypes.c_uint32), ("pid", ctypes.c_uint32)]
+
+
+def _raw_table(family: int) -> bytes:
     iphlpapi = ctypes.windll.iphlpapi  # type: ignore[attr-defined]
     size = ctypes.c_ulong(0)
-    iphlpapi.GetExtendedTcpTable(None, ctypes.byref(size), False, AF_INET, TCP_TABLE_OWNER_PID_ALL, 0)
+    iphlpapi.GetExtendedTcpTable(None, ctypes.byref(size), False, family, TCP_TABLE_OWNER_PID_ALL, 0)
     for _ in range(3):  # the table can grow between the size query and the read
         buffer = ctypes.create_string_buffer(size.value + 4096)
         size = ctypes.c_ulong(len(buffer))
-        result = iphlpapi.GetExtendedTcpTable(buffer, ctypes.byref(size), False, AF_INET, TCP_TABLE_OWNER_PID_ALL, 0)
+        result = iphlpapi.GetExtendedTcpTable(buffer, ctypes.byref(size), False, family, TCP_TABLE_OWNER_PID_ALL, 0)
         if result == 0:
-            break
+            return buffer.raw
         if result != 122:  # ERROR_INSUFFICIENT_BUFFER
             raise OSError(f"GetExtendedTcpTable failed ({result})")
-    else:
-        raise OSError("TCP table kept growing")
+    raise OSError("TCP table kept growing")
+
+
+def _v6(raw) -> str:
+    address = ipaddress.IPv6Address(bytes(raw))
+    mapped = address.ipv4_mapped
+    return str(mapped) if mapped else str(address)  # IPv4-mapped addresses compare as IPv4
+
+
+def tcp_table() -> list[dict[str, Any]]:
+    """IPv4 and IPv6 TCP connections with owning process ids (GetExtendedTcpTable, both families)."""
+    if not IS_WINDOWS:
+        raise OSError("TCP table is Windows-only")
+    rows = []
+    buffer = _raw_table(AF_INET)
     count = struct.unpack_from("<I", buffer, 0)[0]
-    rows = (_Row * count).from_buffer_copy(buffer, 4)
-    return [{"state": r.state, "local": _addr(r.localAddr), "localPort": _port(r.localPort),
-             "remote": _addr(r.remoteAddr), "remotePort": _port(r.remotePort), "pid": r.pid} for r in rows]
+    for r in (_Row * count).from_buffer_copy(buffer, 4):
+        rows.append({"state": r.state, "local": _addr(r.localAddr), "localPort": _port(r.localPort),
+                     "remote": _addr(r.remoteAddr), "remotePort": _port(r.remotePort), "pid": r.pid})
+    buffer = _raw_table(AF_INET6)
+    count = struct.unpack_from("<I", buffer, 0)[0]
+    for r in (_Row6 * count).from_buffer_copy(buffer, 4):
+        rows.append({"state": r.state, "local": _v6(r.localAddr), "localPort": _port(r.localPort),
+                     "remote": _v6(r.remoteAddr), "remotePort": _port(r.remotePort), "pid": r.pid})
+    return rows
 
 
 class _FileTime(ctypes.Structure):
@@ -157,9 +183,17 @@ class LaneProcesses:
         servers: dict[str, Any] = {}
         server_pids: set[int] = set()
         with self._lock:
-            for row in rows:
+            # The lanes are probed at 127.0.0.1, so only a listener on loopback (or every address) can be the
+            # lane; one bound to 127.0.0.2 or a LAN address on the same port is another program.
+            listeners = sorted((r for r in rows if r["state"] == MIB_TCP_STATE_LISTEN and ports.get(r["localPort"])
+                                and (r["local"] in LOOPBACK or r["local"] in ANY)),
+                               key=lambda r: (r["local"] not in LOOPBACK, r["local"] != "127.0.0.1"))
+            served: dict[int, set[str]] = {}
+            for row in listeners:
+                served.setdefault(row["localPort"], set()).add(row["local"])
+            for row in listeners:
                 lane = ports.get(row["localPort"])
-                if lane and row["state"] == MIB_TCP_STATE_LISTEN and lane not in servers:
+                if lane and lane not in servers:
                     info = self.info_fn(row["pid"])
                     server_pids.add(row["pid"])
                     servers[lane] = ({"pid": row["pid"], "name": info["name"], "workingSetBytes": info["workingSetBytes"],
@@ -170,7 +204,11 @@ class LaneProcesses:
             names: dict[int, str] = {}
             for row in rows:
                 lane = ports.get(row["remotePort"])
-                if (not lane or row["state"] != MIB_TCP_STATE_ESTAB or not row["remote"].startswith("127.")
+                bound = served.get(row["remotePort"], set())
+                # A caller's connection must end at an address the lane listener actually serves.
+                reaches_lane = row["remote"] in bound or (row["remote"] == "127.0.0.1" and "0.0.0.0" in bound) \
+                    or (row["remote"] == "::1" and "::" in bound)
+                if (not lane or row["state"] != MIB_TCP_STATE_ESTAB or not reaches_lane
                         or row["pid"] in server_pids or row["pid"] in (0, self.self_pid)):
                     continue
                 if row["pid"] not in names:
@@ -202,7 +240,7 @@ class LaneProcesses:
 PDH_FMT_DOUBLE = 0x00000200
 PDH_MORE_DATA = 0x800007D2
 _LUID = re.compile(r"luid_0x([0-9A-Fa-f]{8})_0x([0-9A-Fa-f]{8})_phys_(\d+)")
-_ENGTYPE = re.compile(r"engtype_([A-Za-z0-9 ]+)$")
+_ENGINE = re.compile(r"_eng_(\d+)_engtype_(.+)$")
 
 
 class _Luid(ctypes.Structure):
@@ -275,12 +313,16 @@ class GpuCounters:
         if self.pdh.PdhOpenQueryW(None, None, ctypes.byref(self.query)) != 0:
             raise OSError("PdhOpenQuery failed")
         self.engine, self.memory = ctypes.c_void_p(), ctypes.c_void_p()
-        for path, handle in (("\\GPU Engine(*)\\Utilization Percentage", self.engine),
-                             ("\\GPU Adapter Memory(*)\\Dedicated Usage", self.memory)):
-            if self.pdh.PdhAddEnglishCounterW(self.query, path, None, ctypes.byref(handle)) != 0:
-                raise OSError(f"counter unavailable: {path}")
-        self.pdh.PdhCollectQueryData(self.query)
-        self.adapters = dxgi_adapters()
+        try:
+            for path, handle in (("\\GPU Engine(*)\\Utilization Percentage", self.engine),
+                                 ("\\GPU Adapter Memory(*)\\Dedicated Usage", self.memory)):
+                if self.pdh.PdhAddEnglishCounterW(self.query, path, None, ctypes.byref(handle)) != 0:
+                    raise OSError(f"counter unavailable: {path}")
+            self.pdh.PdhCollectQueryData(self.query)
+            self.adapters = dxgi_adapters()
+        except Exception:
+            self.close()
+            raise
 
     def _array(self, counter: ctypes.c_void_p) -> list[tuple[str, float]]:
         size, count = ctypes.c_ulong(0), ctypes.c_ulong(0)
@@ -298,15 +340,18 @@ class GpuCounters:
     def sample(self) -> list[dict[str, Any]]:
         if self.pdh.PdhCollectQueryData(self.query) & 0xFFFFFFFF:
             raise OSError("PdhCollectQueryData failed")
-        # Engine load: per adapter, the busiest engine type (sum of that type's instances across processes),
-        # which is how Task Manager reports a GPU's overall utilisation.
-        by_type: dict[str, dict[str, float]] = {}
+        # Engine load as Task Manager defines it: sum every process's share of each physical engine
+        # (adapter, phys, engine index), then the adapter's utilisation is its busiest single engine.
+        engines: dict[str, dict[tuple[str, str], float]] = {}
+        engine_type: dict[tuple[str, str, str], str] = {}
         for name, value in self._array(self.engine):
-            luid, engtype = _LUID.search(name), _ENGTYPE.search(name)
-            if luid and engtype:
+            luid, engine = _LUID.search(name), _ENGINE.search(name)
+            if luid and engine:
                 key = (luid.group(1) + luid.group(2)).upper()
-                by_type.setdefault(key, {}).setdefault(engtype.group(1), 0.0)
-                by_type[key][engtype.group(1)] += value
+                ident = (luid.group(3), engine.group(1))
+                engines.setdefault(key, {}).setdefault(ident, 0.0)
+                engines[key][ident] += value
+                engine_type[(key, *ident)] = engine.group(2)
         used: dict[str, float] = {}
         for name, value in self._array(self.memory):
             luid = _LUID.search(name)
@@ -315,9 +360,15 @@ class GpuCounters:
                 used[key] = used.get(key, 0.0) + value
         rows = []
         for adapter in self.adapters:
-            engines = by_type.get(adapter["luid"])
+            per_engine = engines.get(adapter["luid"])
+            busiest = max(per_engine, key=per_engine.get) if per_engine else None
             rows.append({**adapter,
-                         "utilizationPercent": round(min(100.0, max(engines.values())), 1) if engines else None,
+                         "utilizationPercent": round(min(100.0, per_engine[busiest]), 1) if per_engine else None,
                          "memoryUsedMiB": round(used[adapter["luid"]] / 2**20) if adapter["luid"] in used else None,
-                         "busiestEngine": max(engines, key=engines.get) if engines else None})
+                         "busiestEngine": engine_type.get((adapter["luid"], *busiest)) if busiest else None})
         return rows
+
+    def close(self) -> None:
+        if self.query:
+            self.pdh.PdhCloseQuery(self.query)
+            self.query = ctypes.c_void_p()
