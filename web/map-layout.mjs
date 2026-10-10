@@ -1237,6 +1237,31 @@ export function macPeerView(peer, { feedFresh = false, snapshotAge = 0 } = {}) {
     satellites: loaded.slice(0, 2), chip, rows };
 }
 
+/** Windows edition only: this PC's own publishing, separate from unsigned peer reports.
+ * A fresh outcome describes the latest attempt; only a valid last-success age can say when it published. */
+export function windowsSharePublishRow(sources, { feedFresh = false, snapshotAge = 0 } = {}) {
+  const label = 'This PC', unknown = [label, 'Publishing state unknown'];
+  if (feedFresh !== true || !Number.isFinite(snapshotAge) || snapshotAge < 0 || snapshotAge > 3
+    || !Array.isArray(sources)) return unknown;
+  const matches = sources.filter(s => s && typeof s === 'object' && !Array.isArray(s) && s.id === 'share-publish');
+  if (!matches.length) return [label, 'Publishing off or unknown'];
+  if (matches.length !== 1) return unknown;
+  const source = matches[0];
+  if (source.outcome === 'ok') {
+    if (!Number.isFinite(source.ageSeconds) || source.ageSeconds < 0) return unknown;
+    const age = source.ageSeconds + snapshotAge;
+    if (!Number.isSafeInteger(Math.floor(age))) return unknown;
+    return [label, `Published ${Math.floor(age)} s ago`];
+  }
+  if (source.outcome === 'failed') {
+    const detail = typeof source.detail === 'string'
+      ? source.detail.replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 240) : '';
+    return [label, `Publishing failed${detail ? ` · ${detail}` : ''}`];
+  }
+  if (source.outcome === 'pending') return [label, 'First publish pending'];
+  return unknown;
+}
+
 /** Windows edition: every AGIW instance that published presence on SharedChami (snapshot.peers), for the inspector. */
 export function agiwPeersRows(peers, { feedFresh = false, snapshotAge = 0 } = {}) {
   const extra = Math.max(0, Number.isFinite(snapshotAge) ? snapshotAge : 0);

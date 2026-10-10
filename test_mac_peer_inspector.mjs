@@ -15,22 +15,44 @@ class Element {
   replaceChildren(...children) { this.children = children; this.ownText = ''; }
   set textContent(value) { this.ownText = String(value); this.children = []; }
   get textContent() { return this.ownText + this.children.map(child => child.textContent).join(''); }
+  set innerHTML(_) { throw new Error('the inspector must render report details as literal text'); }
   descendants() { return this.children.flatMap(child => [child, ...child.descendants()]); }
 }
 
-function inspector(macPeer, {kind = 'mac-peer', peers = [], snapshotAge = 0} = {}) {
+function inspector(macPeer, {kind = 'mac-peer', peers = [], sources, snapshotAge = 0,
+  feedAge = 0, connected = true, paused = false} = {}) {
   const now = 1700000000;
   class Clock extends Date { static now() { return now * 1000; } }
   const document = {createElement: tag => new Element(tag)};
   const api = runInNewContext(`${definitions}
-    ;({draw(data, node, body) { snapshot=data; connected=true; return inspectorBody(node, body); }})`,
+    ;({draw(data, node, body, isConnected, isPaused) { snapshot=data; connected=isConnected; paused=isPaused; return inspectorBody(node, body); }})`,
     {...layout, document, Date: Clock});
   const body = new Element('main');
-  api.draw({schemaVersion: 1, host: 'windows', sampledAt: now - snapshotAge, fullSampledAt: now,
-    models: [], macPeer, peers}, {id: kind === 'mac-peer' ? 'mac-peer' : 'mac-model:a',
-    kind, macModel: {id: 'a', state: 'loaded'}}, body);
+  api.draw({schemaVersion: 1, host: 'windows', sampledAt: now - snapshotAge, fullSampledAt: now - feedAge,
+    models: [], macPeer, peers, sources}, {id: kind === 'mac-peer' ? 'mac-peer' : 'mac-model:a',
+    kind, macModel: {id: 'a', state: 'loaded'}}, body, connected, paused);
   return body;
 }
+
+function publishingValue(body) {
+  const panel = body.children.find(node => node.className === 'panel-section'
+    && node.children.some(child => child.textContent === 'AGIW instances on SharedChami'));
+  assert.ok(panel, 'the SharedChami section is rendered');
+  const pairs = panel.children.find(node => node.tagName === 'dl');
+  assert.ok(pairs, 'publishing is shown with the instance rows');
+  const keys = pairs.children.filter(node => node.tagName === 'dt' && node.textContent === 'This PC');
+  assert.equal(keys.length, 1, 'exactly one row identifies this PC');
+  const value = pairs.children[pairs.children.indexOf(keys[0]) + 1];
+  assert.equal(value.tagName, 'dd');
+  return value;
+}
+
+const publishSource = (outcome, over = {}) => ({id: 'share-publish', outcome,
+  ageSeconds: outcome === 'ok' ? 4 : null, ...over});
+const publicationUnknown = value => {
+  assert.match(value, /unknown|off/i);
+  assert.doesNotMatch(value, /published\s+\d|publishing failed|first publish pending/i);
+};
 
 const linked = {state: 'linked', via: 'sharedchami', ageSeconds: 2, linkAgeSeconds: 2,
   loadedCount: 1, models: [{id: 'a', state: 'loaded'}]};
@@ -80,4 +102,117 @@ test('the peer inspector ages share rows and expires the report while the local 
   const instanceRows = pairs.find(node => node.textContent.includes('mac-peer'));
   assert.match(instanceRows.textContent, /Stale.*loaded state unknown.*31 s ago/i);
   assert.doesNotMatch(instanceRows.textContent, /0 loaded|Reported \(unverified\)/);
+});
+
+test('both Windows Mac inspectors show this PC publishing alongside peer reports with elapsed snapshot age', () => {
+  for (const kind of ['mac-peer', 'mac-model']) {
+    const body = inspector(linked, {kind, snapshotAge: 2, sources: [publishSource('ok')],
+      peers: [{host: 'mac-instance', fresh: true, ageSeconds: 1, platform: 'macos',
+        models: [{id: 'a', loadedState: 'loaded'}]}]});
+    assert.match(publishingValue(body).textContent, /published\s+6\s+s\s+ago/i);
+    const peersPanel = body.children.find(node => node.className === 'panel-section');
+    assert.match(peersPanel.textContent, /mac-instance.*reported.*3 s ago/i);
+  }
+});
+
+test('both Windows Mac inspectors show publishing failure, pending, and recovery from current source outcomes', () => {
+  for (const kind of ['mac-peer', 'mac-model']) {
+    const failed = publishingValue(inspector(linked, {kind,
+      sources: [publishSource('failed', {detail: 'status: PermissionError 32; any previous file is kept'})]}));
+    assert.match(failed.textContent, /publishing failed/i);
+    assert.match(failed.textContent, /previous file is kept/i);
+    assert.doesNotMatch(failed.textContent, /published\s+\d/i);
+    const pending = publishingValue(inspector(linked, {kind, sources: [publishSource('pending')]}));
+    assert.match(pending.textContent, /first publish pending/i);
+    assert.doesNotMatch(pending.textContent, /publishing failed|published\s+\d/i);
+    const recovered = publishingValue(inspector(linked, {kind, sources: [publishSource('ok', {ageSeconds: 0})]}));
+    assert.match(recovered.textContent, /published\s+0\s+s\s+ago/i);
+    assert.doesNotMatch(recovered.textContent, /failed|pending/i);
+  }
+});
+
+test('stale, paused, or disconnected Windows inspector feeds never preserve a publishing success or failure claim', () => {
+  for (const kind of ['mac-peer', 'mac-model']) {
+    for (const outcome of ['ok', 'failed', 'pending']) {
+      for (const options of [{feedAge: 3.01}, {connected: false}, {paused: true}, {snapshotAge: 3.01},
+        {feedAge: -2, snapshotAge: -2}]) {
+        const value = publishingValue(inspector(linked, {kind, ...options,
+          sources: [publishSource(outcome, {detail: 'status refused'})]}));
+        publicationUnknown(value.textContent);
+      }
+    }
+  }
+});
+
+test('the actual Windows publication helper accepts zero age and adds elapsed time only to a unique source', () => {
+  assert.equal(typeof layout.windowsSharePublishRow, 'function');
+  for (const [ageSeconds, snapshotAge, expected] of [[0, 0, 0], [4, 2, 6], [1, 3, 4]]) {
+    const row = layout.windowsSharePublishRow([publishSource('ok', {ageSeconds}),
+      {id: 'lane-inventory', outcome: 'ok', ageSeconds: 0}], {feedFresh: true, snapshotAge});
+    assert.equal(row[0], 'This PC');
+    assert.match(row[1], new RegExp(`published\\s+${expected}\\s+s\\s+ago`, 'i'));
+  }
+});
+
+test('malformed, missing, or duplicate publication evidence cannot assert success', () => {
+  assert.equal(typeof layout.windowsSharePublishRow, 'function');
+  const ok = publishSource('ok');
+  const invalid = [undefined, null, [], 'share-publish', ok, [null], ['share-publish'], [[ok]],
+    [{outcome: 'ok', ageSeconds: 0}], [publishSource('ok', {id: ['share-publish']})],
+    [publishSource('ok', {id: true})], [publishSource('ok', {id: 'SHARE-PUBLISH'})],
+    [publishSource('OK')], [publishSource(['ok'])], [publishSource({value: 'ok'})],
+    [publishSource(true)], [publishSource(null)], [ok, ok], [ok, publishSource('failed')],
+    [ok, publishSource(['failed'])]];
+  for (const ageSeconds of [undefined, null, true, false, -1, NaN, Infinity, -Infinity, '0', [], {}]) {
+    invalid.push([publishSource('ok', {ageSeconds})]);
+  }
+  for (const sources of invalid) {
+    const row = layout.windowsSharePublishRow(sources, {feedFresh: true, snapshotAge: 0});
+    assert.equal(row[0], 'This PC');
+    publicationUnknown(row[1]);
+  }
+});
+
+test('the publication helper rejects expired or malformed local freshness before reading an outcome', () => {
+  assert.equal(typeof layout.windowsSharePublishRow, 'function');
+  const options = [{}, {feedFresh: false}, {feedFresh: 'true'}, {feedFresh: 1}];
+  for (const snapshotAge of [null, true, false, -1, 3.01, NaN, Infinity, -Infinity, '0', [], {}]) {
+    options.push({feedFresh: true, snapshotAge});
+  }
+  for (const freshness of options) {
+    const row = layout.windowsSharePublishRow([publishSource('ok')], freshness);
+    assert.equal(row[0], 'This PC');
+    publicationUnknown(row[1]);
+  }
+});
+
+test('the actual inspector renders malformed publication rows as unknown without losing Mac evidence', () => {
+  const ok = publishSource('ok');
+  for (const sources of [undefined, ok, [[ok]], [ok, publishSource('pending')],
+    [publishSource('ok', {ageSeconds: '0'})], [publishSource(['ok'])]]) {
+    const body = inspector(linked, {sources});
+    publicationUnknown(publishingValue(body).textContent);
+    assert.match(body.textContent, /Mac reported through SharedChami/i);
+  }
+});
+
+test('failure detail is bounded literal DOM text and malformed detail cannot inject nodes', () => {
+  const detail = '<img src=x onerror=alert(1)> & <b>share refused</b>';
+  const body = inspector(linked, {sources: [publishSource('failed', {detail})]});
+  const value = publishingValue(body);
+  assert.match(value.textContent, /publishing failed/i);
+  assert.ok(value.textContent.includes(detail));
+  assert.equal(value.children.length, 0, 'the failure value is one text node');
+  assert.equal(body.descendants().filter(node => ['img', 'b', 'script'].includes(node.tagName)).length, 0);
+  const longValue = publishingValue(inspector(linked, {sources: [publishSource('failed', {
+    detail: 'x'.repeat(2000) + 'UNBOUNDED-END-MARKER'})]}));
+  assert.match(longValue.textContent, /publishing failed/i);
+  assert.ok(longValue.textContent.length <= 512);
+  assert.doesNotMatch(longValue.textContent, /UNBOUNDED-END-MARKER/);
+  for (const malformedDetail of [null, ['<img>'], {html: '<img>'}, true, 1]) {
+    const malformed = publishingValue(inspector(linked, {
+      sources: [publishSource('failed', {detail: malformedDetail})]}));
+    assert.match(malformed.textContent, /publishing failed/i);
+    assert.doesNotMatch(malformed.textContent, /<img>|object Object/);
+  }
 });
