@@ -349,6 +349,26 @@ def main(argv: list[str] | None = None) -> int:
         signal.signal(signal.SIGTERM, shutdown)
     if hasattr(signal, "SIGBREAK"):
         signal.signal(signal.SIGBREAK, shutdown)
+    # Under the tray, exit when the observer's own source changes so an update applies without a manual
+    # restart; the tray starts the new code within its backoff (exit code 3 marks it as an update).
+    reload_code = {"value": 0}
+    if args.parent_pid:
+        sources = sorted(here.glob("*.py"))
+        def fingerprint():
+            try:
+                return tuple((p.name, p.stat().st_mtime_ns, p.stat().st_size) for p in sources)
+            except OSError:
+                return None
+        baseline = fingerprint()
+        def watch_source():
+            while not stop.wait(2):
+                now = fingerprint()
+                if now is not None and baseline is not None and now != baseline:
+                    print(f"{time.strftime('%Y-%m-%dT%H:%M:%S')} source changed; exiting for reload", file=sys.stderr)
+                    reload_code["value"] = 3
+                    shutdown()
+                    return
+        threading.Thread(target=watch_source, name="source-watch", daemon=True).start()
     alive = parent_watch(args.parent_pid) if args.parent_pid else None
     if alive is not None:
         def watch_parent():
@@ -365,7 +385,7 @@ def main(argv: list[str] | None = None) -> int:
         stop.set()
         collector.close()
         server.server_close()
-    return 0
+    return reload_code["value"]
 
 
 if __name__ == "__main__":

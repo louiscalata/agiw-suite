@@ -90,6 +90,52 @@ class SlowSlots(unittest.TestCase):
         self.assertLess(seen["health"], 1.0)
 
 
+class LiveRate(unittest.TestCase):
+    def lane(self, *slots):
+        return {"slots": [{"id": i, "isProcessing": busy, "decodedTokens": dec} for i, (busy, dec) in enumerate(slots)]}
+
+    def test_rate_from_two_polls_of_one_request(self):
+        rate, prev = probes.live_decode_rate({}, self.lane((True, 10), (False, None)), 100.0)
+        self.assertIsNone(rate)
+        rate, prev = probes.live_decode_rate(prev, self.lane((True, 110), (False, None)), 101.0)
+        self.assertEqual(rate, 100.0)
+
+    def test_new_request_or_long_gap_is_not_a_rate(self):
+        _, prev = probes.live_decode_rate({}, self.lane((True, 500)), 100.0)
+        self.assertIsNone(probes.live_decode_rate(prev, self.lane((True, 5)), 101.0)[0])
+        _, prev = probes.live_decode_rate({}, self.lane((True, 5)), 100.0)
+        self.assertIsNone(probes.live_decode_rate(prev, self.lane((True, 900)), 130.0)[0])
+
+    def test_two_busy_slots_sum(self):
+        _, prev = probes.live_decode_rate({}, self.lane((True, 0), (True, 0)), 10.0)
+        self.assertEqual(probes.live_decode_rate(prev, self.lane((True, 20), (True, 30)), 11.0)[0], 50.0)
+
+
+class Codemode(unittest.TestCase):
+    def test_runs_become_lane_jobs_with_whole_request_rates(self):
+        specs = [{"id": "fast", "port": 1235, "alias": "g"}, {"id": "deep", "port": 1234, "alias": "q"}]
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp) / "20260924-053702-fd15a3"
+            run.mkdir()
+            (run / "manifest.json").write_text(json.dumps({"run_id": run.name, "verification": "CERTIFIED", "metrics": [
+                {"stage": "draft", "kind": "local", "served": "q", "endpoint": "http://127.0.0.1:1234", "tok": 334, "sec": 32.2, "finish": "stop"},
+                {"stage": "verify", "kind": "local", "served": "g", "endpoint": "http://127.0.0.1:1235", "tok": 499, "sec": 6.4, "finish": "length"},
+                {"stage": "verify", "kind": "cloud", "served": "x", "endpoint": "https://e", "tok": 1, "sec": 1}]}))
+            jobs, source = probes.codemode_jobs(Path(tmp), specs, time.time())
+        rows = {r["stage"]: r for r in jobs["recent"]}
+        self.assertEqual(set(rows), {"draft", "verify"})
+        self.assertEqual((rows["draft"]["lane"], rows["draft"]["state"]), ("deep", "success"))
+        self.assertEqual(rows["verify"]["flags"], ["hit-token-limit"])
+        self.assertIsNone(rows["draft"]["predictedPerSecond"])
+        self.assertEqual(rows["draft"]["approxPerSecond"], 10.4)
+        self.assertEqual(jobs["lastSuccess"]["model"], "q")
+        self.assertIn("not decode", source["detail"])
+
+    def test_missing_folder(self):
+        jobs, source = probes.codemode_jobs(Path("/nonexistent"), [], 0)
+        self.assertEqual((jobs["recent"], source["state"]), ([], "unavailable"))
+
+
 class LaneConfig(unittest.TestCase):
     def test_reads_declared_lanes(self):
         with tempfile.TemporaryDirectory() as tmp:

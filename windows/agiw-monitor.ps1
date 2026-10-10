@@ -234,11 +234,19 @@ $Timer.Interval = 2000
 $Timer.add_Tick({
     try {
         if ($script:Observer -and $script:Observer.HasExited) {
-            Write-Log "observer exited with code $($script:Observer.ExitCode); restarting in $($script:Backoff) s"
+            $code = $script:Observer.ExitCode
             $script:Observer = $null
             $script:ObserverPort = $null
-            $script:NextStart = (Get-Date).AddSeconds($script:Backoff)
-            $script:Backoff = [Math]::Min(30, $script:Backoff * 2)
+            if ($code -eq 3) {
+                # The observer's source changed (an update was installed): start the new code right away.
+                Write-Log 'observer updated; starting new code'
+                $script:NextStart = [DateTime]::MinValue
+                $script:Backoff = 2
+            } else {
+                Write-Log "observer exited with code $code; restarting in $($script:Backoff) s"
+                $script:NextStart = (Get-Date).AddSeconds($script:Backoff)
+                $script:Backoff = [Math]::Min(30, $script:Backoff * 2)
+            }
         }
         if (-not $script:Observer -and (Get-Date) -ge $script:NextStart) { Start-Observer }
         $summary = Get-StatusSummary
