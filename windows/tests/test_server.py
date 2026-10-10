@@ -150,6 +150,17 @@ class EndToEnd(unittest.TestCase):
         finally:
             stop.set()
 
+    def test_pc_status_mirrors_mac_status_shape(self):
+        data = self.collector.collect()
+        status = probes.pc_status(data)
+        self.assertEqual((status["schemaVersion"], status["host"], status["health"]), (1, "windows", "ok"))
+        self.assertEqual({m["id"] for m in status["models"]}, {"openai/gpt-oss-20b", "qwen3.8-27b"})
+        self.assertTrue(all(m["loadedState"] == "loaded" and m["activity"] == "idle" for m in status["models"]))
+        self.assertNotIn("clients", status)
+        target = Path(self.tmp.name) / "llm-lab" / "status" / "pc-status.json"
+        probes.write_json_atomic(target, status)
+        self.assertEqual(json.loads(target.read_text())["host"], "windows")
+
     def test_post_is_read_only(self):
         conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=3)
         origin = f"http://127.0.0.1:{self.port}"

@@ -234,11 +234,20 @@ class Handler(BaseHTTPRequestHandler):
             self.server._streams.release()
 
 
-def sample(store: SnapshotStore, collector: Collector, stop: threading.Event, interval: float = 1.0) -> None:
+def sample(store: SnapshotStore, collector: Collector, stop: threading.Event, interval: float = 1.0,
+           publish_to: Path | None = None, publish_every: float = 10.0) -> None:
+    last_publish = 0.0
     while not stop.is_set():
         started = time.monotonic()
         try:
-            store.publish(collector.collect())
+            data = collector.collect()
+            store.publish(data)
+            if publish_to is not None and started - last_publish >= publish_every:
+                last_publish = started
+                try:
+                    probes.write_json_atomic(publish_to, probes.pc_status(data))
+                except OSError as error:
+                    print(f"{time.strftime('%Y-%m-%dT%H:%M:%S')} status publish failed: {error!r}", file=sys.stderr)
         except Exception as error:  # noqa: BLE001 - a failed sample ages out; it is never re-stamped
             print(f"{time.strftime('%Y-%m-%dT%H:%M:%S')} sample failed: {error!r}", file=sys.stderr)
         stop.wait(max(0.05, interval - (time.monotonic() - started)))
@@ -301,6 +310,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--state-file", type=Path)
     parser.add_argument("--once", action="store_true", help="print one snapshot as JSON and exit")
     parser.add_argument("--no-lan", action="store_true", help="skip the Mac LAN probe")
+    parser.add_argument("--publish-status", action="store_true",
+                        help="write llm-lab/status/pc-status.json on the share every 10 s (opt-in)")
     parser.add_argument("--log-file", type=Path, help="append stderr here (the tray shell does not read stderr)")
     args = parser.parse_args(argv)
     if args.log_file:
@@ -337,7 +348,9 @@ def main(argv: list[str] | None = None) -> int:
     stop = threading.Event()
     if mac_peer:
         mac_peer.start()
-    threading.Thread(target=sample, args=(store, collector, stop), name="sampler", daemon=True).start()
+    publish_to = args.share_root / "llm-lab" / "status" / "pc-status.json" if args.publish_status else None
+    threading.Thread(target=sample, args=(store, collector, stop), kwargs={"publish_to": publish_to},
+                     name="sampler", daemon=True).start()
 
     def shutdown(*_):
         stop.set()
