@@ -265,3 +265,13 @@ test('Mac host never draws a LAN peer node',()=>{
   const nodes=project([], 'mac', 820, 660, {macPeer:{state:'reachable',ageSeconds:1,models:[]}}).nodes;
   assert.equal(nodes.some(n=>n.kind==='mac-peer'||n.kind==='mac-model'),false);
 });
+
+test('Windows host draws a live edge from a connected client to its lane, and none from a stale feed',()=>{
+  const models=[{id:'qwen3.8-27b',name:'qwen3.8-27b',host:'windows',state:'idle',loaded:true,source:'llama-slots',ageSeconds:0,metadata:{lane:'deep'}}];
+  const localCallers=[{pid:5,name:'codex.exe',lane:'deep',client:'codex',connections:1},{pid:6,name:'python.exe',lane:'deep',client:null,connections:1}];
+  const edges=project([], 'windows', 820, 660, {models,localCallers}).edges;
+  const live=edges.filter(e=>e.a==='client:codex'&&e.b==='model:windows:qwen3.8-27b');
+  assert.equal(live.length,1);
+  assert.equal(live[0].flow,true);
+  assert.equal(edges.some(e=>String(e.a).includes('python')),false);
+});
