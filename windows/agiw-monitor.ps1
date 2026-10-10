@@ -190,6 +190,7 @@ function Get-SnapshotSummary($Snapshot, [double]$NowUnix) {
         return @{ tone = 'muted'; text = 'Feed stale - see Open log folder' }
     }
     $lanes = @()
+    $tooltipLanes = @()
     $idle = 0
     $warn = $false
     $busy = $false
@@ -203,7 +204,7 @@ function Get-SnapshotSummary($Snapshot, [double]$NowUnix) {
     }
     foreach ($id in 'fast', 'deep') {
         $lane = $laneStates.$id
-        if ($lane -isnot [PSCustomObject] -and $lane -isnot [Collections.IDictionary]) { $unknown = $true; $lanes += "$id ?"; continue }
+        if ($lane -isnot [PSCustomObject] -and $lane -isnot [Collections.IDictionary]) { $unknown = $true; $lanes += "$id ?"; $tooltipLanes += "$id ?"; continue }
         # A lane answer counts as current only while its own age plus the snapshot's age is within 3 s.
         $status = if ($lane.status -is [string]) { $lane.status } else { 'unknown' }
         if (-not (Test-FiniteNumber $lane.ageSeconds) -or $lane.ageSeconds -lt 0) { $status = 'unknown' }
@@ -227,6 +228,8 @@ function Get-SnapshotSummary($Snapshot, [double]$NowUnix) {
             'unreachable'       { $lanes += "$id no answer"; $warn = $true }
             default             { $lanes += "$id ?"; $unknown = $true }
         }
+        # Keep the lane state in the tooltip; the full menu also carries deep CPU.
+        $tooltipLanes += if ($status -ceq 'busy') { "$id $($lane.slotsBusy)/$($lane.slotsTotal)" } else { $lanes[-1] }
     }
     # Green only for fresh, confirmed idle on both lanes; activity that cannot be confirmed is grey.
     $tone = if ($busy) { 'live' } elseif ($warn) { 'warn' } elseif ($unknown -or $idle -lt 2) { 'muted' } else { 'ok' }
@@ -255,10 +258,21 @@ function Get-SnapshotSummary($Snapshot, [double]$NowUnix) {
             'reachable' { 'Mac answers' } 'linked' { 'Mac reported' } 'unreachable' { 'Mac no answer' } default { $null }
         }
     }
-    @{ tone = $tone; text = (@($lanes -join ' | ') + @($gpuText, $memory, $mac) | Where-Object { $_ }) -join ' | '; snapshot = $snap }
+    @{ tone = $tone; text = (@($lanes -join ' | ') + @($gpuText, $memory, $mac) | Where-Object { $_ }) -join ' | ';
+        tooltipParts = @($tooltipLanes) + @(@($mac, $memory, $gpuText) | Where-Object { $_ }); snapshot = $snap }
 }
 
-function Format-TrayText([string]$Message) {
+function Format-TrayText([string]$Message, [string[]]$Parts = @()) {
+    if ($Parts.Count) {
+        $text = 'AGIW'
+        foreach ($part in $Parts) {
+            $candidate = "$text | $part"
+            # Keep complete lane and Mac states; lower-priority readings stay in the menu.
+            if ($candidate.Length -gt 63) { break }
+            $text = $candidate
+        }
+        return $text
+    }
     $text = "AGIW | $Message"
     # NotifyIcon.Text is capped at 63 characters on .NET Framework.
     return $(if ($text.Length -gt 63) { $text.Substring(0, 60) + '...' } else { $text })
@@ -353,7 +367,7 @@ $Timer.add_Tick({
         if (-not $script:Observer -and (Get-Date) -ge $script:NextStart) { Start-Observer }
         $summary = Get-StatusSummary
         $Tray.Icon = $Icons[$summary.tone]
-        $Tray.Text = Format-TrayText $summary.text
+        $Tray.Text = Format-TrayText $summary.text $summary.tooltipParts
         $statusItem.Text = $summary.text
     } catch { Write-Log "tick failed: $($_.Exception.Message)" }
 })
