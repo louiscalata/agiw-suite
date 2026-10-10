@@ -1255,8 +1255,10 @@ export function windowsSharePublishRow(sources, { feedFresh = false, snapshotAge
   }
   if (source.outcome === 'failed') {
     const detail = typeof source.detail === 'string'
-      ? source.detail.replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 240) : '';
-    return [label, `Publishing failed${detail ? ` · ${detail}` : ''}`];
+      ? source.detail.replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 240)
+        .replace(/^Publishing(?: to SharedChami)? failed\b\s*/i, '')
+        .replace(/\bany previous file is kept\b/i, 'previous file kept') : '';
+    return [label, `Publishing failed${detail ? `${detail.startsWith('(') ? ' ' : ' · '}${detail}` : ''}`];
   }
   if (source.outcome === 'pending') return [label, 'First publish pending'];
   return unknown;
