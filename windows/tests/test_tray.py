@@ -256,6 +256,65 @@ class TraySummaryTest(unittest.TestCase):
         for name in ["malformed-0", "sample-time-0"]:
             data = copy.deepcopy(next(case["snapshot"] for case in cls.cases if case["name"] == name))
             tooltip(f"tooltip-neutral-{name}", data)
+
+        failed_source = {"id": "share-publish", "outcome": "failed", "ageSeconds": None,
+                         "state": "unavailable"}
+        share_idle = copy.deepcopy(reported)
+        share_idle["sources"] = [copy.deepcopy(failed_source)]
+        tooltip("share-failed-idle", share_idle)
+        share_busy = copy.deepcopy(busy_max)
+        share_busy["sources"] = [copy.deepcopy(failed_source)]
+        tooltip("share-failed-busy", share_busy)
+        share_stale_lanes = copy.deepcopy(share_busy)
+        for lane in share_stale_lanes["windowsWorker"]["lanes"].values():
+            lane["ageSeconds"] = 4
+        tooltip("share-failed-stale-lanes", share_stale_lanes)
+        for level in ["tight", "critical"]:
+            data = copy.deepcopy(share_idle)
+            data["memory"] = {"level": level, "availablePercent": 10}
+            data["macPeer"]["state"] = "reachable"
+            tooltip(f"share-failed-memory-{level}", data)
+        share_partial = copy.deepcopy(share_idle)
+        del share_partial["windowsWorker"]["lanes"]["deep"]
+        tooltip("share-failed-partial", share_partial)
+        share_long = copy.deepcopy(share_idle)
+        for lane in share_long["windowsWorker"]["lanes"].values():
+            lane["status"] = "identity_mismatch"
+        tooltip("share-failed-long-labels", share_long)
+        share_sibling = copy.deepcopy(share_idle)
+        share_sibling["sources"].append({"id": "other-source", "outcome": "ok"})
+        tooltip("share-failed-other-source", share_sibling)
+        share_expired = copy.deepcopy(share_idle)
+        share_expired["sampledAt"] -= 6
+        tooltip("share-failed-expired-snapshot", share_expired)
+
+        # These are data boundary cases, not string checks on the implementation.
+        # Failed publisher rows intentionally have no source-specific age: only
+        # the overall snapshot must be current before claiming this failure.
+        invalid_sources = [
+            None, [], "share-publish", copy.deepcopy(failed_source),
+            [None], ["share-publish"], [[copy.deepcopy(failed_source)]],
+            [{"id": "other-source", "outcome": "failed"}],
+            [{"id": "SHARE-PUBLISH", "outcome": "failed"}],
+            [{"id": ["share-publish"], "outcome": "failed"}],
+            [{"id": {"value": "share-publish"}, "outcome": "failed"}],
+            [{"id": True, "outcome": "failed"}],
+            [{"id": 1, "outcome": "failed"}],
+            [{"outcome": "failed"}],
+            [{"id": "share-publish"}],
+        ]
+        for outcome in ["ok", "pending", "FAILED", " failed", "failed ", None, True,
+                        False, 1, [], ["failed"], {"value": "failed"}]:
+            invalid_sources.append([{"id": "share-publish", "outcome": outcome}])
+        for duplicate in [{"id": "share-publish", "outcome": "ok"},
+                          copy.deepcopy(failed_source),
+                          {"id": "share-publish", "outcome": ["failed"]}]:
+            invalid_sources.append([copy.deepcopy(failed_source), duplicate])
+        for index, sources in enumerate(invalid_sources):
+            data = copy.deepcopy(reported)
+            data["sources"] = sources
+            tooltip(f"share-unknown-{index}", data)
+        tooltip("share-unknown-missing", copy.deepcopy(reported))
         cls.cases.append({"name": "format-priority-parts", "kind": "format", "message": "Full menu text",
                           "parts": ["fast idle", "deep idle", "Mac reported", "RAM " + "x" * 100, "GPU 20%"]})
         for index, value in enumerate([0, 1, -1, 0.5, None, True, False, "0", "3.5", [], {}, *SPECIAL_NUMBERS]):
@@ -427,14 +486,14 @@ class TraySummaryTest(unittest.TestCase):
         self.assertIn("GPU " + "/".join(["100"] * 8) + "%", result["menuText"])
         self.assertIn("RAM 100% free", result["menuText"])
 
-    def test_scaled_decimal_slot_counts_cannot_displace_lane_or_mac_tooltip_evidence(self):
+    def test_scaled_decimal_slot_counts_are_canonical_in_menu_and_tooltip(self):
         result = self.result("tooltip-busy-scaled-decimal")
         self.assertEqual(result["tone"], "live")
         self.assertLessEqual(len(result["tooltip"]), 63)
         self.assertEqual(result["tooltip"].split(" | ")[:4],
                          ["AGIW", "fast 32/32", "deep 32/32", "Mac reported"])
-        self.assertRegex(result["menuText"], r"fast 32\.0{20,}/32\.0{20,}")
-        self.assertRegex(result["menuText"], r"deep 32\.0{20,}/32\.0{20,} cpu 100%")
+        self.assertIn("fast 32/32", result["menuText"])
+        self.assertIn("deep 32/32 cpu 100%", result["menuText"])
 
     def test_every_canonical_lane_pair_and_mac_state_fits_as_complete_tokens(self):
         for fast, fast_label in self.tooltip_states.items():
@@ -464,6 +523,76 @@ class TraySummaryTest(unittest.TestCase):
 
     def test_tooltip_stops_at_an_overlong_token_without_truncating_or_skipping_it(self):
         self.assertEqual(self.result("format-priority-parts"), "AGIW | fast idle | deep idle | Mac reported")
+
+    def test_confirmed_publish_failure_warns_and_precedes_optional_tooltip_readings(self):
+        for name in ["share-failed-idle", "share-failed-other-source"]:
+            with self.subTest(case=name):
+                result = self.result(name)
+                self.assertEqual(result["tone"], "warn")
+                self.assertTrue(result["menuText"].endswith("Mac reported | Share publish failed"))
+                self.assertIn("GPU 2/0%", result["menuText"])
+                self.assertIn("RAM 48% free", result["menuText"])
+                self.assertEqual(result["tooltip"],
+                                 "AGIW | fast idle | deep idle | Mac reported | Share failed")
+                self.assertLessEqual(len(result["tooltip"]), 63)
+
+    def test_publish_failure_preserves_busy_blue_and_full_menu_cpu(self):
+        result = self.result("share-failed-busy")
+        self.assertEqual(result["tone"], "live")
+        self.assertIn("deep 32/32 cpu 100%", result["menuText"])
+        self.assertTrue(result["menuText"].endswith("Mac reported | Share publish failed"))
+        self.assertEqual(result["tooltip"],
+                         "AGIW | fast 32/32 | deep 32/32 | Mac reported | Share failed")
+        self.assertLessEqual(len(result["tooltip"]), 63)
+
+    def test_stale_busy_lanes_do_not_hide_a_current_publish_failure(self):
+        result = self.result("share-failed-stale-lanes")
+        self.assertEqual(result["tone"], "warn")
+        self.assertIn("fast stale | deep stale", result["menuText"])
+        self.assertNotIn("32/32", result["menuText"])
+        self.assertIn("Share publish failed", result["menuText"])
+        self.assertEqual(result["tooltip"],
+                         "AGIW | fast stale | deep stale | Mac reported | Share failed")
+
+    def test_publish_failure_and_memory_pressure_keep_both_messages(self):
+        for name in self.group("share-failed-memory-"):
+            with self.subTest(case=name):
+                result = self.result(name)
+                self.assertEqual(result["tone"], "warn")
+                self.assertIn("RAM 10% free", result["menuText"])
+                self.assertTrue(result["menuText"].endswith("Mac answers | Share publish failed"))
+                self.assertEqual(result["tooltip"],
+                                 "AGIW | fast idle | deep idle | Mac answers | Share failed")
+                self.assertLessEqual(len(result["tooltip"]), 63)
+
+    def test_publish_failure_preserves_known_sibling_and_complete_long_lane_mac_tokens(self):
+        partial = self.result("share-failed-partial")
+        self.assertEqual(partial["tone"], "warn")
+        self.assertIn("fast idle", partial["menuText"])
+        self.assertNotIn("deep idle", partial["menuText"])
+        self.assertIn("Share publish failed", partial["menuText"])
+        long_labels = self.result("share-failed-long-labels")
+        self.assertEqual(long_labels["tone"], "warn")
+        self.assertTrue(long_labels["menuText"].endswith("Mac reported | Share publish failed"))
+        self.assertEqual(long_labels["tooltip"],
+                         "AGIW | fast WRONG MODEL | deep WRONG MODEL | Mac reported")
+        self.assertNotIn("...", long_labels["tooltip"])
+        self.assertLessEqual(len(long_labels["tooltip"]), 63)
+
+    def test_recovery_missing_malformed_and_duplicate_publish_sources_do_not_warn(self):
+        for name in self.group("share-unknown-"):
+            with self.subTest(case=name):
+                result = self.result(name)
+                self.assertEqual(result["tone"], "ok")
+                self.assertIn("fast idle | deep idle", result["menuText"])
+                self.assertNotIn("Share", result["menuText"])
+                self.assertNotIn("Share", result["tooltip"])
+
+    def test_an_expired_snapshot_cannot_claim_publish_failure(self):
+        result = self.result("share-failed-expired-snapshot")
+        self.assertEqual(result["tone"], "muted")
+        self.assertNotIn("Share", result["menuText"])
+        self.assertEqual(result["tooltip"], "AGIW | " + result["menuText"])
 
     def test_network_failure_and_not_started_are_neutral(self):
         summary = self.result("network-failure")

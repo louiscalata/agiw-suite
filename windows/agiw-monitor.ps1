@@ -219,7 +219,7 @@ function Get-SnapshotSummary($Snapshot, [double]$NowUnix) {
                 ($status -eq 'busy' -and $lane.slotsBusy -le 0)) { $status = 'unknown' }
         }
         switch -CaseSensitive ($status) {
-            'busy'              { $cpu = if ($id -eq 'deep' -and (Test-FiniteNumber $lane.cpuPercent) -and $lane.cpuPercent -ge 0 -and $lane.cpuPercent -le 100) { " cpu $([int]$lane.cpuPercent)%" } else { '' }; $lanes += "$id $($lane.slotsBusy)/$($lane.slotsTotal)$cpu"; $busy = $true }
+            'busy'              { $cpu = if ($id -eq 'deep' -and (Test-FiniteNumber $lane.cpuPercent) -and $lane.cpuPercent -ge 0 -and $lane.cpuPercent -le 100) { " cpu $([int]$lane.cpuPercent)%" } else { '' }; $lanes += "$id $([int]$lane.slotsBusy)/$([int]$lane.slotsTotal)$cpu"; $busy = $true }
             'idle'              { $lanes += "$id idle"; $idle++ }
             'identity_mismatch' { $lanes += "$id WRONG MODEL"; $warn = $true }
             'loading'           { $lanes += "$id loading"; $warn = $true }
@@ -258,8 +258,20 @@ function Get-SnapshotSummary($Snapshot, [double]$NowUnix) {
             'reachable' { 'Mac answers' } 'linked' { 'Mac reported' } 'unreachable' { 'Mac no answer' } default { $null }
         }
     }
-    @{ tone = $tone; text = (@($lanes -join ' | ') + @($gpuText, $memory, $mac) | Where-Object { $_ }) -join ' | ';
-        tooltipParts = @($tooltipLanes) + @(@($mac, $memory, $gpuText) | Where-Object { $_ }); snapshot = $snap }
+    $publishRows = @()
+    if ($snap.sources -is [array]) {
+        foreach ($source in $snap.sources) {
+            if (($source -is [PSCustomObject] -or $source -is [Collections.IDictionary]) -and
+                $source.id -is [string] -and $source.id -ceq 'share-publish') { $publishRows += $source }
+        }
+    }
+    # A single explicit outcome proves failure; duplicate or malformed reports stay unknown.
+    $publishFailed = $publishRows.Count -eq 1 -and $publishRows[0].outcome -is [string] -and $publishRows[0].outcome -ceq 'failed'
+    $publishText = if ($publishFailed) { 'Share publish failed' } else { $null }
+    $publishTooltip = if ($publishFailed) { 'Share failed' } else { $null }
+    if ($publishFailed -and $tone -ne 'live') { $tone = 'warn' }
+    @{ tone = $tone; text = (@($lanes -join ' | ') + @($gpuText, $memory, $mac, $publishText) | Where-Object { $_ }) -join ' | ';
+        tooltipParts = @($tooltipLanes) + @(@($mac, $publishTooltip, $memory, $gpuText) | Where-Object { $_ }); snapshot = $snap }
 }
 
 function Format-TrayText([string]$Message, [string[]]$Parts = @()) {
