@@ -289,13 +289,15 @@ def publish_error_name(error: Exception) -> str:
     return f"{type(error).__name__}{f' {code}' if code else ''}"
 
 
-def publish_source(outcome: dict[str, Any], now: float) -> dict[str, Any]:
+def publish_source(outcome: dict[str, Any], now: float, targets: tuple[str, ...] = ("status", "presence")) -> dict[str, Any]:
     """The share publisher as a dashboard source: a failure reaches the dashboard, not only stderr.
 
     ``outcome`` (pending / ok / failed) is the machine-readable result for the tray; detail is prose for people.
+    ``targets`` names what is actually configured, so the detail never claims a file this observer does not write.
     """
     ok, error = outcome.get("ok"), outcome.get("error")
     age = None if ok is None else round(max(0.0, now - ok), 1)
+    what = {("status",): "Status", ("presence",): "Presence"}.get(tuple(targets), "Status and presence")
     if error is None and ok is None:
         return {**probes._source("share-publish", "Share publish", "unavailable", "First publish to SharedChami pending"),
                 "outcome": "pending"}
@@ -305,7 +307,7 @@ def publish_source(outcome: dict[str, Any], now: float) -> dict[str, Any]:
                                  f"Publishing to SharedChami failed ({error}); {since}; any previous file is kept"),
                 "outcome": "failed"}
     return {**probes._source("share-publish", "Share publish", "live",
-                             f"Status and presence published to SharedChami {age:.0f} s ago", age), "outcome": "ok"}
+                             f"{what} published to SharedChami {age:.0f} s ago", age), "outcome": "ok"}
 
 
 def sample(store: SnapshotStore, collector: Collector, stop: threading.Event, interval: float = 1.0,
@@ -319,7 +321,8 @@ def sample(store: SnapshotStore, collector: Collector, stop: threading.Event, in
             data = collector.collect()
             data["dashboardPort"] = dashboard_port
             if publish_to is not None or presence_to is not None:
-                data["sources"] = [*data.get("sources", []), publish_source(outcome, started)]
+                targets = tuple(name for name, target in (("status", publish_to), ("presence", presence_to)) if target)
+                data["sources"] = [*data.get("sources", []), publish_source(outcome, started, targets)]
             store.publish(data)
             if (publish_to is not None or presence_to is not None) and started - last_publish >= publish_every:
                 last_publish = started
