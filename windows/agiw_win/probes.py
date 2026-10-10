@@ -733,13 +733,24 @@ def probe_mac(hosts: dict[str, Any] | None, fetch: Fetch = http_get_json,
         return {"state": "unknown", "detail": "llm-lab/mac-reach/hosts.json unreadable", "observedAt": observed,
                 "address": None, "via": None, "latencyMs": None, "models": [], "loadedCount": None, "tried": []}
     tried = []
+    reasons: set[str] = set()
     for address, via in candidate_addresses(hosts, resolve, own):
         base = f"http://{address}:{hosts['port']}"
         started = time.monotonic()
         for path, v0 in (("/api/v0/models", True), ("/v1/models", False)):
             try:
                 models = parse_mac_models(fetch(base + path, 1.5, HTTP_MAX_BYTES), v0)
-            except Exception:  # noqa: BLE001
+            except ConnectionRefusedError:
+                reasons.add("refused")  # the address answered with a refusal: a host is there, the port is closed
+                continue
+            except (TimeoutError, socket.timeout):  # distinct classes before Python 3.10
+                reasons.add("timeout")
+                continue
+            except (ValueError, json.JSONDecodeError):
+                reasons.add("invalid")  # something answered, but not with a model listing
+                continue
+            except Exception as error:  # noqa: BLE001
+                reasons.add("invalid" if str(error).startswith("HTTP Error") else "error")
                 continue
             latency = round((time.monotonic() - started) * 1000)
             loaded = [m for m in models if m["state"] == "loaded"]
@@ -764,10 +775,17 @@ def probe_mac(hosts: dict[str, Any] | None, fetch: Fetch = http_get_json,
                                else f"OpenAI-compatible list answered on {address} ({via}); loaded state not reported"),
                     "observedAt": observed, "tried": tried + [address]}
         tried.append(address)
+    # The strongest evidence across every address: an answer beats a refusal beats silence.
+    reason = next((r for r in ("invalid", "refused", "timeout", "error") if r in reasons), None) if tried else "unresolved"
+    where = ", ".join(tried)
+    detail = {"invalid": f"Something answered on {where} port {hosts['port']}, but not with an LM Studio model list",
+              "refused": f"The Mac refused port {hosts['port']} on {where}: the address answered, but LM Studio is "
+                         "not accepting LAN connections there",
+              "timeout": f"No answer from the Mac's LM Studio on {where}",
+              "error": f"No answer from the Mac's LM Studio on {where}",
+              "unresolved": "The Mac's name did not resolve and no fallback address is recorded"}[reason or "error"]
     return {"state": "unreachable", "address": None, "via": None, "latencyMs": None, "name": hosts.get("hostname"),
-            "models": [], "loadedCount": None,
-            "detail": ("No answer from the Mac's LM Studio on " + ", ".join(tried) if tried
-                       else "The Mac's name did not resolve and no fallback address is recorded"),
+            "models": [], "loadedCount": None, "reason": reason or "error", "detail": detail,
             "observedAt": observed, "tried": tried}
 
 
