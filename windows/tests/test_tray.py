@@ -70,8 +70,12 @@ foreach ($case in $inputCases.cases) {
     try {
         $value = switch ($case.kind) {
             'summary' { Get-SnapshotSummary -Snapshot (Expand-TestValue $case.snapshot) -NowUnix $case.now }
+            'tooltip' {
+                $summary = Get-SnapshotSummary -Snapshot (Expand-TestValue $case.snapshot) -NowUnix $case.now
+                @{ tooltip = (Format-TrayText $summary.text $summary.tooltipParts); menuText = $summary.text; tone = $summary.tone }
+            }
             'finite' { Test-FiniteNumber (Expand-TestValue $case.value) }
-            'format' { Format-TrayText $case.message }
+            'format' { Format-TrayText $case.message $case.parts }
             'status' {
                 $script:FakeUrl = $case.url
                 $script:LastError = $case.lastError
@@ -209,6 +213,43 @@ class TraySummaryTest(unittest.TestCase):
         gpu_nested = copy.deepcopy(busy)
         gpu_nested["pcGpus"] = [[{"utilizationPercent": 99}], {"utilizationPercent": 20}]
         add("shape-gpu-nested-array", gpu_nested)
+
+        def tooltip(name, data):
+            cls.cases.append({"name": name, "kind": "tooltip", "snapshot": data, "now": NOW})
+
+        reported = snapshot()
+        reported["pcGpus"] = [{"utilizationPercent": 2}, {"utilizationPercent": 0}]
+        reported["memory"] = {"level": "ok", "availablePercent": 48}
+        reported["macPeer"] = {"state": "linked", "ageSeconds": 0}
+        tooltip("tooltip-live-reported", reported)
+        busy_max = copy.deepcopy(reported)
+        for lane in busy_max["windowsWorker"]["lanes"].values():
+            lane.update(status="busy", slotsBusy=32, slotsTotal=32, cpuPercent=100)
+        busy_max["pcGpus"] = [{"utilizationPercent": 100} for _ in range(8)]
+        busy_max["memory"] = {"level": "ok", "availablePercent": 100}
+        tooltip("tooltip-busy-max", busy_max)
+        cls.tooltip_states = {"idle": "idle", "busy": "32/32", "identity_mismatch": "WRONG MODEL",
+                              "loading": "loading", "slots_unknown": "up ?", "stale": "stale",
+                              "unreachable": "no answer", "unknown": "?"}
+        cls.tooltip_peers = {"linked": "Mac reported", "reachable": "Mac answers", "unreachable": "Mac no answer"}
+        for fast in cls.tooltip_states:
+            for deep in cls.tooltip_states:
+                for peer_state in cls.tooltip_peers:
+                    data = copy.deepcopy(busy_max)
+                    data["windowsWorker"]["lanes"]["fast"].update(status=fast, slotsBusy=32 if fast == "busy" else 0)
+                    data["windowsWorker"]["lanes"]["deep"].update(status=deep, slotsBusy=32 if deep == "busy" else 0)
+                    data["macPeer"]["state"] = peer_state
+                    tooltip(f"tooltip-states-{fast}-{deep}-{peer_state}", data)
+        for name in ["mac-expired-reported", "mac-expired-answers", "mac-age-3", "shape-peer-array"]:
+            data = copy.deepcopy(next(case["snapshot"] for case in cls.cases if case["name"] == name))
+            data["memory"] = {"level": "ok", "availablePercent": True}
+            data["pcGpus"] = [{"utilizationPercent": "100"}]
+            tooltip(f"tooltip-invalid-{name}", data)
+        for name in ["malformed-0", "sample-time-0"]:
+            data = copy.deepcopy(next(case["snapshot"] for case in cls.cases if case["name"] == name))
+            tooltip(f"tooltip-neutral-{name}", data)
+        cls.cases.append({"name": "format-priority-parts", "kind": "format", "message": "Full menu text",
+                          "parts": ["fast idle", "deep idle", "Mac reported", "RAM " + "x" * 100, "GPU 20%"]})
         for index, value in enumerate([0, 1, -1, 0.5, None, True, False, "0", "3.5", [], {}, *SPECIAL_NUMBERS]):
             cls.cases.append({"name": f"finite-{index}", "kind": "finite", "value": value})
         for size in [0, 1, 55, 56, 57, 1000]:
@@ -357,6 +398,55 @@ class TraySummaryTest(unittest.TestCase):
                 else:
                     self.assertEqual(len(text), 63)
                     self.assertTrue(text.endswith("..."))
+
+    def test_tooltip_keeps_the_reported_mac_state_before_optional_hardware(self):
+        result = self.result("tooltip-live-reported")
+        tokens = result["tooltip"].split(" | ")
+        self.assertEqual(tokens[:4], ["AGIW", "fast idle", "deep idle", "Mac reported"])
+        self.assertLessEqual(len(result["tooltip"]), 63)
+        self.assertIn("GPU 2/0%", result["menuText"])
+        self.assertIn("RAM 48% free", result["menuText"])
+        self.assertTrue(result["menuText"].endswith("Mac reported"))
+
+    def test_busy_tooltip_keeps_both_lane_counts_and_mac_without_losing_menu_cpu(self):
+        result = self.result("tooltip-busy-max")
+        self.assertEqual(result["tone"], "live")
+        tokens = result["tooltip"].split(" | ")
+        self.assertEqual(tokens[:4], ["AGIW", "fast 32/32", "deep 32/32", "Mac reported"])
+        self.assertLessEqual(len(result["tooltip"]), 63)
+        self.assertNotIn("cpu", result["tooltip"])
+        self.assertIn("deep 32/32 cpu 100%", result["menuText"])
+        self.assertIn("GPU " + "/".join(["100"] * 8) + "%", result["menuText"])
+        self.assertIn("RAM 100% free", result["menuText"])
+
+    def test_every_canonical_lane_pair_and_mac_state_fits_as_complete_tokens(self):
+        for fast, fast_label in self.tooltip_states.items():
+            for deep, deep_label in self.tooltip_states.items():
+                for peer_state, peer_label in self.tooltip_peers.items():
+                    with self.subTest(fast=fast, deep=deep, peer=peer_state):
+                        result = self.result(f"tooltip-states-{fast}-{deep}-{peer_state}")
+                        self.assertLessEqual(len(result["tooltip"]), 63)
+                        self.assertEqual(result["tooltip"].split(" | ")[:4],
+                                         ["AGIW", f"fast {fast_label}", f"deep {deep_label}", peer_label])
+                        self.assertNotIn("...", result["tooltip"])
+
+    def test_tooltip_does_not_promote_invalid_or_expired_optional_evidence(self):
+        for name in self.group("tooltip-invalid-"):
+            with self.subTest(case=name):
+                result = self.result(name)
+                self.assertEqual(result["tone"], "ok")
+                self.assertEqual(result["tooltip"], "AGIW | fast idle | deep idle")
+                self.assertEqual(result["menuText"], "fast idle | deep idle")
+
+    def test_tooltip_neutral_fallback_preserves_its_message(self):
+        for name in self.group("tooltip-neutral-"):
+            with self.subTest(case=name):
+                result = self.result(name)
+                self.assertEqual(result["tone"], "muted")
+                self.assertEqual(result["tooltip"], "AGIW | " + result["menuText"])
+
+    def test_tooltip_stops_at_an_overlong_token_without_truncating_or_skipping_it(self):
+        self.assertEqual(self.result("format-priority-parts"), "AGIW | fast idle | deep idle | Mac reported")
 
     def test_network_failure_and_not_started_are_neutral(self):
         summary = self.result("network-failure")
