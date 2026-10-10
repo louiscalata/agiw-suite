@@ -46,16 +46,17 @@ test('linked through SharedChami reads as connected without claiming the LAN', (
     models: [{id: 'qwen/qwen3.8-27b', state: 'loaded'}]}, {feedFresh: true});
   assert.equal(v.reachable, true);
   assert.equal(v.linked, true);
-  assert.equal(v.subtitle, 'LINKED VIA SHARE · 1 LOADED');
-  assert.match(v.rows[0][1], /LM Studio not open to the LAN/);
-  assert.equal(v.chip.short, 'Linked · 1 loaded');
+  assert.equal(v.subtitle, 'REPORTED VIA SHARE · 1 LOADED');
+  assert.match(v.rows[0][1], /unsigned file, not verified; LM Studio not open to the LAN/);
+  assert.equal(v.chip.short, 'Reported · 1 loaded');
+  assert.equal(v.chip.tone, 'muted');
 });
 
 test('peer rows name each AGIW instance and its freshness', () => {
   const rows = agiwPeersRows([{host: 'louis-m5-pro', fresh: true, platform: 'macos', edition: 'mac', version: '1.0.0', ageSeconds: 4,
     source: 'agiw-peers', models: [{id: 'a', loadedState: 'loaded'}]}, {host: 'bad host!', ageSeconds: 1}], {feedFresh: true});
   assert.equal(rows.length, 1);
-  assert.match(rows[0][1], /^Linked · macos · mac · 1\.0\.0 · 1 loaded · 4 s ago/);
+  assert.match(rows[0][1], /^Reported \(unverified\) · macos · mac · 1\.0\.0 · 1 loaded · 4 s ago/);
   assert.deepEqual(agiwPeersRows([], {feedFresh: true}), [['AGIW peers', 'None has published on SharedChami yet']]);
 });
 

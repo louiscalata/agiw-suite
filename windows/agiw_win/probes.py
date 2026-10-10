@@ -14,8 +14,10 @@ import json
 import math
 import os
 from pathlib import Path
+import secrets
 import shutil
 import socket
+import stat
 import subprocess
 import sys
 import threading
@@ -439,11 +441,12 @@ _NVIDIA_QUERY = "index,name,utilization.gpu,memory.used,memory.total,temperature
 
 
 def nvidia_smi_path() -> str | None:
-    found = shutil.which("nvidia-smi")
-    if found:
-        return found
-    candidate = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "nvidia-smi.exe"
-    return str(candidate) if candidate.is_file() else None
+    """The driver's protected copy first; PATH only when it is absent (PATH entries can be user-writable)."""
+    for candidate in (Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "nvidia-smi.exe",
+                      Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "NVIDIA Corporation" / "NVSMI" / "nvidia-smi.exe"):
+        if candidate.is_file():
+            return str(candidate)
+    return shutil.which("nvidia-smi")
 
 
 def parse_nvidia_csv(text: str) -> list[dict[str, Any]]:
@@ -651,7 +654,7 @@ def mac_hosts(share_root: Path) -> dict[str, Any] | None:
         port = mac.get("lm_studio_port")
         return {"mdns": _string(mac.get("mdns"), 120), "hostname": _string(mac.get("hostname"), 80),
                 "ips": [ip for ip in mac.get("ips", []) if isinstance(ip, str)][:4],
-                "port": port if isinstance(port, int) and not isinstance(port, bool) and 1 <= port <= 65535 else 1234,
+                "port": port if isinstance(port, int) and not isinstance(port, bool) and 1024 <= port <= 65535 else 1234,
                 "expectedVerify": _string(mac.get("expected_verify_model"), 80), "ownIp": _string(own, 64)}
     except (OSError, ValueError, json.JSONDecodeError):
         return None
@@ -687,7 +690,7 @@ def candidate_addresses(hosts: dict[str, Any], resolve: Callable[[str], list[str
         except ValueError:
             continue  # names such as "localhost" are refused: only literal addresses are probed
         if (parsed.version != 4 or parsed.is_loopback or parsed.is_unspecified or parsed.is_multicast
-                or not (parsed.is_private or parsed.is_link_local) or address in own or address in seen):
+                or parsed.is_link_local or not parsed.is_private or address in own or address in seen):
             continue
         seen.add(address)
         result.append((address, via))
@@ -846,7 +849,9 @@ def codemode_jobs(runs_root: Path, specs: list[dict[str, Any]], now: float) -> t
     try:
         runs = []
         with os.scandir(runs_root) as entries:
-            for entry in entries:
+            for examined, entry in enumerate(entries):
+                if examined >= QUEUE_MAX_ENTRIES:
+                    break
                 if entry.is_dir(follow_symlinks=False) and len(entry.name) >= 15 and entry.name[:8].isdigit():
                     manifest = Path(entry.path) / "manifest.json"
                     try:
@@ -908,6 +913,15 @@ STATUS_LOADED_STATES = ("loaded", "inactive", "unknown")  # any other value void
 INVENTORY_IDS = {"openai/gpt-oss-20b": "gpt-oss-20b", "qwen3.8-27b": "Qwen3.8-27B Q4_K_M"}
 
 
+def public_id(value: Any) -> str | None:
+    """A model identifier fit to publish on the share: path-shaped values keep only their final name."""
+    if not isinstance(value, str) or not value:
+        return None
+    if "\\" in value or ":/" in value or ":\\" in value or value.startswith("/"):
+        value = value.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
+    return value[:120] or None
+
+
 def pc_status(snapshot: dict[str, Any]) -> dict[str, Any]:
     """llm-lab/status/windows-status.json for the Mac's status reader (schema 1, host windows), built from one
     snapshot. ``id`` is the inventory name the reader expects; the lane alias and served name ride along as
@@ -916,12 +930,12 @@ def pc_status(snapshot: dict[str, Any]) -> dict[str, Any]:
     up = [lane for lane in lanes if lane.get("status") in ("idle", "busy")]
     mismatch = [lane["id"] for lane in lanes if lane.get("status") == "identity_mismatch"]
     health = "ok" if lanes and len(up) == len(lanes) else "degraded" if up else "down"
-    models = [{"id": INVENTORY_IDS.get(lane.get("expectedModel"), lane.get("expectedModel")),
-               "aliases": [lane.get("expectedModel")], "host": "windows", "lane": lane.get("id"), "port": lane.get("port"),
+    models = [{"id": public_id(INVENTORY_IDS.get(lane.get("expectedModel"), lane.get("expectedModel"))) or "unknown",
+               "aliases": [public_id(lane.get("expectedModel"))], "host": "windows", "lane": lane.get("id"), "port": lane.get("port"),
                # Only an answering lane is evidence of residency; no answer (or a stale one) is unknown, never inactive.
                "loadedState": "loaded" if lane.get("status") in LANE_UP else "unknown",
                "activity": lane.get("phase") if lane.get("status") in ("idle", "busy") else "unknown",
-               "servedModel": lane.get("servedModel"), "slotsBusy": lane.get("slotsBusy"), "slotsTotal": lane.get("slotsTotal"),
+               "servedModel": public_id(lane.get("servedModel")), "slotsBusy": lane.get("slotsBusy"), "slotsTotal": lane.get("slotsTotal"),
                "liveTokensPerSecond": lane.get("liveTokensPerSecond")} for lane in lanes]
     gpus = [{key: gpu.get(key) for key in ("index", "name", "utilizationPercent", "memoryUsedMiB", "memoryTotalMiB", "temperatureC")}
             for gpu in snapshot.get("pcGpus") or []]
@@ -952,17 +966,46 @@ def validate_status(value: dict[str, Any]) -> None:
             raise ValueError("status model row invalid")
 
 
-def write_json_atomic(path: Path, value: Any, max_bytes: int | None = None) -> None:
+def is_link_or_junction(path: Path) -> bool:
+    """True for symlinks, junctions and any other Windows reparse point."""
+    try:
+        info = os.lstat(path)
+    except FileNotFoundError:
+        return False
+    attributes = getattr(info, "st_file_attributes", 0)
+    return stat.S_ISLNK(info.st_mode) or bool(attributes & 0x400)  # FILE_ATTRIBUTE_REPARSE_POINT
+
+
+def write_json_atomic(path: Path, value: Any, max_bytes: int | None = None, stop_at: Path | None = None) -> None:
+    """Write via an unpredictable, exclusively created temp file, refusing links/junctions on the way.
+
+    Every directory from ``stop_at`` (or the grandparent) down to the target, and the target itself,
+    must not be a reparse point, so a planted junction cannot redirect the write.
+    """
     payload = json.dumps(value, separators=(",", ":")).encode("utf-8")
     if max_bytes is not None and len(payload) > max_bytes:
         raise ValueError("payload too large")
-    for parent in (path.parent, path.parent.parent):
-        if parent.is_symlink():
-            raise ValueError("linked status directory refused")
+    top = stop_at or path.parent.parent
+    chain = [path.parent]
+    while chain[-1] != top and chain[-1].parent != chain[-1] and top in chain[-1].parents:
+        chain.append(chain[-1].parent)
+    if top not in chain:
+        chain.append(top)
+    if any(is_link_or_junction(directory) for directory in chain) or is_link_or_junction(path):
+        raise ValueError("linked status directory refused")
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f".{path.name}.tmp-{os.getpid()}")
-    tmp.write_bytes(payload)
-    os.replace(tmp, path)
+    tmp = path.with_name(f".{path.name}.{secrets.token_hex(8)}.tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0), 0o600)
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(payload)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
 # ------------------------------------------------------------------ peer link
@@ -973,6 +1016,7 @@ PEER_DIR = ("llm-lab", "status", "agiw-peers")
 PEER_FRESH_SECONDS = 30.0
 PEER_MAX_FILES = 16
 PEER_MAX_BYTES = 65536
+PEER_SCAN_LIMIT = 256
 PEER_HOST = __import__("re").compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,62}\Z")
 
 
@@ -1036,7 +1080,7 @@ def _legacy_mac_status(share_root: Path, now: float) -> dict[str, Any] | None:
               for m in (value.get("models") or [])[:32]
               if isinstance(m, dict) and isinstance(m.get("id"), str) and m.get("host") == "mac"]
     age = round(max(0.0, now - observed), 1)
-    return {"host": "mac", "platform": "macos", "edition": "mac-status", "version": None,
+    return {"host": "mac", "platform": "macos", "edition": "mac-status", "version": None, "verified": False,
             "health": _string(value.get("health"), 16) or "unknown", "models": models, "ageSeconds": age,
             "fresh": age <= PEER_FRESH_SECONDS, "source": "mac-status.json"}
 
@@ -1045,17 +1089,32 @@ def read_peers(share_root: Path, self_host: str, now: float) -> tuple[list[dict[
     """Every other AGIW instance that has published presence, newest first, plus the Mac's status file."""
     peers: list[dict[str, Any]] = []
     directory = peer_dir(share_root)
+    entries, examined, truncated = [], 0, False
     try:
-        entries = sorted((e for e in os.scandir(directory) if e.name.endswith(".json") and e.is_file(follow_symlinks=False)),
-                         key=lambda e: e.stat(follow_symlinks=False).st_mtime, reverse=True)[:PEER_MAX_FILES]
+        if not is_link_or_junction(directory):
+            with os.scandir(directory) as scan:
+                for entry in scan:
+                    examined += 1
+                    if examined > PEER_SCAN_LIMIT:  # a flooded folder costs a bounded amount of work
+                        truncated = True
+                        break
+                    stem = entry.name[:-5] if entry.name.endswith(".json") else None
+                    if stem and PEER_HOST.match(stem) and entry.is_file(follow_symlinks=False):
+                        entries.append(entry)
     except OSError:
         entries = []
+    entries = sorted(entries, key=lambda e: e.stat(follow_symlinks=False).st_mtime, reverse=True)[:PEER_MAX_FILES]
+    seen_hosts: set[str] = set()
     for entry in entries:
         try:
             peer = _validate_peer(read_json(Path(entry.path), PEER_MAX_BYTES), now)
-        except (OSError, ValueError, json.JSONDecodeError):
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
             peer = None
-        if peer and peer["host"] != self_host and peer["host"] != host_id():
+        # The file name must be the host it claims, and each host counts once (newest wins).
+        if (peer and entry.name[:-5].lower() == peer["host"].lower() and peer["host"].lower() not in seen_hosts
+                and peer["host"] != self_host and peer["host"] != host_id()):
+            seen_hosts.add(peer["host"].lower())
+            peer["verified"] = False  # unsigned share report; authenticated peers arrive with the pairing protocol
             peers.append(peer)
     if not any(p["platform"] == "macos" and p["fresh"] for p in peers):
         legacy = _legacy_mac_status(share_root, now)
@@ -1063,7 +1122,10 @@ def read_peers(share_root: Path, self_host: str, now: float) -> tuple[list[dict[
             peers.append(legacy)
     peers.sort(key=lambda p: p["ageSeconds"])
     fresh = [p for p in peers if p["fresh"]]
-    detail = (f"{len(fresh)} linked ({', '.join(p['host'] for p in fresh)})" if fresh else "No AGIW peer has published in the last 30 s")
+    detail = (f"{len(fresh)} reported ({', '.join(p['host'] for p in fresh)}; unsigned share files, not verified)" if fresh
+              else "No AGIW peer has published in the last 30 s")
+    if truncated:
+        detail += f"; folder scan stopped after {PEER_SCAN_LIMIT} entries"
     stale = [p for p in peers if not p["fresh"]]
     if stale:
         detail += f"; {len(stale)} stale ({', '.join(p['host'] + ' ' + str(int(p['ageSeconds'] // 3600)) + ' h' for p in stale)})"

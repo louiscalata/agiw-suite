@@ -142,6 +142,63 @@ class Round2(unittest.TestCase):
             self.assertEqual(lane["status"], "slots_unknown", payload)
 
 
+class Hardening(unittest.TestCase):
+    """Codex security review (2026-10-10, PC-run): share inputs are untrusted."""
+
+    def peer(self, host, observed=995.0):
+        return {"schemaVersion": 1, "kind": "agiw-peer", "host": host, "platform": "macos", "observedUnix": observed,
+                "models": [{"id": "m", "loadedState": "loaded"}]}
+
+    def test_file_name_must_match_host_and_hosts_count_once(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = probes.peer_dir(Path(tmp))
+            directory.mkdir(parents=True)
+            (directory / "evil.json").write_text(json.dumps(self.peer("louis-mac")))       # name != host
+            (directory / "louis-mac.json").write_text(json.dumps(self.peer("louis-mac")))
+            (directory / "not a host!.json").write_text(json.dumps(self.peer("x")))
+            peers, source = probes.read_peers(Path(tmp), "pc", 1000.0)
+        self.assertEqual([p["host"] for p in peers], ["louis-mac"])
+        self.assertFalse(peers[0]["verified"])
+        self.assertIn("not verified", source["detail"])
+
+    def test_flooded_peer_folder_is_bounded(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = probes.peer_dir(Path(tmp))
+            directory.mkdir(parents=True)
+            for i in range(probes.PEER_SCAN_LIMIT + 50):
+                (directory / f"junk{i}.txt").write_text("x")
+            _, source = probes.read_peers(Path(tmp), "pc", 1000.0)
+        self.assertIn("scan stopped", source["detail"])
+
+    def test_publishing_refuses_a_linked_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            real = root / "elsewhere"
+            real.mkdir()
+            (root / "llm-lab").mkdir()
+            os.symlink(real, root / "llm-lab" / "status", target_is_directory=True)
+            with self.assertRaises(ValueError):
+                probes.write_json_atomic(root / "llm-lab" / "status" / "x.json", {"a": 1}, stop_at=root)
+            self.assertEqual(list(real.iterdir()), [])
+            probes.write_json_atomic(root / "llm-lab" / "ok" / "x.json", {"a": 1}, stop_at=root)
+            self.assertEqual(json.loads((root / "llm-lab" / "ok" / "x.json").read_text()), {"a": 1})
+            self.assertEqual([p.name for p in (root / "llm-lab" / "ok").iterdir()], ["x.json"])  # no temp left
+
+    def test_path_shaped_model_ids_are_not_published(self):
+        self.assertEqual(probes.public_id(r"%USERPROFILE%\.lmstudio\models\Qwen.gguf"), "Qwen.gguf")
+        self.assertEqual(probes.public_id("/home/x/m.gguf"), "m.gguf")
+        self.assertEqual(probes.public_id("openai/gpt-oss-20b"), "openai/gpt-oss-20b")
+
+    def test_link_local_mac_targets_are_refused(self):
+        seen = []
+        def fetch(url, *_):
+            seen.append(url)
+            raise ConnectionRefusedError()
+        hosts = {"mdns": None, "ips": ["169.254.1.5", "<lan-ip-9>"], "port": 1234, "ownIp": None}
+        probes.probe_mac(hosts, fetch, resolve=lambda _n: [], own=set())
+        self.assertTrue(seen and all("<lan-ip-9>" in u for u in seen))
+
+
 class LiveRate(unittest.TestCase):
     def lane(self, *slots, task=7):
         return {"slots": [{"id": i, "isProcessing": busy, "decodedTokens": dec, "taskId": task + i}
@@ -226,15 +283,15 @@ class PeerLink(unittest.TestCase):
         now = 1000.0
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            self.write(root, "mac.json", self.peer("louis-m5-pro", now - 4))
-            self.write(root, "old.json", self.peer("macpro51", now - 7200, platform="linux"))
-            self.write(root, "me.json", self.peer("louisaurorar12", now - 1, platform="windows"))
+            self.write(root, "louis-m5-pro.json", self.peer("louis-m5-pro", now - 4))
+            self.write(root, "macpro51.json", self.peer("macpro51", now - 7200, platform="linux"))
+            self.write(root, "louisaurorar12.json", self.peer("louisaurorar12", now - 1, platform="windows"))
             self.write(root, "junk.json", {"kind": "other"})
             peers, source = probes.read_peers(root, "louisaurorar12", now)
         self.assertEqual([p["host"] for p in peers], ["louis-m5-pro", "macpro51"])
         self.assertEqual([p["fresh"] for p in peers], [True, False])
         self.assertEqual(source["state"], "live")
-        self.assertIn("1 linked (louis-m5-pro)", source["detail"])
+        self.assertIn("1 reported (louis-m5-pro;", source["detail"])
 
     def test_legacy_mac_status_counts_when_no_fresh_mac_peer(self):
         import datetime as dt

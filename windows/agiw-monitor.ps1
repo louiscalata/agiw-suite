@@ -25,7 +25,10 @@ $Launcher = Join-Path $Root 'AGIW Monitor.vbs'
 function Write-Log([string]$Message) {
     try {
         if ((Test-Path $LogPath) -and (Get-Item $LogPath).Length -gt 1MB) { Move-Item $LogPath "$LogPath.1" -Force }
-        Add-Content -Path $LogPath -Value ("{0} {1}" -f (Get-Date).ToString('o'), $Message) -Encoding UTF8
+        # One line per entry: control characters (CR/LF included) are escaped so a message cannot forge lines.
+        $clean = ($Message -replace '[\x00-\x1f\x7f]', ' ')
+        if ($clean.Length -gt 500) { $clean = $clean.Substring(0, 500) }
+        Add-Content -Path $LogPath -Value ("{0} {1}" -f (Get-Date).ToString('o'), $clean) -Encoding UTF8
     } catch { }
 }
 
@@ -33,8 +36,14 @@ function Write-Log([string]$Message) {
 $createdNew = $false
 $Mutex = New-Object System.Threading.Mutex($true, 'Local\AGIW-Inference-Monitor-Windows', [ref]$createdNew)
 if (-not $createdNew) {
-    # Already running: just open its dashboard.
-    try { $saved = Get-Content -Raw $StatePath | ConvertFrom-Json; Start-Process $saved.url } catch { }
+    # Already running: open its dashboard. The URL is rebuilt from a validated port, never taken from the file.
+    try {
+        $saved = Get-Content -Raw $StatePath | ConvertFrom-Json
+        $savedPort = [int]$saved.port
+        if ($saved.service -eq 'agiw-win-observer' -and $savedPort -ge 1024 -and $savedPort -le 65535) {
+            Start-Process ("http://127.0.0.1:{0}/" -f $savedPort)
+        }
+    } catch { }
     exit 0
 }
 
@@ -49,7 +58,14 @@ function Find-Python {
         $found = Get-Command $name -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
         if ($found -and $found.Source -notlike '*WindowsApps*') { $candidates += $found.Source }
     }
-    foreach ($candidate in $candidates) { if ($candidate -and (Test-Path -LiteralPath $candidate -PathType Leaf)) { return $candidate } }
+    foreach ($candidate in $candidates) {
+        if (-not $candidate -or -not (Test-Path -LiteralPath $candidate -PathType Leaf)) { continue }
+        # Only an interpreter that reports Python 3.9+ is used.
+        try {
+            $version = & $candidate -I -c "import sys; print('%d.%d' % sys.version_info[:2])" 2>$null
+            if ($version -and [version]$version -ge [version]'3.9') { return $candidate }
+        } catch { }
+    }
     return $null
 }
 $Python = Find-Python
@@ -72,7 +88,8 @@ function Start-Observer {
     $info = New-Object System.Diagnostics.ProcessStartInfo
     $info.FileName = $Python
     $observerScript = Join-Path $Root 'agiw_observer.py'
-    $info.Arguments = ('-B "{0}" --port {1} --parent-pid {2} --state-file "{3}" --log-file "{4}"' -f $observerScript, $Port, $PID, $StatePath, $ObserverLog)
+    # -I: isolated mode ignores PYTHON* variables and the user site directory; the observer adds its own folder.
+    $info.Arguments = ('-I -B "{0}" --port {1} --parent-pid {2} --state-file "{3}" --log-file "{4}"' -f $observerScript, $Port, $PID, $StatePath, $ObserverLog)
     $info.WorkingDirectory = $Root
     $info.UseShellExecute = $false
     $info.CreateNoWindow = $true
