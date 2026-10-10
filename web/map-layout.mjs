@@ -1184,11 +1184,13 @@ export function webGlows(nodes, { fresh = false } = {}) {
  * A reachable listing is inventory only: it never says the Mac is generating.
  */
 const PEER_MODEL = /^[\x21-\x7e]{1,120}$/;
+const PEER_NAME = /^[^\x00-\x1f\x7f]{1,253}$/;
 const PEER_FRESH_SECONDS = 45;
 const SHARE_PEER_FRESH_SECONDS = 30;
 export function macPeerView(peer, { feedFresh = false, snapshotAge = 0 } = {}) {
   const extra = Math.max(0, Number.isFinite(snapshotAge) ? snapshotAge : 0);
   const block = peer && typeof peer === 'object' && !Array.isArray(peer) ? peer : null;
+  const name = typeof block?.name === 'string' && PEER_NAME.test(block.name) ? block.name.trim() || null : null;
   const age = block && Number.isFinite(block.ageSeconds) && block.ageSeconds >= 0 ? block.ageSeconds + extra : null;
   const current = Boolean(feedFresh) && age !== null && age <= (block.state === 'linked' ? SHARE_PEER_FRESH_SECONDS : PEER_FRESH_SECONDS);
   const state = current && ['reachable', 'linked', 'unreachable'].includes(block.state) ? block.state : 'unknown';
@@ -1248,10 +1250,34 @@ export function macPeerView(peer, { feedFresh = false, snapshotAge = 0 } = {}) {
     ['Probe age', age !== null ? `${Math.round(age)} s` : 'Unknown'],
     ['Detail', state !== 'unknown' && typeof block?.detail === 'string' ? block.detail.slice(0, 240) : 'Unknown'],
   ];
-  return { state, reason, failureTitle: failure?.title ?? null, failureDetail: failure?.detail ?? null,
+  return { state, name, reason, failureTitle: failure?.title ?? null, failureDetail: failure?.detail ?? null,
     reachable, current, age, latency, address, models, loaded, loadedKnown, loadedCount, hiddenLoaded, subtitle,
     linked, brief: linked ? `SHARE REPORT · ${loadedText.toUpperCase()}` : reachable ? `LAN · ${loadedText.toUpperCase()}` : failure ? failure.brief : 'UNKNOWN',
     satellites: loaded.slice(0, 2), chip, rows };
+}
+
+/** Windows sidebar: project the same validated peer view and satellite order as the map. */
+export function windowsMacListEntries(peerView, query = '') {
+  const view = peerView && typeof peerView === 'object' && !Array.isArray(peerView) ? peerView : null;
+  const search = typeof query === 'string' ? query.trim().toLowerCase() : '';
+  const hostname = typeof view?.name === 'string' && PEER_NAME.test(view.name) ? view.name.trim() : '';
+  const aliases = ['Mac', 'lan peer', hostname];
+  const matches = values => values.some(value => typeof value === 'string' && value.toLowerCase().includes(search));
+  const chip = view?.chip;
+  const rows = [];
+  if (matches(aliases)) rows.push({key: 'mac-peer', title: 'Mac',
+    subtitle: typeof chip?.detail === 'string' ? chip.detail : 'LAN state unknown',
+    tone: ['muted', 'ok', 'warn'].includes(chip?.tone) ? chip.tone : 'muted'});
+  const inventory = view?.current === true && view.reachable === true && ['linked', 'reachable'].includes(view.state);
+  if (inventory && Array.isArray(view.satellites)) view.satellites.slice(0, 2).forEach((model, index) => {
+    if (!model || model.state !== 'loaded' || typeof model.id !== 'string' || !PEER_MODEL.test(model.id)) return;
+    const title = model.id.split('/').pop().replaceAll('-', ' ').replace(/\b(gemma|qwen)\b/gi, s => s[0].toUpperCase() + s.slice(1))
+      .replace(/\bgpt\b/gi, 'GPT').replace(/\boss\b/gi, 'OSS').replace(/^./, s => s.toUpperCase());
+    if (matches([...aliases, model.id, title])) rows.push({key: `mac-model:${index}`, title,
+      subtitle: view.state === 'linked' ? 'Reported loaded on the Mac' : 'Listed loaded by LM Studio',
+      tone: view.state === 'linked' ? 'muted' : 'ok'});
+  });
+  return rows;
 }
 
 /** Windows edition only: this PC's own publishing, separate from unsigned peer reports.
