@@ -158,17 +158,35 @@ $Icons = @{
 }
 
 # ---------------------------------------------------------------- status
+function Test-FiniteNumber($Value) {
+    $numeric = $Value -is [byte] -or $Value -is [sbyte] -or $Value -is [int16] -or $Value -is [uint16] -or
+        $Value -is [int32] -or $Value -is [uint32] -or $Value -is [int64] -or $Value -is [uint64] -or
+        $Value -is [single] -or $Value -is [double] -or $Value -is [decimal]
+    return $numeric -and -not [double]::IsNaN([double]$Value) -and -not [double]::IsInfinity([double]$Value)
+}
+
 function Get-StatusSummary {
     $url = Get-DashboardUrl
     if (-not $url) { return @{ tone = 'muted'; text = ($script:LastError, 'Starting observer...' | Where-Object { $_ } | Select-Object -First 1) } }
     try {
         $snap = Invoke-RestMethod -Uri "$($url)api/snapshot" -TimeoutSec 1 -UseBasicParsing
+        $nowUnix = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() / 1000.0
+        return Get-SnapshotSummary $snap $nowUnix
     } catch {
         return @{ tone = 'muted'; text = 'Waiting for the first sample' }
     }
+}
+
+function Get-SnapshotSummary($Snapshot, [double]$NowUnix) {
+    $snap = $Snapshot
+    if (($snap -isnot [PSCustomObject] -and $snap -isnot [Collections.IDictionary]) -or
+        -not (Test-FiniteNumber $snap.schemaVersion) -or $snap.schemaVersion -ne 1 -or
+        $snap.host -isnot [string] -or $snap.host -cne 'windows') {
+        return @{ tone = 'muted'; text = 'Snapshot unknown - see Open log folder' }
+    }
     # A sampler that stopped publishing leaves its last snapshot behind; never show that as live.
-    $nowUnix = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() / 1000.0
-    if (-not $snap.sampledAt -or ($nowUnix - [double]$snap.sampledAt) -gt 5) {
+    if (-not (Test-FiniteNumber $NowUnix) -or -not (Test-FiniteNumber $snap.sampledAt) -or
+        $snap.sampledAt -lt 0 -or $snap.sampledAt -gt $NowUnix -or ($NowUnix - [double]$snap.sampledAt) -gt 5) {
         return @{ tone = 'muted'; text = 'Feed stale - see Open log folder' }
     }
     $lanes = @()
@@ -176,15 +194,31 @@ function Get-StatusSummary {
     $warn = $false
     $busy = $false
     $unknown = $false
-    $elapsed = [Math]::Max(0, $nowUnix - [double]$snap.sampledAt)
+    $elapsed = $NowUnix - [double]$snap.sampledAt
+    $laneStates = $null
+    if ($snap.windowsWorker -is [PSCustomObject] -or $snap.windowsWorker -is [Collections.IDictionary]) {
+        if ($snap.windowsWorker.lanes -is [PSCustomObject] -or $snap.windowsWorker.lanes -is [Collections.IDictionary]) {
+            $laneStates = $snap.windowsWorker.lanes
+        }
+    }
     foreach ($id in 'fast', 'deep') {
-        $lane = $snap.windowsWorker.lanes.$id
-        if (-not $lane) { $unknown = $true; $lanes += "$id ?"; continue }
+        $lane = $laneStates.$id
+        if ($lane -isnot [PSCustomObject] -and $lane -isnot [Collections.IDictionary]) { $unknown = $true; $lanes += "$id ?"; continue }
         # A lane answer counts as current only while its own age plus the snapshot's age is within 3 s.
-        $status = $lane.status
-        if ($lane.ageSeconds -eq $null -or ([double]$lane.ageSeconds + $elapsed) -gt 3) { if ($status -in 'idle', 'busy', 'slots_unknown') { $status = 'stale' } }
-        switch ($status) {
-            'busy'              { $cpu = if ($id -eq 'deep' -and $lane.cpuPercent -ne $null) { " cpu $([int]$lane.cpuPercent)%" } else { '' }; $lanes += "$id $($lane.slotsBusy)/$($lane.slotsTotal)$cpu"; $busy = $true }
+        $status = if ($lane.status -is [string]) { $lane.status } else { 'unknown' }
+        if (-not (Test-FiniteNumber $lane.ageSeconds) -or $lane.ageSeconds -lt 0) { $status = 'unknown' }
+        elseif (([double]$lane.ageSeconds + $elapsed) -gt 3) { $status = 'stale' }
+        if ($status -cin 'idle', 'busy') {
+            $slotsKnown = (Test-FiniteNumber $lane.slotsBusy) -and (Test-FiniteNumber $lane.slotsTotal) -and
+                $lane.slotsBusy -ge 0 -and $lane.slotsTotal -gt 0 -and $lane.slotsTotal -le 32 -and
+                $lane.slotsBusy -le $lane.slotsTotal -and
+                [Math]::Floor([double]$lane.slotsBusy) -eq $lane.slotsBusy -and
+                [Math]::Floor([double]$lane.slotsTotal) -eq $lane.slotsTotal
+            if (-not $slotsKnown -or ($status -eq 'idle' -and $lane.slotsBusy -ne 0) -or
+                ($status -eq 'busy' -and $lane.slotsBusy -le 0)) { $status = 'unknown' }
+        }
+        switch -CaseSensitive ($status) {
+            'busy'              { $cpu = if ($id -eq 'deep' -and (Test-FiniteNumber $lane.cpuPercent) -and $lane.cpuPercent -ge 0 -and $lane.cpuPercent -le 100) { " cpu $([int]$lane.cpuPercent)%" } else { '' }; $lanes += "$id $($lane.slotsBusy)/$($lane.slotsTotal)$cpu"; $busy = $true }
             'idle'              { $lanes += "$id idle"; $idle++ }
             'identity_mismatch' { $lanes += "$id WRONG MODEL"; $warn = $true }
             'loading'           { $lanes += "$id loading"; $warn = $true }
@@ -196,14 +230,38 @@ function Get-StatusSummary {
     }
     # Green only for fresh, confirmed idle on both lanes; activity that cannot be confirmed is grey.
     $tone = if ($busy) { 'live' } elseif ($warn) { 'warn' } elseif ($unknown -or $idle -lt 2) { 'muted' } else { 'ok' }
-    $memory = if ($snap.memory.level -and $snap.memory.level -ne 'unknown') { "RAM $([int]$snap.memory.availablePercent)% free" } else { $null }
-    if ($snap.memory.level -in 'tight', 'critical' -and $tone -ne 'live') { $tone = 'warn' }
+    $memoryState = if ($snap.memory -is [PSCustomObject] -or $snap.memory -is [Collections.IDictionary]) { $snap.memory } else { $null }
+    $memoryKnown = $memoryState.level -is [string] -and $memoryState.level -cin 'ok', 'tight', 'critical' -and
+        (Test-FiniteNumber $memoryState.availablePercent) -and $memoryState.availablePercent -ge 0 -and $memoryState.availablePercent -le 100
+    $memory = if ($memoryKnown) { "RAM $([int]$memoryState.availablePercent)% free" } else { $null }
+    if ($memoryKnown -and $memoryState.level -cin 'tight', 'critical' -and $tone -ne 'live') { $tone = 'warn' }
     # Every adapter with a live load reading (NVIDIA from nvidia-smi, the AMD card from Windows counters).
-    $loads = @($snap.pcGpus | Where-Object { $_.utilizationPercent -ne $null } | ForEach-Object { [int]$_.utilizationPercent })
+    $loads = @()
+    if ($snap.pcGpus -is [array]) {
+        foreach ($adapter in $snap.pcGpus) {
+            if (($adapter -is [PSCustomObject] -or $adapter -is [Collections.IDictionary]) -and
+                (Test-FiniteNumber $adapter.utilizationPercent) -and $adapter.utilizationPercent -ge 0 -and $adapter.utilizationPercent -le 100) {
+                $loads += [int]$adapter.utilizationPercent
+            }
+        }
+    }
     $gpuText = if ($loads.Count) { "GPU " + ($loads -join '/') + '%' } else { $null }
-    $macFresh = $snap.macPeer.ageSeconds -ne $null -and ([double]$snap.macPeer.ageSeconds + $elapsed) -le 45
-    $mac = if (-not $macFresh) { $null } else { switch ($snap.macPeer.state) { 'reachable' { 'Mac ok' } 'linked' { 'Mac linked' } 'unreachable' { 'Mac offline' } default { $null } } }
+    $macPeer = if ($snap.macPeer -is [PSCustomObject] -or $snap.macPeer -is [Collections.IDictionary]) { $snap.macPeer } else { $null }
+    $macLimit = if ($macPeer.state -ceq 'linked') { 30 } else { 45 }
+    $macFresh = (Test-FiniteNumber $macPeer.ageSeconds) -and $macPeer.ageSeconds -ge 0 -and
+        ([double]$macPeer.ageSeconds + $elapsed) -le $macLimit
+    $mac = if (-not $macFresh -or $macPeer.state -isnot [string]) { $null } else {
+        switch -CaseSensitive ($macPeer.state) {
+            'reachable' { 'Mac answers' } 'linked' { 'Mac reported' } 'unreachable' { 'Mac no answer' } default { $null }
+        }
+    }
     @{ tone = $tone; text = (@($lanes -join ' | ') + @($gpuText, $memory, $mac) | Where-Object { $_ }) -join ' | '; snapshot = $snap }
+}
+
+function Format-TrayText([string]$Message) {
+    $text = "AGIW | $Message"
+    # NotifyIcon.Text is capped at 63 characters on .NET Framework.
+    return $(if ($text.Length -gt 63) { $text.Substring(0, 60) + '...' } else { $text })
 }
 
 # ---------------------------------------------------------------- tray UI
@@ -295,9 +353,7 @@ $Timer.add_Tick({
         if (-not $script:Observer -and (Get-Date) -ge $script:NextStart) { Start-Observer }
         $summary = Get-StatusSummary
         $Tray.Icon = $Icons[$summary.tone]
-        $text = "AGIW | $($summary.text)"
-        # NotifyIcon.Text is capped at 63 characters on .NET Framework.
-        $Tray.Text = if ($text.Length -gt 63) { $text.Substring(0, 60) + '...' } else { $text }
+        $Tray.Text = Format-TrayText $summary.text
         $statusItem.Text = $summary.text
     } catch { Write-Log "tick failed: $($_.Exception.Message)" }
 })
