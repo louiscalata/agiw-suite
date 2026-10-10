@@ -77,6 +77,124 @@ def bridge_envelope(rows, status="LISTED"):
                        "status": status, "runtimes": rows}}
 
 
+GENERATION = "4bbabe71f193500183827ca4772518eede4ad426"
+
+
+def generation_fixture(home: Path) -> tuple[Path, Path, Path]:
+    """A schema-2 runtime generation (no commit, no archive) and a v2 activation receipt."""
+    base = home / ".local/share/nisi-runtime"
+    runtime = base / GENERATION
+    runtime_files = {
+        "package.json": json.dumps({"name": "nisi", "version": "0.2.0-private.0", "private": True}).encode(),
+        "workflow/contracts.mjs": b"contracts fixture",
+        "adapters/local-chat.mjs": b"local fixture",
+        "hosts/local-models/opencode-orchestration-v1.mjs": b"host fixture",
+        "hosts/local-models/output-budget.mjs": b"budget fixture",
+    }
+    pins = {name: write(runtime / name, content) for name, content in runtime_files.items()}
+    manifest_sha = write(runtime / "INSTALL-MANIFEST.json", json.dumps({
+        "kind": "nisi.runtime.local-review-evidence.v1", "schemaVersion": 2, "generation": GENERATION,
+        "commit": None, "archiveSha256": None, "files": pins}).encode())
+    hosts = {}
+    for name, relative in nisi_v02._HOST_FILES.items():
+        path = home / relative
+        hosts[name] = {"installedPath": str(path), "afterSha256": write(path, name.encode())}
+    receipt = base / f"rollback-{GENERATION[:8]}-fixture/receipt.json"
+    write(receipt, json.dumps({"kind": "nisi.runtime.activation.v2", "generation": GENERATION,
+                               "runtimeRoot": str(runtime), "manifestSha256": manifest_sha,
+                               "status": "VERIFIED", "verifiedAt": "2026-09-24T12:00:00Z",
+                               "routedAt": "2026-09-24T11:55:00Z", "files": hosts, "verification": {
+                                   "work": {"status": "RESPONSE_VALIDATED"},
+                                   "validation": {"contract": "PASS", "syntax": "PASS", "tests": "NOT_RUN",
+                                                  "certification": "NOT_RUN", "accepted": False}}}).encode())
+    return runtime, receipt, base
+
+
+class NisiGenerationTests(unittest.TestCase):
+    def test_generation_receipt_verifies_runtime_and_host_binding(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            generation_fixture(home)
+            item, source = nisi_v02.collect_nisi_v02(NOW, home=home)
+            self.assertEqual((item["generation"], item["commit"]), (GENERATION, None))
+            self.assertEqual((item["runtimeIntegrity"], item["hostBinding"], item["activationStatus"]),
+                             ("VERIFIED", "VERIFIED", "VERIFIED"))
+            self.assertEqual(item["activationProbe"]["workStatus"], "RESPONSE_VALIDATED")
+            self.assertEqual(source["state"], "recorded")
+
+    def test_changed_manifest_bytes_break_the_receipt(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            runtime, _, _ = generation_fixture(home)
+            manifest = json.loads((runtime / "INSTALL-MANIFEST.json").read_text())
+            manifest["note"] = "edited after activation"
+            write(runtime / "INSTALL-MANIFEST.json", json.dumps(manifest).encode())
+            item, source = nisi_v02.collect_nisi_v02(NOW, home=home)
+            self.assertEqual(item["runtimeIntegrity"], "UNKNOWN")
+            self.assertEqual(source["state"], "error")
+
+    def test_runtime_file_drift_under_a_generation_is_refused(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            runtime, _, _ = generation_fixture(home)
+            write(runtime / "adapters/local-chat.mjs", b"tampered")
+            item, source = nisi_v02.collect_nisi_v02(NOW, home=home)
+            self.assertEqual(item["runtimeIntegrity"], "UNKNOWN")
+            self.assertEqual(source["state"], "error")
+
+    def test_generation_receipt_with_a_commit_or_wrong_folder_is_invalid(self):
+        for mutate in ("commit", "folder", "kind"):
+            with tempfile.TemporaryDirectory() as temp:
+                home = Path(temp)
+                _, receipt, base = generation_fixture(home)
+                data = json.loads(receipt.read_text())
+                if mutate == "commit":
+                    data["commit"] = COMMIT
+                elif mutate == "kind":
+                    data["kind"] = "something-else"
+                write(receipt, json.dumps(data).encode())
+                if mutate == "folder":
+                    receipt.parent.rename(base / "rollback-deadbeef-fixture")
+                item, source = nisi_v02.collect_nisi_v02(NOW, home=home)
+                self.assertEqual(item["activationStatus"], "UNKNOWN", mutate)
+                self.assertEqual(source["state"], "error", mutate)
+
+    def test_manifest_swapped_between_reads_cannot_pass(self):
+        # Astra round 4: the hashed bytes and the parsed bytes must be the same read.
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            runtime, _, _ = generation_fixture(home)
+            manifest_path = runtime / "INSTALL-MANIFEST.json"
+            pinned = manifest_path.read_bytes()
+            swapped = json.loads(pinned)
+            swapped["files"]["adapters/local-chat.mjs"] = write(runtime / "adapters/local-chat.mjs", b"swapped")
+            swapped_raw = json.dumps(swapped).encode()
+            real = nisi_v02._bytes
+            reads = []
+
+            def flaky(path, limit):
+                if Path(path) == manifest_path:
+                    reads.append(1)
+                    return pinned if len(reads) == 1 else swapped_raw
+                return real(path, limit)
+
+            with mock.patch.object(nisi_v02, "_bytes", flaky):
+                item, source = nisi_v02.collect_nisi_v02(NOW, home=home)
+            self.assertEqual(len(reads), 1, "the manifest is read exactly once")
+            self.assertEqual(item["runtimeIntegrity"], "UNKNOWN", "the pinned manifest no longer matches the runtime")
+            self.assertEqual(source["state"], "error")
+
+    def test_host_drift_after_a_generation_activation_is_reported(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            generation_fixture(home)
+            write(home / nisi_v02._HOST_FILES["nisi_bridge.mjs"], b"changed bridge")
+            item, source = nisi_v02.collect_nisi_v02(NOW, home=home)
+            self.assertEqual(item["hostBinding"], "DRIFT")
+            self.assertEqual(item["driftedHostFiles"], ["nisi_bridge.mjs"])
+            self.assertIn("changed since activation", source["detail"])
+
+
 class NisiV02ProjectionTests(unittest.TestCase):
     def test_valid_integrity_and_historical_probe_stay_separate_from_live_status(self):
         with tempfile.TemporaryDirectory() as temp:

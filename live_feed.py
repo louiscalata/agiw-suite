@@ -109,7 +109,7 @@ class LiveFeed:
             telemetry._mark_live_route(pipeline, router_source, mode)
             data["pipeline"], data["onlineCodeMode"] = pipeline, mode
             activity = collect_activity()
-            data["activity"] = {"runs": activity["runs"]}
+            data["activity"] = {"runs": activity["runs"], "historyBound": activity.get("historyBound")}
             sources = _replace_sources(sources, [router_source, *activity["sources"]])
         data["sources"] = sources
         data["liveGroups"] = sorted(groups)

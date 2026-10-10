@@ -1,6 +1,6 @@
 import {formatTokens,summarizeReportedCalls} from '/usage-format.mjs';
 import {onlineCodeModeView,routeQueueRows,nisiV02View,fixNisiStepsView,nisiRecoveryView,fixNisiEvidence,fixNisiMessage} from '/online-code-mode.mjs';
-import {constellationLayout,fitGraph,prioritizeRuntimeModels,runtimeModelRoster,CORE_MODEL_IDS,hasAdvertisedWindowsWorker,afmView,jevView,modelStarSize,windowsJobsView,windowsLaneView,resolveLabelCollisions,clampCamera,nextNodeInDirection,reviewConsistencyView,headlessSwitchView,activityFeed,vitalsView,windowsLaneRows,nodeCaptionLayout,macGpuView,localCallersView,laneSpeeds,speedsText,jobFlags,activitySummary,pcGpuView,orbWebKey,orbWebLayout,orbWebActivity,orbWebPluck,orbWebPathsAt,orbWebFlashPath,pluckOffsets,createWebMotion,edgeCurvePath,webGlows,glowRadius,memoryView,memoryBannerView,memoryDismissal,memoryHoldAt,memoryAnnouncement,routeQueuedWords,macPeerView,windowsMacListEntries,agiwPeersRows,windowsSharePublishRow,pcAdaptersView} from '/map-layout.mjs';
+import {constellationLayout,fitGraph,prioritizeRuntimeModels,runtimeModelRoster,CORE_MODEL_IDS,hasAdvertisedWindowsWorker,afmView,jevView,modelStarSize,windowsJobsView,windowsLaneView,resolveLabelCollisions,clampCamera,nextNodeInDirection,reviewConsistencyView,headlessSwitchView,activityFeed,vitalsView,windowsLaneRows,nodeCaptionLayout,macGpuView,localCallersView,laneSpeeds,speedsText,jobFlags,activitySummary,pcGpuView,orbWebKey,orbWebLayout,orbWebActivity,orbWebPluck,orbWebPathsAt,orbWebFlashPath,pluckOffsets,createWebMotion,edgeCurvePath,webGlows,glowRadius,memoryView,memoryBannerView,memoryDismissal,memoryHoldAt,memoryAnnouncement,routeQueuedWords,macPeerView,windowsMacListEntries,agiwPeersRows,windowsSharePublishRow,pcAdaptersView,newestRunsFirst,routeReviewCounts,pcReportView} from '/map-layout.mjs';
 import {modelControlView,submitModelControl} from '/model-control-view.mjs';
 const $=id=>document.getElementById(id), NS='http://www.w3.org/2000/svg';
 const ACTIVE=new Set(['generating','busy']);
@@ -41,7 +41,8 @@ const fresh=()=>{const age=feedAge(snapshot,Date.now()/1000);return connected&&a
 const liveNow=()=>fresh()&&!paused;
 function modelActivity(m){const active=liveNow()&&snapshot?.activityKnown===true&&m.loaded===true&&ACTIVE.has(m.state);return{active,periodMs:active?MODEL_AURA_MS[m.state]:null};}
 const modelObservationAge=m=>Number.isFinite(m.ageSeconds)&&Number.isFinite(sampleAge())?ageText(m.ageSeconds+Math.max(0,sampleAge())):'Age unknown';
-const runs=()=>snapshot?.activity?.runs||[];
+// Newest route first even from an older observer, so the default trace and the list open on the latest route.
+const runs=()=>newestRunsFirst(snapshot?.activity?.runs||[]);
 const SUBAGENT_UNKNOWN=Object.freeze({state:'unknown',active:null,ageSeconds:null,source:'No verified subagent lifecycle feed connected'});
 const runKey=r=>r.traceKey||(r.source||'route')+':'+r.runId;
 const runSource=r=>({'monitor-receipt':'Saved receipt','router-archive':'Router archive','router-active':'Current checkpoint'}[r.source]||'Route record');
@@ -101,12 +102,16 @@ function runtimeGraph(){
     const rawJobs=snapshot.windowsJobs,journalKnown=rawJobs?.schemaVersion===1&&Array.isArray(rawJobs.inFlight)&&Array.isArray(rawJobs.recent);
     const jobs=windowsJobsView(journalKnown?rawJobs:null,{feedFresh:fresh(),snapshotAge:age}),job=jobs.inFlight[0],last=jobs.current?jobs.lastVerified:null;
     const condition=heartbeatFresh&&['degraded','stopped'].includes(worker.state)?worker.state:null;
-    const subtitle=jobs.running?`JOB IN FLIGHT · ${trim(name(job.model||'default model'),18)} · ${Math.floor(job.ageSeconds)}s`:condition==='degraded'?'WORKER DEGRADED · NO MODEL LANE':condition==='stopped'?'WORKER STOPPED':last?`LAST INFERENCE · ${trim(name(last.model),18)} · ${last.elapsedSeconds.toFixed(1)}s`:advertised?'WORKER ADVERTISED · INFERENCE UNKNOWN':'WORKER UNVERIFIED · INFERENCE UNKNOWN';
+    // The PC's own fresh report replaces "inference unknown" only behind its LINKED / REPORTED word, and only when no
+    // dispatcher evidence (a job in flight, a recent answer) or worker condition speaks: "REPORTED VIA SHARE · 2 LOADED · IDLE".
+    const link=pcLinkLabel(snapshot.windowsLive,{feedFresh:liveNow(),snapshotAge:age}),report=link?pcReportView(snapshot.windowsLive,{feedFresh:liveNow(),snapshotAge:age}):null;
+    const subtitle=jobs.running?`JOB IN FLIGHT · ${trim(name(job.model||'default model'),18)} · ${Math.floor(job.ageSeconds)}s`:condition==='degraded'?'WORKER DEGRADED · NO MODEL LANE':condition==='stopped'?'WORKER STOPPED':last?`LAST INFERENCE · ${trim(name(last.model),18)} · ${last.elapsedSeconds.toFixed(1)}s`:advertised?(report?.known?report.node:'WORKER ADVERTISED · INFERENCE UNKNOWN'):'WORKER UNVERIFIED · INFERENCE UNKNOWN';
     const lanes=windowsLaneView(worker,jobs,{feedFresh:fresh(),snapshotAge:age}),visibleLanes=heartbeatFresh&&lanes.visible,headlessKnown=heartbeatFresh&&lanes.headless.label!=='Headless unknown';
     // Flipped above the hub (zoomed out), the subtitle shares its band with the Mac hub's captions and the
     // nearest client branch, so it keeps only the status and time; the lane captions name the models.
     const brief=jobs.running?`JOB IN FLIGHT · ${Math.floor(job.ageSeconds)}s`:condition==='degraded'?'WORKER DEGRADED':condition==='stopped'?'WORKER STOPPED':last?`LAST ANSWER · ${last.elapsedSeconds.toFixed(1)}s`:advertised?'WORKER ADVERTISED':'WORKER UNVERIFIED';
-    const node=addNode('windows-worker','Windows PC',layout.windows.x,layout.windows.y,{color:'#96acd5',r:12,subtitle:headlessKnown?`${subtitle} · ${lanes.headless.label.toUpperCase()}`:subtitle,subtitleAbove:brief,kind:'windows-worker',windowsWorker:worker,workerAdvertised:advertised,windowsJobs:jobs,windowsLanes:lanes,inFlight:jobs.running,verified:!jobs.running&&Boolean(last),unknown:!jobs.running&&!last});
+    const full=headlessKnown?`${subtitle} · ${lanes.headless.label.toUpperCase()}`:subtitle;
+    const node=addNode('windows-worker','Windows PC',layout.windows.x,layout.windows.y,{color:'#96acd5',r:12,subtitle:link?`${link} · ${full}`:full,subtitleAbove:brief,kind:'windows-worker',windowsWorker:worker,workerAdvertised:advertised,windowsJobs:jobs,windowsLanes:lanes,inFlight:jobs.running,verified:!jobs.running&&Boolean(last),unknown:!jobs.running&&!last});
     edge(root.id,node.id,node.color,!jobs.running,18,jobs.running);
     if(visibleLanes)lanes.lanes.forEach((lane,i)=>{const live=lanes.edges.some(e=>e.lane===lane.id&&e.live),offset=i?1:-1,pos=layout.windowsLanes[i]||layout.windowsLanes[0],n=addNode(`windows-lane:${lane.id}`,trim(lane.label,22),pos.x,pos.y,{color:LANE_COLORS[lane.id],r:7,subtitle:!lane.up?'DOWN':lane.total!==null?`${lane.busy}/${lane.total} BUSY`:'UP · SLOTS UNKNOWN',kind:'windows-lane',captionSide:layout.portrait&&region.clientWidth<520?'left':i?'right':'left',lane,headless:lanes.headless,active:lane.up&&lane.busy>0,inFlight:live,unknown:!lane.up});
       edge(node.id,n.id,n.color,!lane.up,offset*10,live);});
@@ -471,7 +476,7 @@ function memorySection(body,n,memory,{open=false}={}){const box=disclosure(body,
   if(memory.consumers.length){const users=el('ul','memory-list');for(const row of memory.consumers){const li=el('li');li.append(el('strong',null,row.label),document.createTextNode(` ${row.text}`));users.append(li);}box.append(users);}
   else box.append(el('p','detail-note',!memory.known?'Unknown.':memory.level==='ok'?'Measured only when memory is not OK.':'None reported.'));
   if(memory.suggestions.length){box.append(el('p','panel-label','Suggestions'));const list=el('ul','memory-list');memory.suggestions.forEach(text=>list.append(el('li',null,text)));box.append(list);}
-  box.append(el('p','detail-note','Sizes are approximate: shared memory counts once per process. The memory guard never quits an app or unloads a model; its suggestions are text only.'));}
+  box.append(el('p','detail-note','Sizes are approximate: shared memory counts once per process. The memory guard never quits an app or unloads a model; its suggestions are text only. Model sizes are LM Studio inventory file sizes, not measured memory.'));}
 const compLabel=c=>c?({ready:'Pair ready',partial:'Needs 2nd model','needs-action':'Needs action','in-use':'In use'}[c.state]||capital(c.state||'Unknown')):'Unknown';
 // Router concurrency (spec 6.13): the snapshot's per-run rows, re-checked; one stacked line each.
 const ROUTE_RUN_ID=/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}$/,ROUTE_STATUS_WORDS={running:'Running',waiting:'Queued',admitting:'Being admitted',unresolved:'Unresolved','archived-uncleared':'Archived, record not cleared',unverified:'Run lock unverified',unreadable:'Record unreadable',changing:'Changing; checked again next sample'},ROUTE_RESOURCES={'mac-pair':'Mac pair','pc-route':'PC route','pc-lane-deep':'PC deep lane','pc-lane-fast':'PC fast lane'};
@@ -546,6 +551,7 @@ function inspectorBody(n,body,{firstBuild=true}={}){
       laneRows.push([`${id==='fast'?'Fast':'Deep'} lane`,lane?`${lane.label.slice(id.length+3)} · ${lane.up?'Up':'Down'} · ${lane.total===null?'slots unknown':`${lane.busy}/${lane.total} slots busy`}`:'Unknown (no fresh lane heartbeat)']);
       laneRows.push([`${id==='fast'?'Fast':'Deep'} last measured speed`,recorded?.text?`${recorded.text} · ${ageText(recorded.ageSeconds)} · recorded answer`:'Unknown']);}
     const lanePanel=el('div','panel-section');lanePanel.append(el('p','panel-label','Model lanes'));detailPairs(lanePanel,laneRows);body.append(lanePanel);
+    const pcLive=pcLiveRows(snapshot?.windowsLive,{feedFresh:liveNow(),snapshotAge:age});if(pcLive){const livePanel=el('div','panel-section');livePanel.append(el('p','panel-label',pcLive.title));detailPairs(livePanel,pcLive.rows);body.append(livePanel);}
     const jobPanel=el('div','panel-section');jobPanel.append(el('p','panel-label','Jobs from the Mac dispatcher journal'));detailPairs(jobPanel,[['Current job',jobFeedKnown?(job?jobLine(job):'No job in flight'):'Unknown (job feed stale or unavailable)'],['Last validated answer',last?`${jobLine(last)} · recorded${jobs.current?'':' · not current'}`:jobFeedKnown?'None journaled':'Unknown']]);body.append(jobPanel);
     if(jobs.recent.length){const box=disclosure(body,`${n.id}|recent`,`Recent jobs (${Math.min(8,jobs.recent.length)})`);detailPairs(box,jobs.recent.slice(0,8).map(row=>[`${jobStatus(row)} · …${String(row.id).slice(-8)}`,jobLine(row)]));}
     const box=tech();detailPairs(box,[['Host','Windows'],['Worker state',condition==='degraded'?'Degraded: no model lane answers':condition==='stopped'?'Stopped':advertised?'Advertised':'Unverified'],['Heartbeat age',heartbeatFresh?ageText(heartbeatAge):'Unknown (stale or unverified)'],['Advertised models',modelIds],['Worker detail',heartbeatFresh?worker.detail:'Unknown (stale or unverified)'],['Last validated inference',last?`${last.model} · ${last.elapsedSeconds.toFixed(1)} s · ${ageText(last.ageSeconds)}${jobs.current?'':' · not current'}`:'None journaled on this Mac'],['Jobs in flight',jobFeedKnown?String(jobs.inFlight.length):'Unknown (stale feed)'],['PC headless',heartbeatFresh?headlessText(worker.headless,n.windowsLanes):'Unknown (stale heartbeat)'],...gpu.rows.filter(([label])=>label!=='Worker version'),...windowsLaneRows(lanesFresh?lanes:{...lanes,visible:false,beat:false})]);
@@ -680,6 +686,25 @@ function onlineCodeTabLabel(mode,tight=false){if(mode.state==='ready'||mode.stat
   const several=mode.state==='processing'&&mode.runCounts&&mode.runCounts.running+mode.runCounts.queued>1;
   if(several)return tight?`${mode.runCounts.running} running · ${mode.runCounts.queued} queued`:`Processing · ${mode.runCounts.running} running · ${mode.runCounts.queued} queued`;
   return mode.state==='processing'?(mode.client&&!tight?`Processing · ${mode.client}`:'Task processing'):mode.state==='unfinished'?'Unfinished task':'Route unknown';}
+function pcLiveRows(live,{feedFresh,snapshotAge}){
+  // The PC's own observation, via the paired LAN link or the share files; shown only while fresh.
+  if(!feedFresh||!live||!Array.isArray(live.models)||!Number.isFinite(live.ageSeconds)||live.ageSeconds<0||!Number.isFinite(snapshotAge)||snapshotAge<0)return null;
+  const age=live.ageSeconds+snapshotAge;if(age<0||age>30)return null;
+  const via=live.via==='lan'?'paired LAN link, signed':'SharedChami files, unsigned';
+  const rows=live.models.slice(0,8).map(m=>[String(m.id),[m.loadedState==='loaded'?'Loaded':m.loadedState==='inactive'?'Not loaded':'Unknown',m.activity&&m.activity!=='unknown'?capital(m.activity):null,Number.isInteger(m.slotsTotal)?`${m.slotsBusy??'?'}/${m.slotsTotal} slots busy`:null,Number.isFinite(m.liveTokensPerSecond)?`${m.liveTokensPerSecond} tok/s now`:null].filter(Boolean).join(' · ')]);
+  // Every graphics adapter the PC reports (the AMD card too, which the worker heartbeat leaves out), inside the same
+  // 30 s gate. A reading is whole-card load from every app, never a running model.
+  if(Array.isArray(live.gpus)&&live.gpus.length)rows.push(...pcAdaptersView(live.gpus,{feedFresh:true}).rows);
+  if(live.memory?.level)rows.push(['PC memory',`${capital(String(live.memory.level))}${Number.isFinite(live.memory.availablePercent)?` · ${live.memory.availablePercent}% free`:''}`]);
+  rows.push(['Observed',`${ageText(age)} · via ${via}`]);
+  return {title:`Live from ${live.host||'the PC'}`,rows};
+}
+function pcLinkLabel(live,{feedFresh,snapshotAge}){
+  // The map's link word for the PC node, in the PC edition's wording for its Mac node: the paired, signed LAN
+  // link is LINKED; an unsigned share file is only REPORTED. Same freshness gate as the inspector's live rows.
+  if(!pcLiveRows(live,{feedFresh,snapshotAge}))return null;
+  return live.via==='lan'?'LINKED VIA LAN':live.via==='share'?'REPORTED VIA SHARE':null;
+}
 function headlessView(){return windowsLaneView(snapshot?.windowsWorker,null,{feedFresh:fresh(),snapshotAge:Math.max(0,sampleAge())}).headless;}
 function headlessAction(){return headlessView().on?'headless-off':'headless-on';}
 function updateInferenceFix(){
@@ -828,7 +853,9 @@ async function requestOnlineCodeAction(action){
 function vitalsInput(){const worker=snapshot?.windowsWorker||null,age=Math.max(0,sampleAge()),heartbeatAge=Number.isFinite(worker?.ageSeconds)?worker.ageSeconds+age:null,pcFresh=fresh()&&heartbeatAge!==null&&heartbeatAge>=0&&heartbeatAge<=60&&['advertised','degraded','stopped'].includes(worker?.state),jobs=windowsJobsView(snapshot?.windowsJobs,{feedFresh:fresh(),snapshotAge:age}),lanes=windowsLaneView(worker,jobs,{feedFresh:pcFresh,snapshotAge:age}),feed=activityFeed(jobs,snapshot?.host==='mac'?runs():[],{limit:12,feedFresh:liveNow()});
   const rows=models(),hostLive=(snapshot?.sources||[]).some(s=>['lmstudio-api','lms-ps'].includes(s.id)&&s.state==='live'),nisi=Array.isArray(snapshot?.components)?snapshot.components.find(c=>c.id==='nisi'):null;
   const windowsHost=snapshot?.host==='windows';
-  const vitals=vitalsView({fresh:fresh(),pcFresh,models:rows,activityKnown:fresh()&&snapshot?.activityKnown===true,loadedKnown:(hostLive||windowsHost&&(snapshot?.sources||[]).some(s=>s.id==='lane-inventory'&&s.state==='live'))&&rows.every(m=>typeof m.loaded==='boolean'),lanes,worker,jobs,pipeline:snapshot?.pipeline,nisi,feed,gpu:windowsHost?pcGpuView(worker,{feedFresh:pcFresh,snapshotAge:age}):macGpuView(snapshot?.macGpu,{feedFresh:fresh(),snapshotAge:age}),pcGpu:pcGpuView(worker,{feedFresh:pcFresh,snapshotAge:age}),memory:memoryView(snapshot?.memory,{feedFresh:fresh()}),activityLive:liveNow()});
+  // The Mac's PC chip leads with the PC's own fresh report (the inspector's "Live from" gate); the Windows host keeps macPeerView.
+  const pcReport=snapshot?.host==='mac'?pcReportView(snapshot?.windowsLive,{feedFresh:liveNow(),snapshotAge:age}):null;
+  const vitals=vitalsView({fresh:fresh(),pcFresh,models:rows,activityKnown:fresh()&&snapshot?.activityKnown===true,loadedKnown:(hostLive||windowsHost&&(snapshot?.sources||[]).some(s=>s.id==='lane-inventory'&&s.state==='live'))&&rows.every(m=>typeof m.loaded==='boolean'),lanes,worker,jobs,pipeline:snapshot?.pipeline,nisi,feed,gpu:windowsHost?pcGpuView(worker,{feedFresh:pcFresh,snapshotAge:age}):macGpuView(snapshot?.macGpu,{feedFresh:fresh(),snapshotAge:age}),pcGpu:pcGpuView(worker,{feedFresh:pcFresh,snapshotAge:age}),memory:memoryView(snapshot?.memory,{feedFresh:fresh()}),activityLive:liveNow(),routeReviews:snapshot?.host==='mac'?routeReviewCounts(runs(),snapshot?.activity?.historyBound):null,pcReport});
   // Windows edition: the first chip is this PC (its lanes, GPU and memory); the second is the Mac as a LAN peer.
   if(windowsHost){const chip=macPeerView(snapshot?.macPeer,{feedFresh:fresh(),snapshotAge:age}).chip;vitals.pc={tone:chip.tone,detail:chip.detail,short:chip.short};if(vitals.tiny)vitals.tiny.pc=chip.short;if(vitals.micro)vitals.micro.pc=chip.short;}
   return{feed,vitals};}

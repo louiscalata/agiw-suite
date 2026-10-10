@@ -1471,11 +1471,12 @@ test('Memory: the Mac hub inspector has a Memory tile and a Memory section with 
   assert.equal(section.open, true, 'tight memory opens its section on the first build');
   const text = section.textContent;
   const [users, tips] = section.querySelectorAll('ul');
-  assert.deepEqual(users.children.map(li => li.textContent), ['LM Studio about 21 GB · 4 processes · + GPU allocation about 30 GB', 'Safari about 6.0 GB · 31 processes', 'iOS Simulators about 3.0 GB · 60 processes']);
+  assert.deepEqual(users.children.map(li => li.textContent), ['LM Studio about 21 GB · 4 processes · Mac GPU allocation about 30 GB (all apps)', 'Safari about 6.0 GB · 31 processes', 'iOS Simulators about 3.0 GB · 60 processes']);
   assert.equal(users.children[0].children[0].textContent, 'LM Studio', 'the name leads in bold');
   assert.doesNotMatch(text, /Xcode/, 'three users at most');
   assert.deepEqual(tips.children.map(li => li.textContent), ['Unload idle model qwen/qwen3.8-27b from the monitor', 'Shut down unused iOS Simulators (xcrun simctl shutdown all)']);
-  assert.match(text, /never quits an app or unloads a model; its suggestions are text only/);
+  assert.match(text, /never quits an app or unloads a model; its suggestions are text only\. Model sizes are LM Studio inventory file sizes, not measured memory\./);
+  assert.match(text, /GPU allocation \(all apps\)30\.0 GB/, 'the Mac-wide allocation row says it counts every app');
   // Closed by the viewer, it stays closed across refreshes of the same node.
   section.open = false;
   api.setFeed({ ...pcSnapshot(nowSeconds(), {}), memory: memoryBlock('tight', { consumers: memoryBlock('tight').consumers.slice(0, 1) }) });
@@ -1533,11 +1534,12 @@ test('Memory: the map banner shows for tight and critical only, is dismissible u
   const tick = (level, seconds = 1, age = 0) => { clock += seconds * 1000; api.setFeed({ ...pcSnapshot(clock / 1000 - age, {}), memory: memoryBlock(level) }); api.renderMemoryBanner(); listen(); };
   const flap = (seconds, a = 'tight', b = 'watch') => { for (let i = 0; i < seconds; i++) tick(i % 4 < 2 ? a : b); };
   tick('tight', 0);
-  // The banner names the user by the figure that ranked it (LM Studio's 30 GB GPU allocation, not its 21 GB resident).
+  // An older guard's row: the 30 GB GPU allocation ranked LM Studio first, but it is the whole Mac's (every app's), so the
+  // banner states LM Studio's own 21 GB and names the allocation as the Mac's.
   assert.deepEqual([banner.hidden, banner.dataset.level, $('memoryBannerMark').hidden, $('memoryBannerTitle').textContent, $('memoryBannerText').textContent],
-    [false, 'tight', true, 'Memory tight', 'LM Studio holds about 30 GB (GPU allocation) · Try: Unload idle model qwen/qwen3.8-27b from the monitor']);
-  assert.equal(banner.title, 'Memory tight · LM Studio holds about 30 GB (GPU allocation) · Try: Unload idle model qwen/qwen3.8-27b from the monitor');
-  assert.deepEqual(heard, ['Memory tight. LM Studio holds about 30 GB (GPU allocation). Try: Unload idle model qwen/qwen3.8-27b from the monitor.']);
+    [false, 'tight', true, 'Memory tight', 'LM Studio uses about 21 GB · Mac GPU allocation about 30 GB (all apps) · Try: Unload idle model qwen/qwen3.8-27b from the monitor']);
+  assert.equal(banner.title, 'Memory tight · LM Studio uses about 21 GB · Mac GPU allocation about 30 GB (all apps) · Try: Unload idle model qwen/qwen3.8-27b from the monitor');
+  assert.deepEqual(heard, ['Memory tight. LM Studio uses about 21 GB · Mac GPU allocation about 30 GB (all apps). Try: Unload idle model qwen/qwen3.8-27b from the monitor.']);
   // The same level is not announced again on the next sample.
   tick('tight');
   assert.equal(heard.length, 1);
@@ -1599,8 +1601,10 @@ test('Memory: the map banner shows for tight and critical only, is dismissible u
   assert.ok(rules.some(([media, head, body]) => /min-width:821px/.test(media) && /#memoryBanner:not\(\[hidden\]\)\) \.evidence-rail/.test(head) && /top:102px/.test(body)));
   assert.ok(!rules.some(([media, head]) => !/min-width/.test(media) && /#memoryBanner:not\(\[hidden\]\)\) \.evidence-rail/.test(head)));
   assert.ok(rules.some(([media, head, body]) => !media && head === '.memory-banner[data-level=critical]' && /border-color:#c25a58/.test(body)));
-  // A long banner wraps rather than cutting its suggestion: two lines to 1100 px (the rail steps lower there), three at 560 px.
-  assert.ok(rules.some(([media, head, body]) => /min-width:821px\) and \(max-width:1100px/.test(media) && head === '.memory-banner-copy' && /-webkit-line-clamp:2/.test(body)));
+  // A long banner wraps rather than cutting its suggestion: two lines at every width (no single-line ellipsis, which hid a
+  // Nisi caveat at 1280 and 1512 px), the rail stepping lower up to 1100 px, three lines at 560 px.
+  assert.ok(rules.some(([media, head, body]) => !media && head === '.memory-banner-copy' && /display:-webkit-box/.test(body) && /-webkit-line-clamp:2/.test(body) && /-webkit-box-orient:vertical/.test(body)));
+  assert.ok(!rules.some(([, head, body]) => head === '.memory-banner-copy' && /nowrap|text-overflow/.test(body)), 'no width cuts the banner to one line');
   assert.ok(rules.some(([media, head, body]) => /min-width:821px\) and \(max-width:1100px/.test(media) && /#memoryBanner:not\(\[hidden\]\)\) \.evidence-rail/.test(head) && /top:108px/.test(body)));
   assert.ok(rules.some(([media, head, body]) => /max-width:560px/.test(media) && head === '.memory-banner-copy' && /-webkit-line-clamp:3/.test(body)));
   // Compact: the banner leaves the layout with the status chips while the bottom sheet is open.
@@ -1854,5 +1858,65 @@ test('395px Fix progress survives repeated snapshot and compact-layout refreshes
     assert.equal($('fixInference').getAttribute('aria-expanded'),'true');
     assert.equal($('drawer').hidden,true);
     assert.equal(doc.activeElement,$('fixInferenceDetails'));
+  }
+});
+
+test('Improvement 2: receipt-first runs from an older observer open on the newest route; the 17 d receipt keeps its badge but leaves the Route chip', () => {
+  const { api, $ } = harness();
+  const route = (runId, ageSeconds, extra = {}) => ({ runId, source: 'router-archive', traceKey: `router-archive:${runId}:${'b'.repeat(64)}`,
+    status: 'RESPONSE_VALIDATED', activity: 'completed', ageSeconds, calls: [], ...extra });
+  // The 10 Oct live order: the receipt first, today's router routes after it.
+  const receipt = route('monitor-usage-format-20260923-01', 1482878, { source: 'monitor-receipt',
+    traceKey: 'monitor-receipt:monitor-usage-format-20260923-01:unknown', hostAcceptance: 'REJECTED', reviewSummaryContradiction: true });
+  const runs = [receipt, route('claude-agiw-mac-pair-live-20261010-a', 6295), route('marketscout-coverage-20261010-01', 6634, { status: 'PARTIAL' }),
+    route('claude-agiw-nisi-jev-live-20261010-a', 9610)];
+  // The observer's bound: nothing of the last 24 h was cut from its list (the 10 Oct live value).
+  const historyBound = { truncated: true, missingFromAgeSeconds: 931805.706 };
+  api.setFeed({ schemaVersion: 1, host: 'mac', sampledAt: nowSeconds(), models: [], sources: [], clients: [], pipeline: { status: 'idle' },
+    components: [{ id: 'nisi', state: 'ready' }], activity: { runs, historyBound } });
+  api.renderVitals();
+  assert.equal($('vitalRoute').title, 'Nisi Inference route: Idle · pair ready');
+  assert.equal($('vitalRoute').dataset.tone, 'ok');
+  // Call traces: the default trace and the list's first row are the newest route.
+  api.setTraceView();
+  api.render();
+  api.renderList();
+  const items = $('list').querySelectorAll('button');
+  assert.deepEqual(items.map(item => item.dataset.key), [runs[1], runs[2], runs[3], receipt].map(run => run.traceKey));
+  assert.deepEqual(items.map(item => item.getAttribute('aria-pressed')), ['true', 'false', 'false', 'false']);
+  // The old receipt is still listed, with its review badge, host decision and age.
+  const old = items.at(-1);
+  assert.equal(old.querySelector('.review-badge').textContent, 'Review warning');
+  assert.match(old.textContent, /Saved receipt · 17d ago/);
+  assert.match(old.textContent, /Host acceptance: REJECTED/);
+  // The Activity list keeps the flag too, beside its age.
+  const { feed } = api.vitalsInput();
+  $('activityDetails').hidden = false;
+  api.renderActivity(feed);
+  assert.match($('activityList').textContent, /review warning · 17d ago/);
+  // A warning recorded within 24 h is still counted on the chip.
+  api.setFeed({ schemaVersion: 1, host: 'mac', sampledAt: nowSeconds(), models: [], sources: [], clients: [], pipeline: { status: 'idle' },
+    components: [{ id: 'nisi', state: 'ready' }], activity: { runs: [...runs, { ...receipt, runId: 'fresh-receipt', traceKey: 'monitor-receipt:fresh-receipt:unknown', ageSeconds: 600 }], historyBound } });
+  api.renderVitals();
+  assert.equal($('vitalRoute').title, 'Nisi Inference route: Idle · pair ready · 1 review warning in 24 h');
+  // Review fix: 12 PC jobs newer than a 2 h old route-stopping defect fill the 12-row Activity feed; the chip counts
+  // the whole route list, so the defect still turns it amber.
+  const defect = route('route-defect-2h', 7200, { status: 'REVIEW_FINDINGS', reviewConsistency: { status: 'SUMMARY_REPORTS_DEFECT' } });
+  const pcJobs = { schemaVersion: 1, inFlight: [], lastSuccess: null,
+    recent: Array.from({ length: 12 }, (_, i) => ({ id: `job-${i}`, lane: 'fast', state: 'success', ageSeconds: 30 + i })) };
+  const withJobs = bound => api.setFeed({ schemaVersion: 1, host: 'mac', sampledAt: nowSeconds(), models: [], sources: [], clients: [], pipeline: { status: 'idle' },
+    components: [{ id: 'nisi', state: 'ready' }], windowsJobs: pcJobs, activity: { runs: [...runs, defect], ...bound } });
+  withJobs({ historyBound });
+  api.renderVitals();
+  const filled = api.vitalsInput().feed;
+  assert.equal(filled.length, 12);
+  assert.ok(filled.every(row => row.kind === 'pc-job'), 'the defect is not in the feed');
+  assert.equal($('vitalRoute').title, 'Nisi Inference route: Idle · pair ready · 1 review defect in 24 h');
+  assert.equal($('vitalRoute').dataset.tone, 'warn');
+  // An observer that sends no bound (an older one), or one that cut a route of the window: a lower bound.
+  for (const bound of [{}, { historyBound: { truncated: true, missingFromAgeSeconds: 3600 } }]) {
+    withJobs(bound);
+    api.renderVitals();
+    assert.equal($('vitalRoute').title, 'Nisi Inference route: Idle · pair ready · at least 1 review defect in 24 h');
   }
 });
