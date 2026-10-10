@@ -12,7 +12,8 @@ $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
 # The install runs code at sign-in, so it must live in a private folder: never on a network path or the
 # guest-writable SharedChami share, and never under a junction or symlink.
-$full = [IO.Path]::GetFullPath($Destination)
+# A relative destination means relative to the PowerShell location, not the process directory.
+$full = [IO.Path]::GetFullPath($ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Destination))
 if ($full.StartsWith('\\')) {
     throw "$Destination is shared, remote or a link; install into a private folder such as $HOME\bin\agiw-win."
 }
@@ -27,11 +28,11 @@ if ($drive.DriveType -eq [IO.DriveType]::Network) {
 }
 $part = $full
 while ($part) {
-    if (Test-Path -LiteralPath $part) {
-        $item = Get-Item -LiteralPath $part -Force
-        if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) {
-            throw "$Destination is shared, remote or a link; install into a private folder such as $HOME\bin\agiw-win."
-        }
+    # GetAttributes reads the link itself, so a dangling junction is refused too.
+    $attributes = $null
+    try { $attributes = [IO.File]::GetAttributes($part) } catch [IO.FileNotFoundException], [IO.DirectoryNotFoundException] { }
+    if ($null -ne $attributes -and ($attributes -band [IO.FileAttributes]::ReparsePoint)) {
+        throw "$Destination is shared, remote or a link; install into a private folder such as $HOME\bin\agiw-win."
     }
     $parent = Split-Path -Parent $part
     if (-not $parent -or $parent -eq $part) { break }
@@ -46,19 +47,77 @@ if ((Test-Path -LiteralPath $Destination) -and -not (Test-Path -LiteralPath $mar
     throw "$Destination already has files that this installer did not create; choose an empty folder."
 }
 
-New-Item -ItemType Directory -Force -Path $Destination, (Join-Path $Destination 'agiw_win'), (Join-Path $Destination 'web') | Out-Null
-Copy-Item -Path (Join-Path $sourceWindows 'agiw_win\*.py') -Destination (Join-Path $Destination 'agiw_win') -Force
+# Every installed file as (source, path inside the install folder).
+$files = New-Object System.Collections.Generic.List[object]
+foreach ($item in Get-ChildItem -LiteralPath (Join-Path $sourceWindows 'agiw_win') -Filter '*.py' -File) {
+    $files.Add(@($item.FullName, "agiw_win\$($item.Name)"))
+}
 foreach ($file in 'agiw_observer.py', 'agiw-monitor.ps1', 'AGIW Monitor.vbs', 'AGIW Monitor.cmd', 'README.md') {
-    Copy-Item -LiteralPath (Join-Path $sourceWindows $file) -Destination $Destination -Force
+    $files.Add(@((Join-Path $sourceWindows $file), $file))
 }
 foreach ($file in 'index.html', 'app.js', 'style.css', 'map-layout.mjs', 'model-control-view.mjs', 'online-code-mode.mjs') {
-    Copy-Item -LiteralPath (Join-Path $repo "web\$file") -Destination (Join-Path $Destination 'web') -Force
+    $files.Add(@((Join-Path $repo "web\$file"), "web\$file"))
 }
-Copy-Item -LiteralPath (Join-Path $repo 'usage-format.mjs') -Destination $Destination -Force
-Copy-Item -LiteralPath (Join-Path $repo 'client_models.py') -Destination $Destination -Force
-Copy-Item -LiteralPath (Join-Path $repo 'LICENSE') -Destination $Destination -Force
-Copy-Item -LiteralPath (Join-Path $repo 'NOTICE') -Destination $Destination -Force
-Set-Content -LiteralPath $marker -Value 'AGIW Inference Monitor (Windows) install folder' -Encoding ASCII
+foreach ($file in 'usage-format.mjs', 'client_models.py', 'LICENSE', 'NOTICE') {
+    $files.Add(@((Join-Path $repo $file), $file))
+}
+
+# The running tray and observer keep the folder and state\ open, so the folder itself is never swapped.
+# Every file is staged on the same volume first, then renamed into place one by one with the old copy
+# kept; any failure puts every old file back, so an update is never left half-applied.
+$created = -not (Test-Path -LiteralPath $Destination)
+New-Item -ItemType Directory -Force -Path $Destination | Out-Null
+$token = [Guid]::NewGuid().ToString('N').Substring(0, 12)
+$stage = Join-Path $Destination ".agiw-stage-$token"
+$backup = Join-Path $Destination ".agiw-backup-$token"
+$added = New-Object System.Collections.Generic.List[string]
+$keepBackup = $false
+try {
+    foreach ($pair in $files) {
+        $staged = Join-Path $stage $pair[1]
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $staged) | Out-Null
+        Copy-Item -LiteralPath $pair[0] -Destination $staged -Force
+        if ((Get-Item -LiteralPath $staged -Force).Length -ne (Get-Item -LiteralPath $pair[0] -Force).Length) {
+            throw "Staging $($pair[1]) was incomplete."
+        }
+    }
+    foreach ($pair in $files) {
+        $target = Join-Path $Destination $pair[1]
+        $staged = Join-Path $stage $pair[1]
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $target) | Out-Null
+        if (Test-Path -LiteralPath $target) {
+            $saved = Join-Path $backup $pair[1]
+            New-Item -ItemType Directory -Force -Path (Split-Path -Parent $saved) | Out-Null
+            [IO.File]::Replace($staged, $target, $saved)
+        } else {
+            [IO.File]::Move($staged, $target)
+            $added.Add($target)
+        }
+    }
+    Set-Content -LiteralPath $marker -Value 'AGIW Inference Monitor (Windows) install folder' -Encoding ASCII
+} catch {
+    $failure = $_
+    try {
+        # Every file with a saved copy gets it back, including one a failed Replace left missing.
+        if (Test-Path -LiteralPath $backup) {
+            foreach ($saved in Get-ChildItem -LiteralPath $backup -Recurse -File -Force) {
+                $relative = $saved.FullName.Substring($backup.Length + 1)
+                [IO.File]::Copy($saved.FullName, (Join-Path $Destination $relative), $true)
+            }
+        }
+        foreach ($target in $added) { Remove-Item -LiteralPath $target -Force -ErrorAction SilentlyContinue }
+    } catch {
+        $keepBackup = $true
+        throw "Install failed ($($failure.Exception.Message)) and rollback was incomplete; the previous files are in $backup."
+    }
+    throw "Install failed and was rolled back; the previous install is unchanged. $($failure.Exception.Message)"
+} finally {
+    Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue
+    if (-not $keepBackup) { Remove-Item -LiteralPath $backup -Recurse -Force -ErrorAction SilentlyContinue }
+    if ($created -and -not (Test-Path -LiteralPath $marker)) {
+        Remove-Item -LiteralPath $Destination -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
 
 if ($StartAtSignIn) {
     $link = Join-Path ([Environment]::GetFolderPath('Startup')) 'AGIW Inference Monitor.lnk'
