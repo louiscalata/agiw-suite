@@ -247,8 +247,7 @@ class Handler(BaseHTTPRequestHandler):
         except OSError:
             self.reply(503, b"Asset unavailable", "text/plain")
 
-    def do_POST(self):
-        allowed = self.same_origin(require_origin=True)
+    def _discard_request_body(self):
         # Drain a bounded body before closing so split sends can read the refusal.
         lengths = self.headers.get_all("Content-Length", [])
         text = lengths[0].strip(" \t") if len(lengths) == 1 else ""
@@ -261,6 +260,16 @@ class Handler(BaseHTTPRequestHandler):
                 self.close_connection = True
         else:
             self.close_connection = True
+
+    def send_error(self, code, message=None, explain=None):
+        if (code == 501 and self.command in {"PUT", "DELETE", "PATCH"}
+                and not hasattr(self, "do_" + self.command)):
+            self._discard_request_body()
+        return super().send_error(code, message, explain)
+
+    def do_POST(self):
+        allowed = self.same_origin(require_origin=True)
+        self._discard_request_body()
         if not allowed:
             return self.json_reply(403, {"status": "error", "message": "Exact same-origin Origin and Host are required."})
         return self.json_reply(501, {"status": "error", "message": "The Windows edition is read-only in this version."})

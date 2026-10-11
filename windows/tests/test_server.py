@@ -834,6 +834,116 @@ class PostBodyRequests(unittest.TestCase):
             self.assertLess(elapsed, 4.5)
 
 
+class UnsupportedBodyRequests(unittest.TestCase):
+    """The three refused write verbs keep complete stdlib replies for split sends."""
+
+    setUp = PostBodyRequests.setUp
+    tearDown = PostBodyRequests.tearDown
+    headers = PostBodyRequests.headers
+
+    def request(self, verb, content_lengths=("2",), body=b"{}", mode="delayed", path="/api/models/control"):
+        host = f"127.0.0.1:{self.port}"
+        headers = (
+            f"{verb} {path} HTTP/1.1\r\nAccept-Encoding: identity\r\n"
+            + "".join(f"Content-Length: {length}\r\n" for length in content_lengths)
+            + f"Host: {host}\r\nOrigin: http://{host}\r\nContent-Type: application/json\r\n\r\n"
+        ).encode("ascii")
+        with socket.create_connection(("127.0.0.1", self.port), timeout=1) as sock:
+            if mode == "combined":
+                sock.sendall(headers + body)
+            else:
+                sock.sendall(headers)
+                if body:
+                    time.sleep(0.005)
+                    sock.sendall(body)
+            with http.client.HTTPResponse(sock, method=verb) as response:
+                response.begin()
+                return response.status, response.reason, dict(response.getheaders()), response.read()
+
+    def assert_html_refusal(self, result, verb):
+        status, reason, headers, payload = result
+        message = f"Unsupported method ({verb!r})"
+        self.assertEqual((status, reason), (501, message))
+        self.assertEqual(headers["Content-Type"], "text/html;charset=utf-8")
+        self.assertEqual(headers["Content-Length"], str(len(payload)))
+        self.assertEqual(headers["Connection"], "close")
+        self.assertIn(message, payload.decode("utf-8"))
+        self.assertTrue(payload.startswith(b"<!DOCTYPE HTML>\n"))
+        self.assertTrue(payload.endswith(b"</html>\n"))
+
+    def test_delayed_bodies_return_full_501_html(self):
+        for verb in ("PUT", "DELETE", "PATCH"):
+            with self.subTest(verb=verb):
+                baseline = self.request(verb, content_lengths=("0",), body=b"")
+                self.assert_html_refusal(baseline, verb)
+                delayed = self.request(verb)
+                self.assert_html_refusal(delayed, verb)
+                self.assertEqual(delayed[3], baseline[3])
+
+    def test_combined_and_empty_bodies_keep_stdlib_refusal(self):
+        for verb in ("PUT", "DELETE", "PATCH"):
+            with self.subTest(verb=verb):
+                empty = self.request(verb, content_lengths=("0",), body=b"")
+                combined = self.request(verb, mode="combined")
+                self.assert_html_refusal(empty, verb)
+                self.assert_html_refusal(combined, verb)
+                self.assertEqual(combined[3], empty[3])
+
+    def test_maximum_bodies_return_full_501_html(self):
+        for verb in ("PUT", "DELETE", "PATCH"):
+            with self.subTest(verb=verb):
+                self.assert_html_refusal(self.request(verb, content_lengths=("65536",), body=b"x" * 65536), verb)
+
+    def test_invalid_lengths_reply_without_waiting_for_body(self):
+        cases = [(), ("-1",), ("bad",), ("2.0",), ("65537",), ("2", "3"), ("9" * 5000,)]
+        for verb in ("PUT", "DELETE", "PATCH"):
+            for index, lengths in enumerate(cases):
+                with self.subTest(verb=verb, case=index):
+                    started = time.monotonic()
+                    self.assert_html_refusal(self.request(verb, content_lengths=lengths, body=b""), verb)
+                    self.assertLess(time.monotonic() - started, 1)
+
+    def test_stalled_body_keeps_existing_deadline(self):
+        with socket.create_connection(("127.0.0.1", self.port), timeout=4.5) as sock:
+            started = time.monotonic()
+            sock.sendall(self.headers().replace(b"POST ", b"PUT ", 1))
+            try:
+                first = sock.recv(1)
+            except ConnectionResetError:
+                first = b""
+            elapsed = time.monotonic() - started
+            self.assertEqual(first, b"")
+            self.assertGreater(elapsed, 2)
+            self.assertLess(elapsed, 4.5)
+
+    def test_get_and_post_compatibility(self):
+        status, _, headers, payload = self.request("GET", content_lengths=("0",), body=b"", path="/api/health")
+        self.assertEqual(status, 200)
+        self.assertEqual(headers["Content-Type"], "application/json")
+        self.assertEqual(set(json.loads(payload)), {"service", "version", "pid"})
+        PostBodyRequests.assert_response(self)
+
+    def test_other_unsupported_methods_do_not_wait_for_body(self):
+        for verb in ("HEAD", "OPTIONS", "UNKNOWN"):
+            with self.subTest(verb=verb):
+                result = self.request(verb, body=b"")
+                if verb == "HEAD":
+                    self.assertEqual((result[0], result[1], result[3]), (501, "Unsupported method ('HEAD')", b""))
+                    self.assertGreater(int(result[2]["Content-Length"]), 0)
+                else:
+                    self.assert_html_refusal(result, verb)
+
+    def test_parser_error_delegates_without_body_read(self):
+        with socket.create_connection(("127.0.0.1", self.port), timeout=1) as sock:
+            sock.sendall(b"PUT /api/models/control HTTP/2.0\r\n")
+            with http.client.HTTPResponse(sock, method="PUT") as response:
+                response.begin()
+                payload = response.read()
+                self.assertEqual(response.status, 505)
+                self.assertEqual(response.getheader("Content-Length"), str(len(payload)))
+                self.assertIn(b"Invalid HTTP version (2.0)", payload)
+
+
 class ObserverRecovery(unittest.TestCase):
     """The real observer process, run from a copy so its source can change: the tray relies on these exits."""
 
