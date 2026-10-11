@@ -299,6 +299,62 @@ class EndToEnd(unittest.TestCase):
         self.assertLessEqual(mac["ageSeconds"], 30)
         self.assertTrue(all(set(m) == {"id", "state"} and m["state"] == "loaded" for m in mac["models"]))
 
+    def write_mac_report(self, kind, observed, model):
+        import datetime as dt
+        share = Path(self.tmp.name)
+        fields = {"schemaVersion": 1,
+                  "models": [{"id": model, "host": "mac", "loadedState": "loaded"}]}
+        if kind == "agiw-peers":
+            target = probes.peer_dir(share) / "mac.json"
+            fields.update(kind="agiw-peer", host="mac", platform="macos", observedUnix=observed)
+        else:
+            target = probes.peer_dir(share).parent / "mac-status.json"
+            fields.update(host="mac", observedAt=dt.datetime.fromtimestamp(observed, dt.timezone.utc).isoformat())
+        probes.write_json_atomic(target, fields, probes.PEER_MAX_BYTES, stop_at=share)
+
+    def test_expired_share_reports_do_not_promote_the_mac_to_linked(self):
+        observed = 2_000_000_000.0
+        self.collector.mac_peer = probes.MacPeer(Path(self.tmp.name), probe=lambda _hosts: {
+            "state": "unreachable", "observedAt": observed, "models": [], "loadedCount": None,
+            "detail": "Test LAN refusal", "reason": "refused"})
+        self.collector.mac_peer.poll_once()
+        for kind in ("agiw-peers", "mac-status.json"):
+            for target in (probes.peer_dir(Path(self.tmp.name)) / "mac.json",
+                           probes.peer_dir(Path(self.tmp.name)).parent / "mac-status.json"):
+                target.unlink(missing_ok=True)
+            self.write_mac_report(kind, observed, "reported-model")
+            for age in (30.0, 30.04):
+                with self.subTest(kind=kind, age=age):
+                    self.collector.clock = lambda: observed + age
+                    snap = self.collector.collect()
+                    self.assertEqual(snap["peers"][0]["fresh"], age <= 30)
+                    source = next(s for s in snap["sources"] if s["id"] == "agiw-peers")
+                    self.assertEqual(source["state"], "live" if age <= 30 else "unavailable")
+                    mac = snap["macPeer"]
+                    if age <= 30:
+                        self.assertEqual((mac["state"], mac["linkSource"]), ("linked", kind))
+                        self.assertEqual(mac["models"], [{"id": "reported-model", "state": "loaded"}])
+                        self.assertFalse(mac["verified"])
+                    else:
+                        self.assertEqual((mac["state"], mac["reason"], mac["models"]), ("unreachable", "refused", []))
+                        self.assertNotIn("linkSource", mac)
+                        self.assertEqual(snap["peers"][0]["models"][0]["id"], "reported-model")
+
+    def test_share_link_uses_fresh_legacy_after_presence_expires(self):
+        now = 2_000_000_000.0
+        self.collector.clock = lambda: now
+        for presence_age, legacy_age, expected in ((30.04, 10, "mac-status.json"),
+                                                  (10, 30.04, "agiw-peers")):
+            with self.subTest(presence_age=presence_age, legacy_age=legacy_age):
+                self.write_mac_report("agiw-peers", now - presence_age, "presence-model")
+                self.write_mac_report("mac-status.json", now - legacy_age, "legacy-model")
+                snap = self.collector.collect()
+                mac = snap["macPeer"]
+                self.assertEqual((mac["state"], mac["linkSource"], mac["linkAgeSeconds"]), ("linked", expected, 10))
+                model = "legacy-model" if expected == "mac-status.json" else "presence-model"
+                self.assertEqual(mac["models"], [{"id": model, "state": "loaded"}])
+                self.assertFalse(mac["verified"])
+
     def test_observer_log_escapes_and_rate_limits(self):
         import io
         from agiw_win.server import RateLimitedLog

@@ -1313,10 +1313,10 @@ def _validate_peer(value: Any, now: float) -> dict[str, Any] | None:
             models.append({"id": model["id"][:120],
                            "loadedState": model.get("loadedState") if model.get("loadedState") in STATUS_LOADED_STATES else "unknown",
                            "activity": _string(model.get("activity"), 24) or "unknown"})
-    age = round(max(0.0, now - observed), 1)
+    age = now - observed
     return {"host": host, "platform": _string(value.get("platform"), 24) or "unknown",
             "edition": _string(value.get("edition"), 24), "version": _string(value.get("version"), 24),
-            "health": _string(value.get("health"), 16) or "unknown", "models": models, "ageSeconds": age,
+            "health": _string(value.get("health"), 16) or "unknown", "models": models, "ageSeconds": round(max(0.0, age), 1),
             "fresh": age <= PEER_FRESH_SECONDS, "source": "agiw-peers"}
 
 
@@ -1335,9 +1335,9 @@ def _legacy_mac_status(share_root: Path, now: float) -> dict[str, Any] | None:
                "activity": _string(m.get("activity"), 24) or "unknown"}
               for m in (value.get("models") or [])[:32]
               if isinstance(m, dict) and isinstance(m.get("id"), str) and m.get("host") == "mac"]
-    age = round(max(0.0, now - observed), 1)
+    age = now - observed
     return {"host": "mac", "platform": "macos", "edition": "mac-status", "version": None, "verified": False,
-            "health": _string(value.get("health"), 16) or "unknown", "models": models, "ageSeconds": age,
+            "health": _string(value.get("health"), 16) or "unknown", "models": models, "ageSeconds": round(max(0.0, age), 1),
             "fresh": age <= PEER_FRESH_SECONDS, "source": "mac-status.json"}
 
 

@@ -484,6 +484,61 @@ class PeerLink(unittest.TestCase):
         self.assertEqual((peers[0]["host"], peers[0]["source"], peers[0]["fresh"]), ("mac", "mac-status.json", True))
         self.assertEqual([m["id"] for m in peers[0]["models"]], ["qwen/qwen3.8-27b"])
 
+    def test_presence_freshness_uses_unrounded_age(self):
+        now = 2_000_000_000.0
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for age in (29.999, 30.0, 30.04, 30.05):
+                with self.subTest(age=age):
+                    self.write(root, "mac.json", self.peer("mac", now - age))
+                    peers, source = probes.read_peers(root, "pc", now)
+                    self.assertEqual(len(peers), 1)
+                    self.assertEqual(peers[0]["fresh"], age <= 30)
+                    self.assertEqual(peers[0]["ageSeconds"], 30.0)
+                    self.assertEqual(source["state"], "live" if age <= 30 else "unavailable")
+                    self.assertFalse(peers[0]["verified"])
+                    self.assertEqual(peers[0]["models"][0]["loadedState"], "loaded")
+
+    def test_legacy_freshness_uses_unrounded_age(self):
+        import datetime as dt
+        now = 2_000_000_000.0
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            status = root / "llm-lab" / "status"
+            status.mkdir(parents=True)
+            for age in (29.999, 30.0, 30.04, 30.05):
+                with self.subTest(age=age):
+                    observed = dt.datetime.fromtimestamp(now - age, dt.timezone.utc).isoformat()
+                    (status / "mac-status.json").write_text(json.dumps({
+                        "schemaVersion": 1, "host": "mac", "observedAt": observed,
+                        "models": [{"id": "reported-model", "host": "mac", "loadedState": "loaded"}]}))
+                    peers, source = probes.read_peers(root, "pc", now)
+                    self.assertEqual(len(peers), 1)
+                    self.assertEqual(peers[0]["fresh"], age <= 30)
+                    self.assertEqual(peers[0]["ageSeconds"], 30.0)
+                    self.assertEqual(source["state"], "live" if age <= 30 else "unavailable")
+                    self.assertFalse(peers[0]["verified"])
+                    self.assertEqual(peers[0]["models"][0]["loadedState"], "loaded")
+
+    def test_expired_presence_allows_a_fresh_legacy_fallback(self):
+        import datetime as dt
+        now = 2_000_000_000.0
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for presence_age, legacy_age, expected in ((30.04, 10, "mac-status.json"),
+                                                       (10, 30.04, "agiw-peers")):
+                with self.subTest(presence_age=presence_age, legacy_age=legacy_age):
+                    self.write(root, "mac.json", self.peer("mac", now - presence_age))
+                    observed = dt.datetime.fromtimestamp(now - legacy_age, dt.timezone.utc).isoformat()
+                    (probes.peer_dir(root).parent / "mac-status.json").write_text(json.dumps({
+                        "schemaVersion": 1, "host": "mac", "observedAt": observed,
+                        "models": [{"id": "legacy-model", "host": "mac", "loadedState": "inactive"}]}))
+                    peers, source = probes.read_peers(root, "pc", now)
+                    self.assertEqual([(p["source"], p["fresh"]) for p in peers], [(expected, True)])
+                    self.assertEqual(peers[0]["ageSeconds"], 10)
+                    self.assertEqual(source["state"], "live")
+                    self.assertFalse(peers[0]["verified"])
+
     def test_future_or_malformed_presence_is_ignored(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
