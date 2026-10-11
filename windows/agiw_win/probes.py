@@ -1287,8 +1287,12 @@ def host_id() -> str:
 def peer_presence(snapshot: dict[str, Any], host: str) -> dict[str, Any]:
     """This instance's presence: who it is and the verified model states it sees. No paths, prompts or keys."""
     status = pc_status(snapshot)
+    status_models = status["models"]
+    models_total = len(status_models)
+    if models_total > 32:
+        status_models = sorted(status_models, key=lambda model: model["loadedState"] != "loaded")[:32]
     models = []
-    for model in status["models"]:
+    for model in status_models:
         row = {key: model[key] for key in ("id", "aliases", "loadedState", "activity", "slotsBusy", "slotsTotal")}
         # The Mac can select presence ahead of status from the same sample.
         # Keep its model details, using pc_status's path-safe servedModel.
@@ -1303,7 +1307,7 @@ def peer_presence(snapshot: dict[str, Any], host: str) -> dict[str, Any]:
     return {"schemaVersion": 1, "kind": "agiw-peer", "host": host, "platform": "windows",
             "edition": "windows", "version": snapshot.get("observerVersion"), "observedAt": snapshot.get("observedAt"),
             "observedUnix": snapshot.get("sampledAt"), "health": status["health"],
-            "models": models,
+            "modelsTotal": models_total, "models": models,
             "gpus": status["gpus"], "memory": status["memory"],
             "dashboard": {"bind": "loopback", "port": snapshot.get("dashboardPort")},
             "reads": ["agiw-peers", "mac-status.json"]}
