@@ -234,6 +234,62 @@ class EndToEnd(unittest.TestCase):
         self.assertNotEqual(next(s for s in data["sources"] if s["id"] == "llama-slots")["state"], "live")
         self.assertFalse(activity_is_known(data["models"], {s["id"]: s["state"] for s in data["sources"]}))
 
+    def test_lane_expiry_uses_unrounded_poll_time(self):
+        from contextlib import ExitStack
+        observed = 1000.0
+        self.collector.clock = lambda: observed
+        self.fast_state["busy"] = True
+        self.collector.collect()
+        with ExitStack() as patches:
+            for poller in self.collector._pollers.values():
+                _, lane = poller.read()
+                frozen = {**lane, "liveTokensPerSecond": 12.5 if lane["id"] == "fast" else None}
+                patches.enter_context(mock.patch.object(poller, "read", return_value=(observed, frozen)))
+            for age in (2.999, 3.0, 3.004, 3.005):
+                with self.subTest(age=age):
+                    self.collector.clock = lambda: observed + age
+                    snap = self.collector.collect()
+                    self.store.publish(snap)
+                    snap = self.store.read()
+                    lane = snap["windowsWorker"]["lanes"]["fast"]
+                    model = next(m for m in snap["models"] if m["id"] == "openai/gpt-oss-20b")
+                    sources = {s["id"]: s["state"] for s in snap["sources"]}
+                    self.assertEqual(lane["ageSeconds"], 3.0)
+                    if age <= 3:
+                        self.assertEqual((lane["status"], lane["up"], lane["slotsBusy"], lane["slotsTotal"]),
+                                         ("busy", True, 1, 2))
+                        self.assertEqual((model["state"], model["loaded"]), ("generating", True))
+                        self.assertEqual(model["metadata"]["liveTokensPerSecond"], 12.5)
+                        self.assertEqual((sources["llama-slots"], sources["lane-inventory"]), ("live", "live"))
+                        self.assertTrue(snap["activityKnown"])
+                    else:
+                        self.assertEqual((lane["status"], lane["up"], lane["slotsBusy"], lane["slotsTotal"]),
+                                         ("stale", False, None, 2))
+                        self.assertEqual((model["state"], model["loaded"]), ("unknown", None))
+                        self.assertIsNone(model["metadata"]["liveTokensPerSecond"])
+                        self.assertEqual((sources["llama-slots"], sources["lane-inventory"]),
+                                         ("unavailable", "unavailable"))
+                        self.assertFalse(snap["activityKnown"])
+                        self.assertFalse(activity_is_known(snap["models"], sources))
+
+    def test_lane_inventory_rejects_stale_status_at_a_rounded_three_seconds(self):
+        self.collector.collect()
+        cached = {poller.spec["id"]: poller.read()[1] for poller in self.collector._pollers.values()}
+        for status, expected in (("stale", "unavailable"), ("unreachable", "live")):
+            with self.subTest(status=status):
+                def lane_result(spec, _sampled):
+                    return {**cached[spec["id"]], "status": status, "ageSeconds": 3.0,
+                            "phase": None, "slotsBusy": None, "liveTokensPerSecond": None}
+                with mock.patch.object(self.collector, "_lane", side_effect=lane_result):
+                    snap = self.collector.collect()
+                self.store.publish(snap)
+                snap = self.store.read()
+                sources = {s["id"]: s["state"] for s in snap["sources"]}
+                self.assertEqual(sources["lane-inventory"], expected)
+                self.assertEqual(sources["llama-slots"], "unavailable")
+                self.assertFalse(snap["activityKnown"])
+                self.assertTrue(all(m["loaded"] is None for m in snap["models"]))
+
     def test_one_broken_probe_does_not_lose_the_sample(self):
         # Codex finding 1 (general): a crashing probe becomes an error source.
         def broken():
