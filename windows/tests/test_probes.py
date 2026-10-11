@@ -757,6 +757,51 @@ class LaneConfig(unittest.TestCase):
 
 
 class Memory(unittest.TestCase):
+    def assert_reading(self, available_units, commit_available_units, level, available_percent,
+                       commit_percent, available_reason, commit_reason):
+        from unittest import mock
+
+        unit = 2 ** 20
+        status = mock.Mock(return_value={"totalPhys": 10000 * unit, "availPhys": available_units * unit,
+                                         "commitLimit": 10000 * unit, "commitAvail": commit_available_units * unit})
+        rows = [{"label": "fixture.exe", "residentBytes": unit, "processCount": 1, "gpuAllocBytes": None}]
+        consumers = mock.Mock(return_value=rows)
+        block, source = probes.memory_block(status_fn=status, consumers_fn=consumers)
+        # Publication remains rounded even when the raw reading changes the level.
+        self.assertEqual(set(block), {"level", "availablePercent", "totalBytes", "availableBytes", "commitPercent",
+                                      "swapUsedBytes", "compressedBytes", "gpuAllocBytes", "consumers",
+                                      "suggestions", "reasons", "paused"})
+        self.assertEqual(block["availablePercent"], available_percent)
+        self.assertEqual(block["commitPercent"], commit_percent)
+        self.assertEqual((block["totalBytes"], block["availableBytes"]), (10000 * unit, available_units * unit))
+        self.assertEqual(block["reasons"], [f"{available_reason}% of 10 GB RAM available",
+                                           f"commit charge {commit_reason}% of limit"])
+        self.assertEqual((block["swapUsedBytes"], block["compressedBytes"], block["gpuAllocBytes"], block["paused"]),
+                         (None, None, None, []))
+        self.assertEqual(source["state"], "live")
+        status.assert_called_once_with()
+        self.assertEqual(block["level"], level)
+        self.assertEqual(block["suggestions"], ["Close apps you are not using before loading another model"]
+                         if level in ("tight", "critical") else [])
+        self.assertEqual(block["consumers"], rows if level != "ok" else [])
+        self.assertEqual(consumers.call_count, int(level != "ok"))
+
+    def test_physical_thresholds_classify_raw_readings_and_preserve_rounded_publication(self):
+        # Below and at 20, 12, 6 percent, then ordinary readings exercising one decimal place.
+        cases = ((1996, "watch", 20.0, "20"), (2000, "ok", 20.0, "20"),
+                 (1196, "tight", 12.0, "12"), (1200, "watch", 12.0, "12"),
+                 (596, "critical", 6.0, "6"), (600, "tight", 6.0, "6"),
+                 (3012, "ok", 30.1, "30"), (1513, "watch", 15.1, "15"),
+                 (812, "tight", 8.1, "8"), (312, "critical", 3.1, "3"))
+        for available, level, display, reason in cases:
+            with self.subTest(raw_available_percent=available / 100):
+                self.assert_reading(available, 2500, level, display, 75.0, reason, "75")
+
+    def test_commit_threshold_classifies_raw_reading_despite_the_same_rounded_publication(self):
+        for commit_available, level in ((504, "ok"), (500, "tight")):
+            with self.subTest(raw_commit_percent=(10000 - commit_available) / 100):
+                self.assert_reading(3000, commit_available, level, 30.0, 95.0, "30", "95")
+
     def test_levels(self):
         self.assertEqual(probes.memory_level(50, 40), "ok")
         self.assertEqual(probes.memory_level(15, 40), "watch")
