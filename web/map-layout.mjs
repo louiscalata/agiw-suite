@@ -1356,13 +1356,14 @@ export function windowsSharePublishRow(sources, { feedFresh = false, snapshotAge
 }
 
 /** Windows edition: every AGIW instance that published presence on SharedChami (snapshot.peers), for the inspector. */
-export function agiwPeersRows(peers, { feedFresh = false, snapshotAge = 0 } = {}) {
+export function agiwPeersRows(peers, { feedFresh = false, snapshotAge = 0, host = 'mac' } = {}) {
   const extra = Math.max(0, Number.isFinite(snapshotAge) ? snapshotAge : 0);
   const rows = feedFresh && Array.isArray(peers) ? peers.slice(0, 16).filter(p => p && typeof p.host === 'string'
     && /^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$/.test(p.host) && Number.isFinite(p.ageSeconds)) : [];
   return rows.length ? rows.map(p => {
     const age = p.ageSeconds + extra;
-    const residencyKnown = Array.isArray(p.models) && p.models.length > 0 && p.models.every(m => m && ['loaded', 'inactive'].includes(m.loadedState));
+    const residencyKnown = (host !== 'windows' || p.modelsComplete === true)
+      && Array.isArray(p.models) && p.models.length > 0 && p.models.every(m => m && ['loaded', 'inactive'].includes(m.loadedState));
     return [p.host, [p.fresh && age <= SHARE_PEER_FRESH_SECONDS ? (p.verified === true ? 'Linked' : 'Reported (unverified)') : 'Stale', p.platform, p.edition, p.version,
       residencyKnown ? `${p.models.filter(m => m.loadedState === 'loaded').length} loaded` : 'Loaded state unknown',
       age < 120 ? `${Math.round(age)} s ago` : `${Math.round(age / 3600)} h ago`, p.source].filter(Boolean).join(' · ')];

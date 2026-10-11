@@ -285,3 +285,97 @@ test('a claimed Windows route reads as a recorded claim, never as running', asyn
   assert.equal(v.route.detail, 'Claim recorded · execution unknown');
   assert.equal(v.route.tone, 'muted');
 });
+
+const peerCountEvidence = (over = {}) => ({host: 'count-peer', fresh: true, platform: 'macos', edition: 'mac',
+  version: '1.0.0', ageSeconds: 4, source: 'agiw-peers',
+  models: [{id: 'loaded', loadedState: 'loaded'}, {id: 'inactive', loadedState: 'inactive'}], ...over});
+
+test('Windows peer count UI: default and non-Windows hosts preserve the literal count baselines', () => {
+  const expected = [
+    ['count-peer', 'Reported (unverified) · macos · mac · 1.0.0 · 1 loaded · 4 s ago · agiw-peers'],
+    ['idle-peer', 'Reported (unverified) · macos · mac · 1.0.0 · 0 loaded · 4 s ago · agiw-peers'],
+  ];
+  for (const options of [{feedFresh: true}, {feedFresh: true, host: 'mac'},
+    {feedFresh: true, host: 'linux'}, {feedFresh: true, host: 'Windows'}]) {
+    for (const completeness of [{}, {modelsComplete: false}]) {
+      const peers = [peerCountEvidence(completeness), peerCountEvidence({...completeness,
+        host: 'idle-peer', models: [{id: 'inactive', loadedState: 'inactive'}]})];
+      assert.deepEqual(agiwPeersRows(peers, options), expected,
+        `host ${options.host ?? 'default'} preserves count wording without a complete inventory`);
+    }
+  }
+});
+
+test('Windows peer count UI: explicitly complete known residency preserves exact one and zero counts', () => {
+  const peers = [peerCountEvidence({modelsComplete: true}), peerCountEvidence({host: 'idle-peer',
+    modelsComplete: true, models: [{id: 'inactive', loadedState: 'inactive'}]})];
+  assert.deepEqual(agiwPeersRows(peers, {feedFresh: true, host: 'windows'}), [
+    ['count-peer', 'Reported (unverified) · macos · mac · 1.0.0 · 1 loaded · 4 s ago · agiw-peers'],
+    ['idle-peer', 'Reported (unverified) · macos · mac · 1.0.0 · 0 loaded · 4 s ago · agiw-peers'],
+  ]);
+});
+
+test('Windows peer count UI: incomplete or non-boolean completeness never creates an exact total', () => {
+  for (const completeness of [{}, ...[false, null, 0, 1, 'true', 'false', [], {}]
+    .map(modelsComplete => ({modelsComplete}))]) {
+    const peers = [peerCountEvidence(completeness), peerCountEvidence({...completeness,
+      host: 'idle-peer', models: [{id: 'inactive', loadedState: 'inactive'}]})];
+    const rows = agiwPeersRows(peers, {feedFresh: true, host: 'windows'});
+    assert.deepEqual(rows, [
+      ['count-peer', 'Reported (unverified) · macos · mac · 1.0.0 · Loaded state unknown · 4 s ago · agiw-peers'],
+      ['idle-peer', 'Reported (unverified) · macos · mac · 1.0.0 · Loaded state unknown · 4 s ago · agiw-peers'],
+    ], `completeness ${JSON.stringify(completeness)} cannot certify the retained inventory`);
+    for (const [, line] of rows) assert.doesNotMatch(line, /(?:^| · )\d+ loaded(?: · |$)/);
+  }
+});
+
+test('Windows peer count UI: a complete empty or unknown inventory still has no known loaded total', () => {
+  for (const models of [undefined, [], [{id: 'unproved', loadedState: 'unknown'}],
+    [{id: 'loaded', loadedState: 'loaded'}, {id: 'unproved', loadedState: 'unknown'}]]) {
+    const rows = agiwPeersRows([peerCountEvidence({modelsComplete: true, models})],
+      {feedFresh: true, host: 'windows'});
+    assert.deepEqual(rows, [
+      ['count-peer', 'Reported (unverified) · macos · mac · 1.0.0 · Loaded state unknown · 4 s ago · agiw-peers'],
+    ]);
+    assert.doesNotMatch(rows[0][1], /(?:^| · )\d+ loaded(?: · |$)/);
+  }
+});
+
+test('Windows peer count UI: completeness leaves the thirty-second freshness boundary and other fields unchanged', () => {
+  const cases = [
+    {modelsComplete: true, verified: false,
+      fresh: 'Reported (unverified) · macos · mac · 1.0.0 · 1 loaded · 30 s ago · agiw-peers',
+      stale: 'Stale · macos · mac · 1.0.0 · 1 loaded · 30 s ago · agiw-peers',
+      markedStale: 'Stale · macos · mac · 1.0.0 · 1 loaded · 1 s ago · agiw-peers'},
+    {modelsComplete: true, verified: true,
+      fresh: 'Linked · macos · mac · 1.0.0 · 1 loaded · 30 s ago · agiw-peers',
+      stale: 'Stale · macos · mac · 1.0.0 · 1 loaded · 30 s ago · agiw-peers',
+      markedStale: 'Stale · macos · mac · 1.0.0 · 1 loaded · 1 s ago · agiw-peers'},
+    {modelsComplete: false, verified: false,
+      fresh: 'Reported (unverified) · macos · mac · 1.0.0 · Loaded state unknown · 30 s ago · agiw-peers',
+      stale: 'Stale · macos · mac · 1.0.0 · Loaded state unknown · 30 s ago · agiw-peers',
+      markedStale: 'Stale · macos · mac · 1.0.0 · Loaded state unknown · 1 s ago · agiw-peers'},
+    {modelsComplete: false, verified: true,
+      fresh: 'Linked · macos · mac · 1.0.0 · Loaded state unknown · 30 s ago · agiw-peers',
+      stale: 'Stale · macos · mac · 1.0.0 · Loaded state unknown · 30 s ago · agiw-peers',
+      markedStale: 'Stale · macos · mac · 1.0.0 · Loaded state unknown · 1 s ago · agiw-peers'},
+  ];
+  for (const {modelsComplete, verified, fresh, stale, markedStale} of cases) {
+    const peers = [peerCountEvidence({ageSeconds: 28, modelsComplete, verified})];
+    assert.deepEqual(agiwPeersRows(peers, {feedFresh: true, snapshotAge: 2, host: 'windows'}),
+      [['count-peer', fresh]]);
+    assert.deepEqual(agiwPeersRows(peers, {feedFresh: true, snapshotAge: 2.01, host: 'windows'}),
+      [['count-peer', stale]]);
+    assert.deepEqual(agiwPeersRows([{...peers[0], fresh: false, ageSeconds: 1}],
+      {feedFresh: true, host: 'windows'}), [['count-peer', markedStale]]);
+  }
+});
+
+test('Windows peer count UI: stale feeds and fresh empty peer feeds retain their literal messages', () => {
+  for (const completeness of [{}, {modelsComplete: true}, {modelsComplete: false}]) {
+    assert.deepEqual(agiwPeersRows([peerCountEvidence(completeness)], {feedFresh: false, host: 'windows'}),
+      [['AGIW peers', 'Unknown (feed stale)']]);
+  }
+  assert.deepEqual(agiwPeersRows([], {feedFresh: true, host: 'windows'}),
+    [['AGIW peers', 'None has published on SharedChami yet']]);
+});
