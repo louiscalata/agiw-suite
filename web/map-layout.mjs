@@ -1362,10 +1362,11 @@ export function agiwPeersRows(peers, { feedFresh = false, snapshotAge = 0, host 
     && /^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$/.test(p.host) && Number.isFinite(p.ageSeconds)) : [];
   return rows.length ? rows.map(p => {
     const age = p.ageSeconds + extra;
+    const current = p.fresh && age <= SHARE_PEER_FRESH_SECONDS;
     const residencyKnown = (host !== 'windows' || p.modelsComplete === true)
       && Array.isArray(p.models) && p.models.length > 0 && p.models.every(m => m && ['loaded', 'inactive'].includes(m.loadedState));
-    return [p.host, [p.fresh && age <= SHARE_PEER_FRESH_SECONDS ? (p.verified === true ? 'Linked' : 'Reported (unverified)') : 'Stale', p.platform, p.edition, p.version,
-      residencyKnown ? `${p.models.filter(m => m.loadedState === 'loaded').length} loaded` : 'Loaded state unknown',
+    return [p.host, [current ? (p.verified === true ? 'Linked' : 'Reported (unverified)') : 'Stale', p.platform, p.edition, p.version,
+      residencyKnown ? `${p.models.filter(m => m.loadedState === 'loaded').length} loaded${host === 'windows' && !current ? ' at last report' : ''}` : 'Loaded state unknown',
       age < 120 ? `${Math.round(age)} s ago` : `${Math.round(age / 3600)} h ago`, p.source].filter(Boolean).join(' · ')];
   })
     : [['AGIW peers', feedFresh ? 'None has published on SharedChami yet' : 'Unknown (feed stale)']];
