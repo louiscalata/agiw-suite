@@ -50,7 +50,13 @@ const validDuration=value=>Number.isSafeInteger(value)&&value>=0;
 function durationText(value){if(!validDuration(value))return'Unknown';if(value<1000)return`${value} ms`;if(value<60000)return`${(value/1000).toFixed(2)} s`;return`${Math.floor(value/60000)}m ${((value%60000)/1000).toFixed(1)}s`;}
 function runSummary(run){const summary=summarizeReportedCalls(Array.isArray(run.calls)?run.calls:[]);return{count:summary.callCount,timed:summary.timedCallCount,tokenKnown:summary.tokenKnownCount,duplicateIdentity:summary.duplicateIdentity,tokens:formatTokens(summary.totalTokens),duration:durationText(summary.elapsedMs)};}
 function identifier(node,value){node.replaceChildren();for(const part of String(value).split(/([._:/-])/)){node.append(document.createTextNode(part));if(/^[._:/-]$/.test(part))node.append(el('wbr'));}node.title=String(value);}
-function models(){const elapsed=snapshot?Math.max(0,Date.now()/1000-snapshot.sampledAt):0;return(snapshot?.models||[]).map(m=>!fresh()||(Number.isFinite(m.ageSeconds)&&m.ageSeconds+elapsed>(snapshot?.host==='windows'?3:m.host==='windows'?30:3))?{...m,state:'stale',loaded:null,queued:null}:m);}
+// Inventory keeps its existing unknown-age fallback; current lane readings need a finite age.
+function modelFreshness(m,elapsed=snapshot?Math.max(0,Date.now()/1000-snapshot.sampledAt):0){
+  const age=Number.isFinite(m.ageSeconds)?m.ageSeconds+elapsed:NaN;
+  const expired=!fresh()||age>(snapshot?.host==='windows'?3:m.host==='windows'?30:3);
+  return{expired,current:!expired&&Number.isFinite(age)};
+}
+function models(){const elapsed=snapshot?Math.max(0,Date.now()/1000-snapshot.sampledAt):0;return(snapshot?.models||[]).map(m=>modelFreshness(m,elapsed).expired?{...m,state:'stale',loaded:null,queued:null}:m);}
 function displayedModels(){return runtimeModelRoster(models(),{scope:modelScope,observedRows:snapshot?.models});}
 function clientRows(){const input=Array.isArray(snapshot?.clients)?snapshot.clients:[];return CLIENTS.map(([id,label])=>{const entry=input.find(c=>c?.id===id)||{},seen=new Set();const raw=Array.isArray(entry.models)&&entry.models.length?entry.models:entry.model?[{id:entry.model,modelState:entry.modelState,observedAt:entry.observedAt,ageSeconds:entry.ageSeconds,source:entry.source}]:[];const recent=raw.filter(m=>{if(typeof m?.id!=='string'||!m.id.trim()||seen.has(m.id))return false;seen.add(m.id);return true;}).slice(0,3).map(m=>({...m,modelState:['observed','configured'].includes(m.modelState)?m.modelState:'unknown',activity:'unknown'}));return{id,label,model:typeof entry.model==='string'&&entry.model.trim()?entry.model:null,modelState:['observed','configured'].includes(entry.modelState)?entry.modelState:'unknown',observedAt:Number.isFinite(entry.observedAt)?entry.observedAt:null,ageSeconds:Number.isFinite(entry.ageSeconds)?entry.ageSeconds:null,activity:'unknown',source:typeof entry.source==='string'&&entry.source?entry.source:'Unavailable',detail:typeof entry.detail==='string'&&entry.detail?entry.detail:'No client model identity available.',models:recent,subagents:SUBAGENT_UNKNOWN};});}
 function clientIdentityCounts(){const rows=clientRows(),observed=rows.filter(c=>c.models.some(m=>m.modelState==='observed')).length,configured=rows.filter(c=>!c.models.some(m=>m.modelState==='observed')&&c.models.some(m=>m.modelState==='configured')).length;return{observed,configured,unknown:rows.length-observed-configured,total:rows.length};}
@@ -148,11 +154,11 @@ function traceGraph(){
   });
   if(!calls.length){const n=addNode('checkpoint',run.stage||'Checkpoint',680,330,{color:'#8471af',subtitle:'EXECUTION UNKNOWN',kind:'run',run,unknown:true});edge(root.id,n.id,n.color,true);}
 }
-// Windows lanes: readings that describe "now" are shown as current only from a fresh, unpaused feed; otherwise they
-// are labelled as the last sample so a stale inspector never reads like live telemetry.
-function windowsLaneLiveRows(m){const md=m.metadata||{},live=fresh()&&!paused,at=v=>live?v:`${v} (at last sample)`,callers=md.callers;
-  return[['Slots',Number.isInteger(md.slotsTotal)?at(`${md.slotsBusy}/${md.slotsTotal} busy`):'Unknown'],
-    ['Live decode',Number.isFinite(md.liveTokensPerSecond)?at(`${md.liveTokensPerSecond} tok/s (between two slot polls)`):'Not generating, or not measurable yet'],
+// On the Windows monitor, slot/decode readings also follow the lane's age. Process/caller readings
+// follow the full feed because they are sampled independently. Mac telemetry qualification is unchanged.
+function windowsLaneLiveRows(m){const md=m.metadata||{},live=fresh()&&!paused,onWindows=snapshot?.host==='windows',laneLive=live&&(!onWindows||modelFreshness(m).current),at=v=>live?v:`${v} (at last sample)`,laneAt=v=>laneLive?v:`${v} (at last sample)`,callers=md.callers;
+  return[['Slots',Number.isInteger(md.slotsTotal)&&(!onWindows||Number.isInteger(md.slotsBusy))?laneAt(`${md.slotsBusy}/${md.slotsTotal} busy`):'Unknown'],
+    ['Live decode',Number.isFinite(md.liveTokensPerSecond)?laneAt(`${md.liveTokensPerSecond} tok/s (between two slot polls)`):'Not generating, or not measurable yet'],
     ['Server process',md.process?at(lanePcProcessText(md.process)):'Unknown'],
     [live?'Connected now':'Connected (at last sample)',callers==null?'Unknown (connections not checked)':callers.length?callers.map(c=>`${c.name}${c.connections>1?` ×${c.connections}`:''}`).join(', '):'No local process connected']];}
 // Windows lanes: the llama-server process behind a lane (CPU share of the whole machine and resident memory).

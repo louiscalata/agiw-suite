@@ -155,6 +155,141 @@ for (const host of ['windows', 'mac']) {
   });
 }
 
+// Producer shape: lane_model_row plus Collector's independently sampled process/caller metadata.
+// Collector._lane retains the slot total but clears busy/rate when its poll result expires.
+function laneModel(ageSeconds = 0, expired = false) {
+  return { id: 'openai/gpt-oss-20b', name: 'gpt-oss-20b', host: 'windows',
+    state: expired ? 'unknown' : 'generating', loaded: expired ? null : true,
+    source: expired ? 'llama-health' : 'llama-slots', ageSeconds, queued: null,
+    metadata: { lane: 'fast', port: 1235, device: 'CUDA0', servedModel: 'openai/gpt-oss-20b',
+      laneStatus: expired ? 'stale' : 'busy', slotsTotal: 2, slotsBusy: expired ? null : 1,
+      liveTokensPerSecond: expired ? null : 55, detail: expired ? 'Last lane answer is 4 s old (busy then)' : null,
+      process: { name: 'llama-server', pid: 4242, cpuPercent: 8, workingSetBytes: 2 ** 30 },
+      callers: [{ name: 'Codex', client: 'codex', connections: 2 }] } };
+}
+
+function laneInspector(row, { snapshotAge = 0, host = 'windows', paused = false, connected = true } = {}) {
+  const now = 1_800_000_000;
+  class ClockDate extends Date { static now() { return now * 1000; } }
+  const result = harness({ extra: { Date: ClockDate } }), { api, $ } = result;
+  api.setFeed({ schemaVersion: 1, host, sampledAt: now - snapshotAge, fullSampledAt: now - snapshotAge,
+    models: [row], clients: [], sources: [], activityKnown: row.source === 'llama-slots',
+    pipeline: { status: 'idle' } }, connected);
+  api.setPaused(paused);
+  $('drawer').append($('inspector'));
+  $('drawer').hidden = false;
+  const key = `model:${row.host}:${row.id}`;
+  api.select(key);
+  api.renderInspector();
+  const body = $('inspector');
+  const pairs = Object.fromEntries(body.querySelectorAll('dt').map(dt =>
+    [dt.textContent, dt.parentNode.children[dt.parentNode.children.indexOf(dt) + 1].textContent]));
+  return { ...result, body, pairs, key };
+}
+
+test('Lane inspector: fresh readings and the exact Windows age boundary stay current', () => {
+  for (const [age, snapshotAge] of [[0, .2], [2, 1]]) {
+    const { pairs } = laneInspector(laneModel(age), { snapshotAge });
+    assert.equal(pairs.Slots, '1/2 busy');
+    assert.equal(pairs['Live decode'], '55 tok/s (between two slot polls)');
+    assert.equal(pairs['Server process'], 'llama-server (pid 4242) · 8% CPU · 1.0 GB RAM');
+    assert.equal(pairs['Connected now'], 'Codex ×2');
+  }
+});
+
+test('Lane inspector: an expired lane on a fresh feed marks slots and decode as history only', () => {
+  const { api, body, pairs, key } = laneInspector(laneModel(2.9), { snapshotAge: .2 });
+  assert.equal(api.nodeSubtitle(key), 'Stale');
+  assert.match(body.querySelector('.panel-summary').textContent, /^Evidence stale/);
+  assert.equal(pairs.Slots, '1/2 busy (at last sample)');
+  assert.equal(pairs['Live decode'], '55 tok/s (between two slot polls) (at last sample)');
+  // Process and caller observations came from this collection, independently of the old lane poll.
+  assert.equal(pairs['Server process'], 'llama-server (pid 4242) · 8% CPU · 1.0 GB RAM');
+  assert.equal(pairs['Connected now'], 'Codex ×2');
+  assert.equal(pairs['Connected (at last sample)'], undefined);
+});
+
+test('Lane inspector: a collector-expired busy count is unknown even when the old total remains', () => {
+  const { body, pairs } = laneInspector(laneModel(4, true), { snapshotAge: .2 });
+  assert.match(body.querySelector('.panel-summary').textContent, /^Evidence stale/);
+  assert.equal(pairs.Slots, 'Unknown');
+  assert.doesNotMatch(pairs.Slots, /null/);
+  assert.equal(pairs['Live decode'], 'Not generating, or not measurable yet');
+});
+
+test('Lane inspector: pausing makes both lane and collection readings historical', () => {
+  const { pairs } = laneInspector(laneModel(), { paused: true });
+  assert.equal(pairs.Slots, '1/2 busy (at last sample)');
+  assert.equal(pairs['Live decode'], '55 tok/s (between two slot polls) (at last sample)');
+  assert.equal(pairs['Server process'], 'llama-server (pid 4242) · 8% CPU · 1.0 GB RAM (at last sample)');
+  assert.equal(pairs['Connected (at last sample)'], 'Codex ×2');
+  assert.equal(pairs['Connected now'], undefined);
+});
+
+test('Lane inspector: stale or disconnected feeds keep every observation historical', () => {
+  for (const options of [{ snapshotAge: 4 }, { connected: false }]) {
+    const { pairs } = laneInspector(laneModel(), options);
+    assert.equal(pairs.Slots, '1/2 busy (at last sample)');
+    assert.equal(pairs['Live decode'], '55 tok/s (between two slot polls) (at last sample)');
+    assert.match(pairs['Server process'], /\(at last sample\)$/);
+    assert.equal(pairs['Connected (at last sample)'], 'Codex ×2');
+  }
+});
+
+test('Lane inspector: absent or non-finite lane age cannot make slot and decode readings current', () => {
+  for (const age of [undefined, null, '0', NaN, Infinity, -Infinity]) {
+    const row = laneModel(); row.ageSeconds = age;
+    const { pairs } = laneInspector(row);
+    assert.equal(pairs.Slots, '1/2 busy (at last sample)', String(age));
+    assert.equal(pairs['Live decode'], '55 tok/s (between two slot polls) (at last sample)', String(age));
+    assert.equal(pairs['Connected now'], 'Codex ×2', String(age));
+    assert.doesNotMatch(pairs['Server process'], /at last sample/, String(age));
+  }
+});
+
+test('Lane inspector: both slot counts must be integers and a zero busy count remains known', () => {
+  for (const patch of [{ slotsBusy: null }, { slotsBusy: undefined }, { slotsBusy: false }, { slotsBusy: 1.5 },
+    { slotsTotal: null }, { slotsTotal: undefined }, { slotsTotal: false }, { slotsTotal: 2.5 }]) {
+    const row = laneModel(); Object.assign(row.metadata, patch);
+    const { pairs } = laneInspector(row);
+    assert.equal(pairs.Slots, 'Unknown', JSON.stringify(patch));
+  }
+  const row = laneModel(); row.metadata.slotsBusy = 0;
+  assert.equal(laneInspector(row).pairs.Slots, '0/2 busy');
+});
+
+test('Lane inspector: shared model expiry preserves Mac local 3s and remote Windows 30s boundaries', () => {
+  for (const [modelHost, age, stale] of [['mac', 3, false], ['mac', 3.01, true],
+    ['windows', 30, false], ['windows', 30.01, true]]) {
+    const row = laneModel(age); row.host = modelHost; row.state = 'idle';
+    row.source = modelHost === 'mac' ? 'lms-ps' : 'llama-slots';
+    if (modelHost === 'mac') row.metadata = {};
+    const { api, body, key } = laneInspector(row, { host: 'mac' });
+    assert.equal(api.nodeSubtitle(key), stale ? 'Stale' : 'Idle', `${modelHost}: ${age}s`);
+    assert.match(body.querySelector('.panel-summary').textContent,
+      stale ? /^Evidence stale/ : /^Loaded · idle/, `${modelHost}: ${age}s`);
+  }
+});
+
+test('Lane inspector: Mac snapshots keep their existing Windows-row telemetry formatting', () => {
+  for (const age of [31, undefined, null, NaN, Infinity, -Infinity]) {
+    const row = laneModel(); row.ageSeconds = age;
+    const { pairs } = laneInspector(row, { host: 'mac' });
+    assert.equal(pairs.Slots, '1/2 busy', String(age));
+    assert.equal(pairs['Live decode'], '55 tok/s (between two slot polls)', String(age));
+    assert.equal(pairs['Server process'], 'llama-server (pid 4242) · 8% CPU · 1.0 GB RAM', String(age));
+    assert.equal(pairs['Connected now'], 'Codex ×2', String(age));
+    assert.equal(pairs['Connected (at last sample)'], undefined, String(age));
+  }
+  // This guard preserves legacy Mac output; validating the missing count belongs to the Windows host only.
+  const row = laneModel(31); row.metadata.slotsBusy = null;
+  const { pairs } = laneInspector(row, { host: 'mac' });
+  assert.equal(pairs.Slots, 'null/2 busy');
+  assert.equal(pairs['Live decode'], '55 tok/s (between two slot polls)');
+  assert.equal(pairs['Server process'], 'llama-server (pid 4242) · 8% CPU · 1.0 GB RAM');
+  assert.equal(pairs['Connected now'], 'Codex ×2');
+});
+
 const completionRun = (completionEvidence, testsStatus='NOT_RUN') => ({
   runId:'evidence-run',source:'router-archive',status:'RESPONSE_VALIDATED',
   stage:'finalValidation',host:'mac',client:'codex',calls:[],testsStatus,completionEvidence,
