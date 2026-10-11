@@ -687,17 +687,20 @@ function onlineCodeTabLabel(mode,tight=false){if(mode.state==='ready'||mode.stat
   if(several)return tight?`${mode.runCounts.running} running · ${mode.runCounts.queued} queued`:`Processing · ${mode.runCounts.running} running · ${mode.runCounts.queued} queued`;
   return mode.state==='processing'?(mode.client&&!tight?`Processing · ${mode.client}`:'Task processing'):mode.state==='unfinished'?'Unfinished task':'Route unknown';}
 function pcLiveRows(live,{feedFresh,snapshotAge}){
-  // The PC's own observation, via the paired LAN link or the share files; shown only while fresh.
+  // The PC's own report, via the paired LAN link or the share files; shown only while fresh. Either way it is the PC's
+  // word, never a measurement here: the paired link proves which machine sent it, an unsigned share file proves
+  // nothing, so the share path is titled an unsigned report and is never called live, and rates are "reported".
   if(!feedFresh||!live||!Array.isArray(live.models)||!Number.isFinite(live.ageSeconds)||live.ageSeconds<0||!Number.isFinite(snapshotAge)||snapshotAge<0)return null;
   const age=live.ageSeconds+snapshotAge;if(age<0||age>30)return null;
   const via=live.via==='lan'?'paired LAN link, signed':'SharedChami files, unsigned';
-  const rows=live.models.slice(0,8).map(m=>[String(m.id),[m.loadedState==='loaded'?'Loaded':m.loadedState==='inactive'?'Not loaded':'Unknown',m.activity&&m.activity!=='unknown'?capital(m.activity):null,Number.isInteger(m.slotsTotal)?`${m.slotsBusy??'?'}/${m.slotsTotal} slots busy`:null,Number.isFinite(m.liveTokensPerSecond)?`${m.liveTokensPerSecond} tok/s now`:null].filter(Boolean).join(' · ')]);
+  const rows=live.models.slice(0,8).map(m=>[String(m.id),[m.loadedState==='loaded'?'Loaded':m.loadedState==='inactive'?'Not loaded':'Unknown',m.activity&&m.activity!=='unknown'?capital(m.activity):null,Number.isInteger(m.slotsTotal)?`${m.slotsBusy??'?'}/${m.slotsTotal} slots busy`:null,Number.isFinite(m.liveTokensPerSecond)?`${m.liveTokensPerSecond} tok/s reported`:null].filter(Boolean).join(' · ')]);
   // Every graphics adapter the PC reports (the AMD card too, which the worker heartbeat leaves out), inside the same
   // 30 s gate. A reading is whole-card load from every app, never a running model.
   if(Array.isArray(live.gpus)&&live.gpus.length)rows.push(...pcAdaptersView(live.gpus,{feedFresh:true}).rows);
   if(live.memory?.level)rows.push(['PC memory',`${capital(String(live.memory.level))}${Number.isFinite(live.memory.availablePercent)?` · ${live.memory.availablePercent}% free`:''}`]);
   rows.push(['Observed',`${ageText(age)} · via ${via}`]);
-  return {title:`Live from ${live.host||'the PC'}`,rows};
+  const host=live.host||'the PC';
+  return {title:live.via==='lan'?`From ${host} · paired link`:`Unsigned report from ${host}`,rows};
 }
 function pcLinkLabel(live,{feedFresh,snapshotAge}){
   // The map's link word for the PC node, in the PC edition's wording for its Mac node: the paired, signed LAN
@@ -853,7 +856,7 @@ async function requestOnlineCodeAction(action){
 function vitalsInput(){const worker=snapshot?.windowsWorker||null,age=Math.max(0,sampleAge()),heartbeatAge=Number.isFinite(worker?.ageSeconds)?worker.ageSeconds+age:null,pcFresh=fresh()&&heartbeatAge!==null&&heartbeatAge>=0&&heartbeatAge<=60&&['advertised','degraded','stopped'].includes(worker?.state),jobs=windowsJobsView(snapshot?.windowsJobs,{feedFresh:fresh(),snapshotAge:age}),lanes=windowsLaneView(worker,jobs,{feedFresh:pcFresh,snapshotAge:age}),feed=activityFeed(jobs,snapshot?.host==='mac'?runs():[],{limit:12,feedFresh:liveNow()});
   const rows=models(),hostLive=(snapshot?.sources||[]).some(s=>['lmstudio-api','lms-ps'].includes(s.id)&&s.state==='live'),nisi=Array.isArray(snapshot?.components)?snapshot.components.find(c=>c.id==='nisi'):null;
   const windowsHost=snapshot?.host==='windows';
-  // The Mac's PC chip leads with the PC's own fresh report (the inspector's "Live from" gate); the Windows host keeps macPeerView.
+  // The Mac's PC chip leads with the PC's own fresh report (the inspector's PC report gate); the Windows host keeps macPeerView.
   const pcReport=snapshot?.host==='mac'?pcReportView(snapshot?.windowsLive,{feedFresh:liveNow(),snapshotAge:age}):null;
   const vitals=vitalsView({fresh:fresh(),pcFresh,models:rows,activityKnown:fresh()&&snapshot?.activityKnown===true,loadedKnown:(hostLive||windowsHost&&(snapshot?.sources||[]).some(s=>s.id==='lane-inventory'&&s.state==='live'))&&rows.every(m=>typeof m.loaded==='boolean'),lanes,worker,jobs,pipeline:snapshot?.pipeline,nisi,feed,gpu:windowsHost?pcGpuView(worker,{feedFresh:pcFresh,snapshotAge:age}):macGpuView(snapshot?.macGpu,{feedFresh:fresh(),snapshotAge:age}),pcGpu:pcGpuView(worker,{feedFresh:pcFresh,snapshotAge:age}),memory:memoryView(snapshot?.memory,{feedFresh:fresh()}),activityLive:liveNow(),routeReviews:snapshot?.host==='mac'?routeReviewCounts(runs(),snapshot?.activity?.historyBound):null,pcReport});
   // Windows edition: the first chip is this PC (its lanes, GPU and memory); the second is the Mac as a LAN peer.

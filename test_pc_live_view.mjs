@@ -26,7 +26,7 @@ const row = (view, label) => view.rows.find(([key]) => key === label)?.[1];
 
 test('fresh share feed names the PC and preserves loaded, idle and zero busy slots', () => {
   assert.deepEqual(pcLiveRows(feed(), fresh), {
-    title: 'Live from louisaurorar12',
+    title: 'Unsigned report from louisaurorar12',
     rows: [['gpt-oss-20b', 'Loaded · Idle · 0/2 slots busy'],
       ['Observed', '5s ago · via SharedChami files, unsigned']],
   });
@@ -37,7 +37,10 @@ test('LAN and share provenance use distinct signed and unsigned wording', () => 
     '5s ago · via paired LAN link, signed');
   assert.equal(row(pcLiveRows(feed({via: 'share'}), fresh), 'Observed'),
     '5s ago · via SharedChami files, unsigned');
-  assert.equal(pcLiveRows(feed({host: ''}), fresh).title, 'Live from the PC');
+  assert.equal(pcLiveRows(feed({host: ''}), fresh).title, 'Unsigned report from the PC');
+  // The paired link names the peer that signed the report; what the PC says it is doing stays its own report.
+  assert.equal(pcLiveRows(feed({via: 'lan'}), fresh).title, 'From louisaurorar12 · paired link');
+  assert.equal(pcLiveRows(feed({via: 'lan', host: ''}), fresh).title, 'From the PC · paired link');
 });
 
 test('a stale containing feed hides even a just-observed PC feed', () => {
@@ -59,7 +62,7 @@ test('negative ages cannot become live when the other age offsets them', () => {
   }
 });
 
-test('missing or nonfinite ages never claim Live from with an unknown age', () => {
+test('missing or nonfinite ages never show a PC report with an unknown age', () => {
   for (const age of [undefined, null, NaN, Infinity, -Infinity, '4']) {
     assert.equal(pcLiveRows(feed({ageSeconds: age}), fresh), null, `feed age ${String(age)}`);
     assert.equal(pcLiveRows(feed(), {feedFresh: true, snapshotAge: age}), null,
@@ -82,10 +85,10 @@ test('unknown loaded state stays Unknown and inactive says Not loaded', () => {
   assert.equal(row(view, 'model'), 'Not loaded');
 });
 
-test('finite live token rates, including zero, appear without inventing a rate', () => {
+test('finite reported token rates, including zero, appear without inventing a rate', () => {
   for (const rate of [0, 104.3]) {
     const view = pcLiveRows(feed({models: [model({liveTokensPerSecond: rate})]}), fresh);
-    assert.equal(row(view, 'gpt-oss-20b'), `Loaded · Idle · 0/2 slots busy · ${rate} tok/s now`);
+    assert.equal(row(view, 'gpt-oss-20b'), `Loaded · Idle · 0/2 slots busy · ${rate} tok/s reported`);
   }
   for (const rate of [undefined, null, NaN, Infinity, -Infinity, '104.3', true]) {
     const view = pcLiveRows(feed({models: [model({liveTokensPerSecond: rate})]}), fresh);
@@ -132,7 +135,7 @@ test('every reported graphics adapter sits between the model rows and PC memory'
     ['Observed', '5s ago · via SharedChami files, unsigned'],
   ]);
   // The attribution stays on the panel: its title and the Observed row name the PC and the unsigned transport.
-  assert.equal(view.title, 'Live from louisaurorar12');
+  assert.equal(view.title, 'Unsigned report from louisaurorar12');
 });
 
 test('adapters share the 30-second gate and add nothing when none are reported', () => {
@@ -144,4 +147,30 @@ test('adapters share the 30-second gate and add nothing when none are reported',
   // A malformed adapter list says so rather than vanishing or inventing a card.
   assert.equal(row(pcLiveRows(feed({gpus: [{name: '<b>\u00e9</b>'}]}), fresh), 'Graphics'), 'No adapter reading');
   assert.equal(row(pcLiveRows(feed({gpus: [{name: 'AMD Radeon RX 5700 XT'}]}), fresh), 'AMD Radeon RX 5700 XT'), 'load unknown');
+});
+
+// Review finding D2 (10 Oct 2026): a guest-writable share file can carry any current timestamp, so the share path is
+// an unsigned report and is never worded as live or current activity, whatever it claims.
+test('the share path is never labelled live, in its title, its rows or its rates', () => {
+  const claims = [feed(), feed({ageSeconds: 0, health: 'ok'}),
+    feed({models: [model({activity: 'generating', slotsBusy: 2, liveTokensPerSecond: 250})], gpus: ADAPTERS,
+      memory: {level: 'critical', availablePercent: 2}}),
+    feed({via: 'mdns'}), feed({via: undefined})];
+  for (const live of claims) {
+    const view = pcLiveRows(live, fresh);
+    const text = [view.title, ...view.rows.flat()].join(' | ');
+    assert.ok(view.title.startsWith('Unsigned report from '), view.title);
+    assert.doesNotMatch(text, /\blive\b|\bnow\b|signed\)|paired link/i, text);
+    assert.match(row(view, 'Observed'), /unsigned$/);
+  }
+  const rated = pcLiveRows(claims[2], fresh);
+  assert.equal(row(rated, 'gpt-oss-20b'), 'Loaded · Generating · 2/2 slots busy · 250 tok/s reported');
+});
+
+// Review finding A1 (10 Oct 2026): the PC's probes.memory_level emits "tight" (6-12 % free, or commit >= 95 %); the
+// inspector keeps its PC memory row for every level the PC emits.
+test('every PC memory level, tight included, keeps the PC memory row', () => {
+  for (const [level, words] of [['ok', 'Ok'], ['watch', 'Watch'], ['tight', 'Tight'], ['critical', 'Critical'], ['unknown', 'Unknown']]) {
+    assert.equal(row(pcLiveRows(feed({memory: {level, availablePercent: 10}}), fresh), 'PC memory'), `${words} · 10% free`, level);
+  }
 });

@@ -106,6 +106,74 @@ class MacPresenceShape(unittest.TestCase):
         self.assertEqual(set(mac["gpus"][0]), set(pc["gpus"][0]))
         self.assertEqual((set(mac["memory"]), set(mac["dashboard"])), (set(pc["memory"]), set(pc["dashboard"])))
 
+    def test_encoded_and_uri_forms_never_leak_folders(self):
+        # Daybreak: single-part percent-encoded paths / URIs slipped past the two-part rule.
+        cases = {
+            "file:%2FUsers%2Falice%2Fsecret.gguf": "secret",
+            "file:%2FUsers%2Falice%2Fsecret": "secret",
+            "file:%2FUsers%2Falice": None,
+            "%2Fhome%2Fbob%2Fmodels%2Fm.safetensors": "m",
+            "file:Users": "Users",
+            "name%ZZ": None,  # a malformed escape is never a registry id, and '%' itself never publishes
+            "hf:org/model": "model",
+        }
+        for raw, expected in cases.items():
+            self.assertEqual(peer_feed.public_id(raw), expected, raw)
+        for kept in ("qwen/qwen3.8-27b", "gpt-oss:20b", "qwen3:8b", "google/gemma-4-26b-a4b-qat"):
+            self.assertEqual(peer_feed.public_id(kept), kept)
+        for raw in cases:
+            out = peer_feed.public_id(raw) or ""
+            self.assertNotIn("alice", out)
+            self.assertNotIn("%", out)
+
+    def test_path_shaped_model_ids_never_leak_folders(self):
+        # Review finding D4: a relative path reported as a model id publishes only its bare final name.
+        for value, published in (("Users/alice/private/models/secret.gguf", "secret"),
+                                 ("lmstudio-community/Qwen3-8B-GGUF/Qwen3-8B-Q4_K_M.gguf", "Qwen3-8B-Q4_K_M"),
+                                 ("publisher/model.safetensors", "model"), ("models/weights.bin", "weights"),
+                                 ("mlx-community/thing.mlx", "thing"), ("../../alice/x", "x"), ("~/models/m", "m"),
+                                 ("/Users/alice/m.gguf", "m"), ("C:\\Users\\alice\\Q.gguf", "Q"),
+                                 ("file:///Users/alice/q", "q"), ("a b/c", "c"), ("secret.GGUF", "secret"),
+                                 (".gguf", None), ("..", None), ("/", None), ("", None), ("  ", None), (7, None),
+                                 # Registry-style ids, one name or publisher/model, are published as they are.
+                                 ("qwen/qwen3.8-27b", "qwen/qwen3.8-27b"), ("google/gemma-4", "google/gemma-4"),
+                                 ("qwen/qwen3-8b:2", "qwen/qwen3-8b:2"), ("gpt-oss-20b", "gpt-oss-20b"),
+                                 ("Qwen3.8-27B Q4_K_M", "Qwen3.8-27B Q4_K_M"), ("qwen3:8b", "qwen3:8b")):
+            self.assertEqual(peer_feed.public_id(value), published, value)
+        rows = [{"id": "Users/alice/private/models/secret.gguf", "host": "mac", "loaded": True, "state": "idle",
+                 "modelKey": "Users/alice/private/models/secret-key.gguf"},
+                {"id": "qwen/qwen3.8-27b", "host": "mac", "loaded": False, "state": "unloaded",
+                 "modelKey": "work/clients/acme/qwen.safetensors"}]
+        doc = peer_feed.share_presence(snapshot(models=rows), HOST)
+        self.assertEqual([(m["id"], m["aliases"]) for m in doc["models"]],
+                         [("secret", ["secret-key"]), ("qwen/qwen3.8-27b", ["qwen"])])
+        text = json.dumps(doc)
+        for leak in ("Users", "alice", "private", "models/", ".gguf", ".safetensors", "clients", "acme"):
+            self.assertNotIn(leak, text)
+
+    def test_two_part_paths_and_mid_name_extensions_are_path_shaped(self):
+        # Review follow-up to D4: two-part relative paths under a home or system folder, and model-file extensions
+        # anywhere in a name (a .part download), are path-shaped too. The name right after a home folder is an
+        # account name, so such a value is dropped rather than published as its final name.
+        for value, published in (("Users/alice", None), ("home/alice", None), ("HOME/alice", None),
+                                 ("Users/alice/", None), ("/Users/alice", None), ("/home/alice/", None),
+                                 ("C:\\Users\\alice", None), ("~alice", None), ("~", None),
+                                 ("private/models", "models"), ("var/weights", "weights"), ("tmp/q", "q"),
+                                 ("alice/secret.gguf.part", "secret"), ("secret.gguf.part", "secret"),
+                                 ("models/q.safetensors.download", "q"), ("Users/alice/q.gguf.part", "q"),
+                                 # Extensions count only as whole dot-separated pieces.
+                                 ("mlx-community/Qwen3-8B-4bit", "mlx-community/Qwen3-8B-4bit"),
+                                 ("acme/model.bin-v2", "acme/model.bin-v2"), ("qwen/qwen3.8-27b", "qwen/qwen3.8-27b"),
+                                 # The documented limit: a two-part relative path shaped like publisher/model.
+                                 ("alice/private-models", "alice/private-models")):
+            self.assertEqual(peer_feed.public_id(value), published, value)
+        rows = [{"id": "Users/alice", "host": "mac", "loaded": True, "state": "idle", "modelKey": "home/alice"},
+                {"id": "qwen/qwen3.8-27b", "host": "mac", "loaded": True, "state": "idle",
+                 "modelKey": "alice/qwen.gguf.part"}]
+        doc = peer_feed.share_presence(snapshot(models=rows), HOST)
+        self.assertEqual([(m["id"], m["aliases"]) for m in doc["models"]], [("qwen/qwen3.8-27b", ["qwen"])])
+        self.assertNotIn("alice", json.dumps(doc))
+
     def test_unverified_activity_and_missing_inventory_are_not_claimed(self):
         doc = peer_feed.mac_presence(snapshot(activityKnown=False), HOST)
         self.assertEqual([m["activity"] for m in doc["models"]], ["unknown", "unknown"])
@@ -170,7 +238,8 @@ class MacPresenceShape(unittest.TestCase):
         self.assertEqual(doc["gpus"], [])
         self.assertEqual(doc["memory"], {"level": None, "availablePercent": None})
         self.assertEqual(doc["dashboard"]["port"], None)
-        self.assertEqual([(m["id"], m["slotsTotal"]) for m in doc["models"]], [("secret.gguf", None)])
+        # A path keeps only its final name, without the model-file extension (review finding D4).
+        self.assertEqual([(m["id"], m["slotsTotal"]) for m in doc["models"]], [("secret", None)])
 
     def test_rows_are_capped(self):
         many = [{"id": f"m{i}", "host": "mac", "loaded": False} for i in range(50)]
@@ -589,6 +658,78 @@ class Config(unittest.TestCase):
         self.path.write_text('{"publishStatus": false, "peerLink": false}')
         options = peer_feed.link_options(peer_link_flag=True, config_path=self.path)
         self.assertEqual((options["peerLink"], options["lanLink"], options["enabledBy"]), (True, True, "--peer-link"))
+
+    def test_foreign_owned_config_is_ignored_and_flags_still_win(self):
+        # Review finding D3: only a file this user owns may turn the opt-ins on.
+        self.path.write_text('{"publishStatus": true, "peerLink": true}')
+        os.chmod(self.path, 0o600)
+        target, real_fstat = os.stat(self.path).st_ino, os.fstat
+
+        def fstat(fd):
+            info = real_fstat(fd)
+            if info.st_ino != target:
+                return info
+            return os.stat_result((info.st_mode, info.st_ino, info.st_dev, info.st_nlink, info.st_uid + 1, info.st_gid,
+                                   info.st_size, int(info.st_atime), int(info.st_mtime), int(info.st_ctime)))
+
+        with mock.patch.object(peer_feed.os, "fstat", side_effect=fstat):
+            options, row = peer_feed.load_config(self.path)
+            linked = peer_feed.link_options(peer_link_flag=True, config_path=self.path)
+        self.assertEqual(options, {"publishStatus": False, "peerLink": False})
+        self.assertEqual((row["id"], row["state"]), ("agiw-config", "error"))
+        self.assertIn("not owned by you", row["detail"])
+        self.assertNotIn(str(self.dir), row["detail"])
+        self.assertEqual((linked["publishStatus"], linked["peerLink"], linked["lanLink"], linked["enabledBy"]),
+                         (False, True, True, "--peer-link"))
+        self.assertIn("not owned by you", linked["configSource"]["detail"])
+        # The same file, owned by this user, turns both on.
+        self.assertEqual(peer_feed.load_config(self.path), ({"publishStatus": True, "peerLink": True}, None))
+
+    def test_group_or_world_writable_config_is_ignored(self):
+        self.path.write_text('{"publishStatus": true, "peerLink": true}')
+        for mode in (0o666, 0o620, 0o602, 0o622):
+            os.chmod(self.path, mode)
+            options, row = peer_feed.load_config(self.path)
+            self.assertEqual(options, {"publishStatus": False, "peerLink": False}, oct(mode))
+            self.assertEqual(row["state"], "error", oct(mode))
+            self.assertIn("writable by other users", row["detail"], oct(mode))
+            options = peer_feed.link_options(publish_status=True, config_path=self.path)
+            self.assertEqual((options["publishStatus"], options["peerLink"], options["enabledBy"]),
+                             (True, False, "--publish-status"), oct(mode))
+        for mode in (0o600, 0o644, 0o400):  # readable by others is fine; only writing could change the opt-ins
+            os.chmod(self.path, mode)
+            self.assertEqual(peer_feed.load_config(self.path), ({"publishStatus": True, "peerLink": True}, None), oct(mode))
+
+    @unittest.skipUnless(sys.platform == "darwin", "macOS extended ACLs")
+    def test_extended_acl_on_the_config_is_ignored(self):
+        # Daybreak: mode 0600 can still be writable by another account through an ACL.
+        self.path.write_text('{"publishStatus": true, "peerLink": true}')
+        os.chmod(self.path, 0o600)
+        subprocess.run(["/bin/chmod", "+a", "everyone allow write", str(self.path)], check=True)
+        options, row = peer_feed.load_config(self.path)
+        self.assertEqual(options, {"publishStatus": False, "peerLink": False})
+        self.assertIn("extended ACL", row["detail"])
+        subprocess.run(["/bin/chmod", "-N", str(self.path)], check=True)
+        self.assertEqual(peer_feed.load_config(self.path), ({"publishStatus": True, "peerLink": True}, None))
+
+    def test_config_acl_is_read_from_the_open_descriptor_and_fails_closed(self):
+        # Astra: the ACL must be the opened file's, not whatever the path names a moment later.
+        self.path.write_text('{"publishStatus": true}')
+        os.chmod(self.path, 0o600)
+        seen = []
+
+        def by_fd(fd):
+            seen.append(fd)
+            raise OSError(13, "denied")
+
+        with mock.patch.object(peer_feed.sys, "platform", "darwin"), \
+                mock.patch.object(peer_feed, "_fd_has_extended_acl", by_fd), \
+                mock.patch.object(peer_feed.subprocess, "run", side_effect=AssertionError("no pathname tool")):
+            options, row = peer_feed.load_config(self.path)
+        self.assertEqual(options, {"publishStatus": False, "peerLink": False})
+        self.assertIn("access list unreadable", row["detail"])
+        self.assertEqual(len(seen), 1)
+        self.assertIsInstance(seen[0], int)
 
     def test_default_path_sits_beside_the_peer_link_state(self):
         self.assertEqual(peer_feed.CONFIG_PATH.parent, Path.home() / "Library" / "Application Support" / "AGIW")
