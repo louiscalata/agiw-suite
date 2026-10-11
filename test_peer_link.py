@@ -18,6 +18,7 @@ import peer_link as pl
 
 
 _registry_scope = pl.threading.local()
+_TEST_REGISTRY_PARENT = r"Software\AGIW-test"
 
 
 def _install_registry_guard(registry):
@@ -76,6 +77,19 @@ if os.name == "nt":
     _install_registry_guard(_test_winreg)  # Intentionally stays installed until this process exits.
 
 
+def tearDownModule():
+    if os.name != "nt":
+        return
+    try:
+        with _test_winreg.OpenKey(_test_winreg.HKEY_CURRENT_USER, _TEST_REGISTRY_PARENT) as parent:
+            children, values, _ = _test_winreg.QueryInfoKey(parent)
+        # DeleteKey also deletes values. Other test runs may still own data below this parent.
+        if children == 0 and values == 0:
+            _test_winreg.DeleteKey(_test_winreg.HKEY_CURRENT_USER, _TEST_REGISTRY_PARENT)
+    except FileNotFoundError:
+        pass
+
+
 class PeerLinkCase(unittest.TestCase):
     """Native Windows tests own a temporary registry namespace and all their workers."""
 
@@ -84,7 +98,7 @@ class PeerLinkCase(unittest.TestCase):
         if os.name != "nt" or getattr(self.__class__, "__unittest_skip__", False) \
                 or getattr(method, "__unittest_skip__", False):
             return super().run(result)
-        self.registry_path = "Software\\AGIW-test\\" + pl.uuidlib.uuid4().hex
+        self.registry_path = _TEST_REGISTRY_PARENT + "\\" + pl.uuidlib.uuid4().hex
         self._test_threads, self._test_links = [], []
         self._node_registry_paths = {}
         self._registry_lock = pl.threading.Lock()
@@ -129,7 +143,7 @@ class PeerLinkCase(unittest.TestCase):
         directory = os.path.normcase(os.path.abspath(directory))
         with self._registry_lock:
             if directory not in self._node_registry_paths:
-                namespace = "Software\\AGIW-test\\" + pl.uuidlib.uuid4().hex
+                namespace = _TEST_REGISTRY_PARENT + "\\" + pl.uuidlib.uuid4().hex
                 self._node_registry_paths[directory] = namespace
                 self._registry_paths.append(namespace)
             return self._node_registry_paths[directory]
@@ -179,6 +193,37 @@ class PeerLinkCase(unittest.TestCase):
 
 @unittest.skipUnless(os.name == "nt", "native Windows registry isolation")
 class RegistryIsolation(PeerLinkCase):
+    def test_module_cleanup_removes_parent_after_test_namespaces_are_gone(self):
+        child = self.registry_path + "\\active-child"
+        with mock.patch(__name__ + "._TEST_REGISTRY_PARENT", self.registry_path), \
+                mock.patch.object(pl, "_GENERATIONS", child):
+            try:
+                pl._gen_set(PEER, "a" * 32)
+                tearDownModule()
+                self.assertEqual(pl._gen_get(PEER), "a" * 32, "an active namespace must be preserved")
+                _test_winreg.DeleteKey(_test_winreg.HKEY_CURRENT_USER, child)
+                tearDownModule()
+                with self.assertRaises(FileNotFoundError):
+                    _test_winreg.OpenKey(_test_winreg.HKEY_CURRENT_USER, self.registry_path)
+            finally:
+                try:
+                    _test_winreg.DeleteKey(_test_winreg.HKEY_CURRENT_USER, child)
+                except FileNotFoundError:
+                    pass
+
+    def test_module_cleanup_preserves_parent_values(self):
+        sentinel = pl.uuidlib.uuid4().hex
+        with mock.patch(__name__ + "._TEST_REGISTRY_PARENT", self.registry_path), \
+                _test_winreg.CreateKeyEx(_test_winreg.HKEY_CURRENT_USER, self.registry_path, 0,
+                                        _test_winreg.KEY_SET_VALUE | _test_winreg.KEY_QUERY_VALUE) as parent:
+            _test_winreg.SetValueEx(parent, sentinel, 0, _test_winreg.REG_SZ, "another test's data")
+            try:
+                tearDownModule()
+                self.assertEqual(_test_winreg.QueryValueEx(parent, sentinel),
+                                 ("another test's data", _test_winreg.REG_SZ))
+            finally:
+                _test_winreg.DeleteValue(parent, sentinel)
+
     def test_routing_does_not_hide_missing_backend_locks(self):
         observed = []
 
