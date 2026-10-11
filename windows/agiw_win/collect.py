@@ -130,14 +130,15 @@ class Collector:
                     "servedModel": None, "status": "unknown", "slots": [], "slotsBusy": None, "slotsTotal": None,
                     "phase": None, "detail": "First lane probe pending", "device": spec.get("device"), "ageSeconds": None}
         at, lane = latest
-        age = round(max(0.0, now - at), 2)
+        age = now - at
+        display_age = round(max(0.0, age), 2)
         if age > LANE_FRESH_SECONDS:
             # A poller that stopped refreshing (hung lane, stalled socket) proves nothing about now:
             # keep identity for the inspector, drop every activity and liveness claim.
-            return {**lane, "ageSeconds": age, "status": "stale", "phase": None, "slotsBusy": None,
+            return {**lane, "ageSeconds": display_age, "status": "stale", "phase": None, "slotsBusy": None,
                     "liveTokensPerSecond": None,
-                    "detail": f"Last lane answer is {age:.0f} s old ({lane['status']} then)"}
-        return {**lane, "ageSeconds": age}
+                    "detail": f"Last lane answer is {display_age:.0f} s old ({lane['status']} then)"}
+        return {**lane, "ageSeconds": display_age}
 
     def close(self) -> None:
         with self._lock:
@@ -254,7 +255,7 @@ class Collector:
             "Slot activity read from every lane" if complete else
             "; ".join(f"{lane['id']}: {lane['detail']}" for lane in lanes if lane["detail"]) or "Lane activity unavailable"))
 
-        fresh_lanes = all(lane["status"] != "unknown" and isinstance(lane["ageSeconds"], (int, float))
+        fresh_lanes = all(lane["status"] not in ("unknown", "stale") and isinstance(lane["ageSeconds"], (int, float))
                           and lane["ageSeconds"] <= 3 for lane in lanes)
         sources.append(probes._source("lane-inventory", "Lane inventory", "live" if fresh_lanes else "unavailable",
                                       "Every declared lane answered or refused within 3 s" if fresh_lanes
