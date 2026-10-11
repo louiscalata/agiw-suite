@@ -494,6 +494,79 @@ class PeerLink(unittest.TestCase):
         self.assertEqual(source["state"], "unavailable")
 
 
+class PeerPresenceCompleteness(unittest.TestCase):
+    def test_loaded_models_are_first_stable_and_total_precedes_the_cap(self):
+        lanes = [{"id": f"lane-{i}", "expectedModel": f"model-{i}", "status": "idle" if i in (33, 35) else "unknown"}
+                 for i in range(36)]
+        snapshot = {"sampledAt": 1000.0, "lanes": lanes}
+        presence = probes.peer_presence(snapshot, "pc")
+        self.assertEqual(presence["modelsTotal"], 36)
+        self.assertEqual([row["id"] for row in presence["models"]],
+                         ["model-33", "model-35"] + [f"model-{i}" for i in range(30)])
+        row = probes._validate_peer(presence, 1001.0)
+        self.assertFalse(row["modelsComplete"])
+        self.assertEqual(sum(model["loadedState"] == "loaded" for model in row["models"]), 2)
+        self.assertEqual(snapshot["lanes"], lanes)
+
+    def test_uncapped_and_empty_presence_lists_are_complete(self):
+        for lanes in ([], [{"id": "fast", "expectedModel": "model", "status": "idle"}]):
+            with self.subTest(lanes=lanes):
+                presence = probes.peer_presence({"sampledAt": 1000.0, "lanes": lanes}, "pc")
+                self.assertEqual(presence["modelsTotal"], len(lanes))
+                self.assertTrue(probes._validate_peer(presence, 1001.0)["modelsComplete"])
+
+
+class LegacyPeerCompleteness(unittest.TestCase):
+    def row(self, age=1.0, **over):
+        import datetime as dt
+        now = 2_000_000_000.0
+        observed = dt.datetime.fromtimestamp(now - age, dt.timezone.utc).isoformat().replace("+00:00", "Z")
+        value = {"schemaVersion": 1, "host": "mac", "observedAt": observed,
+                 "models": [{"id": "model", "host": "mac", "loadedState": "loaded", "activity": "idle"}], **over}
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / "llm-lab" / "status" / "mac-status.json"
+            path.parent.mkdir(parents=True)
+            path.write_text(json.dumps(value))
+            return probes._legacy_mac_status(root, now)
+
+    def test_complete_empty_and_32_row_inventories_need_no_total(self):
+        self.assertTrue(self.row()["modelsComplete"])
+        for count in (0, 32):
+            row = self.row(models=[{"id": f"model-{i}", "host": "mac", "loadedState": "unknown"} for i in range(count)])
+            self.assertEqual((len(row["models"]), row["modelsComplete"]), (count, True))
+
+    def test_nonlists_invalid_dropped_and_capped_rows_are_incomplete(self):
+        for models in (None, False, 0, "model", {}, [{"id": ""}], [{"id": "model", "host": "windows"}],
+                       [None], [{"id": "m", "host": "mac"}, {"id": 7, "host": "mac"}]):
+            with self.subTest(models=models):
+                self.assertFalse(self.row(models=models)["modelsComplete"])
+        row = self.row(models=[{"id": f"model-{i}", "host": "mac"} for i in range(33)])
+        self.assertEqual((len(row["models"]), row["modelsComplete"]), (32, False))
+
+    def test_duplicates_keep_the_first_occurrence(self):
+        row = self.row(models=[{"id": "same", "host": "mac", "loadedState": "inactive"},
+                               {"id": "same", "host": "mac", "loadedState": "loaded"}])
+        self.assertEqual(row["models"], [{"id": "same", "loadedState": "inactive", "activity": "unknown"}])
+        self.assertFalse(row["modelsComplete"])
+
+    def test_invalid_residency_is_unknown_and_incomplete(self):
+        for state in (None, True, False, 7, "loading", [], {}):
+            with self.subTest(state=state):
+                row = self.row(models=[{"id": "model", "host": "mac", "loadedState": state}])
+                self.assertEqual(row["models"], [{"id": "model", "loadedState": "unknown", "activity": "unknown"}])
+                self.assertFalse(row["modelsComplete"])
+        self.assertFalse(self.row(models=[{"id": "model", "host": "mac"}])["modelsComplete"])
+
+    def test_schema_and_freshness_use_canonical_values(self):
+        for schema in (True, False, 1.0, "1", None, 2):
+            with self.subTest(schema=schema):
+                self.assertIsNone(self.row(schemaVersion=schema))
+        for age, fresh in ((30.0, True), (30.049, False)):
+            row = self.row(age=age)
+            self.assertEqual((row["ageSeconds"], row["fresh"]), (30.0, fresh))
+
+
 class LaneConfig(unittest.TestCase):
     def test_reads_declared_lanes(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -553,7 +626,7 @@ class Memory(unittest.TestCase):
                                                       "processCount": 2, "gpuAllocBytes": None}])
         self.assertEqual(block["level"], "tight")
         self.assertEqual(block["availablePercent"], 6.2)
-        self.assertEqual(block["consumers"][0]["label"], "llama-server.exe")
+        self.assertEqual(block["consumers"][0]["label"], "Local LLM server")
         self.assertEqual(source["state"], "live")
 
     def test_unreadable(self):
@@ -818,6 +891,39 @@ class MacPeer(unittest.TestCase):
                                                           "windows": {"ip": "10.0.0.71"}}))
             hosts = probes.mac_hosts(Path(tmp))
         self.assertEqual((hosts["mdns"], hosts["ips"], hosts["ownIp"]), ("m.local", ["1.2.3.4"], "10.0.0.71"))
+
+    def test_configured_name_is_validated_without_a_lan_result(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / "llm-lab" / "mac-reach" / "hosts.json"
+            path.parent.mkdir(parents=True)
+            for name in ("Target-Mac", "target-mac.local"):
+                path.write_text(json.dumps({"mac": {"hostname": name, "ips": None}}))
+                self.assertEqual(probes.configured_mac_name(root), name)
+            for name in (None, True, 7, [], {}, "", "bad host", "bad/name", "target-mac\n", "x" * 64):
+                with self.subTest(name=name):
+                    path.write_text(json.dumps({"mac": {"hostname": name}}))
+                    self.assertIsNone(probes.configured_mac_name(root))
+                    self.assertIsNone(probes.mac_hosts(root)["hostname"])
+            for raw in ("{", "[]", '{"mac":[]}', json.dumps({"mac": {"hostname": "mac"}}) + " " * 256_000):
+                path.write_text(raw)
+                self.assertIsNone(probes.configured_mac_name(root))
+            path.unlink()
+            self.assertIsNone(probes.configured_mac_name(root))
+
+    def test_nonlist_recorded_ips_are_empty_in_config_and_candidates(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / "llm-lab" / "mac-reach" / "hosts.json"
+            path.parent.mkdir(parents=True)
+            for ips in (None, False, 7, "10.0.0.176", {"ip": "10.0.0.176"}):
+                with self.subTest(ips=ips):
+                    path.write_text(json.dumps({"mac": {"hostname": "target-mac", "ips": ips}}))
+                    hosts = probes.mac_hosts(root)
+                    self.assertEqual((hosts["hostname"], hosts["ips"]), ("target-mac", []))
+                    self.assertEqual(probes.candidate_addresses({**self.HOSTS, "ips": ips}, lambda _: [], own=set()), [])
+                    self.assertEqual(probes.candidate_addresses({**self.HOSTS, "ips": ips}, lambda _: ["10.0.0.9"], own=set()),
+                                     [("10.0.0.9", "mdns")])
 
 
 class PCStatusComponents(unittest.TestCase):

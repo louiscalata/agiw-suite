@@ -686,7 +686,7 @@ body>footer,body>footer button{font-size:10px}
 .memory-banner[data-level=critical]{border-color:#c25a58;background:#080808f2;color:#ffdcd9}
 .memory-banner-mark{flex:none;display:grid;place-items:center;width:20px;height:20px;border-radius:50%;background:var(--red);color:#1b0d0d;font:800 13px/1 var(--type-display)}
 .memory-banner-mark[hidden]{display:none}
-.memory-banner-copy{flex:1 1 auto;min-width:0;margin:0;font-size:12px;line-height:1.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.memory-banner-copy{flex:1 1 auto;min-width:0;margin:0;font-size:12px;line-height:1.35;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
 .memory-banner-copy strong{font:700 12px/1.35 var(--type-display);letter-spacing:.2px;margin-right:4px}
 .memory-banner button{flex:none;min-height:28px;padding:3px 10px;border-radius:7px;font:600 11px/1.2 var(--type-display);color:inherit}
 .memory-banner .memory-banner-details{border:1px solid currentColor}
@@ -699,10 +699,11 @@ body>footer,body>footer button{font-size:10px}
 /* Compact: while the bottom sheet is open the status chips leave the layout, and the banner goes with them (the Mac
    inspector carries the same memory facts; the announcer is separate and still speaks). */
 @media (max-width:820px){body:has(.evidence-rail>:not([hidden])) #memoryBanner{display:none}}
-@media (max-width:820px){.memory-banner{top:52px;left:12px;right:12px;padding-left:10px}.memory-banner-copy{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}}
-/* A long banner wraps instead of cutting its suggestion: two lines up to 1100 px (the rail beside the map steps a little lower
-   there), three at 560 px and below. The user's label is already cut to 32 characters (memoryBannerView). */
-@media (min-width:821px) and (max-width:1100px){.memory-banner-copy{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}body:has(#memoryBanner:not([hidden])) .evidence-rail{top:108px}}
+@media (max-width:820px){.memory-banner{top:52px;left:12px;right:12px;padding-left:10px}}
+/* A long banner wraps instead of cutting its suggestion (and a Nisi caveat, which memoryBannerView puts before the action):
+   two lines at every width, three at 560 px and below. Up to 1100 px the rail beside the map steps a little lower; from 980 px
+   the rail is its own column and the map fits below the banner. The user's label is already cut to 32 characters. */
+@media (min-width:821px) and (max-width:1100px){body:has(#memoryBanner:not([hidden])) .evidence-rail{top:108px}}
 @media (max-width:560px){.memory-banner-copy{-webkit-line-clamp:3}}
 @media (prefers-contrast:more){.memory-banner{border-color:currentColor}.fix-step-mark{border-width:2px}}
 @media (forced-colors:active){.memory-banner{border:2px solid CanvasText}.memory-banner-mark{forced-color-adjust:none}.fix-step-mark{forced-color-adjust:none}}

@@ -212,6 +212,9 @@ class EndToEnd(unittest.TestCase):
     def test_presence_round_trip_links_a_second_instance(self):
         data = self.collector.collect()
         share = Path(self.tmp.name)
+        hosts = share / "llm-lab" / "mac-reach" / "hosts.json"
+        hosts.parent.mkdir(parents=True)
+        hosts.write_text(json.dumps({"mac": {"hostname": "otherpc"}}), encoding="utf-8")
         probes.write_json_atomic(probes.peer_dir(share) / "otherpc.json",
                                  {**probes.peer_presence(data, "otherpc"), "platform": "macos"}, probes.PEER_MAX_BYTES)
         again = self.collector.collect()
@@ -289,6 +292,9 @@ class EndToEnd(unittest.TestCase):
     def test_share_link_is_aged_by_presence_and_normalized(self):
         # Codex round 2, findings 12 and 13.
         share = Path(self.tmp.name)
+        hosts = share / "llm-lab" / "mac-reach" / "hosts.json"
+        hosts.parent.mkdir(parents=True)
+        hosts.write_text(json.dumps({"mac": {"hostname": "louis-mac"}}), encoding="utf-8")
         data = self.collector.collect()
         probes.write_json_atomic(probes.peer_dir(share) / "louis-mac.json",
                                  {**probes.peer_presence(data, "louis-mac"), "platform": "macos"}, probes.PEER_MAX_BYTES)

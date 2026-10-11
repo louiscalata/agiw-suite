@@ -184,6 +184,15 @@ test('an empty LAN listing proves zero loaded while an empty share report leaves
   }
 });
 
+test('peer loaded totals cannot understate the validated loaded rows', () => {
+  const v = macPeerView(peer({loadedCount: 1, models: [
+    {id: 'a', state: 'loaded'}, {id: 'b', state: 'loaded'},
+  ]}), {feedFresh: true});
+  assert.equal(v.loadedKnown, false);
+  assert.equal(v.loadedCount, null);
+  assert.match(v.subtitle, /LOADED STATE UNKNOWN/);
+});
+
 test('fully known model residency keeps loaded and zero-loaded totals', () => {
   for (const state of ['linked', 'reachable']) {
     const known = macPeerView(peer({state, loadedCount: 1}), {feedFresh: true});
@@ -232,7 +241,7 @@ test('absence from a complete LAN inventory proves the expected model is not loa
 
 test('peer rows name each AGIW instance and its freshness', () => {
   const rows = agiwPeersRows([{host: 'louis-m5-pro', fresh: true, platform: 'macos', edition: 'mac', version: '1.0.0', ageSeconds: 4,
-    source: 'agiw-peers', models: [{id: 'a', loadedState: 'loaded'}]}, {host: 'bad host!', ageSeconds: 1}], {feedFresh: true});
+    source: 'agiw-peers', modelsComplete: true, models: [{id: 'a', loadedState: 'loaded'}]}, {host: 'bad host!', ageSeconds: 1}], {feedFresh: true});
   assert.equal(rows.length, 1);
   assert.match(rows[0][1], /^Reported \(unverified\) · macos · mac · 1\.0\.0 · 1 loaded · 4 s ago/);
   assert.deepEqual(agiwPeersRows([], {feedFresh: true}), [['AGIW peers', 'None has published on SharedChami yet']]);
@@ -242,15 +251,17 @@ test('peer rows disclose unknown or partial residency instead of zero loaded', (
   for (const models of [undefined, [], [{id: 'a', loadedState: 'unknown'}],
     [{id: 'a', loadedState: 'loaded'}, {id: 'b', loadedState: 'unknown'}],
     [{id: 'a', loadedState: 'inactive'}, {id: 'b'}]]) {
-    const rows = agiwPeersRows([{host: 'mac-peer', fresh: true, ageSeconds: 2, models}], {feedFresh: true});
+    const rows = agiwPeersRows([{host: 'mac-peer', fresh: true, ageSeconds: 2, models, modelsComplete: true}], {feedFresh: true});
     assert.match(rows[0][1], /loaded state unknown/i);
     assert.doesNotMatch(rows[0][1], /(?:^| · )\d+ loaded(?: · |$)/);
   }
   assert.match(agiwPeersRows([{host: 'mac-peer', fresh: true, ageSeconds: 2,
-    models: [{id: 'a', loadedState: 'loaded'}, {id: 'b', loadedState: 'inactive'}]}],
+    modelsComplete: true, models: [{id: 'a', loadedState: 'loaded'}, {id: 'b', loadedState: 'inactive'}]}],
     {feedFresh: true})[0][1], /1 loaded/);
   assert.match(agiwPeersRows([{host: 'mac-peer', fresh: true, ageSeconds: 2,
-    models: [{id: 'a', loadedState: 'inactive'}]}], {feedFresh: true})[0][1], /0 loaded/);
+    modelsComplete: true, models: [{id: 'a', loadedState: 'inactive'}]}], {feedFresh: true})[0][1], /0 loaded/);
+  assert.match(agiwPeersRows([{host: 'mac-peer', fresh: true, ageSeconds: 2, modelsComplete:true, models:[]}],
+    {feedFresh:true})[0][1], /Loaded state unknown/);
 });
 
 test('peer rows age share freshness with the dashboard snapshot', () => {

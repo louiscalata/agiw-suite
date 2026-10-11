@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 import datetime as dt
+import inspect
 from pathlib import Path
 import threading
 import time
@@ -77,7 +78,7 @@ class Collector:
                  fetch: probes.Fetch = probes.http_get_json,
                  gpu_fn: Callable[[], tuple[list, dict]] = probes.nvidia_gpus,
                  adapters_fn: Callable[[], list] = probes.display_adapters,
-                 memory_fn: Callable[[], tuple[dict, dict]] = probes.memory_block,
+                 memory_fn: Callable[..., tuple[dict, dict]] = probes.memory_block,
                  clients_fn: Callable[[float], tuple[list, list]] | None = None,
                  mac_peer: probes.MacPeer | None = None, clock: Callable[[], float] = time.time,
                  lane_interval: float = 1.0, lane_wait: float = 0.0, runs_root: Path | None = None,
@@ -127,7 +128,7 @@ class Collector:
                 latest = poller.read()
         if latest is None:
             return {"id": spec["id"], "port": spec["port"], "endpoint": None, "expectedModel": spec["alias"],
-                    "servedModel": None, "status": "unknown", "slots": [], "slotsBusy": None, "slotsTotal": None,
+                    "servedModel": None, "modelBytes": None, "status": "unknown", "slots": [], "slotsBusy": None, "slotsTotal": None,
                     "phase": None, "detail": "First lane probe pending", "device": spec.get("device"), "ageSeconds": None}
         at, lane = latest
         age = round(max(0.0, now - at), 2)
@@ -214,6 +215,15 @@ class Collector:
             sources.append(probes._source(source_id, label, "error", f"Probe failed ({type(error).__name__})"))
             return fallback
 
+    def _memory(self, lanes: list[dict[str, Any]], nisi: dict[str, Any], route_live: bool) -> tuple[dict, dict]:
+        context = {"lanes": lanes, "nisi": nisi, "route_live": route_live}
+        try:
+            inspect.signature(self.memory_fn).bind(**context)
+        except (TypeError, ValueError):
+            # Existing injected probes take no arguments. Never retry a failed probe call.
+            return self.memory_fn()
+        return self.memory_fn(**context)
+
     def collect(self) -> dict[str, Any]:
         sampled = self.clock()
         observed = dt.datetime.fromtimestamp(sampled, dt.timezone.utc).isoformat().replace("+00:00", "Z")
@@ -263,7 +273,6 @@ class Collector:
         empty_jobs = {"schemaVersion": 1, "journal": "codemode-runs", "inFlight": [], "recent": [], "lastSuccess": None, "clientsRecent": {}}
         for value_name, sid, label, fn, fallback in (
                 ("gpus", "pc-gpu", "PC GPU", lambda: self._gpus(sampled), ([], None)),
-                ("memory", "mem-guard", "Memory", self.memory_fn, ({"level": "unknown", "consumers": [], "suggestions": [], "reasons": [], "paused": []}, None)),
                 ("jobs", "codemode-runs", "codemode runs", lambda: self._jobs(specs, sampled), (empty_jobs, None)),
                 ("pipeline", "route-queue", "Route queue", lambda: probes.route_queue(self.bin_root / "online-code-route-queue", sampled),
                  ({"status": None, "runId": None, "pipelines": [], "queue": None}, None)),
@@ -272,18 +281,26 @@ class Collector:
             if source is not None:
                 sources.append(source)
             results[value_name] = value
-        gpus, memory, jobs, pipeline, share = (results[k] for k in ("gpus", "memory", "jobs", "pipeline", "share"))
+        gpus, jobs, pipeline, share = (results[k] for k in ("gpus", "jobs", "pipeline", "share"))
         if self.mac_peer is not None:
             mac, mac_source = self.mac_peer.read(sampled)
         else:
             mac, mac_source = ({"state": "unknown", "detail": "LAN probe disabled", "models": [], "ageSeconds": None},
                                probes._source("mac-peer", "Mac (LAN)", "unavailable", "LAN probe disabled"))
         sources.append(mac_source)
+        name = mac.get("name") or probes.configured_mac_name(self.share_root)
+        if name and not mac.get("name"):
+            mac["name"] = name
         peers, peers_source = self._guard(sources, "agiw-peers", "AGIW peers",
                                           lambda: probes.read_peers(self.share_root, self.host, sampled), ([], None))
         if peers_source is not None:
             sources.append(peers_source)
-        mac_link = next((p for p in peers if p["platform"] == "macos" and p["fresh"]), None)
+        # The share link stands in for the configured Mac only: its hosts.json name must match the report's host
+        # (ignoring case and any domain). Without a configured name, no report can be attributed.
+        fresh_macs = [p for p in peers if p["platform"] == "macos" and p["fresh"]]
+        want = name.split(".")[0].casefold() if isinstance(name, str) and name.strip() else None
+        mac_link = (next((p for p in fresh_macs if str(p.get("host", "")).split(".")[0].casefold() == want), None)
+                    if want else None)
         if mac_link and mac.get("state") != "reachable":
             # A share report does not establish why the Mac's LAN probe did not answer.
             # The link is aged by the presence record itself (30 s window), not by the LAN probe's result,
@@ -291,10 +308,16 @@ class Collector:
             mac = {**mac, "state": "linked", "via": "sharedchami", "ageSeconds": mac_link["ageSeconds"],
                    "models": [{"id": m["id"], "state": {"loaded": "loaded", "inactive": "not-loaded"}.get(m["loadedState"], "unknown")}
                               for m in mac_link["models"]],
+                   # Counted only from a complete list (modelsComplete): a cut or partly rejected one is no count.
                    "loadedCount": (sum(m["loadedState"] == "loaded" for m in mac_link["models"])
-                                   if mac_link["models"] and all(m["loadedState"] in ("loaded", "inactive")
-                                                                for m in mac_link["models"]) else None),
+                                   if mac_link.get("modelsComplete") is True and mac_link["models"]
+                                   and all(m["loadedState"] in ("loaded", "inactive") for m in mac_link["models"]) else None),
                    "latencyMs": None, "address": None,
+                   # A current failed LAN probe stays visible beside the share report (read() voids a stale one).
+                   "lanFailure": (mac.get("reason") if mac.get("state") == "unreachable" and mac.get("reason")
+                                  in ("refused", "timeout", "invalid", "unresolved", "error") else None),
+                   # Its own age (the LAN probe's, not the share report's), so the view expires it on the probe's clock.
+                   "lanFailureAgeSeconds": (mac.get("ageSeconds") if mac.get("state") == "unreachable" else None),
                    "linkAgeSeconds": mac_link["ageSeconds"], "linkSource": mac_link["source"],
                    "verified": False,
                    "detail": f"Reported through SharedChami ({mac_link['source']}, {mac_link['ageSeconds']:.0f} s old); "
@@ -333,6 +356,11 @@ class Collector:
             worker["lanesError"] = "identity mismatch on " + ", ".join(mismatch)
         nisi = self._guard(sources, "nisi", "Nisi gate", lambda: probes.nisi_component(lanes, self.bin_root),
                            {"id": "nisi", "label": "Nisi gate", "state": "unknown", "detail": "Nisi check failed"})
+        memory, memory_source = g("mem-guard", "Memory",
+                                  lambda: self._memory(lanes, nisi, pipeline.get("status") == "running"),
+                                  ({"level": "unknown", "consumers": [], "suggestions": [], "reasons": [], "paused": []}, None))
+        if memory_source is not None:
+            sources.append(memory_source)
         components = [nisi,
                       {"id": "jev", "label": "Jev", "state": "unknown",
                        "detail": "Jev triage runs through the route queue on this PC; no passive opt-in record is read",

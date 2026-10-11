@@ -11,8 +11,45 @@ import unittest
 from unittest.mock import patch
 
 
+import peer_feed
 import server as server_source
 from durable_model_journal import DurableModelJournal
+
+LIVE_CONFIG = peer_feed.CONFIG_PATH
+_config_temp = None
+_peer_patches = []
+CONFIG_READS = []
+LINK_STARTS = []
+
+
+def setUpModule():
+    # server.main() below must never read the real AGIW config.json: {"peerLink": true} there would start the real
+    # LAN link, and with threads stubbed out its stop() would wait forever.
+    global _config_temp
+    _config_temp = tempfile.TemporaryDirectory(prefix='monitor-durable-optin-config-')
+    real_load = peer_feed.load_config
+
+    def recording_load(path=None):
+        CONFIG_READS.append(peer_feed.CONFIG_PATH if path is None else Path(path))
+        return real_load(path)
+
+    _peer_patches[:] = [patch.object(peer_feed, 'CONFIG_PATH', Path(_config_temp.name) / 'config.json'),
+                        patch.object(peer_feed, 'load_config', recording_load),
+                        patch.object(server_source, 'start_peer_link',
+                                     side_effect=lambda *a, **k: LINK_STARTS.append(a))]
+    for item in _peer_patches:
+        item.start()
+
+
+def tearDownModule():
+    global _config_temp
+    while _peer_patches:
+        _peer_patches.pop().stop()
+    if _config_temp is not None:
+        _config_temp.cleanup()
+        _config_temp = None
+    if LIVE_CONFIG in CONFIG_READS or LINK_STARTS:
+        raise AssertionError(f'a server.main() test read the live {LIVE_CONFIG} or started the LAN link')
 
 
 class ServerDurableOptInTests(unittest.TestCase):
@@ -122,6 +159,9 @@ class ServerDurableOptInTests(unittest.TestCase):
             server_source.main()
         self.assertEqual(ctor.call_args.kwargs, {'durable_model_control': True})
         self.assertEqual(fake.model_control.calls, ['cancel', ('join', .45)])
+        self.assertEqual(CONFIG_READS[-1:], [peer_feed.CONFIG_PATH])
+        self.assertNotIn(LIVE_CONFIG, CONFIG_READS)
+        self.assertEqual(LINK_STARTS, [])
 
 
 if __name__ == '__main__':

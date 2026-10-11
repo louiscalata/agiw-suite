@@ -238,7 +238,7 @@ def probe_lane(spec: dict[str, Any], fetch: Fetch = http_get_json, host: str = "
     """
     endpoint = f"http://{host}:{spec['port']}"
     lane = {"id": spec["id"], "port": spec["port"], "endpoint": endpoint, "expectedModel": spec["alias"],
-            "servedModel": None, "status": "unknown", "slots": [], "slotsBusy": None, "slotsTotal": None,
+            "servedModel": None, "modelBytes": None, "status": "unknown", "slots": [], "slotsBusy": None, "slotsTotal": None,
             "phase": None, "detail": None, "device": spec.get("device")}
     if spec.get("undeclared"):
         lane["status"], lane["detail"] = "undeclared", "Lane missing from windows-llm-pipeline/config.json; not probed"
@@ -254,11 +254,17 @@ def probe_lane(spec: dict[str, Any], fetch: Fetch = http_get_json, host: str = "
         lane["status"], lane["detail"] = "loading", f"Health reports {_string(health.get('status'), 40)}"
         return lane
     try:
-        models = _model_ids(fetch(endpoint + "/v1/models", HTTP_TIMEOUT, HTTP_MAX_BYTES))
+        payload = fetch(endpoint + "/v1/models", HTTP_TIMEOUT, HTTP_MAX_BYTES)
+        models = _model_ids(payload)
     except Exception:  # noqa: BLE001
         lane["status"], lane["detail"] = "no_identity", "Served model identity unavailable"
         return lane
     lane["servedModel"] = _string(models[0], 120) if models else None
+    if len(models) == 1 and isinstance(payload["data"][0], dict):
+        meta = payload["data"][0].get("meta")
+        size = meta.get("size") if isinstance(meta, dict) else None
+        if isinstance(size, int) and not isinstance(size, bool) and 1 <= size <= 2 ** 52:
+            lane["modelBytes"] = size
     if not models:
         lane["status"], lane["detail"] = "no_identity", "Lane returned no model identity"
         return lane
@@ -364,31 +370,67 @@ def memory_level(available_percent: float, commit_percent: float | None) -> str:
 
 
 def memory_block(status_fn: Callable[[], dict[str, int]] | None = None,
-                 consumers_fn: Callable[[], list[dict[str, Any]]] | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
+                 consumers_fn: Callable[[], list[dict[str, Any]]] | None = None, *,
+                 lanes: list[dict[str, Any]] | None = None, nisi: dict[str, Any] | None = None,
+                 route_live: bool = False) -> tuple[dict[str, Any], dict[str, Any]]:
     """snapshot.memory in the shape the dashboard's memoryView reads, and its source row."""
     try:
         raw = (status_fn or _memory_status)()
         total, avail = raw["totalPhys"], raw["availPhys"]
-        if not (isinstance(total, int) and total > 0 and isinstance(avail, int) and 0 <= avail <= total):
+        if not (type(total) is int and total > 0 and type(avail) is int and 0 <= avail <= total):
             raise ValueError("implausible memory reading")
-        available = round(avail * 100 / total, 1)
+        available = avail * 100 / total
         limit, commit_avail = raw.get("commitLimit"), raw.get("commitAvail")
-        commit = (round((limit - commit_avail) * 100 / limit, 1)
-                  if isinstance(limit, int) and limit > 0 and isinstance(commit_avail, int) and 0 <= commit_avail <= limit else None)
+        commit = ((limit - commit_avail) * 100 / limit
+                  if type(limit) is int and limit > 0 and type(commit_avail) is int and 0 <= commit_avail <= limit else None)
         level = memory_level(available, commit)
+        available = round(available, 1)
+        commit = round(commit, 1) if commit is not None else None
         gib = 2 ** 30
         reasons = [f"{available:.0f}% of {total / gib:.0f} GB RAM available"]
         if commit is not None:
             reasons.append(f"commit charge {commit:.0f}% of limit")
+        up = [lane for lane in (lanes or []) if lane.get("status") in LANE_UP]
         consumers: list[dict[str, Any]] = []
         if level != "ok":
             try:
-                consumers = (consumers_fn or top_processes)()
+                consumers = [dict(row) for row in (consumers_fn() if consumers_fn else top_processes(limit=8))]
+                sizes = [lane.get("modelBytes") for lane in up]
+                loaded_bytes = (sum(sizes) if sizes and all(isinstance(size, int) and not isinstance(size, bool)
+                                                           and 1 <= size <= 2 ** 52 for size in sizes) else None)
+                if loaded_bytes is not None and loaded_bytes > 2 ** 52:
+                    # The dashboard drops a row whose size is past its byte bound; keep the row and its count instead.
+                    loaded_bytes = None
+                # Every llama-server group (any spelling) becomes one row: the lane total is claimed once.
+                servers = [row for row in consumers if row["label"].casefold() in SERVER_EXECUTABLES]
+                consumers = [row for row in consumers if row["label"].casefold() not in SERVER_EXECUTABLES]
+                server = None
+                if servers:
+                    server = {**servers[0], "label": "Local LLM server",
+                              "residentBytes": sum(row["residentBytes"] for row in servers),
+                              "processCount": sum(row["processCount"] for row in servers)}
+                    if up:
+                        server["loadedModelCount"] = len(up)
+                        # Tensor sizes from /v1/models are not measured RAM or VRAM use.
+                        if loaded_bytes is not None:
+                            server["loadedModelBytes"] = loaded_bytes
+                # As the Mac guard does: the named server row always, plus the three largest others, largest first.
+                others = sorted(consumers, key=lambda row: row.get("residentBytes") or 0, reverse=True)[:3]
+                consumers = sorted(([server] if server is not None else []) + others,
+                                   key=lambda row: max(row.get("residentBytes") or 0,
+                                                       row.get("loadedModelBytes") or 0), reverse=True)
             except Exception:  # noqa: BLE001 - consumers are optional detail
                 consumers = []
         suggestions = []
         if level in ("tight", "critical"):
-            suggestions.append("Close apps you are not using before loading another model")
+            if route_live:
+                suggestions.append("Close apps you are not using before stopping a model lane "
+                                   "(a Nisi route is running: stopping a lane can stop it)")
+            elif up and (nisi or {}).get("state") == "ready":
+                suggestions.append("Close apps you are not using before stopping a model lane "
+                                   "(Nisi pair: PC edit routes stop while either lane is down)")
+            else:
+                suggestions.append("Close apps you are not using before loading another model")
         block = {"level": level, "availablePercent": available, "totalBytes": total, "availableBytes": avail,
                  "commitPercent": commit, "swapUsedBytes": None, "compressedBytes": None, "gpuAllocBytes": None,
                  "consumers": consumers, "suggestions": suggestions, "reasons": reasons, "paused": []}
@@ -411,11 +453,16 @@ def top_processes(limit: int = 3, max_pids: int = 4096) -> list[dict[str, Any]]:
     if not IS_WINDOWS:
         return []
     psapi, kernel32 = ctypes.windll.psapi, ctypes.windll.kernel32  # type: ignore[attr-defined]
-    pids = (ctypes.c_ulong * max_pids)()
-    needed = ctypes.c_ulong()
-    if not psapi.EnumProcesses(ctypes.byref(pids), ctypes.sizeof(pids), ctypes.byref(needed)):
-        return []
-    groups: dict[str, list[int]] = {}
+    max_pids = max(1, min(max_pids, 65536))
+    while True:
+        pids = (ctypes.c_ulong * max_pids)()
+        needed = ctypes.c_ulong()
+        if not psapi.EnumProcesses(ctypes.byref(pids), ctypes.sizeof(pids), ctypes.byref(needed)):
+            return []
+        if needed.value < ctypes.sizeof(pids) or max_pids == 65536:
+            break
+        max_pids = min(max_pids * 2, 65536)
+    samples: list[tuple[str, int]] = []
     query = 0x1000  # PROCESS_QUERY_LIMITED_INFORMATION
     for pid in pids[:needed.value // ctypes.sizeof(ctypes.c_ulong)]:
         if not pid:
@@ -432,14 +479,29 @@ def top_processes(limit: int = 3, max_pids: int = 4096) -> list[dict[str, Any]]:
             buffer = ctypes.create_unicode_buffer(1024)
             name = (Path(buffer.value).name if kernel32.QueryFullProcessImageNameW(handle, 0, buffer, ctypes.byref(size))
                     else f"pid {pid}")
-            group = groups.setdefault(name[:80], [0, 0])
-            group[0] += int(counters.WorkingSetSize)
-            group[1] += 1
+            samples.append((name, int(counters.WorkingSetSize)))
         finally:
             kernel32.CloseHandle(handle)
-    ranked = sorted(groups.items(), key=lambda item: item[1][0], reverse=True)[:limit]
+    return group_processes(samples, limit)
+
+
+SERVER_EXECUTABLES = ("llama-server.exe", "llama-server")
+
+
+def group_processes(samples: list[tuple[str, int]], limit: int = 3) -> list[dict[str, Any]]:
+    """(executable name, working set) samples as rows grouped by name, ignoring case as Windows does (the first
+    spelling seen labels the group). The largest `limit` groups, plus the llama-server group wherever it ranks: like
+    the Mac guard's named groups, the local LLM server is never cut before its model sizes are attached."""
+    groups: dict[str, list[Any]] = {}
+    for name, size in samples:
+        group = groups.setdefault(name.casefold(), [name[:80], 0, 0])
+        group[1] += size
+        group[2] += 1
+    ranked = sorted(groups.values(), key=lambda group: group[1], reverse=True)
+    server = [group for group in ranked if group[0].casefold() in SERVER_EXECUTABLES]
+    others = [group for group in ranked if group[0].casefold() not in SERVER_EXECUTABLES][:max(0, limit)]
     return [{"label": label, "residentBytes": size, "processCount": count, "gpuAllocBytes": None}
-            for label, (size, count) in ranked]
+            for label, size, count in sorted(server + others, key=lambda group: group[1], reverse=True)]
 
 
 # ------------------------------------------------------------------------ GPUs
@@ -658,10 +720,23 @@ def mac_hosts(share_root: Path) -> dict[str, Any] | None:
             return None
         own = (data.get("windows") or {}).get("ip") if isinstance(data.get("windows"), dict) else None
         port = mac.get("lm_studio_port")
-        return {"mdns": _string(mac.get("mdns"), 120), "hostname": _string(mac.get("hostname"), 80),
-                "ips": [ip for ip in mac.get("ips", []) if isinstance(ip, str)][:4],
+        name, ips = mac.get("hostname"), mac.get("ips")
+        return {"mdns": _string(mac.get("mdns"), 120),
+                "hostname": name if isinstance(name, str) and PEER_HOST.fullmatch(name) else None,
+                "ips": [ip for ip in ips if isinstance(ip, str)][:4] if isinstance(ips, list) else [],
                 "port": port if isinstance(port, int) and not isinstance(port, bool) and 1024 <= port <= 65535 else 1234,
                 "expectedVerify": _string(mac.get("expected_verify_model"), 80), "ownIp": _string(own, 64)}
+    except (OSError, ValueError, json.JSONDecodeError):
+        return None
+
+
+def configured_mac_name(share_root: Path) -> str | None:
+    """The validated configured Mac identity, independent of any LAN probe result."""
+    try:
+        data = read_json(share_root / "llm-lab" / "mac-reach" / "hosts.json")
+        mac = data.get("mac") if isinstance(data, dict) else None
+        name = mac.get("hostname") if isinstance(mac, dict) else None
+        return name if isinstance(name, str) and PEER_HOST.fullmatch(name) else None
     except (OSError, ValueError, json.JSONDecodeError):
         return None
 
@@ -688,7 +763,8 @@ def candidate_addresses(hosts: dict[str, Any], resolve: Callable[[str], list[str
                 ordered.append((address, "mdns"))
         except OSError:
             pass
-    ordered += [(ip, "recorded-ip") for ip in hosts.get("ips", [])]
+    ips = hosts.get("ips")
+    ordered += [(ip, "recorded-ip") for ip in ips] if isinstance(ips, list) else []
     seen, result = set(), []
     for address, via in ordered:
         try:
@@ -811,19 +887,19 @@ class MacPeer:
         self._stop.set()
 
     def poll_once(self) -> dict[str, Any]:
-        result = self._probe(mac_hosts(self.share_root))
+        try:
+            result = self._probe(mac_hosts(self.share_root))
+        except Exception as error:  # noqa: BLE001 - recorded, never left looking like the last good probe
+            result = {"state": "unknown", "detail": f"LAN probe failed ({type(error).__name__})",
+                      "name": configured_mac_name(self.share_root), "models": [], "loadedCount": None,
+                      "observedAt": time.time(), "address": None}
         with self._lock:
             self._latest = result
         return result
 
     def _run(self) -> None:
         while not self._stop.is_set():
-            try:
-                self.poll_once()
-            except Exception as error:  # noqa: BLE001 - recorded, never left looking like the last good probe
-                with self._lock:
-                    self._latest = {"state": "unknown", "detail": f"LAN probe failed ({type(error).__name__})",
-                                    "models": [], "observedAt": time.time(), "address": None}
+            self.poll_once()
             self._stop.wait(self.interval)
 
     def read(self, now: float | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -831,7 +907,8 @@ class MacPeer:
         with self._lock:
             latest = dict(self._latest) if self._latest else None
         if latest is None:
-            return ({"state": "unknown", "detail": "First LAN probe pending", "models": [], "ageSeconds": None},
+            return ({"state": "unknown", "detail": "First LAN probe pending", "name": configured_mac_name(self.share_root),
+                     "models": [], "ageSeconds": None},
                     _source("mac-peer", "Mac (LAN)", "unavailable", "First LAN probe pending"))
         observed = _number(latest.get("observedAt"), low=0)
         sampled = _number(now, low=0)
@@ -1287,37 +1364,62 @@ def host_id() -> str:
 def peer_presence(snapshot: dict[str, Any], host: str) -> dict[str, Any]:
     """This instance's presence: who it is and the verified model states it sees. No paths, prompts or keys."""
     status = pc_status(snapshot)
+    models = sorted(status["models"], key=lambda model: model["loadedState"] != "loaded")
     return {"schemaVersion": 1, "kind": "agiw-peer", "host": host, "platform": "windows",
             "edition": "windows", "version": snapshot.get("observerVersion"), "observedAt": snapshot.get("observedAt"),
             "observedUnix": snapshot.get("sampledAt"), "health": status["health"],
+            "modelsTotal": len(models),
             "models": [{"id": m["id"], "aliases": m["aliases"], "loadedState": m["loadedState"], "activity": m["activity"],
-                        "slotsBusy": m["slotsBusy"], "slotsTotal": m["slotsTotal"]} for m in status["models"]],
+                        "slotsBusy": m["slotsBusy"], "slotsTotal": m["slotsTotal"]} for m in models[:32]],
             "gpus": status["gpus"], "memory": status["memory"],
             "dashboard": {"bind": "loopback", "port": snapshot.get("dashboardPort")},
             "reads": ["agiw-peers", "mac-status.json"]}
 
 
+def _peer_models(raw_models: Any, legacy: bool = False) -> tuple[list[dict[str, Any]], bool]:
+    """Keep a bounded, unique list and distinguish retained rows from a complete inventory."""
+    if not isinstance(raw_models, list):
+        return [], False
+    models, seen = [], set()
+    valid = True
+    for model in raw_models[:32]:
+        if not isinstance(model, dict) or not isinstance(model.get("id"), str) or not model["id"].strip() \
+                or legacy and model.get("host") != "mac":
+            continue
+        model_id = model["id"][:120]
+        if model_id in seen:
+            continue
+        seen.add(model_id)
+        loaded = model.get("loadedState")
+        if loaded not in STATUS_LOADED_STATES:
+            valid = False
+            loaded = "unknown"
+        models.append({"id": model_id,
+                       "loadedState": loaded,
+                       "activity": _string(model.get("activity"), 24) or "unknown"})
+    complete = valid and len(raw_models) <= 32 and len(models) == len(raw_models)
+    return models, complete
+
+
 def _validate_peer(value: Any, now: float) -> dict[str, Any] | None:
-    if not isinstance(value, dict) or value.get("schemaVersion") != 1 or value.get("kind") != "agiw-peer":
+    if not isinstance(value, dict) or type(value.get("schemaVersion")) is not int \
+            or value["schemaVersion"] != 1 or value.get("kind") != "agiw-peer":
         return None
     host = value.get("host")
     observed = value.get("observedUnix")
     if not isinstance(host, str) or not PEER_HOST.match(host) or not isinstance(observed, (int, float)) \
             or isinstance(observed, bool) or not math.isfinite(observed) or observed > now + 5:
         return None
-    if not isinstance(value.get("models", []), list):
-        return None
-    models = []
-    for model in (value.get("models") or [])[:32]:
-        if isinstance(model, dict) and isinstance(model.get("id"), str) and model["id"].strip():
-            models.append({"id": model["id"][:120],
-                           "loadedState": model.get("loadedState") if model.get("loadedState") in STATUS_LOADED_STATES else "unknown",
-                           "activity": _string(model.get("activity"), 24) or "unknown"})
-    age = round(max(0.0, now - observed), 1)
+    raw_models = value.get("models")
+    models, complete = _peer_models(raw_models)
+    # Complete only when the peer sent a model list and every entry survived: a missing list, a dropped row or a cut at
+    # 32 is not evidence of fewer loaded models, so the dashboard makes no count claim from it.
+    complete = complete and type(value.get("modelsTotal")) is int and value["modelsTotal"] == len(models)
+    age = max(0.0, now - observed)
     return {"host": host, "platform": _string(value.get("platform"), 24) or "unknown",
             "edition": _string(value.get("edition"), 24), "version": _string(value.get("version"), 24),
-            "health": _string(value.get("health"), 16) or "unknown", "models": models, "ageSeconds": age,
-            "fresh": age <= PEER_FRESH_SECONDS, "source": "agiw-peers"}
+            "health": _string(value.get("health"), 16) or "unknown", "models": models, "modelsComplete": complete,
+            "ageSeconds": round(age, 1), "fresh": age <= PEER_FRESH_SECONDS, "source": "agiw-peers"}
 
 
 def _legacy_mac_status(share_root: Path, now: float) -> dict[str, Any] | None:
@@ -1328,16 +1430,14 @@ def _legacy_mac_status(share_root: Path, now: float) -> dict[str, Any] | None:
         observed = __import__("datetime").datetime.fromisoformat(str(value["observedAt"]).replace("Z", "+00:00")).timestamp()
     except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError):
         return None
-    if value.get("schemaVersion") != 1 or value.get("host") != "mac" or observed > now + 5 \
-            or not isinstance(value.get("models") or [], list):
+    if type(value.get("schemaVersion")) is not int or value["schemaVersion"] != 1 \
+            or value.get("host") != "mac" or observed > now + 5:
         return None
-    models = [{"id": m["id"][:120], "loadedState": m.get("loadedState") if m.get("loadedState") in STATUS_LOADED_STATES else "unknown",
-               "activity": _string(m.get("activity"), 24) or "unknown"}
-              for m in (value.get("models") or [])[:32]
-              if isinstance(m, dict) and isinstance(m.get("id"), str) and m.get("host") == "mac"]
-    age = round(max(0.0, now - observed), 1)
+    models, complete = _peer_models(value.get("models"), legacy=True)
+    age = max(0.0, now - observed)
     return {"host": "mac", "platform": "macos", "edition": "mac-status", "version": None, "verified": False,
-            "health": _string(value.get("health"), 16) or "unknown", "models": models, "ageSeconds": age,
+            "health": _string(value.get("health"), 16) or "unknown", "models": models, "modelsComplete": complete,
+            "ageSeconds": round(age, 1),
             "fresh": age <= PEER_FRESH_SECONDS, "source": "mac-status.json"}
 
 

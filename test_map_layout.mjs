@@ -4,7 +4,7 @@ import test from 'node:test';
 import { runInNewContext } from 'node:vm';
 import * as layoutModule from './web/map-layout.mjs';
 import { fitGraph, constellationLayout, prioritizeRuntimeModels, hasAdvertisedWindowsWorker, afmView, parseParameterCount, modelStarSize, windowsJobsView, windowsLaneView, resolveLabelCollisions, clampCamera, nextNodeInDirection, reviewConsistencyView, headlessSwitchView, activityFeed, vitalsView, windowsLaneRows, nodeCaptionLayout,
-  macGpuView, localCallersView, speedsText, laneSpeeds, jobFlags, activitySummary, pcGpuView } from './web/map-layout.mjs';
+  macGpuView, localCallersView, speedsText, laneSpeeds, jobFlags, activitySummary, pcGpuView, pcReportView, pcAdaptersView } from './web/map-layout.mjs';
 
 test('Core 6 is an exact Mac presentation filter; All keeps the complete discovered inventory', () => {
   const expected = [
@@ -533,12 +533,129 @@ test('F9: the route chip counts a route-stopping review defect apart from record
     { runId: 'w1', status: 'RESPONSE_VALIDATED', ageSeconds: 20, reviewConsistency: { status: 'SUMMARY_MAY_REPORT_DEFECT' } },
     { runId: 'w2', status: 'RESPONSE_VALIDATED', ageSeconds: 30, reviewSummaryContradiction: true }];
   const base = { fresh: true, pipeline: { status: 'idle' }, nisi: { state: 'ready' } };
-  assert.deepEqual(vitalsView({ ...base, feed: activityFeed(null, runs) }).route,
-    { tone: 'warn', detail: 'Idle · pair ready · 1 review defect · 2 review warnings' });
-  assert.deepEqual(vitalsView({ ...base, feed: activityFeed(null, runs.slice(1)) }).route,
-    { tone: 'ok', detail: 'Idle · pair ready · 2 review warnings' });
-  assert.deepEqual(vitalsView({ ...base, feed: activityFeed(null, [runs[0], { ...runs[0], runId: 'd2' }]) }).route,
-    { tone: 'warn', detail: 'Idle · pair ready · 2 review defects' });
+  // Nothing cut from the observer's list: the counts are whole.
+  const chip = list => vitalsView({ ...base, routeReviews: layoutModule.routeReviewCounts(list, { truncated: false, missingFromAgeSeconds: null }) }).route;
+  assert.deepEqual(chip(runs), { tone: 'warn', detail: 'Idle · pair ready · 1 review defect in 24 h · 2 review warnings in 24 h' });
+  assert.deepEqual(chip(runs.slice(1)), { tone: 'ok', detail: 'Idle · pair ready · 2 review warnings in 24 h' });
+  assert.deepEqual(chip([runs[0], { ...runs[0], runId: 'd2' }]), { tone: 'warn', detail: 'Idle · pair ready · 2 review defects in 24 h' });
+});
+
+test('Improvement 2: the route chip counts only review flags from the last 24 h; older flags keep their badges', () => {
+  assert.equal(layoutModule.ROUTE_REVIEW_WINDOW_SECONDS, 86400);
+  const base = { fresh: true, pipeline: { status: 'idle' }, nisi: { state: 'ready' } };
+  const whole = { truncated: false, missingFromAgeSeconds: null };
+  const route = runs => vitalsView({ ...base, routeReviews: layoutModule.routeReviewCounts(runs, whole) }).route;
+  // The live 10 Oct case: a 17-day-old receipt with a contradicted review summary and a REJECTED host decision.
+  const receipt = { runId: 'monitor-usage-format-20260923-01', source: 'monitor-receipt', status: 'RESPONSE_VALIDATED',
+    hostAcceptance: 'REJECTED', reviewSummaryContradiction: true, activity: 'completed', ageSeconds: 1482878 };
+  const today = [6295, 6634, 9610].map((ageSeconds, i) => ({ runId: `route-${i}`, source: 'router-archive', status: 'RESPONSE_VALIDATED',
+    activity: 'completed', ageSeconds }));
+  assert.deepEqual(route([receipt]), { tone: 'ok', detail: 'Idle · pair ready' });
+  assert.deepEqual(route([receipt, ...today]), { tone: 'ok', detail: 'Idle · pair ready' });
+  // The old row is not hidden: the feed still lists it with its review level and age.
+  const feed = activityFeed(null, [receipt, ...today], { limit: 12 });
+  assert.deepEqual(feed.map(row => [row.runId, row.review, row.ageSeconds]).at(-1), [receipt.runId, 'warn', 1482878]);
+  // A defect older than 24 h does not turn the chip warn; one at exactly 24 h still counts.
+  const defect = ageSeconds => ({ runId: `d-${ageSeconds}`, status: 'REVIEW_FINDINGS', ageSeconds, reviewConsistency: { status: 'SUMMARY_REPORTS_DEFECT' } });
+  const warning = ageSeconds => ({ runId: `w-${ageSeconds}`, status: 'RESPONSE_VALIDATED', ageSeconds, reviewConsistency: { status: 'SUMMARY_MAY_REPORT_DEFECT' } });
+  assert.deepEqual(route([defect(90000)]), { tone: 'ok', detail: 'Idle · pair ready' });
+  assert.deepEqual(route([warning(86400)]), { tone: 'ok', detail: 'Idle · pair ready · 1 review warning in 24 h' });
+  assert.deepEqual(route([defect(86400)]), { tone: 'warn', detail: 'Idle · pair ready · 1 review defect in 24 h' });
+  assert.deepEqual(route([warning(86401), defect(86401)]), { tone: 'ok', detail: 'Idle · pair ready' });
+  // A run without a finite age, or without a run ID, is never counted.
+  const block = { status: 'SUMMARY_REPORTS_DEFECT' };
+  assert.deepEqual(route([{ runId: 'nan', ageSeconds: NaN, reviewConsistency: block }, { runId: 'null', ageSeconds: null, reviewConsistency: block },
+    { runId: 'none', reviewSummaryContradiction: true }, { ageSeconds: 5, reviewConsistency: block }, null, 'run']), { tone: 'ok', detail: 'Idle · pair ready' });
+  assert.deepEqual(layoutModule.routeReviewCounts('runs', whole), { defects: 0, warnings: 0, complete: true });
+  // The feed is never counted (PC jobs share it); with no counts the chip has no review words, whatever the feed says.
+  assert.deepEqual(vitalsView({ ...base, feed: [{ kind: 'route', review: 'block', ageSeconds: 10, target: 'Nisi Inference route', state: 'REVIEW_FINDINGS' }] }).route,
+    { tone: 'ok', detail: 'Idle · pair ready' });
+  for (const routeReviews of [{ defects: -1, warnings: 1.5, complete: true }, { defects: '2', warnings: null }, 'counts'])
+    assert.deepEqual(vitalsView({ ...base, routeReviews }).route, { tone: 'ok', detail: 'Idle · pair ready' }, JSON.stringify(routeReviews));
+  // Unchanged: a stale feed reads 'Route age unknown', and a recorded unsettled run still warns.
+  assert.deepEqual(vitalsView({ ...base, fresh: false, routeReviews: layoutModule.routeReviewCounts([defect(10)], whole) }).route, { tone: 'muted', detail: 'Route age unknown' });
+  assert.deepEqual(vitalsView({ ...base, pipeline: { status: 'idle', runId: 'r' }, feed: [] }).route, { tone: 'warn', detail: 'Unsettled run recorded' });
+});
+
+test('Improvement 2: newestRunsFirst lists running and queued routes first, then by age, unknown ages last', () => {
+  const { newestRunsFirst } = layoutModule;
+  const rows = [
+    { runId: 'receipt-17d', activity: 'completed', ageSeconds: 1482878 },
+    { runId: 'no-age', activity: 'completed', ageSeconds: null },
+    { runId: 'archive-2h', activity: 'completed', ageSeconds: 7200 },
+    { runId: 'queued-old', activity: 'queued', ageSeconds: 200000 },
+    { runId: 'tie-a', activity: 'completed', ageSeconds: 3600 },
+    { runId: 'nan-age', activity: 'unknown', ageSeconds: NaN },
+    { runId: 'running-old', activity: 'running', ageSeconds: 90000 },
+    { runId: 'tie-b', activity: 'completed', ageSeconds: 3600 },
+    { runId: 'archive-1m', activity: 'completed', ageSeconds: 60 },
+  ];
+  const before = JSON.stringify(rows), order = rows.map(row => row.runId);
+  const sorted = newestRunsFirst(rows);
+  assert.deepEqual(sorted.map(row => row.runId),
+    ['queued-old', 'running-old', 'archive-1m', 'tie-a', 'tie-b', 'archive-2h', 'receipt-17d', 'no-age', 'nan-age']);
+  assert.notEqual(sorted, rows, 'a new array');
+  assert.equal(sorted[0], rows[3], 'the same row objects');
+  assert.deepEqual(rows.map(row => row.runId), order, 'the input order is untouched');
+  assert.equal(JSON.stringify(rows), before);
+  for (const value of [null, undefined, {}, 'runs', 12]) assert.deepEqual(newestRunsFirst(value), []);
+  assert.deepEqual(newestRunsFirst([]), []);
+  // The live 10 Oct order from an older observer (receipt first) opens on today's newest route.
+  const live = [{ runId: 'monitor-usage-format-20260923-01', ageSeconds: 1482878 }, { runId: 'claude-agiw-mac-pair-live-20261010-a', ageSeconds: 6295 },
+    { runId: 'marketscout-coverage-20261010-01', ageSeconds: 6634 }, { runId: 'claude-agiw-nisi-jev-live-20261010-a', ageSeconds: 9610 }];
+  assert.deepEqual(newestRunsFirst(live).map(row => row.runId), ['claude-agiw-mac-pair-live-20261010-a', 'marketscout-coverage-20261010-01',
+    'claude-agiw-nisi-jev-live-20261010-a', 'monitor-usage-format-20260923-01']);
+  // Review fix: the observer's current-checkpoint rows (unresolved, stale, unreadable or changing records, which it
+  // lists first) stay right after running and queued rows, in the observer's order, ahead of newer history, so the
+  // default trace is the checkpoint while the Route chip reads 'Unsettled run recorded'.
+  const checkpoint = [
+    { runId: 'stuck-run', traceKey: 'router-active:stuck-run:per-run', status: 'unreadable', activity: 'unknown', ageSeconds: null },
+    { runId: 'unresolved-run', traceKey: 'router-active:unresolved-run:legacy', status: 'unresolved', activity: 'unknown', ageSeconds: 240 },
+    ...Array.from({ length: 10 }, (_, i) => ({ runId: `archive-${i}`, source: 'router-archive', traceKey: `router-archive:archive-${i}:${'b'.repeat(64)}`,
+      activity: 'completed', ageSeconds: 60 + i * 30 }))];
+  assert.deepEqual(newestRunsFirst(checkpoint).map(row => row.runId), checkpoint.map(row => row.runId));
+  assert.deepEqual(newestRunsFirst([...checkpoint].reverse()).map(row => row.runId),
+    ['unresolved-run', 'stuck-run', ...Array.from({ length: 10 }, (_, i) => `archive-${i}`)]);
+  // Recognized by the observer's source or its trace key alone; running and queued rows still lead.
+  assert.deepEqual(newestRunsFirst([{ runId: 'archive-new', source: 'router-archive', activity: 'completed', ageSeconds: 5 },
+    { runId: 'stale-run', source: 'router-active', status: 'stale', activity: 'unknown', ageSeconds: 900 },
+    { runId: 'changing-run', traceKey: 'router-active:changing-run:per-run', status: 'changing', activity: 'unknown', ageSeconds: 3 },
+    { runId: 'running-run', traceKey: 'router-active:running-run:per-run', activity: 'running', ageSeconds: 30 },
+    { runId: 'not-active', traceKey: 'router-archive:router-active:x', activity: 'completed', ageSeconds: 1 }]).map(row => row.runId),
+  ['running-run', 'stale-run', 'changing-run', 'not-active', 'archive-new']);
+  const app = readFileSync(new URL('./web/app.js', import.meta.url), 'utf8');
+  assert.match(app, /const runs=\(\)=>newestRunsFirst\(snapshot\?\.activity\?\.runs\|\|\[\]\);/);
+  assert.match(app, /^import \{[^}]*\bnewestRunsFirst\b[^}]*\} from '\/map-layout\.mjs';$/m);
+});
+
+test('Improvement 2 review: the Route chip counts the whole route list, so PC jobs filling the 12-row feed hide no defect', () => {
+  const { routeReviewCounts } = layoutModule;
+  const base = { fresh: true, pipeline: { status: 'idle' }, nisi: { state: 'ready' } };
+  const defect = { runId: 'route-defect-2h', source: 'router-archive', status: 'REVIEW_FINDINGS', ageSeconds: 7200,
+    reviewConsistency: { status: 'SUMMARY_REPORTS_DEFECT' } };
+  // The probe: 2 in-flight and 10 recent PC jobs newer than a route-stopping defect from 2 h ago fill the feed.
+  const jobs = { inFlight: [1, 2].map(i => ({ id: `in-${i}`, lane: 'fast', ageSeconds: 5 + i })),
+    recent: Array.from({ length: 10 }, (_, i) => ({ id: `job-${i}`, lane: 'deep', state: 'success', ageSeconds: 60 + i })) };
+  const feed = activityFeed(jobs, [defect], { limit: 12 });
+  assert.equal(feed.length, 12);
+  assert.ok(feed.every(row => row.kind === 'pc-job'), 'the defect is pushed out of the feed');
+  const words = bound => vitalsView({ ...base, feed, routeReviews: routeReviewCounts([defect], bound) }).route;
+  assert.deepEqual(words({ truncated: false, missingFromAgeSeconds: null }), { tone: 'warn', detail: 'Idle · pair ready · 1 review defect in 24 h' });
+  // Whole only when the observer says no route of the window can be missing: nothing cut, only routes older than
+  // 24 h cut (the 10 Oct live bound), or only undated rows cut.
+  assert.equal(words({ truncated: true, missingFromAgeSeconds: 931805.706 }).detail, 'Idle · pair ready · 1 review defect in 24 h');
+  assert.equal(words({ truncated: true, missingFromAgeSeconds: null }).detail, 'Idle · pair ready · 1 review defect in 24 h');
+  // Otherwise, and for an older observer that sends no bound, a lower bound that still warns.
+  for (const bound of [{ truncated: true, missingFromAgeSeconds: 86400 }, { truncated: true, missingFromAgeSeconds: 3600 },
+    { truncated: true, missingFromAgeSeconds: 0 }, { truncated: true }, { truncated: true, missingFromAgeSeconds: '1e9' },
+    { truncated: 'false' }, { missingFromAgeSeconds: null }, {}, null, undefined])
+    assert.deepEqual(words(bound), { tone: 'warn', detail: 'Idle · pair ready · at least 1 review defect in 24 h' }, JSON.stringify(bound));
+  assert.equal(vitalsView({ ...base, routeReviews: routeReviewCounts([{ ...defect, reviewConsistency: { status: 'SUMMARY_MAY_REPORT_DEFECT' } }], null) }).route.detail,
+    'Idle · pair ready · at least 1 review warning in 24 h');
+  // app.js counts runs() with the observer's bound (Mac host only, as the feed did), never the feed.
+  const app = readFileSync(new URL('./web/app.js', import.meta.url), 'utf8');
+  assert.match(app, /routeReviews:snapshot\?\.host==='mac'\?routeReviewCounts\(runs\(\),snapshot\?\.activity\?\.historyBound\):null/);
+  assert.match(app, /^import \{[^}]*\brouteReviewCounts\b[^}]*\} from '\/map-layout\.mjs';$/m);
 });
 
 test('F7: the PC lane rows name why lanes are missing instead of always blaming the heartbeat', () => {
@@ -1321,4 +1438,261 @@ test('poke flash: reduced motion or a paused feed lights only the poked star\'s 
   assert.ok(own.some(s => s.targets.includes('client:codex')));
   assert.equal((orbWebFlashPath(web, orbWebPluck(web, g.nodes, g.edges, ['client:codex'])).match(/M/g) || []).length, own.length + web.bridges.filter(b => b.from === 'client:codex' || b.to === 'client:codex').length);
   assert.equal(orbWebFlashPath(web, null), '');
+});
+
+// Improvement 3, 10 Oct 2026: the PC chip and node lead with the PC's own fresh report, and every adapter is listed.
+// The fixture is the live snapshot of 21:18:56Z (windowsLive via the share, 9.9 s old, two idle models at 0/2 slots).
+const REPORT_MODEL = (over = {}) => ({ id: 'gpt-oss-20b', loadedState: 'loaded', activity: 'idle', slotsBusy: 0, slotsTotal: 2, ...over });
+const REPORT = (over = {}) => ({ via: 'share', host: 'louisaurorar12', health: 'ok', ageSeconds: 9.9,
+  models: [REPORT_MODEL(), REPORT_MODEL({ id: 'Qwen3.8-27B Q4_K_M' })], ...over });
+const REPORT_FRESH = { feedFresh: true, snapshotAge: 1 };
+
+test('pcReportView: a fresh report says what the PC reports, through the inspector report gate', () => {
+  const view = pcReportView(REPORT(), REPORT_FRESH);
+  assert.deepEqual([view.known, view.words, view.tiny, view.node, view.via], [true, 'Reports 2 loaded · idle', 'Reports idle', '2 LOADED · IDLE', 'share']);
+  assert.ok(Math.abs(view.ageSeconds - 10.9) < 1e-9);
+  assert.equal(pcReportView(REPORT({ via: 'lan' }), REPORT_FRESH).via, 'lan');
+  for (const via of [undefined, null, 'mdns', 'future']) assert.deepEqual(pcReportView(REPORT({via}), REPORT_FRESH), {known: false});
+  // The gate: 30 s including the snapshot's own age, a fresh unpaused feed, finite non-negative ages, a model list.
+  assert.equal(pcReportView(REPORT({ ageSeconds: 29 }), REPORT_FRESH).known, true);
+  for (const [live, options] of [[REPORT({ ageSeconds: 29.5 }), REPORT_FRESH], [REPORT(), { feedFresh: false, snapshotAge: 1 }],
+    [REPORT({ ageSeconds: -1 }), REPORT_FRESH], [REPORT(), { feedFresh: true, snapshotAge: -1 }], [REPORT(), { feedFresh: true, snapshotAge: NaN }],
+    [REPORT({ ageSeconds: '4' }), REPORT_FRESH], [REPORT({ ageSeconds: null }), REPORT_FRESH], [REPORT({ models: null }), REPORT_FRESH],
+    [REPORT({ models: {} }), REPORT_FRESH], [null, REPORT_FRESH], [undefined, REPORT_FRESH], ['live', REPORT_FRESH], [REPORT(), undefined]])
+    assert.deepEqual(pcReportView(live, options), { known: false }, JSON.stringify([live, options]));
+});
+
+test('pcReportView: busy, unknown, down, degraded and empty reports, never live', () => {
+  const words = models => pcReportView(REPORT({ models }), REPORT_FRESH);
+  const generating = words([REPORT_MODEL({ activity: 'generating', slotsBusy: 1 })]);
+  assert.deepEqual([generating.words, generating.tiny, generating.node], ['Reports 1 loaded · 1 busy', 'Reports 1 busy', '1 LOADED · 1 BUSY']);
+  assert.equal(words([REPORT_MODEL(), REPORT_MODEL({ activity: 'processing' })]).words, 'Reports 2 loaded · 1 busy');
+  // A busy slot outranks an "idle" word; an inactive model's activity is not counted.
+  assert.equal(words([REPORT_MODEL({ slotsBusy: 1 }), REPORT_MODEL()]).words, 'Reports 2 loaded · 1 busy');
+  assert.equal(words([REPORT_MODEL(), REPORT_MODEL({ loadedState: 'inactive', activity: 'generating' })]).words, 'Reports 1 loaded · idle');
+  for (const activity of ['thinking', 'unknown', undefined, null, 'IDLE']) {
+    const view = words([REPORT_MODEL(), REPORT_MODEL({ activity })]);
+    assert.deepEqual([view.words, view.tiny], ['Reports 2 loaded · activity unknown', 'Reports activity unknown'], String(activity));
+  }
+  assert.deepEqual([words([]).words, words([]).node], ['Reports no model loaded', 'NO MODEL LOADED']);
+  for (const loadedState of ['unknown', 'resident', undefined])
+    assert.equal(words([REPORT_MODEL({ loadedState }), REPORT_MODEL({ loadedState })]).words, 'Reports loaded unknown');
+  assert.equal(words([REPORT_MODEL({activity:'generating'}), REPORT_MODEL({loadedState:'unknown'})]).words,
+    'Reports at least 1 loaded · 1 busy');
+  assert.equal(words([REPORT_MODEL({ loadedState: 'inactive' })]).words, 'Reports 0 loaded · activity unknown');
+  // The PC's bad news stays in every form: the tiny one keeps the health word, and the node names its subject so
+  // "LINKED VIA LAN · DOWN" can never read as the link being down.
+  const down = pcReportView(REPORT({ health: 'down' }), REPORT_FRESH);
+  assert.deepEqual([down.words, down.tiny, down.node, down.health], ['Reports down', 'Reports down', 'PC REPORTS DOWN', 'down']);
+  const degraded = pcReportView(REPORT({ health: 'degraded' }), REPORT_FRESH);
+  assert.deepEqual([degraded.words, degraded.tiny, degraded.node, degraded.health],
+    ['Reports degraded · 2 loaded · idle', 'Reports degraded', 'PC REPORTS DEGRADED · 2 LOADED · IDLE', 'degraded']);
+  // What the PC really sends when one lane stops answering (agiw_win/probes.py pc_status): health degraded, the
+  // silent lane's model unknown.
+  const oneLaneDown = pcReportView(REPORT({ health: 'degraded', models: [REPORT_MODEL(), REPORT_MODEL({ id: 'Qwen3.8-27B Q4_K_M', loadedState: 'unknown', activity: 'unknown' })] }), REPORT_FRESH);
+  assert.deepEqual([oneLaneDown.words, oneLaneDown.tiny, oneLaneDown.node],
+    ['Reports degraded · at least 1 loaded · activity unknown', 'Reports degraded', 'PC REPORTS DEGRADED · AT LEAST 1 LOADED · ACTIVITY UNKNOWN']);
+  // A degraded report keeps its word whatever its model list says; ok and an unknown or missing health add nothing.
+  assert.deepEqual([pcReportView(REPORT({ health: 'degraded', models: [] }), REPORT_FRESH).words, pcReportView(REPORT({ health: 'degraded', models: [] }), REPORT_FRESH).node],
+    ['Reports degraded · no model loaded', 'PC REPORTS DEGRADED · NO MODEL LOADED']);
+  for (const health of ['ok', 'sick', undefined, null, ['down']]) {
+    const view = pcReportView(REPORT({ health }), REPORT_FRESH);
+    assert.deepEqual([view.words, view.tiny, view.node, view.health], ['Reports 2 loaded · idle', 'Reports idle', '2 LOADED · IDLE', health === 'ok' ? 'ok' : null], String(health));
+  }
+  // The list is partial beyond the eight-row inspector prefix, so the visible count is only a lower bound.
+  assert.equal(words([...Array.from({ length: 8 }, () => REPORT_MODEL()), REPORT_MODEL({ activity: 'generating' })]).words,
+    'Reports at least 8 loaded · activity unknown');
+  // An empty host changes nothing; a report carries no tone at all, so it can never pulse live.
+  assert.equal(pcReportView(REPORT({ host: '' }), REPORT_FRESH).words, 'Reports 2 loaded · idle');
+  assert.equal('tone' in generating, false);
+});
+
+test('vitalsView: the PC chip leads with a known report and is byte-identical without one', () => {
+  const worker = laneWorker({ headless: { state: 'off', reason: 'turned off', expiresInSeconds: null },
+    lanes: { fast: { up: true, model: 'gpt-oss-20b', slotsBusy: 0, slotsTotal: 2 }, deep: { up: true, model: 'Qwen3.8-27B Q4_K_M', slotsBusy: 0, slotsTotal: 2 } } });
+  const lanes = windowsLaneView(worker, null, { feedFresh: true });
+  const pcGpu = pcGpuView(laneWorker({ gpus: [GPU] }), { feedFresh: true });
+  const base = { fresh: true, pcFresh: true, lanes, worker, jobs: { running: false }, feed: [], pcGpu };
+  const pcReport = pcReportView(REPORT(), REPORT_FRESH);
+  const v = vitalsView({ ...base, pcReport });
+  assert.equal(v.pc.detail, 'Reports 2 loaded · idle · Headless off · 2/2 lanes · GPU 32% · 11.7/12.0 GB · 54 °C');
+  assert.ok(v.pc.detail.startsWith('Reports 2 loaded · idle · Headless off · 2/2 lanes'));
+  assert.deepEqual([v.pc.short, v.tiny.pc, v.pc.tone], ['Reports 2 loaded · idle · Headless off', 'Reports idle', 'ok']);
+  // Without a report (absent, unknown or malformed) every PC string is what it was before.
+  const before = vitalsView(base);
+  assert.deepEqual([before.pc, before.tiny.pc], [{ tone: 'ok', detail: 'Headless off · 2/2 lanes · GPU 32% · 11.7/12.0 GB · 54 °C', short: 'Headless off' }, 'Headless off']);
+  for (const unknown of [null, { known: false }, pcReportView(REPORT({ ageSeconds: 40 }), REPORT_FRESH), { known: true }])
+    assert.deepEqual(vitalsView({ ...base, pcReport: unknown }), before, JSON.stringify(unknown));
+  // The fast rate still joins the short form; a busy report never makes the chip live (only a dispatcher job does).
+  const rated = windowsLaneView(worker, { inFlight: [], recent: [{ id: 'a', state: 'success', lane: 'fast', predictedPerSecond: 104.2, ageSeconds: 9 }] }, { feedFresh: true });
+  assert.equal(vitalsView({ ...base, lanes: rated, pcReport }).pc.short, 'Reports 2 loaded · idle · Headless off · fast 104 tok/s');
+  const busy = pcReportView(REPORT({ models: [REPORT_MODEL({ activity: 'generating', slotsBusy: 2 })] }), REPORT_FRESH);
+  const busyChip = vitalsView({ ...base, pcReport: busy });
+  assert.deepEqual([busyChip.pc.tone, busyChip.tiny.pc], ['ok', 'Reports 1 busy']);
+  assert.equal(vitalsView({ ...base, pcReport: busy, jobs: { running: true } }).pc.tone, 'live');
+});
+
+test('vitalsView: a report of down or degraded lowers an OK PC chip to warn, never raises a tone', () => {
+  const worker = laneWorker({ headless: { state: 'off', reason: 'turned off', expiresInSeconds: null },
+    lanes: { fast: { up: true, model: 'gpt-oss-20b', slotsBusy: 0, slotsTotal: 2 }, deep: { up: true, model: 'Qwen3.8-27B Q4_K_M', slotsBusy: 0, slotsTotal: 2 } } });
+  const lanes = windowsLaneView(worker, null, { feedFresh: true });
+  const base = { fresh: true, pcFresh: true, lanes, worker, jobs: { running: false }, feed: [] };
+  const degradedReport = pcReportView(REPORT({ health: 'degraded', models: [REPORT_MODEL(), REPORT_MODEL({ id: 'Qwen3.8-27B Q4_K_M', loadedState: 'unknown', activity: 'unknown' })] }), REPORT_FRESH);
+  const degraded = vitalsView({ ...base, pcReport: degradedReport });
+  // The 880 px window shows the tiny form: it carries the PC's own word, under a warn tone, never a green "idle".
+  assert.deepEqual([degraded.pc.tone, degraded.tiny.pc, degraded.pc.short],
+    ['warn', 'Reports degraded', 'Reports degraded · at least 1 loaded · activity unknown · Headless off']);
+  const down = vitalsView({ ...base, pcReport: pcReportView(REPORT({ health: 'down' }), REPORT_FRESH) });
+  assert.deepEqual([down.pc.tone, down.tiny.pc, down.pc.short], ['warn', 'Reports down', 'Reports down · Headless off']);
+  // An ok report (or one with no health word) keeps the chip ok.
+  for (const health of ['ok', undefined])
+    assert.equal(vitalsView({ ...base, pcReport: pcReportView(REPORT({ health }), REPORT_FRESH) }).pc.tone, 'ok', String(health));
+  // Never raised: a running dispatcher job stays live, a stale heartbeat stays muted, a stale Mac feed ignores it.
+  const bad = pcReportView(REPORT({ health: 'down' }), REPORT_FRESH);
+  assert.equal(vitalsView({ ...base, pcReport: bad, jobs: { running: true } }).pc.tone, 'live');
+  assert.equal(vitalsView({ ...base, pcReport: bad, jobs: { running: true }, activityLive: false }).pc.tone, 'warn');
+  assert.equal(vitalsView({ ...base, pcFresh: false, pcReport: bad }).pc.tone, 'muted');
+  assert.equal(vitalsView({ ...base, worker: { ...worker, state: 'unknown' }, pcReport: bad }).pc.tone, 'muted');
+  assert.equal(vitalsView({ fresh: false, feed: [], pcReport: bad }).pc.tone, 'muted');
+  // A report that did not pass the gate changes nothing, whatever health it claims.
+  assert.equal(vitalsView({ ...base, pcReport: pcReportView(REPORT({ health: 'down', ageSeconds: 40 }), REPORT_FRESH) }).pc.tone, 'ok');
+});
+
+test('vitalsView: a stale heartbeat, a worker condition or a stale Mac feed keep their words beside a report', () => {
+  const pcReport = pcReportView(REPORT(), REPORT_FRESH);
+  const stale = vitalsView({ fresh: true, pcFresh: false, worker: laneWorker({ ageSeconds: 90 }), jobs: { running: false }, feed: [], pcReport });
+  assert.deepEqual([stale.pc.tone, stale.pc.detail, stale.pc.short, stale.tiny.pc],
+    ['muted', 'Worker heartbeat stale or unknown · Reports 2 loaded · idle', 'Heartbeat stale · Reports idle', 'Reports idle']);
+  for (const [state, short, detail] of [['degraded', 'Degraded', 'Worker degraded · no lane answers'], ['stopped', 'Stopped', 'Worker stopped']]) {
+    const v = vitalsView({ fresh: true, pcFresh: true, worker: { state }, jobs: { running: false }, feed: [], pcReport });
+    assert.deepEqual([v.pc.tone, v.pc.short, v.tiny.pc, v.pc.detail], ['warn', short, short, `${detail} · Reports 2 loaded · idle`]);
+  }
+  // The Mac feed itself stale: unchanged ("Signal stale"), even if a report object reaches vitalsView.
+  const signal = vitalsView({ fresh: false, feed: [], pcReport });
+  assert.deepEqual([signal.pc, signal.tiny], [{ tone: 'muted', detail: 'Signal stale', short: 'Stale' }, {}]);
+});
+
+test('pcAdaptersView: both live adapters, the AMD card included, from the windows-edition helper', () => {
+  const adapters = [
+    { name: 'AMD Radeon RX 5700 XT', utilizationPercent: 0, memoryUsedMiB: 827, memoryTotalMiB: 8152 },
+    { name: 'NVIDIA GeForce RTX 3080 Ti', utilizationPercent: 0, memoryUsedMiB: 11748, memoryTotalMiB: 12288, temperatureC: 37 },
+  ];
+  const view = pcAdaptersView(adapters, { feedFresh: true });
+  assert.deepEqual(view.rows, [['AMD Radeon RX 5700 XT', '0% busy · 0.8 of 8.0 GB'], ['NVIDIA GeForce RTX 3080 Ti', '0% busy · 11.5 of 12.0 GB · 37 °C']]);
+  assert.equal(view.known, true);
+  assert.deepEqual(pcAdaptersView(adapters, { feedFresh: false }).rows, [['Graphics', 'Unknown (feed stale)']]);
+});
+
+test('memoryView: unreadable wording follows the host without changing the Mac wording', () => {
+  const unreadable = {level: 'unreadable'};
+  assert.equal(layoutModule.memoryView(unreadable, {feedFresh: true}).rows[0][1], 'Unknown: macOS memory pressure is unreadable');
+  assert.equal(layoutModule.memoryView(unreadable, {feedFresh: true, host: 'windows'}).rows[0][1], 'Unknown: Windows memory status is unreadable');
+  assert.equal(layoutModule.memoryView(null, {feedFresh: false, host: 'windows'}).rows[0][1], 'Unknown (no fresh sample)');
+});
+
+test('memory banner recognizes the Nisi pair caveat and keeps it ahead of the action', () => {
+  const suggestion = 'Close apps you are not using before stopping a model lane (Nisi pair: PC edit routes stop while either lane is down)';
+  const banner = layoutModule.memoryBannerView({alert: true, level: 'tight', word: 'Memory tight',
+    consumers: [{label: 'Local LLM server', claim: 'uses about 2 GB'}], suggestions: [suggestion], reasons: []});
+  assert.equal(banner.text, 'Local LLM server uses about 2 GB · Try (Nisi pair: PC edit routes stop while either lane is down): Close apps you are not using before stopping a model lane');
+});
+
+test('macReportView counts the whole Mac inventory list, as the Mac publishes it (loaded past the eighth)', () => {
+  // The shape of the Mac's real presence report (2026-10-10): 11 inventory models, the loaded pair at indexes 6 and 9.
+  const models = Array.from({length: 11}, (_, i) => ({id: `model-${i}`, loadedState: [6, 9].includes(i) ? 'loaded' : 'inactive',
+    activity: [6, 9].includes(i) ? 'idle' : 'unknown'}));
+  const row = {host: 'mac', platform: 'macos', source: 'agiw-peers', fresh: true, modelsComplete: true, ageSeconds: 3, health: 'ok', models};
+  const view = layoutModule.macReportView([row], {feedFresh: true, snapshotAge: 1, name:'mac'});
+  assert.deepEqual([view.known, view.words, view.node], [true, 'Reports 2 loaded · idle', '2 LOADED · IDLE']);
+  // The PC's own report keeps its first-8 rule (Mac edition output unchanged).
+  assert.equal(layoutModule.pcReportView({...row, via: 'lan'}, {feedFresh: true, snapshotAge: 1}).words,
+    'Reports at least 1 loaded · activity unknown');
+  // Bad news names its subject.
+  assert.equal(layoutModule.macReportView([{...row, health: 'down'}], {feedFresh: true, name:'mac'}).node, 'MAC REPORTS DOWN');
+  assert.equal(layoutModule.pcReportView({...row, via: 'lan', health: 'down'}, {feedFresh: true}).node, 'PC REPORTS DOWN');
+});
+
+test('macPeerView keeps a current failed LAN probe visible beside a share link', () => {
+  const linked = {state: 'linked', ageSeconds: 2, linkAgeSeconds: 2, loadedCount: 1, models: [{id: 'a', state: 'loaded'}]};
+  const plain = layoutModule.macPeerView(linked, {feedFresh: true});
+  assert.equal(plain.linkFailure, null);
+  assert.equal(plain.chip.short, 'Reported · 1 loaded');
+  const failed = layoutModule.macPeerView({...linked, lanFailure: 'timeout', lanFailureAgeSeconds: 44}, {feedFresh: true});
+  // Expired on its own clock after collection (44 s + 2 s of snapshot age), whatever the share report's age; no age, no failure.
+  assert.equal(layoutModule.macPeerView({...linked, lanFailure: 'timeout', lanFailureAgeSeconds: 44}, {feedFresh: true, snapshotAge: 2}).linkFailure, null);
+  assert.equal(layoutModule.macPeerView({...linked, lanFailure: 'timeout'}, {feedFresh: true}).linkFailure, null);
+  assert.equal(failed.chip.short, 'No answer · Reported · 1 loaded');
+  assert.equal(failed.chip.link, 'Reported via SharedChami (unverified) · LAN: No answer (timed out)');
+  assert.equal(failed.linkSubtitle, 'REPORTED VIA SHARE · LAN NO ANSWER');
+  // Only a known reason counts; the unreachable state's own reason field is never read for a link.
+  assert.equal(layoutModule.macPeerView({...linked, lanFailure: 'bogus', reason: 'timeout'}, {feedFresh: true}).linkFailure, null);
+});
+
+test('pcReportView: a list the reader flagged incomplete is only a lower bound', () => {
+  const live = {via: 'lan', ageSeconds: 2, health: 'ok', models: [{id: 'a', loadedState: 'loaded', activity: 'idle'}]};
+  assert.equal(layoutModule.pcReportView(live, {feedFresh: true}).words, 'Reports 1 loaded · idle');
+  assert.equal(layoutModule.pcReportView({...live, modelsComplete: false}, {feedFresh: true}).words, 'Reports at least 1 loaded · activity unknown');
+  // Every row rejected: missing evidence, never "no model loaded"; a complete empty list keeps its claim.
+  assert.equal(layoutModule.pcReportView({...live, models: [], modelsComplete: false}, {feedFresh: true}).words, 'Reports loaded unknown');
+  assert.equal(layoutModule.pcReportView({...live, models: []}, {feedFresh: true}).words, 'Reports no model loaded');
+});
+
+test('macReportView claims a count only from a complete Mac list (never "no model loaded" from missing evidence)', () => {
+  const row = {host: 'mac', platform: 'macos', source: 'agiw-peers', fresh: true, modelsComplete: true, ageSeconds: 3, health: 'ok',
+    models: [{id: 'a', loadedState: 'loaded', activity: 'idle'}, {id: 'b', loadedState: 'inactive', activity: 'unknown'}]};
+  const view = (over) => layoutModule.macReportView([{...row, ...over}], {feedFresh: true, name:'mac'});
+  assert.equal(view({}).words, 'Reports 1 loaded · idle');
+  // An older PC reader sends no flag; a missing, partly rejected or cut list is flagged incomplete.
+  for (const over of [{modelsComplete: undefined}, {modelsComplete: false}, {modelsComplete: false, models: []},
+    {models: [...row.models, {id: 'c', loadedState: 'unknown', activity: 'unknown'}]}]) assert.deepEqual(view(over), {known: false});
+  // A complete but empty share list is not usable presence for this UI.
+  assert.deepEqual(view({models: []}), {known: false});
+});
+
+test('macReportView requires and reads only the configured Mac name', () => {
+  const mac = (host, health = 'ok') => ({host, platform: 'macos', source: 'agiw-peers', fresh: true, modelsComplete: true,
+    ageSeconds: 2, health, models: [{id: 'a', loadedState: 'loaded', activity: 'idle'}]});
+  const peers = [mac('other-mac', 'down'), mac('louis-m5-pro-macbook-pro')];
+  assert.equal(layoutModule.macReportView(peers, {feedFresh: true, name: 'Louis-M5-Pro-MacBook-Pro'}).words, 'Reports 1 loaded · idle');
+  assert.equal(layoutModule.macReportView(peers, {feedFresh: true, name: 'Louis-M5-Pro-MacBook-Pro.local'}).words, 'Reports 1 loaded · idle');
+  assert.deepEqual(layoutModule.macReportView(peers, {feedFresh: true, name: 'third-mac'}), {known: false});
+  // A report host with a domain matches the same way as a configured name with one (the collector's rule).
+  assert.equal(layoutModule.macReportView([mac('Mac.local')], {feedFresh: true, name: 'mac'}).words, 'Reports 1 loaded · idle');
+  assert.equal(layoutModule.macReportView([mac('Mac.local')], {feedFresh: true, name: 'Mac.local'}).words, 'Reports 1 loaded · idle');
+  assert.deepEqual(layoutModule.macReportView(peers, {feedFresh: true}), {known: false}, 'two Macs and no name: ambiguous');
+  assert.deepEqual(layoutModule.macReportView([mac('only-mac')], {feedFresh: true}), {known: false}, 'no singleton fallback');
+  assert.equal(layoutModule.macReportView([mac('only-mac')], {feedFresh: true, name:'only-mac'}).words, 'Reports 1 loaded · idle');
+  // The AGIW peers inspector makes no count claim from a list its reader flagged incomplete.
+  assert.match(layoutModule.agiwPeersRows([{...mac('m'), modelsComplete: false}], {feedFresh: true})[0][1], /Loaded state unknown/);
+  assert.match(layoutModule.agiwPeersRows([{...mac('m'), modelsComplete:true}], {feedFresh: true})[0][1], /1 loaded/);
+  assert.match(layoutModule.agiwPeersRows([{...mac('m'), modelsComplete:undefined}], {feedFresh: true})[0][1], /Loaded state unknown/);
+});
+
+test('macReportView: only a fresh Mac agiw-peers row supplies report activity', () => {
+  const report = {host: 'mac', platform: 'macos', source: 'agiw-peers', fresh: true, modelsComplete: true, ageSeconds: 29, health: 'ok', models: [
+    {id: 'gpt-oss-20b', loadedState: 'loaded', activity: 'idle'},
+    {id: 'gemma-4-26b', loadedState: 'loaded', activity: 'generating'},
+  ]};
+  const view = layoutModule.macReportView([report], {feedFresh: true, snapshotAge: 1, name:'mac'});
+  assert.deepEqual([view.known, view.words, view.tiny, view.node, view.health], [true, 'Reports 2 loaded · 1 busy', 'Reports 1 busy', '2 LOADED · 1 BUSY', 'ok']);
+  for (const rows of [
+    [{...report, source: 'mac-status.json'}], [{...report, platform: 'windows'}], [{...report, fresh: false}],
+    [{...report, ageSeconds: 29.1}], [report],
+  ]) {
+    const options = rows[0] === report ? {feedFresh: false, snapshotAge: 1} : {feedFresh: true, snapshotAge: 1};
+    assert.deepEqual(layoutModule.macReportView(rows, {...options,name:'mac'}), {known: false});
+  }
+});
+
+test('app wires Mac reports to live feeds, attributes share-only evidence, and names Windows memory details', () => {
+  const app = readFileSync(new URL('./web/app.js', import.meta.url), 'utf8');
+  assert.equal((app.match(/macReportView\(snapshot(?:\.|\?\.)peers,\{feedFresh:liveNow\(\)/g)||[]).length, 2);
+  assert.match(app, /peer\.state==='linked'\?report\.node:`MAC REPORTS \$\{reportBody\}`/);
+  assert.match(app, /const lanReachable=peer\.state==='reachable'/);
+  assert.match(app, /unknown:!lanReachable\}\);\s*edge\(root\.id,node\.id,node\.color,!lanReachable/);
+  assert.match(app, /shortFailure=peer\.state==='unreachable'\?chip\.short:peer\.linkFailure\?\.short\|\|null,reportShort=shortFailure\?`\$\{shortFailure\} · \$\{report\.words\}`/);
+  assert.match(app, /vitals\.tiny\.pc=report\.known\?\(shortFailure\|\|report\.tiny\)/);
+  assert.match(app, /vitals\.micro\.pc=report\.known\?\(shortFailure\|\|report\.tiny\)/);
+  assert.match(app, /llama-server model sizes \(\/v1\/models metadata\), not measured memory/);
+  assert.match(app, /Open memory details for this \$\{snapshot\?\.host==='windows'\?'PC':'Mac'\}/);
 });

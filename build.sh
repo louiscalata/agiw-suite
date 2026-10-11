@@ -17,7 +17,7 @@ if [[ ! -x "$python_path" ]]; then
     echo "Python 3 is required to safely install Inference Monitor." >&2
     exit 1
 fi
-for resource in server.py telemetry.py activity.py client_models.py model_control.py durable_model_journal.py auto_unload.py online_code_repair.py nisi_v02.py windows_probe.py live_feed.py gpu_probe.py local_callers.py mem_guard.py usage-format.mjs web/index.html web/app.js web/online-code-mode.mjs web/map-layout.mjs web/model-control-view.mjs web/style.css Info.plist; do
+for resource in server.py telemetry.py activity.py client_models.py model_control.py durable_model_journal.py auto_unload.py online_code_repair.py nisi_v02.py windows_probe.py live_feed.py gpu_probe.py local_callers.py mem_guard.py peer_feed.py peer_link.py usage-format.mjs web/index.html web/app.js web/online-code-mode.mjs web/map-layout.mjs web/model-control-view.mjs web/style.css Info.plist; do
     if [[ ! -f "$project_dir/$resource" ]]; then
         echo "Missing required resource: $resource" >&2
         exit 1
@@ -52,7 +52,7 @@ if [[ "$(lipo -archs "$stage_app/Contents/MacOS/JevKeychain")" != arm64 ]]; then
     exit 1
 fi
 cp "$project_dir/Info.plist" "$stage_app/Contents/Info.plist"
-cp "$project_dir/server.py" "$project_dir/telemetry.py" "$project_dir/activity.py" "$project_dir/client_models.py" "$project_dir/model_control.py" "$project_dir/durable_model_journal.py" "$project_dir/auto_unload.py" "$project_dir/online_code_repair.py" "$project_dir/nisi_v02.py" "$project_dir/windows_probe.py" "$project_dir/live_feed.py" "$project_dir/gpu_probe.py" "$project_dir/local_callers.py" "$project_dir/mem_guard.py" "$project_dir/usage-format.mjs" "$stage_app/Contents/Resources/"
+cp "$project_dir/server.py" "$project_dir/telemetry.py" "$project_dir/activity.py" "$project_dir/client_models.py" "$project_dir/model_control.py" "$project_dir/durable_model_journal.py" "$project_dir/auto_unload.py" "$project_dir/online_code_repair.py" "$project_dir/nisi_v02.py" "$project_dir/windows_probe.py" "$project_dir/live_feed.py" "$project_dir/gpu_probe.py" "$project_dir/local_callers.py" "$project_dir/mem_guard.py" "$project_dir/peer_feed.py" "$project_dir/peer_link.py" "$project_dir/usage-format.mjs" "$stage_app/Contents/Resources/"
 cp "$project_dir/web/index.html" "$project_dir/web/app.js" "$project_dir/web/online-code-mode.mjs" "$project_dir/web/map-layout.mjs" "$project_dir/web/model-control-view.mjs" "$project_dir/web/style.css" "$stage_app/Contents/Resources/web/"
 cp "$project_dir/bundle_nisi.py" "$project_dir/bundled_components.py" "$project_dir/jev_connection.py" "$stage_app/Contents/Resources/"
 cp "$project_dir/web/components.html" "$project_dir/web/components.js" "$project_dir/web/components.css" "$stage_app/Contents/Resources/web/"
