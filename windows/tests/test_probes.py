@@ -820,6 +820,79 @@ class MacPeer(unittest.TestCase):
         self.assertEqual((hosts["mdns"], hosts["ips"], hosts["ownIp"]), ("m.local", ["1.2.3.4"], "<pc-lan-ip>"))
 
 
+class PCStatusComponents(unittest.TestCase):
+    def publish(self, *components):
+        snapshot = {"observedAt": "2023-11-14T22:13:20Z", "observerVersion": "test",
+                    "lanes": [{"id": "fast", "expectedModel": "openai/gpt-oss-20b", "status": "idle"},
+                              {"id": "deep", "expectedModel": "qwen3.8-27b", "status": "busy"}]}
+        baseline = probes.pc_status(snapshot)
+        out = probes.pc_status({**snapshot, "components": list(components)})
+        probes.validate_status(out)
+        self.assertEqual({k: v for k, v in out.items() if k != "components"},
+                         {k: v for k, v in baseline.items() if k != "components"})
+        return out
+
+    def test_known_components_keep_peer_fields_and_legacy_reader_fields(self):
+        nisi = {"id": "nisi", "label": "Nisi gate", "state": "ready", "detail": "pins verified",
+                "authorModel": "private-extra", "secretPath": "do not publish"}
+        jev = {"id": "jev", "label": "Jev", "state": "unknown", "detail": "no passive record",
+               "lastJudgedAgeSeconds": 12.5, "prompt": "do not publish"}
+        out = self.publish(nisi, jev)
+        self.assertEqual(out["components"], [
+            {"id": "nisi", "label": "Nisi gate", "state": "ready", "detail": "pins verified",
+             "name": "Nisi gate", "status": "ready"},
+            {"id": "jev", "label": "Jev", "state": "unknown", "detail": "no passive record",
+             "lastJudgedAgeSeconds": 12.5, "name": "Jev", "status": "unknown"}])
+        self.assertLessEqual(len(json.dumps(out, allow_nan=False).encode("utf-8")), probes.STATUS_MAX_BYTES)
+        self.assertEqual(nisi["secretPath"], "do not publish")  # publishing does not mutate its snapshot
+
+    def test_canonical_text_removes_controls_then_caps_without_changing_legacy_fields(self):
+        text = "\x00\n" + "a\t" * 130 + "\x7f\x85"
+        row = self.publish({"id": "nisi", "label": text, "state": text, "detail": text})["components"][0]
+        self.assertEqual({k: row[k] for k in ("label", "state", "detail")},
+                         {k: "a" * 128 for k in ("label", "state", "detail")})
+        self.assertEqual((row["name"], row["status"]), (text, text))
+        row = self.publish({"id": "jev", "label": "Jev", "state": "unknown", "detail": "caf\u00e9"})["components"][0]
+        self.assertEqual(row["detail"], "caf\u00e9")
+
+    def test_missing_or_invalid_canonical_text_is_omitted_without_guesses(self):
+        for value in (None, True, 123, [], {}, "", "\x00\n\t", "   "):
+            with self.subTest(value=value):
+                row = self.publish({"id": "jev", "label": value, "state": value, "detail": value})["components"][0]
+                self.assertEqual(row, {"id": "jev", "name": value, "status": value})
+        self.assertEqual(self.publish({"id": "nisi"})["components"],
+                         [{"id": "nisi", "name": None, "status": None}])
+
+    def test_judgment_age_requires_a_finite_nonnegative_number_and_preserves_zero(self):
+        for age in (0, -0.0, 12.5, 10**13, 1e300, sys.float_info.max):
+            with self.subTest(age=age):
+                row = self.publish({"id": "jev", "lastJudgedAgeSeconds": age})["components"][0]
+                self.assertEqual(row["lastJudgedAgeSeconds"], age)
+        for age in (None, True, False, -0.001, float("nan"), float("inf"), -float("inf"),
+                    "12", [], {}, 10**400):
+            with self.subTest(age_type=type(age).__name__):
+                row = self.publish({"id": "jev", "lastJudgedAgeSeconds": age})["components"][0]
+                self.assertNotIn("lastJudgedAgeSeconds", row)
+
+    def test_other_or_missing_ids_keep_exactly_the_existing_reader_shape(self):
+        for component_id in ("other", "NISI", "", None, True, [], {}):
+            with self.subTest(component_id=component_id):
+                component = {"id": component_id, "label": "original\nlabel", "state": ["unknown"],
+                             "detail": "not exported", "lastJudgedAgeSeconds": 4}
+                self.assertEqual(self.publish(component)["components"],
+                                 [{"name": "original\nlabel", "status": ["unknown"]}])
+        self.assertEqual(self.publish({"label": "Jev", "state": "unknown"})["components"],
+                         [{"name": "Jev", "status": "unknown"}])
+
+    def test_malformed_component_rows_cannot_drop_the_status_sample(self):
+        out = self.publish(None, True, [], "nisi", {"id": "nisi", "label": "Nisi gate", "state": "ready"})
+        self.assertEqual(out["components"],
+                         [{"id": "nisi", "label": "Nisi gate", "state": "ready", "name": "Nisi gate", "status": "ready"}])
+        for malformed in (True, 123, "nisi", {"id": "nisi"}):
+            with self.subTest(container=malformed):
+                self.assertEqual(probes.pc_status({"components": malformed})["components"], [])
+
+
 class PCStatusLimitations(unittest.TestCase):
     NOW = 1700000000.0
 

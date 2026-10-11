@@ -986,6 +986,23 @@ def pc_status(snapshot: dict[str, Any]) -> dict[str, Any]:
             for gpu in snapshot.get("pcGpus") or []]
     memory = snapshot.get("memory") or {}
     queue = (snapshot.get("pipeline") or {}).get("queue") or {}
+    components = []
+    raw_components = snapshot.get("components")
+    for component in raw_components if isinstance(raw_components, (list, tuple)) else []:
+        if not isinstance(component, dict):
+            continue
+        row = {"name": component.get("label"), "status": component.get("state")}
+        if component.get("id") in ("nisi", "jev"):
+            row["id"] = component["id"]
+            for key in ("label", "state", "detail"):
+                value = _string(component.get(key), 128)
+                if value is not None:
+                    row[key] = value
+            # The peer projector converts numbers to float when checking finiteness.
+            age = _number(component.get("lastJudgedAgeSeconds"), low=0, high=sys.float_info.max)
+            if age is not None:
+                row["lastJudgedAgeSeconds"] = age
+        components.append(row)
     limitations = []
     if mismatch:
         limitations.append("lane identity mismatch: " + ", ".join(mismatch))
@@ -1007,7 +1024,7 @@ def pc_status(snapshot: dict[str, Any]) -> dict[str, Any]:
             "models": models, "gpus": gpus, "adapters": [a.get("name") for a in snapshot.get("pcAdapters") or []],
             "memory": {"level": memory.get("level"), "availablePercent": memory.get("availablePercent")},
             "routeQueue": {key: queue.get(key) for key in ("pending", "claimed", "staleClaimed", "completed")} if queue else None,
-            "components": [{"name": c.get("label"), "status": c.get("state")} for c in snapshot.get("components") or []],
+            "components": components,
             "limitations": limitations}
 
 
