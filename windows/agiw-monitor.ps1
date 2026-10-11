@@ -122,6 +122,7 @@ function Stop-Observer {
         try { $script:Observer.Kill(); [void]$script:Observer.WaitForExit(3000) } catch { }
     }
     $script:Observer = $null
+    $script:ObserverPort = $null
 }
 
 function Get-DashboardUrl { if ($script:ObserverPort) { "http://127.0.0.1:$($script:ObserverPort)/" } else { $null } }

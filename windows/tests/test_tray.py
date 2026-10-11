@@ -1,4 +1,4 @@
-"""Run only the tray's actual status helpers, with no tray or observer startup."""
+"""Run actual tray helpers with process, log, and network boundaries replaced."""
 import copy
 import json
 import os
@@ -32,11 +32,42 @@ $tokens = $null
 $errors = $null
 $ast = [System.Management.Automation.Language.Parser]::ParseFile($TraySource, [ref]$tokens, [ref]$errors)
 if ($errors.Count) { throw ($errors | Out-String) }
-$names = @('Test-FiniteNumber', 'Get-SnapshotSummary', 'Format-TrayText', 'Get-StatusSummary')
+$names = @('Test-FiniteNumber', 'Get-SnapshotSummary', 'Format-TrayText', 'Get-StatusSummary',
+           'Start-Observer', 'Stop-Observer', 'Get-DashboardUrl')
 $functions = $ast.FindAll({ param($node)
     $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -in $names
 }, $true)
-foreach ($definition in $functions) { Invoke-Expression $definition.Extent.Text }
+if ($functions.Count -ne $names.Count) { throw 'missing or duplicate tray helper AST' }
+foreach ($definition in $functions) {
+    $source = $definition.Extent.Text
+    if ($definition.Name -eq 'Start-Observer') {
+        $starts = @($definition.FindAll({ param($node)
+            $node -is [System.Management.Automation.Language.InvokeMemberExpressionAst] -and
+            $node.Static -and $node.Expression -is [System.Management.Automation.Language.TypeExpressionAst] -and
+            $node.Expression.TypeName.FullName -eq 'System.Diagnostics.Process' -and $node.Member.Value -eq 'Start'
+        }, $true))
+        if ($starts.Count -ne 1) { throw 'expected exactly one observer process-start boundary' }
+        $start = $starts[0]
+        if ($start.Arguments.Count -ne 1 -or
+            $start.Arguments[0] -isnot [System.Management.Automation.Language.VariableExpressionAst] -or
+            $start.Arguments[0].VariablePath.UserPath -ne 'info') { throw 'unexpected process-start input boundary' }
+        $offset = $start.Extent.StartOffset - $definition.Extent.StartOffset
+        $source = $source.Remove($offset, $start.Extent.Text.Length).Insert($offset, '(Start-TestProcess -Info $info)')
+    }
+    $safeTokens = $null
+    $safeErrors = $null
+    $safe = [System.Management.Automation.Language.Parser]::ParseInput($source, [ref]$safeTokens, [ref]$safeErrors)
+    if ($safeErrors.Count) { throw 'invalid isolated helper AST' }
+    # Fail before evaluating any helper if a process-launch boundary was added
+    # or changed. A real Process.Start or Start-Process must never reach this runner.
+    $unsafe = @($safe.FindAll({ param($node)
+        ($node -is [System.Management.Automation.Language.InvokeMemberExpressionAst] -and $node.Member.Value -eq 'Start') -or
+        ($node -is [System.Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'Start-Process')
+    }, $true))
+    if ($unsafe.Count) { throw 'unreplaced process-start boundary' }
+    Invoke-Expression $source
+}
+$script:ActualDashboardUrl = ${function:Get-DashboardUrl}
 
 function Expand-TestValue($Value) {
     if ($Value -is [System.Management.Automation.PSCustomObject]) {
@@ -60,16 +91,42 @@ function Expand-TestValue($Value) {
 
 # The network wrapper is real; only its input boundary is replaced. No network
 # request or dashboard launch occurs in this process.
-function Get-DashboardUrl { return $script:FakeUrl }
+function Get-DashboardUrl {
+    if ($script:UseActualDashboardUrl) { return (& $script:ActualDashboardUrl) }
+    return $script:FakeUrl
+}
 function Invoke-RestMethod {
+    param([string]$Uri, [int]$TimeoutSec, [switch]$UseBasicParsing)
     $script:Fetches++
+    $script:LastFetchedUri = $Uri
     if ($script:FetchThrows) { throw 'fixture network unavailable' }
     return $script:FetchedSnapshot
+}
+function Write-Log([string]$Message) { $script:LogMessages += $Message }
+function Start-TestProcess($Info) {
+    $script:ProcessStarts++
+    $script:StartedInfo = $Info
+    return $script:NextProcess
+}
+function New-TestProcess([string]$Hello) {
+    $read = [PSCustomObject]@{ Result = $Hello; WaitMilliseconds = $null }
+    $read | Add-Member ScriptMethod Wait { param($Milliseconds) $this.WaitMilliseconds = $Milliseconds; return $true }
+    $stream = [PSCustomObject]@{ Read = $read }
+    $stream | Add-Member ScriptMethod ReadLineAsync { return $this.Read }
+    $process = [PSCustomObject]@{ Id = 42424; HasExited = $false; StandardOutput = $stream;
+                                 KillCalls = 0; WaitCalls = 0; WaitMilliseconds = $null }
+    $process | Add-Member ScriptMethod Kill { $this.KillCalls++; $this.HasExited = $true }
+    $process | Add-Member ScriptMethod WaitForExit { param($Milliseconds)
+        $this.WaitCalls++; $this.WaitMilliseconds = $Milliseconds; return $true
+    }
+    return $process
 }
 $inputCases = Get-Content -LiteralPath $CasesPath -Raw | ConvertFrom-Json
 $results = @()
 foreach ($case in $inputCases.cases) {
     $script:Fetches = 0
+    $script:UseActualDashboardUrl = $false
+    $script:LastFetchedUri = $null
     try {
         $value = switch ($case.kind) {
             'summary' { Get-SnapshotSummary -Snapshot (Expand-TestValue $case.snapshot) -NowUnix $case.now }
@@ -85,6 +142,49 @@ foreach ($case in $inputCases.cases) {
                 $script:FetchThrows = [bool]$case.fail
                 $script:FetchedSnapshot = Expand-TestValue $case.snapshot
                 Get-StatusSummary
+            }
+            'lifecycle' {
+                $script:UseActualDashboardUrl = $true
+                $old = New-TestProcess ''
+                $script:Observer = $old
+                $script:ObserverPort = 8766
+                $script:LastError = $null
+                $script:Backoff = 2
+                $script:NextStart = [DateTime]::MinValue
+                $script:ProcessStarts = 0
+                $script:StartedInfo = $null
+                $script:LogMessages = @()
+                $script:FetchThrows = $true
+                $Python = $null
+                $Root = 'C:\fixture-observer'
+                $Port = 8767
+                $StatePath = 'C:\fixture-observer\state.json'
+                $ObserverLog = 'C:\fixture-observer\observer.log'
+                Stop-Observer
+                $stoppedProcessMissing = $null -eq $script:Observer
+                $stoppedPort = $script:ObserverPort
+                $stoppedUrl = Get-DashboardUrl
+                switch ($case.action) {
+                    'stop' { }
+                    'missing-python' { Start-Observer }
+                    'success' {
+                        $Python = 'fixture-python.exe'
+                        $script:NextProcess = New-TestProcess '{"service":"agiw-win-observer","port":8767}'
+                        $script:FetchThrows = $false
+                        $script:FetchedSnapshot = Expand-TestValue $case.snapshot
+                        $script:FetchedSnapshot.sampledAt = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() / 1000.0
+                        Start-Observer
+                    }
+                    default { throw 'unknown lifecycle fixture action' }
+                }
+                $summary = Get-StatusSummary
+                @{ observerMissing = ($null -eq $script:Observer); port = $script:ObserverPort;
+                   url = (Get-DashboardUrl); lastError = $script:LastError; text = $summary.text;
+                   tone = $summary.tone; stoppedProcessMissing = $stoppedProcessMissing;
+                   stoppedPort = $stoppedPort; stoppedUrl = $stoppedUrl; oldKillCalls = $old.KillCalls;
+                   oldWaitCalls = $old.WaitCalls; oldWaitMilliseconds = $old.WaitMilliseconds;
+                   starts = $script:ProcessStarts; fetchedUri = $script:LastFetchedUri;
+                   backoff = $script:Backoff; logMessages = $script:LogMessages }
             }
             default { throw 'unknown case kind' }
         }
@@ -324,6 +424,9 @@ class TraySummaryTest(unittest.TestCase):
         cls.cases.extend([
             {"name": "network-failure", "kind": "status", "url": "http://127.0.0.1:8767/", "fail": True},
             {"name": "not-started", "kind": "status", "url": None, "fail": True, "lastError": "Fixture startup error"},
+            {"name": "observer-stop", "kind": "lifecycle", "action": "stop"},
+            {"name": "observer-restart-missing-python", "kind": "lifecycle", "action": "missing-python"},
+            {"name": "observer-restart-success", "kind": "lifecycle", "action": "success", "snapshot": snapshot()},
         ])
         with tempfile.TemporaryDirectory() as tmp:
             runner = Path(tmp) / "tray-helper-tests.ps1"
@@ -603,6 +706,47 @@ class TraySummaryTest(unittest.TestCase):
         self.assertEqual(startup["tone"], "muted")
         self.assertEqual(self.results["not-started"]["fetches"], 0)
         self.assertIn("Fixture startup error", startup["text"])
+
+    def test_ordinary_observer_stop_clears_process_port_and_dashboard_url(self):
+        stopped = self.result("observer-stop")
+        self.assertTrue(stopped["observerMissing"])
+        self.assertIsNone(stopped["port"])
+        self.assertIsNone(stopped["url"])
+        self.assertEqual(stopped["oldKillCalls"], 1)
+        self.assertEqual(stopped["oldWaitCalls"], 1)
+        self.assertEqual(stopped["oldWaitMilliseconds"], 3000)
+        self.assertEqual(stopped["starts"], 0)
+        self.assertEqual(self.results["observer-stop"]["fetches"], 0)
+        self.assertEqual(stopped["text"], "Starting observer...")
+
+    def test_missing_python_restart_shows_real_startup_error_without_url_or_fetch(self):
+        failed = self.result("observer-restart-missing-python")
+        message = "Python 3.9+ not found (set AGIW_PYTHON)"
+        self.assertTrue(failed["observerMissing"])
+        self.assertIsNone(failed["port"])
+        self.assertIsNone(failed["url"])
+        self.assertEqual(failed["lastError"], message)
+        self.assertEqual(failed["text"], message)
+        self.assertEqual(failed["tone"], "muted")
+        self.assertEqual(failed["starts"], 0, "actual missing-Python branch cannot reach process launch")
+        self.assertEqual(failed["backoff"], 4)
+        self.assertEqual(failed["logMessages"], [message])
+        self.assertEqual(self.results["observer-restart-missing-python"]["fetches"], 0)
+        self.assertIsNone(failed["fetchedUri"])
+
+    def test_successful_restart_installs_real_handshake_port_and_dashboard_url(self):
+        restarted = self.result("observer-restart-success")
+        self.assertFalse(restarted["observerMissing"])
+        self.assertEqual(restarted["port"], 8767)
+        self.assertEqual(restarted["url"], "http://127.0.0.1:8767/")
+        self.assertIsNone(restarted["lastError"])
+        self.assertEqual(restarted["starts"], 1)
+        self.assertEqual(restarted["backoff"], 2)
+        self.assertEqual(restarted["oldKillCalls"], 1)
+        self.assertEqual(self.results["observer-restart-success"]["fetches"], 1)
+        self.assertEqual(restarted["fetchedUri"], "http://127.0.0.1:8767/api/snapshot")
+        self.assertEqual(restarted["tone"], "ok")
+        self.assertIn("fast idle", restarted["text"])
 
 
 if __name__ == "__main__":
