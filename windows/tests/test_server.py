@@ -2,6 +2,7 @@
 import http.client
 import json
 import os
+import socket
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import sys
@@ -750,6 +751,87 @@ class EndToEnd(unittest.TestCase):
         conn.request("POST", "/api/models/control", body=b"{}", headers={"Host": f"127.0.0.1:{self.port}",
                                                                           "Origin": origin, "Content-Type": "application/json"})
         self.assertEqual(conn.getresponse().status, 501)
+
+
+class PostBodyRequests(unittest.TestCase):
+    """Rejected POSTs still return readable responses for segmented request bodies."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.server = MonitorServer(("127.0.0.1", 0), SnapshotStore(), Path(self.tmp.name))
+        self.port = self.server.server_address[1]
+        self.thread = threading.Thread(target=self.server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
+        self.thread.start()
+
+    def tearDown(self):
+        self.server.stopping.set()
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join(timeout=1)
+        self.tmp.cleanup()
+        self.assertFalse(self.thread.is_alive())
+
+    def headers(self, content_lengths=("2",), origin=None):
+        host = f"127.0.0.1:{self.port}"
+        origin = f"http://{host}" if origin is None else origin
+        return (
+            "POST /api/models/control HTTP/1.1\r\n"
+            "Accept-Encoding: identity\r\n"
+            + "".join(f"Content-Length: {length}\r\n" for length in content_lengths)
+            + f"Host: {host}\r\nOrigin: {origin}\r\n"
+            + "Content-Type: application/json\r\n\r\n"
+        ).encode("ascii")
+
+    def assert_response(self, content_lengths=("2",), body=b"{}", origin=None, status=501):
+        with socket.create_connection(("127.0.0.1", self.port), timeout=1) as sock:
+            sock.sendall(self.headers(content_lengths, origin))
+            if body:
+                time.sleep(0.005)
+                sock.sendall(body)
+            with http.client.HTTPResponse(sock, method="POST") as response:
+                response.begin()
+                payload = response.read()
+                self.assertEqual(response.status, status)
+                self.assertEqual(response.getheader("Content-Type"), "application/json")
+                self.assertEqual(response.getheader("Content-Length"), str(len(payload)))
+                self.assertEqual(json.loads(payload), {
+                    "status": "error",
+                    "message": ("The Windows edition is read-only in this version." if status == 501 else
+                                "Exact same-origin Origin and Host are required.")})
+
+    def test_delayed_body_returns_readable_501(self):
+        self.assert_response()
+
+    def test_delayed_bad_origin_body_returns_readable_403(self):
+        self.assert_response(origin="http://foreign.invalid", status=403)
+
+    def test_zero_and_maximum_body_lengths_return_readable_501(self):
+        for length in (0, 65536):
+            with self.subTest(length=length):
+                self.assert_response(content_lengths=(str(length),), body=b"x" * length)
+
+    def test_invalid_body_lengths_reply_without_waiting_for_body(self):
+        cases = [("missing", ()), ("negative", ("-1",)), ("nondecimal", ("bad",)),
+                 ("fraction", ("2.0",)), ("oversized", ("65537",)), ("duplicate", ("2", "3")),
+                 ("excessive-decimal", ("9" * 5000,))]
+        for label, lengths in cases:
+            with self.subTest(case=label):
+                started = time.monotonic()
+                self.assert_response(content_lengths=lengths, body=b"")
+                self.assertLess(time.monotonic() - started, 1)
+
+    def test_stalled_valid_body_is_closed_by_existing_deadline(self):
+        with socket.create_connection(("127.0.0.1", self.port), timeout=4.5) as sock:
+            started = time.monotonic()
+            sock.sendall(self.headers())
+            try:
+                first = sock.recv(1)
+            except ConnectionResetError:
+                first = b""
+            elapsed = time.monotonic() - started
+            self.assertEqual(first, b"")
+            self.assertGreater(elapsed, 2)
+            self.assertLess(elapsed, 4.5)
 
 
 class ObserverRecovery(unittest.TestCase):

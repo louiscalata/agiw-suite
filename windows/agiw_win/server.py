@@ -248,7 +248,20 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(503, b"Asset unavailable", "text/plain")
 
     def do_POST(self):
-        if not self.same_origin(require_origin=True):
+        allowed = self.same_origin(require_origin=True)
+        # Drain a bounded body before closing so split sends can read the refusal.
+        lengths = self.headers.get_all("Content-Length", [])
+        text = lengths[0].strip(" \t") if len(lengths) == 1 else ""
+        try:
+            length = int(text) if text.isascii() and text.isdecimal() else -1
+        except ValueError:
+            length = -1
+        if 0 <= length <= 64 * 1024:
+            if len(self.rfile.read(length)) != length:
+                self.close_connection = True
+        else:
+            self.close_connection = True
+        if not allowed:
             return self.json_reply(403, {"status": "error", "message": "Exact same-origin Origin and Host are required."})
         return self.json_reply(501, {"status": "error", "message": "The Windows edition is read-only in this version."})
 
