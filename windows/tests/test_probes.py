@@ -963,6 +963,105 @@ class PCPresenceModels(unittest.TestCase):
                            "status": "idle", "phase": "idle", "slotsBusy": 0, "slotsTotal": 2,
                            "servedModel": "/private/models/qwen.gguf", "liveTokensPerSecond": 0}]}
 
+    def mixed_snapshot(self, count):
+        snapshot = self.snapshot()
+        template = snapshot["lanes"][0]
+        loaded = {1, 5, count - 2, count - 1}
+        snapshot["lanes"] = [{**template, "id": f"lane-{index:02d}", "port": 2000 + index,
+                              "expectedModel": f"model-{index:02d}", "servedModel": f"model-{index:02d}",
+                              "status": "idle" if index in loaded else "stale", "phase": "idle",
+                              "slotsBusy": 0, "liveTokensPerSecond": 0 if index in loaded else None}
+                             for index in range(count)]
+        return snapshot
+
+    def test_presence_total_counts_both_required_model_rows(self):
+        presence = probes.peer_presence(self.snapshot(), "test-pc")
+        self.assertEqual(presence["models"], [
+            {"id": "gpt-oss-20b", "aliases": ["openai/gpt-oss-20b"], "loadedState": "loaded",
+             "activity": "decoding", "slotsBusy": 1, "slotsTotal": 2, "lane": "fast",
+             "servedModel": "gpt-oss-20b.gguf", "liveTokensPerSecond": 12.5},
+            {"id": "Qwen3.8-27B Q4_K_M", "aliases": ["qwen3.8-27b"], "loadedState": "loaded",
+             "activity": "idle", "slotsBusy": 0, "slotsTotal": 2, "lane": "deep",
+             "servedModel": "qwen.gguf", "liveTokensPerSecond": 0},
+        ])
+        self.assertIs(type(presence.get("modelsTotal")), int)
+        self.assertEqual(presence["modelsTotal"], 2)
+
+    def test_presence_total_keeps_unknown_rows_and_uncapped_order(self):
+        for state in ("unknown", "stale", "unreachable", "loading", "undeclared", "identity_mismatch"):
+            with self.subTest(state=state):
+                snapshot = self.snapshot()
+                snapshot["lanes"][0]["status"] = state
+                presence = probes.peer_presence(snapshot, "test-pc")
+                self.assertEqual([row["id"] for row in presence["models"]],
+                                 ["gpt-oss-20b", "Qwen3.8-27B Q4_K_M"])
+                self.assertEqual([row["loadedState"] for row in presence["models"]], ["unknown", "loaded"])
+                self.assertEqual([row["activity"] for row in presence["models"]], ["unknown", "idle"])
+                self.assertIs(type(presence.get("modelsTotal")), int)
+                self.assertEqual(presence["modelsTotal"], 2)
+        for count in (31, 32):
+            with self.subTest(count=count):
+                presence = probes.peer_presence(self.mixed_snapshot(count), "test-pc")
+                self.assertEqual([row["id"] for row in presence["models"]],
+                                 [f"model-{index:02d}" for index in range(count)])
+                self.assertEqual(presence["models"][0]["loadedState"], "unknown")
+                self.assertIs(type(presence.get("modelsTotal")), int)
+                self.assertEqual(presence["modelsTotal"], count)
+
+    def test_capped_presence_keeps_loaded_tail_and_uncapped_total(self):
+        from copy import deepcopy
+
+        for count in (33, 40):
+            with self.subTest(count=count):
+                snapshot = self.mixed_snapshot(count)
+                original = deepcopy(snapshot)
+                presence = probes.peer_presence(snapshot, "test-pc")
+                self.assertEqual(len(presence["models"]), 32)
+                loaded = [1, 5, count - 2, count - 1]
+                retained = loaded + [index for index in range(count) if index not in loaded][:28]
+                self.assertEqual([row["id"] for row in presence["models"]],
+                                 [f"model-{index:02d}" for index in retained])
+                self.assertEqual([row["loadedState"] for row in presence["models"]],
+                                 ["loaded"] * 4 + ["unknown"] * 28)
+                self.assertEqual([row["lane"] for row in presence["models"]],
+                                 [f"lane-{index:02d}" for index in retained])
+                self.assertIs(type(presence.get("modelsTotal")), int)
+                self.assertEqual(presence["modelsTotal"], count)
+                self.assertLessEqual(len(json.dumps(presence, allow_nan=False).encode("utf-8")), probes.PEER_MAX_BYTES)
+                self.assertEqual(snapshot, original, "capping must not alter the sampled evidence")
+
+    def test_legacy_status_over_32_models_still_refuses_and_keeps_previous_file(self):
+        import contextlib
+        from copy import deepcopy
+        import io
+        from types import SimpleNamespace
+        from unittest import mock
+        from agiw_win.server import SnapshotStore, sample
+
+        snapshot = self.mixed_snapshot(33)
+        status = probes.pc_status(snapshot)
+        self.assertEqual(len(status["models"]), 33)
+        self.assertNotIn("modelsTotal", status)
+        with self.assertRaisesRegex(ValueError, "status header invalid"):
+            probes.validate_status(status)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            target = root / "llm-lab" / "status" / probes.STATUS_FILE_NAME
+            previous = probes.pc_status(self.snapshot())
+            probes.validate_status(previous)
+            probes.write_json_atomic(target, previous, probes.STATUS_MAX_BYTES, stop_at=root)
+            previous_bytes = target.read_bytes()
+            collector = SimpleNamespace(share_root=root, host="test-pc", collect=lambda: deepcopy(snapshot))
+            stop = mock.Mock()
+            stop.is_set.side_effect = [False, True]
+            store, errors = SnapshotStore(), io.StringIO()
+            with contextlib.redirect_stderr(errors):
+                sample(store, collector, stop, publish_to=target, publish_every=0.0)
+            self.assertEqual(store.sequence, 1, "the actual publisher must process the oversized sample")
+            self.assertIn("status header invalid", errors.getvalue())
+            self.assertEqual(target.read_bytes(), previous_bytes)
+            self.assertEqual([path.name for path in target.parent.iterdir()], [target.name])
+
     def test_presence_keeps_status_model_details_from_the_same_sample(self):
         from copy import deepcopy
 
@@ -1000,6 +1099,8 @@ class PCPresenceModels(unittest.TestCase):
                     self.assertEqual(len(presence["models"]), 2, "invalid optional fields must keep the sample")
                     self.assertEqual(presence["models"][1]["id"], "Qwen3.8-27B Q4_K_M")
                     json.dumps(presence, allow_nan=False)
+                    self.assertIs(type(presence.get("modelsTotal")), int)
+                    self.assertEqual(presence["modelsTotal"], 2)
 
     def test_extra_presence_details_do_not_change_the_pc_peer_reader(self):
         from copy import deepcopy
