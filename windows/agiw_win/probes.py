@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import ctypes
 from contextlib import contextmanager
+import datetime as dt
 import http.client
 import ipaddress
 import json
@@ -1395,6 +1396,172 @@ def read_peers(share_root: Path, self_host: str, now: float) -> tuple[list[dict[
     if stale:
         detail += f"; {len(stale)} stale ({', '.join(p['host'] + ' ' + str(int(p['ageSeconds'] // 3600)) + ' h' for p in stale)})"
     return peers, _source("agiw-peers", "AGIW peers", "live" if fresh else "unavailable", detail)
+
+
+PEER_LINK_MAX_BYTES = 65536
+PEER_LINK_MAX_ROWS = 32
+PEER_LINK_STATES = ("available", "connecting", "connected", "stale", "offline")
+PEER_LINK_UUID = __import__("re").compile(r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\Z")
+
+
+def peer_link_status_path() -> Path:
+    """The local pairing service's fixed Windows path; no config-supplied path or service actions."""
+    base = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
+    return base / "AGIW" / "peer-link" / "peers.json"
+
+
+def _peer_link_opened_path(stream, path: Path) -> None:
+    if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+        raise ValueError("not a regular file")
+    if not IS_WINDOWS:
+        return
+    import msvcrt  # noqa: PLC0415 - Windows only
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    handle = msvcrt.get_osfhandle(stream.fileno())
+    if _handle_is_reparse(kernel32, handle):
+        raise ValueError("linked file refused")
+    final_path = kernel32.GetFinalPathNameByHandleW
+    final_path.argtypes = (ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_uint32, ctypes.c_uint32)
+    final_path.restype = ctypes.c_uint32
+    buffer = ctypes.create_unicode_buffer(32768)
+    length = final_path(handle, buffer, len(buffer), 0)
+    if not 0 < length < len(buffer):
+        raise ValueError("opened path unavailable")
+    actual = buffer.value
+    if actual.startswith("\\\\?\\"):
+        actual = actual[4:]
+    if os.path.normcase(actual) != os.path.normcase(str(path)):
+        raise ValueError("opened path redirected")
+
+
+def _read_peer_link_file(path: Path) -> Any:
+    if not path.is_absolute() or path.drive.startswith("\\\\"):
+        raise ValueError("local absolute path required")
+    for entry in (*path.parents, path):
+        if is_link_or_junction(entry):
+            raise ValueError("linked path refused")
+    if not stat.S_ISREG(path.stat().st_mode):
+        raise ValueError("not a regular file")
+    with path.open("rb") as stream:
+        _peer_link_opened_path(stream, path)
+        payload = stream.read(PEER_LINK_MAX_BYTES + 1)
+    if len(payload) > PEER_LINK_MAX_BYTES:
+        raise ValueError("oversized peer report")
+
+    def unique(pairs):
+        out = {}
+        for key, value in pairs:
+            if key in out:
+                raise ValueError("duplicate JSON key")
+            out[key] = value
+        return out
+
+    try:
+        return json.loads(payload.decode("utf-8-sig"), parse_constant=_reject_constant, object_pairs_hook=unique)
+    except RecursionError as error:
+        raise ValueError("JSON nested too deeply") from error
+
+
+def _peer_link_age(value: Any, now: float) -> float | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        observed = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if observed.tzinfo is None:
+            return None
+        age = now - observed.timestamp()
+        return age if math.isfinite(age) else None
+    except (ValueError, OverflowError, OSError):
+        return None
+
+
+def _peer_link_status(value: Any, host: str, now: float) -> dict[str, Any] | None:
+    if host not in ("mac", "windows", "linux") or not isinstance(value, dict) \
+            or type(value.get("schemaVersion")) is not int or value["schemaVersion"] != 1:
+        return None
+    kind = value.get("platform") if value.get("kind") == "agiw-peer" else value.get("host")
+    age = _peer_link_age(value.get("observedAt"), now)
+    models = value.get("models")
+    if kind != host or age is None or not -5 <= age <= 30 or not isinstance(models, list) or len(models) > 32:
+        return None
+    rows = []
+    for model in models:
+        if not isinstance(model, dict) or not isinstance(model.get("id"), str) or not model["id"].strip() \
+                or not model["id"].isprintable() or model.get("loadedState") not in STATUS_LOADED_STATES \
+                or model.get("host") not in (None, host):
+            return None
+        row = {"id": model["id"][:256], "loadedState": model["loadedState"]}
+        if model.get("activity") in ("idle", "busy", "generating", "unknown"):
+            row["activity"] = model["activity"]
+        rows.append(row)
+    components = value.get("components")
+    component_rows = []
+    for item in components[:4] if isinstance(components, list) else []:
+        if isinstance(item, dict) and item.get("id") in ("nisi", "jev"):
+            row = {"id": item["id"]}
+            for key in ("label", "state", "detail"):
+                text = _string(item.get(key), 128)
+                if text is not None:
+                    row[key] = text
+            component_rows.append(row)
+    out = {"schemaVersion": 1, "host": host, "observedAt": value["observedAt"], "models": rows}
+    if component_rows:
+        out["components"] = component_rows
+    return out
+
+
+def read_peer_link(now: float, *, enabled: bool = False) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+    """Read the pairing service's report, never start it or independently assert authentication."""
+    if enabled is not True:
+        return [], None
+    unknown = _source("peer-link", "Peer link", "unavailable", "Pairing service status unknown (invalid report)")
+    try:
+        if _number(now, low=0, high=sys.float_info.max) is None:
+            return [], unknown
+        doc = _read_peer_link_file(peer_link_status_path())
+        identity = doc.get("self") if isinstance(doc, dict) else None
+        if not isinstance(doc, dict) or type(doc.get("schemaVersion")) is not int or doc["schemaVersion"] != 1 \
+                or doc.get("protocol") != "agiw-peer/2" or not isinstance(doc.get("peers"), list) \
+                or not isinstance(identity, dict) or identity.get("host") != "windows" \
+                or not isinstance(identity.get("node"), str) or not PEER_LINK_UUID.fullmatch(identity["node"]):
+            return [], unknown
+        age = _peer_link_age(doc.get("observedAt"), now)
+        fresh = age is not None and -5 <= age <= 30
+        rows, seen = [], set()
+        for item in doc["peers"][:PEER_LINK_MAX_ROWS]:
+            if not isinstance(item, dict) or not isinstance(item.get("node"), str) \
+                    or not PEER_LINK_UUID.fullmatch(item["node"]) or item["node"] == identity["node"]:
+                continue
+            if item["node"] in seen:
+                for row in rows:
+                    if row["node"] == item["node"]:
+                        row.update(name=None, host="unknown", paired=None, state="unknown", status=None)
+                continue
+            seen.add(item["node"])
+            paired = item.get("paired") if isinstance(item.get("paired"), bool) else None
+            host = item.get("host") if item.get("host") in ("mac", "windows", "linux") else "unknown"
+            state = item.get("state") if fresh and item.get("state") in PEER_LINK_STATES else "unknown"
+            status = None
+            if state == "connected":
+                status = _peer_link_status(item.get("status"), host, now) if paired is True else None
+                if status is None:
+                    state = "unknown"
+            rows.append({"node": item["node"], "name": _string(item.get("name"), 64), "host": host,
+                         "paired": paired, "state": state, "status": status})
+        if not fresh:
+            detail = (f"Pairing service report stale ({age:.1f} s); status unknown" if age is not None and age > 30
+                      else "Pairing service report clock unknown; status unknown")
+            return rows, _source("peer-link", "Peer link", "unavailable", detail)
+        paired_count = sum(row["paired"] is True for row in rows)
+        connected_count = sum(row["state"] == "connected" for row in rows)
+        return rows, _source("peer-link", "Peer link", "live",
+                             f"Pairing service reports {paired_count} paired, {connected_count} connected (authenticated)",
+                             round(max(0.0, age), 1))
+    except FileNotFoundError:
+        return [], _source("peer-link", "Peer link", "unavailable", "Pairing service status unavailable (no peers.json)")
+    except (OSError, ValueError, TypeError, RecursionError):
+        return [], unknown
 
 
 def python_info() -> str:

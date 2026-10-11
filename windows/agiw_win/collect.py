@@ -81,13 +81,15 @@ class Collector:
                  clients_fn: Callable[[float], tuple[list, list]] | None = None,
                  mac_peer: probes.MacPeer | None = None, clock: Callable[[], float] = time.time,
                  lane_interval: float = 1.0, lane_wait: float = 0.0, runs_root: Path | None = None,
-                 host: str | None = None, lane_processes: "winsys.LaneProcesses | None" = None):
+                 host: str | None = None, lane_processes: "winsys.LaneProcesses | None" = None,
+                 peer_link_reader: bool = False):
         self.share_root = share_root
         self.bin_root = bin_root or Path.home() / "bin"
         self.fetch, self.gpu_fn, self.adapters_fn, self.memory_fn = fetch, gpu_fn, adapters_fn, memory_fn
         self.clients_fn = clients_fn
         self.mac_peer = mac_peer
         self.clock = clock
+        self.peer_link_reader = peer_link_reader is True
         self._pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="agiw-probe")
         self._gpu_cache: tuple[float, list, dict] | None = None
         self._adapters: list | None = None
@@ -335,7 +337,7 @@ class Collector:
                       {"id": "jev", "label": "Jev", "state": "unknown",
                        "detail": "Jev triage runs through the route queue on this PC; no passive opt-in record is read",
                        "lastJudgedAgeSeconds": None}]
-        return {
+        snapshot = {
             "schemaVersion": 1, "host": "windows", "edition": "windows", "observerVersion": VERSION,
             "observedAt": observed, "sampledAt": sampled,
             "models": rows, "sources": sources, "pipeline": pipeline, "components": components,
@@ -349,3 +351,10 @@ class Collector:
             "modelControl": {"supported": False,
                              "reason": "This Windows dashboard monitors models only. Load and unload are unavailable."},
         }
+        if self.peer_link_reader:
+            paired, source = self._guard(sources, "peer-link", "Peer link",
+                                         lambda: probes.read_peer_link(sampled, enabled=True), ([], None))
+            snapshot["pairedPeers"] = paired
+            if source is not None:
+                sources.append(source)
+        return snapshot

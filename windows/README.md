@@ -52,6 +52,12 @@ Publishing writes a temporary file through checked directory handles and renames
 interrupted publish keeps the previous file. The dashboard's **Share publish** source shows the last success and
 any failure.
 
+`peerLinkReader` is a separate observer option, also off by default. When enabled, it reads the pairing
+service's existing local `%LOCALAPPDATA%\AGIW\peer-link\peers.json` and adds `pairedPeers` plus a `peer-link`
+source to the snapshot. Reports expire after 30 s; model evidence also needs a fresh nested report. It reads
+at most 64 KiB, reopens each sample, and attributes connection results to the pairing service. This preparatory
+adapter has no dashboard controls. Running the pairing service requires separate LAN approval.
+
 ## Install from a checkout
 
 ```powershell

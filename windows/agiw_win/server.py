@@ -477,7 +477,7 @@ def main(argv: list[str] | None = None) -> int:
                         help="write llm-lab/status/windows-status.json on the share every 10 s for the Mac's status reader (opt-in)")
     parser.add_argument("--peer-link", action="store_true",
                         help="publish presence to llm-lab/status/agiw-peers/<host>.json every 10 s (opt-in)")
-    parser.add_argument("--config", type=Path, help="JSON with publishStatus / peerLink booleans (default: config.json beside the observer)")
+    parser.add_argument("--config", type=Path, help="JSON with publishStatus / peerLink / peerLinkReader booleans (default: config.json beside the observer)")
     parser.add_argument("--log-file", type=Path, help="append stderr here (the tray shell does not read stderr)")
     args = parser.parse_args(argv)
     if args.log_file:
@@ -500,6 +500,7 @@ def main(argv: list[str] | None = None) -> int:
         config = {}
     publish_status = args.publish_status or config.get("publishStatus") is True
     peer_link = args.peer_link or config.get("peerLink") is True
+    peer_link_reader = config.get("peerLinkReader") is True
     clients_fn = None
     for root in (here.parent, here.parent.parent):
         if (root / "client_models.py").is_file():
@@ -511,7 +512,8 @@ def main(argv: list[str] | None = None) -> int:
                 clients_fn = None
             break
     mac_peer = None if args.no_lan else probes.MacPeer(args.share_root)
-    collector = Collector(args.share_root, clients_fn=clients_fn, mac_peer=mac_peer, lane_wait=6.0 if args.once else 0.0)
+    collector = Collector(args.share_root, clients_fn=clients_fn, mac_peer=mac_peer, lane_wait=6.0 if args.once else 0.0,
+                          peer_link_reader=peer_link_reader)
     if args.once:
         if mac_peer:
             mac_peer.poll_once()
