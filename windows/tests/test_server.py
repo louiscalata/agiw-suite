@@ -210,6 +210,7 @@ class EndToEnd(unittest.TestCase):
             probes.write_json_atomic(Path(self.tmp.name) / "x.json", {"pad": "x" * 70000}, probes.STATUS_MAX_BYTES)
 
     def test_presence_round_trip_links_a_second_instance(self):
+        self.configure_mac(hostname="otherpc")
         data = self.collector.collect()
         share = Path(self.tmp.name)
         probes.write_json_atomic(probes.peer_dir(share) / "otherpc.json",
@@ -344,6 +345,7 @@ class EndToEnd(unittest.TestCase):
 
     def test_share_link_is_aged_by_presence_and_normalized(self):
         # Codex round 2, findings 12 and 13.
+        self.configure_mac(hostname="louis-mac")
         share = Path(self.tmp.name)
         data = self.collector.collect()
         probes.write_json_atomic(probes.peer_dir(share) / "louis-mac.json",
@@ -368,8 +370,191 @@ class EndToEnd(unittest.TestCase):
             fields.update(host="mac", observedAt=dt.datetime.fromtimestamp(observed, dt.timezone.utc).isoformat())
         probes.write_json_atomic(target, fields, probes.PEER_MAX_BYTES, stop_at=share)
 
+    def configure_mac(self, **fields):
+        target = Path(self.tmp.name) / "llm-lab" / "mac-reach" / "hosts.json"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps({"mac": fields}), encoding="utf-8")
+
+    def write_mac_presence(self, host, observed, models, **fields):
+        share = Path(self.tmp.name)
+        target = probes.peer_dir(share) / f"{host}.json"
+        probes.write_json_atomic(target, {"schemaVersion": 1, "kind": "agiw-peer", "host": host,
+            "platform": "macos", "observedUnix": observed, "models": models, **fields},
+            probes.PEER_MAX_BYTES, stop_at=share)
+
+    def clear_mac_reports(self):
+        share = Path(self.tmp.name)
+        for target in probes.peer_dir(share).glob("*.json"):
+            target.unlink()
+        (probes.peer_dir(share).parent / "mac-status.json").unlink(missing_ok=True)
+
+    def set_mac_result(self, observed, **fields):
+        result = {"state": "unreachable", "observedAt": observed, "name": "ConfiguredMac",
+                  "models": [], "loadedCount": None, "detail": "Test LAN refusal", "reason": "refused",
+                  "address": None, "latencyMs": None, **fields}
+        self.collector.mac_peer = probes.MacPeer(Path(self.tmp.name), probe=lambda _hosts: result)
+        self.collector.mac_peer.poll_once()
+
+    def assert_local_readings_preserved(self, snapshot):
+        self.assertEqual(snapshot["host"], "windows")
+        self.assertEqual({m["id"]: m["state"] for m in snapshot["models"]},
+                         {"openai/gpt-oss-20b": "idle", "qwen3.8-27b": "idle"})
+        self.assertEqual((snapshot["memory"]["level"], snapshot["share"]["state"]), ("ok", "ready"))
+        sources = {s["id"]: s["state"] for s in snapshot["sources"]}
+        self.assertEqual((sources["llama-slots"], sources["lane-inventory"]), ("live", "live"))
+        for lane in snapshot["windowsWorker"]["lanes"].values():
+            self.assertEqual((lane["up"], lane["slotsBusy"], lane["slotsTotal"]), (True, 0, 2))
+
+    def test_share_links_only_the_current_configured_mac(self):
+        now = 2_000_000_000.0
+        self.collector.clock = lambda: now  # Set before any local lane poller observes its first answer.
+        models = [{"id": "reported-model", "loadedState": "loaded"}]
+        cases = [("matching", {"hostname": "target.local"}, "target", "target", True),
+                 ("different-reporter", {"hostname": "target.local"}, "other-mac", "target", False),
+                 ("missing-config", None, "old-mac", "old-mac", False),
+                 ("unnamed-config", {}, "old-mac", "old-mac", False),
+                 ("config-changed", {"hostname": "target.local"}, "target", "old-mac", True),
+                 ("old-name-cannot-link", {"hostname": "target.local"}, "old-mac", "old-mac", False)]
+        for label, config, reporter, old_name, linked in cases:
+            with self.subTest(case=label):
+                self.clear_mac_reports()
+                if config is None:
+                    (Path(self.tmp.name) / "llm-lab" / "mac-reach" / "hosts.json").unlink(missing_ok=True)
+                else:
+                    self.configure_mac(**config)
+                self.set_mac_result(now - 46, name=old_name)
+                self.write_mac_presence(reporter, now, models, modelsTotal=1)
+                snapshot = self.collector.collect()
+                self.assert_local_readings_preserved(snapshot)
+                mac = snapshot["macPeer"]
+                self.assertEqual(mac["state"], "linked" if linked else "unknown")
+                if linked:
+                    self.assertEqual(mac["name"].split(".")[0].casefold(), "target")
+                    self.assertEqual(mac["models"], [{"id": "reported-model", "state": "loaded"}])
+                    self.assertFalse(mac["verified"])
+                else:
+                    self.assertEqual(mac["models"], [])
+                    self.assertNotIn("linkSource", mac)
+                self.assertEqual([p["host"] for p in snapshot["peers"]], [reporter],
+                                 "unattributable reports remain visible as their own AGIW peers")
+
+    def test_configured_mac_matching_uses_case_domain_and_mdns_fallback(self):
+        now = 2_000_000_000.0
+        self.collector.clock = lambda: now
+        models = [{"id": "reported-model", "loadedState": "loaded"}]
+        cases = [({"hostname": "TaRgEt.Example", "mdns": "other.local"}, "TARGET.local", True),
+                 ({"hostname": "TaRgEt.Example", "mdns": "other.local"}, "other", False),
+                 ({"mdns": "FaLlBaCk.local"}, "FALLBACK.example", True),
+                 ({"hostname": None, "mdns": "FaLlBaCk.local"}, "fallback", True)]
+        for config, reporter, linked in cases:
+            with self.subTest(config=config, reporter=reporter):
+                self.clear_mac_reports()
+                self.configure_mac(**config)
+                self.set_mac_result(now, name=None)
+                self.write_mac_presence(reporter, now, models, modelsTotal=1)
+                snapshot = self.collector.collect()
+                self.assert_local_readings_preserved(snapshot)
+                mac = snapshot["macPeer"]
+                self.assertEqual(mac["state"], "linked" if linked else "unreachable")
+                if linked:
+                    self.assertEqual(mac["loadedCount"], 1)
+                    self.assertIsInstance(mac["name"], str)
+                    self.assertEqual(mac["name"].split(".")[0].casefold(), reporter.split(".")[0].casefold())
+
+    def test_linked_share_loaded_count_needs_complete_known_residency(self):
+        now = 2_000_000_000.0
+        self.collector.clock = lambda: now
+        self.configure_mac(hostname="mac")
+        known = [{"id": "loaded-model", "loadedState": "loaded"},
+                 {"id": "inactive-model", "loadedState": "inactive"}]
+        cases = [("complete", known, {"modelsTotal": 2}, 1),
+                 ("missing-total", known, {}, None),
+                 ("longer-inventory", known, {"modelsTotal": 3}, None),
+                 ("short-total", known, {"modelsTotal": 1}, None),
+                 ("boolean-total", known, {"modelsTotal": True}, None),
+                 ("float-total", known, {"modelsTotal": 2.0}, None),
+                 ("unknown-residency", [known[0], {"id": "unknown-model", "loadedState": "unknown"}],
+                  {"modelsTotal": 2}, None),
+                 ("rejected-row", [known[0], {"id": "", "loadedState": "loaded"}], {"modelsTotal": 2}, None),
+                 ("duplicate-row", [known[0], known[0]], {"modelsTotal": 2}, None),
+                 ("capped-inventory", [{"id": f"model-{i}", "loadedState": "loaded"} for i in range(33)],
+                  {"modelsTotal": 33}, None),
+                 ("empty-complete", [], {"modelsTotal": 0}, None)]
+        for label, models, fields, expected_count in cases:
+            with self.subTest(case=label):
+                self.clear_mac_reports()
+                self.write_mac_presence("mac", now, models, **fields)
+                snapshot = self.collector.collect()
+                self.assert_local_readings_preserved(snapshot)
+                mac = snapshot["macPeer"]
+                self.assertEqual(mac["state"], "linked")
+                self.assertEqual(mac["loadedCount"], expected_count)
+                self.assertFalse(mac["verified"])
+
+    def test_linked_share_retains_only_a_current_lan_failure_on_its_own_clock(self):
+        now = 2_000_000_000.0
+        self.collector.clock = lambda: now
+        self.configure_mac(hostname="mac")
+        self.write_mac_presence("mac", now - 2.4, [{"id": "reported-model", "loadedState": "loaded"}], modelsTotal=1)
+        for age, current in ((0.0, True), (45.0, True), (45.04, False), (-5.0, True), (-5.04, False)):
+            with self.subTest(lan_age=age):
+                self.set_mac_result(now - age, name="mac")
+                _, expected_source = self.collector.mac_peer.read(now)
+                snapshot = self.collector.collect()
+                self.assert_local_readings_preserved(snapshot)
+                mac = snapshot["macPeer"]
+                self.assertEqual(mac["state"], "linked")
+                self.assertEqual((mac["ageSeconds"], mac["linkAgeSeconds"]), (2.4, 2.4))
+                self.assertEqual(mac.get("lanFailure"), "refused" if current else None)
+                self.assertEqual(mac.get("lanFailureAgeSeconds"), max(0.0, age) if current else None)
+                self.assertFalse(mac["verified"])
+                self.assertIsNone(mac["address"])
+                self.assertIsNone(mac["latencyMs"])
+                source = next(s for s in snapshot["sources"] if s["id"] == "mac-peer")
+                self.assertEqual(source, expected_source, "the independent LAN source must keep its own result")
+                self.assertEqual(probes.pc_status(snapshot)["limitations"],
+                                 ["mac LM Studio LAN check failed (refused); cause unknown"] if current else
+                                 ["mac LM Studio LAN reachability unknown"])
+
+    def test_missing_stale_or_invalid_share_keeps_the_direct_mac_result(self):
+        now = 2_000_000_000.0
+        self.collector.clock = lambda: now
+        self.configure_mac(hostname="mac")
+        self.set_mac_result(now, name="mac")
+        for kind in ("missing", "stale", "invalid"):
+            with self.subTest(kind=kind):
+                self.clear_mac_reports()
+                if kind != "missing":
+                    self.write_mac_presence("mac", now - 30.04 if kind == "stale" else 10 ** 1000,
+                                            [{"id": "reported-model", "loadedState": "loaded"}], modelsTotal=1)
+                snapshot = self.collector.collect()
+                self.assert_local_readings_preserved(snapshot)
+                mac = snapshot["macPeer"]
+                self.assertEqual((mac["state"], mac["name"], mac["reason"], mac["observedAt"]),
+                                 ("unreachable", "mac", "refused", now))
+                self.assertEqual(mac["models"], [])
+                self.assertIsNone(mac["loadedCount"])
+                self.assertNotIn("linkSource", mac)
+
+    def test_a_current_direct_mac_answer_takes_priority_over_matching_share(self):
+        now = 2_000_000_000.0
+        self.collector.clock = lambda: now
+        self.configure_mac(hostname="mac")
+        self.set_mac_result(now, state="reachable", name="mac", reason=None,
+                            models=[{"id": "direct-model", "state": "loaded"}], loadedCount=1,
+                            address="192.168.77.2", latencyMs=3, detail="Test direct model listing")
+        self.write_mac_presence("mac", now, [{"id": "share-model", "loadedState": "loaded"}], modelsTotal=1)
+        snapshot = self.collector.collect()
+        self.assert_local_readings_preserved(snapshot)
+        mac = snapshot["macPeer"]
+        self.assertEqual((mac["state"], mac["loadedCount"], mac["models"]),
+                         ("reachable", 1, [{"id": "direct-model", "state": "loaded"}]))
+        self.assertEqual((mac["address"], mac["latencyMs"]), ("192.168.77.2", 3))
+        self.assertNotIn("linkSource", mac)
+
     def test_expired_share_reports_do_not_promote_the_mac_to_linked(self):
         observed = 2_000_000_000.0
+        self.configure_mac(hostname="mac")
         self.collector.mac_peer = probes.MacPeer(Path(self.tmp.name), probe=lambda _hosts: {
             "state": "unreachable", "observedAt": observed, "models": [], "loadedCount": None,
             "detail": "Test LAN refusal", "reason": "refused"})
@@ -398,6 +583,7 @@ class EndToEnd(unittest.TestCase):
 
     def test_share_link_uses_fresh_legacy_after_presence_expires(self):
         now = 2_000_000_000.0
+        self.configure_mac(hostname="mac")
         self.collector.clock = lambda: now
         for presence_age, legacy_age, expected in ((30.04, 10, "mac-status.json"),
                                                   (10, 30.04, "agiw-peers")):
@@ -413,6 +599,7 @@ class EndToEnd(unittest.TestCase):
 
     def test_invalid_peer_clock_keeps_peers_and_local_readings(self):
         now = 2_000_000_000.0
+        self.configure_mac(hostname="mac")
         self.collector.clock = lambda: now
         share = Path(self.tmp.name)
         for kind in ("agiw-peers", "mac-status.json"):

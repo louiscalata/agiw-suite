@@ -24,6 +24,9 @@ class MacPeerEvidence(unittest.TestCase):
         self.now = 1000.0
         self.peer_path = probes.peer_dir(self.share) / "test-mac.json"
         self.peer_path.parent.mkdir(parents=True)
+        hosts_path = self.share / "llm-lab" / "mac-reach" / "hosts.json"
+        hosts_path.parent.mkdir(parents=True)
+        hosts_path.write_text(json.dumps({"mac": {"hostname": "test-mac"}}), encoding="utf-8")
 
         def no_fetch(*_args):
             raise AssertionError("An undeclared lane must not make an HTTP request")
@@ -40,6 +43,7 @@ class MacPeerEvidence(unittest.TestCase):
         self.peer_path.write_text(json.dumps({
             "schemaVersion": 1, "kind": "agiw-peer", "host": "test-mac",
             "platform": "macos", "edition": "mac", "observedUnix": 1000.0,
+            "modelsTotal": len(states),
             "models": [{"id": f"model-{index}", "loadedState": state}
                        for index, state in enumerate(states)],
         }), encoding="utf-8")

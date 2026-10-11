@@ -280,22 +280,33 @@ class Collector:
             mac, mac_source = ({"state": "unknown", "detail": "LAN probe disabled", "models": [], "ageSeconds": None},
                                probes._source("mac-peer", "Mac (LAN)", "unavailable", "LAN probe disabled"))
         sources.append(mac_source)
+        configured_name = probes.configured_mac_name(self.share_root)
+        if configured_name and not mac.get("name"):
+            mac = {**mac, "name": configured_name}
         peers, peers_source = self._guard(sources, "agiw-peers", "AGIW peers",
                                           lambda: probes.read_peers(self.share_root, self.host, sampled), ([], None))
         if peers_source is not None:
             sources.append(peers_source)
-        mac_link = next((p for p in peers if p["platform"] == "macos" and p["fresh"]), None)
+        # An unsigned share report can stand in only for the configured Mac.
+        want = configured_name.split(".")[0].casefold() if configured_name else None
+        mac_link = (next((p for p in peers if p["platform"] == "macos" and p["fresh"]
+                         and p["host"].split(".")[0].casefold() == want), None) if want else None)
         if mac_link and mac.get("state") != "reachable":
             # A share report does not establish why the Mac's LAN probe did not answer.
             # The link is aged by the presence record itself (30 s window), not by the LAN probe's result,
             # and its models are normalized to the peer view's {id, state} shape.
-            mac = {**mac, "state": "linked", "via": "sharedchami", "ageSeconds": mac_link["ageSeconds"],
+            mac = {**mac, "name": configured_name, "state": "linked", "via": "sharedchami", "ageSeconds": mac_link["ageSeconds"],
                    "models": [{"id": m["id"], "state": {"loaded": "loaded", "inactive": "not-loaded"}.get(m["loadedState"], "unknown")}
                               for m in mac_link["models"]],
                    "loadedCount": (sum(m["loadedState"] == "loaded" for m in mac_link["models"])
-                                   if mac_link["models"] and all(m["loadedState"] in ("loaded", "inactive")
+                                   if mac_link.get("modelsComplete") is True and mac_link["models"]
+                                   and all(m["loadedState"] in ("loaded", "inactive")
                                                                 for m in mac_link["models"]) else None),
                    "latencyMs": None, "address": None,
+                   # MacPeer.read already expires the LAN result on its own clock.
+                   "lanFailure": (mac.get("reason") if mac.get("state") == "unreachable" and mac.get("reason")
+                                  in ("refused", "timeout", "invalid", "unresolved", "error") else None),
+                   "lanFailureAgeSeconds": (mac.get("ageSeconds") if mac.get("state") == "unreachable" else None),
                    "linkAgeSeconds": mac_link["ageSeconds"], "linkSource": mac_link["source"],
                    "verified": False,
                    "detail": f"Reported through SharedChami ({mac_link['source']}, {mac_link['ageSeconds']:.0f} s old); "
