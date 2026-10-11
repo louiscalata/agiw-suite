@@ -411,6 +411,34 @@ class EndToEnd(unittest.TestCase):
                 self.assertEqual(mac["models"], [{"id": model, "state": "loaded"}])
                 self.assertFalse(mac["verified"])
 
+    def test_invalid_peer_clock_keeps_peers_and_local_readings(self):
+        now = 2_000_000_000.0
+        self.collector.clock = lambda: now
+        share = Path(self.tmp.name)
+        for kind in ("agiw-peers", "mac-status.json"):
+            for target in (probes.peer_dir(share) / "mac.json",
+                           probes.peer_dir(share).parent / "mac-status.json"):
+                target.unlink(missing_ok=True)
+            self.write_mac_report(kind, now - 4, "reported-model")
+            for sign in (1, -1):
+                with self.subTest(kind=kind, sign=sign):
+                    probes.write_json_atomic(probes.peer_dir(share) / "bad-peer.json", {
+                        "schemaVersion": 1, "kind": "agiw-peer", "host": "bad-peer", "platform": "macos",
+                        "observedUnix": sign * 10**1000, "models": []}, probes.PEER_MAX_BYTES, stop_at=share)
+                    snap = self.collector.collect()
+                    self.assertEqual(snap["host"], "windows")
+                    self.assertEqual({m["id"]: m["state"] for m in snap["models"]},
+                                     {"openai/gpt-oss-20b": "idle", "qwen3.8-27b": "idle"})
+                    self.assertEqual((snap["memory"]["level"], snap["share"]["state"]), ("ok", "ready"))
+                    sources = {s["id"]: s["state"] for s in snap["sources"]}
+                    self.assertEqual((sources["llama-slots"], sources["lane-inventory"]), ("live", "live"))
+                    self.assertEqual(sources["agiw-peers"], "live")
+                    self.assertEqual([(p["host"], p["fresh"]) for p in snap["peers"]], [("mac", True)])
+                    mac = snap["macPeer"]
+                    self.assertEqual((mac["state"], mac["linkSource"]), ("linked", kind))
+                    self.assertEqual(mac["models"], [{"id": "reported-model", "state": "loaded"}])
+                    self.assertFalse(mac["verified"])
+
     def test_observer_log_escapes_and_rate_limits(self):
         import io
         from agiw_win.server import RateLimitedLog

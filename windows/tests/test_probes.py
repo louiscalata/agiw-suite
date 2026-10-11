@@ -548,6 +548,78 @@ class PeerLink(unittest.TestCase):
         self.assertEqual(peers, [])
         self.assertEqual(source["state"], "unavailable")
 
+    def test_invalid_clock_keeps_a_valid_peer(self):
+        now = 2_000_000_000.0
+        invalid = (10**1000, -10**1000, 10**12 + 1, -10**12 - 1,
+                   1e12 + 1, -1e12 - 1, True, None, "2000000000", float("nan"), float("inf"))
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for index, observed in enumerate(invalid):
+                with self.subTest(clock=index):
+                    bad = self.peer("bad-peer", observed)
+                    # Both validation and file isolation must handle invalid clocks.
+                    self.assertIsNone(probes._validate_peer(bad, now))
+                    for bad_newest in (False, True):
+                        with self.subTest(bad_newest=bad_newest):
+                            self.write(root, "bad-peer.json", bad)
+                            self.write(root, "good-peer.json", self.peer("good-peer", now - 4))
+                            for name, mtime in (("bad-peer.json", now if bad_newest else now - 1),
+                                                ("good-peer.json", now - 1 if bad_newest else now)):
+                                os.utime(probes.peer_dir(root) / name, (mtime, mtime))
+                            peers, source = probes.read_peers(root, "pc", now)
+                            self.assertEqual([(p["host"], p["fresh"]) for p in peers], [("good-peer", True)])
+                            self.assertEqual(source["state"], "live")
+
+    def test_oversized_clock_keeps_fresh_legacy_fallback(self):
+        import datetime as dt
+        now = 2_000_000_000.0
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for sign in (1, -1):
+                with self.subTest(sign=sign):
+                    self.write(root, "bad-peer.json", self.peer("bad-peer", sign * 10**1000))
+                    observed = dt.datetime.fromtimestamp(now - 4, dt.timezone.utc).isoformat()
+                    (probes.peer_dir(root).parent / "mac-status.json").write_text(json.dumps({
+                        "schemaVersion": 1, "host": "mac", "observedAt": observed,
+                        "models": [{"id": "legacy-model", "host": "mac", "loadedState": "loaded"}]}))
+                    peers, source = probes.read_peers(root, "pc", now)
+                    self.assertEqual([(p["host"], p["source"], p["fresh"]) for p in peers],
+                                     [("mac", "mac-status.json", True)])
+                    self.assertEqual(peers[0]["models"][0]["id"], "legacy-model")
+                    self.assertEqual(source["state"], "live")
+
+    def test_clock_future_and_freshness_boundaries(self):
+        now = 2_000_000_000.0
+        for offset, accepted, fresh in ((4, True, True), (5, True, True), (6, False, None),
+                                         (-30, True, True), (-30.04, True, False)):
+            with self.subTest(offset=offset):
+                peer = probes._validate_peer(self.peer("mac", now + offset), now)
+                if accepted:
+                    self.assertEqual(peer["fresh"], fresh)
+                    self.assertEqual(peer["ageSeconds"], round(max(0.0, -offset), 1))
+                else:
+                    self.assertIsNone(peer)
+        self.assertFalse(probes._validate_peer(self.peer("mac", -1), now)["fresh"])
+
+    def test_overflow_in_one_candidate_keeps_other_peer_reports(self):
+        from unittest import mock
+        now = 2_000_000_000.0
+        validate = probes._validate_peer
+
+        def validate_with_overflow(value, at):
+            if value["host"] == "bad-peer":
+                raise OverflowError("Test numeric overflow")
+            return validate(value, at)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write(root, "good-peer.json", self.peer("good-peer", now - 4))
+            self.write(root, "bad-peer.json", self.peer("bad-peer", now - 4))
+            with mock.patch.object(probes, "_validate_peer", side_effect=validate_with_overflow):
+                peers, source = probes.read_peers(root, "pc", now)
+        self.assertEqual([p["host"] for p in peers], ["good-peer"])
+        self.assertEqual(source["state"], "live")
+
 
 class LaneConfig(unittest.TestCase):
     def test_reads_declared_lanes(self):

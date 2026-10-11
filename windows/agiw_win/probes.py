@@ -1313,9 +1313,8 @@ def _validate_peer(value: Any, now: float) -> dict[str, Any] | None:
     if not isinstance(value, dict) or value.get("schemaVersion") != 1 or value.get("kind") != "agiw-peer":
         return None
     host = value.get("host")
-    observed = value.get("observedUnix")
-    if not isinstance(host, str) or not PEER_HOST.match(host) or not isinstance(observed, (int, float)) \
-            or isinstance(observed, bool) or not math.isfinite(observed) or observed > now + 5:
+    observed = _number(value.get("observedUnix"))
+    if not isinstance(host, str) or not PEER_HOST.match(host) or observed is None or observed > now + 5:
         return None
     if not isinstance(value.get("models", []), list):
         return None
@@ -1382,7 +1381,7 @@ def read_peers(share_root: Path, self_host: str, now: float) -> tuple[list[dict[
     for entry in entries:
         try:
             peer = _validate_peer(read_json(Path(entry.path), PEER_MAX_BYTES), now)
-        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        except (OSError, ValueError, TypeError, OverflowError, json.JSONDecodeError):
             peer = None
         # The file name must be the host it claims, and each host counts once (newest wins).
         if (peer and entry.name[:-5].lower() == peer["host"].lower() and peer["host"].lower() not in seen_hosts
