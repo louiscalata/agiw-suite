@@ -75,6 +75,56 @@ test('the Windows linked-peer inspector identifies a share report without a LAN 
   assert.equal(summary.dataset.tone, 'muted', 'an unsigned report uses the report tone');
 });
 
+test('both Windows inspectors keep incomplete peer inventory totals unknown', () => {
+  // The reader retains 32 rows from modelsTotal 40, but marks that inventory incomplete.
+  const cappedModels = Array.from({length: 32}, (_, index) => ({
+    id: index === 0 ? 'a' : `model-${index}`, loadedState: 'loaded', activity: 'unknown',
+  }));
+  const cases = [
+    {models: cappedModels, modelsComplete: false},
+    {models: [{id: 'a', loadedState: 'loaded'}, {id: 'b', loadedState: 'inactive'}]},
+    {models: [{id: 'a', loadedState: 'loaded'}], modelsComplete: 'true'},
+  ];
+  for (const kind of ['mac-peer', 'mac-model']) {
+    for (const fields of cases) {
+      const peer = {host: 'test-mac', fresh: true, ageSeconds: 2, platform: 'macos',
+        edition: 'mac', source: 'agiw-peers', verified: false, ...fields};
+      const mac = {...linked, loadedCount: null, models: peer.models.map(model => ({
+        id: model.id, state: model.loadedState === 'loaded' ? 'loaded' : 'not-loaded',
+      }))};
+      const body = inspector(mac, {kind, peers: [peer]});
+      const row = inspectorPair(body, 'test-mac');
+      assert.match(row, /^Reported \(unverified\).*Loaded state unknown/);
+      assert.doesNotMatch(row, /(?:^| · )\d+ loaded(?: · |$)/);
+      const tile = body.descendants().find(node => node.className === 'tile'
+        && node.children.some(child => child.className === 'tile-label' && child.textContent === 'Loaded'));
+      assert.ok(tile, 'the main Loaded tile is rendered');
+      assert.equal(tile.children.find(child => child.className === 'tile-value').textContent, 'Unknown');
+    }
+  }
+});
+
+test('both Windows inspectors retain exact counts for complete known peer inventories', () => {
+  for (const kind of ['mac-peer', 'mac-model']) {
+    for (const [models, count] of [
+      [[{id: 'a', loadedState: 'loaded'}, {id: 'b', loadedState: 'inactive'}], 1],
+      [[{id: 'a', loadedState: 'inactive'}], 0],
+    ]) {
+      const peer = {host: 'test-mac', fresh: true, ageSeconds: 2, platform: 'macos',
+        source: 'agiw-peers', verified: false, modelsComplete: true, models};
+      const mac = {...linked, loadedCount: count, models: models.map(model => ({
+        id: model.id, state: model.loadedState === 'loaded' ? 'loaded' : 'not-loaded',
+      }))};
+      const body = inspector(mac, {kind, peers: [peer]});
+      assert.match(inspectorPair(body, 'test-mac'), new RegExp(`(?:^| · )${count} loaded(?: · |$)`));
+      const tile = body.descendants().find(node => node.className === 'tile'
+        && node.children.some(child => child.className === 'tile-label' && child.textContent === 'Loaded'));
+      assert.ok(tile, 'the main Loaded tile is rendered');
+      assert.equal(tile.children.find(child => child.className === 'tile-value').textContent, String(count));
+    }
+  }
+});
+
 test('the linked model inspector attributes reported residency to the share source', () => {
   const body = inspector(linked, {kind: 'mac-model'});
   assert.match(body.textContent, /share|SharedChami/i);
