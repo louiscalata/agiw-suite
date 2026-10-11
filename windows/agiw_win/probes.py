@@ -371,11 +371,13 @@ def memory_block(status_fn: Callable[[], dict[str, int]] | None = None,
         total, avail = raw["totalPhys"], raw["availPhys"]
         if not (isinstance(total, int) and total > 0 and isinstance(avail, int) and 0 <= avail <= total):
             raise ValueError("implausible memory reading")
-        available = round(avail * 100 / total, 1)
+        raw_available = avail * 100 / total
         limit, commit_avail = raw.get("commitLimit"), raw.get("commitAvail")
-        commit = (round((limit - commit_avail) * 100 / limit, 1)
+        raw_commit = ((limit - commit_avail) * 100 / limit
                   if isinstance(limit, int) and limit > 0 and isinstance(commit_avail, int) and 0 <= commit_avail <= limit else None)
-        level = memory_level(available, commit)
+        level = memory_level(raw_available, raw_commit)
+        available = round(raw_available, 1)
+        commit = round(raw_commit, 1) if raw_commit is not None else None
         gib = 2 ** 30
         reasons = [f"{available:.0f}% of {total / gib:.0f} GB RAM available"]
         if commit is not None:
