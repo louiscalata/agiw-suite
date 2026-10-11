@@ -88,7 +88,7 @@ function harness({ width = 1150, extra = {} } = {}) {
   const view = { width };
   const window = { matchMedia: query => ({ matches: Number(/max-width:\s*(\d+)px/.exec(query)?.[1] ?? 0) >= view.width }) };
   const api = runInNewContext(`${definitions}
-;({renderActivity,renderVitals,vitalsInput,syncCompactUI,toggleActivity,toggleAbout,closeCompactSidebar,setSidebarOpen,
+;({renderActivity,renderVitals,renderSummary,vitalsInput,syncCompactUI,toggleActivity,toggleAbout,closeCompactSidebar,setSidebarOpen,
   rebuildPanel,disclosure,onlineCodeSummary,liveNow,renderInspector,modelControlPollWanted,onlineCodePollWanted,pollOnlineCodeAction,
   renderModelScope,renderList,setModelScope,
   renderAutoUnload,pollAutoUnload,requestAutoUnload,get autoUnloadState(){return autoUnloadState;},
@@ -112,6 +112,49 @@ function harness({ width = 1150, extra = {} } = {}) {
 }
 
 const nowSeconds = () => Date.now() / 1000;
+function summaryView(host, { ageSeconds = 0, connected = true, paused = false, inventory = false } = {}) {
+  const now = 1_800_000_000;
+  class ClockDate extends Date { static now() { return now * 1000; } }
+  const result = harness({ extra: { Date: ClockDate } }), { api } = result;
+  api.setFeed({ schemaVersion: 1, host, sampledAt: now - ageSeconds, fullSampledAt: now - ageSeconds,
+    models: [], clients: [], activityKnown: false,
+    sources: inventory ? [{ id: host === 'windows' ? 'lane-inventory' : 'lms-ps', state: 'live' }] : [] }, connected);
+  api.setPaused(paused);
+  api.renderSummary();
+  return result;
+}
+
+for (const host of ['windows', 'mac']) {
+  test(`Summary clock: ${host} names its local clock when the observer timestamp is ahead`, () => {
+    const { $ } = summaryView(host, { ageSeconds: -30 });
+    assert.equal($('headline').children[0].textContent, 'Local runtime');
+    assert.equal($('headline').querySelector('em').textContent, 'clock mismatch.');
+    assert.equal($('subline').textContent,
+      `Observer timestamp is ahead of this ${host === 'windows' ? 'PC' : 'Mac'} clock; current activity cannot be verified.`);
+  });
+
+  test(`Summary clock: ${host} keeps paused, stale, disconnected and fresh copy`, () => {
+    const cases = [
+      { label: 'paused future sample', options: { ageSeconds: -30, paused: true }, em: 'view paused.',
+        sub: 'Resume to verify current activity; the displayed model states are from the last sample.' },
+      { label: 'stale sample', options: { ageSeconds: 4 }, em: 'signal stale.',
+        sub: 'Reconnecting. Previous local observations have aged out.' },
+      { label: 'disconnected future sample', options: { ageSeconds: -30, connected: false }, em: 'signal stale.',
+        sub: 'Reconnecting. Previous local observations have aged out.' },
+      { label: 'fresh sample without inventory', options: {}, em: 'signal unavailable.',
+        sub: 'Local runtime sources are unavailable; local model activity is unknown.' },
+      { label: 'fresh inventory without activity evidence', options: { inventory: true }, em: 'activity unknown.',
+        sub: 'Model inventory is available. Local generation could not be verified.' },
+    ];
+    for (const { label, options, em, sub } of cases) {
+      const { $ } = summaryView(host, options);
+      assert.equal($('headline').children[0].textContent, 'Local runtime', label);
+      assert.equal($('headline').querySelector('em').textContent, em, label);
+      assert.equal($('subline').textContent, sub, label);
+    }
+  });
+}
+
 const completionRun = (completionEvidence, testsStatus='NOT_RUN') => ({
   runId:'evidence-run',source:'router-archive',status:'RESPONSE_VALIDATED',
   stage:'finalValidation',host:'mac',client:'codex',calls:[],testsStatus,completionEvidence,
