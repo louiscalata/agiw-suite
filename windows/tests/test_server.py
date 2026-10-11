@@ -237,6 +237,62 @@ class EndToEnd(unittest.TestCase):
         self.assertNotEqual(next(s for s in data["sources"] if s["id"] == "llama-slots")["state"], "live")
         self.assertFalse(activity_is_known(data["models"], {s["id"]: s["state"] for s in data["sources"]}))
 
+    def test_lane_expiry_uses_unrounded_poll_time(self):
+        from contextlib import ExitStack
+        observed = 1000.0
+        self.collector.clock = lambda: observed
+        self.fast_state["busy"] = True
+        self.collector.collect()
+        with ExitStack() as patches:
+            for poller in self.collector._pollers.values():
+                _, lane = poller.read()
+                frozen = {**lane, "liveTokensPerSecond": 12.5 if lane["id"] == "fast" else None}
+                patches.enter_context(mock.patch.object(poller, "read", return_value=(observed, frozen)))
+            for age in (2.999, 3.0, 3.004, 3.005):
+                with self.subTest(age=age):
+                    self.collector.clock = lambda: observed + age
+                    snap = self.collector.collect()
+                    self.store.publish(snap)
+                    snap = self.store.read()
+                    lane = snap["windowsWorker"]["lanes"]["fast"]
+                    model = next(m for m in snap["models"] if m["id"] == "openai/gpt-oss-20b")
+                    sources = {s["id"]: s["state"] for s in snap["sources"]}
+                    self.assertEqual(lane["ageSeconds"], 3.0)
+                    if age <= 3:
+                        self.assertEqual((lane["status"], lane["up"], lane["slotsBusy"], lane["slotsTotal"]),
+                                         ("busy", True, 1, 2))
+                        self.assertEqual((model["state"], model["loaded"]), ("generating", True))
+                        self.assertEqual(model["metadata"]["liveTokensPerSecond"], 12.5)
+                        self.assertEqual((sources["llama-slots"], sources["lane-inventory"]), ("live", "live"))
+                        self.assertTrue(snap["activityKnown"])
+                    else:
+                        self.assertEqual((lane["status"], lane["up"], lane["slotsBusy"], lane["slotsTotal"]),
+                                         ("stale", False, None, 2))
+                        self.assertEqual((model["state"], model["loaded"]), ("unknown", None))
+                        self.assertIsNone(model["metadata"]["liveTokensPerSecond"])
+                        self.assertEqual((sources["llama-slots"], sources["lane-inventory"]),
+                                         ("unavailable", "unavailable"))
+                        self.assertFalse(snap["activityKnown"])
+                        self.assertFalse(activity_is_known(snap["models"], sources))
+
+    def test_lane_inventory_rejects_stale_status_at_a_rounded_three_seconds(self):
+        self.collector.collect()
+        cached = {poller.spec["id"]: poller.read()[1] for poller in self.collector._pollers.values()}
+        for status, expected in (("stale", "unavailable"), ("unreachable", "live")):
+            with self.subTest(status=status):
+                def lane_result(spec, _sampled):
+                    return {**cached[spec["id"]], "status": status, "ageSeconds": 3.0,
+                            "phase": None, "slotsBusy": None, "liveTokensPerSecond": None}
+                with mock.patch.object(self.collector, "_lane", side_effect=lane_result):
+                    snap = self.collector.collect()
+                self.store.publish(snap)
+                snap = self.store.read()
+                sources = {s["id"]: s["state"] for s in snap["sources"]}
+                self.assertEqual(sources["lane-inventory"], expected)
+                self.assertEqual(sources["llama-slots"], "unavailable")
+                self.assertFalse(snap["activityKnown"])
+                self.assertTrue(all(m["loaded"] is None for m in snap["models"]))
+
     def test_one_broken_probe_does_not_lose_the_sample(self):
         # Codex finding 1 (general): a crashing probe becomes an error source.
         def broken():
@@ -304,6 +360,70 @@ class EndToEnd(unittest.TestCase):
         self.assertIsNotNone(mac["ageSeconds"])
         self.assertLessEqual(mac["ageSeconds"], 30)
         self.assertTrue(all(set(m) == {"id", "state"} and m["state"] == "loaded" for m in mac["models"]))
+
+    def write_mac_report(self, kind, observed, model):
+        import datetime as dt
+        share = Path(self.tmp.name)
+        fields = {"schemaVersion": 1,
+                  "models": [{"id": model, "host": "mac", "loadedState": "loaded"}]}
+        if kind == "agiw-peers":
+            target = probes.peer_dir(share) / "mac.json"
+            fields.update(kind="agiw-peer", host="mac", platform="macos", observedUnix=observed)
+        else:
+            target = probes.peer_dir(share).parent / "mac-status.json"
+            fields.update(host="mac", observedAt=dt.datetime.fromtimestamp(observed, dt.timezone.utc).isoformat())
+        probes.write_json_atomic(target, fields, probes.PEER_MAX_BYTES, stop_at=share)
+
+    def configure_mac(self, hostname="mac"):
+        # The parity collector attributes a share report only to the hosts.json Mac.
+        hosts = Path(self.tmp.name) / "llm-lab" / "mac-reach" / "hosts.json"
+        hosts.parent.mkdir(parents=True, exist_ok=True)
+        hosts.write_text(json.dumps({"mac": {"hostname": hostname}}), encoding="utf-8")
+
+    def test_expired_share_reports_do_not_promote_the_mac_to_linked(self):
+        observed = 2_000_000_000.0
+        self.configure_mac()
+        self.collector.mac_peer = probes.MacPeer(Path(self.tmp.name), probe=lambda _hosts: {
+            "state": "unreachable", "observedAt": observed, "models": [], "loadedCount": None,
+            "detail": "Test LAN refusal", "reason": "refused"})
+        self.collector.mac_peer.poll_once()
+        for kind in ("agiw-peers", "mac-status.json"):
+            for target in (probes.peer_dir(Path(self.tmp.name)) / "mac.json",
+                           probes.peer_dir(Path(self.tmp.name)).parent / "mac-status.json"):
+                target.unlink(missing_ok=True)
+            self.write_mac_report(kind, observed, "reported-model")
+            for age in (30.0, 30.04):
+                with self.subTest(kind=kind, age=age):
+                    self.collector.clock = lambda: observed + age
+                    snap = self.collector.collect()
+                    self.assertEqual(snap["peers"][0]["fresh"], age <= 30)
+                    source = next(s for s in snap["sources"] if s["id"] == "agiw-peers")
+                    self.assertEqual(source["state"], "live" if age <= 30 else "unavailable")
+                    mac = snap["macPeer"]
+                    if age <= 30:
+                        self.assertEqual((mac["state"], mac["linkSource"]), ("linked", kind))
+                        self.assertEqual(mac["models"], [{"id": "reported-model", "state": "loaded"}])
+                        self.assertFalse(mac["verified"])
+                    else:
+                        self.assertEqual((mac["state"], mac["reason"], mac["models"]), ("unreachable", "refused", []))
+                        self.assertNotIn("linkSource", mac)
+                        self.assertEqual(snap["peers"][0]["models"][0]["id"], "reported-model")
+
+    def test_share_link_uses_fresh_legacy_after_presence_expires(self):
+        now = 2_000_000_000.0
+        self.configure_mac()
+        self.collector.clock = lambda: now
+        for presence_age, legacy_age, expected in ((30.04, 10, "mac-status.json"),
+                                                  (10, 30.04, "agiw-peers")):
+            with self.subTest(presence_age=presence_age, legacy_age=legacy_age):
+                self.write_mac_report("agiw-peers", now - presence_age, "presence-model")
+                self.write_mac_report("mac-status.json", now - legacy_age, "legacy-model")
+                snap = self.collector.collect()
+                mac = snap["macPeer"]
+                self.assertEqual((mac["state"], mac["linkSource"], mac["linkAgeSeconds"]), ("linked", expected, 10))
+                model = "legacy-model" if expected == "mac-status.json" else "presence-model"
+                self.assertEqual(mac["models"], [{"id": model, "state": "loaded"}])
+                self.assertFalse(mac["verified"])
 
     def test_observer_log_escapes_and_rate_limits(self):
         import io
