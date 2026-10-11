@@ -1364,13 +1364,25 @@ def host_id() -> str:
 def peer_presence(snapshot: dict[str, Any], host: str) -> dict[str, Any]:
     """This instance's presence: who it is and the verified model states it sees. No paths, prompts or keys."""
     status = pc_status(snapshot)
-    models = sorted(status["models"], key=lambda model: model["loadedState"] != "loaded")
+    # Loaded models first, so the 32-row cap never hides one; modelsTotal says whether it cut anything.
+    models = []
+    for model in sorted(status["models"], key=lambda model: model["loadedState"] != "loaded"):
+        row = {key: model[key] for key in ("id", "aliases", "loadedState", "activity", "slotsBusy", "slotsTotal")}
+        # The Mac can select presence ahead of status from the same sample.
+        # Keep its model details, using pc_status's path-safe servedModel.
+        for key in ("lane", "servedModel"):
+            value = model.get(key)
+            if isinstance(value, str) and value.strip() and value.isprintable():
+                row[key] = value[:64] if key == "lane" else value
+        rate = _number(model.get("liveTokensPerSecond"), low=0, high=sys.float_info.max)
+        if rate is not None:
+            row["liveTokensPerSecond"] = rate
+        models.append(row)
     return {"schemaVersion": 1, "kind": "agiw-peer", "host": host, "platform": "windows",
             "edition": "windows", "version": snapshot.get("observerVersion"), "observedAt": snapshot.get("observedAt"),
             "observedUnix": snapshot.get("sampledAt"), "health": status["health"],
             "modelsTotal": len(models),
-            "models": [{"id": m["id"], "aliases": m["aliases"], "loadedState": m["loadedState"], "activity": m["activity"],
-                        "slotsBusy": m["slotsBusy"], "slotsTotal": m["slotsTotal"]} for m in models[:32]],
+            "models": models[:32],
             "gpus": status["gpus"], "memory": status["memory"],
             "dashboard": {"bind": "loopback", "port": snapshot.get("dashboardPort")},
             "reads": ["agiw-peers", "mac-status.json"]}

@@ -103,7 +103,8 @@ class MacPresenceShape(unittest.TestCase):
         # Everything the PC publishes, plus this Mac's Nisi and Jev states (the PC's reader ignores unknown keys).
         self.assertEqual(set(mac) - {"components"}, set(pc))
         self.assertIn("components", mac)
-        self.assertLessEqual(set(pc["models"][0]), set(mac["models"][0]))
+        # The PC also names each model's lane (lane, servedModel, liveTokensPerSecond); the Mac has no lanes.
+        self.assertLessEqual(set(pc["models"][0]) - {"lane", "servedModel", "liveTokensPerSecond"}, set(mac["models"][0]))
         self.assertEqual(set(mac["gpus"][0]), set(pc["gpus"][0]))
         self.assertEqual((set(mac["memory"]), set(mac["dashboard"])), (set(pc["memory"]), set(pc["dashboard"])))
 
