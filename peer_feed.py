@@ -1,14 +1,19 @@
 """The PC's live state for the Mac edition: the LAN peer link first, the SharedChami status files second.
 Also this Mac's side of the PC edition's share link: an opt-in presence file in llm-lab/status/agiw-peers/.
 
-Reading is read-only. Nothing here starts, loads or controls anything on either machine. A feed is shown as
-live only when its own observation time is fresh; otherwise the Windows source says why it is not. The only
-write is this Mac's own presence file (and removing this host's own leftover temp files beside it), and only
-when publishStatus or peerLink is turned on.
+Reading is read-only. Nothing here starts, loads or controls anything on either machine, and the observer never
+changes the peer-link state folder (its control token is read, never tightened, repaired or rotated). It contacts
+a running peer link only when that peer link's own check on contact has nothing to repair, so the folder's mode,
+ACL and contents stay as they are (that check may still re-stamp the folder's change time). The paired
+LAN feed is shown as live only when its own observation time is fresh; an unsigned share report is only ever
+recorded, never live; otherwise the Windows source says why there is neither. The only write is this Mac's own
+presence file (and removing this host's own leftover temp files beside it), and only when publishStatus or
+peerLink is turned on.
 """
 from __future__ import annotations
 
 import errno
+import hmac
 import json
 import math
 import os
@@ -16,7 +21,10 @@ import plistlib
 import re
 import secrets
 import socket
+import urllib.parse
 import stat
+import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
@@ -39,7 +47,26 @@ PRESENCE_READS = ["agiw-peers", "windows-status.json"]
 # The PC links a Mac by this platform name (collect.py: platform == "macos"); the LAN link's host kind stays "mac".
 SHARE_PLATFORM = "macos"
 LOADED_STATES = ("loaded", "inactive", "unknown")
+# One vocabulary on both editions: the PC's probes.memory_level (ok / watch / tight / critical, unknown when its
+# memory status is unreadable) and this Mac's mem_guard.LEVELS (the same four, plus unknown). Published and read.
 MEMORY_LEVELS = ("ok", "watch", "tight", "critical", "unknown")
+# The PC reader's own folder budget (probes.PEER_SCAN_LIMIT): a folder holding more entries is not read at all.
+PEER_SCAN_LIMIT = 256
+PEER_MAX_FILES = 32
+# The peer-link control exchange as peer_link.control_request makes it: a 1 KB hello, then the peer listing, the
+# two replies together bounded by one aggregate limit.
+CONTROL_HELLO_LIMIT = 1024
+CONTROL_LIMIT = (peer_link.MAX_PEERS + 1) * peer_link.MAX_STATUS_BYTES
+CONTROL_TOKEN = "control-token"
+CONTROL_TOKEN_PURPOSE = "agiw-peer control-token"
+_TOKEN = re.compile(r"[0-9a-f]{64}\Z")
+_NONCE = re.compile(r"[0-9a-f]{32}\Z")
+_DIR_FLAGS = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
+# Model-file names that make an identifier a path (D4); such an id is published as its bare final name.
+MODEL_FILE_SUFFIXES = (".gguf", ".safetensors", ".bin", ".mlx", ".npz", ".pt", ".pth", ".ckpt", ".onnx",
+                       ".mlmodel", ".mlpackage")
+_REGISTRY_PART = re.compile(r"[A-Za-z0-9][A-Za-z0-9._@:+-]{0,119}\Z")
 # Leftover temp files of this host's own presence writes (a dropped share or a killed process) older than this
 # are swept before the next write, so they never crowd the PC reader's bounded folder scan.
 TEMP_SWEEP_AGE = 300.0
@@ -66,6 +93,16 @@ COMPONENTS = (
 
 class InventoryUnknown(ValueError):
     """Neither LM Studio source answered, so the Mac's model list is unknown, not empty."""
+
+
+class LinkUnavailable(Exception):
+    """The LAN feed cannot be read without changing anything (a missing, loose, foreign or malformed control token,
+    or a listener that did not prove it is this user's peer link). Fixed words, never a path or a secret."""
+
+
+class ShareRefused(ValueError):
+    """The share's status folders cannot be read as bounded, link-free folders, so nothing from the share is used
+    (never a partial read). Fixed words, never a path from the share."""
 
 # The PC reads publishStatus / peerLink from config.json beside its observer; the Mac keeps it beside peer-link/.
 CONFIG_PATH = Path.home() / "Library" / "Application Support" / "AGIW" / "config.json"
@@ -114,7 +151,8 @@ def _summary(doc: dict, via: str, now: float) -> dict[str, Any]:
             gpu[key] = _number(g.get(key), 0, high)
         gpus.append({k: v for k, v in gpu.items() if v is not None})
     memory = doc.get("memory") if isinstance(doc.get("memory"), dict) else {}
-    level = memory.get("level") if memory.get("level") in ("ok", "watch", "warn", "critical", "unknown") else None
+    # The PC's own levels (probes.memory_level): "tight" is the pressure case the inspector must keep showing.
+    level = memory.get("level") if isinstance(memory.get("level"), str) and memory["level"] in MEMORY_LEVELS else None
     free = _number(memory.get("availablePercent"), 0, 100)
     return {"via": via, "host": _text(doc.get("host"), 63) or "", "health": doc.get("health") if doc.get("health") in
             ("ok", "degraded", "down") else None, "observedAt": doc["observedAt"],
@@ -122,14 +160,97 @@ def _summary(doc: dict, via: str, now: float) -> dict[str, Any]:
             "memory": {k: v for k, v in (("level", level), ("availablePercent", free)) if v is not None} or None}
 
 
-def from_peer_link(now: float, state_dir: Path | None = None, port: int = peer_link.STATUS_PORT) -> dict | None:
-    """The connected, paired Windows peer from the local peer-link daemon, or None."""
+_checked_dirs: dict[str, tuple] = {}  # state folder -> (inode, ctime_ns) whose access list was read clean
+
+
+def _observer_token(state_dir: Path) -> str:
+    """The peer link's control token, read without changing anything. Repair belongs to the peer link itself:
+    a running peer link calls peer_link.load_control_token for every control exchange, including the hello the
+    observer sends, and that call sets the folder to 0700, strips its ACL, removes case-variant names and rotates
+    a bad token. So the observer contacts the peer link only when nothing there is left to repair: a folder that
+    is a link, not this user's, any mode other than 0700 (0750 and 0500 too, not only group- or world-writable)
+    or carrying an extended ACL, a case-variant token name, or a token that is loose, foreign, linked, unreadable
+    or not 64 lowercase hex makes the LAN feed unavailable before anything is sent. The peer link's own re-check
+    of a folder already at 0700 can still re-stamp the folder's change time; mode, ACL and contents stay as they
+    are. (The folder rules are POSIX; this feed runs in the Mac edition.)"""
+    try:
+        info = os.lstat(state_dir)
+    except OSError:
+        raise LinkUnavailable("peer-link folder unreadable") from None
+    if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+        raise LinkUnavailable("peer-link folder is a link or not a folder")
+    if os.name != "nt":
+        if info.st_uid != os.getuid():
+            raise LinkUnavailable("peer-link folder belongs to another user")
+        if info.st_mode & 0o022:
+            raise LinkUnavailable("peer-link folder is writable by other users")
+        if stat.S_IMODE(info.st_mode) != 0o700:
+            # peer_link._restrict_dir would chmod it to 0700 when the hello reaches a running peer link.
+            raise LinkUnavailable("peer-link folder mode is not owner-only 0700 (the peer link repairs it)")
+        key = str(state_dir)
+        if sys.platform == "darwin" and _checked_dirs.get(key) != (info.st_ino, info.st_ctime_ns):
+            try:
+                peer_link._only_me(state_dir, True)  # reads the access list (ls -led); changes nothing
+            except (OSError, subprocess.SubprocessError):
+                raise LinkUnavailable("peer-link folder access list is not owner-only (extended ACL)") from None
+            _checked_dirs[key] = (info.st_ino, info.st_ctime_ns)
+    try:
+        variants = peer_link._case_variants(state_dir, CONTROL_TOKEN)
+    except OSError:
+        raise LinkUnavailable("peer-link folder unreadable") from None
+    if variants:
+        raise LinkUnavailable("a case-variant control token is present (the peer link removes it)")
+    with peer_link._token_lock:  # never mid-rotation by an in-process peer link
+        try:
+            stored = peer_link._read_private(state_dir / CONTROL_TOKEN)
+        except peer_link.LooseSecret:
+            raise LinkUnavailable("control token could have been read or written by another user "
+                                  "(the peer link replaces it)") from None
+        except (OSError, ValueError):
+            raise LinkUnavailable("control token unreadable") from None
+    try:
+        token = peer_link._unseal(stored.strip(), CONTROL_TOKEN_PURPOSE)
+    except (OSError, ValueError):
+        raise LinkUnavailable("control token is not sealed to this account") from None
+    if not isinstance(token, str) or not _TOKEN.match(token):
+        raise LinkUnavailable("control token malformed (the peer link replaces it)")
+    return token
+
+
+def _control_get(state_dir: Path, port: int, path: str, deadline: float = CONTROL_DEADLINE) -> tuple[int, Any]:
+    """GET one control path from this user's own peer link on 127.0.0.1, as peer_link.control_request does it but
+    with the read-only token above. The listener must first prove it holds the token (hello: our nonce in, its
+    nonce and proof out); only then is a token-derived proof sent. The token itself is never sent."""
+    token = _observer_token(state_dir)
+    nc = secrets.token_hex(16)
+    status, _h, raw = peer_link._http("127.0.0.1", port, "GET", "/control/hello", {"X-Agiw-Client-Nonce": nc}, None,
+                                      CONTROL_HELLO_LIMIT, deadline=min(deadline, 3.0))
+    hello = peer_link.strict_json(raw) if status == 200 and raw else {}
+    ns = hello.get("ns") if isinstance(hello, dict) else None
+    if (not isinstance(ns, str) or not _NONCE.match(ns)
+            or not hmac.compare_digest(str(hello.get("proof", "")), peer_link.control_server_proof(token, nc, ns))):
+        raise LinkUnavailable("the process on the peer-link port did not prove it is your peer link; nothing was sent")
+    status, _h, body = peer_link._http("127.0.0.1", port, "GET", path, {
+        "X-Agiw-Control-Nonce": ns, "Content-Type": "application/json",
+        "X-Agiw-Control-Proof": peer_link.control_client_proof(token, ns, nc, "GET", path, b"")},
+        None, max(0, CONTROL_LIMIT - len(raw)), deadline=deadline)
+    return status, (peer_link.strict_json(body) if body else {})
+
+
+def from_peer_link(now: float, state_dir: Path | None = None, port: int | None = None) -> dict | None:
+    """The connected, paired Windows peer from the local peer-link daemon, or None. Raises LinkUnavailable when the
+    control token or its folder cannot be used as they are; the observer never creates, repairs or rotates
+    peer-link state, and it contacts a running peer link only when that peer link's own check has nothing to
+    repair (see _observer_token). No control token means no peer link is set up: nothing is attempted."""
     state_dir = state_dir or peer_link.default_state_dir()
-    if not (state_dir / "control-token").exists():
+    port = peer_link.STATUS_PORT if port is None else port
+    try:
+        os.lstat(state_dir / CONTROL_TOKEN)
+    except FileNotFoundError:
         return None  # no peer link set up on this Mac; never create one from the observer
-    # Mutually authenticated: the listener proves it holds the token before anything is sent.
-    status, listing = peer_link.control_request(state_dir, port, "GET", "/control/peers",
-                                                deadline=CONTROL_DEADLINE)
+    except OSError:
+        raise LinkUnavailable("peer-link folder unreadable") from None
+    status, listing = _control_get(state_dir, port, "/control/peers")
     if status != 200 or not isinstance(listing, dict):
         return None
     for row in listing.get("peers", []):
@@ -143,25 +264,39 @@ def from_peer_link(now: float, state_dir: Path | None = None, port: int = peer_l
 SHARE_ANCHOR = Path("/Volumes/SharedChami")
 
 
-def _read_bounded(path: Path, anchor: Path | None = None) -> bytes:
-    """Open every component below the share root with O_NOFOLLOW relative to its parent's descriptor,
-    so neither a symlinked folder nor a folder swapped between check and open can redirect the read."""
-    anchor = anchor or (SHARE_ANCHOR if SHARE_ANCHOR in path.parents else path.parents[len(path.parents) - 2])
-    parts = path.relative_to(anchor).parts
-    nofollow = getattr(os, "O_NOFOLLOW", 0)
-    directory = os.open(str(anchor), os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+def _share_anchor(root: Path, anchor: Path | None) -> Path:
+    if anchor is not None:
+        return anchor
+    return SHARE_ANCHOR if SHARE_ANCHOR in root.parents else root.parents[len(root.parents) - 2]
+
+
+def _open_below(anchor: Path, parts: tuple[str, ...]) -> int:
+    """A descriptor for anchor/parts: every component below the anchor opened as a folder with O_NOFOLLOW relative
+    to its parent's descriptor, so neither a symlinked folder nor one swapped between check and open redirects it."""
+    fd = os.open(str(anchor), _DIR_FLAGS)
     try:
-        for part in parts[:-1]:
-            child = os.open(part, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | nofollow, dir_fd=directory)
-            os.close(directory)
-            directory = child
-        fd = os.open(parts[-1], os.O_RDONLY | nofollow | getattr(os, "O_NONBLOCK", 0), dir_fd=directory)
-    finally:
-        os.close(directory)
+        for part in parts:
+            child = os.open(part, _DIR_FLAGS | _NOFOLLOW, dir_fd=fd)
+            os.close(fd)
+            fd = child
+        return fd
+    except BaseException:
+        os.close(fd)
+        raise
+
+
+def _read_at(directory: int, name: str) -> bytes:
+    """One status record in an already-opened folder: not a link, a regular file, at most 64 KB."""
+    fd = os.open(name, os.O_RDONLY | _NOFOLLOW | getattr(os, "O_NONBLOCK", 0), dir_fd=directory)
     try:
         if not stat.S_ISREG(os.fstat(fd).st_mode):
             raise ValueError("status record is not a file")
-        data = os.read(fd, MAX_FILE + 1)
+        data = b""
+        while len(data) <= MAX_FILE:
+            part = os.read(fd, MAX_FILE + 1 - len(data))
+            if not part:
+                break
+            data += part
         if len(data) > MAX_FILE:
             raise ValueError("status record too large")
         return data
@@ -169,22 +304,92 @@ def _read_bounded(path: Path, anchor: Path | None = None) -> bytes:
         os.close(fd)
 
 
-def from_share(now: float, root: Path = SHARE_STATUS, anchor: Path | None = None) -> dict | None:
-    """The freshest Windows presence file, then windows-status.json; None when nothing is fresh."""
-    candidates = []
-    peers_dir = root / "agiw-peers"
+def _peer_names(directory: int) -> list[str]:
+    """agiw-peers/<host>.json candidates, newest first, from one bounded pass over the opened folder (the PC reader's
+    rules: a host-shaped name, a regular file, never followed). More than PEER_SCAN_LIMIT entries of any kind means
+    the folder is not read at all: a flooded folder is unavailable, never a partial answer."""
+    seen, dated = 0, []
+    with os.scandir(directory) as entries:
+        for entry in entries:
+            seen += 1
+            if seen > PEER_SCAN_LIMIT:
+                raise ShareRefused(f"agiw-peers holds more than {PEER_SCAN_LIMIT} entries (too many entries); "
+                                   "share status not read")
+            name = entry.name
+            if not name.endswith(".json") or name.startswith(".") or not PEER_HOST.match(name[:-5]):
+                continue
+            try:
+                info = entry.stat(follow_symlinks=False)
+            except OSError:
+                continue  # removed between listing and stat
+            if stat.S_ISREG(info.st_mode):
+                dated.append((info.st_mtime, name))
+    return [name for _, name in sorted(dated, reverse=True)[:PEER_MAX_FILES]]
+
+
+def _refused_folder(exc: OSError) -> bool:
+    return exc.errno in (errno.ELOOP, errno.ENOTDIR)
+
+
+def from_share(now: float, root: Path | None = None, anchor: Path | None = None) -> dict | None:
+    """The freshest Windows presence file in agiw-peers/, then windows-status.json; None when nothing is fresh.
+
+    Every folder from the share root down is opened descriptor-relatively without following links, agiw-peers is
+    enumerated once from its own descriptor within PEER_SCAN_LIMIT entries, and its records are read through that
+    same descriptor. ShareRefused (nothing from the share is used) when a folder on the way is a symbolic link or not
+    a folder, when agiw-peers holds too many entries, or when agiw-peers was replaced while it was read."""
+    root = SHARE_STATUS if root is None else root
+    anchor = _share_anchor(root, anchor)
     try:
-        names = sorted(os.listdir(peers_dir))[:32]
-    except OSError:
-        names = []
-    candidates += [peers_dir / n for n in names if n.endswith(".json") and not n.startswith(".")]
-    candidates.append(root / "windows-status.json")
-    best = None
-    for path in candidates:
+        parts = root.relative_to(anchor).parts
+    except ValueError:
+        raise ShareRefused("status folder is not below the share root") from None
+    try:
+        status_dir = _open_below(anchor, parts)
+    except FileNotFoundError:
+        return None  # share not mounted, or no llm-lab/status on it
+    except OSError as exc:
+        if _refused_folder(exc):
+            raise ShareRefused("a share status folder is a symbolic link or not a folder; refused") from None
+        raise
+    records: list[bytes] = []
+    try:
         try:
-            doc = peer_link.validate_status(peer_link.strict_json(_read_bounded(path, anchor)), "windows", time.time())
+            peers = os.open("agiw-peers", _DIR_FLAGS | _NOFOLLOW, dir_fd=status_dir)
+        except FileNotFoundError:
+            peers = None
+        except OSError as exc:
+            if _refused_folder(exc):
+                raise ShareRefused("agiw-peers is a symbolic link or not a folder; refused") from None
+            raise
+        if peers is not None:
+            try:
+                opened = os.fstat(peers)
+                for name in _peer_names(peers):
+                    try:
+                        records.append(_read_at(peers, name))
+                    except (OSError, ValueError):
+                        continue
+                try:
+                    still = os.stat("agiw-peers", dir_fd=status_dir, follow_symlinks=False)
+                except OSError:
+                    still = None
+                if still is None or (still.st_dev, still.st_ino) != (opened.st_dev, opened.st_ino):
+                    raise ShareRefused("agiw-peers was replaced while it was read; refused")
+            finally:
+                os.close(peers)
+        try:
+            records.append(_read_at(status_dir, "windows-status.json"))
+        except (OSError, ValueError):
+            pass
+    finally:
+        os.close(status_dir)
+    best = None
+    for raw in records:
+        try:
+            doc = peer_link.validate_status(peer_link.strict_json(raw), "windows", time.time())
             summary = _summary(doc, "share", now)
-        except (OSError, ValueError, KeyError, TypeError):
+        except (ValueError, KeyError, TypeError, AttributeError, OverflowError, RecursionError):
             continue
         if summary["ageSeconds"] <= FRESH_SECONDS and (best is None or summary["ageSeconds"] < best["ageSeconds"]):
             best = summary
@@ -200,10 +405,11 @@ class _ShareReader:
         self.thread: threading.Thread | None = None
         self.result: Any = None
 
-    def read(self, now: float) -> tuple[str, dict | None]:
+    def read(self, now: float) -> tuple[str, dict | None, str | None]:
+        """(outcome, feed, note): outcome ok, stuck or error; note is a refusal's fixed words (ShareRefused)."""
         with self.lock:
             if self.thread is not None and self.thread.is_alive():
-                return "stuck", None
+                return "stuck", None, None
             box: dict[str, Any] = {}
 
             def run():
@@ -216,30 +422,37 @@ class _ShareReader:
             self.thread.start()
         self.thread.join(SHARE_READ_DEADLINE)
         if self.thread.is_alive():
-            return "stuck", None
-        return ("ok", box.get("value")) if "error" not in box else ("error", None)
+            return "stuck", None, None
+        if "error" in box:
+            return "error", None, str(box["error"]) if isinstance(box["error"], ShareRefused) else None
+        return "ok", box.get("value"), None
 
 
 _share_reader = _ShareReader()
 
 
 def windows_feed(now: float) -> tuple[dict | None, dict]:
-    """(feed, source row). LAN beats share; both must be fresh."""
+    """(feed, source row). LAN beats share; both must be fresh. The paired LAN feed is live (the paired PC's own,
+    signed report); an unsigned share report is only recorded, never live, whatever its timestamp says."""
     lan_note = None
     try:
         feed = from_peer_link(now)
         if feed:
             return feed, {"id": "windows-telemetry", "label": "Windows", "state": "live", "ageSeconds": feed["ageSeconds"],
-                          "detail": f"Linked over the LAN to {feed['host'] or 'the PC'} (paired, signed)"}
+                          "detail": f"Reported by {feed['host'] or 'the PC'} over the paired LAN link "
+                                    "(signed by the paired peer; its own report of its state)"}
+    except LinkUnavailable as exc:  # fixed words: why the token or the listener could not be used as they are
+        lan_note = str(exc)
     except Exception as exc:  # noqa: BLE001 - the share fallback still runs
         lan_note = type(exc).__name__
-    outcome, feed = _share_reader.read(now)
+    outcome, feed, note = _share_reader.read(now)
+    lan = f"LAN link not connected: {lan_note}" if lan_note else "LAN link not connected"
     if feed:
-        return feed, {"id": "windows-telemetry", "label": "Windows", "state": "live", "ageSeconds": feed["ageSeconds"],
-                      "detail": f"Reported via SharedChami status files from {feed['host'] or 'the PC'} "
-                                "(unsigned, not verified; LAN link not connected)"}
-    why = {"stuck": "share read did not finish (PC asleep or share dropped)", "error": "share status unreadable",
-           "ok": "no fresh PC status on the share"}[outcome]
+        return feed, {"id": "windows-telemetry", "label": "Windows", "state": "recorded", "ageSeconds": feed["ageSeconds"],
+                      "detail": f"Unsigned report from {feed['host'] or 'the PC'} in SharedChami status files "
+                                f"(not verified; {lan})"}
+    why = note or {"stuck": "share read did not finish (PC asleep or share dropped)", "error": "share status unreadable",
+                   "ok": "no fresh PC status on the share"}[outcome]
     return None, {"id": "windows-telemetry", "label": "Windows", "state": "unavailable", "ageSeconds": None,
                   "detail": f"Not linked: peer link not connected{f' ({lan_note})' if lan_note else ''}; {why}"}
 
@@ -248,14 +461,72 @@ def _iso(ts: float) -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(ts)) + f".{int(ts % 1 * 1000):03d}Z"
 
 
-def public_id(value: Any) -> str | None:
-    """A model identifier fit to publish on the share (the PC's probes.public_id): path-shaped values keep
-    only their final name."""
-    if not isinstance(value, str) or not value or not value.isprintable():
+def _strip_model_suffix(name: str) -> str:
+    """The name before its first model-file extension, wherever it sits: "q.gguf" and "q.gguf.part" both give "q"
+    (a download in progress keeps the extension in the middle). Extensions are matched as whole dot-separated
+    pieces, so "qwen3.8-27b" or "model.bin-v2" are left as they are."""
+    pieces = name.split(".")
+    for index in range(1, len(pieces)):
+        if "." + pieces[index].lower() in MODEL_FILE_SUFFIXES:
+            return ".".join(pieces[:index])
+    return name
+
+
+# First folders of a path, never of a registry id. Under a home folder the next name is an account name.
+_HOME_ROOTS = ("users", "home")
+_SYSTEM_ROOTS = _HOME_ROOTS + ("private", "var", "tmp", "volumes", "opt", "usr", "etc", "library", "system",
+                               "applications", "root", "mnt")
+
+
+_TAG_ID = re.compile(r"^(?:[A-Za-z0-9][A-Za-z0-9._-]*/)?[A-Za-z0-9][A-Za-z0-9._-]*:[A-Za-z0-9][A-Za-z0-9._-]*$")
+_URI_SCHEMES = frozenset({"file", "http", "https", "ftp", "sftp", "s3", "gs", "hf", "smb", "afp", "nfs", "data"})
+
+
+def _final_name(text: str) -> str | None:
+    """The last usable part of a path-shaped value, cut before a model-file extension; None for account names."""
+    parts = re.split(r"[/\\:]", text)
+    index = next((i for i in range(len(parts) - 1, -1, -1) if parts[i] not in ("", ".", "..")), None)
+    if index is None or (index > 0 and parts[index - 1].lower() in _HOME_ROOTS) or parts[index].startswith("~"):
         return None
-    if "\\" in value or ":/" in value or ":\\" in value or value.startswith("/"):
-        value = value.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
-    return value[:120] or None
+    name = _strip_model_suffix(parts[index]).strip()
+    return name[:120] if name and name not in (".", "..") and "%" not in name else None
+
+
+def public_id(value: Any) -> str | None:
+    """A model identifier fit to publish on the share. A registry-style id (one name, or publisher/model with at
+    most one "/", safe characters, no model-file extension in any part, a first part that is not a home or system
+    folder such as Users, home, private or var) is published as it is. Anything path-shaped (absolute, Windows or
+    URI-like, more than one "/", an empty, "." or ".." part, a part holding a model-file extension such as .gguf,
+    even mid-name as in .gguf.part, or a home or system first folder) is published only as its final name cut
+    before that extension; a final name that is an account name (the one right after Users or home, or ~name)
+    or no usable final name drops the value. A two-part relative path shaped like publisher/model (alice/models)
+    cannot be told from a registry id and is published as it is."""
+    if not isinstance(value, str) or not value.isprintable():
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    if "%" in text:
+        # Percent-encoded separators ('file:%2FUsers%2Falice%2F...') are judged by what they decode to, and an id
+        # with any '%' (even a malformed escape) is never a registry id: only a safe final name is published.
+        decoded = urllib.parse.unquote(text)
+        return _final_name(decoded) if decoded.isprintable() else None
+    if ":" in text and (not _TAG_ID.match(text) or text.split(":", 1)[0].split("/")[-1].lower() in _URI_SCHEMES):
+        # URI schemes and other colon forms; only (publisher/)name:tag ids pass on to the registry rules below
+        return _final_name(text)
+    unified = text.replace("\\", "/")
+    parts = unified.split("/")
+    path_shaped = ("\\" in text or ":/" in unified or unified.startswith(("/", "~")) or len(parts) > 2
+                   or any(not part or part in (".", "..") or _strip_model_suffix(part) != part for part in parts)
+                   or (len(parts) == 2 and (parts[0].lower() in _SYSTEM_ROOTS
+                                            or not all(_REGISTRY_PART.match(part) for part in parts))))
+    if not path_shaped:
+        return text[:120]
+    index = next((i for i in range(len(parts) - 1, -1, -1) if parts[i] not in ("", ".", "..")), None)
+    if index is None or (index > 0 and parts[index - 1].lower() in _HOME_ROOTS) or parts[index].startswith("~"):
+        return None
+    name = _strip_model_suffix(parts[index]).strip()
+    return name[:120] if name and name not in (".", "..") else None
 
 
 def host_id() -> str:
@@ -669,11 +940,54 @@ def _reject_constant(name: str):
     raise ValueError("non-finite number " + name)
 
 
+_acl_api: list = []
+
+
+def _fd_has_extended_acl(fd: int) -> bool:
+    """macOS acl_get_fd_np on the open descriptor itself: no pathname lookup, so nothing can be swapped in
+    between. True when the file carries any extended ACL entry; raises OSError when it cannot be read."""
+    if not _acl_api:
+        import ctypes
+        import ctypes.util
+        libc = ctypes.CDLL(ctypes.util.find_library("c") or "libSystem.dylib", use_errno=True)
+        get_fd = libc.acl_get_fd_np
+        get_fd.argtypes, get_fd.restype = [ctypes.c_int, ctypes.c_int], ctypes.c_void_p
+        get_entry = libc.acl_get_entry
+        get_entry.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.POINTER(ctypes.c_void_p)]
+        get_entry.restype = ctypes.c_int
+        free = libc.acl_free
+        free.argtypes, free.restype = [ctypes.c_void_p], ctypes.c_int
+        _acl_api.append((ctypes, get_fd, get_entry, free))
+    ctypes, get_fd, get_entry, free = _acl_api[0]
+    ctypes.set_errno(0)
+    acl = get_fd(fd, 0x00000100)  # ACL_TYPE_EXTENDED
+    if not acl:
+        err = ctypes.get_errno()
+        if err == errno.ENOENT:
+            return False  # no extended ACL at all
+        raise OSError(err, "acl_get_fd_np failed")
+    try:
+        entry = ctypes.c_void_p()
+        return get_entry(acl, 0, ctypes.byref(entry)) == 0  # ACL_FIRST_ENTRY
+    finally:
+        free(acl)
+
+
+def _config_acl_problem(fd: int) -> str | None:
+    """macOS: an extended ACL can let another account write a file whose mode still reads 0600."""
+    try:
+        return "has an extended ACL; remove it with chmod -N" if _fd_has_extended_acl(fd) else None
+    except (OSError, AttributeError):
+        return "access list unreadable"
+
+
 def load_config(path: Path | str | None = None) -> tuple[dict[str, bool], dict | None]:
     """({publishStatus, peerLink}, source row or None) from the AGIW config.json, as the PC reads its own.
 
-    Strict JSON object, at most 16 KB, booleans only. A missing file means both off, silently. Anything else
-    wrong means both off and an 'agiw-config' error row in the snapshot sources; the observer still starts."""
+    A regular file (never a link) owned by this user and not writable by group or others, holding a strict JSON
+    object of at most 16 KB, booleans only. A missing file means both off, silently. Anything else wrong means
+    both off and an 'agiw-config' error row naming the reason in the snapshot sources; the observer still starts,
+    and the --publish-status / --peer-link flags still turn their options on."""
     path = CONFIG_PATH if path is None else Path(path)
     off = dict.fromkeys(CONFIG_KEYS, False)
 
@@ -688,8 +1002,19 @@ def load_config(path: Path | str | None = None) -> tuple[dict[str, bool], dict |
     except OSError as exc:
         return bad("symbolic link refused" if exc.errno == errno.ELOOP else "unreadable")
     try:
-        if not stat.S_ISREG(os.fstat(fd).st_mode):
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode):
             return bad("not a regular file")
+        # The opt-ins start a listener and publish to the share, so only a file this user owns and no one else can
+        # write may turn them on (the descriptor read is the file checked: no swap between check and read).
+        if os.name != "nt" and info.st_uid != os.getuid():
+            return bad("not owned by you")
+        if os.name != "nt" and info.st_mode & 0o022:
+            return bad("writable by other users; chmod 600 it")
+        if sys.platform == "darwin":
+            acl = _config_acl_problem(fd)
+            if acl:
+                return bad(acl)
         raw = os.read(fd, CONFIG_MAX_BYTES + 1)
     except OSError:
         return bad("unreadable")

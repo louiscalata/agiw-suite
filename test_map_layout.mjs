@@ -1447,7 +1447,7 @@ const REPORT = (over = {}) => ({ via: 'share', host: 'louisaurorar12', health: '
   models: [REPORT_MODEL(), REPORT_MODEL({ id: 'Qwen3.8-27B Q4_K_M' })], ...over });
 const REPORT_FRESH = { feedFresh: true, snapshotAge: 1 };
 
-test('pcReportView: a fresh report says what the PC reports, through the Live from gate', () => {
+test('pcReportView: a fresh report says what the PC reports, through the inspector report gate', () => {
   const view = pcReportView(REPORT(), REPORT_FRESH);
   assert.deepEqual([view.known, view.words, view.tiny, view.node, view.via], [true, 'Reports 2 loaded · idle', 'Reports idle', '2 LOADED · IDLE', 'share']);
   assert.ok(Math.abs(view.ageSeconds - 10.9) < 1e-9);

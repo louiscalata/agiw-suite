@@ -510,7 +510,7 @@ const REPORT_BUSY = new Set(['generating', 'busy', 'processing']);
 
 /**
  * The PC's own report (snapshot.windowsLive: the paired LAN link or the SharedChami status files), which the PC chip
- * and node lead with: "Reports 2 loaded · idle". Read through exactly the gate of the inspector's "Live from" rows (a
+ * and node lead with: "Reports 2 loaded · idle". Read through exactly the gate of the inspector's PC report rows (a
  * fresh, unpaused feed and a report at most 30 s old, both ages finite and non-negative); unknown otherwise. Only the
  * first 8 models count, as there. Every phrase starts "Reports" (the node drops it after its REPORTED / LINKED word),
  * so it reads as the PC's word, never as the dispatcher's: a report never pulses live. A word outside the known set
