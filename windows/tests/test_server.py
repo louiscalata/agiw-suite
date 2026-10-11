@@ -9,6 +9,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from agiw_win import probes  # noqa: E402
@@ -166,6 +167,38 @@ class EndToEnd(unittest.TestCase):
         probes.write_json_atomic(target, status, probes.STATUS_MAX_BYTES)
         self.assertEqual(target.name, "windows-status.json")
         self.assertLess(target.stat().st_size, probes.STATUS_MAX_BYTES)
+
+    def test_dormant_pairing_reader_is_separate_from_the_share_and_published_status(self):
+        reported = [{"node": "22222222-2222-4222-8222-222222222222", "name": "test-mac",
+                     "host": "mac", "paired": True, "state": "connecting", "status": None}]
+        source = probes._source("peer-link", "Peer link", "live", "Pairing service reports 1 paired, 0 connected")
+        with mock.patch.object(probes, "read_peer_link", return_value=(reported, source)) as read:
+            off = self.collector.collect()
+            read.assert_not_called()
+            self.assertNotIn("pairedPeers", off)
+            self.assertFalse(any(s["id"] == "peer-link" for s in off["sources"]))
+            self.collector.peer_link_reader = True
+            on = self.collector.collect()
+            read.assert_called_once_with(on["sampledAt"], enabled=True)
+        self.assertEqual(on["pairedPeers"], reported)
+        self.assertIn(source, on["sources"])
+        self.assertEqual(on["macPeer"], off["macPeer"])
+        self.assertEqual(on["peers"], off["peers"])
+        published = probes.pc_status(on)
+        probes.validate_status(published)
+        self.assertNotIn("pairedPeers", published)
+        self.assertEqual([m["id"] for m in published["models"]], ["gpt-oss-20b", "Qwen3.8-27B Q4_K_M"])
+
+    def test_pairing_reader_failure_preserves_the_observer_sample(self):
+        self.collector.peer_link_reader = True
+        with mock.patch.object(probes, "read_peer_link", side_effect=RuntimeError("private path/PIN")):
+            data = self.collector.collect()
+        self.assertEqual(data["pairedPeers"], [])
+        source = next(s for s in data["sources"] if s["id"] == "peer-link")
+        self.assertEqual(source["state"], "error")
+        self.assertNotIn("private", json.dumps(source))
+        self.assertEqual(data["host"], "windows")
+        probes.validate_status(probes.pc_status(data))
 
     def test_status_validation_refuses_what_the_reader_rejects(self):
         status = probes.pc_status(self.collector.collect())
