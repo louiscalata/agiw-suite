@@ -875,6 +875,83 @@ class MacPeer(unittest.TestCase):
         self.assertEqual((hosts["mdns"], hosts["ips"], hosts["ownIp"]), ("m.local", ["1.2.3.4"], "10.0.0.71"))
 
 
+class PCPresenceModels(unittest.TestCase):
+    NOW = 2_000_000_000.0
+
+    def snapshot(self):
+        import datetime as dt
+
+        return {"sampledAt": self.NOW,
+                "observedAt": dt.datetime.fromtimestamp(self.NOW, dt.timezone.utc).isoformat(),
+                "observerVersion": "test", "dashboardPort": 8767,
+                "lanes": [{"id": "fast", "port": 1235, "expectedModel": "openai/gpt-oss-20b",
+                           "status": "busy", "phase": "decoding", "slotsBusy": 1, "slotsTotal": 2,
+                           "servedModel": r"C:\private\models\gpt-oss-20b.gguf", "liveTokensPerSecond": 12.5},
+                          {"id": "deep", "port": 1234, "expectedModel": "qwen3.8-27b",
+                           "status": "idle", "phase": "idle", "slotsBusy": 0, "slotsTotal": 2,
+                           "servedModel": "/private/models/qwen.gguf", "liveTokensPerSecond": 0}]}
+
+    def test_presence_keeps_status_model_details_from_the_same_sample(self):
+        from copy import deepcopy
+
+        snapshot = self.snapshot()
+        original = deepcopy(snapshot)
+        status = probes.pc_status(snapshot)
+        presence = probes.peer_presence(snapshot, "test-pc")
+        self.assertEqual(presence["observedAt"], status["observedAt"])
+        self.assertEqual(presence["observedUnix"], snapshot["sampledAt"])
+        self.assertEqual([row["id"] for row in presence["models"]],
+                         ["gpt-oss-20b", "Qwen3.8-27B Q4_K_M"])
+        for row, status_row in zip(presence["models"], status["models"]):
+            for key in ("id", "aliases", "loadedState", "activity", "slotsBusy", "slotsTotal",
+                        "lane", "servedModel", "liveTokensPerSecond"):
+                with self.subTest(model=row["id"], key=key):
+                    self.assertIn(key, row)
+                    self.assertEqual(row[key], status_row[key])
+        payload = json.dumps(presence, allow_nan=False).encode("utf-8")
+        self.assertNotIn(b"private", payload)
+        self.assertLessEqual(len(payload), probes.PEER_MAX_BYTES)
+        self.assertEqual(snapshot, original, "publishing must not alter the sampled evidence")
+
+    def test_presence_omits_invalid_optional_model_details(self):
+        bad_text = (None, True, 4, [], {}, "", "fast\n", "fast\x00")
+        bad_rates = (None, True, False, "12.5", [], {}, -0.01, float("nan"),
+                     float("inf"), -float("inf"), 10 ** 1000)
+        for key, values in (("id", bad_text), ("servedModel", bad_text),
+                            ("liveTokensPerSecond", bad_rates)):
+            for value in values:
+                with self.subTest(key=key, value_type=type(value).__name__, value=repr(value)[:80]):
+                    snapshot = self.snapshot()
+                    snapshot["lanes"][0][key] = value
+                    presence = probes.peer_presence(snapshot, "test-pc")
+                    self.assertNotIn("lane" if key == "id" else key, presence["models"][0])
+                    self.assertEqual(len(presence["models"]), 2, "invalid optional fields must keep the sample")
+                    self.assertEqual(presence["models"][1]["id"], "Qwen3.8-27B Q4_K_M")
+                    json.dumps(presence, allow_nan=False)
+
+    def test_extra_presence_details_do_not_change_the_pc_peer_reader(self):
+        from copy import deepcopy
+
+        presence = probes.peer_presence(self.snapshot(), "other-pc")
+        # Exercise the reader independently of the publisher, including fields
+        # that it deliberately does not project into an unsigned peer report.
+        presence["models"][0].update(lane="fast", servedModel="gpt-oss-20b.gguf", liveTokensPerSecond=12.5)
+        legacy = deepcopy(presence)
+        for row in legacy["models"]:
+            for key in ("lane", "servedModel", "liveTokensPerSecond"):
+                row.pop(key, None)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = probes.peer_dir(root) / "other-pc.json"
+            probes.write_json_atomic(target, legacy, probes.PEER_MAX_BYTES)
+            before = probes.read_peers(root, "test-pc", self.NOW)
+            probes.write_json_atomic(target, presence, probes.PEER_MAX_BYTES)
+            after = probes.read_peers(root, "test-pc", self.NOW)
+        self.assertEqual(after, before)
+        self.assertTrue(after[0][0]["fresh"])
+        self.assertFalse(after[0][0]["verified"])
+
+
 class PCStatusComponents(unittest.TestCase):
     def publish(self, *components):
         snapshot = {"observedAt": "2023-11-14T22:13:20Z", "observerVersion": "test",
