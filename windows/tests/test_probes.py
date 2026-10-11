@@ -621,6 +621,98 @@ class PeerLink(unittest.TestCase):
         self.assertEqual(source["state"], "live")
 
 
+class PeerInventoryCompleteness(unittest.TestCase):
+    NOW = 2_000_000_000.0
+
+    def row(self, model_id, loaded="loaded"):
+        return {"id": model_id, "loadedState": loaded, "activity": "idle"}
+
+    def peer(self, models, **extra):
+        return {"schemaVersion": 1, "kind": "agiw-peer", "host": "configured-mac", "platform": "macos",
+                "observedUnix": self.NOW - 4, "models": models, **extra}
+
+    def validate(self, document):
+        peer = probes._validate_peer(document, self.NOW)
+        self.assertIsNotNone(peer, "inventory defects must preserve a valid peer report")
+        return peer
+
+    def test_complete_inventory_requires_the_exact_integer_row_count(self):
+        rows = [self.row("fast"), self.row("deep", "inactive")]
+        peer = self.validate(self.peer(rows, modelsTotal=2))
+        self.assertIs(peer.get("modelsComplete"), True)
+        self.assertEqual(peer["models"], rows)
+        self.assertEqual((peer["fresh"], peer["ageSeconds"]), (True, 4.0))
+        empty = self.validate(self.peer([], modelsTotal=0))
+        self.assertIs(empty.get("modelsComplete"), True)
+        self.assertEqual(empty["models"], [])
+
+    def test_missing_invalid_and_mismatched_totals_preserve_rows_without_a_count_claim(self):
+        rows = [self.row("fast"), self.row("deep", "inactive")]
+        totals = (None, "2", 2.0, -1, 0, 1, 3, [], {}, float("nan"), float("inf"), 10**1000)
+        for index, total in enumerate(totals):
+            with self.subTest(total_case=index):
+                peer = self.validate(self.peer(rows, modelsTotal=total))
+                self.assertIs(peer.get("modelsComplete"), False)
+                self.assertEqual(peer["models"], rows)
+        missing = self.validate(self.peer(rows))
+        self.assertIs(missing.get("modelsComplete"), False)
+        self.assertEqual(missing["models"], rows)
+        for total, models in ((True, [self.row("fast")]), (False, [])):
+            with self.subTest(boolean_total=total):
+                self.assertIs(self.validate(self.peer(models, modelsTotal=total)).get("modelsComplete"), False)
+
+    def test_missing_model_list_is_incomplete_even_with_a_zero_total(self):
+        document = self.peer([], modelsTotal=0)
+        del document["models"]
+        peer = self.validate(document)
+        self.assertEqual(peer["models"], [])
+        self.assertIs(peer.get("modelsComplete"), False)
+
+    def test_capped_inventory_never_becomes_complete_from_a_forged_retained_total(self):
+        for count in (32, 33, 40):
+            rows = [self.row(f"model-{index}", "inactive") for index in range(count)]
+            for total in {32, count}:
+                with self.subTest(rows=count, total=total):
+                    peer = self.validate(self.peer(rows, modelsTotal=total))
+                    self.assertEqual(peer["models"], rows[:32])
+                    self.assertIs(peer.get("modelsComplete"), count == 32)
+        retained = [self.row(f"model-{index}") for index in range(32)]
+        self.assertIs(self.validate(self.peer(retained, modelsTotal=40)).get("modelsComplete"), False)
+
+    def test_dropped_model_rows_keep_valid_neighbors_and_make_inventory_incomplete(self):
+        invalid = (None, [], "model", {}, {"id": None}, {"id": True}, {"id": 12}, {"id": ""}, {"id": " \t "})
+        first, last = self.row("first", "inactive"), self.row("last")
+        for index, bad in enumerate(invalid):
+            for total in (2, 3):
+                with self.subTest(row_case=index, total=total):
+                    peer = self.validate(self.peer([first, bad, last], modelsTotal=total))
+                    self.assertEqual(peer["models"], [first, last])
+                    self.assertIs(peer.get("modelsComplete"), False)
+
+    def test_duplicate_ids_and_truncation_collisions_keep_only_the_first_row(self):
+        cases = (("same-model", "same-model"), ("x" * 120 + "-first", "x" * 120 + "-second"))
+        for first_id, second_id in cases:
+            for total in (1, 2):
+                with self.subTest(truncated=len(first_id) > 120, total=total):
+                    peer = self.validate(self.peer([self.row(first_id, "inactive"), self.row(second_id)],
+                                                   modelsTotal=total))
+                    self.assertEqual(peer["models"], [self.row(first_id[:120], "inactive")])
+                    self.assertIs(peer.get("modelsComplete"), False)
+
+    def test_invalid_residency_stays_unknown_and_incomplete(self):
+        for loaded in (None, True, 1, "LOADED", "not-loaded", [], {}):
+            with self.subTest(loaded=loaded):
+                peer = self.validate(self.peer([self.row("reported", loaded)], modelsTotal=1))
+                self.assertEqual(peer["models"], [self.row("reported", "unknown")])
+                self.assertIs(peer.get("modelsComplete"), False)
+
+    def test_canonical_unknown_residency_preserves_structural_completeness(self):
+        rows = [self.row("reported", "unknown")]
+        peer = self.validate(self.peer(rows, modelsTotal=1))
+        self.assertEqual(peer["models"], rows)
+        self.assertIs(peer.get("modelsComplete"), True)
+
+
 class LaneConfig(unittest.TestCase):
     def test_reads_declared_lanes(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -945,6 +1037,63 @@ class MacPeer(unittest.TestCase):
                                                           "windows": {"ip": "10.0.0.71"}}))
             hosts = probes.mac_hosts(Path(tmp))
         self.assertEqual((hosts["mdns"], hosts["ips"], hosts["ownIp"]), ("m.local", ["1.2.3.4"], "10.0.0.71"))
+
+
+class ConfiguredMacName(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        self.path = self.root / "llm-lab" / "mac-reach" / "hosts.json"
+        self.path.parent.mkdir(parents=True)
+
+    def name(self, value):
+        self.path.write_text(json.dumps(value), encoding="utf-8")
+        return self.read_name()
+
+    def read_name(self):
+        helper = getattr(probes, "configured_mac_name", None)
+        self.assertTrue(callable(helper), "configured identity needs a validated independent reader")
+        return helper(self.root)
+
+    def test_hostname_wins_over_mdns_without_depending_on_probe_configuration(self):
+        self.assertEqual(self.name({"mac": {"hostname": "Configured-Mac", "mdns": "different.local",
+                                              "ips": None, "lm_studio_port": []}}), "Configured-Mac")
+
+    def test_mdns_is_used_when_hostname_is_missing_or_invalid(self):
+        for hostname in (None, "", " ", True, [], "bad/name", "bad..name"):
+            with self.subTest(hostname=hostname):
+                self.assertEqual(self.name({"mac": {"hostname": hostname, "mdns": "Configured-Mac.local"}}),
+                                 "Configured-Mac.local")
+        self.assertEqual(self.name({"mac": {"mdns": "Configured-Mac.local"}}), "Configured-Mac.local")
+
+    def test_case_domain_and_trailing_dns_dot_preserve_the_configured_identity(self):
+        for field in ("hostname", "mdns"):
+            for value in ("Configured-Mac", "CONFIGURED-MAC.local", "Configured-Mac.EXAMPLE.local.",
+                          "  Configured-Mac.local  "):
+                with self.subTest(field=field, value=value):
+                    name = self.name({"mac": {field: value}})
+                    self.assertEqual(name, value.strip())
+                    self.assertEqual(name.split(".")[0].casefold(), "configured-mac")
+
+    def test_malformed_shapes_and_names_return_none(self):
+        shapes = (None, [], True, {}, {"mac": None}, {"mac": []}, {"mac": True})
+        for value in shapes:
+            with self.subTest(config=value):
+                self.assertIsNone(self.name(value))
+        names = (None, False, [], {}, "", " ", ".", ".mac", "mac..local", "mac/name", "mac:1234",
+                 "mac\n.local", "mac\x00.local", "x" * 64, ".".join(["x" * 63] * 5))
+        for field in ("hostname", "mdns"):
+            for index, value in enumerate(names):
+                with self.subTest(field=field, name_case=index):
+                    self.assertIsNone(self.name({"mac": {field: value}}))
+
+    def test_missing_malformed_and_oversized_files_return_none(self):
+        self.assertIsNone(self.read_name())
+        for raw in ("{", '{"mac":{"hostname":"mac"},"padding":"' + "x" * 256_001 + '"}'):
+            with self.subTest(size=len(raw)):
+                self.path.write_text(raw, encoding="utf-8")
+                self.assertIsNone(self.read_name())
 
 
 class PCPresenceModels(unittest.TestCase):

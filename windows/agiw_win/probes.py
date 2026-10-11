@@ -666,6 +666,26 @@ def mac_hosts(share_root: Path) -> dict[str, Any] | None:
         return None
 
 
+def configured_mac_name(share_root: Path) -> str | None:
+    """Read the configured identity independently of the LAN probe's cached result."""
+    try:
+        data = read_json(share_root / "llm-lab" / "mac-reach" / "hosts.json")
+    except (OSError, ValueError, json.JSONDecodeError):
+        return None
+    mac = data.get("mac") if isinstance(data, dict) else None
+    if not isinstance(mac, dict):
+        return None
+    for key in ("hostname", "mdns"):
+        raw = mac.get(key)
+        if not isinstance(raw, str) or not raw.isprintable():
+            continue
+        name = raw.strip()
+        labels = (name[:-1] if name.endswith(".") else name).split(".")
+        if len(name) <= 253 and all(PEER_HOST.fullmatch(label) for label in labels):
+            return name
+    return None
+
+
 def _own_addresses() -> set[str]:
     addresses = {"127.0.0.1", "0.0.0.0", "::1"}
     try:
@@ -1322,16 +1342,30 @@ def _validate_peer(value: Any, now: float) -> dict[str, Any] | None:
         return None
     if not isinstance(value.get("models", []), list):
         return None
-    models = []
-    for model in (value.get("models") or [])[:32]:
-        if isinstance(model, dict) and isinstance(model.get("id"), str) and model["id"].strip():
-            models.append({"id": model["id"][:120],
-                           "loadedState": model.get("loadedState") if model.get("loadedState") in STATUS_LOADED_STATES else "unknown",
-                           "activity": _string(model.get("activity"), 24) or "unknown"})
+    raw_models = value.get("models")
+    models, seen = [], set()
+    complete = isinstance(raw_models, list) and len(raw_models) <= 32
+    for model in (raw_models or [])[:32]:
+        if not isinstance(model, dict) or not isinstance(model.get("id"), str) or not model["id"].strip():
+            complete = False
+            continue
+        model_id = model["id"][:120]
+        if model_id in seen:
+            complete = False
+            continue
+        seen.add(model_id)
+        loaded = model.get("loadedState")
+        if not isinstance(loaded, str) or loaded not in STATUS_LOADED_STATES:
+            complete = False
+            loaded = "unknown"
+        models.append({"id": model_id, "loadedState": loaded,
+                       "activity": _string(model.get("activity"), 24) or "unknown"})
+    complete = complete and type(value.get("modelsTotal")) is int and value["modelsTotal"] == len(models)
     age = now - observed
     return {"host": host, "platform": _string(value.get("platform"), 24) or "unknown",
             "edition": _string(value.get("edition"), 24), "version": _string(value.get("version"), 24),
-            "health": _string(value.get("health"), 16) or "unknown", "models": models, "ageSeconds": round(max(0.0, age), 1),
+            "health": _string(value.get("health"), 16) or "unknown", "models": models, "modelsComplete": complete,
+            "ageSeconds": round(max(0.0, age), 1),
             "fresh": age <= PEER_FRESH_SECONDS, "source": "agiw-peers"}
 
 
