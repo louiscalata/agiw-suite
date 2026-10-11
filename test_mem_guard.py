@@ -241,10 +241,70 @@ class ConsumerTests(unittest.TestCase):
         models = [{"id": "gemma-4-26b", "loaded": True, "host": "mac", "state": "idle"},
                   {"id": "qwen3.8-27b", "loaded": True, "host": "mac", "state": "generating"},
                   {"id": "remote", "loaded": True, "host": "pc"}, {"id": "cold", "loaded": False}]
-        rows = mem_guard.group_consumers(mem_guard.parse_ps(PS_SAMPLE), models=models, gpu_alloc_bytes=40 * GiB)
+        # Without a model list (the CLI and the hook) the Mac-wide allocation still ranks the server, and the
+        # text says it is the whole Mac's (every app's), not the server's.
+        rows = mem_guard.group_consumers(mem_guard.parse_ps(PS_SAMPLE), gpu_alloc_bytes=40 * GiB)
         self.assertEqual(rows[0]["group"], "llm-server", "GPU allocation counts when ordering")
-        self.assertEqual(rows[0]["models"], ["gemma-4-26b", "qwen3.8-27b"])
-        self.assertIn("GPU allocation 40.0 GB", mem_guard.describe_consumer(rows[0]))
+        self.assertEqual(rows[0]["gpuAllocBytes"], 40 * GiB)
+        self.assertIn("(+ Mac GPU allocation 40.0 GB, all apps)", mem_guard.describe_consumer(rows[0]))
+        # With a model list (the observer) the row names its loaded Mac models and never takes the allocation.
+        rows = mem_guard.group_consumers(mem_guard.parse_ps(PS_SAMPLE), models=models, gpu_alloc_bytes=40 * GiB)
+        llm = next(row for row in rows if row["group"] == "llm-server")
+        self.assertEqual(llm["models"], ["gemma-4-26b", "qwen3.8-27b"])
+        self.assertNotIn("gpuAllocBytes", llm)
+        self.assertEqual((llm["loadedModelCount"], llm["loadedModelBytes"]), (2, None), "no sizes: the total is unknown")
+        self.assertEqual(mem_guard.describe_consumer(llm), "Local LLM server about 1.9 GB (2 loaded models, size unknown)")
+
+    # The live snapshot of 2026-10-10T21:18:56Z: the Nisi pair, idle, with LM Studio inventory sizes.
+    QWEN = {"id": "qwen/qwen3.8-27b", "loaded": True, "host": "mac", "state": "idle", "sizeBytes": 16081678492}
+    GEMMA = {"id": "google/gemma-4-26b-a4b-qat", "loaded": True, "host": "mac", "state": "idle",
+             "sizeBytes": 15641332573}
+    LIVE_GPU = 45795885056  # macGpu.allocatedBytes: IOGPU's figure for every app on the Mac
+
+    def live_base(self):
+        return [{"group": "llm-server", "label": "Local LLM server", "residentBytes": 887668736, "processCount": 8},
+                {"group": "codex", "label": "Codex", "residentBytes": 3750576128, "processCount": 26}]
+
+    def test_observer_llm_row_counts_loaded_model_file_sizes_never_the_mac_gpu_allocation(self):
+        base = self.live_base()
+        models = [self.QWEN, self.GEMMA, {"id": "remote", "loaded": True, "host": "pc", "sizeBytes": 60 * GiB},
+                  {"id": "cold", "loaded": False, "host": "mac", "sizeBytes": 40 * GiB}]
+        rows = mem_guard.decorate_consumers(base, models=models, gpu_alloc_bytes=self.LIVE_GPU)
+        llm = rows[0]
+        self.assertEqual(llm["group"], "llm-server", "29.5 GB of loaded models outrank Codex's 3.5 GB")
+        self.assertEqual((llm["loadedModelBytes"], llm["loadedModelCount"]), (31723011065, 2))
+        self.assertNotIn("gpuAllocBytes", llm, "the whole Mac's GPU allocation is never the server's")
+        self.assertEqual(mem_guard._weight(llm), 31723011065)
+        self.assertEqual(mem_guard.describe_consumer(llm),
+                         "Local LLM server about 0.8 GB (2 loaded models, 29.5 GB file size)")
+        self.assertEqual(base, self.live_base(), "the grouped rows are never modified")
+        # One loaded model without a valid size: the total is unknown, never a partial sum.
+        for bad in (None, -1, 0, 1.5, True, "16081678492", 1 << 53):
+            with self.subTest(sizeBytes=bad):
+                rows = mem_guard.decorate_consumers(base, models=[{**self.QWEN, "sizeBytes": bad}, self.GEMMA],
+                                                    gpu_alloc_bytes=self.LIVE_GPU)
+                llm = next(row for row in rows if row["group"] == "llm-server")
+                self.assertEqual(llm["loadedModelCount"], 2)
+                self.assertIsNone(llm["loadedModelBytes"])
+                self.assertNotIn("gpuAllocBytes", llm)
+                self.assertEqual(rows[0]["group"], "codex", "an unknown size ranks by resident memory alone")
+        no_size = {key: value for key, value in self.QWEN.items() if key != "sizeBytes"}
+        rows = mem_guard.decorate_consumers(base, models=[no_size, self.GEMMA], gpu_alloc_bytes=self.LIVE_GPU)
+        self.assertIsNone(next(row for row in rows if row["group"] == "llm-server")["loadedModelBytes"])
+        # Nothing loaded: a 3.5 GB Codex group ranks first; the server row has no size and no allocation.
+        rows = mem_guard.decorate_consumers(base, models=[], gpu_alloc_bytes=self.LIVE_GPU)
+        self.assertEqual([row["group"] for row in rows], ["codex", "llm-server"])
+        self.assertEqual(rows[1]["loadedModelCount"], 0)
+        self.assertNotIn("loadedModelBytes", rows[1])
+        self.assertNotIn("gpuAllocBytes", rows[1])
+        self.assertEqual(mem_guard.describe_consumer(rows[1]), "Local LLM server about 0.8 GB")
+        # No model list (the CLI paths): today's allocation is still attached, labelled as every app's.
+        rows = mem_guard.decorate_consumers(base, models=None, gpu_alloc_bytes=self.LIVE_GPU)
+        self.assertEqual((rows[0]["group"], rows[0]["gpuAllocBytes"]), ("llm-server", self.LIVE_GPU))
+        self.assertNotIn("loadedModelCount", rows[0])
+        self.assertNotIn("loadedModelBytes", rows[0])
+        self.assertEqual(mem_guard.describe_consumer(rows[0]),
+                         "Local LLM server about 0.8 GB (+ Mac GPU allocation 42.7 GB, all apps)")
 
     def test_group_of(self):
         cases = {"/opt/homebrew/bin/llama-server": "llm-server", "/usr/local/bin/ollama": "llm-server",
@@ -265,6 +325,85 @@ class ConsumerTests(unittest.TestCase):
                                 "Shut down unused iOS Simulators (`xcrun simctl shutdown all`)",
                                 "Unload idle model small from the monitor", "2 background jobs paused"])
         self.assertEqual(mem_guard.suggestions([], None, 0), [])
+
+    REVIEWER_TIP = ("Unload idle model qwen/qwen3.8-27b from the monitor "
+                    "(Nisi reviewer: Mac edit routes stop until it is reloaded)")
+    AUTHOR_TIP = ("Unload idle model google/gemma-4-26b-a4b-qat from the monitor "
+                  "(Nisi author: Mac edit routes stop until it is reloaded)")
+    PAIR = {"qwen/qwen3.8-27b": "reviewer", "google/gemma-4-26b-a4b-qat": "author"}
+
+    def test_suggestions_tag_the_nisi_pair_after_everything_else(self):
+        # Three non-embedding Mac models: telemetry._route_components (mirroring the router) names the default
+        # model (gemma) author and the lexically first other one (mistral/small-8b) reviewer; qwen is outside the
+        # pair. Unloading a pair model leaves two loaded, so the router picks a new pair: routes switch, not stop.
+        small = {"id": "mistral/small-8b", "loaded": True, "host": "mac", "state": "idle", "sizeBytes": 4 * GiB}
+        models = [self.QWEN, self.GEMMA, small]
+        pair = {"google/gemma-4-26b-a4b-qat": "author", "mistral/small-8b": "reviewer"}
+        author_switch = ("Unload idle model google/gemma-4-26b-a4b-qat from the monitor "
+                         "(Nisi author: Mac edit routes switch to another loaded model)")
+        reviewer_switch = ("Unload idle model mistral/small-8b from the monitor "
+                           "(Nisi reviewer: Mac edit routes switch to another loaded model)")
+        self.assertEqual(mem_guard.suggestions([], models, 0, route_pair=pair),
+                         ["Unload idle model qwen/qwen3.8-27b from the monitor", author_switch, reviewer_switch])
+        # Untagged tips (the non-pair model, 15 GB, and the simulators, 4.5 GB) by size, then the pair by size,
+        # paused last.
+        self.assertEqual(mem_guard.suggestions(CONSUMERS, models, 2, route_pair=pair),
+                         ["Unload idle model qwen/qwen3.8-27b from the monitor",
+                          "Shut down unused iOS Simulators (`xcrun simctl shutdown all`)",
+                          author_switch, reviewer_switch, "2 background jobs paused"])
+        # Ids match exactly, ignoring case; a different instance (":2") or another model is not the pair's.
+        folded = {"QWEN/Qwen3.8-27B": "reviewer", "google/gemma-4-26b-a4b-qat:2": "author"}
+        self.assertEqual(mem_guard.suggestions([], [self.QWEN, self.GEMMA], 0, route_pair=folded),
+                         ["Unload idle model google/gemma-4-26b-a4b-qat from the monitor", self.REVIEWER_TIP])
+        # A generating pair model is never suggested at all.
+        busy = {**self.QWEN, "state": "generating"}
+        self.assertEqual(mem_guard.suggestions([], [busy, self.GEMMA], 0, route_pair=self.PAIR), [self.AUTHOR_TIP])
+
+    def test_routes_stop_only_when_the_pair_are_the_only_two_loaded_non_embedding_mac_models(self):
+        stop = [self.REVIEWER_TIP, self.AUTHOR_TIP]
+        switch = [tip.replace("Mac edit routes stop until it is reloaded", "Mac edit routes switch to another loaded model")
+                  for tip in stop]
+        third = {"id": "zeta-7b", "loaded": True, "host": "mac", "state": "idle", "sizeBytes": 1 * GiB}
+        # Models that the router does not pick a pair from leave the pair the only two: the routes stop.
+        for extra in ([], [{"id": "text-embedding-nomic-embed-text-v1.5", "loaded": True, "host": "mac", "state": "idle",
+                            "sizeBytes": 2 * GiB}],
+                      [{**third, "host": "pc"}], [{**third, "loaded": False}], [{**third, "loaded": "true"}],
+                      ["zeta-7b", None]):
+            with self.subTest(extra=extra):
+                tips = mem_guard.suggestions([], [self.QWEN, self.GEMMA, *extra], 0, route_pair=self.PAIR)
+                self.assertEqual([tip for tip in tips if "Nisi" in tip], stop)
+        # A third loaded Mac model, idle or busy (a busy one is never suggested, but it still counts): routes switch.
+        for extra in ([third], [{**third, "state": "generating"}], [{**third, "state": "busy"}],
+                      [{key: value for key, value in third.items() if key != "host"}]):
+            with self.subTest(extra=extra):
+                tips = mem_guard.suggestions([], [self.QWEN, self.GEMMA, *extra], 0, route_pair=self.PAIR)
+                self.assertEqual([tip for tip in tips if "Nisi" in tip], switch)
+
+    def test_a_running_route_tags_every_loaded_model_tip_and_puts_them_last(self):
+        small = {"id": "mistral/small-8b", "loaded": True, "host": "mac", "state": "idle", "sizeBytes": 20 * GiB}
+        running = " (a Nisi route is running: unloading can stop it)"
+        for pair in (self.PAIR, None):
+            with self.subTest(route_pair=pair):
+                tips = mem_guard.suggestions(CONSUMERS, [self.QWEN, self.GEMMA, small], 1, route_pair=pair,
+                                             route_live=True)
+                self.assertEqual(tips, ["Shut down unused iOS Simulators (`xcrun simctl shutdown all`)",
+                                        f"Unload idle model mistral/small-8b from the monitor{running}",
+                                        f"Unload idle model qwen/qwen3.8-27b from the monitor{running}",
+                                        f"Unload idle model google/gemma-4-26b-a4b-qat from the monitor{running}",
+                                        "1 background job paused"])
+
+    def test_suggestions_without_route_context_are_unchanged(self):
+        models = [self.QWEN, self.GEMMA, {"id": "small", "loaded": True, "state": "idle", "sizeBytes": 2 * GiB}]
+        plain = ["Unload idle model qwen/qwen3.8-27b from the monitor",
+                 "Unload idle model google/gemma-4-26b-a4b-qat from the monitor",
+                 "Shut down unused iOS Simulators (`xcrun simctl shutdown all`)",
+                 "Unload idle model small from the monitor", "3 background jobs paused"]
+        self.assertEqual(mem_guard.suggestions(CONSUMERS, models, 3), plain)
+        # A malformed route_pair is no context at all.
+        for pair in (None, {}, [("qwen/qwen3.8-27b", "reviewer")], "qwen/qwen3.8-27b", {"qwen/qwen3.8-27b": "boss"},
+                     {"qwen/qwen3.8-27b": ["reviewer"]}, {7: "author"}, {"": "author"}):
+            with self.subTest(route_pair=pair):
+                self.assertEqual(mem_guard.suggestions(CONSUMERS, models, 3, route_pair=pair), plain)
 
 
 class ProbeTests(unittest.TestCase):
@@ -1129,6 +1268,31 @@ class GuardTests(unittest.TestCase):
             ok_block, _ = self.guard(FakeProbes(OK, CONSUMERS), tmp).sample()
             self.assertEqual(ok_block["consumers"], [], "consumers only at watch or worse")
 
+    def test_sample_carries_the_nisi_route_context_into_both_suggestion_paths(self):
+        qwen = ConsumerTests.QWEN
+        gemma = ConsumerTests.GEMMA
+        pair = ConsumerTests.PAIR
+
+        class ResumingWatchdog:
+            def tick(self, _block):
+                return [{"type": "resume", "why": "test", "jobs": []}]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            guard = self.guard(FakeProbes(TIGHT, []), tmp)
+            block, _ = guard.sample(gpu_alloc_bytes=40 * GiB, models=[qwen, gemma], route_pair=pair)
+            self.assertEqual(block["suggestions"], [ConsumerTests.REVIEWER_TIP, ConsumerTests.AUTHOR_TIP])
+            # A pause or resume re-suggests (with the new paused count): the context is kept there too.
+            guard.watchdog = ResumingWatchdog()
+            block, _ = guard.sample(gpu_alloc_bytes=40 * GiB, models=[qwen, gemma], route_pair=pair)
+            self.assertEqual(block["suggestions"], [ConsumerTests.REVIEWER_TIP, ConsumerTests.AUTHOR_TIP])
+            block, _ = guard.sample(gpu_alloc_bytes=40 * GiB, models=[qwen, gemma], route_pair=pair, route_live=True)
+            self.assertTrue(all(tip.endswith(" (a Nisi route is running: unloading can stop it)")
+                                for tip in block["suggestions"]), block["suggestions"])
+            # Without context: the plain size order, as before.
+            block, _ = guard.sample(gpu_alloc_bytes=40 * GiB, models=[qwen, gemma])
+            self.assertEqual(block["suggestions"], ["Unload idle model qwen/qwen3.8-27b from the monitor",
+                                                    "Unload idle model google/gemma-4-26b-a4b-qat from the monitor"])
+
     def test_probe_exception_or_unknown_state_is_unavailable_not_a_crash(self):
         with tempfile.TemporaryDirectory() as tmp:
             for probes in (FakeProbes(RuntimeError("probe exploded")), FakeProbes(UNKNOWN)):
@@ -1930,7 +2094,7 @@ class HookReviewTests(CliCase):
                                 stdin=io.BytesIO(hook_payload("Bash", command="xcodebuild -scheme App build")),
                                 stdout=io.StringIO(), stderr=err)
         self.assertEqual(mem_guard.main(["hook"], ctx), 2)
-        self.assertIn("Local LLM server about 0.8 GB (+ GPU allocation 40.0 GB)", err.getvalue())
+        self.assertIn("Local LLM server about 0.8 GB (+ Mac GPU allocation 40.0 GB, all apps)", err.getvalue())
 # -------------------------------------------------------------------------------------------------
 # Row 5 (2026-09-27): mem-guard inside agent sandboxes. /bin/ps and the memorystatus/swap sysctls
 # are refused there, so the registry reads the process table through libproc and the memory level

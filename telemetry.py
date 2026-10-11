@@ -20,6 +20,11 @@ import subprocess
 import threading
 import time
 from contextlib import contextmanager
+
+try:
+    import peer_feed
+except ImportError:  # an app bundle without the module still observes this Mac
+    peer_feed = None
 from typing import Any, Iterator
 
 from nisi_v02 import collect_nisi_v02
@@ -2825,8 +2830,14 @@ def collect_snapshot() -> dict[str, Any]:
         windows_worker["headless"] = {"state": "off", "reason": "mode file unreadable",
                                       "expiresInSeconds": None, "grantedBy": None}
     sources.append(worker_source)
-    sources.append({"id": "windows-telemetry", "label": "Windows", "state": "unavailable",
-                    "ageSeconds": None, "detail": "No bounded live Windows feed connected"})
+    try:
+        if peer_feed is None:
+            raise ImportError("peer_feed missing")
+        windows_live, windows_source = peer_feed.windows_feed(sampled)
+    except Exception:
+        windows_live, windows_source = None, {"id": "windows-telemetry", "label": "Windows", "state": "error",
+                                              "ageSeconds": None, "detail": "Windows feed reader failed"}
+    sources.append(windows_source)
     try:
         windows_jobs, jobs_source = _windows_jobs(sampled)
     except Exception:
@@ -2866,6 +2877,7 @@ def collect_snapshot() -> dict[str, Any]:
         "pipeline": pipeline,
         "onlineCodeMode": online_code_mode,
         "windowsWorker": windows_worker,
+        "windowsLive": windows_live,
         "windowsJobs": windows_jobs,
         "canary": canary,
         "nisiV02": nisi_v02,

@@ -338,7 +338,7 @@ def group_of(comm: str) -> str:
 
 
 def _weight(row: dict) -> int:
-    return max(row.get("residentBytes") or 0, row.get("gpuAllocBytes") or 0)
+    return max(row.get("residentBytes") or 0, row.get("loadedModelBytes") or 0, row.get("gpuAllocBytes") or 0)
 
 
 def _loaded_model_ids(models: Optional[Iterable[dict]]) -> list[str]:
@@ -349,6 +349,18 @@ def _loaded_model_ids(models: Optional[Iterable[dict]]) -> list[str]:
             if name:
                 ids.append(name)
     return ids[:8]
+
+
+def _loaded_mac_models(models: Iterable[dict]) -> tuple[int, Optional[int]]:
+    """(count, total sizeBytes) of the loaded Mac models. The total is None when any of them has no
+    valid size: LM Studio inventory file sizes, never a measured amount of memory."""
+    count, total = 0, 0
+    for model in models or []:
+        if isinstance(model, dict) and model.get("loaded") is True and model.get("host", "mac") == "mac":
+            count += 1
+            size = _bytes_or_none(model.get("sizeBytes"))
+            total = total + size if total is not None and size else None
+    return count, total
 
 
 def group_consumers(rows: list[tuple[int, int, str]], *, models: Optional[list] = None,
@@ -362,8 +374,15 @@ def group_consumers(rows: list[tuple[int, int, str]], *, models: Optional[list] 
 
 def decorate_consumers(base: list[dict], *, models: Optional[list] = None, simulators: Optional[list[str]] = None,
                        gpu_alloc_bytes: Optional[int] = None) -> list[dict]:
-    """Grouped rows (from _group_rows, never modified) plus simulator names, loaded models and the
-    GPU allocation, largest first. Cheap: it touches only the few group rows."""
+    """Grouped rows (from _group_rows, never modified) plus simulator names and loaded models,
+    largest first. Cheap: it touches only the few group rows.
+
+    The LLM server row: with a model list (the observer path, `models is not None`) it carries
+    loadedModelCount and, when any model is loaded, loadedModelBytes (the inventory file sizes of
+    the loaded Mac models; None when one of them has no valid size). It never carries the GPU
+    allocation there: IOGPU's allocated figure counts every app on the Mac, not the server. Without
+    a model list (the CLI and the hook) it keeps that Mac-wide allocation as gpuAllocBytes, which
+    describe_consumer labels as the whole Mac's."""
     out = []
     for source in base:
         row = dict(source)
@@ -374,7 +393,12 @@ def decorate_consumers(base: list[dict], *, models: Optional[list] = None, simul
             loaded = _loaded_model_ids(models)
             if loaded:
                 row["models"] = loaded
-            if _bytes_or_none(gpu_alloc_bytes):
+            if models is not None:
+                count, total = _loaded_mac_models(models)
+                row["loadedModelCount"] = count
+                if count:
+                    row["loadedModelBytes"] = total
+            elif _bytes_or_none(gpu_alloc_bytes):
                 row["gpuAllocBytes"] = gpu_alloc_bytes
         out.append(row)
     return sorted(out, key=_weight, reverse=True)
@@ -399,28 +423,86 @@ def _group_rows(rows: list[tuple[int, int, str]], top_other: int = 3) -> list[di
 
 def describe_consumer(row: dict) -> str:
     text = f"{row.get('label')} about {gb(row.get('residentBytes'))}"
+    count = _int_in(row.get("loadedModelCount"), 1, 1 << 16)
+    if count:
+        size = _bytes_or_none(row.get("loadedModelBytes"))
+        models = f"{count} loaded model{'s' if count != 1 else ''}"
+        text += f" ({models}, {gb(size)} file size)" if size is not None else f" ({models}, size unknown)"
     if row.get("gpuAllocBytes"):
-        text += f" (+ GPU allocation {gb(row['gpuAllocBytes'])})"
+        text += f" (+ Mac GPU allocation {gb(row['gpuAllocBytes'])}, all apps)"
     return text
 
 
-def suggestions(consumers: Optional[list], models: Optional[list] = None, paused_count: int = 0) -> list[str]:
-    """Text only, never executed; ordered by the size of what each would free."""
-    items: list[tuple[int, str]] = []
+_ROUTE_ROLES = {"author": "Nisi author", "reviewer": "Nisi reviewer"}
+_ROUTE_LIVE_TAG = " (a Nisi route is running: unloading can stop it)"
+_ROUTE_STOP = "Mac edit routes stop until it is reloaded"
+_ROUTE_SWITCH = "Mac edit routes switch to another loaded model"
+
+
+def _route_roles(route_pair: Any) -> dict[str, str]:
+    """{casefolded model id: 'author' | 'reviewer'} from a route_pair mapping; anything else is dropped."""
+    roles: dict[str, str] = {}
+    if isinstance(route_pair, dict):
+        for name, role in route_pair.items():
+            key = _clean_text(name, 120).casefold()
+            if key and isinstance(role, str) and role in _ROUTE_ROLES:
+                roles[key] = role
+    return roles
+
+
+def _route_candidates(models: Optional[Iterable[dict]]) -> set[str]:
+    """Ids of the loaded, non-embedding Mac models: the set telemetry._route_components (which
+    mirrors the router) picks the Nisi edit pair from. Edit routes stay 'ready' while two of them
+    are loaded; with a third, unloading one of the pair makes the router pick a new pair instead."""
+    ids: set[str] = set()
+    for model in models or []:
+        if isinstance(model, dict) and model.get("loaded") is True and model.get("host", "mac") == "mac":
+            model_id = model.get("id")
+            if "embed" not in str(model_id).lower():
+                ids.add(str(model_id))
+    return ids
+
+
+def suggestions(consumers: Optional[list], models: Optional[list] = None, paused_count: int = 0, *,
+                route_pair: Optional[dict] = None, route_live: bool = False) -> list[str]:
+    """Text only, never executed. Untagged tips come first, ordered by the size of what each would
+    free: the iOS Simulators and idle Mac models outside the Nisi pair. Then the pair's own idle
+    models (route_pair maps a model id to 'author' or 'reviewer'; ids match exactly, ignoring case),
+    by size, each tagged with its role and what unloading it does to the Mac edit routes: they stop
+    until it is reloaded only when fewer than two other loaded non-embedding Mac models would remain
+    (the pair are the only two); otherwise the router picks a new pair from those, so the routes
+    switch to another loaded model. While a Nisi route is running (route_live), every loaded-model
+    tip instead says that unloading can stop it, and those tips come last. The paused-jobs note is
+    always last. With no route context the output is the plain size order (the CLI, the hook and
+    check())."""
+    roles = _route_roles(route_pair)
+    candidates = _route_candidates(models) if roles else set()
+    untagged: list[tuple[int, str]] = []
+    tagged: list[tuple[int, str]] = []
     for row in consumers or []:
         if row.get("group") == "ios-simulator":
-            items.append((_weight(row), "Shut down unused iOS Simulators (`xcrun simctl shutdown all`)"))
+            untagged.append((_weight(row), "Shut down unused iOS Simulators (`xcrun simctl shutdown all`)"))
     for model in models or []:
         if (isinstance(model, dict) and model.get("loaded") is True and model.get("host", "mac") == "mac"
                 and model.get("state") in ("idle", "loaded")):
             name = _clean_text(model.get("id"), 120)
             if name:
                 size = _bytes_or_none(model.get("sizeBytes")) or 0
-                items.append((size, f"Unload idle model {name} from the monitor"))
+                text = f"Unload idle model {name} from the monitor"
+                role = roles.get(name.casefold())
+                if route_live:
+                    tagged.append((size, text + _ROUTE_LIVE_TAG))
+                elif role:
+                    effect = (_ROUTE_SWITCH if len(candidates - {str(model.get("id"))}) >= 2 else _ROUTE_STOP)
+                    tagged.append((size, f"{text} ({_ROUTE_ROLES[role]}: {effect})"))
+                else:
+                    untagged.append((size, text))
+    untagged.sort(key=lambda item: item[0], reverse=True)
+    tagged.sort(key=lambda item: item[0], reverse=True)
+    tips = [text for _size, text in untagged + tagged]
     if paused_count:
-        items.append((0, f"{paused_count} background job{'s' if paused_count != 1 else ''} paused"))
-    items.sort(key=lambda item: item[0], reverse=True)
-    return [text for _size, text in items]
+        tips.append(f"{paused_count} background job{'s' if paused_count != 1 else ''} paused")
+    return tips
 
 
 # ---------------------------------------------------------------------------------------------
@@ -1979,14 +2061,16 @@ class Registry:
 
 
 def memory_block(state: dict, cfg: Optional[dict] = None, *, consumers: Optional[list] = None,
-                 paused: Optional[list] = None, models: Optional[list] = None) -> dict[str, Any]:
+                 paused: Optional[list] = None, models: Optional[list] = None,
+                 route_pair: Optional[dict] = None, route_live: bool = False) -> dict[str, Any]:
     level, reasons = classify(state, cfg)
     block: dict[str, Any] = {"level": level, "reasons": reasons}
     for key in STATE_KEYS:
         block[key] = state.get(key)
     block["consumers"] = list(consumers or [])
     block["paused"] = list(paused or [])
-    block["suggestions"] = suggestions(block["consumers"], models, len(block["paused"]))
+    block["suggestions"] = suggestions(block["consumers"], models, len(block["paused"]),
+                                       route_pair=route_pair, route_live=route_live)
     block["sampledAt"] = state.get("sampledAt")
     return block
 
@@ -2216,7 +2300,9 @@ class Guard:
         return {"id": "mem-guard", "label": "Memory guard", "state": state,
                 "ageSeconds": 0.0 if state == "live" else None, "detail": detail}
 
-    def sample(self, gpu_alloc_bytes: Optional[int] = None, models: Optional[list] = None) -> tuple[dict, dict]:
+    def sample(self, gpu_alloc_bytes: Optional[int] = None, models: Optional[list] = None, *,
+               route_pair: Optional[dict] = None, route_live: bool = False) -> tuple[dict, dict]:
+        """route_pair / route_live: the Nisi edit pair and whether a route is running (see suggestions)."""
         try:
             state = self.probes.read(gpu_alloc_bytes)
             if self.level_file is not None:
@@ -2225,13 +2311,15 @@ class Guard:
             consumers = None
             if level != "ok":
                 consumers = self.probes.consumers(models=models, gpu_alloc_bytes=state.get("gpuAllocBytes"))
-            block = memory_block(state, self.cfg, consumers=consumers, paused=self.registry.paused(), models=models)
+            block = memory_block(state, self.cfg, consumers=consumers, paused=self.registry.paused(), models=models,
+                                 route_pair=route_pair, route_live=route_live)
             if self.watchdog is not None:
                 with self._tick_lock:
                     events = [] if self._closed else self.watchdog.tick(block)
                 if any(event.get("type") in ("pause", "resume") for event in events):
                     block["paused"] = self.registry.paused()
-                    block["suggestions"] = suggestions(block["consumers"], models, len(block["paused"]))
+                    block["suggestions"] = suggestions(block["consumers"], models, len(block["paused"]),
+                                                       route_pair=route_pair, route_live=route_live)
             if block["level"] == "unknown":
                 return block, self._source("unavailable", "macOS memory pressure is unreadable")
             return block, self._source("live", f"Memory {block['level']}")
@@ -2476,7 +2564,8 @@ def hook_decide(payload: Any, probes: Any, cfg: Optional[dict] = None,
                 gpu: Optional[Callable[[], Optional[int]]] = None,
                 publish: Optional[Callable[[dict], Any]] = None) -> Optional[tuple[Decision, str, list]]:
     """None to allow silently, else (refused decision, what, consumers). The GPU allocation is
-    read only on the refusal path, so the local LLM server ranks by what it really holds.
+    read only on the refusal path. The hook has no model list, so the local LLM server ranks by
+    that Mac-wide figure, and describe_consumer labels it as every app's allocation, not the server's.
     `publish` (LevelFile.write) receives the reading: the hook runs outside the agent sandbox, so
     it can refresh level.json just before a sandboxed review asks mem-guard for admission."""
     match = hook_match(payload)

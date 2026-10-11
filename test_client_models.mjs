@@ -2,9 +2,9 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {runInNewContext} from 'node:vm';
 import test from 'node:test';
-import {fitGraph,constellationLayout,focusedLaneLayout,prioritizeRuntimeModels,runtimeModelRoster,CORE_MODEL_IDS,hasAdvertisedWindowsWorker,afmView,jevView,modelStarSize,windowsJobsView,windowsLaneView,macPeerView,agiwPeersRows,friendlyModelName} from './web/map-layout.mjs';
+import {fitGraph,constellationLayout,focusedLaneLayout,prioritizeRuntimeModels,runtimeModelRoster,CORE_MODEL_IDS,hasAdvertisedWindowsWorker,afmView,jevView,modelStarSize,windowsJobsView,windowsLaneView,macPeerView,macReportView,agiwPeersRows,friendlyModelName,pcReportView,pcAdaptersView} from './web/map-layout.mjs';
 
-const layoutContext={fitGraph,constellationLayout,focusedLaneLayout,prioritizeRuntimeModels,runtimeModelRoster,CORE_MODEL_IDS,hasAdvertisedWindowsWorker,afmView,jevView,modelStarSize,windowsJobsView,windowsLaneView,macPeerView,agiwPeersRows,friendlyModelName};
+const layoutContext={fitGraph,constellationLayout,focusedLaneLayout,prioritizeRuntimeModels,runtimeModelRoster,CORE_MODEL_IDS,hasAdvertisedWindowsWorker,afmView,jevView,modelStarSize,windowsJobsView,windowsLaneView,macPeerView,macReportView,agiwPeersRows,friendlyModelName,pcReportView,pcAdaptersView};
 
 // Exercise the dashboard's actual projection and graph code without starting
 // its polling loop or requiring a browser DOM.
@@ -259,6 +259,33 @@ test('Windows host shows the Mac as a LAN peer with its loaded models, never the
   const down=project([], 'windows', 820, 660, {macPeer:{state:'unreachable',ageSeconds:1,models:[]}}).nodes.find(n=>n.id==='mac-peer');
   assert.ok(down.unknown);
   assert.equal(down.subtitle,'NOT ANSWERING ON THE LAN');
+});
+
+test('Windows map appends only the fresh Mac report activity below the Mac node',()=>{
+  const macPeer={name:'mac',state:'reachable',ageSeconds:2,latencyMs:3,loadedCount:1,
+    models:[{id:'openai/gpt-oss-20b',state:'loaded'}]};
+  const report={host:'mac',platform:'macos',source:'agiw-peers',fresh:true,modelsComplete:true,ageSeconds:4,health:'ok',
+    models:[{id:'openai/gpt-oss-20b',loadedState:'loaded',activity:'idle'},
+      {id:'qwen/qwen3.8-27b',loadedState:'loaded',activity:'generating'}]};
+  const result=project([], 'windows', 820, 660, {macPeer,peers:[report]});
+  const peer=result.nodes.find(n=>n.id==='mac-peer');
+  assert.equal(peer.subtitle,'LAN 3 MS · MAC REPORTS 2 LOADED · 1 BUSY');
+  assert.equal(peer.subtitleAbove,'LAN · 1 LOADED');
+  assert.equal(peer.unknown,false);
+  assert.equal(result.edges.find(e=>e.b==='mac-peer').dim,false);
+  const linked=project([], 'windows', 820, 660, {macPeer:{...macPeer,name:'mac',state:'linked'},peers:[report]});
+  assert.equal(linked.nodes.find(n=>n.id==='mac-peer').subtitle,'REPORTED VIA SHARE · 2 LOADED · 1 BUSY');
+  assert.equal(linked.nodes.find(n=>n.id==='mac-peer').unknown,true);
+  assert.equal(linked.edges.find(e=>e.b==='mac-peer').dim,true);
+  const unreachable=project([], 'windows', 820, 660, {macPeer:{...macPeer,name:'mac',state:'unreachable',reason:'timeout'},peers:[report]});
+  assert.equal(unreachable.nodes.find(n=>n.id==='mac-peer').subtitle,'NO ANSWER ON THE LAN · MAC REPORTS 2 LOADED · 1 BUSY');
+  assert.equal(unreachable.nodes.find(n=>n.id==='mac-peer').unknown,true);
+  assert.equal(unreachable.edges.find(e=>e.b==='mac-peer').dim,true);
+  for (const invalid of [{...report,source:'mac-status.json'},{...report,fresh:false},{...report,ageSeconds:30.1}]) {
+    const fallback=project([], 'windows', 820, 660, {macPeer,peers:[invalid]}).nodes.find(n=>n.id==='mac-peer');
+    assert.equal(fallback.subtitle,'LAN 3 MS · 1 LOADED');
+    assert.equal(fallback.subtitleAbove,'LAN · 1 LOADED');
+  }
 });
 
 test('Mac host never draws a LAN peer node',()=>{
