@@ -548,6 +548,170 @@ class PeerLink(unittest.TestCase):
         self.assertEqual(peers, [])
         self.assertEqual(source["state"], "unavailable")
 
+    def test_invalid_clock_keeps_a_valid_peer(self):
+        now = 2_000_000_000.0
+        invalid = (10**1000, -10**1000, 10**12 + 1, -10**12 - 1,
+                   1e12 + 1, -1e12 - 1, True, None, "2000000000", float("nan"), float("inf"))
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for index, observed in enumerate(invalid):
+                with self.subTest(clock=index):
+                    bad = self.peer("bad-peer", observed)
+                    # Both validation and file isolation must handle invalid clocks.
+                    self.assertIsNone(probes._validate_peer(bad, now))
+                    for bad_newest in (False, True):
+                        with self.subTest(bad_newest=bad_newest):
+                            self.write(root, "bad-peer.json", bad)
+                            self.write(root, "good-peer.json", self.peer("good-peer", now - 4))
+                            for name, mtime in (("bad-peer.json", now if bad_newest else now - 1),
+                                                ("good-peer.json", now - 1 if bad_newest else now)):
+                                os.utime(probes.peer_dir(root) / name, (mtime, mtime))
+                            peers, source = probes.read_peers(root, "pc", now)
+                            self.assertEqual([(p["host"], p["fresh"]) for p in peers], [("good-peer", True)])
+                            self.assertEqual(source["state"], "live")
+
+    def test_oversized_clock_keeps_fresh_legacy_fallback(self):
+        import datetime as dt
+        now = 2_000_000_000.0
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for sign in (1, -1):
+                with self.subTest(sign=sign):
+                    self.write(root, "bad-peer.json", self.peer("bad-peer", sign * 10**1000))
+                    observed = dt.datetime.fromtimestamp(now - 4, dt.timezone.utc).isoformat()
+                    (probes.peer_dir(root).parent / "mac-status.json").write_text(json.dumps({
+                        "schemaVersion": 1, "host": "mac", "observedAt": observed,
+                        "models": [{"id": "legacy-model", "host": "mac", "loadedState": "loaded"}]}))
+                    peers, source = probes.read_peers(root, "pc", now)
+                    self.assertEqual([(p["host"], p["source"], p["fresh"]) for p in peers],
+                                     [("mac", "mac-status.json", True)])
+                    self.assertEqual(peers[0]["models"][0]["id"], "legacy-model")
+                    self.assertEqual(source["state"], "live")
+
+    def test_clock_future_and_freshness_boundaries(self):
+        now = 2_000_000_000.0
+        for offset, accepted, fresh in ((4, True, True), (5, True, True), (6, False, None),
+                                         (-30, True, True), (-30.04, True, False)):
+            with self.subTest(offset=offset):
+                peer = probes._validate_peer(self.peer("mac", now + offset), now)
+                if accepted:
+                    self.assertEqual(peer["fresh"], fresh)
+                    self.assertEqual(peer["ageSeconds"], round(max(0.0, -offset), 1))
+                else:
+                    self.assertIsNone(peer)
+        self.assertFalse(probes._validate_peer(self.peer("mac", -1), now)["fresh"])
+
+    def test_overflow_in_one_candidate_keeps_other_peer_reports(self):
+        from unittest import mock
+        now = 2_000_000_000.0
+        validate = probes._validate_peer
+
+        def validate_with_overflow(value, at):
+            if value["host"] == "bad-peer":
+                raise OverflowError("Test numeric overflow")
+            return validate(value, at)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write(root, "good-peer.json", self.peer("good-peer", now - 4))
+            self.write(root, "bad-peer.json", self.peer("bad-peer", now - 4))
+            with mock.patch.object(probes, "_validate_peer", side_effect=validate_with_overflow):
+                peers, source = probes.read_peers(root, "pc", now)
+        self.assertEqual([p["host"] for p in peers], ["good-peer"])
+        self.assertEqual(source["state"], "live")
+
+
+class PeerInventoryCompleteness(unittest.TestCase):
+    NOW = 2_000_000_000.0
+
+    def row(self, model_id, loaded="loaded"):
+        return {"id": model_id, "loadedState": loaded, "activity": "idle"}
+
+    def peer(self, models, **extra):
+        return {"schemaVersion": 1, "kind": "agiw-peer", "host": "configured-mac", "platform": "macos",
+                "observedUnix": self.NOW - 4, "models": models, **extra}
+
+    def validate(self, document):
+        peer = probes._validate_peer(document, self.NOW)
+        self.assertIsNotNone(peer, "inventory defects must preserve a valid peer report")
+        return peer
+
+    def test_complete_inventory_requires_the_exact_integer_row_count(self):
+        rows = [self.row("fast"), self.row("deep", "inactive")]
+        peer = self.validate(self.peer(rows, modelsTotal=2))
+        self.assertIs(peer.get("modelsComplete"), True)
+        self.assertEqual(peer["models"], rows)
+        self.assertEqual((peer["fresh"], peer["ageSeconds"]), (True, 4.0))
+        empty = self.validate(self.peer([], modelsTotal=0))
+        self.assertIs(empty.get("modelsComplete"), True)
+        self.assertEqual(empty["models"], [])
+
+    def test_missing_invalid_and_mismatched_totals_preserve_rows_without_a_count_claim(self):
+        rows = [self.row("fast"), self.row("deep", "inactive")]
+        totals = (None, "2", 2.0, -1, 0, 1, 3, [], {}, float("nan"), float("inf"), 10**1000)
+        for index, total in enumerate(totals):
+            with self.subTest(total_case=index):
+                peer = self.validate(self.peer(rows, modelsTotal=total))
+                self.assertIs(peer.get("modelsComplete"), False)
+                self.assertEqual(peer["models"], rows)
+        missing = self.validate(self.peer(rows))
+        self.assertIs(missing.get("modelsComplete"), False)
+        self.assertEqual(missing["models"], rows)
+        for total, models in ((True, [self.row("fast")]), (False, [])):
+            with self.subTest(boolean_total=total):
+                self.assertIs(self.validate(self.peer(models, modelsTotal=total)).get("modelsComplete"), False)
+
+    def test_missing_model_list_is_incomplete_even_with_a_zero_total(self):
+        document = self.peer([], modelsTotal=0)
+        del document["models"]
+        peer = self.validate(document)
+        self.assertEqual(peer["models"], [])
+        self.assertIs(peer.get("modelsComplete"), False)
+
+    def test_capped_inventory_never_becomes_complete_from_a_forged_retained_total(self):
+        for count in (32, 33, 40):
+            rows = [self.row(f"model-{index}", "inactive") for index in range(count)]
+            for total in {32, count}:
+                with self.subTest(rows=count, total=total):
+                    peer = self.validate(self.peer(rows, modelsTotal=total))
+                    self.assertEqual(peer["models"], rows[:32])
+                    self.assertIs(peer.get("modelsComplete"), count == 32)
+        retained = [self.row(f"model-{index}") for index in range(32)]
+        self.assertIs(self.validate(self.peer(retained, modelsTotal=40)).get("modelsComplete"), False)
+
+    def test_dropped_model_rows_keep_valid_neighbors_and_make_inventory_incomplete(self):
+        invalid = (None, [], "model", {}, {"id": None}, {"id": True}, {"id": 12}, {"id": ""}, {"id": " \t "})
+        first, last = self.row("first", "inactive"), self.row("last")
+        for index, bad in enumerate(invalid):
+            for total in (2, 3):
+                with self.subTest(row_case=index, total=total):
+                    peer = self.validate(self.peer([first, bad, last], modelsTotal=total))
+                    self.assertEqual(peer["models"], [first, last])
+                    self.assertIs(peer.get("modelsComplete"), False)
+
+    def test_duplicate_ids_and_truncation_collisions_keep_only_the_first_row(self):
+        cases = (("same-model", "same-model"), ("x" * 120 + "-first", "x" * 120 + "-second"))
+        for first_id, second_id in cases:
+            for total in (1, 2):
+                with self.subTest(truncated=len(first_id) > 120, total=total):
+                    peer = self.validate(self.peer([self.row(first_id, "inactive"), self.row(second_id)],
+                                                   modelsTotal=total))
+                    self.assertEqual(peer["models"], [self.row(first_id[:120], "inactive")])
+                    self.assertIs(peer.get("modelsComplete"), False)
+
+    def test_invalid_residency_stays_unknown_and_incomplete(self):
+        for loaded in (None, True, 1, "LOADED", "not-loaded", [], {}):
+            with self.subTest(loaded=loaded):
+                peer = self.validate(self.peer([self.row("reported", loaded)], modelsTotal=1))
+                self.assertEqual(peer["models"], [self.row("reported", "unknown")])
+                self.assertIs(peer.get("modelsComplete"), False)
+
+    def test_canonical_unknown_residency_preserves_structural_completeness(self):
+        rows = [self.row("reported", "unknown")]
+        peer = self.validate(self.peer(rows, modelsTotal=1))
+        self.assertEqual(peer["models"], rows)
+        self.assertIs(peer.get("modelsComplete"), True)
+
 
 class PeerPresenceCompleteness(unittest.TestCase):
     def test_loaded_models_are_first_stable_and_total_precedes_the_cap(self):
@@ -666,6 +830,51 @@ class LaneConfig(unittest.TestCase):
 
 
 class Memory(unittest.TestCase):
+    def assert_reading(self, available_units, commit_available_units, level, available_percent,
+                       commit_percent, available_reason, commit_reason):
+        from unittest import mock
+
+        unit = 2 ** 20
+        status = mock.Mock(return_value={"totalPhys": 10000 * unit, "availPhys": available_units * unit,
+                                         "commitLimit": 10000 * unit, "commitAvail": commit_available_units * unit})
+        rows = [{"label": "fixture.exe", "residentBytes": unit, "processCount": 1, "gpuAllocBytes": None}]
+        consumers = mock.Mock(return_value=rows)
+        block, source = probes.memory_block(status_fn=status, consumers_fn=consumers)
+        # Publication remains rounded even when the raw reading changes the level.
+        self.assertEqual(set(block), {"level", "availablePercent", "totalBytes", "availableBytes", "commitPercent",
+                                      "swapUsedBytes", "compressedBytes", "gpuAllocBytes", "consumers",
+                                      "suggestions", "reasons", "paused"})
+        self.assertEqual(block["availablePercent"], available_percent)
+        self.assertEqual(block["commitPercent"], commit_percent)
+        self.assertEqual((block["totalBytes"], block["availableBytes"]), (10000 * unit, available_units * unit))
+        self.assertEqual(block["reasons"], [f"{available_reason}% of 10 GB RAM available",
+                                           f"commit charge {commit_reason}% of limit"])
+        self.assertEqual((block["swapUsedBytes"], block["compressedBytes"], block["gpuAllocBytes"], block["paused"]),
+                         (None, None, None, []))
+        self.assertEqual(source["state"], "live")
+        status.assert_called_once_with()
+        self.assertEqual(block["level"], level)
+        self.assertEqual(block["suggestions"], ["Close apps you are not using before loading another model"]
+                         if level in ("tight", "critical") else [])
+        self.assertEqual(block["consumers"], rows if level != "ok" else [])
+        self.assertEqual(consumers.call_count, int(level != "ok"))
+
+    def test_physical_thresholds_classify_raw_readings_and_preserve_rounded_publication(self):
+        # Below and at 20, 12, 6 percent, then ordinary readings exercising one decimal place.
+        cases = ((1996, "watch", 20.0, "20"), (2000, "ok", 20.0, "20"),
+                 (1196, "tight", 12.0, "12"), (1200, "watch", 12.0, "12"),
+                 (596, "critical", 6.0, "6"), (600, "tight", 6.0, "6"),
+                 (3012, "ok", 30.1, "30"), (1513, "watch", 15.1, "15"),
+                 (812, "tight", 8.1, "8"), (312, "critical", 3.1, "3"))
+        for available, level, display, reason in cases:
+            with self.subTest(raw_available_percent=available / 100):
+                self.assert_reading(available, 2500, level, display, 75.0, reason, "75")
+
+    def test_commit_threshold_classifies_raw_reading_despite_the_same_rounded_publication(self):
+        for commit_available, level in ((504, "ok"), (500, "tight")):
+            with self.subTest(raw_commit_percent=(10000 - commit_available) / 100):
+                self.assert_reading(3000, commit_available, level, 30.0, 95.0, "30", "95")
+
     def test_levels(self):
         self.assertEqual(probes.memory_level(50, 40), "ok")
         self.assertEqual(probes.memory_level(15, 40), "watch")
@@ -981,6 +1190,63 @@ class MacPeer(unittest.TestCase):
                                      [("10.0.0.9", "mdns")])
 
 
+class ConfiguredMacName(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        self.path = self.root / "llm-lab" / "mac-reach" / "hosts.json"
+        self.path.parent.mkdir(parents=True)
+
+    def name(self, value):
+        self.path.write_text(json.dumps(value), encoding="utf-8")
+        return self.read_name()
+
+    def read_name(self):
+        helper = getattr(probes, "configured_mac_name", None)
+        self.assertTrue(callable(helper), "configured identity needs a validated independent reader")
+        return helper(self.root)
+
+    def test_hostname_wins_over_mdns_without_depending_on_probe_configuration(self):
+        self.assertEqual(self.name({"mac": {"hostname": "Configured-Mac", "mdns": "different.local",
+                                              "ips": None, "lm_studio_port": []}}), "Configured-Mac")
+
+    def test_mdns_is_used_when_hostname_is_missing_or_invalid(self):
+        for hostname in (None, "", " ", True, [], "bad/name", "bad..name"):
+            with self.subTest(hostname=hostname):
+                self.assertEqual(self.name({"mac": {"hostname": hostname, "mdns": "Configured-Mac.local"}}),
+                                 "Configured-Mac.local")
+        self.assertEqual(self.name({"mac": {"mdns": "Configured-Mac.local"}}), "Configured-Mac.local")
+
+    def test_case_domain_and_trailing_dns_dot_preserve_the_configured_identity(self):
+        for field in ("hostname", "mdns"):
+            for value in ("Configured-Mac", "CONFIGURED-MAC.local", "Configured-Mac.EXAMPLE.local.",
+                          "  Configured-Mac.local  "):
+                with self.subTest(field=field, value=value):
+                    name = self.name({"mac": {field: value}})
+                    self.assertEqual(name, value.strip())
+                    self.assertEqual(name.split(".")[0].casefold(), "configured-mac")
+
+    def test_malformed_shapes_and_names_return_none(self):
+        shapes = (None, [], True, {}, {"mac": None}, {"mac": []}, {"mac": True})
+        for value in shapes:
+            with self.subTest(config=value):
+                self.assertIsNone(self.name(value))
+        names = (None, False, [], {}, "", " ", ".", ".mac", "mac..local", "mac/name", "mac:1234",
+                 "mac\n.local", "mac\x00.local", "x" * 64, ".".join(["x" * 63] * 5))
+        for field in ("hostname", "mdns"):
+            for index, value in enumerate(names):
+                with self.subTest(field=field, name_case=index):
+                    self.assertIsNone(self.name({"mac": {field: value}}))
+
+    def test_missing_malformed_and_oversized_files_return_none(self):
+        self.assertIsNone(self.read_name())
+        for raw in ("{", '{"mac":{"hostname":"mac"},"padding":"' + "x" * 256_001 + '"}'):
+            with self.subTest(size=len(raw)):
+                self.path.write_text(raw, encoding="utf-8")
+                self.assertIsNone(self.read_name())
+
+
 class PCPresenceModels(unittest.TestCase):
     NOW = 2_000_000_000.0
 
@@ -996,6 +1262,105 @@ class PCPresenceModels(unittest.TestCase):
                           {"id": "deep", "port": 1234, "expectedModel": "qwen3.8-27b",
                            "status": "idle", "phase": "idle", "slotsBusy": 0, "slotsTotal": 2,
                            "servedModel": "/private/models/qwen.gguf", "liveTokensPerSecond": 0}]}
+
+    def mixed_snapshot(self, count):
+        snapshot = self.snapshot()
+        template = snapshot["lanes"][0]
+        loaded = {1, 5, count - 2, count - 1}
+        snapshot["lanes"] = [{**template, "id": f"lane-{index:02d}", "port": 2000 + index,
+                              "expectedModel": f"model-{index:02d}", "servedModel": f"model-{index:02d}",
+                              "status": "idle" if index in loaded else "stale", "phase": "idle",
+                              "slotsBusy": 0, "liveTokensPerSecond": 0 if index in loaded else None}
+                             for index in range(count)]
+        return snapshot
+
+    def test_presence_total_counts_both_required_model_rows(self):
+        presence = probes.peer_presence(self.snapshot(), "test-pc")
+        self.assertEqual(presence["models"], [
+            {"id": "gpt-oss-20b", "aliases": ["openai/gpt-oss-20b"], "loadedState": "loaded",
+             "activity": "decoding", "slotsBusy": 1, "slotsTotal": 2, "lane": "fast",
+             "servedModel": "gpt-oss-20b.gguf", "liveTokensPerSecond": 12.5},
+            {"id": "Qwen3.8-27B Q4_K_M", "aliases": ["qwen3.8-27b"], "loadedState": "loaded",
+             "activity": "idle", "slotsBusy": 0, "slotsTotal": 2, "lane": "deep",
+             "servedModel": "qwen.gguf", "liveTokensPerSecond": 0},
+        ])
+        self.assertIs(type(presence.get("modelsTotal")), int)
+        self.assertEqual(presence["modelsTotal"], 2)
+
+    def test_presence_total_keeps_unknown_rows_and_uncapped_order(self):
+        for state in ("unknown", "stale", "unreachable", "loading", "undeclared", "identity_mismatch"):
+            with self.subTest(state=state):
+                snapshot = self.snapshot()
+                snapshot["lanes"][0]["status"] = state
+                presence = probes.peer_presence(snapshot, "test-pc")
+                self.assertEqual([row["id"] for row in presence["models"]],
+                                 ["gpt-oss-20b", "Qwen3.8-27B Q4_K_M"])
+                self.assertEqual([row["loadedState"] for row in presence["models"]], ["unknown", "loaded"])
+                self.assertEqual([row["activity"] for row in presence["models"]], ["unknown", "idle"])
+                self.assertIs(type(presence.get("modelsTotal")), int)
+                self.assertEqual(presence["modelsTotal"], 2)
+        for count in (31, 32):
+            with self.subTest(count=count):
+                presence = probes.peer_presence(self.mixed_snapshot(count), "test-pc")
+                self.assertEqual([row["id"] for row in presence["models"]],
+                                 [f"model-{index:02d}" for index in range(count)])
+                self.assertEqual(presence["models"][0]["loadedState"], "unknown")
+                self.assertIs(type(presence.get("modelsTotal")), int)
+                self.assertEqual(presence["modelsTotal"], count)
+
+    def test_capped_presence_keeps_loaded_tail_and_uncapped_total(self):
+        from copy import deepcopy
+
+        for count in (33, 40):
+            with self.subTest(count=count):
+                snapshot = self.mixed_snapshot(count)
+                original = deepcopy(snapshot)
+                presence = probes.peer_presence(snapshot, "test-pc")
+                self.assertEqual(len(presence["models"]), 32)
+                loaded = [1, 5, count - 2, count - 1]
+                retained = loaded + [index for index in range(count) if index not in loaded][:28]
+                self.assertEqual([row["id"] for row in presence["models"]],
+                                 [f"model-{index:02d}" for index in retained])
+                self.assertEqual([row["loadedState"] for row in presence["models"]],
+                                 ["loaded"] * 4 + ["unknown"] * 28)
+                self.assertEqual([row["lane"] for row in presence["models"]],
+                                 [f"lane-{index:02d}" for index in retained])
+                self.assertIs(type(presence.get("modelsTotal")), int)
+                self.assertEqual(presence["modelsTotal"], count)
+                self.assertLessEqual(len(json.dumps(presence, allow_nan=False).encode("utf-8")), probes.PEER_MAX_BYTES)
+                self.assertEqual(snapshot, original, "capping must not alter the sampled evidence")
+
+    def test_legacy_status_over_32_models_still_refuses_and_keeps_previous_file(self):
+        import contextlib
+        from copy import deepcopy
+        import io
+        from types import SimpleNamespace
+        from unittest import mock
+        from agiw_win.server import SnapshotStore, sample
+
+        snapshot = self.mixed_snapshot(33)
+        status = probes.pc_status(snapshot)
+        self.assertEqual(len(status["models"]), 33)
+        self.assertNotIn("modelsTotal", status)
+        with self.assertRaisesRegex(ValueError, "status header invalid"):
+            probes.validate_status(status)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            target = root / "llm-lab" / "status" / probes.STATUS_FILE_NAME
+            previous = probes.pc_status(self.snapshot())
+            probes.validate_status(previous)
+            probes.write_json_atomic(target, previous, probes.STATUS_MAX_BYTES, stop_at=root)
+            previous_bytes = target.read_bytes()
+            collector = SimpleNamespace(share_root=root, host="test-pc", collect=lambda: deepcopy(snapshot))
+            stop = mock.Mock()
+            stop.is_set.side_effect = [False, True]
+            store, errors = SnapshotStore(), io.StringIO()
+            with contextlib.redirect_stderr(errors):
+                sample(store, collector, stop, publish_to=target, publish_every=0.0)
+            self.assertEqual(store.sequence, 1, "the actual publisher must process the oversized sample")
+            self.assertIn("status header invalid", errors.getvalue())
+            self.assertEqual(target.read_bytes(), previous_bytes)
+            self.assertEqual([path.name for path in target.parent.iterdir()], [target.name])
 
     def test_presence_keeps_status_model_details_from_the_same_sample(self):
         from copy import deepcopy
@@ -1034,6 +1399,8 @@ class PCPresenceModels(unittest.TestCase):
                     self.assertEqual(len(presence["models"]), 2, "invalid optional fields must keep the sample")
                     self.assertEqual(presence["models"][1]["id"], "Qwen3.8-27B Q4_K_M")
                     json.dumps(presence, allow_nan=False)
+                    self.assertIs(type(presence.get("modelsTotal")), int)
+                    self.assertEqual(presence["modelsTotal"], 2)
 
     def test_extra_presence_details_do_not_change_the_pc_peer_reader(self):
         from copy import deepcopy

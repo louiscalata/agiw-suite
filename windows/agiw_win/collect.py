@@ -289,9 +289,11 @@ class Collector:
             mac, mac_source = ({"state": "unknown", "detail": "LAN probe disabled", "models": [], "ageSeconds": None},
                                probes._source("mac-peer", "Mac (LAN)", "unavailable", "LAN probe disabled"))
         sources.append(mac_source)
-        name = mac.get("name") or probes.configured_mac_name(self.share_root)
+        # Only the current configured identity (hosts.json) can attribute a share report: a LAN result's cached name may
+        # predate a config change. It also names a nameless LAN result (disabled, pending, failed), never mutating it.
+        name = probes.configured_mac_name(self.share_root)
         if name and not mac.get("name"):
-            mac["name"] = name
+            mac = {**mac, "name": name}
         peers, peers_source = self._guard(sources, "agiw-peers", "AGIW peers",
                                           lambda: probes.read_peers(self.share_root, self.host, sampled), ([], None))
         if peers_source is not None:
@@ -306,7 +308,7 @@ class Collector:
             # A share report does not establish why the Mac's LAN probe did not answer.
             # The link is aged by the presence record itself (30 s window), not by the LAN probe's result,
             # and its models are normalized to the peer view's {id, state} shape.
-            mac = {**mac, "state": "linked", "via": "sharedchami", "ageSeconds": mac_link["ageSeconds"],
+            mac = {**mac, "name": name, "state": "linked", "via": "sharedchami", "ageSeconds": mac_link["ageSeconds"],
                    "models": [{"id": m["id"], "state": {"loaded": "loaded", "inactive": "not-loaded"}.get(m["loadedState"], "unknown")}
                               for m in mac_link["models"]],
                    # Counted only from a complete list (modelsComplete): a cut or partly rejected one is no count.

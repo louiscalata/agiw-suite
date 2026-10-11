@@ -731,14 +731,23 @@ def mac_hosts(share_root: Path) -> dict[str, Any] | None:
 
 
 def configured_mac_name(share_root: Path) -> str | None:
-    """The validated configured Mac identity, independent of any LAN probe result."""
+    """Read the configured identity independently of the LAN probe's cached result."""
     try:
         data = read_json(share_root / "llm-lab" / "mac-reach" / "hosts.json")
-        mac = data.get("mac") if isinstance(data, dict) else None
-        name = mac.get("hostname") if isinstance(mac, dict) else None
-        return name if isinstance(name, str) and PEER_HOST.fullmatch(name) else None
     except (OSError, ValueError, json.JSONDecodeError):
         return None
+    mac = data.get("mac") if isinstance(data, dict) else None
+    if not isinstance(mac, dict):
+        return None
+    for key in ("hostname", "mdns"):
+        raw = mac.get(key)
+        if not isinstance(raw, str) or not raw.isprintable():
+            continue
+        name = raw.strip()
+        labels = (name[:-1] if name.endswith(".") else name).split(".")
+        if len(name) <= 253 and all(PEER_HOST.fullmatch(label) for label in labels):
+            return name
+    return None
 
 
 def _own_addresses() -> set[str]:
@@ -1364,9 +1373,12 @@ def host_id() -> str:
 def peer_presence(snapshot: dict[str, Any], host: str) -> dict[str, Any]:
     """This instance's presence: who it is and the verified model states it sees. No paths, prompts or keys."""
     status = pc_status(snapshot)
-    # Loaded models first, so the 32-row cap never hides one; modelsTotal says whether it cut anything.
+    status_models = status["models"]
+    models_total = len(status_models)
+    if models_total > 32:
+        status_models = sorted(status_models, key=lambda model: model["loadedState"] != "loaded")[:32]
     models = []
-    for model in sorted(status["models"], key=lambda model: model["loadedState"] != "loaded"):
+    for model in status_models:
         row = {key: model[key] for key in ("id", "aliases", "loadedState", "activity", "slotsBusy", "slotsTotal")}
         # The Mac can select presence ahead of status from the same sample.
         # Keep its model details, using pc_status's path-safe servedModel.
@@ -1381,8 +1393,7 @@ def peer_presence(snapshot: dict[str, Any], host: str) -> dict[str, Any]:
     return {"schemaVersion": 1, "kind": "agiw-peer", "host": host, "platform": "windows",
             "edition": "windows", "version": snapshot.get("observerVersion"), "observedAt": snapshot.get("observedAt"),
             "observedUnix": snapshot.get("sampledAt"), "health": status["health"],
-            "modelsTotal": len(models),
-            "models": models[:32],
+            "modelsTotal": models_total, "models": models,
             "gpus": status["gpus"], "memory": status["memory"],
             "dashboard": {"bind": "loopback", "port": snapshot.get("dashboardPort")},
             "reads": ["agiw-peers", "mac-status.json"]}
@@ -1418,9 +1429,8 @@ def _validate_peer(value: Any, now: float) -> dict[str, Any] | None:
             or value["schemaVersion"] != 1 or value.get("kind") != "agiw-peer":
         return None
     host = value.get("host")
-    observed = value.get("observedUnix")
-    if not isinstance(host, str) or not PEER_HOST.match(host) or not isinstance(observed, (int, float)) \
-            or isinstance(observed, bool) or not math.isfinite(observed) or observed > now + 5:
+    observed = _number(value.get("observedUnix"))
+    if not isinstance(host, str) or not PEER_HOST.match(host) or observed is None or observed > now + 5:
         return None
     raw_models = value.get("models")
     models, complete = _peer_models(raw_models)
@@ -1482,7 +1492,7 @@ def read_peers(share_root: Path, self_host: str, now: float) -> tuple[list[dict[
     for entry in entries:
         try:
             peer = _validate_peer(read_json(Path(entry.path), PEER_MAX_BYTES), now)
-        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        except (OSError, ValueError, TypeError, OverflowError, json.JSONDecodeError):
             peer = None
         # The file name must be the host it claims, and each host counts once (newest wins).
         if (peer and entry.name[:-5].lower() == peer["host"].lower() and peer["host"].lower() not in seen_hosts

@@ -1,4 +1,5 @@
 """Windows memory parity with fake lane, process and system readings on every OS."""
+import json
 from pathlib import Path
 import sys
 import tempfile
@@ -226,6 +227,7 @@ class CollectorFixture(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         root = Path(tmp.name)
+        self.root = root
         processes = mock.Mock()
         processes.sample.return_value = ({}, None, None)
         self.collector = Collector(root, root / "bin", runs_root=root / "runs", host="test-pc", clock=lambda: 1000.0,
@@ -481,8 +483,13 @@ class ConfiguredMacLink(CollectorFixture):
                   "models": [{"id": f"{host}-model", "loadedState": "loaded", "activity": "idle"}]} for host in hosts]
         probes.read_peers.return_value = (peers, None)
         lan = {"state": "unreachable", "reason": "timeout", "models": [], "ageSeconds": 1.0, "observedAt": 1000.0}
-        if name is not None:
-            lan["name"] = name
+        # Identity comes only from the current hosts.json (a LAN result's cached name can predate a config change).
+        hosts = self.root / "llm-lab" / "mac-reach" / "hosts.json"
+        if name is None:
+            hosts.unlink(missing_ok=True)
+        else:
+            hosts.parent.mkdir(parents=True, exist_ok=True)
+            hosts.write_text(json.dumps({"mac": {"hostname": name}}), encoding="utf-8")
         self.collector.mac_peer = mock.Mock(read=mock.Mock(return_value=(lan, probes._source("mac-peer", "Mac (LAN)", "unavailable", "x"))))
         return self.collector.collect()["macPeer"]
 

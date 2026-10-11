@@ -1511,7 +1511,7 @@ export function windowsSharePublishRow(sources, { feedFresh = false, snapshotAge
 }
 
 /** Windows edition: every AGIW instance that published presence on SharedChami (snapshot.peers), for the inspector. */
-export function agiwPeersRows(peers, { feedFresh = false, snapshotAge = 0 } = {}) {
+export function agiwPeersRows(peers, { feedFresh = false, snapshotAge = 0, host = 'mac' } = {}) {
   const extra = Math.max(0, Number.isFinite(snapshotAge) ? snapshotAge : 0);
   const rows = feedFresh && Array.isArray(peers) ? peers.slice(0, 16).filter(p => p && typeof p.host === 'string'
     && /^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$/.test(p.host) && Number.isFinite(p.ageSeconds)) : [];
