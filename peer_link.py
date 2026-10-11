@@ -196,6 +196,7 @@ _quarantined: dict[str, list[str]] = {}  # trusted folder -> node UUIDs this pro
 # parsing account names, and on every use. Nothing is cached there: Windows st_ctime is the creation
 # time, so an access-list edit leaves (inode, ctime) unchanged.
 _SYSTEM_SID, _ADMINS_SID = "S-1-5-18", "S-1-5-32-544"
+_OWNER_RIGHTS_SID = "S-1-3-4"       # Refers to the object owner, which must be this account first.
 _ALLOW_ACES = (0x0, 0x9)            # ACCESS_ALLOWED, ACCESS_ALLOWED_CALLBACK: the SID follows the mask
 _ALLOW_OBJECT_ACES = (0x5, 0xB)     # ACCESS_ALLOWED_OBJECT, ACCESS_ALLOWED_CALLBACK_OBJECT
 _DENY_ACES = (0x1, 0x6, 0xA, 0xC)   # the deny forms of the four above
@@ -500,13 +501,13 @@ def _win_check_private(target: int | str, label: str, dacl: bool = True) -> None
     me = _win_current_sid()
     owner, sids = _win_owner_and_allow_sids(target)
     if owner != me:
-        # An owner can always rewrite the access list, so any other owner (Administrators included) means
-        # someone else could have read this, whatever the list says today.
+        # Another account's ownership does not establish that this secret was private to our account,
+        # whatever today's access list says. OWNER RIGHTS is accepted only after this owner check.
         raise LooseSecret(f"{label} is owned by {owner}, not by this account")
     if dacl:
         if sids is None:
             raise LooseSecret(f"{label} has no access list, so anyone can open it")
-        others = [sid for sid in sids if sid not in (me, _SYSTEM_SID, _ADMINS_SID)]
+        others = [sid for sid in sids if sid not in (me, _SYSTEM_SID, _ADMINS_SID, _OWNER_RIGHTS_SID)]
         if others:
             raise LooseSecret(f"{label} is also accessible to {others[0]}")
 
@@ -613,7 +614,7 @@ def _win_restrict_dir(directory: Path, info: Any) -> None:
         owner, sids = _win_owner_and_allow_sids(key)
         if owner != me:
             raise PermissionError(f"{directory} belongs to another account ({owner})")
-        private = sids is not None and all(sid in (me, _SYSTEM_SID, _ADMINS_SID) for sid in sids)
+        private = sids is not None and all(sid in (me, _SYSTEM_SID, _ADMINS_SID, _OWNER_RIGHTS_SID) for sid in sids)
         if private and key in _win_tightened:
             return
         # Every tightening is preceded by retiring the secrets below that others could read, under the
