@@ -12,3 +12,9 @@ The optional Jev connector is included. The TypeSafe-hosted Jev service,
 private Nisi/Jev router infrastructure, external model weights, separately
 managed model services and Windows workers are not bundled. Their own terms
 apply separately. Node.js and Python are separate runtime prerequisites.
+
+Windows configured-Mac attribution, peer inventory completeness and LAN failure
+metadata adapt the Windows parity logic published in this same AGIW Suite
+repository at commit 6e76d6b06c0d70beccb5991c9e09984510ea8608 (mac-edition),
+windows/agiw_win/collect.py and windows/agiw_win/probes.py, under Apache-2.0.
+Source: https://github.com/louiscalata/agiw-suite/tree/6e76d6b06c0d70beccb5991c9e09984510ea8608/windows/agiw_win
