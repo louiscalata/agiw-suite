@@ -1,0 +1,25 @@
+{
+  "schema": "agiw.public.linux-startup-check.v1",
+  "observedAtUTC": "2026-10-16T06:41:33.501589+00:00",
+  "normalRebootCompleted": true,
+  "pinnedSameUserSshReachable": true,
+  "desktopUserSessionPresent": false,
+  "displayManagerGreeterPresent": true,
+  "lingerEnabled": true,
+  "backgroundUserManagerHasRenderGroup": true,
+  "transientBackgroundProbe": {
+    "uid": 1000,
+    "renderDeviceOpened": true,
+    "exitCode": 0,
+    "unitCollected": true,
+    "modelCalls": 0
+  },
+  "oldCoordinator": "disabled; inactive",
+  "newCoordinator": "not installed",
+  "productionInferenceBeforeLogin": "NOT_YET_VERIFIED",
+  "sourceHashes": {
+    "post-restart.stdout.json": "69f39618c2ea4ff297515b27105acd7fbff9051921f016f3b9cd746302ccdc56",
+    "post-restart-manager.json": "5e423e74c492f4e507e542592f787992bf1b39b8ba35a2695650298d4b3eb3e5",
+    "postboot-render-service.json": "4df23fd2041adc3159d7e4dbb267ce8e3fbec88b52b4ceb15c323b56a44b9c0d"
+  }
+}

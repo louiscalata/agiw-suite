@@ -1,5 +1,15 @@
 # AGIW Suite roadmap and release evidence
 
+## Three-machine connection checkpoint — 16 October 2026
+
+- [x] Document the development topology with distinct NVIDIA/CUDA and AMD/Vulkan PC lanes, the Linux storage role and machine-local model controls.
+- [x] Document the latest retained per-machine rates beside their models and quality outcomes. Preserve the Mac semantic rejection and do not sum separate runs into cluster throughput.
+- [x] Verify Linux SSH and a background user service's render-device access after reboot without a desktop login. This is infrastructure evidence; production inference before login remains unverified.
+- [ ] Complete Linux service installation/activation, Mac process admission and PC central enrollment.
+- [ ] Run a fixed overlapping workload across all three hosts, then publish attributed per-machine rates, shared-window output throughput, validated tasks/minute, failures and verified model release.
+
+See [the current three-machine state](docs/three-machine-connection.md), [sanitized measurements](docs/data/three-machine-checkpoint-20261016/metrics.json) and [Linux startup evidence](docs/data/three-machine-checkpoint-20261016/linux-startup.json). The GitHub Copilot draft was reviewed and corrected before integration; this documentation update leaves the existing signed download and its acceptance limits unchanged.
+
 ## Historical inference charts and comparison data — 1 October 2026
 
 - [x] Review retained Windows worker and dedicated lane-layout records and the Mac repeated streaming benchmark against their measurement scripts. Add [performance.md](docs/performance.md), two accessible figures and a sanitized [aggregate dataset](docs/data/inference-performance.json), linked from the README.

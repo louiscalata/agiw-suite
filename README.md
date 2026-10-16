@@ -12,6 +12,16 @@ A Mac menu-bar monitor for engineers running local models. See model activity, m
 
 The download is Developer ID signed and Apple-notarized. [Known validation limits](#known-validation-limits) remain open; the Mac App Store edition follows a separate release process.
 
+## Three machines, specialized roles
+
+AGIW's development system is bringing **Mac, Windows and Linux** into one observable workflow. The intended workflow uses Nisi v0.2 and Jev task analysis, with optional NVIDIA PAIR transport between machine-local workers. The Windows PC has **two separate GPUs: an NVIDIA RTX 3080 Ti and an AMD RX 5700 XT**. Linux contributes GPU-assisted inference, NVMe workspace/cache and separate HDD backup storage.
+
+<img src="docs/assets/three-machine-architecture.svg" width="1280" alt="AGIW three-machine development topology: tools feed Nisi and Jev, optional PAIR transport and separate PC, Linux and Mac workers. The PC has distinct NVIDIA CUDA and AMD Vulkan GPU lanes. Production integration is still in progress.">
+
+**Latest retained local samples:** Linux **36.84 tokens/s**, Mac **16.39 tokens/s**, PC **2.06 tokens/s**, using each engine's reported generation rate. These are separate tasks and configurations. The Linux sample passed 16 semantic cases and the PC sample passed seven code cases; the Mac answer was **rejected by semantic review**, with its model unload confirmed.
+
+**Simultaneous three-machine throughput has not yet been measured.** These rates are not a hardware ranking or a cluster total. [See the current connection state, per-machine records and shared-run measurement plan](docs/three-machine-connection.md). This development checkpoint is separate from the downloadable macOS Monitor release.
+
 ## Requirements
 
 | Component | Requirement |
@@ -52,7 +62,7 @@ See [advanced configuration](docs/advanced-configuration.md) for resident-model 
 
 ## Recorded inference performance
 
-**139.8 tokens/s** is the highest server-reported decoding rate found in the reviewed records: one successful Windows fast-lane GPT-OSS 20B advisory on 28 September 2026, with 201 prompt tokens and 265 completion tokens. Across its broader recorded 6.7-second job time, the approximate output rate was **39.6 tokens/s**; these are separate timing metrics. It is a historical observation of the separately configured inference worker. It does not measure AGIW's speedup or the downloadable application's performance.
+In the earlier performance study, one Windows fast-lane GPT-OSS 20B advisory on 28 September 2026 recorded **139.8 tokens/s** of server-reported decoding, with 201 prompt tokens and 265 completion tokens. Across its broader recorded 6.7-second job time, the approximate output rate was **39.6 tokens/s**; these are separate timing metrics. It is a historical observation of the separately configured inference worker. It does not measure AGIW's speedup or the downloadable application's performance.
 
 <img src="docs/assets/inference-windows-layouts.svg" width="1280" alt="Windows GPT-OSS 20B fixed code-task decoding rates: layout A 18.5, B 12.3, C 111.4 and D 106.0 tokens per second. One observation per layout; all had 106 prompt tokens and 141 completion tokens. The separate historical advisory peak was 139.8 tokens per second.">
 
