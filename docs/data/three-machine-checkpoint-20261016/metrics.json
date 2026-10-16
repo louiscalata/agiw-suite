@@ -1,0 +1,73 @@
+{
+  "schema": "agiw.public.three-machine-measurements.v1",
+  "compiledAtUTC": "2026-10-16T06:44:00.804141+00:00",
+  "scope": "Separate retained local generation samples; not simultaneous or matched workloads.",
+  "parallelBenchmark": {
+    "state": "NOT_MEASURED",
+    "aggregateTokensPerSecond": null,
+    "reason": "Linux production coordinator activation, Mac process admission and PC central enrollment remain incomplete.",
+    "requiredMeasurement": "Use one controller monotonic clock for dispatch and completion, retain per-node output tokens and generation time, prove overlapping generation intervals and exact model release. Report aggregate completed output tokens divided by the batch wall time, separately from engine generation rates.",
+    "tokenizerCaveat": "Different models tokenize differently; output-token rates do not directly rank answer quality or hardware."
+  },
+  "measurements": [
+    {
+      "machine": "Linux",
+      "hardware": "Mac Pro 5,1; dual Xeon X5675; 12 physical / 24 logical cores; 128 GB installed RAM; AMD RX 580",
+      "model": "Qwen3.5-4B Q6_K",
+      "backend": "Vulkan; 33/33 layers offloaded",
+      "observedAtUTC": "2026-10-16T00:32:00Z",
+      "generationTokensPerSecond": 36.840426042149616,
+      "metric": "server-reported generation rate",
+      "outputTokens": 107,
+      "generationSeconds": 2.877274,
+      "requestSeconds": null,
+      "unitSeconds": 9.587,
+      "quality": "16/16 strict semantic cases passed on one bounded coding sample",
+      "cleanup": "Model/controller/child units and socket absent after execution",
+      "route": "Direct private qualification; coordinator stopped",
+      "sourceSha256": "d3790e06e3bec7a4c9f2663c8353a767b247b71eb24ccc6f7f3d26c57057eb2a",
+      "sampleCount": 1,
+      "rateNumeratorTokens": 106,
+      "rateConvention": "In this retained record, reported rate equals (outputTokens - 1) / generationSeconds. Total output-token count is preserved separately."
+    },
+    {
+      "machine": "Mac",
+      "hardware": "Apple M5 Pro; 64 GiB unified memory",
+      "model": "Qwen3.8-27B MLX 4-bit",
+      "backend": "MLX",
+      "observedAtUTC": "2026-10-15T10:33:38.110424+00:00",
+      "generationTokensPerSecond": 16.39037240568049,
+      "metric": "engine-reported generation rate",
+      "outputTokens": 141,
+      "generationSeconds": null,
+      "requestSeconds": 9.38946795463562,
+      "unitSeconds": null,
+      "quality": "Completed answer; semantic review rejected the suggested test because it addressed the wrong case",
+      "cleanup": "Exact model unload confirmed by fresh inventory",
+      "route": "Supervised local advisory; not a concurrent cluster benchmark",
+      "sourceSha256": "e0fcf50ebf179e9cf3250fefdb2f09d0c2820b8b076285586e0d09ac82657a24",
+      "sampleCount": 1,
+      "rateConvention": "Retained engine-reported tokensPerSecond; full request time is a separate measurement."
+    },
+    {
+      "machine": "PC",
+      "hardware": "NVIDIA RTX 3080 Ti 12 GiB plus AMD RX 5700 XT 8 GiB; separate GPUs",
+      "model": "Qwen3.8-27B Q4_K_M",
+      "backend": "Vulkan; 6 layers on AMD; CPU KV",
+      "observedAtUTC": "2026-10-16T05:18:11Z",
+      "generationTokensPerSecond": 2.058977064505418,
+      "metric": "server-reported generation rate",
+      "outputTokens": 31,
+      "generationSeconds": 14.570342,
+      "requestSeconds": 35.2115377,
+      "unitSeconds": null,
+      "quality": "7/7 bounded clamp cases passed",
+      "cleanup": "13/13 owned cleanup checks passed",
+      "route": "Direct native Author qualification; central enrollment OFF; not dual-GPU inference",
+      "sourceSha256": "af653c453fc5fd18b94f259ad77aafd51ca0aa2f172d97f607e9d2c35460a4dc",
+      "sampleCount": 1,
+      "rateNumeratorTokens": 30,
+      "rateConvention": "In this retained record, reported rate equals (outputTokens - 1) / generationSeconds. Total output-token count is preserved separately."
+    }
+  ]
+}
