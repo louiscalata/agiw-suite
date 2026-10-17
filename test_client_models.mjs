@@ -262,7 +262,7 @@ test('Windows host shows the Mac as a LAN peer with its loaded models, never the
 });
 
 test('Windows map appends only the fresh Mac report activity below the Mac node',()=>{
-  const macPeer={name:'mac',state:'reachable',ageSeconds:2,latencyMs:3,loadedCount:1,
+  const macPeer={name:'mac',configuredName:'mac',state:'reachable',ageSeconds:2,latencyMs:3,loadedCount:1,
     models:[{id:'openai/gpt-oss-20b',state:'loaded'}]};
   const report={host:'mac',platform:'macos',source:'agiw-peers',fresh:true,modelsComplete:true,ageSeconds:4,health:'ok',
     models:[{id:'openai/gpt-oss-20b',loadedState:'loaded',activity:'idle'},
@@ -281,6 +281,11 @@ test('Windows map appends only the fresh Mac report activity below the Mac node'
   assert.equal(unreachable.nodes.find(n=>n.id==='mac-peer').subtitle,'NO ANSWER ON THE LAN · MAC REPORTS 2 LOADED · 1 BUSY');
   assert.equal(unreachable.nodes.find(n=>n.id==='mac-peer').unknown,true);
   assert.equal(unreachable.edges.find(e=>e.b==='mac-peer').dim,true);
+  // Only the configured identity attributes the report: a stale LAN name never does (Astra/Daybreak merge P2).
+  const staleName=project([], 'windows', 820, 660, {macPeer:{...macPeer,name:'old-mac',configuredName:'mac'},peers:[report]});
+  assert.equal(staleName.nodes.find(n=>n.id==='mac-peer').subtitle,'LAN 3 MS · MAC REPORTS 2 LOADED · 1 BUSY');
+  const oldReport=project([], 'windows', 820, 660, {macPeer:{...macPeer,name:'old-mac',configuredName:'mac'},peers:[{...report,host:'old-mac'}]});
+  assert.equal(oldReport.nodes.find(n=>n.id==='mac-peer').subtitle,'LAN 3 MS · 1 LOADED');
   for (const invalid of [{...report,source:'mac-status.json'},{...report,fresh:false},{...report,ageSeconds:30.1}]) {
     const fallback=project([], 'windows', 820, 660, {macPeer,peers:[invalid]}).nodes.find(n=>n.id==='mac-peer');
     assert.equal(fallback.subtitle,'LAN 3 MS · 1 LOADED');

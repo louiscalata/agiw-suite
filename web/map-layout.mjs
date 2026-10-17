@@ -1352,6 +1352,8 @@ export function macPeerView(peer, { feedFresh = false, snapshotAge = 0 } = {}) {
   const extra = Math.max(0, Number.isFinite(snapshotAge) ? snapshotAge : 0);
   const block = peer && typeof peer === 'object' && !Array.isArray(peer) ? peer : null;
   const name = typeof block?.name === 'string' && PEER_NAME.test(block.name) ? block.name.trim() || null : null;
+  // The current hosts.json identity (the collector's configuredName), which alone attributes the Mac's own report.
+  const configuredName = typeof block?.configuredName === 'string' && PEER_NAME.test(block.configuredName) ? block.configuredName.trim() || null : null;
   const age = block && Number.isFinite(block.ageSeconds) && block.ageSeconds >= 0 ? block.ageSeconds + extra : null;
   const current = Boolean(feedFresh) && age !== null && age <= (block.state === 'linked' ? SHARE_PEER_FRESH_SECONDS : PEER_FRESH_SECONDS);
   const state = current && ['reachable', 'linked', 'unreachable'].includes(block.state) ? block.state : 'unknown';
@@ -1423,7 +1425,7 @@ export function macPeerView(peer, { feedFresh = false, snapshotAge = 0 } = {}) {
     ['Detail', state !== 'unknown' && typeof block?.detail === 'string' ? block.detail.slice(0, 240) : 'Unknown'],
   ];
   return { state, name, reason, failureTitle: failure?.title ?? null, failureDetail: failure?.detail ?? null,
-    reachable, current, age, latency, address, models, loaded, loadedKnown, loadedCount, hiddenLoaded, subtitle, linkSubtitle, linkFailure,
+    reachable, current, age, latency, address, models, loaded, loadedKnown, loadedCount, hiddenLoaded, subtitle, linkSubtitle, linkFailure, configuredName,
     linked, brief: linked ? `SHARE REPORT · ${loadedText.toUpperCase()}` : reachable ? `LAN · ${loadedText.toUpperCase()}` : failure ? failure.brief : 'UNKNOWN',
     satelliteSubtitle: linked ? 'REPORTED ON MAC' : reachable ? 'LISTED ON MAC' : 'RESIDENCY UNKNOWN',
     satelliteDetail: linked ? 'Reported loaded on the Mac' : reachable ? 'Listed loaded by LM Studio' : 'Residency unknown',
@@ -1511,7 +1513,7 @@ export function windowsSharePublishRow(sources, { feedFresh = false, snapshotAge
 }
 
 /** Windows edition: every AGIW instance that published presence on SharedChami (snapshot.peers), for the inspector. */
-export function agiwPeersRows(peers, { feedFresh = false, snapshotAge = 0, host = 'mac' } = {}) {
+export function agiwPeersRows(peers, { feedFresh = false, snapshotAge = 0 } = {}) {
   const extra = Math.max(0, Number.isFinite(snapshotAge) ? snapshotAge : 0);
   const rows = feedFresh && Array.isArray(peers) ? peers.slice(0, 16).filter(p => p && typeof p.host === 'string'
     && /^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$/.test(p.host) && Number.isFinite(p.ageSeconds)) : [];
