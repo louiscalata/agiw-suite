@@ -490,6 +490,7 @@ class ConfiguredMacLink(CollectorFixture):
         else:
             hosts.parent.mkdir(parents=True, exist_ok=True)
             hosts.write_text(json.dumps({"mac": {"hostname": name}}), encoding="utf-8")
+            lan["name"] = name  # as probe_mac names its result from hosts.json's hostname
         self.collector.mac_peer = mock.Mock(read=mock.Mock(return_value=(lan, probes._source("mac-peer", "Mac (LAN)", "unavailable", "x"))))
         return self.collector.collect()["macPeer"]
 
@@ -511,6 +512,23 @@ class ConfiguredMacLink(CollectorFixture):
         self.collector.mac_peer = mock.Mock(read=mock.Mock(return_value=(unknown, probes._source("mac-peer", "Mac (LAN)", "unavailable", "x"))))
         mac = self.collector.collect()["macPeer"]
         self.assertEqual((mac["state"], mac["lanFailure"], mac["lanFailureAgeSeconds"]), ("linked", None, None))
+
+    def test_a_previous_macs_lan_failure_never_follows_a_config_change(self):
+        # hosts.json now names target-mac; the LAN cache still holds old-mac's timeout (Astra merge review P2).
+        self.run_with("target-mac", ["target-mac"])
+        old = {"state": "unreachable", "reason": "timeout", "name": "old-mac", "models": [], "ageSeconds": 1.0,
+               "observedAt": 1000.0}
+        self.collector.mac_peer = mock.Mock(read=mock.Mock(return_value=(old, probes._source("mac-peer", "Mac (LAN)", "unavailable", "x"))))
+        mac = self.collector.collect()["macPeer"]
+        self.assertEqual((mac["state"], mac["lanFailure"], mac["lanFailureAgeSeconds"], mac["configuredName"]),
+                         ("linked", None, None, "target-mac"))
+        # A nameless cached failure (an mDNS-only config: the probe names its result only from hostname) proves no
+        # identity, so it is never attached to the configured Mac either.
+        nameless = {k: v for k, v in old.items() if k != "name"}
+        self.collector.mac_peer = mock.Mock(read=mock.Mock(return_value=(nameless, probes._source("mac-peer", "Mac (LAN)", "unavailable", "x"))))
+        mac = self.collector.collect()["macPeer"]
+        self.assertEqual((mac["state"], mac["lanFailure"], mac["lanFailureAgeSeconds"], mac["name"]),
+                         ("linked", None, None, "target-mac"))
 
     def test_without_a_name_no_publisher_links(self):
         self.assertEqual(self.run_with(None, ["only-mac"])["state"], "unreachable")

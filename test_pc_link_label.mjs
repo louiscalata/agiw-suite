@@ -151,7 +151,7 @@ test('vitalsInput: the Windows host computes no report; its second chip is the M
 });
 
 test('vitalsInput: the Windows Mac chip leads with the fresh AGIW peer report only', () => {
-  const macPeer = {name:'mac-mini',state: 'reachable', ageSeconds: 5, latencyMs: 12, loadedCount: 1,
+  const macPeer = {name:'mac-mini',configuredName:'mac-mini',state: 'reachable', ageSeconds: 5, latencyMs: 12, loadedCount: 1,
     models: [{id: 'gpt-oss-20b', state: 'loaded'}]};
   const report = {host: 'mac-mini', platform: 'macos', source: 'agiw-peers', fresh: true, modelsComplete: true, ageSeconds: 4, health: 'ok',
     models: [{id: 'gpt-oss-20b', loadedState: 'loaded', activity: 'generating', slotsBusy: 1}]};
@@ -174,7 +174,7 @@ test('vitalsInput: the Windows Mac chip leads with the fresh AGIW peer report on
 });
 
 test('the Windows Mac report chip keeps current LAN failure visible in every short form', () => {
-  const macPeer={name:'mac-mini',state:'unreachable',reason:'timeout',ageSeconds:1,loadedCount:0,models:[]};
+  const macPeer={name:'mac-mini',configuredName:'mac-mini',state:'unreachable',reason:'timeout',ageSeconds:1,loadedCount:0,models:[]};
   const report={host:'mac-mini',platform:'macos',source:'agiw-peers',fresh:true,modelsComplete:true,ageSeconds:1,health:'ok',
     models:[{id:'a',loadedState:'loaded',activity:'idle'}]};
   const {vitals}=pcChip(null,{host:'windows',macPeer,peers:[report]});
@@ -184,13 +184,24 @@ test('the Windows Mac report chip keeps current LAN failure visible in every sho
 });
 
 test('vitalsInput: a current LAN failure survives the share link in every chip form', () => {
-  const macPeer = {state: 'linked', name: 'mac-mini', ageSeconds: 2, linkAgeSeconds: 2, loadedCount: 1, lanFailure: 'timeout', lanFailureAgeSeconds: 5,
+  const macPeer = {state: 'linked', name: 'mac-mini', configuredName: 'mac-mini', ageSeconds: 2, linkAgeSeconds: 2, loadedCount: 1, lanFailure: 'timeout', lanFailureAgeSeconds: 5,
     models: [{id: 'gpt-oss-20b', state: 'loaded'}]};
   const report = {host: 'mac-mini', platform: 'macos', source: 'agiw-peers', fresh: true, modelsComplete: true, ageSeconds: 2, health: 'ok',
     models: [{id: 'gpt-oss-20b', loadedState: 'loaded', activity: 'idle'}]};
   const {vitals} = pcChip(null, {host: 'windows', macPeer, peers: [report]});
   assert.deepEqual([vitals.pc.detail, vitals.pc.short, vitals.tiny.pc],
     ['Reports 1 loaded · idle · Reported via SharedChami (unverified) · LAN: No answer (timed out)', 'No answer · Reports 1 loaded · idle', 'No answer']);
+});
+
+test('vitalsInput: only the configured Mac is credited with a report, never the LAN cache name (Astra merge P2)', () => {
+  const report = {host: 'mac-mini', platform: 'macos', source: 'agiw-peers', fresh: true, modelsComplete: true, ageSeconds: 2, health: 'ok',
+    models: [{id: 'gpt-oss-20b', loadedState: 'loaded', activity: 'idle'}]};
+  const base = {state: 'reachable', ageSeconds: 5, latencyMs: 12, loadedCount: 1, models: [{id: 'gpt-oss-20b', state: 'loaded'}]};
+  // The LAN cache still names the previous Mac; the configured identity is mac-mini: the report counts.
+  assert.equal(pcChip(null, {host: 'windows', macPeer: {...base, name: 'old-mac', configuredName: 'mac-mini'}, peers: [report]}).vitals.pc.short,
+    'Reports 1 loaded · idle');
+  // The LAN cache names mac-mini but nothing is configured: no report is attributed.
+  assert.equal(pcChip(null, {host: 'windows', macPeer: {...base, name: 'mac-mini'}, peers: [report]}).vitals.pc.short, '1 loaded');
 });
 
 test('route review counts are computed only on the Mac host', () => {

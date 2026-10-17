@@ -292,6 +292,8 @@ class Collector:
         # Only the current configured identity (hosts.json) can attribute a share report: a LAN result's cached name may
         # predate a config change. It also names a nameless LAN result (disabled, pending, failed), never mutating it.
         name = probes.configured_mac_name(self.share_root)
+        # The LAN result's OWN name, captured before any fill: only it can show the cached result is this Mac's.
+        lan_name = mac.get("name") if isinstance(mac.get("name"), str) and mac.get("name").strip() else None
         if name and not mac.get("name"):
             mac = {**mac, "name": name}
         peers, peers_source = self._guard(sources, "agiw-peers", "AGIW peers",
@@ -302,6 +304,9 @@ class Collector:
         # (ignoring case and any domain). Without a configured name, no report can be attributed.
         fresh_macs = [p for p in peers if p["platform"] == "macos" and p["fresh"]]
         want = name.split(".")[0].casefold() if isinstance(name, str) and name.strip() else None
+        # A cached LAN result belongs to the configured Mac only when its own name is that Mac (the probe re-reads
+        # hosts.json, so after a config change the cache can still describe the previous Mac for one interval).
+        same_mac = bool(want) and lan_name is not None and lan_name.split(".")[0].casefold() == want
         mac_link = (next((p for p in fresh_macs if str(p.get("host", "")).split(".")[0].casefold() == want), None)
                     if want else None)
         if mac_link and mac.get("state") != "reachable":
@@ -317,14 +322,20 @@ class Collector:
                                    and all(m["loadedState"] in ("loaded", "inactive") for m in mac_link["models"]) else None),
                    "latencyMs": None, "address": None,
                    # A current failed LAN probe stays visible beside the share report (read() voids a stale one).
-                   "lanFailure": (mac.get("reason") if mac.get("state") == "unreachable" and mac.get("reason")
+                   "lanFailure": (mac.get("reason") if same_mac and mac.get("state") == "unreachable" and mac.get("reason")
                                   in ("refused", "timeout", "invalid", "unresolved", "error") else None),
                    # Its own age (the LAN probe's, not the share report's), so the view expires it on the probe's clock.
-                   "lanFailureAgeSeconds": (mac.get("ageSeconds") if mac.get("state") == "unreachable" else None),
+                   "lanFailureAgeSeconds": (mac.get("ageSeconds") if same_mac and mac.get("state") == "unreachable"
+                                            and mac.get("reason") in ("refused", "timeout", "invalid", "unresolved", "error")
+                                            else None),
                    "linkAgeSeconds": mac_link["ageSeconds"], "linkSource": mac_link["source"],
                    "verified": False,
                    "detail": f"Reported through SharedChami ({mac_link['source']}, {mac_link['ageSeconds']:.0f} s old); "
                              "unsigned share file, not verified; LAN reachability is not established by this report"}
+
+        # The current configured identity travels separately from the LAN result's own (possibly older) name: the
+        # dashboard attributes the Mac's own report only to this one.
+        mac = {**mac, "configuredName": name}
 
         clients: list = []
         if self.clients_fn is not None:

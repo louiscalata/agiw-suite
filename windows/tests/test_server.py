@@ -213,9 +213,6 @@ class EndToEnd(unittest.TestCase):
         self.configure_mac(hostname="otherpc")
         data = self.collector.collect()
         share = Path(self.tmp.name)
-        hosts = share / "llm-lab" / "mac-reach" / "hosts.json"
-        hosts.parent.mkdir(parents=True, exist_ok=True)
-        hosts.write_text(json.dumps({"mac": {"hostname": "otherpc"}}), encoding="utf-8")
         probes.write_json_atomic(probes.peer_dir(share) / "otherpc.json",
                                  {**probes.peer_presence(data, "otherpc"), "platform": "macos"}, probes.PEER_MAX_BYTES)
         again = self.collector.collect()
