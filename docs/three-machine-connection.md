@@ -4,6 +4,24 @@ AGIW Suite is being developed to coordinate useful AI work across an Apple-silic
 
 **Development checkpoint · 16 October 2026 UTC.** Selected Linux and PC code samples passed their bounded checks; the Mac advisory returned and unloaded, but its advice was rejected. Production routing across all three machines and a simultaneous throughput benchmark remain in progress. The downloadable macOS Inference Monitor is a separate release.
 
+## 2026-10-18 update
+
+### Linux system-service rollout
+
+The coordinator is moving from a per-user service to a system service that starts closed: it admits no work until explicitly opened. It will not be enabled at boot until a later, separate step. The rollout is in development and the coordinator has not been started. Each privileged step is preceded by a fresh read-only check of the live machine, and its output is compared byte-for-byte with a predicted result.
+
+Three systemd 259 behaviors were found during the live rollout and handled in the installer:
+
+- An installed but never-started unit is unloaded immediately after each bus call, so `GetUnit` fails; `LoadUnit` works.
+- `journalctl --boot=` rejects a dashed boot ID; the 32-character undashed form works.
+- `systemctl show` lists `Requires=` and `After=` in a different order on each read of an inactive unit. Comparisons now treat those lists as sets; a running unit was observed to keep a stable order.
+
+Before any one-way step, run the exact observation code read-only on the real machine many times.
+
+### Windows native test results
+
+The Windows edition is in development and is not released. On 2026-10-18, native test suites ran on the Windows 11 PC with Python 3.13 and Node.js 24. Three in-progress hardening workstreams passed fully, with 288 Windows tests each and JavaScript suites of 396–407 tests each. The installer workstream ran 432 Windows tests; its installer directory-guard fix, PowerShell 5.1 test-harness fix and one test-isolation fix remain in progress. Two tests that failed only on macOS were confirmed to pass natively on Windows.
+
 ## The intended topology
 
 <img src="assets/three-machine-architecture.svg" width="1280" alt="Tools feed Nisi and Jev, optional PAIR transport, then PC, Linux and Mac workers. Windows has separate NVIDIA RTX 3080 Ti and AMD RX 5700 XT lanes. Linux has RX 580 inference, NVMe workspace/cache and HDD backup storage. Results return through output checks and review.">
