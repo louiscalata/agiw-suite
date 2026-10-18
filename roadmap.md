@@ -1,5 +1,15 @@
 # AGIW Suite roadmap and release evidence
 
+## Development status — 18 October 2026
+
+- [x] Run native Windows test suites for three in-development hardening workstreams; each passed 288 Windows tests and a JavaScript suite of 396–407 tests. Confirm that two tests failing only on macOS pass natively on Windows.
+- [ ] Finish the Windows installer workstream's installer directory-guard, PowerShell 5.1 test-harness and test-isolation fixes. Its native run covered 432 Windows tests; the Windows edition remains in development and is not released.
+- [ ] Enforce the monitor rule across Mac, Windows and Linux views (in progress; review rounds are still finding cases): missing or unverified data is unknown, never zero, idle, quiet or none. Each change receives independent review by two different model families and a third verifier until no High or Medium finding remains, plus mutation testing.
+- [ ] Continue moving the Linux coordinator from a per-user service to a system service. The coordinator has not been started; it starts closed, and boot enablement is deferred to a later, separate step. Precede each privileged step with a fresh read-only check and compare its output byte-for-byte with a predicted result.
+- [x] Handle the three systemd 259 behaviors found during rollout in the installer code (the first two are verified on the live machine; the third is verified by tests and read-only live probes, with its first privileged run still ahead): use `LoadUnit` because `GetUnit` fails for an unloaded never-started unit; use the undashed 32-character boot ID with `journalctl --boot=`; and compare inactive-unit `Requires=` and `After=` values as sets because their order varies between reads. Before any one-way step, run the exact observation code read-only on the real machine many times.
+
+See the [dated connection update](docs/three-machine-connection.md#2026-10-18-update). The Windows edition and Linux coordinator remain in development.
+
 ## Three-machine connection checkpoint — 16 October 2026
 
 - [x] Document the development topology with distinct NVIDIA/CUDA and AMD/Vulkan PC lanes, the Linux storage role and machine-local model controls.
