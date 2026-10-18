@@ -14,7 +14,7 @@ Three systemd 259 behaviors were found during the live rollout and handled in th
 
 - An installed but never-started unit is unloaded immediately after each bus call, so `GetUnit` fails; `LoadUnit` works.
 - `journalctl --boot=` rejects a dashed boot ID; the 32-character undashed form works.
-- `systemctl show` lists `Requires=` and `After=` in a different order on each read of an inactive unit. Comparisons now treat those lists as sets; a running unit was observed to keep a stable order.
+- `systemctl show` lists `Requires=` and `After=` in a different order on each read of an inactive unit. The new start-recovery path, still in development, compares those lists as sets; the earlier verification and boot-enable checks still compare the raw text and stop safely if the order changes. A running unit kept a stable order across 30 reads, which is bounded evidence, not a guarantee.
 
 Before any one-way step, run the exact observation code read-only on the real machine many times.
 
