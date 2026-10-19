@@ -344,7 +344,8 @@ def _weight(row: dict) -> int:
 def _loaded_model_ids(models: Optional[Iterable[dict]]) -> list[str]:
     ids = []
     for model in models or []:
-        if isinstance(model, dict) and model.get("loaded") is True and model.get("host", "mac") == "mac":
+        if (isinstance(model, dict) and model.get("loaded") is True
+                and not model.get("representedByInstances") and model.get("host", "mac") == "mac"):
             name = _clean_text(model.get("id"), 120)
             if name:
                 ids.append(name)
@@ -356,7 +357,8 @@ def _loaded_mac_models(models: Iterable[dict]) -> tuple[int, Optional[int]]:
     valid size: LM Studio inventory file sizes, never a measured amount of memory."""
     count, total = 0, 0
     for model in models or []:
-        if isinstance(model, dict) and model.get("loaded") is True and model.get("host", "mac") == "mac":
+        if (isinstance(model, dict) and model.get("loaded") is True
+                and not model.get("representedByInstances") and model.get("host", "mac") == "mac"):
             count += 1
             size = _bytes_or_none(model.get("sizeBytes"))
             total = total + size if total is not None and size else None
@@ -456,8 +458,9 @@ def _route_candidates(models: Optional[Iterable[dict]]) -> set[str]:
     are loaded; with a third, unloading one of the pair makes the router pick a new pair instead."""
     ids: set[str] = set()
     for model in models or []:
-        if isinstance(model, dict) and model.get("loaded") is True and model.get("host", "mac") == "mac":
-            model_id = model.get("id")
+        if (isinstance(model, dict) and model.get("loaded") is True
+                and not model.get("representedByInstances") and model.get("host", "mac") == "mac"):
+            model_id = model.get("modelKey") or model.get("id")
             if "embed" not in str(model_id).lower():
                 ids.add(str(model_id))
     return ids
@@ -476,15 +479,15 @@ def suggestions(consumers: Optional[list], models: Optional[list] = None, paused
     always last. With no route context the output is the plain size order (the CLI, the hook and
     check())."""
     roles = _route_roles(route_pair)
-    candidates = _route_candidates(models) if roles else set()
     untagged: list[tuple[int, str]] = []
     tagged: list[tuple[int, str]] = []
     for row in consumers or []:
         if row.get("group") == "ios-simulator":
             untagged.append((_weight(row), "Shut down unused iOS Simulators (`xcrun simctl shutdown all`)"))
     for model in models or []:
-        if (isinstance(model, dict) and model.get("loaded") is True and model.get("host", "mac") == "mac"
-                and model.get("state") in ("idle", "loaded")):
+        if (isinstance(model, dict) and model.get("loaded") is True
+                and not model.get("representedByInstances") and model.get("host", "mac") == "mac"
+                and model.get("state") == "idle"):
             name = _clean_text(model.get("id"), 120)
             if name:
                 size = _bytes_or_none(model.get("sizeBytes")) or 0
@@ -493,7 +496,8 @@ def suggestions(consumers: Optional[list], models: Optional[list] = None, paused
                 if route_live:
                     tagged.append((size, text + _ROUTE_LIVE_TAG))
                 elif role:
-                    effect = (_ROUTE_SWITCH if len(candidates - {str(model.get("id"))}) >= 2 else _ROUTE_STOP)
+                    remaining = _route_candidates(other for other in models or [] if other is not model)
+                    effect = (_ROUTE_SWITCH if len(remaining) >= 2 else _ROUTE_STOP)
                     tagged.append((size, f"{text} ({_ROUTE_ROLES[role]}: {effect})"))
                 else:
                     untagged.append((size, text))

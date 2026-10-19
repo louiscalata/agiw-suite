@@ -11,7 +11,7 @@ import unittest
 @unittest.skipUnless(sys.platform == 'darwin', 'build entry points require macOS')
 class ArchitectureTests(unittest.TestCase):
     def run_script(self, script, architecture='arm64', system='Darwin',
-                   compiled_architecture=None):
+                   compiled_architecture=None, inspect_resources=False):
         repo = Path(__file__).resolve().parent
         with tempfile.TemporaryDirectory(prefix='agiw-architecture-test-') as temporary:
             root = Path(temporary)
@@ -44,6 +44,17 @@ elif name == 'xcrun' and args[:2] == ['swiftc', '-O']:
     pathlib.Path(args[args.index('-o') + 1]).write_bytes(b'fixture only')
 elif name == 'lipo':
     print(os.environ['ARCH_TEST_BINARY'])
+elif name == 'codesign' and os.environ.get('ARCH_TEST_RESOURCES'):
+    app = next(path for path in pathlib.Path(args[-1]).parents if path.name.endswith('.app'))
+    resources = app / 'Contents' / 'Resources'
+    source = pathlib.Path(os.environ['ARCH_TEST_RESOURCES'])
+    staged = []
+    for filename in ('machine_state.py', 'agiw_status.py', 'agiw-status'):
+        path = resources / filename
+        staged.append([filename, path.is_file() and path.read_bytes() == (source / filename).read_bytes()])
+    with open(os.environ['ARCH_TEST_CALLS'], 'a') as stream:
+        stream.write(json.dumps(['staged-resources', staged]) + '\\n')
+    sys.exit(98)
 else:
     sys.exit(98)
 '''.format(python=sys.executable)
@@ -61,6 +72,7 @@ else:
                 'ARCH_TEST_SYSTEM': system,
                 'ARCH_TEST_HOST': architecture,
                 'ARCH_TEST_BINARY': compiled_architecture or '',
+                'ARCH_TEST_RESOURCES': str(repo) if inspect_resources else '',
                 'MONITOR_RELEASE_SIGN_IDENTITY': '0' * 40,
                 'MONITOR_RELEASE_ALLOW_DIRTY': '1',
                 'MONITOR_RELEASE_OUTPUT_DIR': str(root / 'output'),
@@ -71,7 +83,9 @@ else:
             observed = [json.loads(line) for line in calls.read_text().splitlines()]
             self.assertFalse((root / 'home/Applications/Inference Monitor.app').exists())
             self.assertFalse((root / 'home/.local').exists())
-            self.assertFalse(any(call[0] in ('codesign', 'hdiutil') for call in observed), observed)
+            self.assertFalse(any(call[0] == 'hdiutil' for call in observed), observed)
+            sign_calls = [call for call in observed if call[0] == 'codesign']
+            self.assertEqual(len(sign_calls), int(inspect_resources), observed)
             # Refused installers must not even create the Applications directory.
             if result.returncode == 2 and script == 'build.sh':
                 self.assertFalse((root / 'home/Applications').exists())
@@ -106,6 +120,14 @@ else:
                 compile_call = next(call for call in calls if call[:3] == ['xcrun', 'swiftc', '-O'])
                 self.assertEqual(compile_call[compile_call.index('-target') + 1], 'arm64-apple-macosx13.0')
                 self.assertFalse(any(call[:2] == ['uname', '-m'] for call in calls), calls)
+
+    def test_installer_and_packager_stage_three_machine_core_and_status_cli(self):
+        for script in ('build.sh', 'package-release.sh'):
+            with self.subTest(script=script):
+                result, calls = self.run_script(script, compiled_architecture='arm64', inspect_resources=True)
+                self.assertEqual(result.returncode, 98, result.stderr)
+                resources = next(call[1] for call in calls if call[0] == 'staged-resources')
+                self.assertEqual(resources, [['machine_state.py', True], ['agiw_status.py', True], ['agiw-status', True]])
 
 
 if __name__ == '__main__':

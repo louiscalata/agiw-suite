@@ -3,6 +3,13 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { runInNewContext } from 'node:vm';
 import * as layoutModule from './web/map-layout.mjs';
+
+test('Sol7: a partial PC inventory with only inactive retained rows has no numeric loaded count', () => {
+  const view = layoutModule.pcReportView({via: 'share', ageSeconds: 0, health: 'ok', modelsComplete: false,
+    models: [{id: 'inactive', loadedState: 'inactive', activity: 'unknown'}]}, {feedFresh: true});
+  assert.equal(view.words, 'Reports loaded unknown · activity unknown');
+  assert.doesNotMatch(view.node, /\b0\b/);
+});
 import { fitGraph, constellationLayout, prioritizeRuntimeModels, hasAdvertisedWindowsWorker, afmView, parseParameterCount, modelStarSize, windowsJobsView, windowsLaneView, resolveLabelCollisions, clampCamera, nextNodeInDirection, reviewConsistencyView, headlessSwitchView, activityFeed, vitalsView, windowsLaneRows, nodeCaptionLayout,
   macGpuView, localCallersView, speedsText, laneSpeeds, jobFlags, activitySummary, pcGpuView, pcReportView, pcAdaptersView } from './web/map-layout.mjs';
 
@@ -36,7 +43,7 @@ test('the proposed six-entry catalog shows all six in either scope', () => {
   assert.equal(core.macDiscovered, 6);
 });
 
-test('Core 6 retains exact non-core Mac rows with observed work or load, including a separate CLI alias', () => {
+test('Core 6 counts canonical alias identities and retains non-core observed work or load', () => {
   const extra = [
     { id: 'gemma-4-26b-tuned', host: 'mac', state: 'idle', loaded: true },
     { id: 'gemma-4-26b-a4b-mtp-mlx', host: 'mac', state: 'busy', loaded: false },
@@ -46,9 +53,10 @@ test('Core 6 retains exact non-core Mac rows with observed work or load, includi
     { id: 'uncertain-queue', host: 'mac', state: 'idle', loaded: false, queued: '1' },
   ];
   const roster = layoutModule.runtimeModelRoster(extra);
-  assert.deepEqual(roster.visible.map(row => row.id), extra.slice(0, 4).map(row => row.id));
-  assert.deepEqual(roster.hidden.map(row => row.id), ['idle-alias', 'uncertain-queue']);
-  assert.equal(roster.coreDiscovered, 0, 'a modelKey alias is not a discovered core ID');
+  assert.deepEqual(roster.visible.map(row => row.id), extra.slice(0, 5).map(row => row.id));
+  assert.deepEqual(roster.hidden.map(row => row.id), ['uncertain-queue']);
+  assert.equal(roster.coreDiscovered, 1, 'two aliases share one discovered canonical Core 6 key');
+  assert.equal(roster.operationalExtras.length, 3, 'canonical Core 6 aliases are not other models');
 });
 
 test('stale non-core observations stay inspectable without being painted live', () => {
@@ -235,7 +243,7 @@ test('node labels stay quiet until hover, keyboard focus, or selection', () => {
 });
 
 test('windowsJobsView ages jobs, stops animating stale feeds and expired jobs', () => {
-  const jobs = { schemaVersion: 1, inFlight: [
+  const jobs = { schemaVersion: 1, complete: true, inFlight: [
     { id: 'a', model: 'm', ageSeconds: 10, timeoutSeconds: 60 },
     { id: 'b', model: 'm', ageSeconds: 89, timeoutSeconds: 60 },
   ], recent: [{ id: 'c', state: 'success', ageSeconds: 5 }, { id: 'd', ageSeconds: 5 }],
@@ -259,9 +267,63 @@ test('windowsJobsView treats missing, foreign or malformed feeds as empty', () =
   }
 });
 
+test('windowsJobsView fails closed when a recognized source says unavailable despite an available payload', () => {
+  const jobs = { schemaVersion: 1, availability: { state: 'available' }, inFlight: [], recent: [], lastSuccess: null };
+  const view = windowsJobsView(jobs, { feedFresh: true, source: { id: 'windows-jobs', state: 'error' } });
+  assert.equal(view.availability, 'unknown');
+  assert.equal(view.feedAvailable, false);
+  assert.equal(view.liveAvailable, false);
+});
+
+test('A3 fix 4 finding 2: recorded job history remains available separately from live jobs', () => {
+  const done = { id: 'done', state: 'success', lane: 'fast', model: 'm', client: 'codex', elapsedSeconds: 4,
+    ageSeconds: 20, predictedPerSecond: 65 };
+  const jobs = { schemaVersion: 1, complete: true, inFlight: [], recent: [done], lastSuccess: done };
+  for (const source of [{ id: 'windows-jobs', state: 'recorded' }, { id: 'codemode-runs', state: 'recorded' },
+    { id: 'codemode-runs', state: 'live' }]) {
+    const view = windowsJobsView(jobs, { feedFresh: true, snapshotAge: 2, source });
+    assert.equal(view.feedAvailable, true, JSON.stringify(source));
+    assert.equal(view.availability, 'available');
+    assert.equal(view.liveAvailable, false);
+    assert.equal(view.liveSourceAvailable, false);
+    assert.equal(view.running, false);
+    assert.equal(view.lastVerified.ageSeconds, 22);
+    assert.deepEqual(laneSpeeds(view, 'fast'), { text: 'writes 65 tok/s', ageSeconds: 22, limitHit: false });
+    // Recorded evidence must not animate even if an inconsistent payload contains an in-flight row.
+    const inconsistent = windowsJobsView({ ...jobs, inFlight: [{ id: 'old', ageSeconds: 1, timeoutSeconds: 60 }] },
+      { feedFresh: true, source });
+    assert.deepEqual(inconsistent.inFlight, []);
+    assert.equal(inconsistent.running, false);
+  }
+  const liveSource = { id: 'windows-jobs', state: 'live' };
+  assert.equal(windowsJobsView(jobs, { feedFresh: true, source: liveSource }).liveAvailable, true);
+  assert.equal(windowsJobsView({ ...jobs, liveAvailable: false }, { feedFresh: true, source: liveSource }).liveAvailable, false);
+  const stale = windowsJobsView(jobs, { feedFresh: false, source: { id: 'windows-jobs', state: 'recorded' } });
+  assert.equal(stale.feedAvailable, false);
+  assert.equal(stale.lastVerified.id, 'done');
+});
+
+test('A3 fix 4 finding 6: live source metadata cannot make a malformed job payload available', () => {
+  const empty = { schemaVersion: 1, complete: true, inFlight: [], recent: [], lastSuccess: null };
+  for (const jobs of [null, undefined, {}, [], { ...empty, schemaVersion: 2 }, { schemaVersion: 1 },
+    { ...empty, inFlight: null }, { ...empty, recent: null }, { ...empty, inFlight: {} }, { ...empty, recent: 'bad' },
+    { schemaVersion: 1, availability: { state: 'available' } }]) {
+    const view = windowsJobsView(jobs, { feedFresh: true, source: { id: 'windows-jobs', state: 'live' } });
+    assert.equal(view.feedAvailable, false, JSON.stringify(jobs));
+    assert.equal(view.availability, 'unknown');
+    assert.equal(view.liveAvailable, false);
+    assert.equal(view.liveSourceAvailable, false);
+    assert.equal(view.running, false);
+  }
+  const valid = windowsJobsView(empty, { feedFresh: true, source: { id: 'windows-jobs', state: 'live' } });
+  assert.equal(valid.feedAvailable, true);
+  assert.equal(valid.liveAvailable, true);
+  assert.equal(valid.running, false);
+});
+
 test('windowsJobsView marks a success current only when fresh, recent and not superseded', () => {
   const ok = { id: 'ok', state: 'success', model: 'm', elapsedSeconds: 4, ageSeconds: 60 };
-  const base = { schemaVersion: 1, inFlight: [], recent: [ok], lastSuccess: ok };
+  const base = { schemaVersion: 1, complete: true, inFlight: [], recent: [ok], lastSuccess: ok };
   assert.equal(windowsJobsView(base, { feedFresh: true }).current, true);
   assert.equal(windowsJobsView(base, { feedFresh: false }).current, false);
   const old = { ...ok, ageSeconds: 3 * 86400 };
@@ -270,6 +332,27 @@ test('windowsJobsView marks a success current only when fresh, recent and not su
   const view = windowsJobsView({ ...base, recent: [failedLater, ok] }, { feedFresh: true });
   assert.equal(view.current, false);
   assert.equal(view.lastVerified.id, 'ok');
+});
+
+test('A3 fix 6 finding 3: only absent availability retains legacy live job-feed behavior', () => {
+  const jobs = { schemaVersion: 1, complete: true, inFlight: [], recent: [], lastSuccess: null };
+  const options = { feedFresh: true, source: { id: 'windows-jobs', state: 'live' } };
+  for (const availability of [{ state: 'garbage' }, { state: 'unknown' }, {}, null, [], 'available', true, 0,
+    { state: null }, { state: ['available'] }]) {
+    const view = windowsJobsView({ ...jobs, availability }, options);
+    assert.equal(view.availability, 'unknown', JSON.stringify(availability));
+    assert.equal(view.feedAvailable, false);
+    assert.equal(view.liveAvailable, false);
+    assert.equal(view.liveSourceAvailable, false);
+    assert.equal(view.running, false);
+  }
+  for (const payload of [jobs, { ...jobs, availability: { state: 'available' } }]) {
+    const view = windowsJobsView(payload, options);
+    assert.equal(view.availability, 'available');
+    assert.equal(view.feedAvailable, true);
+    assert.equal(view.liveAvailable, true);
+    assert.equal(view.running, false);
+  }
 });
 
 const laneWorker = (extra = {}) => ({ state: 'advertised', ageSeconds: 4,
@@ -281,7 +364,7 @@ test('windowsLaneView is visible only for a fresh feed with a lanes object', () 
   assert.equal(windowsLaneView(laneWorker(), null, { feedFresh: true }).visible, true);
   assert.equal(windowsLaneView(laneWorker(), null, { feedFresh: false }).visible, false);
   for (const lanes of [null, undefined, [], 'fast', 3]) {
-    const view = windowsLaneView(laneWorker({ lanes }), { inFlight: [{ client: 'claude', lane: 'fast' }], recent: [] }, { feedFresh: true });
+    const view = windowsLaneView(laneWorker({ lanes }), { schemaVersion: 1, complete: true, inFlight: [{ ageSeconds: 0, timeoutSeconds: 60, client: 'claude', lane: 'fast' }], recent: [] }, { feedFresh: true });
     assert.equal(view.visible, false);
     assert.deepEqual(view.lanes, []);
     assert.deepEqual(view.edges, []);
@@ -304,11 +387,11 @@ test('windowsLaneView maps fast and deep lanes and rejects malformed ones', () =
 });
 
 test('windowsLaneView draws one edge per client and lane, preferring a live job', () => {
-  const jobs = {
-    inFlight: [{ client: 'Claude', lane: 'fast' }, { client: 'codex', lane: 'deep' }, { client: 'claude', lane: 'fast' }],
-    recent: [{ client: 'claude', lane: 'fast' }, { client: 'opencode', lane: 'deep' }, { client: 'opencode', lane: 'deep' },
-      { client: null, lane: 'fast' }, { client: 'cursor', lane: null }, { client: 'bad client!', lane: 'fast' },
-      { client: 'grok', lane: 'amd' }, { client: '-x', lane: 'fast' }, { client: 'a'.repeat(41), lane: 'deep' }],
+  const jobs = { schemaVersion: 1, complete: true,
+    inFlight: [{ ageSeconds: 0, timeoutSeconds: 60, client: 'Claude', lane: 'fast' }, { ageSeconds: 0, timeoutSeconds: 60, client: 'codex', lane: 'deep' }, { ageSeconds: 0, timeoutSeconds: 60, client: 'claude', lane: 'fast' }],
+    recent: [{ ageSeconds: 0, timeoutSeconds: 60, client: 'claude', lane: 'fast' }, { ageSeconds: 0, timeoutSeconds: 60, client: 'opencode', lane: 'deep' }, { ageSeconds: 0, timeoutSeconds: 60, client: 'opencode', lane: 'deep' },
+      { ageSeconds: 0, timeoutSeconds: 60, client: null, lane: 'fast' }, { ageSeconds: 0, timeoutSeconds: 60, client: 'cursor', lane: null }, { ageSeconds: 0, timeoutSeconds: 60, client: 'bad client!', lane: 'fast' },
+      { ageSeconds: 0, timeoutSeconds: 60, client: 'grok', lane: 'amd' }, { ageSeconds: 0, timeoutSeconds: 60, client: '-x', lane: 'fast' }, { ageSeconds: 0, timeoutSeconds: 60, client: 'a'.repeat(41), lane: 'deep' }],
   };
   const view = windowsLaneView(laneWorker(), jobs, { feedFresh: true });
   assert.deepEqual(view.edges, [
@@ -316,15 +399,15 @@ test('windowsLaneView draws one edge per client and lane, preferring a live job'
     { client: 'codex', lane: 'deep', live: true },
     { client: 'opencode', lane: 'deep', live: false },
   ]);
-  const recentFirst = windowsLaneView(laneWorker(), { inFlight: [{ client: 'codex', lane: 'fast' }], recent: [{ client: 'codex', lane: 'fast' }] }, { feedFresh: true });
+  const recentFirst = windowsLaneView(laneWorker(), { schemaVersion: 1, complete: true, inFlight: [{ ageSeconds: 0, timeoutSeconds: 60, client: 'codex', lane: 'fast' }], recent: [{ ageSeconds: 0, timeoutSeconds: 60, client: 'codex', lane: 'fast' }] }, { feedFresh: true });
   assert.deepEqual(recentFirst.edges, [{ client: 'codex', lane: 'fast', live: true }]);
   const onlyFast = windowsLaneView(laneWorker({ lanes: { fast: laneWorker().lanes.fast } }), jobs, { feedFresh: true });
   assert.deepEqual(onlyFast.edges, [{ client: 'claude', lane: 'fast', live: true }]);
 });
 
-test('windowsLaneView headless label counts down and never claims on from stale or expired state', () => {
+test('windowsLaneView headless label counts down only from a fresh heartbeat and never claims on from stale or expired state', () => {
   assert.deepEqual(windowsLaneView(laneWorker(), null, { feedFresh: true }).headless, { on: true, label: 'Headless on · 3h 25m left' });
-  assert.deepEqual(windowsLaneView(laneWorker(), null, { feedFresh: true, snapshotAge: 30 * 60 }).headless, { on: true, label: 'Headless on · 2h 55m left' });
+  assert.deepEqual(windowsLaneView(laneWorker(), null, { feedFresh: true, snapshotAge: 30 }).headless, { on: true, label: 'Headless on · 3h 25m left' });
   assert.deepEqual(windowsLaneView(laneWorker({ headless: { state: 'on', expiresInSeconds: 20 } }), null, { feedFresh: true, snapshotAge: 25 }).headless, { on: false, label: 'Headless off' });
   assert.deepEqual(windowsLaneView(laneWorker({ headless: { state: 'on', expiresInSeconds: null } }), null, { feedFresh: true }).headless, { on: false, label: 'Headless unknown' });
   assert.deepEqual(windowsLaneView(laneWorker({ headless: { state: 'on', expiresInSeconds: 12.5 } }), null, { feedFresh: true }).headless, { on: false, label: 'Headless unknown' });
@@ -348,10 +431,10 @@ test('app wires Windows lanes, the headless toggle and its endpoint through the 
 });
 
 test('windowsLaneView lights a lane for any fresh in-flight job and hides lanes without a fresh heartbeat', () => {
-  const view = windowsLaneView(laneWorker(), { inFlight: [{ client: null, lane: 'deep' }], recent: [] }, { feedFresh: true });
+  const view = windowsLaneView(laneWorker(), { schemaVersion: 1, complete: true, inFlight: [{ ageSeconds: 0, timeoutSeconds: 60, client: null, lane: 'deep' }], recent: [] }, { feedFresh: true });
   assert.deepEqual(view.lanes.map(lane => [lane.id, lane.live]), [['fast', false], ['deep', true]]);
   assert.deepEqual(view.edges, []);
-  assert.equal(windowsLaneView(laneWorker({ state: 'unknown' }), null, { feedFresh: true }).visible, false);
+  assert.equal(windowsLaneView(laneWorker({ state: 'unknown' }), null, { feedFresh: true }).visible, true);
   assert.equal(windowsLaneView(laneWorker({ ageSeconds: 290 }), null, { feedFresh: true, snapshotAge: 20 }).visible, false);
   assert.equal(windowsLaneView(laneWorker({ state: 'degraded' }), null, { feedFresh: true }).visible, true);
 });
@@ -477,6 +560,21 @@ test('activity feed merges PC jobs and router runs newest first, labels probes, 
   assert.deepEqual(activityFeed(null, null), []);
 });
 
+test('A3 fix 6 finding 2: the PC chip counts unknown lanes separately from down lanes', () => {
+  for (const [states, detail] of [
+    [[null, null], '2 lanes unknown'], [[true, null], '1 lane unknown'], [[false, null], '1 lane unknown'],
+    [[true, false], '1/2 lanes'], [[false, false], '0/2 lanes'], [[true, true], '2/2 lanes'],
+  ]) {
+    const worker = laneWorker({ state: 'unknown', headless: { state: 'off' }, lanes: {
+      fast: { up: states[0], model: 'gpt-oss-20b' }, deep: { up: states[1], model: 'Qwen3.8-27B' },
+    } });
+    const lanes = windowsLaneView(worker, null, { feedFresh: true });
+    const chip = vitalsView({ fresh: true, worker, lanes }).pc;
+    assert.equal(chip.detail, `Headless off · ${detail}`);
+    if (states.includes(null)) assert.doesNotMatch(chip.detail, /\d\/\d lanes/);
+  }
+});
+
 test('vitals summarise Mac, PC, route and the latest non-probe activity without inventing state', () => {
   const lanes = windowsLaneView(laneWorker(), { inFlight: [], recent: [{ id: 'a', state: 'success', lane: 'fast', predictedPerSecond: 105.1, ageSeconds: 9 }] }, { feedFresh: true });
   const feed = activityFeed({ inFlight: [], recent: [{ id: 'p', state: 'success', client: 'pc-llm-probe', lane: 'fast', ageSeconds: 1 },
@@ -485,17 +583,30 @@ test('vitals summarise Mac, PC, route and the latest non-probe activity without 
     loadedKnown: true, lanes, worker: { state: 'advertised' }, jobs: { running: false }, pipeline: { status: 'idle' }, nisi: { state: 'ready' }, feed });
   assert.deepEqual(v.mac, { tone: 'ok', detail: '1 loaded · idle' });
   assert.equal(v.pc.tone, 'ok');
-  assert.equal(v.pc.detail, 'Headless 3h 25m · 1/2 lanes · fast 105 tok/s');
+  assert.equal(v.pc.detail, 'Headless 3h 25m · 1/2 lanes · fast last 105 tok/s · 9s ago');
   assert.deepEqual(v.route, { tone: 'ok', detail: 'Idle · pair ready' });
   assert.deepEqual(v.activity, { tone: 'ok', detail: 'codex → PC fast 104 tok/s', short: 'codex → PC fast' });
   // Round 3 review: the short PC chip names the lane its speed belongs to.
-  assert.equal(v.pc.short, 'On 3h 25m · fast 105 tok/s');
+  assert.equal(v.pc.short, 'On 3h 25m · fast last 105 tok/s · 9s ago');
   const stale = vitalsView({ fresh: false, feed: [] });
-  assert.deepEqual([stale.mac.tone, stale.pc.detail, stale.route.detail, stale.activity.detail], ['muted', 'Signal stale', 'Route age unknown', 'No recorded activity']);
+  assert.deepEqual([stale.mac.tone, stale.pc.detail, stale.route.detail, stale.activity.detail], ['muted', 'Signal stale', 'Route age unknown', 'Activity unknown (feed unavailable or stale)']);
   assert.equal(vitalsView({ fresh: true, worker: { state: 'degraded' }, feed: [] }).pc.tone, 'warn');
   assert.equal(vitalsView({ fresh: true, worker: { state: 'degraded' }, feed: [] }).pc.short, 'Degraded');
   assert.equal(vitalsView({ fresh: true, feed: [] }).activity.short, 'None yet');
   assert.equal(vitalsView({ fresh: true, pipeline: { status: 'running', stage: 'backend_response' }, feed: [] }).route.detail, 'Running · backend response');
+});
+
+test('an incomplete Mac inventory cannot make any vitals caption idle', () => {
+  for (const models of [[], [{ state: 'idle', loaded: true }]]) {
+    for (const extra of [{}, { gpu: { known: true, chip: 'GPU 46%' } },
+      { memory: { alert: true, word: 'Memory tight' } }]) {
+      const view = vitalsView({ fresh: true, activityKnown: true, loadedKnown: false, models, ...extra }).mac;
+      assert.match(view.detail, /Loaded unknown · activity unknown/);
+      for (const text of [view.detail, view.short].filter(Boolean)) assert.doesNotMatch(text, /idle|quiet|0 loaded/i);
+    }
+  }
+  assert.equal(vitalsView({ fresh: true, activityKnown: true, loadedKnown: true, models: [] }).mac.detail,
+    '0 loaded · idle');
 });
 
 test('a click on empty map background closes every panel and refits; node clicks and drags do not', () => {
@@ -523,7 +634,7 @@ test('F1: on a stale or paused feed an open PC job is "in flight at last sample"
   assert.deepEqual([live.activity.tone, live.activity.detail], ['live', 'claude → PC deep running']);
   const app = readFileSync(new URL('./web/app.js', import.meta.url), 'utf8');
   // Follow-up 26 Sep: the activity path uses liveNow() (fresh and not paused), not fresh() alone.
-  assert.match(app, /activityFeed\(jobs,snapshot\?\.host==='mac'\?runs\(\):\[\],\{limit:12,feedFresh:liveNow\(\)\}\)/);
+  assert.match(app, /activityFeed\(jobs,snapshot\?\.host==='mac'\?runs\(\):\[\],\{limit:12,feedFresh:liveNow\(\),routesFresh:liveNow\(\)&&routeSourceCurrent\('router-active'\)\}\)/);
   assert.match(app, /const liveNow=\(\)=>fresh\(\)&&!paused;/);
   assert.match(app, /row\.state==='in-flight-stale'\?'In flight at last sample'/);
 });
@@ -828,23 +939,67 @@ test('C: the Mac GPU sample reads only when fresh and within bounds', () => {
   // 27 Sep: binary gigabytes, like the memory guard and the Memory section beside it (40.5e9 bytes read 37.7 GB there too).
   assert.deepEqual([view.known, view.percent, view.chip, view.tile], [true, 46, 'GPU 46%', '46% busy · 37.7 GB GPU memory']);
   assert.deepEqual(view.rows, [['GPU', 'Apple M5 Max · 40 cores'], ['GPU utilisation', '46%'], ['Renderer · tiler', '41% · 9%'],
-    ['GPU memory allocated', '37.7 GB'], ['GPU memory in use', '29.1 GB']]);
+    ['GPU memory allocated', '37.7 GB'], ['GPU memory in use', '29.1 GB'], ['Unified-memory ceiling', 'Unknown']]);
   const unknown = { known: false, percent: null, chip: null, tile: 'Unknown', rows: [] };
   for (const [value, options] of [[gpu, { feedFresh: false }], [gpu, { feedFresh: true, snapshotAge: 5 }], [null, { feedFresh: true }],
     [[], { feedFresh: true }], [{ ...gpu, ageSeconds: -1 }, { feedFresh: true }], [{ ...gpu, ageSeconds: 'x' }, { feedFresh: true }]])
-    assert.deepEqual(macGpuView(value, options), unknown);
+    assert.deepEqual(macGpuView(value, options), { ...unknown,
+      rows: options.feedFresh ? [['Unified-memory ceiling', 'Unknown']] : [] });
   const odd = macGpuView({ ...gpu, utilizationPercent: 146, allocatedBytes: -1, inUseBytes: 1.5, model: '<b>', cores: 0 }, { feedFresh: true });
   assert.deepEqual([odd.known, odd.chip, odd.tile, odd.rows[0][1], odd.rows[4][1]], [false, null, 'Unknown', null, null]);
 });
 
-test('C: local callers are names only and deduplicated; null means not checked', () => {
+test('C: the Mac GPU inspector labels the Metal unified-memory ceiling', () => {
+  const gpu = { utilizationPercent: 46, ageSeconds: .4, unifiedMemoryCeilingBytes: 20 * 2 ** 30,
+    unifiedMemoryCeilingSource: 'Metal recommendedMaxWorkingSetSize (read by the app shell)' };
+  const view = macGpuView(gpu, { feedFresh: true, snapshotAge: 1 });
+  assert.equal(view.known, true);
+  assert.deepEqual(view.rows.at(-1), ['Unified-memory ceiling',
+    '20.0 GB · Metal recommendedMaxWorkingSetSize (read by the app shell)']);
+});
+
+test('C: the Metal ceiling survives missing or old ioreg statistics but not a stale feed', () => {
+  for (const ageSeconds of [null, undefined, 6, -1, 'x']) {
+    const gpu = { ageSeconds, utilizationPercent: 46, allocatedBytes: 4 * 2 ** 30,
+      unifiedMemoryCeilingBytes: 20 * 2 ** 30 };
+    assert.deepEqual(macGpuView(gpu, { feedFresh: true, snapshotAge: 2 }), {
+      known: false, percent: null, chip: null, tile: 'Unknown', rows: [['Unified-memory ceiling',
+        '20.0 GB · Metal recommendedMaxWorkingSetSize (read by the app shell)']] });
+    assert.deepEqual(macGpuView(gpu, { feedFresh: false }), {
+      known: false, percent: null, chip: null, tile: 'Unknown', rows: [] });
+  }
+});
+
+test('C: missing or malformed Metal ceilings stay unknown', () => {
+  for (const unifiedMemoryCeilingBytes of [undefined, null, 0, -1, 1.5, 2 ** 30 - 1, 2 ** 50 + 1, '21474836480', Infinity]) {
+    const view = macGpuView({ ageSeconds: null, unifiedMemoryCeilingBytes }, { feedFresh: true });
+    assert.deepEqual(view.rows, [['Unified-memory ceiling', 'Unknown']]);
+    assert.equal(view.known, false);
+  }
+});
+
+test('C: local callers retain one name per process; null means not checked', () => {
   assert.deepEqual(localCallersView([{ pid: 1, name: 'opencode', connections: 2 }, { pid: 2, name: 'node', connections: 1 },
-    { pid: 3, name: 'opencode', connections: 1 }, { pid: 4, name: 'rm -rf /;' }, null], { feedFresh: true }),
-  { checked: true, names: ['opencode', 'node'], text: 'Calling the model server now: opencode, node' });
-  assert.equal(localCallersView([], { feedFresh: true }).text, 'No local process is calling the model server');
-  assert.deepEqual(localCallersView(null, { feedFresh: true }), { checked: false, names: [], text: null });
+    { pid: 3, name: 'opencode', connections: 1 }, { pid: 4, name: '\u0000invalid' }, null], { feedFresh: true }),
+  { checked: true, names: ['opencode', 'node', 'opencode', 'unknown process', 'unknown process'], count: 5, remaining: 0,
+    summary: 'opencode, node, opencode, unknown process, unknown process',
+    text: 'Connected to the model server: opencode, node, opencode, unknown process, unknown process' });
+  assert.equal(localCallersView([], { feedFresh: true }).text, 'No local process is connected to the model server');
+  assert.deepEqual(localCallersView(null, { feedFresh: true }), { checked: false, names: [], count: null, remaining: null, summary: null, text: null });
   assert.equal(localCallersView([{ name: 'node' }], { feedFresh: false }).checked, false);
-  assert.equal(localCallersView(Array.from({ length: 9 }, (_, i) => ({ name: `p${i}` })), { feedFresh: true }).names.length, 6);
+});
+
+test('C: local callers preserve valid PC and Mac names, unknown processes, and truncated counts', () => {
+  const names = ['Code (Insiders).exe', 'x'.repeat(50) + '.exe', 'Codex (Service)', 'Code Helper (Plugin)', '<agent>'];
+  assert.deepEqual(localCallersView(names.map(name => ({ name })), { feedFresh: true }).names, names);
+  const invalid = localCallersView([{ name: ' ' }, { name: 'x'.repeat(65) }, { name: '\nnode' }], { feedFresh: true });
+  assert.equal(invalid.count, 3);
+  assert.deepEqual(invalid.names, ['unknown process', 'unknown process', 'unknown process']);
+  assert.doesNotMatch(invalid.text, /None connected|No local process|calling/i);
+  const many = localCallersView(Array.from({ length: 9 }, (_, i) => ({ name: `p${i}` })), { feedFresh: true });
+  assert.deepEqual([many.count, many.names.length, many.remaining], [9, 6, 3]);
+  assert.equal(many.summary, 'p0, p1, p2, p3, p4, p5 +3 more');
+  assert.equal(many.text, `Connected to the model server: ${many.summary}`);
 });
 
 test('C: prompt and generation speeds and the hit-token-limit flag reach activity rows and lanes', () => {
@@ -890,10 +1045,28 @@ test('C and follow-up 2: the Mac chip adds a known GPU sample; only a live activ
   assert.deepEqual([paused.tone, paused.detail], ['muted', 'claude → PC deep in flight at last sample']);
 });
 
+test('Mac chip: incomplete residency cannot become idle even with a claimed known activity sample', () => {
+  const view = vitalsView({ fresh: true, activityKnown: true, loadedKnown: false,
+    models: [{ id: 'example-model', loaded: null, state: 'unknown' }], gpu: { known: true, chip: 'GPU 40%' } });
+  assert.equal(view.mac.detail, 'Loaded unknown · activity unknown · GPU 40%');
+  assert.equal(view.mac.tone, 'muted');
+  assert.equal(view.mac.short, 'Activity unknown · GPU 40%');
+  assert.equal(view.tiny.mac, 'Activity unknown');
+  assert.doesNotMatch(JSON.stringify([view.mac, view.tiny.mac]), /idle/i);
+});
+
+test('Mac chip: aggregate catalog rows do not count alongside their loaded aliases', () => {
+  const models = [{ id: 'provider/model', loaded: true, state: 'idle', representedByInstances: true },
+    { id: 'alias-1', loaded: true, state: 'idle' }];
+  assert.equal(vitalsView({ fresh: true, activityKnown: true, loadedKnown: true, models }).mac.detail, '1 loaded · idle');
+  assert.equal(vitalsView({ fresh: true, activityKnown: true, loadedKnown: true,
+    models: models.map(row => ({ ...row, state: 'generating' })) }).mac.detail, '1 generating');
+});
+
 test('B: the Live activity summary says what is running, held, failed or quiet in one line', () => {
   const summary = activitySummary([]);
   assert.deepEqual([summary.tone, summary.line], ['muted', 'Nothing recorded yet']);
-  assert.deepEqual(summary.tiles, [['In flight', '0'], ['Answered', '0'], ['Failed', '0'], ['Routes', '0']]);
+  assert.deepEqual(summary.tiles, [['In flight at last sample', '0'], ['Answered', '0'], ['Failed', '0'], ['Routes', '0']]);
   const jobs = { inFlight: [{ id: 'j', client: 'claude', lane: 'deep', ageSeconds: 1 }, { id: 'k', client: 'codex', lane: 'fast', ageSeconds: 3 }],
     recent: [{ id: 'a', state: 'success', client: 'codex', lane: 'fast', ageSeconds: 30 }, { id: 'e', state: 'error', client: 'codex', lane: 'fast', ageSeconds: 40 }] };
   const runs = [{ runId: 'r1', client: 'claude', status: 'RESPONSE_VALIDATED', ageSeconds: 50 }];
@@ -910,9 +1083,36 @@ test('B: the Live activity summary says what is running, held, failed or quiet i
   for (const s of [summary, live, held, failed]) assert.ok(s.line.length <= 60 && !/mac-|[0-9a-f]{8}/.test(s.line));
 });
 
+test('B: a known live route remains visible when PC job counts are unknown', () => {
+  const route = { key: 'run:live', kind: 'route', state: 'in-flight', client: 'claude', target: 'Nisi Inference → Mac', ageSeconds: 2 };
+  const summary = activitySummary([route], { live: true, jobsAvailable: false, liveJobsAvailable: false });
+  assert.deepEqual([summary.tone, summary.line], ['live', '1 route running now']);
+  assert.match(summary.meaning, /1 Nisi Inference route is running now; PC job state is unknown/);
+  assert.deepEqual(summary.tiles, [['In flight', 'Unknown'], ['Answered', 'Unknown'], ['Failed', 'Unknown'], ['Routes', '1']]);
+});
+
 // Round 3 review follow-ups, 26 Sep 2026.
 
 const GPU = { index: 0, name: 'NVIDIA GeForce RTX 4070', utilizationPercent: 32, memoryUsedMiB: 11980, memoryTotalMiB: 12282, temperatureC: 54, powerW: 118.5 };
+
+test('A3 fix 4 finding 4: fresh unknown worker health preserves GPU evidence and unknown lane health', () => {
+  const worker = laneWorker({ state: 'unknown', ageSeconds: 0, workerVersion: '1.2',
+    gpus: [{ ...GPU, utilizationPercent: 65 }],
+    lanes: { fast: { up: null, health: { state: 'unknown', reason: 'identity-unverified' }, model: 'm', slotsBusy: 0, slotsTotal: 2 } } });
+  const gpu = pcGpuView(worker, { feedFresh: true });
+  assert.equal(gpu.known, true);
+  assert.equal(gpu.chip, 'GPU 65%');
+  assert.equal(gpu.version, '1.2');
+  const lanes = windowsLaneView(worker, null, { feedFresh: true });
+  assert.deepEqual([lanes.lanes[0].up, lanes.lanes[0].busy, lanes.lanes[0].total], [null, null, null]);
+  assert.match(windowsLaneRows(lanes)[0][1], /Unknown/);
+  assert.equal(hasAdvertisedWindowsWorker(worker, { feedFresh: true }), false);
+  assert.equal(pcGpuView(worker, { feedFresh: false }).known, false);
+  assert.equal(pcGpuView(worker, { feedFresh: true, snapshotAge: 60 }).known, true);
+  assert.equal(pcGpuView(worker, { feedFresh: true, snapshotAge: 61 }).known, false);
+  assert.equal(pcGpuView({ ...worker, ageSeconds: null }, { feedFresh: true }).known, false);
+  assert.equal(pcGpuView({ ...worker, gpus: [{ ...GPU, utilizationPercent: 101 }] }, { feedFresh: true }).known, false);
+});
 
 test('Round 3: the PC GPU and worker version come from a fresh worker heartbeat, checked again', () => {
   const worker = laneWorker({ workerVersion: '1.2', gpus: [{ ...GPU, index: 1, name: 'Second', utilizationPercent: 3 }, GPU] });
@@ -923,9 +1123,9 @@ test('Round 3: the PC GPU and worker version come from a fresh worker heartbeat,
     ['GPU 1', 'Second · 3% busy · 11.7 of 12.0 GB · 54 °C · 119 W']]);
   // A degraded heartbeat still reports its GPU.
   assert.equal(pcGpuView({ ...worker, state: 'degraded' }, { feedFresh: true }).text, 'GPU 32% · 11.7/12.0 GB · 54 °C');
-  // Stale feed, old heartbeat, unknown worker: nothing, and the rows say why.
+  // Stale feed, old heartbeat, unrecognized worker state: nothing, and the rows say why.
   for (const [value, options] of [[worker, { feedFresh: false }], [{ ...worker, ageSeconds: 58 }, { feedFresh: true, snapshotAge: 3 }],
-    [{ ...worker, state: 'unknown' }, { feedFresh: true }], [null, { feedFresh: true }]]) {
+    [{ ...worker, state: 'invalid' }, { feedFresh: true }], [null, { feedFresh: true }]]) {
     const unknown = pcGpuView(value, options);
     assert.deepEqual([unknown.known, unknown.version, unknown.chip, unknown.text, unknown.tile], [false, null, null, null, 'Unknown']);
     assert.deepEqual(unknown.rows, [['Worker version', 'Not reported'], ['PC GPU', 'Unknown (no fresh worker heartbeat)']]);
@@ -947,7 +1147,7 @@ test('Round 3: the PC chip shows the GPU in its detail, names the fast lane when
   const pcGpu = pcGpuView(laneWorker({ gpus: [GPU] }), { feedFresh: true });
   const base = { fresh: true, lanes, worker: { state: 'advertised' }, feed: [], pcGpu };
   const v = vitalsView({ ...base, jobs: { running: false } });
-  assert.deepEqual(v.pc, { tone: 'ok', detail: 'Headless 3h 25m · 1/2 lanes · fast 104 tok/s · GPU 32% · 11.7/12.0 GB · 54 °C', short: 'On 3h 25m · fast 104 tok/s' });
+  assert.deepEqual(v.pc, { tone: 'ok', detail: 'Headless 3h 25m · 1/2 lanes · fast last 104 tok/s · 9s ago · GPU 32% · 11.7/12.0 GB · 54 °C', short: 'On 3h 25m · fast last 104 tok/s · 9s ago' });
   assert.equal(vitalsView({ ...base, jobs: { running: true } }).pc.tone, 'live');
   // Paused (or any non-live view): a running job no longer pulses the PC chip; it reads as the worker.
   assert.equal(vitalsView({ ...base, jobs: { running: true }, activityLive: false }).pc.tone, 'ok');
@@ -996,11 +1196,11 @@ function orbSnapshot(job) {
   return { host: 'mac', sampledAt: now, fullSampledAt: now, activityKnown: true,
     models: [{ id: 'google/gemma-4-12b', host: 'mac', state: job ? 'generating' : 'idle', loaded: true, ageSeconds: 0, metadata: { parameters: '12B', capabilities: { vision: true } } },
       { id: 'qwen/qwen3.8-27b', host: 'mac', state: 'unloaded', loaded: false, ageSeconds: 0, metadata: { parameters: '27B', capabilities: { reasoning: true } } }],
-    sources: [{ id: 'lms-ps', state: 'live' }], clients: [{ id: 'claude', model: 'claude-opus-5-5', modelState: 'observed' }, { id: 'codex', model: 'gpt-6-sol', modelState: 'observed' }],
+    sources: [{ id: 'lms-ps', state: 'live' }, {id:'windows-jobs',state:'recorded',observedAgeSeconds:0}], clients: [{ id: 'claude', model: 'claude-opus-5-5', modelState: 'observed' }, { id: 'codex', model: 'gpt-6-sol', modelState: 'observed' }],
     pipeline: { status: 'idle' }, components: [{ id: 'nisi', state: 'ready' }],
     windowsWorker: { state: 'advertised', ageSeconds: 4, modelsAdvertised: ['gpt-oss-20b'], detail: 'x', headless: { state: 'on', expiresInSeconds: 7000 },
       lanes: { fast: { up: true, model: 'gpt-oss-20b', kind: 'gpt-oss', slotsBusy: 0, slotsTotal: 2 }, deep: { up: true, model: 'Qwen3.8-27B Q4_K_M', kind: 'qwen', slotsBusy: job ? 1 : 0, slotsTotal: 1 } } },
-    windowsJobs: { schemaVersion: 1, inFlight: job ? [{ id: 'mac-20260926-181500-aaaaaaaaaaaa', model: 'Qwen3.8-27B Q4_K_M', client: 'claude', lane: 'deep', ageSeconds: 32, timeoutSeconds: 600 }] : [],
+    windowsJobs: { schemaVersion: 1, journal:'recorded',complete:true, inFlight: job ? [{ id: 'mac-20260926-181500-aaaaaaaaaaaa', model: 'Qwen3.8-27B Q4_K_M', client: 'claude', lane: 'deep', ageSeconds: 32, timeoutSeconds: 600 }] : [],
       recent: [{ id: 'mac-20260926-181400-bbbbbbbbbbbb', state: 'success', model: 'gpt-oss-20b', client: 'codex', lane: 'fast', predictedPerSecond: 104, elapsedSeconds: 1.2, ageSeconds: 40 }], lastSuccess: null },
     activity: { runs: [ORB_RUN] } };
 }
@@ -1443,7 +1643,7 @@ test('poke flash: reduced motion or a paused feed lights only the poked star\'s 
 // Improvement 3, 10 Oct 2026: the PC chip and node lead with the PC's own fresh report, and every adapter is listed.
 // The fixture is the live snapshot of 21:18:56Z (windowsLive via the share, 9.9 s old, two idle models at 0/2 slots).
 const REPORT_MODEL = (over = {}) => ({ id: 'gpt-oss-20b', loadedState: 'loaded', activity: 'idle', slotsBusy: 0, slotsTotal: 2, ...over });
-const REPORT = (over = {}) => ({ via: 'share', host: 'louisaurorar12', health: 'ok', ageSeconds: 9.9,
+const REPORT = (over = {}) => ({ via: 'share', host: 'winpc01', health: 'ok', ageSeconds: 9.9, modelsComplete: true,
   models: [REPORT_MODEL(), REPORT_MODEL({ id: 'Qwen3.8-27B Q4_K_M' })], ...over });
 const REPORT_FRESH = { feedFresh: true, snapshotAge: 1 };
 
@@ -1478,7 +1678,7 @@ test('pcReportView: busy, unknown, down, degraded and empty reports, never live'
   for (const loadedState of ['unknown', 'resident', undefined])
     assert.equal(words([REPORT_MODEL({ loadedState }), REPORT_MODEL({ loadedState })]).words, 'Reports loaded unknown');
   assert.equal(words([REPORT_MODEL({activity:'generating'}), REPORT_MODEL({loadedState:'unknown'})]).words,
-    'Reports at least 1 loaded · 1 busy');
+    'Reports at least 1 loaded · at least 1 busy');
   assert.equal(words([REPORT_MODEL({ loadedState: 'inactive' })]).words, 'Reports 0 loaded · activity unknown');
   // The PC's bad news stays in every form: the tiny one keeps the health word, and the node names its subject so
   // "LINKED VIA LAN · DOWN" can never read as the link being down.
@@ -1525,7 +1725,7 @@ test('vitalsView: the PC chip leads with a known report and is byte-identical wi
     assert.deepEqual(vitalsView({ ...base, pcReport: unknown }), before, JSON.stringify(unknown));
   // The fast rate still joins the short form; a busy report never makes the chip live (only a dispatcher job does).
   const rated = windowsLaneView(worker, { inFlight: [], recent: [{ id: 'a', state: 'success', lane: 'fast', predictedPerSecond: 104.2, ageSeconds: 9 }] }, { feedFresh: true });
-  assert.equal(vitalsView({ ...base, lanes: rated, pcReport }).pc.short, 'Reports 2 loaded · idle · Headless off · fast 104 tok/s');
+  assert.equal(vitalsView({ ...base, lanes: rated, pcReport }).pc.short, 'Reports 2 loaded · idle · Headless off · fast last 104 tok/s · 9s ago');
   const busy = pcReportView(REPORT({ models: [REPORT_MODEL({ activity: 'generating', slotsBusy: 2 })] }), REPORT_FRESH);
   const busyChip = vitalsView({ ...base, pcReport: busy });
   assert.deepEqual([busyChip.pc.tone, busyChip.tiny.pc], ['ok', 'Reports 1 busy']);
@@ -1629,12 +1829,12 @@ test('macPeerView keeps a current failed LAN probe visible beside a share link',
 });
 
 test('pcReportView: a list the reader flagged incomplete is only a lower bound', () => {
-  const live = {via: 'lan', ageSeconds: 2, health: 'ok', models: [{id: 'a', loadedState: 'loaded', activity: 'idle'}]};
+  const live = {via: 'lan', ageSeconds: 2, health: 'ok', modelsComplete: true, models: [{id: 'a', loadedState: 'loaded', activity: 'idle'}]};
   assert.equal(layoutModule.pcReportView(live, {feedFresh: true}).words, 'Reports 1 loaded · idle');
   assert.equal(layoutModule.pcReportView({...live, modelsComplete: false}, {feedFresh: true}).words, 'Reports at least 1 loaded · activity unknown');
   // Every row rejected: missing evidence, never "no model loaded"; a complete empty list keeps its claim.
   assert.equal(layoutModule.pcReportView({...live, models: [], modelsComplete: false}, {feedFresh: true}).words, 'Reports loaded unknown');
-  assert.equal(layoutModule.pcReportView({...live, models: []}, {feedFresh: true}).words, 'Reports no model loaded');
+  assert.equal(layoutModule.pcReportView({...live, models: [], modelsComplete: true}, {feedFresh: true}).words, 'Reports no model loaded');
 });
 
 test('macReportView claims a count only from a complete Mac list (never "no model loaded" from missing evidence)', () => {
@@ -1647,6 +1847,22 @@ test('macReportView claims a count only from a complete Mac list (never "no mode
     {models: [...row.models, {id: 'c', loadedState: 'unknown', activity: 'unknown'}]}]) assert.deepEqual(view(over), {known: false});
   // A complete but empty share list is not usable presence for this UI.
   assert.deepEqual(view({models: []}), {known: false});
+});
+
+test('Mac presence: a complete loaded list supports a count without claiming complete downloaded inventory', () => {
+  const row = { host: 'mac', platform: 'macos', source: 'agiw-peers', fresh: true, modelsComplete: false,
+    loadedListComplete: true, ageSeconds: 3, health: 'ok', models: [{ id: 'alias-1', loadedState: 'loaded', activity: 'idle' }] };
+  const view = patch => layoutModule.macReportView([{ ...row, ...patch }], { feedFresh: true, name: 'mac' });
+  assert.equal(view({}).words, 'Reports 1 loaded · idle');
+  assert.match(layoutModule.agiwPeersRows([row], { feedFresh: true })[0][1], /1 loaded/);
+  assert.equal(view({ models: [] }).words, 'Reports no model loaded');
+  assert.match(layoutModule.agiwPeersRows([{ ...row, models: [] }], { feedFresh: true })[0][1], /0 loaded/);
+  for (const patch of [{ loadedListComplete: false }, { loadedListComplete: undefined }, { loadedListComplete: 'true' },
+    { models: [{ id: 'unknown', loadedState: 'unknown' }] }, { models: Array.from({ length: 33 }, () => row.models[0]) }]) {
+    assert.deepEqual(view(patch), { known: false });
+    assert.match(layoutModule.agiwPeersRows([{ ...row, ...patch }], { feedFresh: true })[0][1], /Loaded state unknown/);
+  }
+  assert.equal(row.modelsComplete, false);
 });
 
 test('macReportView requires and reads only the configured Mac name', () => {
@@ -1695,4 +1911,16 @@ test('app wires Mac reports to live feeds, attributes share-only evidence, and n
   assert.match(app, /vitals\.micro\.pc=report\.known\?\(shortFailure\|\|report\.tiny\)/);
   assert.match(app, /llama-server model sizes \(\/v1\/models metadata\), not measured memory/);
   assert.match(app, /Open memory details for this \$\{snapshot\?\.host==='windows'\?'PC':'Mac'\}/);
+});
+
+test('Sol7: represented catalog is retained in telemetry but excluded from runtime stars and counts', () => {
+  const rows = [{id: 'provider/a', host: 'mac', loaded: true, representedByInstances: true},
+    {id: 'alias-a', modelKey: 'provider/a', host: 'mac', loaded: true}];
+  for (const scope of ['core', 'all']) {
+    const roster = layoutModule.runtimeModelRoster(rows, {scope});
+    assert.deepEqual(roster.visible.map(m => m.id), ['alias-a']);
+    assert.equal(roster.macDiscovered, 1);
+    assert.equal(roster.hidden.length, 0);
+  }
+  assert.equal(rows.length, 2);
 });

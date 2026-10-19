@@ -1,7 +1,9 @@
 """End to end: fake llama-server lanes on real sockets -> collector -> store -> HTTP + SSE."""
 import http.client
+import io
 import json
 import os
+import socket
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import sys
@@ -13,7 +15,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from agiw_win import probes  # noqa: E402
-from agiw_win.collect import Collector  # noqa: E402
+from agiw_win.collect import Collector, LANE_FRESH_SECONDS  # noqa: E402
 from agiw_win.server import MonitorServer, SnapshotStore, activity_is_known, find_web_root, sample  # noqa: E402
 
 
@@ -37,7 +39,133 @@ def lane_server(model, state):
     return server
 
 
+class HistoryRegression(unittest.TestCase):
+    def test_lan_clock_contract_body_without_socket_transport(self):
+        """Replay the unchanged five-case assertion body through the real collector.
+
+        This supplements, rather than skips or substitutes for, EndToEnd's socket
+        test. Only lane acquisition and platform adapters are local fixtures.
+        """
+        replay = EndToEnd('test_linked_share_retains_only_a_current_lan_failure_on_its_own_clock')
+        with tempfile.TemporaryDirectory() as directory:
+            replay.tmp = mock.Mock(name=directory)
+            replay.tmp.name = directory
+            share = Path(directory)
+            (share / 'windows-llm-pipeline').mkdir()
+            (share / 'windows-llm-pipeline' / 'config.json').write_text(json.dumps({'runtime': {'lanes': {
+                'fast': {'port': 1235, 'alias': 'openai/gpt-oss-20b', 'device': 'CUDA0'},
+                'deep': {'port': 1236, 'alias': 'qwen3.8-27b', 'device': 'none'}}}}))
+            (share / 'llm-lab').mkdir()
+            (share / 'llm-lab' / 'config.json').write_text('{}')
+            gib = 2**30
+            replay.collector = Collector(share, share/'bin', build={}, notification_fn=lambda: 5,
+                gpu_fn=lambda: ([], probes._source('pc-gpu','GPU','unavailable','Fixture')),
+                adapters_fn=lambda: [], runs_root=share/'runs',
+                lane_processes=mock.Mock(sample=lambda ports: ({lane: dict(owner='agiw',ownerKnown=True,pid=77,created=1) for lane in ports.values()},
+                    [], dict(id='lane-processes',state='live',ageSeconds=0))),
+                memory_fn=lambda: probes.memory_block(lambda: dict(totalPhys=64*gib,availPhys=32*gib,commitLimit=80*gib,commitAvail=50*gib)))
+            def lane(spec, now):
+                def fetch(url, *_):
+                    return {'status':'ok'} if url.endswith('/health') else {'data':[{'id':spec['alias']}]} if url.endswith('/v1/models') else [{'id':0,'is_processing':False},{'id':1,'is_processing':False}]
+                return {**probes.probe_lane(spec,fetch),'ageSeconds':0}
+            try:
+                with mock.patch.object(replay.collector,'_lane',side_effect=lane):
+                    replay.test_linked_share_retains_only_a_current_lan_failure_on_its_own_clock()
+            finally:
+                replay.collector.close()
+
+    def test_history_loaded_count_requires_complete_fresh_residency(self):
+        store = SnapshotStore()
+        base = {"sampledAt": "2026-10-17T12:00:00Z", "sources": [], "models": [
+            {"host": "windows", "id": "fast", "name": "Fast", "state": "unknown",
+             "loaded": None, "ageSeconds": 0.2},
+            {"host": "windows", "id": "deep", "name": "Deep", "state": "unknown",
+             "loaded": None, "ageSeconds": 0.2},
+        ]}
+        store.publish(base)
+        self.assertIsNone(store.read()["history"][-1]["loaded"])
+
+        known = {**base, "sampledAt": "2026-10-17T12:00:01Z", "models": [
+            {"host": "windows", "id": "fast", "name": "Fast", "state": "idle",
+             "loaded": True, "ageSeconds": 0.2},
+            {"host": "windows", "id": "deep", "name": "Deep", "state": "idle",
+             "loaded": False, "ageSeconds": 0.2},
+        ]}
+        store.publish(known)
+        self.assertEqual(store.read()["history"][-1]["loaded"], 1)
+
+        stale = {**known, "sampledAt": "2026-10-17T12:00:02Z", "models": [
+            known["models"][0], {**known["models"][1], "ageSeconds": LANE_FRESH_SECONDS + 1.0},
+        ]}
+        store.publish(stale)
+        self.assertIsNone(store.read()["history"][-1]["loaded"])
+
+
 class EndToEnd(unittest.TestCase):
+    # The collector consumes optional cached LAN evidence; it never acquires it.
+    def configure_mac(self, **fields):
+        target = Path(self.tmp.name) / "llm-lab" / "mac-reach" / "hosts.json"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps({"mac": fields}), encoding="utf-8")
+
+    def write_mac_presence(self, host, observed, models, **fields):
+        share = Path(self.tmp.name)
+        target = probes.peer_dir(share) / f"{host}.json"
+        probes.write_json_atomic(target, {"schemaVersion": 1, "kind": "agiw-peer", "host": host,
+            "platform": "macos", "observedUnix": observed, "models": models, **fields},
+            probes.PEER_MAX_BYTES, stop_at=share)
+
+    def set_mac_result(self, observed, **fields):
+        result = {"state": "unreachable", "observedAt": observed, "name": "ConfiguredMac",
+                  "models": [], "loadedCount": None, "detail": "Test LAN refusal", "reason": "refused",
+                  "address": None, "latencyMs": None, **fields}
+        self.collector.mac_lan_observation = result
+
+    def assert_local_readings_preserved(self, snapshot):
+        self.assertEqual(snapshot["host"], "windows")
+        self.assertEqual({m["id"]: m["state"] for m in snapshot["models"]},
+                         {"openai/gpt-oss-20b": "idle", "qwen3.8-27b": "idle"})
+        self.assertEqual((snapshot["memory"]["level"], snapshot["share"]["state"]), ("ok", "ready"))
+        sources = {s["id"]: s["state"] for s in snapshot["sources"]}
+        self.assertEqual((sources["llama-slots"], sources["lane-inventory"]), ("live", "live"))
+        for lane in snapshot["windowsWorker"]["lanes"].values():
+            self.assertEqual((lane["up"], lane["slotsBusy"], lane["slotsTotal"]), (True, 0, 2))
+
+    def test_linked_share_retains_only_a_current_lan_failure_on_its_own_clock(self):
+        now = 2_000_000_000.0
+        self.collector.clock = lambda: now
+        self.configure_mac(hostname="mac")
+        self.write_mac_presence("mac", now - 2.4, [{"id": "reported-model", "loadedState": "loaded"}], modelsTotal=1)
+        for age, current in ((0.0, True), (45.0, True), (45.04, False), (-5.0, True), (-5.04, False)):
+            with self.subTest(lan_age=age):
+                self.set_mac_result(now - age, name="mac")
+                snapshot = self.collector.collect()
+                self.assert_local_readings_preserved(snapshot)
+                mac = snapshot["macPeer"]
+                self.assertEqual(mac["state"], "linked")
+                self.assertEqual(mac["ageSeconds"], now - (now - 2.4))
+                self.assertEqual(mac["linkAgeSeconds"], mac["ageSeconds"])
+                self.assertEqual(mac.get("lanFailure"), "refused" if current else None)
+                self.assertEqual(mac.get("lanFailureAgeSeconds"), max(0.0, age) if current else None)
+                self.assertFalse(mac["verified"])
+                self.assertIsNone(mac["address"])
+                self.assertIsNone(mac["latencyMs"])
+                source = next(s for s in snapshot["sources"] if s["id"] == "mac-peer")
+                self.assertEqual(source["state"], "error" if current else "unavailable")
+                observed_age = now - (now - age)
+                self.assertEqual(source["ageSeconds"], max(0.0, observed_age) if current else observed_age,
+                                 "the independent LAN source must keep its own clock")
+                self.assertEqual(source, {
+                    "id": "mac-peer", "label": "Mac LAN observation",
+                    "state": "error" if current else "unavailable",
+                    "ageSeconds": max(0.0, observed_age) if current else observed_age,
+                    "detail": ("Mac LM Studio LAN check failed (refused); cause unknown" if current
+                               else "Mac LM Studio LAN reachability unknown")},
+                    "share composition must retain the entire independent LAN source")
+                self.assertEqual(probes.pc_status(snapshot)["limitations"],
+                                 ["mac LM Studio LAN check failed (refused); cause unknown"] if current else
+                                 ["mac LM Studio LAN reachability unknown"])
+
     def setUp(self):
         self.fast_state, self.deep_state = {"busy": False}, {"busy": False}
         self.fast = lane_server("openai/gpt-oss-20b", self.fast_state)
@@ -53,6 +181,11 @@ class EndToEnd(unittest.TestCase):
         gib = 2 ** 30
         self.collector = Collector(
             share, share / "bin", lane_interval=0.05, lane_wait=3.0, runs_root=share / "code-runs",
+            lane_processes=mock.Mock(sample=lambda ports: (
+                {lane: {"owner": "agiw", "ownerKnown": True, "pid": 77, "created": 1,
+                        "name": "llama-server"} for lane in ports.values()},
+                [], {"id": "lane-processes", "label": "Lane processes", "state": "live",
+                     "ageSeconds": 0.0, "detail": "fixture lane owner"})),
             gpu_fn=lambda: ([{"index": 0, "name": "RTX", "utilizationPercent": 10.0, "memoryUsedMiB": 100.0,
                               "memoryTotalMiB": 12288.0, "temperatureC": 40.0, "powerW": 50.0, "vendor": "nvidia"}],
                             probes._source("pc-gpu", "PC GPU", "live", "ok")),
@@ -111,14 +244,15 @@ class EndToEnd(unittest.TestCase):
         self.assertEqual(data["events"][0]["state"], "generating")
         self.assertEqual(data["history"][-1]["active"], 1)
 
-    def test_lane_down(self):
+    def test_lane_unreachable_is_unknown(self):
         self.fast.shutdown()
         self.fast.server_close()
         time.sleep(1.0)
         data = self.collector.collect()
         fast = next(m for m in data["models"] if m["id"] == "openai/gpt-oss-20b")
         self.assertEqual((fast["state"], fast["loaded"]), ("unknown", None))
-        self.assertEqual(data["windowsWorker"]["lanes"]["fast"]["up"], False)
+        self.assertIsNone(data["windowsWorker"]["lanes"]["fast"]["up"])
+        self.assertEqual(data["windowsWorker"]["lanes"]["fast"]["health"]["state"], "unknown")
         self.assertFalse(activity_is_known(data["models"], {s["id"]: s["state"] for s in data["sources"]}))
 
     def test_rejects_foreign_host_and_origin(self):
@@ -218,7 +352,7 @@ class EndToEnd(unittest.TestCase):
         again = self.collector.collect()
         self.assertEqual([p["host"] for p in again["peers"]], ["otherpc"])
         self.assertTrue(again["peers"][0]["fresh"])
-        # The Mac LAN probe is off in this test, so the share link is what connects the Mac node.
+        # The share link is the only way the Mac node connects (0.2.0 has no LAN probe).
         self.assertEqual(again["macPeer"]["state"], "linked")
         self.assertEqual(again["macPeer"]["loadedCount"], 2)
 
@@ -228,14 +362,18 @@ class EndToEnd(unittest.TestCase):
         poller = next(p for k, p in self.collector._pollers.items() if k[0] == "deep")
         poller.stop()
         at, lane = poller.read()
-        poller._latest = (at - 10, lane)
+        poller._latest = (at - LANE_FRESH_SECONDS - 1, lane)
         data = self.collector.collect()
         deep = data["windowsWorker"]["lanes"]["deep"]
-        self.assertEqual((deep["status"], deep["up"]), ("stale", False))
+        self.assertEqual((deep["status"], deep["up"]), ("stale", None))  # stale is unknown, never down (Sol round 2, finding 2)
         self.assertNotEqual(next(s for s in data["sources"] if s["id"] == "llama-slots")["state"], "live")
         self.assertFalse(activity_is_known(data["models"], {s["id"]: s["state"] for s in data["sources"]}))
 
     def test_lane_expiry_uses_unrounded_poll_time(self):
+        # Slot activity AND capacity expire after 5 s. The 11.8 s inclusive
+        # inventory deadline preserves health/residency, never current slots.
+        # Pass 9 cleared expired published slots; retaining total=2 here was a
+        # stale expectation. The recorded total belongs only in lastObservation.
         from contextlib import ExitStack
         observed = 1000.0
         self.collector.clock = lambda: observed
@@ -246,7 +384,7 @@ class EndToEnd(unittest.TestCase):
                 _, lane = poller.read()
                 frozen = {**lane, "liveTokensPerSecond": 12.5 if lane["id"] == "fast" else None}
                 patches.enter_context(mock.patch.object(poller, "read", return_value=(observed, frozen)))
-            for age in (2.999, 3.0, 3.004, 3.005):
+            for age in (LANE_FRESH_SECONDS - .001, LANE_FRESH_SECONDS, LANE_FRESH_SECONDS + .004):
                 with self.subTest(age=age):
                     self.collector.clock = lambda: observed + age
                     snap = self.collector.collect()
@@ -255,17 +393,19 @@ class EndToEnd(unittest.TestCase):
                     lane = snap["windowsWorker"]["lanes"]["fast"]
                     model = next(m for m in snap["models"] if m["id"] == "openai/gpt-oss-20b")
                     sources = {s["id"]: s["state"] for s in snap["sources"]}
-                    self.assertEqual(lane["ageSeconds"], 3.0)
-                    if age <= 3:
+                    self.assertEqual(lane["ageSeconds"], round(LANE_FRESH_SECONDS, 2))
+                    self.assertEqual(model["metadata"]["lastObservation"]["slotsTotal"], 2)
+                    self.assertIsNone(snap["lanes"][0]["slotsTotal"])
+                    if age <= LANE_FRESH_SECONDS:
                         self.assertEqual((lane["status"], lane["up"], lane["slotsBusy"], lane["slotsTotal"]),
-                                         ("busy", True, 1, 2))
-                        self.assertEqual((model["state"], model["loaded"]), ("generating", True))
-                        self.assertEqual(model["metadata"]["liveTokensPerSecond"], 12.5)
-                        self.assertEqual((sources["llama-slots"], sources["lane-inventory"]), ("live", "live"))
-                        self.assertTrue(snap["activityKnown"])
+                                         ("slots_unknown", True, None, None))
+                        self.assertEqual((model["state"], model["loaded"]), ("loaded", True))
+                        self.assertIsNone(model["metadata"]["liveTokensPerSecond"])
+                        self.assertEqual((sources["llama-slots"], sources["lane-inventory"]), ("error", "live"))
+                        self.assertFalse(snap["activityKnown"])
                     else:
                         self.assertEqual((lane["status"], lane["up"], lane["slotsBusy"], lane["slotsTotal"]),
-                                         ("stale", False, None, 2))
+                                         ("stale", None, None, None))  # stale is unknown, never down
                         self.assertEqual((model["state"], model["loaded"]), ("unknown", None))
                         self.assertIsNone(model["metadata"]["liveTokensPerSecond"])
                         self.assertEqual((sources["llama-slots"], sources["lane-inventory"]),
@@ -388,13 +528,6 @@ class EndToEnd(unittest.TestCase):
             target.unlink()
         (probes.peer_dir(share).parent / "mac-status.json").unlink(missing_ok=True)
 
-    def set_mac_result(self, observed, **fields):
-        result = {"state": "unreachable", "observedAt": observed, "name": "ConfiguredMac",
-                  "models": [], "loadedCount": None, "detail": "Test LAN refusal", "reason": "refused",
-                  "address": None, "latencyMs": None, **fields}
-        self.collector.mac_peer = probes.MacPeer(Path(self.tmp.name), probe=lambda _hosts: result)
-        self.collector.mac_peer.poll_once()
-
     def assert_local_readings_preserved(self, snapshot):
         self.assertEqual(snapshot["host"], "windows")
         self.assertEqual({m["id"]: m["state"] for m in snapshot["models"]},
@@ -409,6 +542,7 @@ class EndToEnd(unittest.TestCase):
         now = 2_000_000_000.0
         self.collector.clock = lambda: now  # Set before any local lane poller observes its first answer.
         models = [{"id": "reported-model", "loadedState": "loaded"}]
+        # (label, hosts.json, reporter, a previously configured name that must never link, linked)
         cases = [("matching", {"hostname": "target.local"}, "target", "target", True),
                  ("different-reporter", {"hostname": "target.local"}, "other-mac", "target", False),
                  ("missing-config", None, "old-mac", "old-mac", False),
@@ -422,7 +556,6 @@ class EndToEnd(unittest.TestCase):
                     (Path(self.tmp.name) / "llm-lab" / "mac-reach" / "hosts.json").unlink(missing_ok=True)
                 else:
                     self.configure_mac(**config)
-                self.set_mac_result(now - 46, name=old_name)
                 self.write_mac_presence(reporter, now, models, modelsTotal=1)
                 snapshot = self.collector.collect()
                 self.assert_local_readings_preserved(snapshot)
@@ -435,6 +568,12 @@ class EndToEnd(unittest.TestCase):
                 else:
                     self.assertEqual(mac["models"], [])
                     self.assertNotIn("linkSource", mac)
+                    expected_reason = ("unconfigured" if config is None else
+                                       "config-unreadable" if not config else "no-report")
+                    self.assertEqual(mac["reason"], expected_reason)
+                    if expected_reason == "config-unreadable":
+                        self.assertIn("Mac identity unknown; hosts.json unreadable or invalid",
+                                      probes.pc_status(snapshot)["limitations"])
                 self.assertEqual([p["host"] for p in snapshot["peers"]], [reporter],
                                  "unattributable reports remain visible as their own AGIW peers")
 
@@ -450,12 +589,11 @@ class EndToEnd(unittest.TestCase):
             with self.subTest(config=config, reporter=reporter):
                 self.clear_mac_reports()
                 self.configure_mac(**config)
-                self.set_mac_result(now, name=None)
                 self.write_mac_presence(reporter, now, models, modelsTotal=1)
                 snapshot = self.collector.collect()
                 self.assert_local_readings_preserved(snapshot)
                 mac = snapshot["macPeer"]
-                self.assertEqual(mac["state"], "linked" if linked else "unreachable")
+                self.assertEqual((mac["state"], mac["reason"]), ("linked", None) if linked else ("unknown", "no-report"))
                 if linked:
                     self.assertEqual(mac["loadedCount"], 1)
                     self.assertIsInstance(mac["name"], str)
@@ -491,74 +629,66 @@ class EndToEnd(unittest.TestCase):
                 self.assertEqual(mac["loadedCount"], expected_count)
                 self.assertFalse(mac["verified"])
 
-    def test_linked_share_retains_only_a_current_lan_failure_on_its_own_clock(self):
+    def test_linked_share_has_no_lan_claim_and_no_limitation(self):
         now = 2_000_000_000.0
         self.collector.clock = lambda: now
         self.configure_mac(hostname="mac")
         self.write_mac_presence("mac", now - 2.4, [{"id": "reported-model", "loadedState": "loaded"}], modelsTotal=1)
-        for age, current in ((0.0, True), (45.0, True), (45.04, False), (-5.0, True), (-5.04, False)):
-            with self.subTest(lan_age=age):
-                self.set_mac_result(now - age, name="mac")
-                _, expected_source = self.collector.mac_peer.read(now)
-                snapshot = self.collector.collect()
-                self.assert_local_readings_preserved(snapshot)
-                mac = snapshot["macPeer"]
-                self.assertEqual(mac["state"], "linked")
-                self.assertEqual((mac["ageSeconds"], mac["linkAgeSeconds"]), (2.4, 2.4))
-                self.assertEqual(mac.get("lanFailure"), "refused" if current else None)
-                self.assertEqual(mac.get("lanFailureAgeSeconds"), max(0.0, age) if current else None)
-                self.assertFalse(mac["verified"])
-                self.assertIsNone(mac["address"])
-                self.assertIsNone(mac["latencyMs"])
-                source = next(s for s in snapshot["sources"] if s["id"] == "mac-peer")
-                self.assertEqual(source, expected_source, "the independent LAN source must keep its own result")
-                self.assertEqual(probes.pc_status(snapshot)["limitations"],
-                                 ["mac LM Studio LAN check failed (refused); cause unknown"] if current else
-                                 ["mac LM Studio LAN reachability unknown"])
+        snapshot = self.collector.collect()
+        self.assert_local_readings_preserved(snapshot)
+        mac = snapshot["macPeer"]
+        # Integration (A3 + A4): the share age is published exactly, as A4 requires (a
+        # round(age, 1) could turn a 30.04 s report into a "fresh" 30.0 s downstream).
+        # float64 subtraction near 2e9 leaves ~1e-7 of noise on the fixture's 2.4 s.
+        self.assertEqual(mac["state"], "linked")
+        self.assertAlmostEqual(mac["ageSeconds"], 2.4, places=6)
+        self.assertEqual(mac["linkAgeSeconds"], mac["ageSeconds"])
+        self.assertNotIn("lanFailure", mac)
+        self.assertEqual((mac["address"], mac["latencyMs"], mac["verified"]), (None, None, False))
+        self.assertEqual(probes.pc_status(snapshot)["limitations"], [])
+        self.assertEqual(next(s for s in snapshot["sources"] if s["id"] == "mac-presence")["state"], "live")
 
-    def test_missing_stale_or_invalid_share_keeps_the_direct_mac_result(self):
+    def test_missing_stale_or_invalid_share_leaves_the_mac_unknown_with_a_reason(self):
         now = 2_000_000_000.0
         self.collector.clock = lambda: now
         self.configure_mac(hostname="mac")
-        self.set_mac_result(now, name="mac")
-        for kind in ("missing", "stale", "invalid"):
+        for kind, reason in (("missing", "no-report"), ("stale", "stale"),
+                             ("invalid", "report-refused"), ("future", "clock-ahead")):
             with self.subTest(kind=kind):
                 self.clear_mac_reports()
                 if kind != "missing":
-                    self.write_mac_presence("mac", now - 30.04 if kind == "stale" else 10 ** 1000,
+                    observed = now - 30.04 if kind == "stale" else now + 6 if kind == "future" else 10 ** 1000
+                    self.write_mac_presence("mac", observed,
                                             [{"id": "reported-model", "loadedState": "loaded"}], modelsTotal=1)
                 snapshot = self.collector.collect()
                 self.assert_local_readings_preserved(snapshot)
                 mac = snapshot["macPeer"]
-                self.assertEqual((mac["state"], mac["name"], mac["reason"], mac["observedAt"]),
-                                 ("unreachable", "mac", "refused", now))
+                self.assertEqual((mac["state"], mac["name"], mac["reason"]), ("unknown", "mac", reason))
                 self.assertEqual(mac["models"], [])
                 self.assertIsNone(mac["loadedCount"])
                 self.assertNotIn("linkSource", mac)
+                self.assertEqual(probes.pc_status(snapshot)["limitations"],
+                                 ["mac presence on SharedChami not fresh; Mac state unknown"])
 
-    def test_a_current_direct_mac_answer_takes_priority_over_matching_share(self):
-        now = 2_000_000_000.0
-        self.collector.clock = lambda: now
-        self.configure_mac(hostname="mac")
-        self.set_mac_result(now, state="reachable", name="mac", reason=None,
-                            models=[{"id": "direct-model", "state": "loaded"}], loadedCount=1,
-                            address="192.168.77.2", latencyMs=3, detail="Test direct model listing")
-        self.write_mac_presence("mac", now, [{"id": "share-model", "loadedState": "loaded"}], modelsTotal=1)
-        snapshot = self.collector.collect()
-        self.assert_local_readings_preserved(snapshot)
-        mac = snapshot["macPeer"]
-        self.assertEqual((mac["state"], mac["loadedCount"], mac["models"]),
-                         ("reachable", 1, [{"id": "direct-model", "state": "loaded"}]))
-        self.assertEqual((mac["address"], mac["latencyMs"]), ("192.168.77.2", 3))
-        self.assertNotIn("linkSource", mac)
+    def test_the_observer_only_ever_requests_its_own_lane_ports(self):
+        seen = []
+        real = self.collector.fetch
+
+        def recording(url, timeout, limit):
+            seen.append(url)
+            return real(url, timeout, limit)
+        self.collector.fetch = recording
+        self.configure_mac(hostname="mac", ips=["192.0.2.176"], lm_studio_port=1234, mdns="mac.local")
+        for _ in range(3):
+            self.collector.collect()
+            time.sleep(0.1)
+        lanes = {f"http://127.0.0.1:{self.fast.server_address[1]}", f"http://127.0.0.1:{self.deep.server_address[1]}"}
+        self.assertTrue(seen)
+        self.assertTrue(all(any(url.startswith(lane + "/") for lane in lanes) for url in seen), seen)
 
     def test_expired_share_reports_do_not_promote_the_mac_to_linked(self):
         observed = 2_000_000_000.0
         self.configure_mac(hostname="mac")
-        self.collector.mac_peer = probes.MacPeer(Path(self.tmp.name), probe=lambda _hosts: {
-            "state": "unreachable", "observedAt": observed, "models": [], "loadedCount": None,
-            "detail": "Test LAN refusal", "reason": "refused"})
-        self.collector.mac_peer.poll_once()
         for kind in ("agiw-peers", "mac-status.json"):
             for target in (probes.peer_dir(Path(self.tmp.name)) / "mac.json",
                            probes.peer_dir(Path(self.tmp.name)).parent / "mac-status.json"):
@@ -577,7 +707,7 @@ class EndToEnd(unittest.TestCase):
                         self.assertEqual(mac["models"], [{"id": "reported-model", "state": "loaded"}])
                         self.assertFalse(mac["verified"])
                     else:
-                        self.assertEqual((mac["state"], mac["reason"], mac["models"]), ("unreachable", "refused", []))
+                        self.assertEqual((mac["state"], mac["reason"], mac["models"]), ("unknown", "stale", []))
                         self.assertNotIn("linkSource", mac)
                         self.assertEqual(snap["peers"][0]["models"][0]["id"], "reported-model")
 
@@ -750,6 +880,225 @@ class EndToEnd(unittest.TestCase):
         conn.request("POST", "/api/models/control", body=b"{}", headers={"Host": f"127.0.0.1:{self.port}",
                                                                           "Origin": origin, "Content-Type": "application/json"})
         self.assertEqual(conn.getresponse().status, 501)
+
+
+class PostBodyRequests(unittest.TestCase):
+    """Rejected POSTs still return readable responses for segmented request bodies."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.server = MonitorServer(("127.0.0.1", 0), SnapshotStore(), Path(self.tmp.name))
+        self.port = self.server.server_address[1]
+        self.thread = threading.Thread(target=self.server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
+        self.thread.start()
+
+    def tearDown(self):
+        self.server.stopping.set()
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join(timeout=1)
+        self.tmp.cleanup()
+        self.assertFalse(self.thread.is_alive())
+
+    def headers(self, content_lengths=("2",), origin=None):
+        host = f"127.0.0.1:{self.port}"
+        origin = f"http://{host}" if origin is None else origin
+        return (
+            "POST /api/models/control HTTP/1.1\r\n"
+            "Accept-Encoding: identity\r\n"
+            + "".join(f"Content-Length: {length}\r\n" for length in content_lengths)
+            + f"Host: {host}\r\nOrigin: {origin}\r\n"
+            + "Content-Type: application/json\r\n\r\n"
+        ).encode("ascii")
+
+    def assert_response(self, content_lengths=("2",), body=b"{}", origin=None, status=501):
+        with socket.create_connection(("127.0.0.1", self.port), timeout=1) as sock:
+            sock.sendall(self.headers(content_lengths, origin))
+            if body:
+                time.sleep(0.005)
+                sock.sendall(body)
+            with http.client.HTTPResponse(sock, method="POST") as response:
+                response.begin()
+                payload = response.read()
+                self.assertEqual(response.status, status)
+                self.assertEqual(response.getheader("Content-Type"), "application/json")
+                self.assertEqual(response.getheader("Content-Length"), str(len(payload)))
+                self.assertEqual(json.loads(payload), {
+                    "status": "error",
+                    "message": ("The Windows edition is read-only in this version." if status == 501 else
+                                "Exact same-origin Origin and Host are required.")})
+
+    def test_delayed_body_returns_readable_501(self):
+        self.assert_response()
+
+    def test_delayed_bad_origin_body_returns_readable_403(self):
+        self.assert_response(origin="http://foreign.invalid", status=403)
+
+    def test_zero_and_maximum_body_lengths_return_readable_501(self):
+        for length in (0, 65536):
+            with self.subTest(length=length):
+                self.assert_response(content_lengths=(str(length),), body=b"x" * length)
+
+    def test_invalid_body_lengths_reply_without_waiting_for_body(self):
+        cases = [("missing", ()), ("negative", ("-1",)), ("nondecimal", ("bad",)),
+                 ("fraction", ("2.0",)), ("oversized", ("65537",)), ("duplicate", ("2", "3")),
+                 ("excessive-decimal", ("9" * 5000,))]
+        for label, lengths in cases:
+            with self.subTest(case=label):
+                started = time.monotonic()
+                self.assert_response(content_lengths=lengths, body=b"")
+                self.assertLess(time.monotonic() - started, 1)
+
+    def test_stalled_valid_body_is_closed_by_existing_deadline(self):
+        with socket.create_connection(("127.0.0.1", self.port), timeout=4.5) as sock:
+            started = time.monotonic()
+            sock.sendall(self.headers())
+            try:
+                first = sock.recv(1)
+            except ConnectionResetError:
+                first = b""
+            elapsed = time.monotonic() - started
+            self.assertEqual(first, b"")
+            self.assertGreater(elapsed, 2)
+            self.assertLess(elapsed, 4.5)
+
+
+class UnsupportedBodyRequests(unittest.TestCase):
+    """The three refused write verbs keep complete stdlib replies for split sends."""
+
+    setUp = PostBodyRequests.setUp
+    tearDown = PostBodyRequests.tearDown
+    headers = PostBodyRequests.headers
+
+    def request(self, verb, content_lengths=("2",), body=b"{}", mode="delayed", path="/api/models/control"):
+        host = f"127.0.0.1:{self.port}"
+        headers = (
+            f"{verb} {path} HTTP/1.1\r\nAccept-Encoding: identity\r\n"
+            + "".join(f"Content-Length: {length}\r\n" for length in content_lengths)
+            + f"Host: {host}\r\nOrigin: http://{host}\r\nContent-Type: application/json\r\n\r\n"
+        ).encode("ascii")
+        with socket.create_connection(("127.0.0.1", self.port), timeout=1) as sock:
+            if mode == "combined":
+                sock.sendall(headers + body)
+            else:
+                sock.sendall(headers)
+                if body:
+                    time.sleep(0.005)
+                    sock.sendall(body)
+            with http.client.HTTPResponse(sock, method=verb) as response:
+                response.begin()
+                return response.status, response.reason, dict(response.getheaders()), response.read()
+
+    def assert_html_refusal(self, result, verb):
+        status, reason, headers, payload = result
+        message = f"Unsupported method ({verb!r})"
+        self.assertEqual((status, reason), (501, message))
+        self.assertEqual(headers["Content-Type"], "text/html;charset=utf-8")
+        self.assertEqual(headers["Content-Length"], str(len(payload)))
+        self.assertEqual(headers["Connection"], "close")
+        self.assertIn(message, payload.decode("utf-8"))
+        # Python 3.9's stdlib uses the HTML 4.01 public doctype; newer versions use the short form.
+        self.assertTrue(payload.startswith(BaseHTTPRequestHandler.error_message_format.splitlines()[0].encode()))
+        self.assertTrue(payload.endswith(b"</html>\n"))
+
+    def test_delayed_bodies_return_full_501_html(self):
+        for verb in ("PUT", "DELETE", "PATCH"):
+            with self.subTest(verb=verb):
+                baseline = self.request(verb, content_lengths=("0",), body=b"")
+                self.assert_html_refusal(baseline, verb)
+                delayed = self.request(verb)
+                self.assert_html_refusal(delayed, verb)
+                self.assertEqual(delayed[3], baseline[3])
+
+    def test_combined_and_empty_bodies_keep_stdlib_refusal(self):
+        for verb in ("PUT", "DELETE", "PATCH"):
+            with self.subTest(verb=verb):
+                empty = self.request(verb, content_lengths=("0",), body=b"")
+                combined = self.request(verb, mode="combined")
+                self.assert_html_refusal(empty, verb)
+                self.assert_html_refusal(combined, verb)
+                self.assertEqual(combined[3], empty[3])
+
+    def test_maximum_bodies_return_full_501_html(self):
+        for verb in ("PUT", "DELETE", "PATCH"):
+            with self.subTest(verb=verb):
+                self.assert_html_refusal(self.request(verb, content_lengths=("65536",), body=b"x" * 65536), verb)
+
+    def test_invalid_lengths_reply_without_waiting_for_body(self):
+        cases = [(), ("-1",), ("bad",), ("2.0",), ("65537",), ("2", "3"), ("9" * 5000,)]
+        for verb in ("PUT", "DELETE", "PATCH"):
+            for index, lengths in enumerate(cases):
+                with self.subTest(verb=verb, case=index):
+                    started = time.monotonic()
+                    self.assert_html_refusal(self.request(verb, content_lengths=lengths, body=b""), verb)
+                    self.assertLess(time.monotonic() - started, 1)
+
+    def test_stalled_body_keeps_existing_deadline(self):
+        with socket.create_connection(("127.0.0.1", self.port), timeout=4.5) as sock:
+            started = time.monotonic()
+            sock.sendall(self.headers().replace(b"POST ", b"PUT ", 1))
+            try:
+                first = sock.recv(1)
+            except ConnectionResetError:
+                first = b""
+            elapsed = time.monotonic() - started
+            self.assertEqual(first, b"")
+            self.assertGreater(elapsed, 2)
+            self.assertLess(elapsed, 4.5)
+
+    def test_get_and_post_compatibility(self):
+        status, _, headers, payload = self.request("GET", content_lengths=("0",), body=b"", path="/api/health")
+        self.assertEqual(status, 200)
+        self.assertEqual(headers["Content-Type"], "application/json")
+        self.assertEqual(set(json.loads(payload)), {"service", "version", "pid"})
+        PostBodyRequests.assert_response(self)
+
+    def test_other_unsupported_methods_do_not_wait_for_body(self):
+        for verb in ("HEAD", "OPTIONS", "UNKNOWN"):
+            with self.subTest(verb=verb):
+                result = self.request(verb, body=b"")
+                if verb == "HEAD":
+                    self.assertEqual((result[0], result[1], result[3]), (501, "Unsupported method ('HEAD')", b""))
+                    self.assertGreater(int(result[2]["Content-Length"]), 0)
+                else:
+                    self.assert_html_refusal(result, verb)
+
+    def test_parser_error_delegates_without_body_read(self):
+        request = b"PUT /api/models/control HTTP/2.0\r\n"
+
+        class BufferSocket:
+            def __init__(self):
+                self.output = bytearray()
+
+            def makefile(self, *_):
+                return io.BytesIO(request)
+
+            def sendall(self, data):
+                self.output.extend(data)
+
+        class ReferenceHandler(BaseHTTPRequestHandler):
+            def log_message(self, *_):
+                pass
+
+        reference = BufferSocket()
+        ReferenceHandler(reference, ("127.0.0.1", 0), None)
+        with socket.create_connection(("127.0.0.1", self.port), timeout=1) as sock:
+            sock.sendall(request)
+            payload = b""
+            while True:
+                chunk = sock.recv(65536)
+                if not chunk:
+                    break
+                payload += chunk
+        # 3.9 rejects the version before assigning request_version, so its stdlib sends only HTML (HTTP/0.9).
+        # Preserve the runtime's parser behavior, with a framed 505 on newer Pythons and the same error body on both.
+        expected = bytes(reference.output)
+        if expected.startswith(b"HTTP/"):
+            self.assertTrue(payload.startswith(b"HTTP/1.0 505 "))
+        else:
+            self.assertFalse(payload.startswith(b"HTTP/"))
+        self.assertEqual(payload.split(b"\r\n\r\n", 1)[-1], expected.split(b"\r\n\r\n", 1)[-1])
+        self.assertIn(b"Invalid HTTP version (2.0)", payload)
 
 
 class ObserverRecovery(unittest.TestCase):

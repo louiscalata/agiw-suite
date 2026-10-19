@@ -69,6 +69,7 @@ final class JevProbe: NSObject, URLSessionDataDelegate {
         guard state == "pending" else { return }
         guard error == nil else { state = "network-error"; return }
         guard let body = (try? JSONSerialization.jsonObject(with: bytes)) as? [String: Any],
+              body["model"] as? String == "jev-1.14.0",
               let answers = body["answers"] as? [String: Any],
               let answer = answers["connection_check"] as? [String: Any],
               answer["type"] as? String == "choice", answer["choice"] as? String == "probe",
@@ -92,7 +93,7 @@ func checkConnection() -> String {
     }
     let body: [String: Any] = [
         "state": "Synthetic connectivity probe. No user or application data.",
-        "model": "jev-latest",
+        "model": "jev-1.14.0",
         "questions": ["connection_check": ["type": "choice",
             "instructions": "Classify this fixed synthetic connectivity probe.",
             "criteria": ["probe": "A synthetic connectivity probe."]]]

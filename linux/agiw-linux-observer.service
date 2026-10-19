@@ -1,0 +1,27 @@
+# Managed by agiw-linux-observer installer.
+[Unit]
+Description=AGIW Linux read-only observer heartbeat
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 -I -B "%h/.local/share/agiw-linux-observer/current/agiw-linux-status" --serve
+Environment="XDG_STATE_HOME=%h/.local/state"
+UMask=0077
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths="%h/.local/state/agiw"
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+MemoryMax=128M
+CPUQuota=10%
+
+[Install]
+WantedBy=default.target

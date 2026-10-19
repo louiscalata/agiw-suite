@@ -38,15 +38,15 @@ class LaneProbe(unittest.TestCase):
         self.assertEqual((lane["status"], lane["phase"], lane["slotsBusy"], lane["slotsTotal"]), ("idle", "idle", 0, 2))
 
     def test_generating_vs_prompt_phase(self):
-        gen = probes.probe_lane(FAST, fake_fetch({"/health": {}, "/v1/models": {"data": [{"id": "openai/gpt-oss-20b"}]},
+        gen = probes.probe_lane(FAST, fake_fetch({"/health": {"status": "ok"}, "/v1/models": {"data": [{"id": "openai/gpt-oss-20b"}]},
                                                   "/slots": slots((True, 12), (False, 0))}))
         self.assertEqual((gen["status"], gen["phase"], gen["slotsBusy"]), ("busy", "generating", 1))
-        prompt = probes.probe_lane(FAST, fake_fetch({"/health": {}, "/v1/models": {"data": [{"id": "openai/gpt-oss-20b"}]},
+        prompt = probes.probe_lane(FAST, fake_fetch({"/health": {"status": "ok"}, "/v1/models": {"data": [{"id": "openai/gpt-oss-20b"}]},
                                                      "/slots": slots((True, 0), (False, 0))}))
         self.assertEqual(prompt["phase"], "busy")
 
     def test_identity_mismatch_never_claims_activity(self):
-        lane = probes.probe_lane(FAST, fake_fetch({"/health": {}, "/v1/models": {"data": [{"id": "qwen3.8-27b"}]},
+        lane = probes.probe_lane(FAST, fake_fetch({"/health": {"status": "ok"}, "/v1/models": {"data": [{"id": "qwen3.8-27b"}]},
                                                    "/slots": slots((True, 5))}))
         self.assertEqual(lane["status"], "identity_mismatch")
         self.assertIsNone(lane["slotsBusy"])
@@ -65,14 +65,14 @@ class LaneProbe(unittest.TestCase):
 
     def test_malformed_slots_are_unknown_not_idle(self):
         for payload in ([], [{"id": 0}], "text", [{"is_processing": "yes"}]):
-            lane = probes.probe_lane(FAST, fake_fetch({"/health": {}, "/v1/models": {"data": [{"id": "openai/gpt-oss-20b"}]},
+            lane = probes.probe_lane(FAST, fake_fetch({"/health": {"status": "ok"}, "/v1/models": {"data": [{"id": "openai/gpt-oss-20b"}]},
                                                        "/slots": payload}))
             self.assertEqual(lane["status"], "slots_unknown", payload)
             row = probes.lane_model_row(lane, FAST, 0)
             self.assertEqual((row["state"], row["source"], row["loaded"]), ("loaded", "llama-models", True))
 
     def test_row_shape(self):
-        lane = probes.probe_lane(FAST, fake_fetch({"/health": {}, "/v1/models": {"data": [{"id": "openai/gpt-oss-20b"}]},
+        lane = probes.probe_lane(FAST, fake_fetch({"/health": {"status": "ok"}, "/v1/models": {"data": [{"id": "openai/gpt-oss-20b"}]},
                                                    "/slots": slots((True, 3), (True, 0))}))
         row = probes.lane_model_row(lane, FAST, 0)
         self.assertEqual(row["host"], "windows")
@@ -87,7 +87,7 @@ class SlowSlots(unittest.TestCase):
         seen = {}
         def fetch(url, timeout, _limit):
             seen[url.rsplit("/", 1)[-1]] = timeout
-            return {"/health": {}, "/v1/models": {"data": [{"id": "openai/gpt-oss-20b"}]}}.get(
+            return {"/health": {"status": "ok"}, "/v1/models": {"data": [{"id": "openai/gpt-oss-20b"}]}}.get(
                 url[url.index("/", 8):], slots((True, 2)))
         self.assertEqual(probes.probe_lane(FAST, fetch)["status"], "busy")
         self.assertGreaterEqual(seen["slots"], 3.0)
@@ -164,7 +164,7 @@ class Round2(unittest.TestCase):
         for payload in ([{"id": 0, "is_processing": False}, {"id": 0, "is_processing": False}],
                         [{"is_processing": False}, {"id": 1, "is_processing": False}],
                         [{"id": 0.5, "is_processing": False}]):
-            lane = probes.probe_lane(FAST, fake_fetch({"/health": {}, "/v1/models": {"data": [{"id": "openai/gpt-oss-20b"}]},
+            lane = probes.probe_lane(FAST, fake_fetch({"/health": {"status": "ok"}, "/v1/models": {"data": [{"id": "openai/gpt-oss-20b"}]},
                                                        "/slots": payload}))
             self.assertEqual(lane["status"], "slots_unknown", payload)
 
@@ -195,7 +195,7 @@ class Hardening(unittest.TestCase):
             for i in range(probes.PEER_SCAN_LIMIT + 50):
                 (directory / f"junk{i}.txt").write_text("x")
             _, source = probes.read_peers(Path(tmp), "pc", 1000.0)
-        self.assertIn("scan stopped", source["detail"])
+        self.assertIn("scan limited", source["detail"])
 
     def test_publishing_refuses_a_linked_directory(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -224,7 +224,7 @@ class Hardening(unittest.TestCase):
                 create.argtypes = (ctypes.c_wchar_p, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_void_p,
                                    ctypes.c_uint32, ctypes.c_uint32, ctypes.c_void_p)
                 create.restype = ctypes.c_void_p
-                held = create(str(target), 0x80, 0x1, None, 3, 0, None)
+                held = create(str(target), 0x80000000, 0x1, None, 3, 0, None)
                 self.assertNotEqual(held, ctypes.c_void_p(-1).value)
                 def release():
                     time.sleep(0.15)
@@ -232,7 +232,10 @@ class Hardening(unittest.TestCase):
                 thread = threading.Thread(target=release)
                 thread.start()
                 try:
-                    probes.write_json_atomic(target, {"ok": 1}, stop_at=root)
+                    import unittest.mock as m
+                    with m.patch.object(probes.time, "sleep", wraps=time.sleep) as retry_sleep:
+                        probes.write_json_atomic(target, {"ok": 1}, stop_at=root)
+                    self.assertTrue(any(call.args == (0.05,) for call in retry_sleep.call_args_list))
                 finally:
                     thread.join(2)
                 self.assertEqual(json.loads(target.read_text()), {"ok": 1})
@@ -240,11 +243,11 @@ class Hardening(unittest.TestCase):
         import unittest.mock as m
         real = os.replace
         calls = []
-        def flaky(src, dst):
+        def flaky(src, dst, **kwargs):
             calls.append(1)
             if len(calls) < 3:
                 raise PermissionError(13, "Access is denied")
-            return real(src, dst)
+            return real(src, dst, **kwargs)
         with tempfile.TemporaryDirectory() as tmp, m.patch.object(probes.os, "replace", flaky):
             probes.write_json_atomic(Path(tmp) / "a" / "x.json", {"ok": 1}, stop_at=Path(tmp))
             self.assertEqual(json.loads((Path(tmp) / "a" / "x.json").read_text()), {"ok": 1})
@@ -302,7 +305,7 @@ class Hardening(unittest.TestCase):
             self.assertEqual(list(outside.iterdir()), [])
 
     def test_path_shaped_model_ids_are_not_published(self):
-        self.assertEqual(probes.public_id(r"C:\Users\jlcal\.lmstudio\models\Qwen.gguf"), "Qwen.gguf")
+        self.assertEqual(probes.public_id(r"C:\Users\user\.lmstudio\models\Qwen.gguf"), "Qwen.gguf")
         self.assertEqual(probes.public_id("/home/x/m.gguf"), "m.gguf")
         self.assertEqual(probes.public_id("models/foo.gguf"), "foo.gguf")
         self.assertEqual(probes.public_id("openai/gpt-oss-20b"), "openai/gpt-oss-20b")
@@ -365,15 +368,14 @@ class Hardening(unittest.TestCase):
         with mock.patch.object(Path, "is_file", return_value=False), mock.patch.dict(os.environ, {"PATH": "C:\\untrusted"}):
             self.assertIsNone(probes.nvidia_smi_path())
 
-    def test_link_local_mac_targets_are_refused(self):
-        seen = []
-        def fetch(url, *_):
-            seen.append(url)
-            raise ConnectionRefusedError()
-        hosts = {"mdns": None, "ips": ["169.254.1.5", "10.0.0.9"], "port": 1234, "ownIp": None}
-        probes.probe_mac(hosts, fetch, resolve=lambda _n: [], own=set())
-        self.assertTrue(seen and all("10.0.0.9" in u for u in seen))
-
+    def test_the_mac_lan_probe_is_gone(self):
+        # 0.2.0 reads the Mac from its presence only: nothing on the PC sends a request to the Mac's LM Studio.
+        for name in ("MacPeer", "probe_mac", "mac_hosts", "candidate_addresses", "parse_mac_models", "PEER_PROBE_MAX_AGE",
+                     "DEFAULT_LANES"):
+            self.assertFalse(hasattr(probes, name), name)
+        source = (Path(probes.__file__).read_text(encoding="utf-8"))
+        self.assertNotIn("/api/v0/models", source)
+        self.assertNotIn("lm_studio_port", source)
 
 class LiveRate(unittest.TestCase):
     def lane(self, *slots, task=7):
@@ -418,7 +420,7 @@ class Codemode(unittest.TestCase):
                 (run / "manifest.json").write_text(json.dumps(value))
             jobs, source = probes.codemode_jobs(Path(tmp), [], time.time())
         self.assertEqual(jobs["recent"], [])
-        self.assertIn("2 malformed manifests skipped", source["detail"])
+        self.assertIn("3 malformed manifests skipped", source["detail"])
 
     def test_runs_become_lane_jobs_with_whole_request_rates(self):
         specs = [{"id": "fast", "port": 1235, "alias": "g"}, {"id": "deep", "port": 1234, "alias": "q"}]
@@ -461,9 +463,9 @@ class PeerLink(unittest.TestCase):
             root = Path(tmp)
             self.write(root, "louis-m5-pro.json", self.peer("louis-m5-pro", now - 4))
             self.write(root, "macpro51.json", self.peer("macpro51", now - 7200, platform="linux"))
-            self.write(root, "louisaurorar12.json", self.peer("louisaurorar12", now - 1, platform="windows"))
+            self.write(root, "winpc01.json", self.peer("winpc01", now - 1, platform="windows"))
             self.write(root, "junk.json", {"kind": "other"})
-            peers, source = probes.read_peers(root, "louisaurorar12", now)
+            peers, source = probes.read_peers(root, "winpc01", now)
         self.assertEqual([p["host"] for p in peers], ["louis-m5-pro", "macpro51"])
         self.assertEqual([p["fresh"] for p in peers], [True, False])
         self.assertEqual(source["state"], "live")
@@ -494,7 +496,7 @@ class PeerLink(unittest.TestCase):
                     peers, source = probes.read_peers(root, "pc", now)
                     self.assertEqual(len(peers), 1)
                     self.assertEqual(peers[0]["fresh"], age <= 30)
-                    self.assertEqual(peers[0]["ageSeconds"], 30.0)
+                    self.assertEqual(peers[0]["ageSeconds"], now - (now - age))
                     self.assertEqual(source["state"], "live" if age <= 30 else "unavailable")
                     self.assertFalse(peers[0]["verified"])
                     self.assertEqual(peers[0]["models"][0]["loadedState"], "loaded")
@@ -515,7 +517,7 @@ class PeerLink(unittest.TestCase):
                     peers, source = probes.read_peers(root, "pc", now)
                     self.assertEqual(len(peers), 1)
                     self.assertEqual(peers[0]["fresh"], age <= 30)
-                    self.assertEqual(peers[0]["ageSeconds"], 30.0)
+                    self.assertEqual(peers[0]["ageSeconds"], now - (now - age))
                     self.assertEqual(source["state"], "live" if age <= 30 else "unavailable")
                     self.assertFalse(peers[0]["verified"])
                     self.assertEqual(peers[0]["models"][0]["loadedState"], "loaded")
@@ -596,7 +598,7 @@ class PeerLink(unittest.TestCase):
                 peer = probes._validate_peer(self.peer("mac", now + offset), now)
                 if accepted:
                     self.assertEqual(peer["fresh"], fresh)
-                    self.assertEqual(peer["ageSeconds"], round(max(0.0, -offset), 1))
+                    self.assertEqual(peer["ageSeconds"], max(0.0, now - (now + offset)))
                 else:
                     self.assertIsNone(peer)
         self.assertFalse(probes._validate_peer(self.peer("mac", -1), now)["fresh"])
@@ -783,7 +785,7 @@ class LegacyPeerCompleteness(unittest.TestCase):
                 self.assertIsNone(self.row(schemaVersion=schema))
         for age, fresh in ((30.0, True), (30.049, False)):
             row = self.row(age=age)
-            self.assertEqual((row["ageSeconds"], row["fresh"]), (30.0, fresh))
+            self.assertEqual((row["ageSeconds"], row["fresh"]), (2_000_000_000.0 - (2_000_000_000.0 - age), fresh))
 
 
 class LaneConfig(unittest.TestCase):
@@ -808,9 +810,11 @@ class LaneConfig(unittest.TestCase):
             specs, source = probes.lane_specs(Path(tmp))
         self.assertEqual([s["id"] for s in specs], ["fast", "deep"])
         self.assertTrue(specs[1]["undeclared"])
+        # The missing lane carries no port or model: nothing about it is guessed (fail closed).
+        self.assertEqual((specs[1]["port"], specs[1]["alias"]), (None, "deep lane (not configured)"))
         self.assertEqual(source["state"], "error")
-        lane = probes.probe_lane(specs[1], fake_fetch({"/health": {}}))
-        self.assertEqual(lane["status"], "undeclared")
+        lane = probes.probe_lane(specs[1], fake_fetch({"/health": {"status": "ok"}}))
+        self.assertEqual((lane["status"], lane["endpoint"], lane["port"]), ("undeclared", None, None))
 
     def test_malformed_shapes_fall_back(self):
         # Codex finding 1: valid JSON with the wrong shape must not raise.
@@ -823,10 +827,13 @@ class LaneConfig(unittest.TestCase):
                 specs, _ = probes.lane_specs(Path(tmp))
             self.assertEqual(len(specs), 2, config)
 
-    def test_falls_back(self):
+    def test_unreadable_config_fails_closed(self):
         specs, source = probes.lane_specs(Path("/nonexistent"))
-        self.assertEqual(len(specs), 2)
+        self.assertEqual([(s["id"], s["port"], s.get("undeclared")) for s in specs],
+                         [("fast", None, True), ("deep", None, True)])
         self.assertEqual(source["state"], "unavailable")
+        self.assertIn("no lane is probed", source["detail"])
+        self.assertNotIn("1234", json.dumps([specs, source]))
 
 
 class Memory(unittest.TestCase):
@@ -842,7 +849,7 @@ class Memory(unittest.TestCase):
         block, source = probes.memory_block(status_fn=status, consumers_fn=consumers)
         # Publication remains rounded even when the raw reading changes the level.
         self.assertEqual(set(block), {"level", "availablePercent", "totalBytes", "availableBytes", "commitPercent",
-                                      "swapUsedBytes", "compressedBytes", "gpuAllocBytes", "consumers",
+                                      "swapUsedBytes", "compressedBytes", "gpuAllocBytes", "consumers", "consumersKnown",
                                       "suggestions", "reasons", "paused"})
         self.assertEqual(block["availablePercent"], available_percent)
         self.assertEqual(block["commitPercent"], commit_percent)
@@ -887,7 +894,7 @@ class Memory(unittest.TestCase):
         block, source = probes.memory_block(lambda: {"totalPhys": 64 * gib, "availPhys": 4 * gib,
                                                      "commitLimit": 80 * gib, "commitAvail": 20 * gib},
                                             lambda: [{"label": "llama-server.exe", "residentBytes": 30 * gib,
-                                                      "processCount": 2, "gpuAllocBytes": None}])
+                                                      "processCount": 2, "gpuAllocBytes": None, "lane": True}])
         self.assertEqual(block["level"], "tight")
         self.assertEqual(block["availablePercent"], 6.2)
         self.assertEqual(block["consumers"][0]["label"], "Local LLM server")
@@ -945,6 +952,7 @@ class Queue(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "pending").mkdir()
+            (root / "claimed").mkdir()
             (root / "pending" / "p.json").write_text("{}")
             old = time.time() - 16 * 86400
             os.utime(root / "pending" / "p.json", (old, old))
@@ -962,6 +970,7 @@ class Queue(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "pending").mkdir()
+            (root / "claimed").mkdir()
             for name in ("old", "new"):
                 (root / "pending" / f"{name}.json").write_text("{}")
             old = time.time() - 3 * 86400
@@ -974,220 +983,12 @@ class Queue(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "claimed").mkdir()
+            (root / "pending").mkdir()
             (root / "claimed" / "x.json").write_text("{}")
             old = time.time() - 9000
             os.utime(root / "claimed" / "x.json", (old, old))
             pipeline, _ = probes.route_queue(root)
         self.assertEqual(pipeline["status"], "idle")
-
-
-class MacPeer(unittest.TestCase):
-    HOSTS = {"mdns": "mac.local", "hostname": "mac", "ips": ["10.0.0.176", "10.0.0.194"], "port": 1234,
-             "expectedVerify": "openai/gpt-oss-20b", "ownIp": "10.0.0.71"}
-
-    def test_v0_listing_reports_loaded(self):
-        fetch = fake_fetch({"10.0.0.176:1234/api/v0/models": {"data": [
-            {"id": "openai/gpt-oss-20b", "type": "llm", "state": "loaded"},
-            {"id": "qwen/qwen3.8-27b", "type": "llm", "state": "not-loaded"},
-            {"id": "text-embedding-nomic", "type": "embeddings", "state": "loaded"}]}})
-        result = probes.probe_mac(self.HOSTS, fetch, resolve=lambda _n: ["10.0.0.176"], own=set())
-        self.assertEqual(result["state"], "reachable")
-        self.assertEqual(result["via"], "mdns")
-        self.assertEqual(result["loadedCount"], 1)
-        self.assertTrue(result["expectedVerifyLoaded"])
-
-    def test_falls_back_to_recorded_ip_and_v1(self):
-        fetch = fake_fetch({"10.0.0.194:1234/v1/models": {"data": [{"id": "m"}]}})
-        result = probes.probe_mac(self.HOSTS, fetch, resolve=lambda _n: (_ for _ in ()).throw(OSError("no mdns")), own=set())
-        self.assertEqual((result["state"], result["address"], result["via"]), ("reachable", "10.0.0.194", "recorded-ip"))
-        self.assertIsNone(result["loadedCount"])
-
-    def test_never_probes_itself_or_loopback(self):
-        seen = []
-        def fetch(url, *_):
-            seen.append(url)
-            raise ConnectionRefusedError()
-        result = probes.probe_mac(self.HOSTS, fetch, resolve=lambda _n: ["10.0.0.71", "127.0.0.1", "10.0.0.50"],
-                                  own={"10.0.0.50"})
-        self.assertEqual(result["state"], "unreachable")
-        self.assertFalse(any("10.0.0.71" in u or "127.0.0.1" in u or "10.0.0.50" in u for u in seen))
-
-    def test_results_do_not_depend_on_the_test_machine(self):
-        # On the Mac, 10.0.0.176/.194 are its own addresses; an explicit own set keeps the test hermetic.
-        fetch = fake_fetch({"10.0.0.176:1234/v1/models": {"data": [{"id": "m"}]}})
-        original = probes._own_addresses
-        probes._own_addresses = lambda: {"10.0.0.176", "10.0.0.194"}
-        try:
-            self.assertEqual(probes.probe_mac(self.HOSTS, fetch, resolve=lambda _n: [], own=set())["state"], "reachable")
-            self.assertEqual(probes.probe_mac(self.HOSTS, fetch, resolve=lambda _n: [])["state"], "unreachable")
-        finally:
-            probes._own_addresses = original
-
-    def test_names_and_loopback_in_recorded_ips_are_never_probed(self):
-        # Codex finding 9: "localhost" would reach this PC's own lane on :1234.
-        seen = []
-        def fetch(url, *_):
-            seen.append(url)
-            raise ConnectionRefusedError()
-        hosts = {**self.HOSTS, "ips": ["localhost", "127.0.0.2", "8.8.8.8", "::1", "10.0.0.9"]}
-        probes.probe_mac(hosts, fetch, resolve=lambda _n: [], own=set())
-        self.assertTrue(seen and all("10.0.0.9" in u for u in seen), seen)
-
-    def test_expected_model_needs_the_full_id(self):
-        # Codex finding 10: other/gpt-oss-20b is not openai/gpt-oss-20b.
-        fetch = fake_fetch({"10.0.0.176:1234/api/v0/models": {"data": [{"id": "other/gpt-oss-20b", "type": "llm", "state": "loaded"}]}})
-        result = probes.probe_mac(self.HOSTS, fetch, resolve=lambda _n: ["10.0.0.176"], own=set())
-        self.assertFalse(result["expectedVerifyLoaded"])
-
-    def test_unreachable_reports_why(self):
-        def failing(error):
-            def fetch(url, *_):
-                raise error
-            return fetch
-        cases = [(ConnectionRefusedError(), "refused", "Connection refused on"), (TimeoutError(), "timeout", "No answer"),
-                 (OSError("HTTP Error 404"), "invalid", "not with an LM Studio model list"),
-                 (ValueError("model list missing"), "invalid", "not with an LM Studio model list"),
-                 (OSError("unreachable network"), "error", "No answer")]
-        for error, reason, wording in cases:
-            result = probes.probe_mac(self.HOSTS, failing(error), resolve=lambda _n: [], own=set())
-            self.assertEqual((result["state"], result["reason"]), ("unreachable", reason), error)
-            self.assertIn(wording, result["detail"])
-            self.assertIn("10.0.0.176", result["detail"])
-            self.assertNotIn("LM Studio is not", result["detail"])  # a TCP error never names its cause
-        # One address refusing beats another timing out: a host is there.
-        def mixed(url, *_):
-            raise ConnectionRefusedError() if "10.0.0.194" in url else TimeoutError()
-        self.assertEqual(probes.probe_mac(self.HOSTS, mixed, resolve=lambda _n: [], own=set())["reason"], "refused")
-        nowhere = {**self.HOSTS, "ips": []}
-        result = probes.probe_mac(nowhere, failing(TimeoutError()), resolve=lambda _n: [], own=set())
-        self.assertEqual(result["reason"], "unresolved")
-
-    def test_unknown_residency_does_not_prove_a_total(self):
-        partial = fake_fetch({"10.0.0.176:1234/api/v0/models": {"data": [
-            {"id": "qwen/qwen3.8-27b", "type": "llm", "state": "loaded"},
-            {"id": "openai/gpt-oss-20b", "type": "llm", "state": "loading"}]}})
-        result = probes.probe_mac(self.HOSTS, partial, resolve=lambda _n: ["10.0.0.176"], own=set())
-        self.assertIsNone(result["loadedCount"])
-        self.assertIsNone(result["expectedVerifyLoaded"])  # its own row is unknown, not proven unloaded
-        self.assertIn("at least 1 loaded", result["detail"])
-        empty = fake_fetch({"10.0.0.176:1234/api/v0/models": {"data": []}})
-        result = probes.probe_mac(self.HOSTS, empty, resolve=lambda _n: ["10.0.0.176"], own=set())
-        self.assertEqual((result["loadedCount"], result["expectedVerifyLoaded"]), (0, False))
-        self.assertIn("; 0 loaded", result["detail"])
-
-    def test_old_probe_result_expires(self):
-        # Codex finding 11.
-        peer = probes.MacPeer(Path("/x"), probe=lambda _h: {"state": "reachable", "observedAt": 100.0, "detail": "ok",
-                                                            "models": [{"id": "m", "state": "loaded"}], "loadedCount": 1,
-                                                            "reason": "refused"})
-        peer.poll_once()
-        data, source = peer.read(now=200.0)
-        self.assertEqual((data["state"], data["models"], source["state"]), ("unknown", [], "unavailable"))
-        self.assertIsNone(data.get("reason"), "an expired probe must not retain an old LAN diagnosis")
-
-    def test_peer_ages_result(self):
-        peer = probes.MacPeer(Path("/x"), probe=lambda _h: {"state": "reachable", "observedAt": 100.0, "detail": "ok", "models": []})
-        peer.poll_once()
-        data, source = peer.read(now=112.0)
-        self.assertEqual(data["ageSeconds"], 12.0)
-        self.assertEqual(source["ageSeconds"], 12.0)
-
-    def test_invalid_probe_times_cannot_prove_lan_state(self):
-        from copy import deepcopy
-
-        times = [{}, *({"observedAt": value} for value in
-                      (None, "100", [], {}, True, False, float("nan"), float("inf"),
-                       -float("inf"), -1, 10 ** 1000, 106.0, 3700.0))]
-        for fields in times:
-            with self.subTest(fields=fields):
-                result = {"state": "reachable", "models": [{"id": "m", "state": "loaded"}],
-                          "loadedCount": 1, "expectedVerifyLoaded": True, "reason": "refused", **fields}
-                peer = probes.MacPeer(Path("/x"), probe=lambda _h: result)
-                peer.poll_once()
-                cached = deepcopy(result)
-                data, source = peer.read(now=100.0)
-                self.assertEqual((data["state"], data["models"], source["state"]),
-                                 ("unknown", [], "unavailable"))
-                self.assertIsNone(data["loadedCount"])
-                self.assertIsNone(data.get("expectedVerifyLoaded"))
-                self.assertIsNone(data.get("reason"))
-                self.assertIsNone(data["ageSeconds"])
-                self.assertIn("Mac state unknown", data["detail"])
-                self.assertIsNone(source["ageSeconds"])
-                json.dumps(data, allow_nan=False)
-                self.assertEqual(peer._latest, cached, "reading must not alter the cached probe")
-
-    def test_small_future_skew_is_accepted_up_to_five_seconds(self):
-        for skew, state in ((4.0, "reachable"), (5.0, "reachable"), (5.01, "unknown")):
-            with self.subTest(skew=skew):
-                peer = probes.MacPeer(Path("/x"), probe=lambda _h: {
-                    "state": "reachable", "observedAt": 100.0 + skew, "detail": "ok",
-                    "models": [{"id": "m", "state": "loaded"}], "loadedCount": 1,
-                })
-                peer.poll_once()
-                data, source = peer.read(now=100.0)
-                self.assertEqual(data["state"], state)
-                if state == "reachable":
-                    self.assertEqual(data["ageSeconds"], 0.0)
-                    self.assertEqual((data["loadedCount"], source["state"]), (1, "live"))
-                else:
-                    self.assertIsNone(data["ageSeconds"])
-                    self.assertIn("ahead of this PC's clock", data["detail"])
-
-    def test_probe_expiry_uses_unrounded_age(self):
-        peer = probes.MacPeer(Path("/x"), probe=lambda _h: {
-            "state": "reachable", "observedAt": 100.0, "detail": "ok",
-            "models": [{"id": "m", "state": "loaded"}], "loadedCount": 1,
-            "expectedVerifyLoaded": False,
-        })
-        peer.poll_once()
-        self.assertEqual(peer.read(now=145.0)[0]["state"], "reachable")
-        data, source = peer.read(now=145.01)
-        self.assertEqual((data["state"], data["models"], source["state"]),
-                         ("unknown", [], "unavailable"))
-        self.assertIsNone(data.get("expectedVerifyLoaded"))
-
-    def test_hosts_file(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "llm-lab" / "mac-reach"
-            path.mkdir(parents=True)
-            (path / "hosts.json").write_text(json.dumps({"mac": {"mdns": "m.local", "ips": ["1.2.3.4"], "lm_studio_port": 1234},
-                                                          "windows": {"ip": "10.0.0.71"}}))
-            hosts = probes.mac_hosts(Path(tmp))
-        self.assertEqual((hosts["mdns"], hosts["ips"], hosts["ownIp"]), ("m.local", ["1.2.3.4"], "10.0.0.71"))
-
-    def test_configured_name_is_validated_without_a_lan_result(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            path = root / "llm-lab" / "mac-reach" / "hosts.json"
-            path.parent.mkdir(parents=True)
-            for name in ("Target-Mac", "target-mac.local"):
-                path.write_text(json.dumps({"mac": {"hostname": name, "ips": None}}))
-                self.assertEqual(probes.configured_mac_name(root), name)
-            for name in (None, True, 7, [], {}, "", "bad host", "bad/name", "target-mac\n", "x" * 64):
-                with self.subTest(name=name):
-                    path.write_text(json.dumps({"mac": {"hostname": name}}))
-                    self.assertIsNone(probes.configured_mac_name(root))
-                    self.assertIsNone(probes.mac_hosts(root)["hostname"])
-            for raw in ("{", "[]", '{"mac":[]}', json.dumps({"mac": {"hostname": "mac"}}) + " " * 256_000):
-                path.write_text(raw)
-                self.assertIsNone(probes.configured_mac_name(root))
-            path.unlink()
-            self.assertIsNone(probes.configured_mac_name(root))
-
-    def test_nonlist_recorded_ips_are_empty_in_config_and_candidates(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            path = root / "llm-lab" / "mac-reach" / "hosts.json"
-            path.parent.mkdir(parents=True)
-            for ips in (None, False, 7, "10.0.0.176", {"ip": "10.0.0.176"}):
-                with self.subTest(ips=ips):
-                    path.write_text(json.dumps({"mac": {"hostname": "target-mac", "ips": ips}}))
-                    hosts = probes.mac_hosts(root)
-                    self.assertEqual((hosts["hostname"], hosts["ips"]), ("target-mac", []))
-                    self.assertEqual(probes.candidate_addresses({**self.HOSTS, "ips": ips}, lambda _: [], own=set()), [])
-                    self.assertEqual(probes.candidate_addresses({**self.HOSTS, "ips": ips}, lambda _: ["10.0.0.9"], own=set()),
-                                     [("10.0.0.9", "mdns")])
 
 
 class ConfiguredMacName(unittest.TestCase):
@@ -1288,7 +1089,7 @@ class PCPresenceModels(unittest.TestCase):
         self.assertEqual(presence["modelsTotal"], 2)
 
     def test_presence_total_keeps_unknown_rows_and_uncapped_order(self):
-        for state in ("unknown", "stale", "unreachable", "loading", "undeclared", "identity_mismatch"):
+        for state in ("unknown", "stale", "unreachable", "loading", "identity_mismatch"):
             with self.subTest(state=state):
                 snapshot = self.snapshot()
                 snapshot["lanes"][0]["status"] = state
@@ -1505,7 +1306,7 @@ class PCStatusLimitations(unittest.TestCase):
         data = {"observedAt": "2023-11-14T22:13:20Z", "sampledAt": sampled_at, "observerVersion": "test",
                 "lanes": [{"id": "fast", "expectedModel": "openai/gpt-oss-20b", "port": 1235,
                            "status": "idle", "phase": "idle", "slotsBusy": 0, "slotsTotal": 2},
-                          {"id": "deep", "expectedModel": "qwen3.8-27b", "port": 1234,
+                          {"id": "deep", "expectedModel": "qwen3.8-27b", "port": 1236,
                            "status": "identity_mismatch" if mismatch else "busy", "phase": "generating",
                            "slotsBusy": 1, "slotsTotal": 2}]}
         if peer is not Ellipsis:
@@ -1519,83 +1320,50 @@ class PCStatusLimitations(unittest.TestCase):
                          ["loaded", "unknown" if mismatch else "loaded"])
         self.assertEqual(status["observedAt"], data["observedAt"])
         self.assertEqual(set(status), {"schemaVersion", "observedAt", "host", "producer", "health", "tasks",
-                                      "models", "gpus", "adapters", "memory", "routeQueue", "components", "limitations"})
-        self.assertLessEqual(len(status["limitations"]), 2)
+                                      "models", "modelsComplete", "gpus", "adapters", "memory", "routeQueue", "components", "limitations",
+                                      "handsOff"})
+        self.assertLessEqual(len(status["limitations"]), 3)
         for limitation in status["limitations"]:
             self.assertIsInstance(limitation, str)
             self.assertLessEqual(len(limitation), 80)
             self.assertTrue(all(32 <= ord(c) <= 126 for c in limitation))
         return status
 
-    def test_reachable_omits_mac_limitation_even_with_leftover_failure_reason(self):
-        for reason in (None, "refused", "timeout", ["refused"], {"reason": "timeout"}):
-            with self.subTest(reason=reason):
-                self.assertEqual(self.status({"state": "reachable", "reason": reason})["limitations"], [])
+    def test_a_linked_mac_needs_no_limitation(self):
+        for extra in ({}, {"reason": "refused"}, {"reason": ["timeout"]}):
+            with self.subTest(extra=extra):
+                self.assertEqual(self.status({"state": "linked", **extra})["limitations"], [])
 
-    def test_current_failed_lan_checks_keep_only_canonical_reason_and_unknown_cause(self):
-        for state in ("unreachable", "linked"):
-            for reason in ("refused", "timeout", "invalid", "error", "unresolved"):
-                with self.subTest(state=state, reason=reason):
-                    self.assertEqual(self.status({"state": state, "reason": reason,
-                                                  "observedAt": self.NOW - 10})["limitations"],
-                                     [f"mac LM Studio LAN check failed ({reason}); cause unknown"])
-
-    def test_missing_pending_linked_and_malformed_peer_evidence_preserves_unknown(self):
-        for peer in (Ellipsis, None, {}, {"state": "unknown"}, {"state": "linked"},
-                     {"state": "unreachable"}, {"state": "stale"}, [], ["reachable"], "reachable", True,
-                     {"state": ["unreachable"], "reason": "refused", "observedAt": self.NOW},
-                     {"state": {"value": "unreachable"}, "reason": "refused", "observedAt": self.NOW}):
+    def test_no_lan_wording_survives(self):
+        for peer in (Ellipsis, None, {}, {"state": "reachable"}, {"state": "unreachable", "reason": "refused"},
+                     {"state": "unknown", "reason": "no-report"}, {"state": "unknown", "reason": "stale"}):
             with self.subTest(peer=peer):
-                self.assertEqual(self.status(peer)["limitations"], ["mac LM Studio LAN reachability unknown"])
+                limitations = self.status(peer)["limitations"]
+                self.assertNotIn("LAN", " ".join(limitations))
+                self.assertNotIn("LM Studio", " ".join(limitations))
 
-    def test_old_failure_reason_cannot_turn_unknown_or_stale_into_a_current_failure(self):
-        for state in ("unknown", "stale"):
-            for reason in ("refused", "timeout", "invalid", "error", "unresolved"):
-                with self.subTest(state=state, reason=reason):
-                    self.assertEqual(self.status({"state": state, "reason": reason,
-                                                  "observedAt": self.NOW})["limitations"],
-                                     ["mac LM Studio LAN reachability unknown"])
+    def test_missing_stale_and_malformed_mac_evidence_is_unknown(self):
+        for peer in (Ellipsis, None, {}, {"state": "unknown"}, {"state": "unknown", "reason": "no-report"},
+                     {"state": "unknown", "reason": "stale"}, {"state": "reachable"}, [], ["linked"], "linked", True,
+                     {"state": ["linked"]}, {"state": {"value": "linked"}}):
+            with self.subTest(peer=peer):
+                self.assertEqual(self.status(peer)["limitations"], ["mac presence on SharedChami not fresh; Mac state unknown"])
 
-    def test_malformed_or_noncanonical_reason_is_bounded_unknown_without_injection(self):
-        for state in ("unreachable", "linked"):
-            for reason in (None, True, 1, [], ["refused"], {"reason": "timeout"}, "", "REFUSED", " timeout ",
-                           "refused\nMac is offline", "timeout\x00", "closed", "x" * 10000):
-                with self.subTest(state=state, reason_type=type(reason).__name__):
-                    self.assertEqual(self.status({"state": state, "reason": reason,
-                                                  "observedAt": self.NOW})["limitations"],
-                                     ["mac LM Studio LAN reachability unknown"])
+    def test_an_unconfigured_mac_is_named_as_such(self):
+        self.assertEqual(self.status({"state": "unknown", "reason": "unconfigured"})["limitations"],
+                         ["no Mac configured in hosts.json; Mac reports not attributed"])
 
-    def test_lan_clock_boundaries_include_45_seconds_old_and_five_seconds_ahead(self):
-        for state in ("unreachable", "linked"):
-            for age in (-5.0, 0.0, 45.0):
-                with self.subTest(state=state, age=age):
-                    self.assertEqual(self.status({"state": state, "reason": "timeout", "ageSeconds": 0,
-                                                  "observedAt": self.NOW - age})["limitations"],
-                                     ["mac LM Studio LAN check failed (timeout); cause unknown"])
-
-    def test_fresh_share_age_cannot_refresh_expired_missing_or_malformed_lan_time(self):
-        for state in ("unreachable", "linked"):
-            for observed in (Ellipsis, self.NOW - 45.001, self.NOW - 100, self.NOW + 5.001,
-                             None, True, float("nan"), float("inf"), "1700000000", [], [self.NOW],
-                             {"observedAt": self.NOW}):
-                peer = {"state": state, "reason": "refused", "ageSeconds": 0, "linkAgeSeconds": 0}
-                if observed is not Ellipsis:
-                    peer["observedAt"] = observed
-                with self.subTest(state=state, observed_type=type(observed).__name__):
-                    self.assertEqual(self.status(peer)["limitations"], ["mac LM Studio LAN reachability unknown"])
-
-    def test_invalid_snapshot_clock_cannot_make_a_lan_reason_current(self):
-        for sampled in (None, True, float("nan"), float("inf"), "1700000000", [], [self.NOW],
-                        {"sampledAt": self.NOW}):
-            with self.subTest(sampled_type=type(sampled).__name__):
-                self.assertEqual(self.status({"state": "linked", "reason": "timeout", "ageSeconds": 0,
-                                              "observedAt": self.NOW}, sampled_at=sampled)["limitations"],
-                                 ["mac LM Studio LAN reachability unknown"])
-
-    def test_mac_wording_keeps_the_existing_identity_mismatch_limitation(self):
-        status = self.status({"state": "linked", "reason": "timeout", "observedAt": self.NOW}, mismatch=True)
+    def test_identity_mismatch_and_pair_owned_lanes_are_listed_first(self):
+        status = self.status({"state": "unknown", "reason": "stale"}, mismatch=True)
         self.assertEqual(status["limitations"], ["lane identity mismatch: deep",
-                                                "mac LM Studio LAN check failed (timeout); cause unknown"])
+                                                "mac presence on SharedChami not fresh; Mac state unknown"])
+        data = {"observedAt": "2023-11-14T22:13:20Z", "observerVersion": "test", "macPeer": {"state": "linked"},
+                "lanes": [{"id": "fast", "expectedModel": "openai/gpt-oss-20b", "status": "idle", "phase": "idle"},
+                          {"id": "deep", "expectedModel": "qwen3.8-27b", "status": "not_agiw"}]}
+        out = probes.pc_status(data)
+        self.assertEqual(out["limitations"], ["lane port held by NVIDIA PAIR, not counted: deep"])
+        self.assertEqual([m["loadedState"] for m in out["models"]], ["loaded", "unknown"])
+        self.assertEqual(out["health"], "degraded")
 
 
 class Nisi(unittest.TestCase):
@@ -1610,7 +1378,7 @@ class Nisi(unittest.TestCase):
             (root / "nisi-gate-v0.2" / "nisi_gate.mjs").write_text("")
             ready = probes.nisi_component(self.lanes("idle", "busy"), root)
             self.assertEqual((ready["state"], ready["authorModel"], ready["reviewerModel"]), ("ready", "qwen", "gpt"))
-            self.assertEqual(probes.nisi_component(self.lanes("idle", "unreachable"), root)["state"], "partial")
+            self.assertEqual(probes.nisi_component(self.lanes("idle", "unreachable"), root)["state"], "unknown")
             self.assertEqual(probes.nisi_component(self.lanes("identity_mismatch", "idle"), root)["state"], "needs-action")
 
 

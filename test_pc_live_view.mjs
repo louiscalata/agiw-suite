@@ -19,14 +19,14 @@ const pcLiveRows = new Function('pcAdaptersView', `${formatters}\n${app.slice(st
 
 const model = (over = {}) => ({id: 'gpt-oss-20b', loadedState: 'loaded', activity: 'idle',
   slotsBusy: 0, slotsTotal: 2, ...over});
-const feed = (over = {}) => ({via: 'share', host: 'louisaurorar12', ageSeconds: 4,
+const feed = (over = {}) => ({via: 'share', host: 'winpc01', ageSeconds: 4,
   models: [model()], ...over});
 const fresh = {feedFresh: true, snapshotAge: 1};
 const row = (view, label) => view.rows.find(([key]) => key === label)?.[1];
 
 test('fresh share feed names the PC and preserves loaded, idle and zero busy slots', () => {
   assert.deepEqual(pcLiveRows(feed(), fresh), {
-    title: 'Unsigned report from louisaurorar12',
+    title: 'Unsigned report from winpc01',
     rows: [['gpt-oss-20b', 'Loaded · Idle · 0/2 slots busy'],
       ['Observed', '5s ago · via SharedChami files, unsigned']],
   });
@@ -39,7 +39,7 @@ test('LAN and share provenance use distinct signed and unsigned wording', () => 
     '5s ago · via SharedChami files, unsigned');
   assert.equal(pcLiveRows(feed({host: ''}), fresh).title, 'Unsigned report from the PC');
   // The paired link names the peer that signed the report; what the PC says it is doing stays its own report.
-  assert.equal(pcLiveRows(feed({via: 'lan'}), fresh).title, 'From louisaurorar12 · paired link');
+  assert.equal(pcLiveRows(feed({via: 'lan'}), fresh).title, 'From winpc01 · paired link');
   assert.equal(pcLiveRows(feed({via: 'lan', host: ''}), fresh).title, 'From the PC · paired link');
 });
 
@@ -135,7 +135,7 @@ test('every reported graphics adapter sits between the model rows and PC memory'
     ['Observed', '5s ago · via SharedChami files, unsigned'],
   ]);
   // The attribution stays on the panel: its title and the Observed row name the PC and the unsigned transport.
-  assert.equal(view.title, 'Unsigned report from louisaurorar12');
+  assert.equal(view.title, 'Unsigned report from winpc01');
 });
 
 test('adapters share the 30-second gate and add nothing when none are reported', () => {

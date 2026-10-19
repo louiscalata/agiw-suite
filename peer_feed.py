@@ -1,4 +1,5 @@
-"""The PC's live state for the Mac edition: the LAN peer link first, the SharedChami status files second.
+"""Per-host Mac, Windows and Linux status: the LAN peer link first, share reports second.
+The windows_feed entry point retains its existing single-PC contract for older consumers.
 Also this Mac's side of the PC edition's share link: an opt-in presence file in llm-lab/status/agiw-peers/.
 
 Reading is read-only. Nothing here starts, loads or controls anything on either machine, and the observer never
@@ -92,7 +93,7 @@ COMPONENTS = (
 
 
 class InventoryUnknown(ValueError):
-    """Neither LM Studio source answered, so the Mac's model list is unknown, not empty."""
+    """The Mac's model inventory is unavailable or incomplete, not an empty list."""
 
 
 class LinkUnavailable(Exception):
@@ -122,7 +123,7 @@ def _text(value: Any, limit: int) -> str | None:
     return value[:limit] if isinstance(value, str) and value.isprintable() else None
 
 
-def _summary(doc: dict, via: str, now: float) -> dict[str, Any]:
+def _summary(doc: dict, via: str, now: float, platform: str = "windows") -> dict[str, Any]:
     if not isinstance(doc, dict) or type(doc.get("schemaVersion")) is not int or doc["schemaVersion"] != 1:
         raise ValueError("status document invalid")
     raw_models = doc.get("models")
@@ -136,12 +137,12 @@ def _summary(doc: dict, via: str, now: float) -> dict[str, Any]:
             continue
         seen.add(model_id)
         valid_models.append(model)
-    complete = (isinstance(raw_models, list) and len(raw_models) <= peer_link.MAX_MODELS
+    complete = (doc.get("modelsComplete") is not False and isinstance(raw_models, list) and len(raw_models) <= peer_link.MAX_MODELS
                 and len(valid_models) == len(raw_models))
     if doc.get("kind") == "agiw-peer":
         complete = complete and type(doc.get("modelsTotal")) is int and doc["modelsTotal"] == len(valid_models)
     # Keep the valid prefix of a partial inventory; the link's other status rules still apply.
-    doc = peer_link.validate_status({**doc, "models": valid_models}, "windows", now)
+    doc = peer_link.validate_status({**doc, "models": valid_models}, platform, now)
     observed = peer_link._parse_iso(doc["observedAt"])
     age = now - observed
     if not math.isfinite(age) or age < -2.0:
@@ -177,6 +178,316 @@ def _summary(doc: dict, via: str, now: float) -> dict[str, Any]:
             ("ok", "degraded", "down") else None, "observedAt": doc["observedAt"],
             "ageSeconds": round(max(0.0, age), 1), "models": models, "modelsComplete": complete, "gpus": gpus,
             "memory": {k: v for k, v in (("level", level), ("availablePercent", free)) if v is not None} or None}
+
+
+REASON_CODES = frozenset({"ok", "timeout", "refused", "non_json", "oversize", "schema_invalid", "stale",
+                          "host_key_mismatch", "share_unmounted", "asleep", "clock_skew", "not_connected",
+                          "unverified", "unavailable"})
+
+
+class FeedUnavailable(Exception):
+    """A transport's fixed reason code; never include remote text or private paths."""
+    def __init__(self, reason_code: str):
+        self.reason_code = reason_code if reason_code in REASON_CODES else "unavailable"
+        super().__init__(self.reason_code)
+
+
+def normalize_platform(value: Any) -> str | None:
+    return {"macos": "mac", "mac": "mac", "windows": "windows", "linux": "linux"}.get(value) if isinstance(value, str) else None
+
+
+def failure_reason(exc: Exception) -> str:
+    if isinstance(exc, FeedUnavailable):
+        return exc.reason_code
+    if isinstance(exc, TimeoutError):
+        return "timeout"
+    if isinstance(exc, ConnectionRefusedError):
+        return "refused"
+    if isinstance(exc, FileNotFoundError):
+        return "share_unmounted"
+    if isinstance(exc, (ShareRefused, PermissionError)):
+        return "refused"
+    if isinstance(exc, LinkUnavailable):
+        return "unverified"
+    if isinstance(exc, (json.JSONDecodeError, UnicodeError)):
+        return "non_json"
+    if isinstance(exc, ValueError):
+        return "oversize" if "too large" in str(exc) else "schema_invalid"
+    return "unavailable"
+
+
+def _feed_failure(platform: str, host: str, reason: str, age: float | None = None) -> dict:
+    return {"feed": None, "source": {"id": f"{platform}:{host}-telemetry", "label": host,
+            "host": host, "platform": platform, "state": "unavailable", "trust": "unverified",
+            "reasonCode": reason, "ageSeconds": age, "detail": reason.replace("_", " ")}}
+
+
+def summarize_document(doc: Any, via: str, now: float, *, platform: str | None = None,
+                       host: str | None = None) -> dict:
+    """Project one host's report. Transport callers supply trusted identity and provenance, not document fields.
+
+    Failure keeps attribution and age but exposes no stale model inventory. A share report can never acquire
+    authenticated trust, including a relayed Linux document with a relayedBy field.
+    """
+    expected = normalize_platform(platform)
+    identity = host or expected or "unknown"
+    try:
+        if isinstance(doc, (bytes, str)):
+            raw = doc.encode("utf-8") if isinstance(doc, str) else doc
+            if len(raw) > MAX_FILE:
+                raise FeedUnavailable("oversize")
+            try:
+                doc = peer_link.strict_json(raw)
+            except (ValueError, UnicodeError, RecursionError):
+                raise FeedUnavailable("non_json") from None
+        if not isinstance(doc, dict):
+            raise FeedUnavailable("schema_invalid")
+        actual = normalize_platform(doc.get("platform") if doc.get("kind") == "agiw-peer" else doc.get("host"))
+        if actual is None or (platform is not None and expected is None):
+            raise FeedUnavailable("schema_invalid")
+        if expected is not None and expected != actual:
+            raise FeedUnavailable("host_key_mismatch")
+        expected = actual
+        reported_host = doc.get("host")
+        if not isinstance(reported_host, str) or not PEER_HOST.fullmatch(reported_host):
+            raise FeedUnavailable("schema_invalid")
+        if host is not None and host != reported_host:
+            raise FeedUnavailable("host_key_mismatch")
+        identity = reported_host
+        canonical = dict(doc)
+        if canonical.get("kind") == "agiw-peer":
+            canonical["platform"] = actual
+        else:
+            canonical["host"] = actual
+        observed = peer_link._parse_iso(canonical["observedAt"])
+        age = now - observed
+        if not math.isfinite(age):
+            raise FeedUnavailable("schema_invalid")
+        if age < -2:
+            raise FeedUnavailable("clock_skew")
+        if age > FRESH_SECONDS:
+            result = _feed_failure(actual, identity, "stale", round(age, 1))
+            result["source"]["observedAt"] = canonical["observedAt"]
+            return result
+        if doc.get("health") not in ("ok", "degraded", "down"):
+            raise FeedUnavailable("schema_invalid")
+        summary = _summary(canonical, via, now, actual)
+        # Only the PC has an accepted share-reported health source. Other platforms
+        # retain the unsigned share observation as a diagnostic, never health evidence.
+        if actual != "windows" and via == "share":
+            result = _feed_failure(actual, identity, "unverified", round(max(0.0, age), 1))
+            result["source"].update(via="share", observedAt=canonical["observedAt"],
+                                     detail=f"{'Mac' if actual == 'mac' else 'Linux'} share hint; authenticated transport required")
+            return result
+        trust = "authenticated" if via in ("lan", "ssh") else "share-reported" if via == "share" else "unverified"
+        summary.update(host=identity, platform=actual, trust=trust, reasonCode="ok")
+        if type(doc.get("handsOff")) is bool:
+            summary["handsOff"] = doc["handsOff"]
+        source = {"id": f"{actual}:{identity}-telemetry", "label": identity, "host": identity,
+                  "platform": actual, "state": "live" if trust == "authenticated" else "recorded",
+                  "trust": trust, "reasonCode": "ok", "ageSeconds": summary["ageSeconds"],
+                  "detail": "Authenticated peer report" if trust == "authenticated" else
+                            "Unsigned report via share" if trust == "share-reported" else "Unverified report"}
+        return {"feed": summary, "source": source}
+    except (ValueError, KeyError, TypeError, AttributeError, OverflowError, RecursionError, FeedUnavailable) as exc:
+        return _feed_failure(expected or "unknown", identity, failure_reason(exc) if isinstance(exc, (ValueError, FeedUnavailable)) else "schema_invalid")
+
+
+# Remember only each UUID's last reported label to detect a change within this process.
+# Labels are not globally unique identities or a trusted cross-transport association.
+# Never persist peer state. Bound by MAX_PEERS.
+_paired_hosts: dict[str, tuple[str, str]] = {}
+_paired_hosts_scope: str | None = None
+_paired_hosts_lock = threading.Lock()
+
+
+def from_peer_link_hosts(now: float, state_dir: Path | None = None, port: int | None = None) -> list[dict]:
+    """All paired hosts from the existing authenticated local control channel; never repair its state."""
+    state_dir = state_dir or peer_link.default_state_dir()
+    try:
+        os.lstat(state_dir / CONTROL_TOKEN)
+    except FileNotFoundError:
+        return []
+    status, listing = _control_get(state_dir, peer_link.STATUS_PORT if port is None else port, "/control/peers")
+    if status != 200:
+        raise FeedUnavailable("refused")
+    if not isinstance(listing, dict) or not isinstance(listing.get("peers"), list) or len(listing["peers"]) > peer_link.MAX_PEERS:
+        raise FeedUnavailable("schema_invalid")
+    global _paired_hosts_scope
+    rows = []
+    with _paired_hosts_lock:
+        scope = str(state_dir)
+        if _paired_hosts_scope != scope:
+            _paired_hosts.clear()
+            _paired_hosts_scope = scope
+        paired = [row for row in listing["peers"] if isinstance(row, dict) and row.get("paired") is True]
+        active = {row.get("node") for row in paired if isinstance(row.get("node"), str)}
+        for node in list(_paired_hosts):
+            if node not in active:
+                del _paired_hosts[node]
+        for row in paired:
+            platform = normalize_platform(row.get("host"))
+            node = row.get("node")
+            if platform is None:
+                continue
+            if not isinstance(node, str) or not peer_link.UUID_RE.fullmatch(node):
+                rows.append(_feed_failure(platform, platform, "schema_invalid"))
+                continue
+            known = _paired_hosts.get(node)
+            host = known[1] if known and known[0] == platform else node
+            if row.get("state") == "connected" and row.get("status") is not None:
+                result = summarize_document(row["status"], "lan", now, platform=platform,
+                                            host=known[1] if known else None)
+                if result["feed"]:
+                    claimed = result["feed"]["host"]
+                    if known and known[0] != platform:
+                        result = _feed_failure(platform, host, "host_key_mismatch")
+                    else:
+                        _paired_hosts[node] = (platform, claimed)
+                        host = claimed
+                else:
+                    result["source"].update(host=host, label=host)
+            else:
+                result = _feed_failure(platform, host, "not_connected")
+            # The paired UUID owns the row. A peer may report a label used by another
+            # UUID; that cannot reserve the name or make the other peer fail validation.
+            result["source"].update(node=node, host=node, id=f"{platform}:{node}-telemetry",
+                                     label=f"{host} (reported)" if host != node else node)
+            if host != node:
+                result["source"]["reportedHost"] = host
+            if result["feed"]:
+                result["feed"].update(node=node, host=node, reportedHost=host)
+            rows.append(result)
+    return rows
+
+
+def from_share_hosts(now: float, root: Path | None = None, anchor: Path | None = None) -> list[dict]:
+    """Bounded, link-free read of every platform; freshness and provenance belong to each host."""
+    return from_share(now, root, anchor, _all_hosts=True)
+
+
+class _HostShareReader:
+    """One bounded share read at a time; sleeping SMB never grows an unbounded thread queue."""
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.thread = None
+
+    def read(self, now: float) -> list[dict]:
+        with self.lock:
+            if self.thread is not None and self.thread.is_alive():
+                raise FeedUnavailable("timeout")
+            box = {}
+            def run():
+                try:
+                    box["rows"] = from_share_hosts(now)
+                except Exception as exc:
+                    box["error"] = exc
+            thread = threading.Thread(target=run, name="agiw-host-share-feed", daemon=True)
+            self.thread = thread
+            thread.start()
+        thread.join(SHARE_READ_DEADLINE)
+        if thread.is_alive():
+            raise FeedUnavailable("timeout")
+        if "error" in box:
+            raise box["error"]
+        return box["rows"]
+
+
+_host_share_reader = _HostShareReader()
+
+
+# Diagnostics are observations, never additional machine rows or health evidence. Keep
+# only projected metadata, bounded independently of an injected reader's output size.
+MAX_FEED_DIAGNOSTICS = PEER_MAX_FILES + 1
+
+
+def _attach_diagnostic(target: dict, observation: dict, candidate_nodes=()) -> None:
+    source = observation["source"]
+    diagnostic = {key: source[key] for key in
+                  ("host", "platform", "reasonCode", "ageSeconds", "observedAt", "legacy") if key in source}
+    diagnostic.update(correlation="unverified", trust="share-reported",
+                      detail="Uncorrelated share observation; not machine identity or health evidence")
+    if candidate_nodes:
+        diagnostic["candidateNodes"] = sorted(candidate_nodes)[:peer_link.MAX_PEERS]
+    feed = observation.get("feed")
+    if feed:
+        diagnostic["observedAt"] = feed.get("observedAt")
+        diagnostic["reportedHealth"] = feed.get("health")
+    diagnostics = target["source"].setdefault("diagnostics", [])
+    for item in [diagnostic, *source.get("diagnostics", [])[:MAX_FEED_DIAGNOSTICS]]:
+        if len(diagnostics) >= MAX_FEED_DIAGNOSTICS:
+            target["source"]["diagnosticsTruncated"] = True
+            break
+        diagnostics.append(dict(item))
+
+
+def peer_feeds(now: float, *, peer_reader: Callable | None = None, share_reader: Callable | None = None) -> list[dict]:
+    """Per-host feed/source pairs, authenticated before share, with explicit missing-platform failures.
+
+    Readers are injectable for fixture-only callers. No transport inference equates a timeout with sleep.
+    """
+    merged = {}
+    failures = []
+    local_host = host_id()
+    paired_platforms = {}
+    for reader_index, reader in enumerate((peer_reader or from_peer_link_hosts, share_reader or _host_share_reader.read)):
+        try:
+            rows = reader(now)
+        except Exception as exc:
+            failures.append(failure_reason(exc))
+            continue
+        for row in rows:
+            # Do not mutate reader-owned rows (a cached failure may be reused next poll).
+            row = {**row, "source": dict(row["source"])}
+            if "diagnostics" in row["source"]:
+                row["source"]["diagnostics"] = list(row["source"]["diagnostics"])
+            source = row["source"]
+            host_key = (source["platform"], source["host"])
+            if host_key == ("mac", local_host):
+                continue  # our own share presence is already represented by local telemetry
+            node = source.get("node") if reader_index == 0 else None
+            key = (source["platform"], node or source["host"])
+            if reader_index == 0 and node:
+                paired_platforms.setdefault(source["platform"], []).append(key)
+            if reader_index == 1 and source["platform"] in paired_platforms:
+                # Neither first signed label nor friendly pairing name proves that an
+                # unsigned share file is this UUID. Even after a warm disconnect, keep
+                # it as an uncertain observation; never erase an authenticated failure.
+                candidates = paired_platforms[source["platform"]]
+                nodes = [candidate[1] for candidate in candidates]
+                for candidate in candidates:
+                    _attach_diagnostic(merged[candidate], row, nodes)
+                continue
+            previous = merged.get(key)
+            if reader_index == 1 and previous and previous["source"].get("reasonCode") == "host_key_mismatch":
+                _attach_diagnostic(previous, row)
+                continue
+            if reader_index == 1 and source["platform"] == "linux":
+                # A share cannot mask a failed authenticated read, including a reader-wide failure.
+                if previous is not None:
+                    continue
+                if failures:
+                    row = _feed_failure("linux", source["host"], failures[0])
+            if previous is None or (not previous["feed"] and row["feed"]):
+                merged[key] = row
+            elif previous["feed"] and row["feed"] and previous["source"]["trust"] == source["trust"]:
+                if peer_link._parse_iso(row["feed"]["observedAt"]) > peer_link._parse_iso(previous["feed"]["observedAt"]):
+                    merged[key] = row
+    if any(row["feed"] and row["source"]["platform"] == "windows"
+           and row["source"].get("legacy") is not True for row in merged.values()):
+        merged = {key: row for key, row in merged.items()
+                  if not (row["source"]["platform"] == "windows" and row["source"].get("legacy") is True)}
+    represented = {key[0] for key in merged}
+    unattributed = [row["source"]["reasonCode"] for key, row in merged.items()
+                    if key[0] == "unknown" and row["feed"] is None]
+    for platform in ("windows", "linux"):
+        if platform not in represented:
+            reason = unattributed[0] if unattributed else failures[-1] if failures else "not_connected"
+            missing = _feed_failure(platform, platform, reason)
+            if unattributed:
+                missing["source"]["detail"] = "Peer document could not be attributed: " + reason.replace("_", " ")
+            merged[(platform, platform)] = missing
+    return [merged[key] for key in sorted(merged)]
 
 
 _checked_dirs: dict[str, tuple] = {}  # state folder -> (inode, ctime_ns) whose access list was read clean
@@ -350,7 +661,8 @@ def _refused_folder(exc: OSError) -> bool:
     return exc.errno in (errno.ELOOP, errno.ENOTDIR)
 
 
-def from_share(now: float, root: Path | None = None, anchor: Path | None = None) -> dict | None:
+def from_share(now: float, root: Path | None = None, anchor: Path | None = None,
+               *, _all_hosts: bool = False) -> dict | list | None:
     """The freshest Windows presence file in agiw-peers/, then windows-status.json; None when nothing is fresh.
 
     Every folder from the share root down is opened descriptor-relatively without following links, agiw-peers is
@@ -366,12 +678,14 @@ def from_share(now: float, root: Path | None = None, anchor: Path | None = None)
     try:
         status_dir = _open_below(anchor, parts)
     except FileNotFoundError:
+        if _all_hosts:
+            raise FeedUnavailable("share_unmounted") from None
         return None  # share not mounted, or no llm-lab/status on it
     except OSError as exc:
         if _refused_folder(exc):
             raise ShareRefused("a share status folder is a symbolic link or not a folder; refused") from None
         raise
-    records: list[bytes] = []
+    records: list[tuple[str | None, bytes | Exception]] = []
     try:
         try:
             peers = os.open("agiw-peers", _DIR_FLAGS | _NOFOLLOW, dir_fd=status_dir)
@@ -386,8 +700,10 @@ def from_share(now: float, root: Path | None = None, anchor: Path | None = None)
                 opened = os.fstat(peers)
                 for name in _peer_names(peers):
                     try:
-                        records.append(_read_at(peers, name))
-                    except (OSError, ValueError):
+                        records.append((name[:-5], _read_at(peers, name)))
+                    except (OSError, ValueError) as exc:
+                        if _all_hosts:
+                            records.append((name[:-5], exc))
                         continue
                 try:
                     still = os.stat("agiw-peers", dir_fd=status_dir, follow_symlinks=False)
@@ -398,13 +714,37 @@ def from_share(now: float, root: Path | None = None, anchor: Path | None = None)
             finally:
                 os.close(peers)
         try:
-            records.append(_read_at(status_dir, "windows-status.json"))
-        except (OSError, ValueError):
-            pass
+            records.append((None, _read_at(status_dir, "windows-status.json")))
+        except (OSError, ValueError) as exc:
+            if _all_hosts and not isinstance(exc, FileNotFoundError):
+                records.append((None, exc))
     finally:
         os.close(status_dir)
+    if _all_hosts:
+        rows = []
+        legacy = []
+        for host, raw in records:
+            row = (_feed_failure("unknown" if host else "windows", host or "windows", failure_reason(raw))
+                   if isinstance(raw, Exception) else
+                   summarize_document(raw, "share", now, host=host, platform="windows" if host is None else None))
+            if host is None:
+                row["source"]["legacy"] = True  # local read-path metadata, never trusted from document content
+            (rows if host is not None else legacy).append(row)
+        # The PC writes both formats; the legacy platform-named report is a fallback, not a second machine.
+        if not any(row["feed"] and row["source"]["platform"] == "windows" for row in rows):
+            if legacy and legacy[0]["feed"]:
+                # Failed modern observations do not establish an additional PC. Keep
+                # their named errors on the selected legacy report without claiming
+                # that its platform-only name proves which modern file it belongs to.
+                uncertain = [row for row in rows if not row["feed"]
+                             and row["source"]["platform"] in ("windows", "unknown")]
+                for row in uncertain:
+                    _attach_diagnostic(legacy[0], row)
+                rows = [row for row in rows if row not in uncertain]
+            rows.extend(legacy)
+        return rows
     best, best_observed = None, None
-    for raw in records:
+    for _host, raw in records:
         try:
             summary = _summary(peer_link.strict_json(raw), "share", now)
             observed = peer_link._parse_iso(summary["observedAt"])
@@ -600,35 +940,82 @@ def mac_presence(snapshot: dict | None, host_name: str, *, version: str | None =
                  dashboard_port: int | None = None) -> dict:
     """This Mac's status for peers, in the PC edition's presence shape (probes.peer_presence), built only from
     the observer's latest snapshot, plus this Mac's Nisi and Jev states. Model ids, states, versions and counts
-    only; no paths, prompts or keys. When neither LM Studio source answered, the model list is unknown and the
-    document is refused (InventoryUnknown) rather than published as zero models."""
+    only; no paths, prompts or keys. An unavailable or incomplete inventory is refused (InventoryUnknown)
+    rather than published as a complete count."""
     if not snapshot:
         raise ValueError("no snapshot yet")
     sampled = float(snapshot["sampledAt"])
     if not math.isfinite(sampled):
         raise ValueError("snapshot time is not a number")
-    states = {s.get("id"): s.get("state") for s in snapshot.get("sources") or [] if isinstance(s, dict)}
+    sources = {s.get("id"): s for s in snapshot.get("sources") or [] if isinstance(s, dict)}
+    live = [sources[key] for key in ("lmstudio-api", "lms-ps") if sources.get(key, {}).get("state") == "live"]
     known = snapshot.get("activityKnown") is True
-    if not known and states.get("lmstudio-api") != "live" and states.get("lms-ps") != "live":
+    machine = next((row for row in snapshot.get('machines', [])
+                    if row.get('platform') == 'mac' and row.get('host') == 'mac'), None)
+    if machine is not None and (machine.get('state') != 'up' or machine.get('modelsComplete') is not True):
+        raise InventoryUnknown("Mac model inventory incomplete")
+    if not known and not live:
         # The PC counts loaded models from this list whatever the health says; an empty list would read as 0 loaded.
         raise InventoryUnknown("Mac model inventory unknown (LM Studio inventory and activity both unavailable)")
+    if any(source.get("modelsComplete", True) is not True for source in live):
+        raise InventoryUnknown("Mac model inventory incomplete")
+    rows = [row for key in ("models", "localInstanceObservations") for row in snapshot.get(key) or []
+            if isinstance(row, dict) and row.get("host") == "mac"]
+    groups = {}
+    for row in rows:
+        metadata = row.get("metadata")
+        if (isinstance(metadata, dict) and isinstance(metadata.get("loadedInstances"), list)
+                and metadata.get("loadedInstanceCount") != len(metadata["loadedInstances"])):
+            raise InventoryUnknown("Mac model instance inventory incomplete")
+        if public_id(row.get("id")) is None:
+            raise InventoryUnknown("Mac model inventory contains an unpublishable identifier")
+        key = row.get("modelKey")
+        groups.setdefault(key if isinstance(key, str) and key else row["id"], []).append(row)
     models = []
-    for row in snapshot.get("models") or []:
-        model_id = public_id(row.get("id")) if isinstance(row, dict) and row.get("host") == "mac" else None
-        if model_id is None:
-            continue
-        loaded = row.get("loaded")
-        state = "loaded" if loaded is True else "inactive" if loaded is False else "unknown"
+    for key, group in groups.items():
+        row = next((item for item in group if item.get("id") == key or item.get("source") == "lmstudio-api"), group[0])
+        model_id = (public_id(key) if all(item.get("source") == "lms-ps" for item in group) else None) or public_id(row["id"])
+        loaded = [item for item in group if item.get("loaded") is True]
+        state = "loaded" if loaded else "inactive" if all(item.get("loaded") is False for item in group) else "unknown"
+        if state == "unknown":
+            raise InventoryUnknown("Mac model loaded state unknown")
         # Activity is claimed only from a snapshot whose activity the observer verified.
-        activity = row.get("state") if known and row.get("state") in ("idle", "generating", "busy", "queued") else "unknown"
+        cli = [item for item in loaded if item.get("source") == "lms-ps"]
+        activity = "unknown"
+        if known and loaded:
+            observed = cli or loaded
+            activity = next((word for word in ("generating", "busy", "queued")
+                             if any(item.get("state") == word for item in observed)), "unknown")
+            if activity == "unknown" and all(item.get("state") == "idle" for item in observed):
+                instances = {item.get("instanceId") or item.get("id") for item in cli}
+                covered = not cli or all((item.get("source") == "lms-ps" and item.get("loadedInstanceIds") is None)
+                    or (isinstance(item.get("loadedInstanceIds"), list) and bool(item["loadedInstanceIds"])
+                        and set(item["loadedInstanceIds"]) <= instances) for item in loaded)
+                if covered:
+                    activity = "idle"
         parallel = row.get("parallel")
-        slots = parallel if loaded is True and isinstance(parallel, int) and not isinstance(parallel, bool) \
+        slots = parallel if loaded and isinstance(parallel, int) and not isinstance(parallel, bool) \
             and 1 <= parallel <= 256 else None
-        alias = public_id(row.get("modelKey"))
-        models.append({"id": model_id, "aliases": [alias] if alias and alias != model_id else [], "host": "mac",
+        aliases = []
+        for item in group:
+            for value in (item.get("id"), item.get("modelKey"), item.get("instanceId"), *(item.get("loadedInstanceIds") or [])):
+                alias = public_id(value)
+                if alias and alias != model_id and alias not in aliases:
+                    aliases.append(alias)
+        models.append({"id": model_id, "aliases": aliases, "host": "mac",
                        "loadedState": state, "activity": activity, "slotsBusy": None, "slotsTotal": slots})
     models_total = len(models)
     models.sort(key=lambda model: model["loadedState"] != "loaded")
+    mac_rows = [row for row in rows if not row.get('representedByInstances')]
+    states = {key: value.get('state') for key, value in sources.items()}
+    inventory_complete = (all(row.get('inventoryComplete') is not False for row in mac_rows)
+                          and any(s.get('id') == 'lmstudio-api' and s.get('state') == 'live'
+                                  and s.get('route') == 'direct' for s in snapshot.get('sources') or []))
+    loaded_complete = (len(models) == len(groups)
+                       and all(type(row.get('loaded')) is bool and row.get('inventoryComplete') is not False
+                               for row in mac_rows)
+                       and (states.get('lms-ps') == 'live' or inventory_complete)
+                       and sum(model['loadedState'] == 'loaded' for model in models) <= peer_link.MAX_MODELS)
     models = models[:peer_link.MAX_MODELS]
     memory = snapshot.get("memory") if isinstance(snapshot.get("memory"), dict) else {}
     port = dashboard_port if isinstance(dashboard_port, int) and not isinstance(dashboard_port, bool) \
@@ -637,7 +1024,9 @@ def mac_presence(snapshot: dict | None, host_name: str, *, version: str | None =
             "version": version if isinstance(version, str) else None,
             "observedAt": _iso(sampled), "observedUnix": round(sampled, 3),
             # Inventory is known here; only unverified activity lowers health.
-            "health": "ok" if known else "degraded", "models": models, "modelsTotal": models_total,
+            "health": "ok" if known else "degraded", "models": models,
+            **({"modelsTotal": models_total} if inventory_complete else {}),
+            "loadedListComplete": loaded_complete,
             "gpus": _mac_gpus(snapshot.get("macGpu")),
             "memory": {"level": memory.get("level") if memory.get("level") in MEMORY_LEVELS else None,
                        "availablePercent": _number(memory.get("availablePercent"), 0, 100)},
@@ -810,8 +1199,11 @@ def _failure(exc: BaseException) -> tuple[str, str]:
     if isinstance(exc, OSError):
         return "unavailable", f"share write failed ({errno.errorcode.get(exc.errno or 0, 'I/O error')})"
     if isinstance(exc, InventoryUnknown):
-        return "unavailable", ("Mac model inventory unknown (LM Studio inventory and activity both unavailable), "
-                               "so no model count is published; the last file ages out after 30 s")
+        causes = {"Mac model inventory unknown (LM Studio inventory and activity both unavailable)",
+                  "Mac model inventory incomplete", "Mac model instance inventory incomplete",
+                  "Mac model loaded state unknown", "Mac model inventory contains an unpublishable identifier"}
+        cause = str(exc) if str(exc) in causes else "Mac model inventory unknown"
+        return "unavailable", cause + ", so no model count is published; the last file ages out after 30 s"
     if isinstance(exc, ValueError):
         return "error", f"presence refused: {str(exc)[:120]}"
     return "error", f"presence write failed ({type(exc).__name__})"

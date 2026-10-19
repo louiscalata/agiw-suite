@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import signal
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -90,7 +91,8 @@ def prewarmed_script(path, body):
     2 s deadline times the host, not the runner. The warm run exits before
     *body*, so it has no side effects.
     """
-    path.write_text("#!/usr/bin/python3\nimport sys\n"
+    # Use the suite's interpreter; /usr/bin/python3 may launch through xcrun on each exec.
+    path.write_text(f"#!{sys.executable}\nimport sys\n"
                     "if sys.argv[1:] == ['--prewarm']:\n    raise SystemExit(0)\n" + body)
     path.chmod(0o700)
     subprocess.run([str(path), "--prewarm"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
@@ -131,11 +133,46 @@ class OnlineCodeRepairTests(unittest.TestCase):
         self.marker = Path(self.temporary.name) / "pending.json"
         self.receipt = Path(self.temporary.name) / "readiness.json"
 
+    def test_dispatch_boundary_refuses_every_owner_command_with_closed_l2(self):
+        commands = (repair.ROUTE_STATUS, repair.ROUTE_PREFLIGHT, repair.WINDOWS_STATUS,
+                    repair.WINDOWS_RECONCILE, repair.NISI_STATUS, repair.NISI_RECOVER,
+                    repair.JEV_STATUS, repair.READINESS, repair.ENTRY_READINESS,
+                    ("future-owner-action",))
+        for scripted in (False, True):
+            with self.subTest(scripted=scripted), \
+                 mock.patch.object(repair, "launcher_runner", return_value=reply({})) as launcher:
+                injected = mock.Mock(return_value=reply({}))
+                controller = repair.OnlineCodeRepair(injected if scripted else None)
+                for args in commands:
+                    with self.subTest(args=args):
+                        with self.assertRaises(repair._Stop) as stopped:
+                            controller._runner(args, None, 12)
+                        self.assertEqual(stopped.exception.status, "needs-action")
+                        self.assertIn("L2 is closed", stopped.exception.message)
+                launcher.assert_not_called()
+                injected.assert_not_called()
+
+    def test_dispatch_boundary_preserves_explicitly_open_owner_commands(self):
+        commands = (repair.ROUTE_STATUS, repair.ROUTE_PREFLIGHT, repair.WINDOWS_STATUS,
+                    repair.WINDOWS_RECONCILE, repair.NISI_STATUS, repair.NISI_RECOVER,
+                    repair.JEV_STATUS, repair.READINESS, repair.ENTRY_READINESS)
+        for scripted in (False, True):
+            with self.subTest(scripted=scripted), \
+                 mock.patch.object(repair, "launcher_runner", return_value=reply({})) as launcher:
+                injected = mock.Mock(return_value=reply({}))
+                controller = repair.OnlineCodeRepair(injected if scripted else None, l2_open=True)
+                target = injected if scripted else launcher
+                for args in commands:
+                    with self.subTest(args=args):
+                        self.assertEqual(controller._runner(args, None, 12), reply({}))
+                self.assertEqual(target.call_args_list, [mock.call(args, None, 12) for args in commands])
+                (launcher if scripted else injected).assert_not_called()
+
     def test_default_owner_pauses_queue_calls_before_stalled_reader_can_repeat(self):
         with mock.patch.object(repair, "_windows_worker_reader_blocked", return_value=True), \
              mock.patch.object(repair, "launcher_runner",
                                side_effect=AssertionError("owner must not run")) as owner:
-            controller = repair.OnlineCodeRepair()
+            controller = repair.OnlineCodeRepair(l2_open=True)
             for args in (repair.WINDOWS_STATUS, repair.WINDOWS_RECONCILE,
                          repair.READINESS, repair.ENTRY_READINESS):
                 with self.assertRaises(repair._Stop) as stopped:
@@ -152,7 +189,7 @@ class OnlineCodeRepairTests(unittest.TestCase):
     def test_default_owner_pauses_repeated_readiness_while_chami_ensure_child_is_uninterruptible(self):
         command = f"/usr/bin/python3 -I -S {repair.Path.home() / 'bin/chami-ensure'} --probe"
         listing = f"{os.getuid()} U {command}\n"
-        controller = repair.OnlineCodeRepair()
+        controller = repair.OnlineCodeRepair(l2_open=True)
         with mock.patch.object(telemetry, "_bounded_command", return_value=listing), \
              mock.patch.object(repair, "launcher_runner",
                                side_effect=AssertionError("must not launch a repeated SMB reader")) as owner:
@@ -171,14 +208,14 @@ class OnlineCodeRepairTests(unittest.TestCase):
         with mock.patch.object(repair, "_windows_worker_reader_blocked", return_value=False), \
              mock.patch.object(repair, "launcher_runner",
                                side_effect=subprocess.TimeoutExpired(["owner"], 1)):
-            controller = repair.OnlineCodeRepair()
+            controller = repair.OnlineCodeRepair(l2_open=True)
             with self.assertRaises(subprocess.TimeoutExpired):
                 controller._call(repair.WINDOWS_STATUS)
         self.assertTrue(repair._WINDOWS_WORKER_IO_LOCK.acquire(blocking=False))
         repair._WINDOWS_WORKER_IO_LOCK.release()
 
     def test_default_owner_does_not_overlap_passive_sharedchami_probe(self):
-        controller = repair.OnlineCodeRepair()
+        controller = repair.OnlineCodeRepair(l2_open=True)
         self.assertTrue(repair._WINDOWS_WORKER_IO_LOCK.acquire(blocking=False))
         try:
             with mock.patch.object(repair, "_windows_worker_reader_blocked",
@@ -214,7 +251,7 @@ class OnlineCodeRepairTests(unittest.TestCase):
         try:
             with mock.patch.object(repair, "_windows_worker_reader_blocked", return_value=False), \
                  mock.patch.object(repair, "launcher_runner", side_effect=owner):
-                controller = repair.OnlineCodeRepair()
+                controller = repair.OnlineCodeRepair(l2_open=True)
                 worker.start()
                 self.assertTrue(entered.wait(1.0))
                 telemetry._windows_worker_refresh(cache)
@@ -235,7 +272,7 @@ class OnlineCodeRepairTests(unittest.TestCase):
             worker.join(timeout=2.0)
 
     def test_default_owner_does_not_overlap_passive_sharedchami_probe(self):
-        controller = repair.OnlineCodeRepair()
+        controller = repair.OnlineCodeRepair(l2_open=True)
         self.assertTrue(repair._WINDOWS_WORKER_IO_LOCK.acquire(blocking=False))
         try:
             with mock.patch.object(repair, "_windows_worker_reader_blocked",
@@ -255,7 +292,7 @@ class OnlineCodeRepairTests(unittest.TestCase):
     def test_default_owner_runs_verified_windows_status_when_local_reader_clear(self):
         with mock.patch.object(repair, "_windows_worker_reader_blocked", return_value=False), \
              mock.patch.object(repair, "launcher_runner", return_value=windows()) as owner:
-            controller = repair.OnlineCodeRepair()
+            controller = repair.OnlineCodeRepair(l2_open=True)
             pending, ready = controller._windows_status()
         self.assertIsNone(pending)
         self.assertTrue(ready)
@@ -267,7 +304,7 @@ class OnlineCodeRepairTests(unittest.TestCase):
         return repair.OnlineCodeRepair(runner, nisi_pending_path=self.marker,
                                        readiness_path=self.receipt, sleep=sleep,
                                        monotonic=monotonic,
-                                       bridge_probe=bridge_probe or (lambda _: bridge())), runner
+                                       bridge_probe=bridge_probe or (lambda _: bridge()), l2_open=True), runner
 
     def finish(self, controller, action="repair"):
         started = (controller.request_entry() if action == "entry" else
@@ -403,7 +440,7 @@ class OnlineCodeRepairTests(unittest.TestCase):
             entered.set()
             release.wait(1)
             return entry_result()
-        controller = repair.OnlineCodeRepair(waiting_runner, readiness_path=self.receipt)
+        controller = repair.OnlineCodeRepair(waiting_runner, readiness_path=self.receipt, l2_open=True)
         first = controller.request_entry()
         self.assertTrue(entered.wait(1))
         blocked = controller.request()
@@ -668,7 +705,7 @@ class OnlineCodeRepairTests(unittest.TestCase):
 
     def test_cancel_signal_failure_is_reported_and_direct_child_is_tried(self):
         controller = repair.OnlineCodeRepair(lambda *_: idle(),
-                                              nisi_pending_path=self.marker)
+                                              nisi_pending_path=self.marker, l2_open=True)
         child = mock.Mock(pid=24680)
         controller._owner_children.register(child)
         with controller._lock:
@@ -690,7 +727,7 @@ class OnlineCodeRepairTests(unittest.TestCase):
         script = Path(self.temporary.name) / "waiting-route"
         script.write_text("#!/usr/bin/python3\nimport time\ntime.sleep(30)\n")
         script.chmod(0o700)
-        controller = repair.OnlineCodeRepair(nisi_pending_path=self.marker)
+        controller = repair.OnlineCodeRepair(nisi_pending_path=self.marker, l2_open=True)
         try:
             with mock.patch.object(repair, "LAUNCHER", script):
                 self.assertEqual(controller.request_fix("route")["status"], "running")
@@ -716,7 +753,7 @@ class OnlineCodeRepairTests(unittest.TestCase):
         script.write_text("#!/usr/bin/python3\nimport time\ntime.sleep(30)\n")
         script.chmod(0o700)
         controller = repair.OnlineCodeRepair(lambda *_: idle(),
-                                              nisi_pending_path=self.marker)
+                                              nisi_pending_path=self.marker, l2_open=True)
         try:
             with mock.patch.object(repair, "_runtime_sources", return_value=(False, False)), \
                  mock.patch.object(repair, "_local_server_stopped", return_value=True), \
@@ -1016,7 +1053,7 @@ class OnlineCodeRepairTests(unittest.TestCase):
             release.wait(1)
             return idle()
 
-        controller = repair.OnlineCodeRepair(waiting_runner, nisi_pending_path=self.marker)
+        controller = repair.OnlineCodeRepair(waiting_runner, nisi_pending_path=self.marker, l2_open=True)
         first = controller.request()
         self.assertTrue(entered.wait(1))
         second = controller.request()
@@ -1162,7 +1199,7 @@ class OnlineCodeRepairTests(unittest.TestCase):
         journal = Path(self.temporary.name) / "fix-journal.jsonl"
         controller = repair.OnlineCodeRepair(lambda *_: reply(None),
                                              fix_journal_path=journal,
-                                             nisi_pending_path=self.marker)
+                                             nisi_pending_path=self.marker, l2_open=True)
         calls = []
 
         def local():
@@ -1246,6 +1283,22 @@ class OnlineCodeRepairTests(unittest.TestCase):
                          ["/owner/lms", "server", "start", "--port", "1234", "--bind", "127.0.0.1"])
         self.assertTrue(popen.call_args.kwargs["start_new_session"])
 
+    def test_runtime_inventory_probe_uses_only_verified_direct_endpoint(self):
+        endpoint = {"host": "127.0.0.1", "port": 1235, "portSource": "lms"}
+        listener = (907, "lmstudio", "/Applications/LM Studio.app/Contents/MacOS/LM Studio")
+        for verified, after, expected in ((None, None, False), ((endpoint, listener), listener, True),
+                                           ((endpoint, listener), (908, "pair", "/fixture/pair"), False)):
+            with self.subTest(verified=verified, after=after), \
+                    mock.patch.object(repair, "_verified_direct_endpoint", return_value=verified), \
+                    mock.patch.object(repair, "_inventory_listener", return_value=after), \
+                    mock.patch.object(repair, "_bounded_http", return_value={"models": []}) as http, \
+                    mock.patch.object(repair, "_bounded_lms", return_value={"models": []}):
+                self.assertEqual(repair._runtime_sources(), (expected, True))
+                if verified is None:
+                    http.assert_not_called()
+                else:
+                    http.assert_called_once_with(endpoint)
+
     def test_owner_status_is_bounded_exact_json_and_fail_closed(self):
         with mock.patch.object(repair, "_find_lms", return_value="/owner/lms"), \
              mock.patch.object(repair, "_bounded_command", return_value='{"running":false}') as command:
@@ -1265,6 +1318,55 @@ class OnlineCodeRepairTests(unittest.TestCase):
                         repair._local_server_stopped()
 
 
+class VerifiedRuntimeEndpointTests(unittest.TestCase):
+    def test_proxy_and_unknown_status_never_count_as_native_inventory(self):
+        lm = (907, "lmstudio", "/Applications/LM Studio.app/Contents/MacOS/LM Studio")
+        pair = (908, "pair", "/Applications/NVIDIA PAIR.app/Contents/MacOS/nvpair-proxy")
+        for configured, listener, status in (("1234", pair, {"port": 1235, "running": True}),
+                ("1235", lm, None), ("1235", None, {"port": 1235, "running": True}),
+                ("invalid", lm, {"port": 1235, "running": True})):
+            with self.subTest(configured=configured, listener=listener), \
+                    mock.patch.dict(os.environ, {"AGIW_LMSTUDIO_API_PORT": configured}), \
+                    mock.patch.object(repair, "_lms_server_status", return_value=status), \
+                    mock.patch.object(repair, "_inventory_listener", return_value=listener), \
+                    mock.patch.object(repair, "_bounded_http") as http, \
+                    mock.patch.object(repair, "_bounded_lms", return_value={"models": []}):
+                self.assertEqual(repair._runtime_sources(), (False, True))
+                self.assertEqual(repair._server_client_verdict(
+                    repair._lsof_sockets(lsof_listing(listener="LM Studio spoof")), os.getpid())[0], "unknown")
+                with self.assertRaisesRegex(ValueError, "endpoint identity"):
+                    repair.loopback_api_sockets()
+                http.assert_not_called()
+
+    def test_direct_1235_uses_kernel_identity_instead_of_command_prefix(self):
+        listener = (SERVER_PID, "lmstudio", "/Applications/LM Studio.app/Contents/MacOS/LM Studio")
+        listing = lsof_listing(listener="truncated name", listen_name="127.0.0.1:1235")
+        with mock.patch.dict(os.environ, {"AGIW_LMSTUDIO_API_PORT": "1235"}), \
+                mock.patch.object(repair, "_lms_server_status", return_value={"port": 1235, "running": True}), \
+                mock.patch.object(repair, "_inventory_listener", return_value=listener), \
+                mock.patch.object(repair, "_bounded_http", return_value={"models": []}) as http, \
+                mock.patch.object(repair, "_bounded_lms", return_value={"models": []}), \
+                mock.patch.object(repair, "_bounded_command", return_value=listing) as command:
+            self.assertEqual(repair._runtime_sources(), (True, True))
+            self.assertEqual(http.call_args.args[0]["port"], 1235)
+            self.assertEqual(repair.loopback_api_sockets(), listing)
+            self.assertIn("-iTCP@127.0.0.1:1235", command.call_args.args[0])
+            self.assertIn("-b", command.call_args.args[0])
+            self.assertIn("-w", command.call_args.args[0])
+            self.assertEqual(repair._server_client_verdict(repair._lsof_sockets(listing), os.getpid())[0], "idle")
+            spoofed = listing.replace(f"p{SERVER_PID}\n", "p9999\n").replace("truncated name", "LM Studio spoof")
+            self.assertEqual(repair._server_client_verdict(repair._lsof_sockets(spoofed), os.getpid())[0], "unknown")
+
+    def test_socket_listener_handoff_discards_listing(self):
+        endpoint = {"host": "127.0.0.1", "port": 1235, "portSource": "lms"}
+        listener = (907, "lmstudio", "/Applications/LM Studio.app/Contents/MacOS/LM Studio")
+        with mock.patch.object(repair, "_verified_direct_endpoint", return_value=(endpoint, listener)), \
+                mock.patch.object(repair, "_inventory_listener", return_value=(908, "pair", "/fixture/pair")), \
+                mock.patch.object(repair, "_bounded_command", return_value=""):
+            with self.assertRaisesRegex(ValueError, "listener changed"):
+                repair.loopback_api_sockets()
+
+
 class HeadlessSwitchTests(unittest.TestCase):
     """The monitor's PC headless button only runs pc-llm on/off, bounded and parsed."""
 
@@ -1281,7 +1383,7 @@ class HeadlessSwitchTests(unittest.TestCase):
         return script
 
     def run_switch(self, action, script, **kwargs):
-        controller = repair.OnlineCodeRepair(ScriptedRunner([]), pc_llm=script, **kwargs)
+        controller = repair.OnlineCodeRepair(ScriptedRunner([]), pc_llm=script, **kwargs, l2_open=True)
         self.addCleanup(controller.join, 1)
         self.addCleanup(controller.cancel)
         started = controller.request_headless(action)
@@ -1373,7 +1475,7 @@ class HeadlessSwitchTests(unittest.TestCase):
                 state = self.run_switch("off", script)
             self.assertEqual(state["status"], "needs-action")
             self.assertIn("not installed as an owner executable", state["message"])
-        controller = repair.OnlineCodeRepair(ScriptedRunner([]))
+        controller = repair.OnlineCodeRepair(ScriptedRunner([]), l2_open=True)
         with mock.patch.object(repair, "PC_LLM", self.fake("print('{}')\n")), \
              mock.patch.object(repair, "_run_bounded", side_effect=AssertionError("must not run")):
             controller.request_headless("off")
@@ -1396,7 +1498,7 @@ class HeadlessSwitchTests(unittest.TestCase):
         with mock.patch.object(repair, "PC_LLM", script), \
              mock.patch.object(repair, "_windows_worker_reader_blocked", return_value=True), \
              mock.patch.object(repair, "_run_bounded", side_effect=AssertionError("must not run")):
-            controller = repair.OnlineCodeRepair()
+            controller = repair.OnlineCodeRepair(l2_open=True)
             controller.request_headless("on")
             self.assertTrue(controller.join(8))
         state = controller.read()
@@ -1412,7 +1514,7 @@ class HeadlessSwitchTests(unittest.TestCase):
             return False
         with mock.patch.object(repair, "PC_LLM", script), \
              mock.patch.object(repair, "_windows_worker_reader_blocked", side_effect=reader_clear):
-            controller = repair.OnlineCodeRepair()
+            controller = repair.OnlineCodeRepair(l2_open=True)
             controller.request_headless("on")
             self.assertTrue(controller.join(8))
         self.assertEqual(held, [(True, True)])
@@ -1423,7 +1525,7 @@ class HeadlessSwitchTests(unittest.TestCase):
 
     def test_cancel_kills_a_running_probe(self):
         script = self.fake("time.sleep(30)\n")
-        controller = repair.OnlineCodeRepair(ScriptedRunner([]), pc_llm=script)
+        controller = repair.OnlineCodeRepair(ScriptedRunner([]), pc_llm=script, l2_open=True)
         try:
             controller.request_headless("on")
             deadline = time.monotonic() + 2
@@ -1539,6 +1641,14 @@ class FixNisiTests(unittest.TestCase):
     """Fix Nisi Inference: measured preconditions, one launcher recover, then status-only checks."""
 
     def setUp(self):
+        self.endpoint = {"host": "127.0.0.1", "port": 1234, "portSource": "lms"}
+        self.listener = (SERVER_PID, "lmstudio", "/Applications/LM Studio.app/Contents/MacOS/LM Studio")
+        verified = mock.patch.object(repair, "_verified_direct_endpoint", return_value=(self.endpoint, self.listener))
+        verified.start()
+        self.addCleanup(verified.stop)
+        listener = mock.patch.object(repair, "_inventory_listener", return_value=self.listener)
+        listener.start()
+        self.addCleanup(listener.stop)
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
@@ -1587,7 +1697,7 @@ class FixNisiTests(unittest.TestCase):
                        lms_ps=self.read_lms, loopback_sockets=self.read_sockets,
                        router_lock_path=self.router_lock, fix_journal_path=self.journal)
         options.update(overrides)
-        controller = repair.OnlineCodeRepair(launcher, **options)
+        controller = repair.OnlineCodeRepair(launcher, **options, l2_open=True)
         self.addCleanup(controller.join, 1)
         self.addCleanup(controller.cancel)
         return controller, launcher
@@ -1986,7 +2096,7 @@ class FixNisiTests(unittest.TestCase):
             ("busy", lsof_listing((4242, "node", 50123), (os.getpid(), "Python", 50124))),
             ("busy", lsof_listing(unseen=(50125,))),
             ("busy", lsof_listing() + "p4242\ncpython3\nf9\nn127.0.0.1:50126->127.0.0.1:1234\nTST=SYN_SENT\n"),
-            ("unknown", lsof_listing(listener="ollama")),
+            ("unknown", lsof_listing(listener="LM Studio spoof").replace(f"p{SERVER_PID}\n", "p908\n")),
             ("unknown", lsof_listing(listen_name="127.0.0.1:12345")),
             ("unknown", ""),
             ("unknown", "p907\ncLM Studio\nf78\nn127.0.0.1:1234\n"),
@@ -2466,7 +2576,7 @@ class FixNisiTests(unittest.TestCase):
             nisi_pending_path=self.pending, readiness_path=self.root / "readiness.json",
             sleep=self.sleeps.append, clock=lambda: self.now, lms_ps=self.read_lms,
             loopback_sockets=self.read_sockets, router_lock_path=self.router_lock,
-            fix_journal_path=self.journal)
+            fix_journal_path=self.journal, l2_open=True)
         try:
             with mock.patch.object(repair, "LAUNCHER", script):
                 controller.request_fix("nisi")
@@ -2582,9 +2692,9 @@ class FixNisiTests(unittest.TestCase):
             self.assertEqual(repair.loopback_api_sockets(), "")
         self.assertEqual(calls[0], (["/owner/.lmstudio/bin/lms", "ps", "--json"],
                                     {"limit": 524288, "timeout": 5.0}))
-        self.assertEqual(calls[1], (["/usr/sbin/lsof", "-nP", "-iTCP@127.0.0.1:1234", "-F", "pcnT"],
+        self.assertEqual(calls[1], (["/usr/sbin/lsof", "-nP", "-b", "-w", "-F", "pcnT", "-iTCP@127.0.0.1:1234"],
                                     {"limit": 65536, "timeout": 5.0, "ok_codes": (0, 1)}))
-        production = repair.OnlineCodeRepair()
+        production = repair.OnlineCodeRepair(l2_open=True)
         self.assertIs(production._lms_ps, repair.lms_ps_listing)
         self.assertIs(production._loopback_sockets, repair.loopback_api_sockets)
         self.assertEqual(production._router_lock_path, repair.ROUTER_OWNER_LOCK)
@@ -2595,7 +2705,7 @@ class FixNisiTests(unittest.TestCase):
         state = self.run_fix(controller)
         self.assertEqual(self.steps(state)[-2], ("server-idle", "unknown"))
         self.assert_not_recovered(launcher, raw)
-        scripted = repair.OnlineCodeRepair(NisiLauncher(self.state))
+        scripted = repair.OnlineCodeRepair(NisiLauncher(self.state), l2_open=True)
         self.assertEqual((scripted._lms_ps, scripted._loopback_sockets, scripted._router_lock_path,
                           scripted._fix_journal_path), (None, None, None, None))
 

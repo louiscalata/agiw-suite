@@ -208,7 +208,7 @@ def _live_rows() -> dict[tuple[str, str], dict[str, Any]]:
 
 
 def _age(timestamp: Any, now: float) -> float | None:
-    if not _finite(timestamp):
+    if not _finite(timestamp) or timestamp > now + 2:
         return None
     return round(max(0.0, now - timestamp), 3)
 
@@ -269,6 +269,7 @@ class _Listing(list):
     and ``scan_cut`` says the name scan stopped early, so a name of any age may be missing."""
     cut_mtime: float | None = None
     scan_cut = False
+    read_failed = False
 
 
 def _listing(rows: list[tuple[float, Path]], scan_cut: bool) -> _Listing:
@@ -286,9 +287,10 @@ def _archive_files() -> list[Path]:
         archive = _ROOT / "archive"
         if (archive.is_symlink() or not stat.S_ISDIR(info.st_mode)
                 or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) & 0o077):
-            return []
+            return _listing([], True)
         rows = []
         scan_cut = False
+        read_failed = False
         with os.scandir(archive) as entries:
             # Scan up to 4096 names, then sort by mtime: the newest runs are never cut off by
             # directory order once the archive grows past a screenful (spec 6.12).
@@ -300,15 +302,22 @@ def _archive_files() -> list[Path]:
                     continue
                 try:
                     if entry.is_symlink() or not entry.is_file(follow_symlinks=False):
+                        scan_cut = True
+                        read_failed = True
                         continue
                     st = entry.stat(follow_symlinks=False)
                     if st.st_uid == os.getuid() and stat.S_IMODE(st.st_mode) & 0o077 == 0 and st.st_nlink == 1:
                         rows.append((st.st_mtime, Path(entry.path)))
+                    else:
+                        scan_cut = read_failed = True
                 except OSError:
+                    scan_cut = read_failed = True
                     continue
-        return _listing(rows, scan_cut)
+        result = _listing(rows, scan_cut)
+        result.read_failed = read_failed
+        return result
     except OSError:
-        return []
+        return _listing([], True)
 
 
 def _read_archive(path: Path) -> dict[str, Any]:
@@ -568,9 +577,10 @@ def _receipt_files() -> list[Path]:
         info = _RECEIPTS.lstat()
         if (_RECEIPTS.is_symlink() or not stat.S_ISDIR(info.st_mode)
                 or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) & 0o077):
-            return []
+            return _listing([], True)
         rows = []
         scan_cut = False
+        read_failed = False
         with os.scandir(_RECEIPTS) as entries:
             for index, entry in enumerate(entries):
                 if index >= _MAX_ARCHIVE_ENTRIES:
@@ -580,15 +590,22 @@ def _receipt_files() -> list[Path]:
                     continue
                 try:
                     if entry.is_symlink() or not entry.is_file(follow_symlinks=False):
+                        scan_cut = True
+                        read_failed = True
                         continue
                     st = entry.stat(follow_symlinks=False)
                     if st.st_uid == os.getuid() and stat.S_IMODE(st.st_mode) & 0o077 == 0 and st.st_nlink == 1:
                         rows.append((st.st_mtime, Path(entry.path)))
+                    else:
+                        scan_cut = read_failed = True
                 except OSError:
+                    scan_cut = read_failed = True
                     continue
-        return _listing(rows, scan_cut)
+        result = _listing(rows, scan_cut)
+        result.read_failed = read_failed
+        return result
     except OSError:
-        return []
+        return _listing([], True)
 
 
 def _project_monitor_receipt(receipt: dict[str, Any], now: float) -> dict[str, Any] | None:
@@ -681,9 +698,31 @@ def _receipt_runs(now: float, paths: list[Path] | None = None) -> list[dict[str,
             item = _project_monitor_receipt(_read_archive(path), now)
             if item is not None:
                 result.append(item)
+            elif isinstance(paths, _Listing):
+                paths.read_failed = True
         except Exception:           # one malformed receipt (a RecursionError included) is skipped
+            if isinstance(paths, _Listing):
+                paths.read_failed = True
             continue
     return result
+
+
+def _history_source(source_id, label, paths, runs):
+    """Separate a completed directory/read observation from its newest event.
+
+    Plain legacy lists lack a read receipt and keep the conservative old fallback.
+    A successful empty _Listing is evidence of zero; a failed read isn't.
+    """
+    ages = [row['ageSeconds'] for row in runs if _finite(row.get('ageSeconds'))]
+    age = min(ages, default=None)
+    if isinstance(paths, _Listing):
+        complete = not (paths.read_failed or paths.scan_cut or paths.cut_mtime is not None)
+        return dict(id=source_id, label=label, state='live' if complete else 'unavailable',
+                    ageSeconds=age, observationAgeSeconds=0.0, complete=complete,
+                    detail='Completed history read' if complete else 'History read incomplete or capped')
+    return dict(id=source_id, label=label,
+                state='live' if age is not None and age <= _MAX_AGE else 'stale' if runs else 'unavailable',
+                ageSeconds=age, detail='Bounded historical records; read coverage unverified')
 
 
 _MAX_FLAGGED_KEPT = 4           # older flagged history rows kept past the newest-first cut
@@ -724,16 +763,19 @@ def _bounded_history(runs: list[dict[str, Any]], room: int) -> tuple[list[dict[s
             [row for index, row in enumerate(runs) if index not in keep])
 
 
-def _history_bound(listings: tuple[list[Path], ...], dropped: list[dict[str, Any]], sampled: float) -> dict[str, Any]:
+def _history_bound(listings: tuple[list[Path], ...], dropped: list[dict[str, Any]], sampled: float,
+                   *, active_incomplete: bool = False) -> dict[str, Any]:
     """What the bounds left out of the history rows, for a reader that counts a time window.
     ``truncated``: some history route may be missing from the list.  ``missingFromAgeSeconds``:
     the youngest age a missing dated route can have, or None when no dated route is missing.
     A file the enumerator did not return is at least as old as its mtime says (a route file is
-    written when its run finishes), and a cut name scan can miss a file of any age (0)."""
-    floors: list[float] = []
-    truncated = bool(dropped)
+    written when its run finishes), and a cut name scan can miss a file of any age (0).
+    A failed history read or cut active scan/display can omit current work, regardless of
+    the checkpoint's recorded age, so its missing-evidence floor is always zero."""
+    floors: list[float] = [0.0] if active_incomplete else []
+    truncated = bool(dropped) or active_incomplete
     for listing in listings:
-        if getattr(listing, "scan_cut", False):
+        if getattr(listing, "scan_cut", False) or getattr(listing, "read_failed", False):
             truncated = True
             floors.append(0.0)
         cut = getattr(listing, "cut_mtime", None)
@@ -822,7 +864,9 @@ def _active_rows(sampled: float) -> tuple[list[dict[str, Any]], bool, str]:
                      "host": observed.get("host") if observed.get("host") in ("mac", "windows") else None,
                      "calls": [], "usage": {"inputTokens": None, "outputTokens": None, "totalTokens": None}})
     rows.sort(key=lambda row: (row["activity"] != "unknown", row["recordedAt"] or 0.0), reverse=True)
-    return rows[:_MAX_RUNS], problem, listing
+    # The collector owns the display cap, so it can include omitted active rows
+    # in the same history bound as omitted archives and receipts.
+    return rows, problem, listing
 
 
 def collect_activity(now: float | None = None) -> dict[str, Any]:
@@ -839,15 +883,14 @@ def collect_activity(now: float | None = None) -> dict[str, Any]:
     receipt_paths = _receipt_files()
     archive_paths = _archive_files()
     runs = _receipt_runs(sampled, receipt_paths)
-    receipt_fresh = any(row.get("ageSeconds") is not None and row["ageSeconds"] <= _MAX_AGE for row in runs)
-    receipt_source = {"id": "monitor-receipts", "label": "Sanitized call receipts",
-                      "state": "live" if receipt_fresh else "stale" if runs else "unavailable",
-                      "ageSeconds": min((row["ageSeconds"] for row in runs if row.get("ageSeconds") is not None), default=None),
-                      "detail": "Bounded local receipt projection" if receipt_fresh else "Only historical or unavailable receipts"}
+    reads_complete = len(runs) == len(receipt_paths)
+    receipt_source = _history_source('monitor-receipts', 'Sanitized call receipts', receipt_paths, runs)
     receipt_by_id = {row["runId"]: row for row in runs}
     for path in archive_paths:
         try:
             item = _project_archive(_read_archive(path), sampled)
+            if item is None:
+                reads_complete = False
             if item is not None:
                 receipt = receipt_by_id.get(item["runId"])
                 same_trace = (receipt is not None
@@ -863,8 +906,15 @@ def collect_activity(now: float | None = None) -> dict[str, Any]:
                     receipt["testsStatus"] = item["testsStatus"]
                     continue
                 runs.append(item)
+            elif isinstance(archive_paths, _Listing):
+                archive_paths.read_failed = True
         except Exception:           # one malformed archive (a RecursionError included) is skipped
+            reads_complete = False
+            if isinstance(archive_paths, _Listing):
+                archive_paths.read_failed = True
             continue
+    archive_source = _history_source('router-archive', 'Recent completed routes', archive_paths,
+                                    [r for r in runs if r.get('source') == 'router-archive'])
     # Newest first across sources, before any truncation: receipts were read first and the
     # archives appended after them, so a 17-day-old receipt led the list (the dashboard's
     # default trace) and 12 receipt files would have cut every router route.  The sort is
@@ -879,13 +929,18 @@ def collect_activity(now: float | None = None) -> dict[str, Any]:
         active_rows, problem, listing = [], True, "ok"
     cut = "; the active/ listing was cut at 4096 entries" if listing == "truncated" else ""
     if active_rows:
+        active_ids = {row["runId"] for row in active_rows}
+        active_dropped = active_rows[_MAX_RUNS:]
+        active_rows = active_rows[:_MAX_RUNS]
         ages = [row["ageSeconds"] for row in active_rows if row.get("ageSeconds") is not None]
         fresh = any(row["activity"] in ("running", "queued") for row in active_rows) or any(
             age <= _MAX_AGE for age in ages)
         live_count = sum(1 for row in active_rows if row["activity"] in ("running", "queued"))
         source.update(state="error" if problem else "live" if fresh else "stale",
                       ageSeconds=min(ages, default=None),
-                      detail=(f"{len(active_rows)} router run record(s) sampled; {live_count} verified live by their "
+                      observationAgeSeconds=0.0,
+                      detail=(f"{'at least ' if active_dropped else ''}{len(active_rows)} router run record(s) sampled; "
+                              f"{'at least ' if active_dropped else ''}{live_count} verified live by their "
                               "layout's liveness checks" if live_count else
                               "Checkpoint sampled; live execution and generation are unverified")
                       + ("; the router run directory is unsafe or another record was unreadable" if problem else "")
@@ -894,18 +949,20 @@ def collect_activity(now: float | None = None) -> dict[str, Any]:
         # layout (a collision), and the two must stay distinct.
         for item in active_rows:
             item["traceKey"] = "router-active:" + item["runId"] + ":" + item["layout"]
-        active_ids = {row["runId"] for row in active_rows}
-        active_rows = active_rows[:_MAX_RUNS]
         history, dropped = _bounded_history([r for r in runs if r["runId"] not in active_ids], _MAX_RUNS - len(active_rows))
         all_runs = active_rows + history
         for item in all_runs:
             if "traceKey" not in item:
                 item["traceKey"] = item.get("source", "router-active") + ":" + item["runId"] + ":" + (item.pop("_routerRequestSha256", None) or "unknown")
-        return {"runs": all_runs, "historyBound": _history_bound((receipt_paths, archive_paths), dropped, sampled),
-                "sources": [source, receipt_source, {"id": "router-archive", "label": "Recent completed routes",
-                                     "state": "live" if any(r.get("ageSeconds") is not None and r["ageSeconds"] <= _MAX_AGE for r in runs) else "stale",
-                                     "ageSeconds": min((r["ageSeconds"] for r in runs if r.get("ageSeconds") is not None), default=None),
-                                     "detail": "Bounded sanitized archive records"}]}
+        bound = _history_bound((receipt_paths, archive_paths), active_dropped + dropped, sampled, active_incomplete=bool(active_dropped) or listing == "truncated")
+        if not reads_complete:
+            bound.update(truncated=True, missingFromAgeSeconds=0.0)
+        # Fresh lock-verified liveness and saved terminal results do not expire
+        # with checkpoint/event age. Unknown open records still require recency.
+        return {"runs": all_runs, "historyBound": bound, "sampledAt": sampled,
+                "complete": (not problem and listing != 'truncated' and not bound['truncated']
+                             and all(r.get('activity') in ('running', 'queued') or _finite(r.get('ageSeconds')) and (r.get('activity') == 'completed' or r['ageSeconds'] <= _MAX_AGE) for r in all_runs)),
+                "sources": [source, receipt_source, archive_source]}
     if problem:
         source.update(state="error", detail="Router checkpoint invalid or unreadable, or the router run directory is unsafe"
                                             + cut)
@@ -913,13 +970,16 @@ def collect_activity(now: float | None = None) -> dict[str, Any]:
         source.update(state="error", detail="No unresolved router pointer among the listed records" + cut)
     else:
         source["detail"] = "No unresolved router pointer; history is reported separately"
+        if listing == 'ok':
+            source.update(state='live', observationAgeSeconds=0.0)
     runs, dropped = _bounded_history(runs, _MAX_RUNS)
     for item in runs:
         item["traceKey"] = item.get("source", "router-active") + ":" + item["runId"] + ":" + (item.pop("_routerRequestSha256", None) or "unknown")
-    fresh_archive = any(r.get("source") == "router-archive" and r.get("ageSeconds") is not None and r["ageSeconds"] <= _MAX_AGE for r in runs)
     archive_exists = any(r.get("source") == "router-archive" for r in runs)
-    return {"runs": runs, "historyBound": _history_bound((receipt_paths, archive_paths), dropped, sampled),
-            "sources": [source, receipt_source, {"id": "router-archive",
-            "label": "Recent completed routes", "state": "live" if fresh_archive else "stale" if archive_exists else "unavailable",
-            "ageSeconds": min((r["ageSeconds"] for r in runs if r.get("source") == "router-archive" and r.get("ageSeconds") is not None), default=None),
-            "detail": "Bounded sanitized archive records" if fresh_archive else "Only historical or unavailable archive records"}]}
+    bound = _history_bound((receipt_paths, archive_paths), dropped, sampled, active_incomplete=listing == "truncated")
+    if not reads_complete:
+        bound.update(truncated=True, missingFromAgeSeconds=0.0)
+    return {"runs": runs, "historyBound": bound, "sampledAt": sampled,
+            "complete": (not problem and listing != 'truncated' and not bound['truncated']
+                         and all(_finite(r.get('ageSeconds')) for r in runs)),
+            "sources": [source, receipt_source, archive_source]}
