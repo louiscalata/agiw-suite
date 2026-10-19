@@ -23,8 +23,17 @@ def memory_status(available=8, commit_available=25):
             "commitLimit": 100 * GIB, "commitAvail": commit_available * GIB}
 
 
-def process(label="llama-server.exe", resident=GIB):
-    return {"label": label, "residentBytes": resident, "processCount": 2, "gpuAllocBytes": None}
+FAST = {"id": "fast", "port": 1235, "alias": "openai/gpt-oss-20b", "device": "CUDA0"}
+DEEP = {"id": "deep", "port": 1236, "alias": "qwen3.8-27b", "device": "none"}
+
+
+def process(label="llama-server.exe", resident=GIB, lane=None):
+    """A consumer row. The default is the lane server as top_processes reports it: a process that owns a declared
+    lane port (flagged lane). A row is the lane server only by that flag, never by its image name."""
+    row = {"label": label, "residentBytes": resident, "processCount": 2, "gpuAllocBytes": None}
+    if lane if lane is not None else label == "llama-server.exe":
+        row["lane"] = True
+    return row
 
 
 def lane_fetch(model, meta=None, slot_payload=None):
@@ -43,7 +52,7 @@ def lane_fetch(model, meta=None, slot_payload=None):
 
 class LaneModelBytes(unittest.TestCase):
     def test_safe_integer_boundaries_and_status_unchanged(self):
-        spec = probes.DEFAULT_LANES[0]
+        spec = FAST
         baseline = probes.probe_lane(spec, lane_fetch(spec["alias"]))
         for size in (1, 30 * GIB, 2 ** 52):
             with self.subTest(size=size):
@@ -52,7 +61,7 @@ class LaneModelBytes(unittest.TestCase):
                 self.assertEqual({**lane, "modelBytes": None}, baseline)
 
     def test_missing_malformed_and_unsafe_sizes_are_unknown(self):
-        spec = probes.DEFAULT_LANES[0]
+        spec = FAST
         metas = [None, [], "size", {}] + [{"size": value} for value in
                  (None, True, False, 0, -1, 2 ** 52 + 1, 1.0, "123", [], {}, float("nan"), float("inf"))]
         for meta in metas:
@@ -62,7 +71,7 @@ class LaneModelBytes(unittest.TestCase):
                 self.assertEqual(lane["status"], "idle")
 
     def test_size_is_retained_when_slots_or_declared_identity_differ(self):
-        spec = probes.DEFAULT_LANES[0]
+        spec = FAST
         for model, slot_payload, status in (
                 (spec["alias"], OSError("slots unavailable"), "slots_unknown"),
                 (spec["alias"], [{"id": 0, "is_processing": True}], "busy"),
@@ -72,12 +81,12 @@ class LaneModelBytes(unittest.TestCase):
                 self.assertEqual((lane["status"], lane["modelBytes"]), (status, 5 * GIB))
 
     def test_no_unambiguous_model_means_unknown_size(self):
-        spec = probes.DEFAULT_LANES[0]
+        spec = FAST
         for payload, status in ((None, "no_identity"), ({"data": []}, "no_identity"),
-                                ({"data": [None]}, "identity_mismatch"),
+                                ({"data": [None]}, "no_identity"),
                                 ({"data": [{"id": spec["alias"], "meta": {"size": GIB}}] * 2}, "identity_mismatch")):
             def fetch(url, _timeout, _limit):
-                return {} if url.endswith("/health") else payload
+                return {"status": "ok"} if url.endswith("/health") else payload
             with self.subTest(payload=payload):
                 lane = probes.probe_lane(spec, fetch)
                 self.assertEqual(lane["status"], status)
@@ -100,17 +109,22 @@ class MemoryParity(unittest.TestCase):
                  for size, status in enumerate(("idle", "busy", "slots_unknown"), 1)]
         lanes += [{"status": status, "modelBytes": 50 * GIB} for status in
                   ("unknown", "stale", "loading", "unreachable", "identity_mismatch", "undeclared")]
-        for label in ("llama-server.exe", "llama-server", "LLAMA-SERVER.EXE", "Llama-Server"):
-            original = process(label)
+        # The lane flag (a process owning a declared lane port) makes the server row, whatever the image is called.
+        for label in ("llama-server.exe", "llama-server", "LLAMA-SERVER.EXE", "Local LLM server", "lms-runtime.exe"):
+            original = process(label, lane=True)
             with self.subTest(label=label):
                 row = self.block(consumers=[original], lanes=lanes)["consumers"][0]
-                self.assertEqual(row, {**original, "label": "Local LLM server", "loadedModelCount": 3,
-                                       "loadedModelBytes": 6 * GIB})
+                self.assertEqual(row, {**original, "label": "Local LLM server"})
+                complete = self.block(consumers=[original], lanes=lanes[:3])["consumers"][0]
+                self.assertEqual(complete["loadedModelCount"], 3)
+                self.assertEqual(complete["loadedModelBytes"], 6 * GIB)
                 self.assertEqual(original["label"], label)
                 self.assertNotIn("loadedModelCount", original)
-        for label in ("llama-server-helper.exe", "my-llama-server", "browser.exe"):
-            original = process(label)
-            self.assertEqual(self.block(consumers=[original], lanes=lanes)["consumers"], [original])
+        # A llama-server found only by image name (NVIDIA PAIR's engine, someone else's server) is never the lane.
+        for label in ("llama-server.exe", "LLAMA-SERVER.EXE", "llama-server-helper.exe", "my-llama-server", "browser.exe"):
+            original = process(label, lane=False)
+            with self.subTest(unflagged=label):
+                self.assertEqual(self.block(consumers=[original], lanes=lanes)["consumers"], [original])
 
     def test_missing_size_keeps_count_but_omits_total(self):
         for size in (None, True, 0, -1, 1.0, "123", 2 ** 52 + 1):
@@ -153,9 +167,11 @@ class MemoryParity(unittest.TestCase):
 
     def test_eight_rows_are_decorated_before_top_three_are_selected(self):
         rows = [process(f"app-{i}.exe", (9 - i) * GIB) for i in range(7)] + [process()]
+        lanes = [{"status": "idle", "modelBytes": 30 * GIB, "process": {"pid": 4242, "name": "llama-server.exe", "owner": "agiw", "ownerKnown": True}}]
         with mock.patch.object(probes, "top_processes", return_value=rows) as read:
-            block, _ = probes.memory_block(lambda: memory_status(), lanes=[{"status": "idle", "modelBytes": 30 * GIB}])
-        read.assert_called_once_with(limit=8)
+            block, _ = probes.memory_block(lambda: memory_status(), lanes=lanes)
+        # The lane-port owners from the TCP table are what top_processes groups as the lane server.
+        read.assert_called_once_with(limit=8, lane_pids=frozenset({4242}))
         self.assertEqual([row["label"] for row in block["consumers"]], ["Local LLM server", "app-0.exe", "app-1.exe", "app-2.exe"])
         self.assertEqual(block["consumers"][0]["residentBytes"], GIB)
         self.assertEqual(rows[-1]["label"], "llama-server.exe")
@@ -236,7 +252,7 @@ class CollectorFixture(unittest.TestCase):
         self.patch(self.collector, "_lane", side_effect=lambda spec, _now: {
             **probes.probe_lane(spec, lane_fetch(spec["alias"], {"size": 5 * GIB})), "ageSeconds": 0.0})
         self.patch(self.collector, "_jobs", return_value=({}, None))
-        self.patch(probes, "lane_specs", return_value=([dict(spec) for spec in probes.DEFAULT_LANES], None))
+        self.patch(probes, "lane_specs", return_value=([dict(FAST), dict(DEEP)], None))
         self.patch(probes, "share_health", return_value=({"state": "ready"}, None))
         self.patch(probes, "read_peers", return_value=([], None))
         self.patch(probes, "_memory_status", side_effect=memory_status)
@@ -368,7 +384,7 @@ class PeerModelsComplete(unittest.TestCase):
                 self.assertIsNone(self.row(schemaVersion=schema))
         for age, fresh in ((30.0, True), (30.049, False)):
             row = self.row(observedUnix=1001.0 - age)
-            self.assertEqual((row["ageSeconds"], row["fresh"]), (30.0, fresh))
+            self.assertEqual((row["ageSeconds"], row["fresh"]), (1001.0 - (1001.0 - age), fresh))
 
 
 
@@ -380,7 +396,7 @@ class LinkedMacCount(CollectorFixture):
                 "source": "agiw-peers", "modelsComplete": complete,
                 "models": [{"id": f"m{i}", "loadedState": "inactive", "activity": "unknown"} for i in range(3)]}
         probes.read_peers.return_value = ([peer], None)
-        with mock.patch.object(probes, "configured_mac_name", return_value="mac"):
+        with mock.patch.object(probes, "configured_mac_identity", return_value=("mac", "configured")):
             return self.collector.collect()["macPeer"]
 
     def test_incomplete_list_has_no_loaded_count(self):
@@ -408,7 +424,8 @@ class ProcessGroups(unittest.TestCase):
         self.assertEqual(merged, [{"label": "Chrome.exe", "residentBytes": 2 * GIB, "processCount": 2, "gpuAllocBytes": None}])
 
     def test_memory_block_claims_the_lane_total_once(self):
-        consumers = [process("llama-server.exe", GIB), process("LLAMA-SERVER.EXE", GIB), process("a.exe", 3 * GIB)]
+        consumers = [process("llama-server.exe", GIB, lane=True), process("LLAMA-SERVER.EXE", GIB, lane=True),
+                     process("a.exe", 3 * GIB)]
         block, _ = probes.memory_block(lambda: memory_status(), lambda: consumers,
                                        lanes=[{"status": "idle", "modelBytes": 30 * GIB}])
         servers = [row for row in block["consumers"] if row["label"] == "Local LLM server"]
@@ -461,7 +478,7 @@ class ProcessGroups(unittest.TestCase):
         self.assertEqual(capacities, [4096, 8192, 16384, 32768, 65536])
 
     def test_consumer_named_local_llm_server_does_not_become_the_server_row(self):
-        ordinary = process("Local LLM server", 4 * GIB)
+        ordinary = process("Local LLM server", 4 * GIB, lane=False)
         rows = [ordinary, process("a.exe", 5 * GIB), process("b.exe", 3 * GIB), process("c.exe", 2 * GIB),
                 process("llama-server.exe", GIB)]
         block, _ = probes.memory_block(lambda: memory_status(), lambda: rows,
@@ -475,61 +492,44 @@ class ProcessGroups(unittest.TestCase):
 
 
 class ConfiguredMacLink(CollectorFixture):
-    """The share link stands in only for the configured Mac."""
+    """The share link stands in only for the configured Mac; 0.2.0 reads the Mac from its presence only."""
 
-    def run_with(self, name, hosts):
-        peers = [{"host": host, "platform": "macos", "health": "ok", "fresh": True, "ageSeconds": 2.0,
+    def run_with(self, name, hosts, fresh=True):
+        peers = [{"host": host, "platform": "macos", "health": "ok", "fresh": fresh, "ageSeconds": 2.0 if fresh else 31.0,
                   "source": "agiw-peers", "modelsComplete": True,
                   "models": [{"id": f"{host}-model", "loadedState": "loaded", "activity": "idle"}]} for host in hosts]
         probes.read_peers.return_value = (peers, None)
-        lan = {"state": "unreachable", "reason": "timeout", "models": [], "ageSeconds": 1.0, "observedAt": 1000.0}
-        # Identity comes only from the current hosts.json (a LAN result's cached name can predate a config change).
+        # Identity comes only from the current hosts.json.
         hosts = self.root / "llm-lab" / "mac-reach" / "hosts.json"
         if name is None:
             hosts.unlink(missing_ok=True)
         else:
             hosts.parent.mkdir(parents=True, exist_ok=True)
             hosts.write_text(json.dumps({"mac": {"hostname": name}}), encoding="utf-8")
-            lan["name"] = name  # as probe_mac names its result from hosts.json's hostname
-        self.collector.mac_peer = mock.Mock(read=mock.Mock(return_value=(lan, probes._source("mac-peer", "Mac (LAN)", "unavailable", "x"))))
         return self.collector.collect()["macPeer"]
 
     def test_link_follows_the_configured_name(self):
         mac = self.run_with("Target-Mac", ["other-mac", "target-mac"])
         self.assertEqual((mac["state"], [m["id"] for m in mac["models"]]), ("linked", ["target-mac-model"]))
         self.assertEqual(self.run_with("target-mac.local", ["target-mac"])["state"], "linked")
-        self.assertEqual(self.run_with("target-mac", ["other-mac"])["state"], "unreachable")
+        mac = self.run_with("target-mac", ["other-mac"])
+        self.assertEqual((mac["state"], mac["reason"], mac["models"]), ("unknown", "no-report", []))
 
-    def test_a_current_lan_failure_stays_beside_the_share_link(self):
+    def test_a_linked_mac_carries_no_lan_claims(self):
         mac = self.run_with("target-mac", ["target-mac"])
-        self.assertEqual((mac["state"], mac["lanFailure"], mac["lanFailureAgeSeconds"], mac["ageSeconds"]),
-                         ("linked", "timeout", 1.0, 2.0))
-        # A pending or unknown LAN result is no failure.
-        probes.read_peers.return_value = ([{"host": "target-mac", "platform": "macos", "health": "ok", "fresh": True,
-                                            "ageSeconds": 2.0, "source": "agiw-peers", "modelsComplete": True,
-                                            "models": []}], None)
-        unknown = {"state": "unknown", "name": "target-mac", "models": [], "ageSeconds": None}
-        self.collector.mac_peer = mock.Mock(read=mock.Mock(return_value=(unknown, probes._source("mac-peer", "Mac (LAN)", "unavailable", "x"))))
-        mac = self.collector.collect()["macPeer"]
-        self.assertEqual((mac["state"], mac["lanFailure"], mac["lanFailureAgeSeconds"]), ("linked", None, None))
+        self.assertEqual((mac["state"], mac["ageSeconds"], mac["linkAgeSeconds"]), ("linked", 2.0, 2.0))
+        for key in ("lanFailure", "lanFailureAgeSeconds"):
+            self.assertNotIn(key, mac)
+        self.assertEqual((mac["address"], mac["latencyMs"], mac["reason"], mac["verified"]), (None, None, None, False))
+        self.assertIn("does not probe the Mac over the LAN", mac["detail"])
 
-    def test_a_previous_macs_lan_failure_never_follows_a_config_change(self):
-        # hosts.json now names target-mac; the LAN cache still holds old-mac's timeout (Astra merge review P2).
-        self.run_with("target-mac", ["target-mac"])
-        old = {"state": "unreachable", "reason": "timeout", "name": "old-mac", "models": [], "ageSeconds": 1.0,
-               "observedAt": 1000.0}
-        self.collector.mac_peer = mock.Mock(read=mock.Mock(return_value=(old, probes._source("mac-peer", "Mac (LAN)", "unavailable", "x"))))
-        mac = self.collector.collect()["macPeer"]
-        self.assertEqual((mac["state"], mac["lanFailure"], mac["lanFailureAgeSeconds"], mac["configuredName"]),
-                         ("linked", None, None, "target-mac"))
-        # A nameless cached failure (an mDNS-only config: the probe names its result only from hostname) proves no
-        # identity, so it is never attached to the configured Mac either.
-        nameless = {k: v for k, v in old.items() if k != "name"}
-        self.collector.mac_peer = mock.Mock(read=mock.Mock(return_value=(nameless, probes._source("mac-peer", "Mac (LAN)", "unavailable", "x"))))
-        mac = self.collector.collect()["macPeer"]
-        self.assertEqual((mac["state"], mac["lanFailure"], mac["lanFailureAgeSeconds"], mac["name"]),
-                         ("linked", None, None, "target-mac"))
+    def test_a_stale_report_from_the_configured_mac_is_unknown_not_down(self):
+        mac = self.run_with("target-mac", ["target-mac"], fresh=False)
+        self.assertEqual((mac["state"], mac["reason"], mac["models"], mac["loadedCount"]), ("unknown", "stale", [], None))
+        self.assertIn("31 s old", mac["detail"])
 
     def test_without_a_name_no_publisher_links(self):
-        self.assertEqual(self.run_with(None, ["only-mac"])["state"], "unreachable")
-        self.assertEqual(self.run_with(None, ["mac-a", "mac-b"])["state"], "unreachable")
+        for hosts in (["only-mac"], ["mac-a", "mac-b"]):
+            with self.subTest(hosts=hosts):
+                mac = self.run_with(None, hosts)
+                self.assertEqual((mac["state"], mac["reason"], mac["name"]), ("unknown", "unconfigured", None))

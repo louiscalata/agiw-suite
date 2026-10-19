@@ -318,7 +318,7 @@ class ConsumerTests(unittest.TestCase):
 
     def test_suggestions_are_text_ordered_by_size(self):
         models = [{"id": "small", "loaded": True, "state": "idle", "sizeBytes": 2 * GiB},
-                  {"id": "big", "loaded": True, "state": "loaded", "sizeBytes": 16 * GiB},
+                  {"id": "big", "loaded": True, "state": "idle", "sizeBytes": 16 * GiB},
                   {"id": "busy", "loaded": True, "state": "generating", "sizeBytes": 30 * GiB}]
         tips = mem_guard.suggestions(CONSUMERS, models, paused_count=2)
         self.assertEqual(tips, ["Unload idle model big from the monitor",

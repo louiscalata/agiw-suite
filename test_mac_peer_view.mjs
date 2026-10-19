@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
 import {macPeerView,agiwPeersRows,pcAdaptersView} from './web/map-layout.mjs';
 
-const peer = (over = {}) => ({state: 'reachable', ageSeconds: 4, latencyMs: 3.6, address: '<mac-lan-ip>', via: 'mdns',
+const peer = (over = {}) => ({state: 'reachable', ageSeconds: 4, latencyMs: 3.6, address: '10.99.0.176', via: 'mdns',
   loadedCount: 1, expectedVerifyModel: 'openai/gpt-oss-20b', expectedVerifyLoaded: true,
   models: [{id: 'openai/gpt-oss-20b', state: 'loaded'}, {id: 'qwen/qwen3.8-27b', state: 'not-loaded'}], ...over});
 
@@ -19,6 +20,28 @@ test('a stale feed or an old probe never reads reachable', () => {
   assert.equal(macPeerView(peer(), {feedFresh: false}).state, 'unknown');
   assert.equal(macPeerView(peer({ageSeconds: 40}), {feedFresh: true, snapshotAge: 6}).state, 'unknown');
   assert.equal(macPeerView(peer({ageSeconds: -1}), {feedFresh: true}).state, 'unknown');
+});
+
+test('unknown Mac presence explains the observed presence reason without claiming a pending LAN probe', () => {
+  for (const [reason, expected] of [
+    ['no-report', /no presence report.*SharedChami/i],
+    ['stale', /presence report is stale/i],
+    ['unconfigured', /no Mac is configured/i],
+  ]) {
+    const view = macPeerView({state: 'unknown', reason}, {feedFresh: true});
+    assert.equal(view.state, 'unknown');
+    assert.match(view.presenceDetail, expected);
+    assert.equal(view.chip.detail, view.presenceDetail);
+    assert.equal(view.chip.link, view.presenceDetail);
+    assert.doesNotMatch(view.presenceDetail, /LAN probe|LM Studio/i);
+  }
+});
+
+test('Windows Mac inspector uses the presence explanation and no longer claims periodic LM Studio probes', () => {
+  const app = readFileSync(new URL('./web/app.js', import.meta.url), 'utf8');
+  assert.match(app, /peer\.presenceDetail/);
+  assert.doesNotMatch(app, /first LAN probe has not finished/i);
+  assert.doesNotMatch(app, /Probed about every 10 seconds from this PC through the Mac/);
 });
 
 test('unreachable and malformed inputs', () => {
@@ -84,7 +107,7 @@ test('expired probe or local feed removes its reason and hides the old failure d
     for (const [ageSeconds, options] of [[46, {feedFresh: true}],
       [44, {feedFresh: true, snapshotAge: 2}], [0, {feedFresh: false}]]) {
       const view = macPeerView(peer({state: 'unreachable', ageSeconds, reason,
-        detail: reason === 'refused' ? 'Connection refused on <mac-lan-ip> port 1234' : 'Probe timed out'}), options);
+        detail: reason === 'refused' ? 'Connection refused on 10.99.0.176 port 1234' : 'Probe timed out'}), options);
       assert.equal(view.state, 'unknown');
       assert.equal(view.reason, null);
       assert.equal(view.failureTitle, null);
@@ -244,7 +267,8 @@ test('peer rows name each AGIW instance and its freshness', () => {
     source: 'agiw-peers', modelsComplete: true, models: [{id: 'a', loadedState: 'loaded'}]}, {host: 'bad host!', ageSeconds: 1}], {feedFresh: true});
   assert.equal(rows.length, 1);
   assert.match(rows[0][1], /^Reported \(unverified\) · macos · mac · 1\.0\.0 · 1 loaded · 4 s ago/);
-  assert.deepEqual(agiwPeersRows([], {feedFresh: true}), [['AGIW peers', 'None has published on SharedChami yet']]);
+  assert.deepEqual(agiwPeersRows([], {feedFresh: true}), [['AGIW peers', 'Unknown (no current peer report available)']]);
+  assert.deepEqual(agiwPeersRows([], {feedFresh: true, source:{state:'recorded',scanComplete:true,observedAgeSeconds:0}}), [['AGIW peers', 'None has published on SharedChami yet']]);
 });
 
 test('peer rows disclose unknown or partial residency instead of zero loaded', () => {
@@ -360,12 +384,12 @@ test('Windows peer count UI: completeness leaves the thirty-second freshness bou
   const cases = [
     {modelsComplete: true, verified: false,
       fresh: 'Reported (unverified) · macos · mac · 1.0.0 · 1 loaded · 30 s ago · agiw-peers',
-      stale: 'Stale · macos · mac · 1.0.0 · 1 loaded · 30 s ago · agiw-peers',
-      markedStale: 'Stale · macos · mac · 1.0.0 · 1 loaded · 1 s ago · agiw-peers'},
+      stale: 'Stale · macos · mac · 1.0.0 · 1 loaded at last report · 30 s ago · agiw-peers',
+      markedStale: 'Stale · macos · mac · 1.0.0 · 1 loaded at last report · 1 s ago · agiw-peers'},
     {modelsComplete: true, verified: true,
       fresh: 'Linked · macos · mac · 1.0.0 · 1 loaded · 30 s ago · agiw-peers',
-      stale: 'Stale · macos · mac · 1.0.0 · 1 loaded · 30 s ago · agiw-peers',
-      markedStale: 'Stale · macos · mac · 1.0.0 · 1 loaded · 1 s ago · agiw-peers'},
+      stale: 'Stale · macos · mac · 1.0.0 · 1 loaded at last report · 30 s ago · agiw-peers',
+      markedStale: 'Stale · macos · mac · 1.0.0 · 1 loaded at last report · 1 s ago · agiw-peers'},
     {modelsComplete: false, verified: false,
       fresh: 'Reported (unverified) · macos · mac · 1.0.0 · Loaded state unknown · 30 s ago · agiw-peers',
       stale: 'Stale · macos · mac · 1.0.0 · Loaded state unknown · 30 s ago · agiw-peers',
@@ -386,11 +410,96 @@ test('Windows peer count UI: completeness leaves the thirty-second freshness bou
   }
 });
 
+test('Windows stale peer counts distinguish an inactive report from current zero residency', () => {
+  const models = [{id: 'inactive', loadedState: 'inactive'}];
+  for (const verified of [false, true]) {
+    const cases = [
+      {peer: {ageSeconds: 30}, snapshotAge: 0,
+        line: `${verified ? 'Linked' : 'Reported (unverified)'} · macos · mac · 1.0.0 · 0 loaded · 30 s ago · agiw-peers`},
+      {peer: {ageSeconds: 30.01}, snapshotAge: 0,
+        line: 'Stale · macos · mac · 1.0.0 · 0 loaded at last report · 30 s ago · agiw-peers'},
+      {peer: {ageSeconds: 28}, snapshotAge: 2.01,
+        line: 'Stale · macos · mac · 1.0.0 · 0 loaded at last report · 30 s ago · agiw-peers'},
+      {peer: {fresh: false, ageSeconds: 1}, snapshotAge: 0,
+        line: 'Stale · macos · mac · 1.0.0 · 0 loaded at last report · 1 s ago · agiw-peers'},
+    ];
+    for (const {peer, snapshotAge, line} of cases) {
+      assert.deepEqual(agiwPeersRows([peerCountEvidence({modelsComplete: true, models, verified, ...peer})],
+        {feedFresh: true, snapshotAge, host: 'windows'}), [['count-peer', line]]);
+    }
+  }
+});
+
+test('Windows stale peer rows never give a historical count to an unknown inventory', () => {
+  const inventories = [
+    {modelsComplete: false}, {}, {modelsComplete: 'true'},
+    {modelsComplete: true, models: undefined}, {modelsComplete: true, models: []},
+    {modelsComplete: true, models: [{id: 'unproved', loadedState: 'unknown'}]},
+    {modelsComplete: true, models: [{id: 'loaded', loadedState: 'loaded'}, {id: 'unproved'}]},
+  ];
+  for (const inventory of inventories) {
+    assert.deepEqual(agiwPeersRows([peerCountEvidence({fresh: false, ageSeconds: 35, ...inventory})],
+      {feedFresh: true, host: 'windows'}), [
+      ['count-peer', 'Stale · macos · mac · 1.0.0 · Loaded state unknown · 35 s ago · agiw-peers'],
+    ]);
+  }
+});
+
+test('default and non-Windows stale peers keep literal wording, and every host needs a complete inventory to count (Daybreak #8)', () => {
+  const options = [{feedFresh: true}, {feedFresh: true, host: 'mac'},
+    {feedFresh: true, host: 'linux'}, {feedFresh: true, host: 'Windows'}];
+  for (const option of options) {
+    for (const modelsComplete of [true, false]) {
+      assert.deepEqual(agiwPeersRows([peerCountEvidence({modelsComplete, ageSeconds: 28})],
+        {...option, snapshotAge: 2.01}), [
+        ['count-peer', `Stale · macos · mac · 1.0.0 · ${modelsComplete ? '1 loaded' : 'Loaded state unknown'} · 30 s ago · agiw-peers`],
+      ]);
+      assert.deepEqual(agiwPeersRows([peerCountEvidence({modelsComplete, fresh: false, ageSeconds: 1,
+        models: [{id: 'inactive', loadedState: 'inactive'}]})], option), [
+        ['count-peer', `Stale · macos · mac · 1.0.0 · ${modelsComplete ? '0 loaded' : 'Loaded state unknown'} · 1 s ago · agiw-peers`],
+      ]);
+    }
+    for (const {fresh, line} of [
+      {fresh: true, line: 'Reported (unverified) · macos · mac · 1.0.0 · Loaded state unknown · 4 s ago · agiw-peers'},
+      {fresh: false, line: 'Stale · macos · mac · 1.0.0 · Loaded state unknown · 4 s ago · agiw-peers'},
+    ]) {
+      assert.deepEqual(agiwPeersRows([peerCountEvidence({fresh, modelsComplete: true,
+        models: [{id: 'unproved', loadedState: 'unknown'}]})], option), [['count-peer', line]]);
+    }
+  }
+});
+
 test('Windows peer count UI: stale feeds and fresh empty peer feeds retain their literal messages', () => {
   for (const completeness of [{}, {modelsComplete: true}, {modelsComplete: false}]) {
     assert.deepEqual(agiwPeersRows([peerCountEvidence(completeness)], {feedFresh: false, host: 'windows'}),
       [['AGIW peers', 'Unknown (feed stale)']]);
   }
-  assert.deepEqual(agiwPeersRows([], {feedFresh: true, host: 'windows'}),
+  assert.deepEqual(agiwPeersRows([], {feedFresh: true, host: 'windows', source:{state:'recorded',scanComplete:true,observedAgeSeconds:0}}),
     [['AGIW peers', 'None has published on SharedChami yet']]);
+});
+
+test('a Linux row relayed by the Mac says who carried it and keeps the Linux observation age', () => {
+  const linux = {host: 'linux-node-1', fresh: true, platform: 'linux', edition: 'linux', version: '0.1.0', ageSeconds: 6,
+    source: 'agiw-peers', relayedBy: 'mac', verified: false, modelsComplete: true, models: [{id: 'qwen35', loadedState: 'inactive'}]};
+  const [row] = agiwPeersRows([linux], {feedFresh: true, host: 'windows'});
+  assert.equal(row[0], 'linux-node-1');
+  assert.match(row[1], /^Relayed by Mac \(unverified\) · linux · linux · 0\.1\.0 · 0 loaded · 6 s ago · agiw-peers$/);
+  // The relay never makes the row look fresher than the Linux observation itself.
+  const stale = agiwPeersRows([linux], {feedFresh: true, host: 'windows', snapshotAge: 24.5})[0][1];
+  assert.match(stale, /^Stale · relayed by Mac · linux/);
+  assert.match(stale, /at last report/);
+  assert.match(agiwPeersRows([{...linux, fresh: false, ageSeconds: 7200}], {feedFresh: true})[0][1], /^Stale · relayed by Mac.* 2 h ago/);
+});
+
+test('only an exact relayer is labelled as relayed', () => {
+  for (const relayedBy of [undefined, null, 'linux', 'MAC', ['mac'], {mac: true}, true]) {
+    const [row] = agiwPeersRows([{host: 'linux-node-1', fresh: true, platform: 'linux', ageSeconds: 3, relayedBy}], {feedFresh: true});
+    assert.match(row[1], /^Reported \(unverified\) · linux/, String(relayedBy));
+    assert.doesNotMatch(row[1], /Relayed/);
+  }
+  // `verified` is set only by the PC's collector (read_peers marks every share file false), never by a document,
+  // so the relay label leaves an authenticated row's wording unchanged.
+  const [linked] = agiwPeersRows([{host: 'linux-node-1', fresh: true, platform: 'linux', ageSeconds: 3, relayedBy: 'mac',
+    verified: true}], {feedFresh: true});
+  assert.match(linked[1], /^Linked/);
 });

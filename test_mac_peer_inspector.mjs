@@ -173,7 +173,7 @@ test('both Windows Mac inspectors hide failure diagnoses after the probe or feed
     for (const reason of ['refused', 'timeout']) {
       for (const options of [{snapshotAge: 2}, {feedAge: 4}, {connected: false}]) {
         const body = inspector({...linked, state: 'unreachable', ageSeconds: 44, reason,
-          detail: reason === 'refused' ? 'Connection refused on <mac-lan-ip> port 1234' : 'Probe timed out'},
+          detail: reason === 'refused' ? 'Connection refused on 10.99.0.176 port 1234' : 'Probe timed out'},
         {kind, ...options});
         const summary = body.children.find(node => node.className === 'panel-summary');
         assert.equal(summary.dataset.tone, 'muted');
@@ -205,7 +205,7 @@ test('a selected Mac model loses its loaded claim after either evidence source e
     const body = inspector({...linked, state, ageSeconds, linkAgeSeconds: ageSeconds}, {
       kind: 'mac-model', snapshotAge: 2,
     });
-    assert.match(body.textContent, /Mac reachability unknown/);
+    assert.match(body.textContent, state === 'linked' ? /presence report is stale/i : /Mac reachability unknown/);
     assert.match(body.textContent, /residency.*unknown|unknown.*residency/i);
     assert.doesNotMatch(body.textContent, /was (?:listed|reported) as loaded|LM Studio answered|Mac answering on the LAN/i);
   }
@@ -217,7 +217,7 @@ test('the peer inspector ages share rows and expires the report while the local 
     peers: [{host: 'mac-peer', fresh: true, ageSeconds: 29, platform: 'macos',
       models: [{id: 'a', loadedState: 'unknown'}]}],
   });
-  assert.match(body.textContent, /Mac reachability unknown/);
+  assert.match(body.textContent, /Mac presence unknown|presence report is stale/i);
   const pairs = body.descendants().filter(node => node.tagName === 'dl');
   const instanceRows = pairs.find(node => node.textContent.includes('mac-peer'));
   assert.match(instanceRows.textContent, /Stale.*loaded state unknown.*31 s ago/i);
@@ -348,5 +348,15 @@ test('failure detail is bounded literal DOM text and malformed detail cannot inj
       sources: [publishSource('failed', {detail: malformedDetail})]}));
     assert.match(malformed.textContent, /publishing failed/i);
     assert.doesNotMatch(malformed.textContent, /<img>|object Object/);
+  }
+});
+
+test('Sol7: stale complete-empty peer list is explicitly historical in both inspectors', () => {
+  for (const kind of ['mac-peer', 'mac-model']) {
+    const peer = {host: 'test-mac', fresh: false, ageSeconds: 45, platform: 'macos',
+      source: 'agiw-peers', loadedListComplete: true, models: []};
+    const body = inspector({...linked, fresh: false, ageSeconds: 45}, {kind, peers: [peer]});
+    assert.match(inspectorPair(body, 'test-mac'), /0 loaded at last report/);
+    assert.doesNotMatch(inspectorPair(body, 'test-mac'), / · 0 loaded · /);
   }
 });

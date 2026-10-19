@@ -17,17 +17,502 @@ from unittest import mock
 
 import peer_feed
 import peer_link
+from machine_state import machines_summary
 
 
 def presence(age=2.0, platform="windows", **extra):
     now = time.time() - age
-    return {"schemaVersion": 1, "kind": "agiw-peer", "host": "louisaurorar12", "platform": platform,
+    return {"schemaVersion": 1, "kind": "agiw-peer", "host": "winpc01", "platform": platform,
             "observedAt": peer_link._iso(now), "observedUnix": now, "health": "ok",
             "models": [{"id": "gpt-oss-20b", "loadedState": "loaded", "activity": "idle", "slotsBusy": 0,
                         "slotsTotal": 2, "liveTokensPerSecond": 104.27, "secretish": "/C:/Users/x"}],
             "modelsTotal": 1,
             "gpus": [{"name": "RTX 3080 Ti", "utilizationPercent": 4.0, "path": "C:\\nope"}],
             "memory": {"level": "ok", "availablePercent": 55.6, "commit": 1}, **extra}
+
+
+class PerHostFeeds(unittest.TestCase):
+    def test_invalid_mac_share_schema_is_not_hidden_by_unverified_trust(self):
+        now = time.time()
+        for platform in ("mac", "macos", "linux"):
+            for version in (999, True, None):
+                doc = presence(age=0, platform=platform, host="other-host", schemaVersion=version)
+                doc.pop("models")
+                for via in ("share", "lan"):
+                    with self.subTest(platform=platform, version=version, via=via):
+                        entry = peer_feed.summarize_document(doc, via, now)
+                        self.assertIsNone(entry["feed"])
+                        self.assertEqual(entry["source"]["reasonCode"], "schema_invalid")
+
+    def test_mac_share_health_is_only_an_unverified_diagnostic(self):
+        now = time.time()
+        for platform in ("mac", "macos"):
+            for health in ("ok", "degraded", "down"):
+                with self.subTest(platform=platform, health=health):
+                    doc = presence(age=0, platform=platform, host="other-mac", health=health)
+                    entry = peer_feed.summarize_document(doc, "share", now)
+                    rows = machines_summary({"sampledAt": now, "models": [], "sources": []}, [entry])
+                    row = next(row for row in rows if row["host"] == "other-mac")
+                    self.assertEqual((row["state"], row["reasonCode"]), ("unknown", "unverified"))
+                    self.assertEqual(row["trust"], "unverified")
+                    self.assertEqual(row["observedAt"], doc["observedAt"])
+                    self.assertIsNone(row["loadedCount"])
+                    self.assertIsNone(row["busyCount"])
+                    self.assertIsNone(entry["feed"])
+                    self.assertEqual(entry["source"]["via"], "share")
+
+    def test_authenticated_mac_health_and_counts_are_accepted(self):
+        now = time.time()
+        for via in ("lan", "ssh"):
+            for health, state in (("ok", "up"), ("degraded", "up"), ("down", "down")):
+                with self.subTest(via=via, health=health):
+                    entry = peer_feed.summarize_document(
+                        presence(age=0, platform="macos", host="other-mac", health=health), via, now)
+                    rows = machines_summary({"sampledAt": now, "models": [], "sources": []}, [entry])
+                    row = next(row for row in rows if row["host"] == "other-mac")
+                    self.assertEqual((row["state"], row["trust"]), (state, "authenticated"))
+                    self.assertEqual(row["loadedCount"], 1 if state == "up" else None)
+                    self.assertEqual(row["busyCount"], 0 if state == "up" else None)
+
+    def test_identity_fault_survives_unsigned_share_ok_and_down(self):
+        for health in ("ok", "down"):
+            with self.subTest(health=health), tempfile.TemporaryDirectory() as directory:
+                state = Path(directory)
+                (state / "control-token").write_text("fixture")
+                node = "00000000-0000-4000-8000-000000000001"
+                peer = {"node": node, "paired": True, "host": "windows", "state": "connected",
+                        "status": presence(host="pc1")}
+                with mock.patch.object(peer_feed, "_control_get", return_value=(200, {"peers": [peer]})):
+                    peer_feed.from_peer_link_hosts(time.time(), state)
+                    peer["status"] = presence(host="pc2")
+                    share = peer_feed.summarize_document(presence(host="pc1", health=health), "share", time.time())
+                    rows = peer_feed.peer_feeds(time.time(),
+                        peer_reader=lambda now: peer_feed.from_peer_link_hosts(now, state), share_reader=lambda _: [share])
+                windows = [row for row in rows if row["source"]["platform"] == "windows"]
+                self.assertEqual(len(windows), 1)
+                self.assertIsNone(windows[0]["feed"])
+                self.assertEqual(windows[0]["source"]["reasonCode"], "host_key_mismatch")
+                self.assertEqual(windows[0]["source"]["node"], node)
+
+    def test_first_label_claim_cannot_reject_other_uuid_in_either_order(self):
+        nodes = ["00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000002"]
+        for order in (nodes, list(reversed(nodes))):
+            with self.subTest(order=order), tempfile.TemporaryDirectory() as directory:
+                state = Path(directory)
+                (state / "control-token").write_text("fixture")
+                peers = [{"node": node, "paired": True, "host": "windows", "state": "connected",
+                          "status": presence(host="pc-b")} for node in order]
+                with mock.patch.object(peer_feed, "_control_get", return_value=(200, {"peers": peers})):
+                    rows = peer_feed.from_peer_link_hosts(time.time(), state)
+                self.assertEqual({row["source"]["host"] for row in rows}, set(nodes))
+                self.assertTrue(all(row["feed"] is not None for row in rows))
+                self.assertTrue(all(row["source"]["label"] == "pc-b (reported)" for row in rows))
+
+    def test_cold_offline_pair_and_share_is_one_uncertain_machine(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory)
+            (state / "control-token").write_text("fixture")
+            node = "00000000-0000-4000-8000-000000000001"
+            peer = {"node": node, "paired": True, "host": "windows", "name": "pc1", "state": "offline"}
+            share = peer_feed.summarize_document(presence(host="pc1"), "share", time.time())
+            with mock.patch.object(peer_feed, "_control_get", return_value=(200, {"peers": [peer]})):
+                rows = peer_feed.peer_feeds(time.time(),
+                    peer_reader=lambda now: peer_feed.from_peer_link_hosts(now, state), share_reader=lambda _: [share])
+            windows = [row for row in rows if row["source"]["platform"] == "windows"]
+            self.assertEqual(len(windows), 1)
+            self.assertEqual(windows[0]["source"]["node"], node)
+            self.assertIsNone(windows[0]["feed"])
+            self.assertEqual(windows[0]["source"]["reasonCode"], "not_connected")
+            self.assertEqual(windows[0]["source"]["diagnostics"][0]["correlation"], "unverified")
+
+    def test_invalid_modern_and_legacy_fallback_one_machine_with_diagnostic(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "agiw-peers").mkdir()
+            (root / "agiw-peers/pc1.json").write_text(json.dumps(presence(host="pc1", health="bad")))
+            (root / "windows-status.json").write_text(json.dumps(presence(host="windows", kind=None)))
+            shares = peer_feed.from_share_hosts(time.time(), root, root)
+            rows = peer_feed.peer_feeds(time.time(), peer_reader=lambda _: [], share_reader=lambda _: shares)
+            windows = [row for row in rows if row["source"]["platform"] == "windows"]
+            self.assertEqual(len(windows), 1)
+            self.assertEqual(windows[0]["feed"]["health"], "ok")
+            self.assertEqual(windows[0]["source"]["diagnostics"][0]["reasonCode"], "schema_invalid")
+            self.assertEqual(windows[0]["source"]["diagnostics"][0]["host"], "pc1")
+
+    def test_cold_pair_modern_error_and_legacy_share_stay_one_uuid(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "agiw-peers").mkdir()
+            (root / "agiw-peers/pc1.json").write_text(json.dumps(presence(host="pc1", health="bad")))
+            (root / "windows-status.json").write_text(json.dumps(presence(host="windows", kind=None, health="down")))
+            node = "00000000-0000-4000-8000-000000000001"
+            paired = peer_feed._feed_failure("windows", node, "not_connected")
+            paired["source"]["node"] = node
+            shares = peer_feed.from_share_hosts(time.time(), root, root)
+            rows = peer_feed.peer_feeds(time.time(), peer_reader=lambda _: [paired], share_reader=lambda _: shares)
+            windows = [row for row in rows if row["source"]["platform"] == "windows"]
+            self.assertEqual(len(windows), 1)
+            self.assertEqual(windows[0]["source"]["node"], node)
+            self.assertIsNone(windows[0]["feed"])
+            self.assertEqual(windows[0]["source"]["reasonCode"], "not_connected")
+            diagnostics = windows[0]["source"]["diagnostics"]
+            self.assertEqual(len(diagnostics), 2)
+            self.assertEqual(diagnostics[0]["reportedHealth"], "down")
+            self.assertEqual(diagnostics[1]["reasonCode"], "schema_invalid")
+            self.assertTrue(all(item["correlation"] == "unverified" for item in diagnostics))
+
+    def test_multiple_cold_pairs_keep_bounded_ambiguous_share_diagnostics(self):
+        now = time.time()
+        nodes = ["00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000002"]
+        pairs = [peer_feed._feed_failure("windows", node, "not_connected") for node in nodes]
+        for row, node in zip(pairs, nodes):
+            row["source"]["node"] = node
+        shares = [peer_feed.summarize_document(presence(host=f"pc{index}"), "share", now)
+                  for index in range(peer_feed.MAX_FEED_DIAGNOSTICS + 4)]
+        rows = peer_feed.peer_feeds(now, peer_reader=lambda _: pairs, share_reader=lambda _: shares)
+        windows = [row for row in rows if row["source"]["platform"] == "windows"]
+        self.assertEqual({row["source"]["node"] for row in windows}, set(nodes))
+        self.assertTrue(all("diagnostics" not in row["source"] for row in pairs))
+        for row in windows:
+            self.assertIsNone(row["feed"])
+            self.assertEqual(len(row["source"]["diagnostics"]), peer_feed.MAX_FEED_DIAGNOSTICS)
+            self.assertTrue(row["source"]["diagnosticsTruncated"])
+            self.assertTrue(all(item["candidateNodes"] == nodes and item["correlation"] == "unverified"
+                                for item in row["source"]["diagnostics"]))
+
+    def test_projected_hands_off_beats_opposite_unsigned_share_flag(self):
+        for hands_off in (True, False):
+            with self.subTest(hands_off=hands_off), tempfile.TemporaryDirectory() as directory:
+                now = time.time()
+                state = Path(directory)
+                (state / "control-token").write_text("fixture")
+                node = "00000000-0000-4000-8000-000000000001"
+                projected = peer_link.project_status(presence(host="pc1", handsOff=hands_off))
+                peer = {"node": node, "paired": True, "host": "windows", "state": "connected", "status": projected}
+                share = peer_feed.summarize_document(presence(host="pc1", handsOff=not hands_off), "share", now)
+                with mock.patch.object(peer_feed, "_control_get", return_value=(200, {"peers": [peer]})):
+                    rows = peer_feed.peer_feeds(now,
+                        peer_reader=lambda stamp: peer_feed.from_peer_link_hosts(stamp, state), share_reader=lambda _: [share])
+                windows = [row for row in rows if row["source"]["platform"] == "windows"]
+                self.assertEqual(len(windows), 1)
+                self.assertIs(windows[0]["feed"]["handsOff"], hands_off)
+                self.assertEqual(windows[0]["feed"]["trust"], "authenticated")
+
+    def test_linux_share_cannot_replace_authenticated_failure(self):
+        now = time.time()
+        for health in ("ok", "down"):
+            share = peer_feed.summarize_document(presence(host="linux1", platform="linux", health=health), "share", now)
+            failure = peer_feed._feed_failure("linux", "linux1", "host_key_mismatch")
+            rows = peer_feed.peer_feeds(now, peer_reader=lambda _: [failure], share_reader=lambda _: [share])
+            linux = [r for r in rows if r["source"]["platform"] == "linux"]
+            self.assertEqual(len(linux), 1)
+            self.assertIsNone(linux[0]["feed"])
+            self.assertEqual(linux[0]["source"]["reasonCode"], "host_key_mismatch")
+
+    def test_linux_share_does_not_hide_transport_exception(self):
+        now = time.time()
+        share = peer_feed.summarize_document(presence(host="linux1", platform="linux"), "share", now)
+        def failed(_):
+            raise peer_feed.FeedUnavailable("timeout")
+        rows = peer_feed.peer_feeds(now, peer_reader=failed, share_reader=lambda _: [share])
+        linux = next(r for r in rows if r["source"]["platform"] == "linux")
+        self.assertIsNone(linux["feed"])
+        self.assertEqual(linux["source"]["reasonCode"], "timeout")
+
+    def test_invalid_modern_health_keeps_valid_legacy_fallback(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "agiw-peers").mkdir()
+            (root / "agiw-peers/pc1.json").write_text(json.dumps(presence(host="pc1", health="bad")))
+            (root / "windows-status.json").write_text(json.dumps(presence(host="windows", kind=None)))
+            rows = peer_feed.from_share_hosts(time.time(), root, root)
+            rows = peer_feed.peer_feeds(time.time(), peer_reader=lambda _: [], share_reader=lambda _: rows)
+            self.assertEqual([r["feed"]["host"] for r in rows if r["feed"]], ["windows"])
+
+    def test_paired_uuid_prevents_same_platform_hostname_spoof(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory)
+            (state / "control-token").write_text("fixture")
+            nodes = ["00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000002"]
+            peers = [{"node": node, "paired": True, "host": "windows", "name": "desktop",
+                      "state": "connected", "status": presence(host=host)}
+                     for node, host in zip(nodes, ("pc-a", "pc-b"))]
+            with mock.patch.object(peer_feed, "_control_get", return_value=(200, {"peers": peers})):
+                first = peer_feed.from_peer_link_hosts(time.time(), state)
+                self.assertEqual([r["source"].get("node") for r in first], nodes)
+                peers[0]["status"] = presence(host="pc-b")
+                rows = peer_feed.peer_feeds(time.time(), peer_reader=lambda now: peer_feed.from_peer_link_hosts(now, state),
+                                           share_reader=lambda _: [])
+            windows = [r for r in rows if r["source"]["platform"] == "windows"]
+            self.assertEqual(len(windows), 2)
+            by_node = {r["source"]["node"]: r for r in windows}
+            self.assertIsNone(by_node[nodes[0]]["feed"])
+            self.assertEqual(by_node[nodes[0]]["source"]["reasonCode"], "host_key_mismatch")
+            self.assertEqual(by_node[nodes[1]]["feed"]["reportedHost"], "pc-b")
+
+    def test_initial_hostname_collision_keeps_both_paired_identities(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory)
+            (state / "control-token").write_text("fixture")
+            nodes = ["00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000002"]
+            peers = [{"node": node, "paired": True, "host": "windows", "state": "connected",
+                      "status": presence(host="pc-b")} for node in nodes]
+            with mock.patch.object(peer_feed, "_control_get", return_value=(200, {"peers": peers})):
+                rows = peer_feed.peer_feeds(time.time(), peer_reader=lambda now: peer_feed.from_peer_link_hosts(now, state),
+                                           share_reader=lambda _: [])
+            windows = [r for r in rows if r["source"]["platform"] == "windows"]
+            self.assertEqual({r["source"]["node"] for r in windows}, set(nodes))
+            self.assertEqual(len({r["source"]["host"] for r in windows}), 2)
+            self.assertEqual(sum(r["feed"] is not None for r in windows), 2)
+            self.assertEqual({r["source"]["host"] for r in windows}, set(nodes))
+
+    def test_disconnected_unmapped_name_never_authenticates_share_identity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory)
+            (state / "control-token").write_text("fixture")
+            node = "00000000-0000-4000-8000-000000000001"
+            peer = {"node": node, "paired": True, "host": "windows", "name": "pc1", "state": "offline"}
+            with mock.patch.object(peer_feed, "_control_get", return_value=(200, {"peers": [peer]})):
+                share = peer_feed.summarize_document(presence(host="pc1"), "share", time.time())
+                rows = peer_feed.peer_feeds(time.time(), peer_reader=lambda now: peer_feed.from_peer_link_hosts(now, state),
+                                           share_reader=lambda _: [share])
+            paired = next(r for r in rows if r["source"].get("node") == node)
+            self.assertIsNone(paired["feed"])
+            self.assertEqual(paired["source"]["host"], node)
+            self.assertFalse(any(r["feed"] for r in rows))
+            self.assertEqual(paired["source"]["diagnostics"][0]["host"], "pc1")
+
+    def test_unpair_removes_authenticated_hostname_mapping(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory)
+            (state / "control-token").write_text("fixture")
+            node = "00000000-0000-4000-8000-000000000001"
+            peer = {"node": node, "paired": True, "host": "windows", "name": "desktop",
+                    "state": "connected", "status": presence(host="pc1")}
+            listing = {"peers": [peer]}
+            with mock.patch.object(peer_feed, "_control_get", return_value=(200, listing)):
+                peer_feed.from_peer_link_hosts(time.time(), state)
+                listing["peers"] = []
+                peer_feed.from_peer_link_hosts(time.time(), state)
+                listing["peers"] = [peer]
+                peer.update(state="offline", status=None)
+                rows = peer_feed.from_peer_link_hosts(time.time(), state)
+            self.assertEqual(rows[0]["source"]["host"], node)
+            self.assertIsNone(rows[0]["feed"])
+
+    def test_warm_disconnect_keeps_share_uncorrelated_with_reported_label(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory)
+            (state / "control-token").write_text("fixture")
+            node = "00000000-0000-4000-8000-000000000001"
+            peer = {"node": node, "paired": True, "host": "windows", "name": "desktop",
+                    "state": "connected", "status": presence(host="pc1")}
+            with mock.patch.object(peer_feed, "_control_get", return_value=(200, {"peers": [peer]})):
+                peer_feed.from_peer_link_hosts(time.time(), state)
+                peer.update(state="offline", status=None)
+                share = peer_feed.summarize_document(presence(host="pc1"), "share", time.time())
+                rows = peer_feed.peer_feeds(time.time(), peer_reader=lambda now: peer_feed.from_peer_link_hosts(now, state),
+                                           share_reader=lambda _: [share])
+            windows = [r for r in rows if r["source"]["platform"] == "windows"]
+            self.assertEqual(len(windows), 1)
+            self.assertEqual(windows[0]["source"]["node"], node)
+            self.assertIsNone(windows[0]["feed"])
+            self.assertEqual(windows[0]["source"]["reportedHost"], "pc1")
+            self.assertEqual(windows[0]["source"]["label"], "pc1 (reported)")
+            self.assertEqual(windows[0]["source"]["reasonCode"], "not_connected")
+            self.assertEqual(windows[0]["source"]["diagnostics"][0]["correlation"], "unverified")
+
+    def test_platforms_identity_and_trust(self):
+        for platform, canonical in (("windows", "windows"), ("mac", "mac"), ("macos", "mac"), ("linux", "linux")):
+            for via, trust in (("lan", "authenticated"), ("share", "share-reported")):
+                result = peer_feed.summarize_document(presence(platform=platform, host="node"), via, time.time(),
+                                                      platform=canonical, host="node")
+                self.assertEqual(result["source"]["platform"], canonical)
+                if canonical != "windows" and via == "share":
+                    self.assertIsNone(result["feed"])
+                    self.assertEqual(result["source"]["reasonCode"], "unverified")
+                    continue
+                self.assertEqual(result["feed"]["host"], "node")
+                self.assertEqual(result["feed"]["trust"], trust)
+                self.assertEqual(result["feed"]["reasonCode"], "ok")
+
+    def test_faults_never_return_live_inventory(self):
+        now = time.time()
+        cases = [(b"not json", "non_json"), (b" " * 65537, "oversize"),
+                 ({}, "schema_invalid"), (presence(age=90), "stale"),
+                 (presence(age=-90), "clock_skew"), (presence(platform="linux"), "host_key_mismatch")]
+        for doc, reason in cases:
+            with self.subTest(reason=reason):
+                result = peer_feed.summarize_document(doc, "lan", now, platform="windows")
+                self.assertIsNone(result["feed"])
+                self.assertEqual(result["source"]["reasonCode"], reason)
+                self.assertEqual(result["source"]["state"], "unavailable")
+
+    def test_share_all_hosts_and_bad_file_identity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            root = base / "llm-lab" / "status"
+            peers = root / "agiw-peers"
+            peers.mkdir(parents=True)
+            for name, platform in (("pc1", "windows"), ("pc2", "windows"), ("linux1", "linux"), ("mac1", "macos")):
+                (peers / (name + ".json")).write_text(json.dumps(presence(host=name, platform=platform)))
+            (peers / "wrong.json").write_text(json.dumps(presence(host="someone-else")))
+            rows = peer_feed.from_share_hosts(time.time(), root, base)
+            good = [row["feed"] for row in rows if row["feed"]]
+            self.assertEqual({row["host"] for row in good}, {"pc1", "pc2"})
+            for host in ("linux1", "mac1"):
+                self.assertEqual(next(row["source"]["reasonCode"] for row in rows
+                                      if row["source"]["host"] == host), "unverified")
+            self.assertEqual(next(row["source"]["reasonCode"] for row in rows if row["source"]["host"] == "wrong"),
+                             "host_key_mismatch")
+
+    def test_transport_faults_are_named_and_do_not_become_down(self):
+        for error, code in ((TimeoutError(), "timeout"), (ConnectionRefusedError(), "refused"),
+                            (FileNotFoundError(), "share_unmounted"),
+                            (peer_feed.FeedUnavailable("asleep"), "asleep")):
+            def failed(now):
+                raise error
+            rows = peer_feed.peer_feeds(time.time(), peer_reader=failed, share_reader=failed)
+            self.assertEqual({r["source"]["platform"] for r in rows}, {"windows", "linux"})
+            self.assertTrue(all(r["feed"] is None and r["source"]["reasonCode"] == code for r in rows))
+
+    def test_lan_all_platforms_isolated_validation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory)
+            (state / "control-token").write_text("fixture")
+            listing = {"peers": [
+                {"paired": True, "host": platform, "state": "connected", "status": presence(host=name, platform=platform)}
+                for name, platform in (("pc1", "windows"), ("pc2", "windows"), ("linux1", "linux"), ("mac1", "mac"))]}
+            listing["peers"].extend([
+                {"paired": True, "host": "linux", "state": "connected", "status": presence(platform="windows")},
+                {"paired": False, "host": "linux", "state": "connected", "status": presence(platform="linux")},
+                {"paired": True, "host": "linux", "state": "connected", "status": {}}])
+            for index, row in enumerate(listing["peers"]):
+                row["node"] = f"00000000-0000-4000-8000-{index:012d}"
+            with mock.patch.object(peer_feed, "_control_get", return_value=(200, listing)):
+                rows = peer_feed.from_peer_link_hosts(time.time(), state)
+            self.assertEqual({r["feed"]["reportedHost"] for r in rows if r["feed"]}, {"pc1", "pc2", "linux1", "mac1"})
+            self.assertEqual([r["source"]["reasonCode"] for r in rows if not r["feed"]],
+                             ["host_key_mismatch", "schema_invalid"])
+
+    def test_freshness_boundary_and_partial_inventory(self):
+        now = 1800000000.0
+        for age, good in ((30.0, True), (30.049, False), (-2.0, True), (-2.01, False)):
+            row = peer_feed.summarize_document(presence(platform="linux", observedAt=peer_link._iso(now - age)), "lan", now)
+            self.assertEqual(row["feed"] is not None, good)
+        row = peer_feed.summarize_document(presence(platform="linux", modelsTotal=2), "lan", time.time())
+        self.assertFalse(row["feed"]["modelsComplete"])
+
+    def test_share_hang_does_not_queue_threads(self):
+        release = threading.Event()
+        entered = threading.Event()
+        reader = peer_feed._HostShareReader()
+        def hang(now):
+            entered.set()
+            release.wait(2)
+            return []
+        with mock.patch.object(peer_feed, "from_share_hosts", side_effect=hang) as read, \
+                mock.patch.object(peer_feed, "SHARE_READ_DEADLINE", 0.02):
+            try:
+                for _ in range(2):
+                    with self.assertRaises(peer_feed.FeedUnavailable) as error:
+                        reader.read(time.time())
+                    self.assertEqual(error.exception.reason_code, "timeout")
+                self.assertTrue(entered.is_set())
+                self.assertEqual(read.call_count, 1)
+            finally:
+                release.set()
+                reader.thread.join(2)
+
+    def test_share_legacy_bad_file_retains_reason(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            root = base / "llm-lab" / "status"
+            root.mkdir(parents=True)
+            (root / "windows-status.json").write_text(" " * 65537)
+            rows = peer_feed.from_share_hosts(time.time(), root, base)
+            self.assertEqual(rows[0]["source"]["reasonCode"], "oversize")
+            self.assertEqual(rows[0]["source"]["platform"], "windows")
+
+    def test_hands_off_preserves_only_explicit_boolean(self):
+        for value in (True, False, "true", 1, None):
+            result = peer_feed.summarize_document(presence(handsOff=value, gaming=True), "share", time.time())
+            self.assertEqual(result["feed"].get("handsOff"), value if type(value) is bool else None)
+            self.assertNotIn("gaming", result["feed"])
+
+    def test_stale_source_retains_original_observation(self):
+        doc = presence(age=90)
+        result = peer_feed.summarize_document(doc, "share", time.time())
+        self.assertIsNone(result["feed"])
+        self.assertEqual(result["source"]["observedAt"], doc["observedAt"])
+
+    def test_own_mac_presence_is_excluded_without_hiding_other_macs(self):
+        now = time.time()
+        rows = [peer_feed.summarize_document(presence(host=name, platform=platform), "share", now)
+                for name, platform in (("local-mac", "macos"), ("other-mac", "mac"), ("local-mac", "linux"))]
+        with mock.patch.object(peer_feed, "host_id", return_value="local-mac"):
+            result = peer_feed.peer_feeds(now, peer_reader=lambda _: [], share_reader=lambda _: rows)
+        identities = {(r["source"]["platform"], r["source"]["host"]) for r in result}
+        self.assertNotIn(("mac", "local-mac"), identities)
+        self.assertIn(("mac", "other-mac"), identities)
+        self.assertIn(("linux", "local-mac"), identities)
+
+    def test_legacy_windows_document_is_fallback_not_a_duplicate_machine(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            root = base / "llm-lab" / "status"
+            peers = root / "agiw-peers"
+            peers.mkdir(parents=True)
+            (peers / "pc1.json").write_text(json.dumps(presence(host="pc1")))
+            (root / "windows-status.json").write_text(json.dumps(presence(host="windows", kind=None)))
+            rows = peer_feed.from_share_hosts(time.time(), root, base)
+            self.assertEqual([r["feed"]["host"] for r in rows if r["feed"]], ["pc1"])
+            (peers / "pc1.json").unlink()
+            rows = peer_feed.from_share_hosts(time.time(), root, base)
+            self.assertEqual([r["feed"]["host"] for r in rows if r["feed"]], ["windows"])
+
+    def test_unattributed_bad_document_keeps_failure_on_missing_platform(self):
+        now = time.time()
+        good = peer_feed.summarize_document(presence(host="pc1"), "share", now)
+        bad = peer_feed.summarize_document(b"not json", "share", now, host="unattributed-node")
+        rows = peer_feed.peer_feeds(now, peer_reader=lambda _: [], share_reader=lambda _: [good, bad])
+        linux = next(r for r in rows if r["source"]["platform"] == "linux")
+        self.assertEqual(linux["source"]["reasonCode"], "non_json")
+        self.assertIn("could not be attributed", linux["source"]["detail"])
+        self.assertIsNone(linux["feed"])
+        self.assertIn(bad, rows)
+        self.assertIn(good, rows)
+
+    def test_lan_host_suppresses_only_legacy_windows_fallback(self):
+        now = time.time()
+        lan = peer_feed.summarize_document(presence(host="pc-one", models=[
+            {"id": "model", "loadedState": "loaded", "activity": "busy"}]), "lan", now)
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            root = base / "llm-lab" / "status"
+            peers = root / "agiw-peers"
+            peers.mkdir(parents=True)
+            (root / "windows-status.json").write_text(json.dumps(presence(host="windows", kind=None,
+                models=[{"id": "model", "loadedState": "loaded", "activity": "busy"}])))
+            share = peer_feed.from_share_hosts(now, root, base)
+            self.assertIs(share[0]["source"].get("legacy"), True)
+            rows = peer_feed.peer_feeds(now, peer_reader=lambda _: [lan], share_reader=lambda _: share)
+            self.assertEqual([r["feed"]["host"] for r in rows if r["feed"]], ["pc-one"])
+            (peers / "windows.json").write_text(json.dumps(presence(host="windows")))
+            share = peer_feed.from_share_hosts(now, root, base)
+            self.assertFalse(share[0]["source"].get("legacy", False))
+            rows = peer_feed.peer_feeds(now, peer_reader=lambda _: [lan], share_reader=lambda _: share)
+            self.assertEqual({r["feed"]["host"] for r in rows if r["feed"]}, {"pc-one", "windows"})
+
+    def test_merge_keeps_hosts_separate_and_authenticated_preferred(self):
+        now = time.time()
+        lan = peer_feed.summarize_document(presence(host="pc1"), "lan", now)
+        share = [peer_feed.summarize_document(presence(host=name), "share", now) for name in ("pc1", "pc2")]
+        rows = peer_feed.peer_feeds(now, peer_reader=lambda _: [lan], share_reader=lambda _: share)
+        peers = {r["source"]["host"]: r for r in rows if r["feed"]}
+        self.assertEqual(set(peers), {"pc1", "pc2"})
+        self.assertEqual(peers["pc1"]["source"]["trust"], "authenticated")
+        self.assertEqual(peers["pc2"]["source"]["trust"], "share-reported")
 
 
 class Share(unittest.TestCase):
@@ -40,9 +525,9 @@ class Share(unittest.TestCase):
         (self.root / name).write_text(json.dumps(doc))
 
     def test_fresh_presence_is_live_and_only_known_fields_pass(self):
-        self.put("agiw-peers/louisaurorar12.json", presence())
+        self.put("agiw-peers/winpc01.json", presence())
         feed = peer_feed.from_share(time.time(), self.root, self.base)
-        self.assertEqual((feed["via"], feed["host"], feed["models"][0]["slotsTotal"]), ("share", "louisaurorar12", 2))
+        self.assertEqual((feed["via"], feed["host"], feed["models"][0]["slotsTotal"]), ("share", "winpc01", 2))
         self.assertNotIn("secretish", feed["models"][0])
         self.assertNotIn("path", feed["gpus"][0])
         self.assertNotIn("commit", feed["memory"])
@@ -54,7 +539,7 @@ class Share(unittest.TestCase):
                                {"id": "first", "loadedState": "inactive"},
                                {"id": "", "loadedState": "loaded"},
                                {"id": "second", "loadedState": "inactive"}], modelsTotal=4)
-        self.put("agiw-peers/louisaurorar12.json", doc)
+        self.put("agiw-peers/winpc01.json", doc)
         feed = peer_feed.from_share(time.time(), self.root, self.base)
         self.assertEqual([(m["id"], m["loadedState"]) for m in feed["models"]],
                          [("first", "loaded"), ("second", "inactive")])
@@ -63,14 +548,14 @@ class Share(unittest.TestCase):
     def test_schema_version_is_a_strict_integer(self):
         for version in (True, 1.0, "1", None, 2):
             with self.subTest(version=version):
-                self.put("agiw-peers/louisaurorar12.json", presence(schemaVersion=version))
+                self.put("agiw-peers/winpc01.json", presence(schemaVersion=version))
                 self.assertIsNone(peer_feed.from_share(time.time(), self.root, self.base))
 
     def test_freshness_uses_the_unrounded_age(self):
         now = 1800000000.0
         for age, fresh in ((30.0, True), (30.049, False)):
             with self.subTest(age=age):
-                self.put("agiw-peers/louisaurorar12.json",
+                self.put("agiw-peers/winpc01.json",
                          presence(observedAt=peer_link._iso(now - age), observedUnix=now - age))
                 feed = peer_feed.from_share(now, self.root, self.base)
                 self.assertEqual(feed is not None, fresh)
@@ -107,7 +592,7 @@ class Share(unittest.TestCase):
         self.assertIsNone(peer_feed.from_share(time.time(), self.root, self.base))
 
     def test_symlinked_ancestor_folder_is_refused(self):
-        self.put("agiw-peers/louisaurorar12.json", presence())
+        self.put("agiw-peers/winpc01.json", presence())
         moved = self.base / "real-llm-lab"
         (self.base / "llm-lab").rename(moved)
         os.symlink(moved, self.base / "llm-lab")
@@ -116,18 +601,18 @@ class Share(unittest.TestCase):
 
     def test_infinite_numbers_and_odd_memory_values_are_dropped(self):
         doc = presence()
-        self.put("agiw-peers/louisaurorar12.json", doc)
-        raw = (self.root / "agiw-peers" / "louisaurorar12.json").read_text()
+        self.put("agiw-peers/winpc01.json", doc)
+        raw = (self.root / "agiw-peers" / "winpc01.json").read_text()
         raw = raw.replace('"utilizationPercent": 4.0', '"utilizationPercent": 1e999')
         raw = raw.replace('"availablePercent": 55.6', '"availablePercent": {"nested": 1}')
-        (self.root / "agiw-peers" / "louisaurorar12.json").write_text(raw)
+        (self.root / "agiw-peers" / "winpc01.json").write_text(raw)
         feed = peer_feed.from_share(time.time(), self.root, self.base)
         self.assertNotIn("utilizationPercent", feed["gpus"][0])
         self.assertEqual(feed["memory"], {"level": "ok"})
         json.dumps(feed, allow_nan=False)  # the snapshot must stay serializable
 
     def test_future_dated_record_is_a_clock_mismatch_not_fresh(self):
-        self.put("agiw-peers/louisaurorar12.json", presence(age=-45))
+        self.put("agiw-peers/winpc01.json", presence(age=-45))
         self.assertIsNone(peer_feed.from_share(time.time(), self.root, self.base))
 
     def test_missing_share_is_none(self):
@@ -214,7 +699,7 @@ class Feed(unittest.TestCase):
         # The map's words (REPORTED VIA SHARE) and the PC's: an unsigned share file is reported, never "linked",
         # and its source is recorded, never live (review finding D2).
         self.assertEqual(source["state"], "recorded")
-        self.assertEqual(source["detail"], "Unsigned report from louisaurorar12 in SharedChami status files "
+        self.assertEqual(source["detail"], "Unsigned report from winpc01 in SharedChami status files "
                                            "(not verified; LAN link not connected: ConnectionRefusedError)")
         self.assertNotIn("Linked", source["detail"])
 
@@ -239,6 +724,128 @@ class Feed(unittest.TestCase):
 
 
 class MacPresence(unittest.TestCase):
+    def test_incomplete_inventory_diagnostic_does_not_claim_sources_are_unavailable(self):
+        now = time.time()
+        snap = {"sampledAt": now, "activityKnown": False,
+                "sources": [{"id": "lmstudio-api", "state": "live", "modelsComplete": False}],
+                "models": [{"id": "vendor/idle", "host": "mac", "loaded": False}]}
+        with self.assertRaises(peer_feed.InventoryUnknown) as refused:
+            peer_feed.share_presence(snap, "louis-mac", now=now)
+        self.assertEqual(peer_feed._failure(refused.exception), (
+            "unavailable", "Mac model inventory incomplete, so no model count is published; "
+            "the last file ages out after 30 s"))
+
+    def test_inventory_diagnostics_keep_fixed_causes_without_private_identifiers(self):
+        for cause in ("Mac model instance inventory incomplete", "Mac model loaded state unknown",
+                      "Mac model inventory contains an unpublishable identifier", "private /Users/alice"):
+            with self.subTest(cause=cause):
+                state, detail = peer_feed._failure(peer_feed.InventoryUnknown(cause))
+                self.assertEqual(state, "unavailable")
+                expected = "Mac model inventory unknown" if cause.startswith("private") else cause
+                self.assertEqual(detail, expected + ", so no model count is published; "
+                                 "the last file ages out after 30 s")
+
+    def test_unpublishable_model_id_withholds_presence_instead_of_a_complete_zero(self):
+        now = time.time()
+        for model_id in ("Users/alice", "/home/alice", None):
+            for loaded in (True, False):
+                with self.subTest(model_id=model_id, loaded=loaded):
+                    snap = {"sampledAt": now, "activityKnown": False,
+                            "sources": [{"id": "lmstudio-api", "state": "live", "modelsComplete": True}],
+                            "models": [{"id": model_id, "host": "mac", "loaded": loaded,
+                                        "source": "lmstudio-api"},
+                                       {"id": "vendor/idle", "host": "mac", "loaded": False,
+                                        "source": "lmstudio-api"}]}
+                    with self.assertRaises(peer_feed.InventoryUnknown):
+                        peer_feed.share_presence(snap, "louis-mac", now=now)
+
+    def test_incomplete_live_inventory_is_withheld_from_the_pc(self):
+        now = time.time()
+        for source_id in ("lmstudio-api", "lms-ps"):
+            for known in (False, True):
+                with self.subTest(source=source_id, known=known):
+                    snap = {"sampledAt": now, "activityKnown": known,
+                            "sources": [{"id": source_id, "state": "live", "route": "direct", "modelsComplete": False}],
+                            "models": [{"id": "inactive", "host": "mac", "loaded": False}]}
+                    with self.assertRaises(peer_feed.InventoryUnknown):
+                        peer_feed.share_presence(snap, "louis-mac", now=now)
+                    snap["sources"][0]["modelsComplete"] = True
+                    doc = peer_feed.share_presence(snap, "louis-mac", now=now)
+                    report = pc_probes()._validate_peer(doc, now)
+                    self.assertEqual(report["modelsComplete"], source_id == "lmstudio-api")
+                    self.assertTrue(report["loadedListComplete"])
+                    self.assertEqual(sum(row["loadedState"] == "loaded" for row in report["models"]), 0)
+
+    def test_incomplete_instance_correlation_is_withheld_from_the_pc(self):
+        from telemetry import _merge_cli_rows, _parse_api, _parse_lms
+        now = time.time()
+        for identifiers in ([f"alias-{index}" for index in range(17)], ["alias-0", "invalid id"]):
+            with self.subTest(identifiers=identifiers):
+                api = _parse_api({"models": [{"key": "provider/model", "loaded_instances": [
+                    {"id": identifier} for identifier in identifiers]}]}, now)
+                cli = _parse_lms({"models": [{"identifier": "alias-0", "status": "idle"}]}, now)
+                models = {row["id"]: row for row in api}
+                _merge_cli_rows(models, cli)
+                snap = {"sampledAt": now, "activityKnown": False, "models": list(models.values()),
+                        "sources": [{"id": source, "state": "live", "modelsComplete": True, "route": "direct"}
+                                    for source in ("lmstudio-api", "lms-ps")]}
+                with self.assertRaises(peer_feed.InventoryUnknown):
+                    peer_feed.share_presence(snap, "louis-mac", now=now)
+
+    def test_unknown_loaded_state_is_withheld_from_the_pc(self):
+        now = time.time()
+        snap = {"sampledAt": now, "activityKnown": False,
+                "models": [{"id": "uncertain", "host": "mac", "loaded": None}],
+                "sources": [{"id": "lmstudio-api", "state": "live", "modelsComplete": True}]}
+        with self.assertRaises(peer_feed.InventoryUnknown):
+            peer_feed.share_presence(snap, "louis-mac", now=now)
+
+    def test_publishes_one_canonical_model_with_instance_alias_metadata(self):
+        from telemetry import _merge_cli_rows, _parse_api, _parse_lms
+        now = time.time()
+        for same_id in (False, True):
+            for activity in ("idle", "busy", "generating"):
+                with self.subTest(same_id=same_id, activity=activity):
+                    identifiers = ["provider/model" if same_id else "alias-1", "alias-2"]
+                    api = _parse_api({"models": [{"key": "provider/model", "loaded_instances": [
+                        {"id": identifier} for identifier in identifiers]}]}, now)
+                    cli = _parse_lms({"models": [{"identifier": identifier, "modelKey": "provider/model",
+                        "status": activity if index else "idle"} for index, identifier in enumerate(identifiers)]}, now)
+                    models = {row["id"]: row for row in api}
+                    _merge_cli_rows(models, cli)
+                    snap = {"sampledAt": now, "activityKnown": True, "models": list(models.values()),
+                            "sources": [{"id": source, "state": "live", "modelsComplete": True, "route": "direct"}
+                                        for source in ("lmstudio-api", "lms-ps")]}
+                    doc = peer_feed.share_presence(snap, "louis-mac", now=now)
+                    self.assertEqual(doc["modelsTotal"], 1)
+                    self.assertEqual([(row["id"], row["loadedState"], row["activity"]) for row in doc["models"]],
+                                     [("provider/model", "loaded", activity)])
+                    self.assertEqual(doc["models"][0]["aliases"], [item for item in identifiers if item != "provider/model"])
+                    report = pc_probes()._validate_peer(doc, now)
+                    self.assertTrue(report["modelsComplete"])
+                    self.assertEqual(sum(row["loadedState"] == "loaded" for row in report["models"]),
+                                     machines_summary(snap, [])[0]["loadedCount"])
+
+    def test_canonical_presence_keeps_colliding_instance_observations(self):
+        from telemetry import _merge_cli_rows, _parse_api, _parse_lms
+        now = time.time()
+        api = _parse_api({"models": [
+            {"key": "provider/model", "loaded_instances": [{"id": "other/model"}]},
+            {"key": "other/model", "loaded_instances": []}]}, now)
+        cli = _parse_lms({"models": [{"identifier": "other/model", "modelKey": "provider/model",
+                                      "status": "generating"}]}, now)
+        models = {row["id"]: row for row in api}
+        observations = _merge_cli_rows(models, cli, isolate_collisions=True)
+        snap = {"sampledAt": now, "activityKnown": True, "models": list(models.values()),
+                "localInstanceObservations": observations,
+                "sources": [{"id": source, "state": "live", "modelsComplete": True, "route": "direct"}
+                            for source in ("lmstudio-api", "lms-ps")]}
+        doc = peer_feed.share_presence(snap, "louis-mac", now=now)
+        self.assertEqual(doc["modelsTotal"], 2)
+        self.assertEqual([(row["id"], row["loadedState"], row["activity"]) for row in doc["models"]],
+                         [("provider/model", "loaded", "generating"), ("other/model", "inactive", "unknown")])
+        self.assertEqual(doc["models"][0]["aliases"], ["other/model"])
+
     def test_maps_snapshot_rows_and_validates(self):
         snap = {"sampledAt": time.time(), "activityKnown": True, "memory": {"level": "watch", "availablePercent": 57},
                 "models": [{"id": "qwen", "host": "mac", "loaded": True, "state": "generating"},
@@ -296,8 +903,8 @@ class PcMemoryLevels(unittest.TestCase):
                                                    "slotsBusy": 0, "slotsTotal": 2}],
                                         "pcGpus": [], "memory": block, "observerVersion": "0.1.0",
                                         "observedAt": peer_feed._iso(now), "sampledAt": now, "dashboardPort": 8767},
-                                       "louisaurorar12")
-            (root / "agiw-peers" / "louisaurorar12.json").write_text(json.dumps(doc))
+                                       "winpc01")
+            (root / "agiw-peers" / "winpc01.json").write_text(json.dumps(doc))
             want = {"level": expected, "availablePercent": float(available)}
             # The share file, read as the Mac reads it.
             self.assertEqual(peer_feed.from_share(time.time(), root, base)["memory"], want, expected)
@@ -323,7 +930,7 @@ class ShareBounds(unittest.TestCase):
         self.root = self.base / "llm-lab" / "status"
         self.peers = self.root / "agiw-peers"
         self.peers.mkdir(parents=True)
-        (self.peers / "louisaurorar12.json").write_text(json.dumps(presence()))
+        (self.peers / "winpc01.json").write_text(json.dumps(presence()))
 
     def fill(self, count):
         for index in range(count):
@@ -332,7 +939,7 @@ class ShareBounds(unittest.TestCase):
     def test_normal_folder_reads_as_before(self):
         self.fill(peer_feed.PEER_SCAN_LIMIT - 1)  # exactly the budget, the record included
         feed = peer_feed.from_share(time.time(), self.root, self.base)
-        self.assertEqual((feed["via"], feed["host"]), ("share", "louisaurorar12"))
+        self.assertEqual((feed["via"], feed["host"]), ("share", "winpc01"))
 
     def test_over_budget_folder_is_unavailable_not_partial(self):
         self.fill(peer_feed.PEER_SCAN_LIMIT)  # one entry over the budget
@@ -365,7 +972,7 @@ class ShareBounds(unittest.TestCase):
         with self.assertRaises(peer_feed.ShareRefused) as caught:
             peer_feed.from_share(time.time(), self.root, self.base)
         self.assertIn("symbolic link", str(caught.exception))
-        self.assertEqual(sorted(p.name for p in elsewhere.iterdir()), ["louisaurorar12.json"])
+        self.assertEqual(sorted(p.name for p in elsewhere.iterdir()), ["winpc01.json"])
 
     def test_folder_swapped_while_read_is_refused(self):
         real_read = peer_feed._read_at
@@ -382,7 +989,7 @@ class ShareBounds(unittest.TestCase):
         with mock.patch.object(peer_feed, "_read_at", side_effect=read_then_swap):
             with self.assertRaises(peer_feed.ShareRefused) as caught:
                 peer_feed.from_share(time.time(), self.root, self.base)
-        self.assertEqual(swapped, ["louisaurorar12.json"])
+        self.assertEqual(swapped, ["winpc01.json"])
         self.assertIn("replaced while it was read", str(caught.exception))
 
     def test_scan_stops_at_the_budget(self):
@@ -423,13 +1030,13 @@ class ShareNeverLive(unittest.TestCase):
                 feed, source = peer_feed.windows_feed(time.time())
             self.assertEqual((feed["via"], source["state"]), ("share", "recorded"))
             self.assertNotIn("live", source["detail"].lower())
-            self.assertTrue(source["detail"].startswith("Unsigned report from louisaurorar12"), source["detail"])
+            self.assertTrue(source["detail"].startswith("Unsigned report from winpc01"), source["detail"])
         self.assertIn("LAN link not connected: control token malformed", source["detail"])
         lan_feed = peer_feed._summary(peer_link.validate_status(presence(), "windows"), "lan", time.time())
         with mock.patch.object(peer_feed, "from_peer_link", return_value=lan_feed):
             _feed, source = peer_feed.windows_feed(time.time())
         self.assertEqual(source["state"], "live")
-        self.assertEqual(source["detail"], "Reported by louisaurorar12 over the paired LAN link "
+        self.assertEqual(source["detail"], "Reported by winpc01 over the paired LAN link "
                                            "(signed by the paired peer; its own report of its state)")
 
 
@@ -662,7 +1269,7 @@ class ObserverToken(unittest.TestCase):
         link = self.listener(token=VALID_TOKEN, listing=listing)
         before = tree(self.dir)
         feed = peer_feed.from_peer_link(time.time(), self.dir, link.port)
-        self.assertEqual((feed["via"], feed["host"]), ("lan", "louisaurorar12"))
+        self.assertEqual((feed["via"], feed["host"]), ("lan", "winpc01"))
         self.assertEqual(tree(self.dir), before)
         self.assertEqual([path for _, path, _ in link.requests], ["/control/hello", "/control/peers"])
         self.assertNotIn(VALID_TOKEN, json.dumps(link.requests))

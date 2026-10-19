@@ -1,6 +1,7 @@
 import Cocoa
 import WebKit
 import Darwin
+import Metal
 
 private let bundleIdentifier = "local.codemode.inference-monitor"
 private let appName = "Inference Monitor"
@@ -480,6 +481,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         environment["PATH"] = ["/opt/homebrew/bin", "/usr/local/bin", "\(home)/.lmstudio/bin",
                                "/usr/bin", "/bin", "/usr/sbin", "/sbin"].joined(separator: ":")
+        // The unified-memory ceiling (how much shared memory the GPU may use) is only readable
+        // from a Metal client. Read it once here and hand it to the observer, which labels it with
+        // this source; without it the ceiling is reported as unknown, never 0.
+        if let ceiling = MTLCreateSystemDefaultDevice()?.recommendedMaxWorkingSetSize, ceiling > 0 {
+            environment["AGIW_GPU_WORKING_SET_BYTES"] = String(ceiling)
+        } else {
+            environment.removeValue(forKey: "AGIW_GPU_WORKING_SET_BYTES")
+        }
         process.environment = environment
         process.standardOutput = output
         process.standardError = errors
@@ -617,45 +626,79 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     }
 
     private func updateBadge(_ snapshot: [String: Any]) {
-        guard (snapshot["schemaVersion"] as? Int) == 1,
-              let sampledAt = snapshot["sampledAt"] as? Double, sampledAt.isFinite,
-              let models = snapshot["models"] as? [[String: Any]] else {
+        guard let schema = snapshot["schemaVersion"] as? NSNumber, CFGetTypeID(schema) != CFBooleanGetTypeID(),
+              schema.doubleValue == 1,
+              let sample = snapshot["sampledAt"] as? NSNumber, CFGetTypeID(sample) != CFBooleanGetTypeID(),
+              sample.doubleValue.isFinite,
+              let machines = snapshot["machines"] as? [[String: Any]] else {
             showUnknownBadge("Unsupported observer data; working count is unknown")
             return
         }
-        let elapsed = Date().timeIntervalSince1970 - sampledAt
+        let now = Date().timeIntervalSince1970
+        let elapsed = now - sample.doubleValue
         guard elapsed.isFinite, elapsed >= -2 else {
             showUnknownBadge("Observer timestamp is invalid; working count is unknown")
             return
         }
         var active = 0
-        var uncertain = models.isEmpty
-        for model in models {
-            let state = model["state"] as? String ?? "unknown"
-            let host = model["host"] as? String ?? ""
-            let threshold: Double = host == "windows" ? 30 : 3
-            guard ["mac", "windows"].contains(host),
-                  let age = model["ageSeconds"] as? Double, age.isFinite, age >= 0,
-                  age + max(0, elapsed) <= threshold else {
+        var uncertain = machines.isEmpty
+        var platforms = Set<String>()
+        let fractionalDate = ISO8601DateFormatter()
+        fractionalDate.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let wholeDate = ISO8601DateFormatter()
+        for machine in machines {
+            let platform = machine["platform"] as? String ?? ""
+            platforms.insert(platform)
+            let thresholds: [String: Double] = ["mac": 3, "windows": 30, "linux": 30]
+            guard let threshold = thresholds[platform], machine["state"] as? String == "up",
+                  let complete = machine["modelsComplete"] as? NSNumber,
+                  CFGetTypeID(complete) == CFBooleanGetTypeID(), complete.boolValue,
+                  let busy = machine["busyCount"] as? NSNumber, CFGetTypeID(busy) != CFBooleanGetTypeID(),
+                  busy.doubleValue.isFinite, busy.doubleValue >= 0, busy.doubleValue <= 256,
+                  busy.doubleValue.rounded() == busy.doubleValue,
+                  let age = machine["ageSeconds"] as? NSNumber, CFGetTypeID(age) != CFBooleanGetTypeID(),
+                  age.doubleValue.isFinite, age.doubleValue >= 0 else {
                 uncertain = true
                 continue
             }
-            switch state {
-            case "generating", "busy": active += 1
-            case "idle", "unloaded": break
-            case "loaded": uncertain = true
-            default: uncertain = true
+            let currentAge: Double
+            if let observed = machine["observedAt"], !(observed is NSNull) {
+                guard let stamp = observed as? String,
+                      let date = fractionalDate.date(from: stamp) ?? wholeDate.date(from: stamp) else {
+                    uncertain = true
+                    continue
+                }
+                currentAge = now - date.timeIntervalSince1970
+            } else {
+                currentAge = age.doubleValue + max(0, elapsed)
             }
+            guard currentAge.isFinite, currentAge >= -2, currentAge <= threshold else {
+                uncertain = true
+                continue
+            }
+            active += busy.intValue
         }
+        uncertain = uncertain || !Set(["mac", "windows", "linux"]).isSubset(of: platforms)
         let label = uncertain ? (active > 0 ? "\(active)·?" : "?") : String(active)
         let memory = Self.memoryBadge(snapshot, elapsed: elapsed)
         applyMemoryTint(memory?.level)
         // Critical also gets a "!" so the warning never depends on colour alone.
         statusItem.button?.title = " \(label)" + (memory?.level == "critical" ? " !" : "")
-        let detail = uncertain ? " · some telemetry is stale or unavailable" : " · fresh observed activity"
         let memoryLine = memory.map { "\nMemory \($0.level)" + ($0.summary.isEmpty ? "" : ": \($0.summary)") } ?? ""
-        statusItem.button?.toolTip = "Inference Monitor · \(active) observed working\(detail)\(memoryLine)"
-        statusItem.button?.setAccessibilityValue("\(active) models observed working\(detail)"
+        let tooltipCount: String
+        let accessibilityCount: String
+        if uncertain {
+            let unknownCount = active > 0
+                ? "At least \(active) observed working; other activity unknown"
+                : "Working count unknown"
+            tooltipCount = unknownCount
+            accessibilityCount = unknownCount
+        } else {
+            tooltipCount = "\(active) observed working · fresh observed activity"
+            accessibilityCount = "\(active) models observed working · fresh observed activity"
+        }
+        statusItem.button?.toolTip = "Inference Monitor · \(tooltipCount)\(memoryLine)"
+        statusItem.button?.setAccessibilityValue(accessibilityCount
             + (memory.map { ". Memory \($0.level)" } ?? ""))
     }
 

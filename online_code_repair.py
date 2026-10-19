@@ -1,9 +1,11 @@
 """Explicit, bounded Online Code Mode maintenance for Inference Monitor.
 
-The monitor remains an observer until a user requests this controller's single
-operation.  This module never submits a task, resends a Windows job, calls a
-model directly, or writes, moves or deletes an owner state file itself.  The
-installed launcher and its owners perform every state transition.  The public
+The monitor remains an observer until L2 is explicitly opened and a user
+requests this controller's single operation. Closed L2 returns a diagnosis and
+next step from cached observations without invoking an owner. This module never
+submits a task, resends a Windows job, calls a model directly, or writes, moves
+or deletes an owner state file itself. The installed launcher and its owners
+perform every state transition. The public
 Fix inference action runs the existing guarded local, Nisi and route repairs
 once each.  Legacy scoped actions remain available to older clients.
 
@@ -24,7 +26,7 @@ private-file checks and is at least ten minutes old; the Nisi owner lock is
 free while the router owner lock is held across the recovery; and two samples
 2 s apart show every LLM in ``lms ps`` idle with nothing queued and no client
 other than LM Studio (or this monitor's own inventory reads) with an open or
-half-closed connection to 127.0.0.1:1234.  Afterwards it confirms the launcher moved exactly that marker
+half-closed connection to the verified native loopback endpoint.  Afterwards it confirms the launcher moved exactly that marker
 to exactly one new recovered file, then reports, from status reads only,
 whether two distinct LLMs are resident for the Mac route's author and reviewer
 and whether Jev is opted in.  It never loads or unloads a model, sends work to
@@ -57,6 +59,7 @@ import fcntl
 
 from model_control import ControlError, _find_lms
 from telemetry import (_bounded_command, _bounded_http, _bounded_lms, _finite, _parse_api,
+                       _inventory_listener, _lmstudio_route, _lms_server_status, _native_api_endpoint,
                        _parse_lms, _windows_jobs, _windows_worker_reader_blocked,
                        _windows_worker_stuck_readers, _WINDOWS_WORKER_IO_LOCK,
                        hold_windows_worker_probe, monitor_router_hold, set_windows_worker_tolerance)
@@ -214,13 +217,11 @@ LMS_MODEL_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/+-]{0,159}\Z")
 # The Mac route's default author (pipeline_auto.DEFAULT_MODEL). Like
 # select_edit_models, the reviewer is the lexically first other resident LLM.
 ROUTE_DEFAULT_AUTHOR = "google/gemma-4-26b-a4b-qat"
-LOCAL_API_ENDPOINT = f"{LOCAL_API_HOST}:{LOCAL_API_PORT}"
 LSOF = "/usr/sbin/lsof"
-LSOF_ARGS = ("-nP", f"-iTCP@{LOCAL_API_ENDPOINT}", "-F", "pcnT")
+LSOF_ARGS = ("-nP", "-b", "-w", "-F", "pcnT")
 LSOF_NAME = re.compile(r"(127\.0\.0\.1:[0-9]{1,5})(?:->(127\.0\.0\.1:[0-9]{1,5}))?\Z")
 TCP_STATES = frozenset({"CLOSED", "LISTEN", "SYN_SENT", "SYN_RCVD", "ESTABLISHED", "CLOSE_WAIT",
                         "FIN_WAIT_1", "CLOSING", "LAST_ACK", "FIN_WAIT_2", "TIME_WAIT"})
-LMSTUDIO_COMMAND = "LM Studio"
 FIX_JOURNAL = Path.home() / ".local/state/inference-monitor/fix-journal.jsonl"
 FIX_JOURNAL_MAX_BYTES = 262144
 FIX_JOURNAL_MAX_LINE = 16384
@@ -642,10 +643,10 @@ class ShareControl:
 
     def open_jobs(self) -> int | None:
         jobs, _source = _windows_jobs(time.time())
-        if jobs.get("journal") == "invalid":
+        if jobs.get("journal") != "recorded" or jobs.get("complete") is not True:
             return None
         unsettled = jobs.get("unsettled")
-        return unsettled if type(unsettled) is int else len(jobs.get("inFlight") or [])
+        return unsettled if type(unsettled) is int and unsettled >= 0 else None
 
     def reachable_host(self) -> str | None:
         if self._config is None:
@@ -820,6 +821,22 @@ def _preflight_identity(active: object) -> tuple[str, str] | None:
     return run_id, digest
 
 
+def _verified_direct_endpoint() -> tuple[dict, tuple] | None:
+    """Read-only native endpoint identity shared with the monitor's inventory probe."""
+    try:
+        status = _lms_server_status()
+        if not isinstance(status, dict):
+            return None
+        endpoint = _native_api_endpoint(status)
+        listener = _inventory_listener(endpoint["port"])
+        if (listener is not None and len(listener) == 3
+                and _lmstudio_route(endpoint["port"], status, listener)[0] == "direct"):
+            return endpoint, listener
+    except (OSError, ValueError, TimeoutError, TypeError, subprocess.SubprocessError):
+        pass
+    return None
+
+
 def _runtime_sources() -> tuple[bool, bool]:
     """Sample the two fresh local feeds; neither proves generation occurred."""
     owner = _current_owner()
@@ -827,8 +844,11 @@ def _runtime_sources() -> tuple[bool, bool]:
     api_live = False
     activity_live = False
     try:
-        _parse_api(_bounded_http(), time.time())
-        api_live = True
+        verified = _verified_direct_endpoint()
+        if verified is not None:
+            endpoint, listener = verified
+            _parse_api(_bounded_http(endpoint), time.time())
+            api_live = _inventory_listener(endpoint["port"]) == listener
     except (OSError, ValueError, TimeoutError, TypeError, UnicodeError,
             subprocess.SubprocessError):
         pass
@@ -1019,13 +1039,21 @@ def lms_ps_listing() -> object:
 
 
 def loopback_api_sockets() -> str:
-    """lsof's field listing of TCP sockets on 127.0.0.1:1234 (exit 1 means none), bounded."""
+    """Bounded socket listing of the verified native endpoint (exit 1 means none)."""
     owner = _current_owner()
     _raise_if_cancelled(owner)
     kwargs = {"limit": 65536, "timeout": 5.0, "ok_codes": (0, 1)}
     if owner is not None:
         kwargs["cancel"] = owner.cancelled
-    return _bounded_command([LSOF, *LSOF_ARGS], **kwargs)
+    verified = _verified_direct_endpoint()
+    if verified is None:
+        raise ValueError("native endpoint identity unavailable")
+    endpoint, listener = verified
+    output = _bounded_command([LSOF, *LSOF_ARGS,
+                               f"-iTCP@{endpoint['host']}:{endpoint['port']}"], **kwargs)
+    if _inventory_listener(endpoint["port"]) != listener:
+        raise ValueError("native endpoint listener changed")
+    return output
 
 
 def _lms_idle_verdict(listing: object) -> tuple[str, str]:
@@ -1093,11 +1121,14 @@ def _server_client_verdict(sockets: list[dict], own_pid: int) -> tuple[str, str]
     shape of an abandoned request LM Studio may still be generating for. Only
     LISTEN, TIME_WAIT and CLOSED sockets are ignored.
     """
+    verified = _verified_direct_endpoint()
+    if verified is None:
+        return "unknown", "listener=identity-unverified"
+    endpoint, listener = verified
+    address = f"{endpoint['host']}:{endpoint['port']}"
     listeners = [item for item in sockets if item["state"] == "LISTEN"]
-    if (not listeners or any(item["name"] != LOCAL_API_ENDPOINT
-                             or not isinstance(item["command"], str)
-                             or not item["command"].startswith(LMSTUDIO_COMMAND)
-                             for item in listeners)):
+    if (not listeners or any(item["name"] not in (address, f"*:{endpoint['port']}")
+                             or item["pid"] != listener[0] for item in listeners)):
         return "unknown", "listener=absent-or-not-lm-studio"
     server_pids = {item["pid"] for item in listeners}
     client_ends: list[tuple[str, int]] = []
@@ -1114,11 +1145,11 @@ def _server_client_verdict(sockets: list[dict], own_pid: int) -> tuple[str, str]
         if match is None or match.group(2) is None:
             return "unknown", "socket=unrecognized"
         local, remote = match.groups()
-        if local == LOCAL_API_ENDPOINT and remote != LOCAL_API_ENDPOINT:
+        if local == address and remote != address:
             if item["pid"] not in server_pids:
                 return "unknown", "socket=unrecognized"
             peers.append(remote)
-        elif remote == LOCAL_API_ENDPOINT and local != LOCAL_API_ENDPOINT:
+        elif remote == address and local != address:
             client_ends.append((local, item["pid"]))
         else:
             return "unknown", "socket=unrecognized"
@@ -1258,6 +1289,32 @@ def _append_journal(path: Path, record: dict, max_bytes: int = FIX_JOURNAL_MAX_B
             os.close(dir_fd)
 
 
+def read_only_diagnosis(action: str | None, snapshot: dict | None = None) -> dict:
+    """Explain the closed owner-action gate using only already observed state."""
+    machines = []
+    rows = snapshot.get("machines", []) if isinstance(snapshot, dict) else []
+    for row in rows if isinstance(rows, list) else []:
+        if not isinstance(row, dict):
+            continue
+        machines.append({key: row[key] for key in ("id", "host", "platform", "state", "reasonCode") if key in row})
+    observations = []
+    for row in machines:
+        platform = row.get("platform") if row.get("platform") in ("mac", "windows", "linux") else "machine"
+        state = row.get("state") if row.get("state") in ("up", "down", "unknown") else "unknown"
+        reason = row.get("reasonCode")
+        reason = reason if isinstance(reason, str) and re.fullmatch(r"[a-z0-9_]{1,64}", reason) else "unknown"
+        observations.append(f"{platform}: {state} ({reason})")
+    diagnosis = ("Owner actions are locked while L2 is closed. Cached observations: " + "; ".join(observations) + "."
+                 if observations else
+                 "Owner actions are locked while L2 is closed. No cached machine observations are available; readiness is unknown.")
+    next_step = ("Complete and verify the L2 handover, then explicitly start the monitor with --l2-open "
+                 "before requesting this action again.")
+    return {"status": "needs-action", "reasonCode": "l2_closed", "readOnly": True,
+            "message": f"{diagnosis} {next_step}", "diagnosis": diagnosis,
+            "nextStep": next_step, "machines": machines, "steps": [],
+            "operationId": 0, "action": action}
+
+
 class OnlineCodeRepair:
     """One explicit background check/repair at a time, with sanitized progress."""
 
@@ -1273,8 +1330,13 @@ class OnlineCodeRepair:
                  lms_ps: Callable[[], object] | None = None,
                  loopback_sockets: Callable[[], str] | None = None,
                  router_lock_path: Path | None = None,
-                 fix_journal_path: Path | None = None):
-        self._runner = runner or launcher_runner
+                 fix_journal_path: Path | None = None, l2_open: bool = False,
+                 snapshot_read: Callable[[], dict | None] | None = None):
+        if type(l2_open) is not bool:
+            raise ValueError("L2-open flag must be boolean")
+        self._l2_open = l2_open
+        self._snapshot_read = snapshot_read
+        self._command_runner = runner or launcher_runner
         # Production owner calls can open the SharedChami queue. Scripted test
         # runners have no queue I/O and remain injectable without host state.
         self._guard_windows_reader = runner is None
@@ -1334,6 +1396,10 @@ class OnlineCodeRepair:
 
     def _request(self, action: str) -> dict:
         with self._lock:
+            if self._l2_open is not True:
+                snapshot = self._snapshot_read() if self._snapshot_read is not None else None
+                self._state = read_only_diagnosis(action, snapshot)
+                return copy.deepcopy(self._state)
             if self._owner_children.cancelled.is_set():
                 return copy.deepcopy(self._state)
             if self._state["status"] == "running":
@@ -1401,8 +1467,19 @@ class OnlineCodeRepair:
         with self._lock:
             self._state["steps"].append({"name": name, "result": result, **identities})
 
+    def _require_l2(self) -> None:
+        if self._l2_open is not True:
+            raise _Stop("needs-action", read_only_diagnosis(None)["message"])
+
+    def _runner(self, args: tuple[str, ...], data: bytes | None, timeout: float) -> CommandResult:
+        # Keep the owner-action gate at dispatch too, so a new caller cannot
+        # bypass it by skipping the request or response-parsing helpers.
+        self._require_l2()
+        return self._command_runner(args, data, timeout)
+
     def _call(self, args: tuple[str, ...], *, data: bytes | None = None,
               timeout: float = 12) -> tuple[int, dict]:
+        self._require_l2()
         _raise_if_cancelled(self._owner_children)
         windows_io = (self._guard_windows_reader
                       and args in (WINDOWS_STATUS, WINDOWS_RECONCILE,
@@ -1592,6 +1669,7 @@ class OnlineCodeRepair:
 
     def _recover_share(self) -> None:
         """Make SharedChami usable before any guarded Windows owner call."""
+        self._require_l2()
         share = self._share
         if share is None:
             return
@@ -1643,6 +1721,7 @@ class OnlineCodeRepair:
             self._recover_share_locked(share, mounted, host)
 
     def _recover_share_locked(self, share: ShareControl, mounted: bool, host: str) -> None:
+        self._require_l2()
         with share.hold_owner() as held:
             open_jobs = share.open_jobs()
             if not held or open_jobs is None or open_jobs > 0:
@@ -1684,6 +1763,7 @@ class OnlineCodeRepair:
 
     def _prove_windows_inference(self) -> str | None:
         """Run the explicit end-to-end probe; returns a summary or raises _Stop."""
+        self._require_l2()
         if self._inference_probe is None:
             return None
         if self._share is not None:
@@ -1852,6 +1932,7 @@ class OnlineCodeRepair:
 
     def _fix_local_runtime(self) -> tuple[str, str]:
         """Repair only a stopped local API; preserve loaded models and work."""
+        self._require_l2()
         api_live, activity_live = _runtime_sources()
         self._step("local-api-before", "live" if api_live else "unavailable")
         self._step("local-activity-before", "live" if activity_live else "unavailable")
@@ -2281,6 +2362,7 @@ class OnlineCodeRepair:
 
     def _journal_fix(self, operation_id: int, action: str, status: str, message: str) -> None:
         """Append this outcome to the private monitor fix journal (best effort, recorded as a step)."""
+        self._require_l2()
         if self._fix_journal_path is None:
             return
         with self._lock:
@@ -2301,6 +2383,7 @@ class OnlineCodeRepair:
 
     def _headless(self, action: str) -> tuple[str, str]:
         """Ask pc-llm to turn the switch on (after its own probe) or off; parse its one JSON line."""
+        self._require_l2()
         command = self._pc_llm or PC_LLM
         try:
             info = command.lstat() if self._headless_enabled else None
@@ -2357,6 +2440,10 @@ class OnlineCodeRepair:
         raise _Stop("needs-action", "pc-llm returned an unexpected result; check the headless switch before retrying.")
 
     def _work(self, operation_id: int, action: str) -> None:
+        if self._l2_open is not True:
+            with self._lock:
+                self._state = read_only_diagnosis(action)
+            return
         _OWNER_THREAD.children = self._owner_children
         try:
             _raise_if_cancelled(self._owner_children)
