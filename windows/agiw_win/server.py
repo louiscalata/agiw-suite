@@ -16,8 +16,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
 
 from . import SERVICE, VERSION
-from . import probes
-from .collect import Collector
+from . import probes, winsys
+from .collect import Collector, LANE_FRESH_SECONDS, LANE_ACTIVITY_FRESH_SECONDS
 
 DEFAULT_PORT = 8767
 ACTIVE = {"generating", "busy"}
@@ -42,11 +42,11 @@ def find_web_root(start: Path) -> Path:
 
 def activity_is_known(rows: list[dict], source_status: dict[str, str]) -> bool:
     """Every loaded local lane row must carry fresh, exact slot activity."""
-    if source_status.get("llama-slots") != "live":
+    if source_status.get("llama-slots") != "live" or any(type(row.get("loaded")) is not bool for row in rows):
         return False
     loaded = [row for row in rows if row.get("loaded") is True]
     return bool(loaded) and all(row.get("source") == "llama-slots" and row.get("state") in KNOWN_ACTIVITY
-                                and isinstance(row.get("ageSeconds"), (int, float)) and row["ageSeconds"] <= 3
+                                and type(row.get("ageSeconds")) in (int, float) and 0 <= row["ageSeconds"] <= LANE_ACTIVITY_FRESH_SECONDS
                                 for row in loaded)
 
 
@@ -63,9 +63,17 @@ class SnapshotStore:
         self.sequence = 0
 
     def publish(self, data: dict) -> None:
-        data = copy.deepcopy(data)
+        data = probes.enforce_snapshot_evidence(data)
         now = data["sampledAt"]
         rows = data.get("models", [])
+        for row in rows:
+            age = row.get("ageSeconds")
+            if row.get("source") == "llama-slots" and row.get("state") in KNOWN_ACTIVITY and (
+                    not isinstance(age, (int, float)) or not 0 <= age <= LANE_ACTIVITY_FRESH_SECONDS):
+                metadata = row.setdefault("metadata", {})
+                metadata["lastObservation"] = {"state": row["state"], "ageSeconds": age}
+                metadata.update(slotsBusy=None, liveTokensPerSecond=None)
+                row.update(state="loaded" if row.get("loaded") is True else "unknown", source="llama-models")
         status = {s["id"]: s.get("state") for s in data.get("sources", [])}
         known = activity_is_known(rows, status)
         data["activityKnown"] = known
@@ -90,10 +98,13 @@ class SnapshotStore:
                                        "label": label, "sourceBefore": before["source"], "source": row.get("source")})
             self.previous = states
             self.events = self.events[:50]
-            live = [r for r in rows if isinstance(r.get("ageSeconds"), (int, float)) and r["ageSeconds"] <= 3]
+            live = [r for r in rows if isinstance(r.get("ageSeconds"), (int, float))
+                    and 0 <= r["ageSeconds"] <= data.get("laneFreshSeconds", LANE_FRESH_SECONDS)]
             self.history.append({"at": now,
                                  "active": sum(r["state"] in ACTIVE for r in live) if known else None,
-                                 "loaded": sum(r.get("loaded") is True for r in live)})
+                                 "loaded": (sum(r["loaded"] is True for r in live)
+                                            if rows and len(live) == len(rows)
+                                            and all(type(r.get("loaded")) is bool for r in live) else None)})
             self.history = self.history[-90:]
             data.update(sequence=self.sequence, history=copy.deepcopy(self.history),
                         events=copy.deepcopy(self.events), intervalSeconds=1, fullSampledAt=now)
@@ -247,8 +258,30 @@ class Handler(BaseHTTPRequestHandler):
         except OSError:
             self.reply(503, b"Asset unavailable", "text/plain")
 
+    def _discard_request_body(self):
+        # Drain a bounded body before closing so split sends can read the refusal.
+        lengths = self.headers.get_all("Content-Length", [])
+        text = lengths[0].strip(" \t") if len(lengths) == 1 else ""
+        try:
+            length = int(text) if text.isascii() and text.isdecimal() else -1
+        except ValueError:
+            length = -1
+        if 0 <= length <= 64 * 1024:
+            if len(self.rfile.read(length)) != length:
+                self.close_connection = True
+        else:
+            self.close_connection = True
+
+    def send_error(self, code, message=None, explain=None):
+        if (code == 501 and self.command in {"PUT", "DELETE", "PATCH"}
+                and not hasattr(self, "do_" + self.command)):
+            self._discard_request_body()
+        return super().send_error(code, message, explain)
+
     def do_POST(self):
-        if not self.same_origin(require_origin=True):
+        allowed = self.same_origin(require_origin=True)
+        self._discard_request_body()
+        if not allowed:
             return self.json_reply(403, {"status": "error", "message": "Exact same-origin Origin and Host are required."})
         return self.json_reply(501, {"status": "error", "message": "The Windows edition is read-only in this version."})
 
@@ -310,11 +343,37 @@ def publish_source(outcome: dict[str, Any], now: float, targets: tuple[str, ...]
                              f"{what} published to SharedChami {age:.0f} s ago", age), "outcome": "ok"}
 
 
+def peer_link_feed_source(outcome: dict[str, Any], now: float) -> dict[str, Any]:
+    """The local status file for the pairing service, as a dashboard source (it is never written to the share)."""
+    ok, error = outcome.get("ok"), outcome.get("error")
+    if error is not None:
+        return probes._source("peer-link-feed", "Peer link feed", "unavailable",
+                              f"Writing the pairing service's status file failed ({error}); any previous file is kept")
+    if ok is None:
+        return probes._source("peer-link-feed", "Peer link feed", "unavailable", "First status file for the pairing service pending")
+    age = round(max(0.0, now - ok), 1)
+    return probes._source("peer-link-feed", "Peer link feed", "live",
+                          f"Status file for the pairing service written {age:.0f} s ago (local, private)", age)
+
+
+def write_peer_link_status(target: Path, data: dict[str, Any], host: str, outcome: dict[str, Any]) -> None:
+    """Never raises: a failed feed write is recorded for its source row and can never cost the share publish."""
+    try:
+        probes.write_json_atomic(target, probes.peer_link_status_doc(data, host), probes.PEER_MAX_BYTES,
+                                 stop_at=target.parent)
+        outcome["ok"], outcome["error"] = time.monotonic(), None
+    except Exception as error:  # noqa: BLE001
+        outcome["error"] = publish_error_name(error)
+        print(f"{time.strftime('%Y-%m-%dT%H:%M:%S')} peer link status write failed: {error!r}", file=sys.stderr)
+
+
 def sample(store: SnapshotStore, collector: Collector, stop: threading.Event, interval: float = 1.0,
            publish_to: Path | None = None, publish_every: float = 10.0, presence_to: Path | None = None,
-           dashboard_port: int | None = None) -> None:
+           dashboard_port: int | None = None, peer_link_status_to: Path | None = None) -> None:
     last_publish = 0.0
+    last_feed = 0.0
     outcome: dict[str, Any] = {"ok": None, "error": None}  # monotonic time of the last success; last failure
+    feed: dict[str, Any] = {"ok": None, "error": None}
     while not stop.is_set():
         started = time.monotonic()
         try:
@@ -323,7 +382,13 @@ def sample(store: SnapshotStore, collector: Collector, stop: threading.Event, in
             if publish_to is not None or presence_to is not None:
                 targets = tuple(name for name, target in (("status", publish_to), ("presence", presence_to)) if target)
                 data["sources"] = [*data.get("sources", []), publish_source(outcome, started, targets)]
+            if peer_link_status_to is not None:
+                data["sources"] = [*data.get("sources", []), peer_link_feed_source(feed, started)]
             store.publish(data)
+            # The pairing service refuses a status file older than 30 s, so it is refreshed every publish interval.
+            if peer_link_status_to is not None and started - last_feed >= publish_every:
+                last_feed = started
+                write_peer_link_status(peer_link_status_to, data, collector.host, feed)
             if (publish_to is not None or presence_to is not None) and started - last_publish >= publish_every:
                 last_publish = started
                 # Each file is published on its own, so a reader holding one never blocks the other.
@@ -465,6 +530,18 @@ def parent_watch(pid: int):
     return lambda: kernel32.WaitForSingleObject(handle, 0) == 0x102  # WAIT_TIMEOUT: still running
 
 
+def observer_options(config: Any, *, publish_status: bool = False, peer_link: bool = False) -> dict[str, bool]:
+    """The opt-ins from config.json (only a literal true turns one on) and the command-line flags.
+
+    peerLinkStatus writes state/peer-link-status.json, the private local file the shipped pairing service serves
+    (python peer_link.py run --status-file state\\peer-link-status.json)."""
+    config = config if isinstance(config, dict) else {}
+    return {"publishStatus": publish_status is True or config.get("publishStatus") is True,
+            "peerLink": peer_link is True or config.get("peerLink") is True,
+            "peerLinkReader": config.get("peerLinkReader") is True,
+            "peerLinkStatus": config.get("peerLinkStatus") is True}
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="AGIW Inference Monitor · Windows observer")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
@@ -472,12 +549,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--share-root", type=Path, default=Path(os.environ.get("AGIW_SHARE_ROOT", probes.DEFAULT_SHARE_ROOT)))
     parser.add_argument("--state-file", type=Path)
     parser.add_argument("--once", action="store_true", help="print one snapshot as JSON and exit")
-    parser.add_argument("--no-lan", action="store_true", help="skip the Mac LAN probe")
+    # 0.2.0 removed the Mac LAN probe (the Mac is read from its presence only); the flag is accepted and ignored so
+    # existing launchers keep working.
+    parser.add_argument("--no-lan", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--publish-status", action="store_true",
                         help="write llm-lab/status/windows-status.json on the share every 10 s for the Mac's status reader (opt-in)")
     parser.add_argument("--peer-link", action="store_true",
                         help="publish presence to llm-lab/status/agiw-peers/<host>.json every 10 s (opt-in)")
-    parser.add_argument("--config", type=Path, help="JSON with publishStatus / peerLink / peerLinkReader booleans (default: config.json beside the observer)")
+    parser.add_argument("--config", type=Path, help="JSON with publishStatus / peerLink / peerLinkReader / peerLinkStatus "
+                                                    "booleans (default: config.json beside the observer)")
     parser.add_argument("--log-file", type=Path, help="append stderr here (the tray shell does not read stderr)")
     args = parser.parse_args(argv)
     if args.log_file:
@@ -498,9 +578,9 @@ def main(argv: list[str] | None = None) -> int:
     if not isinstance(config, dict):  # [] or null must not stop the observer starting
         print(f"{time.strftime('%Y-%m-%dT%H:%M:%S')} config.json ignored: root is not an object", file=sys.stderr)
         config = {}
-    publish_status = args.publish_status or config.get("publishStatus") is True
-    peer_link = args.peer_link or config.get("peerLink") is True
-    peer_link_reader = config.get("peerLinkReader") is True
+    options = observer_options(config, publish_status=args.publish_status, peer_link=args.peer_link)
+    publish_status, peer_link = options["publishStatus"], options["peerLink"]
+    peer_link_reader, peer_link_status = options["peerLinkReader"], options["peerLinkStatus"]
     clients_fn = None
     for root in (here.parent, here.parent.parent):
         if (root / "client_models.py").is_file():
@@ -511,12 +591,14 @@ def main(argv: list[str] | None = None) -> int:
             except Exception:  # noqa: BLE001
                 clients_fn = None
             break
-    mac_peer = None if args.no_lan else probes.MacPeer(args.share_root)
-    collector = Collector(args.share_root, clients_fn=clients_fn, mac_peer=mac_peer, lane_wait=6.0 if args.once else 0.0,
-                          peer_link_reader=peer_link_reader)
+    # After the bundled-module path is set up, the enrollment reader can reuse peer_link's ACL verifier
+    # in both source and installed layouts. This fixed file is independent of --config and the share.
+    # Read once: replacing a process requires explicit local re-enrollment and an observer restart.
+    local_identities = winsys.local_lane_identities(here.parent / "lane-processes.json")
+    collector = Collector(args.share_root, clients_fn=clients_fn, lane_wait=6.0 if args.once else 0.0,
+                          peer_link_reader=peer_link_reader,
+                          lane_processes=winsys.LaneProcesses(identities=local_identities))
     if args.once:
-        if mac_peer:
-            mac_peer.poll_once()
         print(json.dumps(collector.collect(), indent=1, default=str))
         collector.close()
         return 0
@@ -531,14 +613,14 @@ def main(argv: list[str] | None = None) -> int:
         return 4
     port = server.server_address[1]
     stop = threading.Event()
-    if mac_peer:
-        mac_peer.start()
     publish_to = args.share_root / "llm-lab" / "status" / probes.STATUS_FILE_NAME if publish_status else None
     presence_to = probes.peer_dir(args.share_root) / f"{collector.host}.json" if peer_link else None
-    print(f"{time.strftime('%Y-%m-%dT%H:%M:%S')} host {collector.host}; publish status {publish_status}; peer link {peer_link}",
-          file=sys.stderr)
+    peer_link_status_to = here.parent / "state" / probes.PEER_LINK_STATUS_FILE_NAME if peer_link_status else None
+    print(f"{time.strftime('%Y-%m-%dT%H:%M:%S')} host {collector.host}; publish status {publish_status}; peer link {peer_link}; "
+          f"peer link status file {peer_link_status}; build {collector.build.get('state')}", file=sys.stderr)
     threading.Thread(target=sample, args=(store, collector, stop),
-                     kwargs={"publish_to": publish_to, "presence_to": presence_to, "dashboard_port": port},
+                     kwargs={"publish_to": publish_to, "presence_to": presence_to, "dashboard_port": port,
+                             "peer_link_status_to": peer_link_status_to},
                      name="sampler", daemon=True).start()
 
     def shutdown(*_):

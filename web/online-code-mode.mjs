@@ -59,7 +59,7 @@ export function routeLanesView(mode) {
   return {
     rows,
     label: rows.map(row => `${row.label} ${row.capacity}`).join(' · '),
-    text: rows.map(row => `${row.label} ${row.holders.length}/${row.capacity}${row.holders.length ? ` (${row.holders.join(', ')})` : ''}`
+    text: !mode || mode.runCountsComplete === false ? 'Lane occupancy unknown; router observation incomplete or unavailable' : rows.map(row => `${row.label} ${row.holders.length}/${row.capacity}${row.holders.length ? ` (${row.holders.join(', ')})` : ''}`
       + (row.waiting.length ? `, ${row.waiting.length} waiting` : '')).join(' · '),
   };
 }
@@ -90,18 +90,20 @@ export function onlineCodeModeView(mode, { feedFresh = false, paused = false, re
   const routeId = typeof mode?.routeId === 'string' && mode.routeId.trim() ? mode.routeId.trim() : null;
   const installing = observed && mode.taskState === 'install-in-progress';
   const processing = !installing && observed && mode.state === 'processing' && mode.active === true && routeId !== null;
-  const idle = observed && mode.state === 'inactive' && mode.active === false;
-  const ready = observed && mode.state === 'ready' && mode.active === false;
+  const complete = observed && mode.runsTruncated !== true;
+  const idle = complete && mode.state === 'inactive' && mode.active === false;
+  const ready = complete && mode.state === 'ready' && mode.active === false;
   const unfinished = observed && mode.state === 'unknown' && mode.active === null
     && mode.taskState === 'unfinished' && routeId !== null;
   const state = installing ? 'installing' : processing ? 'processing' : idle ? 'inactive' : ready ? 'ready'
     : unfinished ? 'unfinished' : 'unknown';
   const running = observed ? count(mode.runCounts?.running) : 0, queued = observed ? count(mode.runCounts?.queued) : 0;
   const unresolvedRuns = observed ? count(mode.runCounts?.unresolved) : 0;
-  const several = processing && running + queued > 1;
+  const countsComplete = observed && mode.runCountsComplete !== false && mode.runsTruncated !== true;
+  const several = processing && countsComplete && running + queued > 1;
   // Only queued runs (waiting for admission or a lane): listed and active, but nothing is running work yet,
   // so the copy never says "processing" and the tab never blinks.
-  const queuedOnly = processing && (mode.taskState === 'queued' || (running === 0 && queued > 0));
+  const queuedOnly = processing && complete && running === 0 && queued > 0;
   const verb = queuedOnly ? 'queued' : 'processing';
   const client = processing && typeof mode.client === 'string' && mode.client.trim() ? mode.client.trim() : null;
   const chatId = processing && typeof mode.chatId === 'string' && mode.chatId.trim() ? mode.chatId.trim() : null;
@@ -114,18 +116,21 @@ export function onlineCodeModeView(mode, { feedFresh = false, paused = false, re
     : setupState === 'absent' ? 'Not checked recently'
       : setupState === 'expired' ? 'Receipt expired; readiness unverified'
         : setupState === 'invalid' ? 'Receipt invalid or unreadable' : 'Unknown';
-  const counts = `${running} running · ${queued} queued`;
+  const shownCount = (value, label) => complete ? `${value} ${label}` : value ? `at least ${value} ${label}` : `${label} unknown`;
+  const counts = `${shownCount(running, 'running')} · ${shownCount(queued, 'queued')}`;
   const taskLabel = installing ? 'Router install in progress'
-    : several ? `Routed tasks ${verb} · ${counts}`
+    : processing && !complete ? `Observed routed tasks · ${counts}`
+      : several ? `Routed tasks ${verb} · ${counts}`
       : processing ? `Routed task ${verb}`
-        : unfinished ? unresolvedRuns > 1 ? `${unresolvedRuns} unfinished router tasks` : 'Unfinished router task'
-          : idle || ready || (observed && mode.taskState === 'idle') ? 'Idle; no active route' : 'Unknown';
+        : unfinished ? unresolvedRuns > 1 ? `${countsComplete ? '' : 'At least '}${unresolvedRuns} unfinished router tasks` : 'Unfinished router task'
+          : idle || ready || (complete && mode.taskState === 'idle') ? 'Idle; no active route' : 'Unknown';
   const idleLabel = idle ? setupState === 'expired' ? 'Task idle · setup receipt expired'
     : setupState === 'invalid' ? 'Task idle · setup receipt invalid'
       : setupState === 'fresh' ? `Task idle · setup checked${age === null ? '' : ` ${age}s ago`}`
         : 'Task idle · setup not checked recently' : null;
   const label = installing ? 'Router install in progress'
-    : several ? `Routed tasks ${verb} · ${counts}`
+    : processing && !complete ? `Observed routed tasks · ${counts}`
+      : several ? `Routed tasks ${verb} · ${counts}`
       : processing ? `Routed task ${verb}${attribution ? ` · ${attribution}` : ''}`
         : unfinished ? 'Unfinished router task'
           : idle ? idleLabel
@@ -139,7 +144,9 @@ export function onlineCodeModeView(mode, { feedFresh = false, paused = false, re
     observedAt: observed && typeof mode.observedAt === 'string' ? mode.observedAt : null,
     blinking: processing && !queuedOnly && mode.blinking === true && !paused && !reducedMotion,
     queuedOnly,
-    runCounts: { running, queued, unresolved: unresolvedRuns },
+    runCounts: { running: observed && !complete && running === 0 ? null : running, queued: observed && !complete && queued === 0 ? null : queued, unresolved: observed && !complete && unresolvedRuns === 0 ? null : unresolvedRuns },
+    countsLabel: counts,
+    runCountsComplete: countsComplete,
     runRows: observed ? routeRunRows(mode) : [],
     queueRows: observed ? routeQueueRows(mode) : [],
     lanes: routeLanesView(observed ? mode : null),

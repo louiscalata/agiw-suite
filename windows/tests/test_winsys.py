@@ -34,7 +34,7 @@ class LaneProcessesTest(unittest.TestCase):
                       row(ESTAB, "127.0.0.1", 1234, "127.0.0.1", 50002, 11),
                       row(ESTAB, "127.0.0.1", 1235, "127.0.0.1", 50003, 12),
                       row(ESTAB, "127.0.0.1", 50009, "127.0.0.1", 1235, 99),  # the observer itself
-                      row(ESTAB, "10.0.0.71", 50010, "10.0.0.194", 1234, 22)]  # a LAN connection, not a local caller
+                      row(ESTAB, "10.99.0.71", 50010, "10.99.0.194", 1234, 22)]  # a LAN connection, not a local caller
         self.lp = winsys.LaneProcesses(table_fn=lambda: self.table, clock=self.clock, cpus=4, self_pid=99,
                                        info_fn=lambda pid: {"pid": pid, "name": names[pid], "created": self.created[pid],
                                                             "cpuTime": self.cpu.get(pid, 0), "workingSetBytes": 16 * 2**30})
@@ -75,7 +75,7 @@ class LaneProcessesTest(unittest.TestCase):
 
     def test_listener_on_another_address_is_not_the_lane(self):
         # Codex round 2, finding 9: 127.0.0.2:1234 or a LAN address on the same port is another program.
-        self.table = [row(LISTEN, "127.0.0.2", 1234, "0.0.0.0", 0, 22), row(LISTEN, "10.0.0.71", 1234, "0.0.0.0", 0, 21),
+        self.table = [row(LISTEN, "127.0.0.2", 1234, "0.0.0.0", 0, 22), row(LISTEN, "10.99.0.71", 1234, "0.0.0.0", 0, 21),
                       row(LISTEN, "127.0.0.1", 1234, "0.0.0.0", 0, 11),
                       row(ESTAB, "127.0.0.1", 50001, "127.0.0.2", 1234, 21),  # talks to the impostor
                       row(ESTAB, "::1", 50002, "::1", 1234, 21)]                # IPv6 to a v4-only listener: refused
@@ -101,8 +101,8 @@ class LaneProcessesTest(unittest.TestCase):
 
     def test_wildcard_listener_matches_local_lan_connection_by_reverse_row(self):
         self.table = [row(LISTEN, "0.0.0.0", 1234, "0.0.0.0", 0, 11),
-                      row(ESTAB, "10.0.0.71", 50003, "10.0.0.71", 1234, 21),
-                      row(ESTAB, "10.0.0.71", 1234, "10.0.0.71", 50003, 11)]
+                      row(ESTAB, "10.99.0.71", 50003, "10.99.0.71", 1234, 21),
+                      row(ESTAB, "10.99.0.71", 1234, "10.99.0.71", 50003, 11)]
         _, callers, _ = self.lp.sample({1234: "deep"})
         self.assertEqual([(c["pid"], c["lane"]) for c in callers], [(21, "deep")])
 

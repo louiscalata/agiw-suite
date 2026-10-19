@@ -29,10 +29,10 @@ if [[ "${MONITOR_RELEASE_ALLOW_DIRTY:-0}" != 1 && "$source_dirty" == 1 ]]; then
 fi
 
 resources=(
-    server.py telemetry.py activity.py client_models.py model_control.py
+    server.py telemetry.py machine_state.py agiw_status.py agiw-status activity.py client_models.py model_control.py
     durable_model_journal.py auto_unload.py online_code_repair.py nisi_v02.py
     windows_probe.py live_feed.py gpu_probe.py local_callers.py mem_guard.py peer_feed.py peer_link.py
-    usage-format.mjs web/index.html web/app.js web/online-code-mode.mjs
+    pair_status.py usage-format.mjs web/index.html web/app.js web/online-code-mode.mjs
     web/map-layout.mjs web/model-control-view.mjs web/style.css
     bundle_nisi.py bundled_components.py jev_connection.py web/components.html web/components.js web/components.css
 )
@@ -43,22 +43,52 @@ for legal_file in "${legal_files[@]}"; do
         exit 2
     fi
 done
-for resource in "${resources[@]}" Info.plist Monitor.swift JevKeychain.swift; do
+for resource in "${resources[@]}" Info.plist Monitor.swift JevKeychain.swift package-release.sh freeze_build_inputs.py; do
     if [[ ! -f "$project_dir/$resource" || -L "$project_dir/$resource" ]]; then
         echo "Missing or symlinked release input: $resource" >&2
         exit 2
     fi
 done
+source_stage_dir="$(mktemp -d "${TMPDIR:-/tmp}/inference-monitor-inputs.XXXXXX")"
+source_stage_dir="$(cd -- "$source_stage_dir" && pwd -P)"
+stage_dir=""
+mounted=0
+mount_dir=""
+cleanup() {
+    if [[ "$mounted" == 1 ]]; then
+        hdiutil detach "$mount_dir" >/dev/null 2>&1 || true
+    fi
+    if [[ -n "$stage_dir" ]]; then rm -rf -- "$stage_dir"; fi
+    rm -rf -- "$source_stage_dir"
+}
+trap cleanup EXIT
+input_dir="$source_stage_dir/inputs"
+build_inputs=("${resources[@]}" Info.plist Monitor.swift JevKeychain.swift "${legal_files[@]}" package-release.sh freeze_build_inputs.py vendor/nisi)
+# Retain the root and the helper itself before reading executable source.
+/usr/bin/python3 - "$project_dir" "$input_dir" "${build_inputs[@]}" <<'PYFREEZE'
+import os
+import stat
+import sys
+
+root = os.open(sys.argv[1], os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+helper = os.open('freeze_build_inputs.py', os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=root)
+with os.fdopen(helper, 'rb') as source:
+    if not stat.S_ISREG(os.fstat(source.fileno()).st_mode):
+        raise SystemExit('Nonregular build input helper')
+    namespace = {'__name__': 'freeze_build_inputs'}
+    exec(compile(source.read(), 'freeze_build_inputs.py', 'exec'), namespace)
+namespace['freeze_inputs'](root, sys.argv[2], sys.argv[3:])
+PYFREEZE
 nisi_inputs=()
-# Verify the pinned public release before invoking build/sign tools.
-nisi_input_list="$(/usr/bin/python3 "$project_dir/bundle_nisi.py" --list-inputs)"
+# Verify the pinned public release from the frozen tree before build/sign tools.
+nisi_input_list="$(/usr/bin/python3 "$input_dir/bundle_nisi.py" --list-inputs)"
 while IFS= read -r resource; do
     nisi_inputs+=("$resource")
 done <<< "$nisi_input_list"
 
-version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$project_dir/Info.plist")"
-build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$project_dir/Info.plist")"
-bundle_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$project_dir/Info.plist")"
+version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$input_dir/Info.plist")"
+build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$input_dir/Info.plist")"
+bundle_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$input_dir/Info.plist")"
 if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || [[ ! "$build" =~ ^[1-9][0-9]*$ ]]; then
     echo "Release Info.plist needs a three-part version and a positive integer build." >&2
     exit 2
@@ -70,7 +100,7 @@ fi
 # The release target is fixed, independent of the build host's architecture.
 arch=arm64
 source_commit="$(git -C "$project_dir" rev-parse HEAD)"
-script_sha256="$(shasum -a 256 "$project_dir/package-release.sh" | awk '{print $1}')"
+script_sha256="$(shasum -a 256 "$input_dir/package-release.sh" | awk '{print $1}')"
 developer_dir="${DEVELOPER_DIR:-$(xcode-select -p)}"
 xcode_version="$(xcodebuild -version)"
 sdk_version="$(xcrun --sdk macosx --show-sdk-version)"
@@ -96,28 +126,15 @@ if [[ -e "$release_dmg" || -L "$release_dmg" || -e "$release_manifest" || -L "$r
 fi
 
 stage_dir="$(mktemp -d "$output_dir/.release-build.XXXXXX")"
-mounted=0
 mount_dir="$stage_dir/mounted"
-cleanup() {
-    if [[ "$mounted" == 1 ]]; then
-        hdiutil detach "$mount_dir" >/dev/null 2>&1 || true
-    fi
-    rm -rf -- "$stage_dir"
-}
-trap cleanup EXIT
-input_dir="$stage_dir/inputs"
 payload_dir="$stage_dir/payload"
 stage_app="$payload_dir/Inference Monitor.app"
 stage_dmg="$stage_dir/$release_name.dmg"
-mkdir -p "$input_dir/web" "$stage_app/Contents/MacOS" "$stage_app/Contents/Resources/web" "$stage_app/Contents/Resources/Legal" "$mount_dir"
-for resource in "${resources[@]}" "${nisi_inputs[@]}" Info.plist Monitor.swift JevKeychain.swift "${legal_files[@]}"; do
-    mkdir -p "$(dirname "$input_dir/$resource")"
-    cp "$project_dir/$resource" "$input_dir/$resource"
-done
+mkdir -p "$stage_app/Contents/MacOS" "$stage_app/Contents/Resources/web" "$stage_app/Contents/Resources/Legal" "$mount_dir"
 /usr/bin/python3 "$input_dir/bundle_nisi.py" --destination "$stage_app/Contents/Resources/nisi"
 
 xcrun swiftc -O -target "$arch-apple-macosx13.0" \
-    -framework Cocoa -framework WebKit \
+    -framework Cocoa -framework WebKit -framework Metal \
     "$input_dir/Monitor.swift" -o "$stage_app/Contents/MacOS/InferenceMonitor"
 xcrun swiftc -O -target "$arch-apple-macosx13.0" -framework Cocoa -framework Security \
     "$input_dir/JevKeychain.swift" -o "$stage_app/Contents/MacOS/JevKeychain"
@@ -232,8 +249,11 @@ fi
 hdiutil detach "$mount_dir" >/dev/null
 mounted=0
 
+# Recheck through the same no-follow reader, never through live-path cmp/shasum.
+rechecked_dir="$stage_dir/rechecked-inputs"
+/usr/bin/python3 "$input_dir/freeze_build_inputs.py" "$project_dir" "$rechecked_dir" "${build_inputs[@]}"
 if [[ "$(git -C "$project_dir" rev-parse HEAD)" != "$source_commit" ]] ||
-   [[ "$(shasum -a 256 "$project_dir/package-release.sh" | awk '{print $1}')" != "$script_sha256" ]] ||
+   [[ "$(shasum -a 256 "$rechecked_dir/package-release.sh" | awk '{print $1}')" != "$script_sha256" ]] ||
    [[ "${DEVELOPER_DIR:-$(xcode-select -p)}" != "$developer_dir" ]] ||
    [[ "$(xcodebuild -version)" != "$xcode_version" ]] ||
    [[ "$(xcrun --sdk macosx --show-sdk-version)" != "$sdk_version" ]] ||
@@ -242,8 +262,8 @@ if [[ "$(git -C "$project_dir" rev-parse HEAD)" != "$source_commit" ]] ||
     echo "Source revision, release script, or selected toolchain changed during the build." >&2
     exit 1
 fi
-for resource in "${resources[@]}" "${nisi_inputs[@]}" Info.plist Monitor.swift JevKeychain.swift "${legal_files[@]}"; do
-    if ! cmp -s "$project_dir/$resource" "$input_dir/$resource"; then
+for resource in "${resources[@]}" "${nisi_inputs[@]}" Info.plist Monitor.swift JevKeychain.swift "${legal_files[@]}" package-release.sh freeze_build_inputs.py; do
+    if ! cmp -s "$rechecked_dir/$resource" "$input_dir/$resource"; then
         echo "Release input changed during the build: $resource" >&2
         exit 1
     fi
@@ -255,7 +275,7 @@ fi
 
 dmg_sha256="$(shasum -a 256 "$stage_dmg" | awk '{print $1}')"
 install_sha256="$(shasum -a 256 "$stage_dir/INSTALL.txt" | awk '{print $1}')"
-/usr/bin/python3 - "$stage_dir/manifest.json" "$input_dir" "$source_commit" "$source_dirty" "$script_sha256" "$version" "$build" "$bundle_id" "$arch" "$xcode_version" "$sdk_version" "$swiftc_version" "$dmg_sha256" "$install_sha256" "${resources[@]}" "${nisi_inputs[@]}" Info.plist Monitor.swift JevKeychain.swift "${legal_files[@]}" <<'PY'
+/usr/bin/python3 - "$stage_dir/manifest.json" "$input_dir" "$source_commit" "$source_dirty" "$script_sha256" "$version" "$build" "$bundle_id" "$arch" "$xcode_version" "$sdk_version" "$swiftc_version" "$dmg_sha256" "$install_sha256" "${resources[@]}" "${nisi_inputs[@]}" Info.plist Monitor.swift JevKeychain.swift "${legal_files[@]}" package-release.sh freeze_build_inputs.py <<'PY'
 import hashlib
 import json
 import sys

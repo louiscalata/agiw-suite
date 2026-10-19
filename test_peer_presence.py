@@ -41,7 +41,7 @@ def pc_probes():
 def snapshot(age=1.0, **over):
     sampled = time.time() - age
     base = {"schemaVersion": 1, "host": "mac", "sampledAt": sampled, "activityKnown": True,
-            "sources": [{"id": "lmstudio-api", "state": "live"}, {"id": "lms-ps", "state": "live"}],
+            "sources": [{"id": "lmstudio-api", "state": "live", "route": "direct"}, {"id": "lms-ps", "state": "live"}],
             "models": [{"id": "qwen/qwen3.8-27b", "host": "mac", "loaded": True, "state": "generating",
                         "parallel": 4, "modelKey": "qwen3.8-27b", "metadata": {"path": "/Users/x/models"}},
                        {"id": "google/gemma-4", "host": "mac", "loaded": False, "state": "unloaded", "parallel": 4},
@@ -98,10 +98,14 @@ class MacPresenceShape(unittest.TestCase):
                                                "memoryTotalMiB": 2, "temperatureC": 30.0}],
                                    "memory": {"level": "ok", "availablePercent": 50}, "observerVersion": "0.1.0",
                                    "observedAt": peer_feed._iso(now), "sampledAt": now, "dashboardPort": 8767},
-                                  "louisaurorar12")
+                                  "winpc01")
         mac = peer_feed.mac_presence(snapshot(), HOST, version="1.0.0", dashboard_port=1)
         # Everything the PC publishes, plus this Mac's Nisi and Jev states (the PC's reader ignores unknown keys).
-        self.assertEqual(set(mac) - {"components"}, set(pc))
+        # PC edition 0.2.0 (PLAN A3) adds its build identity, the D5 hands-off flag and the PAIR row; the Mac edition
+        # has no equivalents yet (A1/A4), so these are the only PC-side keys the Mac may lack.
+        pc_only = {"producer", "build", "handsOff", "pair"}
+        self.assertLessEqual({"producer", "build", "handsOff"}, set(pc))
+        self.assertEqual(set(mac) - {"components", "loadedListComplete"}, set(pc) - pc_only)
         self.assertIn("components", mac)
         # The PC also names each model's lane (lane, servedModel, liveTokensPerSecond); the Mac has no lanes.
         self.assertLessEqual(set(pc["models"][0]) - {"lane", "servedModel", "liveTokensPerSecond"}, set(mac["models"][0]))
@@ -172,7 +176,9 @@ class MacPresenceShape(unittest.TestCase):
         rows = [{"id": "Users/alice", "host": "mac", "loaded": True, "state": "idle", "modelKey": "home/alice"},
                 {"id": "qwen/qwen3.8-27b", "host": "mac", "loaded": True, "state": "idle",
                  "modelKey": "alice/qwen.gguf.part"}]
-        doc = peer_feed.share_presence(snapshot(models=rows), HOST)
+        with self.assertRaises(peer_feed.InventoryUnknown):
+            peer_feed.share_presence(snapshot(models=rows), HOST)
+        doc = peer_feed.share_presence(snapshot(models=rows[1:]), HOST)
         self.assertEqual([(m["id"], m["aliases"]) for m in doc["models"]], [("qwen/qwen3.8-27b", ["qwen"])])
         self.assertNotIn("alice", json.dumps(doc))
 
@@ -236,6 +242,9 @@ class MacPresenceShape(unittest.TestCase):
                         models=[{"id": "/Users/x/models/secret.gguf", "host": "mac", "loaded": True, "state": "idle",
                                  "parallel": True},
                                 {"id": "", "host": "mac", "loaded": True}, {"id": 7, "host": "mac"}, "junk"])
+        with self.assertRaises(peer_feed.InventoryUnknown):
+            peer_feed.mac_presence(snap, HOST, dashboard_port=True)
+        snap["models"] = snap["models"][:1]
         doc = peer_feed.mac_presence(snap, HOST, dashboard_port=True)
         self.assertEqual(doc["gpus"], [])
         self.assertEqual(doc["memory"], {"level": None, "availablePercent": None})
@@ -262,10 +271,13 @@ class MacPresenceShape(unittest.TestCase):
         self.assertIs(report["modelsComplete"], False)
         self.assertEqual(sum(m["loadedState"] == "loaded" for m in report["models"]), 2)
 
-    def test_published_model_count_excludes_other_hosts_and_unpublishable_ids(self):
-        doc = peer_feed.mac_presence(snapshot(models=[{"id": "m", "host": "mac", "loaded": False},
-                                                      {"id": "pc", "host": "windows", "loaded": True},
-                                                      {"id": "", "host": "mac", "loaded": True}]), HOST)
+    def test_published_model_count_excludes_other_hosts_but_refuses_unpublishable_local_ids(self):
+        rows = [{"id": "m", "host": "mac", "loaded": False},
+                {"id": "pc", "host": "windows", "loaded": True},
+                {"id": "", "host": "mac", "loaded": True}]
+        with self.assertRaises(peer_feed.InventoryUnknown):
+            peer_feed.mac_presence(snapshot(models=rows), HOST)
+        doc = peer_feed.mac_presence(snapshot(models=rows[:2]), HOST)
         self.assertEqual((doc["modelsTotal"], len(doc["models"])), (1, 1))
 
     def test_the_lan_link_still_accepts_it(self):
@@ -610,8 +622,8 @@ class PcReadsTheMac(unittest.TestCase):
         self.assertTrue(pub.offer(lambda: snapshot()))
         self.assertTrue(pub.wait_idle(5))
         # Run here, the PC reader's host_id() would be this Mac and skip it as itself; answer as the PC would.
-        with mock.patch.object(probes.socket, "gethostname", return_value="LOUISAURORAR12"):
-            peers, source = probes.read_peers(root, "louisaurorar12", time.time())
+        with mock.patch.object(probes.socket, "gethostname", return_value="WINPC01"):
+            peers, source = probes.read_peers(root, "winpc01", time.time())
         mac = next((p for p in peers if p["platform"] == "macos" and p["fresh"]), None)  # collect.py's Mac link rule
         self.assertIsNotNone(mac, peers)
         self.assertEqual((mac["host"], mac["edition"], mac["version"], mac["source"]), (HOST, "mac", "1.0.0", "agiw-peers"))
@@ -806,7 +818,7 @@ class SamplerWiring(unittest.TestCase):
             return snap
 
     class Callers:
-        def sample(self, _models):
+        def sample(self, _models, *, port=None, listener=None, activity_known=False):
             return None, {"id": "local-callers", "state": "idle"}
 
     class Guard:

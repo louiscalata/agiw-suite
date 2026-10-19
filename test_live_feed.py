@@ -10,6 +10,7 @@ import unittest
 from unittest import mock
 
 import live_feed
+import pair_status
 import server
 
 
@@ -67,16 +68,70 @@ class FingerprintTests(unittest.TestCase):
 class ShiftAgesTests(unittest.TestCase):
     def test_ages_grow_and_expiries_shrink_everywhere_but_booleans_and_nulls_stay(self):
         data = {"models": [{"ageSeconds": 1.0}, {"ageSeconds": None}], "flag": {"ageSeconds": True},
-                "worker": {"headless": {"expiresInSeconds": 100}}, "deep": [[{"ageSeconds": 2}]]}
+                "worker": {"headless": {"expiresInSeconds": 100}}, "deep": [[{"ageSeconds": 2}]],
+                "sources": [{"observationAgeSeconds": 29.999}, {"observationAgeSeconds": None},
+                            {"observationAgeSeconds": True}],
+                "pair": {"evidence": {"logAgeSeconds": 4, "historyAgeSeconds": None}, "discoveryAgeSeconds": 3,
+                         "nodes": [{"lastSeenAgeSeconds": 5}], "pairSays": {"engines": [{"reportedAgeSeconds": 6}]}}}
         live_feed.shift_ages(data, 0.5)
         self.assertEqual(data["models"][0]["ageSeconds"], 1.5)
         self.assertIsNone(data["models"][1]["ageSeconds"])
         self.assertIs(data["flag"]["ageSeconds"], True)
         self.assertEqual(data["worker"]["headless"]["expiresInSeconds"], 99)
         self.assertEqual(data["deep"][0][0]["ageSeconds"], 2.5)
+        self.assertEqual(data["sources"][0]["observationAgeSeconds"], 30.499)
+        self.assertIsNone(data["sources"][1]["observationAgeSeconds"])
+        self.assertIs(data["sources"][2]["observationAgeSeconds"], True)
+        self.assertEqual(data["pair"]["evidence"], {"logAgeSeconds": 4.5, "historyAgeSeconds": None})
+        self.assertEqual(data["pair"]["discoveryAgeSeconds"], 3.5)
+        self.assertEqual(data["pair"]["nodes"][0]["lastSeenAgeSeconds"], 5.5)
+        self.assertEqual(data["pair"]["pairSays"]["engines"][0]["reportedAgeSeconds"], 6.5)
 
 
 class OverlayTests(unittest.TestCase):
+    def test_pair_overlay_uses_cached_file_timestamps_and_expires_exact_cutoffs_without_io(self):
+        now = 1_800_000_000
+        entry = {"time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now - 120)),
+                 "message": "discovery:nodes-changed", "data": [{"name": "fixture-node", "lastSeen": now - 30,
+                 "modelsByEngine": {"lmstudio": ["m"]}, "loadedByEngine": {"lmstudio": ["m"]},
+                 "ipAddress": "PRIVATE-FIXTURE-ADDRESS"}]}
+        raw = {rel: (None, "missing", None, False) for rel in pair_status.ALLOWED}
+        raw[pair_status.LOG] = (json.dumps(entry).encode(), "ok", now, False)
+        readings = ("ok", raw)
+        for history in (False, True):
+            with self.subTest(history=history):
+                raw[pair_status.WORKLOADS] = (b"[]", "ok", now - 330, False) if history else (None, "missing", None, False)
+                pair = pair_status.read_pair_status(now=now, readings=readings)
+                base = snapshot(now, pair=pair, sources=[pair_status.source_row(pair)])
+                with mock.patch.dict(live_feed.telemetry._PAIR_CACHE, {"nextCheck": 0, "value": readings}), \
+                        mock.patch.object(pair_status, "read_pair_files", side_effect=AssertionError("no new file I/O")) as read:
+                    out = live_feed.LiveFeed(lambda: {}).overlay(base, [], now=now + 0.001)
+                read.assert_not_called()
+                self.assertEqual(out["pair"]["state"], "unknown")
+                self.assertEqual(out["pair"]["nodes"][0]["residencyReason"], "stale-last-seen")
+                self.assertIsNone(out["pair"]["nodes"][0]["pairClaimLoadedCount"])
+                self.assertEqual(out["pair"]["nodes"][0]["lastSeenAgeSeconds"], 30.0)
+                self.assertEqual(out["sources"][0]["state"], "unavailable")
+                self.assertEqual(base["pair"]["state"], "up")
+                self.assertEqual(base["pair"]["nodes"][0]["pairClaimLoadedCount"], 1)
+                self.assertNotIn("PRIVATE-FIXTURE-ADDRESS", json.dumps(out))
+
+    def test_pair_overlay_without_cached_readings_keeps_aged_evidence_and_withdraws_current_claims(self):
+        pair = {"state": "up", "evidence": {"logAgeSeconds": 4}, "nodes": [{"lastSeenAgeSeconds": 20,
+                "pairClaimModelCount": 1, "pairClaimLoadedCount": 0, "pairClaimLoadedModels": []}]}
+        base = snapshot(1000, pair=pair, sources=[pair_status.source_row(pair)])
+        with mock.patch.dict(live_feed.telemetry._PAIR_CACHE, {"nextCheck": 0, "value": None}), \
+                mock.patch.object(pair_status, "read_pair_files", side_effect=AssertionError("no new file I/O")) as read:
+            out = live_feed.LiveFeed(lambda: {}).overlay(base, [], now=1001)
+        read.assert_not_called()
+        self.assertEqual(out["pair"]["evidence"]["logAgeSeconds"], 5)
+        self.assertEqual(out["pair"]["state"], "unknown")
+        self.assertEqual(out["pair"]["reason"], "cache-unavailable")
+        self.assertEqual(out["pair"]["nodes"][0]["lastSeenAgeSeconds"], 21)
+        self.assertIsNone(out["pair"]["nodes"][0]["pairClaimLoadedCount"])
+        self.assertEqual(out["sources"][0]["state"], "unavailable")
+        self.assertEqual(base["pair"]["nodes"][0]["pairClaimLoadedCount"], 0)
+
     def test_overlay_rereads_only_changed_groups_and_keeps_absolute_freshness(self):
         base = snapshot(1000.0)
         fresh_jobs = {"schemaVersion": 1, "inFlight": [{"id": "j", "ageSeconds": 0.1}], "recent": [], "lastSuccess": None}

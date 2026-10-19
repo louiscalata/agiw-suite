@@ -116,7 +116,7 @@ class FixRouteShareAndProbeTests(unittest.TestCase):
         return repair.OnlineCodeRepair(runner, nisi_pending_path=self.marker,
                                        readiness_path=self.receipt,
                                        bridge_probe=lambda _: bridge(binding=binding),
-                                       share=share, inference_probe=probe), runner
+                                       share=share, inference_probe=probe, l2_open=True), runner
 
     def finish(self, controller, action="fix-route"):
         started = (controller.request_fix(action.removeprefix("fix-")) if action.startswith("fix-")
@@ -519,7 +519,7 @@ class ShareControlTests(unittest.TestCase):
                                                  nisi_pending_path=root / "pending.json",
                                                  readiness_path=receipt,
                                                  bridge_probe=lambda _: bridge(binding="VERIFIED"),
-                                                 share=share, inference_probe=probe)
+                                                 share=share, inference_probe=probe, l2_open=True)
             listing = "//guest:@pc.example.invalid/SharedChami on /Volumes/SharedChami (smbfs, nodev)\n"
             with mock.patch.object(repair, "_bounded_command", return_value=listing), \
                  mock.patch.object(repair, "_windows_worker_stuck_readers", return_value=0), \

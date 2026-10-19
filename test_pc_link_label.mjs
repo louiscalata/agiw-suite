@@ -3,7 +3,7 @@ import {readFileSync} from 'node:fs';
 import {runInNewContext} from 'node:vm';
 import test from 'node:test';
 import {activityFeed,routeReviewCounts,memoryView,macGpuView,pcGpuView,newestRunsFirst,vitalsView} from './web/map-layout.mjs';
-import {fitGraph,constellationLayout,focusedLaneLayout,prioritizeRuntimeModels,runtimeModelRoster,CORE_MODEL_IDS,hasAdvertisedWindowsWorker,afmView,jevView,modelStarSize,windowsJobsView,windowsLaneView,macPeerView,macReportView,agiwPeersRows,friendlyModelName,pcReportView,pcAdaptersView} from './web/map-layout.mjs';
+import {fitGraph,constellationLayout,focusedLaneLayout,prioritizeRuntimeModels,runtimeModelRoster,CORE_MODEL_IDS,hasAdvertisedWindowsWorker,afmView,jevView,modelStarSize,windowsJobsView,windowsJobsEvidence,windowsLaneView,macPeerView,macReportView,agiwPeersRows,friendlyModelName,pcReportView,pcAdaptersView} from './web/map-layout.mjs';
 
 // The Mac map's Windows PC node names the link the PC feed came over, in the PC edition's wording for its own
 // Mac node: the paired, signed LAN link is LINKED, an unsigned SharedChami file only REPORTED, and nothing when
@@ -15,7 +15,7 @@ assert.ok(start >= 0 && end > start && app.slice(start, end).includes('function 
 const formatters = ['ageText', 'capital'].map(name => app.match(new RegExp(`^const ${name}=.*;$`, 'm'))[0]).join('\n');
 const pcLinkLabel = new Function('pcAdaptersView', `${formatters}\n${app.slice(start, end)}\nreturn pcLinkLabel;`)(pcAdaptersView);
 
-const live = (over = {}) => ({via: 'lan', host: 'louisaurorar12', ageSeconds: 4,
+const live = (over = {}) => ({via: 'lan', host: 'winpc01', ageSeconds: 4, modelsComplete: true,
   models: [{id: 'gpt-oss-20b', loadedState: 'loaded', activity: 'idle', slotsBusy: 0, slotsTotal: 2}], ...over});
 const fresh = {feedFresh: true, snapshotAge: 1};
 
@@ -34,11 +34,11 @@ test('stale, paused-equivalent, malformed or unknown-transport feeds carry no li
   }
 });
 
-const layoutContext = {fitGraph,constellationLayout,focusedLaneLayout,prioritizeRuntimeModels,runtimeModelRoster,CORE_MODEL_IDS,hasAdvertisedWindowsWorker,afmView,jevView,modelStarSize,windowsJobsView,windowsLaneView,macPeerView,macReportView,agiwPeersRows,friendlyModelName,pcReportView,pcAdaptersView};
+const layoutContext = {fitGraph,constellationLayout,focusedLaneLayout,prioritizeRuntimeModels,runtimeModelRoster,CORE_MODEL_IDS,hasAdvertisedWindowsWorker,afmView,jevView,modelStarSize,windowsJobsView,windowsJobsEvidence,windowsLaneView,macPeerView,macReportView,agiwPeersRows,friendlyModelName,pcReportView,pcAdaptersView};
 const source = app.replace(/^import .*;\r?\n/gm, '').split("$('pause').addEventListener")[0];
 function pcNode(windowsLive, {paused = false, worker, jobs} = {}) {
   const extra = JSON.stringify({windowsLive, ...(worker ? {windowsWorker: worker} : {}), ...(jobs ? {windowsJobs: jobs} : {})});
-  const script = `${source}\nsnapshot={host:'mac',sampledAt:Date.now()/1000,models:[],clients:[],sources:[],pipeline:{status:'idle'},...${extra}};connected=true;paused=${paused};runtimeGraph();graph.nodes.find(n=>n.kind==='windows-worker')`;
+  const script = `${source}\nsnapshot={host:'mac',sampledAt:Date.now()/1000,models:[],clients:[],sources:[{id:'windows-jobs',state:'recorded',observedAgeSeconds:0}],pipeline:{status:'idle'},...${extra}};connected=true;paused=${paused};runtimeGraph();graph.nodes.find(n=>n.kind==='windows-worker')`;
   const context = {...layoutContext, Date, Set, Map, Math, Number, String, Array, Object, JSON, window: {innerWidth: 820},
     document: {getElementById: id => id === 'graphRegion' ? {clientWidth: 590, clientHeight: 546} : null}};
   return JSON.parse(JSON.stringify(runInNewContext(script, context)));
@@ -92,10 +92,10 @@ test('an advertised PC with no dispatcher evidence leads with its own report, ne
 });
 
 test('dispatcher evidence and worker conditions still win over the report', () => {
-  const inFlight = {schemaVersion: 1, inFlight: [{id: JOB_ID, model: 'gpt-oss-20b', client: 'claude', lane: 'fast', ageSeconds: 7, timeoutSeconds: 60}], recent: [], lastSuccess: null};
+  const inFlight = {schemaVersion: 1, journal:'recorded',complete:true, inFlight: [{id: JOB_ID, model: 'gpt-oss-20b', client: 'claude', lane: 'fast', ageSeconds: 7, timeoutSeconds: 60}], recent: [], lastSuccess: null};
   assert.match(pcNode(twoIdle, {worker: offWorker, jobs: inFlight}).subtitle, /^REPORTED VIA SHARE · JOB IN FLIGHT · GPT OSS 20b · \d+s · HEADLESS OFF$/);
   const done = {id: JOB_ID, state: 'success', model: 'gpt-oss-20b', elapsedSeconds: 6.25, ageSeconds: 30};
-  assert.equal(pcNode(twoIdle, {worker: offWorker, jobs: {schemaVersion: 1, inFlight: [], recent: [done], lastSuccess: done}}).subtitle,
+  assert.equal(pcNode(twoIdle, {worker: offWorker, jobs: {schemaVersion: 1, journal:'recorded',complete:true, inFlight: [], recent: [done], lastSuccess: done}}).subtitle,
     'REPORTED VIA SHARE · LAST INFERENCE · GPT OSS 20b · 6.3s · HEADLESS OFF');
   assert.equal(pcNode(twoIdle, {worker: {...offWorker, state: 'degraded'}}).subtitle, 'REPORTED VIA SHARE · WORKER DEGRADED · NO MODEL LANE · HEADLESS OFF');
   assert.equal(pcNode(twoIdle, {worker: {...offWorker, state: 'stopped'}}).subtitle, 'REPORTED VIA SHARE · WORKER STOPPED · HEADLESS OFF');
@@ -116,7 +116,7 @@ test('without the link word (stale, paused, old or unknown transport) the report
 function pcChip(windowsLive, {paused = false, host = 'mac', worker = offWorker, macPeer = null, peers = null, activity = null, components = null} = {}) {
   const seen = [];
   const extra = JSON.stringify({host, windowsLive, windowsWorker: worker, macPeer, peers, ...(activity ? {activity} : {}), ...(components ? {components} : {})});
-  const script = `${source}\nsnapshot={sampledAt:Date.now()/1000,models:[],clients:[],sources:[],pipeline:{status:'idle'},...${extra}};connected=true;paused=${paused};vitalsInput().vitals`;
+  const script = `${source}\nsnapshot={sampledAt:Date.now()/1000,models:[],clients:[],sources:[{id:'windows-jobs',state:'recorded',observedAgeSeconds:0}],pipeline:{status:'idle'},...${extra}};connected=true;paused=${paused};vitalsInput().vitals`;
   const context = {...layoutContext, activityFeed, routeReviewCounts, memoryView, macGpuView, pcGpuView, newestRunsFirst,
     vitalsView: input => { seen.push(input.pcReport); return vitalsView(input); },
     Date, Set, Map, Math, Number, String, Array, Object, JSON, window: {innerWidth: 820}, document: {getElementById: () => null}};
