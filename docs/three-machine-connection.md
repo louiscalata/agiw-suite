@@ -2,7 +2,9 @@
 
 AGIW Suite is being developed to coordinate useful AI work across an Apple-silicon Mac, a Windows PC and a Linux Mac Pro. Each worker can use an appropriate local model; the workflow retains task results, quality checks and model-lifecycle evidence.
 
-**Development checkpoint · 16 October 2026 UTC.** Selected Linux and PC code samples passed their bounded checks; the Mac advisory returned and unloaded, but its advice was rejected. Production routing across all three machines and a simultaneous throughput benchmark remain in progress. The downloadable macOS Inference Monitor is a separate release.
+**Status update · 2026-10-23.** This date-scoped documentation refresh adds no machine-readiness claim and reports no new run. Separate machine-local workers may contribute to parallel orchestration, but genuine simultaneous three-machine output rate, task rate and speedup are **NOT MEASURED**. Historical measurements and the earlier development checkpoint below are retained unchanged.
+
+**Historical checkpoint · 16 October 2026 UTC.** Selected Linux and PC code samples passed their bounded checks; the Mac advisory returned and unloaded, but its advice was rejected. Production routing across all three machines and a simultaneous throughput benchmark remain in progress. The downloadable macOS Inference Monitor is a separate release.
 
 ## 2026-10-18 update
 
@@ -36,7 +38,7 @@ Nisi v0.2 and Jev provide the workflow and task-analysis layer. NVIDIA PAIR can 
 
 The Linux coding sample uses a reviewed SSE/Vulkan runtime suited to the older Xeons. It did not require AVX or AVX2 CPU support. Storage roles do not make the HDDs equivalent to NVMe speed or combine the drives into a RAID volume.
 
-## Latest retained local samples · not concurrent
+## Historical single-run local samples · different tasks/configurations · not concurrent
 
 <img src="assets/three-machine-local-rates.svg" width="1280" alt="Separate local generation samples: Linux Qwen3.5-4B Q6_K 36.84 tokens per second with 16 semantic cases passed; Mac Qwen3.8-27B MLX 16.39 with semantic review rejected; PC Qwen3.8-27B Q4_K_M 2.06 with seven code cases passed. One observation per machine with different tasks and placement. These are not simultaneous cluster throughput or a hardware ranking.">
 
@@ -46,19 +48,21 @@ The Linux coding sample uses a reviewed SSE/Vulkan runtime suited to the older X
 | **Mac · 15 Oct** | Qwen3.8-27B MLX 4-bit | **16.39 tokens/s** | 141 output tokens; 9.389 s full request | **Semantic review rejected the answer:** its suggested test addressed the wrong case. Exact model unload confirmed by fresh inventory. |
 | **PC · 16 Oct** | Qwen3.8-27B Q4_K_M; Vulkan, six layers on AMD, CPU KV | **2.06 tokens/s** | 31 output tokens; 14.570 s reported generation; 35.212 s HTTP request | **7/7 bounded clamp cases passed; 13/13 owned cleanup checks passed.** This was not dual-GPU inference. |
 
-All three rates come directly from their retained engine/server fields. Each row contains one observation, with no repeats or variance estimate. In the two llama.cpp records, the rate matches `(output tokens − 1) / generation seconds`: Linux uses 106 / 2.877274 and PC uses 30 / 14.570342. The total output counts remain 107 and 31. We preserve the reported fields instead of recalculating a different metric. They use different models, tasks, device placement and timing implementations. Tokenizers also differ. The values show what happened in those samples; they do not rank the machines, establish general accuracy, or predict a combined rate. Linux's sample ran with its coordinator stopped, the PC was a direct native qualification, and the Mac was a supervised local advisory.
+Each row is a historical, single-run sample from a different task and configuration. All three rates come directly from their retained engine/server fields. Each row contains one observation, with no repeats or variance estimate. In the two llama.cpp records, the rate matches `(output tokens − 1) / generation seconds`: Linux uses 106 / 2.877274 and PC uses 30 / 14.570342. The total output counts remain 107 and 31. We preserve the reported fields instead of recalculating a different metric. They use different models, tasks, device placement and timing implementations. Tokenizers also differ. The values show what happened in those samples; they do not rank the machines, establish general accuracy, or predict a combined rate. Linux's sample ran with its coordinator stopped, the PC was a direct native qualification, and the Mac was a supervised local advisory.
 
-The older [historical performance study](performance.md) remains available with its original methods and dates. Its earlier peaks are separate from this current checkpoint. [Download the sanitized current measurements](data/three-machine-checkpoint-20261016/metrics.json).
+The older [historical performance study](performance.md) remains available with its original methods and dates. Its earlier peaks are separate from these three single-run samples. [Download the sanitized historical measurements](data/three-machine-checkpoint-20261016/metrics.json).
 
-## Throughput during parallel orchestration
+## Simultaneous three-machine performance · NOT MEASURED
 
-| Measurement from one shared run | Result |
+| Measurement requiring one shared, overlapping run | Result |
 | --- | --- |
-| PC output tokens/s during parallel work | **Not yet measured** |
-| Linux output tokens/s during parallel work | **Not yet measured** |
-| Mac output tokens/s during parallel work | **Not yet measured** |
-| Combined output tokens/s over the common run window | **Not yet measured** |
-| Validated tasks/minute and failure rate | **Not yet measured** |
+| Proven simultaneous generation on all three machines | **NOT MEASURED** |
+| PC output tokens/s during that run | **NOT MEASURED** |
+| Linux output tokens/s during that run | **NOT MEASURED** |
+| Mac output tokens/s during that run | **NOT MEASURED** |
+| Combined output tokens/s over the common run window | **NOT MEASURED** |
+| Validated task rate and failure rate | **NOT MEASURED** |
+| Speedup against a defined baseline | **NOT MEASURED** |
 
 A shared benchmark follows service activation and role admission. It will use one controller's monotonic clock for dispatch and completion, prove overlapping generation intervals, and retain exact serving-machine/model attribution. Each node's output-token counts and generation time will be recorded beside task pass/fail results and verified model release.
 

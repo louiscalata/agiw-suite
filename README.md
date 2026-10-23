@@ -18,15 +18,26 @@ AGIW's development system is bringing **Mac, Windows and Linux** into one observ
 
 <img src="docs/assets/three-machine-architecture.svg" width="1280" alt="AGIW three-machine development topology: tools feed Nisi and Jev, optional PAIR transport and separate PC, Linux and Mac workers. The PC has distinct NVIDIA CUDA and AMD Vulkan GPU lanes. Production integration is still in progress.">
 
-**Latest retained local samples:** Linux **36.84 tokens/s**, Mac **16.39 tokens/s**, PC **2.06 tokens/s**, using each engine's reported generation rate. These are separate tasks and configurations. The Linux sample passed 16 semantic cases and the PC sample passed seven code cases; the Mac answer was **rejected by semantic review**, with its model unload confirmed.
+**Historical, single-run samples (different tasks/configurations):** Linux **36.84 tokens/s**, Mac **16.39 tokens/s**, PC **2.06 tokens/s**, using each engine's reported generation rate. The Linux sample passed 16 semantic cases and the PC sample passed seven code cases; the Mac answer was **rejected by semantic review**, with its model unload confirmed.
 
-**Simultaneous three-machine throughput has not yet been measured.** These rates are not a hardware ranking or a cluster total. [See the current connection state, per-machine records and shared-run measurement plan](docs/three-machine-connection.md). This development checkpoint is separate from the downloadable macOS Monitor release.
+These separate samples are not a hardware ranking or a cluster total. Mac, Windows and Linux may contribute separate inference workers, but genuine simultaneous three-machine output rate, task rate and speedup remain **NOT MEASURED**:
 
-## Development status (2026-10-18)
+```mermaid
+flowchart LR
+    M["Mac inference worker"] -.-> R["One simultaneous three-machine run<br/>NOT MEASURED"]
+    W["Windows inference worker"] -.-> R
+    L["Linux inference worker"] -.-> R
+    R --> O["Output rate: NOT MEASURED<br/>Task rate: NOT MEASURED<br/>Speedup: NOT MEASURED"]
+```
 
-- **Windows edition:** In development and not released. Three native Windows workstreams passed 288 Windows tests each and their JavaScript suites (396–407 tests each); the installer workstream has open fixes after 432 Windows tests. [See the Windows test details](docs/three-machine-connection.md#2026-10-18-update).
-- **Monitor hardening:** In development and not released. The rule being enforced across Mac, Windows and Linux views: missing or unverified data is shown as unknown, never as zero, idle, quiet or none. Each change receives independent review by two different model families and a third verifier until no High or Medium finding remains, plus mutation testing; see the [status and review process](roadmap.md#development-status--18-october-2026).
-- **Linux coordinator:** The system-service rollout is in development; the coordinator has not been started. It is designed to start closed, with boot enablement deferred to a later separate step; see the [rollout details](docs/three-machine-connection.md#2026-10-18-update).
+[See the current connection state, per-machine records and shared-run measurement plan](docs/three-machine-connection.md). This development checkpoint is separate from the downloadable macOS Monitor release.
+
+## Development status (2026-10-23)
+
+- **Before/after:** Before, the summary was dated 2026-10-18; after, it includes a high-level 2026-10-23 status. Measured values are unchanged, and this documentation refresh did not create a new benchmark.
+- **Windows edition:** In development and not released.
+- **Monitor hardening:** In development and not released; missing or unverified observations remain unknown rather than being presented as zero or idle.
+- **Three-machine coordination:** Production integration remains in development. The worker diagram and **NOT MEASURED** results above describe measurement state, not machine readiness.
 
 ## Requirements
 
