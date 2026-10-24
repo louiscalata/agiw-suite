@@ -193,9 +193,13 @@ class ServiceFix3(unittest.TestCase):
         self.assertIn("Restart=on-failure\n", service)
         self.assertNotIn("--service", text)
 
-    def test_windows_task_does_not_restart_on_failure(self):
+    def test_windows_task_restarts_failures_and_marks_lock_refusal_clean(self):
         root = ET.fromstring(self.manager("windows", python="python").render().decode("utf-16"))
-        self.assertIsNone(root.find("t:Settings/t:RestartOnFailure", NS))
+        restart = root.find("t:Settings/t:RestartOnFailure", NS)
+        self.assertIsNotNone(restart)
+        self.assertEqual(restart.find("t:Interval", NS).text, "PT1M")
+        self.assertEqual(restart.find("t:Count", NS).text, "3")
+        self.assertIn("--service", root.find("t:Actions/t:Exec/t:Arguments", NS).text.split())
 
     def test_windows_pythonw_beside_executable_wins_over_base_prefix(self):
         venv = self.home / "venv" / "Scripts"

@@ -33,10 +33,11 @@ class ServiceReview(unittest.TestCase):
         return FakeRunner({"/user": (0, output.getvalue()), **(results or {})})
 
     def test_windows_sid_with_csv_quoted_unicode_name_scopes_every_operation(self):
-        runner = self.windows_runner({"-Command": (0, "Ready\n")})
+        runner = self.windows_runner({"-Command": (0, "Running\n")})
         manager = self.manager("windows", runner)
         manager.install()
         manager.status()
+        runner.results["-Command"] = (0, "Ready\n")
         manager.uninstall()
         self.assertIn(["C:\\Windows\\System32\\whoami.exe", "/user", "/fo", "csv", "/nh"], runner.calls)
         tasks = [argv[argv.index("/TN") + 1] for argv in runner.calls if "/TN" in argv]

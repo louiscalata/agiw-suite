@@ -104,7 +104,7 @@ class CliFix3(unittest.TestCase):
         for kind in ("mac", "linux", "windows"):
             with self.subTest(kind=kind):
                 runner = FakeRunner({"/user": (0, '"user","S-1-5-21-42-1001"\n'),
-                                     "is-active": (0, "active\n")})
+                                     "is-active": (0, "active\n"), "-Command": (0, "Running\n")})
                 extra = ["--status-file", str(self.home / "observer.json")] if kind == "windows" else []
                 lines = []
                 with mock.patch.object(cli.pl.sys, "platform", "linux"), \
