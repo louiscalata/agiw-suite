@@ -1,0 +1,37 @@
+name: CLI
+
+on:
+  push:
+    branches: [main]
+    paths: ['agiw/**', 'tests_cli/**', 'peer_link.py', 'pyproject.toml', '.github/workflows/cli.yml']
+  pull_request:
+    paths: ['agiw/**', 'tests_cli/**', 'peer_link.py', 'pyproject.toml', '.github/workflows/cli.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  cli:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+        python: ['3.9', '3.12']
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: ${{ matrix.python }}
+      - name: CLI tests (fake service runner; peers on 127.0.0.1 only)
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: python -B -m unittest discover -s tests_cli -v
+      - name: Install and start the command
+        shell: bash
+        run: |
+          python -m pip install .
+          agiw --help
+          agiw --version
+          python -m agiw --version
