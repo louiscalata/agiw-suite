@@ -29,3 +29,5 @@ evidence/
 .scratch/
 receipts/
 .tmp.*/
+.venv/
+*.egg-info/

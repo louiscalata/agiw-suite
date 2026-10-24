@@ -1095,6 +1095,49 @@ def file_status(path: Path, max_age: float = 30.0) -> StatusProvider:
     return provide
 
 
+def detect_host_kind(os_name: str | None = None, platform: str | None = None) -> str:
+    """This machine's kind for `run --host`: windows, linux, and mac otherwise (the earlier default)."""
+    os_name = os.name if os_name is None else os_name
+    platform = sys.platform if platform is None else platform
+    if os_name == "nt":
+        return "windows"
+    if platform.startswith("linux"):
+        return "linux"
+    return "mac"
+
+
+def linux_status_file() -> Path:
+    """The Linux observer's private heartbeat (linux/README.md): ${XDG_STATE_HOME:-~/.local/state}/agiw."""
+    base = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state")
+    if not base.is_absolute():
+        base = Path.home() / ".local" / "state"
+    return base / "agiw" / "linux-status.json"
+
+
+def minimal_status(host: str) -> StatusProvider:
+    """No local observer: this peer link answers, and its models and health stay unknown."""
+
+    def provide() -> dict:
+        now = time.time()
+        return {"schemaVersion": 1, "kind": "agiw-peer", "host": socket.gethostname().split(".")[0].lower()[:63],
+                "platform": host, "edition": "peer-link", "observedAt": _iso(now), "observedUnix": round(now, 3),
+                "health": "unknown", "producer": "agiw-peer-link minimal", "models": [], "loadedListComplete": False}
+
+    return provide
+
+
+def linux_status(path: Path | None = None) -> StatusProvider:
+    """The Linux observer's status file while it exists (refused when stale, like file_status), else the
+    minimal status. Checked on every request, so an observer started later is picked up."""
+    path = linux_status_file() if path is None else path
+    observed, fallback = file_status(path), minimal_status("linux")
+
+    def provide() -> dict:
+        return observed() if path.exists() else fallback()
+
+    return provide
+
+
 def _iso(ts: float) -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(ts)) + f".{int(ts % 1 * 1000):03d}Z"
 
@@ -1917,7 +1960,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--status-port", type=int, default=STATUS_PORT)
     sub = parser.add_subparsers(dest="command", required=True)
     run = sub.add_parser("run", help="announce this machine and auto-connect to paired machines")
-    run.add_argument("--host", choices=HOST_KINDS, default="windows" if os.name == "nt" else "mac")
+    run.add_argument("--host", choices=HOST_KINDS, default=detect_host_kind())
     run.add_argument("--name", default=socket.gethostname().split(".")[0])
     source = run.add_mutually_exclusive_group()
     source.add_argument("--status-file", type=Path, help="schema-1 status JSON kept fresh by the local monitor")
@@ -1937,6 +1980,8 @@ def main(argv: list[str] | None = None) -> int:
             provider = file_status(args.status_file)
         elif args.lmstudio or args.host == "mac":
             provider = lmstudio_status(args.lmstudio or "http://127.0.0.1:1234", args.host)
+        elif args.host == "linux":
+            provider = linux_status()
         else:
             parser.error("--status-file is required on " + args.host + ": serve the observer's own status, "
                          "not whatever LM Studio happens to list")
