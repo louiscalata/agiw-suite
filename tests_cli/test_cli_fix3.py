@@ -9,7 +9,7 @@ from unittest import mock
 from xml.etree import ElementTree as ET
 
 from support import FakeRunner, forbid_real_commands, temp_dir
-from agiw import cli
+from agiw import cli, service
 from agiw.state_lock import StateLockBusy
 
 
@@ -100,8 +100,10 @@ class CliFix3(unittest.TestCase):
 
     def test_default_xdg_state_is_pinned_into_each_service_definition(self):
         state_home = self.home / "xdg state"
-        expected = str(state_home / "agiw" / "peer-link")
-        for kind in ("mac", "linux", "windows"):
+        # The default folder depends on the host: XDG on POSIX, %LOCALAPPDATA% on Windows (the CI runner).
+        # POSIX service files are only meaningful on POSIX hosts, so Windows hosts check the Windows task.
+        kinds = ("windows",) if os.name == "nt" else ("mac", "linux", "windows")
+        for kind in kinds:
             with self.subTest(kind=kind):
                 runner = FakeRunner({"/user": (0, '"user","S-1-5-21-42-1001"\n'),
                                      "is-active": (0, "active\n"), "-Command": (0, "Running\n")})
@@ -109,8 +111,11 @@ class CliFix3(unittest.TestCase):
                 lines = []
                 with mock.patch.object(cli.pl.sys, "platform", "linux"), \
                         mock.patch.dict(os.environ, {"XDG_STATE_HOME": str(state_home)}):
+                    expected = str(Path(cli.pl.default_state_dir()).expanduser().resolve())
                     code = cli.main(["service", "install", *extra], out=lines.append, runner=runner,
                                     kind=kind, home=self.home, env={"USERNAME": "tester"})
+                if os.name != "nt":
+                    self.assertEqual(expected, str((state_home / "agiw" / "peer-link").resolve()))
                 self.assertEqual(code, 0, lines)
                 manager = cli.ServiceManager(kind, home=self.home, env={})
                 raw = manager.definition_path().read_bytes()
@@ -122,7 +127,7 @@ class CliFix3(unittest.TestCase):
                 else:
                     root = ET.fromstring(raw)
                     ns = {"t": "http://schemas.microsoft.com/windows/2004/02/mit/task"}
-                    self.assertIn('--state-dir "' + expected + '"',
+                    self.assertIn("--state-dir " + service._windows_quote(expected),
                                   root.find("t:Actions/t:Exec/t:Arguments", ns).text)
 
     def test_windows_purge_continues_after_each_unlink_failure_and_revokes_registry(self):
@@ -150,8 +155,8 @@ class CliFix3(unittest.TestCase):
         self.assertFalse(peers.exists())
         self.assertEqual(self.key.read_bytes(), b"unchanged identity")
         self.assertEqual(temporary.read_bytes(), b"also held")
-        self.assertIn("could not delete: ~/state/identity.json", output + error)
-        self.assertIn("could not delete: ~/state/.keys.tmp", output + error)
+        self.assertIn(f"could not delete: ~{os.sep}state{os.sep}identity.json", output + error)
+        self.assertIn(f"could not delete: ~{os.sep}state{os.sep}.keys.tmp", output + error)
         self.assertIn("PermissionError", output + error)
         self.assertIn("scanner holds the file", output + error)
         self.assertIn("deleted 1 file(s)", output)

@@ -3,6 +3,7 @@
 The peer links are the real, unchanged agiw-peer/2 code (SPAKE2 PIN pairing, signed status); only discovery
 is injected as hello datagrams, ports are ephemeral, and nothing leaves loopback."""
 import json
+import os
 import re
 import time
 import unittest
@@ -15,6 +16,12 @@ from agiw import cli
 
 class LoopbackPairing(unittest.TestCase):
     def setUp(self):
+        if os.name == "nt":
+            import ctypes
+            if ctypes.windll.shell32.IsUserAnAdmin():
+                # Files made by an elevated process belong to Administrators, and peer_link correctly refuses
+                # a state folder owned by another account. Hosted Windows CI runners are always elevated.
+                self.skipTest("elevated Windows session: peer_link refuses Administrators-owned state folders")
         isolate_windows_registry(self)
         poller = mock.patch.object(pl.PeerLink, "_poll", lambda link: None)  # the test drives every poll
         poller.start()
