@@ -24,7 +24,7 @@ class StateLocks(unittest.TestCase):
         self.key = self.state / "identity.json"
         self.key.write_text("keep this identity")
         self.manager = SimpleNamespace(home=self.home,
-                                       uninstall=mock.Mock(return_value=["login service removed"]))
+                                       uninstall=mock.Mock(return_value=["removed service"]))
 
     def hold_in_child(self):
         script = (

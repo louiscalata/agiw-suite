@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import csv
 import io
+import locale
 import os
 import plistlib
 import re
@@ -27,7 +28,11 @@ Runner = Callable[[Sequence[str]], "subprocess.CompletedProcess"]
 
 def real_runner(argv: Sequence[str]) -> "subprocess.CompletedProcess":
     """The only place a service command is executed."""
-    return subprocess.run(list(argv), capture_output=True, text=True, timeout=60)
+    result = subprocess.run(list(argv), capture_output=True, timeout=60)
+    encoding = locale.getpreferredencoding(False)
+    return subprocess.CompletedProcess(result.args, result.returncode,
+                                       result.stdout.decode(encoding, errors="replace"),
+                                       result.stderr.decode(encoding, errors="replace"))
 
 
 class ServiceError(RuntimeError):
@@ -88,7 +93,7 @@ class ServiceManager:
         return str(exe)
 
     def command(self) -> List[str]:
-        service = ["--service"] if self.kind == "mac" else []
+        service = ["--service"] if self.kind in ("mac", "windows") else []
         return [self.python, "-m", "agiw", *self.serve_args, "serve", *service, *self.serve_options]
 
     # ---------- where the definition lives ----------
@@ -185,6 +190,10 @@ class ServiceManager:
     <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
     <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
     <Enabled>true</Enabled>
+    <RestartOnFailure>
+      <Interval>PT1M</Interval>
+      <Count>3</Count>
+    </RestartOnFailure>
   </Settings>
   <Actions Context="Author">
     <Exec>
@@ -295,6 +304,33 @@ class ServiceManager:
         reason = (result.stderr or result.stdout or "no State returned").strip()
         raise ServiceError(f"scheduled task state query failed (exit {result.returncode}): {reason}")
 
+    def _confirm_windows_running(self, task: str):
+        command = self._windows_state_command()
+        # /Run only confirms that the request was accepted. Allow five seconds
+        # for the scheduler to move from Ready/Queued to Running. The attempt
+        # cap also bounds retries when an injected sleep does not advance time.
+        deadline = time.monotonic() + 5.0
+        for attempt in range(6):
+            try:
+                state = self._windows_state(command)
+                if state == "Running":
+                    return
+                reason = f"task State is {state}"
+            except ServiceError as exc:
+                reason = str(exc)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            if attempt < 5:
+                time.sleep(min(1.0, remaining))
+        raise ServiceError(f"task {task} is installed but not confirmed running: {reason}")
+
+    def _bootstrap_with_retry(self, bootstrap: Sequence[str], stopped):
+        if self._run(bootstrap, check=False).returncode != 0:
+            if stopped.returncode == 0:
+                time.sleep(2.0)  # bootout finishes asynchronously
+            self._run(bootstrap)
+
     def install(self) -> List[str]:
         """Write the definition and start it now; returns what was done, one line per step."""
         steps = []
@@ -308,10 +344,7 @@ class ServiceManager:
             try:
                 steps.append("wrote " + str(path))
                 stopped = self._run([self._launchctl(), "bootout", f"{domain}/{LAUNCHD_LABEL}"], check=False)
-                if self._run(bootstrap, check=False).returncode != 0:
-                    if stopped.returncode == 0:
-                        time.sleep(2.0)  # bootout of a running copy finishes asynchronously; try once more
-                    self._run(bootstrap)
+                self._bootstrap_with_retry(bootstrap, stopped)
             except (ServiceError, OSError, subprocess.SubprocessError) as exc:
                 if previous is None:
                     raise ServiceError(f"LaunchAgent installed but did not start: {exc}") from exc
@@ -319,8 +352,8 @@ class ServiceManager:
                 try:
                     path.write_bytes(previous)
                     restored = True
-                    self._run([self._launchctl(), "bootout", f"{domain}/{LAUNCHD_LABEL}"], check=False)
-                    self._run(bootstrap)
+                    stopped = self._run([self._launchctl(), "bootout", f"{domain}/{LAUNCHD_LABEL}"], check=False)
+                    self._bootstrap_with_retry(bootstrap, stopped)
                     loaded = self._run([self._launchctl(), "print", f"{domain}/{LAUNCHD_LABEL}"], check=False)
                     if loaded.returncode != 0:
                         raise ServiceError("the restored LaunchAgent is not loaded")
@@ -353,7 +386,8 @@ class ServiceManager:
                 self._run([self._schtasks(), "/Run", "/TN", task])
             except (ServiceError, OSError, subprocess.SubprocessError) as exc:
                 raise ServiceError(f"task {task} is installed but did not start: {exc}") from exc
-            steps.append(f"registered the logon task {task} for {self.windows_user()} and started it")
+            self._confirm_windows_running(task)
+            steps.append(f"registered the logon task {task} for {self.windows_user()}; confirmed running")
         return steps
 
     def uninstall(self) -> List[str]:

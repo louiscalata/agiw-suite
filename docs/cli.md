@@ -137,9 +137,11 @@ you use the default. Options you pass (`--status-file`, `--name` and so on) go i
 | Windows | Task `\AGIW\PeerLink-<SID>` (your account's SID, logon trigger, least privilege); XML copy under `%LOCALAPPDATA%\AGIW\service\` | `schtasks /Create /XML`, then `/Run` |
 
 On Windows, agiw reads your SID with `whoami /user /fo csv /nh` and uses that same account-specific task
-name for install, status and uninstall. Installation refuses if the SID cannot be read. Status and uninstall
-read the locale-independent ScheduledTasks State enum through PowerShell; a failed query leaves status
-unknown and keeps the definition during uninstall.
+name for install, status and uninstall. Installation refuses if the SID cannot be read. After `/Run`,
+installation checks the locale-independent ScheduledTasks State enum through PowerShell for up to about
+five seconds. It reports running only after observing `Running`; otherwise it reports the installed task
+as not confirmed running, gives the last state or query failure, and exits 1. Status and uninstall use the
+same State query; a failed query leaves status unknown and keeps the definition during uninstall.
 
 `agiw service status` reports whether the definition exists and whether the service manager has it loaded
 and running. `agiw service uninstall` stops it and checks that launchd no longer holds the job on macOS,
@@ -163,9 +165,9 @@ live check. `agiw serve` repairs the state when started.
 already locked. The lock file sits next to the state folder, with `.agiw-lock` appended to its name (for
 example, `peer-link.agiw-lock` beside `peer-link`), so it does not enter the peer link's state-file checks.
 Lock refusal exits 75; systemd does not restart that exit and limits other failures to five starts in 300
-seconds, with 30 seconds between restarts. The LaunchAgent passes `serve --service`, which prints the
-same lock-refusal message and exits 0 so launchd does not restart it; crashes are throttled to 60 seconds.
-The Windows task has no restart-on-failure policy.
+seconds, with 30 seconds between restarts. The LaunchAgent and Windows task pass `serve --service`,
+which prints the same lock-refusal message and exits 0. The LaunchAgent throttles crashes to 60 seconds;
+the Windows task retries failures up to three times, one minute apart.
 
 ## Uninstall
 
@@ -178,8 +180,9 @@ pipx uninstall agiw                  # or: uv tool uninstall agiw
 
 `--purge-keys --yes` deletes only files the peer link creates and leaves links, junctions, reparse points and
 unrecognized files in place. It first removes the login service, then must acquire the same process lock as
-`agiw serve` before deleting keys. If the lock is held, it reports that the service was removed and no key
-file was deleted, even when that process uses custom ports. It holds the
+`agiw serve` before deleting keys. If the lock is held, it reports the service manager's result (removed,
+none installed, or confirmed not running) and that no key file was deleted, even when that process uses
+custom ports. It holds the
 lock through deletion and removes the lock file after the state folder is gone. The selected and default
 status TCP ports and the discovery UDP port must also all be free. Existing control tokens must pass the
 privacy and validity checks; unsafe tokens and busy or unknown ports prevent key deletion. These checks
@@ -188,7 +191,8 @@ make no peer-link exchange. `--yes` requires `--purge-keys`.
 Purge protects against `agiw serve` and the login service; if you started peer_link.py directly, stop it before purging.
 
 If a key file cannot be deleted, purge reports the file and reason, continues deleting the others and
-exits 1. On Windows it still revokes this account's pairing generations in the registry.
+exits 1. On Windows it still attempts to revoke this account's pairing generations in the registry. If
+revocation fails, it prints the file-deletion summary first, then the registry error and reason, and exits 1.
 
 If you started the peer link with a non-default `--status-port`, pass the same `--status-port` to uninstall,
 for example `agiw --status-port 8878 uninstall --purge-keys --yes`.

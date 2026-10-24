@@ -127,7 +127,7 @@ class Systemd(Base):
 
 class TaskScheduler(Base):
     def test_install_registers_a_least_privilege_logon_task_for_this_user(self):
-        runner = FakeRunner({"/user": WHOAMI})
+        runner = FakeRunner({"/user": WHOAMI, "-Command": (0, "Running\n")})
         manager = self.manager("windows", runner, ["--state-dir", "C:\\Users\\tester\\My State"],
                                ["--status-file", "C:\\AGIW\\state\\peer-link-status.json"])
         manager.install()
@@ -141,12 +141,13 @@ class TaskScheduler(Base):
         self.assertEqual(root.find("t:Principals/t:Principal/t:LogonType", TASK_NS).text, "InteractiveToken")
         self.assertEqual(root.find("t:Actions/t:Exec/t:Command", TASK_NS).text, "/opt/py/bin/python3")
         self.assertEqual(root.find("t:Actions/t:Exec/t:Arguments", TASK_NS).text,
-                         '-m agiw --state-dir "C:\\Users\\tester\\My State" serve '
+                         '-m agiw --state-dir "C:\\Users\\tester\\My State" serve --service '
                          '--status-file C:\\AGIW\\state\\peer-link-status.json')
         schtasks = "C:\\Windows\\System32\\schtasks.exe"
         self.assertEqual(runner.calls, [["C:\\Windows\\System32\\whoami.exe", "/user", "/fo", "csv", "/nh"],
                                         [schtasks, "/Create", "/TN", TEST_TASK, "/XML", str(path), "/F"],
-                                        [schtasks, "/Run", "/TN", TEST_TASK]])
+                                        [schtasks, "/Run", "/TN", TEST_TASK],
+                                        manager._windows_state_command()])
         self.assert_user_level(runner)
 
     def test_status_and_uninstall(self):
@@ -172,7 +173,7 @@ class ThroughTheCli(Base):
     def test_service_install_status_uninstall_on_each_kind(self):
         for kind in ("mac", "linux", "windows"):
             runner = FakeRunner({"/user": WHOAMI, "is-active": (0, "active\n"), "print": (113, ""),
-                                 "-Command": (0, "Ready\n")})
+                                 "-Command": (0, "Running\n")})
             extra = ["--status-file", str(self.home / "status.json")] if kind == "windows" else []
             code, lines = self.run_cli(kind, "service", "install", *extra, runner=runner)
             self.assertEqual(code, 0, (kind, lines))
@@ -182,6 +183,7 @@ class ThroughTheCli(Base):
             code, lines = self.run_cli(kind, "service", "status", runner=runner)
             self.assertEqual(code, 0)
             runner.results["is-active"] = (3, "inactive\n")
+            runner.results["-Command"] = (0, "Ready\n")
             code, lines = self.run_cli(kind, "uninstall", runner=runner)
             self.assertEqual(code, 0)
             self.assertEqual(self.files_under_home(), [])
