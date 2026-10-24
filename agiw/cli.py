@@ -126,8 +126,9 @@ def cmd_serve(args, out) -> int:
         argv += ["--status-file", str(args.status_file)]
     if args.lmstudio:
         argv += ["--lmstudio", args.lmstudio]
-    # launchd restarts unsuccessful exits, so its service invocation treats a
-    # busy state folder as a clean stop. Foreground/systemd invocations use EX_TEMPFAIL.
+    # launchd and Task Scheduler restart unsuccessful exits, so their service
+    # invocations treat a busy state folder as a clean stop. Foreground/systemd
+    # invocations use EX_TEMPFAIL.
     with hold_state_lock(args.state_dir, busy_code=0 if args.service else EXIT_TEMPFAIL):
         return pl.main(argv)
 
@@ -284,14 +285,14 @@ def purge_plan(state_dir: Path) -> tuple:
         raise CliError("the state folder is a link or not a folder; nothing was deleted")
     for entry in sorted(os.listdir(state_dir)):
         path = state_dir / entry
-        entry_info = path.lstat()
+        entry_info = os.lstat(path)  # os.lstat, not Path.lstat: the same call on every Python version
         if _link_or_reparse(path, entry_info):
             keep.append(path)
         elif entry == "trusted" and stat.S_ISDIR(entry_info.st_mode):
             for name in sorted(os.listdir(path)):
                 record = path / name
                 base = name.split(".quarantined-")[0]
-                record_info = record.lstat()
+                record_info = os.lstat(record)
                 if _link_or_reparse(record, record_info):
                     keep.append(record)
                 elif stat.S_ISREG(record_info.st_mode) and (
@@ -353,8 +354,12 @@ def peer_link_answers(state_dir: Path, port: int, probe=None) -> bool:
 
 def cmd_uninstall(args, out, manager: ServiceManager, probe=None) -> int:
     home = str(manager.home)
-    for step in manager.uninstall():
+    service_steps = manager.uninstall()
+    for step in service_steps:
         out("login service: " + redact(_show_paths_in(step, home), home))
+    service_result = ("the login service was removed" if any(
+        step.startswith(("removed ", "stopped ")) for step in service_steps)
+        else "; ".join(service_steps) or "no agiw service was installed")
     if args.purge_keys and args.yes:
         # Stop the login service before trying to take its state-folder lock.
         # All CliError refusals below occur before any key file is deleted.
@@ -369,7 +374,7 @@ def cmd_uninstall(args, out, manager: ServiceManager, probe=None) -> int:
                     return EXIT_FAILED
                 return result
         except CliError as exc:
-            raise CliError(f"the login service was removed; no key file was deleted: {exc}", exc.code) from exc
+            raise CliError(f"{service_result}; no key file was deleted: {exc}", exc.code) from exc
     return _cmd_uninstall(args, out, manager, probe)
 
 
@@ -414,8 +419,12 @@ def _cmd_uninstall(args, out, manager: ServiceManager, probe=None) -> int:
                 f"({type(exc).__name__}: {redact(str(exc), home)})")
         else:
             deleted += 1
+    revoke_error = None
     if windows_registry:
-        pl._gen_revoke_all()
+        try:
+            pl._gen_revoke_all()
+        except OSError as exc:
+            revoke_error = exc
     for folder in folders:
         try:
             folder.rmdir()
@@ -423,7 +432,10 @@ def _cmd_uninstall(args, out, manager: ServiceManager, probe=None) -> int:
             pass  # not empty: what agiw did not create stays
     failures = f"; {failed} file(s) could not be deleted" if failed else ""
     out(f"deleted {deleted} file(s){failures}. Run `agiw unpair <this machine>` on your other machines.")
-    return EXIT_FAILED if failed else 0
+    if revoke_error is not None:
+        out("revoking the Windows pairing generations failed "
+            f"({type(revoke_error).__name__}: {redact(str(revoke_error), home)})")
+    return EXIT_FAILED if failed or revoke_error is not None else 0
 
 
 # ---------- parser ----------
