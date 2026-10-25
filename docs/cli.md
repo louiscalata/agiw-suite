@@ -3,7 +3,8 @@
 `agiw` connects your Mac and Windows PC on the same LAN. Each machine runs a small peer link that
 announces itself, pairs with your other machines through a 6-digit PIN, and answers paired machines with a
 signed, read-only status: health and model names. It is standard-library Python 3.9+ with no dependencies, and
-it reuses the suite's `peer_link.py` (protocol `agiw-peer/2`) unchanged apart from the host-kind default.
+it reuses the suite's `peer_link.py` (protocol `agiw-peer/2`). The authenticated local control snapshot also
+includes the local provider's validated, projected status; the LAN status answer and protocol are unchanged.
 
 **What v0.1 does not do.** Status is **signed but not encrypted**: anyone capturing LAN traffic can read the
 model names and states your machines report. v0.1 **dispatches no jobs**: it discovers, pairs and reads
@@ -74,7 +75,7 @@ agiw accept
 | `agiw accept [<name>]` | Type the PIN another machine shows. |
 | `agiw unpair <name>` | Forget a machine. Run it on the other machine too. |
 | `agiw peers [--json]` | Discovered and paired machines. |
-| `agiw status [--json]` | `up`, `down` or `unknown` for each paired machine. |
+| `agiw status [--json [--full]]` | Contract state for the local machine, paired peers and every platform. `--full` includes projected source documents in JSON. |
 | `agiw doctor` | Local read-only checks: Python, port occupancy, firewall hints, state folder and token privacy, service definition. |
 | `agiw service install\|uninstall\|status` | User-level login service. |
 | `agiw uninstall [--purge-keys [--yes]]` | Remove the service; optionally list, then delete, pairing keys. |
@@ -82,10 +83,77 @@ agiw accept
 Global options: `--state-dir` (default below) and `--status-port` (default 8768). Exit codes: 0 done,
 1 failed, 2 usage, 3 the peer link is not running here, 75 the state-folder lock is held by another serve.
 
-**Status meanings.** `up`: a signed status reply was verified in the last 15 seconds. `down`: the machine
-was heard on the LAN earlier but has been silent for over 60 seconds with no signed reply. `unknown`:
-anything else, with the reason, such as not heard from since this peer link started, or heard but no
-fresh signed reply (a refused request, or a machine without a status source).
+**Status meanings.** Rows follow the frozen [machine-status/v1 contract](../contracts/machine-status/README.md).
+`up` needs a fresh local or authenticated report with accepted `ok` or `degraded` health. `down` needs a
+fresh report that explicitly says `down`. Silence and disconnected peers are `unknown`. Freshness uses the
+document's own `observedAt`: 3 seconds for the local Mac and 30 for local Windows/Linux or any remote
+authenticated report, inclusive, with at most 2 seconds of future clock tolerance. Connection time and
+the CLI's sampling time never refresh an observation.
+
+The human table has MACHINE, PLATFORM, STATE, REASON, AGE and MODELS columns. MODELS is the contract's
+`loadedCount`, or `?` when unknown; AGE is elapsed seconds or `?`. Local health comes from the observer
+document in the authenticated control snapshot, rather than from the peer link answering.
+Control snapshots read local status only for `/control/peers`, in a daemon worker with a three-second deadline.
+A timeout returns `selfStatus: {"error": "local status timed out"}`. While that read is still running,
+later control requests return the same timeout error without starting another read. Polling and the
+`peers.json` snapshots it writes never read the local provider and never include `selfStatus`.
+
+`agiw status --json` emits this schema-2 envelope (each `machines` element is one full contract row):
+
+```json
+{
+  "schemaVersion": 2,
+  "contract": "machine-status/v1",
+  "sampledAt": 1700000000.0,
+  "observedAt": "2023-11-14T22:13:20+00:00",
+  "protocol": "agiw-peer/2",
+  "linkState": "running",
+  "self": {"node": "local-node-uuid", "name": "my-mac", "host": "mac"},
+  "machines": [],
+  "signed": true,
+  "encrypted": false
+}
+```
+
+The example omits the row bodies for readability; actual output always includes at least one row for
+each of `mac`, `windows` and `linux`. Machines on the same platform keep separate rows. Local and paired
+rows use their node UUID as `id`, a reported machine identity as `host` when the document supplies one,
+and the display name as optional `label`. Legacy documents put a platform kind in `host`; those rows use
+their node UUID for `host` too. Missing-platform rows use the platform as both `id` and `host`.
+
+`--json --full` adds `documents`, keyed by row `id`, containing the projected local or verified signed
+documents used for those rows. These documents stay outside the rows; each row has only contract fields.
+`signed` describes the peer transport, not a signature over the JSON envelope; local evidence has trust
+`local`, connected signed reports have trust `authenticated`, and placeholders have trust `unverified`.
+
+Connected peers still pass through health and freshness checks. This adapter retains no previous verified
+document, so `stale` and `connecting` snapshots become `unknown/not_connected`. Offline peers heard
+before are also `not_connected`; those never heard since startup are `not_observed`. Unpaired available
+machines have no row. Read errors become `unavailable`; transport diagnostics do not replace an accepted
+document. A local `selfStatus` error becomes `unknown/unavailable`.
+
+The producer selects the health vocabulary: exact `agiw-linux-observer` uses the Linux table (`up` becomes
+`ok`); the Windows producer is `agiw-win-observer <version>[+<build provenance>]` and uses the Windows
+table. All other producers use the CLI table. CLI/Windows `unknown` and Linux `unknown` become
+`unavailable`; an unlisted health word becomes `schema_invalid`.
+
+Compared with schema 1, silence never implies `down`, all platforms are listed, and unknown counts are
+JSON `null`. Counts require `loadedListComplete: true`, a list with every residency `loaded` or `inactive`,
+and a matching `modelsTotal` when present. A list alone establishes no count. The LM Studio provider
+does not supply completeness evidence, so its counts stay null. A complete empty list gives zero.
+The contract keeps both token-rate fields null in v1.
+
+`linkState` describes the local control exchange, separately from machine health:
+
+| Value | Meaning | `status --json` | Human output |
+| --- | --- | --- | --- |
+| `running` | The link returned a usable control snapshot. | Contract rows from that snapshot; exit 0. | Machine table; exit 0. |
+| `not_running` | Connection refused, no listener, or a missing control token/state file. | Three unknown rows: local `unavailable`, other platforms `not_observed`; exit 0. | Start-the-link message; exit 3. |
+| `unreachable` | The control exchange timed out, reset, or could not be read or decoded. | Three unknown rows: local `timeout` for a timeout, otherwise `read_error`; other platforms `not_observed`; exit 0. | `the peer link is running but did not answer: <short reason>`; exit 1. |
+
+Without a usable snapshot, `self.node` uses the detected platform as a fallback identity and `--full`
+contains an empty `documents` object. Control authentication and permission failures retain their normal
+error behavior, including exit 1 for both JSON and human output.
 
 All commands except `serve`, `doctor`, `service` and `uninstall` talk to your own peer link on
 127.0.0.1. It must first prove that it holds the control token in your state folder, so another program on

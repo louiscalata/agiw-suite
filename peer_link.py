@@ -82,6 +82,7 @@ PER_SOURCE_CONNECTIONS = 2
 CONTROL_CHALLENGE_TTL = 10.0
 REQUEST_DEADLINE = 6.0   # absolute, from accept to close, so drip-fed headers cannot hold a slot
 FETCH_DEADLINE = 4.0     # absolute, from connect to last byte
+SELF_STATUS_DEADLINE = 3.0  # control-only provider wait, below the control client's deadline
 STATUS_MAX_AGE = 60.0    # a status whose observedAt is older (or further ahead) than this is refused
 HOST_KINDS = ("mac", "windows", "linux")
 UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
@@ -1358,7 +1359,7 @@ class LinkHandler(BaseHTTPRequestHandler):
                 return self._send(429)
             return self._json(200, {"ns": ns, "proof": control_server_proof(token, nc, ns)})
         if self.path == "/control/peers" and self._local_control(b""):
-            return self._json(200, link.snapshot())
+            return self._json(200, link.snapshot(include_self_status=True))
         self._send(404)
 
     def do_POST(self):
@@ -1762,7 +1763,28 @@ class PeerLink:
                                         candidates=[c for c in self._seen[node]["candidates"] if c != adopted])
             self._live.setdefault(node, {}).update(update)
 
-    def snapshot(self) -> dict:
+    def _bounded_self_status(self) -> dict:
+        """One control-only provider read at a time; a stuck daemon never holds up polling."""
+        timeout = {"error": "local status timed out"}
+        with self._lock:
+            previous = getattr(self, "_self_status_worker", None)
+            if previous is not None and previous.is_alive():
+                return timeout
+            answer = [{"error": "local status unavailable or invalid"}]
+
+            def read():
+                try:
+                    answer[0] = project_status(validate_status(self.status_provider(), self.host, time.time()))
+                except Exception:  # noqa: BLE001 - provider details must not leak into control answers
+                    pass
+
+            worker = threading.Thread(target=read, daemon=True)
+            self._self_status_worker = worker
+            worker.start()
+        worker.join(SELF_STATUS_DEADLINE)
+        return timeout if worker.is_alive() else answer[0]
+
+    def snapshot(self, *, include_self_status: bool = False) -> dict:
         now = self.clock()
         trusted = self.trusted()
         rows = []
@@ -1785,9 +1807,12 @@ class PeerLink:
                 rows.append(row)
             outbound = [{"peer": v["peer"]["node"], "name": v["peer"]["name"], "expires": v["expires"]}
                         for v in self._outbound.values()]
-        return {"schemaVersion": 1, "protocol": PROTOCOL, "observedAt": _iso(time.time()), "self": self.me(),
-                "peers": rows, "invitesShowingPin": outbound, "pollError": self.poll_error,
-                "quarantined": list(self.store.quarantined)}
+        result = {"schemaVersion": 1, "protocol": PROTOCOL, "observedAt": _iso(time.time()), "self": self.me(),
+                  "peers": rows, "invitesShowingPin": outbound, "pollError": self.poll_error,
+                  "quarantined": list(self.store.quarantined)}
+        if include_self_status:
+            result["selfStatus"] = self._bounded_self_status()
+        return result
 
     # pairing: inviter side
     def _resolve(self, peer: str) -> tuple[str, dict]:

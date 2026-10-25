@@ -9,12 +9,14 @@ from __future__ import annotations
 import argparse
 from contextlib import contextmanager
 import getpass
+import http.client
 import json
 import os
 import re
 import stat
 import subprocess
 import sys
+import socket
 from pathlib import Path
 from typing import Callable, List, Optional, Sequence
 
@@ -22,6 +24,7 @@ import peer_link as pl
 
 from agiw import __version__
 from agiw import doctor as doctor_mod
+from agiw.contract import status_document
 from agiw.redact import redact, show_path
 from agiw.service import ServiceError, ServiceManager
 from agiw.state_lock import StateLock, StateLockBusy
@@ -43,49 +46,37 @@ class CliError(Exception):
         self.code = code
 
 
+class ControlUnreachable(CliError):
+    def __init__(self, reason: str):
+        self.reason = reason
+        detail = "timeout" if reason == "timeout" else "read error"
+        super().__init__(f"the peer link is running but did not answer: {detail}")
+
+
 def control(state_dir: Path, port: int, method: str, path: str, body: Optional[dict] = None) -> dict:
     """One authenticated exchange with this user's own peer link."""
     try:
         status, doc = pl.control_request(state_dir, port, method, path, body)
     except PermissionError as exc:
         raise CliError(str(exc))
-    except (ConnectionError, TimeoutError, OSError):
+    except (ConnectionRefusedError, FileNotFoundError):
         raise CliError(NOT_RUNNING, EXIT_NOT_RUNNING)
+    except (OSError, ValueError, http.client.HTTPException) as exc:
+        reason = "timeout" if isinstance(exc, (TimeoutError, socket.timeout)) else "read_error"
+        raise ControlUnreachable(reason) from exc
     if status != 200:
         message = doc.get("error") if isinstance(doc, dict) else None
         raise CliError(str(message or f"the peer link answered {status}"))
+    if not isinstance(doc, dict):
+        raise ControlUnreachable("read_error")
     return doc
 
 
 # ---------- status ----------
 
-def machine_rows(snapshot: dict) -> List[dict]:
-    """up / down / unknown for each paired machine, from signed replies only.
-
-    up: a signed status reply verified within the last 15 s. down: heard on the LAN earlier but silent for
-    over 60 s, with no signed reply. unknown: everything else (never heard since this peer link started,
-    or heard but no fresh signed reply), with the reason."""
-    rows = []
-    for row in snapshot.get("peers", []):
-        if not row.get("paired"):
-            continue
-        status = row.get("status") if isinstance(row.get("status"), dict) else None
-        if row.get("state") == "connected" and status is not None:
-            state, reason = "up", "signed status verified"
-        elif row.get("state") == "offline" and row.get("lastHello") is not None:
-            state, reason = "down", "silent on the LAN for over 60 s and no signed reply"
-        elif row.get("state") == "offline":
-            state, reason = "unknown", "not heard from since this peer link started"
-        else:
-            state, reason = "unknown", row.get("error") or "no signed reply yet"
-        out = {"name": row.get("name"), "host": row.get("host"), "node": row.get("node"), "state": state,
-               "reason": str(reason)[:200], "observedAt": None, "health": None, "modelsLoaded": None}
-        if state == "up":
-            models = status.get("models") if isinstance(status.get("models"), list) else []
-            out.update(observedAt=status.get("observedAt"), health=status.get("health"),
-                       modelsLoaded=sum(1 for m in models if isinstance(m, dict) and m.get("loadedState") == "loaded"))
-        rows.append(out)
-    return rows
+def machine_rows(snapshot: dict, *, now=None) -> List[dict]:
+    """Frozen contract rows, including local evidence and missing platforms."""
+    return status_document(snapshot, now=now)["machines"]
 
 
 def _table(rows: List[List[str]]) -> List[str]:
@@ -181,23 +172,32 @@ def cmd_peers(args, out) -> int:
 
 
 def cmd_status(args, out) -> int:
-    doc = control(args.state_dir, args.status_port, "GET", "/control/peers")
-    me = doc.get("self", {})
-    machines = machine_rows(doc)
+    link_error = None
+    try:
+        snapshot = control(args.state_dir, args.status_port, "GET", "/control/peers")
+    except CliError as exc:
+        if not args.json:
+            raise
+        if isinstance(exc, ControlUnreachable):
+            link_error = exc.reason
+        elif exc.code != EXIT_NOT_RUNNING:
+            raise
+        snapshot = None
+    local = {"node": pl.detect_host_kind(), "name": socket.gethostname().split(".")[0],
+             "host": pl.detect_host_kind()}
+    doc = status_document(snapshot, full=args.full, local=local, link_error=link_error)
     if args.json:
-        out(json.dumps({"schemaVersion": 1, "protocol": doc.get("protocol"), "observedAt": doc.get("observedAt"),
-                        "self": {"name": me.get("name"), "host": me.get("host"), "node": me.get("node"),
-                                 "state": "up", "reason": "this peer link answered"},
-                        "machines": machines, "signed": True, "encrypted": False}, indent=1, sort_keys=True))
+        out(json.dumps(doc, indent=1, sort_keys=True))
         return 0
-    rows = [["MACHINE", "KIND", "STATE", "DETAIL"], [str(me.get("name")), str(me.get("host")), "up", "this machine"]]
-    for m in machines:
-        detail = (f"{m['health'] or 'health unknown'}, {m['modelsLoaded']} model(s) loaded" if m["state"] == "up"
-                  else m["reason"])
-        rows.append([str(m["name"] or "?"), str(m["host"] or "?"), m["state"], detail])
+    rows = [["MACHINE", "PLATFORM", "STATE", "REASON", "AGE", "MODELS"]]
+    for m in doc["machines"]:
+        age = "?" if m["ageSeconds"] is None else f"{m['ageSeconds']:.1f}s"
+        count = "?" if m["loadedCount"] is None else str(m["loadedCount"])
+        rows.append([m.get("label") or m["host"], m["platform"] or "?", m["state"],
+                     m["reasonCode"], age, count])
     for line in _table(rows):
         out(redact(line))
-    if not machines:
+    if not any(peer.get("paired") for peer in snapshot.get("peers", [])):
         out("no paired machines yet: `agiw peers`, then `agiw pair <name>`")
     return 0
 
@@ -474,8 +474,9 @@ def build_parser() -> argparse.ArgumentParser:
     unpair.add_argument("name")
     peers = sub.add_parser("peers", help="discovered and paired machines")
     peers.add_argument("--json", action="store_true")
-    status = sub.add_parser("status", help="up / down / unknown for each paired machine, from signed replies")
+    status = sub.add_parser("status", help="machine-status/v1 observations for local and paired machines")
     status.add_argument("--json", action="store_true")
+    status.add_argument("--full", action="store_true", help="include projected source documents with --json")
     doctor = sub.add_parser("doctor", help="read-only local checks: ports, firewall hints, folder and token privacy")
     doctor.add_argument("--beacon-port", type=int, default=pl.BEACON_PORT, help=argparse.SUPPRESS)
     service = sub.add_parser("service", help="start agiw at login (user level; no admin rights)")

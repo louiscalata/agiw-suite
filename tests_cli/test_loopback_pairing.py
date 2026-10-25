@@ -73,12 +73,14 @@ class LoopbackPairing(unittest.TestCase):
         self.assertEqual(code, 0)
         doc = json.loads("\n".join(lines))
         self.assertEqual((doc["self"]["name"], doc["signed"], doc["encrypted"]), ("alpha", True, False))
-        (machine,) = doc["machines"]
-        self.assertEqual((machine["name"], machine["host"], machine["state"], machine["health"],
-                          machine["modelsLoaded"]), ("beta", "linux", "up", "ok", 1))
+        self.assertEqual(doc["schemaVersion"], 2)
+        machine = next(row for row in doc["machines"] if row["id"] == self.beta.node)
+        self.assertEqual((machine["label"], machine["host"], machine["platform"], machine["state"],
+                          machine["reasonCode"], machine["loadedCount"]),
+                         ("beta", "beta", "linux", "up", "observed", None))
 
         code, lines = self.agiw(self.alpha, "status")
-        self.assertTrue(any(re.match(r"beta\s+linux\s+up\s+ok, 1 model", line) for line in lines), lines)
+        self.assertTrue(any(re.match(r"beta\s+linux\s+up\s+observed\s+\S+\s+\?", line) for line in lines), lines)
 
         code, lines = self.agiw(self.alpha, "unpair", "beta")
         self.assertEqual(code, 0)
@@ -87,7 +89,10 @@ class LoopbackPairing(unittest.TestCase):
         row = next(r for r in snapshot["peers"] if r["name"] == "alpha")
         self.assertIn("403", row["error"])
         code, lines = self.agiw(self.alpha, "status", "--json")
-        self.assertEqual(json.loads("\n".join(lines))["machines"], [])
+        machines = json.loads("\n".join(lines))["machines"]
+        self.assertEqual(len(machines), 3)
+        self.assertEqual({row["platform"] for row in machines}, {"mac", "windows", "linux"})
+        self.assertNotIn(self.beta.node, {row["id"] for row in machines})
 
 
 if __name__ == "__main__":
