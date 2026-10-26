@@ -97,6 +97,10 @@ The public monitor observes runtimes and offers explicit guarded controls. It st
 4. For Mac + PC, run the same total work set using explicitly configured workers. Record per-host throughput, scheduling/transport overhead and total makespan. Count **validated tasks per minute**, rather than summing unrelated single-request peaks.
 5. Report sample counts, medians, ranges and the actual task-pass criteria. Calculate speedup only from comparable matched results: `(after / baseline - 1) × 100%` for throughput, or `(baseline time - after time) / baseline time × 100%` for time saved.
 
+### Full-suite study design (two machines)
+
+AGIW now runs on two machines: the MacBook Pro and the Windows PC. The Linux node was retired on 25 October 2026, so the planned full-suite study drops from 18 conditions on three machines to **12 conditions on two machines**. That is 2 client hosts (Mac, Windows) × 3 workflows (local direct, AGIW, cloud direct) × Jev absent/present, with seven measures each: **0 of 84 metric cells measured**. The design, comparison rules and null results are in [agiw-comparison-protocol.json](data/agiw-comparison-protocol.json). It keeps the earlier per-condition trial counts (3 exploratory and 9 repeated executor trials per condition, so 36 and 108 in total). Linux conditions are removed rather than kept as null placeholders. The cloud-direct workflow is a separate reference, not a same-model causal control.
+
 No new inference request, model loading, worker reconfiguration or benchmark was performed to produce this documentation.
 
 ## AGIW, Ollama and vLLM: roles and performance instrumentation
