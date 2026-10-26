@@ -1,0 +1,165 @@
+"""Lane process and caller readings with a fake TCP table (runs on any OS)."""
+from pathlib import Path
+import sys
+import unittest
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from agiw_win import winsys  # noqa: E402
+
+LISTEN, ESTAB = winsys.MIB_TCP_STATE_LISTEN, winsys.MIB_TCP_STATE_ESTAB
+
+
+def row(state, local, lport, remote, rport, pid):
+    return {"state": state, "local": local, "localPort": lport, "remote": remote, "remotePort": rport, "pid": pid}
+
+
+class Clock:
+    def __init__(self):
+        self.now = 100.0
+
+    def __call__(self):
+        return self.now
+
+
+class LaneProcessesTest(unittest.TestCase):
+    def setUp(self):
+        self.clock = Clock()
+        self.cpu = {11: 0, 12: 0}
+        self.created = {11: 1, 12: 2, 21: 3, 22: 4, 99: 5}
+        names = {11: "llama-server.exe", 12: "llama-server.exe", 21: "codex.exe", 22: "python.exe", 99: "python.exe"}
+        self.table = [row(LISTEN, "127.0.0.1", 1234, "0.0.0.0", 0, 11), row(LISTEN, "127.0.0.1", 1235, "0.0.0.0", 0, 12),
+                      row(ESTAB, "127.0.0.1", 50001, "127.0.0.1", 1234, 21), row(ESTAB, "127.0.0.1", 50002, "127.0.0.1", 1234, 21),
+                      row(ESTAB, "127.0.0.1", 50003, "127.0.0.1", 1235, 22),
+                      row(ESTAB, "127.0.0.1", 1234, "127.0.0.1", 50001, 11),  # server side of the same connection
+                      row(ESTAB, "127.0.0.1", 1234, "127.0.0.1", 50002, 11),
+                      row(ESTAB, "127.0.0.1", 1235, "127.0.0.1", 50003, 12),
+                      row(ESTAB, "127.0.0.1", 50009, "127.0.0.1", 1235, 99),  # the observer itself
+                      row(ESTAB, "10.99.0.71", 50010, "10.99.0.194", 1234, 22)]  # a LAN connection, not a local caller
+        self.lp = winsys.LaneProcesses(table_fn=lambda: self.table, clock=self.clock, cpus=4, self_pid=99,
+                                       info_fn=lambda pid: {"pid": pid, "name": names[pid], "created": self.created[pid],
+                                                            "cpuTime": self.cpu.get(pid, 0), "workingSetBytes": 16 * 2**30})
+
+    def test_servers_callers_and_cpu_share(self):
+        servers, callers, source = self.lp.sample({1234: "deep", 1235: "fast"})
+        self.assertEqual(servers["deep"]["pid"], 11)
+        self.assertIsNone(servers["deep"]["cpuPercent"])  # needs two samples
+        self.clock.now += 2.0
+        self.cpu[11] = 4 * 10_000_000  # 4 CPU-seconds over 2 s on 4 CPUs = 50 %
+        servers, callers, source = self.lp.sample({1234: "deep", 1235: "fast"})
+        self.assertEqual(servers["deep"]["cpuPercent"], 50.0)
+        self.assertEqual(servers["fast"]["cpuPercent"], 0.0)
+        self.assertEqual([(c["name"], c["lane"], c["client"], c["connections"]) for c in callers],
+                         [("codex.exe", "deep", "codex", 2), ("python.exe", "fast", None, 1)])
+        self.assertEqual(source["state"], "live")
+        self.assertIn("codex.exe -> deep", source["detail"])
+
+    def test_restarted_lane_does_not_inherit_counters(self):
+        self.lp.sample({1234: "deep"})
+        self.clock.now += 2.0
+        self.created[11] = 777  # same pid, new process
+        self.cpu[11] = 10**12
+        servers, _, _ = self.lp.sample({1234: "deep"})
+        self.assertIsNone(servers["deep"]["cpuPercent"])
+
+    def test_connected_time_accumulates_and_resets(self):
+        self.lp.sample({1234: "deep"})
+        self.clock.now += 5.0
+        _, callers, _ = self.lp.sample({1234: "deep"})
+        self.assertEqual(callers[0]["connectedSeconds"], 5.0)
+        self.table = [r for r in self.table if r["pid"] != 21]
+        self.lp.sample({1234: "deep"})
+        self.table.append(row(ESTAB, "127.0.0.1", 50011, "127.0.0.1", 1234, 21))
+        self.table.append(row(ESTAB, "127.0.0.1", 1234, "127.0.0.1", 50011, 11))
+        _, callers, _ = self.lp.sample({1234: "deep"})
+        self.assertEqual(callers[0]["connectedSeconds"], 0.0)
+
+    def test_listener_on_another_address_is_not_the_lane(self):
+        # Codex round 2, finding 9: 127.0.0.2:1234 or a LAN address on the same port is another program.
+        self.table = [row(LISTEN, "127.0.0.2", 1234, "0.0.0.0", 0, 22), row(LISTEN, "10.99.0.71", 1234, "0.0.0.0", 0, 21),
+                      row(LISTEN, "127.0.0.1", 1234, "0.0.0.0", 0, 11),
+                      row(ESTAB, "127.0.0.1", 50001, "127.0.0.2", 1234, 21),  # talks to the impostor
+                      row(ESTAB, "::1", 50002, "::1", 1234, 21)]                # IPv6 to a v4-only listener: refused
+        servers, callers, _ = self.lp.sample({1234: "deep"})
+        self.assertEqual(servers["deep"]["pid"], 11)
+        self.assertEqual(callers, [])
+
+    def test_ipv6_caller_counts_when_the_lane_listens_on_ipv6(self):
+        # Codex round 2, finding 10.
+        self.table = [row(LISTEN, "::", 1234, "::", 0, 11), row(ESTAB, "::1", 50003, "::1", 1234, 21),
+                      row(ESTAB, "::1", 1234, "::1", 50003, 11)]
+        _, callers, _ = self.lp.sample({1234: "deep"})
+        self.assertEqual([(c["name"], c["lane"]) for c in callers], [("codex.exe", "deep")])
+
+    def test_same_port_other_listener_pid_does_not_steal_caller(self):
+        self.table = [row(LISTEN, "127.0.0.1", 1234, "0.0.0.0", 0, 11),
+                      row(LISTEN, "::1", 1234, "::", 0, 12),
+                      row(ESTAB, "::1", 50003, "::1", 1234, 21),
+                      row(ESTAB, "::1", 1234, "::1", 50003, 12)]
+        servers, callers, _ = self.lp.sample({1234: "deep"})
+        self.assertEqual(servers["deep"]["pid"], 11)
+        self.assertEqual(callers, [])
+
+    def test_wildcard_listener_matches_local_lan_connection_by_reverse_row(self):
+        self.table = [row(LISTEN, "0.0.0.0", 1234, "0.0.0.0", 0, 11),
+                      row(ESTAB, "10.99.0.71", 50003, "10.99.0.71", 1234, 21),
+                      row(ESTAB, "10.99.0.71", 1234, "10.99.0.71", 50003, 11)]
+        _, callers, _ = self.lp.sample({1234: "deep"})
+        self.assertEqual([(c["pid"], c["lane"]) for c in callers], [(21, "deep")])
+
+    def test_unreadable_table_is_a_source_not_a_crash(self):
+        def broken():
+            raise OSError("no")
+        lp = winsys.LaneProcesses(table_fn=broken)
+        servers, callers, source = lp.sample({1234: "deep"})
+        self.assertEqual((servers, callers, source["state"]), ({}, [], "unavailable"))
+
+    def test_client_mapping(self):
+        self.assertEqual(winsys.client_for("Codex.exe"), "codex")
+        self.assertEqual(winsys.client_for("opencode-cli.exe"), "opencode")
+        self.assertIsNone(winsys.client_for("node.exe"))
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+
+class MergeAdapters(unittest.TestCase):
+    def test_nvidia_keeps_smi_readings_and_amd_gets_counters(self):
+        from agiw_win.collect import merge_adapters
+        smi = [{"index": 0, "name": "NVIDIA GeForce RTX 3080 Ti", "utilizationPercent": 3.0, "memoryUsedMiB": 11764.0,
+                "memoryTotalMiB": 12288.0, "temperatureC": 39.0, "powerW": 7.3, "vendor": "nvidia"}]
+        adapters = [{"name": "AMD Radeon RX 5700 XT", "vendor": "amd", "luid": "A", "memoryTotalMiB": 8152,
+                     "utilizationPercent": 11.3, "memoryUsedMiB": 1701, "busiestEngine": "3D"},
+                    {"name": "NVIDIA GeForce RTX 3080 Ti", "vendor": "nvidia", "luid": "B", "memoryTotalMiB": 12086,
+                     "utilizationPercent": 0.0, "memoryUsedMiB": 11769, "busiestEngine": "3D"}]
+        rows = merge_adapters(smi, adapters)
+        self.assertEqual([r["name"] for r in rows], ["AMD Radeon RX 5700 XT", "NVIDIA GeForce RTX 3080 Ti"])
+        amd, nvidia = rows
+        self.assertEqual((amd["utilizationPercent"], amd["temperatureC"], amd["source"]), (11.3, None, "windows-gpu-counters"))
+        self.assertEqual((nvidia["index"], nvidia["temperatureC"], nvidia["luid"], nvidia["source"]), (0, 39.0, "B", "nvidia-smi"))
+
+    def test_no_counters_keeps_nvidia_rows(self):
+        from agiw_win.collect import merge_adapters
+        smi = [{"index": 0, "name": "X", "vendor": "nvidia"}]
+        self.assertEqual(merge_adapters(smi, [{"name": "AMD", "vendor": "amd", "luid": "A", "memoryTotalMiB": 1,
+                                               "utilizationPercent": None, "memoryUsedMiB": None}])[1], smi[0])
+
+
+class GpuEngines(unittest.TestCase):
+    """Codex round 2, finding 14: utilisation is the busiest physical engine, not a sum across engines."""
+
+    def test_busiest_engine_not_engine_type_sum(self):
+        import types
+        luid = "luid_0x00000000_0x0001123A_phys_0"
+        counters = types.SimpleNamespace()
+        counters.adapters = [{"name": "N", "vendor": "nvidia", "luid": "000000000001123A", "memoryTotalMiB": 1}]
+        counters.pdh = types.SimpleNamespace(PdhCollectQueryData=lambda _q: 0)
+        counters.query = None
+        engine_rows = [(f"pid_1_{luid}_eng_0_engtype_3D", 40.0), (f"pid_2_{luid}_eng_1_engtype_3D", 40.0),
+                       (f"pid_1_{luid}_eng_2_engtype_Compute_0", 30.0), (f"pid_2_{luid}_eng_2_engtype_Compute_0", 25.0)]
+        counters.engine, counters.memory = "engine", "memory"
+        counters._array = lambda which: engine_rows if which == "engine" else [(luid, 2 ** 30)]
+        rows = winsys.GpuCounters.sample(counters)
+        self.assertEqual(rows[0]["utilizationPercent"], 55.0)
+        self.assertEqual(rows[0]["busiestEngine"], "Compute_0")
+        self.assertEqual(rows[0]["memoryUsedMiB"], 1024)

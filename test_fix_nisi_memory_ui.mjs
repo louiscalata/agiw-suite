@@ -181,15 +181,16 @@ test('Memory: the view keeps the level, the numbers, the three largest users and
   assert.equal(view.alert, true);
   assert.equal(view.word, 'Memory tight');
   assert.equal(view.tile, 'Tight · 14% available · swap 3.2 GB');
-  // Largest first by what they hold (the GPU allocation counts), three at most, bad rows dropped.
+  // Largest first by what they hold (an older guard's GPU allocation still ranks), three at most, bad rows dropped. That
+  // allocation is the whole Mac's, so it is labelled as every app's, never as the user's own.
   assert.deepEqual(view.consumers.map(row => [row.label, row.text]), [
-    ['LM Studio', 'about 21 GB · 4 processes · + GPU allocation about 30 GB'], ['Safari', 'about 6.0 GB · 31 processes'],
+    ['LM Studio', 'about 21 GB · 4 processes · Mac GPU allocation about 30 GB (all apps)'], ['Safari', 'about 6.0 GB · 31 processes'],
     ['iOS Simulators (iPhone 17 Pro)', 'about 3.4 GB · 60 processes']]);
   // Suggestions are text only (backticks dropped).
   assert.deepEqual(view.suggestions, ['Unload idle model qwen/qwen3.8-27b from the monitor', 'Shut down unused iOS Simulators (xcrun simctl shutdown all)']);
   assert.deepEqual(view.rows[0], ['Level', 'Tight · only 14% of memory available · swap 3.2 GB (5% of RAM)']);
   // Measured amounts carry one decimal, like the Mac GPU tile beside them (same binary gigabytes).
-  assert.deepEqual(view.rows.slice(1), [['Available', '14% available'], ['Swap used', '3.2 GB'], ['Compressed', '9.0 GB'], ['GPU allocation', '30.0 GB']]);
+  assert.deepEqual(view.rows.slice(1), [['Available', '14% available'], ['Swap used', '3.2 GB'], ['Compressed', '9.0 GB'], ['GPU allocation (all apps)', '30.0 GB']]);
   assert.deepEqual(memoryView(tightBlock({ paused: [{ pid: 1 }, { pid: 2 }] }), { feedFresh: true }).rows.at(-1), ['Paused jobs', '2 paused by the memory guard']);
   assert.equal(memoryView(tightBlock({ swapUsedBytes: 0 }), { feedFresh: true }).tile, 'Tight · 14% available · no swap');
   assert.equal(memoryView(tightBlock({ availablePercent: 140, swapUsedBytes: 'lots' }), { feedFresh: true }).tile, 'Tight');
@@ -273,11 +274,12 @@ test('Memory: a Mac flapping on the tight threshold neither brings a dismissed b
 
 test('Memory: the banner is for tight and critical only; it names the level in words, the largest user and the first suggestion', () => {
   const tight = memoryView(tightBlock(), { feedFresh: true }), critical = memoryView(tightBlock({ level: 'critical' }), { feedFresh: true });
-  // LM Studio's GPU allocation (30 GB) is what ranks it first, so that is the figure the banner states.
+  // An older guard's row: the GPU allocation (30 GB) ranks LM Studio first, but it is the whole Mac's (every app's), so the
+  // banner states LM Studio's own resident size and names the allocation as the Mac's.
   assert.deepEqual(memoryBannerView(tight), { show: true, level: 'tight', mark: null, title: 'Memory tight',
-    text: 'LM Studio holds about 30 GB (GPU allocation) · Try: Unload idle model qwen/qwen3.8-27b from the monitor',
-    full: 'LM Studio holds about 30 GB (GPU allocation) · Try: Unload idle model qwen/qwen3.8-27b from the monitor',
-    announce: 'Memory tight. LM Studio holds about 30 GB (GPU allocation). Try: Unload idle model qwen/qwen3.8-27b from the monitor.' });
+    text: 'LM Studio uses about 21 GB · Mac GPU allocation about 30 GB (all apps) · Try: Unload idle model qwen/qwen3.8-27b from the monitor',
+    full: 'LM Studio uses about 21 GB · Mac GPU allocation about 30 GB (all apps) · Try: Unload idle model qwen/qwen3.8-27b from the monitor',
+    announce: 'Memory tight. LM Studio uses about 21 GB · Mac GPU allocation about 30 GB (all apps). Try: Unload idle model qwen/qwen3.8-27b from the monitor.' });
   assert.deepEqual([memoryBannerView(critical).mark, memoryBannerView(critical).title], ['!', 'Memory critical']);
   // Resident-led users keep "uses".
   const resident = memoryView(tightBlock({ consumers: [{ label: 'Safari', residentBytes: 6 * GIB, processCount: 31 }] }), { feedFresh: true });
@@ -303,24 +305,44 @@ test('Memory: the banner is for tight and critical only; it names the level in w
   assert.equal(memoryBannerView(null).show, false);
 });
 
-test('Memory: the GPU allocation ranks the users; the banner names the largest by that figure (mutant R1)', () => {
-  // mem_guard's own order (LM Studio first by its 30 GB GPU allocation), then the same users in reverse.
+test('Memory: an older guard\'s GPU allocation never ranks a user; the banner names it as the whole Mac\'s (mutant R1)', () => {
+  // An older guard's rows: LM Studio carries the Mac-wide 30 GB allocation (every app's) beside its own 2 GB. Either input
+  // order, Safari's 6 GB ranks first; LM Studio ranks by what it holds itself and keeps the Mac's figure as a note.
   const gpuHeavy = [{ group: 'llm-server', label: 'LM Studio', residentBytes: 2 * GIB, processCount: 4, gpuAllocBytes: 30 * GIB },
     { group: 'browser', label: 'Safari', residentBytes: 6 * GIB, processCount: 31 }];
   for (const consumers of [gpuHeavy, [...gpuHeavy].reverse()]) {
     const view = memoryView(tightBlock({ consumers }), { feedFresh: true });
-    assert.deepEqual(view.consumers.map(row => [row.label, row.weightBytes, row.gpuLed]), [['LM Studio', 30 * GIB, true], ['Safari', 6 * GIB, false]]);
-    assert.match(memoryBannerView(view).text, /^LM Studio holds about 30 GB \(GPU allocation\) · /);
+    assert.deepEqual(view.consumers.map(row => [row.label, row.weightBytes, row.gpuLed]), [['Safari', 6 * GIB, false], ['LM Studio', 2 * GIB, true]]);
+    assert.equal(view.consumers[1].text, 'about 2.0 GB · 4 processes · Mac GPU allocation about 30 GB (all apps)');
+    assert.match(memoryBannerView(view).text, /^Safari uses about 6\.0 GB · Try: /);
   }
-  // The review's case: 3.2 GB resident + 38 GB GPU against 25 GB of simulators.
+  // The review's case: 3.2 GB resident + 38 GB GPU against 25 GB of simulators. The simulators are the largest user.
   const review = memoryView(tightBlock({ level: 'critical', consumers: [
-    { group: 'ios-simulator', label: 'iOS Simulators', residentBytes: 25 * GIB, processCount: 60 },
-    { group: 'llm-server', label: 'LM Studio', residentBytes: Math.round(3.2 * GIB), processCount: 3, gpuAllocBytes: 38 * GIB }] }), { feedFresh: true });
-  assert.equal(review.consumers[0].text, 'about 3.2 GB · 3 processes · + GPU allocation about 38 GB');
+    { group: 'llm-server', label: 'LM Studio', residentBytes: Math.round(3.2 * GIB), processCount: 3, gpuAllocBytes: 38 * GIB },
+    { group: 'ios-simulator', label: 'iOS Simulators', residentBytes: 25 * GIB, processCount: 60 }] }), { feedFresh: true });
+  assert.deepEqual(review.consumers.map(row => [row.label, row.weightBytes]), [['iOS Simulators', 25 * GIB], ['LM Studio', Math.round(3.2 * GIB)]]);
+  assert.equal(review.consumers[1].text, 'about 3.2 GB · 3 processes · Mac GPU allocation about 38 GB (all apps)');
   const banner = memoryBannerView(review);
-  assert.match(banner.text, /^LM Studio holds about 38 GB \(GPU allocation\) · Try: /);
-  assert.match(banner.announce, /^Memory critical\. LM Studio holds about 38 GB \(GPU allocation\)\. /);
-  assert.doesNotMatch(banner.text + banner.announce, /uses about 3\.2 GB/);
+  assert.match(banner.text, /^iOS Simulators uses about 25 GB · Try: /);
+  assert.match(banner.announce, /^Memory critical\. iOS Simulators uses about 25 GB\. /);
+  // An old-guard server row that is the largest by its own memory still says the allocation is the whole Mac's.
+  const lead = memoryBannerView(memoryView(tightBlock({ consumers: [
+    { group: 'llm-server', label: 'LM Studio', residentBytes: Math.round(3.2 * GIB), processCount: 3, gpuAllocBytes: 38 * GIB },
+    { group: 'browser', label: 'Safari', residentBytes: GIB, processCount: 9 }] }), { feedFresh: true }));
+  assert.match(lead.text, /^LM Studio uses about 3\.2 GB · Mac GPU allocation about 38 GB \(all apps\) · Try: /);
+  assert.match(lead.announce, /^Memory tight\. LM Studio uses about 3\.2 GB · Mac GPU allocation about 38 GB \(all apps\)\. /);
+  // The whole Mac's allocation is never stated as what LM Studio holds.
+  for (const shown of [banner, lead]) assert.doesNotMatch(shown.text + shown.full + shown.announce, /holds|\(GPU allocation\)/);
+  // The live observer of 2026-10-10T21:50:45Z, still running the older guard in memory while it serves the new view: its
+  // 792 MB server row carries the Mac's 43 GB allocation, and the iOS Simulators hold 31 GB. The simulators lead.
+  const live = memoryView(tightBlock({ gpuAllocBytes: 46167703552, consumers: [
+    { group: 'llm-server', label: 'Local LLM server', residentBytes: 830930944, processCount: 8, gpuAllocBytes: 46167703552,
+      models: ['qwen/qwen3.8-27b', 'google/gemma-4-26b-a4b-qat'] },
+    { group: 'ios-simulator', label: 'iOS Simulators (iPhone 17e)', residentBytes: 33572438016, processCount: 60 },
+    { group: 'codex', label: 'Codex', residentBytes: 3649044480, processCount: 26 }],
+    suggestions: ['Shut down unused iOS Simulators (`xcrun simctl shutdown all`)', 'Unload idle model qwen/qwen3.8-27b from the monitor'] }), { feedFresh: true });
+  assert.deepEqual(live.consumers.map(row => row.label), ['iOS Simulators (iPhone 17e)', 'Codex', 'Local LLM server']);
+  assert.equal(memoryBannerView(live).text, 'iOS Simulators (iPhone 17e) uses about 31 GB · Try: Shut down unused iOS Simulators (xcrun simctl shutdown all)');
   // A GPU allocation below the resident size does not lead.
   const small = memoryView(tightBlock({ consumers: [{ label: 'LM Studio', residentBytes: 21 * GIB, processCount: 4, gpuAllocBytes: 5 * GIB }] }), { feedFresh: true });
   assert.equal(memoryBannerView(small).text.split(' · ')[0], 'LM Studio uses about 21 GB');
@@ -329,6 +351,97 @@ test('Memory: the GPU allocation ranks the users; the banner names the largest b
   assert.equal(tiny.consumers[0].text, 'under 1 MB · 1 process');
   const many = [...Array.from({ length: 200 }, (_, i) => ({ label: `proc${i}`, residentBytes: 1000 + i, processCount: 1 })), { label: 'Giant', residentBytes: 50 * GIB, processCount: 1 }];
   assert.equal(memoryView(tightBlock({ consumers: many }), { feedFresh: true }).consumers[0].label, 'Giant');
+});
+
+// The live snapshot of 2026-10-10T21:18:56Z (memory tight): the Nisi pair loaded and idle, macGpu.allocatedBytes 45,795,885,056
+// (IOGPU's figure for every app on the Mac), and mem_guard's tagged suggestions for the pair.
+const REVIEWER_TIP = 'Unload idle model qwen/qwen3.8-27b from the monitor (Nisi reviewer: Mac edit routes stop until it is reloaded)';
+const AUTHOR_TIP = 'Unload idle model google/gemma-4-26b-a4b-qat from the monitor (Nisi author: Mac edit routes stop until it is reloaded)';
+const llmServer = (extra = {}) => ({ group: 'llm-server', label: 'Local LLM server', residentBytes: 887668736, processCount: 8,
+  models: ['qwen/qwen3.8-27b', 'google/gemma-4-26b-a4b-qat'], loadedModelBytes: 31723011065, loadedModelCount: 2, ...extra });
+const liveBlock = (llm = llmServer()) => tightBlock({ gpuAllocBytes: 45795885056, consumers: [llm,
+  { group: 'codex', label: 'Codex', residentBytes: 3750576128, processCount: 26 }, { group: 'claude', label: 'Claude', residentBytes: 2737586176, processCount: 25 }],
+  suggestions: [REVIEWER_TIP, AUTHOR_TIP] });
+
+test('Memory: the LLM server is credited with its loaded models\' file sizes, never the whole Mac\'s GPU allocation', () => {
+  const view = memoryView(liveBlock(), { feedFresh: true });
+  // The banner is cut at its end on a narrow window, so the guard's Nisi caveat leads the action there.
+  assert.equal(memoryBannerView(view).text,
+    'Local LLM server holds about 30 GB in 2 loaded models (file size) · Try (Nisi reviewer: Mac edit routes stop until it is reloaded): Unload idle model qwen/qwen3.8-27b from the monitor');
+  assert.equal(memoryBannerView(view).announce,
+    'Memory tight. Local LLM server holds about 30 GB in 2 loaded models (file size). Try (Nisi reviewer: Mac edit routes stop until it is reloaded): Unload idle model qwen/qwen3.8-27b from the monitor.');
+  const [llm] = view.consumers;
+  assert.deepEqual([llm.label, llm.weightBytes, llm.modelLed, llm.gpuLed, llm.loadedModelCount, llm.gpuAllocBytes],
+    ['Local LLM server', 31723011065, true, false, 2, null]);
+  assert.equal(llm.text, 'about 847 MB · 8 processes · 2 loaded models about 30 GB (file size)');
+  assert.deepEqual(view.consumers.map(row => row.label), ['Local LLM server', 'Codex', 'Claude']);
+  assert.deepEqual(view.suggestions, [REVIEWER_TIP, AUTHOR_TIP], 'the tagged tips pass through whole');
+  // The Mac-wide figure stays in the Memory rows, labelled as every app's.
+  assert.deepEqual(view.rows.find(([label]) => label.startsWith('GPU allocation')), ['GPU allocation (all apps)', '42.7 GB']);
+  // One loaded model.
+  const one = memoryView(liveBlock(llmServer({ loadedModelBytes: 16081678492, loadedModelCount: 1 })), { feedFresh: true });
+  assert.equal(one.consumers[0].claim, 'holds about 15 GB in 1 loaded model (file size)');
+  assert.equal(one.consumers[0].text, 'about 847 MB · 8 processes · 1 loaded model about 15 GB (file size)');
+  // Loaded models of unknown size: the server ranks by its resident memory and says the size is unknown.
+  const unknown = memoryView(liveBlock(llmServer({ loadedModelBytes: null })), { feedFresh: true });
+  assert.equal(unknown.consumers[0].label, 'Codex');
+  const row = unknown.consumers.find(r => r.label === 'Local LLM server');
+  assert.deepEqual([row.claim, row.text, row.weightBytes, row.modelLed],
+    ['uses about 847 MB · loaded model size unknown', 'about 847 MB · 8 processes · 2 loaded models, size unknown', 887668736, false]);
+  // Nothing loaded, or a size with no count to say what it is the size of: resident memory only, as before.
+  for (const extra of [{ loadedModelCount: 0, loadedModelBytes: undefined }, { loadedModelCount: undefined }, { loadedModelCount: 0 }]) {
+    const view0 = memoryView(liveBlock(llmServer(extra)), { feedFresh: true });
+    const row0 = view0.consumers.find(r => r.label === 'Local LLM server');
+    assert.deepEqual([view0.consumers[0].label, row0.claim, row0.text, row0.weightBytes], ['Codex', 'uses about 847 MB', 'about 847 MB · 8 processes', 887668736], JSON.stringify(extra));
+  }
+  // Model files smaller than the resident size do not lead.
+  const small = memoryView(liveBlock(llmServer({ residentBytes: 4 * GIB, loadedModelBytes: GIB, loadedModelCount: 1 })), { feedFresh: true });
+  assert.equal(small.consumers[0].claim, 'uses about 4.0 GB');
+  // A bad count or size drops the row, like any other bad number on a consumer row.
+  for (const bad of [{ loadedModelCount: 257 }, { loadedModelCount: -1 }, { loadedModelCount: 1.5 }, { loadedModelCount: '2' }, { loadedModelCount: true },
+    { loadedModelBytes: -1 }, { loadedModelBytes: 2 ** 53 }, { loadedModelBytes: '31723011065' }, { loadedModelBytes: 1.5 }]) {
+    const dropped = memoryView(liveBlock(llmServer(bad)), { feedFresh: true });
+    assert.deepEqual(dropped.consumers.map(r => r.label), ['Codex', 'Claude'], JSON.stringify(bad));
+  }
+  // A PC-style row (no GPU allocation, no models) is unaffected.
+  const pc = memoryView(tightBlock({ consumers: [{ label: 'llama-server', residentBytes: 9 * GIB, processCount: 1, gpuAllocBytes: null }] }), { feedFresh: true });
+  assert.deepEqual([pc.consumers[0].claim, pc.consumers[0].text], ['uses about 9.0 GB', 'about 9.0 GB · 1 process']);
+  // No view states the Mac's GPU allocation as what one user holds.
+  for (const block of [liveBlock(), tightBlock(), liveBlock(llmServer({ loadedModelBytes: null, gpuAllocBytes: 45795885056 }))]) {
+    const banner = memoryBannerView(memoryView(block, { feedFresh: true }));
+    assert.doesNotMatch(banner.text + banner.full + banner.announce, /\(GPU allocation\)/);
+  }
+});
+
+test('Memory: in the banner a Nisi caveat comes before its action, so a clipped banner never shows the action alone', () => {
+  const bannerFor = tip => memoryBannerView(memoryView({ ...liveBlock(), suggestions: [tip] }, { feedFresh: true }));
+  const LEAD = 'Local LLM server holds about 30 GB in 2 loaded models (file size) · ';
+  const cases = [
+    [AUTHOR_TIP, 'Try (Nisi author: Mac edit routes stop until it is reloaded): Unload idle model google/gemma-4-26b-a4b-qat from the monitor'],
+    ['Unload idle model zeta-7b from the monitor (Nisi reviewer: Mac edit routes switch to another loaded model)',
+      'Try (Nisi reviewer: Mac edit routes switch to another loaded model): Unload idle model zeta-7b from the monitor'],
+    ['Unload idle model qwen/qwen3.8-27b from the monitor (a Nisi route is running: unloading can stop it)',
+      'Try (a Nisi route is running: unloading can stop it): Unload idle model qwen/qwen3.8-27b from the monitor'],
+    // A model id with its own parentheses: only the trailing caveat moves.
+    ['Unload idle model odd (v2) from the monitor (Nisi author: Mac edit routes stop until it is reloaded)',
+      'Try (Nisi author: Mac edit routes stop until it is reloaded): Unload idle model odd (v2) from the monitor'],
+    // Untagged tips, and parentheses that are not a Nisi caveat, keep their order.
+    ['Shut down unused iOS Simulators (`xcrun simctl shutdown all`)', 'Try: Shut down unused iOS Simulators (xcrun simctl shutdown all)'],
+    ['Unload idle model qwen/qwen3.8-27b from the monitor', 'Try: Unload idle model qwen/qwen3.8-27b from the monitor'],
+    ['Unload idle model nisi-7b from the monitor (Nisi says hi)', 'Try: Unload idle model nisi-7b from the monitor (Nisi says hi)'],
+    ['Unload idle model x from the monitor (Nisi boss: stop)', 'Try: Unload idle model x from the monitor (Nisi boss: stop)'],
+    ['2 background jobs paused', 'Try: 2 background jobs paused']];
+  for (const [tip, shown] of cases) {
+    const banner = bannerFor(tip);
+    assert.equal(banner.text, LEAD + shown, tip);
+    assert.equal(banner.full, LEAD + shown, tip);
+    assert.equal(banner.announce, `Memory tight. ${LEAD.slice(0, -3)}. ${shown}.`, tip);
+  }
+  // Every cut of a tagged banner that shows any of the action also shows the whole caveat before it.
+  const tagged = bannerFor(REVIEWER_TIP).text, action = tagged.indexOf('Unload idle model'), caveat = tagged.indexOf('(Nisi reviewer: Mac edit routes stop until it is reloaded)');
+  assert.ok(caveat > 0 && action > caveat + 'Nisi reviewer: Mac edit routes stop until it is reloaded'.length, tagged);
+  // The Memory section keeps the guard's own words, caveat last.
+  assert.deepEqual(memoryView(liveBlock(), { feedFresh: true }).suggestions, [REVIEWER_TIP, AUTHOR_TIP]);
 });
 
 test('Memory: the level is a closed reading; inherited keys, arrays and other values are unknown (mutant R4)', () => {

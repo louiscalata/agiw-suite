@@ -15,14 +15,25 @@ import selectors
 import shlex
 import shutil
 import signal
+import socket
 import stat
 import subprocess
 import threading
 import time
 from contextlib import contextmanager
+
+try:
+    import peer_feed
+except ImportError:  # an app bundle without the module still observes this Mac
+    peer_feed = None
+try:
+    import pair_status
+except ImportError:  # likewise: without it NVIDIA PAIR is simply unknown
+    pair_status = None
 from typing import Any, Iterator
 
 from nisi_v02 import collect_nisi_v02
+from machine_state import machines_summary
 
 # Router-concurrency P2 (spec 6.12, R2.9): these readers dual-read the legacy single-run
 # journal (active.json + owner.lock held EX for the whole run) and the per-run layout
@@ -32,9 +43,23 @@ from nisi_v02 import collect_nisi_v02
 ROUTER_READER_CONTRACT = "codemode.router.readers.v2"
 
 _API_HOST = "127.0.0.1"
+# Legacy default only. On this Mac NVIDIA PAIR's proxy holds 1234 and LM Studio itself listens on
+# 1235, so the native port comes from AGIW_LMSTUDIO_API_PORT, else from LM Studio's own
+# `lms server status --json`. It is never inferred from a shared catalog or the first open port,
+# and a present but invalid setting is an error, not a reason to try another port.
 _API_PORT = 1234
+_API_PORT_ENV = "AGIW_LMSTUDIO_API_PORT"
+_LMS_STATUS_MAX = 4096
+_LMS_STATUS_RETRY = 60.0
+_LMS_STATUS_CACHE: dict[str, Any] = {"nextCheck": float("-inf"), "value": None}
+_LMS_STATUS_LOCK = threading.Lock()
+_PAIR_TTL = 5.0
+_PAIR_CACHE: dict[str, Any] = {"nextCheck": float("-inf"), "value": None}
+_PAIR_LOCK = threading.Lock()
+_VIA_PAIR = "NVIDIA PAIR"
 _API_PATH = "/api/v1/models"
 _MAX_HTTP = 2 * 1024 * 1024
+_HTTP_DEADLINE = 1.0
 _MAX_CLI = 512 * 1024
 # Router checkpoints may include a bounded candidate envelope. Match the
 # router's 3 MiB active-record ceiling so an in-flight route remains observable.
@@ -174,7 +199,9 @@ def _finite(value: Any) -> bool:
 def _age(value: Any, now: float) -> float | None:
     if not _finite(value):
         return None
-    result = max(0.0, now - float(value))
+    result = now - float(value)
+    if result < 0:
+        return None
     return round(result, 3)
 
 
@@ -262,12 +289,14 @@ def _router_namespace_initialized() -> bool:
 def _bounded_command(arguments: list[str], *, limit: int = 8192,
                      timeout: float = 0.5,
                      cancel: threading.Event | None = None,
-                     ok_codes: tuple[int, ...] = (0,)) -> str:
+                     ok_codes: tuple[int, ...] = (0,),
+                     merge_stderr: bool = False) -> str:
     """Read only bounded process metadata; never invoke a shell or router command."""
     if cancel is not None and cancel.is_set():
         raise TimeoutError("process metadata cancelled")
     process = subprocess.Popen(arguments, stdin=subprocess.DEVNULL,
-                               stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                               stdout=subprocess.PIPE,
+                               stderr=subprocess.STDOUT if merge_stderr else subprocess.DEVNULL,
                                close_fds=True, start_new_session=True)
     output = bytearray()
     selector = None
@@ -1357,8 +1386,18 @@ def _router_projection(observation: dict[str, Any], now: float) -> dict[str, Any
               "queued": sum(1 for row in rows if _router_queued(row)),
               # A row changing under observation is re-checked next sample, not an unresolved run.
               "unresolved": sum(1 for row in rows if not row["live"] and row["state"] != "changing")}
+    complete = (not observation['error'] and not observation['truncated'] and _router_namespace_initialized()
+                and len(active) <= _ROUTER_PROJECTED and len(queued) <= _ROUTER_PROJECTED
+                and all(row['state'] not in ('unreadable', 'unverified', 'changing')
+                        # A lock/process verified in this observation establishes
+                        # liveness independently of the last checkpoint's age.
+                        and ((row['live'] and (row.get('lockBound') is True or row.get('pid') is not None
+                                              or row.get('layout') == 'note' and row.get('lockHeld') is True))
+                             or _finite(row.get('recordedUnix')) and -2 <= now - row['recordedUnix'] <= _MAX_AGE)
+                        for row in rows))
     return {"activeRuns": active[:_ROUTER_PROJECTED], "queuedRuns": queued[:_ROUTER_PROJECTED],
             "lanes": observation["lanes"], "runCounts": counts,
+            "runCountsComplete": complete,
             "admission": observation["admission"], "install": observation["install"],
             "runIdCollisions": list(observation.get("collisions") or []),
             "runsTruncated": observation["truncated"] or len(active) > _ROUTER_PROJECTED
@@ -1440,6 +1479,9 @@ def _online_code_mode_state(now: float, observed_at: str, router: dict[str, Any]
         mode["evidence"] = router["error"]
         return mode
     primary = router["primary"]
+    if primary is None and not mode['runCountsComplete']:
+        mode['evidence'] = 'Router inventory incomplete; current route counts unknown'
+        return mode
     if primary is None:
         mode["taskState"] = "idle"
         if router["install"]["state"] in ("missing", "invalid"):
@@ -1460,7 +1502,7 @@ def _online_code_mode_state(now: float, observed_at: str, router: dict[str, Any]
                         evidence="Task idle; launcher readiness receipt is invalid or unreadable, so current setup readiness is unverified")
         return mode
     counts = mode["runCounts"]
-    several = counts["running"] + counts["queued"] > 1
+    several = mode['runCountsComplete'] and counts["running"] + counts["queued"] > 1
     if primary["layout"] == "legacy":
         if primary["runId"] is None or primary["state"] == "unreadable" and primary.get("_verdict") is None:
             mode["evidence"] = "Router active record invalid or unreadable"
@@ -1514,9 +1556,166 @@ def _online_code_mode_state(now: float, observed_at: str, router: dict[str, Any]
     return mode
 
 
-def _bounded_http() -> dict[str, Any]:
-    connection = http.client.HTTPConnection(_API_HOST, _API_PORT, timeout=1.0)
+def _parse_lms_server_status(value: Any) -> dict[str, Any]:
+    """`lms server status --json`: {"running": bool, "port": int}. The port is LM Studio's own
+    configured server port; it is reported even when the server is stopped."""
+    if not isinstance(value, dict):
+        raise ValueError("lms server status is not an object")
+    port, running = value.get("port"), value.get("running")
+    if type(port) is not int or not 1 <= port <= 65535:
+        raise ValueError("lms server status has no valid port")
+    if running is not None and type(running) is not bool:
+        raise ValueError("lms server status has an invalid running flag")
+    return {"port": port, "running": running}
+
+
+def _lms_server_status() -> dict[str, Any] | None:
+    """Fresh running/port evidence; only a missing CLI receives the long backoff."""
+    now = time.monotonic()
+    with _LMS_STATUS_LOCK:
+        if now < _LMS_STATUS_CACHE["nextCheck"]:
+            return _LMS_STATUS_CACHE["value"]
+    retry = 0.0
     try:
+        value = _parse_lms_server_status(_bounded_lms_json(["server", "status", "--json"], _LMS_STATUS_MAX))
+    except FileNotFoundError:
+        value = None
+        retry = _LMS_STATUS_RETRY
+    except Exception:
+        value = None
+    with _LMS_STATUS_LOCK:
+        _LMS_STATUS_CACHE.update(value=value, nextCheck=now + retry)
+    return value
+
+
+def _native_api_endpoint(lms_status: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Loopback native API endpoint: {host, port, portSource}. portSource is "env"
+    (AGIW_LMSTUDIO_API_PORT), "lms" (LM Studio's own `lms server status`) or "default" (the legacy
+    1234, which NVIDIA PAIR's proxy may hold). No probing, scanning or fallback between them: a
+    present but invalid setting raises ValueError rather than silently reading another port."""
+    raw = os.environ.get(_API_PORT_ENV)
+    if raw is not None:
+        if not re.fullmatch(r"[1-9][0-9]{0,4}", raw) or int(raw) > 65535:
+            raise ValueError(f"{_API_PORT_ENV} must be a decimal TCP port from 1 to 65535")
+        return {"host": _API_HOST, "port": int(raw), "portSource": "env"}
+    if isinstance(lms_status, dict) and type(lms_status.get("port")) is int:
+        return {"host": _API_HOST, "port": lms_status["port"], "portSource": "lms"}
+    return {"host": _API_HOST, "port": _API_PORT, "portSource": "default"}
+
+
+def _listener_executable(pid: int) -> str | None:
+    """Kernel executable path only; never process arguments or environment."""
+    try:
+        import ctypes
+        lib = ctypes.CDLL("/usr/lib/libproc.dylib")
+        lib.proc_pidpath.argtypes = [ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32]
+        lib.proc_pidpath.restype = ctypes.c_int
+        buf = ctypes.create_string_buffer(4096)
+        if lib.proc_pidpath(pid, buf, len(buf)) > 0:
+            return buf.value.decode("utf-8")
+    except (OSError, ValueError, AttributeError):
+        pass
+    return None
+
+
+def _inventory_listener(port: int) -> tuple[int, str, str] | None:
+    """Fresh, unambiguous IPv4 listener owner at the selected loopback endpoint."""
+    try:
+        output = _bounded_command(["/usr/sbin/lsof", "-nP", "-b", "-w", "-a", "-i4TCP:" + str(port),
+                                   "-sTCP:LISTEN", "-F", "pfn"], limit=8192, ok_codes=(0, 1))
+        pid = None
+        owners = set()
+        for line in output.splitlines():
+            if line.startswith("p"):
+                pid = int(line[1:]) if line[1:].isdigit() else None
+            elif line.startswith("n") and line[1:] in (f"127.0.0.1:{port}", f"*:{port}"):
+                if pid is None or pid <= 0:
+                    return None
+                owners.add(pid)
+        if len(owners) != 1:
+            return None
+        pid = owners.pop()
+        executable = _listener_executable(pid)
+        if not executable:
+            return None
+        for root in (Path("/Applications"), _HOME / "Applications"):
+            if executable == str(root / "LM Studio.app/Contents/MacOS/LM Studio"):
+                return pid, "lmstudio", executable
+            pair_root = root / "NVIDIA PAIR.app/Contents"
+            path = Path(executable)
+            if (path.name == "nvpair-proxy" and ".." not in path.parts
+                    and pair_root in path.parents):
+                return pid, "pair", executable
+    except (OSError, ValueError, TimeoutError):
+        pass
+    return None
+
+
+def _lmstudio_route(port: int, lms_status: dict[str, Any] | None,
+                    listener: tuple | None) -> tuple[str, str]:
+    """Route identity needs a fresh local listener, never PAIR's peer claims."""
+    if listener is None:
+        return "unknown", "local listener owner is unidentified; inventory identity cannot be told"
+    if listener[1] == "pair":
+        return "via-pair", "local listener belongs to NVIDIA PAIR; proxy inventory has no verified machine attribution"
+    own = lms_status.get("port") if isinstance(lms_status, dict) else None
+    if listener[1] == "lmstudio" and port == own and lms_status.get("running") is True:
+        return "direct", f"read directly from LM Studio's own port {own} (fresh lms server status and listener owner)"
+    return "unknown", "fresh lms server status and local listener ownership do not establish a running LM Studio endpoint"
+
+
+def _pair_snapshot(now: float | None = None, *, refresh: bool = True) -> dict[str, Any] | None:
+    """Re-age cached PAIR file readings; overlays never open files to fill or refresh the cache."""
+    if pair_status is None:
+        return None
+    clock = time.monotonic()
+    with _PAIR_LOCK:
+        readings = _PAIR_CACHE["value"]
+        due = clock >= _PAIR_CACHE["nextCheck"]
+    if refresh and due:
+        try:
+            readings = pair_status.read_pair_files()
+        except Exception:
+            readings = ("reader-failed", {})
+        with _PAIR_LOCK:
+            _PAIR_CACHE.update(value=readings, nextCheck=clock + _PAIR_TTL)
+    if readings is None:
+        return None
+    try:
+        return pair_status.read_pair_status(now=now, readings=readings)
+    except Exception:
+        return {"schema": pair_status.SCHEMA, "state": "unknown", "reason": "reader-failed",
+                "detail": "NVIDIA PAIR status reader failed; state unknown", "installed": None,
+                "evidence": {"logAgeSeconds": None, "historyAgeSeconds": None}}
+
+
+def _bounded_http(endpoint: dict[str, Any] | None = None) -> dict[str, Any]:
+    """GET the native inventory. collect_snapshot passes the discovered endpoint; a call without one
+    uses the env-or-legacy port. Fixed-port callers must pass their endpoint explicitly."""
+    endpoint = endpoint or _native_api_endpoint(None)
+    if endpoint["host"] != _API_HOST:
+        raise ValueError("inventory endpoint must be IPv4 loopback")
+    deadline = time.monotonic() + _HTTP_DEADLINE
+    connection = http.client.HTTPConnection(endpoint["host"], endpoint["port"], timeout=_HTTP_DEADLINE)
+    timer = None
+    expired = threading.Event()
+    try:
+        connection.connect()
+        sock = connection.sock
+
+        def expire():
+            expired.set()
+            try:
+                sock.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("inventory read deadline exceeded")
+        timer = threading.Timer(remaining, expire)
+        timer.daemon = True
+        timer.start()
         connection.request("GET", _API_PATH, headers={"Accept": "application/json"})
         response = connection.getresponse()
         if response.status != 200:
@@ -1524,8 +1723,18 @@ def _bounded_http() -> dict[str, Any]:
         raw = response.read(_MAX_HTTP + 1)
         if len(raw) > _MAX_HTTP:
             raise ValueError("status response too large")
-        return _json_object(raw, _MAX_HTTP)
+        result = _json_object(raw, _MAX_HTTP)
+        if expired.is_set() or time.monotonic() >= deadline:
+            raise TimeoutError("inventory read deadline exceeded")
+        return result
+    except Exception:
+        if expired.is_set() or time.monotonic() >= deadline:
+            raise TimeoutError("inventory read deadline exceeded") from None
+        raise
     finally:
+        if timer is not None:
+            timer.cancel()
+            timer.join()
         connection.close()
 
 
@@ -1539,10 +1748,18 @@ def _find_lms() -> str | None:
 
 
 def _bounded_lms() -> dict[str, Any]:
+    value = _bounded_lms_json(["ps", "--json"], _MAX_CLI)
+    if not isinstance(value, list):
+        raise ValueError("lms response is not a list")
+    return {"models": value}
+
+
+def _bounded_lms_json(arguments: list[str], limit: int) -> Any:
+    """One `lms <arguments>` run with a one-second deadline and an output cap; its stdout as JSON."""
     executable = _find_lms()
     if not executable:
         raise FileNotFoundError("lms unavailable")
-    process = subprocess.Popen([executable, "ps", "--json"], stdin=subprocess.DEVNULL,
+    process = subprocess.Popen([executable, *arguments], stdin=subprocess.DEVNULL,
                                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                                close_fds=True, start_new_session=True)
     assert process.stdout is not None
@@ -1557,26 +1774,23 @@ def _bounded_lms() -> dict[str, Any]:
                 raise TimeoutError("lms status timed out")
             events = selector.select(min(remaining, 0.1))
             if events:
-                part = os.read(process.stdout.fileno(), min(65536, _MAX_CLI + 1 - len(output)))
+                part = os.read(process.stdout.fileno(), min(65536, limit + 1 - len(output)))
                 if not part:
                     break
                 output.extend(part)
-                if len(output) > _MAX_CLI:
+                if len(output) > limit:
                     raise ValueError("lms output too large")
             elif process.poll() is not None:
                 # Drain remaining bytes after process exit.
-                part = os.read(process.stdout.fileno(), min(65536, _MAX_CLI + 1 - len(output)))
+                part = os.read(process.stdout.fileno(), min(65536, limit + 1 - len(output)))
                 if not part:
                     break
                 output.extend(part)
-                if len(output) > _MAX_CLI:
+                if len(output) > limit:
                     raise ValueError("lms output too large")
         if process.wait(timeout=max(0.01, deadline - time.monotonic())) != 0:
             raise OSError("lms status failed")
-        value = json.loads(output.decode("utf-8"))
-        if not isinstance(value, list):
-            raise ValueError("lms response is not a list")
-        return {"models": value}
+        return json.loads(output.decode("utf-8"))
     finally:
         selector.close()
         process.stdout.close()
@@ -1634,6 +1848,9 @@ def _api_model_metadata(item: dict[str, Any]) -> dict[str, Any]:
                 "parallel": _integer(config.get("parallel"), 1, 10000),
                 "remainingTtlSeconds": _integer(raw.get("remaining_ttl_seconds")),
             })
+    instance_count = (len(instances) if isinstance(instances, list) and len(instances) <= 16
+                      and loaded_instances is not None and len(loaded_instances) == len(instances)
+                      and len({row['id'] for row in loaded_instances}) == len(instances) else None)
     return {
         "type": _metadata_label(item.get("type")),
         "publisher": _metadata_label(item.get("publisher")),
@@ -1651,7 +1868,7 @@ def _api_model_metadata(item: dict[str, Any]) -> dict[str, Any]:
             "reasoningOptions": options,
         },
         "loadedInstances": loaded_instances,
-        "loadedInstanceCount": len(instances) if isinstance(instances, list) else None,
+        "loadedInstanceCount": instance_count,
     }
 
 
@@ -1691,17 +1908,25 @@ def _model_row(model_id: str, name: str, *, state: str, loaded: bool | None,
     }
 
 
+class _IncompleteInventoryError(ValueError):
+    pass
+
+
 def _parse_api(payload: dict[str, Any], now: float) -> list[dict[str, Any]]:
     entries = payload.get("models")
     if not isinstance(entries, list):
         raise ValueError("model list missing")
+    if len(entries) > 256:
+        raise _IncompleteInventoryError("Local inventory incomplete: model list exceeds 256 entries; this source cannot establish the loaded count")
     rows = []
-    for item in entries[:256]:
+    seen = set()
+    for item in entries:
         if not isinstance(item, dict):
-            continue
+            raise _IncompleteInventoryError("Local inventory incomplete: invalid model row; this source cannot establish the loaded count")
         candidate = _text(item.get("key")) or _text(item.get("id"))
-        if not candidate or not _MODEL_ID.fullmatch(candidate):
-            continue
+        if not candidate or not _MODEL_ID.fullmatch(candidate) or candidate in seen:
+            raise _IncompleteInventoryError("Local inventory incomplete: invalid or duplicate model identifier; this source cannot establish the loaded count")
+        seen.add(candidate)
         model_id = candidate
         name = _metadata_label(item.get("display_name")) or model_id
         instances = item.get("loaded_instances")
@@ -1721,8 +1946,15 @@ def _parse_api(payload: dict[str, Any], now: float) -> list[dict[str, Any]]:
         row["loadedInstanceIds"] = (
             [instance["id"] for instance in instances_detail]
             if (isinstance(raw_instances, list) and len(raw_instances) <= 16
-                and instances_detail is not None and len(instances_detail) == len(raw_instances))
+                and instances_detail is not None and len(instances_detail) == len(raw_instances)
+                and len({instance['id'] for instance in instances_detail}) == len(raw_instances))
             else None)
+        # A catalog row is not a runtime-instance count. Until the CLI accounts
+        # for each alias, multiple or unprojectable instances forbid an exact total.
+        row["inventoryComplete"] = (row["loadedInstanceIds"] is not None
+                                    and len(row["loadedInstanceIds"]) <= 1)
+        if loaded is True and not instances_detail:
+            row.update(loaded=None, state='unknown')
         rows.append(row)
     return rows
 
@@ -1731,14 +1963,18 @@ def _parse_lms(payload: dict[str, Any], now: float) -> list[dict[str, Any]]:
     entries = payload.get("models")
     if not isinstance(entries, list):
         raise ValueError("model list missing")
+    if len(entries) > 256:
+        raise _IncompleteInventoryError("Local inventory incomplete: model list exceeds 256 entries; this source cannot establish the loaded count")
     rows = []
-    for item in entries[:256]:
+    seen = set()
+    for item in entries:
         if not isinstance(item, dict):
-            continue
+            raise _IncompleteInventoryError("Local inventory incomplete: invalid model row; this source cannot establish the loaded count")
         candidate = (_text(item.get("identifier")) or _text(item.get("modelKey"))
                      or _text(item.get("key")) or _text(item.get("id")))
-        if not candidate or not _MODEL_ID.fullmatch(candidate):
-            continue
+        if not candidate or not _MODEL_ID.fullmatch(candidate) or candidate in seen:
+            raise _IncompleteInventoryError("Local inventory incomplete: invalid or duplicate model identifier; this source cannot establish the loaded count")
+        seen.add(candidate)
         model_id = candidate
         name = _metadata_label(item.get("displayName")) or model_id
         # Restrict generation claims to exact reported values. Unknown enums stay unknown.
@@ -1757,11 +1993,30 @@ def _parse_lms(payload: dict[str, Any], now: float) -> list[dict[str, Any]]:
 
 
 def _merge_cli_rows(models_by_id: dict[str, dict[str, Any]],
-                    cli_rows: list[dict[str, Any]]) -> None:
-    api_by_key = {row["modelKey"]: row for row in models_by_id.values()
-                  if row.get("source") == "lmstudio-api" and row.get("modelKey")}
+                    cli_rows: list[dict[str, Any]], *, isolate_collisions: bool = False) -> list[dict[str, Any]]:
+    api_by_id = {row["id"]: row for row in models_by_id.values() if row.get("source") == "lmstudio-api"}
+    api_by_key = {row["modelKey"]: row for row in api_by_id.values() if row.get("modelKey")}
+    api_by_instance = {}
+    for api in api_by_id.values():
+        for instance in api.get("loadedInstanceIds") or []:
+            # Only an unambiguous instance ID can supply a missing CLI model key.
+            api_by_instance[instance] = api if instance not in api_by_instance else None
+    # Validate all collisions before mutating any row. Inventing a replacement ID
+    # would break model_control's exact model-key/instance-ID confirmation contract.
     for row in cli_rows:
-        previous = models_by_id.get(row["id"]) or api_by_key.get(row["modelKey"])
+        same_id = models_by_id.get(row["id"])
+        if (not isolate_collisions and same_id and row.get("modelKey") is not None
+                and same_id.get("modelKey") != row["modelKey"]):
+            raise _IncompleteInventoryError(
+                "Local inventory incomplete: instance identifier conflicts with another model key; "
+                "this source cannot establish the loaded count")
+    collisions = []
+    for row in cli_rows[:256]:
+        previous = (api_by_key.get(row["modelKey"]) if row["modelKey"] is not None
+                    else api_by_instance.get(row["instanceId"]))
+        coincident = api_by_id.get(row["id"])
+        if previous is None and coincident and row["modelKey"] in (None, coincident["modelKey"], coincident["id"]):
+            previous = coincident
         if previous:
             if row["context"] is None:
                 row["context"] = previous["context"]
@@ -1769,16 +2024,47 @@ def _merge_cli_rows(models_by_id: dict[str, dict[str, Any]],
                 row["sizeBytes"] = previous["sizeBytes"]
             if row["metadata"] is None:
                 row["metadata"] = previous["metadata"]
+                if not (_finite(previous.get('ageSeconds')) and 0 <= previous['ageSeconds'] <= 3):
+                    row['metadata'] = {**(row['metadata'] or {}), 'loadedInstances': None, 'loadedInstanceCount': None}
             if row["name"] == row["id"]:
                 row["name"] = previous["name"]
             if row["modelKey"] is None:
-                row["modelKey"] = previous["modelKey"]
-            # Only the same-ID row may inherit the API's complete instance
-            # list. An alias remains a separate CLI row; duplicating the list
-            # would make independent API confirmation appear twice.
-            if row["loadedInstanceIds"] is None and row["id"] == previous["id"]:
+                row["modelKey"] = previous["modelKey"] or previous["id"]
+            # Only the same-ID row may inherit the API's complete instance list.
+            if (row["loadedInstanceIds"] is None and row["id"] == previous["id"]
+                    and _finite(previous.get('ageSeconds')) and 0 <= previous['ageSeconds'] <= 3):
                 row["loadedInstanceIds"] = previous["loadedInstanceIds"]
+        if coincident and row["modelKey"] != (coincident["modelKey"] or coincident["id"]):
+            # Inventory keys and instance IDs are separate namespaces. Preserve the
+            # inventory and keep this activity out of flat UI/control row identities.
+            collisions.append({key: row[key] for key in ("id", "host", "modelKey", "instanceId",
+                "loadedInstanceIds", "loaded", "state", "source", "ageSeconds")})
+            continue
         models_by_id[row["id"]] = row
+    for row in models_by_id.values():
+        if row.get("source") != "lmstudio-api":
+            continue
+        instances = row.get("loadedInstanceIds")
+        matching = {cli["id"] for cli in cli_rows
+                    if cli.get("modelKey") == row.get("modelKey")
+                    and cli.get("instanceId") == cli["id"]}
+        # Keep API confirmation for model_control, but do not count its catalog
+        # row as another loaded instance once all instances have CLI evidence.
+        if (row.get("modelKey") and isinstance(instances, list) and instances
+                and set(instances) == matching and not any(c["id"] in matching for c in collisions)):
+            row["representedByInstances"] = True
+        elif matching and not any(c["id"] in matching for c in collisions):
+            row["inventoryComplete"] = False
+    # A same-ID CLI row can replace the catalog itself. Preserve contradictory
+    # instance evidence in that case too; otherwise the missing aliases vanish.
+    for catalog in api_by_key.values():
+        matching = {row['id'] for row in cli_rows if row.get('modelKey') == catalog['modelKey']}
+        instances = catalog.get('loadedInstanceIds')
+        if catalog.get('loaded') is True and matching and (instances is None or set(instances) != matching):
+            for row in cli_rows:
+                if row.get('modelKey') == catalog['modelKey']:
+                    row['inventoryComplete'] = False
+    return collisions
 
 
 def _pipeline_rows(observation: dict[str, Any], now: float) -> list[dict[str, Any]]:
@@ -1838,6 +2124,8 @@ def _pipeline(now: float, router: dict[str, Any] | None = None) -> tuple[dict[st
             raise _RouterInstalling()
         if router["error"]:
             raise ValueError(router["error"])
+        if primary is None and router['truncated']:
+            raise ValueError('Router listing incomplete')
         if primary is None:
             raise FileNotFoundError("no router run record")
         if _router_queued(primary):
@@ -1944,6 +2232,11 @@ def _pipeline(now: float, router: dict[str, Any] | None = None) -> tuple[dict[st
         source["detail"] = "Nisi marker invalid or unreadable"
         pipeline["pendingMarkerUnreadable"] = True
     pipeline["pipelines"] = _pipeline_rows(router, now)
+    pipeline['pipelinesComplete'] = (_router_projection(router, now)['runCountsComplete']
+                                     and len(router['rows']) <= _ROUTER_PROJECTED)
+    if source["state"] in ("live", "recorded"):
+        source["observationAgeSeconds"] = 0.0
+    pipeline['runsTruncated'] = router.get('truncated') is True or len(router['rows']) > _ROUTER_PROJECTED
     return pipeline, source
 
 
@@ -2010,7 +2303,7 @@ def _mark_live_route(pipeline: dict[str, Any], source: dict[str, Any], mode: dic
             # The route is live, but a marker that could not be read stays an error.
             source.update(state="error", detail=detail + "; Nisi marker invalid or unreadable")
         else:
-            source.update(state="live", detail=detail)
+            source.update(state="live", observationAgeSeconds=0.0, detail=detail)
 
 
 def _canary(now: float) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -2412,7 +2705,9 @@ def _windows_worker(now: float) -> tuple[dict[str, Any], dict[str, Any]]:
                 cache["probeError"] = True
                 _WINDOWS_WORKER_THREAD = None
         heartbeat = cache["heartbeatUnix"]
-        age = _age(heartbeat, now)
+        # Preserve precision until the final display; a rounded age can cross
+        # the heartbeat boundary when the browser adds its elapsed sample time.
+        age = now - float(heartbeat) if _finite(heartbeat) and heartbeat <= now else None
         available = age is not None and age <= _WINDOWS_WORKER_MAX_AGE
         probe_error = cache.get("probeError") is True
         probe_paused = cache.get("probePaused") is True
@@ -2453,7 +2748,7 @@ def _windows_worker(now: float) -> tuple[dict[str, Any], dict[str, Any]]:
             "state": condition if condition in ("degraded", "stopped") else "advertised" if available else "unknown",
             "ageSeconds": age,
             "modelsAdvertised": list(cache["modelsAdvertised"]) if available else [],
-            "modelCount": cache["modelCount"] if available else 0,
+            "modelCount": cache["modelCount"] if available else None,
             "detail": detail,
             "stuckReaders": stuck if probe_paused else 0,
             # Advisory lane detail from the same fresh heartbeat; never shown once the
@@ -2496,12 +2791,17 @@ def _pid_alive(pid: int | None) -> bool:
     return True
 
 
+class _JournalTail(bytes):
+    """A byte-compatible tail that retains the fact that earlier records were cut."""
+    complete = False
+
+
 def _read_windows_journal() -> bytes | None:
     """Read the tail of the local journal without following links; None if absent."""
     try:
         before = _WINDOWS_JOBS_PATH.lstat()
     except FileNotFoundError:
-        return None
+        return None, False
     if not stat.S_ISREG(before.st_mode):
         raise ValueError("journal is not a regular file")
     fd = os.open(str(_WINDOWS_JOBS_PATH), os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
@@ -2523,7 +2823,9 @@ def _read_windows_journal() -> bytes | None:
             size += len(part)
         raw = b"".join(chunks)
         # A mid-file start can split one record; drop that partial first line.
-        return raw.split(b"\n", 1)[1] if start and b"\n" in raw else raw
+        after = os.fstat(fd)
+        changed = (info.st_size, info.st_mtime_ns) != (after.st_size, after.st_mtime_ns)
+        return _JournalTail(raw.split(b"\n", 1)[1] if start and b"\n" in raw else raw) if start or changed else raw
     finally:
         os.close(fd)
 
@@ -2540,12 +2842,13 @@ def _windows_jobs(now: float) -> tuple[dict[str, Any], dict[str, Any]]:
     dispatcher validated a returned remote result for that job at that time; it
     is not a certification and does not prove the worker is generating now.
     """
-    summary: dict[str, Any] = {"schemaVersion": 1, "journal": "absent", "inFlight": [],
-                               "recent": [], "lastSuccess": None, "unsettled": 0, "clientsRecent": {}}
+    summary: dict[str, Any] = {"schemaVersion": 1, "journal": "absent", "complete": False, "inFlight": [],
+                               "recent": [], "lastSuccess": None, "unsettled": None, "clientsRecent": {}}
     source = {"id": "windows-jobs", "label": "Windows jobs", "state": "unavailable",
               "ageSeconds": None, "detail": "No Windows job has been journaled on this Mac yet"}
     try:
-        raw = _read_windows_journal()
+        journal = _read_windows_journal()
+        raw, truncated = journal if isinstance(journal, tuple) else (journal, not getattr(journal, 'complete', True))
     except (OSError, ValueError):
         summary["journal"] = "invalid"
         source.update(state="error", detail="Windows job journal is unreadable or not owner-private")
@@ -2554,15 +2857,21 @@ def _windows_jobs(now: float) -> tuple[dict[str, Any], dict[str, Any]]:
         return summary, source
     jobs: dict[str, dict[str, Any]] = {}
     latest: float | None = None
-    for line in raw.splitlines()[-2000:]:
+    lines = raw.splitlines()
+    read_complete = not truncated and getattr(raw, 'complete', True) and len(lines) <= 2000
+    for line in lines[-2000:]:
+        if not line.strip():
+            continue
         try:
             record = _json_object(line, 4096)
         except (ValueError, UnicodeError):
+            read_complete = False
             continue
         job_id, event = record.get("id"), record.get("event")
-        unix = _finite_number(record.get("unix"), 0.0, now + 5)
+        unix = _finite_number(record.get("unix"), 0.0, now)
         if (record.get("v") != 1 or event not in _WINDOWS_JOBS_EVENTS or unix is None
                 or not isinstance(job_id, str) or not _WINDOWS_JOB_ID.fullmatch(job_id)):
+            read_complete = False
             continue
         latest = unix if latest is None else max(latest, unix)
         job = jobs.setdefault(job_id, {"id": job_id, "state": None, "model": None,
@@ -2592,6 +2901,7 @@ def _windows_jobs(now: float) -> tuple[dict[str, Any], dict[str, Any]]:
         elif event == "result":
             status = record.get("status")
             if status not in _WINDOWS_JOB_RESULTS:
+                read_complete = False
                 continue
             if status == "cancelled":
                 # Settled: the worker stopped or skipped the job. There is no answer, so no speed,
@@ -2633,7 +2943,7 @@ def _windows_jobs(now: float) -> tuple[dict[str, Any], dict[str, Any]]:
                 unsettled += 1
             if now - started <= budget and _pid_alive(job["pid"]):
                 in_flight.append({"id": job["id"], "model": job["model"],
-                                  "ageSeconds": _age(started, now), "timeoutSeconds": job["timeout"],
+                                  "ageSeconds": now - started, "timeoutSeconds": job["timeout"],
                                   "cancelRequested": job["cancelRequested"], **_windows_job_evidence(job)})
                 continue
             # The dispatcher stops waiting at timeout + 30 s, and a client that
@@ -2645,7 +2955,7 @@ def _windows_jobs(now: float) -> tuple[dict[str, Any], dict[str, Any]]:
         if settled is None:
             continue
         row = {"id": job["id"], "state": job["state"], "model": job["model"],
-               "elapsedSeconds": job["elapsedSeconds"], "ageSeconds": _age(settled, now),
+               "elapsedSeconds": job["elapsedSeconds"], "ageSeconds": now - settled,
                **_windows_job_evidence(job)}
         if now - settled <= _WINDOWS_JOBS_RECENT_SECONDS:
             recent.append(row)
@@ -2657,19 +2967,38 @@ def _windows_jobs(now: float) -> tuple[dict[str, Any], dict[str, Any]]:
     clients: dict[str, int] = {}
     for row in recent[:10]:
         clients[row["client"] or "unknown"] = clients.get(row["client"] or "unknown", 0) + 1
-    summary.update(journal="recorded", inFlight=in_flight[:8], recent=recent[:10],
-                   lastSuccess=last_success, unsettled=unsettled, clientsRecent=clients)
+    # This read observes the journal now. Event time controls job timeout and
+    # result recency, not whether a fully read, quiet journal is complete.
+    complete = read_complete and (latest is None or latest <= now)
+    # An incomplete read (A4 truncation or A1 cut tail, invalid records, over 2000
+    # lines) invalidates the journal, the exact unsettled count and live availability.
+    summary.update(journal="recorded" if read_complete else "invalid", observationAgeSeconds=0.0,
+                   inFlight=in_flight[:8], recent=recent[:10], complete=complete,
+                   lastSuccess=last_success, unsettled=unsettled if read_complete else None, clientsRecent=clients,
+                   availability={"state": "available" if read_complete else "unknown"}, liveAvailable=read_complete,
+                   projectionComplete=len(in_flight) <= 8 and len(recent) <= 10,
+                   truncated=len(in_flight) > 8 or len(recent) > 10,
+                   inFlightTruncated=len(in_flight) > 8, recentTruncated=len(recent) > 10)
     age = _age(latest, now) if latest is not None else None
     if in_flight:
         detail = f"{len(in_flight)} Windows job{'s' if len(in_flight) != 1 else ''} in flight"
         state = "live"
+    elif unsettled:
+        detail = "Unsettled Windows work recorded; current execution unknown"
+        state = "recorded"
     elif last_success is not None:
         detail = "Last journaled Windows result validated; no job in flight"
         state = "recorded"
     else:
         detail = "Windows jobs journaled; no validated result yet"
         state = "recorded"
-    source.update(state=state, ageSeconds=age, detail=detail)
+    if not read_complete:
+        # A missing terminal record can make a retained enqueue look open.
+        # That is not even a lower bound on work running now.
+        detail = "Journal read incomplete or contains invalid records"
+        state = "error"
+    source.update(state=state, ageSeconds=age, observationAgeSeconds=0.0, observedAgeSeconds=0.0,
+                  complete=read_complete, detail=detail)
     return summary, source
 
 
@@ -2720,10 +3049,12 @@ def _scan_jev_judgment(archive: Path) -> tuple[float | None, str | None]:
 
 
 def _route_components(pipeline: dict[str, Any], nisi_v02: dict[str, Any],
-                      models_by_id: dict[str, dict[str, Any]], now: float) -> list[dict[str, Any]]:
+                      models_by_id: dict[str, dict[str, Any]], now: float,
+                      inventory_complete: bool = False, *, models_complete: bool = True) -> list[dict[str, Any]]:
     """Project Nisi and Jev readiness from local evidence; neither is invoked."""
-    loaded = sorted(row["id"] for row in models_by_id.values()
-                    if row.get("loaded") is True and "embed" not in str(row.get("id")).lower())
+    loaded = sorted({row.get("modelKey") or row["id"] for row in models_by_id.values()
+                     if row.get("loaded") is True and not row.get("representedByInstances")
+                     and "embed" not in str(row.get("modelKey") or row.get("id")).lower()})
     if pipeline.get("pendingMarkerAttributedTo"):
         # A 5-key marker whose exact runId belongs to a verified-live route: its call is in flight.
         nisi = {"state": "in-use",
@@ -2731,7 +3062,9 @@ def _route_components(pipeline: dict[str, Any], nisi_v02: dict[str, Any],
     elif pipeline.get("pendingMarkerObserved"):
         nisi = {"state": "unresolved", "detail": "Nisi pending marker present; the owner must recover it"}
     elif nisi_v02.get("runtimeIntegrity") == "VERIFIED" and nisi_v02.get("hostBinding") == "VERIFIED":
-        if len(loaded) >= 2:
+        if not inventory_complete or not models_complete:
+            nisi = {"state": "unknown", "detail": "v0.2 pins verified; loaded models unknown"}
+        elif len(loaded) >= 2:
             # Mirrors the router: the default model authors (and answers chat)
             # when resident; the review is the lexically first other resident.
             if _DEFAULT_ROUTE_MODEL in loaded:
@@ -2773,24 +3106,75 @@ def collect_snapshot() -> dict[str, Any]:
     observed = _dt.datetime.fromtimestamp(sampled, _dt.timezone.utc).isoformat().replace("+00:00", "Z")
     sources: list[dict[str, Any]] = []
     models_by_id: dict[str, dict[str, Any]] = {}
+    instance_observations: list[dict[str, Any]] = []
 
+    pair = _pair_snapshot()
+    lms_status = _lms_server_status()
     try:
-        api_rows = _parse_api(_bounded_http(), sampled)
-        sources.append({"id": "lmstudio-api", "label": "LM Studio inventory", "state": "live",
-                        "ageSeconds": 0.0, "detail": "Local model inventory sampled"})
-        models_by_id.update((row["id"], row) for row in api_rows)
-    except TimeoutError:
-        sources.append({"id": "lmstudio-api", "label": "LM Studio inventory", "state": "unavailable",
-                        "ageSeconds": None, "detail": "Local inventory timed out or unavailable"})
-    except Exception:
+        endpoint = _native_api_endpoint(lms_status)
+    except ValueError as error:
         sources.append({"id": "lmstudio-api", "label": "LM Studio inventory", "state": "error",
-                        "ageSeconds": None, "detail": "Local inventory invalid or unavailable"})
+                        "ageSeconds": None, "endpoint": None, "endpointConfigured": True,
+                        "portSource": "env", "route": "unknown", "via": None,
+                        "detail": f"{error}; native inventory was not sampled and no other port was tried"})
+    else:
+        # An unknown status must not turn the historical default into a proxy probe.
+        listener = (_inventory_listener(endpoint["port"])
+                    if isinstance(lms_status, dict) else None)
+        route, why = _lmstudio_route(endpoint["port"], lms_status, listener)
+        via = _VIA_PAIR if route == "via-pair" else None
+        where = {"env": f"{_API_PORT_ENV}", "lms": "lms server status",
+                 "default": f"legacy default; set {_API_PORT_ENV} or start lms"}[endpoint["portSource"]]
+        row = {"id": "lmstudio-api", "label": "LM Studio inventory" + (f" via {via}" if via else ""),
+               "endpoint": f"{endpoint['host']}:{endpoint['port']}",
+               "endpointConfigured": endpoint["portSource"] == "env",
+               "portSource": endpoint["portSource"], "route": route, "via": via}
+        suffix = f" at {row['endpoint']} (port from {where}); {why}"
+        if isinstance(lms_status, dict) and lms_status.get("running") is False:
+            suffix += "; lms reported its server stopped"
+        try:
+            if route == "unknown":
+                sources.append({**row, "state": "unavailable", "ageSeconds": None,
+                                "detail": "Inventory not sampled: endpoint identity unknown" + suffix})
+            else:
+                api_payload = _bounded_http(endpoint)
+                api_rows = _parse_api(api_payload, sampled)
+                if _inventory_listener(endpoint["port"]) != listener:
+                    sources.append({**row, "state": "unavailable", "ageSeconds": None,
+                                    "route": "unknown", "via": None, "label": "LM Studio inventory",
+                                    "detail": "Local listener changed during inventory read; response discarded"})
+                elif route == "direct":
+                    identity = ({"pid": listener[0], "kind": listener[1], "executable": listener[2]}
+                                if len(listener) == 3 else None)
+                    sources.append({**row, "state": "live", "ageSeconds": 0.0,
+                                    "verifiedListener": identity,
+                                    "modelsComplete": len({item["id"] for item in api_rows}) == len(api_payload["models"]),
+                                    "detail": "Local model inventory sampled" + suffix})
+                    models_by_id.update((item["id"], item) for item in api_rows)
+                else:
+                    sources.append({**row, "state": "recorded", "ageSeconds": 0.0,
+                                    "detail": "Proxy responded; Mac residency and loaded count remain unknown" + suffix})
+        except _IncompleteInventoryError as error:
+            sources.append({**row, "state": "error", "ageSeconds": None, "modelsComplete": False,
+                            "detail": str(error) + suffix})
+        except TimeoutError:
+            sources.append({**row, "state": "unavailable", "ageSeconds": None,
+                            "reasonCode": "timeout", "detail": "Local inventory timed out or unavailable" + suffix})
+        except Exception as exc:
+            sources.append({**row, "state": "error", "ageSeconds": None,
+                            "reasonCode": ("refused" if isinstance(exc, ConnectionRefusedError) else "non_json" if isinstance(exc, (json.JSONDecodeError, UnicodeError)) else "oversize" if isinstance(exc, ValueError) and "too large" in str(exc) else "read_error" if isinstance(exc, OSError) else "schema_invalid"),
+                            "detail": "Local inventory invalid or unavailable" + suffix})
 
     try:
-        cli_rows = _parse_lms(_bounded_lms(), sampled)
+        cli_payload = _bounded_lms()
+        cli_rows = _parse_lms(cli_payload, sampled)
+        instance_observations = _merge_cli_rows(models_by_id, cli_rows, isolate_collisions=True)
         sources.append({"id": "lms-ps", "label": "LM Studio activity", "state": "live",
+                        "modelsComplete": len({row["id"] for row in cli_rows}) == len(cli_payload["models"]),
                         "ageSeconds": 0.0, "detail": "Loaded models and reported activity sampled"})
-        _merge_cli_rows(models_by_id, cli_rows)
+    except _IncompleteInventoryError as error:
+        sources.append({"id": "lms-ps", "label": "LM Studio activity", "state": "error",
+                        "ageSeconds": None, "modelsComplete": False, "detail": str(error)})
     except TimeoutError:
         sources.append({"id": "lms-ps", "label": "LM Studio activity", "state": "unavailable",
                         "ageSeconds": None, "detail": "lms status timed out"})
@@ -2803,6 +3187,19 @@ def collect_snapshot() -> dict[str, Any]:
                 row["state"] = "loaded"
             elif row["loaded"] is False:
                 row["state"] = "unloaded"
+
+    if len(models_by_id) > 256:
+        # A complete source can still overflow the projection after API/CLI merging.
+        for source in sources:
+            if source["id"] in ("lmstudio-api", "lms-ps"):
+                source.update(state="error", ageSeconds=None, modelsComplete=False,
+                              detail="Local combined inventory incomplete: model list exceeds 256 entries; this source cannot establish the loaded count")
+
+    if pair is not None:
+        sources.append(pair_status.source_row(pair))
+    else:
+        sources.append({"id": "nvidia-pair", "label": "NVIDIA PAIR (read from its files)", "state": "unavailable",
+                        "ageSeconds": None, "detail": "NVIDIA PAIR status reader is not bundled; state unknown"})
 
     afm = _afm_status()
     sources.append({"id": "afm-executable", "label": "Apple Foundation Models adapter",
@@ -2822,11 +3219,20 @@ def collect_snapshot() -> dict[str, Any]:
     try:
         windows_worker["headless"] = _windows_headless(sampled)
     except Exception:
-        windows_worker["headless"] = {"state": "off", "reason": "mode file unreadable",
+        windows_worker["headless"] = {"state": "unknown", "reason": "mode file unreadable",
                                       "expiresInSeconds": None, "grantedBy": None}
     sources.append(worker_source)
-    sources.append({"id": "windows-telemetry", "label": "Windows", "state": "unavailable",
-                    "ageSeconds": None, "detail": "No bounded live Windows feed connected"})
+    try:
+        if peer_feed is None:
+            raise ImportError("peer_feed missing")
+        peers = peer_feed.peer_feeds(sampled)
+    except Exception:
+        peers = [{"feed": None, "source": {"id": platform + "-telemetry", "host": platform,
+                  "platform": platform, "state": "error", "trust": "unverified", "reasonCode": "read_error",
+                  "ageSeconds": None, "detail": "Peer feed reader failed"}} for platform in ("windows", "linux")]
+    sources.extend(entry["source"] for entry in peers)
+    windows_live = next((entry["feed"] for entry in peers if entry["source"].get("platform") == "windows"
+                         and entry["source"].get("state") in ("live", "recorded") and entry.get("feed")), None)
     try:
         windows_jobs, jobs_source = _windows_jobs(sampled)
     except Exception:
@@ -2854,20 +3260,40 @@ def collect_snapshot() -> dict[str, Any]:
                            "detail": "Private Nisi Inference evidence reader unavailable"}
     sources.append(nisi_v02_source)
     sources.append(jobs_source)
-    components = _route_components(pipeline, nisi_v02, models_by_id, sampled)
-    return {
+    # Independent complete inputs may exceed the shared display/publication budget.
+    # Carry that loss through every consumer, including presence and history counts.
+    models_complete = len(models_by_id) <= 256
+    if not models_complete:
+        for source in sources:
+            if source['id'] in ('lmstudio-api', 'lms-ps') and source['state'] == 'live':
+                source.update(modelsComplete=False, detail='Combined model inventory truncated; counts unknown')
+    inventory_complete = (
+        any(source.get("state") == "live" and
+            (source["id"] == "lms-ps" or
+             source["id"] == "lmstudio-api" and source.get("route") == "direct")
+            for source in sources)
+        and all(type(row.get("loaded")) is bool and row.get("inventoryComplete") is not False
+                for row in models_by_id.values()
+                if not row.get("representedByInstances")))
+    snapshot = {
         "schemaVersion": 1,
         "host": "mac",
         "observedAt": observed,
         "sampledAt": sampled,
         "models": list(models_by_id.values())[:256],
+        "localInstanceObservations": instance_observations,
         "afm": afm,
         "sources": sources,
         "pipeline": pipeline,
         "onlineCodeMode": online_code_mode,
         "windowsWorker": windows_worker,
+        "windowsLive": windows_live,
         "windowsJobs": windows_jobs,
         "canary": canary,
         "nisiV02": nisi_v02,
-        "components": components,
+        "pair": pair,
     }
+    snapshot["machines"] = machines_summary(snapshot, peers)
+    snapshot["components"] = _route_components(pipeline, nisi_v02, models_by_id, sampled,
+        inventory_complete=inventory_complete, models_complete=snapshot["machines"][0]["modelsComplete"])
+    return snapshot

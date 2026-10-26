@@ -98,6 +98,10 @@ def _bytes(path: Path, limit: int) -> bytes:
 
 
 def _json(path: Path, limit: int) -> dict:
+    return _json_bytes(_bytes(path, limit))
+
+
+def _json_bytes(raw: bytes) -> dict:
     def unique(items):
         value = {}
         for key, item in items:
@@ -107,7 +111,7 @@ def _json(path: Path, limit: int) -> dict:
         return value
 
     try:
-        value = json.loads(_bytes(path, limit).decode("utf-8"), object_pairs_hook=unique,
+        value = json.loads(raw.decode("utf-8"), object_pairs_hook=unique,
                            parse_constant=lambda _value: (_ for _ in ()).throw(_InvalidEvidence("NONFINITE")))
     except (UnicodeError, ValueError) as exc:
         raise _InvalidEvidence("INVALID_JSON") from exc
@@ -197,7 +201,7 @@ def collect_nisi_v02(now: float, *, home: Path | None = None) -> tuple[dict, dic
     observed = dt.datetime.fromtimestamp(now, dt.timezone.utc).isoformat().replace("+00:00", "Z")
     snapshot = {"schemaVersion": 1, "observedAt": observed,
                 "integration": "private-local-orchestration-route", "version": None,
-                "commit": None, "runtimeIntegrity": "UNKNOWN", "hostBinding": "UNKNOWN",
+                "commit": None, "generation": None, "runtimeIntegrity": "UNKNOWN", "hostBinding": "UNKNOWN",
                 "driftedHostFiles": [], "activationStatus": "UNKNOWN",
                 "activationVerifiedAt": None, "activationAgeSeconds": None,
                 "activationProbe": None, "liveInference": "UNKNOWN",
@@ -213,26 +217,51 @@ def collect_nisi_v02(now: float, *, home: Path | None = None) -> tuple[dict, dic
         if receipt_path is None:
             return snapshot, source
         receipt = _json(receipt_path, 65536)
-        commit = receipt.get("commit")
-        if (not isinstance(commit, str) or not _COMMIT.fullmatch(commit)
-                or not receipt_path.parent.name.startswith("rollback-" + commit[:8] + "-")):
-            raise _InvalidEvidence("INVALID_COMMIT")
-        runtime = base / commit
-        _owned(runtime, directory=True)
-        if receipt.get("runtimeRoot") != str(runtime):
-            raise _InvalidEvidence("RUNTIME_ROOT_MISMATCH")
-        manifest = _json(runtime / "INSTALL-MANIFEST.json", 16384)
-        pins = manifest.get("files")
-        if (manifest.get("commit") != commit or not isinstance(pins, dict)
-                or not _RUNTIME_FILES.issubset(pins) or not 1 <= len(pins) <= 64):
-            raise _InvalidEvidence("INVALID_MANIFEST")
-        stamp, age = _when(receipt.get("verifiedAt"), now)
-        archive_sha = manifest.get("archiveSha256")
-        if (not isinstance(archive_sha, str) or not _SHA.fullmatch(archive_sha)
-                or receipt.get("runtimeArchiveSha256") != archive_sha):
-            raise _InvalidEvidence("ARCHIVE_PIN_INVALID")
-        if _sha(base / f"{commit}.tar", 8 * 1024 * 1024) != archive_sha:
-            raise _InvalidEvidence("ARCHIVE_DRIFT")
+        commit, generation = receipt.get("commit"), receipt.get("generation")
+        if generation is not None:
+            # Generation runtimes (manifest schema 2) have no commit or archive; the receipt pins the
+            # manifest bytes instead, and the manifest pins every runtime file.
+            if (commit is not None or receipt.get("kind") != "nisi.runtime.activation.v2"
+                    or not isinstance(generation, str) or not _COMMIT.fullmatch(generation)
+                    or not receipt_path.parent.name.startswith("rollback-" + generation[:8] + "-")):
+                raise _InvalidEvidence("INVALID_GENERATION")
+            runtime = base / generation
+            _owned(runtime, directory=True)
+            if receipt.get("runtimeRoot") != str(runtime):
+                raise _InvalidEvidence("RUNTIME_ROOT_MISMATCH")
+            manifest_sha = receipt.get("manifestSha256")
+            # One read: the bytes that are hashed against the receipt are the bytes that are parsed.
+            manifest_raw = _bytes(runtime / "INSTALL-MANIFEST.json", 16384)
+            if (not isinstance(manifest_sha, str) or not _SHA.fullmatch(manifest_sha)
+                    or hashlib.sha256(manifest_raw).hexdigest() != manifest_sha):
+                raise _InvalidEvidence("MANIFEST_PIN_INVALID")
+            manifest = _json_bytes(manifest_raw)
+            pins = manifest.get("files")
+            if (manifest.get("generation") != generation or manifest.get("schemaVersion") != 2
+                    or not isinstance(pins, dict) or not _RUNTIME_FILES.issubset(pins)
+                    or not 1 <= len(pins) <= 64):
+                raise _InvalidEvidence("INVALID_MANIFEST")
+            stamp, age = _when(receipt.get("verifiedAt"), now)
+        else:
+            if (not isinstance(commit, str) or not _COMMIT.fullmatch(commit)
+                    or not receipt_path.parent.name.startswith("rollback-" + commit[:8] + "-")):
+                raise _InvalidEvidence("INVALID_COMMIT")
+            runtime = base / commit
+            _owned(runtime, directory=True)
+            if receipt.get("runtimeRoot") != str(runtime):
+                raise _InvalidEvidence("RUNTIME_ROOT_MISMATCH")
+            manifest = _json(runtime / "INSTALL-MANIFEST.json", 16384)
+            pins = manifest.get("files")
+            if (manifest.get("commit") != commit or not isinstance(pins, dict)
+                    or not _RUNTIME_FILES.issubset(pins) or not 1 <= len(pins) <= 64):
+                raise _InvalidEvidence("INVALID_MANIFEST")
+            stamp, age = _when(receipt.get("verifiedAt"), now)
+            archive_sha = manifest.get("archiveSha256")
+            if (not isinstance(archive_sha, str) or not _SHA.fullmatch(archive_sha)
+                    or receipt.get("runtimeArchiveSha256") != archive_sha):
+                raise _InvalidEvidence("ARCHIVE_PIN_INVALID")
+            if _sha(base / f"{commit}.tar", 8 * 1024 * 1024) != archive_sha:
+                raise _InvalidEvidence("ARCHIVE_DRIFT")
         for name, expected in pins.items():
             if not isinstance(expected, str) or not _SHA.fullmatch(expected):
                 raise _InvalidEvidence("INVALID_FILE_PIN")
@@ -243,6 +272,7 @@ def collect_nisi_v02(now: float, *, home: Path | None = None) -> tuple[dict, dic
                 or package.get("private") is not True):
             raise _InvalidEvidence("PACKAGE_IDENTITY_MISMATCH")
         snapshot["commit"] = commit
+        snapshot["generation"] = generation
         snapshot["version"] = package["version"]
         snapshot["runtimeIntegrity"] = "VERIFIED"
         snapshot["activationStatus"] = ("VERIFIED" if receipt.get("status") == "VERIFIED" and stamp
