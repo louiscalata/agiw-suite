@@ -42,8 +42,9 @@ SLOTS_TIMEOUT = 4.0
 
 DEFAULT_SHARE_ROOT = Path(r"C:\SharedChami")
 # The required lanes. There is deliberately no built-in port or model: a lane is probed only when
-# windows-llm-pipeline/config.json declares it. The old fallback put the deep lane on :1234, which is now
-# NVIDIA PAIR's proxy on this PC, so an unreadable config made the observer probe PAIR as an AGIW lane.
+# windows-llm-pipeline/config.json declares it. The PC now serves the router on :1234, qwen3.8-27b on
+# :1236 and gpt-oss-20b on :1245. :1235 is not in service and NVIDIA PAIR is uninstalled, so an
+# unreadable config must not guess a port.
 LANE_IDS = ("fast", "deep")
 
 
@@ -2133,7 +2134,12 @@ def machine_rows(*, host: str, sampled_at: Any, lanes: list[dict[str, Any]], han
                  version: str, peers: list[dict[str, Any]], mac_name: str | None,
                  paired: list[dict[str, Any]] | None = None, peers_source: dict[str, Any] | None = None,
                  mac_config_reason: str | None = None) -> list[dict[str, Any]]:
-    """machines[]: this PC, the configured Mac and the Linux node (relayed by the Mac), then any other PCs."""
+    """machines[]: this PC and the configured Mac, then any other PCs.
+
+    Linux is retired. A share file that claims to be Linux stays in peers[] for
+    diagnosis and does not become a machine row, so an unsigned relay cannot
+    supply health, age or a loaded count.
+    """
     health = lanes_health(lanes)
     state, reason = MACHINE_REASONS[("local", health)]
     statuses = [lane.get("status") for lane in lanes]
@@ -2163,12 +2169,6 @@ def machine_rows(*, host: str, sampled_at: Any, lanes: list[dict[str, Any]], han
         detail = ((peers_source or {}).get("detail") or "Mac presence report could not be read") if reason != "no-report" else "No report from the configured Mac on SharedChami; state unknown"
         rows.append(_peer_machine(mac, "macos", paired) if mac else _missing_machine(
             "macos", mac_name, reason, detail))
-    # Neither a filename nor relayedBy authenticates a writer on the guest-writable share. Keep reports in peers[]
-    # for diagnosis, but none may determine the canonical Linux identity, health, age or loaded count.
-    linux = any(p.get("platform") == "linux" and p.get("relayedBy") == "mac" for p in records)
-    rows.append(_missing_machine("linux", None, "relay-unverified" if linux else "no-report",
-                                 "Linux relay origin unverified; state unknown" if linux else
-                                 "No Linux report on SharedChami (the Mac relays it); state unknown"))
     for record in records:
         if record.get("platform") == "windows" and short_host(record.get("host")) != short_host(host):
             rows.append(_peer_machine(record, "windows", paired))

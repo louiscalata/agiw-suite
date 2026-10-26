@@ -17,7 +17,8 @@ from unittest.mock import patch
 from http.client import HTTPConnection
 from contextlib import redirect_stdout
 # LIVE_ENDPOINT is the installed monitor's endpoint.json (agiw-status reads it); no test may write it.
-from server import ENDPOINT_PATH as LIVE_ENDPOINT, MonitorServer, SnapshotStore, sample
+from server import (ENDPOINT_PATH as LIVE_ENDPOINT, MonitorServer, SnapshotStore,
+                    enforce_snapshot_evidence, sample)
 import peer_feed
 
 # The real AGIW config.json (main() reads it by default); no test may read it.
@@ -73,6 +74,30 @@ def snapshot(state='idle', sampled=None):
         'sources':[{'id':'lms-ps','state':'live'}]}
 
 class StoreTest(unittest.TestCase):
+    def test_peer_named_windows_telemetry_keeps_the_pc_report(self):
+        live = {'host': 'pc-one', 'health': 'ok', 'ageSeconds': 1}
+        source_id = 'windows:11111111-1111-4111-8111-111111111111-telemetry'
+        kept = enforce_snapshot_evidence({
+            'windowsLive': live,
+            'sources': [{'id': source_id, 'platform': 'windows', 'state': 'live', 'ageSeconds': 1}],
+        })
+        self.assertEqual(kept['windowsLive'], live)
+        legacy = enforce_snapshot_evidence({
+            'windowsLive': live,
+            'sources': [{'id': 'windows-telemetry', 'state': 'recorded', 'ageSeconds': 4}],
+        })
+        self.assertEqual(legacy['windowsLive'], live)
+        for sources in (
+                [],
+                [{'id': source_id, 'platform': 'windows', 'state': 'live', 'ageSeconds': 31}],
+                [{'id': source_id, 'platform': 'windows', 'state': 'unavailable', 'ageSeconds': 1}],
+                [{'id': source_id, 'platform': 'linux', 'state': 'live', 'ageSeconds': 1}],
+                [{'id': 'pc-one-feed', 'platform': 'windows', 'state': 'live', 'ageSeconds': 1}],
+        ):
+            with self.subTest(sources=sources):
+                dropped = enforce_snapshot_evidence({'windowsLive': dict(live), 'sources': sources})
+                self.assertIsNone(dropped['windowsLive'])
+
     def test_cached_readiness_preserves_fresh_invalid_setup_evidence(self):
         import server
         data = {'sampledAt': 100, 'onlineCodeMode': {'setupState': 'invalid'}}

@@ -1,4 +1,8 @@
-"""Read the local monitor's three-machine summary without starting any observer."""
+"""Read the local monitor's Mac and PC summary without starting any observer.
+
+Linux is retired. A snapshot may still carry an optional Linux row, but a
+summary of the Mac and the Windows PC is complete without one.
+"""
 from __future__ import annotations
 
 import argparse
@@ -20,7 +24,10 @@ MAX_ENDPOINT = 4096
 MAX_SNAPSHOT = 1024 * 1024
 MAX_MACHINES = 65
 TIMEOUT = 2.0
+# Accepted machine platforms. Linux remains readable when a retired node still
+# publishes a row; it is not required for a complete summary.
 PLATFORMS = {'mac': 'mac', 'windows': 'windows', 'linux': 'linux'}
+REQUIRED_PLATFORMS = {'mac': 'mac', 'windows': 'windows'}
 HOST_NAME = re.compile(r'[A-Za-z0-9][A-Za-z0-9._-]{0,62}\Z')
 
 
@@ -185,7 +192,7 @@ def _snapshot(port, timeout):
 def _unknown(reason, now):
     return {'schemaVersion': 1, 'sampledAt': None, 'machines': [
         machine_summary(host, platform, now=now, reason=reason)
-        for host, platform in PLATFORMS.items()]}
+        for host, platform in REQUIRED_PLATFORMS.items()]}
 
 
 def _summary(data, now):
@@ -196,7 +203,7 @@ def _summary(data, now):
     if age < -2:
         raise StatusUnavailable('clock_skew')
     machines = data.get('machines')
-    if not isinstance(machines, list) or not len(PLATFORMS) <= len(machines) <= MAX_MACHINES:
+    if not isinstance(machines, list) or not len(REQUIRED_PLATFORMS) <= len(machines) <= MAX_MACHINES:
         raise StatusUnavailable('schema_invalid')
     seen = set()
     result = []
@@ -243,7 +250,7 @@ def _summary(data, now):
         if row['state'] == 'unknown':
             projected.update(handsOff=None)
         result.extend(expire_machines([projected], now))
-    if ('mac', 'mac') not in seen or {platform for platform, host in seen} != set(PLATFORMS):
+    if ('mac', 'mac') not in seen or not set(REQUIRED_PLATFORMS) <= {platform for platform, host in seen}:
         raise StatusUnavailable('schema_invalid')
     return {'schemaVersion': 1, 'sampledAt': data['sampledAt'], 'machines': result}
 
@@ -260,7 +267,7 @@ def summary(endpoint_path=None, timeout=TIMEOUT, now=None):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--json', action='store_true', help='print the three-machine summary as JSON')
+    parser.add_argument('--json', action='store_true', help='print the Mac and PC summary as JSON')
     parser.add_argument('--endpoint', type=Path, help='read a different local endpoint.json')
     args = parser.parse_args(argv)
     data = summary(args.endpoint)

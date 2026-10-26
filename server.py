@@ -153,6 +153,25 @@ def source_current(source):
             and source.get('complete') is not False and source.get('truncated') is not True)
 
 
+# peer_feed names each host windows:<host>-telemetry. The older single-PC reader
+# still publishes windows-telemetry. Either fresh source keeps the PC report.
+_WINDOWS_PEER_TELEMETRY = re.compile(r'windows:[A-Za-z0-9][A-Za-z0-9._-]{0,62}-telemetry\Z')
+
+
+def windows_telemetry_current(sources):
+    """True when a fresh Windows telemetry source backs windowsLive."""
+    if not isinstance(sources, dict):
+        return False
+    if source_current(sources.get('windows-telemetry')):
+        return True
+    for source_id, source in sources.items():
+        if (isinstance(source_id, str) and _WINDOWS_PEER_TELEMETRY.fullmatch(source_id)
+                and isinstance(source, dict) and source.get('platform') == 'windows'
+                and source_current(source)):
+            return True
+    return False
+
+
 def enforce_snapshot_evidence(data):
     data = copy.deepcopy(data)
     sources = {s['id']: s for s in data.get('sources', []) if isinstance(s, dict) and 'id' in s}
@@ -179,7 +198,7 @@ def enforce_snapshot_evidence(data):
         data['macGpu'] = None
     if 'memory' in data and not known('mem-guard'):
         data['memory'] = unknown_block()
-    if 'windowsLive' in data and not known('windows-telemetry'):
+    if 'windowsLive' in data and not windows_telemetry_current(sources):
         data['windowsLive'] = None
     if 'windowsWorker' in data and not known('windows-worker'):
         data['windowsWorker'] = {'state': 'unknown', 'ageSeconds': None,

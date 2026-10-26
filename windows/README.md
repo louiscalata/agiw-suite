@@ -13,9 +13,9 @@ observer that serves **the same dashboard** as the Mac edition, in its `host: "w
 | Memory | macOS pressure + guard | Physical memory available and commit charge (no pause/resume guard) |
 | Peer | Windows worker heartbeat | The Mac's own presence on SharedChami (unsigned, expires after 30 s), attributed only to the Mac named in `hosts.json`; nothing is sent to the Mac |
 | Controls | Guarded load/unload, repair | **Read-only**: nothing loads, unloads or restarts a model |
-| Peers | — | AGIW instances meet on SharedChami (`llm-lab/status/agiw-peers/<host>.json`); opt-in in `config.json`. Linux relay claims remain diagnostic; an unsigned file cannot determine the canonical Linux row |
-| Machines | — | `machines[]`: this PC, the Mac and the Linux node, each up / down / unknown with a named reason (unknown is never shown as down) |
-| NVIDIA PAIR | — | A PAIR row from process and listener ownership only; lane polling requires a positively pinned AGIW process identity and parks for every other owner. PAIR's llama-server is never counted as a lane |
+| Peers | — | AGIW instances meet on SharedChami (`llm-lab/status/agiw-peers/<host>.json`); opt-in in `config.json`. Linux is retired, so a share file cannot become a machine row |
+| Machines | — | `machines[]`: this PC and the Mac, each up / down / unknown with a named reason (unknown is never shown as down). The Linux node is retired |
+| NVIDIA PAIR | — | Uninstalled. A leftover PAIR row is process and listener ownership only; lane polling requires a positively pinned AGIW process identity and parks for every other owner. PAIR's llama-server is never counted as a lane |
 | Hands off | — | `handsOff`: a GPU above 40 %, a full-screen game/app, presentation mode or a Windows Store app, with the cause (AGIW lanes, other processes, mixed, unknown) |
 
 ## Run
@@ -42,8 +42,9 @@ python agiw_observer.py --port 8767      # observer only; open the URL it prints
   The tray checks this minimum; `install.ps1` copies source without choosing or installing an interpreter.
   The recorded PC environment uses Python 3.13. Python 3.14 test results on the Mac are not native PC validation.
 - Lanes declared in `C:\SharedChami\windows-llm-pipeline\config.json` → `runtime.lanes`. There is no built-in
-  layout: a lane that is not declared there is shown as "not configured" and never probed (fail closed; the old
-  fallback put the deep lane on `:1234`, which is NVIDIA PAIR's proxy). Slot activity needs llama-server's `/slots`.
+  layout: a lane that is not declared there is shown as "not configured" and never probed (fail closed). The live
+  PC serves the router on `:1234`, qwen3.8-27b on `:1236` and gpt-oss-20b on `:1245`. `:1235` is not in service.
+  NVIDIA PAIR is uninstalled, so an unreadable config must not guess a port. Slot activity needs llama-server's `/slots`.
   Native polling also requires explicit local enrollment in `lane-processes.json` beside the observer. Normal tray
   startup reads that fixed file and passes its PID, creation-time and exact executable-image pins to `LaneProcesses`.
   Missing, malformed or untrusted enrollment leaves lanes unknown and sends no lane HTTP. Neither the share nor

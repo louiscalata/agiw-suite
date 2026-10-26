@@ -129,8 +129,16 @@ final class BadgeHarness {
         self.assertEqual(state['tooltip'], 'Inference Monitor · Working count unknown')
         self.assertEqual(state['accessibility'], 'Working count unknown')
 
-    def test_unknown_peer_keeps_known_busy_count_and_uncertainty(self):
+    def test_unknown_retired_linux_does_not_withhold_a_known_count(self):
         rows = [machine('mac', 2), machine('windows'), machine('linux', None, state='unknown')]
+        state = self.badge(rows)
+        self.assertEqual(state['title'].strip(), '2')
+        self.assertIn('2 observed working', state['tooltip'])
+        self.assertIn('2 models observed working', state['accessibility'])
+
+    def test_unknown_windows_peer_keeps_known_busy_count_and_uncertainty(self):
+        rows = [machine('mac', 2), machine('windows'),
+                machine('windows', None, state='unknown', host='pc-two')]
         state = self.badge(rows)
         self.assertEqual(state['title'].strip(), '2·?')
         self.assertIn('At least 2 observed working; other activity unknown', state['tooltip'])
@@ -147,11 +155,11 @@ final class BadgeHarness {
     def test_peers_use_thirty_second_threshold(self):
         rows = [machine('mac'), machine('windows', 2, ageSeconds=29), machine('linux', 3, ageSeconds=29)]
         self.assertEqual(self.badge_title(rows), '5')
-        for peer in ('windows', 'linux'):
-            with self.subTest(peer=peer):
-                rows = [machine('mac'), machine('windows'), machine('linux')]
-                next(row for row in rows if row['platform'] == peer).update(busyCount=4, ageSeconds=30.1)
-                self.assertEqual(self.badge_title(rows), '?')
+        rows = [machine('mac'), machine('windows'), machine('linux')]
+        next(row for row in rows if row['platform'] == 'windows').update(busyCount=4, ageSeconds=30.1)
+        self.assertEqual(self.badge_title(rows), '?')
+        rows = [machine('mac', 1), machine('windows', 2), machine('linux', 4, ageSeconds=30.1)]
+        self.assertEqual(self.badge_title(rows), '3')
 
     def test_snapshot_elapsed_time_ages_machine_evidence(self):
         rows = [machine('mac'), machine('windows', 2), machine('linux', 3, ageSeconds=29)]
@@ -189,20 +197,26 @@ final class BadgeHarness {
     def test_malformed_busy_counts_are_unknown(self):
         for busy in (True, False, None, '1', -1, 0.5, 257):
             with self.subTest(busy=busy):
-                rows = [machine('mac'), machine('windows'), machine('linux', busy)]
+                rows = [machine('mac'), machine('windows', busy), machine('linux')]
                 self.assertEqual(self.badge_title(rows), '?')
+                retired = [machine('mac', 1), machine('windows', 2), machine('linux', busy)]
+                self.assertEqual(self.badge_title(retired), '3')
 
     def test_malformed_observation_ages_are_unknown(self):
         for age in (True, False, None, '0', -1):
             with self.subTest(age=age):
-                rows = [machine('mac'), machine('windows'), machine('linux', ageSeconds=age)]
+                rows = [machine('mac'), machine('windows', ageSeconds=age), machine('linux')]
                 self.assertEqual(self.badge_title(rows), '?')
+                retired = [machine('mac', 1), machine('windows', 2), machine('linux', ageSeconds=age)]
+                self.assertEqual(self.badge_title(retired), '3')
 
     def test_missing_or_unrecognized_platform_is_unknown(self):
-        for rows in ([], [machine('mac'), machine('windows')],
+        for rows in ([], [machine('mac')],
                      [machine('mac'), machine('windows'), machine('other')]):
             with self.subTest(rows=rows):
                 self.assertEqual(self.badge_title(rows), '?')
+        self.assertEqual(self.badge_title([machine('mac'), machine('windows')]), '0')
+        self.assertEqual(self.badge_title([machine('mac', 1), machine('windows', 2)]), '3')
 
     def test_invalid_snapshot_shape_is_unknown(self):
         for changes in ({'schemaVersion': 2}, {'machines': None}, {'machines': ['linux']}):

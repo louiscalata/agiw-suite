@@ -422,9 +422,11 @@ def _attach_diagnostic(target: dict, observation: dict, candidate_nodes=()) -> N
 
 
 def peer_feeds(now: float, *, peer_reader: Callable | None = None, share_reader: Callable | None = None) -> list[dict]:
-    """Per-host feed/source pairs, authenticated before share, with explicit missing-platform failures.
+    """Per-host feed/source pairs, authenticated before share, with an explicit missing-PC failure.
 
-    Readers are injectable for fixture-only callers. No transport inference equates a timeout with sleep.
+    The Windows PC is the expected peer. A Linux report is kept when a feed names that host, and a
+    missing Linux node is not invented as an unknown machine. Readers are injectable for fixture-only
+    callers. No transport inference equates a timeout with sleep.
     """
     merged = {}
     failures = []
@@ -480,7 +482,7 @@ def peer_feeds(now: float, *, peer_reader: Callable | None = None, share_reader:
     represented = {key[0] for key in merged}
     unattributed = [row["source"]["reasonCode"] for key, row in merged.items()
                     if key[0] == "unknown" and row["feed"] is None]
-    for platform in ("windows", "linux"):
+    for platform in ("windows",):
         if platform not in represented:
             reason = unattributed[0] if unattributed else failures[-1] if failures else "not_connected"
             missing = _feed_failure(platform, platform, reason)

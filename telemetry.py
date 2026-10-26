@@ -2741,7 +2741,8 @@ def _windows_worker(now: float) -> tuple[dict[str, Any], dict[str, Any]]:
         hardware = cache.get("hardware") if available and isinstance(cache.get("hardware"), dict) else None
         if condition == "degraded":
             detail = ("Windows worker heartbeat is fresh, but no model lane answers (worker reports degraded); "
-                      "start the model servers on the PC")
+                      "start the model servers on the PC (router on port 1234, qwen3.8-27b on port 1236, "
+                      "gpt-oss-20b on port 1245; port 1235 is not in service)")
         elif condition == "stopped":
             detail = "Windows worker reports it has stopped; start the worker on the PC"
         worker = {
@@ -3229,7 +3230,7 @@ def collect_snapshot() -> dict[str, Any]:
     except Exception:
         peers = [{"feed": None, "source": {"id": platform + "-telemetry", "host": platform,
                   "platform": platform, "state": "error", "trust": "unverified", "reasonCode": "read_error",
-                  "ageSeconds": None, "detail": "Peer feed reader failed"}} for platform in ("windows", "linux")]
+                  "ageSeconds": None, "detail": "Peer feed reader failed"}} for platform in ("windows",)]
     sources.extend(entry["source"] for entry in peers)
     windows_live = next((entry["feed"] for entry in peers if entry["source"].get("platform") == "windows"
                          and entry["source"].get("state") in ("live", "recorded") and entry.get("feed")), None)

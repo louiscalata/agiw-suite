@@ -745,6 +745,33 @@ class WindowsProbeScriptTests(unittest.TestCase):
                 self.assertEqual(json.loads(out.getvalue()), {"status": "not-run", "code": expected})
                 self.assertIn(expected, repair.PROBE_CODES)
 
+    def test_degraded_worker_advice_names_the_live_pc_ports(self):
+        hint = repair.WINDOWS_UNAVAILABLE_HINTS["worker status degraded"]
+        self.assertIn("router on port 1234", hint)
+        self.assertIn("qwen3.8-27b on port 1236", hint)
+        self.assertIn("gpt-oss-20b on port 1245", hint)
+        self.assertNotIn("on 1235", hint)
+        self.assertIn("port 1235 is not in service", hint)
+
+    def test_not_ready_is_not_a_verification(self):
+        for output in ("NOT READY", "not ready", "Not Ready.", "I am NOT READY today"):
+            with self.subTest(output=output):
+                code, value = self.run_probe(self.owner(result={
+                    "status": "success", "id": PROBE_JOB, "model": "gpt-oss-20b",
+                    "output": output, "elapsed_seconds": 4.5}))
+                self.assertEqual(code, 0)
+                self.assertIs(value["answered"], False)
+                self.assertNotIn(output, json.dumps(value))
+
+    def test_ready_word_still_counts_when_extra_text_is_hidden(self):
+        for output in ("READY", "ready", "READY secret"):
+            with self.subTest(output=output):
+                _, value = self.run_probe(self.owner(result={
+                    "status": "success", "id": PROBE_JOB, "model": "gpt-oss-20b",
+                    "output": output, "elapsed_seconds": 4.5}))
+                self.assertIs(value["answered"], True)
+                self.assertNotIn("secret", json.dumps(value))
+
     def test_success_prefers_small_model_and_hides_output(self):
         code, value = self.run_probe(self.owner(result={"status": "success", "id": PROBE_JOB,
                                                         "model": "gpt-oss-20b", "output": "READY secret",

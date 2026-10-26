@@ -1,4 +1,6 @@
-# Linux inference observer
+# Linux inference observer (retired)
+
+**Retired.** The Linux Mac Pro 5,1 is not an AGIW machine. Do not run `linux/install.sh`, start the coordinator, or install PAIR for this node. AGIW runs on the Apple-silicon MacBook Pro and the Windows PC only. On that PC the router is port 1234, qwen3.8-27b is port 1236, and gpt-oss-20b is port 1245. Port 1235 is not in service. The rest of this file is historical and is not a setup guide.
 
 A standard-library, read-only Linux edition. It observes AMD sysfs/hwmon, `/proc`,
 PAIR's local llama.cpp router, the mapped on-demand GPU wrapper, and bounded

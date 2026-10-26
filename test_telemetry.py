@@ -1608,6 +1608,10 @@ class WindowsJobsJournalTests(unittest.TestCase):
         self.assertEqual(worker["state"], "degraded")
         self.assertEqual(worker["modelsAdvertised"], [])
         self.assertIn("no model lane answers", worker["detail"])
+        self.assertIn("gpt-oss-20b on port 1245", worker["detail"])
+        self.assertIn("qwen3.8-27b on port 1236", worker["detail"])
+        self.assertNotIn("on 1235", worker["detail"])
+        self.assertIn("port 1235 is not in service", worker["detail"])
         self.assertEqual(source["state"], "error")
         payload["reason"] = "queue I/O unavailable or timed out"
         cache2 = dict(cache, workerCondition=None, heartbeatUnix=None)
