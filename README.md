@@ -12,21 +12,22 @@ A Mac menu-bar monitor for engineers running local models. See model activity, m
 
 The download is Developer ID signed and Apple-notarized. [Known validation limits](#known-validation-limits) remain open; the Mac App Store edition follows a separate release process.
 
-## Three machines, specialized roles
+## Two active machines, specialized roles
 
-AGIW's development system is bringing **Mac, Windows and Linux** into one observable workflow. The intended workflow uses Nisi v0.2 and Jev task analysis, with optional NVIDIA PAIR transport between machine-local workers. The Windows PC has **two separate GPUs: an NVIDIA RTX 3080 Ti and an AMD RX 5700 XT**. Linux contributes GPU-assisted inference, NVMe workspace/cache and separate HDD backup storage.
+**Scope change · 2026-10-25:** AGIW now runs on two machines only, the Apple-silicon MacBook Pro and the Windows PC. The Linux Mac Pro is retired from AGIW. Linux figures below are kept as dated history.
 
-<img src="docs/assets/three-machine-architecture.svg" width="1280" alt="AGIW three-machine development topology: tools feed Nisi and Jev, optional PAIR transport and separate PC, Linux and Mac workers. The PC has distinct NVIDIA CUDA and AMD Vulkan GPU lanes. Production integration is still in progress.">
+AGIW's development system is bringing the **Mac and the Windows PC** into one observable workflow. The intended workflow uses Nisi v0.2 and Jev task analysis, with optional NVIDIA PAIR transport between machine-local workers. The Windows PC has **two separate GPUs: an NVIDIA RTX 3080 Ti and an AMD RX 5700 XT**. (Earlier plans had Linux contribute GPU-assisted inference and storage; that role was retired on 2026-10-25.)
 
-**Historical, single-run samples (different tasks/configurations):** Linux **36.84 tokens/s**, Mac **16.39 tokens/s**, PC **2.06 tokens/s**, using each engine's reported generation rate. The Linux sample passed 16 semantic cases and the PC sample passed seven code cases; the Mac answer was **rejected by semantic review**, with its model unload confirmed.
+<img src="docs/assets/three-machine-architecture.svg" width="1280" alt="Historical AGIW three-machine development topology (Linux retired 2026-10-25): tools feed Nisi and Jev, optional PAIR transport and separate PC, Linux and Mac workers. The PC has distinct NVIDIA CUDA and AMD Vulkan GPU lanes. Production integration is still in progress.">
 
-These separate samples are not a hardware ranking or a cluster total. Mac, Windows and Linux may contribute separate inference workers, but genuine simultaneous three-machine output rate, task rate and speedup remain **NOT MEASURED**:
+**Historical, single-run samples (different tasks/configurations):** Linux (retired) **36.84 tokens/s**, Mac **16.39 tokens/s**, PC **2.06 tokens/s**, using each engine's reported generation rate. The Linux sample passed 16 semantic cases and the PC sample passed seven code cases; the Mac answer was **rejected by semantic review**, with its model unload confirmed.
+
+These separate samples are not a hardware ranking or a cluster total. The Mac and Windows PC may contribute separate inference workers, but genuine simultaneous two-machine output rate, task rate and speedup remain **NOT MEASURED**:
 
 ```mermaid
 flowchart LR
-    M["Mac inference worker"] -.-> R["One simultaneous three-machine run<br/>NOT MEASURED"]
+    M["Mac inference worker"] -.-> R["One simultaneous two-machine run<br/>NOT MEASURED"]
     W["Windows inference worker"] -.-> R
-    L["Linux inference worker"] -.-> R
     R --> O["Output rate: NOT MEASURED<br/>Task rate: NOT MEASURED<br/>Speedup: NOT MEASURED"]
 ```
 
@@ -37,7 +38,7 @@ flowchart LR
 - **Before/after:** Before, the summary was dated 2026-10-18; after, it includes a high-level 2026-10-23 status. Measured values are unchanged, and this documentation refresh did not create a new benchmark.
 - **Windows edition:** In development and not released.
 - **Monitor hardening:** In development and not released; missing or unverified observations remain unknown rather than being presented as zero or idle.
-- **Three-machine coordination:** Production integration remains in development. The worker diagram and **NOT MEASURED** results above describe measurement state, not machine readiness.
+- **Two-machine coordination (Mac and PC):** Production integration remains in development. The worker diagram and **NOT MEASURED** results above describe measurement state, not machine readiness.
 
 ## Requirements
 

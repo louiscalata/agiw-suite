@@ -1,24 +1,28 @@
 # AGIW Suite roadmap and release evidence
 
+## Scope change — 25 October 2026
+
+- [x] Narrow AGIW to two machines: the Apple-silicon MacBook Pro and the Windows PC. The Linux Mac Pro is retired from AGIW, and the Linux coordinator/system-service work below is shelved. Linux items are kept as dated history and will not be completed.
+
 ## Development status — 18 October 2026
 
 - [x] Run native Windows test suites for three in-development hardening workstreams; each passed 288 Windows tests and a JavaScript suite of 396–407 tests. Confirm that two tests failing only on macOS pass natively on Windows.
 - [ ] Finish the Windows installer workstream's installer directory-guard, PowerShell 5.1 test-harness and test-isolation fixes. Its native run covered 432 Windows tests; the Windows edition remains in development and is not released.
 - [ ] Enforce the monitor rule across Mac, Windows and Linux views (in progress; review rounds are still finding cases): missing or unverified data is unknown, never zero, idle, quiet or none. Each change receives independent review by two different model families and a third verifier until no High or Medium finding remains, plus mutation testing.
-- [ ] Continue moving the Linux coordinator from a per-user service to a system service. The coordinator has not been started; it starts closed, and boot enablement is deferred to a later, separate step. Precede each privileged step with a fresh read-only check and compare its output byte-for-byte with a predicted result.
+- [ ] *(Shelved 2026-10-25: Linux retired.)* Continue moving the Linux coordinator from a per-user service to a system service. The coordinator has not been started; it starts closed, and boot enablement is deferred to a later, separate step. Precede each privileged step with a fresh read-only check and compare its output byte-for-byte with a predicted result.
 - [x] Handle the three systemd 259 behaviors found during rollout in the installer code (the first two are verified on the live machine; the third is verified by tests and read-only live probes, with its first privileged run still ahead): use `LoadUnit` because `GetUnit` fails for an unloaded never-started unit; use the undashed 32-character boot ID with `journalctl --boot=`; and compare inactive-unit `Requires=` and `After=` values as sets because their order varies between reads. Before any one-way step, run the exact observation code read-only on the real machine many times.
 
-See the [dated connection update](docs/three-machine-connection.md#2026-10-18-update). The Windows edition and Linux coordinator remain in development.
+See the [dated connection update](docs/three-machine-connection.md#2026-10-18-update). The Windows edition remains in development; the Linux coordinator was shelved on 2026-10-25.
 
 ## Three-machine connection checkpoint — 16 October 2026
 
 - [x] Document the development topology with distinct NVIDIA/CUDA and AMD/Vulkan PC lanes, the Linux storage role and machine-local model controls.
 - [x] Document the latest retained per-machine rates beside their models and quality outcomes. Preserve the Mac semantic rejection and do not sum separate runs into cluster throughput.
 - [x] Verify Linux SSH and a background user service's render-device access after reboot without a desktop login. This is infrastructure evidence; production inference before login remains unverified.
-- [ ] Complete Linux service installation/activation, Mac process admission and PC central enrollment.
-- [ ] Run a fixed overlapping workload across all three hosts, then publish attributed per-machine rates, shared-window output throughput, validated tasks/minute, failures and verified model release.
+- [ ] Complete Mac process admission and PC central enrollment. (Linux service installation/activation was withdrawn on 2026-10-25.)
+- [ ] Run a fixed overlapping workload across both active hosts (Mac and PC; originally all three), then publish attributed per-machine rates, shared-window output throughput, validated tasks/minute, failures and verified model release.
 
-See [the current three-machine state](docs/three-machine-connection.md), [sanitized measurements](docs/data/three-machine-checkpoint-20261016/metrics.json) and [Linux startup evidence](docs/data/three-machine-checkpoint-20261016/linux-startup.json). The GitHub Copilot draft was reviewed and corrected before integration; this documentation update leaves the existing signed download and its acceptance limits unchanged.
+See [the current connection state](docs/three-machine-connection.md), [sanitized measurements](docs/data/three-machine-checkpoint-20261016/metrics.json) and [Linux startup evidence](docs/data/three-machine-checkpoint-20261016/linux-startup.json). The GitHub Copilot draft was reviewed and corrected before integration; this documentation update leaves the existing signed download and its acceptance limits unchanged.
 
 ## Historical inference charts and comparison data — 1 October 2026
 
