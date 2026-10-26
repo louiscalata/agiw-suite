@@ -72,6 +72,11 @@ def machine_summary(host, platform, report=None, *, now, trust="unverified", rea
         row.update(state="down" if health == "down" else "up",
                    reasonCode="reported_down" if health == "down" else
                    "reported_degraded" if health == "degraded" else "observed")
+        if row["state"] == "up":
+            for key in ("promptTokensPerSecond", "generationTokensPerSecond"):
+                value = report.get(key)
+                if finite_number(value) and value >= 0:
+                    row[key] = value
         if type(report.get("handsOff")) is bool:
             row["handsOff"] = report["handsOff"]
         models = report.get("models")

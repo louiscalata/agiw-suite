@@ -33,6 +33,8 @@ from mem_guard import Guard, LevelFile, unknown_block
 from bundled_components import BundledComponents
 from jev_connection import JevConnection
 from machine_state import FRESH_SECONDS, expire_machines, finite_number, platform_name
+from inference_collect import RateMemory, attach, vram_from_reading
+from pc_tunnel import load_config, port_accepts, targets as tunnel_targets
 
 ROOT = Path(__file__).resolve().parent / 'web'
 ASSETS = {'/': ('index.html', 'text/html; charset=utf-8'),
@@ -43,10 +45,14 @@ ASSETS = {'/': ('index.html', 'text/html; charset=utf-8'),
           '/online-code-mode.mjs': ('online-code-mode.mjs', 'text/javascript; charset=utf-8'),
           '/map-layout.mjs': ('map-layout.mjs', 'text/javascript; charset=utf-8'),
           '/model-control-view.mjs': ('model-control-view.mjs', 'text/javascript; charset=utf-8'),
-          '/style.css': ('style.css', 'text/css; charset=utf-8')}
+          '/style.css': ('style.css', 'text/css; charset=utf-8'),
+          '/monitor': ('monitor.html', 'text/html; charset=utf-8'),
+          '/monitor.mjs': ('monitor.mjs', 'text/javascript; charset=utf-8'),
+          '/monitor.css': ('monitor.css', 'text/css; charset=utf-8')}
 ACTIVE = {'generating', 'busy'}
 # The fast path may overlay a full sample only while that sample is this recent (seconds).
 FULL_SAMPLE_MAX_AGE = 3.0
+_INFERENCE_RATES = RateMemory()
 KNOWN_ACTIVITY = ACTIVE | {'idle'}
 ROUTER_OWNER_LOCK = Path.home() / '.local/state/codemode-router/owner.lock'
 MODEL_JOURNAL_PATH = Path.home() / '.local/state/inference-monitor/model-operation.json'
@@ -510,6 +516,12 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(200, json.dumps(self.server.jev_connection.status()).encode(), 'application/json')
         if path == '/api/stream':
             return self.stream()
+        if path == '/api/inference':
+            data = self.server.store.read()
+            inference = data.get('inference') if isinstance(data, dict) else None
+            if not isinstance(inference, dict):
+                return self.reply(503, b'{"status":"starting"}', 'application/json')
+            return self.reply(200, json.dumps(inference, allow_nan=False).encode(), 'application/json')
         if path == '/api/snapshot':
             data = self.server.store.read()
             if data is None:
@@ -903,6 +915,12 @@ def sample(store, stop, feed=None, tick=0.15, full_interval=1.0, guard=None, aut
                 data['fullSampledAt'] = data['sampledAt']
                 data['modelControl'] = model_control_capability()
                 data['macGpu'], gpu_source = mac_gpu()
+                gpu = data.get('macGpu') if isinstance(data.get('macGpu'), dict) else {}
+                vram = vram_from_reading(gpu.get('inUseBytes'), gpu.get('unifiedMemoryCeilingBytes'))
+                if vram is None:
+                    vram = vram_from_reading(gpu.get('allocatedBytes'), gpu.get('unifiedMemoryCeilingBytes'))
+                status, rows = tunnel_targets(load_config(), port_accepts)
+                attach(data, 'mac', rates=_INFERENCE_RATES, targets=rows, tunnel=status, vram=vram)
                 activity_known = activity_is_known(data.get('models', []),
                                                   {s['id']: s.get('state') for s in data['sources']})
                 data['localCallers'], callers_source = callers.sample(

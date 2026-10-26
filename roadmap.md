@@ -2,7 +2,7 @@
 
 ## Scope change — 25 October 2026
 
-- [x] Narrow AGIW to two machines: the Apple-silicon MacBook Pro and the Windows PC. The Linux Mac Pro is retired from AGIW, and the Linux coordinator/system-service work below is shelved. Linux items are kept as dated history and will not be completed. PAIR is uninstalled. The PC serves the router on port 1234, qwen3.8-27b on port 1236 and gpt-oss-20b on port 1245. Port 1235 is not in service.
+- [x] Narrow AGIW to two machines: the Apple-silicon MacBook Pro and the Windows PC. The Linux Mac Pro is retired from AGIW, and the Linux coordinator/system-service work below is shelved. Linux items are kept as dated history and will not be completed. PAIR is uninstalled. The PC serves the router on port 1234, qwen3.8-27b on port 1236 and gpt-oss-20b on port 1245.
 
 ## Development status — 18 October 2026
 

@@ -180,13 +180,13 @@ foreach ($item in Get-ChildItem -LiteralPath (Join-Path $sourceWindows 'agiw_win
 foreach ($file in 'agiw_observer.py', 'agiw-monitor.ps1', 'AGIW Monitor.vbs', 'AGIW Monitor.cmd', 'README.md') {
     $files.Add(@((Join-Path $sourceWindows $file), $file))
 }
-foreach ($file in 'index.html', 'app.js', 'style.css', 'map-layout.mjs', 'model-control-view.mjs', 'online-code-mode.mjs') {
+foreach ($file in 'index.html', 'app.js', 'style.css', 'map-layout.mjs', 'model-control-view.mjs', 'online-code-mode.mjs', 'monitor.html', 'monitor.mjs', 'monitor.css') {
     $files.Add(@((Join-Path $repo "web\$file"), "web\$file"))
 }
 # peer_link.py is the LAN pairing service (agiw-peer/2), shipped by Louis's decision of 2026-10-17. Installing it
 # starts nothing: it runs only when started (python peer_link.py run --status-file state\peer-link-status.json), after
 # PIN pairing and the 8768/8769 firewall rules.
-foreach ($file in 'usage-format.mjs', 'client_models.py', 'peer_link.py', 'LICENSE', 'NOTICE') {
+foreach ($file in 'usage-format.mjs', 'client_models.py', 'peer_link.py', 'inference_stats.py', 'inference_collect.py', 'LICENSE', 'NOTICE') {
     $files.Add(@((Join-Path $repo $file), $file))
 }
 

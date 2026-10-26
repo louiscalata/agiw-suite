@@ -174,7 +174,7 @@ ROUTER_OWNER_LOCK = Path.home() / ".local/state/codemode-router/owner.lock"
 WINDOWS_UNAVAILABLE_HINTS = {
     "worker status degraded": (": the PC worker is running, but none of its model servers answer. "
                                "Start the model servers on the PC (router on port 1234, "
-                               "qwen3.8-27b on port 1236, gpt-oss-20b on port 1245; port 1235 is not in service), "
+                               "qwen3.8-27b on port 1236, gpt-oss-20b on port 1245), "
                                "then press Fix again."),
     "worker is not running": ": the PC worker reports it has stopped. Start the worker on the PC, then press Fix again.",
     "heartbeat stale or future-dated": (": the PC worker heartbeat is stale. Check that the PC is awake and its "

@@ -569,7 +569,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
               let port = object["port"] as? Int, (1...65535).contains(port),
               let pid = object["pid"] as? Int, pid == Int(observer?.processIdentifier ?? -1),
-              let url = URL(string: "http://127.0.0.1:\(port)/") else {
+              let url = URL(string: "http://127.0.0.1:\(port)/monitor") else {
             failService("The observer returned an invalid startup response. Reconnecting…")
             if observer?.isRunning == true { observer?.terminate() }
             return

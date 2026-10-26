@@ -204,6 +204,8 @@ class Installer(unittest.TestCase):
         self.assertIn("$sourcePaths = @($files | ForEach-Object { $_[0] })", INSTALLER)
         self.assertIn("[Globalization.CultureInfo]::InvariantCulture", INSTALLER)
         self.assertTrue((REPO / "peer_link.py").is_file())
+        self.assertIn("'monitor.html'", INSTALLER)
+        self.assertIn("'inference_collect.py'", INSTALLER)
 
     def test_build_json_is_staged_and_swapped_with_every_file(self):
         loop = INSTALLER[INSTALLER.index("foreach ($relative in $installed)"):INSTALLER.index("Set-Content -LiteralPath $marker")]
@@ -271,9 +273,11 @@ class InstallerOnWindows(unittest.TestCase):
             sources += [(WINDOWS / name, Path(name)) for name in
                         ("agiw_observer.py", "agiw-monitor.ps1", "AGIW Monitor.vbs", "AGIW Monitor.cmd", "README.md")]
             sources += [(REPO / "web" / name, Path("web") / name) for name in
-                        ("index.html", "app.js", "style.css", "map-layout.mjs", "model-control-view.mjs", "online-code-mode.mjs")]
+                        ("index.html", "app.js", "style.css", "map-layout.mjs", "model-control-view.mjs",
+                         "online-code-mode.mjs", "monitor.html", "monitor.mjs", "monitor.css")]
             sources += [(REPO / name, Path(name)) for name in
-                        ("usage-format.mjs", "client_models.py", "peer_link.py", "LICENSE", "NOTICE")]
+                        ("usage-format.mjs", "client_models.py", "peer_link.py", "inference_stats.py",
+                         "inference_collect.py", "LICENSE", "NOTICE")]
             for source, relative in sources:
                 with self.subTest(installed=str(relative)):
                     self.assertEqual((destination / relative).read_bytes(), source.read_bytes())

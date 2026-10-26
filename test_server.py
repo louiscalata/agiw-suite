@@ -1721,6 +1721,18 @@ class TransportTest(unittest.TestCase):
             self.assertIsNone(other.online_code_repair)
         finally:
             other.server_close()
+    def test_monitor_page_and_inference_route(self):
+        status, raw, headers = self.get('/monitor')
+        self.assertEqual(status, 200)
+        self.assertIn(b'id="map"', raw)
+        self.assertEqual(headers['Content-Type'], 'text/html; charset=utf-8')
+        self.assertEqual(self.get('/monitor.mjs')[0], 200)
+        self.assertEqual(self.get('/api/inference')[0], 503)
+        self.server.store.snapshot['inference'] = {'schema': 'agiw.inference-map.v1', 'nodes': [], 'edges': []}
+        status, raw, _ = self.get('/api/inference')
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(raw)['schema'], 'agiw.inference-map.v1')
+
     def test_map_layout_module_is_served_as_script(self):
         status, raw, headers = self.get('/map-layout.mjs')
         self.assertEqual(status, 200)

@@ -19,6 +19,20 @@ from . import SERVICE, VERSION
 from . import probes, winsys
 from .collect import Collector, LANE_FRESH_SECONDS, LANE_ACTIVITY_FRESH_SECONDS
 
+def _inference_root():
+    here = Path(__file__).resolve()
+    for candidate in (here.parents[1], here.parents[2]):
+        if (candidate / "inference_collect.py").is_file():
+            return candidate
+    return None
+
+
+_INFERENCE_ROOT = _inference_root()
+if _INFERENCE_ROOT is not None and str(_INFERENCE_ROOT) not in sys.path:
+    # Append. Putting the repo root first shadows windows/tests with the root test_*.py modules.
+    sys.path.append(str(_INFERENCE_ROOT))
+from inference_collect import RateMemory, attach, vram_from_gpus
+
 DEFAULT_PORT = 8767
 ACTIVE = {"generating", "busy"}
 KNOWN_ACTIVITY = ACTIVE | {"idle"}
@@ -27,7 +41,11 @@ ASSETS = {"/": ("index.html", "text/html; charset=utf-8"),
           "/online-code-mode.mjs": ("online-code-mode.mjs", "text/javascript; charset=utf-8"),
           "/map-layout.mjs": ("map-layout.mjs", "text/javascript; charset=utf-8"),
           "/model-control-view.mjs": ("model-control-view.mjs", "text/javascript; charset=utf-8"),
-          "/style.css": ("style.css", "text/css; charset=utf-8")}
+          "/style.css": ("style.css", "text/css; charset=utf-8"),
+          "/monitor": ("monitor.html", "text/html; charset=utf-8"),
+          "/monitor.mjs": ("monitor.mjs", "text/javascript; charset=utf-8"),
+          "/monitor.css": ("monitor.css", "text/css; charset=utf-8")}
+_INFERENCE_RATES = RateMemory()
 CSP = ("default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; "
        "frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
 
@@ -233,6 +251,12 @@ class Handler(BaseHTTPRequestHandler):
         path = urlsplit(self.path).path
         if path == "/api/health":
             return self.json_reply(200, {"service": SERVICE, "version": VERSION, "pid": os.getpid()})
+        if path == "/api/inference":
+            data = self.server.store.read()
+            inference = data.get("inference") if isinstance(data, dict) else None
+            if not isinstance(inference, dict):
+                return self.json_reply(503, {"status": "starting"})
+            return self.json_reply(200, inference)
         if path == "/api/snapshot":
             data = self.server.store.read()
             return self.json_reply(200, data) if data is not None else self.json_reply(503, {"status": "starting"})
@@ -379,6 +403,7 @@ def sample(store: SnapshotStore, collector: Collector, stop: threading.Event, in
         try:
             data = collector.collect()
             data["dashboardPort"] = dashboard_port
+            attach(data, "pc", rates=_INFERENCE_RATES, vram=vram_from_gpus(data.get("pcGpus")))
             if publish_to is not None or presence_to is not None:
                 targets = tuple(name for name, target in (("status", publish_to), ("presence", presence_to)) if target)
                 data["sources"] = [*data.get("sources", []), publish_source(outcome, started, targets)]

@@ -10,7 +10,7 @@
 | qwen3.8-27b | 1236 |
 | gpt-oss-20b | 1245 |
 
-Port 1235 does not serve a model. Advice that says "GPT-OSS on :1235" or "Qwen on :1234" is stale: 1234 is the router, and 1235 is dead. The Mac's own LM Studio may still listen on 1235; that is a Mac loopback port, not the PC lane.
+The Mac's LM Studio serves gpt-oss-20b on 127.0.0.1:1234. The Mac reads the PC lanes through the SSH forwards in [inference-monitor.md](inference-monitor.md), not by opening those ports on the LAN.
 
 AGIW Suite is being developed to coordinate useful AI work across an Apple-silicon Mac and a Windows PC. Earlier plans also included a Linux Mac Pro. Each worker can use an appropriate local model; the workflow retains task results, quality checks and model-lifecycle evidence.
 

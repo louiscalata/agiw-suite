@@ -17,6 +17,7 @@ import stat
 import time
 from pathlib import Path
 
+from inference_stats import public_map
 from machine_state import FRESH_SECONDS, TRUST_LEVELS, expire_machines, machine_summary, observation_age
 
 ENDPOINT_PATH = Path.home() / '.local/state/inference-monitor/endpoint.json'
@@ -252,7 +253,11 @@ def _summary(data, now):
         result.extend(expire_machines([projected], now))
     if ('mac', 'mac') not in seen or not set(REQUIRED_PLATFORMS) <= {platform for platform, host in seen}:
         raise StatusUnavailable('schema_invalid')
-    return {'schemaVersion': 1, 'sampledAt': data['sampledAt'], 'machines': result}
+    summary_doc = {'schemaVersion': 1, 'sampledAt': data['sampledAt'], 'machines': result}
+    inference = public_map(data.get('inference'))
+    if inference is not None:
+        summary_doc['inference'] = inference
+    return summary_doc
 
 
 def summary(endpoint_path=None, timeout=TIMEOUT, now=None):
@@ -275,7 +280,14 @@ def main(argv=None):
         print(json.dumps(data, allow_nan=False, separators=(',', ':')))
     else:
         for row in data['machines']:
-            print(f"{row['host']}: {row['state']} ({row['reasonCode']})")
+            suffix = ''
+            generation = row.get('generationTokensPerSecond')
+            prompt = row.get('promptTokensPerSecond')
+            if _number(generation):
+                suffix += f' {generation:g} gen tok/s'
+            if _number(prompt):
+                suffix += f' {prompt:g} prompt tok/s'
+            print(f"{row['host']}: {row['state']} ({row['reasonCode']}){suffix}")
     return 0
 
 

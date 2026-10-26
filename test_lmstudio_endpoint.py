@@ -89,14 +89,13 @@ class EndpointEvidenceTests(unittest.TestCase):
                 self.assertEqual(snapshot["models"], [])
                 self.assertEqual(owners.call_count, 2)
 
-    def test_local_pair_listener_is_attributed_without_claiming_mac_residency(self):
+    def test_non_lmstudio_listener_is_not_sampled(self):
         snapshot, source, http, _ = self.collect({"port": 1235, "running": True},
             _PAIR_LISTENER, {"models": [{"key": "remote/model", "loaded_instances": [{"id": "x"}]}]}, 1234)
-        self.assertEqual((source["route"], source["via"]), ("via-pair", "NVIDIA PAIR"))
-        self.assertIn("via NVIDIA PAIR", source["label"])
-        self.assertEqual(source["state"], "recorded")
+        self.assertEqual((source["route"], source["via"], source["state"]), ("unknown", None, "unavailable"))
+        self.assertNotIn("via NVIDIA PAIR", source["label"])
         self.assertEqual(snapshot["models"], [])
-        http.assert_called_once()
+        http.assert_not_called()
 
     def test_api_inventory_over_limit_is_rejected_instead_of_truncated(self):
         models = [{"key": f"local/model-{i}", "loaded_instances": []} for i in range(256)]
@@ -347,7 +346,7 @@ class ListenerOwnershipTests(unittest.TestCase):
     def test_owner_path_is_required_and_pair_basename_alone_is_insufficient(self):
         for path, expected in ((None, None), ("/tmp/nvpair-proxy", None),
                 ("/tmp/LM Studio.app/Contents/MacOS/LM Studio", None),
-                ("/Applications/NVIDIA PAIR.app/Contents/MacOS/nvpair-proxy", "pair"),
+                ("/Applications/NVIDIA PAIR.app/Contents/MacOS/nvpair-proxy", None),
                 ("/Applications/NVIDIA PAIR.app/Contents/../nvpair-proxy", None)):
             with self.subTest(path=path), mock.patch.object(telemetry, "_bounded_command", return_value="p41\nn*:1234\n"), \
                     mock.patch.object(telemetry, "_listener_executable", return_value=path):

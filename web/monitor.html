@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AGIW Inference Monitor</title>
+<link rel="stylesheet" href="/monitor.css">
+</head>
+<body>
+<header>
+  <h1>Inference Monitor</h1>
+  <p id="tunnel" role="status"></p>
+</header>
+<svg id="map" role="img" aria-label="Machines and model servers"></svg>
+<section id="detail" hidden>
+  <h2 id="detailTitle"></h2>
+  <dl id="detailFacts"></dl>
+</section>
+<script src="/monitor.mjs" type="module"></script>
+</body>
+</html>

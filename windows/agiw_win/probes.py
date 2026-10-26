@@ -43,8 +43,7 @@ SLOTS_TIMEOUT = 4.0
 DEFAULT_SHARE_ROOT = Path(r"C:\SharedChami")
 # The required lanes. There is deliberately no built-in port or model: a lane is probed only when
 # windows-llm-pipeline/config.json declares it. The PC now serves the router on :1234, qwen3.8-27b on
-# :1236 and gpt-oss-20b on :1245. :1235 is not in service and NVIDIA PAIR is uninstalled, so an
-# unreadable config must not guess a port.
+# :1236 and gpt-oss-20b on :1245. NVIDIA PAIR is uninstalled, so an unreadable config must not guess a port.
 LANE_IDS = ("fast", "deep")
 
 

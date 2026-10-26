@@ -462,6 +462,12 @@ class StatusTest(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assert_unknown(json.loads(output.getvalue()), 'unavailable')
 
+    def test_text_cli_names_a_measured_generation_rate(self):
+        output = io.StringIO()
+        with patch.object(agiw_status, 'summary', return_value=snapshot()), redirect_stdout(output):
+            self.assertEqual(agiw_status.main([]), 0)
+        self.assertIn('mac: up (observed) 4.5 gen tok/s\n', output.getvalue())
+
     def test_text_cli_names_unknown_reason(self):
         self.endpoint.unlink()
         output = io.StringIO()

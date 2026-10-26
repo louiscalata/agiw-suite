@@ -750,8 +750,8 @@ class WindowsProbeScriptTests(unittest.TestCase):
         self.assertIn("router on port 1234", hint)
         self.assertIn("qwen3.8-27b on port 1236", hint)
         self.assertIn("gpt-oss-20b on port 1245", hint)
-        self.assertNotIn("on 1235", hint)
-        self.assertIn("port 1235 is not in service", hint)
+        self.assertNotIn("1235", hint)
+        self.assertIn("port 1234", hint)
 
     def test_not_ready_is_not_a_verification(self):
         for output in ("NOT READY", "not ready", "Not Ready.", "I am NOT READY today"):

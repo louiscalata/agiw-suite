@@ -30,6 +30,17 @@ class MachineStateTests(unittest.TestCase):
                     for key in ("busyCount", "loadedCount", "generationTokensPerSecond", "promptTokensPerSecond"):
                         self.assertIsNone(row[key])
 
+    def test_up_report_keeps_measured_rates_and_drops_unusable_ones(self):
+        row = machine_summary("mac", "mac", report(promptTokensPerSecond=1.5, generationTokensPerSecond=2),
+                              now=NOW, trust="local")
+        self.assertEqual((row["promptTokensPerSecond"], row["generationTokensPerSecond"]), (1.5, 2.0))
+        for bad in (float("nan"), -1, True, "2"):
+            cleaned = machine_summary("mac", "mac", report(generationTokensPerSecond=bad), now=NOW, trust="local")
+            self.assertIsNone(cleaned["generationTokensPerSecond"])
+        down = machine_summary("mac", "mac", report(health="down", generationTokensPerSecond=9),
+                               now=NOW, trust="local")
+        self.assertIsNone(down["generationTokensPerSecond"])
+
     def test_fresh_reports_keep_trust_and_positive_down_evidence(self):
         for trust in ("local", "authenticated", "share-reported"):
             for health, state in (("ok", "up"), ("degraded", "up"), ("down", "down")):
