@@ -1,0 +1,243 @@
+{
+ "schema_version": 1,
+ "protocol_date": "2026-10-25",
+ "status": "DESIGN_ONLY_NOT_RUN",
+ "scope": "Proposed full-suite study for the two active AGIW machines (MacBook Pro and Windows PC); not a results export or machine admission",
+ "client_hosts": [
+  "Mac",
+  "Windows"
+ ],
+ "workflows": {
+  "local_direct": "Same local model stages, runtime, task checks and budgets without the AGIW orchestration path",
+  "agiw": "AGIW orchestration path using those matched local stages",
+  "cloud_direct": "Direct cloud workflow with independently recorded provider/model differences; not a same-model causal control"
+ },
+ "jev_treatment": {
+  "settings": [
+   "absent",
+   "present"
+  ],
+  "definition": "Fixed pre/post stages, findings policy, repair bound and stop rule across workflows; include failed Jev calls in time, usage and cost"
+ },
+ "metrics": {
+  "speed": "Accepted tasks/minute over whole workload; report full-request completion tokens/s and first-visible-text latency separately",
+  "accuracy": "Passed tasks / attempted tasks; retain task-oracle and execution failures, unrun cases and grading coverage",
+  "quality": "Independent blinded fixed-rubric scores, distribution and coverage",
+  "elapsed_time": "End-to-end seconds, median/tail request latency and workload makespan including allowed checks/repairs",
+  "energy": "Task-aligned gross joules/Wh for declared hardware coverage; separate valid idle-adjusted values",
+  "tokens_used_and_saved": "Provider-reported input/output/reasoning/cache categories with non-overlapping definitions and all attempts; matched savings require comparable accounting",
+  "dollars_spent": "Actual attributable USD and separately labeled dated estimates; provider, electricity and hardware costs separate"
+ },
+ "comparison_rules": [
+  "Pair within client host, workload version, Jev setting and cold/warm group; do not infer a hardware ranking from unmatched models or settings.",
+  "An attempted task is one unique workload task-trial started in a condition. Retries and repairs remain within that trial; execution failures count against task acceptance and never-started cases remain unknown.",
+  "Cloud host names describe the client only; cloud-serving hardware and energy remain unknown unless actually provided.",
+  "Keep declared warmups separate and retain their cost; include failures and repairs in attempted-work accounting.",
+  "Unreported token categories, partial power coverage and unknown charges remain unknown, never zero.",
+  "Keep provider-reported, locally counted and estimated tokens distinct. Different tokenizers limit cross-provider token-savings interpretation.",
+  "A baseline must be positive and both matched measurements known before calculating percentage savings; retain negative changes.",
+  "This protocol does not populate, supersede or reclassify historical benchmark observations."
+ ],
+ "results": [
+  {
+   "client_host": "Mac",
+   "workflow": "local_direct",
+   "jev": "absent",
+   "status": "NOT_RUN",
+   "measurements": {
+    "speed": null,
+    "accuracy": null,
+    "quality": null,
+    "elapsed_time": null,
+    "energy": null,
+    "tokens_used_and_saved": null,
+    "dollars_spent": null
+   }
+  },
+  {
+   "client_host": "Mac",
+   "workflow": "local_direct",
+   "jev": "present",
+   "status": "NOT_RUN",
+   "measurements": {
+    "speed": null,
+    "accuracy": null,
+    "quality": null,
+    "elapsed_time": null,
+    "energy": null,
+    "tokens_used_and_saved": null,
+    "dollars_spent": null
+   }
+  },
+  {
+   "client_host": "Mac",
+   "workflow": "agiw",
+   "jev": "absent",
+   "status": "NOT_RUN",
+   "measurements": {
+    "speed": null,
+    "accuracy": null,
+    "quality": null,
+    "elapsed_time": null,
+    "energy": null,
+    "tokens_used_and_saved": null,
+    "dollars_spent": null
+   }
+  },
+  {
+   "client_host": "Mac",
+   "workflow": "agiw",
+   "jev": "present",
+   "status": "NOT_RUN",
+   "measurements": {
+    "speed": null,
+    "accuracy": null,
+    "quality": null,
+    "elapsed_time": null,
+    "energy": null,
+    "tokens_used_and_saved": null,
+    "dollars_spent": null
+   }
+  },
+  {
+   "client_host": "Mac",
+   "workflow": "cloud_direct",
+   "jev": "absent",
+   "status": "NOT_RUN",
+   "measurements": {
+    "speed": null,
+    "accuracy": null,
+    "quality": null,
+    "elapsed_time": null,
+    "energy": null,
+    "tokens_used_and_saved": null,
+    "dollars_spent": null
+   }
+  },
+  {
+   "client_host": "Mac",
+   "workflow": "cloud_direct",
+   "jev": "present",
+   "status": "NOT_RUN",
+   "measurements": {
+    "speed": null,
+    "accuracy": null,
+    "quality": null,
+    "elapsed_time": null,
+    "energy": null,
+    "tokens_used_and_saved": null,
+    "dollars_spent": null
+   }
+  },
+  {
+   "client_host": "Windows",
+   "workflow": "local_direct",
+   "jev": "absent",
+   "status": "NOT_RUN",
+   "measurements": {
+    "speed": null,
+    "accuracy": null,
+    "quality": null,
+    "elapsed_time": null,
+    "energy": null,
+    "tokens_used_and_saved": null,
+    "dollars_spent": null
+   }
+  },
+  {
+   "client_host": "Windows",
+   "workflow": "local_direct",
+   "jev": "present",
+   "status": "NOT_RUN",
+   "measurements": {
+    "speed": null,
+    "accuracy": null,
+    "quality": null,
+    "elapsed_time": null,
+    "energy": null,
+    "tokens_used_and_saved": null,
+    "dollars_spent": null
+   }
+  },
+  {
+   "client_host": "Windows",
+   "workflow": "agiw",
+   "jev": "absent",
+   "status": "NOT_RUN",
+   "measurements": {
+    "speed": null,
+    "accuracy": null,
+    "quality": null,
+    "elapsed_time": null,
+    "energy": null,
+    "tokens_used_and_saved": null,
+    "dollars_spent": null
+   }
+  },
+  {
+   "client_host": "Windows",
+   "workflow": "agiw",
+   "jev": "present",
+   "status": "NOT_RUN",
+   "measurements": {
+    "speed": null,
+    "accuracy": null,
+    "quality": null,
+    "elapsed_time": null,
+    "energy": null,
+    "tokens_used_and_saved": null,
+    "dollars_spent": null
+   }
+  },
+  {
+   "client_host": "Windows",
+   "workflow": "cloud_direct",
+   "jev": "absent",
+   "status": "NOT_RUN",
+   "measurements": {
+    "speed": null,
+    "accuracy": null,
+    "quality": null,
+    "elapsed_time": null,
+    "energy": null,
+    "tokens_used_and_saved": null,
+    "dollars_spent": null
+   }
+  },
+  {
+   "client_host": "Windows",
+   "workflow": "cloud_direct",
+   "jev": "present",
+   "status": "NOT_RUN",
+   "measurements": {
+    "speed": null,
+    "accuracy": null,
+    "quality": null,
+    "elapsed_time": null,
+    "energy": null,
+    "tokens_used_and_saved": null,
+    "dollars_spent": null
+   }
+  }
+ ],
+ "supersedes": {
+  "protocol_date": "2026-10-22",
+  "client_hosts": [
+   "Mac",
+   "Linux",
+   "Windows"
+  ],
+  "conditions": 18,
+  "metric_cells": 126,
+  "source_sha256": "46aae416b114b912cb7d3ab397d589117ec553b944de119644f9343db8da4f90",
+  "reason": "Linux node (Mac Pro 5,1) retired from AGIW by Louis on 2026-10-25; AGIW now runs on the MacBook Pro and the Windows PC only. Linux conditions are removed, not measured or carried as null placeholders."
+ },
+ "design": {
+  "conditions": "client_hosts x workflows x jev_treatment.settings",
+  "condition_count": 12,
+  "metric_cells": 84,
+  "repeat_policy": "Same per-condition trial counts as the prepared 18-condition protocol (54 exploratory / 162 repeated executor trials = 3 exploratory and 9 repeated per condition): 36 exploratory and 108 repeated executor trials across 12 conditions. Warmups and exploratory trials are reported separately from repeated trials.",
+  "exploratory_executor_trials": 36,
+  "repeated_executor_trials": 108
+ }
+}
