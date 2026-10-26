@@ -1,6 +1,8 @@
-# Three machines, specialized roles
+# Two active machines, specialized roles
 
-AGIW Suite is being developed to coordinate useful AI work across an Apple-silicon Mac, a Windows PC and a Linux Mac Pro. Each worker can use an appropriate local model; the workflow retains task results, quality checks and model-lifecycle evidence.
+**Scope change · 2026-10-25.** AGIW now runs on two machines only: the Apple-silicon MacBook Pro and the Windows PC. The Linux Mac Pro 5,1 is retired from AGIW (it is not an inference, review or coordinator node), and the Linux-specific rollout below is shelved. This change reports no new run and adds no readiness claim. Linux material on this page is kept as dated history. The file keeps its original name so existing links still work.
+
+AGIW Suite is being developed to coordinate useful AI work across an Apple-silicon Mac and a Windows PC. Earlier plans also included a Linux Mac Pro. Each worker can use an appropriate local model; the workflow retains task results, quality checks and model-lifecycle evidence.
 
 **Status update · 2026-10-23.** This date-scoped documentation refresh adds no machine-readiness claim and reports no new run. Separate machine-local workers may contribute to parallel orchestration, but genuine simultaneous three-machine output rate, task rate and speedup are **NOT MEASURED**. Historical measurements and the earlier development checkpoint below are retained unchanged.
 
@@ -8,7 +10,7 @@ AGIW Suite is being developed to coordinate useful AI work across an Apple-silic
 
 ## 2026-10-18 update
 
-### Linux system-service rollout
+### Linux system-service rollout (historical; shelved 2026-10-25)
 
 The coordinator is moving from a per-user service to a system service that starts closed: it admits no work until explicitly opened. It will not be enabled at boot until a later, separate step. The rollout is in development and the coordinator has not been started. Each privileged step is preceded by a fresh read-only check of the live machine, and its output is compared byte-for-byte with a predicted result.
 
@@ -24,7 +26,9 @@ Before any one-way step, run the exact observation code read-only on the real ma
 
 The Windows edition is in development and is not released. On 2026-10-18, native test suites ran on the Windows 11 PC with Python 3.13 and Node.js 24. Three in-progress hardening workstreams passed fully, with 288 Windows tests each and JavaScript suites of 396–407 tests each. The installer workstream ran 432 Windows tests; its installer directory-guard fix, PowerShell 5.1 test-harness fix and one test-isolation fix remain in progress. Two tests that failed only on macOS were confirmed to pass natively on Windows.
 
-## The intended topology
+## The topology as planned before 2026-10-25 (historical)
+
+The diagram and table below show the earlier three-machine plan. Since 2026-10-25 only the Windows PC and the Apple-silicon Mac are in scope; the Linux row is retained as history.
 
 <img src="assets/three-machine-architecture.svg" width="1280" alt="Tools feed Nisi and Jev, optional PAIR transport, then PC, Linux and Mac workers. Windows has separate NVIDIA RTX 3080 Ti and AMD RX 5700 XT lanes. Linux has RX 580 inference, NVMe workspace/cache and HDD backup storage. Results return through output checks and review.">
 
@@ -33,7 +37,7 @@ Nisi v0.2 and Jev provide the workflow and task-analysis layer. NVIDIA PAIR can 
 | Machine | Resources and intended role | Current connection and acceptance state |
 | --- | --- | --- |
 | **Windows PC · two GPUs** | NVIDIA RTX 3080 Ti 12 GiB for CUDA; AMD RX 5700 XT 8 GiB for Vulkan. Specialized coding and fast advisory lanes. | One native Author sample and its owned cleanup passed. Central enrollment is **off**; complete four-role and dual-GPU routed acceptance remain open. |
-| **Linux Mac Pro 5,1** | Dual Xeon X5675 CPUs; 12 physical / 24 logical cores; 128 GB installed RAM; RX 580 8 GiB. Samsung system SSD, separate NVMe workspace/cache and two HDD backup volumes. | Pinned SSH works after reboot without a desktop login. A transient background user service successfully opened the GPU render device, exited 0 and was collected, with zero inference calls. The old coordinator is disabled/inactive; the new service is **not installed**, with its source staged. Production inference before login remains unverified. |
+| **Linux Mac Pro 5,1 · retired 2026-10-25** | Dual Xeon X5675 CPUs; 12 physical / 24 logical cores; 128 GB installed RAM; RX 580 8 GiB. Samsung system SSD, separate NVMe workspace/cache and two HDD backup volumes. | Pinned SSH works after reboot without a desktop login. A transient background user service successfully opened the GPU render device, exited 0 and was collected, with zero inference calls. The old coordinator is disabled/inactive; the new service is **not installed**, with its source staged. Production inference before login remains unverified. |
 | **Apple-silicon Mac** | M5 Pro and 64 GiB unified memory. Interactive work, model review and the monitor interface. | Recorded local runs produced answers and verified exact model unloading. Current process admission and complete four-role acceptance remain open. |
 
 The Linux coding sample uses a reviewed SSE/Vulkan runtime suited to the older Xeons. It did not require AVX or AVX2 CPU support. Storage roles do not make the HDDs equivalent to NVMe speed or combine the drives into a RAID volume.
@@ -52,13 +56,15 @@ Each row is a historical, single-run sample from a different task and configurat
 
 The older [historical performance study](performance.md) remains available with its original methods and dates. Its earlier peaks are separate from these three single-run samples. [Download the sanitized historical measurements](data/three-machine-checkpoint-20261016/metrics.json).
 
-## Simultaneous three-machine performance · NOT MEASURED
+## Simultaneous multi-machine performance · NOT MEASURED
+
+The in-scope measurement is now a shared two-machine run on the Mac and the PC. The Linux row is listed only because it was part of the earlier plan; it will not be measured.
 
 | Measurement requiring one shared, overlapping run | Result |
 | --- | --- |
-| Proven simultaneous generation on all three machines | **NOT MEASURED** |
+| Proven simultaneous generation on both active machines (Mac and PC) | **NOT MEASURED** |
 | PC output tokens/s during that run | **NOT MEASURED** |
-| Linux output tokens/s during that run | **NOT MEASURED** |
+| Linux output tokens/s during that run | **Out of scope** (Linux retired 2026-10-25) |
 | Mac output tokens/s during that run | **NOT MEASURED** |
 | Combined output tokens/s over the common run window | **NOT MEASURED** |
 | Validated task rate and failure rate | **NOT MEASURED** |
@@ -70,8 +76,9 @@ The cluster rate will be **total completed output tokens divided by the batch wa
 
 ## Next checkpoints
 
-1. Install and activate the prepared Linux coordinator, then verify real production inference and cleanup after boot without a desktop login.
-2. Complete Mac process admission and PC enrollment, qualify the remaining model roles and preserve existing work.
-3. Run the bounded three-machine workload, measure overlap and useful output, and publish rates together with quality and memory-release results.
+1. Complete Mac process admission and PC enrollment, qualify the remaining model roles and preserve existing work.
+2. Run the bounded two-machine (Mac and PC) workload, measure overlap and useful output, and publish rates together with quality and memory-release results.
+
+The earlier first checkpoint, activating the Linux coordinator, was withdrawn on 2026-10-25 when the Mac Pro was retired from AGIW.
 
 [Linux startup check](data/three-machine-checkpoint-20261016/linux-startup.json) · [Project roadmap](../roadmap.md) · [Released macOS Monitor](../README.md)
