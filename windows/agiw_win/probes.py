@@ -1559,14 +1559,62 @@ def is_link_or_junction(path: Path) -> bool:
     return stat.S_ISLNK(info.st_mode) or bool(attributes & 0x400)  # FILE_ATTRIBUTE_REPARSE_POINT
 
 
+# Darwin's temp and config directories are these symlinks. They are not a
+# junction planted in a share or a peer-link file.
+_DARWIN_DIRECTORY_SYMLINKS = frozenset({"/var", "/tmp", "/etc"})
+
+
+def _platform_directory_symlink(path: Path) -> bool:
+    if sys.platform != "darwin":
+        return False
+    try:
+        return os.path.abspath(path) in _DARWIN_DIRECTORY_SYMLINKS
+    except (OSError, ValueError):
+        return False
+
+
+def _publish_anchor(path: Path, top: Path) -> tuple[Path, list[tuple[Path, str]]]:
+    """Real directory to open, then each directory at ``top`` or below it.
+
+    Symlinks above ``top`` (Darwin ``/var`` -> ``/private/var``) are resolved so the
+    handle walk does not have to open them. A reparse point at ``top`` or below stays
+    a logical path and is refused by the caller before that name is opened.
+    """
+    if is_link_or_junction(top):
+        raise ValueError("linked status directory refused")
+    missing = []
+    current = top
+    while not current.exists():
+        if current == current.parent:
+            raise ValueError("publish root unavailable")
+        if is_link_or_junction(current):
+            raise ValueError("linked status directory refused")
+        missing.append(current.name)
+        current = current.parent
+    if is_link_or_junction(current):
+        raise ValueError("linked status directory refused")
+    anchor = Path(os.path.realpath(current))
+    logical = current
+    steps = []
+    for name in reversed(missing):
+        logical = logical / name
+        steps.append((logical, name))
+    if path.parent != top:
+        logical = top
+        for name in path.parent.relative_to(top).parts:
+            logical = logical / name
+            steps.append((logical, name))
+    return anchor, steps
+
+
 @contextmanager
 def _locked_publish_parent(path: Path, stop_at: Path | None):
-    """Walk from the volume root by handle, never following a directory reparse point."""
+    """Open the target's parent by handle, never following a directory reparse point."""
     path = Path(os.path.abspath(path))
     top = Path(os.path.abspath(stop_at)) if stop_at is not None else path.parent.parent
     if top != path.parent and top not in path.parent.parents:
         raise ValueError("publish target is outside its root")
-    directories = list(reversed((path.parent, *path.parent.parents)))
+    anchor, steps = _publish_anchor(path, top)
     if not IS_WINDOWS:
         # Hold each parent while opening its child. All creation, replacement and cleanup
         # below use the retained final descriptor, never the checked absolute pathname.
@@ -1575,15 +1623,15 @@ def _locked_publish_parent(path: Path, stop_at: Path | None):
         handles = []
         flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
         try:
-            handles.append(os.open(directories[0], flags))
-            for directory in directories[1:]:
-                if is_link_or_junction(directory):
+            handles.append(os.open(anchor, flags))
+            for logical, name in steps:
+                if is_link_or_junction(logical) and not _platform_directory_symlink(logical):
                     raise ValueError("linked status directory refused")
                 try:
-                    os.mkdir(directory.name, dir_fd=handles[-1])
+                    os.mkdir(name, dir_fd=handles[-1])
                 except FileExistsError:
                     pass
-                handles.append(os.open(directory.name, flags, dir_fd=handles[-1]))
+                handles.append(os.open(name, flags, dir_fd=handles[-1]))
             try:
                 target = os.stat(path.name, dir_fd=handles[-1], follow_symlinks=False)
             except FileNotFoundError:
@@ -1606,20 +1654,22 @@ def _locked_publish_parent(path: Path, stop_at: Path | None):
     invalid = ctypes.c_void_p(-1).value
     handles = []
     try:
-        # The volume root is stable. Each child is opened relative to the preceding handle,
-        # so renaming any visible path while this runs cannot redirect later operations.
-        handle = create(str(directories[0]), 0x80, 0x7, None, 3, 0x02200000, None)
+        # The resolved publish root is stable. Each child is opened relative to the
+        # preceding handle, so renaming any visible path cannot redirect later operations.
+        handle = create(str(anchor), 0x80, 0x7, None, 3, 0x02200000, None)
         if handle == invalid:
             raise ctypes.WinError(ctypes.get_last_error())
         handles.append(handle)
         if _handle_is_reparse(kernel32, handle):
             raise ValueError("linked status directory refused")
-        for directory in directories[1:]:
-            handle = _nt_create_relative(handles[-1], directory.name, directory=True)
+        for logical, name in steps:
+            if is_link_or_junction(logical) and not _platform_directory_symlink(logical):
+                raise ValueError("linked status directory refused")
+            handle = _nt_create_relative(handles[-1], name, directory=True)
             if handle == invalid:
                 raise ctypes.WinError(ctypes.get_last_error())
             handles.append(handle)
-            if _handle_is_reparse(kernel32, handle) or is_link_or_junction(directory):
+            if _handle_is_reparse(kernel32, handle):
                 raise ValueError("linked status directory refused")
         if is_link_or_junction(path):
             raise ValueError("linked status directory refused")
@@ -2215,8 +2265,9 @@ def _read_peer_link_file(path: Path) -> Any:
     if not path.is_absolute() or path.drive.startswith("\\\\"):
         raise ValueError("local absolute path required")
     for entry in (*path.parents, path):
-        if is_link_or_junction(entry):
+        if is_link_or_junction(entry) and not _platform_directory_symlink(entry):
             raise ValueError("linked path refused")
+    path = Path(os.path.realpath(path))
     if not stat.S_ISREG(path.stat().st_mode):
         raise ValueError("not a regular file")
     with path.open("rb") as stream:

@@ -211,6 +211,21 @@ class Hardening(unittest.TestCase):
             self.assertEqual(json.loads((root / "llm-lab" / "ok" / "x.json").read_text()), {"a": 1})
             self.assertEqual([p.name for p in (root / "llm-lab" / "ok").iterdir()], ["x.json"])  # no temp left
 
+    def test_a_symlink_above_the_publish_root_is_not_a_planted_redirect(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            real = base / "real"
+            (real / "share").mkdir(parents=True)
+            via = base / "via"
+            os.symlink(real, via, target_is_directory=True)
+            root = via / "share"
+            probes.write_json_atomic(root / "nested" / "x.json", {"a": 1}, stop_at=root)
+            self.assertEqual(json.loads((real / "share" / "nested" / "x.json").read_text()), {"a": 1})
+            planted = root / "status"
+            os.symlink(real, planted, target_is_directory=True)
+            with self.assertRaises(ValueError):
+                probes.write_json_atomic(planted / "x.json", {"a": 2}, stop_at=root)
+
     def test_replace_retries_a_transiently_locked_target(self):
         if os.name == "nt":
             import ctypes
