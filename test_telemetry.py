@@ -16,12 +16,41 @@ from unittest import mock
 
 import telemetry
 
+# Snapshot fixtures never read the installed peer link or a mounted share.
 _NO_WINDOWS_WORKER = (
     {"state": "unavailable", "ageSeconds": None, "modelsAdvertised": [],
      "modelCount": 0, "detail": "No recent registered Windows worker heartbeat"},
     {"id": "windows-worker", "label": "Windows worker", "state": "unavailable",
      "ageSeconds": None, "detail": "No recent registered Windows worker heartbeat"},
 )
+
+# collect_snapshot() now asks `lms server status` for LM Studio's port and reads NVIDIA PAIR's
+# files. Keep every test hermetic by default: no real lms process and no read of this Mac's PAIR
+# folder unless a test patches these itself. The originals stay reachable for their own tests.
+_REAL_LMS_SERVER_STATUS = telemetry._lms_server_status
+_REAL_PAIR_SNAPSHOT = telemetry._pair_snapshot
+_NO_PAIR = {"schema": "agiw.pair-status.v1", "state": "unknown", "reason": "not-found",
+            "detail": "NVIDIA PAIR's data folder was not found on this Mac; its state is unknown",
+            "installed": False, "evidence": {"logAgeSeconds": None, "historyAgeSeconds": None},
+            "pairSays": {"note": "", "engines": []}}
+_MODULE_PATCHES = []
+
+
+def setUpModule():
+    peer_patcher = mock.patch.object(telemetry.peer_feed, 'peer_feeds', return_value=[])
+    peer_patcher.start()
+    _MODULE_PATCHES.append(peer_patcher)
+    for name, value in (("_lms_server_status", {"port": 1234, "running": True}),
+                        ("_inventory_listener", (41, "lmstudio", "/fixture/LM Studio")),
+                        ("_pair_snapshot", _NO_PAIR)):
+        patcher = mock.patch.object(telemetry, name, return_value=value)
+        patcher.start()
+        _MODULE_PATCHES.append(patcher)
+
+
+def tearDownModule():
+    while _MODULE_PATCHES:
+        _MODULE_PATCHES.pop().stop()
 
 
 class AFMExecutableStatusTests(unittest.TestCase):
@@ -59,6 +88,72 @@ class AFMExecutableStatusTests(unittest.TestCase):
 
 
 class TelemetryParsingTests(unittest.TestCase):
+    def test_snapshot_keeps_colliding_instance_activity_separate_from_inventory_ids(self):
+        api = {'models': [{'key': 'provider/model', 'loaded_instances': [{'id': 'alias-1'}]},
+                          {'key': 'alias-1', 'loaded_instances': []}]}
+        cli = {'models': [{'identifier': 'alias-1', 'status': 'idle'}]}
+        with mock.patch.object(telemetry, '_bounded_http', return_value=api), \
+             mock.patch.object(telemetry, '_bounded_lms', return_value=cli), \
+             mock.patch.object(telemetry, '_windows_worker', return_value=_NO_WINDOWS_WORKER), \
+             mock.patch.object(telemetry.peer_feed, 'peer_feeds', return_value=[]):
+            result = telemetry.collect_snapshot()
+        self.assertEqual((result['machines'][0]['loadedCount'], result['machines'][0]['busyCount']), (1, 0))
+        self.assertEqual([row['id'] for row in result['models']], ['provider/model', 'alias-1'])
+        self.assertIs(result['models'][1]['loaded'], False)
+        self.assertEqual(result['localInstanceObservations'][0]['modelKey'], 'provider/model')
+        with mock.patch.object(telemetry, '_bounded_http', return_value=api), \
+             mock.patch.object(telemetry, '_bounded_lms', side_effect=TimeoutError()), \
+             mock.patch.object(telemetry, '_windows_worker', return_value=_NO_WINDOWS_WORKER), \
+             mock.patch.object(telemetry.peer_feed, 'peer_feeds', return_value=[]):
+            result = telemetry.collect_snapshot()
+        self.assertEqual(result['localInstanceObservations'], [])
+        self.assertIsNone(result['machines'][0]['busyCount'])
+
+    def test_machine_snapshot_preserves_each_peer_and_feed_failure(self):
+        pc = {'host': 'pc-one', 'platform': 'windows', 'health': 'ok', 'ageSeconds': 0,
+              'modelsComplete': True, 'models': [{'id': 'm', 'loadedState': 'loaded', 'activity': 'busy'}]}
+        peers = [{'feed': pc, 'source': {'id': 'pc-one-feed', 'platform': 'windows', 'host': 'pc-one',
+                   'state': 'recorded', 'trust': 'share-reported'}},
+                 {'feed': None, 'source': {'id': 'linux-one-feed', 'platform': 'linux', 'host': 'linux-one',
+                   'state': 'unavailable', 'reasonCode': 'timeout'}}]
+        with mock.patch.object(telemetry, '_bounded_http', return_value={'models': []}), \
+             mock.patch.object(telemetry, '_bounded_lms', return_value={'models': []}), \
+             mock.patch.object(telemetry, '_windows_worker', return_value=_NO_WINDOWS_WORKER), \
+             mock.patch.object(telemetry.peer_feed, 'peer_feeds', return_value=peers) as read:
+            result = telemetry.collect_snapshot()
+        read.assert_called_once()
+        self.assertEqual([row['host'] for row in result['machines']], ['mac', 'pc-one', 'linux-one'])
+        self.assertEqual(result['machines'][1]['busyCount'], 1)
+        self.assertEqual(result['machines'][2]['reasonCode'], 'timeout')
+        self.assertIsNone(result['machines'][2]['busyCount'])
+        self.assertEqual(result['windowsLive'], pc)
+
+    def test_invalid_local_inventory_never_claims_zero_and_read_faults_are_named(self):
+        cases = [(ConnectionRefusedError(), 'refused'), (TimeoutError(), 'timeout'),
+                 (json.JSONDecodeError('invalid', 'x', 0), 'non_json'),
+                 (ValueError('status response too large'), 'oversize'), (ValueError('bad schema'), 'schema_invalid')]
+        for error, reason in cases:
+            with self.subTest(reason=reason), \
+                 mock.patch.object(telemetry, '_bounded_http', side_effect=error), \
+                 mock.patch.object(telemetry, '_bounded_lms', side_effect=TimeoutError()), \
+                 mock.patch.object(telemetry, '_windows_worker', return_value=_NO_WINDOWS_WORKER):
+                result = telemetry.collect_snapshot()
+                self.assertEqual((result['machines'][0]['state'], result['machines'][0]['reasonCode']), ('unknown', reason))
+                self.assertIsNone(result['machines'][0]['loadedCount'])
+        with mock.patch.object(telemetry, '_bounded_http', return_value={'models': [{}]}), \
+             mock.patch.object(telemetry, '_bounded_lms', side_effect=TimeoutError()), \
+             mock.patch.object(telemetry, '_windows_worker', return_value=_NO_WINDOWS_WORKER):
+            result = telemetry.collect_snapshot()
+        self.assertIsNone(result['machines'][0]['loadedCount'])
+
+    def test_headless_read_failure_is_unknown(self):
+        with mock.patch.object(telemetry, '_bounded_http', return_value={'models': []}), \
+             mock.patch.object(telemetry, '_bounded_lms', return_value={'models': []}), \
+             mock.patch.object(telemetry, '_windows_worker', return_value=_NO_WINDOWS_WORKER), \
+             mock.patch.object(telemetry, '_windows_headless', side_effect=OSError()):
+            result = telemetry.collect_snapshot()
+        self.assertEqual(result['windowsWorker']['headless']['state'], 'unknown')
+
     def setUp(self):
         if self._testMethodName == 'test_online_mode_process_probe_rejects_read_only_or_wrong_command':
             return  # This case checks the real installed script path in ps output.
@@ -79,6 +174,13 @@ class TelemetryParsingTests(unittest.TestCase):
                     return
             time.sleep(0.01)
         raise AssertionError("Windows heartbeat probe did not finish")
+
+    def test_bounded_command_can_include_diagnostics_in_its_output_cap(self):
+        command = [sys.executable, "-B", "-c", "import sys;sys.stderr.write('diagnostic')"]
+        self.assertEqual(telemetry._bounded_command(command, merge_stderr=True), "diagnostic")
+        self.assertEqual(telemetry._bounded_command(command), "")
+        with self.assertRaises(ValueError):
+            telemetry._bounded_command(command, merge_stderr=True, limit=4)
 
     def test_bounded_command_timeout_stops_nested_reader(self):
         # A timed-out dispatcher must not leave its SMB I/O child alive.
@@ -634,24 +736,75 @@ class TelemetryParsingTests(unittest.TestCase):
         telemetry._merge_cli_rows(merged, [cli])
         self.assertIsNone(merged["alias-1"]["loadedInstanceIds"])
         self.assertEqual(merged["alias-1"]["metadata"], api["metadata"])
+        self.assertTrue(merged["provider/model"]["representedByInstances"])
         self.assertNotIn("SECRET", json.dumps(api))
+
+    def test_catalog_is_represented_only_by_complete_matching_cli_instances(self):
+        for instances, cli_key, expected in (([{"id": "alias"}], "provider/model", True),
+                ([{"id": "alias"}, {"id": "other"}], "provider/model", False),
+                ([{"id": "alias"}, {"id": "invalid id"}], "provider/model", False),
+                ([{"id": "alias"}], "different/model", False)):
+            with self.subTest(instances=instances, cli_key=cli_key):
+                api = telemetry._parse_api({"models": [{"key": "provider/model",
+                                                        "loaded_instances": instances}]}, time.time())[0]
+                cli = telemetry._parse_lms({"models": [{"identifier": "alias", "modelKey": cli_key}]},
+                                           time.time())
+                merged = {api["id"]: api}
+                telemetry._merge_cli_rows(merged, cli)
+                self.assertEqual(merged[api["id"]].get("representedByInstances", False), expected)
+
+    def test_cli_identity_conflict_is_atomic_before_any_row_is_replaced(self):
+        api = telemetry._parse_api({"models": [{"key": "a", "loaded_instances": []},
+                                               {"key": "b", "loaded_instances": [{"id": "a"}]}]}, time.time())
+        cli = telemetry._parse_lms({"models": [{"identifier": "b", "modelKey": "b"},
+                                               {"identifier": "a", "modelKey": "b"}]}, time.time())
+        merged = {row["id"]: row for row in api}
+        before = json.dumps(merged, sort_keys=True)
+        with self.assertRaisesRegex(telemetry._IncompleteInventoryError, "identifier conflicts"):
+            telemetry._merge_cli_rows(merged, cli)
+        self.assertEqual(json.dumps(merged, sort_keys=True), before)
 
     def test_incomplete_instance_projection_cannot_confirm_an_unload(self):
         row = telemetry._parse_api({"models": [{
             "key": "provider/model", "loaded_instances": [
                 {"id": "valid"}, {"id": "invalid id"}],
         }]}, time.time())[0]
-        self.assertEqual(row["metadata"]["loadedInstanceCount"], 2)
+        self.assertIsNone(row["metadata"]["loadedInstanceCount"])
         self.assertIsNone(row["loadedInstanceIds"])
         many = telemetry._parse_api({"models": [{
             "key": "provider/model", "loaded_instances": [
                 {"id": f"instance-{i}"} for i in range(17)],
         }]}, time.time())[0]
-        self.assertEqual(many["metadata"]["loadedInstanceCount"], 17)
+        self.assertIsNone(many["metadata"]["loadedInstanceCount"])
         self.assertIsNone(many["loadedInstanceIds"])
         fallback = telemetry._parse_lms({"models": [{"modelKey": "provider/model"}]},
                                         time.time())[0]
         self.assertIsNone(fallback["instanceId"])
+
+    def test_identifier_only_cli_alias_inherits_its_api_model_identity(self):
+        api = telemetry._parse_api({"models": [{"key": "provider/model", "display_name": "Model",
+            "loaded_instances": [{"id": "alias-1"}, {"id": "alias-2"}]}]}, time.time())[0]
+        cli = telemetry._parse_lms({"models": [{"identifier": "alias-1", "status": "idle"}]},
+                                   time.time())[0]
+        merged = {api["id"]: api}
+        telemetry._merge_cli_rows(merged, [cli])
+        self.assertEqual(merged["alias-1"]["modelKey"], "provider/model")
+        self.assertEqual(merged["alias-1"]["name"], "Model")
+        self.assertIsNone(merged["alias-1"]["loadedInstanceIds"])
+        self.assertEqual(merged["provider/model"]["loadedInstanceIds"], ["alias-1", "alias-2"])
+
+    def test_ambiguous_instance_ids_and_explicit_other_keys_do_not_alias_an_api_model(self):
+        api = telemetry._parse_api({"models": [
+            {"key": key, "loaded_instances": [{"id": "alias-1"}]}
+            for key in ("provider/first", "provider/second")]}, time.time())
+        for key in (None, "provider/other"):
+            with self.subTest(modelKey=key):
+                cli = telemetry._parse_lms({"models": [{"identifier": "alias-1", "modelKey": key}]},
+                                           time.time())[0]
+                merged = {row["id"]: row for row in api}
+                telemetry._merge_cli_rows(merged, [cli])
+                self.assertEqual(merged["alias-1"]["modelKey"], key)
+                self.assertIsNone(merged["alias-1"]["metadata"])
 
     def test_registered_windows_worker_is_inventory_only_and_expires(self):
         now = time.time()
@@ -1562,11 +1715,13 @@ class WindowsJobsJournalTests(unittest.TestCase):
         ])
         jobs, source = telemetry._windows_jobs(self.NOW)
         self.assertEqual((jobs["inFlight"], jobs["unsettled"], jobs["recent"][0]["state"]), ([], 0, "cancelled"))
-        # An unknown result status is still ignored, so the job stays open.
+        # An unknown result status leaves the observed job open, but the total is unknown.
         self._journal([self.rec("enqueued", self.JOB_B, 20, timeout=600),
                        self.rec("result", self.JOB_B, 8, status="aborted")])
         jobs, _ = telemetry._windows_jobs(self.NOW)
-        self.assertEqual((len(jobs["inFlight"]), jobs["inFlight"][0]["cancelRequested"], jobs["unsettled"]), (1, False, 1))
+        self.assertEqual((len(jobs["inFlight"]), jobs["inFlight"][0]["cancelRequested"], jobs["unsettled"]), (1, False, None))
+        self.assertFalse(jobs["complete"])
+        self.assertEqual(jobs["journal"], "invalid")
 
     def test_unknown_lane_and_missing_client_count_as_unknown(self):
         self._journal([
@@ -1859,7 +2014,7 @@ class RouteComponentTests(unittest.TestCase):
     def components(self, pipeline=None, nisi=None, rows=None):
         verified = {"runtimeIntegrity": "VERIFIED", "hostBinding": "VERIFIED"}
         result = telemetry._route_components(pipeline or {}, verified if nisi is None else nisi,
-                                             rows if rows is not None else {}, time.time())
+                                             rows if rows is not None else {}, time.time(), inventory_complete=True)
         return {c["id"]: c for c in result}
 
     def test_pair_resident_is_ready_with_roles(self):
@@ -1871,6 +2026,15 @@ class RouteComponentTests(unittest.TestCase):
         self.assertIn("chat google/gemma-4-26b-a4b-qat", c["nisi"]["detail"])
         c = self.components(rows=self.rows("b-model", "a-model"))
         self.assertEqual((c["nisi"]["authorModel"], c["nisi"]["reviewerModel"]), ("a-model", "b-model"))
+
+    def test_multiple_alias_instances_of_one_model_do_not_make_an_edit_pair(self):
+        rows = {"alias-1": {"id": "alias-1", "modelKey": "provider/model", "loaded": True},
+                "alias-2": {"id": "alias-2", "modelKey": "provider/model", "loaded": True},
+                "provider/model": {"id": "provider/model", "modelKey": "provider/model", "loaded": True,
+                                   "representedByInstances": True}}
+        nisi = self.components(rows=rows)["nisi"]
+        self.assertEqual(nisi["state"], "partial")
+        self.assertIn("only provider/model", nisi["detail"])
 
     def test_one_model_says_edits_need_a_second(self):
         c = self.components(rows=self.rows("google/gemma-4-26b-a4b-qat"))
@@ -3299,6 +3463,293 @@ class RouterDualReadTests(unittest.TestCase):
         with mock.patch.object(telemetry, "_probe_lock", return_value="unknown"):
             row = self.row(telemetry._router_observation(time.time()), "run-u")
         self.assertEqual((row["lock"], row["state"]), ("unknown", "unverified"))
+
+
+def _pair_doc(installed=True, state="up", lmstudio_port=1235):
+    """A pair_status document as read_pair_status() returns it, reduced to what telemetry reads."""
+    engines = [] if lmstudio_port is None else [
+        {"node": "linux-node-1", "reportedAgeSeconds": 4.0,
+         "engines": [{"engine": "lmstudio", "installed": True, "running": False, "healthy": False,
+                      "port": lmstudio_port}]}]
+    return {"schema": "agiw.pair-status.v1", "state": state, "reason": None if state == "up" else "stale",
+            "detail": "PAIR wrote its log 3 s ago" if state == "up" else "PAIR's newest write is 900 s old",
+            "installed": installed, "evidence": {"logAgeSeconds": 3.0 if state == "up" else 900.0,
+                                                 "historyAgeSeconds": None},
+            "pairSays": {"note": "PAIR says", "engines": engines}}
+
+
+class LmStudioPortAndPairAttributionTests(unittest.TestCase):
+    """A4 / M2: the LM Studio port comes from AGIW_LMSTUDIO_API_PORT or `lms server status`, and the
+    inventory source row only attributes a route when its endpoint has local owner evidence."""
+
+    def setUp(self):
+        telemetry._LMS_STATUS_CACHE.update(nextCheck=float("-inf"), value=None)
+        telemetry._PAIR_CACHE.update(nextCheck=float("-inf"), value=None)
+        environ = mock.patch.dict(os.environ)
+        environ.start()
+        self.addCleanup(environ.stop)
+        os.environ.pop("AGIW_LMSTUDIO_API_PORT", None)
+
+    def collect(self, lms_status, pair, api=None, env=None):
+        http = mock.Mock(return_value=api or {"models": [{"key": "a/b", "loaded_instances": []}]})
+        selected = int((env or {}).get("AGIW_LMSTUDIO_API_PORT", "0")) if (env or {}).get("AGIW_LMSTUDIO_API_PORT", "0").isdigit() else 0
+        owner = (41, "lmstudio", "/fixture/LM Studio") if lms_status and selected in (0, lms_status["port"]) else None
+        with mock.patch.dict(os.environ, env or {}), \
+                mock.patch.object(telemetry, "_lms_server_status", return_value=lms_status), \
+                mock.patch.object(telemetry, "_pair_snapshot", return_value=pair), \
+                mock.patch.object(telemetry, "_inventory_listener", return_value=owner), \
+                mock.patch.object(telemetry, "_bounded_http", http), \
+                mock.patch.object(telemetry, "_bounded_lms", return_value={"models": []}), \
+                mock.patch.object(telemetry, "_windows_worker", return_value=_NO_WINDOWS_WORKER):
+            snapshot = telemetry.collect_snapshot()
+        source = next(s for s in snapshot["sources"] if s["id"] == "lmstudio-api")
+        return snapshot, source, http
+
+    def test_env_port_is_strict_and_never_falls_back(self):
+        os.environ["AGIW_LMSTUDIO_API_PORT"] = "1235"
+        self.assertEqual(telemetry._native_api_endpoint({"port": 1236, "running": True}),
+                         {"host": "127.0.0.1", "port": 1235, "portSource": "env"})
+        for bad in ("", " 1235", "1235 ", "01235", "0", "65536", "12a", "+1235", "127.0.0.1:1235", "１２３５"):
+            with self.subTest(bad=bad):
+                os.environ["AGIW_LMSTUDIO_API_PORT"] = bad
+                with self.assertRaises(ValueError):
+                    telemetry._native_api_endpoint({"port": 1235, "running": True})
+
+    def test_port_from_lms_server_status_then_legacy_default(self):
+        self.assertEqual(telemetry._native_api_endpoint({"port": 1235, "running": True}),
+                         {"host": "127.0.0.1", "port": 1235, "portSource": "lms"})
+        self.assertEqual(telemetry._native_api_endpoint(None),
+                         {"host": "127.0.0.1", "port": 1234, "portSource": "default"})
+
+    def test_lms_server_status_shape_is_validated(self):
+        self.assertEqual(telemetry._parse_lms_server_status({"running": True, "port": 1235}),
+                         {"port": 1235, "running": True})
+        self.assertEqual(telemetry._parse_lms_server_status({"running": False, "port": 1235}),
+                         {"port": 1235, "running": False})
+        for bad in ([], "1235", {"running": True}, {"running": True, "port": "1235"},
+                    {"running": True, "port": 0}, {"running": True, "port": 65536},
+                    {"running": True, "port": True}, {"running": "yes", "port": 1235}):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                telemetry._parse_lms_server_status(bad)
+
+    def test_lms_server_status_is_fresh_and_failures_back_off(self):
+        clock = [1000.0]
+        runner = mock.Mock(return_value={"running": True, "port": 1235})
+        with mock.patch.object(telemetry, "_bounded_lms_json", runner), \
+                mock.patch.object(telemetry.time, "monotonic", side_effect=lambda: clock[0]):
+            self.assertEqual(_REAL_LMS_SERVER_STATUS(), {"port": 1235, "running": True})
+            clock[0] += 1
+            self.assertEqual(_REAL_LMS_SERVER_STATUS(), {"port": 1235, "running": True})
+            self.assertEqual(runner.call_count, 2)
+            self.assertEqual(runner.call_args.args[0], ["server", "status", "--json"])
+            clock[0] += 2
+            runner.side_effect = FileNotFoundError("lms unavailable")
+            self.assertIsNone(_REAL_LMS_SERVER_STATUS())
+            clock[0] += telemetry._LMS_STATUS_RETRY - 1
+            self.assertIsNone(_REAL_LMS_SERVER_STATUS())
+            self.assertEqual(runner.call_count, 3)
+            clock[0] += 2
+            runner.side_effect = None
+            runner.return_value = {"running": True, "port": 1240}
+            self.assertEqual(_REAL_LMS_SERVER_STATUS()["port"], 1240)
+
+    def test_bounded_lms_json_runs_lms_with_a_cap_and_deadline(self):
+        with tempfile.TemporaryDirectory() as temp:
+            script = Path(temp) / "lms"
+            for body, expected in (('printf \'{"running":true,"port":1235}\'', {"running": True, "port": 1235}),
+                                   ("head -c 5000 /dev/zero | tr '\\0' 'x'", ValueError),
+                                   ("exec sleep 5", TimeoutError),
+                                   ("printf 'not json'", ValueError),
+                                   ("exit 3", OSError)):
+                with self.subTest(body=body):
+                    script.write_text("#!/bin/sh\n" + body + "\n")
+                    script.chmod(0o700)
+                    with mock.patch.object(telemetry, "_find_lms", return_value=str(script)):
+                        if isinstance(expected, dict):
+                            self.assertEqual(telemetry._bounded_lms_json(["server", "status", "--json"], 4096), expected)
+                        else:
+                            started = time.monotonic()
+                            with self.assertRaises(expected):
+                                telemetry._bounded_lms_json(["server", "status", "--json"], 4096)
+                            self.assertLess(time.monotonic() - started, 3.0)
+
+    def test_bounded_lms_still_requires_a_list(self):
+        with mock.patch.object(telemetry, "_bounded_lms_json", return_value={"models": []}):
+            with self.assertRaises(ValueError):
+                telemetry._bounded_lms()
+        with mock.patch.object(telemetry, "_bounded_lms_json", return_value=[]) as runner:
+            self.assertEqual(telemetry._bounded_lms(), {"models": []})
+        self.assertEqual(runner.call_args.args, (["ps", "--json"], telemetry._MAX_CLI))
+
+    def test_bounded_http_connects_only_to_the_resolved_loopback_port(self):
+        seen = []
+
+        class Refused:
+            def __init__(self, host, port, timeout):
+                seen.append((host, port))
+
+            def connect(self):
+                raise ConnectionRefusedError()
+
+            def close(self):
+                pass
+        lms = mock.Mock(return_value={"port": 1236, "running": True})
+        with mock.patch.object(telemetry.http.client, "HTTPConnection", Refused), \
+                mock.patch.object(telemetry, "_lms_server_status", lms):
+            with mock.patch.dict(os.environ, {"AGIW_LMSTUDIO_API_PORT": "1235"}), self.assertRaises(OSError):
+                telemetry._bounded_http()
+            # Without an endpoint or override, lms is never consulted: legacy 1234 stays.
+            with self.assertRaises(OSError):
+                telemetry._bounded_http()
+            with self.assertRaises(OSError):
+                telemetry._bounded_http(telemetry._native_api_endpoint({"port": 1236, "running": True}))
+        self.assertEqual(seen, [("127.0.0.1", 1235), ("127.0.0.1", 1234), ("127.0.0.1", 1236)])
+        lms.assert_not_called()
+
+    def test_route_attribution(self):
+        cases = (
+            (1235, {"port": 1235, "running": True}, _pair_doc(), "direct", "lms server status"),
+            (1234, {"port": 1235, "running": True}, _pair_doc(), "unknown", "unidentified"),
+            (1234, {"port": 1235, "running": True}, _NO_PAIR, "unknown", "unidentified"),
+            (1234, None, _pair_doc(lmstudio_port=1235), "unknown", "cannot be told"),
+            (1235, None, _pair_doc(lmstudio_port=1235), "unknown", "cannot be told"),
+            (1234, None, _pair_doc(lmstudio_port=None), "unknown", "cannot be told"),
+            (1234, None, _NO_PAIR, "unknown", "cannot be told"),
+            (1234, None, None, "unknown", "cannot be told"),
+        )
+        for port, lms_status, pair, route, words in cases:
+            with self.subTest(port=port, lms=lms_status, pair=pair and pair.get("installed")):
+                owner = (41, "lmstudio", "/fixture/LM Studio") if lms_status and port == lms_status["port"] else None
+                got, why = telemetry._lmstudio_route(port, lms_status, owner)
+                self.assertEqual(got, route)
+                self.assertIn(words, why)
+
+    def test_source_row_keeps_legacy_port_route_unknown_without_local_evidence(self):
+        snapshot, source, http = self.collect(None, _pair_doc())
+        self.assertEqual((source["state"], source["endpoint"], source["portSource"], source["route"], source["via"]),
+                         ("unavailable", "127.0.0.1:1234", "default", "unknown", None))
+        self.assertEqual(source["label"], "LM Studio inventory")
+        self.assertIn("cannot be told", source["detail"])
+        self.assertIs(source["endpointConfigured"], False)
+        http.assert_not_called()
+
+    def test_peer_port_claim_never_identifies_the_local_endpoint(self):
+        for age in (4.0, 86400.0):
+            with self.subTest(age=age):
+                pair = _pair_doc(lmstudio_port=1235)
+                pair["pairSays"]["engines"][0]["reportedAgeSeconds"] = age
+                pair["pairSays"]["nativeLmStudioPort"] = 1235
+                _, source, http = self.collect(None, pair, env={"AGIW_LMSTUDIO_API_PORT": "1235"})
+                self.assertEqual((source["route"], source["via"]), ("unknown", None))
+                self.assertIn("cannot be told", source["detail"])
+                http.assert_not_called()
+
+    def test_pair_folder_does_not_identify_another_ports_owner(self):
+        for port in (1234, 1236):
+            with self.subTest(port=port):
+                _, source, _ = self.collect({"port": 1235, "running": True}, _pair_doc(),
+                                           env={"AGIW_LMSTUDIO_API_PORT": str(port)})
+                self.assertEqual((source["route"], source["via"]), ("unknown", None))
+                self.assertIn("unidentified", source["detail"])
+                self.assertNotIn("via NVIDIA PAIR", source["label"])
+
+    def test_lms_port_selection_and_snapshot_are_independent_of_pair_status(self):
+        down = _pair_doc(state="unknown")
+        snapshot, source, http = self.collect({"port": 1235, "running": True}, down)
+        self.assertEqual((source["state"], source["endpoint"], source["portSource"], source["route"], source["via"]),
+                         ("live", "127.0.0.1:1235", "lms", "direct", None))
+        self.assertEqual(source["label"], "LM Studio inventory")
+        self.assertNotIn("via NVIDIA PAIR", source["detail"])
+        self.assertEqual(http.call_args.args[0]["port"], 1235)
+        self.assertEqual(snapshot["models"][0]["id"], "a/b")
+        pair_row = next(s for s in snapshot["sources"] if s["id"] == "nvidia-pair")
+        self.assertEqual(pair_row["state"], "unavailable")
+        self.assertNotIn("down", pair_row["detail"].replace("not down", ""))
+
+    def test_env_port_wins_and_is_attributed_against_lms(self):
+        _, source, http = self.collect({"port": 1235, "running": True}, _pair_doc(),
+                                       env={"AGIW_LMSTUDIO_API_PORT": "1234"})
+        self.assertEqual((source["endpoint"], source["portSource"], source["route"], source["endpointConfigured"]),
+                         ("127.0.0.1:1234", "env", "unknown", True))
+        _, source, _ = self.collect({"port": 1235, "running": True}, _pair_doc(),
+                                    env={"AGIW_LMSTUDIO_API_PORT": "1235"})
+        self.assertEqual((source["route"], source["via"]), ("direct", None))
+
+    def test_invalid_env_port_is_never_sampled(self):
+        _, source, http = self.collect({"port": 1235, "running": True}, _pair_doc(),
+                                       env={"AGIW_LMSTUDIO_API_PORT": "pair"})
+        self.assertEqual((source["state"], source["endpoint"], source["route"]), ("error", None, "unknown"))
+        self.assertIn("no other port was tried", source["detail"])
+        http.assert_not_called()
+
+    def test_failed_read_keeps_the_route_and_says_so(self):
+        http_error = mock.Mock(side_effect=ConnectionRefusedError())
+        with mock.patch.object(telemetry, "_lms_server_status", return_value={"port": 1235, "running": False}), \
+                mock.patch.object(telemetry, "_pair_snapshot", return_value=_pair_doc()), \
+                mock.patch.object(telemetry, "_bounded_http", http_error), \
+                mock.patch.object(telemetry, "_bounded_lms", return_value={"models": []}), \
+                mock.patch.object(telemetry, "_windows_worker", return_value=_NO_WINDOWS_WORKER):
+            snapshot = telemetry.collect_snapshot()
+        source = snapshot["sources"][0]
+        self.assertEqual((source["id"], source["state"], source["route"]), ("lmstudio-api", "unavailable", "unknown"))
+        self.assertIn("lms reported its server stopped", source["detail"])
+        self.assertEqual(snapshot["models"], [])
+
+    def test_snapshot_carries_pair_status_and_keeps_source_order(self):
+        doc = _pair_doc()
+        snapshot, _, _ = self.collect({"port": 1235, "running": True}, doc)
+        self.assertIs(snapshot["pair"], doc)
+        ids = [s["id"] for s in snapshot["sources"]]
+        self.assertEqual(ids[:3], ["lmstudio-api", "lms-ps", "nvidia-pair"])
+        self.assertEqual(snapshot["sources"][2]["state"], "live")
+
+    def test_missing_pair_module_is_unknown_not_down(self):
+        with mock.patch.object(telemetry, "pair_status", None):
+            self.assertIsNone(_REAL_PAIR_SNAPSHOT())
+            snapshot, source, _ = self.collect({"port": 1235, "running": True}, None)
+            self.assertEqual(telemetry._lmstudio_route(1234, None, None)[0], "unknown")
+        row = next(s for s in snapshot["sources"] if s["id"] == "nvidia-pair")
+        self.assertEqual((row["state"], snapshot["pair"]), ("unavailable", None))
+        self.assertEqual(source["route"], "direct")
+
+    def test_pair_snapshot_is_cached_and_a_reader_failure_is_unknown(self):
+        clock = [50.0]
+        reader = mock.Mock(side_effect=RuntimeError("boom"))
+        with mock.patch.object(telemetry.pair_status, "read_pair_files", reader), \
+                mock.patch.object(telemetry.time, "monotonic", side_effect=lambda: clock[0]):
+            first = _REAL_PAIR_SNAPSHOT()
+            clock[0] += telemetry._PAIR_TTL - 0.5
+            self.assertEqual(_REAL_PAIR_SNAPSHOT(), first)
+            self.assertEqual(reader.call_count, 1)
+            clock[0] += 1
+            _REAL_PAIR_SNAPSHOT()
+            self.assertEqual(reader.call_count, 2)
+        self.assertEqual((first["state"], first["reason"]), ("unknown", "reader-failed"))
+        self.assertEqual(telemetry.pair_status.source_row(first)["state"], "unavailable")
+
+    def test_pair_cache_reages_exact_node_and_log_cutoffs_without_rereading(self):
+        pair = telemetry.pair_status
+        now = 1_800_000_000
+        entry = {"time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now - 120)),
+                 "message": "discovery:nodes-changed", "data": [{"name": "fixture-node", "lastSeen": now - 30,
+                 "modelsByEngine": {"lmstudio": ["m"]}, "loadedByEngine": {"lmstudio": ["m"]}}]}
+        raw = {rel: (None, "missing", None, False) for rel in pair.ALLOWED}
+        raw[pair.LOG] = (json.dumps(entry).encode(), "ok", now, False)
+        with mock.patch.object(pair, "read_pair_files", return_value=("ok", raw)) as read, \
+                mock.patch.object(telemetry.time, "monotonic", return_value=50.0):
+            first = _REAL_PAIR_SNAPSHOT(now=now)
+            later = _REAL_PAIR_SNAPSHOT(now=now + 0.001)
+        read.assert_called_once_with()
+        self.assertEqual(first["state"], "up")
+        self.assertEqual(first["nodes"][0]["pairClaimLoadedCount"], 1)
+        self.assertEqual(later["state"], "unknown")
+        self.assertEqual(later["nodes"][0]["residencyReason"], "stale-last-seen")
+        self.assertIsNone(later["nodes"][0]["pairClaimLoadedCount"])
+        self.assertEqual(pair.source_row(later)["state"], "unavailable")
+
+    def test_pair_cache_empty_overlay_never_reads_files(self):
+        with mock.patch.object(telemetry.pair_status, "read_pair_files", side_effect=AssertionError("no I/O")):
+            self.assertIsNone(_REAL_PAIR_SNAPSHOT(now=1_800_000_000, refresh=False))
 
 
 if __name__ == "__main__":

@@ -1,0 +1,753 @@
+"""Run actual tray helpers with process, log, and network boundaries replaced."""
+import copy
+import json
+import os
+from pathlib import Path
+import subprocess
+import tempfile
+import unittest
+
+
+SCRIPT = Path(__file__).resolve().parents[1] / "agiw-monitor.ps1"
+POWERSHELL = (Path(os.environ.get("SystemRoot", r"C:\Windows"))
+              / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe")
+NOW = 1700000000.0
+SPECIAL_NUMBERS = [{"__double": name} for name in ("nan", "infinity", "negative-infinity")]
+
+
+def snapshot():
+    lane = {"status": "idle", "ageSeconds": 0, "slotsBusy": 0, "slotsTotal": 2}
+    return {"schemaVersion": 1, "host": "windows", "sampledAt": NOW,
+            "memory": {"level": "unknown", "availablePercent": None},
+            "windowsWorker": {"lanes": {"fast": copy.deepcopy(lane), "deep": copy.deepcopy(lane)}},
+            "pcGpus": [], "macPeer": {"state": "unknown", "ageSeconds": None}}
+
+
+# Parsing function ASTs keeps top-level WinForms, mutex, observer and model code
+# out of the test process. The bodies exercised here always come from the tray.
+RUNNER = r"""
+param([string]$TraySource, [string]$CasesPath)
+$ErrorActionPreference = 'Stop'
+$tokens = $null
+$errors = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseFile($TraySource, [ref]$tokens, [ref]$errors)
+if ($errors.Count) { throw ($errors | Out-String) }
+$names = @('Test-FiniteNumber', 'Get-SnapshotSummary', 'Format-TrayText', 'Get-StatusSummary',
+           'Start-Observer', 'Stop-Observer', 'Get-DashboardUrl')
+$functions = $ast.FindAll({ param($node)
+    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -in $names
+}, $true)
+if ($functions.Count -ne $names.Count) { throw 'missing or duplicate tray helper AST' }
+foreach ($definition in $functions) {
+    $source = $definition.Extent.Text
+    if ($definition.Name -eq 'Start-Observer') {
+        $starts = @($definition.FindAll({ param($node)
+            $node -is [System.Management.Automation.Language.InvokeMemberExpressionAst] -and
+            $node.Static -and $node.Expression -is [System.Management.Automation.Language.TypeExpressionAst] -and
+            $node.Expression.TypeName.FullName -eq 'System.Diagnostics.Process' -and $node.Member.Value -eq 'Start'
+        }, $true))
+        if ($starts.Count -ne 1) { throw 'expected exactly one observer process-start boundary' }
+        $start = $starts[0]
+        if ($start.Arguments.Count -ne 1 -or
+            $start.Arguments[0] -isnot [System.Management.Automation.Language.VariableExpressionAst] -or
+            $start.Arguments[0].VariablePath.UserPath -ne 'info') { throw 'unexpected process-start input boundary' }
+        $offset = $start.Extent.StartOffset - $definition.Extent.StartOffset
+        $source = $source.Remove($offset, $start.Extent.Text.Length).Insert($offset, '(Start-TestProcess -Info $info)')
+    }
+    $safeTokens = $null
+    $safeErrors = $null
+    $safe = [System.Management.Automation.Language.Parser]::ParseInput($source, [ref]$safeTokens, [ref]$safeErrors)
+    if ($safeErrors.Count) { throw 'invalid isolated helper AST' }
+    # Fail before evaluating any helper if a process-launch boundary was added
+    # or changed. A real Process.Start or Start-Process must never reach this runner.
+    $unsafe = @($safe.FindAll({ param($node)
+        ($node -is [System.Management.Automation.Language.InvokeMemberExpressionAst] -and $node.Member.Value -eq 'Start') -or
+        ($node -is [System.Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'Start-Process')
+    }, $true))
+    if ($unsafe.Count) { throw 'unreplaced process-start boundary' }
+    Invoke-Expression $source
+}
+$script:ActualDashboardUrl = ${function:Get-DashboardUrl}
+
+function Expand-TestValue($Value) {
+    if ($Value -is [System.Management.Automation.PSCustomObject]) {
+        if ($Value.PSObject.Properties.Name -contains '__decimal') {
+            return [decimal]::Parse($Value.__decimal, [cultureinfo]::InvariantCulture)
+        }
+        if ($Value.PSObject.Properties.Name -contains '__double') {
+            switch ($Value.__double) {
+                'nan' { return [double]::NaN }
+                'infinity' { return [double]::PositiveInfinity }
+                'negative-infinity' { return [double]::NegativeInfinity }
+                default { throw 'unknown numeric fixture' }
+            }
+        }
+        foreach ($property in $Value.PSObject.Properties) { $property.Value = Expand-TestValue $property.Value }
+    } elseif ($Value -is [array]) {
+        return ,@($Value | ForEach-Object { Expand-TestValue $_ })
+    }
+    return ,$Value
+}
+
+# The network wrapper is real; only its input boundary is replaced. No network
+# request or dashboard launch occurs in this process.
+function Get-DashboardUrl {
+    if ($script:UseActualDashboardUrl) { return (& $script:ActualDashboardUrl) }
+    return $script:FakeUrl
+}
+function Invoke-RestMethod {
+    param([string]$Uri, [int]$TimeoutSec, [switch]$UseBasicParsing)
+    $script:Fetches++
+    $script:LastFetchedUri = $Uri
+    if ($script:FetchThrows) { throw 'fixture network unavailable' }
+    return $script:FetchedSnapshot
+}
+function Write-Log([string]$Message) { $script:LogMessages += $Message }
+function Start-TestProcess($Info) {
+    $script:ProcessStarts++
+    $script:StartedInfo = $Info
+    return $script:NextProcess
+}
+function New-TestProcess([string]$Hello) {
+    $read = [PSCustomObject]@{ Result = $Hello; WaitMilliseconds = $null }
+    $read | Add-Member ScriptMethod Wait { param($Milliseconds) $this.WaitMilliseconds = $Milliseconds; return $true }
+    $stream = [PSCustomObject]@{ Read = $read }
+    $stream | Add-Member ScriptMethod ReadLineAsync { return $this.Read }
+    $process = [PSCustomObject]@{ Id = 42424; HasExited = $false; StandardOutput = $stream;
+                                 KillCalls = 0; WaitCalls = 0; WaitMilliseconds = $null }
+    $process | Add-Member ScriptMethod Kill { $this.KillCalls++; $this.HasExited = $true }
+    $process | Add-Member ScriptMethod WaitForExit { param($Milliseconds)
+        $this.WaitCalls++; $this.WaitMilliseconds = $Milliseconds; return $true
+    }
+    return $process
+}
+$inputCases = Get-Content -LiteralPath $CasesPath -Raw | ConvertFrom-Json
+$results = @()
+foreach ($case in $inputCases.cases) {
+    $script:Fetches = 0
+    $script:UseActualDashboardUrl = $false
+    $script:LastFetchedUri = $null
+    try {
+        $value = switch ($case.kind) {
+            'summary' { Get-SnapshotSummary -Snapshot (Expand-TestValue $case.snapshot) -NowUnix $case.now }
+            'tooltip' {
+                $summary = Get-SnapshotSummary -Snapshot (Expand-TestValue $case.snapshot) -NowUnix $case.now
+                @{ tooltip = (Format-TrayText $summary.text $summary.tooltipParts); menuText = $summary.text; tone = $summary.tone }
+            }
+            'finite' { Test-FiniteNumber (Expand-TestValue $case.value) }
+            'format' { Format-TrayText $case.message $case.parts }
+            'status' {
+                $script:FakeUrl = $case.url
+                $script:LastError = $case.lastError
+                $script:FetchThrows = [bool]$case.fail
+                $script:FetchedSnapshot = Expand-TestValue $case.snapshot
+                Get-StatusSummary
+            }
+            'lifecycle' {
+                $script:UseActualDashboardUrl = $true
+                $old = New-TestProcess ''
+                $script:Observer = $old
+                $script:ObserverPort = 8766
+                $script:LastError = $null
+                $script:Backoff = 2
+                $script:NextStart = [DateTime]::MinValue
+                $script:ProcessStarts = 0
+                $script:StartedInfo = $null
+                $script:LogMessages = @()
+                $script:FetchThrows = $true
+                $Python = $null
+                $Root = 'C:\fixture-observer'
+                $Port = 8767
+                $StatePath = 'C:\fixture-observer\state.json'
+                $ObserverLog = 'C:\fixture-observer\observer.log'
+                Stop-Observer
+                $stoppedProcessMissing = $null -eq $script:Observer
+                $stoppedPort = $script:ObserverPort
+                $stoppedUrl = Get-DashboardUrl
+                switch ($case.action) {
+                    'stop' { }
+                    'missing-python' { Start-Observer }
+                    'success' {
+                        $Python = 'fixture-python.exe'
+                        $script:NextProcess = New-TestProcess '{"service":"agiw-win-observer","port":8767}'
+                        $script:FetchThrows = $false
+                        $script:FetchedSnapshot = Expand-TestValue $case.snapshot
+                        $script:FetchedSnapshot.sampledAt = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() / 1000.0
+                        Start-Observer
+                    }
+                    default { throw 'unknown lifecycle fixture action' }
+                }
+                $summary = Get-StatusSummary
+                @{ observerMissing = ($null -eq $script:Observer); port = $script:ObserverPort;
+                   url = (Get-DashboardUrl); lastError = $script:LastError; text = $summary.text;
+                   tone = $summary.tone; stoppedProcessMissing = $stoppedProcessMissing;
+                   stoppedPort = $stoppedPort; stoppedUrl = $stoppedUrl; oldKillCalls = $old.KillCalls;
+                   oldWaitCalls = $old.WaitCalls; oldWaitMilliseconds = $old.WaitMilliseconds;
+                   starts = $script:ProcessStarts; fetchedUri = $script:LastFetchedUri;
+                   backoff = $script:Backoff; logMessages = $script:LogMessages }
+            }
+            default { throw 'unknown case kind' }
+        }
+        $results += @{ name = $case.name; value = $value; fetches = $script:Fetches }
+    } catch {
+        $results += @{ name = $case.name; error = $_.Exception.Message; fetches = $script:Fetches }
+    }
+}
+@{ powershell = $PSVersionTable.PSVersion.ToString(); results = $results } | ConvertTo-Json -Depth 25 -Compress
+"""
+
+
+@unittest.skipUnless(os.name == "nt", "Windows PowerShell tray only")
+class TraySummaryTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.cases = []
+
+        def add(name, data, now=NOW):
+            cls.cases.append({"name": name, "kind": "summary", "snapshot": data, "now": now})
+
+        add("idle", snapshot())
+        busy = snapshot()
+        busy["windowsWorker"]["lanes"]["deep"].update(status="busy", slotsBusy=1, cpuPercent=42)
+        add("busy", busy)
+        for index, counters in enumerate([
+                {"slotsBusy": None}, {"slotsTotal": None}, {"slotsBusy": True}, {"slotsBusy": 0.5},
+                {"slotsBusy": -1}, {"slotsTotal": 0}, {"slotsBusy": 3, "slotsTotal": 2},
+                {"slotsBusy": "0"}, {"slotsTotal": "2"}, {"slotsTotal": False}, {"slotsTotal": 33}]):
+            data = snapshot()
+            for lane in data["windowsWorker"]["lanes"].values():
+                lane.update(counters)
+            add(f"counters-{index}", data)
+        for status, count in [("busy", 0), ("idle", 1), ("slots_unknown", 0)]:
+            data = snapshot()
+            for lane in data["windowsWorker"]["lanes"].values():
+                lane.update(status=status, slotsBusy=count)
+            add(f"contradiction-{status}", data)
+        for index, status in enumerate([["idle", "busy"], ["idle"], {"state": "busy"}, True, 1]):
+            data = snapshot()
+            for lane in data["windowsWorker"]["lanes"].values():
+                lane["status"] = status
+            add(f"lane-status-{index}", data)
+        for index, sampled in enumerate([NOW - 6, NOW + 1, None, True, False, "1700000000", "bad", [],
+                                         {}, *SPECIAL_NUMBERS]):
+            data = snapshot()
+            data["sampledAt"] = sampled
+            add(f"sample-time-{index}", data)
+        for index, age in enumerate([None, -1, "0", "bad", True, False, 4, *SPECIAL_NUMBERS]):
+            data = snapshot()
+            for lane in data["windowsWorker"]["lanes"].values():
+                lane["ageSeconds"] = age
+            add(f"lane-age-{index}", data)
+        missing_age = snapshot()
+        for lane in missing_age["windowsWorker"]["lanes"].values():
+            del lane["ageSeconds"]
+        add("lane-age-missing", missing_age)
+        at_boundary = snapshot()
+        at_boundary["sampledAt"] -= 1
+        for lane in at_boundary["windowsWorker"]["lanes"].values():
+            lane["ageSeconds"] = 2
+        add("lane-age-boundary", at_boundary)
+        after_boundary = copy.deepcopy(at_boundary)
+        after_boundary["sampledAt"] -= 0.01
+        add("lane-age-after-boundary", after_boundary)
+        for index, value in enumerate([None, True, False, "50", "bad", -1, 101, {}, [], *SPECIAL_NUMBERS]):
+            data = copy.deepcopy(busy)
+            data["windowsWorker"]["lanes"]["deep"]["cpuPercent"] = value
+            add(f"cpu-invalid-{index}", data)
+            data = snapshot()
+            data["memory"] = {"level": "tight", "availablePercent": value}
+            add(f"memory-invalid-{index}", data)
+            data = copy.deepcopy(busy)
+            data["pcGpus"] = [{"utilizationPercent": value}, {"utilizationPercent": 20}]
+            add(f"gpu-invalid-{index}", data)
+        for index, memory in enumerate([None, [], "bad", {}, {"level": "unknown", "availablePercent": 50},
+                                         {"level": "unreported", "availablePercent": 50}]):
+            data = snapshot()
+            data["memory"] = memory
+            add(f"memory-unknown-{index}", data)
+        valid_memory = snapshot()
+        valid_memory["memory"] = {"level": "ok", "availablePercent": 75}
+        add("memory-valid", valid_memory)
+        for index, age in enumerate([None, -1, "0", "bad", True, False, {}, [], *SPECIAL_NUMBERS]):
+            data = snapshot()
+            data["macPeer"] = {"state": "reachable", "ageSeconds": age}
+            add(f"mac-age-{index}", data)
+        missing_mac_age = snapshot()
+        missing_mac_age["macPeer"] = {"state": "reachable"}
+        add("mac-age-missing", missing_mac_age)
+        for state, age, label in [("linked", 29, "reported"), ("reachable", 44, "answers")]:
+            data = snapshot()
+            data["sampledAt"] -= 1
+            data["macPeer"] = {"state": state, "ageSeconds": age}
+            add(f"mac-boundary-{label}", data)
+            after = copy.deepcopy(data)
+            after["sampledAt"] -= 0.01
+            add(f"mac-expired-{label}", after)
+        unanswered = snapshot()
+        unanswered["macPeer"] = {"state": "unreachable", "ageSeconds": 0}
+        add("mac-unanswered", unanswered)
+        for index, data in enumerate([None, [], "bad", {}, {"sampledAt": NOW},
+                                      {**snapshot(), "host": "mac"}, {**snapshot(), "schemaVersion": 2},
+                                      {**snapshot(), "schemaVersion": True},
+                                      {**snapshot(), "windowsWorker": "bad"},
+                                      {**snapshot(), "windowsWorker": {"lanes": []}}]):
+            add(f"malformed-{index}", data)
+        partial = snapshot()
+        del partial["windowsWorker"]["lanes"]["deep"]
+        add("partial", partial)
+        worker_array = snapshot()
+        worker_array["windowsWorker"] = [worker_array["windowsWorker"]]
+        add("shape-worker-array", worker_array)
+        lanes_array = snapshot()
+        lanes_array["windowsWorker"]["lanes"] = [lanes_array["windowsWorker"]["lanes"]]
+        add("shape-lanes-array", lanes_array)
+        lane_array = snapshot()
+        lane_array["windowsWorker"]["lanes"]["deep"] = [lane_array["windowsWorker"]["lanes"]["deep"]]
+        add("shape-one-lane-array", lane_array)
+        memory_array = snapshot()
+        memory_array["memory"] = [{"level": "tight", "availablePercent": 10}]
+        add("shape-memory-array", memory_array)
+        peer_array = snapshot()
+        peer_array["macPeer"] = [{"state": "reachable", "ageSeconds": 0}]
+        add("shape-peer-array", peer_array)
+        gpu_object = snapshot()
+        gpu_object["pcGpus"] = {"utilizationPercent": 99}
+        add("shape-gpu-object", gpu_object)
+        gpu_nested = copy.deepcopy(busy)
+        gpu_nested["pcGpus"] = [[{"utilizationPercent": 99}], {"utilizationPercent": 20}]
+        add("shape-gpu-nested-array", gpu_nested)
+
+        def tooltip(name, data):
+            cls.cases.append({"name": name, "kind": "tooltip", "snapshot": data, "now": NOW})
+
+        reported = snapshot()
+        reported["pcGpus"] = [{"utilizationPercent": 2}, {"utilizationPercent": 0}]
+        reported["memory"] = {"level": "ok", "availablePercent": 48}
+        reported["macPeer"] = {"state": "linked", "ageSeconds": 0}
+        tooltip("tooltip-live-reported", reported)
+        busy_max = copy.deepcopy(reported)
+        for lane in busy_max["windowsWorker"]["lanes"].values():
+            lane.update(status="busy", slotsBusy=32, slotsTotal=32, cpuPercent=100)
+        busy_max["pcGpus"] = [{"utilizationPercent": 100} for _ in range(8)]
+        busy_max["memory"] = {"level": "ok", "availablePercent": 100}
+        tooltip("tooltip-busy-max", busy_max)
+        scaled_busy = copy.deepcopy(busy_max)
+        for lane in scaled_busy["windowsWorker"]["lanes"].values():
+            lane["slotsBusy"] = {"__decimal": "32.0000000000000000000000000000"}
+            lane["slotsTotal"] = {"__decimal": "32.0000000000000000000000000000"}
+        tooltip("tooltip-busy-scaled-decimal", scaled_busy)
+        cls.tooltip_states = {"idle": "idle", "busy": "32/32", "identity_mismatch": "WRONG MODEL",
+                              "loading": "loading", "slots_unknown": "up ?", "stale": "stale",
+                              "unreachable": "no answer", "unknown": "?"}
+        cls.tooltip_peers = {"linked": "Mac reported", "reachable": "Mac answers", "unreachable": "Mac no answer"}
+        for fast in cls.tooltip_states:
+            for deep in cls.tooltip_states:
+                for peer_state in cls.tooltip_peers:
+                    data = copy.deepcopy(busy_max)
+                    data["windowsWorker"]["lanes"]["fast"].update(status=fast, slotsBusy=32 if fast == "busy" else 0)
+                    data["windowsWorker"]["lanes"]["deep"].update(status=deep, slotsBusy=32 if deep == "busy" else 0)
+                    data["macPeer"]["state"] = peer_state
+                    tooltip(f"tooltip-states-{fast}-{deep}-{peer_state}", data)
+        for name in ["mac-expired-reported", "mac-expired-answers", "mac-age-3", "shape-peer-array"]:
+            data = copy.deepcopy(next(case["snapshot"] for case in cls.cases if case["name"] == name))
+            data["memory"] = {"level": "ok", "availablePercent": True}
+            data["pcGpus"] = [{"utilizationPercent": "100"}]
+            tooltip(f"tooltip-invalid-{name}", data)
+        for name in ["malformed-0", "sample-time-0"]:
+            data = copy.deepcopy(next(case["snapshot"] for case in cls.cases if case["name"] == name))
+            tooltip(f"tooltip-neutral-{name}", data)
+
+        failed_source = {"id": "share-publish", "outcome": "failed", "ageSeconds": None,
+                         "state": "unavailable"}
+        share_idle = copy.deepcopy(reported)
+        share_idle["sources"] = [copy.deepcopy(failed_source)]
+        tooltip("share-failed-idle", share_idle)
+        share_busy = copy.deepcopy(busy_max)
+        share_busy["sources"] = [copy.deepcopy(failed_source)]
+        tooltip("share-failed-busy", share_busy)
+        share_stale_lanes = copy.deepcopy(share_busy)
+        for lane in share_stale_lanes["windowsWorker"]["lanes"].values():
+            lane["ageSeconds"] = 4
+        tooltip("share-failed-stale-lanes", share_stale_lanes)
+        for level in ["tight", "critical"]:
+            data = copy.deepcopy(share_idle)
+            data["memory"] = {"level": level, "availablePercent": 10}
+            data["macPeer"]["state"] = "reachable"
+            tooltip(f"share-failed-memory-{level}", data)
+        share_partial = copy.deepcopy(share_idle)
+        del share_partial["windowsWorker"]["lanes"]["deep"]
+        tooltip("share-failed-partial", share_partial)
+        share_long = copy.deepcopy(share_idle)
+        for lane in share_long["windowsWorker"]["lanes"].values():
+            lane["status"] = "identity_mismatch"
+        tooltip("share-failed-long-labels", share_long)
+        share_sibling = copy.deepcopy(share_idle)
+        share_sibling["sources"].append({"id": "other-source", "outcome": "ok"})
+        tooltip("share-failed-other-source", share_sibling)
+        share_expired = copy.deepcopy(share_idle)
+        share_expired["sampledAt"] -= 6
+        tooltip("share-failed-expired-snapshot", share_expired)
+
+        # These are data boundary cases, not string checks on the implementation.
+        # Failed publisher rows intentionally have no source-specific age: only
+        # the overall snapshot must be current before claiming this failure.
+        invalid_sources = [
+            None, [], "share-publish", copy.deepcopy(failed_source),
+            [None], ["share-publish"], [[copy.deepcopy(failed_source)]],
+            [{"id": "other-source", "outcome": "failed"}],
+            [{"id": "SHARE-PUBLISH", "outcome": "failed"}],
+            [{"id": ["share-publish"], "outcome": "failed"}],
+            [{"id": {"value": "share-publish"}, "outcome": "failed"}],
+            [{"id": True, "outcome": "failed"}],
+            [{"id": 1, "outcome": "failed"}],
+            [{"outcome": "failed"}],
+            [{"id": "share-publish"}],
+        ]
+        for outcome in ["ok", "pending", "FAILED", " failed", "failed ", None, True,
+                        False, 1, [], ["failed"], {"value": "failed"}]:
+            invalid_sources.append([{"id": "share-publish", "outcome": outcome}])
+        for duplicate in [{"id": "share-publish", "outcome": "ok"},
+                          copy.deepcopy(failed_source),
+                          {"id": "share-publish", "outcome": ["failed"]}]:
+            invalid_sources.append([copy.deepcopy(failed_source), duplicate])
+        for index, sources in enumerate(invalid_sources):
+            data = copy.deepcopy(reported)
+            data["sources"] = sources
+            tooltip(f"share-unknown-{index}", data)
+        tooltip("share-unknown-missing", copy.deepcopy(reported))
+        cls.cases.append({"name": "format-priority-parts", "kind": "format", "message": "Full menu text",
+                          "parts": ["fast idle", "deep idle", "Mac reported", "RAM " + "x" * 100, "GPU 20%"]})
+        for index, value in enumerate([0, 1, -1, 0.5, None, True, False, "0", "3.5", [], {}, *SPECIAL_NUMBERS]):
+            cls.cases.append({"name": f"finite-{index}", "kind": "finite", "value": value})
+        for size in [0, 1, 55, 56, 57, 1000]:
+            cls.cases.append({"name": f"format-{size}", "kind": "format", "message": "x" * size})
+        cls.cases.extend([
+            {"name": "network-failure", "kind": "status", "url": "http://127.0.0.1:8767/", "fail": True},
+            {"name": "not-started", "kind": "status", "url": None, "fail": True, "lastError": "Fixture startup error"},
+            {"name": "observer-stop", "kind": "lifecycle", "action": "stop"},
+            {"name": "observer-restart-missing-python", "kind": "lifecycle", "action": "missing-python"},
+            {"name": "observer-restart-success", "kind": "lifecycle", "action": "success", "snapshot": snapshot()},
+        ])
+        with tempfile.TemporaryDirectory() as tmp:
+            runner = Path(tmp) / "tray-helper-tests.ps1"
+            cases = Path(tmp) / "cases.json"
+            runner.write_text(RUNNER, encoding="ascii")
+            cases.write_text(json.dumps({"cases": cls.cases}), encoding="ascii")
+            result = subprocess.run([str(POWERSHELL), "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+                                     "-File", str(runner), "-TraySource", str(SCRIPT), "-CasesPath", str(cases)],
+                                    capture_output=True, text=True, timeout=30)
+        if result.returncode:
+            raise AssertionError(f"headless PowerShell runner failed: {result.stderr}")
+        response = json.loads(result.stdout)
+        if not response["powershell"].startswith("5.1."):
+            raise AssertionError(f"tests require Windows PowerShell 5.1: {response['powershell']}")
+        cls.results = {row["name"]: row for row in response["results"]}
+
+    def result(self, name):
+        row = self.results[name]
+        self.assertNotIn("error", row, f"{name}: {row.get('error')}")
+        return row["value"]
+
+    def group(self, prefix):
+        return [case["name"] for case in self.cases if case["name"].startswith(prefix)]
+
+    def test_fresh_idle_and_confirmed_busy(self):
+        idle = self.result("idle")
+        self.assertEqual(idle["tone"], "ok")
+        self.assertIn("fast idle", idle["text"])
+        self.assertIn("deep idle", idle["text"])
+        busy = self.result("busy")
+        self.assertEqual(busy["tone"], "live")
+        self.assertIn("deep 1/2", busy["text"])
+
+    def test_partial_or_invalid_counters_never_claim_idle_or_busy(self):
+        for name in self.group("counters-") + self.group("contradiction-") + self.group("lane-status-"):
+            with self.subTest(case=name):
+                summary = self.result(name)
+                self.assertEqual(summary["tone"], "muted")
+                self.assertNotIn(" idle", summary["text"])
+
+    def test_stale_future_and_malformed_sample_times_are_neutral(self):
+        for name in self.group("sample-time-"):
+            with self.subTest(case=name):
+                self.assertEqual(self.result(name)["tone"], "muted")
+
+    def test_lane_age_is_finite_nonnegative_and_includes_snapshot_age(self):
+        for name in self.group("lane-age-"):
+            if name == "lane-age-boundary":
+                continue
+            with self.subTest(case=name):
+                self.assertEqual(self.result(name)["tone"], "muted")
+        self.assertEqual(self.result("lane-age-boundary")["tone"], "ok")
+        self.assertEqual(self.result("idle")["tone"], "ok", "zero is a real, current age")
+
+    def test_bad_optional_cpu_does_not_lose_confirmed_activity(self):
+        for name in self.group("cpu-invalid-"):
+            with self.subTest(case=name):
+                summary = self.result(name)
+                self.assertEqual(summary["tone"], "live")
+                self.assertIn("deep 1/2", summary["text"])
+                self.assertNotIn(" cpu ", summary["text"])
+
+    def test_bad_or_unknown_optional_memory_is_omitted(self):
+        for name in self.group("memory-invalid-") + self.group("memory-unknown-"):
+            with self.subTest(case=name):
+                summary = self.result(name)
+                self.assertEqual(summary["tone"], "ok")
+                self.assertIn("fast idle", summary["text"])
+                self.assertNotIn("RAM", summary["text"])
+        self.assertIn("RAM 75% free", self.result("memory-valid")["text"])
+
+    def test_bad_optional_gpu_reading_preserves_confirmed_activity_and_other_adapter(self):
+        for name in self.group("gpu-invalid-"):
+            with self.subTest(case=name):
+                summary = self.result(name)
+                self.assertEqual(summary["tone"], "live")
+                self.assertIn("deep 1/2", summary["text"])
+                self.assertIn("GPU 20%", summary["text"])
+
+    def test_mac_peer_age_is_finite_and_its_freshness_includes_snapshot_age(self):
+        for name in self.group("mac-age-") + self.group("mac-expired-"):
+            with self.subTest(case=name):
+                summary = self.result(name)
+                self.assertEqual(summary["tone"], "ok", "bad peer data preserves known local lane evidence")
+                self.assertNotIn("Mac ", summary["text"])
+        self.assertIn("Mac reported", self.result("mac-boundary-reported")["text"])
+        self.assertIn("Mac answers", self.result("mac-boundary-answers")["text"])
+
+    def test_an_unanswered_mac_is_not_claimed_offline(self):
+        summary = self.result("mac-unanswered")
+        self.assertIn("Mac no answer", summary["text"])
+        self.assertNotIn("offline", summary["text"])
+
+    def test_required_malformed_data_and_partial_lane_are_neutral_without_throwing(self):
+        for name in self.group("malformed-") + ["partial"]:
+            with self.subTest(case=name):
+                self.assertEqual(self.result(name)["tone"], "muted")
+        self.assertIn("fast idle", self.result("partial")["text"], "a missing lane preserves known sibling evidence")
+
+    def test_array_worker_or_lanes_cannot_use_powershell_member_enumeration_to_claim_idle(self):
+        for name in ["shape-worker-array", "shape-lanes-array"]:
+            with self.subTest(case=name):
+                summary = self.result(name)
+                self.assertEqual(summary["tone"], "muted")
+                self.assertNotIn(" idle", summary["text"])
+
+    def test_an_array_lane_remains_unknown_and_preserves_its_valid_sibling(self):
+        summary = self.result("shape-one-lane-array")
+        self.assertEqual(summary["tone"], "muted")
+        self.assertIn("fast idle", summary["text"])
+        self.assertNotIn("deep idle", summary["text"])
+
+    def test_optional_container_shapes_cannot_create_false_readings(self):
+        for name, omitted in [("shape-memory-array", "RAM"), ("shape-peer-array", "Mac "),
+                              ("shape-gpu-object", "GPU")]:
+            with self.subTest(case=name):
+                summary = self.result(name)
+                self.assertEqual(summary["tone"], "ok")
+                self.assertIn("fast idle", summary["text"])
+                self.assertNotIn(omitted, summary["text"])
+        nested = self.result("shape-gpu-nested-array")
+        self.assertEqual(nested["tone"], "live")
+        self.assertIn("GPU 20%", nested["text"])
+        self.assertNotIn("99", nested["text"])
+
+    def test_finite_number_rejects_boolean_text_and_nonfinite_values(self):
+        for index, name in enumerate(self.group("finite-")):
+            with self.subTest(case=name):
+                self.assertIs(self.result(name), index < 4)
+
+    def test_tooltip_limit_includes_the_full_prefix(self):
+        for size in [0, 1, 55, 56, 57, 1000]:
+            with self.subTest(size=size):
+                text = self.result(f"format-{size}")
+                self.assertTrue(text.startswith("AGIW | "))
+                self.assertLessEqual(len(text), 63)
+                if size <= 56:
+                    self.assertEqual(text, "AGIW | " + "x" * size)
+                else:
+                    self.assertEqual(len(text), 63)
+                    self.assertTrue(text.endswith("..."))
+
+    def test_tooltip_keeps_the_reported_mac_state_before_optional_hardware(self):
+        result = self.result("tooltip-live-reported")
+        tokens = result["tooltip"].split(" | ")
+        self.assertEqual(tokens[:4], ["AGIW", "fast idle", "deep idle", "Mac reported"])
+        self.assertLessEqual(len(result["tooltip"]), 63)
+        self.assertIn("GPU 2/0%", result["menuText"])
+        self.assertIn("RAM 48% free", result["menuText"])
+        self.assertTrue(result["menuText"].endswith("Mac reported"))
+
+    def test_busy_tooltip_keeps_both_lane_counts_and_mac_without_losing_menu_cpu(self):
+        result = self.result("tooltip-busy-max")
+        self.assertEqual(result["tone"], "live")
+        tokens = result["tooltip"].split(" | ")
+        self.assertEqual(tokens[:4], ["AGIW", "fast 32/32", "deep 32/32", "Mac reported"])
+        self.assertLessEqual(len(result["tooltip"]), 63)
+        self.assertNotIn("cpu", result["tooltip"])
+        self.assertIn("deep 32/32 cpu 100%", result["menuText"])
+        self.assertIn("GPU " + "/".join(["100"] * 8) + "%", result["menuText"])
+        self.assertIn("RAM 100% free", result["menuText"])
+
+    def test_scaled_decimal_slot_counts_are_canonical_in_menu_and_tooltip(self):
+        result = self.result("tooltip-busy-scaled-decimal")
+        self.assertEqual(result["tone"], "live")
+        self.assertLessEqual(len(result["tooltip"]), 63)
+        self.assertEqual(result["tooltip"].split(" | ")[:4],
+                         ["AGIW", "fast 32/32", "deep 32/32", "Mac reported"])
+        self.assertIn("fast 32/32", result["menuText"])
+        self.assertIn("deep 32/32 cpu 100%", result["menuText"])
+
+    def test_every_canonical_lane_pair_and_mac_state_fits_as_complete_tokens(self):
+        for fast, fast_label in self.tooltip_states.items():
+            for deep, deep_label in self.tooltip_states.items():
+                for peer_state, peer_label in self.tooltip_peers.items():
+                    with self.subTest(fast=fast, deep=deep, peer=peer_state):
+                        result = self.result(f"tooltip-states-{fast}-{deep}-{peer_state}")
+                        self.assertLessEqual(len(result["tooltip"]), 63)
+                        self.assertEqual(result["tooltip"].split(" | ")[:4],
+                                         ["AGIW", f"fast {fast_label}", f"deep {deep_label}", peer_label])
+                        self.assertNotIn("...", result["tooltip"])
+
+    def test_tooltip_does_not_promote_invalid_or_expired_optional_evidence(self):
+        for name in self.group("tooltip-invalid-"):
+            with self.subTest(case=name):
+                result = self.result(name)
+                self.assertEqual(result["tone"], "ok")
+                self.assertEqual(result["tooltip"], "AGIW | fast idle | deep idle")
+                self.assertEqual(result["menuText"], "fast idle | deep idle")
+
+    def test_tooltip_neutral_fallback_preserves_its_message(self):
+        for name in self.group("tooltip-neutral-"):
+            with self.subTest(case=name):
+                result = self.result(name)
+                self.assertEqual(result["tone"], "muted")
+                self.assertEqual(result["tooltip"], "AGIW | " + result["menuText"])
+
+    def test_tooltip_stops_at_an_overlong_token_without_truncating_or_skipping_it(self):
+        self.assertEqual(self.result("format-priority-parts"), "AGIW | fast idle | deep idle | Mac reported")
+
+    def test_confirmed_publish_failure_warns_and_precedes_optional_tooltip_readings(self):
+        for name in ["share-failed-idle", "share-failed-other-source"]:
+            with self.subTest(case=name):
+                result = self.result(name)
+                self.assertEqual(result["tone"], "warn")
+                self.assertTrue(result["menuText"].endswith("Mac reported | Share publish failed"))
+                self.assertIn("GPU 2/0%", result["menuText"])
+                self.assertIn("RAM 48% free", result["menuText"])
+                self.assertEqual(result["tooltip"],
+                                 "AGIW | fast idle | deep idle | Mac reported | Share failed")
+                self.assertLessEqual(len(result["tooltip"]), 63)
+
+    def test_publish_failure_preserves_busy_blue_and_full_menu_cpu(self):
+        result = self.result("share-failed-busy")
+        self.assertEqual(result["tone"], "live")
+        self.assertIn("deep 32/32 cpu 100%", result["menuText"])
+        self.assertTrue(result["menuText"].endswith("Mac reported | Share publish failed"))
+        self.assertEqual(result["tooltip"],
+                         "AGIW | fast 32/32 | deep 32/32 | Mac reported | Share failed")
+        self.assertLessEqual(len(result["tooltip"]), 63)
+
+    def test_stale_busy_lanes_do_not_hide_a_current_publish_failure(self):
+        result = self.result("share-failed-stale-lanes")
+        self.assertEqual(result["tone"], "warn")
+        self.assertIn("fast stale | deep stale", result["menuText"])
+        self.assertNotIn("32/32", result["menuText"])
+        self.assertIn("Share publish failed", result["menuText"])
+        self.assertEqual(result["tooltip"],
+                         "AGIW | fast stale | deep stale | Mac reported | Share failed")
+
+    def test_publish_failure_and_memory_pressure_keep_both_messages(self):
+        for name in self.group("share-failed-memory-"):
+            with self.subTest(case=name):
+                result = self.result(name)
+                self.assertEqual(result["tone"], "warn")
+                self.assertIn("RAM 10% free", result["menuText"])
+                self.assertTrue(result["menuText"].endswith("Mac answers | Share publish failed"))
+                self.assertEqual(result["tooltip"],
+                                 "AGIW | fast idle | deep idle | Mac answers | Share failed")
+                self.assertLessEqual(len(result["tooltip"]), 63)
+
+    def test_publish_failure_preserves_known_sibling_and_complete_long_lane_mac_tokens(self):
+        partial = self.result("share-failed-partial")
+        self.assertEqual(partial["tone"], "warn")
+        self.assertIn("fast idle", partial["menuText"])
+        self.assertNotIn("deep idle", partial["menuText"])
+        self.assertIn("Share publish failed", partial["menuText"])
+        long_labels = self.result("share-failed-long-labels")
+        self.assertEqual(long_labels["tone"], "warn")
+        self.assertTrue(long_labels["menuText"].endswith("Mac reported | Share publish failed"))
+        self.assertEqual(long_labels["tooltip"],
+                         "AGIW | fast WRONG MODEL | deep WRONG MODEL | Mac reported")
+        self.assertNotIn("...", long_labels["tooltip"])
+        self.assertLessEqual(len(long_labels["tooltip"]), 63)
+
+    def test_recovery_missing_malformed_and_duplicate_publish_sources_do_not_warn(self):
+        for name in self.group("share-unknown-"):
+            with self.subTest(case=name):
+                result = self.result(name)
+                self.assertEqual(result["tone"], "ok")
+                self.assertIn("fast idle | deep idle", result["menuText"])
+                self.assertNotIn("Share", result["menuText"])
+                self.assertNotIn("Share", result["tooltip"])
+
+    def test_an_expired_snapshot_cannot_claim_publish_failure(self):
+        result = self.result("share-failed-expired-snapshot")
+        self.assertEqual(result["tone"], "muted")
+        self.assertNotIn("Share", result["menuText"])
+        self.assertEqual(result["tooltip"], "AGIW | " + result["menuText"])
+
+    def test_network_failure_and_not_started_are_neutral(self):
+        summary = self.result("network-failure")
+        self.assertEqual(summary["tone"], "muted")
+        self.assertEqual(self.results["network-failure"]["fetches"], 1)
+        self.assertIn("Waiting", summary["text"])
+        startup = self.result("not-started")
+        self.assertEqual(startup["tone"], "muted")
+        self.assertEqual(self.results["not-started"]["fetches"], 0)
+        self.assertIn("Fixture startup error", startup["text"])
+
+    def test_ordinary_observer_stop_clears_process_port_and_dashboard_url(self):
+        stopped = self.result("observer-stop")
+        self.assertTrue(stopped["observerMissing"])
+        self.assertIsNone(stopped["port"])
+        self.assertIsNone(stopped["url"])
+        self.assertEqual(stopped["oldKillCalls"], 1)
+        self.assertEqual(stopped["oldWaitCalls"], 1)
+        self.assertEqual(stopped["oldWaitMilliseconds"], 3000)
+        self.assertEqual(stopped["starts"], 0)
+        self.assertEqual(self.results["observer-stop"]["fetches"], 0)
+        self.assertEqual(stopped["text"], "Starting observer...")
+
+    def test_missing_python_restart_shows_real_startup_error_without_url_or_fetch(self):
+        failed = self.result("observer-restart-missing-python")
+        message = "Python 3.9+ not found (set AGIW_PYTHON)"
+        self.assertTrue(failed["observerMissing"])
+        self.assertIsNone(failed["port"])
+        self.assertIsNone(failed["url"])
+        self.assertEqual(failed["lastError"], message)
+        self.assertEqual(failed["text"], message)
+        self.assertEqual(failed["tone"], "muted")
+        self.assertEqual(failed["starts"], 0, "actual missing-Python branch cannot reach process launch")
+        self.assertEqual(failed["backoff"], 4)
+        self.assertEqual(failed["logMessages"], [message])
+        self.assertEqual(self.results["observer-restart-missing-python"]["fetches"], 0)
+        self.assertIsNone(failed["fetchedUri"])
+
+    def test_successful_restart_installs_real_handshake_port_and_dashboard_url(self):
+        restarted = self.result("observer-restart-success")
+        self.assertFalse(restarted["observerMissing"])
+        self.assertEqual(restarted["port"], 8767)
+        self.assertEqual(restarted["url"], "http://127.0.0.1:8767/")
+        self.assertIsNone(restarted["lastError"])
+        self.assertEqual(restarted["starts"], 1)
+        self.assertEqual(restarted["backoff"], 2)
+        self.assertEqual(restarted["oldKillCalls"], 1)
+        self.assertEqual(self.results["observer-restart-success"]["fetches"], 1)
+        self.assertEqual(restarted["fetchedUri"], "http://127.0.0.1:8767/api/snapshot")
+        self.assertEqual(restarted["tone"], "ok")
+        self.assertIn("fast idle", restarted["text"])
+
+
+if __name__ == "__main__":
+    unittest.main()

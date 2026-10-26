@@ -1,0 +1,676 @@
+"""Loopback HTTP observer for the Windows edition: snapshot, live stream and the shared dashboard."""
+from __future__ import annotations
+
+import argparse
+import copy
+import json
+import os
+from pathlib import Path
+import signal
+import socket
+import sys
+import threading
+import time
+from typing import Any
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlsplit
+
+from . import SERVICE, VERSION
+from . import probes, winsys
+from .collect import Collector, LANE_FRESH_SECONDS, LANE_ACTIVITY_FRESH_SECONDS
+
+DEFAULT_PORT = 8767
+ACTIVE = {"generating", "busy"}
+KNOWN_ACTIVITY = ACTIVE | {"idle"}
+ASSETS = {"/": ("index.html", "text/html; charset=utf-8"),
+          "/app.js": ("app.js", "text/javascript; charset=utf-8"),
+          "/online-code-mode.mjs": ("online-code-mode.mjs", "text/javascript; charset=utf-8"),
+          "/map-layout.mjs": ("map-layout.mjs", "text/javascript; charset=utf-8"),
+          "/model-control-view.mjs": ("model-control-view.mjs", "text/javascript; charset=utf-8"),
+          "/style.css": ("style.css", "text/css; charset=utf-8")}
+CSP = ("default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; "
+       "frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
+
+
+def find_web_root(start: Path) -> Path:
+    """web/ beside the install (installed layout) or at the repository root (source layout)."""
+    for candidate in (start / "web", start.parent / "web", start.parent.parent / "web"):
+        if (candidate / "index.html").is_file():
+            return candidate
+    raise FileNotFoundError("dashboard assets (web/index.html) not found")
+
+
+def activity_is_known(rows: list[dict], source_status: dict[str, str]) -> bool:
+    """Every loaded local lane row must carry fresh, exact slot activity."""
+    if source_status.get("llama-slots") != "live" or any(type(row.get("loaded")) is not bool for row in rows):
+        return False
+    loaded = [row for row in rows if row.get("loaded") is True]
+    return bool(loaded) and all(row.get("source") == "llama-slots" and row.get("state") in KNOWN_ACTIVITY
+                                and type(row.get("ageSeconds")) in (int, float) and 0 <= row["ageSeconds"] <= LANE_ACTIVITY_FRESH_SECONDS
+                                for row in loaded)
+
+
+class SnapshotStore:
+    """Atomic snapshot publication with history and observed transitions (mirrors the Mac store)."""
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.changed = threading.Condition(self.lock)
+        self.snapshot = None
+        self.history: list[dict] = []
+        self.events: list[dict] = []
+        self.previous: dict[str, dict] = {}
+        self.sequence = 0
+
+    def publish(self, data: dict) -> None:
+        data = probes.enforce_snapshot_evidence(data)
+        now = data["sampledAt"]
+        rows = data.get("models", [])
+        for row in rows:
+            age = row.get("ageSeconds")
+            if row.get("source") == "llama-slots" and row.get("state") in KNOWN_ACTIVITY and (
+                    not isinstance(age, (int, float)) or not 0 <= age <= LANE_ACTIVITY_FRESH_SECONDS):
+                metadata = row.setdefault("metadata", {})
+                metadata["lastObservation"] = {"state": row["state"], "ageSeconds": age}
+                metadata.update(slotsBusy=None, liveTokensPerSecond=None)
+                row.update(state="loaded" if row.get("loaded") is True else "unknown", source="llama-models")
+        status = {s["id"]: s.get("state") for s in data.get("sources", [])}
+        known = activity_is_known(rows, status)
+        data["activityKnown"] = known
+        with self.lock:
+            self.sequence += 1
+            states = {}
+            for row in rows:
+                key = f"{row['host']}:{row['id']}"
+                states[key] = {"state": row["state"], "source": row.get("source")}
+                before = self.previous.get(key)
+                if before is None or (before["state"] == row["state"] and before["source"] == row.get("source")):
+                    continue
+                was_known = before["source"] == "llama-slots" and before["state"] in KNOWN_ACTIVITY
+                is_known = row.get("source") == "llama-slots" and row["state"] in KNOWN_ACTIVITY
+                kind, label = (("evidence-loss", "Activity visibility lost; inventory only") if was_known and not is_known
+                               and row["state"] != "unloaded" else
+                               ("evidence-recovered", "Lane activity reporting resumed") if is_known and not was_known
+                               and before["state"] != "unloaded" else
+                               ("state-change", "Observed lane state changed"))
+                self.events.insert(0, {"at": now, "model": row["name"], "host": row["host"],
+                                       "before": before["state"], "state": row["state"], "kind": kind,
+                                       "label": label, "sourceBefore": before["source"], "source": row.get("source")})
+            self.previous = states
+            self.events = self.events[:50]
+            live = [r for r in rows if isinstance(r.get("ageSeconds"), (int, float))
+                    and 0 <= r["ageSeconds"] <= data.get("laneFreshSeconds", LANE_FRESH_SECONDS)]
+            self.history.append({"at": now,
+                                 "active": sum(r["state"] in ACTIVE for r in live) if known else None,
+                                 "loaded": (sum(r["loaded"] is True for r in live)
+                                            if rows and len(live) == len(rows)
+                                            and all(type(r.get("loaded")) is bool for r in live) else None)})
+            self.history = self.history[-90:]
+            data.update(sequence=self.sequence, history=copy.deepcopy(self.history),
+                        events=copy.deepcopy(self.events), intervalSeconds=1, fullSampledAt=now)
+            self.snapshot = data
+            self.changed.notify_all()
+
+    def read(self):
+        with self.lock:
+            return copy.deepcopy(self.snapshot)
+
+    def wait_for_change(self, last: int | None, timeout: float):
+        with self.changed:
+            if not self.changed.wait_for(lambda: self.snapshot is not None and self.sequence != last, timeout=timeout):
+                return None, last
+            return copy.deepcopy(self.snapshot), self.sequence
+
+
+class MonitorServer(ThreadingHTTPServer):
+    daemon_threads = True
+    allow_reuse_address = False
+    request_queue_size = 8
+    max_connections = 8
+    max_streams = 3
+    connection_deadline_seconds = 3.0
+
+    def __init__(self, address, store: SnapshotStore, web_root: Path):
+        if address[0] != "127.0.0.1":
+            raise ValueError("Monitor must bind to IPv4 loopback")
+        self.store, self.web_root = store, web_root
+        self.stopping = threading.Event()
+        self._streams = threading.BoundedSemaphore(self.max_streams)
+        # Accepted sockets beyond the cap are closed before a handler thread exists.
+        self._slots = threading.BoundedSemaphore(self.max_connections)
+        self._deadlines: dict[int, threading.Timer] = {}
+        self._deadline_lock = threading.Lock()
+        super().__init__(address, Handler)
+
+    def process_request(self, request, client_address):
+        if not self._slots.acquire(blocking=False):
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except Exception:
+            self._slots.release()
+            self.shutdown_request(request)
+            raise
+
+    def process_request_thread(self, request, client_address):
+        def expire():
+            # A client can drip bytes inside each read timeout indefinitely; the deadline ends it.
+            for action in (lambda: request.shutdown(socket.SHUT_RDWR), request.close):
+                try:
+                    action()
+                except OSError:
+                    pass
+        timer = threading.Timer(self.connection_deadline_seconds, expire)
+        timer.daemon = True
+        with self._deadline_lock:
+            self._deadlines[id(request)] = timer
+        try:
+            timer.start()
+            super().process_request_thread(request, client_address)
+        finally:
+            timer.cancel()
+            with self._deadline_lock:
+                self._deadlines.pop(id(request), None)
+            self._slots.release()
+
+    def release_deadline(self, request) -> None:
+        """Live streams are exempt from the request deadline (they are capped separately)."""
+        with self._deadline_lock:
+            timer = self._deadlines.pop(id(request), None)
+        if timer is not None:
+            timer.cancel()
+
+    def server_bind(self):
+        # Windows lets a second socket bind a port another process holds unless this is set.
+        if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
+
+    def handle_error(self, *_):
+        pass
+
+
+class Handler(BaseHTTPRequestHandler):
+    server_version = "AGIWWin/" + VERSION
+    sys_version = ""
+    timeout = 5
+
+    def log_message(self, *_):
+        pass
+
+    def same_origin(self, require_origin: bool = False) -> bool:
+        port = self.server.server_address[1]
+        hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
+        host_headers = self.headers.get_all("Host", [])
+        if len(host_headers) != 1 or host_headers[0] not in hosts:
+            return False
+        origins = self.headers.get_all("Origin", [])
+        if len(origins) > 1 or (require_origin and len(origins) != 1):
+            return False
+        return not origins or origins[0] == f"http://{host_headers[0]}"
+
+    def reply(self, status: int, payload: bytes, mime: str) -> None:
+        self.send_response(status)
+        self.send_header("Content-Type", mime)
+        self.send_header("Content-Length", str(len(payload)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("Content-Security-Policy", CSP)
+        self.end_headers()
+        try:
+            self.wfile.write(payload)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            pass
+
+    def json_reply(self, status: int, value) -> None:
+        self.reply(status, json.dumps(value, allow_nan=False).encode(), "application/json")
+
+    def do_GET(self):
+        if not self.same_origin():
+            return self.reply(403, b"Invalid host or origin", "text/plain")
+        path = urlsplit(self.path).path
+        if path == "/api/health":
+            return self.json_reply(200, {"service": SERVICE, "version": VERSION, "pid": os.getpid()})
+        if path == "/api/snapshot":
+            data = self.server.store.read()
+            return self.json_reply(200, data) if data is not None else self.json_reply(503, {"status": "starting"})
+        if path == "/api/stream":
+            return self.stream()
+        if path == "/api/models/control":
+            return self.json_reply(200, {"status": "idle", "operationId": 0, "supported": False,
+                                         "message": "Model load and unload are not offered on the PC lanes."})
+        if path in ("/api/models/auto-unload", "/api/online-code-mode/repair", "/api/inference/fix",
+                    "/api/online-code-mode/entry", "/api/online-code-mode/headless", "/api/components",
+                    "/api/components/jev"):
+            return self.json_reply(501, {"status": "error", "message": "Not available in the Windows edition yet."})
+        if path == "/usage-format.mjs":
+            return self.asset(self.server.web_root.parent / "usage-format.mjs", "text/javascript; charset=utf-8")
+        asset = ASSETS.get(path)
+        if asset is None:
+            return self.reply(404, b"Not found", "text/plain")
+        return self.asset(self.server.web_root / asset[0], asset[1])
+
+    def asset(self, path: Path, mime: str) -> None:
+        try:
+            self.reply(200, path.read_bytes(), mime)
+        except OSError:
+            self.reply(503, b"Asset unavailable", "text/plain")
+
+    def _discard_request_body(self):
+        # Drain a bounded body before closing so split sends can read the refusal.
+        lengths = self.headers.get_all("Content-Length", [])
+        text = lengths[0].strip(" \t") if len(lengths) == 1 else ""
+        try:
+            length = int(text) if text.isascii() and text.isdecimal() else -1
+        except ValueError:
+            length = -1
+        if 0 <= length <= 64 * 1024:
+            if len(self.rfile.read(length)) != length:
+                self.close_connection = True
+        else:
+            self.close_connection = True
+
+    def send_error(self, code, message=None, explain=None):
+        if (code == 501 and self.command in {"PUT", "DELETE", "PATCH"}
+                and not hasattr(self, "do_" + self.command)):
+            self._discard_request_body()
+        return super().send_error(code, message, explain)
+
+    def do_POST(self):
+        allowed = self.same_origin(require_origin=True)
+        self._discard_request_body()
+        if not allowed:
+            return self.json_reply(403, {"status": "error", "message": "Exact same-origin Origin and Host are required."})
+        return self.json_reply(501, {"status": "error", "message": "The Windows edition is read-only in this version."})
+
+    def stream(self):
+        if not self.server._streams.acquire(blocking=False):
+            return self.json_reply(503, {"status": "busy", "message": "Too many live streams"})
+        try:
+            self.server.release_deadline(self.request)
+            self.connection.settimeout(5)
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.end_headers()
+            self.close_connection = True
+            last = None
+            while not self.server.stopping.is_set():
+                data, sequence = self.server.store.wait_for_change(last, timeout=1.0)
+                if data is None:
+                    chunk = b": alive\n\n"
+                else:
+                    last = sequence
+                    chunk = (f"id: {sequence}\nevent: snapshot\ndata: ".encode()
+                             + json.dumps(data, allow_nan=False, separators=(",", ":")).encode() + b"\n\n")
+                self.wfile.write(chunk)
+                self.wfile.flush()
+        except (OSError, ValueError):
+            pass
+        finally:
+            self.server._streams.release()
+
+
+def publish_error_name(error: Exception) -> str:
+    """A short, path-free name for a publish failure, safe to show on the dashboard."""
+    if isinstance(error, ValueError):
+        return f"refused: {str(error)[:80]}"
+    code = getattr(error, "winerror", None) or getattr(error, "errno", None)
+    return f"{type(error).__name__}{f' {code}' if code else ''}"
+
+
+def publish_source(outcome: dict[str, Any], now: float, targets: tuple[str, ...] = ("status", "presence")) -> dict[str, Any]:
+    """The share publisher as a dashboard source: a failure reaches the dashboard, not only stderr.
+
+    ``outcome`` (pending / ok / failed) is the machine-readable result for the tray; detail is prose for people.
+    ``targets`` names what is actually configured, so the detail never claims a file this observer does not write.
+    """
+    ok, error = outcome.get("ok"), outcome.get("error")
+    age = None if ok is None else round(max(0.0, now - ok), 1)
+    what = {("status",): "Status", ("presence",): "Presence"}.get(tuple(targets), "Status and presence")
+    if error is None and ok is None:
+        return {**probes._source("share-publish", "Share publish", "unavailable", "First publish to SharedChami pending"),
+                "outcome": "pending"}
+    if error is not None:
+        since = f"last success {age:.0f} s ago" if age is not None else "no successful publish since start"
+        return {**probes._source("share-publish", "Share publish", "unavailable",
+                                 f"Publishing to SharedChami failed ({error}); {since}; any previous file is kept"),
+                "outcome": "failed"}
+    return {**probes._source("share-publish", "Share publish", "live",
+                             f"{what} published to SharedChami {age:.0f} s ago", age), "outcome": "ok"}
+
+
+def peer_link_feed_source(outcome: dict[str, Any], now: float) -> dict[str, Any]:
+    """The local status file for the pairing service, as a dashboard source (it is never written to the share)."""
+    ok, error = outcome.get("ok"), outcome.get("error")
+    if error is not None:
+        return probes._source("peer-link-feed", "Peer link feed", "unavailable",
+                              f"Writing the pairing service's status file failed ({error}); any previous file is kept")
+    if ok is None:
+        return probes._source("peer-link-feed", "Peer link feed", "unavailable", "First status file for the pairing service pending")
+    age = round(max(0.0, now - ok), 1)
+    return probes._source("peer-link-feed", "Peer link feed", "live",
+                          f"Status file for the pairing service written {age:.0f} s ago (local, private)", age)
+
+
+def write_peer_link_status(target: Path, data: dict[str, Any], host: str, outcome: dict[str, Any]) -> None:
+    """Never raises: a failed feed write is recorded for its source row and can never cost the share publish."""
+    try:
+        probes.write_json_atomic(target, probes.peer_link_status_doc(data, host), probes.PEER_MAX_BYTES,
+                                 stop_at=target.parent)
+        outcome["ok"], outcome["error"] = time.monotonic(), None
+    except Exception as error:  # noqa: BLE001
+        outcome["error"] = publish_error_name(error)
+        print(f"{time.strftime('%Y-%m-%dT%H:%M:%S')} peer link status write failed: {error!r}", file=sys.stderr)
+
+
+def sample(store: SnapshotStore, collector: Collector, stop: threading.Event, interval: float = 1.0,
+           publish_to: Path | None = None, publish_every: float = 10.0, presence_to: Path | None = None,
+           dashboard_port: int | None = None, peer_link_status_to: Path | None = None) -> None:
+    last_publish = 0.0
+    last_feed = 0.0
+    outcome: dict[str, Any] = {"ok": None, "error": None}  # monotonic time of the last success; last failure
+    feed: dict[str, Any] = {"ok": None, "error": None}
+    while not stop.is_set():
+        started = time.monotonic()
+        try:
+            data = collector.collect()
+            data["dashboardPort"] = dashboard_port
+            if publish_to is not None or presence_to is not None:
+                targets = tuple(name for name, target in (("status", publish_to), ("presence", presence_to)) if target)
+                data["sources"] = [*data.get("sources", []), publish_source(outcome, started, targets)]
+            if peer_link_status_to is not None:
+                data["sources"] = [*data.get("sources", []), peer_link_feed_source(feed, started)]
+            store.publish(data)
+            # The pairing service refuses a status file older than 30 s, so it is refreshed every publish interval.
+            if peer_link_status_to is not None and started - last_feed >= publish_every:
+                last_feed = started
+                write_peer_link_status(peer_link_status_to, data, collector.host, feed)
+            if (publish_to is not None or presence_to is not None) and started - last_publish >= publish_every:
+                last_publish = started
+                # Each file is published on its own, so a reader holding one never blocks the other.
+                failures = []
+                for name, target in (("status", publish_to), ("presence", presence_to)):
+                    if target is None:
+                        continue
+                    try:
+                        if name == "status":
+                            value = probes.pc_status(data)
+                            probes.validate_status(value)
+                            probes.write_json_atomic(target, value, probes.STATUS_MAX_BYTES, stop_at=collector.share_root)
+                        else:
+                            probes.write_json_atomic(target, probes.peer_presence(data, collector.host),
+                                                     probes.PEER_MAX_BYTES, stop_at=collector.share_root)
+                    except (OSError, ValueError) as error:
+                        failures.append(f"{name}: {publish_error_name(error)}")
+                        print(f"{time.strftime('%Y-%m-%dT%H:%M:%S')} {name} publish failed: {error!r}", file=sys.stderr)
+                if failures:
+                    outcome["error"] = "; ".join(failures)
+                else:
+                    outcome["ok"], outcome["error"] = time.monotonic(), None
+        except Exception as error:  # noqa: BLE001 - a failed sample ages out; it is never re-stamped
+            print(f"{time.strftime('%Y-%m-%dT%H:%M:%S')} sample failed: {error!r}", file=sys.stderr)
+        stop.wait(max(0.05, interval - (time.monotonic() - started)))
+
+
+class RateLimitedLog:
+    """Bounded stderr log with escaped controls, repeat suppression and rotation during writes."""
+
+    def __init__(self, stream, path: Path | None = None, max_bytes: int = 1 << 20):
+        self.stream, self.path, self.max_bytes = stream, path, max_bytes
+        self._last = {}
+        self._lock = threading.Lock()
+
+    def _rotate_for(self, line: str) -> bool:
+        if self.path is None:
+            return True
+        try:
+            self.stream.flush()
+            if self.path.stat().st_size + len(line.encode("utf-8")) <= self.max_bytes:
+                return True
+            self.stream.close()
+            os.replace(self.path, self.path.with_suffix(self.path.suffix + ".1"))
+            self.stream = open(self.path, "a", encoding="utf-8", buffering=1)
+            return True
+        except OSError:
+            # A reader may lock the old log. Keep writing up to twice the cap so a lasting lock does not
+            # silence the log, and retry rotation on the next write; never let logging stop the sampler.
+            if self.stream.closed:
+                try:
+                    self.stream = open(self.path, "a", encoding="utf-8", buffering=1)
+                except OSError:
+                    return False
+            try:
+                return self.path.stat().st_size + len(line.encode("utf-8")) <= 2 * self.max_bytes
+            except OSError:
+                return False
+
+    def write(self, text: str) -> int:
+        # A write is one record. Escape embedded newlines before finding its end, so an untrusted
+        # message cannot create a second timestamped record.
+        line = "".join(c if c.isprintable() else repr(c)[1:-1] for c in text.rstrip("\r\n"))[:500]
+        if not line:
+            return len(text)
+        with self._lock:
+            key, now = line[19:], time.monotonic()
+            if now - self._last.get(key, -1e9) < 60:
+                return len(text)
+            if len(self._last) > 512:
+                self._last.clear()
+            self._last[key] = now
+            record = line + "\n"
+            if self._rotate_for(record):
+                try:
+                    self.stream.write(record)
+                except OSError:
+                    pass
+        return len(text)
+
+    def flush(self) -> None:
+        with self._lock:
+            try:
+                self.stream.flush()
+            except OSError:
+                pass
+
+
+class PortUnavailable(RuntimeError):
+    pass
+
+
+def bind(store: SnapshotStore, web_root: Path, port: int, retry_seconds: float = 12.0) -> MonitorServer:
+    """The fixed port, retried briefly (a restart can find it held by closing sockets). It never moves to
+    another port: a second observer at a different address would split the dashboard silently."""
+    deadline = time.monotonic() + retry_seconds
+    while True:
+        try:
+            return MonitorServer(("127.0.0.1", port), store, web_root)
+        except OSError as error:
+            if port == 0 or time.monotonic() >= deadline:
+                raise PortUnavailable(f"127.0.0.1:{port} is in use ({error.strerror or error}); "
+                                      "another observer or program holds it") from error
+            time.sleep(0.5)
+
+
+def write_state(path: Path | None, port: int) -> None:
+    if path is None:
+        return
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+        tmp.write_text(json.dumps({"service": SERVICE, "version": VERSION, "port": port, "pid": os.getpid(),
+                                   "url": f"http://127.0.0.1:{port}/", "startedUnix": round(time.time(), 3)}),
+                       encoding="utf-8")
+        os.replace(tmp, path)
+    except OSError:
+        pass
+
+
+def parent_watch(pid: int):
+    """A callable reporting whether the parent still runs; on Windows it holds one SYNCHRONIZE handle opened at
+    startup, so a later reuse of the PID by another process cannot keep the observer alive."""
+    if os.name != "nt":
+        def alive() -> bool:
+            try:
+                os.kill(pid, 0)
+                return True
+            except OSError:
+                return False
+        return alive
+    import ctypes  # noqa: PLC0415
+    kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+    kernel32.OpenProcess.restype = ctypes.c_void_p
+    kernel32.WaitForSingleObject.argtypes = (ctypes.c_void_p, ctypes.c_ulong)
+    handle = kernel32.OpenProcess(0x00100000, False, pid)  # SYNCHRONIZE
+    if not handle:
+        return None  # cannot watch (already gone or not permitted): do not guess
+    return lambda: kernel32.WaitForSingleObject(handle, 0) == 0x102  # WAIT_TIMEOUT: still running
+
+
+def observer_options(config: Any, *, publish_status: bool = False, peer_link: bool = False) -> dict[str, bool]:
+    """The opt-ins from config.json (only a literal true turns one on) and the command-line flags.
+
+    peerLinkStatus writes state/peer-link-status.json, the private local file the shipped pairing service serves
+    (python peer_link.py run --status-file state\\peer-link-status.json)."""
+    config = config if isinstance(config, dict) else {}
+    return {"publishStatus": publish_status is True or config.get("publishStatus") is True,
+            "peerLink": peer_link is True or config.get("peerLink") is True,
+            "peerLinkReader": config.get("peerLinkReader") is True,
+            "peerLinkStatus": config.get("peerLinkStatus") is True}
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="AGIW Inference Monitor · Windows observer")
+    parser.add_argument("--port", type=int, default=DEFAULT_PORT)
+    parser.add_argument("--parent-pid", type=int)
+    parser.add_argument("--share-root", type=Path, default=Path(os.environ.get("AGIW_SHARE_ROOT", probes.DEFAULT_SHARE_ROOT)))
+    parser.add_argument("--state-file", type=Path)
+    parser.add_argument("--once", action="store_true", help="print one snapshot as JSON and exit")
+    # 0.2.0 removed the Mac LAN probe (the Mac is read from its presence only); the flag is accepted and ignored so
+    # existing launchers keep working.
+    parser.add_argument("--no-lan", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--publish-status", action="store_true",
+                        help="write llm-lab/status/windows-status.json on the share every 10 s for the Mac's status reader (opt-in)")
+    parser.add_argument("--peer-link", action="store_true",
+                        help="publish presence to llm-lab/status/agiw-peers/<host>.json every 10 s (opt-in)")
+    parser.add_argument("--config", type=Path, help="JSON with publishStatus / peerLink / peerLinkReader / peerLinkStatus "
+                                                    "booleans (default: config.json beside the observer)")
+    parser.add_argument("--log-file", type=Path, help="append stderr here (the tray shell does not read stderr)")
+    args = parser.parse_args(argv)
+    if args.log_file:
+        try:
+            args.log_file.parent.mkdir(parents=True, exist_ok=True)
+            sys.stderr = RateLimitedLog(open(args.log_file, "a", encoding="utf-8", buffering=1), args.log_file)  # noqa: SIM115
+            print(f"{time.strftime('%Y-%m-%dT%H:%M:%S')} observer {VERSION} starting (pid {os.getpid()})", file=sys.stderr)
+        except OSError:
+            pass
+
+    here = Path(__file__).resolve().parent
+    # Opt-ins can live in a config file so turning them on needs no change to the tray's command line.
+    config_path = args.config or here.parent / "config.json"
+    try:
+        config = probes.read_json(config_path, 16384) if config_path.is_file() else {}
+    except (OSError, ValueError):
+        config = {}
+    if not isinstance(config, dict):  # [] or null must not stop the observer starting
+        print(f"{time.strftime('%Y-%m-%dT%H:%M:%S')} config.json ignored: root is not an object", file=sys.stderr)
+        config = {}
+    options = observer_options(config, publish_status=args.publish_status, peer_link=args.peer_link)
+    publish_status, peer_link = options["publishStatus"], options["peerLink"]
+    peer_link_reader, peer_link_status = options["peerLinkReader"], options["peerLinkStatus"]
+    clients_fn = None
+    for root in (here.parent, here.parent.parent):
+        if (root / "client_models.py").is_file():
+            sys.path.insert(0, str(root))
+            try:
+                from client_models import collect_clients  # noqa: PLC0415
+                clients_fn = collect_clients
+            except Exception:  # noqa: BLE001
+                clients_fn = None
+            break
+    # After the bundled-module path is set up, the enrollment reader can reuse peer_link's ACL verifier
+    # in both source and installed layouts. This fixed file is independent of --config and the share.
+    # Read once: replacing a process requires explicit local re-enrollment and an observer restart.
+    local_identities = winsys.local_lane_identities(here.parent / "lane-processes.json")
+    collector = Collector(args.share_root, clients_fn=clients_fn, lane_wait=6.0 if args.once else 0.0,
+                          peer_link_reader=peer_link_reader,
+                          lane_processes=winsys.LaneProcesses(identities=local_identities))
+    if args.once:
+        print(json.dumps(collector.collect(), indent=1, default=str))
+        collector.close()
+        return 0
+
+    store = SnapshotStore()
+    try:
+        server = bind(store, find_web_root(here.parent), args.port)
+    except PortUnavailable as error:
+        print(f"{time.strftime('%Y-%m-%dT%H:%M:%S')} {error}", file=sys.stderr)
+        print(json.dumps({"service": SERVICE, "error": "port-unavailable", "port": args.port}), flush=True)
+        collector.close()
+        return 4
+    port = server.server_address[1]
+    stop = threading.Event()
+    publish_to = args.share_root / "llm-lab" / "status" / probes.STATUS_FILE_NAME if publish_status else None
+    presence_to = probes.peer_dir(args.share_root) / f"{collector.host}.json" if peer_link else None
+    peer_link_status_to = here.parent / "state" / probes.PEER_LINK_STATUS_FILE_NAME if peer_link_status else None
+    print(f"{time.strftime('%Y-%m-%dT%H:%M:%S')} host {collector.host}; publish status {publish_status}; peer link {peer_link}; "
+          f"peer link status file {peer_link_status}; build {collector.build.get('state')}", file=sys.stderr)
+    threading.Thread(target=sample, args=(store, collector, stop),
+                     kwargs={"publish_to": publish_to, "presence_to": presence_to, "dashboard_port": port,
+                             "peer_link_status_to": peer_link_status_to},
+                     name="sampler", daemon=True).start()
+
+    def shutdown(*_):
+        stop.set()
+        server.stopping.set()
+        threading.Thread(target=server.shutdown, daemon=True).start()
+
+    signal.signal(signal.SIGINT, shutdown)
+    if hasattr(signal, "SIGTERM"):
+        signal.signal(signal.SIGTERM, shutdown)
+    if hasattr(signal, "SIGBREAK"):
+        signal.signal(signal.SIGBREAK, shutdown)
+    # Under the tray, exit when the observer's own source changes so an update applies without a manual
+    # restart; the tray starts the new code within its backoff (exit code 3 marks it as an update).
+    reload_code = {"value": 0}
+    if args.parent_pid:
+        sources = sorted(here.glob("*.py"))
+        def fingerprint():
+            try:
+                return tuple((p.name, p.stat().st_mtime_ns, p.stat().st_size) for p in sources)
+            except OSError:
+                return None
+        baseline = fingerprint()
+        def watch_source():
+            while not stop.wait(2):
+                now = fingerprint()
+                if now is not None and baseline is not None and now != baseline:
+                    print(f"{time.strftime('%Y-%m-%dT%H:%M:%S')} source changed; exiting for reload", file=sys.stderr)
+                    reload_code["value"] = 3
+                    shutdown()
+                    return
+        threading.Thread(target=watch_source, name="source-watch", daemon=True).start()
+    alive = parent_watch(args.parent_pid) if args.parent_pid else None
+    if alive is not None:
+        def watch_parent():
+            while not stop.wait(2):
+                if not alive():
+                    shutdown()
+                    return
+        threading.Thread(target=watch_parent, name="parent-watch", daemon=True).start()
+    print(json.dumps({"port": port, "pid": os.getpid(), "service": SERVICE}), flush=True)
+    write_state(args.state_file, port)
+    try:
+        server.serve_forever(poll_interval=0.25)
+    finally:
+        stop.set()
+        collector.close()
+        server.server_close()
+    return reload_code["value"]
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

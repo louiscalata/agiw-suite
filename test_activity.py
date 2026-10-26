@@ -491,5 +491,189 @@ class DualReadActivityTests(unittest.TestCase):
         self.assertEqual(rows, [("run-bad", "unreadable", "unknown")])
 
 
+class RouteOrderActivityTests(unittest.TestCase):
+    """Routes newest first across sources (improvement 2): receipts were read first and router
+    archives appended after them, unsorted, so a 17-day-old rejected receipt led the feed (the
+    dashboard's default trace) and 12 receipt files would have cut every router route."""
+
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        base = Path(os.path.realpath(temp.name))
+        self.root, self.receipts = base / "router", base / "receipts"
+        self.archive = self.root / "archive"
+        for directory in (self.root, self.archive, self.receipts):
+            directory.mkdir(mode=0o700)
+            directory.chmod(0o700)
+        self.now = time.time()
+        for name, value in (("_ROOT", self.root), ("_ACTIVE", self.root / "active.json"),
+                            ("_RECEIPTS", self.receipts)):
+            patcher = mock.patch.object(activity, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        # No observation of this journal unless a test supplies one.
+        patcher = mock.patch.object(telemetry, "last_router_observation", return_value=None)
+        self.observation = patcher.start()
+        self.addCleanup(patcher.stop)
+
+    @staticmethod
+    def _private(path: Path, value, mtime: float):
+        path.write_text(json.dumps(value))
+        path.chmod(0o600)
+        os.utime(path, (mtime, mtime))
+
+    def receipt(self, run_id, finished, mtime=None, owner="REJECTED", contradiction=True):
+        import datetime
+        stamp = datetime.datetime.fromtimestamp(finished, datetime.timezone.utc).isoformat()
+        self._private(self.receipts / f"{run_id}.json", {
+            "kind": "codemode.monitor.run-receipt.v1", "schemaVersion": 1, "runId": run_id,
+            "startedAt": stamp, "finishedAt": stamp, "route": {"status": "RESPONSE_VALIDATED"},
+            "ownerDecision": {"status": owner}, "intakeDecision": {},
+            "review": {"structuredFindingCount": 0, "summaryContradictsEmptyFindings": contradiction}, "calls": []},
+            finished if mtime is None else mtime)
+
+    def archived(self, run_id, finished, mtime):
+        self._private(self.archive / f"{run_id}.json", {
+            "schemaVersion": 1, "runId": run_id, "stage": "done", "finishedUnix": finished, "exitCode": 0,
+            "inputSha256": "b" * 64, "result": {"kind": "codemode.router.v1", "runId": run_id,
+                                                "status": "RESPONSE_VALIDATED", "stages": {}}}, mtime)
+
+    def test_a_17_day_old_receipt_sorts_below_todays_router_routes(self):
+        hour, day = 3600, 86400
+        self.receipt("receipt-17d", self.now - 17 * day)
+        # File mtimes run opposite to the finish times: the order must come from recordedAt.
+        for index, hours in enumerate((1, 2, 3)):
+            self.archived(f"route-{hours}h", self.now - hours * hour, self.now - 100 + index)
+        result = activity.collect_activity(self.now)
+        self.assertEqual([row["runId"] for row in result["runs"]], ["route-1h", "route-2h", "route-3h", "receipt-17d"])
+        receipt = result["runs"][-1]
+        self.assertEqual((receipt["source"], receipt["hostAcceptance"], receipt["reviewSummaryContradiction"]),
+                         ("monitor-receipt", "REJECTED", True))
+
+    def test_twelve_old_receipts_never_cut_the_newer_router_routes(self):
+        hour, day = 3600, 86400
+        receipts = [f"receipt-{index:02d}" for index in range(12)]     # 00 newest, 11 oldest
+        for index, run_id in enumerate(receipts):
+            self.receipt(run_id, self.now - 10 * day - index * hour)
+        self.archived("route-1h", self.now - hour, self.now - 200)
+        self.archived("route-2h", self.now - 2 * hour, self.now - 100)
+        ids = [row["runId"] for row in activity.collect_activity(self.now)["runs"]]
+        self.assertEqual(len(ids), 12)
+        self.assertEqual(ids, ["route-1h", "route-2h"] + receipts[:10])
+        self.assertNotIn("receipt-10", ids)
+        self.assertNotIn("receipt-11", ids)
+
+        # A lock-verified running record older than every archive still leads the feed.
+        live_id, digest = "route-live-old", "a" * 64
+        record = ActivityTests._route(live_id, "backend_draft", self.now - 31 * day, self.now - 30 * day, {})
+        self._private(self.root / "active.json", record, self.now - 30 * day)
+        self.observation.return_value = {"root": str(self.root), "rows": [
+            {"runId": live_id, "layout": "legacy", "inputSha256": digest, "live": True, "state": "running"}]}
+        runs = activity.collect_activity(self.now)["runs"]
+        self.assertEqual(len(runs), 12)
+        self.assertEqual((runs[0]["runId"], runs[0]["activity"], runs[0]["status"]), (live_id, "running", "running"))
+        self.assertGreater(runs[0]["ageSeconds"], 29 * day)
+        self.assertEqual([row["runId"] for row in runs[1:]], ["route-1h", "route-2h"] + receipts[:9])
+
+    def test_twelve_newer_archives_never_cut_the_rejected_receipt(self):
+        """Review fix (high): the live 10 Oct case.  13 archives are newer than the only receipt,
+        which is 17 days old, REJECTED and review-flagged; a newest-first cut alone dropped it, the
+        only row carrying that warning.  Each source's newest row and the newest flagged rows are
+        kept, at their place by age (last), so the receipt is listed but never the default trace."""
+        hour, day = 3600, 86400
+        self.receipt("receipt-17d", self.now - 17 * day)
+        self.receipt("receipt-18d-plain", self.now - 18 * day, owner="ACCEPTED", contradiction=False)
+        self.receipt("receipt-19d-rejected", self.now - 19 * day, contradiction=False)
+        archives = [f"route-{hours:02d}h" for hours in range(1, 14)]     # 13 files: one past the read bound
+        for hours, run_id in enumerate(archives, start=1):
+            self.archived(run_id, self.now - hours * hour, self.now - hours * hour)
+        result = activity.collect_activity(self.now)
+        ids = [row["runId"] for row in result["runs"]]
+        self.assertEqual(len(ids), 12)
+        self.assertEqual(ids, archives[:10] + ["receipt-17d", "receipt-19d-rejected"])
+        receipt = result["runs"][10]
+        self.assertEqual((receipt["source"], receipt["hostAcceptance"], receipt["reviewSummaryContradiction"]),
+                         ("monitor-receipt", "REJECTED", True))
+        self.assertEqual(result["runs"][11]["hostAcceptance"], "REJECTED")
+        # Left out: the 11 h and 12 h archives (the newest-first cut), the plain older receipt, and
+        # the 13 h archive (never read: past the 12-file read bound, its mtime 13 h old).
+        self.assertEqual(result["historyBound"], {"truncated": True, "missingFromAgeSeconds": 11 * hour})
+
+        # A lock-verified running record takes one slot: the receipt still stays, the newest archives fill the rest.
+        live_id, digest = "route-live", "a" * 64
+        record = ActivityTests._route(live_id, "backend_draft", self.now - 2 * day, self.now - day, {})
+        self._private(self.root / "active.json", record, self.now - day)
+        self.observation.return_value = {"root": str(self.root), "rows": [
+            {"runId": live_id, "layout": "legacy", "inputSha256": digest, "live": True, "state": "running"}]}
+        result = activity.collect_activity(self.now)
+        self.assertEqual([row["runId"] for row in result["runs"]],
+                         [live_id] + archives[:9] + ["receipt-17d", "receipt-19d-rejected"])
+        self.assertEqual(result["historyBound"], {"truncated": True, "missingFromAgeSeconds": 10 * hour})
+
+    def test_flagged_rows_kept_past_the_cut_are_bounded_and_the_newest_rows_keep_half(self):
+        hour, day = 3600, 86400
+        flagged = [f"receipt-{index}" for index in range(6)]            # all REJECTED and review-flagged
+        for index, run_id in enumerate(flagged):
+            self.receipt(run_id, self.now - 17 * day - index * hour)
+        archives = [f"route-{hours:02d}h" for hours in range(1, 13)]
+        for hours, run_id in enumerate(archives, start=1):
+            self.archived(run_id, self.now - hours * hour, self.now - hours * hour)
+        ids = [row["runId"] for row in activity.collect_activity(self.now)["runs"]]
+        # The newest receipt (its source's newest row) and the 4 newest other flagged rows: 5 of 12
+        # slots, never more than half; the 7 newest archives fill the rest.
+        self.assertEqual(ids, archives[:7] + flagged[:5])
+
+        rows = [{"runId": f"r{index}", "source": "router-archive", "ageSeconds": index} for index in range(4)] + [
+            {"runId": "old-flag", "source": "monitor-receipt", "ageSeconds": 99, "hostAcceptance": "REJECTED"}]
+        for room, expected in ((-1, []), (0, []), (1, ["r0"]), (3, ["r0", "r1", "r2"]),
+                               (4, ["r0", "r1", "r2", "old-flag"]), (5, ["r0", "r1", "r2", "r3", "old-flag"])):
+            kept, dropped = activity._bounded_history(rows, room)
+            self.assertEqual([row["runId"] for row in kept], expected, room)
+            self.assertEqual(len(kept) + len(dropped), len(rows))
+        consistency = {"runId": "c", "source": "router-archive", "reviewConsistency": {"status": "SUMMARY_MAY_REPORT_DEFECT"}}
+        self.assertTrue(activity._flagged(consistency))
+        self.assertFalse(activity._flagged({**consistency, "reviewConsistency": {"status": "OK"}}))
+        self.assertFalse(activity._flagged({"hostAcceptance": "ACCEPTED", "reviewSummaryContradiction": False}))
+
+    def test_history_bound_says_which_dated_routes_may_be_missing(self):
+        hour, day = 3600, 86400
+        # Nothing cut.
+        self.receipt("receipt-17d", self.now - 17 * day)
+        for hours in range(1, 11):
+            self.archived(f"route-{hours:02d}h", self.now - hours * hour, self.now - hours * hour)
+        self.assertEqual(activity.collect_activity(self.now)["historyBound"], {"truncated": False, "missingFromAgeSeconds": None})
+        # Exactly 12 archive files: none is left unread, and with the receipt the 12-row cut drops only an
+        # undated archive, which no time window can count.
+        self.archived("route-11h", self.now - 11 * hour, self.now - 11 * hour)
+        self.archived("route-undated", None, self.now - 30)
+        result = activity.collect_activity(self.now)
+        self.assertEqual(len(activity._archive_files()), 12)
+        self.assertIsNone(activity._archive_files().cut_mtime)
+        self.assertNotIn("route-undated", [row["runId"] for row in result["runs"]])
+        self.assertEqual(result["historyBound"], {"truncated": True, "missingFromAgeSeconds": None})
+        # A name scan cut short can miss a route of any age.
+        with mock.patch.object(activity, "_MAX_ARCHIVE_SCAN", 3):
+            self.assertTrue(activity._archive_files().scan_cut)
+            self.assertEqual(activity.collect_activity(self.now)["historyBound"], {"truncated": True, "missingFromAgeSeconds": 0.0})
+        with mock.patch.object(activity, "_MAX_ARCHIVE_ENTRIES", 0):
+            self.assertEqual(activity.collect_activity(self.now)["historyBound"]["missingFromAgeSeconds"], 0.0)
+        # A 13th archive file: the oldest by mtime (route-11h) is never read, so a route 11 h old may be missing.
+        self.archived("route-new", self.now - 60, self.now - 60)
+        self.assertEqual(activity._archive_files().cut_mtime, self.now - 11 * hour)
+        self.assertEqual(activity.collect_activity(self.now)["historyBound"], {"truncated": True, "missingFromAgeSeconds": 11 * hour})
+
+    def test_a_row_without_a_recorded_time_sorts_last_and_equal_times_keep_read_order(self):
+        hour, day = 3600, 86400
+        self.receipt("receipt-17d", self.now - 17 * day)
+        self.archived("route-undated", None, self.now - 10)              # newest file, no finish time
+        self.archived("route-1h", self.now - hour, self.now - 50)
+        self.archived("route-tie-a", self.now - 2 * hour, self.now - 20)  # read before tie-b (newer mtime)
+        self.archived("route-tie-b", self.now - 2 * hour, self.now - 30)
+        runs = activity.collect_activity(self.now)["runs"]
+        self.assertEqual([row["runId"] for row in runs],
+                         ["route-1h", "route-tie-a", "route-tie-b", "receipt-17d", "route-undated"])
+        self.assertEqual((runs[-1]["recordedAt"], runs[-1]["ageSeconds"]), (None, None))
+
+
 if __name__ == "__main__":
     unittest.main()

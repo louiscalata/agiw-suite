@@ -11,7 +11,7 @@ MARKER = 'let args = Array(CommandLine.arguments.dropFirst())'
 HARNESS = r'''
 let session = URLSession(configuration: .ephemeral)
 let task = session.dataTask(with: URL(string: "https://api.typesafe.ai/v1/systemone")!)
-let valid = #"{"answers":{"connection_check":{"type":"choice","choice":"probe","probabilities":{"probe":1}}}}"#
+let valid = #"{"model":"jev-1.14.0","answers":{"connection_check":{"type":"choice","choice":"probe","probabilities":{"probe":1}}}}"#
 func expect(_ condition: Bool, _ label: String) {
     if !condition { fputs("FAILED: \(label)\n", stderr); exit(1) }
 }
@@ -27,6 +27,9 @@ func exercise(_ text: String, status: Int = 200, mime: String = "application/jso
     return delegate.state
 }
 expect(exercise(valid) == "connected", "valid answer")
+expect(exercise(valid.replacingOccurrences(of:"jev-1.14.0", with:"jev-1.13.0")) == "invalid-response", "wrong served model")
+expect(exercise(valid.replacingOccurrences(of:"jev-1.14.0", with:"jev-latest")) == "invalid-response", "served alias refused")
+expect(exercise(valid.replacingOccurrences(of:"\"model\":\"jev-1.14.0\",", with:"")) == "invalid-response", "missing served model")
 expect(exercise(valid.replacingOccurrences(of:"\"probe\":1", with:"\"probe\":true")) == "invalid-response", "boolean probability")
 expect(exercise(valid.replacingOccurrences(of:"\"probe\":1", with:"\"probe\":2")) == "invalid-response", "probability range")
 expect(exercise("provider-private-error-text") == "invalid-response", "provider text never exported")
@@ -49,8 +52,27 @@ expect(redirected == nil && redirect.state == "invalid-response", "redirect refu
 redirect.urlSession(session, task:task, didCompleteWithError:nil)
 expect(redirect.state == "invalid-response", "redirect state retained")
 session.invalidateAndCancel()
-print("PASS: 16 native delegate checks; no Keychain or network calls")
+print("PASS: 19 native delegate checks; no Keychain or network calls")
 '''
+PIN = 'jev-1.14.0'
+
+
+class JevPinTests(unittest.TestCase):
+    """The helper requests the pinned Jev release and rejects any other served model (PLAN A4, M1).
+    Source-level, so it runs without a Swift toolchain; the native tests below exercise the delegate."""
+
+    def test_request_pins_the_release_and_never_the_floating_alias(self):
+        source = SOURCE.read_text()
+        self.assertNotIn('jev-latest', source)
+        self.assertEqual(source.count(f'"model": "{PIN}",'), 1)
+        request = source[source.index('func checkConnection()'):]
+        self.assertIn(f'"model": "{PIN}"', request[:request.index('URLRequest(')])
+
+    def test_response_must_name_the_same_served_model(self):
+        source = SOURCE.read_text()
+        delegate = source[source.index('didCompleteWithError'):source.index('func checkConnection()')]
+        self.assertEqual(delegate.count(f'body["model"] as? String == "{PIN}"'), 1)
+        self.assertLess(delegate.index(f'body["model"] as? String == "{PIN}"'), delegate.index('state = "connected"'))
 
 
 @unittest.skipUnless(platform.system() == 'Darwin' and shutil.which('xcrun'), 'Requires macOS Swift toolchain')
@@ -71,7 +93,7 @@ class NativeJevTests(unittest.TestCase):
             self.assertEqual(compile_result.returncode, 0, compile_result.stderr)
             result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=10)
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(result.stdout.strip(), 'PASS: 16 native delegate checks; no Keychain or network calls')
+            self.assertEqual(result.stdout.strip(), 'PASS: 19 native delegate checks; no Keychain or network calls')
 
 
 if __name__ == '__main__':

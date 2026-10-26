@@ -18,10 +18,16 @@ from http.client import HTTPConnection
 from contextlib import redirect_stdout
 # LIVE_ENDPOINT is the installed monitor's endpoint.json (agiw-status reads it); no test may write it.
 from server import ENDPOINT_PATH as LIVE_ENDPOINT, MonitorServer, SnapshotStore, sample
+import peer_feed
 
+# The real AGIW config.json (main() reads it by default); no test may read it.
+LIVE_CONFIG = peer_feed.CONFIG_PATH
 
 _endpoint_temp = None
 _endpoint_patch = None
+_peer_patches = []
+CONFIG_READS = []   # every config path main() resolved while this module ran
+LINK_STARTS = []    # every start_peer_link call that reached the guard
 
 
 def setUpModule():
@@ -30,17 +36,36 @@ def setUpModule():
     _endpoint_temp = tempfile.TemporaryDirectory()
     _endpoint_patch = patch('server.ENDPOINT_PATH', Path(_endpoint_temp.name) / 'endpoint.json')
     _endpoint_patch.start()
+    # The same net for the AGIW opt-ins: with {"peerLink": true} in the real config.json, main() would start the
+    # real LAN link (identity and control token in the real state folder, binds on 8768/8769, LAN broadcasts),
+    # and a test's never-started thread would leave link.stop() waiting forever. main() reads a missing temp
+    # config here, and start_peer_link only records.
+    real_load = peer_feed.load_config
+
+    def recording_load(path=None):
+        CONFIG_READS.append(peer_feed.CONFIG_PATH if path is None else Path(path))
+        return real_load(path)
+
+    _peer_patches[:] = [patch.object(peer_feed, 'CONFIG_PATH', Path(_endpoint_temp.name) / 'agiw' / 'config.json'),
+                        patch.object(peer_feed, 'load_config', recording_load),
+                        patch('server.start_peer_link', side_effect=lambda *a, **k: LINK_STARTS.append(a))]
+    for item in _peer_patches:
+        item.start()
 
 
 def tearDownModule():
     # Python 3.9's exit-time TemporaryDirectory warning otherwise hides fixture leaks.
     global _endpoint_temp, _endpoint_patch
+    while _peer_patches:
+        _peer_patches.pop().stop()
     if _endpoint_patch is not None:
         _endpoint_patch.stop()
         _endpoint_patch = None
     if _endpoint_temp is not None:
         _endpoint_temp.cleanup()
         _endpoint_temp = None
+    if LIVE_CONFIG in CONFIG_READS or LINK_STARTS:
+        raise AssertionError(f'a server.main() test read the live {LIVE_CONFIG} or started the LAN link')
 
 def snapshot(state='idle', sampled=None):
     return {'schemaVersion':1,'sampledAt':sampled or time.time(), 'models':[
@@ -48,6 +73,97 @@ def snapshot(state='idle', sampled=None):
         'sources':[{'id':'lms-ps','state':'live'}]}
 
 class StoreTest(unittest.TestCase):
+    def test_cached_readiness_preserves_fresh_invalid_setup_evidence(self):
+        import server
+        data = {'sampledAt': 100, 'onlineCodeMode': {'setupState': 'invalid'}}
+        result = server.cached_readiness(data, 100)
+        self.assertEqual((result['status'], result['setupState']), ('observed', 'invalid'))
+        self.assertEqual(result['inferenceReadiness'], 'unknown')
+        self.assertEqual(server.cached_readiness(data, 104)['setupState'], 'unknown')
+
+    def test_cached_readiness_does_not_refresh_stale_or_missing_setup(self):
+        from server import cached_readiness
+        for data, reason in ((None, 'not_observed'),
+                             ({'sampledAt': 90, 'onlineCodeMode': {'setupState': 'fresh'}}, 'stale'),
+                             ({'sampledAt': 101, 'onlineCodeMode': {'setupState': 'fresh'}}, 'clock_skew'),
+                             ({'sampledAt': 100, 'fullSampledAt': 90,
+                               'onlineCodeMode': {'setupState': 'fresh'}}, 'stale')):
+            with self.subTest(reason=reason):
+                result = cached_readiness(data, 100)
+                self.assertEqual(result['status'], 'unknown')
+                self.assertEqual(result['reasonCode'], reason)
+                self.assertEqual(result['setupState'], 'unknown')
+                self.assertEqual(result['inferenceReadiness'], 'unknown')
+                self.assertTrue(result['readOnly'])
+
+    def test_stopped_sampler_expires_on_read_without_another_publish(self):
+        from machine_state import machine_summary
+        now = time.time()
+        data = snapshot(sampled=now)
+        report = {'health': 'ok', 'ageSeconds': 2, 'modelsComplete': True, 'models': []}
+        data['machines'] = [machine_summary('pc-one', 'windows', report, now=now, trust='share-reported')]
+        store = SnapshotStore()
+        store.publish(data)
+        with patch('server.time.time', return_value=now + 29):
+            result = store.read()
+        self.assertEqual(result['machines'][0]['state'], 'unknown')
+        self.assertEqual(result['machines'][0]['reasonCode'], 'stale')
+        self.assertAlmostEqual(result['machines'][0]['ageSeconds'], 31, places=5)
+        self.assertIsNone(result['machines'][0]['loadedCount'])
+        self.assertEqual(result['liveness']['pc-one']['state'], 'unknown')
+        self.assertFalse(result['activityKnown'])
+        self.assertEqual(result['sampledAt'], now)
+        self.assertEqual(store.snapshot['machines'][0]['state'], 'up')
+
+    def test_stream_wait_expires_stopped_feed_on_timeout(self):
+        from machine_state import machine_summary
+        now = time.time()
+        data = snapshot(sampled=now)
+        data['machines'] = [machine_summary('linux-one', 'linux', {
+            'health': 'ok', 'ageSeconds': 0, 'modelsComplete': True, 'models': []},
+            now=now, trust='authenticated')]
+        store = SnapshotStore()
+        store.publish(data)
+        sequence = store.sequence
+        with patch('server.time.time', return_value=now + 31):
+            result, received = store.wait_for_change(sequence, timeout=0)
+        self.assertIsNotNone(result)
+        self.assertEqual(received, sequence)
+        self.assertEqual(result['machines'][0]['state'], 'unknown')
+        self.assertAlmostEqual(result['machines'][0]['ageSeconds'], 31, places=5)
+        self.assertEqual(result['sampledAt'], now)
+
+    def test_liveness_uses_each_host_platform_and_expires_overlays(self):
+        from machine_state import machine_summary
+        now = time.time()
+        report = {'health': 'ok', 'ageSeconds': 0, 'modelsComplete': True, 'models': []}
+        data = snapshot(sampled=now)
+        data['machines'] = [machine_summary('linux-node', 'linux', report, now=now, trust='authenticated')]
+        data['models'].append({'id': 'linux-m', 'name': 'Linux model', 'host': 'linux-node',
+                               'loaded': True, 'state': 'busy', 'source': 'peer', 'ageSeconds': 20})
+        store = SnapshotStore()
+        store.publish(data)
+        self.assertEqual(store.read()['liveness']['linux-node']['freshForSeconds'], 30)
+        self.assertEqual(store.read()['history'][-1]['active'], 1)
+        data['machines'][0]['ageSeconds'] = 31
+        data['models'][-1]['ageSeconds'] = 31
+        store.publish(data, partial=True)
+        result = store.read()
+        self.assertEqual(result['liveness']['linux-node']['state'], 'unknown')
+        self.assertEqual(result['machines'][0]['reasonCode'], 'stale')
+        self.assertIsNone(result['machines'][0]['busyCount'])
+
+    def test_liveness_rejects_unknown_host_bad_age_and_identity_collision(self):
+        from server import host_liveness, row_is_live
+        table = host_liveness([{'host': 'shared-name', 'platform': 'mac', 'state': 'up'},
+                               {'host': 'shared-name', 'platform': 'linux', 'state': 'up'}])
+        self.assertFalse(row_is_live({'host': 'shared-name', 'ageSeconds': 20}, table))
+        self.assertFalse(row_is_live({'host': 'shared-name', 'platform': 'mac', 'ageSeconds': 20}, table))
+        self.assertTrue(row_is_live({'host': 'shared-name', 'platform': 'linux', 'ageSeconds': 20}, table))
+        for age in (True, -1, float('nan'), 10 ** 1000):
+            self.assertFalse(row_is_live({'host': 'linux', 'ageSeconds': age}, table))
+        self.assertFalse(row_is_live({'host': 'unrecognized', 'ageSeconds': 0}, table))
+
     def test_missing_activity_is_a_gap_not_zero(self):
         store=SnapshotStore();data=snapshot('loaded');data['sources']=[]
         store.publish(data)
@@ -73,6 +189,132 @@ class StoreTest(unittest.TestCase):
         sample=store.read()
         self.assertTrue(sample['activityKnown'])
         self.assertEqual(sample['history'][-1]['active'],0)
+        self.assertEqual(sample['history'][-1]['loaded'],0)
+
+    def test_incomplete_cli_roster_never_claims_idle_or_zero_activity(self):
+        from machine_state import local_summary
+        from telemetry import _parse_lms, _IncompleteInventoryError
+        for valid in ([], [{'identifier': 'model-a', 'status': 'idle'}]):
+            with self.subTest(valid=valid):
+                data = snapshot()
+                payload = {'models': valid + [{'identifier': '\n', 'status': 'generating'}]}
+                with self.assertRaises(_IncompleteInventoryError):
+                    _parse_lms(payload, data['sampledAt'])
+                data['models'] = []
+                data['sources'][0]['modelsComplete'] = len(data['models']) == len(payload['models'])
+                data['machines'] = [local_summary(data)]
+                self.assertIsNone(data['machines'][0]['busyCount'])
+                store = SnapshotStore()
+                store.publish(data)
+                result = store.read()
+                self.assertFalse(result['activityKnown'])
+                self.assertIsNone(result['history'][-1]['active'])
+
+    def test_incomplete_api_inventory_keeps_loaded_history_unknown(self):
+        from machine_state import local_summary
+        from telemetry import _parse_api, _IncompleteInventoryError
+        for valid in ([], [{'key': 'model-a', 'loaded_instances': [{'id': 'model-a'}]}]):
+            for cli_complete in (False, True):
+                with self.subTest(valid=valid, cli_complete=cli_complete):
+                    data = snapshot()
+                    payload = {'models': valid + [{'key': '\n', 'loaded_instances': []}]}
+                    with self.assertRaises(_IncompleteInventoryError):
+                        _parse_api(payload, data['sampledAt'])
+                    data['models'] = []
+                    data['sources'] = [{'id': 'lmstudio-api', 'state': 'live',
+                                        'modelsComplete': len(data['models']) == len(payload['models'])}]
+                    if cli_complete:
+                        data['sources'].append({'id': 'lms-ps', 'state': 'live', 'modelsComplete': True})
+                    data['machines'] = [local_summary(data)]
+                    self.assertIsNone(data['machines'][0]['loadedCount'])
+                    store = SnapshotStore()
+                    store.publish(data)
+                    self.assertIsNone(store.read()['history'][-1]['loaded'])
+
+    def test_history_honors_nullable_machine_counts_and_correlated_aliases(self):
+        from machine_state import local_summary
+        from telemetry import _merge_cli_rows, _parse_api, _parse_lms
+        for count in (1, 17):
+            with self.subTest(instances=count):
+                data = snapshot()
+                aliases = [f'alias-{index}' for index in range(count)]
+                api = {'models': [{'key': 'provider/model', 'loaded_instances': [{'id': alias} for alias in aliases]}]}
+                cli = {'models': [{'identifier': alias, 'status': 'idle'} for alias in aliases]}
+                models = {row['id']: row for row in _parse_api(api, data['sampledAt'])}
+                data['localInstanceObservations'] = _merge_cli_rows(models, _parse_lms(cli, data['sampledAt']))
+                data['models'] = list(models.values())
+                data['sources'] = [{'id': source, 'state': 'live', 'modelsComplete': True}
+                                   for source in ('lmstudio-api', 'lms-ps')]
+                data['machines'] = [local_summary(data)]
+                expected = 1 if count == 1 else None
+                self.assertEqual(data['machines'][0]['loadedCount'], expected)
+                store = SnapshotStore()
+                store.publish(data)
+                self.assertEqual(store.read()['history'][-1]['loaded'], expected)
+
+    def test_complete_api_inventory_preserves_known_loaded_history(self):
+        from machine_state import local_summary
+        for loaded in (0, 1):
+            with self.subTest(loaded=loaded):
+                data = snapshot('loaded')
+                data['models'] = data['models'][:loaded]
+                for row in data['models']:
+                    row['source'] = 'lmstudio-api'
+                data['sources'] = [{'id': 'lmstudio-api', 'state': 'live', 'modelsComplete': True}]
+                data['machines'] = [local_summary(data)]
+                store = SnapshotStore()
+                store.publish(data)
+                result = store.read()
+                self.assertEqual(result['history'][-1]['loaded'], loaded)
+                self.assertIsNone(result['history'][-1]['active'])
+
+    def test_activity_and_history_count_canonical_models_across_cli_aliases(self):
+        from machine_state import local_summary
+        from telemetry import _merge_cli_rows, _parse_api, _parse_lms
+        for aliases in (['provider/model', 'second-instance'], ['first-instance', 'second-instance']):
+            for states, expected in ((['generating', 'generating'], 1), (['idle', 'idle'], 0),
+                                     (['idle', 'generating'], 1), (['idle', 'unknown'], None)):
+                with self.subTest(aliases=aliases, states=states):
+                    data = snapshot()
+                    api = {'models': [{'key': 'provider/model',
+                                       'loaded_instances': [{'id': alias} for alias in aliases]}]}
+                    cli = {'models': [{'identifier': alias, 'status': state}
+                                      for alias, state in zip(aliases, states)]}
+                    models = {row['id']: row for row in _parse_api(api, data['sampledAt'])}
+                    data['localInstanceObservations'] = _merge_cli_rows(models, _parse_lms(cli, data['sampledAt']))
+                    data['models'] = list(models.values())
+                    data['sources'] = [{'id': source, 'state': 'live', 'modelsComplete': True}
+                                       for source in ('lmstudio-api', 'lms-ps')]
+                    data['machines'] = [local_summary(data)]
+                    self.assertEqual(data['machines'][0]['busyCount'], expected)
+                    store = SnapshotStore()
+                    store.publish(data)
+                    result = store.read()
+                    self.assertEqual(result['activityKnown'], expected is not None)
+                    self.assertEqual(result['history'][-1]['active'], expected)
+                    self.assertEqual(result['history'][-1]['loaded'], 1)
+
+    def test_canonical_activity_still_requires_complete_fresh_cli_evidence(self):
+        from machine_state import local_summary
+        for age, complete in ((4, True), (0, False)):
+            with self.subTest(age=age, complete=complete):
+                data = snapshot('generating')
+                data['models'][0]['ageSeconds'] = age
+                data['sources'][0]['modelsComplete'] = complete
+                data['machines'] = [local_summary(data)]
+                store = SnapshotStore()
+                store.publish(data)
+                self.assertFalse(store.read()['activityKnown'])
+                self.assertIsNone(store.read()['history'][-1]['active'])
+
+    def test_live_cli_does_not_confirm_idle_when_inventory_residency_is_unknown(self):
+        store=SnapshotStore();data=snapshot()
+        data['models'][0].update(loaded=None, state='loaded', source='lmstudio-api')
+        data['sources']=[{'id':'lmstudio-api','state':'live'}, {'id':'lms-ps','state':'live'}]
+        store.publish(data)
+        published=store.read()
+        self.assertFalse(published['activityKnown'])
+        self.assertIsNone(published['history'][-1]['active'])
 
     def test_evidence_loss_and_recovery_are_explicit_events(self):
         store=SnapshotStore()
@@ -578,6 +820,7 @@ class EndpointTest(unittest.TestCase):
             return real_replace(source, target, **options)
 
         before = live_signature()
+        reads_before = len(CONFIG_READS)
         with tempfile.TemporaryDirectory() as temp:
             endpoint = Path(temp) / 'state' / 'endpoint.json'
             with patch.object(server, 'ENDPOINT_PATH', endpoint), \
@@ -594,6 +837,11 @@ class EndpointTest(unittest.TestCase):
             self.assertEqual((published['port'], published['pid']), (12345, os.getpid()))
             self.assertEqual([p.name for p in endpoint.parent.iterdir()], ['endpoint.json'])
         self.assertEqual(live_signature(), before, f'a test rewrote the live {LIVE_ENDPOINT}')
+        # main() resolved the opt-ins from the module's temp config.json, never the live one, and started no link.
+        self.assertEqual(CONFIG_READS[reads_before:], [peer_feed.CONFIG_PATH])
+        self.assertNotEqual(peer_feed.CONFIG_PATH, LIVE_CONFIG)
+        self.assertNotIn(LIVE_CONFIG, CONFIG_READS)
+        self.assertEqual(LINK_STARTS, [])
 
 
 class MemoryGuardSampleTest(unittest.TestCase):
@@ -620,7 +868,7 @@ class MemoryGuardSampleTest(unittest.TestCase):
             return snapshot
 
     class Callers:
-        def sample(self, _models):
+        def sample(self, _models, *, port=None, listener=None, activity_known=False):
             return None, {'id': 'local-callers', 'state': 'idle'}
 
     class FakeGuard:
@@ -636,17 +884,72 @@ class MemoryGuardSampleTest(unittest.TestCase):
                     {'id': 'mem-guard', 'label': 'Memory guard', 'state': 'live', 'ageSeconds': 0.0,
                      'detail': 'Memory tight'})
 
-    def run_sampler(self, guard, rounds=1, full_interval=1.0, auto_unloader=None):
+    def run_sampler(self, guard, rounds=1, full_interval=1.0, auto_unloader=None,
+                    source_snapshot=None, caller_probe=None):
         store = SnapshotStore()
         gpu = {'allocatedBytes': 40 << 30, 'utilizationPercent': 3}
-        with patch('server.collect_snapshot', side_effect=lambda: snapshot('idle')), \
+        with patch('server.collect_snapshot', side_effect=lambda: source_snapshot or snapshot('idle')), \
              patch('server.collect_activity', return_value={'runs': [], 'sources': []}), \
              patch('server.collect_clients', return_value=([], [])), \
              patch('server.mac_gpu', return_value=(gpu, {'id': 'mac-gpu', 'state': 'live'})), \
-             patch('server.LocalCallers', return_value=self.Callers()):
+             patch('server.LocalCallers', return_value=caller_probe or self.Callers()):
             sample(store, self.Stop(rounds), feed=self.Feed(), full_interval=full_interval,
                    guard=guard, auto_unloader=auto_unloader)
         return store.read()
+
+    def test_caller_sampler_receives_only_a_live_verified_direct_port(self):
+        class RecordingCallers:
+            def __init__(self):
+                self.ports = []
+                self.listeners = []
+            def sample(self, _models, *, port=None, listener=None, activity_known=False):
+                self.ports.append(port)
+                self.listeners.append(listener)
+                return None, {'id': 'local-callers', 'state': 'unavailable'}
+
+        for route, state, endpoint, expected in (
+                ('direct', 'live', '127.0.0.1:1235', 1235),
+                ('unknown', 'unavailable', '127.0.0.1:1235', None),
+                ('via-pair', 'recorded', '127.0.0.1:1234', None),
+                ('direct', 'error', '127.0.0.1:1235', None),
+                ('direct', 'live', '0.0.0.0:1235', None)):
+            with self.subTest(route=route, state=state, endpoint=endpoint):
+                data = snapshot('busy')
+                owner = {'pid': 99, 'kind': 'lmstudio',
+                         'executable': '/Applications/LM Studio.app/Contents/MacOS/LM Studio'}
+                data['sources'] = [{'id': 'lmstudio-api', 'route': route, 'state': state,
+                                    'endpoint': endpoint, 'verifiedListener': owner}]
+                callers = RecordingCallers()
+                self.run_sampler(self.FakeGuard(), source_snapshot=data, caller_probe=callers)
+                self.assertEqual(callers.ports, [expected])
+                self.assertEqual(callers.listeners, [(99, owner['executable']) if expected else None])
+
+    def test_caller_idle_requires_current_verified_activity(self):
+        from local_callers import LocalCallers
+
+        for activity_state, row_state, row_source, age, known in (
+                ('unavailable', 'loaded', 'lmstudio-api', 0, False),
+                ('error', 'idle', 'lms-ps', 0, False),
+                ('live', 'loaded', 'lmstudio-api', 0, False),
+                ('live', 'idle', 'lms-ps', 4, False),
+                ('live', 'idle', 'lms-ps', 0, True)):
+            with self.subTest(activity=activity_state, row=row_state, age=age):
+                data = snapshot(row_state)
+                data['models'][0].update(source=row_source, ageSeconds=age)
+                data['sources'] = [{'id': 'lmstudio-api', 'route': 'direct', 'state': 'live',
+                                    'endpoint': '127.0.0.1:1235',
+                                    'verifiedListener': {'pid': 99, 'kind': 'lmstudio',
+                                                         'executable': '/Applications/LM Studio.app/Contents/MacOS/LM Studio'}},
+                                   {'id': 'lms-ps', 'state': activity_state}]
+                with patch('telemetry._bounded_command') as runner:
+                    published = self.run_sampler(self.FakeGuard(), source_snapshot=data,
+                                                 caller_probe=LocalCallers(runner))
+                runner.assert_not_called()
+                self.assertEqual(published['activityKnown'], known)
+                self.assertIsNone(published['localCallers'])
+                source = next(s for s in published['sources'] if s['id'] == 'local-callers')
+                self.assertEqual(source['state'], 'not-checked' if known else 'unavailable')
+                self.assertIn('no local model requests observed' if known else 'unknown', source['detail'])
 
     def test_auto_unload_ticks_only_after_a_complete_published_sample(self):
         class FakeUnloader:
@@ -816,6 +1119,204 @@ class MemoryGuardSampleTest(unittest.TestCase):
             self.assertEqual(invalid_sample['memory']['level'], 'unknown')
             self.assertFalse(path.exists(), 'invalid sysctl values are never published')
 
+
+class MemoryRouteContextTest(unittest.TestCase):
+    """memory_sample hands the guard the Nisi edit pair (only while Nisi reads 'ready') and whether a
+    route is running, from the same sample; a malformed value is no context and never an error."""
+
+    AUTHOR, REVIEWER = 'google/gemma-4-26b-a4b-qat', 'qwen/qwen3.8-27b'
+    MODELS = [{'id': REVIEWER, 'host': 'mac', 'loaded': True, 'state': 'idle', 'ageSeconds': 0, 'sizeBytes': 16081678492},
+              {'id': AUTHOR, 'host': 'mac', 'loaded': True, 'state': 'idle', 'ageSeconds': 0, 'sizeBytes': 15641332573}]
+
+    class RecordingGuard:
+        def __init__(self):
+            self.calls = []
+
+        def sample(self, gpu_alloc_bytes=None, models=None, *, route_pair=None, route_live=False):
+            self.calls.append({'gpu': gpu_alloc_bytes, 'models': models, 'route_pair': route_pair,
+                               'route_live': route_live})
+            return ({'level': 'tight'}, {'id': 'mem-guard', 'state': 'live'})
+
+    def nisi(self, state='ready', **fields):
+        row = {'id': 'nisi', 'label': 'Nisi route adapter', 'state': state}
+        if state == 'ready':
+            row.update(authorModel=self.AUTHOR, reviewerModel=self.REVIEWER)
+        row.update(fields)
+        return row
+
+    def data(self, components=None, pipeline=None):
+        return {'models': self.MODELS, 'sources': [{'id': 'lms-ps', 'state': 'live'}], 'macGpu': {'allocatedBytes': 45795885056},
+                'components': [self.nisi(), {'id': 'jev', 'state': 'configured'}] if components is None else components,
+                'pipeline': {'status': 'idle'} if pipeline is None else pipeline}
+
+    def call(self, data):
+        import server
+        guard = self.RecordingGuard()
+        block, source = server.memory_sample(guard, data)
+        self.assertEqual((block['level'], source['state']), ('tight', 'live'), 'the guard was sampled')
+        self.assertEqual(len(guard.calls), 1)
+        return guard.calls[0]
+
+    def test_route_pair_only_for_a_ready_nisi_component(self):
+        call = self.call(self.data())
+        self.assertEqual(call['route_pair'], {self.AUTHOR: 'author', self.REVIEWER: 'reviewer'})
+        self.assertEqual((call['gpu'], call['models'], call['route_live']), (45795885056, self.MODELS, False))
+        for state in ('partial', 'unknown', 'needs-action', 'unresolved', None):
+            with self.subTest(state=state):
+                row = self.nisi(state, authorModel=self.AUTHOR, reviewerModel=self.REVIEWER)
+                self.assertIsNone(self.call(self.data([row]))['route_pair'])
+        # Ready but without two named, different models: no pair.
+        for fields in ({'authorModel': None}, {'reviewerModel': ''}, {'reviewerModel': '   '}, {'authorModel': 7},
+                       {'authorModel': ['x']}, {'authorModel': self.REVIEWER.upper()}):
+            with self.subTest(fields=fields):
+                self.assertIsNone(self.call(self.data([self.nisi(**fields)]))['route_pair'])
+        self.assertIsNone(self.call(self.data([{'id': 'jev', 'state': 'ready'}]))['route_pair'])
+
+    def test_route_live_while_the_pipeline_runs_or_nisi_is_in_use(self):
+        call = self.call(self.data(pipeline={'status': 'running', 'runId': 'r1'}))
+        self.assertEqual((call['route_live'], call['route_pair']),
+                         (True, {self.AUTHOR: 'author', self.REVIEWER: 'reviewer'}))
+        call = self.call(self.data([self.nisi('in-use')]))
+        self.assertEqual((call['route_live'], call['route_pair']), (True, None))
+        for status in ('idle', 'queued', 'stale', 'unresolved', 'recovery-required', 'Running', None):
+            with self.subTest(status=status):
+                self.assertFalse(self.call(self.data(pipeline={'status': status}))['route_live'])
+
+    def test_malformed_components_or_pipeline_never_raise(self):
+        class Exploding(list):
+            def __iter__(self):
+                raise RuntimeError('components exploded')
+
+        components_cases = ('nisi', {'id': 'nisi', 'state': 'ready'}, 42, [None, 'x', 7],
+                            [{'id': 'nisi', 'state': ['ready'], 'authorModel': self.AUTHOR}], Exploding([self.nisi()]))
+        pipeline_cases = ('running', ['running'], {'status': ['running']}, 7, Exploding())
+        for components in components_cases:
+            for pipeline in pipeline_cases:
+                with self.subTest(components=components, pipeline=pipeline):
+                    call = self.call(self.data(components, pipeline))
+                    self.assertEqual((call['route_pair'], call['route_live']), (None, False))
+        import server
+        self.assertEqual(server.memory_route_context({}), (None, False))
+        self.assertEqual(server.memory_route_context({'components': None, 'pipeline': None}), (None, False))
+
+    def test_a_guard_without_the_route_keywords_still_samples_without_context(self):
+        import server
+
+        class OlderGuard:
+            def sample(self, gpu_alloc_bytes=None, models=None):
+                return ({'level': 'watch'}, {'id': 'mem-guard', 'state': 'live'})
+
+        block, _ = server.memory_sample(OlderGuard(), self.data([self.nisi('partial')]))
+        self.assertEqual(block['level'], 'watch')
+
+    def test_real_guard_tags_the_pair_and_credits_the_loaded_models_not_the_mac_gpu(self):
+        import mem_guard
+        import server
+
+        base = [{'group': 'llm-server', 'label': 'Local LLM server', 'residentBytes': 887668736, 'processCount': 8},
+                {'group': 'codex', 'label': 'Codex', 'residentBytes': 3750576128, 'processCount': 26}]
+
+        class TightProbes:
+            def read(self, gpu_alloc_bytes=None):
+                return {'pressure': 2, 'availablePercent': 20, 'ramBytes': 64 << 30, 'swapUsedBytes': 0,
+                        'swapTotalBytes': 0, 'compressedBytes': 0, 'wiredBytes': 5 << 30,
+                        'vmFreeBytes': 200 << 30, 'gpuAllocBytes': gpu_alloc_bytes, 'sampledAt': 1000.0}
+
+            def consumers(self, models=None, gpu_alloc_bytes=None):
+                return mem_guard.decorate_consumers(base, models=models, gpu_alloc_bytes=gpu_alloc_bytes)
+
+        class PassiveRegistry:
+            def paused(self):
+                return []
+
+        guard = mem_guard.Guard(cfg=mem_guard.default_config(), probes=TightProbes(), registry=PassiveRegistry(),
+                                watchdog=False)
+        block, source = server.memory_sample(guard, self.data())
+        self.assertEqual((block['level'], source['state']), ('tight', 'live'))
+        self.assertEqual(block['suggestions'], [
+            f'Unload idle model {self.REVIEWER} from the monitor (Nisi reviewer: Mac edit routes stop until it is reloaded)',
+            f'Unload idle model {self.AUTHOR} from the monitor (Nisi author: Mac edit routes stop until it is reloaded)'])
+        llm = block['consumers'][0]
+        self.assertEqual((llm['group'], llm['loadedModelBytes'], llm['loadedModelCount']), ('llm-server', 31723011065, 2))
+        self.assertNotIn('gpuAllocBytes', llm)
+        self.assertEqual(block['gpuAllocBytes'], 45795885056, 'the Mac-wide figure stays on the block itself')
+        json.dumps(block, allow_nan=False)
+
+    def test_the_pair_tag_follows_the_pair_telemetry_picks_and_what_unloading_leaves(self):
+        """The tag's words are checked against telemetry._route_components (which mirrors the router): with only
+        the pair loaded, unloading one leaves Nisi 'partial' (routes stop); with a third model loaded, the router
+        picks a new pair from what stays, so Nisi is still 'ready' (routes switch)."""
+        import mem_guard
+        import server
+        import telemetry
+
+        with tempfile.TemporaryDirectory() as tmp:
+            router = Path(tmp) / 'router'
+            os.mkdir(router, 0o700)
+            os.mkdir(router / 'archive', 0o700)
+            with patch.object(telemetry, '_JEV_ENV_PATH', Path(tmp) / 'absent.env'), \
+                    patch.object(telemetry, '_ROUTER_ROOT', router):
+                telemetry._JEV_CACHE.update(key=None, when=None, model=None)
+
+                def model(model_id, size):
+                    return {'id': model_id, 'host': 'mac', 'loaded': True, 'state': 'idle', 'ageSeconds': 0, 'sizeBytes': size}
+
+                def nisi(models):
+                    rows = {row['id']: row for row in models}
+                    verified = {'runtimeIntegrity': 'VERIFIED', 'hostBinding': 'VERIFIED'}
+                    return next(c for c in telemetry._route_components({}, verified, rows, time.time(), inventory_complete=True)
+                                if c['id'] == 'nisi')
+
+                class Probes:
+                    def read(self, gpu_alloc_bytes=None):
+                        return {'pressure': 2, 'availablePercent': 20, 'ramBytes': 64 << 30, 'swapUsedBytes': 0,
+                                'swapTotalBytes': 0, 'compressedBytes': 0, 'wiredBytes': 5 << 30,
+                                'vmFreeBytes': 200 << 30, 'gpuAllocBytes': gpu_alloc_bytes, 'sampledAt': 1000.0}
+
+                    def consumers(self, models=None, gpu_alloc_bytes=None):
+                        return mem_guard.decorate_consumers([], models=models, gpu_alloc_bytes=gpu_alloc_bytes)
+
+                class Registry:
+                    def paused(self):
+                        return []
+
+                def tips(models):
+                    guard = mem_guard.Guard(cfg=mem_guard.default_config(), probes=Probes(), registry=Registry(),
+                                            watchdog=False)
+                    data = {'models': models, 'macGpu': {'allocatedBytes': 45795885056},
+                            'sources': [{'id': 'lms-ps', 'state': 'live'}],
+                            'components': [nisi(models)], 'pipeline': {'status': 'idle'}}
+                    block, _ = server.memory_sample(guard, data)
+                    return [tip for tip in block['suggestions'] if 'Nisi' in tip]
+
+                gemma, qwen = model(self.AUTHOR, 15641332573), model(self.REVIEWER, 16081678492)
+                embed = model('text-embedding-nomic-embed-text-v1.5', 1 << 28)
+                zeta = model('zeta-7b', 4 << 30)
+                stop = ': Mac edit routes stop until it is reloaded)'
+                switch = ': Mac edit routes switch to another loaded model)'
+
+                # The pair (and an embedding model, which never joins a pair): unloading either leaves one model.
+                self.assertEqual(tips([qwen, gemma, embed]), [
+                    f'Unload idle model {self.REVIEWER} from the monitor (Nisi reviewer{stop}',
+                    f'Unload idle model {self.AUTHOR} from the monitor (Nisi author{stop}'])
+                self.assertEqual(nisi([gemma, embed])['state'], 'partial')
+                self.assertEqual(nisi([qwen, embed])['state'], 'partial')
+
+                # gemma + qwen + zeta-7b: telemetry pairs gemma with qwen, and zeta-7b stays outside the pair.
+                trio = nisi([qwen, gemma, zeta])
+                self.assertEqual((trio['authorModel'], trio['reviewerModel']), (self.AUTHOR, self.REVIEWER))
+                self.assertEqual(tips([qwen, gemma, zeta]), [
+                    f'Unload idle model {self.REVIEWER} from the monitor (Nisi reviewer{switch}',
+                    f'Unload idle model {self.AUTHOR} from the monitor (Nisi author{switch}'])
+                # Unloading either pair model leaves a ready pair: the routes switch, they do not stop.
+                after = nisi([gemma, zeta])
+                self.assertEqual((after['state'], after['authorModel'], after['reviewerModel']),
+                                 ('ready', self.AUTHOR, 'zeta-7b'))
+                after = nisi([qwen, zeta])
+                self.assertEqual((after['state'], after['authorModel'], after['reviewerModel']),
+                                 ('ready', self.REVIEWER, 'zeta-7b'))
+
+
 class TransportTest(unittest.TestCase):
     def setUp(self):
         self.store=SnapshotStore();self.store.publish(snapshot())
@@ -847,6 +1348,42 @@ class TransportTest(unittest.TestCase):
         self.assertEqual(headers['Cache-Control'],'no-store')
         self.assertNotIn('Access-Control-Allow-Origin',headers)
         self.assertEqual(self.get('/api/snapshot',method='POST')[0],404)
+
+    def test_readiness_status_is_available_with_l2_closed_and_no_owner(self):
+        self.server.online_code_repair = None
+        self.server.l2_open = False
+        data = snapshot()
+        data['onlineCodeMode'] = {'setupState': 'fresh', 'privateDetail': 'excluded'}
+        self.store.publish(data)
+        with patch('server.mac_online_code_controls_enabled', return_value=False):
+            code, raw, headers = self.get('/api/online-code-mode/readiness')
+        result = json.loads(raw)
+        self.assertEqual(code, 200)
+        self.assertTrue(result['readOnly'])
+        self.assertEqual(result['reasonCode'], 'cached_observations')
+        self.assertEqual(result['setupState'], 'fresh')
+        self.assertEqual(result['inferenceReadiness'], 'unknown')
+        self.assertEqual(headers['Cache-Control'], 'no-store')
+        self.assertNotIn('privateDetail', result)
+        self.assertEqual(self.get('/api/online-code-mode/readiness',
+                                  headers={'Origin': 'http://evil.example'})[0], 403)
+        self.assertEqual(self.post_json('/api/online-code-mode/readiness', b'{}')[0], 404)
+
+    def test_readiness_status_marks_missing_and_stale_observations_unknown(self):
+        for sampled, reason in ((None, 'not_observed'), (time.time() - 10, 'stale')):
+            with self.subTest(reason=reason):
+                if sampled is None:
+                    self.store.snapshot = None
+                else:
+                    data = snapshot(sampled=sampled)
+                    data['onlineCodeMode'] = {'setupState': 'fresh'}
+                    self.store.publish(data)
+                code, raw, _ = self.get('/api/online-code-mode/readiness')
+                result = json.loads(raw)
+                self.assertEqual(code, 200)
+                self.assertEqual(result['status'], 'unknown')
+                self.assertEqual(result['setupState'], 'unknown')
+                self.assertEqual(result['reasonCode'], reason)
     def test_auto_unload_endpoint_is_app_only_and_requires_exact_same_origin_input(self):
         self.assertEqual(self.get('/api/models/auto-unload')[0], 501)
         self.assertEqual(self.post_json('/api/models/auto-unload', b'{"enabled":true}')[0], 501)
@@ -899,6 +1436,7 @@ class TransportTest(unittest.TestCase):
         self.assertIn(b'onlineCodeModeView', raw)
         self.assertEqual(headers['Content-Type'], 'text/javascript; charset=utf-8')
     def test_online_code_repair_requires_explicit_same_origin_action(self):
+        self.server.l2_open = True
         class StubRepair:
             count = 0
             def read(self):
@@ -926,7 +1464,8 @@ class TransportTest(unittest.TestCase):
         self.assertEqual(json.loads(raw)['status'], 'running')
         self.assertEqual(repair.count, 1)
 
-    def test_universal_entry_requires_exact_same_origin_readiness_action(self):
+    def test_universal_entry_keeps_status_reads_but_refuses_receipt_writing_posts(self):
+        self.server.l2_open = True
         class StubEntry:
             calls = 0
             def read(self):
@@ -942,21 +1481,17 @@ class TransportTest(unittest.TestCase):
         self.assertEqual(code, 200)
         self.assertEqual(json.loads(raw)['action'], None)
         self.assertEqual(headers['Cache-Control'], 'no-store')
-        self.assertEqual(self.post_json('/api/online-code-mode/entry',
-                         b'{"action":"readiness"}', {'Origin':'http://evil.example'})[0], 403)
-        self.assertEqual(self.post_json('/api/online-code-mode/entry',
-                         b'{"action":"check-and-repair"}')[0], 400)
-        self.assertEqual(self.post_json('/api/online-code-mode/entry',
-                         b'{"action":"readiness","action":"readiness"}')[0], 400)
-        self.assertEqual(self.post_json('/api/online-code-mode/entry',
-                         b'{"action":"readiness","task":"private"}')[0], 400)
+        for l2_open in (False, True):
+            self.server.l2_open = l2_open
+            for body in (b'{"action":"readiness"}', b'{"action":"check-and-repair"}',
+                         b'{"action":"readiness","action":"readiness"}',
+                         b'{"action":"readiness","task":"private"}'):
+                with self.subTest(l2_open=l2_open, body=body):
+                    self.assertEqual(self.post_json('/api/online-code-mode/entry', body)[0], 404)
         self.assertEqual(entry.calls, 0)
-        code, raw = self.post_json('/api/online-code-mode/entry', b'{"action":"readiness"}')
-        self.assertEqual(code, 202)
-        self.assertEqual(json.loads(raw)['action'], 'readiness')
-        self.assertEqual(entry.calls, 1)
 
     def test_inference_fix_requires_explicit_scope_and_same_origin(self):
+        self.server.l2_open = True
         class StubFix:
             scopes = []
             def read(self):
@@ -990,6 +1525,7 @@ class TransportTest(unittest.TestCase):
         self.assertEqual(control.scopes, ['all', 'local', 'route', 'both', 'nisi'])
 
     def test_fix_nisi_scope_keeps_the_same_transport_checks(self):
+        self.server.l2_open = True
         class StubFix:
             scopes = []
             def read(self):
@@ -1027,12 +1563,25 @@ class TransportTest(unittest.TestCase):
         self.assertEqual(control.scopes, ['nisi'])
 
     def test_fix_nisi_over_http_runs_one_operation_and_one_recover(self):
+        self._check_fix_nisi_over_http(verified_listener=True)
+
+    def test_fix_nisi_over_http_refuses_unverified_listener_without_recover(self):
+        self._check_fix_nisi_over_http(verified_listener=False)
+
+    def _check_fix_nisi_over_http(self, *, verified_listener):
+        self.server.l2_open = True
         import tempfile
         from pathlib import Path
         from online_code_repair import OnlineCodeRepair, NISI_RECOVER
-        from test_online_code_repair import (NisiLauncher, GEMMA, QWEN, MARKER_SHA, NOW, lms_row,
+        from test_online_code_repair import (NisiLauncher, GEMMA, QWEN, MARKER_SHA, NOW, SERVER_PID, lms_row,
                                              lsof_listing, private_file)
-        with tempfile.TemporaryDirectory() as temporary:
+        endpoint = {'host': '127.0.0.1', 'port': 1234, 'portSource': 'lms'}
+        listener = (SERVER_PID, 'lmstudio', '/Applications/LM Studio.app/Contents/MacOS/LM Studio')
+        with tempfile.TemporaryDirectory() as temporary, \
+                patch('online_code_repair._verified_direct_endpoint',
+                      return_value=(endpoint, listener) if verified_listener else None), \
+                patch('online_code_repair._inventory_listener',
+                      return_value=listener if verified_listener else None):
             root = Path(temporary)
             state = root / 'codemode-nisi'
             state.mkdir(mode=0o700)
@@ -1051,7 +1600,7 @@ class TransportTest(unittest.TestCase):
                                        readiness_path=root / 'readiness.json', sleep=lambda _: None,
                                        clock=lambda: NOW, lms_ps=lms, loopback_sockets=lsof_listing,
                                        router_lock_path=root / 'router.lock',
-                                       fix_journal_path=root / 'fix-journal.jsonl')
+                                       fix_journal_path=root / 'fix-journal.jsonl', l2_open=True)
             self.server.online_code_repair = control
             try:
                 code, raw = self.post_json('/api/inference/fix', b'{"scope":"nisi"}')
@@ -1060,21 +1609,30 @@ class TransportTest(unittest.TestCase):
                 self.assertEqual((first['status'], first['action']), ('running', 'fix-nisi'))
                 self.assertTrue(entered.wait(2))
                 code, raw = self.post_json('/api/inference/fix', b'{"scope":"nisi"}')
+                self.assertEqual(code, 202)
                 self.assertEqual(json.loads(raw)['operationId'], first['operationId'])
                 release.set()
                 self.assertTrue(control.join(3))
                 code, raw, _ = self.get('/api/inference/fix')
                 final = json.loads(raw)
-                self.assertEqual((code, final['status'], final['action']), (200, 'ready', 'fix-nisi'))
-                self.assertIn('recover', [step['name'] for step in final['steps']])
-                self.assertEqual(launcher.count(NISI_RECOVER), 1)
-                self.assertFalse((state / 'pending.json').exists())
+                self.assertEqual(final['operationId'], first['operationId'])
+                expected = 'ready' if verified_listener else 'needs-action'
+                self.assertEqual((code, final['status'], final['action']), (200, expected, 'fix-nisi'))
+                steps = [step['name'] for step in final['steps']]
+                self.assertEqual(steps.count('recover'), int(verified_listener))
+                self.assertEqual(launcher.count(NISI_RECOVER), int(verified_listener))
+                self.assertEqual((state / 'pending.json').exists(), not verified_listener)
+                if not verified_listener:
+                    idle = next(step for step in final['steps'] if step['name'] == 'server-idle')
+                    self.assertEqual(idle['result'], 'unknown')
+                    self.assertIn('listener=identity-unverified', idle['evidence'])
             finally:
                 release.set()
                 control.cancel()
                 control.join(1)
 
     def test_pc_headless_requires_exact_same_origin_on_or_off_action(self):
+        self.server.l2_open = True
         class StubHeadless:
             actions = []
             def read(self):
@@ -1119,8 +1677,9 @@ class TransportTest(unittest.TestCase):
         controller = StubController()
         self.server.online_code_repair = controller
         with patch('server.mac_online_code_controls_enabled', return_value=False):
-            for route, body in (('/api/online-code-mode/entry', b'{"action":"readiness"}'),
-                                ('/api/online-code-mode/repair', b'{"action":"check-and-repair"}'),
+            self.assertEqual(self.get('/api/online-code-mode/entry')[0], 501)
+            self.assertEqual(self.post_json('/api/online-code-mode/entry', b'{"action":"readiness"}')[0], 404)
+            for route, body in (('/api/online-code-mode/repair', b'{"action":"check-and-repair"}'),
                                 ('/api/inference/fix', b'{"scope":"both"}'),
                                 ('/api/online-code-mode/headless', b'{"action":"on"}')):
                 with self.subTest(route=route):

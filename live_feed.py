@@ -47,7 +47,7 @@ def shift_ages(value: Any, delta: float) -> Any:
     """Age every relative time field by delta seconds, so moving sampledAt keeps absolute freshness."""
     if isinstance(value, dict):
         for key, item in value.items():
-            if key == "ageSeconds" and type(item) in (int, float):
+            if (key == "ageSeconds" or key.endswith("AgeSeconds")) and type(item) in (int, float):
                 value[key] = item + delta
             elif key == "expiresInSeconds" and type(item) in (int, float):
                 shifted = item - delta
@@ -94,6 +94,19 @@ class LiveFeed:
         data["sampledAt"] = now
         data["observedAt"] = _dt.datetime.fromtimestamp(now, _dt.timezone.utc).isoformat().replace("+00:00", "Z")
         sources = data.get("sources", [])
+        if isinstance(data.get("pair"), dict):
+            pair = telemetry._pair_snapshot(now=now, refresh=False)
+            if pair is None:
+                # No exact cached timestamps: keep shifted evidence, but withdraw current claims.
+                pair = data["pair"]
+                pair.update(state="unknown", reason="cache-unavailable",
+                            detail="Cached PAIR readings are unavailable; current state unknown")
+                for node in pair.get("nodes") or []:
+                    node.update(residencyReason="cache-unavailable", pairClaimModelCount=None,
+                                pairClaimLoadedCount=None, pairClaimLoadedModels=None)
+            data["pair"] = pair
+            if telemetry.pair_status is not None:
+                sources = _replace_sources(sources, [telemetry.pair_status.source_row(pair)])
         if "jobs" in groups:
             jobs, jobs_source = telemetry._windows_jobs(now)
             data["windowsJobs"] = jobs
@@ -109,7 +122,8 @@ class LiveFeed:
             telemetry._mark_live_route(pipeline, router_source, mode)
             data["pipeline"], data["onlineCodeMode"] = pipeline, mode
             activity = collect_activity()
-            data["activity"] = {"runs": activity["runs"]}
+            data["activity"] = {"runs": activity["runs"], "historyBound": activity.get("historyBound"),
+                                "complete": activity.get("complete", False)}
             sources = _replace_sources(sources, [router_source, *activity["sources"]])
         data["sources"] = sources
         data["liveGroups"] = sorted(groups)

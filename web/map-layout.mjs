@@ -1,6 +1,13 @@
 /** Stable, responsive coordinates for the monitor's constellation map. */
 const ACTIVE_STATES = new Set(['busy', 'generating']);
 
+/** Shared display spelling for model IDs; preserve the full ID in evidence. */
+export function friendlyModelName(id) {
+  return String(id).split('/').pop().replaceAll('-', ' ')
+    .replace(/\b(gemma|qwen)\b/gi, s => s[0].toUpperCase() + s.slice(1))
+    .replace(/\bgpt\b/gi, 'GPT').replace(/\boss\b/gi, 'OSS').replace(/^./, s => s.toUpperCase());
+}
+
 /** A presentation choice for this Mac; telemetry and model control keep the full feed. */
 export const CORE_MODEL_IDS = Object.freeze([
   'openai/gpt-oss-20b',
@@ -21,19 +28,26 @@ export function runtimeModelRoster(rows, { scope = 'core', observedRows = rows }
   const observations = new Map((Array.isArray(observedRows) ? observedRows : [])
     .filter(row => row && typeof row === 'object').map(row => [modelRowKey(row), row]));
   const visible = [], hidden = [], operationalExtras = [];
-  let coreDiscovered = 0, macDiscovered = 0;
+  const discovered = new Set(), core = new Set(), instances = new Set();
   for (const row of input) {
     if (!row || typeof row !== 'object') continue;
+    const canonical = row.modelKey || row.id;
+    if (row.host === 'mac') {
+      discovered.add(canonical);
+      if (CORE_MODEL_SET.has(canonical)) core.add(canonical);
+    }
+    const identity = modelRowKey(row);
+    if (row.representedByInstances === true || instances.has(identity)) continue;
+    instances.add(identity);
     if (row.host !== 'mac') { visible.push(row); continue; }
-    macDiscovered += 1;
-    if (CORE_MODEL_SET.has(row.id)) { coreDiscovered += 1; visible.push(row); continue; }
+    if (CORE_MODEL_SET.has(canonical)) { visible.push(row); continue; }
     if (scope === 'all') { visible.push(row); continue; }
     if (lastObservedInUse(observations.get(modelRowKey(row)) || row)) {
       visible.push(row);
       operationalExtras.push(row);
     } else hidden.push(row);
   }
-  return { visible, hidden, operationalExtras, coreDiscovered, macDiscovered };
+  return { visible, hidden, operationalExtras, coreDiscovered: core.size, macDiscovered: discovered.size };
 }
 
 export function prioritizeRuntimeModels(models, visibleLimit = Infinity) {
@@ -81,27 +95,65 @@ export function jevView(component, { feedFresh = false, snapshotAge = 0 } = {}) 
     detail: typeof component?.detail === 'string' ? component.detail : null };
 }
 
+/** Integrity and observation freshness, separate from the last event's timestamp. */
+export function windowsJobsEvidence(jobs, source, {feedFresh = false, snapshotAge = 0} = {}) {
+  const clocks=['observedAgeSeconds','observationAgeSeconds'].filter(key=>Object.hasOwn(source||{},key)).map(key=>source[key]);
+  const observed=clocks.length?clocks.every(age=>Number.isFinite(age)&&age>=0)?Math.max(...clocks):null:source?.ageSeconds;
+  const current = Boolean(feedFresh) && jobs?.schemaVersion === 1 && jobs.journal === 'recorded'
+    && ['live', 'recorded'].includes(source?.state)
+    && Number.isFinite(observed) && observed >= 0 && Number.isFinite(snapshotAge)
+    && snapshotAge >= 0 && observed + snapshotAge <= 30;
+  const complete = current && jobs?.schemaVersion === 1 && jobs.journal === 'recorded'
+    && jobs.complete === true && Array.isArray(jobs.inFlight) && Array.isArray(jobs.recent);
+  // A departed waiting client does not establish that its remote work stopped.
+  const allWaitersObserved = Number.isSafeInteger(jobs?.unsettled) && jobs.unsettled >= 0
+    && jobs.unsettled === jobs.inFlight?.length;
+  return {current, complete, inFlightComplete: complete && allWaitersObserved && jobs.inFlightTruncated !== true,
+    recentComplete: complete && jobs.recentTruncated !== true};
+}
+
 /** Windows jobs from the Mac dispatcher journal, aged by the snapshot's own age. */
-export function windowsJobsView(jobs, { feedFresh, snapshotAge = 0 } = {}) {
+export function windowsJobsView(jobs, { feedFresh, snapshotAge = 0, source = null } = {}) {
   const extra = Math.max(0, Number.isFinite(snapshotAge) ? snapshotAge : 0);
-  const valid = Boolean(jobs && typeof jobs === 'object' && jobs.schemaVersion === 1);
+  const valid = Boolean(jobs && typeof jobs === 'object' && !Array.isArray(jobs) && jobs.schemaVersion === 1
+    && Array.isArray(jobs.inFlight) && Array.isArray(jobs.recent));
   const aged = row => ({ ...row, ageSeconds: row.ageSeconds + extra });
   const inFlight = valid && Array.isArray(jobs.inFlight)
-    ? jobs.inFlight.filter(row => row && Number.isFinite(row.ageSeconds) && Number.isFinite(row.timeoutSeconds))
+    ? jobs.inFlight.filter(row => row && Number.isFinite(row.ageSeconds) && row.ageSeconds >= 0 && Number.isFinite(row.timeoutSeconds) && row.timeoutSeconds >= 0)
       .map(aged).filter(row => row.ageSeconds <= row.timeoutSeconds + 30)
     : [];
   const recent = valid && Array.isArray(jobs.recent)
-    ? jobs.recent.filter(row => row && Number.isFinite(row.ageSeconds) && typeof row.state === 'string').map(aged)
+    ? jobs.recent.filter(row => row && Number.isFinite(row.ageSeconds) && row.ageSeconds >= 0 && typeof row.state === 'string').map(aged)
     : [];
   const last = valid ? jobs.lastSuccess : null;
   const lastVerified = last && typeof last.model === 'string' && Number.isFinite(last.elapsedSeconds)
-    && Number.isFinite(last.ageSeconds) ? aged(last) : null;
+    && Number.isFinite(last.ageSeconds) && last.ageSeconds >= 0 ? aged(last) : null;
   // "Current" only while the feed is fresh, the success is recent and no newer
   // job has settled differently; an old success stays history in the inspector.
   const newest = [...recent].sort((a, b) => a.ageSeconds - b.ageSeconds)[0];
-  const current = Boolean(feedFresh) && Boolean(lastVerified) && lastVerified.ageSeconds <= 1800
-    && (!newest || (newest.state === 'success' && newest.id === lastVerified.id));
-  return { running: Boolean(feedFresh) && inFlight.length > 0, inFlight, recent, lastVerified, current };
+  const complete = valid && jobs.complete === true && !['absent', 'invalid'].includes(jobs.journal);
+  const jobObservedAge = jobs?.observationAgeSeconds === undefined ? 0 : jobs.observationAgeSeconds;
+  const jobObservationCurrent = Number.isFinite(jobObservedAge) && jobObservedAge >= 0 && jobObservedAge + extra <= (jobs?.journal === 'codemode-runs' ? 10 : 3);
+  const current = valid && jobs.complete !== false && jobObservationCurrent && Boolean(feedFresh) && Boolean(lastVerified) && lastVerified.ageSeconds <= 1800
+    && (!newest || newest.ageSeconds > lastVerified.ageSeconds || (newest.state === 'success' && newest.id === lastVerified.id));
+  const knownSource = source && ['windows-jobs', 'codemode-runs'].includes(source.id);
+  const observedAge = Object.hasOwn(source || {}, 'observationAgeSeconds') ? source.observationAgeSeconds : source?.observedAgeSeconds;
+  const observationCurrent = (!Object.hasOwn(source || {}, 'observationAgeSeconds') && !Object.hasOwn(source || {}, 'observedAgeSeconds'))
+    || Number.isFinite(observedAge) && observedAge >= 0 && observedAge + extra <= 30;
+  const sourceUnavailable = knownSource && (!['live', 'recorded'].includes(source.state)
+    || !observationCurrent || source.complete === false || source.truncated === true);
+  const availabilityKnown = valid && complete && jobObservationCurrent && (!Object.prototype.hasOwnProperty.call(jobs, 'availability')
+    || jobs.availability?.state === 'available');
+  const availability = !availabilityKnown || sourceUnavailable ? 'unknown' : 'available';
+  const feedAvailable = Boolean(feedFresh) && availability === 'available';
+  // Recorded history and completed manifests cannot establish whether a job is currently running.
+  const liveSourceAvailable = availability === 'available' && jobs?.liveAvailable !== false && source?.id !== 'codemode-runs'
+    && (!knownSource || source.state === 'live'
+      || jobs.liveAvailable === true && Object.hasOwn(source, 'observationAgeSeconds') || jobs.journal === 'recorded' && jobs.liveAvailable !== false && (Object.hasOwn(source, 'observationAgeSeconds') || Object.hasOwn(source, 'observedAgeSeconds') || Object.hasOwn(source, 'ageSeconds')) && observationCurrent);
+  const liveAvailable = feedAvailable && liveSourceAvailable;
+  return { currentEvidence: feedAvailable, inFlightTruncated: jobs?.inFlightTruncated === true, recentTruncated: jobs?.recentTruncated === true, running: liveAvailable && inFlight.length > 0, inFlight: (valid && jobs?.liveAvailable !== false && source?.id !== 'codemode-runs' && (!knownSource || source.state === 'live' || jobs.liveAvailable === true || jobs.journal === 'recorded' && (Object.hasOwn(source,'observedAgeSeconds') || Object.hasOwn(source,'ageSeconds') || Object.hasOwn(source,'observationAgeSeconds')))) ? inFlight : [], recent, lastVerified, current: current && feedAvailable,
+    complete, observationCurrent: observationCurrent && jobObservationCurrent, availability, feedAvailable, liveAvailable, liveSourceAvailable: valid && complete && (!Object.hasOwn(jobs,'availability') || jobs.availability?.state==='available') && jobs?.liveAvailable !== false && source?.id !== 'codemode-runs' && (!knownSource || source.state==='live' || jobs.journal==='recorded' && ['observationAgeSeconds','observedAgeSeconds','ageSeconds'].some(key=>Object.hasOwn(source,key))),
+    reason: typeof jobs?.availability?.reason === 'string' ? jobs.availability.reason : null };
 }
 
 const LANE_IDS = ['fast', 'deep'];
@@ -111,23 +163,34 @@ const slotCount = value => Number.isSafeInteger(value) && value >= 0 ? value : n
 /** Windows headless lanes and the clients journaled against them; nothing is inferred beyond the snapshot. */
 export function windowsLaneView(worker, jobs, { feedFresh, snapshotAge = 0 } = {}) {
   const fresh = Boolean(feedFresh), raw = worker?.lanes, extra = Math.max(0, Number.isFinite(snapshotAge) ? snapshotAge : 0);
-  const beat = ['advertised', 'degraded', 'stopped'].includes(worker?.state) && Number.isFinite(worker?.ageSeconds)
-    && worker.ageSeconds >= 0 && worker.ageSeconds + extra <= 300;
-  const visible = fresh && beat && Boolean(raw) && typeof raw === 'object' && !Array.isArray(raw);
+  const beat = ['advertised', 'degraded', 'stopped', 'unknown'].includes(worker?.state) && Number.isFinite(worker?.ageSeconds)
+    && worker.ageSeconds >= 0 && worker.ageSeconds + extra <= 60;
+  const visible = fresh && beat && worker.complete !== false && Boolean(raw) && typeof raw === 'object' && !Array.isArray(raw);
   const lanes = visible ? LANE_IDS.map(id => [id, raw[id]])
-    .filter(([, lane]) => lane && typeof lane === 'object' && typeof lane.up === 'boolean'
+    .filter(([, lane]) => lane && typeof lane === 'object'
+      && (typeof lane.up === 'boolean' || lane.up === null || ['up', 'down', 'unknown'].includes(lane.health?.state)
+        || ['unknown', 'stale', 'undeclared', 'unreachable', 'no_identity', 'no-identity'].includes(lane.status))
       && typeof lane.model === 'string' && lane.model.trim() && lane.model.length <= 80)
     .map(([id, lane]) => {
       const busy = slotCount(lane.slotsBusy), total = slotCount(lane.slotsTotal), slots = busy !== null && total !== null && busy <= total;
-      return { id, label: `${id} · ${lane.model.trim().split('/').pop()}`, up: lane.up, busy: slots ? busy : null, total: slots ? total : null };
+      const health = ['up', 'down', 'unknown'].includes(lane.health?.state) ? lane.health.state
+        : lane.up === null || ['unknown', 'stale', 'undeclared', 'unreachable', 'no_identity', 'no-identity'].includes(lane.status)
+          ? 'unknown' : lane.up === true ? 'up' : lane.up === false ? 'down' : 'unknown';
+      const knownSlots = health !== 'unknown' && slots;
+      const healthReason = typeof lane.health?.reason === 'string' && lane.health.reason.trim()
+        ? lane.health.reason.trim().slice(0, 120) : null;
+      return { id, label: `${id} · ${lane.model.trim().split('/').pop()}`, up: health === 'up' ? true : health === 'down' ? false : null,
+        busy: knownSlots ? busy : null, total: knownSlots ? total : null, ...(healthReason ? { healthReason } : {}) };
     }) : [];
-  const h = worker?.headless, left = Number.isSafeInteger(h?.expiresInSeconds) ? Math.floor(h.expiresInSeconds - extra) : null;
-  const on = fresh && h?.state === 'on' && left !== null && left > 0;
+  const h = worker?.headless, left = Number.isSafeInteger(h?.expiresInSeconds) ? Math.floor(h.expiresInSeconds - (Number.isFinite(worker?.ageSeconds) ? worker.ageSeconds : 0) - extra) : null;
+  const headlessFresh = fresh && beat && worker.ageSeconds + extra <= 60;
+  const on = headlessFresh && h?.state === 'on' && left !== null && left > 0;
   const label = on ? `Headless on · ${Math.floor(left / 3600)}h ${Math.floor(left % 3600 / 60)}m left`
-    : fresh && (h?.state === 'off' || (h?.state === 'on' && left !== null)) ? 'Headless off' : 'Headless unknown';
+    : headlessFresh && (h?.state === 'off' || h?.state === 'on' && left !== null && left <= 0) ? 'Headless off' : 'Headless unknown';
   const laneIds = new Set(lanes.map(lane => lane.id)), edges = new Map();
-  const liveLanes = new Set(fresh && Array.isArray(jobs?.inFlight)
-    ? jobs.inFlight.filter(row => row && laneIds.has(row.lane)).map(row => row.lane) : []);
+  const journal = jobs && Object.hasOwn(jobs, 'liveAvailable') ? jobs : windowsJobsView(jobs, {feedFresh: fresh, snapshotAge: extra});
+  const liveRows = fresh && jobs?.currentEvidence !== false && journal.running && journal.liveAvailable !== false ? journal.inFlight : [];
+  const liveLanes = new Set(liveRows.filter(row => laneIds.has(row.lane)).map(row => row.lane));
   lanes.forEach(lane => {
     lane.live = liveLanes.has(lane.id);
     // Last measured generation speed on this lane, from the newest successful journaled job.
@@ -135,9 +198,12 @@ export function windowsLaneView(worker, jobs, { feedFresh, snapshotAge = 0 } = {
       && Number.isFinite(row.predictedPerSecond) && row.predictedPerSecond > 0 && Number.isFinite(row.ageSeconds))
       .sort((a, b) => a.ageSeconds - b.ageSeconds)[0] : null;
     lane.rate = done ? done.predictedPerSecond : null;
-    lane.rateAgeSeconds = done ? done.ageSeconds : null;
+    lane.rateAgeSeconds = done ? done.ageSeconds + extra : null;
   });
-  const rows = [...(Array.isArray(jobs?.inFlight) ? jobs.inFlight.map(row => [row, fresh]) : []),
+  // Use each validated row's lane/client, never join liveness by job ID: duplicate
+  // IDs on different lanes must not promote an expired or malformed row.
+  const rows = [...liveRows.map(row => [row, true]),
+    ...(Array.isArray(jobs?.inFlight) ? jobs.inFlight.map(row => [row, false]) : []),
     ...(Array.isArray(jobs?.recent) ? jobs.recent.map(row => [row, false]) : [])];
   for (const [row, live] of rows) {
     if (!row || typeof row.client !== 'string' || !CLIENT_LABEL.test(row.client) || !laneIds.has(row.lane)) continue;
@@ -147,19 +213,31 @@ export function windowsLaneView(worker, jobs, { feedFresh, snapshotAge = 0 } = {
   // The Mac observer (or the dispatcher) rejected the heartbeat's lane detail: say so, not "absent".
   const lanesError = fresh && beat && typeof worker?.lanesError === 'string' && worker.lanesError.trim() !== '';
   // fresh and beat say why lanes are hidden: a stale feed, or a missing or old worker heartbeat.
-  return { visible, fresh, beat, lanesError, headless: { on, label }, lanes, edges: [...edges.values()] };
+  return { visible, fresh, beat, headlessFresh, lanesError, headless: { on, label }, lanes, edges: [...edges.values()] };
 }
 
 /** Inspector rows for the PC lanes; a hidden lane list names its actual reason. */
 export function windowsLaneRows(view) {
   if (view?.visible) {
     return view.lanes.length ? view.lanes.map(lane => [`Lane ${lane.label}`,
-      [lane.up ? 'Up' : 'Down', lane.total !== null ? `${lane.busy}/${lane.total} slots busy` : 'Slots unknown'].join(' · ')])
+      [lane.up === true ? 'Up' : lane.up === false ? 'Down' : 'Unknown', lane.total !== null ? `${lane.busy}/${lane.total} slots busy` : 'Slots unknown',
+        lane.up === null ? lane.healthReason : null].filter(Boolean).join(' · ')])
       : [['Lanes', 'Lane detail malformed']];
   }
   if (!view?.fresh) return [['Lanes', 'Not reported (live feed stale)']];
   if (!view.beat) return [['Lanes', 'Not reported (worker heartbeat not fresh)']];
   return [['Lanes', view.lanesError ? 'Lane detail malformed' : 'Heartbeat has no lane detail']];
+}
+
+
+/** Activity headline shared by the Windows lane inspector and focused regressions. */
+export function windowsLaneActivitySummary(lane) {
+  const known = lane?.total !== null && lane?.total !== undefined && lane?.busy !== null && lane?.busy !== undefined;
+  const title = lane?.up === false ? 'Lane down' : lane?.up === null || !lane ? 'Lane unknown'
+    : lane.live ? 'Job in flight now' : known && lane.busy > 0 ? `${lane.busy} of ${lane.total} slots busy`
+      : known ? 'Up · idle' : 'Up · activity unknown';
+  const tone = lane?.up === false ? 'bad' : lane?.live ? 'live' : lane?.up === true && known && lane.busy > 0 ? 'ok' : 'muted';
+  return { title, tone };
 }
 
 /**
@@ -183,6 +261,16 @@ export function nodeCaptionLayout(node, scale, { laneGap = Infinity } = {}) {
   const subAbove = node.kind === 'windows-worker' && below + 2 * scale + 3 > laneGap - 6 * scale;
   const subText = subAbove && typeof node.subtitleAbove === 'string' ? node.subtitleAbove : node.subtitle;
   return { label, sub: { x: 0, y: subAbove ? -(r + 9 * scale) : below, anchor: 'middle' }, subAbove, subText };
+}
+
+// Keep Windows Mac satellites below their parent's status at readable zooms.
+// One offset preserves the separation between portrait satellites.
+export function windowsMacCaptionShift(peerBottom, modelTops, { gap = 4 } = {}) {
+  if (!Number.isFinite(peerBottom) || !Array.isArray(modelTops) || !Number.isFinite(gap) || gap < 0) return 0;
+  const tops = modelTops.filter(Number.isFinite);
+  if (!tops.length) return 0;
+  const shift = Math.max(0, peerBottom + gap - Math.min(...tops));
+  return Number.isFinite(shift) ? shift : 0;
 }
 
 export function parseParameterCount(value) {
@@ -417,6 +505,8 @@ const capitalize = text => String(text).replace(/^./, c => c.toUpperCase());
 // Who sent a feed row, in words: a known client's name, the PC LLM switch probe, or the journaled label.
 const who = row => row.probe ? 'the PC LLM switch probe' : CLIENT_NAMES[row.client] || row.client || 'an unknown client';
 const rateText = value => Number.isFinite(value) ? `${value >= 20 ? Math.round(value) : value.toFixed(1)} tok/s` : null;
+const measuredAgeText = seconds => seconds < 60 ? `${Math.round(seconds)}s ago` : seconds < 3600 ? `${Math.round(seconds / 60)}m ago`
+  : seconds < 86400 ? `${Math.round(seconds / 3600)}h ago` : `${Math.round(seconds / 86400)}d ago`;
 const JOB_FLAGS = new Set(['hit-token-limit']);
 const FAILED_STATE = /error|timeout|fail|reject|invalid/i;
 
@@ -447,12 +537,16 @@ const byteCount = value => Number.isSafeInteger(value) && value >= 0 && value <=
 // tile and the Memory section of one inspector read the same bytes as the same number (27 Sep: they showed 40.5 and 38).
 const gigabytes = value => `${(value / 2 ** 30).toFixed(1)} GB`;
 
-/** The Mac GPU sample (ioreg), only from a fresh feed and a sample at most 5 s old; unknown otherwise. */
+/** Fresh-feed Metal ceiling; ioreg statistics additionally need a sample at most 5 s old. */
 export function macGpuView(gpu, { feedFresh = false, snapshotAge = 0 } = {}) {
   const extra = Math.max(0, Number.isFinite(snapshotAge) ? snapshotAge : 0);
-  const sampled = Boolean(feedFresh) && Boolean(gpu) && typeof gpu === 'object' && !Array.isArray(gpu)
-    && Number.isFinite(gpu.ageSeconds) && gpu.ageSeconds >= 0 && gpu.ageSeconds + extra <= 5;
-  if (!sampled) return { known: false, percent: null, chip: null, tile: 'Unknown', rows: [] };
+  const available = Boolean(feedFresh) && Boolean(gpu) && typeof gpu === 'object' && !Array.isArray(gpu) && gpu.complete !== false;
+  const ceiling = available ? byteCount(gpu.unifiedMemoryCeilingBytes) : null;
+  // Metal is read once by the app shell, independently of ioreg's availability and sample age.
+  const ceilingRows = feedFresh ? [['Unified-memory ceiling', ceiling !== null && ceiling >= 2 ** 30
+    ? `${gigabytes(ceiling)} · Metal recommendedMaxWorkingSetSize (read by the app shell)` : 'Unknown']] : [];
+  const sampled = available && Number.isFinite(gpu.ageSeconds) && gpu.ageSeconds >= 0 && gpu.ageSeconds + extra <= 5;
+  if (!sampled) return { known: false, percent: null, chip: null, tile: 'Unknown', rows: ceilingRows };
   const busy = percent(gpu.utilizationPercent), allocated = byteCount(gpu.allocatedBytes), inUse = byteCount(gpu.inUseBytes);
   const model = typeof gpu.model === 'string' && /^[A-Za-z0-9 ._()+-]{1,64}$/.test(gpu.model) ? gpu.model : null;
   const cores = Number.isSafeInteger(gpu.cores) && gpu.cores > 0 && gpu.cores <= 1024 ? gpu.cores : null;
@@ -462,17 +556,22 @@ export function macGpuView(gpu, { feedFresh = false, snapshotAge = 0 } = {}) {
     tile: [busy !== null ? `${busy}% busy` : null, allocated !== null ? `${gigabytes(allocated)} GPU memory` : null].filter(Boolean).join(' · ') || 'Unknown',
     rows: [['GPU', [model, cores !== null ? `${cores} cores` : null].filter(Boolean).join(' · ') || null],
       ['GPU utilisation', busy !== null ? `${busy}%` : null], ['Renderer · tiler', renderer !== null && tiler !== null ? `${renderer}% · ${tiler}%` : null],
-      ['GPU memory allocated', allocated !== null ? gigabytes(allocated) : null], ['GPU memory in use', inUse !== null ? gigabytes(inUse) : null]] };
+      ['GPU memory allocated', allocated !== null ? gigabytes(allocated) : null], ['GPU memory in use', inUse !== null ? gigabytes(inUse) : null],
+      ...ceilingRows] };
 }
 
-const CALLER_NAME = /^[A-Za-z0-9 ._+-]{1,40}$/;
+const CALLER_NAME = /^[^\x00-\x1f\x7f]{1,64}$/;
 
 /** Local processes connected to the Mac model server, names only. null from the server means not checked. */
-export function localCallersView(callers, { feedFresh = false } = {}) {
-  if (!feedFresh || !Array.isArray(callers)) return { checked: false, names: [], text: null };
-  const names = [...new Set(callers.filter(caller => caller && typeof caller.name === 'string' && CALLER_NAME.test(caller.name))
-    .map(caller => caller.name.trim()).filter(Boolean))].slice(0, 6);
-  return { checked: true, names, text: names.length ? `Calling the model server now: ${names.join(', ')}` : 'No local process is calling the model server' };
+export function localCallersView(callers, { feedFresh = false, ageSeconds = 0, snapshotAge = 0, source = undefined } = {}) {
+  if (source !== undefined) ageSeconds = source?.state === 'live' ? source.ageSeconds : NaN;
+  if (!feedFresh || !Number.isFinite(ageSeconds) || ageSeconds < 0 || !Number.isFinite(snapshotAge) || snapshotAge < 0
+      || ageSeconds + snapshotAge > 3 || !Array.isArray(callers)) return { checked: false, names: [], count: null, remaining: null, summary: null, text: null };
+  const validNames=callers.map(caller=>typeof caller?.name==='string'&&CALLER_NAME.test(caller.name)&&!/[\/\\]/.test(caller.name)&&caller.name.trim()?caller.name.trim():null);
+  const names=validNames.slice(0,6).map(name=>name||'unknown process'),count=callers.length,remaining=Math.max(0,count-names.length);
+  const unnamedOverflow=validNames.slice(6).filter(name=>name===null).length,namedOverflow=remaining-unnamedOverflow;
+  const summary=count?`${names.join(', ')}${namedOverflow?` +${namedOverflow} more`:''}${unnamedOverflow?` · ${unnamedOverflow} unnamed caller${unnamedOverflow===1?'':'s'}`:''}`:'None connected';
+  return {checked:true,names,count,remaining,summary,text:count?`Connected to the model server: ${summary}`:'No local process is connected to the model server'};
 }
 
 const WORKER_VERSION = /^[0-9A-Za-z._+-]{1,16}$/;
@@ -488,7 +587,7 @@ const gib = mib => (mib / 1024).toFixed(1);
  */
 export function pcGpuView(worker, { feedFresh = false, snapshotAge = 0 } = {}) {
   const extra = Math.max(0, Number.isFinite(snapshotAge) ? snapshotAge : 0);
-  const beat = Boolean(feedFresh) && ['advertised', 'degraded', 'stopped'].includes(worker?.state)
+  const beat = Boolean(feedFresh) && ['advertised', 'degraded', 'stopped', 'unknown'].includes(worker?.state)
     && Number.isFinite(worker?.ageSeconds) && worker.ageSeconds >= 0 && worker.ageSeconds + extra <= 60;
   const version = beat && typeof worker.workerVersion === 'string' && WORKER_VERSION.test(worker.workerVersion) ? worker.workerVersion : null;
   const raw = beat && Array.isArray(worker.gpus) && worker.gpus.length >= 1 && worker.gpus.length <= 4 ? worker.gpus : [];
@@ -506,17 +605,79 @@ export function pcGpuView(worker, { feedFresh = false, snapshotAge = 0 } = {}) {
         : [['PC GPU', beat ? 'Not reported by the worker heartbeat' : 'Unknown (no fresh worker heartbeat)']])] };
 }
 
+const REPORT_BUSY = new Set(['generating', 'busy', 'processing']);
+
+/**
+ * The PC's own report (snapshot.windowsLive: the paired LAN link or the SharedChami status files), which the PC chip
+ * and node lead with: "Reports 2 loaded · idle". Read through exactly the gate of the inspector's PC report rows (a
+ * fresh, unpaused feed and a report at most 30 s old, both ages finite and non-negative); unknown otherwise. Only the
+ * first 8 models count, as there; a truncated or partly unknown list is presented as a lower bound. Every phrase starts "Reports" (the node drops it after its REPORTED / LINKED word),
+ * so it reads as the PC's word, never as the dispatcher's: a report never pulses live. A word outside the known set
+ * (activity or loadedState) counts as unknown, and a busy slot outranks an "idle" word.
+ * The PC's own bad news is never cut: a "down" or "degraded" health stays in the tiny form ("Reports degraded"), and
+ * the node names its subject ("PC REPORTS DOWN"), so after "LINKED VIA LAN" it never reads as the link's state.
+ * `health` is the PC's word (ok, degraded or down; anything else is null), for the chip's tone.
+ */
+export function pcReportView(live, { feedFresh = false, snapshotAge = 0, maxModels = 8, subject = 'PC' } = {}) {
+  if (!feedFresh || !live || typeof live !== 'object' || !Array.isArray(live.models) || !Number.isFinite(live.ageSeconds) || live.ageSeconds < 0
+    || !Number.isFinite(snapshotAge) || snapshotAge < 0 || !['lan', 'share'].includes(live.via)) return { known: false };
+  const ageSeconds = live.ageSeconds + snapshotAge;
+  if (ageSeconds > 30) return { known: false };
+  const models = live.models.slice(0, Number.isSafeInteger(maxModels) && maxModels > 0 ? maxModels : 8);
+  const loaded = models.filter(m => m?.loadedState === 'loaded');
+  const busy = loaded.filter(m => REPORT_BUSY.has(m.activity) || (Number.isInteger(m.slotsBusy) && m.slotsBusy > 0));
+  // A reader that flags its list incomplete (modelsComplete false: rows dropped or cut) gives only a lower bound.
+  const partial = (live.modelsComplete !== true && live.loadedListComplete !== true) || live.models.length > models.length || models.some(m => !['loaded', 'inactive'].includes(m?.loadedState));
+  const busyPartial = partial || loaded.some(m => !REPORT_BUSY.has(m.activity) && m.activity !== 'idle' && !(Number.isInteger(m.slotsBusy) && m.slotsBusy > 0));
+  const activity = busy.length ? `${busyPartial ? 'at least ' : ''}${busy.length} busy` : !partial && loaded.length && loaded.every(m => m.activity === 'idle') ? 'idle' : 'activity unknown';
+  const residency = models.some(m => m?.loadedState === 'loaded' || m?.loadedState === 'inactive');
+  const health = ['ok', 'degraded', 'down'].includes(live.health) ? live.health : null;
+  const detail = !models.length ? ((live.modelsComplete === true || live.loadedListComplete === true) ? 'no model loaded' : 'loaded unknown') : !residency ? 'loaded unknown'
+    : partial ? `${loaded.length ? `at least ${loaded.length} loaded` : 'loaded unknown'} · ${activity}` : `${loaded.length} loaded · ${activity}`;
+  const state = health === 'down' ? 'down' : health === 'degraded' ? `degraded · ${detail}` : detail;
+  const bad = health === 'down' || health === 'degraded';
+  return { known: true, via: live.via, ageSeconds, loaded: loaded.length, busy: busy.length, health,
+    words: `Reports ${state}`, tiny: bad ? `Reports ${health}` : `Reports ${activity}`, node: `${bad ? `${subject === 'Mac' ? 'MAC' : 'PC'} REPORTS ` : ''}${state.toUpperCase()}` };
+}
+
+/**
+ * The Mac's own report, as the PC edition leads its Mac chip and node with it: the PC snapshot's fresh AGIW peer row
+ * for the Mac (its --publish-status presence on SharedChami; unsigned, so the words stay "Reports"). A legacy
+ * mac-status.json row is someone else's summary, not the Mac's own report, and never counts. The same gate and words as
+ * pcReportView, except that the whole list the PC reader keeps (32 models) counts: the Mac lists every inventory
+ * model and its loaded ones can sit past the eighth. A bad health names the Mac ("MAC REPORTS DOWN"). Only a complete
+ * list counts (below); a missing, empty or partly rejected one is not "no model loaded". `name` is the configured Mac's.
+ */
+export function macReportView(peers, { feedFresh = false, snapshotAge = 0, name = null } = {}) {
+  // The report must be the configured Mac's (macPeerView's name, from hosts.json), so it never stands beside another
+  // Mac's LAN evidence. Without a configured name there is no safe attribution.
+  const rows = feedFresh && Array.isArray(peers) ? peers.slice(0, 16).filter(row =>
+    row?.platform === 'macos' && row.source === 'agiw-peers' && row.fresh === true && typeof row.host === 'string') : [];
+  const want = typeof name === 'string' && PEER_NAME.test(name) && name.trim() ? name.trim().split('.')[0].toLowerCase() : null;
+  const peer = want ? rows.find(row => row.host.split('.')[0].toLowerCase() === want) || null : null;
+  // The loaded list can be complete even when the downloaded inventory was not observed.
+  // An older reader without either flag, or any gap, leaves the chip on the PC's own LAN view.
+  const complete = (peer?.modelsComplete === true || peer?.loadedListComplete === true) && Array.isArray(peer.models)
+    && (peer.models.length > 0 || peer.loadedListComplete === true) && peer.models.length <= 32
+    && peer.models.every(m => m && ['loaded', 'inactive'].includes(m.loadedState));
+  return peer && complete ? pcReportView({ ...peer, via: 'share' }, { feedFresh, snapshotAge, maxModels: 32, subject: 'Mac' }) : { known: false };
+}
+
 /* Memory (mem_guard's snapshot.memory, 26-27 Sep). Level ok / watch / tight / critical, or unknown when macOS
  * pressure and availability are unreadable. Read only from a fresh feed, and every field is checked again here: a
  * level outside the set reads unknown, a bad number is left out, a bad consumer or suggestion row is dropped. The
  * consumers are grouped processes with approximate resident sizes (shared pages counted once per process), and the
- * guard measures them only when memory is not ok. Suggestions are text only: the guard never quits an app or
+ * guard measures them only when memory is not ok. The local LLM server's row also carries its loaded models' count and
+ * LM Studio inventory file sizes (not measured memory); an older guard's row carried the Mac-wide GPU allocation
+ * instead, which is every app's and is labelled so. Suggestions are text only: the guard never quits an app or
  * unloads a model. Sizes use the guard's own binary gigabytes, so they match its reasons and suggestions. */
 export const MEMORY_RANK = Object.freeze({ ok: 0, watch: 1, tight: 2, critical: 3 });
 const MEMORY_LABEL = { ok: 'OK', watch: 'Watch', tight: 'Tight', critical: 'Critical', unknown: 'Unknown' };
 const MEMORY_TEXT = /^[^\x00-\x1f\x7f]{1,240}$/;
 const GIB = 2 ** 30, MIB = 2 ** 20;
 const memoryBytes = value => Number.isSafeInteger(value) && value >= 0 && value <= 2 ** 52 ? value : null;
+/** A count of loaded models (mem_guard's loadedModelCount): an integer from 0 to 256, else null. */
+const modelCount = value => Number.isSafeInteger(value) && value >= 0 && value <= 256 ? value : null;
 const memoryText = value => typeof value === 'string' && MEMORY_TEXT.test(value) ? value.replaceAll('`', '').trim() || null : null;
 /** A closed reading: only one of the four level strings counts (an array, an inherited key or any other value does not). */
 const isMemoryLevel = value => typeof value === 'string' && Object.hasOwn(MEMORY_RANK, value);
@@ -532,47 +693,68 @@ export function memorySize(bytes) {
 const memoryAmount = bytes => bytes >= GIB ? gigabytes(bytes) : memorySize(bytes);
 /** "about 3.2 GB", or "under 1 MB" (never "about under 1 MB"). */
 const approximately = bytes => { const size = memorySize(bytes); return size.startsWith('under') ? size : `about ${size}`; };
-// The guard (mem_guard.decorate_consumers) already emits its users sorted by this weight, as a short list (named groups
-// plus the top three others). Only a bounded prefix is sorted again here; past it the producer's order is trusted.
+// The guard (mem_guard.decorate_consumers) emits its users as a short list (named groups plus the top three others),
+// sorted by its own weight. Only a bounded prefix is sorted again here, by the view's weight; past it the producer's
+// order is trusted.
 const CONSUMER_PREFIX = 256;
 
-export function memoryView(memory, { feedFresh = false } = {}) {
-  const block = feedFresh && memory && typeof memory === 'object' && !Array.isArray(memory) ? memory : null;
+export function memoryView(memory, { feedFresh = false, host = 'mac', snapshotAge = 0 } = {}) {
+  const block = feedFresh && memory && typeof memory === 'object' && !Array.isArray(memory)
+    && memory.complete !== false && (memory.ageSeconds === undefined
+      || Number.isFinite(memory.ageSeconds) && memory.ageSeconds >= 0 && Number.isFinite(snapshotAge) && snapshotAge >= 0 && memory.ageSeconds + snapshotAge <= 3) ? memory : null;
   const level = block && isMemoryLevel(block.level) ? block.level : 'unknown';
   const known = level !== 'unknown';
   const available = known && typeof block.availablePercent === 'number' && Number.isFinite(block.availablePercent)
     && block.availablePercent >= 0 && block.availablePercent <= 100 ? block.availablePercent : null;
   const swap = known ? memoryBytes(block.swapUsedBytes) : null, compressed = known ? memoryBytes(block.compressedBytes) : null;
   const gpu = known ? memoryBytes(block.gpuAllocBytes) : null;
-  // Ranked like the guard ranks them: by what a user holds, resident memory or its GPU allocation, whichever is larger.
-  const weight = row => Math.max(row.residentBytes, row.gpuAllocBytes || 0);
+  // Ranked by the larger of a user's resident memory and its loaded models' file sizes (the local LLM server). An older
+  // guard's row may carry the Mac-wide GPU allocation; that figure is every app's, so it never ranks one user (it would
+  // put a server using under 1 GB above 33 GB of simulators). It is shown only as the Mac's figure beside the row.
+  const weight = row => Math.max(row.residentBytes, row.loadedModelBytes || 0);
+  const absent = value => value === undefined || value === null;
   const consumers = (known && Array.isArray(block.consumers) ? block.consumers.slice(0, CONSUMER_PREFIX) : [])
     .filter(row => row && typeof row === 'object' && memoryText(row.label) && memoryBytes(row.residentBytes) !== null
       && Number.isSafeInteger(row.processCount) && row.processCount >= 0 && row.processCount <= 1e6
-      && (row.gpuAllocBytes === undefined || row.gpuAllocBytes === null || memoryBytes(row.gpuAllocBytes) !== null))
-    .map(row => ({ label: memoryText(row.label).slice(0, 80), residentBytes: row.residentBytes, processCount: row.processCount,
-      gpuAllocBytes: memoryBytes(row.gpuAllocBytes) }))
+      && (absent(row.gpuAllocBytes) || memoryBytes(row.gpuAllocBytes) !== null)
+      && (absent(row.loadedModelBytes) || memoryBytes(row.loadedModelBytes) !== null)
+      && (absent(row.loadedModelCount) || modelCount(row.loadedModelCount) !== null))
+    .map(row => {
+      const loadedModelCount = modelCount(row.loadedModelCount);
+      // A model size counts only beside a count of loaded models that says what it is the size of.
+      return { label: memoryText(row.label).slice(0, 80), residentBytes: row.residentBytes, processCount: row.processCount,
+        gpuAllocBytes: memoryBytes(row.gpuAllocBytes), loadedModelCount,
+        loadedModelBytes: loadedModelCount ? memoryBytes(row.loadedModelBytes) : null };
+    })
     .sort((a, b) => weight(b) - weight(a)).slice(0, 3)
     .map(row => {
-      // The banner states the figure the ranking used: the GPU allocation when it is the larger one.
+      const n = row.loadedModelCount || 0, models = `${n} loaded model${n === 1 ? '' : 's'}`;
+      // The banner states the figure the ranking used. The loaded models' file sizes lead when they are the larger
+      // figure; they are inventory sizes, never measured memory, and the claim says so. The GPU allocation (an older
+      // guard's row) is the whole Mac's, every app's, so it is never credited to this user.
+      const modelLed = n > 0 && row.loadedModelBytes !== null && row.loadedModelBytes > row.residentBytes;
       const gpuLed = row.gpuAllocBytes !== null && row.gpuAllocBytes > row.residentBytes;
-      return { ...row, weightBytes: weight(row), gpuLed, size: approximately(row.residentBytes),
-        claim: gpuLed ? `holds ${approximately(row.gpuAllocBytes)} (GPU allocation)` : `uses ${approximately(row.residentBytes)}`,
+      const uses = `uses ${approximately(row.residentBytes)}`;
+      const claim = modelLed ? `holds ${approximately(row.loadedModelBytes)} in ${models} (file size)`
+        : n > 0 && row.loadedModelBytes === null ? `${uses} · loaded model size unknown`
+          : gpuLed ? `${uses} · Mac GPU allocation ${approximately(row.gpuAllocBytes)} (all apps)` : uses;
+      return { ...row, weightBytes: weight(row), modelLed, gpuLed, size: approximately(row.residentBytes), claim,
         text: [approximately(row.residentBytes), `${row.processCount} process${row.processCount === 1 ? '' : 'es'}`,
-          row.gpuAllocBytes ? `+ GPU allocation ${approximately(row.gpuAllocBytes)}` : null].filter(Boolean).join(' · ') };
+          n > 0 ? (row.loadedModelBytes !== null ? `${models} ${approximately(row.loadedModelBytes)} (file size)` : `${models}, size unknown`) : null,
+          row.gpuAllocBytes ? `Mac GPU allocation ${approximately(row.gpuAllocBytes)} (all apps)` : null].filter(Boolean).join(' · ') };
     });
   const suggestions = (known && Array.isArray(block.suggestions) ? block.suggestions.slice(0, 16) : []).map(memoryText).filter(Boolean).slice(0, 3);
   const reasons = (known && Array.isArray(block.reasons) ? block.reasons.slice(0, 16) : []).map(memoryText).filter(Boolean).slice(0, 4);
   const paused = known && Array.isArray(block.paused) ? Math.min(block.paused.length, 256) : 0;
   const alert = isAlertLevel(level);
   const percent = available === null ? null : `${Math.round(available)}% available`;
-  return { known, level, label: MEMORY_LABEL[level], alert, word: alert ? `Memory ${level}` : null, available, swap, compressed, gpu,
+  return { known, consumersKnown: known && block.consumersKnown !== false, level, label: MEMORY_LABEL[level], alert, word: alert ? `Memory ${level}` : null, available, swap, compressed, gpu,
     consumers, suggestions, reasons, paused,
     tile: known ? [MEMORY_LABEL[level], percent, swap === null ? null : swap === 0 ? 'no swap' : `swap ${memoryAmount(swap)}`].filter(Boolean).join(' · ') : 'Unknown',
     rows: known ? [['Level', [MEMORY_LABEL[level], ...reasons].join(' · ')], ['Available', percent], ['Swap used', swap === null ? null : memoryAmount(swap)],
-      ['Compressed', compressed === null ? null : memoryAmount(compressed)], ['GPU allocation', gpu === null ? null : memoryAmount(gpu)],
+      ['Compressed', compressed === null ? null : memoryAmount(compressed)], ['GPU allocation (all apps)', gpu === null ? null : memoryAmount(gpu)],
       ...(paused ? [['Paused jobs', `${paused} paused by the memory guard`]] : [])]
-      : [['Level', block ? 'Unknown: macOS memory pressure is unreadable' : 'Unknown (no fresh sample)']] };
+      : [['Level', block ? `Unknown: ${host === 'windows' ? 'Windows memory status' : 'macOS memory pressure'} is unreadable` : 'Unknown (no fresh sample)']] };
 }
 
 /* The guard classifies each once-a-second sample against fixed thresholds with no hysteresis, so a Mac sitting on a
@@ -623,6 +805,15 @@ export function memoryAnnouncement(announced, view, { at, shown = false } = {}) 
 // keeps the full label (up to 80 characters).
 const BANNER_LABEL = 32;
 const bannerLabel = label => label.length > BANNER_LABEL ? `${label.slice(0, BANNER_LABEL - 1)}…` : label;
+// The guard tags a tip that would take a model from the Nisi edit pair, or unload one while a route runs, with a caveat
+// at its end ("… from the monitor (Nisi reviewer: Mac edit routes stop until it is reloaded)"). The banner is clipped at
+// its end, so there the caveat leads ("Try (Nisi reviewer: …): Unload idle model …"): wherever the banner is cut, the
+// action is never visible without its caveat. The Memory section lists the tips as the guard wrote them.
+const NISI_CAVEAT = /^(.+) \(((?:Nisi (?:author|reviewer|pair)|a Nisi route is running): [^()]+)\)$/;
+const tryText = suggestion => {
+  const tagged = NISI_CAVEAT.exec(suggestion);
+  return tagged ? `Try (${tagged[2]}): ${tagged[1]}` : `Try: ${suggestion}`;
+};
 
 /**
  * The slim map banner: only for tight (amber) or critical (red, with "!") memory that has not been dismissed at this
@@ -633,28 +824,46 @@ export function memoryBannerView(view, { dismissed = null } = {}) {
   const level = isMemoryLevel(view?.level) ? view.level : 'unknown';
   const held = validHold(dismissed) ? dismissed.level : null;
   if (!view?.alert || !isAlertLevel(level) || (held !== null && MEMORY_RANK[level] <= MEMORY_RANK[held])) return { show: false, level };
-  const top = view.consumers[0], suggestion = view.suggestions[0];
-  const detail = [top ? `${bannerLabel(top.label)} ${top.claim}` : view.reasons[0] || null, suggestion ? `Try: ${suggestion}` : null].filter(Boolean);
-  const full = [top ? `${top.label} ${top.claim}` : view.reasons[0] || null, suggestion ? `Try: ${suggestion}` : null].filter(Boolean);
+  const top = view.consumers[0], suggestion = view.suggestions[0], tip = suggestion ? tryText(suggestion) : null;
+  const detail = [top ? `${bannerLabel(top.label)} ${top.claim}` : view.reasons[0] || null, tip].filter(Boolean);
+  const full = [top ? `${top.label} ${top.claim}` : view.reasons[0] || null, tip].filter(Boolean);
   return { show: true, level, mark: level === 'critical' ? '!' : null, title: view.word,
     text: detail.join(' · ') || 'Close apps you are not using.', full: full.join(' · ') || 'Close apps you are not using.',
-    announce: `${view.word}.${top ? ` ${top.label} ${top.claim}.` : ''}${suggestion ? ` Try: ${suggestion}.` : ''}` };
+    announce: `${view.word}.${top ? ` ${top.label} ${top.claim}.` : ''}${tip ? ` ${tip}.` : ''}` };
 }
 
 /**
- * One time-ordered feed of what every agent sent where: Windows lane jobs from the dispatcher
- * journal and shared-router runs. Rows carry only recorded fields; nothing is inferred.
- * On a stale or paused feed an open job is only 'in-flight-stale': in flight at the last sample.
+ * Routes newest first, whatever order the observer sent them in (an older observer listed saved
+ * receipts before router archives, so a weeks-old receipt opened as the default trace). Rows the
+ * router lists as running or queued lead; then the router's other current-checkpoint rows (unresolved,
+ * stale, unreadable or changing records, which the observer also lists first) in the observer's order;
+ * then the history by ascending recorded age, and a row whose age is unknown goes last. Stable (equal
+ * ages keep their order); returns a new array.
  */
-export function activityFeed(jobs, runs, { limit = 8, feedFresh = true } = {}) {
+const currentCheckpoint = run => run?.source === 'router-active' || (typeof run?.traceKey === 'string' && run.traceKey.startsWith('router-active:'));
+export function newestRunsFirst(runs) {
+  if (!Array.isArray(runs)) return [];
+  const rank = run => run?.activity === 'running' || run?.activity === 'queued' ? 0 : currentCheckpoint(run) ? 1
+    : Number.isFinite(run?.ageSeconds) ? 2 : 3;
+  return runs.map((run, index) => ({ run, index, rank: rank(run) })).sort((a, b) => a.rank - b.rank
+    || (a.rank === 2 ? a.run.ageSeconds - b.run.ageSeconds : 0) || a.index - b.index).map(entry => entry.run);
+}
+
+/**
+ * Current running/queued work first, then history by age: Windows lane jobs from
+ * the dispatcher journal and shared-router runs. Unknown duration cannot hide live work.
+ * On a stale or paused feed an open job is only 'in-flight-stale': in flight at the last sample.
+ * Route liveness has its own reader clock; losing it must not age healthy PC jobs.
+ */
+export function activityFeed(jobs, runs, { limit = 8, feedFresh = true, routesFresh = feedFresh } = {}) {
   const rows = [];
-  const pcRows = [...(Array.isArray(jobs?.inFlight) ? jobs.inFlight.map(row => [row, true]) : []),
+  const pcRows = [...(jobs?.liveSourceAvailable === false ? [] : Array.isArray(jobs?.inFlight) ? jobs.inFlight.map(row => [row, true]) : []),
     ...(Array.isArray(jobs?.recent) ? jobs.recent.map(row => [row, false]) : [])];
   for (const [row, open] of pcRows) {
     if (!row || !Number.isFinite(row.ageSeconds)) continue;
     const client = typeof row.client === 'string' && CLIENT_LABEL.test(row.client) ? row.client.toLowerCase() : null;
     // Only the in-flight list is running; a settled row keeps its recorded state (e.g. an invalid result).
-    const state = open ? (feedFresh ? 'in-flight' : 'in-flight-stale')
+    const state = open ? (jobs?.complete === false || (feedFresh && jobs?.observationCurrent === false) ? 'unknown' : feedFresh && jobs?.currentEvidence !== false ? 'in-flight' : 'in-flight-stale')
       : typeof row.state === 'string' && /^[a-z-]{1,24}$/.test(row.state) ? row.state : 'unknown';
     rows.push({ key: `job:${row.id}`, kind: 'pc-job', client, probe: client === 'pc-llm-probe',
       target: LANE_TARGET[row.lane] || 'Windows PC', lane: LANE_TARGET[row.lane] ? row.lane : null, state,
@@ -664,20 +873,26 @@ export function activityFeed(jobs, runs, { limit = 8, feedFresh = true } = {}) {
       elapsed: Number.isFinite(row.elapsedSeconds) ? row.elapsedSeconds : null, ageSeconds: row.ageSeconds });
   }
   for (const run of Array.isArray(runs) ? runs : []) {
-    if (!run || typeof run.runId !== 'string' || !Number.isFinite(run.ageSeconds)) continue;
+    if (!run || typeof run.runId !== 'string'
+      || !Number.isFinite(run.ageSeconds) && !['running', 'queued'].includes(run.activity)) continue;
     const client = typeof run.client === 'string' && CLIENT_LABEL.test(run.client) ? run.client.toLowerCase() : null;
     const review = reviewConsistencyView(run);
     const target = run.host === 'windows' ? 'Nisi Inference → PC' : run.host === 'mac' ? 'Nisi Inference → Mac' : 'Nisi Inference route';
     // A route the router lists as live (its run lock held, verified in the same sample) runs now, like
     // an in-flight PC job; a queued one waits for a lane. Everything else keeps its recorded status.
-    const state = run.activity === 'running' ? (feedFresh ? 'in-flight' : 'in-flight-stale')
-      : run.activity === 'queued' ? 'queued' : typeof run.status === 'string' ? run.status : 'unknown';
+    const state = run.activity === 'running' ? (feedFresh && routesFresh ? 'in-flight' : 'in-flight-stale')
+      : run.activity === 'queued' ? (feedFresh && routesFresh ? 'queued' : 'queued-stale') : typeof run.status === 'string' ? run.status : 'unknown';
     rows.push({ key: `run:${run.source || 'route'}:${run.runId}`, kind: 'route', client, probe: false, target,
       lane: null, state, rate: null, speeds: null, limitHit: false,
       elapsed: null, ageSeconds: run.ageSeconds, runId: run.runId, review: review.level });
   }
   const seen = new Set();
-  return rows.sort((a, b) => a.ageSeconds - b.ageSeconds).filter(row => !seen.has(row.key) && seen.add(row.key)).slice(0, limit);
+  const activeRank = row => ['in-flight', 'queued', 'in-flight-stale', 'queued-stale'].includes(row.state) ? 0 : 1;
+  const unique = rows.sort((a, b) => activeRank(a) - activeRank(b)
+    || (Number.isFinite(a.ageSeconds) ? a.ageSeconds : Infinity) - (Number.isFinite(b.ageSeconds) ? b.ageSeconds : Infinity)).filter(row => !seen.has(row.key) && seen.add(row.key));
+  const visible = unique.slice(0, limit);
+  Object.defineProperty(visible, 'truncated', {value: unique.length > visible.length || jobs?.inFlightTruncated === true || jobs?.recentTruncated === true});
+  return visible;
 }
 
 /**
@@ -692,12 +907,73 @@ export function routeQueuedWords(pipeline) {
   return lane ? 'queued for a lane' : pipeline?.queuePhase === 'admitting' ? 'being admitted' : 'queued';
 }
 
+/** The Route chip's review window: only routes recorded this recently count toward its review words and tone. */
+export const ROUTE_REVIEW_WINDOW_SECONDS = 86400;
+
+/** Machine evidence leads the headline; transport loss never turns yesterday's idle count into today's zero. */
+export function machineStatusView(machine, {snapshotAge = 0, fresh = true, now = Date.now() / 1000} = {}) {
+  const thresholds = {mac: 3, windows: 30, linux: 30};
+  const limit = thresholds[machine?.platform];
+  const stamp = machine?.observedAt;
+  const observed = typeof stamp === 'string'
+    && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(stamp)
+    ? Date.parse(stamp) / 1000 : NaN;
+  const age = stamp == null ? machine?.ageSeconds + Math.max(0, snapshotAge) : now - observed;
+  const current = fresh && Number.isFinite(snapshotAge) && snapshotAge >= -2
+    && Number.isFinite(machine?.ageSeconds) && machine.ageSeconds >= 0
+    && Number.isFinite(age) && age >= -2 && Number.isFinite(limit) && age <= limit;
+  const trusted = ['local', 'authenticated', 'share-reported'].includes(machine?.trust);
+  const reasons = ['not_observed', 'unavailable', 'timeout', 'refused', 'non_json', 'oversize', 'schema_invalid',
+    'stale', 'clock_skew', 'host_key_mismatch', 'share_unmounted', 'asleep', 'untrusted', 'unverified',
+    'not_connected', 'identity_mismatch', 'read_error'];
+  const reason = reasons.includes(machine?.reasonCode) ? machine.reasonCode.replaceAll('_', ' ') : 'not observed';
+  if (!current || !trusted || !['up', 'down'].includes(machine?.state)) {
+    const detail = `? Unknown · ${machine?.state === 'unknown' ? reason : 'observation unavailable or stale'}`;
+    return {tone: 'muted', detail, short: '? Unknown', tiny: '? Unknown'};
+  }
+  if (machine.state === 'down') return {tone: 'warn', detail: '■ Down · reported not serving', short: '■ Down', tiny: '■ Down'};
+  const count = value => Number.isSafeInteger(value) && value >= 0;
+  const complete = machine.modelsComplete === true;
+  const loaded = complete && count(machine.loadedCount) ? `${machine.loadedCount} loaded` : 'loaded unknown';
+  const busy = complete && count(machine.busyCount) ? `${machine.busyCount} busy` : 'activity unknown';
+  const handsOff = machine.handsOff === true ? ' · hands off' : '';
+  // Keep the caution ahead of optional counts when narrow chips step down through their forms.
+  return {tone: 'ok', detail: `● Up · ${loaded} · ${busy}${handsOff}`,
+    short: `● Up${handsOff} · ${busy}`, tiny: `● Up${handsOff}`};
+}
+
+/**
+ * The Route chip's review counts over the window, from the snapshot's whole route list (never the Activity feed,
+ * whose 12 rows PC jobs share). `complete` only when the observer's `historyBound` says no route recorded within the
+ * window can be missing from the list (nothing was cut, or only routes older than the window); otherwise, and for an
+ * observer that sends no bound, the counts are lower bounds. Rows without a finite age are never counted.
+ */
+export function routeReviewCounts(runs, bound, windowSeconds = ROUTE_REVIEW_WINDOW_SECONDS) {
+  const seen = new Set();
+  let defects = 0, warnings = 0;
+  for (const run of Array.isArray(runs) ? runs : []) {
+    if (!run || typeof run.runId !== 'string' || !Number.isFinite(run.ageSeconds) || run.ageSeconds > windowSeconds) continue;
+    const key = `${run.source || 'route'}:${run.runId}`;   // the Activity feed's row key: one count per listed row
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const level = reviewConsistencyView(run).level;
+    if (level === 'block') defects += 1;
+    else if (level === 'warn') warnings += 1;
+  }
+  const missing = bound?.missingFromAgeSeconds;
+  const complete = bound?.truncated === false
+    || (bound?.truncated === true && (missing === null || (Number.isFinite(missing) && missing > windowSeconds)));
+  return { defects, warnings, complete };
+}
+
 export function vitalsView({fresh = false, pcFresh = fresh, models = [], activityKnown = false, loadedKnown = false, lanes = null, worker = null,
-  jobs = null, pipeline = null, nisi = null, feed = [], gpu = null, pcGpu = null, memory = null, activityLive = fresh } = {}) {
-  const knownNow = activityKnown && activityLive;
-  const activeModels = fresh && knownNow ? models.filter(m => m.loaded === true && ACTIVE_STATES.has(m.state)) : [];
-  const active = activeModels.length, loaded = models.filter(m => m.loaded === true).length;
-  const activityLabel = active ? `${active} ${activeModels.every(m => m.state === 'generating') ? 'generating' : activeModels.every(m => m.state === 'busy') ? 'busy' : 'working'}` : null;
+  jobs = null, pipeline = null, nisi = null, feed = [], gpu = null, pcGpu = null, memory = null, activityLive = fresh, activityAvailable = jobs ? jobs.feedAvailable !== false : true, routeReviews = null, pcReport = null,
+  loadedCount = undefined, busyCount = undefined } = {}) {
+  const knownNow = activityKnown && activityLive && loadedKnown;
+  const activeModels = fresh && knownNow ? models.filter(m => m.representedByInstances !== true && m.loaded === true && ACTIVE_STATES.has(m.state)) : [];
+  const active = knownNow && Number.isSafeInteger(busyCount) && busyCount >= 0 ? busyCount : activeModels.length;
+  const loaded = Number.isSafeInteger(loadedCount) && loadedCount >= 0 ? loadedCount : models.filter(m => m.representedByInstances !== true && m.loaded === true).length;
+  const activityLabel = active ? `${active} ${activeModels.length === active && activeModels.every(m => m.state === 'generating') ? 'generating' : activeModels.length === active && activeModels.every(m => m.state === 'busy') ? 'busy' : 'working'}` : null;
   const mac = !fresh ? { tone: 'muted', detail: 'Signal stale' }
     : active ? { tone: 'live', detail: activityLabel }
       : { tone: knownNow ? 'ok' : 'muted', detail: `${loadedKnown ? `${loaded} loaded` : 'Loaded unknown'} · ${knownNow ? 'idle' : 'activity unknown'}` };
@@ -715,50 +991,66 @@ export function vitalsView({fresh = false, pcFresh = fresh, models = [], activit
     mac.short = `${memoryWord} · ${activityLabel || (knownNow ? 'Idle' : 'Activity unknown')}${gpu?.known ? ` · ${gpu.chip}` : ''}`;
     mac.detail = `${mac.detail} · ${memoryWord}`;
   }
-  const laneUp = lanes?.visible ? lanes.lanes.filter(lane => lane.up) : [];
+  const laneUp = lanes?.visible ? lanes.lanes.filter(lane => lane.up === true) : [];
+  const laneUnknown = lanes?.visible ? lanes.lanes.filter(lane => typeof lane.up !== 'boolean').length : 0;
   const fast = lanes?.visible ? lanes.lanes.find(lane => lane.id === 'fast') : null;
+  // The PC's own fresh report (pcReportView) leads the chip: "Reports 2 loaded · idle · Headless off", so a narrow
+  // chip no longer reads "PC · Headless off" as "the PC is off". It never raises the tone (only a dispatcher job is
+  // live), but its own bad news lowers an OK chip: a report of "down" or "degraded" turns 'ok' to 'warn'.
+  const report = fresh && pcReport?.known === true && typeof pcReport.words === 'string' && typeof pcReport.tiny === 'string' ? pcReport : null;
+  const reportBad = report?.health === 'down' || report?.health === 'degraded';
   // Like the Activity chip, only a live (fresh, unpaused) view pulses for a running job.
-  const pcState = !fresh || !pcFresh ? 'muted' : jobs?.running && activityLive ? 'live' : ['degraded', 'stopped'].includes(worker?.state) ? 'warn'
+  const pcTone = !fresh || !pcFresh ? 'muted' : jobs?.running && activityLive ? 'live' : ['degraded', 'stopped'].includes(worker?.state) ? 'warn'
     : worker?.state === 'advertised' ? 'ok' : 'muted';
-  const pcDetail = !fresh ? 'Signal stale' : !pcFresh ? 'Worker heartbeat stale or unknown' : worker?.state === 'degraded' ? 'Worker degraded · no lane answers'
-    : worker?.state === 'stopped' ? 'Worker stopped'
-      : [lanes?.headless?.on ? `Headless ${lanes.headless.label.replace(/^Headless on · /, '').replace(/ left$/, '')}` : lanes?.headless?.label === 'Headless off' ? 'Headless off' : 'Headless unknown',
-        lanes?.visible ? `${laneUp.length}/${lanes.lanes.length} lanes` : null,
-        fast && Number.isFinite(fast.rate) ? `fast ${rateText(fast.rate)}` : null, pcGpu?.known ? pcGpu.text : null].filter(Boolean).join(' · ');
-  // A 'block' review stopped its route (a defect); a 'warn' was only recorded for the owner.
-  const reviewDefects = feed.filter(row => row.kind === 'route' && row.review === 'block').length;
-  const reviewWarnings = feed.filter(row => row.kind === 'route' && row.review === 'warn').length;
+  const pcState = pcTone === 'ok' && reportBad ? 'warn' : pcTone;
+  const pcDetail = !fresh ? 'Signal stale' : !pcFresh ? ['Worker heartbeat stale or unknown', report?.words].filter(Boolean).join(' · ')
+    : worker?.state === 'degraded' ? ['Worker degraded · no lane answers', report?.words].filter(Boolean).join(' · ')
+    : worker?.state === 'stopped' ? ['Worker stopped', report?.words].filter(Boolean).join(' · ')
+      : [report?.words, lanes?.headless?.on ? `Headless ${lanes.headless.label.replace(/^Headless on · /, '').replace(/ left$/, '')}` : lanes?.headless?.label === 'Headless off' ? 'Headless off' : 'Headless unknown',
+        lanes?.visible ? laneUnknown ? `${laneUnknown} lane${laneUnknown === 1 ? '' : 's'} unknown` : `${laneUp.length}/${lanes.lanes.length} lanes` : null,
+        fast && Number.isFinite(fast.rate) && Number.isFinite(fast.rateAgeSeconds) ? `fast last ${rateText(fast.rate)} · ${measuredAgeText(fast.rateAgeSeconds)}` : null, pcGpu?.known ? pcGpu.text : null].filter(Boolean).join(' · ');
+  // A 'block' review stopped its route (a defect); a 'warn' was only recorded for the owner. The chip says what
+  // holds now, so it counts only routes recorded in the last 24 h (routeReviewCounts over the whole route list, not
+  // the shared feed); older flagged routes keep their badges and ages wherever they are listed. When the observer
+  // may have left a route of the window out of its bounded list, the counts read 'at least'. No counts, no words.
+  const count = value => Number.isSafeInteger(value) && value >= 0 ? value : 0;
+  const reviewDefects = count(routeReviews?.defects), reviewWarnings = count(routeReviews?.warnings);
+  const atLeast = routeReviews?.complete === true ? '' : 'at least ';
   // Several routed tasks may run at once (router concurrency): the chip counts them.
   const runningRoutes = Array.isArray(pipeline?.pipelines) ? pipeline.pipelines.filter(p => p && p.live === true && p.status === 'running').length : 0;
   const route = !fresh ? { tone: 'muted', detail: 'Route age unknown' }
     : pipeline?.status === 'installing' ? { tone: 'warn', detail: 'Router install in progress' }
-    : pipeline?.status === 'running' && runningRoutes > 1 ? { tone: 'live', detail: `${runningRoutes} routes running` }
+    : pipeline?.status === 'running' && runningRoutes > 1 ? { tone: 'live', detail: `${pipeline.pipelinesComplete === false ? 'At least ' : ''}${runningRoutes} routes running` }
     : pipeline?.status === 'running' ? { tone: 'live', detail: `Running · ${String(pipeline.stage || 'stage unknown').replaceAll('_', ' ')}` }
       : pipeline?.status === 'queued' ? { tone: 'live', detail: routeQueuedWords(pipeline).replace(/^./, s => s.toUpperCase()) }
+      // Windows route queue: a claim file says a worker took a job, not that it is still running.
+      : pipeline?.status === 'claimed' ? { tone: 'muted', detail: 'Claim recorded · execution unknown' }
       : pipeline?.runId ? { tone: 'warn', detail: 'Unsettled run recorded' }
         // A Nisi call left its pending record (a live direct call writes one too, so the words stay neutral).
         : pipeline?.status === 'recovery-required' || nisi?.state === 'unresolved' ? { tone: 'warn', detail: 'Nisi record pending' }
         : { tone: reviewDefects ? 'warn' : nisi?.state === 'ready' ? 'ok' : 'muted', detail: [pipeline?.status === 'idle' ? 'Idle' : 'State unknown',
           nisi?.state === 'ready' ? 'pair ready' : nisi?.state === 'partial' ? 'needs 2nd model' : null,
-          reviewDefects ? `${reviewDefects} review defect${reviewDefects === 1 ? '' : 's'}` : null,
-          reviewWarnings ? `${reviewWarnings} review warning${reviewWarnings === 1 ? '' : 's'}` : null].filter(Boolean).join(' · ') };
+          reviewDefects ? `${atLeast}${reviewDefects} review defect${reviewDefects === 1 ? '' : 's'} in 24 h` : null,
+          reviewWarnings ? `${atLeast}${reviewWarnings} review warning${reviewWarnings === 1 ? '' : 's'} in 24 h` : null].filter(Boolean).join(' · ') };
   const headlessShort = lanes?.headless?.on ? `On ${lanes.headless.label.replace(/^Headless on · /, '').replace(/ left$/, '')}`
     : lanes?.headless?.label === 'Headless off' ? 'Headless off' : 'Headless unknown';
-  const pcShort = !fresh ? 'Stale' : !pcFresh ? 'Heartbeat stale' : worker?.state === 'degraded' ? 'Degraded' : worker?.state === 'stopped' ? 'Stopped'
-    : [headlessShort, fast && Number.isFinite(fast.rate) ? `fast ${rateText(fast.rate)}` : null].filter(Boolean).join(' · ');
+  const pcShort = !fresh ? 'Stale' : !pcFresh ? (report ? `Heartbeat stale · ${report.tiny}` : 'Heartbeat stale') : worker?.state === 'degraded' ? 'Degraded' : worker?.state === 'stopped' ? 'Stopped'
+    : [report?.words, headlessShort, fast && Number.isFinite(fast.rate) && Number.isFinite(fast.rateAgeSeconds) ? `fast last ${rateText(fast.rate)} · ${measuredAgeText(fast.rateAgeSeconds)}` : null].filter(Boolean).join(' · ');
   const last = feed.find(row => !row.probe) || feed[0];
   // Only a fresh, unpaused feed can say a job is running now; otherwise it was in flight at the last sample.
   const open = last && (last.state === 'in-flight' || last.state === 'in-flight-stale');
   const running = open && fresh && activityLive && last.state === 'in-flight';
-  const activity = !last ? { tone: 'muted', detail: 'No recorded activity' }
-    : { tone: running ? 'live' : open || last.state === 'cancelled' ? 'muted' : FAILED_STATE.test(last.state) ? 'warn' : 'ok',
+  const activity = !last ? !fresh || !activityAvailable ? { tone: 'muted', detail: 'Activity unknown (feed unavailable or stale)' }
+    : { tone: 'muted', detail: 'No recorded activity' }
+    : { tone: running ? 'live' : open || last.state === 'cancelled' || last.state === 'unknown' ? 'muted' : FAILED_STATE.test(last.state) ? 'warn' : 'ok',
       detail: [last.probe ? 'switch probe' : last.client || 'unknown client', '→', last.target,
-        running ? 'running' : open ? 'in flight at last sample' : last.state === 'cancelled' ? 'cancelled' : last.rate].filter(Boolean).join(' ') };
-  const short = { ...activity, detail: !last ? 'None yet' : [last.probe ? 'probe' : last.client || 'unknown', '→', last.target.replace('Nisi Inference → ', '').replace('Nisi Inference route', 'route')].join(' ') };
+        running ? 'running' : open ? 'in flight at last sample' : last.state === 'cancelled' ? 'cancelled' : last.state === 'unknown' ? 'outcome unknown' : last.rate].filter(Boolean).join(' ') };
+  const short = { ...activity, detail: !last ? !fresh || !activityAvailable ? 'Unknown' : 'None yet' : [last.probe ? 'probe' : last.client || 'unknown', '→', last.target.replace('Nisi Inference → ', '').replace('Nisi Inference route', 'route')].join(' ') };
   // Tiny forms: what each chip still says when even its short form does not fit (the app steps down to them).
   const macTiny = activityLabel || (knownNow ? 'Idle' : 'Activity unknown');
   const tiny = !fresh ? {} : { mac: memoryWord ? `${memoryWord} · ${macTiny}` : macTiny,
-    pc: !pcFresh ? 'Heartbeat stale' : ['degraded', 'stopped'].includes(worker?.state) ? pcShort : fast && Number.isFinite(fast.rate) ? `fast ${rateText(fast.rate)}` : headlessShort,
+    pc: pcFresh && ['degraded', 'stopped'].includes(worker?.state) ? pcShort : report ? report.tiny : !pcFresh ? 'Heartbeat stale'
+    : fast && Number.isFinite(fast.rate) && Number.isFinite(fast.rateAgeSeconds) ? `fast last ${rateText(fast.rate)} · ${measuredAgeText(fast.rateAgeSeconds)}` : headlessShort,
     route: route.detail.split(' · ')[0] };
   // Micro form (the popover can be 360 px wide): tight or critical memory keeps only its words on the Mac chip.
   const micro = fresh && memoryWord ? { mac: memoryWord } : {};
@@ -770,11 +1062,24 @@ export function vitalsView({fresh = false, pcFresh = fresh, models = [], activit
  * The Live activity panel's opening summary: one plain status line, one sentence of meaning and
  * four counts over the rows it lists. Only a live (fresh, unpaused) feed can call a job running now.
  */
-export function activitySummary(feed, { live = false } = {}) {
+export function activitySummary(feed, options = {}) {
+  const summary = activitySummaryAt(feed, {...options, countsComplete: options.complete === false || feed?.truncated === true ? false : options.countsComplete});
+  if (!options.live) {
+    summary.line = summary.line.replace('Nothing running now', 'Nothing running at the last sample');
+    summary.tiles = summary.tiles.map(([label, value]) => [label === 'In flight' ? 'In flight at last sample' : label, value]);
+    if (!options.captureTime && Number.isFinite(options.capturedAt) && options.capturedAt >= 0 && options.capturedAt <= 8.64e12)
+      options = {...options, captureTime: new Date(options.capturedAt * 1000).toISOString()};
+    if (options.captureTime) summary.meaning += ` Captured at ${options.captureTime}.`;
+  }
+  return summary;
+}
+
+function activitySummaryAt(feed, { live = false, jobsAvailable = true, liveJobsAvailable = jobsAvailable, routesAvailable = true, countsComplete = true, routesIncluded = true } = {}) {
   const rows = Array.isArray(feed) ? feed : [];
   const running = rows.filter(row => row.state === 'in-flight').length;
   const open = running + rows.filter(row => row.state === 'in-flight-stale').length;
   const failed = rows.filter(row => FAILED_STATE.test(row.state)).length;
+  const unknownOutcome = rows.some(row => row.state === 'unknown');
   const answered = rows.filter(row => row.kind === 'pc-job' && row.state === 'success').length;
   const routes = rows.filter(row => row.kind === 'route').length;
   const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
@@ -782,7 +1087,7 @@ export function activitySummary(feed, { live = false } = {}) {
   // The meaning names the job it is about: the newest running one, or the newest failure.
   const job = rows.find(row => row.state === 'in-flight' && !row.probe) || rows.find(row => row.state === 'in-flight');
   const lane = row => row.lane ? `the PC ${row.lane} lane` : row.kind === 'route' ? row.target : 'the PC';
-  const waiting = job ? `${capitalize(who(job))} ${job.probe ? 'is' : 'is waiting on'} ${job.probe ? `probing ${lane(job)}` : lane(job)} (${Math.floor(job.ageSeconds)} s).${running > 1 ? ` ${running - 1} more running.` : ''}` : '';
+  const waiting = job ? `${capitalize(who(job))} ${job.probe ? 'is' : 'is waiting on'} ${job.probe ? `probing ${lane(job)}` : lane(job)} (${Number.isFinite(job.ageSeconds) ? `${Math.floor(job.ageSeconds)} s` : 'duration unknown'}).${running > 1 ? ` ${running - 1} more running.` : ''}` : '';
   const failure = row => /invalid/i.test(row.state) ? 'had its answer rejected as invalid' : /timeout/i.test(row.state) ? 'timed out'
     : /error/i.test(row.state) ? 'ended in an error' : /reject/i.test(row.state) ? 'was rejected' : 'did not pass';
   // Live routes (router concurrency) run beside PC jobs; each is counted under its own name.
@@ -790,13 +1095,36 @@ export function activitySummary(feed, { live = false } = {}) {
     const matching = rows.filter(row => states.includes(row.state)), routed = matching.filter(row => row.kind === 'route').length;
     return [matching.length - routed ? plural(matching.length - routed, 'job') : null, routed ? plural(routed, 'route') : null].filter(Boolean).join(' and ');
   };
-  const summary = !rows.length ? { tone: 'muted', line: 'Nothing recorded yet', meaning: 'PC jobs and Nisi Inference routes appear here as agents send them.' }
+  const amount = (n, available = true) => !available ? 'Unknown' : countsComplete ? String(n) : n ? `At least ${n}` : 'Unknown';
+  if (!liveJobsAvailable) {
+    const runningRoutes = rows.filter(row => row.kind === 'route' && row.state === 'in-flight').length;
+    const staleRoutes = rows.filter(row => row.kind === 'route' && row.state === 'in-flight-stale').length;
+    const knownRoutes = runningRoutes || staleRoutes;
+    const line = runningRoutes && live ? `${countsComplete ? '' : 'At least '}${plural(runningRoutes, 'route')} running now`
+      : knownRoutes ? `${countsComplete ? '' : 'At least '}${plural(knownRoutes, 'route')} in flight at the last sample` : 'PC job state unknown';
+    const verb = runningRoutes && live ? knownRoutes === 1 ? 'is' : 'are' : knownRoutes === 1 ? 'was' : 'were';
+    const meaning = knownRoutes
+      ? `${countsComplete ? '' : 'At least '}${knownRoutes} Nisi Inference route${knownRoutes === 1 ? '' : 's'} ${verb} ${runningRoutes && live ? 'running now' : 'in flight at the last sample'}; PC job state is unknown.`
+      : 'The PC job feed is unavailable or does not report live jobs; current PC activity cannot be confirmed.';
+    return { tone: runningRoutes && live ? 'live' : 'muted', line, meaning,
+      tiles: [['In flight', 'Unknown'], ['Answered', amount(answered, jobsAvailable)],
+        ['Failed', amount(failed, jobsAvailable && (routesAvailable || !routesIncluded))], ['Routes', amount(routes, routesAvailable)]] };
+  }
+  const summary = !rows.length && !routesAvailable ? { tone: 'muted', line: 'Route activity unknown', meaning: 'The route readers are unavailable; current route activity cannot be confirmed.' } : !rows.length ? { tone: 'muted', line: 'Nothing recorded yet', meaning: 'PC jobs and Nisi Inference routes appear here as agents send them.' }
     : running && live ? { tone: 'live', line: `${count(['in-flight'])} running now`, meaning: waiting }
       : open ? { tone: 'muted', line: `${count(['in-flight', 'in-flight-stale'])} in flight at the last sample`, meaning: 'The feed is paused or stale, so current progress is unknown.' }
         : FAILED_STATE.test(newest.state) ? { tone: 'warn', line: 'The latest job did not answer',
           meaning: `${capitalize(who(newest))} → ${newest.target} ${failure(newest)}. Select it to open it on the map.` }
-          : { tone: 'ok', line: 'Nothing running now', meaning: 'Select a row to open its lane or route on the map.' };
-  return { ...summary, tiles: [['In flight', String(open)], ['Answered', String(answered)], ['Failed', String(failed)], ['Routes', String(routes)]] };
+          : unknownOutcome ? { tone: 'muted', line: 'Outcome unknown', meaning: 'One or more recorded calls have no recognised terminal outcome.' }
+            : !routesAvailable ? { tone: 'muted', line: 'Route activity unknown', meaning: 'Current route activity cannot be confirmed.' }
+              : { tone: 'ok', line: 'Nothing running now', meaning: 'Select a row to open its lane or route on the map.' };
+  if (!countsComplete) {
+    summary.line = running && live ? `At least ${count(['in-flight'])} running now` : open ? `At least ${count(['in-flight','in-flight-stale'])} in flight at the last sample` : 'Activity coverage incomplete';
+    summary.meaning = 'The visible feed is capped or incomplete; totals and current inactivity cannot be confirmed.';
+    if (!running) summary.tone = 'muted';
+  }
+  if (!routesAvailable) summary.meaning += ' Route readers are unavailable; total activity is unknown.';
+  return { ...summary, tiles: [['In flight', amount(open, routesAvailable)], ['Answered', amount(answered)], ['Failed', amount(failed, routesAvailable || !routesIncluded)], ['Routes', amount(routes, routesAvailable)]] };
 }
 
 /* Orb web (spiderweb, 26-27 Sep 2026: the judged "classic orb" variant with the judge's grafts and fixes, then the
@@ -1173,4 +1501,347 @@ export function webGlows(nodes, { fresh = false } = {}) {
   const glows = [...webNodes(nodes).values()].filter(node => node.active === true || node.inFlight === true).slice(0, ORB_WEB_LIMITS.glows)
     .map(node => ({ id: node.id, x: node.x, y: node.y, tone: node.active === true ? 'working' : 'flight', color: node.active === true ? GLOW_WORKING : safeGlowColor(node.color), periodMs: [1200, 2400].includes(node.auraPeriodMs) ? node.auraPeriodMs : null }));
   return { glows, key: glows.map(glow => `${glow.id}|${webNum(glow.x)}|${webNum(glow.y)}|${glow.color}|${glow.periodMs ?? ''}`).join(';') };
+}
+
+/**
+ * Windows edition: the Mac's own presence report (snapshot.macPeer from the PC observer's SharedChami reader).
+ * Shared-folder reports expire after 30 s, matching the Windows peer reader. A report is inventory only: it never
+ * says the Mac is generating or establishes LAN reachability.
+ */
+const PEER_MODEL = /^[\x21-\x7e]{1,120}$/;
+const PEER_NAME = /^[^\x00-\x1f\x7f]{1,253}$/;
+const PEER_FRESH_SECONDS = 45;
+const SHARE_PEER_FRESH_SECONDS = 30;
+export function macPeerView(peer, { feedFresh = false, snapshotAge = 0 } = {}) {
+  const extra = Math.max(0, Number.isFinite(snapshotAge) ? snapshotAge : 0);
+  const block = peer && typeof peer === 'object' && !Array.isArray(peer) ? peer : null;
+  const name = typeof block?.name === 'string' && PEER_NAME.test(block.name) ? block.name.trim() || null : null;
+  // The current hosts.json identity (the collector's configuredName), which alone attributes the Mac's own report.
+  const configuredName = typeof block?.configuredName === 'string' && PEER_NAME.test(block.configuredName) ? block.configuredName.trim() || null : null;
+  const age = block && Number.isFinite(block.ageSeconds) && block.ageSeconds >= 0 ? block.ageSeconds + extra : null;
+  const current = Boolean(feedFresh) && age !== null && age <= (block.state === 'linked' ? SHARE_PEER_FRESH_SECONDS : PEER_FRESH_SECONDS);
+  const state = current && ['reachable', 'linked', 'unreachable'].includes(block.state) ? block.state : 'unknown';
+  // A failed LAN reason belongs only to a current failed probe, not to a later share report.
+  const reason = state === 'unreachable' && ['refused', 'timeout', 'invalid', 'unresolved', 'error'].includes(block.reason)
+    ? block.reason : null;
+  const presenceDetail = state === 'unknown' ? (
+    ['reachable', 'unreachable'].includes(block?.state)
+      ? 'Mac reachability unknown; the earlier LAN model-list observation is stale or unavailable.'
+      : block?.state === 'linked' && age !== null && age > SHARE_PEER_FRESH_SECONDS
+        ? 'The Mac presence report is stale; current Mac state is unknown.'
+      : ({
+        unconfigured: 'No Mac is configured for presence reporting; Mac state is unknown.',
+        stale: 'The configured Mac presence report is stale; Mac state is unknown.',
+        'no-report': 'No presence report from the configured Mac is available on SharedChami; Mac state is unknown.',
+      }[block?.reason] || 'Mac presence is unavailable; state is unknown.')) : null;
+  // The collector keeps a current failed LAN probe beside a share link (lanFailure), so the share report never hides it;
+  // read() has already voided a stale probe's reason.
+  // It carries the LAN probe's own age, so it expires on the probe's clock (the 45 s a bare failure lasts), never on the
+  // share report's.
+  const lanFailure = state === 'linked' && ['refused', 'timeout', 'invalid', 'unresolved', 'error'].includes(block.lanFailure)
+    && Number.isFinite(block.lanFailureAgeSeconds) && block.lanFailureAgeSeconds >= 0
+    && block.lanFailureAgeSeconds + extra <= PEER_FRESH_SECONDS ? block.lanFailure : null;
+  const failureInfo = state === 'unreachable' || lanFailure ? ({
+    refused: { title: 'Mac connection refused', detail: "The LAN connection for checking the Mac's model list was refused. The cause is unknown.",
+      reachability: 'Connection refused', subtitle: 'LAN CONNECTION REFUSED', brief: 'CONNECTION REFUSED', short: 'Refused' },
+    timeout: { title: 'No answer from the Mac', detail: "The Mac's model list did not answer before the check timed out. The cause is unknown.",
+      reachability: 'No answer (timed out)', subtitle: 'NO ANSWER ON THE LAN', brief: 'NO ANSWER', short: 'No answer' },
+    invalid: { title: 'Mac model listing unavailable', detail: 'The LAN check did not obtain a valid model list; current model state is unknown.',
+      reachability: 'No valid model listing', subtitle: 'NO VALID MODEL LISTING', brief: 'NO VALID LISTING', short: 'No valid listing' },
+    unresolved: { title: 'Mac address unknown', detail: 'No usable Mac address was available to the LAN check.',
+      reachability: 'Address unknown', subtitle: 'MAC ADDRESS UNKNOWN', brief: 'ADDRESS UNKNOWN', short: 'Address unknown' },
+    error: { title: 'Mac probe error', detail: 'The LAN probe failed; current reachability is unknown. See the probe details.',
+      reachability: 'Probe error', subtitle: 'LAN PROBE ERROR', brief: 'PROBE ERROR', short: 'Probe error' },
+  }[reason || lanFailure] || { title: 'Mac not answering', detail: "The LAN check did not confirm the Mac's model list. The cause is unknown.",
+    reachability: 'Not answering', subtitle: 'NOT ANSWERING ON THE LAN', brief: 'NO ANSWER', short: 'No answer' }) : null;
+  const failure = state === 'unreachable' ? failureInfo : null, linkFailure = state === 'linked' ? failureInfo : null;
+  // 'linked' is evidence from a shared file; it does not establish LAN reachability.
+  const linked = state === 'linked';
+  const reachable = state === 'reachable' || linked;
+  const models = reachable && Array.isArray(block.models) ? block.models.slice(0, 64)
+    .filter(m => m && typeof m.id === 'string' && PEER_MODEL.test(m.id) && ['loaded', 'not-loaded', 'listed', 'unknown'].includes(m.state)) : [];
+  const loaded = models.filter(m => m.state === 'loaded');
+  const residencyKnown = reachable && Array.isArray(block.models)
+    && block.models.every(m => m && ['loaded', 'not-loaded'].includes(m.state))
+    && (block.models.length > 0 || (!linked && block.loadedCount === 0));
+  const loadedKnown = residencyKnown && Number.isSafeInteger(block.loadedCount) && block.loadedCount >= loaded.length;
+  // The probe's own count is the claim; names that failed validation are disclosed, not silently dropped.
+  const loadedCount = loadedKnown ? block.loadedCount : null;
+  const hiddenLoaded = loadedKnown ? Math.max(0, block.loadedCount - loaded.length) : 0;
+  const latency = reachable && Number.isFinite(block.latencyMs) && block.latencyMs >= 0 && block.latencyMs < 60000 ? Math.round(block.latencyMs) : null;
+  const address = reachable && typeof block.address === 'string' && /^[0-9.]{7,15}$/.test(block.address) ? block.address : null;
+  const via = block?.via === 'mdns' ? 'mDNS name' : block?.via === 'recorded-ip' ? 'recorded address' : null;
+  const loadedText = loadedKnown ? `${loadedCount} loaded` : 'loaded state unknown';
+  // Share files are unsigned, so a share report is labelled as reported, not verified.
+  // The link alone (linkSubtitle, chip.link) is what the PC shows beside the Mac's own report, which supplies the count.
+  const linkSubtitle = linked ? `REPORTED VIA SHARE${linkFailure ? ` · LAN ${linkFailure.brief}` : ''}` : reachable ? `LAN${latency !== null ? ` ${latency} MS` : ''}`
+    : failure ? failure.subtitle : 'PRESENCE UNKNOWN';
+  const subtitle = linked || reachable ? `${linkSubtitle} · ${loadedText.toUpperCase()}` : linkSubtitle;
+  const chip = !feedFresh ? { tone: 'muted', detail: 'Signal stale', short: 'Stale', link: 'Signal stale' }
+    : linked ? { tone: 'muted', detail: ['Reported via SharedChami (unverified)', linkFailure ? `LAN: ${linkFailure.reachability}` : null, loadedText].filter(Boolean).join(' · '),
+      short: [linkFailure?.short, loadedKnown ? `Reported · ${loadedCount} loaded` : 'Reported'].filter(Boolean).join(' · '),
+      link: ['Reported via SharedChami (unverified)', linkFailure ? `LAN: ${linkFailure.reachability}` : null].filter(Boolean).join(' · ') }
+    : reachable ? { tone: 'ok', detail: [`Reachable${latency !== null ? ` · ${latency} ms` : ''}`, loadedText].join(' · '), short: loadedKnown ? `${loadedCount} loaded` : 'Reachable', link: `Reachable${latency !== null ? ` · ${latency} ms` : ''}` }
+      : failure ? { tone: 'warn', detail: failure.reachability, short: failure.short, link: failure.reachability }
+      : { tone: 'muted', detail: presenceDetail, short: 'Unknown', link: presenceDetail };
+  const expected = typeof block?.expectedVerifyModel === 'string' ? block.expectedVerifyModel : null;
+  const expectedModel = expected ? models.find(m => m.id === expected) : null;
+  const expectedLoaded = expectedModel?.state === 'loaded' ? true : expectedModel?.state === 'not-loaded' ? false
+    : state === 'reachable' && loadedKnown && !expectedModel ? false : null;
+  const rows = [
+    ['Reachability', linked ? `Reported via SharedChami${Number.isFinite(block.linkAgeSeconds) ? ` (${Math.round(block.linkAgeSeconds + extra)} s old)` : ''}; unsigned file, not verified; LAN reachability unknown` : reachable ? 'Answering' : failure ? failure.reachability : 'Unknown'],
+    ['Address', address ? `${address}${via ? ` (${via})` : ''}` : 'Unknown'],
+    ['Round trip', latency !== null ? `${latency} ms` : 'Unknown'],
+    ['Loaded models', loadedKnown ? [loaded.length ? loaded.map(m => m.id).join(', ') : loadedCount ? null : 'None',
+      hiddenLoaded ? `${hiddenLoaded} more with an unreadable name` : null].filter(Boolean).join(' · ') : reachable ? 'Not reported by this listing' : 'Unknown'],
+    ['Expected verify model', expected ? `${expected}${typeof expectedLoaded === 'boolean' ? (expectedLoaded ? ' · loaded' : ' · not loaded') : ''}` : 'Not recorded'],
+    ['Probe age', age !== null ? `${Math.round(age)} s` : 'Unknown'],
+    ['Detail', state !== 'unknown' && typeof block?.detail === 'string' ? block.detail.slice(0, 240) : 'Unknown'],
+  ];
+  return { state, name, reason, presenceDetail, failureTitle: failure?.title ?? null, failureDetail: failure?.detail ?? null,
+    reachable, current, age, latency, address, models, loaded, loadedKnown, loadedCount, hiddenLoaded, subtitle, linkSubtitle, linkFailure, configuredName,
+    linked, brief: linked ? `SHARE REPORT · ${loadedText.toUpperCase()}` : reachable ? `LAN · ${loadedText.toUpperCase()}` : failure ? failure.brief : 'UNKNOWN',
+    satelliteSubtitle: linked ? 'REPORTED ON MAC' : reachable ? 'LISTED ON MAC' : 'RESIDENCY UNKNOWN',
+    satelliteDetail: linked ? 'Reported loaded on the Mac' : reachable ? 'Listed loaded by LM Studio' : 'Residency unknown',
+    satellites: loaded.slice(0, 2), chip, rows };
+}
+
+/** Windows sidebar: select existing map nodes; client identities expand only for model searches. */
+export function windowsMapListEntries(nodes, {host = 'mac', query = '', hostname = '', pcSummary = null, paused = false} = {}) {
+  if (host !== 'windows' || !Array.isArray(nodes)) return [];
+  const search = typeof query === 'string' ? query.trim().toLowerCase() : '';
+  const matches = values => values.some(value => typeof value === 'string' && value.toLowerCase().includes(search));
+  const sentence = value => typeof value === 'string' && value.trim()
+    ? value.toLowerCase().replace(/^./, s => s.toUpperCase()) : 'State unknown';
+  const rows = [];
+  const hub = nodes.find(n => n?.id === 'runtime' && n.kind === 'runtime');
+  if (hub && matches(['this pc', 'windows', 'hub', typeof hostname === 'string' && PEER_NAME.test(hostname) ? hostname : '']))
+    rows.push({key: hub.id, title: 'This PC', subtitle: paused ? 'View paused'
+      : typeof pcSummary?.detail === 'string' ? pcSummary.detail : 'Local hub',
+      tone: !paused && ['muted', 'ok', 'live', 'warn'].includes(pcSummary?.tone) ? pcSummary.tone : 'muted'});
+  const route = nodes.find(n => n?.id === 'pipeline' && n.kind === 'pipeline');
+  if (route && matches(['nisi', 'inference', 'route'])) rows.push({key: route.id, title: 'Nisi Inference',
+    subtitle: `${paused ? 'At pause: ' : ''}${sentence(route.subtitle)}`, tone: 'muted'});
+  if (!search) return rows;
+  for (const node of nodes) {
+    if (node?.kind !== 'client-model' || typeof node.id !== 'string' || typeof node.client?.id !== 'string'
+      || !node.id.startsWith(`client-model:${node.client.id}:`)) continue;
+    const id = node.clientModel?.id;
+    const title = typeof id === 'string' && id.trim() ? friendlyModelName(id) : 'Unknown model';
+    if (!matches([id, title])) continue;
+    const subtitle = ['RECORDED MODEL', 'SAVED SESSION CHOICE', 'MODEL UNKNOWN'].includes(node.subtitle)
+      ? sentence(node.subtitle) : 'Model unknown';
+    rows.push({key: node.id, title, subtitle, tone: 'muted', clientId: node.client.id});
+  }
+  return rows;
+}
+
+/** Windows sidebar: project the same validated peer view and satellite order as the map. */
+export function windowsMacListEntries(peerView, query = '') {
+  const view = peerView && typeof peerView === 'object' && !Array.isArray(peerView) ? peerView : null;
+  const search = typeof query === 'string' ? query.trim().toLowerCase() : '';
+  const hostname = typeof view?.name === 'string' && PEER_NAME.test(view.name) ? view.name.trim() : '';
+  const aliases = ['Mac', 'lan peer', hostname];
+  const matches = values => values.some(value => typeof value === 'string' && value.toLowerCase().includes(search));
+  const chip = view?.chip;
+  const rows = [];
+  if (matches(aliases)) rows.push({key: 'mac-peer', title: 'Mac',
+    subtitle: typeof chip?.detail === 'string' ? chip.detail : 'LAN state unknown',
+    tone: ['muted', 'ok', 'warn'].includes(chip?.tone) ? chip.tone : 'muted'});
+  const inventory = view?.current === true && view.reachable === true && ['linked', 'reachable'].includes(view.state);
+  if (inventory && Array.isArray(view.satellites)) view.satellites.slice(0, 2).forEach((model, index) => {
+    if (!model || model.state !== 'loaded' || typeof model.id !== 'string' || !PEER_MODEL.test(model.id)) return;
+    const title = friendlyModelName(model.id);
+    if (matches([...aliases, model.id, title])) rows.push({key: `mac-model:${index}`, title,
+      subtitle: typeof view.satelliteDetail === 'string' ? view.satelliteDetail : 'Residency unknown',
+      tone: view.state === 'linked' ? 'muted' : 'ok'});
+  });
+  return rows;
+}
+
+/** Windows edition only: this PC's own publishing, separate from unsigned peer reports.
+ * A fresh outcome describes the latest attempt; only a valid last-success age can say when it published. */
+export function windowsSharePublishRow(sources, { feedFresh = false, snapshotAge = 0 } = {}) {
+  const label = 'This PC', unknown = [label, 'Publishing state unknown'];
+  if (feedFresh !== true || !Number.isFinite(snapshotAge) || snapshotAge < 0 || snapshotAge > 3
+    || !Array.isArray(sources)) return unknown;
+  const matches = sources.filter(s => s && typeof s === 'object' && !Array.isArray(s) && s.id === 'share-publish');
+  if (!matches.length) return [label, 'Publishing off or unknown'];
+  if (matches.length !== 1) return unknown;
+  const source = matches[0];
+  if (source.outcome === 'ok') {
+    if (!Number.isFinite(source.ageSeconds) || source.ageSeconds < 0) return unknown;
+    const age = source.ageSeconds + snapshotAge;
+    if (!Number.isSafeInteger(Math.floor(age))) return unknown;
+    return [label, `Published ${Math.floor(age)} s ago`];
+  }
+  if (source.outcome === 'failed') {
+    const detail = typeof source.detail === 'string'
+      ? source.detail.replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 240)
+        .replace(/^Publishing(?: to SharedChami)? failed\b\s*/i, '')
+        .replace(/\bany previous file is kept\b/i, 'previous file kept') : '';
+    return [label, `Publishing failed${detail ? `${detail.startsWith('(') ? ' ' : ' · '}${detail}` : ''}`];
+  }
+  if (source.outcome === 'pending') return [label, 'First publish pending'];
+  return unknown;
+}
+
+/** Windows edition: every AGIW instance that published presence on SharedChami (snapshot.peers), for the inspector. */
+export function agiwPeersRows(peers, { feedFresh = false, snapshotAge = 0, host = 'mac', now = Date.now() / 1000, source = null } = {}) {
+  const extra = Math.max(0, Number.isFinite(snapshotAge) ? snapshotAge : 0);
+  const scanKnown = source?.scanComplete === true && ['live','recorded'].includes(source.state)
+    && Number.isFinite(source.observedAgeSeconds) && source.observedAgeSeconds >= 0
+    && Number.isFinite(snapshotAge) && snapshotAge >= 0 && source.observedAgeSeconds + extra <= SHARE_PEER_FRESH_SECONDS;
+  const rows = feedFresh && Array.isArray(peers) ? peers.slice(0, 16).filter(p => p && typeof p.host === 'string'
+    && /^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$/.test(p.host) && (p.platform === 'linux' || Number.isFinite(p.ageSeconds) && p.ageSeconds >= 0)) : [];
+  return rows.length ? rows.flatMap(p => {
+    if (p.platform === 'linux' && host !== 'windows' && (Object.hasOwn(p, 'schemaVersion') || Object.hasOwn(p, 'observedAt') || Object.hasOwn(p,'observedUnix') || Object.hasOwn(p,'network') || Object.hasOwn(p,'gpusComplete'))) return linuxPeerView(p, {feedFresh, snapshotAge, now}).rows;
+    const age = p.ageSeconds + extra;
+    const current = p.fresh && age <= SHARE_PEER_FRESH_SECONDS;
+    // Only an explicit complete-list signal (the PC edition's modelsComplete) supports a count claim here.
+    const residencyKnown = (p.modelsComplete === true || p.loadedListComplete === true) && Array.isArray(p.models) && (p.models.length > 0 || p.loadedListComplete === true) && p.models.length <= 32 && p.models.every(m => m && ['loaded', 'inactive'].includes(m.loadedState));
+    // A Linux report reaches the PC only through the Mac's relay (relayedBy "mac"); its age stays the Linux
+    // observation's own, so the label says who carried it and never implies the PC saw Linux directly.
+    const relayed = p.relayedBy === 'mac';
+    const reported = p.verified === true ? 'Linked' : relayed ? 'Relayed by Mac (unverified)' : 'Reported (unverified)';
+    return [[p.host, [current ? reported : relayed ? 'Stale · relayed by Mac' : 'Stale', p.platform, p.edition, p.version,
+      residencyKnown ? `${p.models.filter(m => m.loadedState === 'loaded').length} loaded${host === 'windows' && !current ? ' at last report' : ''}` : 'Loaded state unknown',
+      age < 120 ? `${Math.round(age)} s ago` : age < 7200 ? `${Math.round(age / 60)} min ago` : `${Math.round(age / 3600)} h ago`, p.source].filter(Boolean).join(' · ')]];
+  })
+    : [['AGIW peers', !feedFresh ? 'Unknown (feed stale)' : source?.reason === 'peers-unreadable' ? 'Unknown (peer folder unreadable)'
+      : source?.reason === 'clock-ahead' ? 'Unknown (peer report is future-dated)' : source?.reason === 'report-refused' ? 'Unknown (peer report refused)'
+      : source?.reason === 'report-unreadable' ? 'Unknown (peer report unreadable)'
+        : source?.reason === 'scan-truncated' ? 'Unknown (peer scan truncated)'
+        : scanKnown && Array.isArray(peers) && peers.length === 0 ? 'None has published on SharedChami yet' : 'Unknown (no current peer report available)']];
+}
+
+/** Windows edition: every graphics adapter (snapshot.pcGpus). NVIDIA rows carry nvidia-smi temperature and power;
+ * other adapters (the AMD card) only Windows counter load and memory. A reading is load on the card from every app,
+ * not proof a model is running. */
+export function pcAdaptersView(gpus, { feedFresh = false } = {}) {
+  const rows = feedFresh && Array.isArray(gpus) ? gpus.slice(0, 8).filter(g => g && typeof g.name === 'string' && GPU_NAME.test(g.name)) : [];
+  const num = (v, lo, hi) => typeof v === 'number' && Number.isFinite(v) && v >= lo && v <= hi ? v : null;
+  const line = g => {
+    const util = num(g.utilizationPercent, 0, 100), used = num(g.memoryUsedMiB, 0, 1048576), total = num(g.memoryTotalMiB, 1, 1048576);
+    const temp = num(g.temperatureC, 0, 150), power = num(g.powerW, 0, 2000);
+    return [util !== null ? `${Math.round(util)}% busy` : 'load unknown', used !== null && total !== null && used <= total ? `${gib(used)} of ${gib(total)} GB` : null,
+      temp !== null ? `${Math.round(temp)} °C` : null, power !== null ? `${Math.round(power)} W` : null].filter(Boolean).join(' · ');
+  };
+  const known = rows.filter(g => num(g.utilizationPercent, 0, 100) !== null);
+  const chipParts = rows.map(g => num(g.utilizationPercent, 0, 100) === null ? 'unknown' : `${Math.round(g.utilizationPercent)}%`);
+  return { known: rows.length > 0,
+    tile: rows.length ? rows.map(g => `${String(g.name).replace(/^(NVIDIA GeForce|AMD Radeon) /, '')} ${num(g.utilizationPercent, 0, 100) === null ? 'unknown' : `${Math.round(g.utilizationPercent)}%`}`).join(' · ') : 'Unknown',
+    chip: rows.length ? `GPU ${chipParts.join('/')}` : null,
+    rows: rows.length ? rows.map(g => [g.name, line(g)]) : [['Graphics', feedFresh ? 'No adapter reading' : 'Unknown (feed stale)']] };
+}
+
+
+// Linux bounded peer details share the same inspector entry point.
+export function linuxPeerView(peer, {feedFresh = false, snapshotAge = 0, now = Date.now() / 1000} = {}) {
+  const count = value => Number.isSafeInteger(value) && value >= 0;
+  const metric = value => typeof value === 'number' && Number.isFinite(value) && value >= 0;
+  const list = value => Array.isArray(value) && value.every(row => row && typeof row === 'object' && !Array.isArray(row));
+  const modelId = value => typeof value === 'string' && value.trim().length > 0 && [...value].length <= 120 && !/[\x00-\x1f\x7f\uD800-\uDFFF]/u.test(value);
+  const activityKnown = row => count(row.slotsBusy) && count(row.slotsTotal) && row.slotsTotal > 0
+    && row.slotsTotal <= 32 && row.slotsBusy <= row.slotsTotal
+    && (row.activity === 'idle' ? row.slotsBusy === 0 : ['busy', 'generating'].includes(row.activity) && row.slotsBusy > 0);
+  const unknown = reason => `Unknown (${reason || 'not observed'})`;
+  const field = (value, known, reason) => ({text: known ? String(value) : unknown(reason), known});
+  const p = peer && typeof peer === 'object' ? peer : {};
+  const age = 'observedUnix' in p ? (Number.isFinite(p.observedUnix) ? now - p.observedUnix : NaN)
+    : Number.isFinite(p.ageSeconds) && Number.isFinite(snapshotAge) ? p.ageSeconds + snapshotAge : NaN;
+  const timestampValid = !('observedAt' in p) || typeof p.observedAt === 'string'
+    && Number.isFinite(p.observedUnix) && Number.isFinite(Date.parse(p.observedAt))
+    && Math.abs(Date.parse(p.observedAt) / 1000 - p.observedUnix) <= .01;
+  const fresh = feedFresh && (!('fresh' in p) || p.fresh === true) && Number.isFinite(snapshotAge)
+    && snapshotAge >= 0 && timestampValid && age >= 0 && age <= 10;
+  const reason = !fresh ? 'snapshot stale, future or unavailable' : p.reason || 'incomplete observation';
+  const models = list(p.models) ? p.models : [];
+  const completeModels = list(p.models) && p.modelsComplete === true && count(p.modelsTotal)
+    && p.modelsTotal === models.length && models.length <= 32
+    && models.every(row => modelId(row.id))
+    && new Set(models.map(row => row.id)).size === models.length;
+  const knownLoaded = completeModels && models.every(row => ['loaded', 'inactive'].includes(row.loadedState));
+  const gpus = list(p.gpus) ? p.gpus : [];
+  const completeGpus = list(p.gpus) && p.gpusComplete === true && p.gpusState === 'known' && gpus.length <= 8;
+  const net = p.network || {};
+  const callersKnown = net.state === 'up' && net.callersState === 'known' && list(net.callers)
+    && net.callers.length <= 32 && net.callers.every(row => typeof row.name === 'string'
+      && /^[A-Za-z0-9_.+ -]{1,96}$/.test(row.name) && row.name !== 'unknown'
+      && ['pair-llamacpp', 'pair-ollama', 'gpu-wrapper'].includes(row.lane)
+      && count(row.connections) && row.connections > 0 && row.connections <= 65536);
+  const listenersKnown = net.state === 'up' && list(net.listeners) && net.listeners.length <= 32
+    && net.listeners.every(row => count(row.localPort) && row.localPort > 0 && row.localPort <= 65535);
+  const memoryKnown = metric(p.memory?.availablePercent) && p.memory.availablePercent <= 100;
+  const lanes = list(p.lanes) ? p.lanes : [];
+  const components = list(p.components) ? p.components : [];
+  const fields = {
+    health: field(p.health, fresh && ['up', 'down'].includes(p.health), reason),
+    modelsTotal: field(models.length, fresh && completeModels, fresh ? p.sourceReasons?.models || reason : reason),
+    loaded: field(models.filter(row => row.loadedState === 'loaded').length, fresh && knownLoaded, fresh ? p.sourceReasons?.models || reason : reason),
+    gpus: field(gpus.length, fresh && completeGpus, reason),
+    memory: field(p.memory?.availablePercent, fresh && memoryKnown, reason),
+    memoryLevel: field(p.memory?.level, fresh && memoryKnown && ['ok', 'watch', 'tight', 'critical'].includes(p.memory?.level), reason),
+    callers: field(net.callers?.length, fresh && callersKnown,
+      fresh ? net.callersReason && net.callersReason !== 'observed' ? net.callersReason : 'caller visibility unavailable or incomplete' : reason),
+    listeners: field(net.listeners?.length, fresh && listenersKnown, fresh ? net.reason || reason : reason),
+    routes: field(null, false, 'route inventory not observed'),
+    activity: field(null, false, 'whole-host activity not observed'),
+  };
+  const modelLabels = {};
+  for (const [index, model] of models.entries()) {
+    const unique = models.filter(row => row.id === model.id).length === 1;
+    const validId = modelId(model.id);
+    const key = validId ? `model:${encodeURIComponent(model.id)}${unique ? '' : `#${index}`}` : `model:invalid-${index}#invalid`;
+    modelLabels[key] = validId ? `${model.id}${model.lane ? ` (${model.lane})` : ''}` : 'Unknown model identity';
+    const modelReason = !fresh ? reason : !validId ? 'invalid model identity' : !unique ? 'ambiguous model identity' : model.reason || reason;
+    fields[`${key}:loaded`] = field(model.loadedState, fresh && unique && modelId(model.id) && ['loaded', 'inactive'].includes(model.loadedState), modelReason);
+    fields[`${key}:activity`] = field(model.activity, fresh && model.loadedState === 'loaded'
+      && unique && modelId(model.id) && activityKnown(model), modelReason);
+    for (const name of ['slotsBusy', 'slotsTotal', 'liveTokensPerSecond']) {
+      fields[`${key}:${name}`] = field(model[name], fresh && model.loadedState === 'loaded'
+        && unique && modelId(model.id) && activityKnown(model) && metric(model[name])
+        && (name !== 'liveTokensPerSecond' || model.activity === 'generating' && model[name] > 0), modelReason);
+    }
+  }
+  for (const lane of lanes) {
+    fields[`lane:${lane.id}:health`] = field(lane.health, fresh && ['up', 'down'].includes(lane.health), lane.reason || reason);
+    fields[`lane:${lane.id}:activity`] = field(lane.activity, fresh && lane.health === 'up' && activityKnown(lane), lane.reason || reason);
+  }
+  for (const component of components) {
+    fields[`component:${component.id}`] = field(component.health || component.state,
+      fresh && ['up', 'down'].includes(component.health || component.state), component.reason || reason);
+  }
+  for (const [index, gpu] of gpus.entries()) {
+    for (const key of ['utilizationPercent', 'memoryUsedMiB', 'memoryTotalMiB', 'temperatureC', 'powerW']) {
+      fields[`gpu:${index}:${key}`] = field(gpu[key], fresh && metric(gpu[key]), reason);
+    }
+  }
+  for (const row of list(p.historicalRates) ? p.historicalRates : []) {
+    for (const key of ['promptTokensPerSecond', 'generationTokensPerSecond']) {
+      fields[`history:${row.role}:${key}`] = field(row[key], fresh && row.kind === 'last-measured'
+        && metric(row.observedUnix) && row.observedUnix <= p.observedUnix && metric(row[key]), row.reason || reason);
+      if (fields[`history:${row.role}:${key}`].known) fields[`history:${row.role}:${key}`].text += ' (last measured)';
+    }
+  }
+  const labels = {health: 'Health', modelsTotal: 'Model inventory', loaded: 'Loaded models', gpus: 'GPU inventory',
+    memory: 'Available memory (%)', memoryLevel: 'Memory availability', callers: 'Callers', listeners: 'Listeners',
+    routes: 'Routes', activity: 'Host activity'};
+  const details = {loaded: 'Loaded state', activity: 'Activity', slotsBusy: 'Busy slots', slotsTotal: 'Total slots',
+    liveTokensPerSecond: 'Tokens/s', health: 'Health', utilizationPercent: 'Utilization (%)', memoryUsedMiB: 'VRAM used (MiB)',
+    memoryTotalMiB: 'VRAM capacity (MiB)', temperatureC: 'Temperature (°C)', powerW: 'Power (W)',
+    promptTokensPerSecond: 'Prompt tokens/s', generationTokensPerSecond: 'Generation tokens/s'};
+  const label = key => {
+    if (labels[key]) return labels[key];
+    const [kind, id, detail] = key.split(':');
+    if (kind === 'component') return `${id} health`;
+    return `${kind === 'model' ? modelLabels[`model:${id}`] : kind === 'gpu' ? `GPU ${Number(id) + 1}` : kind === 'history' ? `${id} history` : id} · ${details[detail] || detail}`;
+  };
+  const rows = Object.entries(fields).map(([key, value]) => [`${p.host || 'Linux'} · ${label(key)}`, value.text]);
+  // Caller names are individual observations; totals require complete ownership visibility.
+  if (fresh && callersKnown) {
+    for (const row of net.callers) rows.push([`${p.host} · caller`, `${row.name} · ${row.lane} · ${row.connections} connections`]);
+  }
+  for (const lane of lanes) rows.push([`${p.host} · ${lane.id} observation`, fresh ? (lane.reason || 'not observed') : unknown(reason)]);
+  return {fresh, fields, rows};
 }

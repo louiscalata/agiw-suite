@@ -17,32 +17,49 @@ if [[ ! -x "$python_path" ]]; then
     echo "Python 3 is required to safely install Inference Monitor." >&2
     exit 1
 fi
-for resource in server.py telemetry.py activity.py client_models.py model_control.py durable_model_journal.py auto_unload.py online_code_repair.py nisi_v02.py windows_probe.py live_feed.py gpu_probe.py local_callers.py mem_guard.py usage-format.mjs web/index.html web/app.js web/online-code-mode.mjs web/map-layout.mjs web/model-control-view.mjs web/style.css Info.plist; do
-    if [[ ! -f "$project_dir/$resource" ]]; then
-        echo "Missing required resource: $resource" >&2
-        exit 1
-    fi
-done
-for resource in bundle_nisi.py bundled_components.py jev_connection.py JevKeychain.swift web/components.html web/components.js web/components.css; do
+resources=(
+    server.py telemetry.py machine_state.py agiw_status.py agiw-status activity.py client_models.py model_control.py
+    durable_model_journal.py auto_unload.py online_code_repair.py nisi_v02.py
+    windows_probe.py live_feed.py gpu_probe.py local_callers.py mem_guard.py peer_feed.py peer_link.py
+    pair_status.py usage-format.mjs web/index.html web/app.js web/online-code-mode.mjs
+    web/map-layout.mjs web/model-control-view.mjs web/style.css
+    bundle_nisi.py bundled_components.py jev_connection.py web/components.html web/components.js web/components.css
+)
+for resource in "${resources[@]}" Info.plist Monitor.swift JevKeychain.swift freeze_build_inputs.py; do
     if [[ ! -f "$project_dir/$resource" || -L "$project_dir/$resource" ]]; then
-        echo "Missing or symlinked component resource: $resource" >&2
+        echo "Missing or symlinked build input: $resource" >&2
         exit 1
     fi
 done
-"$python_path" "$project_dir/bundle_nisi.py" --verify
 mkdir -p "$applications_dir"
 stage_dir="$(mktemp -d "$applications_dir/.inference-monitor-build.XXXXXX")"
 stage_dir="$(cd -- "$stage_dir" && pwd -P)"
 trap 'rm -rf -- "$stage_dir"' EXIT
+input_dir="$stage_dir/inputs"
+# Retain the root and the helper itself before reading executable source.
+"$python_path" - "$project_dir" "$input_dir" "${resources[@]}" Info.plist Monitor.swift JevKeychain.swift vendor/nisi <<'PYFREEZE'
+import os
+import stat
+import sys
+
+root = os.open(sys.argv[1], os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+helper = os.open('freeze_build_inputs.py', os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=root)
+with os.fdopen(helper, 'rb') as source:
+    if not stat.S_ISREG(os.fstat(source.fileno()).st_mode):
+        raise SystemExit('Nonregular build input helper')
+    namespace = {'__name__': 'freeze_build_inputs'}
+    exec(compile(source.read(), 'freeze_build_inputs.py', 'exec'), namespace)
+namespace['freeze_inputs'](root, sys.argv[2], sys.argv[3:])
+PYFREEZE
 stage_app="$stage_dir/Inference Monitor.app"
 mkdir -p "$stage_app/Contents/MacOS" "$stage_app/Contents/Resources/web"
-"$python_path" "$project_dir/bundle_nisi.py" --destination "$stage_app/Contents/Resources/nisi"
+"$python_path" "$input_dir/bundle_nisi.py" --destination "$stage_app/Contents/Resources/nisi"
 
 xcrun swiftc -O -target arm64-apple-macosx13.0 \
-    -framework Cocoa -framework WebKit \
-    "$project_dir/Monitor.swift" -o "$stage_app/Contents/MacOS/InferenceMonitor"
+    -framework Cocoa -framework WebKit -framework Metal \
+    "$input_dir/Monitor.swift" -o "$stage_app/Contents/MacOS/InferenceMonitor"
 xcrun swiftc -O -target arm64-apple-macosx13.0 -framework Cocoa -framework Security \
-    "$project_dir/JevKeychain.swift" -o "$stage_app/Contents/MacOS/JevKeychain"
+    "$input_dir/JevKeychain.swift" -o "$stage_app/Contents/MacOS/JevKeychain"
 if [[ "$(lipo -archs "$stage_app/Contents/MacOS/InferenceMonitor")" != arm64 ]]; then
     echo "Compiled app must contain only arm64; installation refused." >&2
     exit 1
@@ -51,11 +68,10 @@ if [[ "$(lipo -archs "$stage_app/Contents/MacOS/JevKeychain")" != arm64 ]]; then
     echo "Jev helper must contain only arm64; installation refused." >&2
     exit 1
 fi
-cp "$project_dir/Info.plist" "$stage_app/Contents/Info.plist"
-cp "$project_dir/server.py" "$project_dir/telemetry.py" "$project_dir/activity.py" "$project_dir/client_models.py" "$project_dir/model_control.py" "$project_dir/durable_model_journal.py" "$project_dir/auto_unload.py" "$project_dir/online_code_repair.py" "$project_dir/nisi_v02.py" "$project_dir/windows_probe.py" "$project_dir/live_feed.py" "$project_dir/gpu_probe.py" "$project_dir/local_callers.py" "$project_dir/mem_guard.py" "$project_dir/usage-format.mjs" "$stage_app/Contents/Resources/"
-cp "$project_dir/web/index.html" "$project_dir/web/app.js" "$project_dir/web/online-code-mode.mjs" "$project_dir/web/map-layout.mjs" "$project_dir/web/model-control-view.mjs" "$project_dir/web/style.css" "$stage_app/Contents/Resources/web/"
-cp "$project_dir/bundle_nisi.py" "$project_dir/bundled_components.py" "$project_dir/jev_connection.py" "$stage_app/Contents/Resources/"
-cp "$project_dir/web/components.html" "$project_dir/web/components.js" "$project_dir/web/components.css" "$stage_app/Contents/Resources/web/"
+cp "$input_dir/Info.plist" "$stage_app/Contents/Info.plist"
+for resource in "${resources[@]}"; do
+    cp "$input_dir/$resource" "$stage_app/Contents/Resources/$resource"
+done
 plutil -lint "$stage_app/Contents/Info.plist"
 sign_identity="${MONITOR_SIGN_IDENTITY:-}"
 if [[ -n "$sign_identity" ]]; then
