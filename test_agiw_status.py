@@ -49,7 +49,7 @@ class StatusTest(unittest.TestCase):
         return result, factory, connection, response
 
     def assert_unknown(self, data, reason):
-        self.assertEqual([row['host'] for row in data['machines']], ['mac', 'windows', 'linux'])
+        self.assertEqual([row['host'] for row in data['machines']], ['mac', 'windows'])
         for row in data['machines']:
             self.assertEqual(row['state'], 'unknown')
             self.assertEqual(row['reasonCode'], reason)
@@ -275,10 +275,15 @@ class StatusTest(unittest.TestCase):
                 self.assert_unknown(result, 'schema_invalid')
 
     def test_stale_and_future_snapshot_are_unknown(self):
-        for sampled, reason in ((969, 'stale'), (1002.1, 'clock_skew')):
-            with self.subTest(sampled=sampled):
-                result, *_ = self.read(json.dumps({**snapshot(), 'sampledAt': sampled}).encode())
-                self.assert_unknown(result, reason)
+        stale, *_ = self.read(json.dumps({**snapshot(), 'sampledAt': 969}).encode())
+        self.assertEqual([row['host'] for row in stale['machines']], ['mac', 'windows', 'linux'])
+        for row in stale['machines']:
+            self.assertEqual(row['state'], 'unknown')
+            self.assertEqual(row['reasonCode'], 'stale')
+            for key in ('loadedCount', 'busyCount', 'promptTokensPerSecond', 'generationTokensPerSecond'):
+                self.assertIsNone(row[key])
+        future, *_ = self.read(json.dumps({**snapshot(), 'sampledAt': 1002.1}).encode())
+        self.assert_unknown(future, 'clock_skew')
 
     def test_served_machine_states_match_cli_after_mac_sample_expires(self):
         from server import SnapshotStore
@@ -400,9 +405,9 @@ class StatusTest(unittest.TestCase):
         self.assertEqual((peer['host'], peer['platform'], peer['state'], peer['reasonCode']),
                          ('linux-node-1', 'linux', 'unknown', 'stale'))
 
-    def test_missing_platform_and_excess_hosts_are_invalid(self):
+    def test_missing_required_platform_and_excess_hosts_are_invalid(self):
         missing = snapshot()
-        missing['machines'][2].update(host='second-pc', platform='windows')
+        missing['machines'] = [row for row in missing['machines'] if row['platform'] != 'windows']
         excess = snapshot()
         excess['machines'] += [{**excess['machines'][1], 'host': f'pc-{index}'}
                                for index in range(agiw_status.MAX_MACHINES)]
@@ -410,6 +415,13 @@ class StatusTest(unittest.TestCase):
             with self.subTest(data=data):
                 result, *_ = self.read(json.dumps(data).encode())
                 self.assert_unknown(result, 'schema_invalid')
+
+    def test_mac_and_windows_snapshot_does_not_require_linux(self):
+        data = snapshot()
+        data['machines'] = [row for row in data['machines'] if row['platform'] != 'linux']
+        result, *_ = self.read(json.dumps(data).encode())
+        self.assertEqual([row['platform'] for row in result['machines']], ['mac', 'windows'])
+        self.assertTrue(all(row['state'] == 'up' for row in result['machines']))
 
     def test_machine_schema_and_numeric_types_are_validated(self):
         changes = ({'host': '../foreign'}, {'host': []}, {'state': 'idle'}, {'reasonCode': ''},
@@ -453,8 +465,7 @@ class StatusTest(unittest.TestCase):
         with redirect_stdout(output):
             code = agiw_status.main(['--endpoint', str(self.endpoint)])
         self.assertEqual(code, 0)
-        self.assertEqual(output.getvalue(), 'mac: unknown (unavailable)\nwindows: unknown (unavailable)\n'
-                                           'linux: unknown (unavailable)\n')
+        self.assertEqual(output.getvalue(), 'mac: unknown (unavailable)\nwindows: unknown (unavailable)\n')
 
     def test_cli_entrypoint_is_executable_and_only_reads_requested_fixture(self):
         self.endpoint.unlink()

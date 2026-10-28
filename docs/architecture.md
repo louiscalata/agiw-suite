@@ -248,7 +248,8 @@ The native app chooses its port. For source exploration, `python3 -B server.py -
 | POST | `/api/components/nisi/check` | `{"action":"self-check"}` |
 | POST | `/api/components/jev/check` | `{"action":"connection-check"}` |
 | GET / POST | `/api/online-code-mode/repair` | Read recovery / `{"action":"check-and-repair"}` |
-| GET / POST | `/api/online-code-mode/entry` | Read entry state / `{"action":"readiness"}` |
+| GET | `/api/online-code-mode/readiness` | Cached setup evidence from the latest sample. No command runs and no receipt is written. POST returns 404 |
+| GET | `/api/online-code-mode/entry` | Retained owner-action status. POST returns 404; receipt-writing entry is not an HTTP route |
 | GET / POST | `/api/online-code-mode/headless` | Read state / `{"action":"on"}` or `{"action":"off"}` |
 | GET / POST | `/api/inference/fix` | Read recovery / `{"scope":"all"}`; legacy `local`, `route`, `both`, `nisi` also accepted |
 
@@ -268,7 +269,9 @@ Action jobs generally return **202 Accepted**, followed by status reads. The aut
 | GitHub downloadable app | Developer ID signed/notarized Build 7; Apple silicon, macOS 13+, external Python and arm64 Node for the native Nisi self-check |
 | Public source | Observer, native shell/helper, dashboard, adapters, tests, packaging and pinned Apache-2.0 public Nisi; no model weights or private router runtime |
 | Mac App Store | Separate sandboxed application, runtime packaging, consent, privacy, screenshots and exact-build acceptance; GitHub checks do not close its release gates |
-| Intel Mac / Windows / Linux | Port development has separate source/native acceptance requirements. The current v1.0.0 asset does not distribute these platforms; Mac-side worker observations are not a Windows application build |
+| Windows source | In this repository, in development, and not part of the v1.0.0 download |
+| Linux observer | Retired 2026-10-25. The tree remains as history; Mac and Windows status do not require it |
+| Intel Mac | Not a Monitor target. The downloadable app is Apple silicon |
 
 The release packager freezes its source/resource inputs, checks hashes and compiled identity, verifies legal/Nisi resources and validates staged/extracted artifacts. Developer ID signing, notarization, Gatekeeper, installation parity and native workflow acceptance are separate layers. Later documentation changes require no binary rebuild.
 

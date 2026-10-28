@@ -1,4 +1,4 @@
-"""PLAN A3: machines[] (this PC, the Mac, the Linux node) and relayed Linux rows, with unknown never shown as down."""
+"""machines[] is this PC and the Mac. A Linux share file is not a machine row, and unknown is never down."""
 import json
 from pathlib import Path
 import sys
@@ -27,16 +27,15 @@ def rows(peers=(), mac_name="target-mac.local", lanes=UP_LANES, hands=None, pair
 
 
 class MachineRows(unittest.TestCase):
-    def test_three_machines_always_appear_unknown_when_unreported(self):
+    def test_pc_and_mac_appear_and_a_missing_linux_node_does_not(self):
         out = rows()
         self.assertEqual([(r["platform"], r["role"]) for r in out],
-                         [("windows", "this-machine"), ("macos", "peer"), ("linux", "peer")])
+                         [("windows", "this-machine"), ("macos", "peer")])
         self.assertEqual([(r["state"], r["reason"]) for r in out],
-                         [("up", "serving"), ("unknown", "no-report"), ("unknown", "no-report")])
+                         [("up", "serving"), ("unknown", "no-report")])
         self.assertEqual(out[1]["name"], "target-mac.local")
-        self.assertIn("the Mac relays it", out[2]["detail"])
-        for row in out[1:]:
-            self.assertEqual((row["health"], row["loadedCount"], row["ageSeconds"]), ("unknown", None, None))
+        self.assertFalse(any(row["platform"] == "linux" for row in out))
+        self.assertEqual((out[1]["health"], out[1]["loadedCount"], out[1]["ageSeconds"]), ("unknown", None, None))
 
     def test_this_pc_state_follows_lane_evidence_never_unknown_as_down(self):
         cases = [(UP_LANES, "up", "serving", 2),
@@ -58,7 +57,7 @@ class MachineRows(unittest.TestCase):
         self.assertEqual((mac["id"], mac["state"], mac["reason"], mac["trust"], mac["loadedCount"]),
                          ("TARGET-MAC", "up", "reported-serving", "share-reported", 1))
         self.assertIn("unsigned, not verified", mac["detail"])
-        self.assertEqual(len(out), 3, "an unattributed Mac report gets no machine row")
+        self.assertEqual(len(out), 2, "an unattributed Mac report gets no machine row")
         unconfigured = rows([record("target-mac", "macos")], mac_name=None)[1]
         self.assertEqual((unconfigured["state"], unconfigured["reason"]), ("unknown", "unconfigured"))
 
@@ -73,14 +72,11 @@ class MachineRows(unittest.TestCase):
             with self.subTest(health=health):
                 self.assertEqual(rows([record("target-mac", "macos", health=health)])[1]["state"], "unknown")
 
-    def test_unsigned_relay_cannot_determine_the_canonical_linux_row(self):
-        linux = rows([record("linux-node-1", "linux", age=6.5, relayed="mac")])[2]
-        self.assertEqual((linux["id"], linux["state"], linux["trust"], linux["relayedBy"], linux["ageSeconds"]),
-                         ("linux", "unknown", None, None, None))
-        self.assertIn("relay origin unverified", linux["detail"])
-        self.assertIsNone(linux["observedUnix"])
-        stale = rows([record("linux-node-1", "linux", age=31.0, relayed="mac")])[2]
-        self.assertEqual((stale["state"], stale["reason"], stale["trust"]), ("unknown", "relay-unverified", None))
+    def test_unsigned_linux_share_does_not_become_a_machine_row(self):
+        for age in (6.5, 31.0):
+            with self.subTest(age=age):
+                out = rows([record("linux-node-1", "linux", age=age, relayed="mac")])
+                self.assertEqual([row["platform"] for row in out], ["windows", "macos"])
 
     def test_incomplete_inventories_make_no_count_claim(self):
         for models, complete in (([{"id": "a", "loadedState": "unknown"}], True), ([{"id": "a", "loadedState": "loaded"}], False)):
@@ -91,9 +87,9 @@ class MachineRows(unittest.TestCase):
         paired = [{"node": "x", "host": "mac", "paired": True, "state": "connected"},
                   {"node": "y", "host": "windows", "paired": True, "state": "connected"}]
         out = rows([record("second-pc", "windows"), record("target-mac", "macos")], paired=paired)
-        self.assertEqual([r["id"] for r in out], ["test-pc", "target-mac", "linux", "second-pc"])
+        self.assertEqual([r["id"] for r in out], ["test-pc", "target-mac", "second-pc"])
         self.assertEqual(out[1]["peerLink"], "connected")
-        self.assertIsNone(out[3]["peerLink"], "a host-kind link cannot be pinned to one of several PCs")
+        self.assertIsNone(out[2]["peerLink"], "a host-kind link cannot be pinned to one of several PCs")
 
     def test_rows_are_json_safe(self):
         out = rows([record("target-mac", "macos"), record("linux-node-1", "linux", relayed="mac")], hands={"active": None})
@@ -153,9 +149,8 @@ class MachinesInTheSnapshot(unittest.TestCase):
             snapshot = collector.collect()
         machines = snapshot["machines"]
         self.assertEqual([(m["platform"], m["state"], m["reason"]) for m in machines],
-                         [("windows", "unknown", "lane-state-unknown"), ("macos", "up", "reported-serving"),
-                          ("linux", "unknown", "relay-unverified")])
-        self.assertEqual((machines[2]["trust"], machines[2]["relayedBy"]), (None, None))
+                         [("windows", "unknown", "lane-state-unknown"), ("macos", "up", "reported-serving")])
+        self.assertFalse(any(m["platform"] == "linux" for m in machines))
         self.assertIsNone(machines[1]["loadedCount"], "an empty inventory is not proof of zero loaded")
         json.dumps(snapshot, allow_nan=False, default=str)
 

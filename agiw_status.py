@@ -1,4 +1,4 @@
-"""Read the local monitor's three-machine summary without starting any observer."""
+"""Read the local monitor's Mac and Windows summary without starting any observer."""
 from __future__ import annotations
 
 import argparse
@@ -20,6 +20,8 @@ MAX_ENDPOINT = 4096
 MAX_SNAPSHOT = 1024 * 1024
 MAX_MACHINES = 65
 TIMEOUT = 2.0
+# Linux stays readable when a report is present. It is not required for a summary.
+REQUIRED_PLATFORMS = ('mac', 'windows')
 PLATFORMS = {'mac': 'mac', 'windows': 'windows', 'linux': 'linux'}
 HOST_NAME = re.compile(r'[A-Za-z0-9][A-Za-z0-9._-]{0,62}\Z')
 
@@ -184,8 +186,8 @@ def _snapshot(port, timeout):
 
 def _unknown(reason, now):
     return {'schemaVersion': 1, 'sampledAt': None, 'machines': [
-        machine_summary(host, platform, now=now, reason=reason)
-        for host, platform in PLATFORMS.items()]}
+        machine_summary(platform, platform, now=now, reason=reason)
+        for platform in REQUIRED_PLATFORMS]}
 
 
 def _summary(data, now):
@@ -196,7 +198,7 @@ def _summary(data, now):
     if age < -2:
         raise StatusUnavailable('clock_skew')
     machines = data.get('machines')
-    if not isinstance(machines, list) or not len(PLATFORMS) <= len(machines) <= MAX_MACHINES:
+    if not isinstance(machines, list) or not len(REQUIRED_PLATFORMS) <= len(machines) <= MAX_MACHINES:
         raise StatusUnavailable('schema_invalid')
     seen = set()
     result = []
@@ -243,7 +245,8 @@ def _summary(data, now):
         if row['state'] == 'unknown':
             projected.update(handsOff=None)
         result.extend(expire_machines([projected], now))
-    if ('mac', 'mac') not in seen or {platform for platform, host in seen} != set(PLATFORMS):
+    seen_platforms = {platform for platform, _host in seen}
+    if ('mac', 'mac') not in seen or not set(REQUIRED_PLATFORMS) <= seen_platforms:
         raise StatusUnavailable('schema_invalid')
     return {'schemaVersion': 1, 'sampledAt': data['sampledAt'], 'machines': result}
 
@@ -260,7 +263,7 @@ def summary(endpoint_path=None, timeout=TIMEOUT, now=None):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--json', action='store_true', help='print the three-machine summary as JSON')
+    parser.add_argument('--json', action='store_true', help='print the Mac and Windows summary as JSON')
     parser.add_argument('--endpoint', type=Path, help='read a different local endpoint.json')
     args = parser.parse_args(argv)
     data = summary(args.endpoint)
