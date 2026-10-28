@@ -1,5 +1,9 @@
 # Linux inference observer
 
+**Retired 2026-10-25.** The active machines are the Apple-silicon Mac and the Windows PC. This directory is historical source, not a setup guide. Status does not require a Linux node. A Linux report that still arrives can be shown; an unsigned share file does not become a machine row.
+
+The notes below describe the shelved observer.
+
 A standard-library, read-only Linux edition. It observes AMD sysfs/hwmon, `/proc`,
 PAIR's local llama.cpp router, the mapped on-demand GPU wrapper, and bounded
 historical state records. It does not load, unload, repair, start, stop, or pause
@@ -12,7 +16,7 @@ transport, and the combined three-machine UI remain separate acceptance work.
 
 ## Commands and transport
 
-On the Linux node, after acceptance:
+Historical commands for the shelved observer. Do not install or enable them.
 
 ```sh
 # The forced command must use an absolute path and accepts no arguments:

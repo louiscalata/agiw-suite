@@ -144,11 +144,8 @@ class PublicEvidence(unittest.TestCase):
                                "models": [{"id": "m", "loadedState": "loaded"}], "modelsTotal": 1, "health": health}
                         (folder / f"{host}.json").write_text(json.dumps(doc))
                         peers, source = probes.read_peers(root, "pc", 1000.0)
-                        linux = rows(peers)[2]
-                        self.assertEqual((linux["id"], linux["state"], linux["reason"]),
-                                         ("linux", "unknown", "relay-unverified"))
-                        for field in ("loadedCount", "relayedBy", "observedUnix", "ageSeconds"):
-                            self.assertIsNone(linux[field])
+                        self.assertTrue(peers, "the share file remains a peer diagnostic")
+                        self.assertFalse(any(row["platform"] == "linux" for row in rows(peers)))
                         self.assertNotIn("relayed by mac", source["detail"])
 
     def test_ready_nisi_never_publishes_private_alias_or_version_paths(self):

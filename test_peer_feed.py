@@ -373,7 +373,7 @@ class PerHostFeeds(unittest.TestCase):
             def failed(now):
                 raise error
             rows = peer_feed.peer_feeds(time.time(), peer_reader=failed, share_reader=failed)
-            self.assertEqual({r["source"]["platform"] for r in rows}, {"windows", "linux"})
+            self.assertEqual({r["source"]["platform"] for r in rows}, {"windows"})
             self.assertTrue(all(r["feed"] is None and r["source"]["reasonCode"] == code for r in rows))
 
     def test_lan_all_platforms_isolated_validation(self):
@@ -476,10 +476,11 @@ class PerHostFeeds(unittest.TestCase):
         good = peer_feed.summarize_document(presence(host="pc1"), "share", now)
         bad = peer_feed.summarize_document(b"not json", "share", now, host="unattributed-node")
         rows = peer_feed.peer_feeds(now, peer_reader=lambda _: [], share_reader=lambda _: [good, bad])
-        linux = next(r for r in rows if r["source"]["platform"] == "linux")
-        self.assertEqual(linux["source"]["reasonCode"], "non_json")
-        self.assertIn("could not be attributed", linux["source"]["detail"])
-        self.assertIsNone(linux["feed"])
+        self.assertFalse(any(r["source"]["platform"] == "linux" for r in rows))
+        bad_row = next(r for r in rows if r["source"]["host"] == "unattributed-node")
+        self.assertEqual(bad_row["source"]["reasonCode"], "non_json")
+        self.assertIsNone(bad_row["feed"])
+        self.assertTrue(any(r["source"]["platform"] == "windows" and r["feed"] for r in rows))
         self.assertIn(bad, rows)
         self.assertIn(good, rows)
 

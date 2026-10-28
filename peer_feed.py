@@ -480,13 +480,13 @@ def peer_feeds(now: float, *, peer_reader: Callable | None = None, share_reader:
     represented = {key[0] for key in merged}
     unattributed = [row["source"]["reasonCode"] for key, row in merged.items()
                     if key[0] == "unknown" and row["feed"] is None]
-    for platform in ("windows", "linux"):
-        if platform not in represented:
-            reason = unattributed[0] if unattributed else failures[-1] if failures else "not_connected"
-            missing = _feed_failure(platform, platform, reason)
-            if unattributed:
-                missing["source"]["detail"] = "Peer document could not be attributed: " + reason.replace("_", " ")
-            merged[(platform, platform)] = missing
+    # Windows is the required peer. Linux is optional and is not invented when absent.
+    if "windows" not in represented:
+        reason = unattributed[0] if unattributed else failures[-1] if failures else "not_connected"
+        missing = _feed_failure("windows", "windows", reason)
+        if unattributed:
+            missing["source"]["detail"] = "Peer document could not be attributed: " + reason.replace("_", " ")
+        merged[("windows", "windows")] = missing
     return [merged[key] for key in sorted(merged)]
 
 

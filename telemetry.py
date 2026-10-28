@@ -3227,9 +3227,9 @@ def collect_snapshot() -> dict[str, Any]:
             raise ImportError("peer_feed missing")
         peers = peer_feed.peer_feeds(sampled)
     except Exception:
-        peers = [{"feed": None, "source": {"id": platform + "-telemetry", "host": platform,
-                  "platform": platform, "state": "error", "trust": "unverified", "reasonCode": "read_error",
-                  "ageSeconds": None, "detail": "Peer feed reader failed"}} for platform in ("windows", "linux")]
+        peers = [{"feed": None, "source": {"id": "windows-telemetry", "host": "windows",
+                  "platform": "windows", "state": "error", "trust": "unverified", "reasonCode": "read_error",
+                  "ageSeconds": None, "detail": "Peer feed reader failed"}}]
     sources.extend(entry["source"] for entry in peers)
     windows_live = next((entry["feed"] for entry in peers if entry["source"].get("platform") == "windows"
                          and entry["source"].get("state") in ("live", "recorded") and entry.get("feed")), None)

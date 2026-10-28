@@ -120,12 +120,18 @@ class MachineStateTests(unittest.TestCase):
         self.assertEqual(row["loadedCount"], 1)
         self.assertIsNone(row["busyCount"])
 
-    def test_missing_platforms_always_get_unknown_rows(self):
+    def test_missing_windows_gets_an_unknown_row_and_linux_does_not(self):
         rows = machines_summary(local(), [])
-        self.assertEqual([row["platform"] for row in rows], ["mac", "windows", "linux"])
-        self.assertEqual([row["state"] for row in rows], ["up", "unknown", "unknown"])
+        self.assertEqual([row["platform"] for row in rows], ["mac", "windows"])
+        self.assertEqual([row["state"] for row in rows], ["up", "unknown"])
         self.assertEqual(rows[0]["busyCount"], 0)
         self.assertIsNone(rows[1]["busyCount"])
+        peers = [{"feed": report(), "source": {"host": "linux-one", "platform": "linux",
+                                               "state": "live", "trust": "authenticated"}}]
+        arrived = machines_summary(local(), peers)
+        self.assertEqual([row["host"] for row in arrived], ["mac", "linux-one", "windows"])
+        self.assertEqual(arrived[1]["state"], "up")
+        self.assertEqual(arrived[1]["busyCount"], 1)
 
     def test_multiple_hosts_keep_attribution_and_failed_age(self):
         peers = [{"feed": report(), "source": {"host": host, "platform": "windows", "state": "recorded",

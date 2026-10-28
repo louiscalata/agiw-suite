@@ -13,8 +13,8 @@ observer that serves **the same dashboard** as the Mac edition, in its `host: "w
 | Memory | macOS pressure + guard | Physical memory available and commit charge (no pause/resume guard) |
 | Peer | Windows worker heartbeat | The Mac's own presence on SharedChami (unsigned, expires after 30 s), attributed only to the Mac named in `hosts.json`; nothing is sent to the Mac |
 | Controls | Guarded load/unload, repair | **Read-only**: nothing loads, unloads or restarts a model |
-| Peers | — | AGIW instances meet on SharedChami (`llm-lab/status/agiw-peers/<host>.json`); opt-in in `config.json`. Linux relay claims remain diagnostic; an unsigned file cannot determine the canonical Linux row |
-| Machines | — | `machines[]`: this PC, the Mac and the Linux node, each up / down / unknown with a named reason (unknown is never shown as down) |
+| Peers | — | AGIW peer files are opt-in in `config.json`. A Linux share file stays diagnostic and does not become a machine row |
+| Machines | — | `machines[]`: this PC and the configured Mac, each up / down / unknown with a named reason (unknown is never shown as down) |
 | NVIDIA PAIR | — | A PAIR row from process and listener ownership only; lane polling requires a positively pinned AGIW process identity and parks for every other owner. PAIR's llama-server is never counted as a lane |
 | Hands off | — | `handsOff`: a GPU above 40 %, a full-screen game/app, presentation mode or a Windows Store app, with the cause (AGIW lanes, other processes, mixed, unknown) |
 
@@ -151,8 +151,7 @@ node --test (Get-ChildItem test_*.mjs).Name              # dashboard view logic 
 
 - The shared dashboard now uses the Mac presence reasons (`unconfigured`, `no-report`, `stale`). Legacy positive
   LAN observations retain their evidence wording only while fresh. A5 still owns the combined-view integration.
-- Linux relay origin and expected identity are not authenticated here; canonical Linux stays `unknown` with
-  `relay-unverified` when a share file claims a Mac relay. The claim remains visible only in the peer diagnostics.
+- Linux is retired. A Linux share file stays in the peer diagnostics and does not become a machine row.
 - Native Windows acceptance is still required before D3: run `windows/tests`, including `InstallerOnWindows`, and
   verify process/listener ownership, PDH GPU counters and `SHQueryUserNotificationState` on the PC. Portable mocked
   tests cover logic and cleanup; they do not verify these Windows APIs or a native installation.

@@ -166,9 +166,9 @@ def machines_summary(snapshot, peers):
             if key in source:
                 row[key] = source[key]
         rows.append(row)
-    for platform in ("windows", "linux"):
-        if not any(row["platform"] == platform for row in rows):
-            rows.append(machine_summary(platform, platform, now=snapshot["sampledAt"]))
+    # Linux was retired on 2026-10-25. A report that arrives is kept above; absence is not a machine.
+    if not any(row["platform"] == "windows" for row in rows):
+        rows.append(machine_summary("windows", "windows", now=snapshot["sampledAt"]))
     return rows
 
 

@@ -646,10 +646,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         let fractionalDate = ISO8601DateFormatter()
         fractionalDate.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let wholeDate = ISO8601DateFormatter()
+        let thresholds: [String: Double] = ["mac": 3, "windows": 30, "linux": 30]
         for machine in machines {
             let platform = machine["platform"] as? String ?? ""
             platforms.insert(platform)
-            let thresholds: [String: Double] = ["mac": 3, "windows": 30, "linux": 30]
+            // Linux is retired. A fresh complete report still counts; a missing or unusable one does not.
+            let required = platform != "linux"
             guard let threshold = thresholds[platform], machine["state"] as? String == "up",
                   let complete = machine["modelsComplete"] as? NSNumber,
                   CFGetTypeID(complete) == CFBooleanGetTypeID(), complete.boolValue,
@@ -658,14 +660,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
                   busy.doubleValue.rounded() == busy.doubleValue,
                   let age = machine["ageSeconds"] as? NSNumber, CFGetTypeID(age) != CFBooleanGetTypeID(),
                   age.doubleValue.isFinite, age.doubleValue >= 0 else {
-                uncertain = true
+                if required { uncertain = true }
                 continue
             }
             let currentAge: Double
             if let observed = machine["observedAt"], !(observed is NSNull) {
                 guard let stamp = observed as? String,
                       let date = fractionalDate.date(from: stamp) ?? wholeDate.date(from: stamp) else {
-                    uncertain = true
+                    if required { uncertain = true }
                     continue
                 }
                 currentAge = now - date.timeIntervalSince1970
@@ -673,12 +675,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
                 currentAge = age.doubleValue + max(0, elapsed)
             }
             guard currentAge.isFinite, currentAge >= -2, currentAge <= threshold else {
-                uncertain = true
+                if required { uncertain = true }
                 continue
             }
             active += busy.intValue
         }
-        uncertain = uncertain || !Set(["mac", "windows", "linux"]).isSubset(of: platforms)
+        uncertain = uncertain || !Set(["mac", "windows"]).isSubset(of: platforms)
         let label = uncertain ? (active > 0 ? "\(active)·?" : "?") : String(active)
         let memory = Self.memoryBadge(snapshot, elapsed: elapsed)
         applyMemoryTint(memory?.level)

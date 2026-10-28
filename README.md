@@ -33,12 +33,12 @@ flowchart LR
 
 [See the current connection state, per-machine records and shared-run measurement plan](docs/three-machine-connection.md). This development checkpoint is separate from the downloadable macOS Monitor release.
 
-## Development status (2026-10-23)
+## Development status
 
-- **Before/after:** Before, the summary was dated 2026-10-18; after, it includes a high-level 2026-10-23 status. Measured values are unchanged, and this documentation refresh did not create a new benchmark.
-- **Windows edition:** In development and not released.
-- **Monitor hardening:** In development and not released; missing or unverified observations remain unknown rather than being presented as zero or idle.
-- **Two-machine coordination (Mac and PC):** Production integration remains in development. The worker diagram and **NOT MEASURED** results above describe measurement state, not machine readiness.
+- **Windows edition:** In this repository and not released.
+- **Working count:** The menu bar and `agiw-status` require the Mac and the Windows PC. A missing or unusable Linux row does not make that count unknown. A fresh Linux report still adds its busy models.
+- **Measurements:** Simultaneous Mac and PC output rate, task rate and speedup remain **NOT MEASURED**. The samples above are separate runs.
+- **Unknown stays unknown:** Missing or unverified observations are not shown as zero or idle.
 
 ## Requirements
 

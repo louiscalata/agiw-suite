@@ -2060,7 +2060,7 @@ def read_peers(share_root: Path, self_host: str, now: float) -> tuple[list[dict[
 
 
 # ------------------------------------------------------------------- machines
-# One row per machine (this PC, the Mac, the Linux node): up / down / unknown plus a named reason and how the evidence
+# One row per active machine (this PC, the Mac, other PCs): up / down / unknown plus a named reason and how the evidence
 # arrived. A missing, stale or unattributable report is unknown, never down; "down" comes only from a fresh report
 # that says nothing is serving, and a share report is labelled share-reported (unsigned) rather than verified.
 MACHINE_REASONS = {
@@ -2133,7 +2133,7 @@ def machine_rows(*, host: str, sampled_at: Any, lanes: list[dict[str, Any]], han
                  version: str, peers: list[dict[str, Any]], mac_name: str | None,
                  paired: list[dict[str, Any]] | None = None, peers_source: dict[str, Any] | None = None,
                  mac_config_reason: str | None = None) -> list[dict[str, Any]]:
-    """machines[]: this PC, the configured Mac and the Linux node (relayed by the Mac), then any other PCs."""
+    """machines[]: this PC, the configured Mac, then any other PCs. Linux share files stay in peers[]."""
     health = lanes_health(lanes)
     state, reason = MACHINE_REASONS[("local", health)]
     statuses = [lane.get("status") for lane in lanes]
@@ -2163,12 +2163,7 @@ def machine_rows(*, host: str, sampled_at: Any, lanes: list[dict[str, Any]], han
         detail = ((peers_source or {}).get("detail") or "Mac presence report could not be read") if reason != "no-report" else "No report from the configured Mac on SharedChami; state unknown"
         rows.append(_peer_machine(mac, "macos", paired) if mac else _missing_machine(
             "macos", mac_name, reason, detail))
-    # Neither a filename nor relayedBy authenticates a writer on the guest-writable share. Keep reports in peers[]
-    # for diagnosis, but none may determine the canonical Linux identity, health, age or loaded count.
-    linux = any(p.get("platform") == "linux" and p.get("relayedBy") == "mac" for p in records)
-    rows.append(_missing_machine("linux", None, "relay-unverified" if linux else "no-report",
-                                 "Linux relay origin unverified; state unknown" if linux else
-                                 "No Linux report on SharedChami (the Mac relays it); state unknown"))
+    # An unsigned Linux share file stays in the peer diagnostics. It is not a machine row.
     for record in records:
         if record.get("platform") == "windows" and short_host(record.get("host")) != short_host(host):
             rows.append(_peer_machine(record, "windows", paired))

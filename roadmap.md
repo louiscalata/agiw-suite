@@ -3,6 +3,7 @@
 ## Scope change — 25 October 2026
 
 - [x] Narrow AGIW to two machines: the Apple-silicon MacBook Pro and the Windows PC. The Linux Mac Pro is retired from AGIW, and the Linux coordinator/system-service work below is shelved. Linux items are kept as dated history and will not be completed.
+- [x] Stop requiring a Linux row for the menu-bar working count, `agiw-status`, the peer feed and the Windows machine list. A fresh Linux report still counts. An unsigned Linux share file does not become a machine row.
 
 ## Development status — 18 October 2026
 
