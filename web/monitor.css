@@ -1,0 +1,24 @@
+:root { color-scheme: dark; }
+body {
+  margin: 0;
+  background: #0c0d10;
+  color: #e8e8ea;
+  font: 14px/1.4 ui-sans-serif, system-ui, sans-serif;
+}
+header { display: flex; justify-content: space-between; gap: 16px; align-items: baseline; padding: 12px 16px 0; }
+h1 { font-size: 16px; margin: 0; }
+#tunnel { margin: 0; color: #b7b7be; }
+#map { width: 100%; height: 420px; display: block; }
+.node { cursor: pointer; }
+.node text { fill: #f2f2f4; font-size: 12px; }
+.node .sub { fill: #b7b7be; font-size: 11px; }
+.edge { stroke: #3c4250; stroke-width: 1.5; }
+#detail { padding: 0 16px 16px; }
+#detail h2 { font-size: 15px; margin: 0 0 8px; }
+dl { display: grid; grid-template-columns: 140px 1fr; gap: 4px 12px; margin: 0; }
+dt { color: #9a9aa3; }
+dd { margin: 0; }
+.ok { fill: #36c48a; }
+.degraded { fill: #e9b85c; }
+.down { fill: #e15b64; }
+.not_measured { fill: #7a7a86; }

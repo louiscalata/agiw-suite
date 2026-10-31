@@ -109,10 +109,10 @@ class PeerAndPairEvidence(unittest.TestCase):
             (directory / "anything.json").write_text(json.dumps(doc))
             peers, _ = probes.read_peers(root, "pc", 1000.0)
         self.assertEqual([peer["host"] for peer in peers], ["anything"])
-        linux = rows(peers)[2]
-        self.assertEqual((linux["id"], linux["state"], linux["reason"]), ("linux", "unknown", "no-report"))
-        linux = rows([*peers, record("relayed-linux", "linux", age=4.0, relayed="mac")])[2]
-        self.assertEqual((linux["id"], linux["state"], linux["relayedBy"]), ("linux", "unknown", None))
+        for reported in (peers, [*peers, record("relayed-linux", "linux", age=4.0, relayed="mac")]):
+            machines = rows(reported)
+            self.assertNotIn("linux", [row["platform"] for row in machines])
+            self.assertTrue(all(row.get("relayedBy") is None for row in machines))
 
     def test_incomplete_pair_census_stays_unknown_when_published(self):
         component = probes.pair_component({"ok": True, "processes": [], "listeners": [], "uninspected": 2})

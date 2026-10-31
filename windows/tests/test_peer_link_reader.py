@@ -242,6 +242,27 @@ class PeerLinkReader(unittest.TestCase):
         self.assertEqual((rows[0]["state"], rows[0]["status"]), ("unknown", None))
         self.assertEqual(self.read()[0][0]["state"], "connected")
 
+    def test_a_platform_directory_symlink_does_not_void_the_report(self):
+        ancestor = self.path.parent.parent
+        def is_link(candidate):
+            return Path(candidate) == ancestor
+        with mock.patch.object(probes, "is_link_or_junction", side_effect=is_link), \
+                mock.patch.object(probes, "_platform_directory_symlink", side_effect=lambda p: Path(p) == ancestor):
+            rows, source = self.read()
+        self.assertEqual(rows[0]["state"], "connected")
+        self.assertEqual(source["state"], "live")
+
+    def test_a_non_platform_ancestor_symlink_refuses_the_report(self):
+        ancestor = self.path.parent.parent
+        def is_link(candidate):
+            return Path(candidate) == ancestor
+        with mock.patch.object(probes, "is_link_or_junction", side_effect=is_link), \
+                mock.patch.object(Path, "open") as opened:
+            rows, source = probes.read_peer_link(NOW, enabled=True)
+        self.assertEqual(rows, [])
+        self.assertEqual(source["state"], "unavailable")
+        opened.assert_not_called()
+
     def test_reparse_final_and_ancestor_or_redirected_handle_is_refused(self):
         self.read()
         for linked in (self.path, self.path.parent):

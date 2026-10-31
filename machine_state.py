@@ -72,6 +72,11 @@ def machine_summary(host, platform, report=None, *, now, trust="unverified", rea
         row.update(state="down" if health == "down" else "up",
                    reasonCode="reported_down" if health == "down" else
                    "reported_degraded" if health == "degraded" else "observed")
+        if row["state"] == "up":
+            for key in ("promptTokensPerSecond", "generationTokensPerSecond"):
+                value = report.get(key)
+                if finite_number(value) and value >= 0:
+                    row[key] = value
         if type(report.get("handsOff")) is bool:
             row["handsOff"] = report["handsOff"]
         models = report.get("models")
@@ -144,8 +149,14 @@ def local_summary(snapshot):
     return machine_summary("mac", "mac", report, now=now, trust="local")
 
 
+# The Mac row always comes from the local summary. The Windows PC is the other
+# expected machine. Linux is retired: keep a row only when a feed actually names
+# one, and never invent an unknown Linux machine that withholds the status.
+EXPECTED_PEER_PLATFORMS = ("windows",)
+
+
 def machines_summary(snapshot, peers):
-    """Keep each host distinct and retain an unknown row for each missing target platform."""
+    """Keep each host distinct and retain an unknown row for each missing expected peer."""
     rows = [local_summary(snapshot)]
     seen = {("mac", "mac")}
     for entry in peers:
@@ -166,7 +177,7 @@ def machines_summary(snapshot, peers):
             if key in source:
                 row[key] = source[key]
         rows.append(row)
-    for platform in ("windows", "linux"):
+    for platform in EXPECTED_PEER_PLATFORMS:
         if not any(row["platform"] == platform for row in rows):
             rows.append(machine_summary(platform, platform, now=snapshot["sampledAt"]))
     return rows

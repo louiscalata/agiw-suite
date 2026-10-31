@@ -49,7 +49,7 @@ class StatusTest(unittest.TestCase):
         return result, factory, connection, response
 
     def assert_unknown(self, data, reason):
-        self.assertEqual([row['host'] for row in data['machines']], ['mac', 'windows', 'linux'])
+        self.assertEqual([row['host'] for row in data['machines']], ['mac', 'windows'])
         for row in data['machines']:
             self.assertEqual(row['state'], 'unknown')
             self.assertEqual(row['reasonCode'], reason)
@@ -278,7 +278,15 @@ class StatusTest(unittest.TestCase):
         for sampled, reason in ((969, 'stale'), (1002.1, 'clock_skew')):
             with self.subTest(sampled=sampled):
                 result, *_ = self.read(json.dumps({**snapshot(), 'sampledAt': sampled}).encode())
-                self.assert_unknown(result, reason)
+                if reason == 'clock_skew':
+                    self.assert_unknown(result, reason)
+                    continue
+                # A stale sample still carries every row it contained, including an optional Linux row.
+                self.assertEqual([row['host'] for row in result['machines']], ['mac', 'windows', 'linux'])
+                for row in result['machines']:
+                    self.assertEqual((row['state'], row['reasonCode']), ('unknown', reason))
+                    for key in ('loadedCount', 'busyCount', 'promptTokensPerSecond', 'generationTokensPerSecond'):
+                        self.assertIsNone(row[key])
 
     def test_served_machine_states_match_cli_after_mac_sample_expires(self):
         from server import SnapshotStore
@@ -400,9 +408,16 @@ class StatusTest(unittest.TestCase):
         self.assertEqual((peer['host'], peer['platform'], peer['state'], peer['reasonCode']),
                          ('linux-node-1', 'linux', 'unknown', 'stale'))
 
+    def test_mac_and_pc_without_linux_are_a_complete_summary(self):
+        data = snapshot()
+        data['machines'] = [row for row in data['machines'] if row['platform'] != 'linux']
+        result, *_ = self.read(json.dumps(data).encode())
+        self.assertEqual([row['platform'] for row in result['machines']], ['mac', 'windows'])
+        self.assertEqual([row['state'] for row in result['machines']], ['up', 'up'])
+
     def test_missing_platform_and_excess_hosts_are_invalid(self):
         missing = snapshot()
-        missing['machines'][2].update(host='second-pc', platform='windows')
+        missing['machines'] = [row for row in missing['machines'] if row['platform'] != 'windows']
         excess = snapshot()
         excess['machines'] += [{**excess['machines'][1], 'host': f'pc-{index}'}
                                for index in range(agiw_status.MAX_MACHINES)]
@@ -447,14 +462,19 @@ class StatusTest(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assert_unknown(json.loads(output.getvalue()), 'unavailable')
 
+    def test_text_cli_names_a_measured_generation_rate(self):
+        output = io.StringIO()
+        with patch.object(agiw_status, 'summary', return_value=snapshot()), redirect_stdout(output):
+            self.assertEqual(agiw_status.main([]), 0)
+        self.assertIn('mac: up (observed) 4.5 gen tok/s\n', output.getvalue())
+
     def test_text_cli_names_unknown_reason(self):
         self.endpoint.unlink()
         output = io.StringIO()
         with redirect_stdout(output):
             code = agiw_status.main(['--endpoint', str(self.endpoint)])
         self.assertEqual(code, 0)
-        self.assertEqual(output.getvalue(), 'mac: unknown (unavailable)\nwindows: unknown (unavailable)\n'
-                                           'linux: unknown (unavailable)\n')
+        self.assertEqual(output.getvalue(), 'mac: unknown (unavailable)\nwindows: unknown (unavailable)\n')
 
     def test_cli_entrypoint_is_executable_and_only_reads_requested_fixture(self):
         self.endpoint.unlink()

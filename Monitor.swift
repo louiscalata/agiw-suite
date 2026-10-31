@@ -569,7 +569,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
               let port = object["port"] as? Int, (1...65535).contains(port),
               let pid = object["pid"] as? Int, pid == Int(observer?.processIdentifier ?? -1),
-              let url = URL(string: "http://127.0.0.1:\(port)/") else {
+              let url = URL(string: "http://127.0.0.1:\(port)/monitor") else {
             failService("The observer returned an invalid startup response. Reconnecting…")
             if observer?.isRunning == true { observer?.terminate() }
             return
@@ -643,11 +643,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         var active = 0
         var uncertain = machines.isEmpty
         var platforms = Set<String>()
+        // The Mac and the Windows PC are the expected machines. Linux is retired:
+        // a missing or unverified Linux row must not keep the count unknown.
+        let requiredPlatforms: Set<String> = ["mac", "windows"]
+        let optionalPlatforms: Set<String> = ["linux"]
         let fractionalDate = ISO8601DateFormatter()
         fractionalDate.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let wholeDate = ISO8601DateFormatter()
         for machine in machines {
             let platform = machine["platform"] as? String ?? ""
+            let optional = optionalPlatforms.contains(platform)
             platforms.insert(platform)
             let thresholds: [String: Double] = ["mac": 3, "windows": 30, "linux": 30]
             guard let threshold = thresholds[platform], machine["state"] as? String == "up",
@@ -658,14 +663,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
                   busy.doubleValue.rounded() == busy.doubleValue,
                   let age = machine["ageSeconds"] as? NSNumber, CFGetTypeID(age) != CFBooleanGetTypeID(),
                   age.doubleValue.isFinite, age.doubleValue >= 0 else {
-                uncertain = true
+                if !optional { uncertain = true }
                 continue
             }
             let currentAge: Double
             if let observed = machine["observedAt"], !(observed is NSNull) {
                 guard let stamp = observed as? String,
                       let date = fractionalDate.date(from: stamp) ?? wholeDate.date(from: stamp) else {
-                    uncertain = true
+                    if !optional { uncertain = true }
                     continue
                 }
                 currentAge = now - date.timeIntervalSince1970
@@ -673,12 +678,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
                 currentAge = age.doubleValue + max(0, elapsed)
             }
             guard currentAge.isFinite, currentAge >= -2, currentAge <= threshold else {
-                uncertain = true
+                if !optional { uncertain = true }
                 continue
             }
             active += busy.intValue
         }
-        uncertain = uncertain || !Set(["mac", "windows", "linux"]).isSubset(of: platforms)
+        uncertain = uncertain || !requiredPlatforms.isSubset(of: platforms)
         let label = uncertain ? (active > 0 ? "\(active)·?" : "?") : String(active)
         let memory = Self.memoryBadge(snapshot, elapsed: elapsed)
         applyMemoryTint(memory?.level)

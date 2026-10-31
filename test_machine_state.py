@@ -30,6 +30,17 @@ class MachineStateTests(unittest.TestCase):
                     for key in ("busyCount", "loadedCount", "generationTokensPerSecond", "promptTokensPerSecond"):
                         self.assertIsNone(row[key])
 
+    def test_up_report_keeps_measured_rates_and_drops_unusable_ones(self):
+        row = machine_summary("mac", "mac", report(promptTokensPerSecond=1.5, generationTokensPerSecond=2),
+                              now=NOW, trust="local")
+        self.assertEqual((row["promptTokensPerSecond"], row["generationTokensPerSecond"]), (1.5, 2.0))
+        for bad in (float("nan"), -1, True, "2"):
+            cleaned = machine_summary("mac", "mac", report(generationTokensPerSecond=bad), now=NOW, trust="local")
+            self.assertIsNone(cleaned["generationTokensPerSecond"])
+        down = machine_summary("mac", "mac", report(health="down", generationTokensPerSecond=9),
+                               now=NOW, trust="local")
+        self.assertIsNone(down["generationTokensPerSecond"])
+
     def test_fresh_reports_keep_trust_and_positive_down_evidence(self):
         for trust in ("local", "authenticated", "share-reported"):
             for health, state in (("ok", "up"), ("degraded", "up"), ("down", "down")):
@@ -120,12 +131,22 @@ class MachineStateTests(unittest.TestCase):
         self.assertEqual(row["loadedCount"], 1)
         self.assertIsNone(row["busyCount"])
 
-    def test_missing_platforms_always_get_unknown_rows(self):
+    def test_missing_windows_gets_an_unknown_row_and_retired_linux_does_not(self):
         rows = machines_summary(local(), [])
-        self.assertEqual([row["platform"] for row in rows], ["mac", "windows", "linux"])
-        self.assertEqual([row["state"] for row in rows], ["up", "unknown", "unknown"])
+        self.assertEqual([row["platform"] for row in rows], ["mac", "windows"])
+        self.assertEqual([row["state"] for row in rows], ["up", "unknown"])
         self.assertEqual(rows[0]["busyCount"], 0)
         self.assertIsNone(rows[1]["busyCount"])
+        self.assertNotIn("linux", [row["platform"] for row in rows])
+
+    def test_a_named_linux_peer_stays_optional(self):
+        peers = [{"feed": None, "source": {"host": "linux-one", "platform": "linux", "state": "unavailable",
+                                            "reasonCode": "stale", "ageSeconds": 60}}]
+        rows = machines_summary(local(), peers)
+        self.assertEqual([row["host"] for row in rows], ["mac", "linux-one", "windows"])
+        linux = next(row for row in rows if row["host"] == "linux-one")
+        self.assertEqual(linux["reasonCode"], "stale")
+        self.assertEqual(next(row for row in rows if row["platform"] == "windows")["reasonCode"], "not_observed")
 
     def test_multiple_hosts_keep_attribution_and_failed_age(self):
         peers = [{"feed": report(), "source": {"host": host, "platform": "windows", "state": "recorded",

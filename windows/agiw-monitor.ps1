@@ -41,7 +41,7 @@ if (-not $createdNew) {
         $saved = Get-Content -Raw $StatePath | ConvertFrom-Json
         $savedPort = [int]$saved.port
         if ($saved.service -eq 'agiw-win-observer' -and $savedPort -ge 1024 -and $savedPort -le 65535) {
-            Start-Process ("http://127.0.0.1:{0}/" -f $savedPort)
+            Start-Process ("http://127.0.0.1:{0}/monitor" -f $savedPort)
         }
     } catch { }
     exit 0
@@ -130,6 +130,7 @@ function Get-DashboardUrl { if ($script:ObserverPort) { "http://127.0.0.1:$($scr
 function Open-Dashboard {
     $url = Get-DashboardUrl
     if (-not $url) { [System.Windows.Forms.MessageBox]::Show('The observer is not running yet.', 'AGIW Monitor') | Out-Null; return }
+    $url = $url + 'monitor'
     $edge = @(
         (Join-Path ${env:ProgramFiles(x86)} 'Microsoft\Edge\Application\msedge.exe'),
         (Join-Path $env:ProgramFiles 'Microsoft\Edge\Application\msedge.exe')
@@ -317,7 +318,7 @@ $Tray.ContextMenuStrip = $Menu
 
 $openItem.add_Click({ try { Open-Dashboard } catch { Write-Log "open failed: $($_.Exception.Message)" } })
 $Tray.add_DoubleClick({ try { Open-Dashboard } catch { Write-Log "open failed: $($_.Exception.Message)" } })
-$copyItem.add_Click({ try { $url = Get-DashboardUrl; if ($url) { [System.Windows.Forms.Clipboard]::SetText($url) } } catch { Write-Log "copy failed: $($_.Exception.Message)" } })
+$copyItem.add_Click({ try { $url = Get-DashboardUrl; if ($url) { [System.Windows.Forms.Clipboard]::SetText($url + 'monitor') } } catch { Write-Log "copy failed: $($_.Exception.Message)" } })
 $restartItem.add_Click({ try { Write-Log 'restart requested'; Stop-Observer; Start-Observer } catch { Write-Log "restart failed: $($_.Exception.Message)" } })
 $logsItem.add_Click({ try { Start-Process explorer.exe $StateDir } catch { } })
 function Test-OwnShortcut {

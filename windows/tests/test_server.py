@@ -1113,6 +1113,9 @@ class ObserverRecovery(unittest.TestCase):
         windows = Path(__file__).resolve().parents[1]
         shutil.copytree(windows / "agiw_win", self.install / "agiw_win", ignore=shutil.ignore_patterns("__pycache__"))
         shutil.copy2(windows / "agiw_observer.py", self.install / "agiw_observer.py")
+        repo = windows.parent
+        for name in ("inference_collect.py", "inference_stats.py"):
+            shutil.copy2(repo / name, self.install / name)
         (self.install / "web").mkdir()
         (self.install / "web" / "index.html").write_text("<!doctype html>")
         (root / "config.json").write_text(json.dumps({"publishStatus": False, "peerLink": False}))

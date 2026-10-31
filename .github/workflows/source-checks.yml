@@ -11,7 +11,7 @@ permissions:
 jobs:
   monitor:
     runs-on: macos-latest
-    timeout-minutes: 20
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: actions/setup-python@v7.0.0
@@ -29,6 +29,11 @@ jobs:
         run: python3 -B -m unittest discover -p 'test_*.py' -q
       - name: JavaScript tests
         run: node --test test_*.mjs
+      - name: Windows edition tests
+        working-directory: windows
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: python3 -B -m unittest discover -s tests -p 'test_*.py' -q
       - name: Mac build input checks
         run: |
           bash -n build.sh login-agent.sh package-release.sh
@@ -37,3 +42,4 @@ jobs:
           xcrun swiftc -typecheck -target arm64-apple-macosx13.0 -framework Cocoa -framework Security JevKeychain.swift
           python3 -B bundle_nisi.py --verify
           node --check web/components.js
+          node --check web/monitor.mjs

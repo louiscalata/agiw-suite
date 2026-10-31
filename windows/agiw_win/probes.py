@@ -42,8 +42,8 @@ SLOTS_TIMEOUT = 4.0
 
 DEFAULT_SHARE_ROOT = Path(r"C:\SharedChami")
 # The required lanes. There is deliberately no built-in port or model: a lane is probed only when
-# windows-llm-pipeline/config.json declares it. The old fallback put the deep lane on :1234, which is now
-# NVIDIA PAIR's proxy on this PC, so an unreadable config made the observer probe PAIR as an AGIW lane.
+# windows-llm-pipeline/config.json declares it. The PC now serves the router on :1234, qwen3.8-27b on
+# :1236 and gpt-oss-20b on :1245. NVIDIA PAIR is uninstalled, so an unreadable config must not guess a port.
 LANE_IDS = ("fast", "deep")
 
 
@@ -1559,14 +1559,62 @@ def is_link_or_junction(path: Path) -> bool:
     return stat.S_ISLNK(info.st_mode) or bool(attributes & 0x400)  # FILE_ATTRIBUTE_REPARSE_POINT
 
 
+# Darwin's temp and config directories are these symlinks. They are not a
+# junction planted in a share or a peer-link file.
+_DARWIN_DIRECTORY_SYMLINKS = frozenset({"/var", "/tmp", "/etc"})
+
+
+def _platform_directory_symlink(path: Path) -> bool:
+    if sys.platform != "darwin":
+        return False
+    try:
+        return os.path.abspath(path) in _DARWIN_DIRECTORY_SYMLINKS
+    except (OSError, ValueError):
+        return False
+
+
+def _publish_anchor(path: Path, top: Path) -> tuple[Path, list[tuple[Path, str]]]:
+    """Real directory to open, then each directory at ``top`` or below it.
+
+    Symlinks above ``top`` (Darwin ``/var`` -> ``/private/var``) are resolved so the
+    handle walk does not have to open them. A reparse point at ``top`` or below stays
+    a logical path and is refused by the caller before that name is opened.
+    """
+    if is_link_or_junction(top):
+        raise ValueError("linked status directory refused")
+    missing = []
+    current = top
+    while not current.exists():
+        if current == current.parent:
+            raise ValueError("publish root unavailable")
+        if is_link_or_junction(current):
+            raise ValueError("linked status directory refused")
+        missing.append(current.name)
+        current = current.parent
+    if is_link_or_junction(current):
+        raise ValueError("linked status directory refused")
+    anchor = Path(os.path.realpath(current))
+    logical = current
+    steps = []
+    for name in reversed(missing):
+        logical = logical / name
+        steps.append((logical, name))
+    if path.parent != top:
+        logical = top
+        for name in path.parent.relative_to(top).parts:
+            logical = logical / name
+            steps.append((logical, name))
+    return anchor, steps
+
+
 @contextmanager
 def _locked_publish_parent(path: Path, stop_at: Path | None):
-    """Walk from the volume root by handle, never following a directory reparse point."""
+    """Open the target's parent by handle, never following a directory reparse point."""
     path = Path(os.path.abspath(path))
     top = Path(os.path.abspath(stop_at)) if stop_at is not None else path.parent.parent
     if top != path.parent and top not in path.parent.parents:
         raise ValueError("publish target is outside its root")
-    directories = list(reversed((path.parent, *path.parent.parents)))
+    anchor, steps = _publish_anchor(path, top)
     if not IS_WINDOWS:
         # Hold each parent while opening its child. All creation, replacement and cleanup
         # below use the retained final descriptor, never the checked absolute pathname.
@@ -1575,15 +1623,15 @@ def _locked_publish_parent(path: Path, stop_at: Path | None):
         handles = []
         flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
         try:
-            handles.append(os.open(directories[0], flags))
-            for directory in directories[1:]:
-                if is_link_or_junction(directory):
+            handles.append(os.open(anchor, flags))
+            for logical, name in steps:
+                if is_link_or_junction(logical) and not _platform_directory_symlink(logical):
                     raise ValueError("linked status directory refused")
                 try:
-                    os.mkdir(directory.name, dir_fd=handles[-1])
+                    os.mkdir(name, dir_fd=handles[-1])
                 except FileExistsError:
                     pass
-                handles.append(os.open(directory.name, flags, dir_fd=handles[-1]))
+                handles.append(os.open(name, flags, dir_fd=handles[-1]))
             try:
                 target = os.stat(path.name, dir_fd=handles[-1], follow_symlinks=False)
             except FileNotFoundError:
@@ -1606,20 +1654,22 @@ def _locked_publish_parent(path: Path, stop_at: Path | None):
     invalid = ctypes.c_void_p(-1).value
     handles = []
     try:
-        # The volume root is stable. Each child is opened relative to the preceding handle,
-        # so renaming any visible path while this runs cannot redirect later operations.
-        handle = create(str(directories[0]), 0x80, 0x7, None, 3, 0x02200000, None)
+        # The resolved publish root is stable. Each child is opened relative to the
+        # preceding handle, so renaming any visible path cannot redirect later operations.
+        handle = create(str(anchor), 0x80, 0x7, None, 3, 0x02200000, None)
         if handle == invalid:
             raise ctypes.WinError(ctypes.get_last_error())
         handles.append(handle)
         if _handle_is_reparse(kernel32, handle):
             raise ValueError("linked status directory refused")
-        for directory in directories[1:]:
-            handle = _nt_create_relative(handles[-1], directory.name, directory=True)
+        for logical, name in steps:
+            if is_link_or_junction(logical) and not _platform_directory_symlink(logical):
+                raise ValueError("linked status directory refused")
+            handle = _nt_create_relative(handles[-1], name, directory=True)
             if handle == invalid:
                 raise ctypes.WinError(ctypes.get_last_error())
             handles.append(handle)
-            if _handle_is_reparse(kernel32, handle) or is_link_or_junction(directory):
+            if _handle_is_reparse(kernel32, handle):
                 raise ValueError("linked status directory refused")
         if is_link_or_junction(path):
             raise ValueError("linked status directory refused")
@@ -2133,7 +2183,12 @@ def machine_rows(*, host: str, sampled_at: Any, lanes: list[dict[str, Any]], han
                  version: str, peers: list[dict[str, Any]], mac_name: str | None,
                  paired: list[dict[str, Any]] | None = None, peers_source: dict[str, Any] | None = None,
                  mac_config_reason: str | None = None) -> list[dict[str, Any]]:
-    """machines[]: this PC, the configured Mac and the Linux node (relayed by the Mac), then any other PCs."""
+    """machines[]: this PC and the configured Mac, then any other PCs.
+
+    Linux is retired. A share file that claims to be Linux stays in peers[] for
+    diagnosis and does not become a machine row, so an unsigned relay cannot
+    supply health, age or a loaded count.
+    """
     health = lanes_health(lanes)
     state, reason = MACHINE_REASONS[("local", health)]
     statuses = [lane.get("status") for lane in lanes]
@@ -2163,12 +2218,6 @@ def machine_rows(*, host: str, sampled_at: Any, lanes: list[dict[str, Any]], han
         detail = ((peers_source or {}).get("detail") or "Mac presence report could not be read") if reason != "no-report" else "No report from the configured Mac on SharedChami; state unknown"
         rows.append(_peer_machine(mac, "macos", paired) if mac else _missing_machine(
             "macos", mac_name, reason, detail))
-    # Neither a filename nor relayedBy authenticates a writer on the guest-writable share. Keep reports in peers[]
-    # for diagnosis, but none may determine the canonical Linux identity, health, age or loaded count.
-    linux = any(p.get("platform") == "linux" and p.get("relayedBy") == "mac" for p in records)
-    rows.append(_missing_machine("linux", None, "relay-unverified" if linux else "no-report",
-                                 "Linux relay origin unverified; state unknown" if linux else
-                                 "No Linux report on SharedChami (the Mac relays it); state unknown"))
     for record in records:
         if record.get("platform") == "windows" and short_host(record.get("host")) != short_host(host):
             rows.append(_peer_machine(record, "windows", paired))
@@ -2216,8 +2265,9 @@ def _read_peer_link_file(path: Path) -> Any:
     if not path.is_absolute() or path.drive.startswith("\\\\"):
         raise ValueError("local absolute path required")
     for entry in (*path.parents, path):
-        if is_link_or_junction(entry):
+        if is_link_or_junction(entry) and not _platform_directory_symlink(entry):
             raise ValueError("linked path refused")
+    path = Path(os.path.realpath(path))
     if not stat.S_ISREG(path.stat().st_mode):
         raise ValueError("not a regular file")
     with path.open("rb") as stream:

@@ -2,6 +2,16 @@
 
 **Scope change · 2026-10-25.** AGIW now runs on two machines only: the Apple-silicon MacBook Pro and the Windows PC. The Linux Mac Pro 5,1 is retired from AGIW (it is not an inference, review or coordinator node), and the Linux-specific rollout below is shelved. This change reports no new run and adds no readiness claim. Linux material on this page is kept as dated history. The file keeps its original name so existing links still work.
 
+**Current layout · 2026-10-26.** Do not install the Linux observer, the Linux coordinator, or PAIR. The live machines are the MacBook Pro and the Windows PC:
+
+| Service on the PC | Port |
+| --- | --- |
+| Router | 1234 |
+| qwen3.8-27b | 1236 |
+| gpt-oss-20b | 1245 |
+
+The Mac's LM Studio serves gpt-oss-20b on 127.0.0.1:1234. The Mac reads the PC lanes through the SSH forwards in [inference-monitor.md](inference-monitor.md), not by opening those ports on the LAN.
+
 AGIW Suite is being developed to coordinate useful AI work across an Apple-silicon Mac and a Windows PC. Earlier plans also included a Linux Mac Pro. Each worker can use an appropriate local model; the workflow retains task results, quality checks and model-lifecycle evidence.
 
 **Status update · 2026-10-23.** This date-scoped documentation refresh adds no machine-readiness claim and reports no new run. Separate machine-local workers may contribute to parallel orchestration, but genuine simultaneous three-machine output rate, task rate and speedup are **NOT MEASURED**. Historical measurements and the earlier development checkpoint below are retained unchanged.
@@ -32,7 +42,7 @@ The diagram and table below show the earlier three-machine plan. Since 2026-10-2
 
 <img src="assets/three-machine-architecture.svg" width="1280" alt="Tools feed Nisi and Jev, optional PAIR transport, then PC, Linux and Mac workers. Windows has separate NVIDIA RTX 3080 Ti and AMD RX 5700 XT lanes. Linux has RX 580 inference, NVMe workspace/cache and HDD backup storage. Results return through output checks and review.">
 
-Nisi v0.2 and Jev provide the workflow and task-analysis layer. NVIDIA PAIR can transport independent requests to eligible engines; it does not combine the computers' RAM or VRAM into one model. The PC's two GPUs offer distinct placement options. Native admission and a measured workload must establish whether both can be used together for a given configuration.
+Nisi v0.2 and Jev provide the workflow and task-analysis layer. In this withdrawn plan, NVIDIA PAIR could transport independent requests to eligible engines; it did not combine the computers' RAM or VRAM into one model. PAIR is uninstalled. The PC's two GPUs offer distinct placement options. Native admission and a measured workload must establish whether both can be used together for a given configuration.
 
 | Machine | Resources and intended role | Current connection and acceptance state |
 | --- | --- | --- |

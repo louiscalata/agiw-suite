@@ -37,6 +37,20 @@ def _emit(value: dict) -> int:
     return 0 if value.get("status") == "success" else 3
 
 
+def probe_answered(output: object) -> bool:
+    """True when the model produced the word READY.
+
+    The probe asks for that word. ``"READY" in text`` also matches ``NOT READY``,
+    which is a refusal and must not count as verification.
+    """
+    if not isinstance(output, str):
+        return False
+    text = output.upper()
+    if re.search(r"\bNOT\s+READY\b", text):
+        return False
+    return "READY" in text
+
+
 def main(argv: list[str]) -> int:
     try:
         seconds = int(argv[1]) if len(argv) > 1 else 60
@@ -93,7 +107,7 @@ def main(argv: list[str]) -> int:
     return _emit({
         "status": status, "jobId": result.get("id"), "model": result.get("model"),
         "elapsedSeconds": result.get("elapsed_seconds"),
-        "answered": isinstance(output, str) and "READY" in output.upper(),
+        "answered": probe_answered(output),
     })
 
 

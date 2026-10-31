@@ -43,10 +43,8 @@ from machine_state import machines_summary
 ROUTER_READER_CONTRACT = "codemode.router.readers.v2"
 
 _API_HOST = "127.0.0.1"
-# Legacy default only. On this Mac NVIDIA PAIR's proxy holds 1234 and LM Studio itself listens on
-# 1235, so the native port comes from AGIW_LMSTUDIO_API_PORT, else from LM Studio's own
-# `lms server status --json`. It is never inferred from a shared catalog or the first open port,
-# and a present but invalid setting is an error, not a reason to try another port.
+# LM Studio's port comes from AGIW_LMSTUDIO_API_PORT, else from `lms server status --json`,
+# else 1234. A present but invalid setting is an error, not a reason to try another port.
 _API_PORT = 1234
 _API_PORT_ENV = "AGIW_LMSTUDIO_API_PORT"
 _LMS_STATUS_MAX = 4096
@@ -56,7 +54,6 @@ _LMS_STATUS_LOCK = threading.Lock()
 _PAIR_TTL = 5.0
 _PAIR_CACHE: dict[str, Any] = {"nextCheck": float("-inf"), "value": None}
 _PAIR_LOCK = threading.Lock()
-_VIA_PAIR = "NVIDIA PAIR"
 _API_PATH = "/api/v1/models"
 _MAX_HTTP = 2 * 1024 * 1024
 _HTTP_DEADLINE = 1.0
@@ -1590,9 +1587,9 @@ def _lms_server_status() -> dict[str, Any] | None:
 
 def _native_api_endpoint(lms_status: dict[str, Any] | None = None) -> dict[str, Any]:
     """Loopback native API endpoint: {host, port, portSource}. portSource is "env"
-    (AGIW_LMSTUDIO_API_PORT), "lms" (LM Studio's own `lms server status`) or "default" (the legacy
-    1234, which NVIDIA PAIR's proxy may hold). No probing, scanning or fallback between them: a
-    present but invalid setting raises ValueError rather than silently reading another port."""
+    (AGIW_LMSTUDIO_API_PORT), "lms" (LM Studio's own `lms server status`) or "default" (1234).
+    No probing, scanning or fallback between them: a present but invalid setting raises
+    ValueError rather than silently reading another port."""
     raw = os.environ.get(_API_PORT_ENV)
     if raw is not None:
         if not re.fullmatch(r"[1-9][0-9]{0,4}", raw) or int(raw) > 65535:
@@ -1641,11 +1638,6 @@ def _inventory_listener(port: int) -> tuple[int, str, str] | None:
         for root in (Path("/Applications"), _HOME / "Applications"):
             if executable == str(root / "LM Studio.app/Contents/MacOS/LM Studio"):
                 return pid, "lmstudio", executable
-            pair_root = root / "NVIDIA PAIR.app/Contents"
-            path = Path(executable)
-            if (path.name == "nvpair-proxy" and ".." not in path.parts
-                    and pair_root in path.parents):
-                return pid, "pair", executable
     except (OSError, ValueError, TimeoutError):
         pass
     return None
@@ -1653,11 +1645,9 @@ def _inventory_listener(port: int) -> tuple[int, str, str] | None:
 
 def _lmstudio_route(port: int, lms_status: dict[str, Any] | None,
                     listener: tuple | None) -> tuple[str, str]:
-    """Route identity needs a fresh local listener, never PAIR's peer claims."""
-    if listener is None:
+    """Route identity needs a fresh local listener owned by LM Studio."""
+    if listener is None or listener[1] != "lmstudio":
         return "unknown", "local listener owner is unidentified; inventory identity cannot be told"
-    if listener[1] == "pair":
-        return "via-pair", "local listener belongs to NVIDIA PAIR; proxy inventory has no verified machine attribution"
     own = lms_status.get("port") if isinstance(lms_status, dict) else None
     if listener[1] == "lmstudio" and port == own and lms_status.get("running") is True:
         return "direct", f"read directly from LM Studio's own port {own} (fresh lms server status and listener owner)"
@@ -2741,7 +2731,8 @@ def _windows_worker(now: float) -> tuple[dict[str, Any], dict[str, Any]]:
         hardware = cache.get("hardware") if available and isinstance(cache.get("hardware"), dict) else None
         if condition == "degraded":
             detail = ("Windows worker heartbeat is fresh, but no model lane answers (worker reports degraded); "
-                      "start the model servers on the PC")
+                      "start the model servers on the PC (router on port 1234, qwen3.8-27b on port 1236, "
+                      "gpt-oss-20b on port 1245)")
         elif condition == "stopped":
             detail = "Windows worker reports it has stopped; start the worker on the PC"
         worker = {
@@ -3039,7 +3030,8 @@ def _scan_jev_judgment(archive: Path) -> tuple[float | None, str | None]:
         except (OSError, ValueError):
             continue
         result = record.get("result") if isinstance(record.get("result"), dict) else record
-        intake = (result.get("stages") or {}).get("intake") if isinstance(result, dict) else None
+        stages = result.get("stages") if isinstance(result, dict) else None
+        intake = stages.get("intake") if isinstance(stages, dict) else None
         if (isinstance(intake, dict) and intake.get("status") == "JUDGED"
                 and intake.get("kind") == "chami.intake.typesafe.v1"):
             finished = record.get("finishedUnix") or record.get("recordedUnix")
@@ -3108,7 +3100,7 @@ def collect_snapshot() -> dict[str, Any]:
     models_by_id: dict[str, dict[str, Any]] = {}
     instance_observations: list[dict[str, Any]] = []
 
-    pair = _pair_snapshot()
+    pair = None
     lms_status = _lms_server_status()
     try:
         endpoint = _native_api_endpoint(lms_status)
@@ -3122,7 +3114,7 @@ def collect_snapshot() -> dict[str, Any]:
         listener = (_inventory_listener(endpoint["port"])
                     if isinstance(lms_status, dict) else None)
         route, why = _lmstudio_route(endpoint["port"], lms_status, listener)
-        via = _VIA_PAIR if route == "via-pair" else None
+        via = None
         where = {"env": f"{_API_PORT_ENV}", "lms": "lms server status",
                  "default": f"legacy default; set {_API_PORT_ENV} or start lms"}[endpoint["portSource"]]
         row = {"id": "lmstudio-api", "label": "LM Studio inventory" + (f" via {via}" if via else ""),
@@ -3195,12 +3187,6 @@ def collect_snapshot() -> dict[str, Any]:
                 source.update(state="error", ageSeconds=None, modelsComplete=False,
                               detail="Local combined inventory incomplete: model list exceeds 256 entries; this source cannot establish the loaded count")
 
-    if pair is not None:
-        sources.append(pair_status.source_row(pair))
-    else:
-        sources.append({"id": "nvidia-pair", "label": "NVIDIA PAIR (read from its files)", "state": "unavailable",
-                        "ageSeconds": None, "detail": "NVIDIA PAIR status reader is not bundled; state unknown"})
-
     afm = _afm_status()
     sources.append({"id": "afm-executable", "label": "Apple Foundation Models adapter",
                     "state": "live" if afm["state"] == "executable" else "unavailable",
@@ -3229,7 +3215,7 @@ def collect_snapshot() -> dict[str, Any]:
     except Exception:
         peers = [{"feed": None, "source": {"id": platform + "-telemetry", "host": platform,
                   "platform": platform, "state": "error", "trust": "unverified", "reasonCode": "read_error",
-                  "ageSeconds": None, "detail": "Peer feed reader failed"}} for platform in ("windows", "linux")]
+                  "ageSeconds": None, "detail": "Peer feed reader failed"}} for platform in ("windows",)]
     sources.extend(entry["source"] for entry in peers)
     windows_live = next((entry["feed"] for entry in peers if entry["source"].get("platform") == "windows"
                          and entry["source"].get("state") in ("live", "recorded") and entry.get("feed")), None)

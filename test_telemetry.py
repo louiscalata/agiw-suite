@@ -1608,6 +1608,10 @@ class WindowsJobsJournalTests(unittest.TestCase):
         self.assertEqual(worker["state"], "degraded")
         self.assertEqual(worker["modelsAdvertised"], [])
         self.assertIn("no model lane answers", worker["detail"])
+        self.assertIn("gpt-oss-20b on port 1245", worker["detail"])
+        self.assertIn("qwen3.8-27b on port 1236", worker["detail"])
+        self.assertNotIn("1235", worker["detail"])
+        self.assertIn("port 1234", worker["detail"])
         self.assertEqual(source["state"], "error")
         payload["reason"] = "queue I/O unavailable or timed out"
         cache2 = dict(cache, workerCondition=None, heartbeatUnix=None)
@@ -2062,6 +2066,14 @@ class RouteComponentTests(unittest.TestCase):
         _private_write(self.env, "x", mode=0o644)
         if os.stat(self.env).st_mode & 0o044:
             self.assertEqual(self.components()["jev"]["state"], "unavailable")
+
+    def test_list_stages_do_not_crash_or_count_as_a_judgment(self):
+        listed = {"finishedUnix": time.time() - 30,
+                  "result": {"stages": [{"status": "JUDGED", "kind": "chami.intake.typesafe.v1", "model": "jev"}]}}
+        _private_write(self.router / "archive" / "run-list.json", json.dumps(listed))
+        jev = self.components()["jev"]
+        self.assertNotIn("last judged", jev["detail"])
+        self.assertNotIn("jev", jev["detail"])
 
 
 class LiveRouteTests(unittest.TestCase):
@@ -3662,9 +3674,8 @@ class LmStudioPortAndPairAttributionTests(unittest.TestCase):
         self.assertNotIn("via NVIDIA PAIR", source["detail"])
         self.assertEqual(http.call_args.args[0]["port"], 1235)
         self.assertEqual(snapshot["models"][0]["id"], "a/b")
-        pair_row = next(s for s in snapshot["sources"] if s["id"] == "nvidia-pair")
-        self.assertEqual(pair_row["state"], "unavailable")
-        self.assertNotIn("down", pair_row["detail"].replace("not down", ""))
+        self.assertIsNone(snapshot["pair"])
+        self.assertNotIn("nvidia-pair", [s["id"] for s in snapshot["sources"]])
 
     def test_env_port_wins_and_is_attributed_against_lms(self):
         _, source, http = self.collect({"port": 1235, "running": True}, _pair_doc(),
@@ -3695,21 +3706,21 @@ class LmStudioPortAndPairAttributionTests(unittest.TestCase):
         self.assertIn("lms reported its server stopped", source["detail"])
         self.assertEqual(snapshot["models"], [])
 
-    def test_snapshot_carries_pair_status_and_keeps_source_order(self):
+    def test_snapshot_does_not_poll_pair_and_keeps_source_order(self):
         doc = _pair_doc()
         snapshot, _, _ = self.collect({"port": 1235, "running": True}, doc)
-        self.assertIs(snapshot["pair"], doc)
+        self.assertIsNone(snapshot["pair"])
         ids = [s["id"] for s in snapshot["sources"]]
-        self.assertEqual(ids[:3], ["lmstudio-api", "lms-ps", "nvidia-pair"])
-        self.assertEqual(snapshot["sources"][2]["state"], "live")
+        self.assertEqual(ids[:2], ["lmstudio-api", "lms-ps"])
+        self.assertNotIn("nvidia-pair", ids)
 
     def test_missing_pair_module_is_unknown_not_down(self):
         with mock.patch.object(telemetry, "pair_status", None):
             self.assertIsNone(_REAL_PAIR_SNAPSHOT())
             snapshot, source, _ = self.collect({"port": 1235, "running": True}, None)
             self.assertEqual(telemetry._lmstudio_route(1234, None, None)[0], "unknown")
-        row = next(s for s in snapshot["sources"] if s["id"] == "nvidia-pair")
-        self.assertEqual((row["state"], snapshot["pair"]), ("unavailable", None))
+        self.assertNotIn("nvidia-pair", [s["id"] for s in snapshot["sources"]])
+        self.assertIsNone(snapshot["pair"])
         self.assertEqual(source["route"], "direct")
 
     def test_pair_snapshot_is_cached_and_a_reader_failure_is_unknown(self):
