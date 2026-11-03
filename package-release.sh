@@ -34,6 +34,7 @@ resources=(
     windows_probe.py live_feed.py gpu_probe.py local_callers.py mem_guard.py peer_feed.py peer_link.py
     pair_status.py usage-format.mjs web/index.html web/app.js web/online-code-mode.mjs
     web/map-layout.mjs web/model-control-view.mjs web/style.css
+    inference_collect.py inference_stats.py pc_tunnel.py web/monitor.html web/monitor.mjs web/monitor.css
     bundle_nisi.py bundled_components.py jev_connection.py web/components.html web/components.js web/components.css
 )
 legal_files=(LICENSE NOTICE)
