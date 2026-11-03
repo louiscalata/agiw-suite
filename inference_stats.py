@@ -6,6 +6,7 @@ this module does not store them.
 from __future__ import annotations
 
 import math
+import datetime as dt
 
 MAP_SCHEMA = "agiw.inference-map.v1"
 HEALTH = frozenset({"ok", "degraded", "down", "not_measured"})
@@ -14,6 +15,39 @@ _RATES = ("promptTokensPerSecond", "generationTokensPerSecond", "latencyMs")
 _COUNTS = ("queueDepth", "slotsBusy", "slotsTotal", "contextUsed", "contextLimit",
            "vramUsedMiB", "vramTotalMiB")
 _TEXT = ("id", "machine", "role", "label", "endpoint", "modelId", "upstream", "reason", "detail")
+
+
+def expire_map(document, now):
+    """Age a copied map at the read boundary; never renew an observation's timestamp."""
+    if not isinstance(document, dict):
+        return
+    try:
+        stamp = dt.datetime.fromisoformat(document.get("observedAt", "").replace("Z", "+00:00"))
+        age = now - stamp.timestamp() if stamp.tzinfo is not None else math.inf
+    except (TypeError, ValueError, AttributeError, OverflowError):
+        age = math.inf
+    if document.get("tunnel") and not -2 <= age <= 30:
+        document["tunnel"] = {"state": "not_measured", "reason": "stale",
+                              "detail": "PC tunnel observation stale."}
+    expired = set()
+    for node in document.get("nodes") or []:
+        stamp = node.get("observedAt") or document.get("observedAt")
+        try:
+            observed = dt.datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+            age = now - observed.timestamp() if observed.tzinfo is not None else math.inf
+        except (TypeError, ValueError, AttributeError, OverflowError):
+            age = math.inf
+        if not -2 <= age <= (30 if node.get("machine") == "pc" else 3):
+            expired.add(node.get("id"))
+            node.update(health="not_measured", reason="stale")
+            for field in _RATES + _COUNTS + ("modelId", "upstream", "detail", "models", "callers"):
+                node[field] = None
+    # Upstream and caller links are observations too; retain only structural links
+    # when either end has expired, without changing the node layout.
+    if "edges" in document:
+        document["edges"] = [edge for edge in document["edges"]
+                             if edge.get("kind") not in ("upstream", "caller")
+                             or not expired.intersection((edge.get("from"), edge.get("to")))]
 
 
 def _finite(value):
@@ -144,7 +178,7 @@ def edges_for(nodes):
         if port is None:
             continue
         for node in nodes:
-            endpoint = node.get("endpoint")
+            endpoint = node.get("upstream") or node.get("endpoint")
             if node["role"] == "llama" and isinstance(endpoint, str) and endpoint.endswith(f":{port}"):
                 edges.append({"from": "pc:router", "to": node["id"], "kind": "upstream", "modelId": model["id"]})
     return edges

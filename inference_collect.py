@@ -2,7 +2,8 @@
 
 PC llama.cpp lanes use /metrics, /slots and /props. When those are absent, a
 timed GET /health is the observation. The router is GET /v1/models. LM Studio
-on this Mac is GET /api/v0/models, then /v1/models. Veritas is GET of
+in the Mac sampler reuses verified telemetry inventory. The standalone probe
+helper uses GET /api/v0/models, then /v1/models. Veritas is GET of
 VERITAS_REVIEWER_URL. No request asks a model to generate. Slot prompts are
 not kept.
 """
@@ -13,6 +14,8 @@ import json
 import math
 import os
 import re
+import socket
+import threading
 import time
 from urllib.parse import urlsplit
 import http.client
@@ -89,17 +92,36 @@ def _iso(when):
 
 
 def loopback_get(url, timeout=0.4, limit=1024 * 1024):
-    """GET one http://127.0.0.1 URL. Raises ProbeError. Does not follow a redirect."""
+    """GET one loopback URL within a total deadline. Does not follow a redirect."""
     parts = urlsplit(url)
     if (parts.scheme != "http" or parts.hostname != "127.0.0.1" or parts.port is None
             or parts.username or parts.password or parts.query or parts.fragment):
         raise ProbeError("refused")
     started = time.monotonic()
+    deadline = started + timeout
     connection = http.client.HTTPConnection("127.0.0.1", parts.port, timeout=timeout)
+    timer = None
+    expired = threading.Event()
     try:
+        connection.connect()
+        sock = connection.sock
+        def expire():
+            expired.set()
+            try:
+                sock.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise ProbeError("timeout")
+        timer = threading.Timer(remaining, expire)
+        timer.daemon = True
+        timer.start()
         connection.request("GET", parts.path or "/", headers={"Accept": "application/json, text/plain"})
         response = connection.getresponse()
         body = response.read(limit + 1)
+        if expired.is_set() or time.monotonic() >= deadline:
+            raise ProbeError("timeout")
         if len(body) > limit:
             raise ProbeError("oversize")
         return response.status, body.decode("utf-8", "replace"), (time.monotonic() - started) * 1000
@@ -109,9 +131,12 @@ def loopback_get(url, timeout=0.4, limit=1024 * 1024):
         raise ProbeError("timeout")
     except ConnectionRefusedError:
         raise ProbeError("refused")
-    except OSError:
-        raise ProbeError("unavailable")
+    except (OSError, http.client.HTTPException):
+        raise ProbeError("timeout" if expired.is_set() or time.monotonic() >= deadline else "unavailable")
     finally:
+        if timer is not None:
+            timer.cancel()
+            timer.join()
         connection.close()
 
 
@@ -230,7 +255,9 @@ def _lmstudio_loaded(text):
         return None
     loaded = []
     for item in rows:
-        if not isinstance(item, dict) or item.get("state") != "loaded":
+        if not isinstance(item, dict) or item.get("state") not in ("loaded", "not-loaded"):
+            return None
+        if item["state"] != "loaded":
             continue
         if not isinstance(item.get("id"), str) or not item["id"] or len(item["id"]) > 1024:
             continue
@@ -334,7 +361,7 @@ def _read_router(spec, base, fetch, observed, endpoint):
 
 def _read_pc(target, fetch, rates, now, observed):
     spec = _BY_ID.get(target.get("id"))
-    endpoint = target.get("service")
+    endpoint = target.get("base")
     if spec is None:
         return _blank(str(target.get("id") or "pc:unknown"), "pc", "llama", "Unknown lane", observed,
                       health="not_measured", reason="unknown_lane", endpoint=endpoint)
@@ -343,12 +370,14 @@ def _read_pc(target, fetch, rates, now, observed):
                       health="not_measured", reason="tunnel_down", endpoint=endpoint)
     if spec["role"] == "router":
         return _read_router(spec, target["base"], fetch, observed, endpoint)
-    return _read_llama(spec, target["base"], fetch, rates, now, observed, endpoint)
+    node = _read_llama(spec, target["base"], fetch, rates, now, observed, endpoint)
+    if target.get("service") and endpoint != "http://" + target["service"]:
+        node["upstream"] = "http://" + target["service"]
+    return node
 
 
 def _read_lmstudio(fetch, observed):
-    spec = {"id": "mac:lmstudio", "machine": "mac", "role": "lmstudio", "label": "LM Studio",
-            "expectedModel": "gpt-oss-20b"}
+    spec = {"id": "mac:lmstudio", "machine": "mac", "role": "lmstudio", "label": "LM Studio"}
     failure, result = _request(fetch, _LMSTUDIO + "/api/v0/models")
     if failure in ("refused", "timeout"):
         return _transport_failure(spec, "127.0.0.1:1234", observed, failure)
@@ -358,13 +387,13 @@ def _read_lmstudio(fetch, observed):
         if failure:
             return _transport_failure(spec, "127.0.0.1:1234", observed, failure)
         if result and result[0] == 200:
-            return _blank(spec["id"], "mac", "lmstudio", spec["label"], observed, health="ok",
+            return _blank(spec["id"], "mac", "lmstudio", spec["label"], observed, health="not_measured",
                           reason="load_state_unreported", endpoint="127.0.0.1:1234", latency_ms=_ms(result[2]))
         return _blank(spec["id"], "mac", "lmstudio", spec["label"], observed, health="down",
                       reason="upstream_error", endpoint="127.0.0.1:1234")
     latency = _ms(result[2])
     if len(loaded) == 1:
-        model_id, health, reason = _model_fields(loaded[0]["id"], spec["expectedModel"])
+        model_id, health, reason = _model_fields(loaded[0]["id"], None)
         return _blank(spec["id"], "mac", "lmstudio", spec["label"], observed, health=health, reason=reason,
                       endpoint="127.0.0.1:1234", model_id=model_id, latency_ms=latency,
                       context_limit=loaded[0]["context"])
@@ -416,11 +445,18 @@ def _mac_absent(observed):
     ]
 
 
-def collect_map(host, *, fetch=None, rates=None, now=None, targets=None, veritas_url=None, tunnel=None, vram=None):
+def collect_map(host, *, fetch=None, rates=None, now=None, targets=None, veritas_url=None, tunnel=None, vram=None,
+                lmstudio=None):
     """The same node ids on the Mac and the PC. A machine only fills what it can probe."""
     if host not in ("mac", "pc"):
         raise ValueError(host)
-    fetch = fetch or loopback_get
+    if fetch is None:
+        deadline = time.monotonic() + .8
+        def fetch(url):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise ProbeError("timeout")
+            return loopback_get(url, timeout=min(.4, remaining))
     rates = rates or RateMemory()
     now = time.time() if now is None else now
     observed = _iso(now)
@@ -429,7 +465,7 @@ def collect_map(host, *, fetch=None, rates=None, now=None, targets=None, veritas
         pc_children = [_read_pc(item, fetch, rates, now, observed) for item in (targets or direct_targets())]
         tunnel = None
     else:
-        mac_children = [_read_lmstudio(fetch, observed),
+        mac_children = [lmstudio if lmstudio is not None else _read_lmstudio(fetch, observed),
                         _read_veritas(fetch, observed, os.environ.get("VERITAS_REVIEWER_URL") if veritas_url is None else veritas_url)]
         pc_children = [_read_pc(item, fetch, rates, now, observed) for item in (targets if targets is not None else closed_targets())]
     nodes = [machine_node("mac", "Mac", mac_children, observed_at=observed, vram=vram if host == "mac" else None),
@@ -440,11 +476,47 @@ def collect_map(host, *, fetch=None, rates=None, now=None, targets=None, veritas
     return {"schema": MAP_SCHEMA, "observedAt": observed, "tunnel": tunnel, "nodes": nodes, "edges": edges_for(nodes)}
 
 
+def _snapshot_lmstudio(snapshot):
+    """Reuse telemetry's inventory and verified endpoint; do not probe a second listener."""
+    sampled = snapshot.get("fullSampledAt", snapshot.get("sampledAt"))
+    observed = _iso(sampled) if _finite(sampled) else None
+    node = _blank("mac:lmstudio", "mac", "lmstudio", "LM Studio", observed,
+                  health="not_measured", reason="inventory_unverified")
+    sources = [source for source in snapshot.get("sources", []) if source.get("id") == "lmstudio-api"]
+    if len(sources) != 1:
+        return node
+    source = sources[0]
+    owner = source.get("verifiedListener") or {}
+    endpoint = source.get("endpoint")
+    if (source.get("state") != "live" or source.get("route") != "direct"
+            or source.get("modelsComplete") is not True or owner.get("kind") != "lmstudio"
+            or type(owner.get("pid")) is not int or owner["pid"] <= 0 or not owner.get("executable")
+            or not isinstance(endpoint, str) or not re.fullmatch(r"127\.0\.0\.1:[1-9][0-9]{0,4}", endpoint)
+            or int(endpoint.rsplit(":", 1)[1]) > 65535):
+        return node
+    node["endpoint"] = "http://" + endpoint
+    rows = [row for row in snapshot.get("models", []) if row.get("host") == "mac"]
+    if (not _finite(sampled) or not -2 <= time.time() - sampled <= 3
+            or any(type(row.get("loaded")) is not bool or not _finite(row.get("ageSeconds"))
+                   or not 0 <= row["ageSeconds"] <= 3 for row in rows)):
+        return node
+    loaded = {row.get("modelKey") or row["id"]: row for row in rows if row.get("loaded") is True}
+    node.update(health="ok" if loaded else "degraded", reason=None if loaded else "model_not_loaded")
+    if len(loaded) == 1:
+        model, row = next(iter(loaded.items()))
+        node.update(modelId=model, contextLimit=_whole(row.get("context")))
+    elif loaded:
+        node["reason"] = "multiple_loaded"
+    return node
+
+
 def attach(snapshot, host, **kwargs):
     """Add the map and copy measured tok/s onto the machine rows. A probe failure does not drop the sample."""
     if not isinstance(snapshot, dict):
         return None
     try:
+        if host == "mac":
+            kwargs["lmstudio"] = _snapshot_lmstudio(snapshot)
         document = collect_map(host, **kwargs)
     except Exception:
         document = {"schema": MAP_SCHEMA, "nodes": [], "edges": [], "error": "collector_failed"}

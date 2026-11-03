@@ -34,6 +34,7 @@ from bundled_components import BundledComponents
 from jev_connection import JevConnection
 from machine_state import FRESH_SECONDS, expire_machines, finite_number, platform_name
 from inference_collect import RateMemory, attach, vram_from_reading
+from inference_stats import expire_map
 from pc_tunnel import load_config, port_accepts, targets as tunnel_targets
 
 ROOT = Path(__file__).resolve().parent / 'web'
@@ -372,6 +373,7 @@ class SnapshotStore:
         if data is None:
             return None
         now = time.time()
+        expire_map(data.get('inference'), now)
         elapsed = max(0.0, now - data['sampledAt'])
         if isinstance(data.get('machines'), list):
             expire_machines(data['machines'], now)
@@ -919,8 +921,6 @@ def sample(store, stop, feed=None, tick=0.15, full_interval=1.0, guard=None, aut
                 vram = vram_from_reading(gpu.get('inUseBytes'), gpu.get('unifiedMemoryCeilingBytes'))
                 if vram is None:
                     vram = vram_from_reading(gpu.get('allocatedBytes'), gpu.get('unifiedMemoryCeilingBytes'))
-                status, rows = tunnel_targets(load_config(), port_accepts)
-                attach(data, 'mac', rates=_INFERENCE_RATES, targets=rows, tunnel=status, vram=vram)
                 activity_known = activity_is_known(data.get('models', []),
                                                   {s['id']: s.get('state') for s in data['sources']})
                 data['localCallers'], callers_source = callers.sample(
@@ -934,6 +934,8 @@ def sample(store, stop, feed=None, tick=0.15, full_interval=1.0, guard=None, aut
                 memory = memory_sample(guard, data if isinstance(data, dict) else {})
             data['memory'], memory_source = memory
             data['sources'].append(memory_source)
+            status, rows = tunnel_targets(load_config(), port_accepts)
+            attach(data, 'mac', rates=_INFERENCE_RATES, targets=rows, tunnel=status, vram=vram)
             activity = collect_activity()
             data['activity'] = {'runs': activity['runs'], 'sampledAt': activity.get('sampledAt'), 'historyBound': activity.get('historyBound'),
                                 'complete': activity.get('complete', False)}
