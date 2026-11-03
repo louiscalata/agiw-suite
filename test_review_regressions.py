@@ -38,6 +38,78 @@ def handler(path, store=None, body=None, capability=None, supplied=None):
 
 
 class ReviewRegressions(unittest.TestCase):
+    def test_all_control_routes_require_a_single_current_capability(self):
+        routes = list(server.OWNER_ACTION_ROUTES) + ['/api/models/control', '/api/models/auto-unload',
+                                                   '/api/components/nisi/check', '/api/components/jev/check']
+        for route in routes:
+            for supplied in (None, 'wrong-fixture', 'non-ascii-\u00e9'):
+                with self.subTest(route=route, supplied=supplied):
+                    request = handler(route, capability='fixture-only', supplied=supplied)
+                    self.assertEqual(request.do_POST()[0], 403)
+        request = handler('/api/components/jev/check', body={'action': 'connection-check'},
+                          capability='fixture-only', supplied='fixture-only')
+        self.assertEqual(request.do_POST()[0], 202)
+        request.headers['X-AGIW-Control'] = 'fixture-only'
+        self.assertEqual(request.do_POST()[0], 403)
+
+    def test_native_capability_requires_parent_and_bounded_pipe_input(self):
+        fixture = 'a' * 64  # public test data, never a generated capability
+        with patch('server.os.getppid', return_value=123):
+            self.assertIsNone(server.read_native_capability(None, io.StringIO(fixture + '\n')))
+            self.assertIsNone(server.read_native_capability(124, io.StringIO(fixture + '\n')))
+            self.assertTrue(server.read_native_capability(123, io.StringIO(fixture + '\n')) == fixture)
+            for value in ('', fixture, fixture + 'b\n', 'not-valid\n'):
+                self.assertIsNone(server.read_native_capability(123, io.StringIO(value)))
+
+    def test_authorized_fix_without_content_length_reaches_transport_validation(self):
+        request = handler('/api/inference/fix', capability='fixture-only', supplied='fixture-only')
+        request.server.l2_open = True
+        request.server.online_code_repair = SimpleNamespace(request_fix=lambda _: self.fail('must not dispatch'))
+        del request.headers['Content-Length']
+        with patch('server.mac_online_code_controls_enabled', return_value=True):
+            self.assertEqual(request.do_POST()[0], 411)
+            # Authentication still precedes transport validation.
+            del request.headers['X-AGIW-Control']
+            self.assertEqual(request.do_POST()[0], 403)
+
+    def test_monitor_links_to_served_control_dashboard(self):
+        page = Path('web/monitor.html').read_text()
+        self.assertRegex(page, r'<a\s+href="/"')
+        request = handler('/')
+        replies = []
+        request.reply = lambda status, payload, mime: replies.append(status)
+        request.do_GET()
+        self.assertEqual(replies, [200])
+
+    def test_sampler_reconciles_only_fresh_positive_settlement(self):
+        from contextlib import ExitStack
+        from model_control import ModelControl, ControlError
+        from test_model_control import inventory
+        from test_server import MemoryGuardSampleTest
+        store = server.SnapshotStore()
+        store.publish(inventory())
+        def fail(*_):
+            raise ControlError(502, 'fixture command failed')
+        control = ModelControl(store, runner=fail)
+        control.request('unload', 'publisher/model')
+        self.assertTrue(control.join(1))
+        self.assertEqual(control.read()['settlement'], 'unconfirmed')
+        helper = MemoryGuardSampleTest()
+        for loaded, expected in ((True, 'unconfirmed'), (False, 'confirmed')):
+            data = inventory(loaded=loaded, state='idle' if loaded else 'unloaded',
+                             source='lms-ps' if loaded else 'lmstudio-api')
+            with ExitStack() as stack:
+                for name, value in [('collect_snapshot', data), ('mac_gpu', ({}, {'id': 'mac-gpu'})),
+                                    ('collect_activity', {'runs': [], 'sources': []}),
+                                    ('collect_clients', ([], [])), ('LocalCallers', helper.Callers()),
+                                    ('load_config', pc_tunnel.load_config(environ={}))]:
+                    stack.enter_context(patch('server.' + name, return_value=value))
+                stack.enter_context(patch('server.attach'))
+                server.sample(store, helper.Stop(1), feed=helper.Feed(), guard=helper.FakeGuard(),
+                              model_controller=control)
+            self.assertEqual(control.read()['settlement'], expected)
+        self.assertEqual(control.read()['status'], 'failed')
+
     def test_attach_reuses_verified_inventory_and_endpoint_without_reprobe(self):
         data = snapshot()
         data['models'][0].update(id='qwen', modelKey='qwen', context=8192)
@@ -114,6 +186,9 @@ class ReviewRegressions(unittest.TestCase):
         self.assertIsNone(node['generationTokensPerSecond'])
         self.assertIsNone(node['slotsBusy'])
         self.assertEqual(store.snapshot['inference']['nodes'][0]['health'], 'ok')
+
+    def test_control_rejects_forged_origin_without_capability(self):
+        self.assertEqual(handler('/api/components/jev/check', body={'action': 'connection-check'}).do_POST()[0], 403)
 
     def test_expiration_removes_observed_edges_but_keeps_structural_links(self):
         from inference_stats import expire_map

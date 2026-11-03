@@ -20,14 +20,14 @@ def dispatch(path, body, gate):
     control = Mock()
     for name in ('request', 'request_fix', 'request_headless', 'request_entry', 'set_enabled'):
         getattr(control, name).return_value = {'status': 'running'}
-    handler.server = SimpleNamespace(server_address=('127.0.0.1', 12345), online_code_repair=control,
+    handler.server = SimpleNamespace(control_capability='fixture-only', server_address=('127.0.0.1', 12345), online_code_repair=control,
                                      model_control=control, auto_unloader=control)
     if gate == 'none': handler.server.l2_gate = None
     raw = json.dumps(body).encode()
     handler.path, handler.rfile = path, BytesIO(raw)
     handler.headers = Message()
     for key, value in {'Host':'127.0.0.1:12345','Origin':'http://127.0.0.1:12345',
-                       'Content-Type':'application/json','Content-Length':str(len(raw))}.items():
+                       'Content-Type':'application/json','Content-Length':str(len(raw)), 'X-AGIW-Control':'fixture-only'}.items():
         handler.headers[key] = value
     handler.reply = Mock()
     with patch('server.mac_online_code_controls_enabled', return_value=True): handler.do_POST()

@@ -6,6 +6,7 @@ import copy
 import datetime as dt
 from contextlib import contextmanager
 import fcntl
+import hmac
 import json
 import math
 import os
@@ -402,7 +403,7 @@ class MonitorServer(ThreadingHTTPServer):
     max_streams = 3
     stream_write_timeout_seconds = 5.0
 
-    def __init__(self, address, store, *, durable_model_control=False, l2_open=False):
+    def __init__(self, address, store, *, durable_model_control=False, l2_open=False, control_capability=None):
         if address[0] != '127.0.0.1':
             raise ValueError('Monitor must bind to IPv4 loopback')
         if type(durable_model_control) is not bool:
@@ -410,6 +411,7 @@ class MonitorServer(ThreadingHTTPServer):
         if type(l2_open) is not bool:
             raise ValueError('L2-open flag must be boolean')
         self.store = store
+        self.control_capability = control_capability
         self.l2_open = l2_open
         self.action_diagnosis = None
         # Explicit opt-in only. ModelControl reads an existing journal and
@@ -563,6 +565,11 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(404, b'{"status":"error","message":"Not found."}', 'application/json')
         if not self.same_origin(require_origin=True):
             return self.control_error(403, 'Exact same-origin Origin and Host are required.')
+        capability = getattr(self.server, 'control_capability', None)
+        supplied = self.headers.get_all('X-AGIW-Control', [])
+        if (not capability or len(supplied) != 1 or not supplied[0].isascii()
+                or not hmac.compare_digest(supplied[0], capability)):
+            return self.control_error(403, 'Native control capability required.')
         if (self.path in OWNER_ACTION_ROUTES
                 and (not mac_online_code_controls_enabled()
                      or self.server.online_code_repair is None)):
@@ -876,7 +883,7 @@ def _verified_direct_lmstudio_listener(snapshot):
 
 
 def sample(store, stop, feed=None, tick=0.15, full_interval=1.0, guard=None, auto_unloader=None,
-           publisher=None):
+           publisher=None, model_controller=None):
     """One loop: a full sample every second and, between them, change-driven overlays every tick.
     main() passes the monitor's memory guard (with its watchdog); without one, the memory block
     comes from a read-only guard that never pauses, notifies, journals or publishes level.json.
@@ -961,6 +968,14 @@ def sample(store, stop, feed=None, tick=0.15, full_interval=1.0, guard=None, aut
                                             'state': 'error', 'ageSeconds': None,
                                             'detail': 'Presence publisher state unreadable'})
             store.publish(data)
+            if model_controller is not None:
+                state = model_controller.read()
+                if state.get('settlement') == 'unconfirmed' and not state.get('workerActive'):
+                    try:
+                        model_controller.reconcile(state['operationId'])
+                    except ControlError:
+                        # Opposite, stale or incomplete inventory is not settlement proof.
+                        pass
             if publisher is not None:
                 try:
                     publisher.offer(store.read)  # due every 10 s; hands over the snapshot, never waits on the share
@@ -1048,6 +1063,14 @@ def peer_options(publish_status=False, peer_link=False, config=None, port=None):
                 'enabledBy': '', 'configSource': None}, None
 
 
+def read_native_capability(parent_pid, stream=None):
+    """Read the native parent's private stdin pipe once. Never publish or persist its value."""
+    if not parent_pid or parent_pid != os.getppid():
+        return None
+    line = (stream or sys.stdin).readline(66)
+    return line[:-1] if re.fullmatch(r'[0-9a-f]{64}\n', line) else None
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--port', type=int, default=0)
@@ -1067,6 +1090,9 @@ def main():
     args = parser.parse_args()
     store = SnapshotStore()
     owner_options = {'l2_open': True} if args.l2_open else {}
+    capability = read_native_capability(args.parent_pid)
+    if capability is not None:
+        owner_options['control_capability'] = capability
     if args.durable_model_control:
         owner_options['durable_model_control'] = True
     server = MonitorServer(('127.0.0.1', args.port), store, **owner_options)
@@ -1088,7 +1114,8 @@ def main():
             route_check_fn=fresh_route)
     server.auto_unloader = auto
     threading.Thread(target=sample, args=(store, stop),
-                     kwargs={'guard': guard, 'auto_unloader': auto, 'publisher': publisher}, daemon=True).start()
+                     kwargs={'guard': guard, 'auto_unloader': auto, 'publisher': publisher,
+                             'model_controller': getattr(server, 'model_control', None)}, daemon=True).start()
     def shutdown(*_):
         stop.set()
         stopping = getattr(server, 'stopping', None)

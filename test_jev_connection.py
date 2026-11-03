@@ -16,7 +16,7 @@ class JevHTTPTests(unittest.TestCase):
     def test_jev_check_requires_exact_origin_and_closed_body(self):
         from server import MonitorServer, SnapshotStore
         with mock.patch('server.mac_online_code_controls_enabled', return_value=False):
-            server = MonitorServer(('127.0.0.1', 0), SnapshotStore())
+            server = MonitorServer(('127.0.0.1', 0), SnapshotStore(), control_capability='fixture-only')
         server.jev_connection = mock.Mock()
         server.jev_connection.request_check.return_value = {'configured': False, 'state': 'not-configured'}
         worker = threading.Thread(target=server.serve_forever, daemon=True)
@@ -30,7 +30,7 @@ class JevHTTPTests(unittest.TestCase):
             ):
                 connection = HTTPConnection('127.0.0.1', port, timeout=3)
                 connection.request('POST', '/api/components/jev/check', body=body,
-                                   headers={'Content-Type': 'application/json', 'Origin': origin})
+                                   headers={'Content-Type': 'application/json', 'Origin': origin, 'X-AGIW-Control': 'fixture-only'})
                 response = connection.getresponse()
                 self.assertEqual(response.status, expected)
                 response.read()

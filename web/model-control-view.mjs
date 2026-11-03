@@ -4,6 +4,7 @@ export function modelControlView(model, { host, feedFresh, supported, reason, st
   if (!feedFresh) return { action: null, reason: 'Live feed is stale; control is unavailable.' };
   if (supported !== true) return { action: null, reason: reason || 'Local model control is unsupported.' };
   if (status?.status === 'running') return { action: null, reason: `${status.action || 'Model operation'} is running.` };
+  if (status?.settlement === 'unconfirmed') return { action: null, reason: 'Waiting for fresh inventory to confirm the previous operation; controls remain unavailable until settlement.' };
   if (model.source === 'lmstudio-api' && model.state === 'unloaded' && model.loaded === false && (host === 'windows' || model.modelKey === model.id)) {
     return { action: 'load', reason: 'Ready to load this exact local model.' };
   }

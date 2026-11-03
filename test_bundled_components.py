@@ -85,7 +85,7 @@ class ComponentTests(unittest.TestCase):
 class ComponentEndpointTests(unittest.TestCase):
     def setUp(self):
         with patch.object(server, 'mac_online_code_controls_enabled', return_value=False):
-            self.http = server.MonitorServer(('127.0.0.1', 0), server.SnapshotStore())
+            self.http = server.MonitorServer(('127.0.0.1', 0), server.SnapshotStore(), control_capability='fixture-only')
         self.thread = threading.Thread(target=self.http.serve_forever, daemon=True)
         self.thread.start()
 
@@ -96,7 +96,7 @@ class ComponentEndpointTests(unittest.TestCase):
 
     def post(self, body, origin=True, content_type='application/json'):
         port = self.http.server_address[1]
-        headers = {'Content-Type': content_type}
+        headers = {'Content-Type': content_type, 'X-AGIW-Control': 'fixture-only'}
         if origin: headers['Origin'] = f'http://127.0.0.1:{port}' if origin is True else origin
         connection = HTTPConnection('127.0.0.1', port, timeout=2)
         connection.request('POST', '/api/components/nisi/check', body=body, headers=headers)
