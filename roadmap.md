@@ -1,5 +1,30 @@
 # AGIW Suite roadmap and release evidence
 
+## Commit ids before the history rewrite
+
+The entries below, the README's CI link and the Actions runs they cite name commits by their ids before a later history rewrite that changed commit metadata only (author and committer email). Each source tree is unchanged, so every cited commit has a current commit with the same tree (checked 3 November 2026):
+
+| Cited id | Current commit | Tree | Subject |
+| --- | --- | --- | --- |
+| `caaa7d4` | `89bb37e` (tag `v1.0.0-macos-rc.2`) | `30765161df0c` | Prevent Jev helper from displacing the main Monitor |
+| `cbd623d` | `b7f31a1` | `5cb36828c0f9` | Clarify hosted Jev credential and metadata transmission |
+| `efab5c1` | `99d3ce4` | `d0010a5bd2e0` | Bundle public Nisi 0.2 and add optional hosted Jev setup |
+| `82ff28e` | `55f1880` | `038552e355e3` | Correct release README claims and document resident model budget |
+| `76d1ad7` | `5fff676` | `243f8e5202f4` | Admit quiet swap-only Mac builds after fresh confirmation |
+| `fe8b8cf` | `3268d17` | `e619b6aef9fa` | Add AGIW Inference Monitor source snapshot |
+| `d971e34` | `0fd4516` | `dbb8ee2c0c22` | Make Monitor source checks self-contained on CI |
+| `912ebb8` | `d085928` | `0a170cf46c89` | Add AS portfolio interface to Inference Monitor |
+| `a182230` | `0bec216` | `05d2e4ff7b20` | Publish sandbox-aware memory guard with monitor level feed |
+| `f88ae22` | `f790148` | `7405e966259b` | Add noninstalling signed DMG candidate build |
+| `89ca189` | `42bfdd3` | `c0db35254955` | Require Apple silicon for native Monitor builds |
+| `8ef3e88` | `477506c` (tag `v1.0.0-macos-rc.1`) | `bd78e4911eb2` | Clarify model telemetry and release availability |
+| `807615e` | `8bb7de7` (tag `v1.0.0`) | `f9ebc2a4ef01` | Synchronize nested-child cleanup fixture before timeout |
+| `3474191` | `d03aa2a` (tag `v1.0.0-source-preview.1`) | `aa6fb293f75b` | Prepare Apache-licensed public source preview |
+| `d24642b` | `d98f069` | `67ac380faf76` | Record verified source push and exact CI result |
+| `fc72da2` | `8ef821a` | `c396aa917eec` | Include Apache license and notice in signed DMG candidates |
+
+Compare with `git rev-parse <commit>^{tree}`. The release pages of rc.1, rc.2 and the source preview were unpublished on 18 October 2026; their tags remain, and v1.0.0 is the only download.
+
 ## Scope change — 25 October 2026
 
 - [x] Narrow AGIW to two machines: the Apple-silicon MacBook Pro and the Windows PC. The Linux Mac Pro is retired from AGIW, and the Linux coordinator/system-service work below is shelved. Linux items are kept as dated history and will not be completed. PAIR is uninstalled. The PC serves the router on port 1234, qwen3.8-27b on port 1236 and gpt-oss-20b on port 1245.
@@ -59,7 +84,7 @@ The repository and release overview now use a simpler glowing AS banner, a two-c
 ## Public v1.0.0 release — 30 September 2026, 13:44 PDT
 
 - [x] Prepare the reviewed, notarized Build 7 for the requested complete public GitHub release. Preserve all 53 signed application files and modes from compiled source `caaa7d482a1f168d86c496af4f573dfcbf0490b8`; clarify the outer `INSTALL.txt` and add `RELEASE-NOTES.md`. The final 494,134-byte ZIP has SHA-256 `9a995fb8e3f6e6c5a12d76ec0d8b7f485643dd02cccf45db7c15ce1314f473a2`. Final extraction passed strict signatures, attached-ticket validation, Gatekeeper and exact app parity; no app rebuild or re-sign occurred.
-- [x] Publish and verify the regular latest [v1.0.0 release](https://github.com/louiscalata/agiw-suite/releases/tag/v1.0.0) at 20:44:22 UTC. GitHub reports repository public, draft false and prerelease false; its latest-release endpoint selects v1.0.0. Tag `v1.0.0` points to `807615e2d378051a92ab73bea241044069a175f8`, whose CI passed. Anonymous ZIP and checksum downloads returned HTTP 200, matched the verified local bytes and passed the checksum command. Later documentation updates do not change the tag or compiled app identity.
+- [x] Publish and verify the regular latest [v1.0.0 release](https://github.com/louiscalata/agiw-suite/releases/tag/v1.0.0) at 20:44:22 UTC. GitHub reports repository public, draft false and prerelease false; its latest-release endpoint selects v1.0.0. Tag `v1.0.0` pointed to `807615e2d378051a92ab73bea241044069a175f8` (now `8bb7de71491e23c4d1409a807549fbb5b2c15b1e`), whose CI passed. Anonymous ZIP and checksum downloads returned HTTP 200, matched the verified local bytes and passed the checksum command. Later documentation updates do not change the tag or compiled app identity.
 - [ ] Complete native Jev Cancel/reopen and credential entry/save/remove, full native rendering/animation and quarantined first installation on a clean supported Mac. The public release documents these remaining validation limits; publication does not supply missing acceptance evidence.
 
 The earlier rc.2 and rc.1 downloads remain available. This release publishes the reviewed application with the remaining native checks explicitly documented as follow-up work. Those checks remain incomplete; the earlier candidate decisions and evidence below retain their historical scope.

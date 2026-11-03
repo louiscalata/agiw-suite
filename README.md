@@ -16,7 +16,7 @@ The download is Developer ID signed and Apple-notarized. [Known validation limit
 
 **Scope change · 2026-10-25:** AGIW now runs on two machines only, the Apple-silicon MacBook Pro and the Windows PC. The Linux Mac Pro is retired from AGIW. Linux figures below are kept as dated history.
 
-AGIW's development system is bringing the **Mac and the Windows PC** into one observable workflow. The intended workflow uses Nisi v0.2 and Jev task analysis. The Windows PC serves the router on port **1234**, qwen3.8-27b on port **1236**, and gpt-oss-20b on port **1245**. The Mac's LM Studio serves gpt-oss-20b on port **1234**. NVIDIA PAIR is uninstalled and is not the transport between the machines. The shared monitor page is described in [docs/inference-monitor.md](docs/inference-monitor.md). The Windows PC has **two separate GPUs: an NVIDIA RTX 3080 Ti and an AMD RX 5700 XT**. (Earlier plans had Linux contribute GPU-assisted inference and storage, and PAIR carry requests between engines; both are retired.)
+AGIW's development system is bringing the **Mac and the Windows PC** into one observable workflow. The intended workflow uses Nisi v0.2 and Jev task analysis. Each machine's model servers are configured on that machine; NVIDIA PAIR is not the transport between the machines. The shared monitor page is described in [docs/inference-monitor.md](docs/inference-monitor.md). The Windows PC has **two separate GPUs: an NVIDIA RTX 3080 Ti and an AMD RX 5700 XT**. (Earlier plans had Linux contribute GPU-assisted inference and storage, and PAIR carry requests between engines; both are retired.)
 
 <img src="docs/assets/three-machine-architecture.svg" width="1280" alt="Historical AGIW three-machine development topology (Linux retired 2026-10-25): tools feed Nisi and Jev, optional PAIR transport and separate PC, Linux and Mac workers. The PC has distinct NVIDIA CUDA and AMD Vulkan GPU lanes. Production integration is still in progress.">
 
@@ -38,6 +38,7 @@ flowchart LR
 - **Before/after:** Before, the summary was dated 2026-10-18; after, it includes a high-level 2026-10-23 status. Measured values are unchanged, and this documentation refresh did not create a new benchmark.
 - **Windows edition:** In development and not released.
 - **Monitor hardening:** In development and not released; missing or unverified observations remain unknown rather than being presented as zero or idle.
+- **Source after 1.0.0 (2026-11-03):** `main` is version 1.2.0 (13), in development. Its native window opens the new inference map (`/monitor`), which polls every two seconds. The map does not yet age out old readings, keeps the last map when a refresh fails, reads LM Studio on port 1234 directly, and has no Browse, Core 6, Components or control panels; the earlier dashboard is still served at `/`. The features listed below describe the 1.0.0 (7) download.
 - **Two-machine coordination (Mac and PC):** Production integration remains in development. The worker diagram and **NOT MEASURED** results above describe measurement state, not machine readiness.
 
 ## Requirements
@@ -132,11 +133,11 @@ This checks connectivity only. It does not enable coding-task routing or verify 
 | **Component checks** | Native Nisi offline self-check passed with zero model calls. One authorized fixed hosted Jev probe using an existing Keychain credential returned `connected`. |
 | **Still open** | Complete native rendering/animation, a quarantined clean-Mac first install, and Jev Cancel/reopen and credential entry/save/remove remain unverified. |
 
-The [roadmap](roadmap.md) records compiled source, package provenance and remaining acceptance work. The successful connection probe does not establish native setup acceptance, live task routing or provider model identity. [rc.2](https://github.com/louiscalata/agiw-suite/releases/tag/v1.0.0-macos-rc.2) and [rc.1](https://github.com/louiscalata/agiw-suite/releases/tag/v1.0.0-macos-rc.1) remain available for rollback.
+The [roadmap](roadmap.md) records compiled source, package provenance and remaining acceptance work. The successful connection probe does not establish native setup acceptance, live task routing or provider model identity. The rc.2 and rc.1 candidates remain as the tags `v1.0.0-macos-rc.2` and `v1.0.0-macos-rc.1`; their release pages are no longer published, so v1.0.0 is the only download. The CI run and the roadmap name commits by their ids before a later history rewrite that changed commit metadata only; the roadmap [maps each to its current commit](roadmap.md#commit-ids-before-the-history-rewrite) with the same source tree.
 
 ## Development
 
-Read the [architecture and capability reference](docs/architecture.md) for implementation boundaries. Use the [development guide](docs/development.md) for the local browser view, source checks, Nisi CLI and distribution packaging. The earlier [source-preview release](https://github.com/louiscalata/agiw-suite/releases/tag/v1.0.0-source-preview.1) remains available.
+Read the [architecture and capability reference](docs/architecture.md) for implementation boundaries. Use the [development guide](docs/development.md) for the local browser view, source checks, Nisi CLI and distribution packaging. The earlier source preview remains as the tag `v1.0.0-source-preview.1`.
 
 ## Support and contributing
 
