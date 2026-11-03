@@ -29,3 +29,12 @@ evidence/
 .scratch/
 receipts/
 .tmp.*/
+/integration-evidence/
+.mypy_cache/
+.coverage
+htmlcov/
+.vscode/
+.idea/
+*.swp
+/wt/
+/.fix*-evidence/
