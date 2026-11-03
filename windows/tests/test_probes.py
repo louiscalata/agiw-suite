@@ -180,11 +180,11 @@ class Hardening(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             directory = probes.peer_dir(Path(tmp))
             directory.mkdir(parents=True)
-            (directory / "evil.json").write_text(json.dumps(self.peer("louis-mac")))       # name != host
-            (directory / "louis-mac.json").write_text(json.dumps(self.peer("louis-mac")))
+            (directory / "evil.json").write_text(json.dumps(self.peer("example-mac")))       # name != host
+            (directory / "example-mac.json").write_text(json.dumps(self.peer("example-mac")))
             (directory / "not a host!.json").write_text(json.dumps(self.peer("x")))
             peers, source = probes.read_peers(Path(tmp), "pc", 1000.0)
-        self.assertEqual([p["host"] for p in peers], ["louis-mac"])
+        self.assertEqual([p["host"] for p in peers], ["example-mac"])
         self.assertFalse(peers[0]["verified"])
         self.assertIn("not verified", source["detail"])
 
@@ -476,15 +476,15 @@ class PeerLink(unittest.TestCase):
         now = 1000.0
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            self.write(root, "louis-m5-pro.json", self.peer("louis-m5-pro", now - 4))
-            self.write(root, "macpro51.json", self.peer("macpro51", now - 7200, platform="linux"))
+            self.write(root, "example-mbp.json", self.peer("example-mbp", now - 4))
+            self.write(root, "linux-tower.json", self.peer("linux-tower", now - 7200, platform="linux"))
             self.write(root, "winpc01.json", self.peer("winpc01", now - 1, platform="windows"))
             self.write(root, "junk.json", {"kind": "other"})
             peers, source = probes.read_peers(root, "winpc01", now)
-        self.assertEqual([p["host"] for p in peers], ["louis-m5-pro", "macpro51"])
+        self.assertEqual([p["host"] for p in peers], ["example-mbp", "linux-tower"])
         self.assertEqual([p["fresh"] for p in peers], [True, False])
         self.assertEqual(source["state"], "live")
-        self.assertIn("1 reported (louis-m5-pro;", source["detail"])
+        self.assertIn("1 reported (example-mbp;", source["detail"])
 
     def test_legacy_mac_status_counts_when_no_fresh_mac_peer(self):
         import datetime as dt

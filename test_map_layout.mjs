@@ -1868,9 +1868,9 @@ test('Mac presence: a complete loaded list supports a count without claiming com
 test('macReportView requires and reads only the configured Mac name', () => {
   const mac = (host, health = 'ok') => ({host, platform: 'macos', source: 'agiw-peers', fresh: true, modelsComplete: true,
     ageSeconds: 2, health, models: [{id: 'a', loadedState: 'loaded', activity: 'idle'}]});
-  const peers = [mac('other-mac', 'down'), mac('louis-m5-pro-macbook-pro')];
-  assert.equal(layoutModule.macReportView(peers, {feedFresh: true, name: 'Louis-M5-Pro-MacBook-Pro'}).words, 'Reports 1 loaded · idle');
-  assert.equal(layoutModule.macReportView(peers, {feedFresh: true, name: 'Louis-M5-Pro-MacBook-Pro.local'}).words, 'Reports 1 loaded · idle');
+  const peers = [mac('other-mac', 'down'), mac('example-macbook-pro')];
+  assert.equal(layoutModule.macReportView(peers, {feedFresh: true, name: 'Example-MacBook-Pro'}).words, 'Reports 1 loaded · idle');
+  assert.equal(layoutModule.macReportView(peers, {feedFresh: true, name: 'Example-MacBook-Pro.local'}).words, 'Reports 1 loaded · idle');
   assert.deepEqual(layoutModule.macReportView(peers, {feedFresh: true, name: 'third-mac'}), {known: false});
   // A report host with a domain matches the same way as a configured name with one (the collector's rule).
   assert.equal(layoutModule.macReportView([mac('Mac.local')], {feedFresh: true, name: 'mac'}).words, 'Reports 1 loaded · idle');

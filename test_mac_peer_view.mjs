@@ -263,7 +263,7 @@ test('absence from a complete LAN inventory proves the expected model is not loa
 });
 
 test('peer rows name each AGIW instance and its freshness', () => {
-  const rows = agiwPeersRows([{host: 'louis-m5-pro', fresh: true, platform: 'macos', edition: 'mac', version: '1.0.0', ageSeconds: 4,
+  const rows = agiwPeersRows([{host: 'example-mbp', fresh: true, platform: 'macos', edition: 'mac', version: '1.0.0', ageSeconds: 4,
     source: 'agiw-peers', modelsComplete: true, models: [{id: 'a', loadedState: 'loaded'}]}, {host: 'bad host!', ageSeconds: 1}], {feedFresh: true});
   assert.equal(rows.length, 1);
   assert.match(rows[0][1], /^Reported \(unverified\) · macos · mac · 1\.0\.0 · 1 loaded · 4 s ago/);

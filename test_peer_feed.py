@@ -728,7 +728,7 @@ class MacPresence(unittest.TestCase):
                 "sources": [{"id": "lmstudio-api", "state": "live", "modelsComplete": False}],
                 "models": [{"id": "vendor/idle", "host": "mac", "loaded": False}]}
         with self.assertRaises(peer_feed.InventoryUnknown) as refused:
-            peer_feed.share_presence(snap, "louis-mac", now=now)
+            peer_feed.share_presence(snap, "example-mac", now=now)
         self.assertEqual(peer_feed._failure(refused.exception), (
             "unavailable", "Mac model inventory incomplete, so no model count is published; "
             "the last file ages out after 30 s"))
@@ -755,7 +755,7 @@ class MacPresence(unittest.TestCase):
                                        {"id": "vendor/idle", "host": "mac", "loaded": False,
                                         "source": "lmstudio-api"}]}
                     with self.assertRaises(peer_feed.InventoryUnknown):
-                        peer_feed.share_presence(snap, "louis-mac", now=now)
+                        peer_feed.share_presence(snap, "example-mac", now=now)
 
     def test_incomplete_live_inventory_is_withheld_from_the_pc(self):
         now = time.time()
@@ -766,9 +766,9 @@ class MacPresence(unittest.TestCase):
                             "sources": [{"id": source_id, "state": "live", "route": "direct", "modelsComplete": False}],
                             "models": [{"id": "inactive", "host": "mac", "loaded": False}]}
                     with self.assertRaises(peer_feed.InventoryUnknown):
-                        peer_feed.share_presence(snap, "louis-mac", now=now)
+                        peer_feed.share_presence(snap, "example-mac", now=now)
                     snap["sources"][0]["modelsComplete"] = True
-                    doc = peer_feed.share_presence(snap, "louis-mac", now=now)
+                    doc = peer_feed.share_presence(snap, "example-mac", now=now)
                     report = pc_probes()._validate_peer(doc, now)
                     self.assertEqual(report["modelsComplete"], source_id == "lmstudio-api")
                     self.assertTrue(report["loadedListComplete"])
@@ -788,7 +788,7 @@ class MacPresence(unittest.TestCase):
                         "sources": [{"id": source, "state": "live", "modelsComplete": True, "route": "direct"}
                                     for source in ("lmstudio-api", "lms-ps")]}
                 with self.assertRaises(peer_feed.InventoryUnknown):
-                    peer_feed.share_presence(snap, "louis-mac", now=now)
+                    peer_feed.share_presence(snap, "example-mac", now=now)
 
     def test_unknown_loaded_state_is_withheld_from_the_pc(self):
         now = time.time()
@@ -796,7 +796,7 @@ class MacPresence(unittest.TestCase):
                 "models": [{"id": "uncertain", "host": "mac", "loaded": None}],
                 "sources": [{"id": "lmstudio-api", "state": "live", "modelsComplete": True}]}
         with self.assertRaises(peer_feed.InventoryUnknown):
-            peer_feed.share_presence(snap, "louis-mac", now=now)
+            peer_feed.share_presence(snap, "example-mac", now=now)
 
     def test_publishes_one_canonical_model_with_instance_alias_metadata(self):
         from telemetry import _merge_cli_rows, _parse_api, _parse_lms
@@ -814,7 +814,7 @@ class MacPresence(unittest.TestCase):
                     snap = {"sampledAt": now, "activityKnown": True, "models": list(models.values()),
                             "sources": [{"id": source, "state": "live", "modelsComplete": True, "route": "direct"}
                                         for source in ("lmstudio-api", "lms-ps")]}
-                    doc = peer_feed.share_presence(snap, "louis-mac", now=now)
+                    doc = peer_feed.share_presence(snap, "example-mac", now=now)
                     self.assertEqual(doc["modelsTotal"], 1)
                     self.assertEqual([(row["id"], row["loadedState"], row["activity"]) for row in doc["models"]],
                                      [("provider/model", "loaded", activity)])
@@ -838,7 +838,7 @@ class MacPresence(unittest.TestCase):
                 "localInstanceObservations": observations,
                 "sources": [{"id": source, "state": "live", "modelsComplete": True, "route": "direct"}
                             for source in ("lmstudio-api", "lms-ps")]}
-        doc = peer_feed.share_presence(snap, "louis-mac", now=now)
+        doc = peer_feed.share_presence(snap, "example-mac", now=now)
         self.assertEqual(doc["modelsTotal"], 2)
         self.assertEqual([(row["id"], row["loadedState"], row["activity"]) for row in doc["models"]],
                          [("provider/model", "loaded", "generating"), ("other/model", "inactive", "unknown")])
@@ -849,14 +849,14 @@ class MacPresence(unittest.TestCase):
                 "models": [{"id": "qwen", "host": "mac", "loaded": True, "state": "generating"},
                            {"id": "gemma", "host": "mac", "loaded": False, "state": "unloaded"},
                            {"id": "pc-model", "host": "windows", "loaded": True, "state": "idle"}]}
-        doc = peer_feed.mac_presence(snap, "louis-mac")
+        doc = peer_feed.mac_presence(snap, "example-mac")
         peer_link.validate_status(doc, "mac", time.time())
         self.assertEqual([(m["id"], m["loadedState"], m["activity"]) for m in doc["models"]],
                          [("qwen", "loaded", "generating"), ("gemma", "inactive", "unknown")])
 
     def test_no_snapshot_is_an_error_not_an_empty_status(self):
         with self.assertRaises(ValueError):
-            peer_feed.mac_presence(None, "louis-mac")
+            peer_feed.mac_presence(None, "example-mac")
 
 
 HERE = Path(__file__).resolve().parent

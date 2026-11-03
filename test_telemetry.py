@@ -2106,13 +2106,14 @@ class LiveRouteTests(unittest.TestCase):
 # router_fence.write), the legacy layout by the single-run writer that is installed today (the
 # baseline copy).  Holders that must be real router processes run a small driver named
 # pipeline_router.py as `python -I -B <driver> work`, the argv the readers attribute.
-_ROUTER_WORK = Path.home() / "pending-review/router-concurrency"
+# MONITOR_ROUTER_DEV_SCRIPTS and MONITOR_ROUTER_LEGACY_SCRIPTS name a router checkout's writer
+# directories; without them only the installed router scripts are tried.
 _INSTALLED_SCRIPTS = Path.home() / ".codex/skills/local-llm-orchestrator/scripts"
 _ROUTER_WRITERS = {
     "per-run": [Path(os.environ["MONITOR_ROUTER_DEV_SCRIPTS"])] if os.environ.get("MONITOR_ROUTER_DEV_SCRIPTS")
-    else [_ROUTER_WORK / "dev/scripts", _INSTALLED_SCRIPTS],
+    else [_INSTALLED_SCRIPTS],
     "legacy": [Path(os.environ["MONITOR_ROUTER_LEGACY_SCRIPTS"])] if os.environ.get("MONITOR_ROUTER_LEGACY_SCRIPTS")
-    else [_ROUTER_WORK / "baseline/scripts", _INSTALLED_SCRIPTS],
+    else [_INSTALLED_SCRIPTS],
 }
 _DRIVER = r'''
 import json, os, runpy, time

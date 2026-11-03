@@ -485,11 +485,11 @@ class EndToEnd(unittest.TestCase):
 
     def test_share_link_is_aged_by_presence_and_normalized(self):
         # Codex round 2, findings 12 and 13.
-        self.configure_mac(hostname="louis-mac")
+        self.configure_mac(hostname="example-mac")
         share = Path(self.tmp.name)
         data = self.collector.collect()
-        probes.write_json_atomic(probes.peer_dir(share) / "louis-mac.json",
-                                 {**probes.peer_presence(data, "louis-mac"), "platform": "macos"}, probes.PEER_MAX_BYTES)
+        probes.write_json_atomic(probes.peer_dir(share) / "example-mac.json",
+                                 {**probes.peer_presence(data, "example-mac"), "platform": "macos"}, probes.PEER_MAX_BYTES)
         snap = self.collector.collect()
         mac = snap["macPeer"]
         self.assertEqual(mac["state"], "linked")

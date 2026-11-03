@@ -9,7 +9,7 @@ import * as modelControl from './web/model-control-view.mjs';
 
 const now = 1700000000;
 const peer = (over = {}) => ({state: 'linked', via: 'sharedchami', ageSeconds: 2,
-  linkAgeSeconds: 2, name: 'louis-m5-pro-macbook-pro', loadedCount: 3,
+  linkAgeSeconds: 2, name: 'example-macbook-pro', loadedCount: 3,
   models: [{id: 'qwen/qwen3.8-27b', state: 'loaded'},
     {id: 'google/gemma-4-26b-a4b-qat', state: 'loaded'},
     {id: 'openai/gpt-oss-20b', state: 'loaded'}], ...over});
@@ -85,12 +85,12 @@ test('malformed and partial raw evidence cannot invent a loaded Mac sidebar mode
 
 test('sidebar search discovers Mac, LAN peer, and configured host names even when evidence is stale', () => {
   const view = viewFor();
-  for (const query of ['mac', 'lan peer', 'louis-m5-pro-macbook-pro']) {
+  for (const query of ['mac', 'lan peer', 'example-macbook-pro']) {
     assert.ok(keys(entries(view, query)).includes('mac-peer'), `Mac discovered by ${query}`);
   }
   const stale = viewFor(peer(), {feedFresh: false});
-  assert.deepEqual(keys(entries(stale, 'louis-m5-pro-macbook-pro')), ['mac-peer']);
-  assert.match(text(entries(stale, 'louis-m5-pro-macbook-pro')), /stale|unknown/i);
+  assert.deepEqual(keys(entries(stale, 'example-macbook-pro')), ['mac-peer']);
+  assert.match(text(entries(stale, 'example-macbook-pro')), /stale|unknown/i);
 });
 
 test('search by a model ID or friendly title preserves the original map satellite index', () => {
@@ -104,12 +104,12 @@ test('search by a model ID or friendly title preserves the original map satellit
 });
 
 test('configured host search accepts only a bounded plain hostname without changing evidence freshness', () => {
-  assert.equal(viewFor(peer({name: '  louis-m5-pro-macbook-pro  '})).name, 'louis-m5-pro-macbook-pro');
-  for (const name of [null, [], ['louis-m5-pro-macbook-pro'], {name: 'louis-m5-pro-macbook-pro'},
+  assert.equal(viewFor(peer({name: '  example-macbook-pro  '})).name, 'example-macbook-pro');
+  for (const name of [null, [], ['example-macbook-pro'], {name: 'example-macbook-pro'},
     true, 1, '', ' ', 'bad\nhost', 'bad\u007fhost', 'x'.repeat(254)]) {
     const view = viewFor(peer({name}));
     assert.equal(view.name, null);
-    assert.deepEqual(entries(view, 'louis-m5-pro-macbook-pro'), []);
+    assert.deepEqual(entries(view, 'example-macbook-pro'), []);
     assert.equal(view.state, 'linked', 'invalid search metadata does not discard valid share evidence');
   }
 });
@@ -192,7 +192,7 @@ function sidebar(options = {}) {
     fullSampledAt: now - (options.feedAge || 0), activityKnown: true,
     models: [{id: 'openai/gpt-oss-20b', host, state: 'idle', loaded: true, ageSeconds: 0}],
     macPeer: options.macPeer === undefined ? peer() : options.macPeer,
-    hostId: options.hostId || 'louis-windows-pc',
+    hostId: options.hostId || 'example-pc',
     components: options.components || [], clients: options.clients || [],
     sources: options.sources || [], pipeline: options.pipeline || {status: 'idle'},
     activity: {runs: options.runs || []}};
@@ -237,7 +237,7 @@ test('actual sidebar Mac items select their existing map keys and preserve focus
 });
 
 test('actual Windows search finds Mac and model identities while retaining the second satellite key', () => {
-  for (const query of ['mac', 'lan peer', 'louis-m5-pro-macbook-pro']) {
+  for (const query of ['mac', 'lan peer', 'example-macbook-pro']) {
     const {list} = sidebar({query});
     assert.ok(macButtons(list).some(node => node.dataset.key === 'mac-peer'), `Mac found by ${query}`);
     assert.doesNotMatch(list.textContent, /No Core 6 match|Choose All discovered/);
@@ -307,13 +307,13 @@ const childButtons = list => buttons(list).filter(node => node.dataset.key.start
 test('Windows extra-map entries reuse existing hub and route keys, summary source, and bounded host search', () => {
   const {api} = sidebar(), nodes = nodeRows(api);
   const pcSummary = {detail: 'Quiet · 1 loaded', tone: 'ok'};
-  const rows = mapEntries(nodes, {host: 'windows', hostname: 'louis-windows-pc', pcSummary});
+  const rows = mapEntries(nodes, {host: 'windows', hostname: 'example-pc', pcSummary});
   assert.deepEqual(keys(rows), ['runtime', 'pipeline']);
   assert.equal(rows[0].title, 'This PC'); assert.equal(rows[0].subtitle, pcSummary.detail);
   assert.equal(rows[0].tone, 'ok');
   assert.match(rows[1].title, /Nisi Inference/); assert.match(rows[1].subtitle, /route idle/i);
-  for (const query of ['this pc', 'pc', 'windows', 'hub', 'louis-windows-pc'])
-    assert.deepEqual(keys(mapEntries(nodes, {host: 'windows', query, hostname: 'louis-windows-pc', pcSummary})), ['runtime']);
+  for (const query of ['this pc', 'pc', 'windows', 'hub', 'example-pc'])
+    assert.deepEqual(keys(mapEntries(nodes, {host: 'windows', query, hostname: 'example-pc', pcSummary})), ['runtime']);
   for (const query of ['nisi', 'inference', 'route'])
     assert.deepEqual(keys(mapEntries(nodes, {host: 'windows', query})), ['pipeline']);
   assert.deepEqual(mapEntries(nodes), [], 'the default non-Windows host cannot get Windows entries');
@@ -362,7 +362,7 @@ test('extra-map client search preserves original keys and identifies saved or re
 });
 
 test('actual Windows hub and Nisi searches select their existing nodes using the current summary and route source', () => {
-  for (const [query, key] of [['this pc', 'runtime'], ['hub', 'runtime'], ['louis-windows-pc', 'runtime'],
+  for (const [query, key] of [['this pc', 'runtime'], ['hub', 'runtime'], ['example-pc', 'runtime'],
     ['nisi', 'pipeline'], ['inference', 'pipeline'], ['route', 'pipeline']]) {
     const {api, list} = sidebar({query, sources: [{id: 'lane-inventory', state: 'live'}]});
     const item = buttons(list).find(node => node.dataset.key === key);
@@ -439,7 +439,7 @@ test('actual map search highlights Windows sidebar aliases and full model names 
   const matched = className => /\bmatch\b/.test(className) && !/\bfade\b/.test(className);
   const checks = [];
   for (const [query, key] of [['this pc', 'runtime'], ['pc', 'runtime'], ['windows', 'runtime'],
-    ['hub', 'runtime'], ['louis-windows-pc', 'runtime'], ['nisi', 'pipeline'],
+    ['hub', 'runtime'], ['example-pc', 'runtime'], ['nisi', 'pipeline'],
     ['inference', 'pipeline'], ['route', 'pipeline']]) {
     const {api, list} = sidebar({query, selected: key});
     assert.ok(buttons(list).some(node => node.dataset.key === key), `${query} has its sidebar target`);

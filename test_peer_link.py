@@ -510,7 +510,7 @@ class Hello(PeerLinkCase):
 
 class Pairing(PeerLinkCase):
     def setUp(self):
-        self.mac = Node(self, "mac", "louis-mac")
+        self.mac = Node(self, "mac", "example-mac")
         self.pc = Node(self, "windows", "winpc01")
 
     def test_discovered_machine_is_available_not_trusted(self):
@@ -577,7 +577,7 @@ class Pairing(PeerLinkCase):
         pair(self, self.mac, self.pc)
         self.mac.link.poll_once()
         self.assertEqual(self.mac.link.snapshot()["peers"][0]["state"], "connected")
-        self.pc.link.unpair("louis-mac")
+        self.pc.link.unpair("example-mac")
         self.mac.link.poll_once()
         row = self.mac.link.snapshot()["peers"][0]
         self.assertNotEqual(row["state"], "connected")
@@ -594,7 +594,7 @@ class Pairing(PeerLinkCase):
 
 class StatusRoute(PeerLinkCase):
     def setUp(self):
-        self.mac = Node(self, "mac", "louis-mac")
+        self.mac = Node(self, "mac", "example-mac")
         self.pc = Node(self, "windows", "winpc01")
         pair(self, self.mac, self.pc)
         self.key = self.mac.link.trusted()[self.pc.link.node]["key"]
@@ -654,7 +654,7 @@ class StatusRoute(PeerLinkCase):
 
 class Spoofing(PeerLinkCase):
     def setUp(self):
-        self.mac = Node(self, "mac", "louis-mac")
+        self.mac = Node(self, "mac", "example-mac")
         self.pc = Node(self, "windows", "winpc01")
         pair(self, self.mac, self.pc)
         self.mac.link.poll_once()
@@ -695,7 +695,7 @@ class Spoofing(PeerLinkCase):
 
 class Control(PeerLinkCase):
     def setUp(self):
-        self.mac = Node(self, "mac", "louis-mac")
+        self.mac = Node(self, "mac", "example-mac")
         self.pc = Node(self, "windows", "winpc01")
 
     def raw(self, path, headers, method="GET", data=None):
@@ -762,7 +762,7 @@ class Control(PeerLinkCase):
         self.pc.hello_to(self.mac)
         self.mac.hello_to(self.pc)
         pin = self.mac.control("POST", "/control/invite", {"peer": "winpc01"})["pin"]
-        self.assertEqual(self.pc.control("POST", "/control/accept", {"peer": "", "pin": pin})["peer"], "louis-mac")
+        self.assertEqual(self.pc.control("POST", "/control/accept", {"peer": "", "pin": pin})["peer"], "example-mac")
         self.mac.link.poll_once()
         self.assertEqual(self.mac.control("GET", "/control/peers")["peers"][0]["state"], "connected")
         self.assertEqual(self.mac.control("POST", "/control/unpair", {"peer": "winpc01"})["unpaired"],
@@ -778,7 +778,7 @@ class Control(PeerLinkCase):
 
 class RealUdp(PeerLinkCase):
     def test_hello_over_a_real_socket_reaches_the_listener(self):
-        mac = Node(self, "mac", "louis-mac")
+        mac = Node(self, "mac", "example-mac")
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.addCleanup(sock.close)
         data = pl.make_hello("66666666-6666-4666-8666-666666666666", "windows", "pc", 8768, time.time())
@@ -791,7 +791,7 @@ class RealUdp(PeerLinkCase):
 
 class Hardening(PeerLinkCase):
     def setUp(self):
-        self.mac = Node(self, "mac", "louis-mac")
+        self.mac = Node(self, "mac", "example-mac")
         self.pc = Node(self, "windows", "winpc01")
         pair(self, self.mac, self.pc)
 
@@ -877,7 +877,7 @@ class Regressions(PeerLinkCase):
         self.addCleanup(poller.stop)
 
     def nodes(self, paired=True):
-        mac = Node(self, "mac", "louis-mac")
+        mac = Node(self, "mac", "example-mac")
         pc = Node(self, "windows", "winpc01")
         if paired:
             pair(self, mac, pc)
@@ -1215,7 +1215,7 @@ class StartupFailure(PeerLinkCase):
 
 class FinishAck(PeerLinkCase):
     def test_forged_bare_200_on_finish_pins_nothing_on_the_joiner(self):
-        mac = Node(self, "mac", "louis-mac")
+        mac = Node(self, "mac", "example-mac")
         pc = Node(self, "windows", "winpc01")
         pc.hello_to(mac)
         mac.hello_to(pc)
@@ -1260,7 +1260,7 @@ class FinishAck(PeerLinkCase):
 
     @unittest.skipIf(os.name == "nt", "POSIX modes")
     def test_exposed_trust_record_is_quarantined_and_needs_re_pairing(self):
-        mac = Node(self, "mac", "louis-mac")
+        mac = Node(self, "mac", "example-mac")
         pc = Node(self, "windows", "winpc01")
         pair(self, mac, pc)
         record = mac.dir / "trusted" / f"{pc.link.node}.json"
@@ -1360,7 +1360,7 @@ class Hardening3(PeerLinkCase):
         self.assertEqual(pc.link.on_notify(stranger, "127.0.0.1")[0], 403)
 
     def test_retry_during_the_inviters_save_waits_and_gets_the_ack(self):
-        mac = Node(self, "mac", "louis-mac")
+        mac = Node(self, "mac", "example-mac")
         pc = Node(self, "windows", "winpc01")
         pc.hello_to(mac)
         mac.hello_to(pc)
@@ -1397,7 +1397,7 @@ class ControlTokenRotation(PeerLinkCase):
     replaced, without a restart, and challenges issued under it die with it."""
 
     def setUp(self):
-        self.mac = Node(self, "mac", "louis-mac")
+        self.mac = Node(self, "mac", "example-mac")
         self.base = f"http://127.0.0.1:{self.mac.link.status_port}"
         self.file = self.mac.dir / "control-token"
 
@@ -2191,7 +2191,7 @@ class TrustFolder(PeerLinkCase):
 
 class FinishRace(PeerLinkCase):
     def test_concurrent_identical_finishes_both_get_the_ack_and_pin_once(self):
-        mac = Node(self, "mac", "louis-mac")
+        mac = Node(self, "mac", "example-mac")
         pc = Node(self, "windows", "winpc01")
         pc.hello_to(mac)
         mac.hello_to(pc)
@@ -2264,7 +2264,7 @@ class CaseVariants(PeerLinkCase):
         self.assertEqual([n for n in os.listdir(state) if n.casefold() == "control-token"], ["control-token"])
 
     def test_case_variant_trust_folder_or_record_yields_no_trust(self):
-        mac = Node(self, "mac", "louis-mac")
+        mac = Node(self, "mac", "example-mac")
         pc = Node(self, "windows", "winpc01")
         pair(self, mac, pc)
         trusted = mac.dir / "trusted"
@@ -2281,7 +2281,7 @@ class CaseVariants(PeerLinkCase):
 
     def test_trust_folder_whose_stored_name_differs_yields_no_trust_and_refuses_pins(self):
         # Simulates Windows resolving 'trusted' through an 8.3 alias to a folder stored under another name.
-        mac = Node(self, "mac", "louis-mac")
+        mac = Node(self, "mac", "example-mac")
         pc = Node(self, "windows", "winpc01")
         pair(self, mac, pc)
         store = pl.TrustStore(mac.dir)

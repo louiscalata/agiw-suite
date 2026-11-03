@@ -21,7 +21,7 @@ import peer_link
 
 HERE = Path(__file__).resolve().parent
 WINDOWS = HERE / "windows"
-HOST = "louis-m5-pro"
+HOST = "example-mbp"
 
 
 def pc_probes():
@@ -504,7 +504,7 @@ class Publisher(unittest.TestCase):
         self.assertEqual((written["platform"], written["version"], written["dashboard"]["port"]), ("macos", "1.0.0", 8000))
         row = pub.sources()[0]
         self.assertEqual((row["id"], row["state"], row["ageSeconds"]), ("agiw-presence", "live", 0.0))
-        self.assertIn("agiw-peers/louis-m5-pro.json", row["detail"])
+        self.assertIn("agiw-peers/example-mbp.json", row["detail"])
         self.assertIn("--publish-status", row["detail"])
         self.clock.now += 9.9
         self.assertFalse(pub.offer(lambda: self.fail("not due yet")))
@@ -774,8 +774,8 @@ class Config(unittest.TestCase):
 
 class Identity(unittest.TestCase):
     def test_host_id_follows_the_pc_rule(self):
-        with mock.patch.object(peer_feed.socket, "gethostname", return_value="Louis-M5-Pro-MacBook-Pro.local"):
-            self.assertEqual(peer_feed.host_id(), "louis-m5-pro-macbook-pro")
+        with mock.patch.object(peer_feed.socket, "gethostname", return_value="Example-MacBook-Pro.local"):
+            self.assertEqual(peer_feed.host_id(), "example-macbook-pro")
         with mock.patch.object(peer_feed.socket, "gethostname", return_value="bad host!.local"):
             self.assertEqual(peer_feed.host_id(), "mac")
 
