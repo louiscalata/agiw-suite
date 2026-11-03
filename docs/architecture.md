@@ -1,6 +1,6 @@
 # AGIW Suite architecture
 
-AGIW Suite's public application is **Inference Monitor**: a Swift menu-bar shell, a local Python observer and a bundled web dashboard. It connects resource readings, model inventory and activity evidence in one view, with explicit controls for supported model and recovery operations. Public **Nisi 0.2.0** is included; the hosted **Jev connection check** is optional.
+AGIW Suite's public application is **Inference Monitor**: a Swift menu-bar shell, a local Python observer and bundled web views. The native window opens `/monitor`, a map/details page that polls `/api/inference` every two seconds. The earlier dashboard remains served at `/`, with Browse, Core 6, Components, model controls and recovery controls. Public **Nisi 0.2.0** is included; the hosted **Jev connection check** is optional.
 
 This guide describes the public repository. The downloadable **1.0.0 (7)** application was compiled from `caaa7d4`; later source and documentation commits do not change that binary. The Mac App Store application, external coding router and worker programs have separate implementation and acceptance boundaries.
 
@@ -15,7 +15,7 @@ flowchart TB
     User["User · inspect or request an action"]
     subgraph App["Native Mac application"]
         Shell["Swift shell · lifecycle and native badge"]
-        Web["WebKit · bundled dashboard"]
+        Web["WebKit · /monitor map/details"]
         Helper["Signed Jev helper · credential UI and HTTPS"]
     end
     subgraph Local["This Mac"]
@@ -30,8 +30,8 @@ flowchart TB
     User --> Shell
     User --> Web
     Shell -->|"launches and supervises"| Observer
-    Shell -->|"snapshot polling"| Observer
-    Web <-->|"HTTP / snapshot stream"| Observer
+    Shell -->|"badge requests"| Observer
+    Web <-->|"HTTP /api/inference polling"| Observer
     Evidence --> Observer
     LMS -->|"inventory and activity"| Observer
     Observer -->|"explicit load / unload"| LMS
@@ -60,9 +60,9 @@ Opening the application starts observation. It does not start a coding task, loa
 | --- | --- | --- |
 | Native application | Menu bar, compact/dashboard windows, badge, child supervision, WebKit navigation and native setup dispatch | [Monitor.swift](../Monitor.swift) |
 | HTTP and snapshot store | Loopback routes, atomic snapshot publication, event stream, action dispatch and shutdown | [server.py](../server.py) |
-| System and model observations | LM Studio inventory/activity, Mac resources, router and worker observations | [telemetry.py](../telemetry.py), [gpu_probe.py](../gpu_probe.py) |
+| System and model observations | LM Studio inventory/activity, Mac resources, router and worker observations, and separate inference-map probes | [telemetry.py](../telemetry.py), [gpu_probe.py](../gpu_probe.py), [inference_collect.py](../inference_collect.py) |
 | Evidence readers | Change-driven overlays, sanitized run receipts, recorded client choices and local caller observations | [live_feed.py](../live_feed.py), [activity.py](../activity.py), [client_models.py](../client_models.py), [local_callers.py](../local_callers.py), [nisi_v02.py](../nisi_v02.py) |
-| Presentation | Map geometry, evidence inspector, activity display and explicit action controls | [web/app.js](../web/app.js), [web/map-layout.mjs](../web/map-layout.mjs), [web/model-control-view.mjs](../web/model-control-view.mjs), [web/components.js](../web/components.js) |
+| Presentation | Native map/details page; earlier dashboard with evidence, activity and explicit action controls | [web/monitor.html](../web/monitor.html), [web/monitor.mjs](../web/monitor.mjs), [web/app.js](../web/app.js), [web/map-layout.mjs](../web/map-layout.mjs), [web/model-control-view.mjs](../web/model-control-view.mjs), [web/components.js](../web/components.js) |
 | Resource management | Memory admission, registered-process pause/resume and optional idle-model unloading | [mem_guard.py](../mem_guard.py), [auto_unload.py](../auto_unload.py) |
 | Model operations | Exact model/instance selection, bounded CLI jobs and observed settlement | [model_control.py](../model_control.py), [durable_model_journal.py](../durable_model_journal.py) |
 | Recovery adapters | Bounded local-runtime, router, share and worker recovery; fixed worker probe | [online_code_repair.py](../online_code_repair.py), [windows_probe.py](../windows_probe.py) |
@@ -81,21 +81,25 @@ sequenceDiagram
     participant Shell as Swift shell
     participant Observer as Python observer
     participant Store as Snapshot store
-    participant Web as Dashboard
+    participant Web as Monitor page (/monitor)
+    participant Dashboard as Earlier dashboard (/)
     Shell->>Observer: Launch with ephemeral port and parent PID
     Observer-->>Shell: JSON port/PID handshake
     Shell->>Shell: Validate child and loopback origin
     Observer->>Store: Publish full sample
-    Shell->>Observer: GET /api/snapshot for badge
-    Web->>Observer: GET /api/stream
+    Shell->>Observer: GET /monitor/api/snapshot for badge
+    Observer-->>Shell: 404 (path is not routed)
+    Web->>Observer: GET /api/inference
+    Observer-->>Web: Inference map JSON
+    Dashboard->>Observer: GET /api/stream
     Store-->>Observer: New sequence or heartbeat wait
-    Observer-->>Web: event: snapshot + sequence ID
-    Note over Shell,Web: Freshness is checked independently of delivery
+    Observer-->>Dashboard: event: snapshot + sequence ID
+    Note over Shell,Dashboard: Dashboard freshness is checked independently of delivery
 ```
 
 - **Sampling:** nominal full readings every second; a 0.15-second tick rereads evidence groups whose file fingerprints changed. Fast overlays apply only to a full sample at most three seconds old. These are implementation intervals, not guaranteed latency.
 - **Publication:** `SnapshotStore` replaces a deep-copied snapshot under a lock and wakes stream readers. It retains up to 90 full-sample history points and 50 observed transitions. An overlay does not create another history point.
-- **Clients:** the native badge polls once per second; the web dashboard receives Server-Sent Events and falls back to polling when streaming is unavailable. Each stream includes `event: snapshot`, a sequence ID and JSON data, with heartbeat comments between updates. The stream supplies the newest observation, not a durable replay of every event.
+- **Clients:** the native `/monitor` page polls `/api/inference` every two seconds; the earlier dashboard at `/` receives Server-Sent Events and falls back to polling `/api/snapshot` when streaming is unavailable. Each stream includes `event: snapshot`, a sequence ID and JSON data, with heartbeat comments between updates. The stream supplies the newest observation, not a durable replay of every event. The native badge schedules a poll once per second, but current source appends `api/snapshot` to the `/monitor` URL and requests `/monitor/api/snapshot`, which returns 404.
 - **Failure:** no first reading produces HTTP 503 with `status: starting`. Failed collection preserves the old timestamp so clients can age it out. The shell has a ten-second startup timeout, reconnects with backoff capped at 30 seconds and resets backoff after stable operation. Repeated poll failures trigger observer recovery.
 - **Shutdown:** the shell targets its own child. The observer watches parent identity, ends streams, cancels owned workers and closes the memory guard, resuming work it paused. Cancellation of a CLI or network client does not prove that an external service rolled back accepted work.
 
@@ -103,7 +107,9 @@ Source: [shell lifecycle](../Monitor.swift), [sampling and store](../server.py),
 
 ## 3. Evidence model and map semantics
 
-The snapshot uses `schemaVersion: 1`, `sampledAt`, `observedAt`, model rows and per-source status. Its component projections include `pipeline`, `onlineCodeMode`, `windowsWorker`, `windowsJobs`, `canary`, `nisiV02` and `afm`; the server adds resources, client/caller observations, activity, controls, history and sequence information. Readers validate the fields they use rather than treating a file's existence as proof.
+The earlier dashboard's `/api/snapshot` feed uses `schemaVersion: 1`, `sampledAt`, `observedAt`, model rows and per-source status. Its component projections include `pipeline`, `onlineCodeMode`, `windowsWorker`, `windowsJobs`, `canary`, `nisiV02` and `afm`; the server adds resources, client/caller observations, activity, controls, history and sequence information. Readers validate the fields they use rather than treating a file's existence as proof.
+
+The native `/monitor` page reads the separate `agiw.inference-map.v1` document from `/api/inference`, with machine/server nodes, edges and selected-node details. Its collector's LM Studio port limitation is described in [configuration](advanced-configuration.md#lm-studio-port-and-nvidia-pair). The evidence and dashboard controls below describe the earlier dashboard at `/`.
 
 | Signal | Supports | Does not establish |
 | --- | --- | --- |
@@ -116,7 +122,7 @@ The snapshot uses `schemaVersion: 1`, `sampledAt`, `observedAt`, model rows and 
 | AFM executable observation | Installation/executable permission state | A successful Apple Foundation Models request |
 | External Nisi activation receipt | Verified runtime/host pins and recorded activation probe | Current activity or acceptance of the bundled public Nisi example |
 
-Map branches represent these relationships and observations. Fresh, verified busy/generating local activity can pulse; idle, stale and unknown states do not imply active work. Pulse phase represents observed activity, not task progress percentage. GPU readings are best-effort accelerator observations, not a cross-machine resource pool.
+Dashboard map branches represent these relationships and observations. Fresh, verified busy/generating local activity can pulse; idle, stale and unknown states do not imply active work. Pulse phase represents observed activity, not task progress percentage. GPU readings are best-effort accelerator observations, not a cross-machine resource pool.
 
 Dashboard **Pause / Resume** controls the displayed snapshot only. Observation, inference and the registered-work memory watchdog continue; this view control is separate from the guard's process pause/resume actions.
 
@@ -194,7 +200,7 @@ The native self-check excludes Node options, credentials and external router set
 
 ## 6. Jev credential and network boundary
 
-**Setup:** Components → Set up Jev → origin-checked WebKit message → Swift shell → signed helper's secure native dialog → login Keychain. Python and the browser receive no key. Saving a credential sends no hosted request.
+**Setup (Components page in native WebKit):** Components → Set up Jev → origin-checked WebKit message → Swift shell → signed helper's secure native dialog → login Keychain. The `/monitor` page has no Components or setup controls. Python and the browser receive no key. Saving a credential sends no hosted request.
 
 **Connection check:** explicit dashboard action → same-origin POST → Python worker → helper `check` → fixed HTTPS request to `https://api.typesafe.ai/v1/systemone` → bounded validated status receipt. The key is sent in the authorization header with a fixed synthetic classification test. No project files, task prompts or model inventory are sent by this check. The provider receives IP/request metadata and usage charges may apply.
 
@@ -204,7 +210,7 @@ The GitHub edition's explicit check and the separate MAS edition's consent flow 
 
 ## 7. Recovery, workers and parallel work
 
-The dashboard's top-bar **Fix inference** button immediately requests scope `all`: local runtime, Nisi and route checks. The inspector's **Fix Nisi Inference** shortcut opens that panel without dispatch; **Run check** submits the same combined action. Closing the panel does not cancel a running repair. Legacy scoped API callers remain supported. The adapter records bounded steps and can report `ready`, `needs-action` or `error`; an action's name does not guarantee recovery.
+The earlier dashboard's top-bar **Fix inference** button immediately requests scope `all`: local runtime, Nisi and route checks. The inspector's **Fix Nisi Inference** shortcut opens that panel without dispatch; **Run check** submits the same combined action. Closing the panel does not cancel a running repair. Legacy scoped API callers remain supported. When L2 is open, the adapter records bounded steps and can report `ready`, `needs-action` or `error`; an action's name does not guarantee recovery.
 
 - **Local runtime:** start a stopped LM Studio server only after owner status and the fixed loopback port are checked and rechecked. A running-but-unreachable server is not replaced, and loaded models are preserved. Fresh inventory and activity are required to report readiness.
 - **Route/share:** use trusted owner commands and explicitly configured SMB host/account settings. Guest/Anonymous and ambiguous mounts are refused. Running or unresolved work blocks disruptive recovery. An exact retained Windows job can be reconciled; a timeout is not permission to resend it.
@@ -239,6 +245,9 @@ The native app chooses its port. For source exploration, `python3 -B server.py -
 
 | Method | Route | Body / result |
 | --- | --- | --- |
+| GET | `/monitor` | Native window's map/details page |
+| GET | `/` | Earlier dashboard with Browse, Core 6, Components and action controls |
+| GET | `/api/inference` | Inference map; 503 `status: starting` before it is available |
 | GET | `/api/snapshot` | Latest snapshot; 503 `status: starting` before the first sample |
 | GET | `/api/stream` | SSE snapshots, sequence IDs and heartbeat comments |
 | GET | `/api/components` | Public Nisi integrity, Node availability and self-check status |
@@ -248,11 +257,13 @@ The native app chooses its port. For source exploration, `python3 -B server.py -
 | POST | `/api/components/nisi/check` | `{"action":"self-check"}` |
 | POST | `/api/components/jev/check` | `{"action":"connection-check"}` |
 | GET / POST | `/api/online-code-mode/repair` | Read recovery / `{"action":"check-and-repair"}` |
-| GET / POST | `/api/online-code-mode/entry` | Read entry state / `{"action":"readiness"}` |
+| GET | `/api/online-code-mode/entry` | Read retained recovery/diagnosis state in the Mac-owner context; POST is not routed |
 | GET / POST | `/api/online-code-mode/headless` | Read state / `{"action":"on"}` or `{"action":"off"}` |
 | GET / POST | `/api/inference/fix` | Read recovery / `{"scope":"all"}`; legacy `local`, `route`, `both`, `nisi` also accepted |
 
 Action jobs generally return **202 Accepted**, followed by status reads. The auto-unload setting returns 200 after saving. Invalid requests, stale evidence, unavailable components and conflicts return distinct errors; acceptance is not execution completion. Route controls need the supported Mac-owner/configured recovery context.
+
+Recovery and headless POSTs also require `--l2-open` after verified L2 handover; the native launcher does not pass this flag, so these requests return HTTP 423 with a read-only diagnosis instead of dispatching.
 
 ### Request and navigation protections
 

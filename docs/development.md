@@ -14,12 +14,15 @@ The server prints a JSON line containing its port and process ID. Open `http://1
 
 ## Source checks
 
-For an isolated source checkout, run the same commands as the clean GitHub runner:
+For an isolated source checkout, run the clean GitHub runner's test commands:
 
 ```sh
 MONITOR_ALLOW_ROUTER_FIXTURE_SKIP=1 PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest discover -p 'test_*.py' -q
 node --test test_*.mjs
+(cd windows && PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest discover -s tests -p 'test_*.py' -q)
 ```
+
+The runner also checks the Mac build inputs: `bash -n` on the shell scripts, `plutil -lint Info.plist`, an arm64 `swiftc -typecheck` of `Monitor.swift` and `JevKeychain.swift`, `python3 -B bundle_nisi.py --verify` and `node --check` on the web modules ([source-checks.yml](../.github/workflows/source-checks.yml)). On macOS, the Windows tests need a `TMPDIR` without symbolic links in its path, such as one under `/private/tmp`.
 
 The CI app typecheck targets arm64. Source tests and the isolated Swift policy harness run on the CI host architecture; passing those on Intel does not establish native Apple silicon runtime acceptance.
 

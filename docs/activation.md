@@ -17,7 +17,7 @@ You have now launched the Monitor. Local model generation, the Nisi self-check, 
 ## Connect and monitor local models
 
 1. Install/configure LM Studio and download a model suited to the Mac's available memory. Model weights are separate from AGIW.
-2. In LM Studio's **Developer** tab, start its API server on **127.0.0.1:1234**. The Monitor uses that fixed local endpoint for inventory. See the [official server instructions](https://lmstudio.ai/docs/developer/core/server).
+2. In LM Studio's **Developer** tab, start its API server on **127.0.0.1:1234**. The Monitor's sampler takes the port from `AGIW_LMSTUDIO_API_PORT` or `lms server status`, with 1234 as the fallback; the newer `/monitor` map on `main` always reads port 1234 ([details](advanced-configuration.md#lm-studio-port-and-nvidia-pair)). See the [official server instructions](https://lmstudio.ai/docs/developer/core/server).
 3. With LM Studio's CLI installed, its equivalent explicit command is:
 
    ```sh
