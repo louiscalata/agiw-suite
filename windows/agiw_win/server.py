@@ -32,6 +32,7 @@ if _INFERENCE_ROOT is not None and str(_INFERENCE_ROOT) not in sys.path:
     # Append. Putting the repo root first shadows windows/tests with the root test_*.py modules.
     sys.path.append(str(_INFERENCE_ROOT))
 from inference_collect import RateMemory, attach, vram_from_gpus
+from inference_stats import expire_map
 
 DEFAULT_PORT = 8767
 ACTIVE = {"generating", "busy"}
@@ -131,13 +132,22 @@ class SnapshotStore:
 
     def read(self):
         with self.lock:
-            return copy.deepcopy(self.snapshot)
+            data = copy.deepcopy(self.snapshot)
+            if data is not None:
+                expire_map(data.get("inference"), time.time())
+            return data
 
     def wait_for_change(self, last: int | None, timeout: float):
         with self.changed:
-            if not self.changed.wait_for(lambda: self.snapshot is not None and self.sequence != last, timeout=timeout):
+            changed = self.changed.wait_for(lambda: self.snapshot is not None and self.sequence != last, timeout=timeout)
+            if self.snapshot is None:
                 return None, last
-            return copy.deepcopy(self.snapshot), self.sequence
+            data = copy.deepcopy(self.snapshot)
+            expire_map(data.get("inference"), time.time())
+            # A stopped sampler still needs to publish expiry to stream readers.
+            if not changed and data.get("inference") == self.snapshot.get("inference"):
+                return None, last
+            return data, self.sequence
 
 
 class MonitorServer(ThreadingHTTPServer):

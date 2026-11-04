@@ -42,6 +42,15 @@ def expire_map(document, now):
             node.update(health="not_measured", reason="stale")
             for field in _RATES + _COUNTS + ("modelId", "upstream", "detail", "models", "callers"):
                 node[field] = None
+    for node in document.get("nodes") or []:
+        if node.get("role") != "machine":
+            continue
+        children = [child for child in document["nodes"]
+                    if child.get("machine") == node.get("machine")
+                    and child.get("role") not in ("machine", "client")]
+        rollup = machine_node(node["machine"], node["label"], children)
+        for field in ("health", "reason", "promptTokensPerSecond", "generationTokensPerSecond"):
+            node[field] = rollup[field]
     # Upstream and caller links are observations too; retain only structural links
     # when either end has expired, without changing the node layout.
     if "edges" in document:
