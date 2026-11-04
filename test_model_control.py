@@ -355,7 +355,7 @@ class HttpControlTest(unittest.TestCase):
     def setUp(self):
         self.store = SnapshotStore()
         self.store.publish({**inventory(), 'schemaVersion': 1})
-        self.server = MonitorServer(('127.0.0.1', 0), self.store)
+        self.server = MonitorServer(('127.0.0.1', 0), self.store, control_capability='fixture-only')
         self.calls = []
         self.server.model_control.runner = lambda action, model_id: self.calls.append((action, model_id))
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
@@ -377,13 +377,13 @@ class HttpControlTest(unittest.TestCase):
     def post(self, body=None, headers=None):
         port = self.server.server_address[1]
         default = {'Origin': f'http://127.0.0.1:{port}',
-                   'Content-Type': 'application/json'}
+                   'Content-Type': 'application/json', 'X-AGIW-Control': 'fixture-only'}
         return self.request('POST', json.dumps(body or {'action': 'unload',
                                                         'modelId': 'publisher/model'}),
                             {**default, **(headers or {})})
 
     def test_same_origin_and_body_guards(self):
-        self.assertEqual(self.request('POST', '{}', {'Content-Type': 'application/json'})[0], 403)
+        self.assertEqual(self.request('POST', '{}', {'Content-Type': 'application/json', 'X-AGIW-Control': 'fixture-only'})[0], 403)
         self.assertEqual(self.post(headers={'Origin': 'https://evil.example'})[0], 403)
         self.assertEqual(self.post(headers={'Host': 'evil.example'})[0], 403)
         self.assertEqual(self.post(headers={'Content-Type': 'text/plain'})[0], 415)
@@ -391,7 +391,7 @@ class HttpControlTest(unittest.TestCase):
         self.assertEqual(self.post(body={'action': 'unload', 'modelId': 'publisher/model',
                                          'extra': 1})[0], 400)
         port = self.server.server_address[1]
-        headers = {'Origin': f'http://127.0.0.1:{port}', 'Content-Type': 'application/json'}
+        headers = {'Origin': f'http://127.0.0.1:{port}', 'Content-Type': 'application/json', 'X-AGIW-Control': 'fixture-only'}
         duplicate = '{"action":"unload","modelId":"publisher/model","modelId":"other"}'
         self.assertEqual(self.request('POST', duplicate, headers)[0], 400)
         self.assertEqual(self.request('POST', 'x' * 1025, headers)[0], 413)

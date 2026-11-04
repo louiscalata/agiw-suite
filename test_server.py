@@ -1345,7 +1345,7 @@ class MemoryRouteContextTest(unittest.TestCase):
 class TransportTest(unittest.TestCase):
     def setUp(self):
         self.store=SnapshotStore();self.store.publish(snapshot())
-        self.server=MonitorServer(('127.0.0.1',0),self.store)
+        self.server=MonitorServer(('127.0.0.1',0),self.store, control_capability='fixture-only')
         self.thread=threading.Thread(target=self.server.serve_forever,daemon=True);self.thread.start()
     def tearDown(self):
         self.server.shutdown();self.server.server_close();self.thread.join()
@@ -1356,7 +1356,7 @@ class TransportTest(unittest.TestCase):
     def post_json(self, path, payload, headers=None):
         port = self.server.server_address[1]
         request_headers = {'Origin': f'http://127.0.0.1:{port}',
-                           'Content-Type': 'application/json'}
+                           'Content-Type': 'application/json', 'X-AGIW-Control': 'fixture-only'}
         request_headers.update(headers or {})
         c=HTTPConnection('127.0.0.1',port,timeout=2)
         c.request('POST',path,body=payload,headers=request_headers)
@@ -1571,13 +1571,14 @@ class TransportTest(unittest.TestCase):
         c = HTTPConnection('127.0.0.1', port, timeout=2)
         c.putrequest('POST', '/api/inference/fix')
         c.putheader('Origin', f'http://127.0.0.1:{port}')
+        c.putheader('X-AGIW-Control', 'fixture-only')
         c.putheader('Content-Type', 'application/json')
         c.endheaders()
         self.assertEqual(c.getresponse().status, 411)
         c.close()
         # A POST without any Origin header is refused too (no cross-site form or script fallback).
         c = HTTPConnection('127.0.0.1', port, timeout=2)
-        c.request('POST', '/api/inference/fix', body=body, headers={'Content-Type': 'application/json'})
+        c.request('POST', '/api/inference/fix', body=body, headers={'Content-Type': 'application/json', 'X-AGIW-Control': 'fixture-only'})
         self.assertEqual(c.getresponse().status, 403)
         c.close()
         self.assertEqual(control.scopes, [])
@@ -1716,7 +1717,7 @@ class TransportTest(unittest.TestCase):
     def test_non_mac_server_does_not_construct_online_code_controller(self):
         with patch('server.mac_online_code_controls_enabled', return_value=False), \
              patch('server.OnlineCodeRepair', side_effect=AssertionError('must not construct')):
-            other = MonitorServer(('127.0.0.1', 0), self.store)
+            other = MonitorServer(('127.0.0.1', 0), self.store, control_capability='fixture-only')
         try:
             self.assertIsNone(other.online_code_repair)
         finally:

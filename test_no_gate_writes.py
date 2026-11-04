@@ -233,14 +233,14 @@ class ClosedL2Tests(unittest.TestCase):
             owner = mock.Mock()
             owner.request_entry.return_value = {'status': 'running'}
             owner.read.return_value = {'status': 'idle'}
-            state = SimpleNamespace(l2_open=l2_open, online_code_repair=owner, action_diagnosis=None,
+            state = SimpleNamespace(control_capability='fixture-only', l2_open=l2_open, online_code_repair=owner, action_diagnosis=None,
                                     server_address=('127.0.0.1', 8431), store=server.SnapshotStore())
             raw = b'{"action":"readiness"}'
             handler = server.Handler.__new__(server.Handler)
             handler.server, handler.path = state, '/api/online-code-mode/entry'
             handler.headers = Message()
             for key, value in {'Host': '127.0.0.1:8431', 'Origin': 'http://127.0.0.1:8431',
-                               'Content-Type': 'application/json', 'Content-Length': str(len(raw))}.items():
+                               'Content-Type': 'application/json', 'Content-Length': str(len(raw)), 'X-AGIW-Control': 'fixture-only'}.items():
                 handler.headers[key] = value
             handler.rfile = io.BytesIO(raw)
             handler.reply = mock.Mock()
@@ -343,7 +343,7 @@ class ClosedL2Tests(unittest.TestCase):
         runner.assert_not_called()
 
     def test_readiness_get_uses_only_cached_state_without_commands_threads_or_writes(self):
-        state = SimpleNamespace(l2_open=False, online_code_repair=mock.Mock(),
+        state = SimpleNamespace(control_capability='fixture-only', l2_open=False, online_code_repair=mock.Mock(),
                                 server_address=('127.0.0.1', 8431), store=mock.Mock())
         state.store.read.return_value = {'sampledAt': 100, 'machines': [],
                                         'onlineCodeMode': {'setupState': 'invalid'}}
@@ -394,7 +394,7 @@ class ClosedL2Tests(unittest.TestCase):
 
     def test_validated_routes_cannot_bypass_closed_l2_with_an_open_controller(self):
         owner = mock.Mock()
-        state = SimpleNamespace(l2_open=False, online_code_repair=owner, action_diagnosis=None,
+        state = SimpleNamespace(control_capability='fixture-only', l2_open=False, online_code_repair=owner, action_diagnosis=None,
                                 server_address=('127.0.0.1', 8431), store=server.SnapshotStore())
         with mock.patch.object(server, 'mac_online_code_controls_enabled', return_value=True):
             for path, body, action, method, _ in owner_actions():
@@ -406,7 +406,7 @@ class ClosedL2Tests(unittest.TestCase):
                     handler.server, handler.path = state, path
                     handler.headers = Message()
                     for key, value in {'Host': '127.0.0.1:8431', 'Origin': 'http://127.0.0.1:8431',
-                                       'Content-Type': 'application/json', 'Content-Length': str(len(raw))}.items():
+                                       'Content-Type': 'application/json', 'Content-Length': str(len(raw)), 'X-AGIW-Control': 'fixture-only'}.items():
                         handler.headers[key] = value
                     handler.rfile = io.BytesIO(raw)
                     handler.reply = mock.Mock()
@@ -422,7 +422,7 @@ class ClosedL2Tests(unittest.TestCase):
 
     def test_http_body_cannot_open_l2(self):
         owner = mock.Mock()
-        state = SimpleNamespace(l2_open=False, online_code_repair=owner,
+        state = SimpleNamespace(control_capability='fixture-only', l2_open=False, online_code_repair=owner,
                                 server_address=('127.0.0.1', 8431), store=server.SnapshotStore())
         with mock.patch.object(server, 'mac_online_code_controls_enabled', return_value=True):
             for path, body, action, _, _ in owner_actions():
@@ -432,7 +432,7 @@ class ClosedL2Tests(unittest.TestCase):
                     handler.server, handler.path = state, path
                     handler.headers = Message()
                     for key, value in {'Host': '127.0.0.1:8431', 'Origin': 'http://127.0.0.1:8431',
-                                       'Content-Type': 'application/json', 'Content-Length': str(len(raw))}.items():
+                                       'Content-Type': 'application/json', 'Content-Length': str(len(raw)), 'X-AGIW-Control': 'fixture-only'}.items():
                         handler.headers[key] = value
                     handler.rfile = io.BytesIO(raw)
                     handler.reply = mock.Mock()

@@ -214,6 +214,31 @@ final class DashboardController: NSViewController {
         activeNavigation = webView.load(URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10))
     }
 
+    func setControlCapability(_ capability: String?, origin: URL) {
+        let scripts = webView.configuration.userContentController
+        scripts.removeAllUserScripts()
+        guard let capability = capability,
+              let data = try? JSONSerialization.data(withJSONObject: ["capability": capability,
+                  "origin": "http://127.0.0.1:\(origin.port!)"]),
+              let settings = String(data: data, encoding: .utf8) else { return }
+        // Only this nonpersistent native page receives the per-launch capability.
+        let source = """
+        (() => {
+          const settings = \(settings);
+          if (location.origin !== settings.origin) return;
+          const original = window.fetch.bind(window);
+          window.fetch = (input, init) => {
+            const outgoing = new Request(typeof input === 'string' ? new URL(input, location.href) : input, init);
+            if (outgoing.method === 'POST' && new URL(outgoing.url).origin === settings.origin) {
+              outgoing.headers.set('X-AGIW-Control', settings.capability);
+            }
+            return original(outgoing);
+          };
+        })();
+        """
+        scripts.addUserScript(WKUserScript(source: source, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+    }
+
     func navigationFailed() {
         needsRetry = true
         showMessage("Dashboard unavailable", detail: "Reconnecting to the local dashboard…", isError: false)
@@ -293,6 +318,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     private var restartDelay: TimeInterval = 1
     private var observerGeneration: UInt64 = 0
     private var origin: URL?
+    private var controlCapability: String?
     private var requestInFlight = false
     private var pollFailures = 0
     private var observerHealthy = false
@@ -428,6 +454,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             if let error = serviceError {
                 controller.showMessage("Observer unavailable", detail: error, isError: true)
             } else if let url = origin {
+                controller.setControlCapability(controlCapability, origin: url)
                 controller.loadDashboard(url)
             }
         }
@@ -445,6 +472,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         windowDashboard?.cancelRetry()
         serviceError = nil
         origin = nil
+        controlCapability = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
+            + UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
         requestInFlight = false
         pollFailures = 0
         observerHealthy = false
@@ -469,6 +498,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         let process = Process()
         let output = Pipe()
         let errors = Pipe()
+        let controlInput = Pipe()
         process.executableURL = URL(fileURLWithPath: python)
         process.arguments = ["-B", "-u", script.path, "--port", "0", "--parent-pid", String(getpid())]
         process.currentDirectoryURL = resources
@@ -492,7 +522,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         process.environment = environment
         process.standardOutput = output
         process.standardError = errors
-        process.standardInput = FileHandle.nullDevice
+        process.standardInput = controlInput
         stdoutPipe = output
         stderrPipe = errors
         output.fileHandleForReading.readabilityHandler = { [weak self] handle in
@@ -522,14 +552,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             }
         }
         observer = process
+        defer {
+            try? controlInput.fileHandleForReading.close()
+            try? controlInput.fileHandleForWriting.close()
+        }
         do {
             try process.run()
+            try controlInput.fileHandleForWriting.write(contentsOf: Data((controlCapability! + "\n").utf8))
             startupTimer = Timer.scheduledTimer(withTimeInterval: 10, repeats: false) { [weak self] _ in
                 guard let self = self, self.origin == nil else { return }
                 self.failService("The local observer did not become ready. Reconnecting…")
                 if self.observer?.isRunning == true { self.observer?.terminate() }
             }
         } catch {
+            if process.isRunning { process.terminate() }
             scheduleObserverRestart("Could not start the local observer: \(error.localizedDescription)")
         }
     }
@@ -577,6 +613,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         startupTimer?.invalidate()
         startupTimer = nil
         origin = url
+        popoverDashboard.setControlCapability(controlCapability, origin: url)
+        windowDashboard?.setControlCapability(controlCapability, origin: url)
         startupBytes.removeAll()
         // Reset exponential backoff only after the observer stays up, so a
         // process that repeatedly starts and crashes cannot retry every second.
