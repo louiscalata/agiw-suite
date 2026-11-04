@@ -10,6 +10,7 @@ not kept.
 from __future__ import annotations
 
 import datetime as dt
+from concurrent.futures import ThreadPoolExecutor
 import json
 import math
 import os
@@ -460,14 +461,20 @@ def collect_map(host, *, fetch=None, rates=None, now=None, targets=None, veritas
     rates = rates or RateMemory()
     now = time.time() if now is None else now
     observed = _iso(now)
+    pc_targets = (targets or direct_targets()) if host == "pc" else (targets if targets is not None else closed_targets())
+    # Each lane keeps its serial parsing/fallbacks, but independent lanes share
+    # the deadline concurrently so a slow successful lane cannot starve Qwen.
+    with ThreadPoolExecutor(max_workers=len(PC_LANES) + 2) as pool:
+        if host == "mac":
+            studio = pool.submit(_read_lmstudio, fetch, observed) if lmstudio is None else None
+            veritas = pool.submit(_read_veritas, fetch, observed,
+                                  os.environ.get("VERITAS_REVIEWER_URL") if veritas_url is None else veritas_url)
+        pc_reads = [pool.submit(_read_pc, item, fetch, rates, now, observed) for item in pc_targets]
+        mac_children = (_mac_absent(observed) if host == "pc" else
+                        [studio.result() if studio is not None else lmstudio, veritas.result()])
+        pc_children = [read.result() for read in pc_reads]
     if host == "pc":
-        mac_children = _mac_absent(observed)
-        pc_children = [_read_pc(item, fetch, rates, now, observed) for item in (targets or direct_targets())]
         tunnel = None
-    else:
-        mac_children = [lmstudio if lmstudio is not None else _read_lmstudio(fetch, observed),
-                        _read_veritas(fetch, observed, os.environ.get("VERITAS_REVIEWER_URL") if veritas_url is None else veritas_url)]
-        pc_children = [_read_pc(item, fetch, rates, now, observed) for item in (targets if targets is not None else closed_targets())]
     nodes = [machine_node("mac", "Mac", mac_children, observed_at=observed, vram=vram if host == "mac" else None),
              *mac_children,
              machine_node("pc", "PC", pc_children, observed_at=observed, vram=vram if host == "pc" else None),
@@ -496,11 +503,16 @@ def _snapshot_lmstudio(snapshot):
         return node
     node["endpoint"] = "http://" + endpoint
     rows = [row for row in snapshot.get("models", []) if row.get("host") == "mac"]
+    unknown = any(type(row.get("loaded")) is not bool for row in rows)
+    rows = [row for row in rows if type(row.get("loaded")) is bool]
     if (not _finite(sampled) or not -2 <= time.time() - sampled <= 3
-            or any(type(row.get("loaded")) is not bool or not _finite(row.get("ageSeconds"))
+            or any(not _finite(row.get("ageSeconds"))
                    or not 0 <= row["ageSeconds"] <= 3 for row in rows)):
         return node
     loaded = {row.get("modelKey") or row["id"]: row for row in rows if row.get("loaded") is True}
+    if unknown and not loaded:
+        node["reason"] = "load_state_unreported"
+        return node
     node.update(health="ok" if loaded else "degraded", reason=None if loaded else "model_not_loaded")
     if len(loaded) == 1:
         model, row = next(iter(loaded.items()))
