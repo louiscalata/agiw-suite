@@ -1,4 +1,4 @@
-# Inference performance: charts, data and measurement boundaries
+# Inference performance: tables, data and measurement boundaries
 
 [Activate the suite](activation.md) · [Architecture](architecture.md) · [Release evidence](../roadmap.md) · [Aggregate JSON](data/inference-performance.json)
 
@@ -24,8 +24,6 @@ The 139.8 rate is the server's `timings.predicted_per_second`. Its denominator c
 
 ## Windows: same code task, different lane layouts
 
-<img src="assets/inference-windows-layouts.svg" width="1280" alt="Horizontal bars from a zero baseline show Windows GPT-OSS 20B decoding rates for a fixed code task: A 18.5, B 12.3, C 111.4 and D 106.0 tokens per second. The separate advisory record is displayed outside the layout comparison as 139.8 tokens per second.">
-
 | Layout | GPT-OSS placement and companion configuration | Decode tokens/s | Recorded decode time | Request wall time | Prompt / generated tokens | Observations |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
 | A | Existing Vulkan configuration; Qwen on CUDA | 18.5 | 7631.21 ms | 8.80 s | 106 / 141 | 1 |
@@ -37,11 +35,9 @@ The 139.8 rate is the server's `timings.predicted_per_second`. Its denominator c
 
 The dedicated 26 September benchmark used the same **GPT-OSS 20B MXFP4 weights** and a fixed JavaScript code-generation task, temperature 0, low reasoning effort and a 400-token cap. A short warmup request preceded each lane's measurements and is excluded here. The measurement script read `timings.predicted_per_second` from the llama-server response, rounded it to one decimal place, and separately timed the full HTTP request. Decode durations above come from the matching raw server timing logs; they were not back-calculated from rounded rates. Server timing/count conventions can differ from a naive token-count/rate division.
 
-All four retained code requests reported 106 prompt tokens and 141 completion tokens. A, C and D are from the pass starting at **16:54:40 UTC**; B is from an earlier pass starting at **16:38:04 UTC**, both on 26 September. Backend, context capacity and offload settings vary between layouts. There is only **one retained code observation per layout**, so there is no repeated-trial uncertainty estimate. The chart illustrates configuration sensitivity on that Windows worker; it does not isolate a single setting's causal effect, measure Mac + PC aggregate throughput, or show an AGIW-off/on comparison. Concurrent requests elsewhere in the same benchmark were two lanes on the **same PC**, not a Mac + PC experiment.
+All four retained code requests reported 106 prompt tokens and 141 completion tokens. A, C and D are from the pass starting at **16:54:40 UTC**; B is from an earlier pass starting at **16:38:04 UTC**, both on 26 September. Backend, context capacity and offload settings vary between layouts. There is only **one retained code observation per layout**, so there is no repeated-trial uncertainty estimate. The table illustrates configuration sensitivity on that Windows worker; it does not isolate a single setting's causal effect, measure Mac + PC aggregate throughput, or show an AGIW-off/on comparison. Concurrent requests elsewhere in the same benchmark were two lanes on the **same PC**, not a Mac + PC experiment.
 
 ## Mac: repeated requests with a full-request denominator
-
-<img src="assets/inference-mac-trials.svg" width="1280" alt="Apple-silicon Mac GPT-OSS 20B effective throughput distribution, seven requests per task. Generation median 72.302 and range 59.500 to 72.711; coding median 72.842 and range 72.743 to 73.156; reasoning median 72.240 and range 70.431 to 72.646 tokens per second. Dots show individual trials and diamonds show medians.">
 
 | Task | Requests with output | Generated completion tokens/request | Median effective tokens/s | Minimum | Maximum |
 | --- | ---: | --- | ---: | ---: | ---: |
@@ -60,7 +56,7 @@ The script computes:
 effective completion throughput = reported completion tokens / full request duration
 ```
 
-Full request duration includes waiting before output arrives. Reported completion counts can include hidden reasoning tokens. Median time to first **visible text** was 1.0959 seconds; population standard deviation of the 21 effective rates was 2.811 tokens/s. The chart shows every retained trial and its task median. These are descriptive statistics from one benchmark run, not a confidence interval or a sustained-load test.
+Full request duration includes waiting before output arrives. Reported completion counts can include hidden reasoning tokens. Median time to first **visible text** was 1.0959 seconds; population standard deviation of the 21 effective rates was 2.811 tokens/s. The table summarizes each task; the [aggregate JSON](data/inference-performance.json) retains every trial. These are descriptive statistics from one benchmark run, not a confidence interval or a sustained-load test.
 
 This metric has a different denominator from the Windows **decoding-only** metric, and the workloads, dates and runtime conditions also differ. Dividing the Windows peak by the Mac median would produce a misleading machine-speed percentage. Neither record states that AGIW was toggled under otherwise identical conditions. The Mac dataset retains full-request times, not a separately instrumented decoding-phase duration.
 
@@ -85,7 +81,7 @@ A successful HTTP response, fast decoding, or non-empty output supplies no corre
 | **AGIW Suite on Mac** | Same Mac workload with the AGIW monitor running | Unmeasured | Unmeasured | **NOT_RUN** |
 | **AGIW Suite on Mac + PC** | Same total validated workload split across configured Mac and PC workers; report each host separately | Unmeasured | Unmeasured | **NOT_RUN** |
 
-**0 of 3 matched conditions have a retained controlled result.** Missing measurements are `null` in the downloadable data, never zero. There is no measured percentage uplift to plot yet. The independent historical charts above retain their own metric definitions and do not fill these missing conditions.
+**0 of 3 matched conditions have a retained controlled result.** Missing measurements are `null` in the downloadable data, never zero. There is no measured percentage uplift to plot yet. The independent historical tables above retain their own metric definitions and do not fill these missing conditions.
 
 The public monitor observes runtimes and offers explicit guarded controls. It starts no coding task merely by opening. External routing and Windows worker setup are separately managed. Two hosts can process independent work concurrently when those components are configured, but their generation rates cannot simply be added to predict the completion time of a sequential author/reviewer workflow. Its validated task rate also depends on output quality, retries and dependencies.
 
@@ -132,4 +128,4 @@ AGIW's practical opportunity is to make supported runtime state and controls und
 
 [inference-performance.json](data/inference-performance.json) contains sanitized numeric observations, metric definitions, task distributions and explicit missing comparison values. It excludes private paths, machine hostnames, request text, generated responses, credentials and complete private receipts. The maintainer reviewed the retained worker receipt, dedicated lane-layout measurement script/results, and repeated Mac streaming measurement script/results before extracting these fields.
 
-The figures use linear axes and show their units and sample counts. The Windows bars begin at zero; the Mac plot includes a zero baseline and shows all 21 observations. Equivalent readable values are present in the tables above. This documentation leaves the downloadable **1.0.0 (7)** application, its release tag and its package bytes unchanged. Mac App Store acceptance and publication are separate.
+The tables above and the [sanitized dataset](data/inference-performance.json) retain the numeric record. This documentation leaves the downloadable **1.0.0 (7)** application, its release tag and its package bytes unchanged. Mac App Store acceptance and publication are separate.

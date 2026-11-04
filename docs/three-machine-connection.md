@@ -36,11 +36,18 @@ Before any one-way step, run the exact observation code read-only on the real ma
 
 The Windows edition is in development and is not released. On 2026-10-18, native test suites ran on the Windows 11 PC with Python 3.13 and Node.js 24. Three in-progress hardening workstreams passed fully, with 288 Windows tests each and JavaScript suites of 396–407 tests each. The installer workstream ran 432 Windows tests; its installer directory-guard fix, PowerShell 5.1 test-harness fix and one test-isolation fix remain in progress. Two tests that failed only on macOS were confirmed to pass natively on Windows.
 
-## The topology as planned before 2026-10-25 (historical)
+## Current dependencies and historical machine roles
 
-The diagram and table below show the earlier three-machine plan. Since 2026-10-25 only the Windows PC and the Apple-silicon Mac are in scope; the Linux row is retained as history.
+The diagram shows current dependencies only. The table below retains the earlier three-machine plan; its Linux row is historical. Linux and PAIR are retired and excluded from the diagram.
 
-<img src="assets/three-machine-architecture.svg" width="1280" alt="Tools feed Nisi and Jev, optional PAIR transport, then PC, Linux and Mac workers. Windows has separate NVIDIA RTX 3080 Ti and AMD RX 5700 XT lanes. Linux has RX 580 inference, NVMe workspace/cache and HDD backup storage. Results return through output checks and review.">
+```mermaid
+flowchart TD
+    monitor["MacBook Pro<br/>Inference Monitor"] --> local["Mac LM Studio"]
+    monitor -.-> ssh["Optional PC SSH forwards"]
+    ssh --> pc["Windows PC<br/>Coding and fast advisories"]
+```
+
+Arrows mean "depends on"; dashed arrows mark optional dependencies.
 
 Nisi v0.2 and Jev provide the workflow and task-analysis layer. In this withdrawn plan, NVIDIA PAIR could transport independent requests to eligible engines; it did not combine the computers' RAM or VRAM into one model. PAIR is uninstalled. The PC's two GPUs offer distinct placement options. Native admission and a measured workload must establish whether both can be used together for a given configuration.
 
@@ -53,8 +60,6 @@ Nisi v0.2 and Jev provide the workflow and task-analysis layer. In this withdraw
 The Linux coding sample uses a reviewed SSE/Vulkan runtime suited to the older Xeons. It did not require AVX or AVX2 CPU support. Storage roles do not make the HDDs equivalent to NVMe speed or combine the drives into a RAID volume.
 
 ## Historical single-run local samples · different tasks/configurations · not concurrent
-
-<img src="assets/three-machine-local-rates.svg" width="1280" alt="Separate local generation samples: Linux Qwen3.5-4B Q6_K 36.84 tokens per second with 16 semantic cases passed; Mac Qwen3.8-27B MLX 16.39 with semantic review rejected; PC Qwen3.8-27B Q4_K_M 2.06 with seven code cases passed. One observation per machine with different tasks and placement. These are not simultaneous cluster throughput or a hardware ranking.">
 
 | Machine / observed date | Exact model and placement | Reported generation rate | Output and timing | Quality and release |
 | --- | --- | ---: | --- | --- |

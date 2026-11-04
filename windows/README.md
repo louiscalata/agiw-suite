@@ -21,7 +21,7 @@ observer that serves **the same dashboard** as the Mac edition, in its `host: "w
 ## Run
 
 Double-click **`AGIW Monitor.vbs`** (or `AGIW Monitor.cmd`). The tray icon appears and the dashboard opens in an
-Edge app window at `http://127.0.0.1:8767/`. If 8767 is held by something else the observer stops and the tray
+Edge app window at `http://127.0.0.1:8767/monitor`; **Full dashboard** opens the earlier view at `/`. If 8767 is held by something else the observer stops and the tray
 says so, rather than moving to another address.
 
 Tray icon colours: **blue** a lane is working · **green** both lanes confirmed idle · **amber** a lane does not
@@ -38,7 +38,7 @@ python agiw_observer.py --port 8767      # observer only; open the URL it prints
 ## Requirements
 
 - Windows 10/11, Windows PowerShell 5.1 (built in) or PowerShell 7.
-- Python 3.9+ (found at `%LOCALAPPDATA%\Programs\Python\Python31x\python.exe`, on `PATH`, or `AGIW_PYTHON`).
+- Python 3.9+ (searched in this order: `AGIW_PYTHON`; `python.exe` in the `Python313`, `Python312`, then `Python311` folders under `%LOCALAPPDATA%\Programs\Python\`; then `python.exe` and `py.exe` on `PATH`, skipping `WindowsApps` shims).
   The tray checks this minimum; `install.ps1` copies source without choosing or installing an interpreter.
   The recorded PC environment uses Python 3.13. Python 3.14 test results on the Mac are not native PC validation.
 - Lanes declared in `C:\SharedChami\windows-llm-pipeline\config.json` → `runtime.lanes`. There is no built-in

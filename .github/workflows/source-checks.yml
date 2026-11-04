@@ -9,14 +9,19 @@ permissions:
   contents: read
 
 jobs:
-  monitor:
+  tests:
+    name: monitor (${{ matrix.python }})
     runs-on: macos-latest
     timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.9', '3.14']
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: actions/setup-python@v7.0.0
         with:
-          python-version: '3.14'
+          python-version: ${{ matrix.python }}
       - uses: actions/setup-node@v7.0.0
         with:
           node-version: '22'
@@ -43,3 +48,16 @@ jobs:
           python3 -B bundle_nisi.py --verify
           node --check web/components.js
           node --check web/monitor.mjs
+
+  # Branch protection requires a check named exactly "monitor". A matrix job
+  # reports only "monitor (<version>)", so this job reports the combined result.
+  monitor:
+    if: ${{ always() }}
+    needs: tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every Python version to pass
+        env:
+          RESULT: ${{ needs.tests.result }}
+        run: test "$RESULT" = success
