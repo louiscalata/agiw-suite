@@ -16,7 +16,7 @@ export function place(nodes) {
     if (LANES[node.id]) placed.push({...node, ...LANES[node.id]});
     else extra.push(node);
   }
-  extra.forEach((node, index) => placed.push({...node, x: 40 + (index % 6) * 120, y: 390}));
+  extra.forEach((node, index) => placed.push({...node, x: 40 + (index % 6) * 120, y: 390 + Math.floor(index / 6) * 60}));
   return placed;
 }
 
@@ -55,14 +55,15 @@ export function tunnelLine(tunnel) {
 }
 
 export function rateText(node) {
-  if (typeof node.generationTokensPerSecond === 'number') return `${node.generationTokensPerSecond} tok/s`;
-  if (typeof node.promptTokensPerSecond === 'number') return `${node.promptTokensPerSecond} prompt tok/s`;
+  if (Number.isFinite(node.generationTokensPerSecond)) return `${Math.round(node.generationTokensPerSecond * 10) / 10} tok/s`;
+  if (Number.isFinite(node.promptTokensPerSecond)) return `${Math.round(node.promptTokensPerSecond * 10) / 10} prompt tok/s`;
   return '';
 }
 
 function draw(map, selected) {
   const svg = document.querySelector('#map');
   const placed = place(map.nodes);
+  svg.style.height = `${Math.max(420, ...placed.map(node => node.y + 40))}px`;
   const byId = new Map(placed.map(node => [node.id, node]));
   svg.replaceChildren();
   for (const edge of map.edges || []) {
@@ -117,16 +118,61 @@ function show(node) {
 
 let current = null;
 let selected = null;
+let inFlight = false;
+
+function ageMap(map, unavailable = false) {
+  if (!map) return map;
+  const age = Date.now() - Date.parse(map.observedAt);
+  const tunnel = map.tunnel && (unavailable || !Number.isFinite(age) || age < -2000 || age > 30000)
+    ? {state: 'not_measured', detail: 'PC tunnel observation stale.'} : map.tunnel;
+  const nodes = (map.nodes || []).map(node => {
+    const age = Date.now() - Date.parse(node.observedAt || map.observedAt);
+    if (!unavailable && Number.isFinite(age) && age >= -2000 && age <= (node.machine === 'pc' ? 30000 : 3000)) return node;
+    const unknown = {...node, health: 'not_measured', reason: unavailable ? 'feed_unavailable' : 'stale'};
+    for (const field of ['modelId', 'upstream', 'detail', 'models', 'callers', 'promptTokensPerSecond',
+      'generationTokensPerSecond', 'latencyMs', 'queueDepth', 'slotsBusy', 'slotsTotal',
+      'contextUsed', 'contextLimit', 'vramUsedMiB', 'vramTotalMiB']) unknown[field] = null;
+    return unknown;
+  });
+  const unknown = new Set(nodes.filter(node => node.health === 'not_measured').map(node => node.id));
+  const edges = (map.edges || []).filter(edge => !['upstream', 'caller'].includes(edge.kind)
+    || (!unknown.has(edge.from) && !unknown.has(edge.to)));
+  return {...map, tunnel, nodes, edges};
+}
+
+function render() {
+  if (!current) return;
+  draw(current, selected);
+  const node = (current.nodes || []).find(item => item.id === selected);
+  if (node) show(node);
+  else {
+    selected = null;
+    document.querySelector('#detail').hidden = true;
+    document.querySelector('#detailFacts').replaceChildren();
+  }
+}
 
 async function tick() {
-  const response = await fetch('/api/inference', {headers: {Accept: 'application/json'}, cache: 'no-store'});
-  if (!response.ok) throw new Error(String(response.status));
-  current = await response.json();
-  document.querySelector('#tunnel').textContent = tunnelLine(current.tunnel);
-  draw(current, selected);
-  if (selected) {
-    const node = (current.nodes || []).find(item => item.id === selected);
-    if (node) show(node);
+  current = ageMap(current);
+  render();
+  if (inFlight) return;
+  inFlight = true;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 2000);
+  try {
+    const response = await fetch('/api/inference', {headers: {Accept: 'application/json'}, cache: 'no-store', signal: controller.signal});
+    if (!response.ok) throw new Error(String(response.status));
+    const map = await response.json();
+    if (!map || !Array.isArray(map.nodes)) throw new Error('Invalid map');
+    current = ageMap(map);
+    document.querySelector('#tunnel').textContent = tunnelLine(current.tunnel);
+  } catch (_) {
+    current = ageMap(current, true);
+    document.querySelector('#tunnel').textContent = 'Monitor feed unavailable';
+  } finally {
+    clearTimeout(timeout);
+    inFlight = false;
+    render();
   }
 }
 
@@ -140,10 +186,6 @@ if (typeof document !== 'undefined' && document.querySelector('#map')) {
     const node = current.nodes.find(item => item.id === id);
     if (node) show(node);
   });
-  const refresh = () => tick().catch(() => {
-    const tunnel = document.querySelector('#tunnel');
-    if (tunnel) tunnel.textContent = 'Monitor feed unavailable';
-  });
-  refresh();
-  setInterval(refresh, 2000);
+  tick();
+  setInterval(tick, 2000);
 }
