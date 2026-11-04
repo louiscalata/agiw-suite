@@ -119,28 +119,31 @@ function show(node) {
 let current = null;
 let selected = null;
 let inFlight = false;
+let feedUnavailable = false;
 
 function ageMap(map, unavailable = false) {
   if (!map) return map;
   const age = Date.now() - Date.parse(map.observedAt);
   const tunnel = map.tunnel && (unavailable || !Number.isFinite(age) || age < -2000 || age > 30000)
     ? {state: 'not_measured', detail: 'PC tunnel observation stale.'} : map.tunnel;
+  const expired = new Set();
   const nodes = (map.nodes || []).map(node => {
     const age = Date.now() - Date.parse(node.observedAt || map.observedAt);
     if (!unavailable && Number.isFinite(age) && age >= -2000 && age <= (node.machine === 'pc' ? 30000 : 3000)) return node;
+    expired.add(node.id);
     const unknown = {...node, health: 'not_measured', reason: unavailable ? 'feed_unavailable' : 'stale'};
     for (const field of ['modelId', 'upstream', 'detail', 'models', 'callers', 'promptTokensPerSecond',
       'generationTokensPerSecond', 'latencyMs', 'queueDepth', 'slotsBusy', 'slotsTotal',
       'contextUsed', 'contextLimit', 'vramUsedMiB', 'vramTotalMiB']) unknown[field] = null;
     return unknown;
   });
-  const unknown = new Set(nodes.filter(node => node.health === 'not_measured').map(node => node.id));
   const edges = (map.edges || []).filter(edge => !['upstream', 'caller'].includes(edge.kind)
-    || (!unknown.has(edge.from) && !unknown.has(edge.to)));
+    || (!expired.has(edge.from) && !expired.has(edge.to)));
   return {...map, tunnel, nodes, edges};
 }
 
 function render() {
+  document.querySelector('#tunnel').textContent = feedUnavailable ? 'Monitor feed unavailable' : tunnelLine(current?.tunnel);
   if (!current) return;
   draw(current, selected);
   const node = (current.nodes || []).find(item => item.id === selected);
@@ -165,10 +168,10 @@ async function tick() {
     const map = await response.json();
     if (!map || !Array.isArray(map.nodes)) throw new Error('Invalid map');
     current = ageMap(map);
-    document.querySelector('#tunnel').textContent = tunnelLine(current.tunnel);
+    feedUnavailable = false;
   } catch (_) {
     current = ageMap(current, true);
-    document.querySelector('#tunnel').textContent = 'Monitor feed unavailable';
+    feedUnavailable = true;
   } finally {
     clearTimeout(timeout);
     inFlight = false;
