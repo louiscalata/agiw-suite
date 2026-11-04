@@ -1,5 +1,7 @@
 # Activate AGIW Suite
 
+The installation steps describe the 1.0.0 (7) download, which has the [known local-control authentication issue](../SECURITY.md#known-issue-in-v100-build-7-local-control-authentication). In the unreleased 1.2.0 native app, open **Full dashboard** from `/monitor` to reach Browse, Components and controls. A standalone browser preview has observation access only.
+
 Start with the **GitHub 1.0.0 (7) Apple-silicon application**. This guide explains how to launch the monitor, connect local models and run the included Nisi tools. The Mac App Store edition has separate menus, runtime packaging and acceptance requirements.
 
 [Download and verify](../README.md#first-run) · [Architecture](architecture.md) · [Configuration](advanced-configuration.md) · [Developer commands](development.md)
@@ -17,7 +19,7 @@ You have now launched the Monitor. Local model generation, the Nisi self-check, 
 ## Connect and monitor local models
 
 1. Install/configure LM Studio and download a model suited to the Mac's available memory. Model weights are separate from AGIW.
-2. In LM Studio's **Developer** tab, start its API server on **127.0.0.1:1234**. The Monitor's sampler takes the port from `AGIW_LMSTUDIO_API_PORT` or `lms server status`, with 1234 as the fallback; the newer `/monitor` map on `main` always reads port 1234 ([details](advanced-configuration.md#lm-studio-port-and-nvidia-pair)). See the [official server instructions](https://lmstudio.ai/docs/developer/core/server).
+2. In LM Studio's **Developer** tab, start its API server on **127.0.0.1:1234**. The Monitor's sampler takes the port from `AGIW_LMSTUDIO_API_PORT` or `lms server status`, with 1234 as the fallback; the unreleased `/monitor` map reuses that verified inventory and endpoint ([details](advanced-configuration.md#lm-studio-port-and-nvidia-pair)). See the [official server instructions](https://lmstudio.ai/docs/developer/core/server).
 3. With LM Studio's CLI installed, its equivalent explicit command is:
 
    ```sh
@@ -72,16 +74,18 @@ No files, project prompts or model inventory are sent by this check. Nisi's offl
 
 The GitHub package includes observation/recovery adapters. It does **not install the external coding router, client integrations, Windows worker, models or their credentials**. On a fresh Mac, unknown/unbound routing is expected until those separately managed tools are installed and configured. There is no included command that installs the entire multi-machine development stack.
 
-For a machine that already has the supported owner launcher/router and worker contracts:
+In this unreleased source, **Check readiness**, **Fix inference** and **PC LLM** submit recovery or headless POSTs. The native launcher leaves L2 closed: authenticated requests return HTTP 423 (`l2_closed`) with a read-only diagnosis and no executed steps, and the panel reports the rejection. A standalone `server.py` lacks the native control capability and returns HTTP 403 before the L2 check, even with `--l2-open`.
+
+Neither documented launch path enables these actions. The recovery and headless steps below describe conditional behavior: they require verified L2 handover, an observer started with `--l2-open` through a native launcher that supplies the control capability, and the separately configured owner launcher/router and worker contracts:
 
 1. Confirm the external owner programs and state are configured for this Mac account. If SMB recovery is needed, supply both settings in [Share recovery settings](advanced-configuration.md#share-recovery-settings); do not use Guest/Anonymous.
-2. In AGIW, press **Check readiness**. In this GitHub edition that button can inspect and safely reconcile exact eligible pending records, then verify readiness. It does not submit a coding task or call a model. Read the returned steps if it reports **needs action**.
-3. Review the recovery scope before requesting repair: it can start a stopped local server, recover eligible Nisi records, reconcile worker state, remount a configured share and send one short Windows probe after its guards pass. Pressing the **top-bar Fix inference button starts that guarded run immediately**; watch its result without a second initiating click. The inspector's **Fix Nisi Inference** shortcut only opens the same panel; from that entry, press **Run check** to start. The panel's **What this does** explains the scope. Closing it or pressing Escape does not cancel the running repair.
+2. In AGIW, press **Check readiness**. With those prerequisites met, the button can inspect and safely reconcile exact eligible pending records, then verify readiness. It does not submit a coding task or call a model. Read the returned steps if it reports **needs action**.
+3. Review the recovery scope before requesting repair: it can start a stopped local server, recover eligible Nisi records, reconcile worker state, remount a configured share and send one short Windows probe after its guards pass. Pressing the **top-bar Fix inference button submits that request immediately**; watch its result without a second initiating click. The inspector's **Fix Nisi Inference** shortcut only opens the same panel; from that entry, press **Run check** to start. The panel's **What this does** explains the scope. Closing it or pressing Escape does not cancel the running repair.
 4. Submit a development task through the separately configured client/router. Then inspect **Activity**, **Nisi Inference** and **Windows PC** for fresh run/job evidence. Idle readiness is not proof that a task has run.
 
 Do not repeat a request merely because it timed out: an external job can still be pending. Follow the retained job/owner-state instructions. Parallel task scheduling belongs to the external router; the Monitor's HTTP concurrency is not a scheduler. [Recovery architecture](architecture.md#7-recovery-workers-and-parallel-work).
 
-When fresh supported worker/headless evidence is available, **PC LLM** exposes a separate switch. Turning it **on** requests a four-hour headless LLM hold and sends one short guarded probe; turning it **off** releases that mode. A hidden/unknown switch means the capability is not currently established. This switch does not install the worker or launch a development task.
+When fresh supported worker/headless evidence is available, **PC LLM** exposes a separate switch. With the same L2 and native-control prerequisites met, turning it **on** requests a four-hour headless LLM hold and sends one short guarded probe; turning it **off** releases that mode. A hidden/unknown switch means the capability is not currently established. This switch does not install the worker or launch a development task.
 
 ## Optional: start the GitHub app at login
 

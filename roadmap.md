@@ -1,5 +1,22 @@
 # AGIW Suite roadmap and release evidence
 
+## Current source and artifact status · 2026-11-03
+
+The canonical roadmap remains this file. The downloadable application is **1.0.0 (7)**; `Info.plist` in this checkout is **1.2.0 (13), unreleased**. The repository's release record lists only v1.0.0 as a binary download: rc.1, rc.2 and source-preview release pages were withdrawn on 18 October, while their tags remain. Historical release evidence below describes those earlier checkpoints, not current rollback availability.
+
+The 1.0.0 download has the [known local-control authentication issue](SECURITY.md#known-issue-in-v100-build-7-local-control-authentication). Source fixes do not update the signed ZIP. Native rendering, a quarantined clean-Mac first install and the full Jev credential-entry lifecycle remain open. The Windows observer source is included as an unreleased preview; external Windows model workers and the private router are separate.
+
+- [x] Correct the native snapshot URL and keep HTTP 404 out of the observer termination counter; retain `/monitor` as the page and link it to the full dashboard.
+- [x] Expire map observations, serialize refreshes and clear measurements on failure; reuse verified LM Studio inventory and display fetched PC endpoints.
+- [x] Add per-launch native capability authorization for control POSTs, total probe deadlines, environment-over-file SSH precedence, automatic positive model-operation reconciliation, and minimum-Python CI coverage. These are local source changes, not a release acceptance claim.
+- [x] Consolidate source-review dispositions and verification in the [source verification record](docs/source-verification.md). Source tests do not establish native acceptance.
+- [x] Reconcile the reported failures against clean `c0a057d`: correct the raw transport test's missing capability and retain route, tunnel, Windows ambiguity and stale-edge coverage. Keep external router-writer prerequisites explicit.
+- [x] Replace README/docs diagram and text artwork with a current two-machine Mermaid dependency diagram and readable Markdown tables; retain Linux and PAIR retirement boundaries.
+- [ ] Publish a separately reviewed release carrying the fixes after the existing native/package acceptance gates. Preserve published history and tags; any correction needs a new version.
+- [ ] Record the actual Build 7 Xcode archive/export procedure before claiming reproducible release packaging. The current script produces a separate DMG candidate.
+- [ ] Replace private router-writer fixtures with a versioned public contract; generalize maintainer-only topology and recovery adapters with owner-approved configuration.
+
+
 ## Commit ids before the history rewrite
 
 The entries below, the README's CI link and the Actions runs they cite name commits by their ids before a later history rewrite that changed commit metadata only (author and committer email). Each source tree is unchanged, so every cited commit has a current commit with the same tree (checked 3 November 2026):
@@ -51,7 +68,7 @@ See [the current connection state](docs/three-machine-connection.md), [sanitized
 
 ## Historical inference charts and comparison data — 1 October 2026
 
-- [x] Review retained Windows worker and dedicated lane-layout records and the Mac repeated streaming benchmark against their measurement scripts. Add [performance.md](docs/performance.md), two accessible figures and a sanitized [aggregate dataset](docs/data/inference-performance.json), linked from the README.
+- [x] Review retained Windows worker and dedicated lane-layout records and the Mac repeated streaming benchmark against their measurement scripts. Add [performance.md](docs/performance.md), two accessible figures and a sanitized [aggregate dataset](docs/data/inference-performance.json), linked from the README. Those figures were later removed; the tables and aggregate dataset remain.
 - [x] Record the highest reviewed server decoding observation, 139.7561149917549 tokens/s for one Windows GPT-OSS 20B advisory; keep it distinct from the dedicated fixed-code layout rates and the Mac's 21-request median full-request throughput of 72.482 tokens/s. Retain workload, date, denominator, counts and uncertainty limits.
 - [ ] Run a controlled No AGIW / AGIW on Mac / AGIW on Mac + PC comparison with matched work and validated task outcomes. All three conditions remain NOT_RUN; missing values are null and no AGIW acceleration percentage is claimed.
 
@@ -87,7 +104,7 @@ The repository and release overview now use a simpler glowing AS banner, a two-c
 - [x] Publish and verify the regular latest [v1.0.0 release](https://github.com/louiscalata/agiw-suite/releases/tag/v1.0.0) at 20:44:22 UTC. GitHub reports repository public, draft false and prerelease false; its latest-release endpoint selects v1.0.0. Tag `v1.0.0` pointed to `807615e2d378051a92ab73bea241044069a175f8` (now `8bb7de71491e23c4d1409a807549fbb5b2c15b1e`), whose CI passed. Anonymous ZIP and checksum downloads returned HTTP 200, matched the verified local bytes and passed the checksum command. Later documentation updates do not change the tag or compiled app identity.
 - [ ] Complete native Jev Cancel/reopen and credential entry/save/remove, full native rendering/animation and quarantined first installation on a clean supported Mac. The public release documents these remaining validation limits; publication does not supply missing acceptance evidence.
 
-The earlier rc.2 and rc.1 downloads remain available. This release publishes the reviewed application with the remaining native checks explicitly documented as follow-up work. Those checks remain incomplete; the earlier candidate decisions and evidence below retain their historical scope.
+At publication, rc.2 and rc.1 were available; their release downloads were withdrawn on 18 October 2026. The tags remain. This release publishes the reviewed application with the remaining native checks explicitly documented as follow-up work. Those checks remain incomplete; the earlier candidate decisions and evidence below retain their historical scope.
 
 ## Default public Nisi package and optional Jev — 2026-09-30
 
@@ -155,12 +172,12 @@ This is the canonical roadmap for this repository and its GitHub distribution ca
 - [x] Align the Monitor's Core 6 presentation filter with the bundled Nomic Embed Text v1.5 ID already observed in LM Studio inventory and used by the existing retrieval integration. The source change updates `web/map-layout.mjs` and two focused test fixtures; a distinct six-entry inventory case checks that Core 6 and All discovered show the same six rows. Independent source review found no blocking defect, and local checks passed 696 Python tests and 229 JavaScript tests, plus shell/plist/diff checks. At that source revision's checkpoint, the LM Studio catalog had nine entries; an independent local cutover reduced it to six on 29 September. This code does not load, unload or remove a model. CI and a signed install of this source revision are separate checks.
 - [x] Build and verify an exact-source signed arm64 DMG from `76d1ad7`. Its pre-notarization hash is `7918a7914e316c2651dab53a3e5461a9dfd46b5b8f600fb411599ce72ed7cf2a`; the mounted app signature, architecture and bundled resources match the manifest. This is a local candidate, not a published release.
 - [x] Rebuild the signed DMG after the Python path and install-instruction update. The clean `d24642b03b7e56791435463f411be77d39ad8f9c` source produced `AGIW-Inference-Monitor-1.0.0-arm64.dmg` with pre-notarization SHA-256 `ea0aa372c8fa1a141576eec518238ee4823a6271c11d30c9d511ae67c8a48196`. Its 23 source inputs and package script matched the manifest; the DMG integrity check, mounted-app strict signature, arm64 architecture and bundled resources passed. [Exact-source CI run 36616169056](https://github.com/louiscalata/agiw-suite/actions/runs/36616169056) succeeded. This is a signed local candidate; `stapler validate` found no ticket and no clean-Mac download test has run.
-- [ ] Submit the exact DMG to Apple notarization, require an accepted result, staple and validate its ticket, then test the quarantined download on a clean supported Mac. No notary profile or accepted submission is evidenced yet.
+- [ ] Historical DMG candidate only: this exact DMG was not submitted or stapled. The later Build 7 ZIP has accepted notarization evidence below; its clean-Mac assessment remains open. Do not treat this old candidate as a current download.
 - [x] Apply the owner's selected Apache-2.0 license, matching the public Nisi release, with an AGIW project notice. Separately managed private runtime material is excluded.
 
 ## Excluded from this package
 
-Private router development and installed scripts, hosted Jev service implementation, Windows workers, the separate security scanner, generated suite report and its private evidence, model weights, credentials, local configuration, receipts, logs, staged candidates, installed app bundles and archives remain outside this source package. The public Nisi 0.2.0 package, optional Jev connector and Mac-side Windows observer are included. External components require their own source and acceptance decisions before any later inclusion.
+Private router development and installed scripts, hosted Jev service implementation, external Windows model workers, the separate security scanner, generated suite report and its private evidence, model weights, credentials, local configuration, receipts, logs, staged candidates, installed app bundles and archives remain outside this source package. The public Nisi 0.2.0 package, optional Jev connector, Mac-side Windows observer and unreleased `windows/` observer source are included. External components require their own source and acceptance decisions before any later inclusion.
 
 ## Verification record
 

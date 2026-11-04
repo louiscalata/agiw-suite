@@ -25,6 +25,7 @@ flowchart TB
         Node["External arm64 Node 22+ / bundled public Nisi"]
         Keys["Login Keychain"]
     end
+    Peer["Opt-in LAN peer link · TCP 8768 / UDP 8769"]
     External["Separately managed router / worker services"]
     Provider["TypeSafe API · optional external HTTPS"]
     User --> Shell
@@ -33,6 +34,7 @@ flowchart TB
     Shell -->|"badge requests"| Observer
     Web <-->|"HTTP /api/inference polling"| Observer
     Evidence --> Observer
+    Observer -. "opt-in paired status" .-> Peer
     LMS -->|"inventory and activity"| Observer
     Observer -->|"explicit load / unload"| LMS
     Observer -->|"explicit offline self-check"| Node
@@ -68,6 +70,9 @@ Opening the application starts observation. It does not start a coding task, loa
 | Recovery adapters | Bounded local-runtime, router, share and worker recovery; fixed worker probe | [online_code_repair.py](../online_code_repair.py), [windows_probe.py](../windows_probe.py) |
 | Included Nisi | Pinned public payload, integrity checks and fixed offline demonstration | [bundled_components.py](../bundled_components.py), [bundle_nisi.py](../bundle_nisi.py), [vendored package](../vendor/nisi/package/README.md) |
 | Optional hosted Jev | Bounded status wrapper; native helper owns credential storage and the fixed exchange | [jev_connection.py](../jev_connection.py), [JevKeychain.swift](../JevKeychain.swift) |
+| Peer observations | Optional LAN discovery/pairing, share presence and per-machine freshness | [peer_link.py](../peer_link.py), [peer_feed.py](../peer_feed.py), [machine_state.py](../machine_state.py) |
+| Inference transport and status | Configured PC SSH forwards, map metrics, historical PAIR observations and read-only `./agiw-status --json` CLI | [pc_tunnel.py](../pc_tunnel.py), [inference_stats.py](../inference_stats.py), [pair_status.py](../pair_status.py), [agiw_status.py](../agiw_status.py) |
+| Windows preview | Separate tray shell and observer; unreleased | [windows/README.md](../windows/README.md) |
 | Distribution | Compile, resource allowlists, signing, provenance, packaging and login launcher | [build.sh](../build.sh), [package-release.sh](../package-release.sh), [login-agent.sh](../login-agent.sh) |
 
 ## 2. Startup, updates and shutdown
@@ -83,12 +88,12 @@ sequenceDiagram
     participant Store as Snapshot store
     participant Web as Monitor page (/monitor)
     participant Dashboard as Earlier dashboard (/)
-    Shell->>Observer: Launch with ephemeral port and parent PID
+    Shell->>Observer: Launch with ephemeral port, parent PID and capability over stdin
     Observer-->>Shell: JSON port/PID handshake
     Shell->>Shell: Validate child and loopback origin
     Observer->>Store: Publish full sample
-    Shell->>Observer: GET /monitor/api/snapshot for badge
-    Observer-->>Shell: 404 (path is not routed)
+    Shell->>Observer: GET /api/snapshot for badge
+    Observer-->>Shell: Snapshot JSON
     Web->>Observer: GET /api/inference
     Observer-->>Web: Inference map JSON
     Dashboard->>Observer: GET /api/stream
@@ -97,10 +102,10 @@ sequenceDiagram
     Note over Shell,Dashboard: Dashboard freshness is checked independently of delivery
 ```
 
-- **Sampling:** nominal full readings every second; a 0.15-second tick rereads evidence groups whose file fingerprints changed. Fast overlays apply only to a full sample at most three seconds old. These are implementation intervals, not guaranteed latency.
+- **Sampling:** nominal full readings every second; optional map HTTP probes run after the memory-watchdog tick with a 0.4-second total deadline per GET and a shared 0.8-second HTTP budget. LM Studio map fields reuse verified telemetry inventory rather than probing another listener; a 0.15-second tick rereads evidence groups whose file fingerprints changed. Fast overlays apply only to a full sample at most three seconds old. These are implementation intervals, not guaranteed latency.
 - **Publication:** `SnapshotStore` replaces a deep-copied snapshot under a lock and wakes stream readers. It retains up to 90 full-sample history points and 50 observed transitions. An overlay does not create another history point.
-- **Clients:** the native `/monitor` page polls `/api/inference` every two seconds; the earlier dashboard at `/` receives Server-Sent Events and falls back to polling `/api/snapshot` when streaming is unavailable. Each stream includes `event: snapshot`, a sequence ID and JSON data, with heartbeat comments between updates. The stream supplies the newest observation, not a durable replay of every event. The native badge schedules a poll once per second, but current source appends `api/snapshot` to the `/monitor` URL and requests `/monitor/api/snapshot`, which returns 404.
-- **Failure:** no first reading produces HTTP 503 with `status: starting`. Failed collection preserves the old timestamp so clients can age it out. The shell has a ten-second startup timeout, reconnects with backoff capped at 30 seconds and resets backoff after stable operation. Repeated poll failures trigger observer recovery.
+- **Clients:** the native `/monitor` page polls `/api/inference` every two seconds; the earlier dashboard at `/` receives Server-Sent Events and falls back to polling `/api/snapshot` when streaming is unavailable. Each stream includes `event: snapshot`, a sequence ID and JSON data, with heartbeat comments between updates. The stream supplies the newest observation, not a durable replay of every event. The native badge polls `/api/snapshot` once per second while the page URL remains `/monitor`. Only one browser refresh is in flight; request failure clears map measurements and missing selections close their detail panel. The store and browser expire Mac map nodes after three seconds and PC nodes after 30 seconds.
+- **Failure:** no first reading produces HTTP 503 with `status: starting`. Failed collection preserves the old timestamp so clients can age it out. The shell has a ten-second startup timeout, reconnects with backoff capped at 30 seconds and resets backoff after stable operation. Five counted poll failures trigger observer recovery; HTTP 404 is not counted as process failure.
 - **Shutdown:** the shell targets its own child. The observer watches parent identity, ends streams, cancels owned workers and closes the memory guard, resuming work it paused. Cancellation of a CLI or network client does not prove that an external service rolled back accepted work.
 
 Source: [shell lifecycle](../Monitor.swift), [sampling and store](../server.py), [overlay reader](../live_feed.py).
@@ -109,7 +114,7 @@ Source: [shell lifecycle](../Monitor.swift), [sampling and store](../server.py),
 
 The earlier dashboard's `/api/snapshot` feed uses `schemaVersion: 1`, `sampledAt`, `observedAt`, model rows and per-source status. Its component projections include `pipeline`, `onlineCodeMode`, `windowsWorker`, `windowsJobs`, `canary`, `nisiV02` and `afm`; the server adds resources, client/caller observations, activity, controls, history and sequence information. Readers validate the fields they use rather than treating a file's existence as proof.
 
-The native `/monitor` page reads the separate `agiw.inference-map.v1` document from `/api/inference`, with machine/server nodes, edges and selected-node details. Its collector's LM Studio port limitation is described in [configuration](advanced-configuration.md#lm-studio-port-and-nvidia-pair). The evidence and dashboard controls below describe the earlier dashboard at `/`.
+The native `/monitor` page reads the separate `agiw.inference-map.v1` document from `/api/inference`, with machine/server nodes, edges and selected-node details. In the Mac sampler, its collector reuses telemetry's verified LM Studio inventory and endpoint, including the configured port, without a second LM Studio request; the standalone helper still defaults to `127.0.0.1:1234`. See [configuration](advanced-configuration.md#lm-studio-port-and-nvidia-pair). The evidence and dashboard controls below describe the earlier dashboard at `/`.
 
 | Signal | Supports | Does not establish |
 | --- | --- | --- |
@@ -148,7 +153,7 @@ flowchart LR
 
 Load admission estimates `model size × 1.15 + 1 GiB`, or 8 GiB if size is unavailable, and asks the memory guard. This is a resource estimate, not a guarantee that a model fits. CLI execution is bounded: 120 seconds for load, 30 for unload, 64 KiB output and a separate confirmation interval. An accepted HTTP request and a successful CLI exit are distinct from observed settlement.
 
-Interrupted dispatches retain an **unconfirmed** latch. Cancellation is not rollback; fresh positive desired-state evidence is required to clear uncertainty. Internal cancellation/reconciliation methods are not extra public HTTP endpoints.
+Interrupted dispatches retain an **unconfirmed** latch. Cancellation is not rollback; fresh positive desired-state evidence is required to clear uncertainty. After each complete publication, the sampler attempts reconciliation of an unconfirmed operation whose worker has stopped. Failed or incomplete confirmation retains the latch; a nonzero CLI exit and unchanged inventory are not proof of settlement. The dashboard disables model actions while unconfirmed. Internal cancellation/reconciliation methods are not extra public HTTP endpoints.
 
 The optional `--durable-model-control` source-server flag adds a private write-ahead journal across observer restarts. Missing or corrupt journal state blocks actions and is not silently repaired. The native shell's launch command **does not enable this flag**; its default operation latch is process-local.
 
@@ -256,6 +261,7 @@ The native app chooses its port. For source exploration, `python3 -B server.py -
 | GET / POST | `/api/models/auto-unload` | Read policy / exact Boolean `enabled`; unavailable in standalone observer |
 | POST | `/api/components/nisi/check` | `{"action":"self-check"}` |
 | POST | `/api/components/jev/check` | `{"action":"connection-check"}` |
+| GET | `/api/online-code-mode/readiness` | Cached, read-only readiness observations from the current snapshot; POST is not routed (404) |
 | GET / POST | `/api/online-code-mode/repair` | Read recovery / `{"action":"check-and-repair"}` |
 | GET | `/api/online-code-mode/entry` | Read retained recovery/diagnosis state in the Mac-owner context; POST is not routed |
 | GET / POST | `/api/online-code-mode/headless` | Read state / `{"action":"on"}` or `{"action":"off"}` |
@@ -263,11 +269,12 @@ The native app chooses its port. For source exploration, `python3 -B server.py -
 
 Action jobs generally return **202 Accepted**, followed by status reads. The auto-unload setting returns 200 after saving. Invalid requests, stale evidence, unavailable components and conflicts return distinct errors; acceptance is not execution completion. Route controls need the supported Mac-owner/configured recovery context.
 
-Recovery and headless POSTs also require `--l2-open` after verified L2 handover; the native launcher does not pass this flag, so these requests return HTTP 423 with a read-only diagnosis instead of dispatching.
+Authenticated recovery and headless POSTs also require `--l2-open` after verified L2 handover; the native launcher does not pass this flag, so these requests return HTTP 423 with a read-only diagnosis instead of dispatching.
 
 ### Request and navigation protections
 
-- Bind only to IPv4 loopback. Require one exact loopback Host header and matching Origin; action POSTs require Origin. This limits browser-origin requests and does not authenticate every local process.
+- `server.py` binds only to IPv4 loopback. Require one exact loopback Host header and matching Origin; action POSTs also require the per-launch native capability in `X-AGIW-Control`. The shell sends it over private stdin, injects it for same-origin WebKit POSTs, and never publishes it through an observation route or file. Standalone launches cannot dispatch control POSTs. Observation GETs remain readable to local clients; Host/Origin alone do not authenticate them.
+- The separate opt-in LAN peer link binds `0.0.0.0` on TCP 8768 and UDP 8769. Pairing uses a typed PIN; paired status exchanges use signed requests/replies and replay checks. Local peer-link controls use their own private token challenge protocol. See [network surfaces](../SECURITY.md#network-surfaces).
 - Require `application/json`, one valid Content-Length of 2–1,024 bytes, no Transfer-Encoding, unique JSON keys and endpoint-specific fields. Reject arbitrary commands, executable arguments and extra fields.
 - Bound the server to eight connections and three live streams. Ordinary connections have deadlines; streams have separate write limits. These are backpressure limits, not task-worker capacity.
 - Restrict WebKit navigation and bridge messages to the selected origin; designated documentation links open externally. Render observed/helper text as data, not authority or executable code.

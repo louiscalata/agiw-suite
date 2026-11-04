@@ -10,7 +10,7 @@ On a Mac with Python 3, clone this repository and run from its root:
 python3 -B server.py --port 8765
 ```
 
-The server prints a JSON line containing its port and process ID. Open `http://127.0.0.1:8765/` in a browser; press Ctrl-C in the terminal to stop it. This starts the observer on loopback. Runtime cards can show unavailable or unknown when optional local model, router, or Windows worker services are absent.
+The server prints a JSON line containing its port and process ID, without a capability. Standalone launches are observation-only: control POSTs require the per-launch capability delivered by the native shell over its private stdin pipe. Open `http://127.0.0.1:8765/` in a browser; press Ctrl-C in the terminal to stop it. This starts the observer on loopback. Runtime cards can show unavailable or unknown when optional local model, router, or Windows worker services are absent.
 
 ## Source checks
 
@@ -22,9 +22,9 @@ node --test test_*.mjs
 (cd windows && PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest discover -s tests -p 'test_*.py' -q)
 ```
 
-The runner also checks the Mac build inputs: `bash -n` on the shell scripts, `plutil -lint Info.plist`, an arm64 `swiftc -typecheck` of `Monitor.swift` and `JevKeychain.swift`, `python3 -B bundle_nisi.py --verify` and `node --check` on the web modules ([source-checks.yml](../.github/workflows/source-checks.yml)). On macOS, the Windows tests need a `TMPDIR` without symbolic links in its path, such as one under `/private/tmp`.
+The runner also checks the Mac build inputs: `bash -n` on `build.sh`, `login-agent.sh` and `package-release.sh`, `plutil -lint Info.plist`, an arm64 `swiftc -typecheck` of `Monitor.swift` and `JevKeychain.swift`, `python3 -B bundle_nisi.py --verify` and `node --check` on `web/components.js` and `web/monitor.mjs` ([source-checks.yml](../.github/workflows/source-checks.yml)). On macOS, the Windows tests need a `TMPDIR` without symbolic links anywhere in its path.
 
-The CI app typecheck targets arm64. Source tests and the isolated Swift policy harness run on the CI host architecture; passing those on Intel does not establish native Apple silicon runtime acceptance.
+CI runs the Python suites on both 3.9 (the supported minimum) and 3.14. The CI app typecheck targets arm64. Source tests and the isolated Swift policy harness run on the CI host architecture; passing those on Intel does not establish native Apple silicon runtime acceptance.
 
 Forty-five router integration cases need writers from a separate project. The explicit allowance permits a skip only when those writers are absent; without it, missing writers fail the test. Report the actual skips alongside passes. The tests use fixtures and mocked model calls, so a passing source suite does not establish a live route.
 
@@ -36,7 +36,7 @@ These instructions package the full Developer ID edition. The Mac App Store edit
 
 `package-release.sh` builds a separate Developer ID signed DMG in `dist/`; it does not install or launch the app. It requires a clean source tree, an exact Developer ID Application identity in `MONITOR_RELEASE_SIGN_IDENTITY`, and secure Apple timestamps. It verifies the mounted DMG against frozen inputs, including LICENSE and NOTICE, and writes a manifest with source, toolchain, input and installation-note hashes. Missing, empty or symlinked legal inputs stop the build before output creation. `MONITOR_RELEASE_ALLOW_DIRTY=1` is only for local candidate checks; it marks the output dirty and must not be used for a release.
 
-The packager always produces an arm64 app for Apple silicon Macs, independent of the macOS build host architecture. The app targets macOS 13 or later and needs Python 3.9 or later at `/opt/homebrew/bin/python3`, `/usr/local/bin/python3`, or `/usr/bin/python3`. The DMG contains the app, an `INSTALL.txt` note, LICENSE and NOTICE. The legal files also travel with the app in `Contents/Resources/Legal`. Distribution verification includes Apple notarization, ticket validation, a recorded final hash and a quarantined clean-Mac assessment. The Build 7 ZIP was exported through Xcode with its app ticket attached; its clean-Mac assessment remains open as documented in the [README](../README.md#known-validation-limits). The earlier candidate DMG is unsubmitted and is not a download asset.
+The packager always produces an arm64 app for Apple silicon Macs, independent of the macOS build host architecture. The app targets macOS 13 or later and needs Python 3.9 or later at `/opt/homebrew/bin/python3`, `/usr/local/bin/python3`, or `/usr/bin/python3`. The DMG contains the app, an `INSTALL.txt` note, LICENSE and NOTICE. The legal files also travel with the app in `Contents/Resources/Legal`. Distribution verification includes Apple notarization, ticket validation, a recorded final hash and a quarantined clean-Mac assessment. The repository does not contain the Xcode archive/export procedure used to produce the Build 7 ZIP, so `package-release.sh` does not reproduce that release artifact. The Build 7 ZIP was exported through Xcode with its app ticket attached; its clean-Mac assessment remains open as documented in the [README](../README.md#known-validation-limits). The earlier candidate DMG is unsubmitted and is not a download asset.
 
 After choosing the Developer ID Application identity from `security find-identity -v -p codesigning`, run `MONITOR_RELEASE_SIGN_IDENTITY=<certificate-SHA-1> ./package-release.sh` from a clean checkout to create a signed candidate. Notarization, stapling, final hash verification, and a quarantined clean-Mac test remain separate gates.
 

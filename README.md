@@ -1,5 +1,3 @@
-<img src="docs/assets/agiw-suite-overview.svg" width="1280" alt="AGIW Suite — local inference, with a clear view">
-
 # AGIW Suite · Inference Monitor
 
 A Mac menu-bar monitor for engineers running local models. See model activity, memory pressure and configured worker status, then use explicit controls when a model or service needs attention.
@@ -8,38 +6,32 @@ A Mac menu-bar monitor for engineers running local models. See model activity, m
 
 [First run](#first-run) · [Activation guide](docs/activation.md) · [Features](#what-you-can-see-and-control) · [Performance & data](docs/performance.md) · [Local pipeline](#local-only-pipeline) · [Architecture & API](docs/architecture.md) · [Configuration](docs/advanced-configuration.md) · [Development](docs/development.md) · [Validation limits](#known-validation-limits)
 
-**1.0.0 (7) · Apple silicon · macOS 13+ · Apache-2.0**
+**Download: 1.0.0 (7). Source: unreleased 1.2.0 (13).** Apple silicon · macOS 13+ · Apache-2.0. Building this checkout does not reproduce the released ZIP. See the [known local-control security issue](SECURITY.md#known-issue-in-v100-build-7-local-control-authentication), which still affects the download.
 
-The download is Developer ID signed and Apple-notarized. [Known validation limits](#known-validation-limits) remain open; the Mac App Store edition follows a separate release process.
+The download is Developer ID signed and Apple-notarized. [Known validation limits](#known-validation-limits) remain open. There is no Mac App Store release; an App Store edition would follow a separate release process.
 
-## Two active machines, specialized roles
+## Source and release status
 
-**Scope change · 2026-10-25:** AGIW now runs on two machines only, the Apple-silicon MacBook Pro and the Windows PC. The Linux Mac Pro is retired from AGIW. Linux figures below are kept as dated history.
+The instructions and feature table below describe the **1.0.0 (7) download**. The current source identifies itself as **1.2.0 (13), unreleased**. Its native window opens `/monitor`, polls `/api/inference` every two seconds without overlapping requests, expires old readings, and clears measurements when a refresh fails. **Full dashboard** links to `/` for the existing controls and Components view. The Mac map reuses telemetry's verified LM Studio inventory and configured endpoint. The source badge expects both Mac and Windows observations; an unconfigured PC keeps the combined count uncertain. Native control POSTs require the per-launch capability described in [SECURITY.md](SECURITY.md).
 
-AGIW's development system is bringing the **Mac and the Windows PC** into one observable workflow. The intended workflow uses Nisi v0.2 and Jev task analysis. Each machine's model servers are configured on that machine; NVIDIA PAIR is not the transport between the machines. The shared monitor page is described in [docs/inference-monitor.md](docs/inference-monitor.md). The Windows PC has **two separate GPUs: an NVIDIA RTX 3080 Ti and an AMD RX 5700 XT**. (Earlier plans had Linux contribute GPU-assisted inference and storage, and PAIR carry requests between engines; both are retired.)
+For a read-only source preview with Python 3.9+, run `python3 -B server.py --port 8765` and open `http://127.0.0.1:8765/monitor`. A standalone launch cannot dispatch control POSTs. See [development](docs/development.md) for tests and build boundaries.
 
-<img src="docs/assets/three-machine-architecture.svg" width="1280" alt="Historical AGIW three-machine development topology (Linux retired 2026-10-25): tools feed Nisi and Jev, optional PAIR transport and separate PC, Linux and Mac workers. The PC has distinct NVIDIA CUDA and AMD Vulkan GPU lanes. Production integration is still in progress.">
+Windows and two-machine coordination remain in development. The [dated connection record](docs/three-machine-connection.md) retains the maintainer's topology, retired Linux samples and measurement plan; simultaneous two-machine rate and speedup remain **NOT MEASURED**.
 
-**Historical, single-run samples (different tasks/configurations):** Linux (retired) **36.84 tokens/s**, Mac **16.39 tokens/s**, PC **2.06 tokens/s**, using each engine's reported generation rate. The Linux sample passed 16 semantic cases and the PC sample passed seven code cases; the Mac answer was **rejected by semantic review**, with its model unload confirmed.
+## Two machines, specialized roles
 
-These separate samples are not a hardware ranking or a cluster total. The Mac and Windows PC may contribute separate inference workers, but genuine simultaneous two-machine output rate, task rate and speedup remain **NOT MEASURED**:
+The Apple-silicon MacBook Pro handles interactive work, model review and the monitor interface. Its local model inventory comes from LM Studio. The optional, separately configured Windows PC worker provides specialized coding and fast advisory lanes; the Mac reads those lanes through SSH forwards. Windows and two-machine coordination remain in development.
 
 ```mermaid
-flowchart LR
-    M["Mac inference worker"] -.-> R["One simultaneous two-machine run<br/>NOT MEASURED"]
-    W["Windows inference worker"] -.-> R
-    R --> O["Output rate: NOT MEASURED<br/>Task rate: NOT MEASURED<br/>Speedup: NOT MEASURED"]
+flowchart TD
+    monitor["MacBook Pro<br/>Inference Monitor"] --> local["Mac LM Studio"]
+    monitor -.-> ssh["Optional PC SSH forwards"]
+    ssh --> pc["Windows PC<br/>Coding and fast advisories"]
 ```
 
-[See the current connection state, per-machine records and shared-run measurement plan](docs/three-machine-connection.md). This development checkpoint is separate from the downloadable macOS Monitor release.
+Arrows mean "depends on"; dashed arrows mark optional dependencies.
 
-## Development status (2026-10-23)
-
-- **Before/after:** Before, the summary was dated 2026-10-18; after, it includes a high-level 2026-10-23 status. Measured values are unchanged, and this documentation refresh did not create a new benchmark.
-- **Windows edition:** In development and not released.
-- **Monitor hardening:** In development and not released; missing or unverified observations remain unknown rather than being presented as zero or idle.
-- **Source after 1.0.0 (2026-11-03):** `main` is version 1.2.0 (13), in development. Its native window opens the new inference map (`/monitor`), which polls every two seconds. The map does not yet age out old readings, keeps the last map when a refresh fails, reads LM Studio on port 1234 directly, and has no Browse, Core 6, Components or control panels; the earlier dashboard is still served at `/`. The features listed below describe the 1.0.0 (7) download.
-- **Two-machine coordination (Mac and PC):** Production integration remains in development. The worker diagram and **NOT MEASURED** results above describe measurement state, not machine readiness.
+The Linux Mac Pro and NVIDIA PAIR are retired from AGIW. They are excluded from this current dependency diagram. See the [connection record](docs/three-machine-connection.md) for configuration and dated acceptance limits.
 
 ## Requirements
 
@@ -55,7 +47,7 @@ flowchart LR
 ## First run
 
 1. Download the ZIP and `SHA256SUMS.txt` into the same folder. In that folder, run `shasum -a 256 -c SHA256SUMS.txt`; expect `OK`.
-2. Confirm Python is available at one of the paths above. Install the external Node runtime if you want the Nisi self-check.
+2. Confirm Python runs at one of the paths above. `/usr/bin/python3` requires the Xcode Command Line Tools; on a clean Mac, install those tools or a supported Python installation first. Install the external Node runtime if you want the Nisi self-check.
 3. Extract the ZIP, quit any running AGIW Monitor edition, and copy `Inference Monitor.app` into Applications.
 4. Open the app. Click its menu bar chip icon for the compact monitor, or right-click and choose **Open Dashboard Window**.
 5. Review local readings. Cards show unavailable or unknown when services or fresh evidence are absent. Open **Browse → Nisi & optional components** to inspect Nisi or run its fixed offline self-check.
@@ -69,7 +61,7 @@ flowchart LR
 | **Observe models** | Inspect inventory, activity supported by fresh telemetry, and recorded client/route state. **Browse → Feeds & evidence** explains the observations. |
 | **Understand resources** | See Mac memory pressure and best-effort GPU readings. Model-load admission estimates size and headroom before an explicit load. |
 | **Choose an inventory view** | **Core 6** filters five pinned LLM IDs plus Nomic Embed Text v1.5. **All discovered** expands the Mac inventory; other reported in-use models stay visible. |
-| **Control and recover** | Request guarded model load/unload and supported route/worker recovery. Optional automatic unloading uses fresh resident-pair and route checks; it is off by default. |
+| **Control and recover** | Request guarded local model load/unload. Route/worker recovery depends on separately installed maintainer integrations (`chami-dispatch`, `pc-llm`, the private router and configured share); these are not bundled or general-purpose setup tools. In the unreleased source, the native launcher leaves owner recovery closed. Optional automatic unloading is off by default. See the known local-control issue in SECURITY.md before using the released app. |
 | **Inspect public Nisi** | Run the bundled 0.2.0 package’s fixed offline self-check, or explore its workflow engine, journal and CLI. External Node 22+ is required. |
 | **Check optional Jev** | Set up your TypeSafe key securely and request a fixed hosted connectivity check. See the [execution and data details](#included-nisi-and-optional-jev-connection). |
 
@@ -83,7 +75,14 @@ See [advanced configuration](docs/advanced-configuration.md) for resident-model 
 
 In the earlier performance study, one Windows fast-lane GPT-OSS 20B advisory on 28 September 2026 recorded **139.8 tokens/s** of server-reported decoding, with 201 prompt tokens and 265 completion tokens. Across its broader recorded 6.7-second job time, the approximate output rate was **39.6 tokens/s**; these are separate timing metrics. It is a historical observation of the separately configured inference worker. It does not measure AGIW's speedup or the downloadable application's performance.
 
-<img src="docs/assets/inference-windows-layouts.svg" width="1280" alt="Windows GPT-OSS 20B fixed code-task decoding rates: layout A 18.5, B 12.3, C 111.4 and D 106.0 tokens per second. One observation per layout; all had 106 prompt tokens and 141 completion tokens. The separate historical advisory peak was 139.8 tokens per second.">
+| Windows layout | Fixed code-task decoding rate (tokens/s) |
+| --- | ---: |
+| A | 18.5 |
+| B | 12.3 |
+| C | 111.4 |
+| D | 106.0 |
+
+One observation per layout, each with 106 prompt tokens and 141 completion tokens; the separate advisory peak above used a different workload.
 
 The retained Apple-silicon Mac benchmark recorded **72.482 tokens/s median effective completion throughput across 21 requests**. That metric divides reported completion tokens by the **full request duration**; it is a different denominator from Windows server decoding speed. The two values cannot establish which machine is faster by a percentage.
 
@@ -93,7 +92,7 @@ The retained Apple-silicon Mac benchmark recorded **72.482 tokens/s median effec
 | AGIW Suite on Mac | Not run |
 | AGIW Suite on Mac + PC | Not run |
 
-No controlled speedup percentage is available for these three conditions. The Mac benchmark's **21/21 non-empty responses measure availability, not graded accuracy**. [See the charts, generated-token counts, decode timings, methods and comparison protocol](docs/performance.md), [compare roles and instrumentation with Ollama and vLLM](docs/performance.md#agiw-ollama-and-vllm-roles-and-performance-instrumentation), or [download the sanitized aggregate data](docs/data/inference-performance.json). These records do not change the signed release or close native acceptance checks.
+No controlled speedup percentage is available for these three conditions. The Mac benchmark's **21/21 non-empty responses measure availability, not graded accuracy**. [See the tables, generated-token counts, decode timings, methods and comparison protocol](docs/performance.md), [compare roles and instrumentation with Ollama and vLLM](docs/performance.md#agiw-ollama-and-vllm-roles-and-performance-instrumentation), or [download the sanitized aggregate data](docs/data/inference-performance.json). These records do not change the signed release or close native acceptance checks.
 
 ## Local-only pipeline
 

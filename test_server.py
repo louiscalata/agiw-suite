@@ -642,7 +642,7 @@ class ClientIntegrationTest(unittest.TestCase):
 
 
 class ShutdownTest(unittest.TestCase):
-    def test_auto_unloader_exists_only_for_app_launch_and_closes_on_exit(self):
+    def test_auto_unloader_exists_only_for_matching_parent_and_closes_on_exit(self):
         import server
         threads = []
 
@@ -707,7 +707,8 @@ class ShutdownTest(unittest.TestCase):
                  patch.object(server, 'write_endpoint'), \
                  patch.object(server, 'stop_windows_worker_probe'), \
                  patch.object(server.signal, 'signal'), \
-                 patch.object(sys, 'argv', args), redirect_stdout(io.StringIO()):
+                 patch.object(sys, 'argv', args), patch.object(sys, 'stdin', io.StringIO('')), \
+                 redirect_stdout(io.StringIO()):
                 server.main()
             self.assertEqual(fake_server.auto_unloader is not None, expected)
             self.assertEqual(fake_server.model_control.calls, [], 'startup must not request a model action')

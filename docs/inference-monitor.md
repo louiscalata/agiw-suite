@@ -6,10 +6,12 @@ The map nodes are stable ids:
 
 | Id | What it is |
 | --- | --- |
-| `mac`, `mac:lmstudio`, `mac:veritas` | This Mac, LM Studio on 127.0.0.1:1234, the Veritas reviewer |
+| `mac`, `mac:lmstudio`, `mac:veritas` | This Mac, LM Studio, the optional Veritas reviewer |
 | `pc`, `pc:router`, `pc:gpt-oss-20b`, `pc:qwen3.8-27b` | The PC, its router on :1234, and the llama-server lanes on :1245 and :1236 |
 
-A null tok/s, latency, slot, context or VRAM field means that reading was not measured. Health is `ok`, `degraded`, `down` or `not_measured`.
+The Mac sampler uses the verified telemetry endpoint for `mac:lmstudio`. The Windows observer reports the absent Mac row as `not_observed` at `127.0.0.1:1234`.
+
+A null tok/s, latency, slot, context or VRAM field means that reading was not measured. Health is `ok`, `degraded`, `down` or `not_measured`. The Mac observer and browser expire Mac nodes after three seconds and PC nodes after 30 seconds; missing or invalid observation times are unknown. Fetch failures clear health and measurements, and only one refresh can be in flight. **Full dashboard** opens the existing view at `/`. The Mac native shell supplies control authorization; standalone browser launches cannot dispatch control POSTs.
 
 ## PC tunnel
 
@@ -23,7 +25,7 @@ The PC lanes bind to 127.0.0.1. On the Mac, `python3 pc_tunnel.py` runs `ssh -N 
 }
 ```
 
-`AGIW_PC_SSH_USER`, `AGIW_PC_SSH_HOST`, `AGIW_PC_SSH_IDENTITY` and `AGIW_PC_SSH_CONFIG` override that file. The key file is not read by this program. The default forwards are local 1334, 1345 and 1336 to the PC's 1234, 1245 and 1236, so they do not collide with LM Studio on the Mac. While those local ports are closed, the PC nodes stay `not_measured` with reason `tunnel_down`.
+`AGIW_PC_SSH_CONFIG` selects the configuration file path. Defaults are applied first, then a valid file; `AGIW_PC_SSH_USER`, `AGIW_PC_SSH_HOST` and `AGIW_PC_SSH_IDENTITY` override its fields. An invalid file returns `config_invalid` before those field overrides are applied. The key file is not read by this program. The default forwards are local 1334, 1345 and 1336 to the PC's 1234, 1245 and 1236, so they do not collide with LM Studio on the Mac. A PC node's Endpoint displays the local URL actually fetched. For a forwarded llama lane, Upstream retains the remote service URL so router edges still resolve. While those local ports are closed, the PC nodes stay `not_measured` with reason `tunnel_down`.
 
 Admin step, not performed by this repo: if the PC key is restricted, its `authorized_keys` entry needs `permitopen="127.0.0.1:1234"`, `permitopen="127.0.0.1:1245"` and `permitopen="127.0.0.1:1236"`. Do not assume that change is already in place.
 

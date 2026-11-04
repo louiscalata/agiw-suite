@@ -38,6 +38,11 @@ def handler(path, store=None, body=None, capability=None, supplied=None):
 
 
 class ReviewRegressions(unittest.TestCase):
+    def test_public_app_labels_use_product_and_generic_volume_names(self):
+        info = plistlib.loads(Path('Info.plist').read_bytes())
+        self.assertTrue(info['CFBundleDisplayName'].startswith('AGIW '))
+        self.assertNotIn('SharedChami', info['NSNetworkVolumesUsageDescription'])
+
     def test_all_control_routes_require_a_single_current_capability(self):
         routes = list(server.OWNER_ACTION_ROUTES) + ['/api/models/control', '/api/models/auto-unload',
                                                    '/api/components/nisi/check', '/api/components/jev/check']
@@ -71,6 +76,11 @@ class ReviewRegressions(unittest.TestCase):
             # Authentication still precedes transport validation.
             del request.headers['X-AGIW-Control']
             self.assertEqual(request.do_POST()[0], 403)
+
+    def test_ci_covers_minimum_python(self):
+        workflow = Path('.github/workflows/source-checks.yml').read_text()
+        self.assertIn("python: ['3.9', '3.14']", workflow)
+        self.assertIn("python-version: ${{ matrix.python }}", workflow)
 
     def test_monitor_links_to_served_control_dashboard(self):
         page = Path('web/monitor.html').read_text()
