@@ -402,6 +402,14 @@ class Collector:
         specs, lane_source = self._guard(
             sources, "lane-config", "Lane layout", lambda: probes.lane_specs(self.share_root),
             ([probes.unconfigured_lane(lane_id, "unreadable") for lane_id in probes.LANE_IDS], None))
+        # lane_specs already rejects shared ports and aliases; re-check here because ownership below is keyed by
+        # port, so a duplicate would silently collapse two lanes into one. Fail closed, never probe either lane.
+        clash = probes.ambiguous_lane_ids(specs)
+        if clash:
+            specs = [probes.unconfigured_lane(spec["id"], "ambiguous") if spec["id"] in clash else spec for spec in specs]
+            lane_source = probes._source("lane-config", "Lane layout", "error",
+                                         f"{', '.join(clash)} lane port or alias declared more than once "
+                                         "(ambiguous; shown as unknown, not probed)")
         if lane_source is not None:
             sources.append(lane_source)
         servers: dict[str, Any] = {}

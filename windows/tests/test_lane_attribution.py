@@ -74,6 +74,65 @@ class FailClosedLanes(unittest.TestCase):
         self.assertEqual(snapshot["machines"][0]["reason"], "lane-state-unknown")
 
 
+class AmbiguousLanePorts(unittest.TestCase):
+    """Two lanes on one port (or one alias) cannot be told apart: fail closed, attribute nothing, probe nothing."""
+
+    def collect(self, lanes=None, specs=None):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            if lanes is not None:
+                (root / "windows-llm-pipeline").mkdir()
+                (root / "windows-llm-pipeline" / "config.json").write_text(json.dumps({"runtime": {"lanes": lanes}}))
+            processes = mock.Mock()
+            processes.sample.return_value = ({}, [], {"id": "lane-processes", "state": "live", "detail": "x"})
+            fetch = mock.Mock(side_effect=AssertionError("an ambiguous lane must not be probed"))
+            collector = Collector(root, root / "bin", runs_root=root / "runs", host="test-pc", clock=lambda: 1000.0,
+                                  fetch=fetch, gpu_fn=lambda: ([], None), adapters_fn=lambda: [],
+                                  lane_processes=processes, memory_fn=lambda: ({"level": "unknown"}, None),
+                                  notification_fn=lambda: None)
+            self.addCleanup(collector.close)
+            if specs is None:
+                snapshot = collector.collect()
+            else:
+                with mock.patch.object(probes, "lane_specs", return_value=(specs, None)):
+                    snapshot = collector.collect()
+        fetch.assert_not_called()
+        # No port is handed to the ownership sampler, so no process can be attributed to either lane.
+        processes.sample.assert_called_once_with({})
+        return snapshot
+
+    def assert_fails_closed(self, snapshot):
+        self.assertEqual([(lane["id"], lane["status"], lane["port"], lane["endpoint"], lane["configReason"])
+                          for lane in snapshot["lanes"]],
+                         [("fast", "undeclared", None, None, "ambiguous"), ("deep", "undeclared", None, None, "ambiguous")])
+        self.assertTrue(all(lane["process"] is None and lane["callers"] is None for lane in snapshot["lanes"]))
+        source = next(item for item in snapshot["sources"] if item["id"] == "lane-config")
+        self.assertEqual(source["state"], "error")
+        self.assertIn("more than once", source["detail"])
+        self.assertEqual(sum(item["id"] == "lane-config" for item in snapshot["sources"]), 1)
+        self.assertEqual(snapshot["machines"][0]["state"], "unknown")
+        status = probes.pc_status(snapshot)
+        self.assertEqual((status["health"], status["models"]), ("unknown", []))
+        self.assertIn("lane port or alias declared more than once; lane ambiguous, not probed: fast, deep",
+                      status["limitations"])
+
+    def test_duplicate_ports_in_the_config_file_fail_closed_before_any_probe(self):
+        self.assert_fails_closed(self.collect(lanes={"fast": {"port": 1235, "alias": "a"},
+                                                      "deep": {"port": 1235, "alias": "b"}}))
+
+    def test_duplicate_aliases_in_the_config_file_fail_closed_before_any_probe(self):
+        self.assert_fails_closed(self.collect(lanes={"fast": {"port": 1235, "alias": "same"},
+                                                      "deep": {"port": 1234, "alias": "same"}}))
+
+    def test_the_collector_rejects_duplicates_from_any_spec_source(self):
+        # Re-check both ownership ports and model aliases from alternate spec sources.
+        fast = {"id": "fast", "port": 1235, "alias": "a", "device": "CUDA0"}
+        for port, alias in ((1235, "b"), (1234, "a")):
+            with self.subTest(port=port, alias=alias):
+                deep = {"id": "deep", "port": port, "alias": alias, "device": "none"}
+                self.assert_fails_closed(self.collect(specs=[fast, deep]))
+
+
 class LanesHealth(unittest.TestCase):
     def test_down_needs_affirmative_non_serving_evidence(self):
         cases = {("idle", "busy"): "ok", ("slots_unknown", "idle"): "ok", ("idle", "unreachable"): "unknown",

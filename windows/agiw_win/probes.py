@@ -49,9 +49,24 @@ LANE_IDS = ("fast", "deep")
 
 def unconfigured_lane(lane_id: str, reason: str = "missing") -> dict[str, Any]:
     """A required lane with no declaration: shown as an explicit unknown row, never probed (fail closed)."""
-    label = "config unreadable" if reason == "unreadable" else "not configured"
+    label = {"unreadable": "config unreadable", "ambiguous": "config ambiguous"}.get(reason, "not configured")
     return {"id": lane_id, "port": None, "alias": f"{lane_id} lane ({label})", "device": "unknown",
             "undeclared": True, "configReason": reason}
+
+
+def ambiguous_lane_ids(specs: list[dict[str, Any]]) -> list[str]:
+    """Ids of declared lanes that share a port or an alias with another declared lane. Process ownership is
+    attributed by port and model rows are keyed by alias, so a shared value cannot be told apart: every lane
+    involved is ambiguous and none of them may be probed."""
+    declared = [spec for spec in specs if not spec.get("undeclared")]
+    clash = set()
+    for key in ("port", "alias"):
+        counts: dict[Any, int] = {}
+        for spec in declared:
+            if spec.get(key) is not None:
+                counts[spec[key]] = counts.get(spec[key], 0) + 1
+        clash.update(spec["id"] for spec in declared if spec.get(key) is not None and counts[spec[key]] > 1)
+    return [spec["id"] for spec in declared if spec["id"] in clash]
 
 class OwnerUnverified(RuntimeError):
     """The listener owner changed or could not be rechecked before an endpoint read."""
@@ -185,17 +200,28 @@ def lane_specs(share_root: Path = DEFAULT_SHARE_ROOT) -> tuple[list[dict[str, An
                               "parallel": _number(lane.get("parallel"), 1, 256)})
             else:
                 missing.append(lane_id)
-        if specs:
+        # Two lanes may not share a port or an alias: ownership is attributed by port and models are keyed by
+        # alias, so a duplicate would collapse into one lane. Every lane in a clash fails closed, before any probe.
+        ambiguous = ambiguous_lane_ids(specs)
+        specs = [spec for spec in specs if spec["id"] not in ambiguous]
+        if specs or ambiguous:
             layout_block = runtime.get("lane_layout")
             layout = _string(layout_block.get("name"), 64) if isinstance(layout_block, dict) else None
             for lane_id in missing:
                 # Never drop a required lane silently: it stays on the map as an explicit unknown row.
                 specs.append(unconfigured_lane(lane_id))
+            for lane_id in ambiguous:
+                specs.append(unconfigured_lane(lane_id, "ambiguous"))
             specs.sort(key=lambda spec: LANE_IDS.index(spec["id"]))
             detail = f"Declared in windows-llm-pipeline/config.json{f' · layout {layout}' if layout else ''}"
+            problems = []
             if missing:
-                return specs, _source("lane-config", "Lane layout", "error",
-                                      detail + f" · {', '.join(missing)} lane missing or malformed (shown as unknown, not probed)")
+                problems.append(f"{', '.join(missing)} lane missing or malformed (shown as unknown, not probed)")
+            if ambiguous:
+                problems.append(f"{', '.join(ambiguous)} lane port or alias declared more than once "
+                                "(ambiguous; shown as unknown, not probed)")
+            if problems:
+                return specs, _source("lane-config", "Lane layout", "error", detail + " · " + " · ".join(problems))
             return specs, _source("lane-config", "Lane layout", "live", detail)
         return [unconfigured_lane(lane_id) for lane_id in LANE_IDS], _source(
             "lane-config", "Lane layout", "error", "Required lanes missing or malformed in pipeline config; not probed")
@@ -247,8 +273,10 @@ def probe_lane(spec: dict[str, Any], fetch: Fetch = http_get_json, host: str = "
     if undeclared:
         lane["status"] = "undeclared"
         lane["configReason"] = spec.get("configReason", "missing")
-        lane["detail"] = ("Lane config unreadable; lane unknown, not probed" if lane["configReason"] == "unreadable" else
-                          "Lane missing or malformed in windows-llm-pipeline/config.json; not probed")
+        lane["detail"] = {"unreadable": "Lane config unreadable; lane unknown, not probed",
+                          "ambiguous": "Lane port or alias declared more than once in windows-llm-pipeline/config.json; "
+                                       "lane ambiguous, not probed"}.get(
+            lane["configReason"], "Lane missing or malformed in windows-llm-pipeline/config.json; not probed")
         return lane
     try:
         health = fetch(endpoint + "/health", HTTP_TIMEOUT, HTTP_MAX_BYTES)
@@ -1500,9 +1528,12 @@ def pc_status(snapshot: dict[str, Any]) -> dict[str, Any]:
     undeclared = [lane["id"] for lane in lanes if lane.get("status") == "undeclared"]
     if undeclared:
         unreadable = [lane["id"] for lane in lanes if lane.get("status") == "undeclared" and lane.get("configReason") == "unreadable"]
-        missing = [lane_id for lane_id in undeclared if lane_id not in unreadable]
+        ambiguous = [lane["id"] for lane in lanes if lane.get("status") == "undeclared" and lane.get("configReason") == "ambiguous"]
+        missing = [lane_id for lane_id in undeclared if lane_id not in unreadable and lane_id not in ambiguous]
         if unreadable:
             limitations.append("lane config unreadable; lane unknown: " + ", ".join(unreadable))
+        if ambiguous:
+            limitations.append("lane port or alias declared more than once; lane ambiguous, not probed: " + ", ".join(ambiguous))
         if missing:
             limitations.append("lanes not configured: " + ", ".join(missing))
     if mismatch:
