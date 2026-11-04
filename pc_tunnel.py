@@ -97,15 +97,9 @@ def _config_file(path, env, use_home):
 
 
 def load_config(path=None, environ=None):
-    """Environment, then a JSON file. An invalid file is flagged. Host and user have no default."""
+    """Defaults, file, then environment overrides. An invalid file is flagged."""
     env = os.environ if environ is None else environ
     config = _blank()
-    if env.get("AGIW_PC_SSH_USER"):
-        config["user"] = env["AGIW_PC_SSH_USER"]
-    if env.get("AGIW_PC_SSH_HOST"):
-        config["host"] = env["AGIW_PC_SSH_HOST"]
-    if env.get("AGIW_PC_SSH_IDENTITY"):
-        config["identityFile"] = env["AGIW_PC_SSH_IDENTITY"]
     file_path = _config_file(path, env, environ is None)
     if file_path:
         try:
@@ -116,6 +110,10 @@ def load_config(path=None, environ=None):
         except (OSError, UnicodeError, json.JSONDecodeError, ValueError, TypeError):
             config["error"] = "config_invalid"
             return config
+    for name, key in (("AGIW_PC_SSH_USER", "user"), ("AGIW_PC_SSH_HOST", "host"),
+                      ("AGIW_PC_SSH_IDENTITY", "identityFile")):
+        if env.get(name):
+            config[key] = env[name]
     try:
         if config["user"] is not None and not _NAME.fullmatch(config["user"]):
             raise ValueError("user")

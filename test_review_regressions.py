@@ -203,6 +203,15 @@ class ReviewRegressions(unittest.TestCase):
         expire_map(data, 131)
         self.assertEqual(data['edges'], [hosts])
 
+    def test_environment_overrides_file(self):
+        config = {'user': 'file-user', 'host': 'file.example', 'identityFile': '/file/key'}
+        env = {'AGIW_PC_SSH_USER': 'env-user', 'AGIW_PC_SSH_HOST': 'env.example',
+               'AGIW_PC_SSH_IDENTITY': '/env/key'}
+        with patch.object(Path, 'read_text', return_value=json.dumps(config)):
+            result = pc_tunnel.load_config('/fixture/config.json', environ=env)
+        self.assertEqual([result[key] for key in ('user', 'host', 'identityFile')],
+                         ['env-user', 'env.example', '/env/key'])
+
     def test_lmstudio_accepts_another_loaded_model(self):
         fetch = lambda url: (200, json.dumps({'data': [{'id': 'qwen3.8-27b', 'state': 'loaded'}]}), 1)
         node = inference_collect._read_lmstudio(fetch, '2026-11-03T00:00:00Z')

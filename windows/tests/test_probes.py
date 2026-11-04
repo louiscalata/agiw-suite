@@ -831,6 +831,61 @@ class LaneConfig(unittest.TestCase):
         lane = probes.probe_lane(specs[1], fake_fetch({"/health": {"status": "ok"}}))
         self.assertEqual((lane["status"], lane["endpoint"], lane["port"]), ("undeclared", None, None))
 
+    def write_lanes(self, tmp, lanes):
+        path = Path(tmp) / "windows-llm-pipeline"
+        path.mkdir()
+        (path / "config.json").write_text(json.dumps({"runtime": {"lanes": lanes}}))
+
+    def test_lanes_sharing_a_port_are_ambiguous_and_never_probed(self):
+        # Ownership is attributed by port: two lanes on one port would collapse into one owner.
+        with tempfile.TemporaryDirectory() as tmp:
+            self.write_lanes(tmp, {"fast": {"port": 1235, "alias": "a"}, "deep": {"port": 1235, "alias": "b"}})
+            specs, source = probes.lane_specs(Path(tmp))
+        self.assertEqual([(s["id"], s["port"], s["undeclared"], s["configReason"]) for s in specs],
+                         [("fast", None, True, "ambiguous"), ("deep", None, True, "ambiguous")])
+        self.assertEqual(source["state"], "error")
+        self.assertIn("fast, deep lane port or alias declared more than once", source["detail"])
+        # Neither declared value is carried forward, so nothing can be probed or attributed by it.
+        self.assertNotIn("1235", json.dumps([specs, source]))
+        fetch = fake_fetch({"/health": {"status": "ok"}})
+        calls = []
+        lanes = [probes.probe_lane(spec, lambda *args: calls.append(args) or fetch(*args)) for spec in specs]
+        self.assertEqual(calls, [])
+        self.assertEqual([(l["status"], l["port"], l["endpoint"], l["configReason"]) for l in lanes],
+                         [("undeclared", None, None, "ambiguous")] * 2)
+        self.assertTrue(all("more than once" in l["detail"] and "not probed" in l["detail"] for l in lanes))
+        self.assertEqual(probes.lanes_health(lanes), "unknown")
+        status = probes.pc_status({"observedAt": "2026-10-17T00:00:00Z", "observerVersion": "0.2.0", "lanes": lanes})
+        self.assertEqual((status["health"], status["models"]), ("unknown", []))
+        self.assertIn("lane port or alias declared more than once; lane ambiguous, not probed: fast, deep",
+                      status["limitations"])
+        self.assertFalse(any("lanes not configured" in item for item in status["limitations"]))
+
+    def test_lanes_sharing_an_alias_are_ambiguous_and_never_probed(self):
+        # Model rows and the public inventory are keyed by alias, so one alias on two lanes would collapse.
+        with tempfile.TemporaryDirectory() as tmp:
+            self.write_lanes(tmp, {"fast": {"port": 1235, "alias": "same"}, "deep": {"port": 1234, "alias": "same"}})
+            specs, source = probes.lane_specs(Path(tmp))
+        self.assertEqual([(s["id"], s["port"], s["configReason"]) for s in specs],
+                         [("fast", None, "ambiguous"), ("deep", None, "ambiguous")])
+        self.assertEqual(source["state"], "error")
+        self.assertNotIn("same", json.dumps(specs))
+
+    def test_a_malformed_lane_is_missing_not_ambiguous_and_distinct_lanes_stay_live(self):
+        # A lane that never validated cannot clash: the other declared lane keeps working.
+        with tempfile.TemporaryDirectory() as tmp:
+            self.write_lanes(tmp, {"fast": {"port": 1235, "alias": "a"}, "deep": {"port": 1235, "alias": 5}})
+            specs, source = probes.lane_specs(Path(tmp))
+        self.assertEqual([(s["id"], s["port"], s.get("configReason")) for s in specs],
+                         [("fast", 1235, None), ("deep", None, "missing")])
+        self.assertIn("deep lane missing or malformed", source["detail"])
+        self.assertNotIn("more than once", source["detail"])
+        with tempfile.TemporaryDirectory() as tmp:
+            self.write_lanes(tmp, {"fast": {"port": 1235, "alias": "a"}, "deep": {"port": 1236, "alias": "b"}})
+            specs, source = probes.lane_specs(Path(tmp))
+        self.assertEqual((source["state"], [(s["id"], s["port"]) for s in specs]), ("live", [("fast", 1235), ("deep", 1236)]))
+        self.assertEqual(probes.ambiguous_lane_ids(specs), [])
+
     def test_malformed_shapes_fall_back(self):
         # Codex finding 1: valid JSON with the wrong shape must not raise.
         for config in ([], {"runtime": []}, {"runtime": {"lanes": []}},
