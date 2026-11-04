@@ -597,7 +597,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
               let process = observer, serviceError == nil else { return }
         let generation = observerGeneration
         requestInFlight = true
-        let url = base.appendingPathComponent("api/snapshot")
+        let url = URL(string: "/api/snapshot", relativeTo: base)!.absoluteURL
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 1)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         session.dataTask(with: request) { [weak self] data, response, error in
@@ -610,6 +610,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
                       let snapshot = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                     self.observerHealthy = false
                     self.showUnknownBadge("Observer data unavailable; working count is unknown")
+                    // A missing route is not evidence that the observer process died.
+                    if (response as? HTTPURLResponse)?.statusCode == 404 { return }
                     self.pollFailures += 1
                     if self.pollFailures == 5, self.observer?.isRunning == true {
                         self.observer?.terminate()
