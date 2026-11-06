@@ -265,6 +265,39 @@ test('2026-11-06 Mac and PC receipts keep the Jev gate closed', () => {
   assert.equal(pc.monitor_health.pid, 2456);
 });
 
+test('authorized 0329 completions and STATUS OK do not open the Jev gate', () => {
+  const macId = 'jaryo-auth0329-mac-20261106-033030';
+  const pcId = 'jaryo-auth0329-pc-20261106-033057';
+  const mac = jevGate([
+    {tool: 'jev', phase: 'pre', state: 'recorded', evidenced: true, provenance: macId, verdict: 'NOT_PASS', detail: 'COMPLETED exit 0, 3/5 flags. Flags are checks, not a PASS.'},
+    {tool: 'jev', phase: 'post', state: 'recorded', evidenced: true, provenance: macId, verdict: 'NOT_PASS', detail: 'COMPLETED exit 0, 1/4 flags. statedVerdict none.'},
+  ]);
+  assert.equal(mac.open, false);
+  assert.equal(mac.preVerdict, 'NOT_PASS');
+  assert.equal(mac.postVerdict, 'NOT_PASS');
+  const pc = jevGate([
+    {tool: 'jev', phase: 'pre', state: 'recorded', evidenced: true, provenance: pcId, verdict: 'PROCEED-WITH-CHANGES', detail: 'STATUS OK is engine success, not verdict PASS.'},
+    {tool: 'jev', phase: 'post', state: 'recorded', evidenced: true, provenance: pcId, verdict: 'ROLLBACK', detail: 'STATUS OK. No observed acceptance passes. Advisory only; no repo edits to undo.'},
+  ]);
+  assert.equal(pc.open, false);
+  assert.equal(pc.postVerdict, 'ROLLBACK');
+  const synthetic = jevGate([
+    {tool: 'jev', phase: 'pre', state: 'passed', evidenced: true, provenance: 'unit fixture, not a machine receipt', verdict: 'PASS'},
+    {tool: 'jev', phase: 'post', state: 'passed', evidenced: true, provenance: 'exit 0', verdict: 'STATUS OK'},
+  ]);
+  assert.equal(synthetic.open, false);
+  const idleMasked = deriveMonitors({
+    schemaVersion: 1, host: 'mac',
+    models: [{id: 'lfm3-1.7b', host: 'mac', loaded: true, state: 'idle', ageSeconds: 1}],
+    components: [{id: 'nisi', state: 'needs-action', detail: 'Current Nisi installation binding is pending, invalid, stale or unavailable'}, {id: 'jev', state: 'configured', detail: 'Opted in; no archived Jev judgment yet'}],
+    pipeline: {status: 'idle', pipelines: [], pipelinesComplete: true, steps: []},
+    clients: [],
+  }, {feedFresh: true});
+  assert.equal(byId(idleMasked, 'route:nisi').word, 'BLOCKED');
+  assert.equal(byId(idleMasked, 'machine:mac').word, 'IDLE');
+  assert.equal(jevGate(byId(idleMasked, 'route:nisi').analyses).open, false);
+});
+
 test('unavailable Jev pre or post does not open the analysis gate', () => {
   const desk = createMonitorDesk();
   const snap = demoSnapshot();

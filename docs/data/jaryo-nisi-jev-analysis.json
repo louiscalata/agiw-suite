@@ -68,7 +68,7 @@
         "open": false,
         "pre": "unavailable",
         "post": "unavailable",
-        "blocker": "Jev pre and post were requested. Mac task jaryo-liveval-20261106-022202 returned BLOCKED_NOT_RUN for both phases because jev-task calls the hosted TypeSafe API and spend was not authorized. PC task jaryo-liveval-20261106-022221 returned UNAVAILABLE_NOT_RUN for both phases because the Jev queue watcher was not running and was not started. This cloud checkout's JevConnection.status() is also unavailable. None of these are passes."
+        "blocker": "Jev pre and post were requested. The 02:22 receipts are BLOCKED_NOT_RUN on Mac and UNAVAILABLE_NOT_RUN on PC. The authorized 03:29 pass ran: Mac jev-1.14.0 pre exit 0 with 3/5 flags and post exit 0 with 1/4 flags; PC pre PROCEED-WITH-CHANGES and post ROLLBACK, both with engine STATUS OK. Exit 0 and STATUS OK are not verdict PASS. ROLLBACK did not revert this draft because that task made no repository edits. Acceptance remains unobserved. Gate stays closed."
       },
       "repeatOnWorkingTree": "Commands were repeated on working tree 1dfccce before the Windows-peer patch commit. verify exit 0 PASS 18 files 0.2.0; version exit 0 0.2.0; demo exit 0 COMPLETED modelCalls 0 repairAttempts 1; Jev status exit 0 unavailable. Still not a hosted Jev pass."
     }

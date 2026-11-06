@@ -133,10 +133,11 @@ function paintBoard(board, monitor, desk) {
   analysis.append(el('p', 'j-note', 'Analysis state is not run success. Unavailable, skipped, pending, and failed Jev phases do not open the gate.'));
   const analysisList = el('ul', 'j-steps');
   for (const slot of monitor.analyses || []) {
-    const row = el('li', `j-step ${statusClass(slot.state === 'passed' ? 'ok' : slot.state === 'failed' ? 'blocked' : slot.state === 'pending' ? 'unknown' : slot.state === 'skipped' ? 'idle' : slot.state)}`);
+    const negativeVerdict = slot.verdict === 'ROLLBACK' || slot.verdict === 'NOT_PASS';
+    const row = el('li', `j-step ${negativeVerdict ? 'j-blocked' : statusClass(slot.state === 'passed' ? 'ok' : slot.state === 'failed' ? 'blocked' : slot.state === 'pending' ? 'unknown' : slot.state === 'skipped' ? 'idle' : slot.state)}`);
     row.append(el('p', 'j-step-hit', `${slot.tool} ${slot.phase}`));
-    row.append(el('p', 'j-word', slot.state.toUpperCase()));
-    row.append(el('p', 'j-step-reason', `${slot.detail} Run ${slot.runId || 'not reported'} · attempt ${slot.attemptId || 'not reported'}.`));
+    row.append(el('p', 'j-word', negativeVerdict ? slot.verdict : slot.state.toUpperCase()));
+    row.append(el('p', 'j-step-reason', [slot.verdict ? `Verdict ${slot.verdict}` : null, slot.detail, `Run ${slot.runId || 'not reported'}`, `attempt ${slot.attemptId || 'not reported'}`].filter(Boolean).join(' · ') + '.'));
     analysisList.append(row);
   }
   if (!(monitor.analyses || []).length) analysis.append(el('p', 'j-unavailable j-callout', '○ UNAVAILABLE · this monitor has no run or attempt to attach'));

@@ -108,7 +108,7 @@ function monitor(fields) {
   };
 }
 
-const ANALYSIS_STATES = new Set(['pending', 'failed', 'skipped', 'unavailable', 'blocked', 'passed']);
+const ANALYSIS_STATES = new Set(['pending', 'failed', 'skipped', 'unavailable', 'blocked', 'recorded', 'passed']);
 const ANALYSIS_PAIRS = [['nisi', 'pre'], ['jev', 'pre'], ['nisi', 'post'], ['jev', 'post']];
 
 function attemptToken(row) {
@@ -149,6 +149,7 @@ export function analysisSlots(records, {runId = null, attemptId = null} = {}) {
       attemptId: found.attemptId ?? attemptId,
       evidenced: true,
       provenance: text(found.provenance, 240),
+      verdict: text(found.verdict, 80),
       detail: text(found.detail, 240) || found.state,
     };
   });
@@ -238,6 +239,9 @@ function nisiFace(snapshot, options) {
   if (running) return presentation('live', 'At least one listed route is live.');
   if (!liveView(options)) return cap(presentation('live', 'Nisi route.'), options);
   if (pipeline?.status === 'installing') return presentation('unavailable', 'Router install is in progress.');
+  if (pipeline?.status === 'idle' && nisi?.state === 'needs-action') {
+    return presentation('blocked', text(nisi.detail) || 'Nisi needs action. That is not an idle success.');
+  }
   if (pipeline?.status === 'idle') return presentation('idle', text(nisi?.detail) || 'No unresolved route record.');
   if (pipeline?.status === 'unknown' || pipeline?.status == null) {
     return presentation('unknown', text(pipeline?.reason) || text(nisi?.detail) || 'Route observation is unknown.');
@@ -708,13 +712,15 @@ export function jevGate(analyses) {
   const slots = Array.isArray(analyses) ? analyses : [];
   const pre = slots.find(slot => slot.tool === 'jev' && slot.phase === 'pre');
   const post = slots.find(slot => slot.tool === 'jev' && slot.phase === 'post');
-  const accepted = slot => Boolean(slot && slot.state === 'passed' && slot.evidenced === true && text(slot.provenance, 240));
+  const accepted = slot => Boolean(slot && slot.state === 'passed' && slot.verdict === 'PASS' && slot.evidenced === true && text(slot.provenance, 240));
   const open = accepted(pre) && accepted(post);
   return {
     open,
     pre: pre?.state || 'unavailable',
     post: post?.state || 'unavailable',
-    blocker: open ? null : 'Jev pre and post are not both passed records with provenance. Unavailable is not a pass.',
+    preVerdict: pre?.verdict || null,
+    postVerdict: post?.verdict || null,
+    blocker: open ? null : 'Jev pre and post need verdict PASS. Exit 0, STATUS OK, COMPLETED, and PROCEED-WITH-CHANGES are not PASS. ROLLBACK stays closed.',
   };
 }
 
@@ -795,6 +801,7 @@ export function createMonitorDesk() {
         runId: item.workload?.runId ?? null, attemptId,
         evidenced: true,
         provenance: text(record.provenance, 240),
+        verdict: text(record.verdict, 80),
         detail: text(record.detail, 240) || record.state,
       };
       item.analyses = analysisSlots([...(item.analyses || []).filter(existing => existing.state !== 'unavailable'), slot], {
