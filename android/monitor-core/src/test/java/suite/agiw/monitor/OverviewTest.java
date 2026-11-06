@@ -32,9 +32,11 @@ public final class OverviewTest {
         check(Surface.fullyVisible(680, 710, 748, 12, 24, 0), "line above the pad");
         check(Surface.fullyVisible(700, 748, 748, 12, 24, 40), "scroll clears the edge");
         check(!Surface.fullyVisible(10, 10, 748, 0, 0, 0), "empty line");
+        check(Acceptance.notes().contains("Not a pass"), "receipts are not a pass");
+        check(Acceptance.notes().contains("ROLLBACK"), "receipts keep rollback");
         check(!Surface.motion(0f), "reduced motion");
         check(Surface.motion(1f), "motion allowed");
-        System.out.println("android monitor-core: 32 checks passed");
+        System.out.println("android monitor-core: 34 checks passed");
     }
 
     private static void check(boolean value, String name) {

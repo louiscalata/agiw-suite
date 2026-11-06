@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="Theme.Agiw" parent="android:Theme.DeviceDefault.Light.NoActionBar">
-        <item name="android:windowBackground">#FFFFFF</item>
-        <item name="android:colorBackground">#FFFFFF</item>
-        <item name="android:textColor">#000000</item>
-        <item name="android:textColorPrimary">#000000</item>
-        <item name="android:colorAccent">#000000</item>
-        <item name="android:fontFamily">sans-serif</item>
+        <item name="android:windowBackground">@color/agiw_bg</item>
+        <item name="android:colorBackground">@color/agiw_bg</item>
+        <item name="android:textColor">@color/agiw_ink</item>
+        <item name="android:textColorPrimary">@color/agiw_ink</item>
+        <item name="android:colorAccent">@color/agiw_ink</item>
+        <item name="android:fontFamily">@font/inter</item>
     </style>
 </resources>

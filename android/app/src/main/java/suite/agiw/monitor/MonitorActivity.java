@@ -27,12 +27,14 @@ public final class MonitorActivity extends Activity {
     private static final String KEY_DETAIL = "detail";
     private static final String KEY_ACCEPT = "accept";
     private static final String KEY_OBSERVED = "observed";
+    private static final String KEY_RECEIPTS = "receiptsOpen";
 
     private final ObserverClient client = new ObserverClient();
     private final ReadGate gate = new ReadGate();
     private boolean cover;
     private String addressText = "";
     private int inflight;
+    private boolean receiptsOpen;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -70,9 +72,12 @@ public final class MonitorActivity extends Activity {
             set(R.id.acceptance, state.getString(KEY_ACCEPT, Acceptance.LINE));
             set(R.id.observed, state.getString(KEY_OBSERVED, ""));
             addressText = state.getString(KEY_ADDRESS, "");
+            receiptsOpen = state.getBoolean(KEY_RECEIPTS, false);
             EditText address = findViewById(R.id.address);
             if (address != null) address.setText(addressText);
         }
+        TextView receipts = findViewById(R.id.receipts);
+        if (receipts != null) receipts.setText(Acceptance.notes());
         Button read = findViewById(R.id.read);
         if (read != null) {
             read.setOnClickListener(view -> readOnce());
@@ -84,8 +89,18 @@ public final class MonitorActivity extends Activity {
             address.setOnFocusChangeListener((view, focused) -> {
                 if (focused) reveal(view);
             });
+            address.setOnEditorActionListener((view, actionId, event) -> {
+                readOnce();
+                return true;
+            });
         }
-        reveal(findViewById(R.id.detail));
+        Button receiptsToggle = findViewById(R.id.receiptsToggle);
+        if (receiptsToggle != null) receiptsToggle.setOnClickListener(view -> {
+            receiptsOpen = !receiptsOpen;
+            applyReceipts();
+        });
+        applyReceipts();
+        reveal(findViewById(R.id.acceptance));
     }
 
     private boolean compactNow() {
@@ -105,6 +120,7 @@ public final class MonitorActivity extends Activity {
         outState.putString(KEY_DETAIL, text(R.id.detail));
         outState.putString(KEY_ACCEPT, text(R.id.acceptance));
         outState.putString(KEY_OBSERVED, text(R.id.observed));
+        outState.putBoolean(KEY_RECEIPTS, receiptsOpen);
     }
 
     private void readOnce() {
@@ -167,14 +183,26 @@ public final class MonitorActivity extends Activity {
     }
 
     private void show(Board board) {
-        set(R.id.process, "PROCESS  " + board.process);
-        set(R.id.lane, "LANE  " + board.lane);
-        set(R.id.attachment, "ATTACH  " + board.attachment + "  " + board.runId);
-        set(R.id.connect, "CONNECT  " + board.connect);
-        set(R.id.observed, "TIME  " + board.observed);
+        set(R.id.process, board.process);
+        set(R.id.lane, cover ? "LANE  " + board.lane : board.lane);
+        set(R.id.attachment, cover ? "ATTACH  " + board.attachment : board.attachment + "  " + board.runId);
+        set(R.id.connect, cover ? "CONNECT  " + board.connect : board.connect);
+        set(R.id.observed, cover ? board.observed : board.observed);
         set(R.id.detail, board.detail);
         set(R.id.acceptance, board.acceptance);
-        reveal(findViewById(R.id.detail));
+        reveal(findViewById(R.id.acceptance));
+    }
+
+    private void applyReceipts() {
+        TextView receipts = findViewById(R.id.receipts);
+        Button toggle = findViewById(R.id.receiptsToggle);
+        if (receipts != null) receipts.setVisibility(receiptsOpen ? View.VISIBLE : View.GONE);
+        if (toggle != null) {
+            toggle.setText(receiptsOpen ? "Hide receipts" : "Receipts");
+            toggle.setContentDescription(receiptsOpen
+                    ? "Hide recorded receipts"
+                    : "Show recorded receipts. They are not a pass.");
+        }
     }
 
     private void reveal(View child) {

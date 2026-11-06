@@ -19,4 +19,18 @@ public final class Acceptance {
     public static boolean passClaimed() {
         return false;
     }
+
+    public static String notes() {
+        return "Recorded receipts. Not a pass.\n"
+                + "Mac unsigned " + MAC_UNSIGNED_JEV + " is 0/4.\n"
+                + "PC POST ROLLBACK remains open.\n"
+                + MAC_ASTRA + "\n"
+                + PC_ASTRA + "\n"
+                + MAC_DESK + "\n"
+                + MAC_SYNC + "\n"
+                + PC_AND + "\n"
+                + PC_WIN + "\n"
+                + PC_NODE + "\n"
+                + MAC_ANDJAVA;
+    }
 }

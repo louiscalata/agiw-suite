@@ -57,5 +57,11 @@ if "gate.accepts" not in activity_text or "Read cancelled" not in activity_text:
     raise SystemExit("activity does not keep the latest read")
 if "adjustResize" not in manifest_text:
     raise SystemExit("keyboard does not resize the window")
+for name in ("activity_inner.xml", "activity_cover.xml"):
+    text = (layout / name).read_text()
+    if "astra1103" in text or "jaryo-codex" in text:
+        raise SystemExit(name + " puts receipts in the main layout")
+    if "minHeight=\"48dp\"" not in text or "@font/inter_semibold" not in text:
+        raise SystemExit(name + " missing type or target size")
 print("android layouts: ids and clipping checked")
 PY
