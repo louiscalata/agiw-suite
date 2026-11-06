@@ -379,6 +379,7 @@ function pcMonitor(snapshot, options) {
       metric('Lanes', laneMetric(worker)),
       metric('In-flight jobs', rows.length),
       metric('Route list', list.incomplete ? 'incomplete' : 'present'),
+      ...laneModelMetrics(worker),
     ],
   });
 }
@@ -558,6 +559,57 @@ function wantsMac(snapshot) {
     || (Array.isArray(snapshot.machines) && snapshot.machines.some(row => row && (row.platform === 'macos' || row.host === 'mac')));
 }
 
+function peerMacMonitor(snapshot, options) {
+  const peer = snapshot.macPeer;
+  if (snapshot.host !== 'windows' || !peer || typeof peer !== 'object') return null;
+  const detail = text(peer.detail, 240);
+  let face;
+  if (!liveView(options)) face = cap(presentation('stale', detail || 'Mac peer observation is not a live claim.'), options);
+  else if (peer.state === 'linked') face = presentation('recorded', detail || 'Share report linked. Not verified and not a LAN probe.');
+  else if (peer.reason === 'stale') face = presentation('stale', detail || 'Mac report is stale.');
+  else if (peer.reason === 'no-report' || peer.reason === 'unconfigured' || peer.reason === 'config-unreadable') face = presentation('unavailable', detail || 'Mac peer is not available.');
+  else if (peer.reason === 'refused' || peer.reason === 'timeout' || peer.reason === 'unreachable' || peer.reason === 'unresolved') face = presentation('disconnected', detail || 'Mac peer is disconnected.');
+  else face = presentation('unknown', detail || 'Mac peer state is unknown.');
+  const models = Array.isArray(peer.models) ? peer.models : [];
+  return monitor({
+    id: 'machine:mac',
+    kind: 'machine',
+    title: 'Mac peer',
+    eyebrow: 'MACHINE',
+    face,
+    fictional: options.fictional,
+    identity: identity({
+      machine: 'mac',
+      machineLabel: text(peer.configuredName, 80) || text(peer.name, 80) || 'Mac',
+      provider: 'share',
+      providerLabel: peer.via === 'sharedchami' ? 'SharedChami presence' : 'Mac presence',
+      model: text(models[0]?.id, 200),
+      session: null,
+    }),
+    pipeline: blankPipeline('A share or presence record is not a Mac inference session and does not prove generation.'),
+    metrics: [
+      metric('State', text(peer.state) || 'unknown'),
+      metric('Verified', peer.verified === true ? 'yes' : peer.verified === false ? 'no' : null),
+      metric('Loaded count', Number.isInteger(peer.loadedCount) ? peer.loadedCount : null),
+      metric('Reason', text(peer.reason, 80)),
+    ],
+  });
+}
+
+function laneModelMetrics(worker) {
+  const lanes = worker?.lanes;
+  const rows = [];
+  if (!lanes || typeof lanes !== 'object') return rows;
+  for (const name of ['fast', 'deep']) {
+    const lane = lanes[name];
+    if (!lane || typeof lane !== 'object') continue;
+    rows.push(metric(`${name} requested`, text(lane.model, 200) || text(lane.expectedModel, 200)));
+    rows.push(metric(`${name} served`, text(lane.servedModel, 200)));
+  }
+  if (typeof worker.lanesError === 'string') rows.push(metric('Lane error', text(worker.lanesError, 200)));
+  return rows;
+}
+
 function wantsPc(snapshot) {
   return snapshot.host === 'windows' || (snapshot.windowsWorker && typeof snapshot.windowsWorker === 'object')
     || (Array.isArray(snapshot.models) && snapshot.models.some(row => row && row.host === 'windows'));
@@ -619,6 +671,10 @@ export function deriveMonitors(snapshot, options = {}) {
   }
   const children = [];
   if (wantsMac(snapshot)) children.push(macMonitor(snapshot, options));
+  else {
+    const peer = peerMacMonitor(snapshot, options);
+    if (peer) children.push(peer);
+  }
   if (wantsPc(snapshot)) children.push(pcMonitor(snapshot, options));
   if (snapshot.pipeline && typeof snapshot.pipeline === 'object') children.push(nisiMonitor(snapshot, options));
   if (Array.isArray(snapshot.clients)) {

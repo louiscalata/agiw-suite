@@ -234,6 +234,39 @@ test('unknown, stale, and disconnected stay different words', () => {
   assert.match(running.value, /^at least /);
 });
 
+test('a Windows snapshot keeps Mac presence, lane models, and queue rows distinct', () => {
+  const snapshot = {
+    schemaVersion: 1,
+    host: 'windows',
+    macPeer: {state: 'linked', via: 'sharedchami', configuredName: 'studio', verified: false, loadedCount: 1,
+      models: [{id: 'example-mac', state: 'loaded'}],
+      detail: 'Reported through SharedChami; unsigned share file, not verified'},
+    windowsWorker: {state: 'advertised', ageSeconds: 0, lanes: {
+      fast: {up: true, model: 'expected-fast', servedModel: 'served-fast', slotsBusy: 0, slotsTotal: 2},
+      deep: {up: false, model: 'expected-deep', servedModel: null, slotsBusy: 0, slotsTotal: 1},
+    }},
+    windowsJobs: {liveAvailable: false, complete: true, inFlight: [], recent: [{id: 'old-run', model: 'served-fast', state: 'success'}]},
+    pipeline: {status: 'queued', pipelines: [], pipelinesComplete: false, queue: {pending: 2, claimed: 0}},
+    clients: [],
+  };
+  const monitors = deriveMonitors(snapshot, {feedFresh: true});
+  const mac = byId(monitors, 'machine:mac');
+  assert.equal(mac.title, 'Mac peer');
+  assert.equal(mac.word, 'RECORDED');
+  assert.notEqual(mac.word, 'RUNNING');
+  assert.equal(mac.metrics.find(item => item.label === 'Verified').value, 'no');
+  const pc = byId(monitors, 'machine:pc');
+  assert.equal(pc.metrics.find(item => item.label === 'fast requested').value, 'expected-fast');
+  assert.equal(pc.metrics.find(item => item.label === 'fast served').value, 'served-fast');
+  assert.equal(pc.metrics.find(item => item.label === 'deep served').value, '—');
+  assert.equal(monitors.some(item => item.id === 'job:old-run'), false);
+  assert.equal(byId(monitors, 'route:nisi').pipeline.incomplete, true);
+  const stale = deriveMonitors({...snapshot, macPeer: {...snapshot.macPeer, state: 'unknown', reason: 'stale', detail: 'Mac report is stale'}}, {feedFresh: true});
+  assert.equal(byId(stale, 'machine:mac').word, 'STALE');
+  const absent = deriveMonitors({...snapshot, macPeer: {...snapshot.macPeer, state: 'unknown', reason: 'no-report', detail: 'No presence'}}, {feedFresh: true});
+  assert.equal(byId(absent, 'machine:mac').word, 'UNAVAILABLE');
+});
+
 test('inserting a tab does not steal focus; removing the focused tab moves to the active tab', () => {
   const ids = ['all', 'machine:mac', 'client:claude'];
   assert.equal(nextTabFocus('client:claude', [...ids, 'job:new'], 'client:claude'), 'client:claude');

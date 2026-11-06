@@ -275,7 +275,8 @@ class InstallerOnWindows(unittest.TestCase):
             sources += [(REPO / "web" / name, Path("web") / name) for name in
                         ("index.html", "app.js", "style.css", "map-layout.mjs", "model-control-view.mjs",
                          "online-code-mode.mjs", "monitor.html", "monitor.mjs", "monitor.css",
-                         "monitor-tabs.mjs", "monitor-board.mjs", "monitor-map.mjs", "jaryo.css", "jaryo.mjs")]
+                         "monitor-tabs.mjs", "monitor-board.mjs", "monitor-map.mjs", "jaryo.css", "jaryo.mjs",
+                         "components.html", "components.js", "components.css")]
             sources += [(REPO / name, Path(name)) for name in
                         ("usage-format.mjs", "client_models.py", "peer_link.py", "inference_stats.py",
                          "inference_collect.py", "LICENSE", "NOTICE")]

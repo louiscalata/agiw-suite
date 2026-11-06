@@ -53,7 +53,8 @@
         "status": {"configured": false, "state": "unavailable", "message": "Secure Jev credential storage is unavailable."},
         "hostedCheck": "not-run"
       },
-      "difference": "No difference. Both phases read local helper status only. The hosted connection check was not run, so Jev is not claimed connected or analyzed as a passing post-check."
+      "difference": "No difference. Both phases read local helper status only. The hosted connection check was not run, so Jev is not claimed connected or analyzed as a passing post-check.",
+      "repeatOnWorkingTree": "Commands were repeated on working tree 1dfccce before the Windows-peer patch commit. verify exit 0 PASS 18 files 0.2.0; version exit 0 0.2.0; demo exit 0 COMPLETED modelCalls 0 repairAttempts 1; Jev status exit 0 unavailable. Still not a hosted Jev pass."
     }
   },
   "requirementsCritiques": {
