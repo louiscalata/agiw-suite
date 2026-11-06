@@ -150,6 +150,39 @@ test('a rejected control reply keeps the new snapshot and withdraws unload', asy
   assert.doesNotMatch(view.document.bodyNode.textContent, /Unload /);
 });
 
+test('an empty or schema-invalid control reply does not enable unload', async () => {
+  const replies = [{}, { status: '' }, { status: 'error' }, { status: 1 }, { status: null }, { message: 'ok' }, []];
+  for (const reply of replies) {
+    const view = mount(async path => path === '/api/snapshot' ? ok(snapshot()) : ok(reply));
+    await flush();
+    assert.equal(unloadButton(view.document.bodyNode), undefined, JSON.stringify(reply));
+    assert.match(view.document.bodyNode.textContent, /Control is unavailable/);
+    assert.match(view.document.bodyNode.textContent, /Loaded/);
+    assert.doesNotMatch(view.document.bodyNode.textContent, /No local model/);
+  }
+});
+
+test('unknown inventory does not claim that no model is loaded', async () => {
+  const cases = [
+    [{ models: [{ id: 'mystery' }] }, /Model state unknown/],
+    [{ models: [{ id: 'mystery', state: 'unknown', loaded: null }] }, /Model state unknown/],
+    [{ models: [{ id: 'mystery', state: 'stale', loaded: true }] }, /Model state unknown/],
+    [{ models: null }, /Model state unknown/],
+    [{ sampledAt: CLOCK - 30, fullSampledAt: CLOCK - 30, models: [] }, /Model state unknown/],
+  ];
+  for (const [extra, pattern] of cases) {
+    const view = mount(async path => path === '/api/snapshot' ? ok(snapshot('Example', extra)) : ok({ status: 'idle' }));
+    await flush();
+    assert.equal(unloadButton(view.document.bodyNode), undefined, JSON.stringify(extra));
+    assert.match(view.document.bodyNode.textContent, pattern);
+    assert.doesNotMatch(view.document.bodyNode.textContent, /No local model/);
+  }
+  const empty = mount(async path => path === '/api/snapshot' ? ok(snapshot('Example', { models: [] })) : ok({ status: 'idle' }));
+  await flush();
+  assert.equal(unloadButton(empty.document.bodyNode), undefined);
+  assert.match(empty.document.bodyNode.textContent, /No local model/);
+});
+
 test('demo, non-live, stale, and undated samples do not offer unload', async () => {
   const cases = [
     [{ demo: true }, /sample data/],

@@ -42,7 +42,12 @@ export function mountSimpleView({ window, document, fetch, setInterval, clearInt
   });
 
   const studioLive = () => (snapshot?.sources || []).some(source => source.id === 'lmstudio-api' && source.state === 'live');
-  const chosen = () => (snapshot?.models || []).find(model => model.loaded === true) || (snapshot?.models || [])[0] || null;
+  const inventoryRows = () => Array.isArray(snapshot?.models) ? snapshot.models.filter(row => row && typeof row === 'object') : null;
+  const chosen = () => {
+    const rows = inventoryRows();
+    if (!rows) return null;
+    return rows.find(row => row.loaded === true) || rows[0] || null;
+  };
   const readNow = () => {
     const clock = typeof now === 'function' ? now() : Date.now() / 1000;
     return Number.isFinite(clock) ? clock : NaN;
@@ -89,10 +94,18 @@ export function mountSimpleView({ window, document, fetch, setInterval, clearInt
     const models = document.createElement('div');
     models.className = 'sv-row';
     models.setAttribute('data-row', 'models');
+    const rows = inventoryRows();
     const model = chosen();
     const state = document.createElement('p');
     state.className = 'sv-model-state';
-    state.textContent = model?.state === 'loaded' ? 'Loaded' : 'No local model';
+    const inventoryTrusted = fresh && snapshot.demo !== true && studioLive();
+    const confirmedLoaded = rows?.find(row => row.loaded === true && row.state !== 'unknown' && row.state !== 'stale' && typeof row.state === 'string');
+    const confirmedEmpty = Array.isArray(snapshot?.models) && snapshot.models.length === 0;
+    const confirmedNone = Array.isArray(rows) && rows.length > 0 && rows.every(row => row.loaded === false && (row.state === 'unloaded' || row.state === 'idle'));
+    state.textContent = !inventoryTrusted || !rows ? 'Model state unknown'
+      : confirmedLoaded ? 'Loaded'
+      : confirmedEmpty || confirmedNone ? 'No local model'
+      : 'Model state unknown';
     models.append(state);
     if (model) {
       const decision = modelControlView(model, {
@@ -126,12 +139,16 @@ export function mountSimpleView({ window, document, fetch, setInterval, clearInt
     body.append(studio, models, memory);
   };
 
+  const CONTROL_STATUSES = new Set(['idle', 'running', 'reported', 'failed']);
   let pollGeneration = 0;
   const acceptedBody = async reply => {
     if (reply?.ok !== true) return null;
     const body = await reply.json();
     return body && typeof body === 'object' && !Array.isArray(body) ? body : null;
   };
+  const controlRecord = body => (
+    body && typeof body.status === 'string' && CONTROL_STATUSES.has(body.status) ? body : null
+  );
   const tick = async () => {
     if (stopped) return;
     const mine = ++pollGeneration;
@@ -153,7 +170,7 @@ export function mountSimpleView({ window, document, fetch, setInterval, clearInt
       try {
         const controlReply = await fetch('/api/models/control');
         if (!current()) return;
-        nextControl = await acceptedBody(controlReply);
+        nextControl = controlRecord(await acceptedBody(controlReply));
         nextControlKnown = nextControl !== null;
       } catch (_) {
         nextControlKnown = false;
