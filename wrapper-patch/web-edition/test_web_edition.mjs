@@ -20,8 +20,10 @@ import { buildEdition, loadDenylist } from './build.mjs';
 import { ship } from './appstore-rules.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const webDir = process.env.AGIW_WEB_DIR || join(root, 'App', 'Resources', 'web');
-const fixture = name => join(root, 'Packages', 'AgiwCore', 'Tests', 'AgiwCoreTests', 'Fixtures', 'DemoGolden', name);
+const wrapperRoot = process.env.AGIW_WRAPPER_ROOT || root;
+const fixtureRoot = process.env.AGIW_FIXTURE_ROOT || wrapperRoot;
+const webDir = process.env.AGIW_WEB_DIR || join(wrapperRoot, 'App', 'Resources', 'web');
+const fixture = name => join(fixtureRoot, 'Packages', 'AgiwCore', 'Tests', 'AgiwCoreTests', 'Fixtures', 'DemoGolden', name);
 const goldenReady = existsSync(fixture('demo-idle.json'));
 const bundled = goldenReady && ship.every(name => existsSync(join(webDir, name)));
 const PRIVATE_IDS = ['onlineCodeMode', 'fixInference', 'pcSwitch', 'vitalPc', 'vitalRoute', 'vitalActivity',
@@ -350,7 +352,7 @@ const snapshotFrom = name => {
 };
 
 test('check-web-edition.sh expects exactly the files the edition ships', () => {
-  const script = readFileSync(join(root, 'scripts', 'check-web-edition.sh'), 'utf8');
+  const script = readFileSync(join(wrapperRoot, 'scripts', 'check-web-edition.sh'), 'utf8');
   const expected = script.match(/^EXPECTED=\(([^)]*)\)/m)?.[1].trim().split(/\s+/);
   assert.deepEqual(expected, [...ship].sort());
 });

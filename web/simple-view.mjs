@@ -26,11 +26,13 @@ export function mountSimpleView({ window, document, fetch, setInterval, clearInt
   };
 
   const onSwitch = event => {
-    const button = event.target?.closest?.('#advancedSwitch');
-    if (!button) return;
+    const button = event?.target?.closest?.('#advancedSwitch') || event?.currentTarget;
+    if (button?.id !== 'advancedSwitch' && event?.target) return;
     applyView(root.dataset.view === 'simple' ? 'advanced' : 'simple', true);
   };
-  document.addEventListener('click', onSwitch);
+  const switcher = document.getElementById('advancedSwitch');
+  if (switcher) switcher.addEventListener('click', onSwitch);
+  else document.addEventListener?.('click', onSwitch);
   window.addEventListener('agiw:view', event => {
     if (event.detail !== 'simple' && event.detail !== 'advanced') return;
     if (root.dataset.view === event.detail) return;
@@ -119,7 +121,8 @@ export function mountSimpleView({ window, document, fetch, setInterval, clearInt
     destroy() {
       stopped = true;
       clearInterval(timer);
-      document.removeEventListener('click', onSwitch);
+      switcher?.removeEventListener?.('click', onSwitch);
+      document.removeEventListener?.('click', onSwitch);
       body.remove();
     },
   };
