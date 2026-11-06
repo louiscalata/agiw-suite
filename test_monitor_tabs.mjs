@@ -43,9 +43,9 @@ test('parallel mac route, PC job, and Claude route are independent monitors', ()
   assert.equal(byId(monitors, 'client:claude').word, 'RUNNING');
   assert.equal(byId(monitors, 'client:cursor').word, 'UNAVAILABLE');
   assert.match(byId(monitors, 'client:cursor').reason, /No supported bounded Cursor/);
-  assert.equal(byId(monitors, 'route:demo-claude').identity.provider, 'claude');
+  assert.equal(byId(monitors, 'route:mac:demo-claude').identity.provider, 'claude');
   assert.equal(byId(monitors, 'job:demo-pc-job').identity.machine, 'windows');
-  assert.notEqual(byId(monitors, 'route:demo-claude').id, byId(monitors, 'job:demo-pc-job').id);
+  assert.notEqual(byId(monitors, 'route:mac:demo-claude').id, byId(monitors, 'job:demo-pc-job').id);
 
   const next = demoSnapshot();
   next.pipeline.pipelines.find(row => row.runId === 'demo-claude').live = false;
@@ -108,21 +108,21 @@ test('switching monitors keeps each view and does not fetch or touch lifecycle',
 test('a session that leaves the sample is retained disconnected and not called running', () => {
   const desk = createMonitorDesk();
   desk.note(demoSnapshot(), {feedFresh: true, fictional: true});
-  assert.equal(desk.select('route:demo-claude'), true);
-  desk.patch('route:demo-claude', {boardQuery: 'kept'});
+  assert.equal(desk.select('route:mac:demo-claude'), true);
+  desk.patch('route:mac:demo-claude', {boardQuery: 'kept'});
   const gone = demoSnapshot();
   gone.pipeline.pipelines = gone.pipeline.pipelines.filter(row => row.runId !== 'demo-claude');
   desk.note(gone, {feedFresh: true, fictional: true});
-  const kept = byId(desk.monitors, 'route:demo-claude');
-  assert.equal(desk.active, 'route:demo-claude');
+  const kept = byId(desk.monitors, 'route:mac:demo-claude');
+  assert.equal(desk.active, 'route:mac:demo-claude');
   assert.equal(kept.word, 'DISCONNECTED');
   assert.equal(kept.retained, true);
   assert.notEqual(kept.word, 'STALE');
   assert.notEqual(kept.word, 'UNKNOWN');
-  assert.equal(desk.view('route:demo-claude').boardQuery, 'kept');
-  assert.equal(desk.dismiss('route:demo-claude'), true);
+  assert.equal(desk.view('route:mac:demo-claude').boardQuery, 'kept');
+  assert.equal(desk.dismiss('route:mac:demo-claude'), true);
   assert.equal(desk.active, 'all');
-  assert.equal(desk.monitors.some(item => item.id === 'route:demo-claude'), false);
+  assert.equal(desk.monitors.some(item => item.id === 'route:mac:demo-claude'), false);
   assert.notEqual(byId(desk.monitors, 'client:claude').word, 'RUNNING');
 });
 
@@ -203,20 +203,20 @@ test('reconnect does not double-count and a new attempt drops prior events and a
   const snap = demoSnapshot();
   snap.pipeline.pipelines.find(row => row.runId === 'demo-claude').attemptId = '1';
   desk.note(snap, {feedFresh: true, fictional: true});
-  const first = byId(desk.monitors, 'route:demo-claude');
+  const first = byId(desk.monitors, 'route:mac:demo-claude');
   assert.equal(first.events.length, 1);
-  assert.equal(desk.attachAnalysis('route:demo-claude', {tool: 'nisi', phase: 'pre', state: 'passed', attemptId: '1', detail: 'baseline recorded', provenance: 'fixture nisi demo, modelCalls 0'}), 'RUNNING');
-  assert.equal(byId(desk.monitors, 'route:demo-claude').word, 'RUNNING');
-  assert.equal(jevGate(byId(desk.monitors, 'route:demo-claude').analyses).open, false);
-  assert.equal(byId(desk.monitors, 'route:demo-claude').analyses.find(item => item.tool === 'nisi' && item.phase === 'pre').state, 'passed');
-  assert.equal(byId(desk.monitors, 'route:demo-claude').analyses.find(item => item.tool === 'jev' && item.phase === 'post').state, 'unavailable');
+  assert.equal(desk.attachAnalysis('route:mac:demo-claude', {tool: 'nisi', phase: 'pre', state: 'passed', attemptId: '1', detail: 'baseline recorded', provenance: 'fixture nisi demo, modelCalls 0'}), 'RUNNING');
+  assert.equal(byId(desk.monitors, 'route:mac:demo-claude').word, 'RUNNING');
+  assert.equal(jevGate(byId(desk.monitors, 'route:mac:demo-claude').analyses).open, false);
+  assert.equal(byId(desk.monitors, 'route:mac:demo-claude').analyses.find(item => item.tool === 'nisi' && item.phase === 'pre').state, 'passed');
+  assert.equal(byId(desk.monitors, 'route:mac:demo-claude').analyses.find(item => item.tool === 'jev' && item.phase === 'post').state, 'unavailable');
   desk.note(snap, {feedFresh: true, fictional: true});
-  assert.equal(byId(desk.monitors, 'route:demo-claude').events.length, 1);
-  assert.equal(desk.attachAnalysis('route:demo-claude', {tool: 'jev', phase: 'post', state: 'passed', attemptId: '2'}), false);
+  assert.equal(byId(desk.monitors, 'route:mac:demo-claude').events.length, 1);
+  assert.equal(desk.attachAnalysis('route:mac:demo-claude', {tool: 'jev', phase: 'post', state: 'passed', attemptId: '2'}), false);
   const retry = demoSnapshot();
   retry.pipeline.pipelines.find(row => row.runId === 'demo-claude').attemptId = '2';
   desk.note(retry, {feedFresh: true, fictional: true});
-  const second = byId(desk.monitors, 'route:demo-claude');
+  const second = byId(desk.monitors, 'route:mac:demo-claude');
   assert.equal(second.workload.attemptId, '2');
   assert.equal(second.events.length, 1);
   assert.equal(second.events[0].attemptId, '2');
@@ -235,7 +235,7 @@ test('2026-11-06 Mac and PC receipts keep the Jev gate closed', () => {
   }
   const mac = receipts.machines.mac;
   const macSlots = analysisSlots(['pre', 'post'].map(phase => ({
-    tool: 'jev', phase, state: 'blocked', provenance: mac.task_id,
+    tool: 'jev', phase, state: 'blocked', provenance: mac.task_id, attemptId: '1',
     detail: `${mac[phase].result}: ${mac[phase].reason}`,
   })), {runId: mac.task_id, attemptId: '1'});
   const macGate = jevGate(macSlots);
@@ -303,25 +303,25 @@ test('unavailable Jev pre or post does not open the analysis gate', () => {
   const snap = demoSnapshot();
   snap.pipeline.pipelines.find(row => row.runId === 'demo-claude').attemptId = '1';
   snap.analyses = [
-    {workloadId: 'route:demo-claude', tool: 'jev', phase: 'pre', state: 'unavailable', attemptId: '1', detail: 'helper storage unavailable'},
-    {workloadId: 'route:demo-claude', tool: 'jev', phase: 'post', state: 'unavailable', attemptId: '1', detail: 'hosted probe not run'},
+    {workloadId: 'route:mac:demo-claude', tool: 'jev', phase: 'pre', state: 'unavailable', attemptId: '1', detail: 'helper storage unavailable'},
+    {workloadId: 'route:mac:demo-claude', tool: 'jev', phase: 'post', state: 'unavailable', attemptId: '1', detail: 'hosted probe not run'},
   ];
   desk.note(snap, {feedFresh: true, fictional: true});
-  const session = byId(desk.monitors, 'route:demo-claude');
+  const session = byId(desk.monitors, 'route:mac:demo-claude');
   assert.equal(session.word, 'RUNNING');
   const gate = jevGate(session.analyses);
   assert.equal(gate.open, false);
   assert.equal(gate.pre, 'unavailable');
   assert.equal(gate.post, 'unavailable');
-  assert.equal(desk.attachAnalysis('route:demo-claude', {tool: 'jev', phase: 'pre', state: 'passed', attemptId: '1', detail: 'no source'}), false);
-  assert.equal(desk.attachAnalysis('route:demo-claude', {tool: 'jev', phase: 'pre', state: 'passed', attemptId: '1', provenance: 'machine receipt not in this checkout', detail: 'claimed pass'}), 'RUNNING');
-  assert.equal(jevGate(byId(desk.monitors, 'route:demo-claude').analyses).open, false);
+  assert.equal(desk.attachAnalysis('route:mac:demo-claude', {tool: 'jev', phase: 'pre', state: 'passed', attemptId: '1', detail: 'no source'}), false);
+  assert.equal(desk.attachAnalysis('route:mac:demo-claude', {tool: 'jev', phase: 'pre', state: 'passed', attemptId: '1', provenance: 'machine receipt not in this checkout', detail: 'claimed pass'}), 'RUNNING');
+  assert.equal(jevGate(byId(desk.monitors, 'route:mac:demo-claude').analyses).open, false);
   const cleared = demoSnapshot();
   cleared.pipeline.pipelines.find(row => row.runId === 'demo-claude').attemptId = '1';
-  cleared.analyses = [{workloadId: 'route:demo-claude', tool: 'jev', phase: 'pre', state: 'unavailable', attemptId: '1', provenance: 'status read', detail: 'unavailable replaces a pass'}];
+  cleared.analyses = [{workloadId: 'route:mac:demo-claude', tool: 'jev', phase: 'pre', state: 'unavailable', attemptId: '1', provenance: 'status read', detail: 'unavailable replaces a pass'}];
   desk.note(cleared, {feedFresh: true, fictional: true});
-  assert.equal(byId(desk.monitors, 'route:demo-claude').analyses.find(item => item.tool === 'jev' && item.phase === 'pre').state, 'unavailable');
-  assert.equal(jevGate(byId(desk.monitors, 'route:demo-claude').analyses).open, false);
+  assert.equal(byId(desk.monitors, 'route:mac:demo-claude').analyses.find(item => item.tool === 'jev' && item.phase === 'pre').state, 'unavailable');
+  assert.equal(jevGate(byId(desk.monitors, 'route:mac:demo-claude').analyses).open, false);
 });
 
 test('unknown, stale, and disconnected stay different words', () => {
@@ -373,6 +373,58 @@ test('inserting a tab does not steal focus; removing the focused tab moves to th
   assert.equal(nextTabFocus('client:claude', [...ids, 'job:new'], 'client:claude'), 'client:claude');
   assert.equal(nextTabFocus(null, [...ids, 'job:new'], 'all'), null);
   assert.equal(nextTabFocus('route:gone', ids, 'all'), 'all');
+});
+
+test('the same run id on Mac and PC stays two sessions, and a late attempt does not inherit the other', () => {
+  const snap = demoSnapshot();
+  const macRow = snap.pipeline.pipelines.find(row => row.runId === 'demo-claude');
+  macRow.attemptId = '1';
+  snap.pipeline.pipelines.push({...macRow, host: 'windows', attemptId: '1'});
+  snap.analyses = [{
+    workloadId: 'route:mac:demo-claude', tool: 'jev', phase: 'post', state: 'recorded',
+    attemptId: '1', provenance: 'fixture', verdict: 'NOT_PASS', detail: 'Mac attempt 1 only',
+  }];
+  const monitors = deriveMonitors(snap, {feedFresh: true, fictional: true});
+  const mac = byId(monitors, 'route:mac:demo-claude');
+  const pc = byId(monitors, 'route:windows:demo-claude');
+  assert.notEqual(mac.id, pc.id);
+  assert.match(mac.title, /^Mac ·/);
+  assert.match(pc.title, /^Windows PC ·/);
+  assert.equal(mac.analyses.find(item => item.tool === 'jev' && item.phase === 'post').detail, 'Mac attempt 1 only');
+  assert.equal(pc.analyses.find(item => item.tool === 'jev' && item.phase === 'post').state, 'unavailable');
+  const later = demoSnapshot();
+  const moved = later.pipeline.pipelines.find(row => row.runId === 'demo-claude');
+  moved.attemptId = '2';
+  later.analyses = snap.analyses;
+  const next = deriveMonitors(later, {feedFresh: true, fictional: true});
+  assert.equal(byId(next, 'route:mac:demo-claude').workload.attemptId, '2');
+  assert.equal(byId(next, 'route:mac:demo-claude').analyses.find(item => item.phase === 'post').state, 'unavailable');
+  assert.equal(jevGate(byId(next, 'route:mac:demo-claude').analyses).open, false);
+});
+
+test('a disconnected session returns on the same id without a duplicate sample', () => {
+  const desk = createMonitorDesk();
+  const snap = demoSnapshot();
+  desk.note(snap, {feedFresh: true, fictional: true});
+  desk.select('route:mac:demo-claude');
+  const runningEvents = byId(desk.monitors, 'route:mac:demo-claude').events.length;
+  const gone = demoSnapshot();
+  gone.pipeline.pipelines = gone.pipeline.pipelines.filter(row => row.runId !== 'demo-claude');
+  desk.note(gone, {feedFresh: true, fictional: true});
+  assert.equal(byId(desk.monitors, 'route:mac:demo-claude').word, 'DISCONNECTED');
+  desk.note(snap, {feedFresh: true, fictional: true});
+  const back = byId(desk.monitors, 'route:mac:demo-claude');
+  assert.equal(back.word, 'RUNNING');
+  assert.equal(back.retained, false);
+  assert.equal(back.events.length, runningEvents);
+  const ticks = desk.subscriptionTicks;
+  const pcEvents = byId(desk.monitors, 'job:demo-pc-job').events.length;
+  desk.select('machine:pc');
+  assert.equal(desk.subscriptionTicks, ticks);
+  assert.equal(byId(desk.monitors, 'route:mac:demo-claude').word, 'RUNNING');
+  assert.equal(byId(desk.monitors, 'job:demo-pc-job').events.length, pcEvents);
+  desk.note(snap, {feedFresh: true, fictional: true});
+  assert.equal(byId(desk.monitors, 'route:mac:demo-claude').events.length, runningEvents);
 });
 
 test('the demo fixture is labeled fictional and the painter does not inject markup', () => {

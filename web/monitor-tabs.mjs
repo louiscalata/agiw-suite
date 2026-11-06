@@ -132,15 +132,17 @@ export function analysisSlots(records, {runId = null, attemptId = null} = {}) {
   const list = Array.isArray(records) ? records : [];
   return ANALYSIS_PAIRS.map(([tool, phase]) => {
     const found = list.find(row => row && row.tool === tool && row.phase === phase
-      && (attemptId == null || row.attemptId == null || row.attemptId === attemptId));
+      && attemptId != null && row.attemptId != null && String(row.attemptId) === String(attemptId));
     if (!found || !ANALYSIS_STATES.has(found.state) || (found.state === 'passed' && !text(found.provenance, 240))) {
       return {
         tool, phase, state: 'unavailable', runId, attemptId, evidenced: Boolean(found), provenance: null,
-        detail: found && found.state === 'passed'
-          ? 'A passed analysis without provenance is not accepted.'
-          : found
-            ? 'Analysis record state was not pending, failed, skipped, unavailable, or passed.'
-            : 'No analysis record for this run, attempt, and phase.',
+        detail: attemptId == null
+          ? 'Attempt was not reported, so this record stays unattached.'
+          : found && found.state === 'passed'
+            ? 'A passed analysis without provenance is not accepted.'
+            : found
+              ? 'Analysis record state was not pending, failed, skipped, unavailable, blocked, recorded, or passed.'
+              : 'No analysis record for this run, attempt, and phase.',
       };
     }
     return {
@@ -487,7 +489,8 @@ function sessionMonitors(snapshot, options) {
     const models = modelPair(row);
     const attemptId = attemptToken(row);
     const machineLabel = row.host === 'mac' ? 'Mac' : row.host === 'windows' ? 'Windows PC' : 'Host not reported';
-    const workloadId = `route:${row.runId}`;
+    const hostKey = row.host === 'mac' || row.host === 'windows' ? row.host : 'unscoped';
+    const workloadId = `route:${hostKey}:${row.runId}`;
     sessions.push(monitor({
       id: workloadId,
       kind: 'session',

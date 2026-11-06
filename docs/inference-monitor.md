@@ -17,6 +17,10 @@ The overview at `/` and the map at `/monitor` share a view-only monitor tab stri
 
 Repository Nisi and Jev commands for this draft, including the retrospective base-ref run, are recorded in [jaryo-nisi-jev-analysis.json](data/jaryo-nisi-jev-analysis.json). The 2026-11-06 Mac and PC receipts are in [jaryo-jev-phase-receipts.json](data/jaryo-jev-phase-receipts.json). The later authorized pre/analysis/post record is in [jaryo-authorized-0329-receipts.json](data/jaryo-authorized-0329-receipts.json). None of these files are inference telemetry or acceptance passes. Exit 0, STATUS OK, COMPLETED, and PROCEED-WITH-CHANGES do not open the Jev gate. The PC post verdict ROLLBACK is an advisory on a task that made no repository edits; it is not an instruction to revert this draft.
 
+This checkout is the AGIW inference-monitor prototype using Jaryo as a candidate visual layer. The reusable five-way Jaryo design system is a separate project and is not implemented here. Graphite is a reversible candidate, not an approved palette. Choices in a future design guide must not be read as approval of this monitor.
+
+Run `python3 -B server.py --port 8765` from the repository root and open `http://127.0.0.1:8765/`. The same process serves `/monitor` and `/components`. `/?demo=1` is a labeled fictional tab sample; the map and vitals stay on the observer. A standalone launch cannot dispatch control POSTs. Live cross-machine acceptance is not established by these pages or by the fixture tests. A minimal reversible check on a real Mac is a loopback read of `GET /api/snapshot`, `GET /api/inference`, and `GET /api/components/jev` without `POST /api/components/jev/check`. On a real PC the existing observer default is port 8767 and `GET /api/health` plus `GET /api/snapshot`. Do not start a watcher or a hosted Jev call for that read.
+
 ## PC tunnel
 
 The PC lanes bind to 127.0.0.1. On the Mac, `python3 pc_tunnel.py` runs `ssh -N -L` when user, host and an identity file are configured. Set them in the environment or in `~/.config/agiw/pc-tunnel.json`:
