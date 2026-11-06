@@ -35,8 +35,9 @@ export function initTheme(select) {
 
 if (typeof document !== 'undefined' && typeof document.querySelector === 'function') {
   document.documentElement.dataset.tokenSource = 'black-white-system';
-  document.documentElement.dataset.provisionalMark = 'd1-stamp';
-  document.documentElement.dataset.logoSelection = 'pending';
+  document.documentElement.dataset.chromeMark = 'd4-split';
+  document.documentElement.dataset.selectedDirection = 'd4-split';
+  document.documentElement.dataset.artworkApproval = 'none';
   const themeSelect = document.querySelector('#jaryoTheme');
   if (themeSelect) initTheme(themeSelect);
 }

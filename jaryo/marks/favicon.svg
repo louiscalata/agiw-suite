@@ -1,9 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
-  <title id="title">AGIW provisional app mark</title>
-  <rect width="64" height="64" fill="#000000"/>
-  <rect x="3" y="3" width="58" height="58" fill="none" stroke="#ffffff" stroke-width="2"/>
-  <rect x="9" y="9" width="46" height="46" fill="none" stroke="#ffffff" stroke-width="1"/>
-  <path d="M16 46 L25 18 L34 46" fill="none" stroke="#ffffff" stroke-width="2"/>
-  <path d="M19.5 36 H30.5" fill="none" stroke="#ffffff" stroke-width="2"/>
-  <path d="M40 18 H54 V46 H40 V33 H49" fill="none" stroke="#ffffff" stroke-width="2"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-labelledby="title">
+  <title id="title">AGIW app mark</title>
+  <rect width="32" height="32" fill="#000000"/>
+  <rect x="2" y="6" width="12" height="20" fill="#ffffff" shape-rendering="crispEdges"/>
+  <path fill="#ffffff" fill-rule="evenodd" shape-rendering="crispEdges" d="M18 6h12v20H18zM20 8h8v16h-8z"/>
 </svg>

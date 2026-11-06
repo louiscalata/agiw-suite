@@ -39,7 +39,8 @@ body.jaryo-app:has(.j-page) {
   display: block;
   height: auto;
   min-height: 100%;
-  overflow: auto;
+  overflow-x: clip;
+  overflow-y: auto;
 }
 
 body.jaryo-app main {
@@ -487,8 +488,8 @@ body.jaryo-app .brand-monogram {
   text-shadow: none;
   color: transparent;
   font-size: 0;
-  -webkit-mask: url("/jaryo/marks/d1-stamp.svg") center / 72% 72% no-repeat;
-  mask: url("/jaryo/marks/d1-stamp.svg") center / 72% 72% no-repeat;
+  -webkit-mask: url("/jaryo/marks/d4-split.svg") center / 78% 78% no-repeat;
+  mask: url("/jaryo/marks/d4-split.svg") center / 78% 78% no-repeat;
 }
 
 .j-appmark {
@@ -497,8 +498,8 @@ body.jaryo-app .brand-monogram {
   flex: none;
   display: inline-block;
   background: var(--j-text);
-  -webkit-mask: url("/jaryo/marks/d1-stamp.svg") center / contain no-repeat;
-  mask: url("/jaryo/marks/d1-stamp.svg") center / contain no-repeat;
+  -webkit-mask: url("/jaryo/marks/d4-split.svg") center / contain no-repeat;
+  mask: url("/jaryo/marks/d4-split.svg") center / contain no-repeat;
 }
 
 .j-provisional {
@@ -575,6 +576,12 @@ body.jaryo-app .brand-monogram {
 .j-plate-narrow svg { width: 32px; height: 32px; }
 .j-plate-narrow .j-lockup { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 .j-lockup { font-weight: 650; letter-spacing: .14em; overflow-wrap: anywhere; }
+.j-id-selected { border-width: 2px; }
+.j-size-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; margin: 12px 0; }
+.j-size-cell { margin: 0; display: grid; gap: 6px; justify-items: center; }
+.j-size-cell figcaption { font-size: 12px; }
+.j-wordmark-host { max-width: 100%; overflow: hidden; }
+.j-wordmark-svg { width: min(100%, 420px); height: auto; display: block; }
 
 body.jaryo-app .j-page .logo {
   border-radius: 0;

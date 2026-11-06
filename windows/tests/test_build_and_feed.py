@@ -281,7 +281,9 @@ class InstallerOnWindows(unittest.TestCase):
             sources += [(REPO / "jaryo" / name, Path("jaryo") / name) for name in
                         ("tokens.json", "theme.mjs", "primitives.css", "README.md",
                          "marks/d1-stamp.svg", "marks/d2-ledger.svg", "marks/d3-schematic.svg",
-                         "marks/d4-split.svg", "marks/d5-signal.svg", "marks/favicon.svg")]
+                         "marks/d4-split.svg", "marks/d4-split-before.svg", "marks/d4-split-wordmark.svg",
+                         "marks/d4-split-on-dark.svg", "marks/d4-split-on-light.svg",
+                         "marks/d5-signal.svg", "marks/favicon.svg")]
             sources += [(REPO / name, Path(name)) for name in
                         ("usage-format.mjs", "client_models.py", "peer_link.py", "inference_stats.py",
                          "inference_collect.py", "LICENSE", "NOTICE")]

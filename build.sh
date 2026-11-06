@@ -28,7 +28,9 @@ resources=(
     web/identity.html web/identity.mjs
     jaryo/tokens.json jaryo/theme.mjs jaryo/primitives.css jaryo/README.md
     jaryo/marks/d1-stamp.svg jaryo/marks/d2-ledger.svg jaryo/marks/d3-schematic.svg
-    jaryo/marks/d4-split.svg jaryo/marks/d5-signal.svg jaryo/marks/favicon.svg
+    jaryo/marks/d4-split.svg jaryo/marks/d4-split-before.svg jaryo/marks/d4-split-wordmark.svg
+    jaryo/marks/d4-split-on-dark.svg jaryo/marks/d4-split-on-light.svg
+    jaryo/marks/d5-signal.svg jaryo/marks/favicon.svg
     bundle_nisi.py bundled_components.py jev_connection.py web/components.html web/components.js web/components.css
 )
 for resource in "${resources[@]}" Info.plist Monitor.swift JevKeychain.swift freeze_build_inputs.py; do

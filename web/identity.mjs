@@ -7,7 +7,7 @@ const DIRECTIONS = [
     id: 'd1',
     file: '/jaryo/marks/d1-stamp.svg',
     name: 'D1 Stamp',
-    note: 'Provisional candidate on the chrome. A square index with AG drawn as strokes. Not a selected identity.',
+    note: 'Historical comparison. A square index with AG drawn as strokes. Not the chrome mark.',
   },
   {
     id: 'd2',
@@ -25,7 +25,8 @@ const DIRECTIONS = [
     id: 'd4',
     file: '/jaryo/marks/d4-split.svg',
     name: 'D4 Split',
-    note: 'Two blocks, one filled and one open. Two machines, not a health color.',
+    note: 'Selected direction. One filled block and one open block, same outer size. Not final approved artwork, and not a live status.',
+    selected: true,
   },
   {
     id: 'd5',
@@ -66,8 +67,9 @@ async function mount() {
     const card = document.createElement('article');
     card.className = 'j-id-card';
     card.dataset.direction = direction.id;
+    if (direction.selected) card.classList.add('j-id-selected');
     const title = document.createElement('h2');
-    title.textContent = direction.name;
+    title.textContent = direction.selected ? `${direction.name} · selected direction` : direction.name;
     const note = document.createElement('p');
     note.textContent = direction.note;
     const row = document.createElement('div');
@@ -97,4 +99,55 @@ async function mount() {
   }
 }
 
+function sized(svg, px) {
+  const copy = svg.cloneNode(true);
+  copy.setAttribute('width', String(px));
+  copy.setAttribute('height', String(px));
+  copy.setAttribute('aria-hidden', 'true');
+  return copy;
+}
+
+async function study() {
+  const beforeHost = document.getElementById('d4BeforeAfter');
+  const sizeHost = document.getElementById('d4Sizes');
+  const wordHost = document.getElementById('d4Wordmark');
+  if (!beforeHost || !sizeHost || !wordHost) return;
+  const load = async (file) => {
+    const response = await fetch(file, {cache: 'no-store'});
+    if (!response.ok) return null;
+    return safeSvg(await response.text());
+  };
+  const before = await load('/jaryo/marks/d4-split-before.svg');
+  const after = await load('/jaryo/marks/d4-split.svg');
+  const word = await load('/jaryo/marks/d4-split-wordmark.svg');
+  const pair = (label, svg, px) => {
+    const cell = document.createElement('figure');
+    cell.className = 'j-size-cell';
+    const caption = document.createElement('figcaption');
+    caption.textContent = label;
+    if (svg) cell.append(sized(svg, px));
+    cell.append(caption);
+    return cell;
+  };
+  if (before) beforeHost.append(pair('Before · 32px', before, 32));
+  if (after) beforeHost.append(pair('Developed · 32px', after, 32));
+  for (const px of [16, 24, 32]) {
+    for (const kind of ['dark', 'light']) {
+      const cell = document.createElement('figure');
+      cell.className = `j-size-cell j-plate j-plate-${kind}`;
+      if (after) cell.append(sized(after, px));
+      const caption = document.createElement('figcaption');
+      caption.textContent = `${px}px · ${kind}`;
+      cell.append(caption);
+      sizeHost.append(cell);
+    }
+  }
+  if (word) {
+    word.setAttribute('aria-hidden', 'true');
+    word.classList.add('j-wordmark-svg');
+    wordHost.append(word);
+  }
+}
+
 mount();
+study();

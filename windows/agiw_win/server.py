@@ -64,6 +64,10 @@ JARYO_FILES = {
     "/jaryo/marks/d2-ledger.svg": ("marks/d2-ledger.svg", "image/svg+xml"),
     "/jaryo/marks/d3-schematic.svg": ("marks/d3-schematic.svg", "image/svg+xml"),
     "/jaryo/marks/d4-split.svg": ("marks/d4-split.svg", "image/svg+xml"),
+    "/jaryo/marks/d4-split-before.svg": ("marks/d4-split-before.svg", "image/svg+xml"),
+    "/jaryo/marks/d4-split-wordmark.svg": ("marks/d4-split-wordmark.svg", "image/svg+xml"),
+    "/jaryo/marks/d4-split-on-dark.svg": ("marks/d4-split-on-dark.svg", "image/svg+xml"),
+    "/jaryo/marks/d4-split-on-light.svg": ("marks/d4-split-on-light.svg", "image/svg+xml"),
     "/jaryo/marks/d5-signal.svg": ("marks/d5-signal.svg", "image/svg+xml"),
     "/jaryo/marks/favicon.svg": ("marks/favicon.svg", "image/svg+xml"),
 }
