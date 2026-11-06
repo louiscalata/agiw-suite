@@ -2,7 +2,7 @@
  * Paints the monitor tab strip and the selected monitor's board.
  * View only: callers must not wire these controls to pause, repair, or model posts.
  */
-import {demoSnapshot, DEMO_BANNER} from '/monitor-tabs.mjs';
+import {demoSnapshot, DEMO_BANNER, nextTabFocus} from '/monitor-tabs.mjs';
 
 function el(tag, className, text) {
   const node = document.createElement(tag);
@@ -20,11 +20,15 @@ function statusClass(status) {
 
 function appendIdentity(parent, monitor) {
   const grid = el('dl', 'j-identity');
+  const workload = monitor.workload;
   const rows = [
+    ['Workload', workload?.id || monitor.id],
     ['Machine', monitor.identity.machineLabel],
     ['Provider', monitor.identity.providerLabel],
-    ['Model', monitor.identity.model || 'Not reported'],
-    ['Session', monitor.identity.session || 'None in this sample'],
+    ['Requested model', workload?.requestedModel || 'Not reported'],
+    ['Served model', workload?.servedModel || 'Not reported'],
+    ['Run', workload?.runId || monitor.identity.session || 'None in this sample'],
+    ['Attempt', workload?.attemptId || 'Not reported'],
   ];
   for (const [name, value] of rows) {
     grid.append(el('dt', null, name), el('dd', null, value));
@@ -119,8 +123,28 @@ function paintBoard(board, monitor, desk) {
     });
   }
   board.append(list);
+  const analysis = el('section', 'j-analysis');
+  analysis.append(el('p', 'j-eyebrow', 'NISI AND JEV ANALYSIS'));
+  analysis.append(el('p', 'j-note', 'Analysis state is not run success. A passed check does not make this workload OK, and a missing record stays unavailable.'));
+  const analysisList = el('ul', 'j-steps');
+  for (const slot of monitor.analyses || []) {
+    const row = el('li', `j-step ${statusClass(slot.state === 'passed' ? 'ok' : slot.state === 'failed' ? 'blocked' : slot.state === 'pending' ? 'unknown' : slot.state === 'skipped' ? 'idle' : slot.state)}`);
+    row.append(el('p', 'j-step-hit', `${slot.tool} ${slot.phase}`));
+    row.append(el('p', 'j-word', slot.state.toUpperCase()));
+    row.append(el('p', 'j-step-reason', `${slot.detail} Run ${slot.runId || 'not reported'} · attempt ${slot.attemptId || 'not reported'}.`));
+    analysisList.append(row);
+  }
+  if (!(monitor.analyses || []).length) analysis.append(el('p', 'j-unavailable j-callout', '○ UNAVAILABLE · this monitor has no run or attempt to attach'));
+  analysis.append(analysisList);
+  board.append(analysis);
   appendMetrics(board, monitor.metrics);
-  board.append(el('p', 'j-footnote', 'Switching monitors only changes this view. It does not pause, cancel, or restart inference.'));
+  if (monitor.retained && monitor.kind === 'session') {
+    const dismiss = el('button', 'j-open', 'Dismiss retained session');
+    dismiss.type = 'button';
+    dismiss.dataset.dismissMonitor = monitor.id;
+    board.append(dismiss);
+  }
+  board.append(el('p', 'j-footnote', 'Switching monitors only changes this view. It does not pause, cancel, restart, or starve inference.'));
   if (focusFilter) {
     const next = board.querySelector('#monitorFilter');
     next?.focus();
@@ -143,7 +167,9 @@ function paintTabs(host, monitors, active) {
     button.append(el('span', 'j-glyph', tab.glyph), el('span', 'j-tab-label', tab.title), el('span', 'j-word', tab.word));
     host.append(button);
   }
-  if (focused) [...host.querySelectorAll('[role="tab"]')].find(tab => tab.dataset.monitor === focused)?.focus();
+  const ids = monitors.map(tab => tab.id);
+  const focusId = nextTabFocus(focused, ids, active);
+  if (focusId) [...host.querySelectorAll('[role="tab"]')].find(tab => tab.dataset.monitor === focusId)?.focus();
   else {
     const selected = [...host.querySelectorAll('[role="tab"]')].find(tab => tab.getAttribute('aria-selected') === 'true');
     if (selected?.scrollIntoView) {
@@ -164,7 +190,7 @@ export function paintMonitorChrome({host, board, desk, snapshot, feedFresh, paus
   const applied = preferredId ? desk.select(preferredId) === true : false;
   const active = monitors.find(item => item.id === desk.active) || monitors[0];
   host.dataset.fictional = demo ? '1' : '0';
-  const signature = JSON.stringify([demo, paused, active?.id, monitors.map(item => [item.id, item.word, item.reason, item.pipeline?.incomplete, item.pipeline?.steps?.length]), desk.view(active.id)]);
+  const signature = JSON.stringify([demo, paused, active?.id, monitors.map(item => [item.id, item.word, item.title, item.retained === true, (item.analyses || []).map(slot => `${slot.tool}:${slot.phase}:${slot.state}`).join(','), item.pipeline?.incomplete, item.pipeline?.steps?.length, item.workload?.servedModel || '', item.workload?.requestedModel || '']), desk.view(active.id)]);
   if (host.dataset.signature === signature && board.dataset.signature === signature) return applied;
   host.dataset.signature = signature;
   board.dataset.signature = signature;

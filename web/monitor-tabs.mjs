@@ -21,12 +21,12 @@ const STATUS = {
   down: {status: 'down', glyph: '×', word: 'DOWN'},
   stopped: {status: 'down', glyph: '×', word: 'STOPPED'},
   blocked: {status: 'blocked', glyph: '×', word: 'BLOCKED'},
-  stale: {status: 'stale', glyph: '?', word: 'STALE'},
+  stale: {status: 'stale', glyph: '~', word: 'STALE'},
   unknown: {status: 'unknown', glyph: '?', word: 'UNKNOWN'},
   pending: {status: 'unknown', glyph: '–', word: 'PENDING'},
   recorded: {status: 'idle', glyph: '–', word: 'RECORDED'},
   unavailable: {status: 'unavailable', glyph: '○', word: 'UNAVAILABLE'},
-  disconnected: {status: 'disconnected', glyph: '○', word: 'DISCONNECTED'},
+  disconnected: {status: 'disconnected', glyph: '⊘', word: 'DISCONNECTED'},
   partial: {status: 'unavailable', glyph: '○', word: 'PARTIAL'},
 };
 
@@ -98,10 +98,61 @@ function monitor(fields) {
     word: face.word,
     reason: face.reason,
     fictional: fields.fictional === true,
+    retained: fields.retained === true,
     identity: fields.identity,
+    workload: fields.workload || null,
+    analyses: fields.analyses || [],
+    events: fields.events || [],
     pipeline: fields.pipeline,
     metrics: fields.metrics || [],
   };
+}
+
+const ANALYSIS_STATES = new Set(['pending', 'failed', 'skipped', 'unavailable', 'passed']);
+const ANALYSIS_PAIRS = [['nisi', 'pre'], ['jev', 'pre'], ['nisi', 'post'], ['jev', 'post']];
+
+function attemptToken(row) {
+  const value = row?.attemptId ?? row?.attempt;
+  if (typeof value === 'number' && Number.isInteger(value) && value >= 0 && value < 1000000) return String(value);
+  if (typeof value === 'string' && /^[A-Za-z0-9_.:-]{1,40}$/.test(value)) return value;
+  return null;
+}
+
+function modelPair(row) {
+  const requested = text(row?.requestedModel, 200) || text(row?.expectedModel, 200) || text(row?.model, 200);
+  const served = text(row?.servedModel, 200);
+  return {requestedModel: requested, servedModel: served};
+}
+
+function sessionTitle(machineLabel, model, role, runId) {
+  return `${machineLabel} · ${model || 'model not reported'} · ${role} · ${String(runId).slice(-6)}`;
+}
+
+export function analysisSlots(records, {runId = null, attemptId = null} = {}) {
+  const list = Array.isArray(records) ? records : [];
+  return ANALYSIS_PAIRS.map(([tool, phase]) => {
+    const found = list.find(row => row && row.tool === tool && row.phase === phase
+      && (attemptId == null || row.attemptId == null || row.attemptId === attemptId));
+    if (!found || !ANALYSIS_STATES.has(found.state)) {
+      return {
+        tool, phase, state: 'unavailable', runId, attemptId,
+        detail: found
+          ? 'Analysis record state was not pending, failed, skipped, unavailable, or passed.'
+          : 'No analysis record for this run, attempt, and phase.',
+      };
+    }
+    return {
+      tool, phase, state: found.state,
+      runId: found.runId ?? runId,
+      attemptId: found.attemptId ?? attemptId,
+      detail: text(found.detail, 240) || found.state,
+    };
+  });
+}
+
+function snapshotAnalyses(snapshot, workloadId) {
+  if (!Array.isArray(snapshot?.analyses)) return [];
+  return snapshot.analyses.filter(row => row && row.workloadId === workloadId);
 }
 
 function routeRows(snapshot) {
@@ -424,20 +475,26 @@ function sessionMonitors(snapshot, options) {
     const active = row.live === true || row.status === 'running' || row.status === 'waiting' || row.status === 'admitting' || row.recoveryRequired === true;
     if (!active) continue;
     const who = text(row.client) || 'Route';
+    const models = modelPair(row);
+    const attemptId = attemptToken(row);
+    const machineLabel = row.host === 'mac' ? 'Mac' : row.host === 'windows' ? 'Windows PC' : 'Host not reported';
+    const workloadId = `route:${row.runId}`;
     sessions.push(monitor({
-      id: `route:${row.runId}`,
+      id: workloadId,
       kind: 'session',
       sessionKind: 'route',
-      title: `${who} · ${row.runId}`,
+      title: sessionTitle(machineLabel, models.requestedModel, who, row.runId),
       eyebrow: 'SESSION',
       face,
       fictional: options.fictional,
+      workload: {id: workloadId, runId: row.runId, attemptId, ...models, retained: false},
+      analyses: analysisSlots(snapshotAnalyses(snapshot, workloadId), {runId: row.runId, attemptId}),
       identity: identity({
         machine: row.host === 'mac' || row.host === 'windows' ? row.host : null,
-        machineLabel: row.host === 'mac' ? 'Mac' : row.host === 'windows' ? 'Windows PC' : 'Host not reported',
+        machineLabel,
         provider: text(row.client),
         providerLabel: text(row.client) || 'Client not reported',
-        model: null,
+        model: models.requestedModel,
         session: row.runId,
       }),
       pipeline: {
@@ -457,20 +514,26 @@ function sessionMonitors(snapshot, options) {
   const claimable = jobsClaimable(snapshot.windowsJobs, options);
   for (const row of jobRows(snapshot)) {
     const face = cap(claimable ? presentation('live', 'In-flight PC job.') : presentation('unknown', 'In-flight row present. Liveness was not claimable.'), options);
+    const models = modelPair(row);
+    const attemptId = attemptToken(row);
+    const workloadId = `job:${row.id}`;
+    const lane = row.lane === 'fast' || row.lane === 'deep' ? row.lane : 'lane not reported';
     sessions.push(monitor({
-      id: `job:${row.id}`,
+      id: workloadId,
       kind: 'session',
       sessionKind: 'job',
-      title: `${text(row.client) || 'PC job'} · ${row.lane === 'fast' || row.lane === 'deep' ? row.lane : 'lane ?'}`,
+      title: sessionTitle('Windows PC', models.requestedModel, lane, row.id),
       eyebrow: 'SESSION',
       face,
       fictional: options.fictional,
+      workload: {id: workloadId, runId: row.id, attemptId, ...models, retained: false},
+      analyses: analysisSlots(snapshotAnalyses(snapshot, workloadId), {runId: row.id, attemptId}),
       identity: identity({
         machine: 'windows',
         machineLabel: 'Windows PC',
         provider: text(row.client),
         providerLabel: text(row.client) || 'Client not reported',
-        model: text(row.model),
+        model: models.requestedModel,
         session: row.id,
       }),
       pipeline: {
@@ -542,7 +605,9 @@ function overview(children, snapshot, options) {
     },
     metrics: [
       metric('Monitors', children.length),
-      metric('Running', options.feedFresh === true && options.paused !== true ? running : null),
+      metric('Running', options.feedFresh === true && options.paused !== true
+        ? (list.incomplete ? `at least ${running}` : running)
+        : options.fictional === true ? (list.incomplete ? `at least ${running}` : running) : null),
       metric('Route list', snapshot ? (list.incomplete ? 'incomplete' : 'present') : null),
     ],
   });
@@ -566,10 +631,51 @@ export function deriveMonitors(snapshot, options = {}) {
   return [overview(children, snapshot, options), ...children];
 }
 
+function observationKey(monitor) {
+  return [monitor.word, monitor.workload?.attemptId ?? '', monitor.workload?.requestedModel ?? '',
+    monitor.workload?.servedModel ?? '', monitor.reason ?? ''].join('\n');
+}
+
+function mergeAnalyses(previous, fresh) {
+  return fresh.map(slot => {
+    if (slot.state !== 'unavailable') return slot;
+    const kept = (previous || []).find(item => item.tool === slot.tool && item.phase === slot.phase);
+    return kept && kept.state !== 'unavailable' ? kept : slot;
+  });
+}
+
+function mergeSession(previous, fresh) {
+  if (!previous || fresh.kind !== 'session') {
+    const key = observationKey(fresh);
+    return {...fresh, observationKey: key, events: [{seq: 1, attemptId: fresh.workload?.attemptId ?? null, word: fresh.word, key}]};
+  }
+  const previousAttempt = previous.workload?.attemptId ?? null;
+  const nextAttempt = fresh.workload?.attemptId ?? null;
+  const sameAttempt = previousAttempt === nextAttempt;
+  const key = observationKey(fresh);
+  let events = sameAttempt ? (previous.events || []).slice() : [];
+  if (!sameAttempt || previous.observationKey !== key) {
+    events = [...events, {seq: events.length + 1, attemptId: nextAttempt, word: fresh.word, key}];
+  }
+  const analyses = sameAttempt ? mergeAnalyses(previous.analyses, fresh.analyses) : fresh.analyses;
+  return {...fresh, events, analyses, observationKey: key, retained: false};
+}
+
+function retainSession(previous) {
+  const keepEvidenced = previous.status === 'blocked' || previous.status === 'down';
+  const face = keepEvidenced
+    ? {status: previous.status, glyph: previous.glyph, word: previous.word,
+      reason: 'No longer in the latest sample. Retained until dismissed. Last evidenced state kept.'}
+    : presentation('disconnected', 'No longer in the latest sample. Retained until dismissed.');
+  return {...previous, ...face, retained: true, workload: previous.workload ? {...previous.workload, retained: true} : null};
+}
+
 export function createMonitorDesk() {
   let active = 'all';
   let monitors = [];
+  let ticks = 0;
   const views = new Map();
+  const suppressed = new Set();
   const empty = () => ({
     listView: 'runtime',
     modelScope: 'core',
@@ -582,6 +688,7 @@ export function createMonitorDesk() {
   return {
     get active() { return active; },
     get monitors() { return monitors; },
+    get subscriptionTicks() { return ticks; },
     view(id) { return viewFor(id); },
     patch(id, partial) {
       if (typeof id !== 'string' || !partial || typeof partial !== 'object') return;
@@ -593,13 +700,68 @@ export function createMonitorDesk() {
       if (!views.has(id)) views.set(id, empty());
       return true;
     },
+    dismiss(id) {
+      const item = monitors.find(monitor => monitor.id === id);
+      if (!item || item.kind !== 'session') return false;
+      suppressed.add(id);
+      monitors = monitors.filter(monitor => monitor.id !== id);
+      if (active === id) active = 'all';
+      return true;
+    },
+    attachAnalysis(workloadId, record) {
+      const item = monitors.find(monitor => monitor.id === workloadId && monitor.kind === 'session');
+      if (!item || !record || !ANALYSIS_STATES.has(record.state)) return false;
+      if (record.tool !== 'nisi' && record.tool !== 'jev') return false;
+      if (record.phase !== 'pre' && record.phase !== 'post') return false;
+      const attemptId = item.workload?.attemptId ?? null;
+      if (record.attemptId != null && record.attemptId !== attemptId) return false;
+      const slot = {
+        tool: record.tool, phase: record.phase, state: record.state,
+        runId: item.workload?.runId ?? null, attemptId,
+        detail: text(record.detail, 240) || record.state,
+      };
+      item.analyses = analysisSlots([...(item.analyses || []).filter(existing => existing.state !== 'unavailable'), slot], {
+        runId: slot.runId, attemptId,
+      });
+      return item.word;
+    },
     note(snapshot, options) {
-      monitors = deriveMonitors(snapshot, options);
+      ticks += 1;
+      const fresh = deriveMonitors(snapshot, options);
+      const freshIds = new Set(fresh.map(item => item.id));
+      for (const id of [...suppressed]) if (!freshIds.has(id)) suppressed.delete(id);
+      const previousById = new Map(monitors.map(item => [item.id, item]));
+      const visible = fresh
+        .filter(item => !(item.kind === 'session' && suppressed.has(item.id)))
+        .map(item => mergeSession(previousById.get(item.id), item));
+      const visibleIds = new Set(visible.map(item => item.id));
+      const retained = [];
+      for (const previous of monitors) {
+        if (previous.kind !== 'session' || visibleIds.has(previous.id) || suppressed.has(previous.id)) continue;
+        retained.push(retainSession(previous));
+      }
+      const overviewItem = visible.find(item => item.id === 'all');
+      const rest = visible.filter(item => item.id !== 'all');
+      if (overviewItem && retained.length) {
+        overviewItem.pipeline = {
+          ...overviewItem.pipeline,
+          note: `${overviewItem.pipeline.note} ${retained.length} session${retained.length === 1 ? '' : 's'} retained after leaving the sample.`,
+          steps: [...overviewItem.pipeline.steps, ...retained.map(item => step(item.id, item.title, item.status === 'disconnected' ? 'disconnected' : item.status === 'blocked' ? 'blocked' : item.status === 'down' ? 'down' : 'unknown', item.reason, 'RETAINED'))],
+        };
+      }
+      monitors = [...visible, ...retained];
       if (!monitors.some(item => item.id === active)) active = 'all';
       for (const item of monitors) if (!views.has(item.id)) views.set(item.id, empty());
       return monitors;
     },
   };
+}
+
+export function nextTabFocus(previousFocusId, ids, active) {
+  if (!Array.isArray(ids) || !ids.length) return null;
+  if (previousFocusId && ids.includes(previousFocusId)) return previousFocusId;
+  if (previousFocusId) return ids.includes(active) ? active : ids[0];
+  return null;
 }
 
 export function moveMonitorTab(ids, active, key) {
@@ -732,7 +894,7 @@ export function demoSnapshot() {
     windowsJobs: {
       liveAvailable: true,
       complete: true,
-      inFlight: [{id: 'demo-pc-job', client: null, lane: 'fast', model: 'example-20b', ageSeconds: 3}],
+      inFlight: [{id: 'demo-pc-job', client: null, lane: 'fast', model: 'example-20b', requestedModel: 'example-20b', servedModel: 'example-20b-served', ageSeconds: 3}],
       recent: [],
     },
   };

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {
   DEMO_BANNER, createMonitorDesk, demoSnapshot, deriveMonitors, healthPresentation,
-  initialMonitorId, mapMonitors, moveMonitorTab, nodeInMonitor,
+  initialMonitorId, mapMonitors, moveMonitorTab, nextTabFocus, nodeInMonitor,
 } from './web/monitor-tabs.mjs';
 
 const read = name => readFileSync(new URL(name, import.meta.url), 'utf8');
@@ -105,7 +105,7 @@ test('switching monitors keeps each view and does not fetch or touch lifecycle',
   }
 });
 
-test('a session that leaves the sample is not kept as running', () => {
+test('a session that leaves the sample is retained disconnected and not called running', () => {
   const desk = createMonitorDesk();
   desk.note(demoSnapshot(), {feedFresh: true, fictional: true});
   assert.equal(desk.select('route:demo-claude'), true);
@@ -113,9 +113,16 @@ test('a session that leaves the sample is not kept as running', () => {
   const gone = demoSnapshot();
   gone.pipeline.pipelines = gone.pipeline.pipelines.filter(row => row.runId !== 'demo-claude');
   desk.note(gone, {feedFresh: true, fictional: true});
+  const kept = byId(desk.monitors, 'route:demo-claude');
+  assert.equal(desk.active, 'route:demo-claude');
+  assert.equal(kept.word, 'DISCONNECTED');
+  assert.equal(kept.retained, true);
+  assert.notEqual(kept.word, 'STALE');
+  assert.notEqual(kept.word, 'UNKNOWN');
+  assert.equal(desk.view('route:demo-claude').boardQuery, 'kept');
+  assert.equal(desk.dismiss('route:demo-claude'), true);
   assert.equal(desk.active, 'all');
   assert.equal(desk.monitors.some(item => item.id === 'route:demo-claude'), false);
-  assert.equal(desk.view('route:demo-claude').boardQuery, 'kept');
   assert.notEqual(byId(desk.monitors, 'client:claude').word, 'RUNNING');
 });
 
@@ -155,6 +162,85 @@ test('graph dimming matches the selected monitor and leaves All alone', () => {
   assert.equal(nodeInMonitor(byId(monitors, 'machine:pc'), {id: 'runtime', kind: 'model', model: {host: 'mac'}}), false);
 });
 
+test('workload ids stay put when the displayed model changes', () => {
+  const desk = createMonitorDesk();
+  desk.note(demoSnapshot(), {feedFresh: true, fictional: true});
+  const before = byId(desk.monitors, 'job:demo-pc-job');
+  assert.equal(before.workload.id, 'job:demo-pc-job');
+  assert.equal(before.workload.requestedModel, 'example-20b');
+  assert.equal(before.workload.servedModel, 'example-20b-served');
+  assert.notEqual(before.workload.requestedModel, before.workload.servedModel);
+  const renamed = demoSnapshot();
+  renamed.windowsJobs.inFlight[0].requestedModel = 'example-20b-renamed';
+  renamed.windowsJobs.inFlight[0].model = 'example-20b-renamed';
+  desk.note(renamed, {feedFresh: true, fictional: true});
+  const after = byId(desk.monitors, 'job:demo-pc-job');
+  assert.equal(after.workload.id, before.workload.id);
+  assert.notEqual(after.title, before.title);
+  assert.match(after.title, /example-20b-renamed/);
+});
+
+test('an unselected tab keeps updating and a switch does not tick the subscription', () => {
+  const desk = createMonitorDesk();
+  desk.note(demoSnapshot(), {feedFresh: true, fictional: true});
+  assert.equal(desk.select('client:claude'), true);
+  const ticks = desk.subscriptionTicks;
+  desk.select('machine:pc');
+  assert.equal(desk.subscriptionTicks, ticks);
+  const next = demoSnapshot();
+  next.windowsJobs.inFlight[0].ageSeconds = 11;
+  next.pipeline.pipelines.find(row => row.runId === 'demo-claude').ageSeconds = 9;
+  desk.note(next, {feedFresh: true, fictional: true});
+  assert.equal(desk.active, 'machine:pc');
+  assert.equal(desk.subscriptionTicks, ticks + 1);
+  assert.equal(byId(desk.monitors, 'client:claude').word, 'RUNNING');
+  assert.equal(byId(desk.monitors, 'job:demo-pc-job').metrics.find(item => item.label === 'Age seconds').value, '11');
+  assert.equal(desk.view('client:claude').boardQuery, '');
+});
+
+test('reconnect does not double-count and a new attempt drops prior events and analysis', () => {
+  const desk = createMonitorDesk();
+  const snap = demoSnapshot();
+  snap.pipeline.pipelines.find(row => row.runId === 'demo-claude').attemptId = '1';
+  desk.note(snap, {feedFresh: true, fictional: true});
+  const first = byId(desk.monitors, 'route:demo-claude');
+  assert.equal(first.events.length, 1);
+  assert.equal(desk.attachAnalysis('route:demo-claude', {tool: 'nisi', phase: 'pre', state: 'passed', attemptId: '1', detail: 'baseline recorded'}), 'RUNNING');
+  assert.equal(byId(desk.monitors, 'route:demo-claude').word, 'RUNNING');
+  assert.equal(byId(desk.monitors, 'route:demo-claude').analyses.find(item => item.tool === 'nisi' && item.phase === 'pre').state, 'passed');
+  assert.equal(byId(desk.monitors, 'route:demo-claude').analyses.find(item => item.tool === 'jev' && item.phase === 'post').state, 'unavailable');
+  desk.note(snap, {feedFresh: true, fictional: true});
+  assert.equal(byId(desk.monitors, 'route:demo-claude').events.length, 1);
+  assert.equal(desk.attachAnalysis('route:demo-claude', {tool: 'jev', phase: 'post', state: 'passed', attemptId: '2'}), false);
+  const retry = demoSnapshot();
+  retry.pipeline.pipelines.find(row => row.runId === 'demo-claude').attemptId = '2';
+  desk.note(retry, {feedFresh: true, fictional: true});
+  const second = byId(desk.monitors, 'route:demo-claude');
+  assert.equal(second.workload.attemptId, '2');
+  assert.equal(second.events.length, 1);
+  assert.equal(second.events[0].attemptId, '2');
+  assert.equal(second.analyses.find(item => item.tool === 'nisi' && item.phase === 'pre').state, 'unavailable');
+  assert.equal(second.word, 'RUNNING');
+});
+
+test('unknown, stale, and disconnected stay different words', () => {
+  assert.equal(healthPresentation({health: 'not_measured'}).word, 'UNKNOWN');
+  assert.equal(healthPresentation({health: 'not_measured', reason: 'stale'}).word, 'STALE');
+  assert.equal(healthPresentation({health: 'not_measured', reason: 'tunnel_down'}).word, 'DISCONNECTED');
+  assert.notEqual(healthPresentation({health: 'not_measured'}).glyph, healthPresentation({health: 'not_measured', reason: 'stale'}).glyph);
+  const incomplete = demoSnapshot();
+  incomplete.pipeline.pipelinesComplete = false;
+  const running = byId(deriveMonitors(incomplete, {feedFresh: true, fictional: true}), 'all').metrics.find(item => item.label === 'Running');
+  assert.match(running.value, /^at least /);
+});
+
+test('inserting a tab does not steal focus; removing the focused tab moves to the active tab', () => {
+  const ids = ['all', 'machine:mac', 'client:claude'];
+  assert.equal(nextTabFocus('client:claude', [...ids, 'job:new'], 'client:claude'), 'client:claude');
+  assert.equal(nextTabFocus(null, [...ids, 'job:new'], 'all'), null);
+  assert.equal(nextTabFocus('route:gone', ids, 'all'), 'all');
+});
+
 test('the demo fixture is labeled fictional and the painter does not inject markup', () => {
   const demo = demoSnapshot();
   assert.equal(demo.fictional, true);
@@ -162,7 +248,7 @@ test('the demo fixture is labeled fictional and the painter does not inject mark
   assert.match(DEMO_BANNER, /fictional/i);
   const board = read('./web/monitor-board.mjs');
   assert.equal(board.includes('innerHTML'), false);
-  assert.match(board, /does not pause, cancel, or restart inference/);
+  assert.match(board, /does not pause, cancel, restart, or starve inference/);
   const css = read('./web/jaryo.css');
   assert.match(css, /outline: 3px dashed var\(--j-focus\)/);
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)/);
