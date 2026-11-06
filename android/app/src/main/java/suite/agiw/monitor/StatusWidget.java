@@ -47,6 +47,10 @@ public final class StatusWidget extends AppWidgetProvider {
         views.setTextViewText(R.id.widgetConnect, "CONNECT  " + board.connect);
         views.setTextViewText(R.id.widgetDetail, board.detail);
         views.setTextViewText(R.id.widgetAcceptance, board.acceptance);
+        views.setContentDescription(R.id.widgetProcess, board.process);
+        views.setContentDescription(R.id.widgetConnect, "Connection " + board.connect);
+        views.setContentDescription(R.id.widgetDetail, board.detail.isEmpty() ? "No detail" : board.detail);
+        views.setContentDescription(R.id.widgetAcceptance, board.acceptance);
         Intent open = new Intent(context, MonitorActivity.class);
         PendingIntent pending = PendingIntent.getActivity(context, 0, open,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);

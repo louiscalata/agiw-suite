@@ -29,6 +29,15 @@ public final class ClientTest {
         ObserverClient client = new ObserverClient();
         ObserverClient.Result clear = client.getSnapshot(URI.create("http://127.0.0.1:9/api/snapshot"), 500);
         check(!clear.ok() && clear.detail().equals("Cleartext is not used"), "cleartext");
+        ObserverClient.Result upper = client.getSnapshot(URI.create("HTTP://127.0.0.1:9/api/snapshot"), 500);
+        check(!upper.ok() && upper.detail().equals("Cleartext is not used"), "uppercase cleartext");
+        ObserverClient.Result file = client.getSnapshot(URI.create("file:///etc/passwd"), 500);
+        check(!file.ok() && file.detail().equals("Cleartext is not used"), "file uri");
+        ObserverClient.Result opaque = client.getSnapshot(URI.create("https:example.com"), 500);
+        check(!opaque.ok() && opaque.detail().equals("Address has no host"), "https without a host");
+        ObserverClient.Result secret = client.getSnapshot(URI.create("https://user:secret@127.0.0.1/api/snapshot"), 500);
+        check(!secret.ok() && secret.detail().equals("Address has credentials"), "typed credentials");
+        check(!secret.detail().contains("secret"), "refusal does not echo the secret");
 
         Fixture fixture = Fixture.start();
         try {
@@ -97,6 +106,11 @@ public final class ClientTest {
                     + "\",\"pipeline\":{\"status\":\"idle\"}}";
             Board partialFetch = Board.read(trusted.getSnapshot(fixture.base, 2000).body(), Instant.now());
             check(partialFetch.process.equals("UNKNOWN"), "partial fetch " + partialFetch.process);
+
+            fixture.mode = "redirect";
+            ObserverClient.Result redirect = trusted.getSnapshot(fixture.base, 2000);
+            check(!redirect.ok() && redirect.status() == 302, "redirect is not followed " + redirect.detail());
+            check(!redirect.detail().contains("http://"), "redirect target is not fetched");
 
             fixture.mode = "drop";
             ObserverClient.Result dropped = trusted.getSnapshot(fixture.base, 1500);
@@ -193,6 +207,12 @@ public final class ClientTest {
             server.setHttpsConfigurator(new HttpsConfigurator(serverContext));
             server.createContext("/api/snapshot", exchange -> {
                 if ("drop".equals(fixture.mode)) {
+                    exchange.close();
+                    return;
+                }
+                if ("redirect".equals(fixture.mode)) {
+                    exchange.getResponseHeaders().set("Location", "http://127.0.0.1/api/snapshot");
+                    exchange.sendResponseHeaders(302, -1);
                     exchange.close();
                     return;
                 }

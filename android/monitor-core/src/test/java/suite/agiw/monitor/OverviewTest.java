@@ -46,13 +46,28 @@ public final class OverviewTest {
         Board down = SampleStore.present(sample, 90_000L);
         check(down.connect.equals("DISCONNECTED"), "stored disconnect");
         check(down.process.equals("UNKNOWN"), "stored disconnect is not idle");
+        check(SampleStore.present(Board.stored("IDLE", "NOT MEASURED", "NO RUN", "not reported", "", "NONE", "not reported"), 1_000L, 90_000L).process.equals("UNKNOWN"), "closed idle is not idle");
+        check(SampleStore.present(Board.stored("RUNNING", "INVENTORY", "NO RUN", "not reported", "", "DISCONNECTED", "not reported"), 1_000L, 1_000L).process.equals("UNKNOWN"), "disconnect is not running");
+        check(SampleStore.present(Board.stored("IDLE", "NOT MEASURED", "NO RUN", "not reported", "", "REFUSED", "not reported"), 1_000L, 1_000L).process.equals("UNKNOWN"), "refused is not idle");
+        Board ahead = SampleStore.present(idle, 50_000L, 1_000L);
+        check(ahead.process.equals("STALE"), "future sample is not idle");
+        check(!ahead.process.equals("IDLE"), "future sample word");
+        SampleStore.write(sample, idle, 1_000L);
+        String partial = Files.readString(sample).lines().filter(line -> !line.startsWith("connect=")).reduce("", (left, right) -> left + right + "\n");
+        Files.writeString(sample, partial);
+        Board missingConnect = SampleStore.present(sample, 1_000L);
+        check(missingConnect.connect.equals("NONE"), "missing connect");
+        check(missingConnect.process.equals("UNKNOWN"), "missing connect is not idle");
         Files.deleteIfExists(sample);
         check(!Surface.motion(0f), "reduced motion");
         check(Surface.motion(1f), "motion allowed");
-        System.out.println("android monitor-core: 38 checks passed");
+        System.out.println("android monitor-core: " + checks + " checks passed");
     }
 
+    private static int checks;
+
     private static void check(boolean value, String name) {
+        checks++;
         if (!value) throw new AssertionError(name);
     }
 }

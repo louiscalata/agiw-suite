@@ -85,6 +85,24 @@ if illegal:
     raise SystemExit("widget_status uses views RemoteViews cannot host: " + ", ".join(illegal))
 if "View" in tags:
     raise SystemExit("widget_status includes android.view.View")
+rule = next(node for node in widget_layout.iter() if node.attrib.get("{http://schemas.android.com/apk/res/android}id") == "@+id/widgetRule")
+if rule.attrib.get("{http://schemas.android.com/apk/res/android}importantForAccessibility") != "no":
+    raise SystemExit("decorative widget rule is an accessibility target")
+for needle in ("setContentDescription(R.id.widgetProcess", "setContentDescription(R.id.widgetConnect",
+               "setContentDescription(R.id.widgetDetail", "setContentDescription(R.id.widgetAcceptance",
+               "FLAG_IMMUTABLE", "MonitorActivity.class"):
+    if needle not in widget:
+        raise SystemExit("status widget missing " + needle)
+if "FLAG_MUTABLE" in widget or "launchDisplayId" in widget:
+    raise SystemExit("status widget opens a mutable or cover-display intent")
+if "getData(" in activity_text or "getStringExtra(" in activity_text:
+    raise SystemExit("activity reads an intent address")
+if 'cleartextTrafficPermitted="false"' not in (main / "res/xml/network_security_config.xml").read_text():
+    raise SystemExit("cleartext is permitted")
+if manifest_text.count('android:exported="true"') != 2:
+    raise SystemExit("unexpected exported component")
+if "APPWIDGET_UPDATE" not in manifest_text:
+    raise SystemExit("widget has no update action")
 print("android layouts: ids and clipping checked")
-print("status widget: RemoteViews allowlist checked")
+print("status widget: RemoteViews allowlist, descriptions, and intent checked")
 PY

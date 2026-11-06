@@ -36,17 +36,35 @@ test('feature denylist file is unchanged from the wrapper archive', () => {
     '03378746a130f9217b679a475a14ac14236c53e90c404c3fd3a5c426d0b761f9');
 });
 
+test('edition engine matches the archived fail-closed engine', () => {
+  const text = readFileSync(join(here, 'engine.mjs'));
+  assert.equal(createHash('sha256').update(text).digest('hex'),
+    '159bb12d14edae6fca2d37643300dcac7c5e341d7d97c6e4dd2928c925ed576f');
+});
+
+test('dropping the pipeline denylist pattern would hide that word', () => {
+  const full = loadDenylist();
+  const weakened = full.filter(item => item.label !== 'route pipeline');
+  assert.equal(denylistHits('const leak = "pipeline";\n', full).length, 1);
+  assert.equal(denylistHits('const leak = "pipeline";\n', weakened).length, 0);
+});
+
 test('current Jaryo web builds a denylist-clean edition', { skip: !upstreamDir }, () => {
-  const { files } = buildEdition(readDir(upstreamDir));
+  const upstream = readDir(upstreamDir);
+  const { files } = buildEdition(upstream);
   assert.deepEqual([...files.keys()], ['index.html', 'style.css', 'app.js', 'usage-format.mjs', 'map-layout.mjs', 'model-control-view.mjs', 'simple-view.mjs', 'simple-view.css']);
   const denylist = loadDenylist();
   for (const [name, text] of files) {
     assert.deepEqual(denylistHits(text, denylist).map(hit => `${name}:${hit.line}`), []);
   }
   const html = files.get('index.html');
+  const sourceHtml = upstream.get('index.html');
+  assert.match(sourceHtml, /id="fixInference"/);
+  assert.match(sourceHtml, /Fix inference/);
   for (const id of ['onlineCodeMode', 'fixInference', 'pcSwitch', 'vitalPc', 'vitalRoute', 'vitalActivity', 'memoryBanner']) {
     assert.equal(html.includes(`id="${id}"`), false, id);
   }
+  assert.doesNotMatch(files.get('app.js'), /function openFixInference|requestOnlineCodeAction/);
   assert.match(html, /src="\/simple-view\.mjs"/);
   assert.match(html, /href="\/simple-view\.css"/);
   assert.doesNotMatch(html, /jaryo\.css|jaryo\.mjs|simple-view-private|connection-switches/);
@@ -176,4 +194,16 @@ test('compact face keeps three rows, confirms unload, and posts no control fetch
   open[0].listeners.click[0]();
   assert.equal(posted2.at(-1)?.action, 'open-runtime-app');
   assert.equal(second.filter(path => path.startsWith('POST')).length, 0);
+});
+
+test('edition model control still refuses unload without an instance mode', { skip: !webDir }, async () => {
+  const source = readFileSync(join(webDir, 'model-control-view.mjs'), 'utf8');
+  const url = `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`;
+  const { modelControlView } = await import(url);
+  const row = { id: 'google/gemma-3-4b', host: 'mac', source: 'lmstudio-api', state: 'loaded', loaded: true,
+    modelKey: 'google/gemma-3-4b', loadedInstanceIds: ['instance-1'] };
+  const on = { host: 'mac', feedFresh: true, supported: true, reason: '', status: null, models: [row] };
+  assert.equal(modelControlView(row, on).action, null);
+  assert.equal(modelControlView(row, { ...on, unloadMode: 'instance' }).action, 'unload');
+  assert.equal(modelControlView({ ...row, loadedInstanceIds: ['instance-1', 'instance-2'] }, { ...on, unloadMode: 'instance' }).action, null);
 });

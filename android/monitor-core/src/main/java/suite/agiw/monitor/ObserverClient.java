@@ -23,7 +23,10 @@ public final class ObserverClient {
     public Result getSnapshot(URI base, int timeoutMs) {
         if (base == null || base.getScheme() == null) return Result.refused("No address");
         if (!"https".equalsIgnoreCase(base.getScheme())) return Result.refused("Cleartext is not used");
-        URI target = URI.create(base.getScheme() + "://" + base.getRawAuthority() + "/api/snapshot");
+        if (base.getUserInfo() != null) return Result.refused("Address has credentials");
+        if (base.getHost() == null || base.getHost().isBlank()) return Result.refused("Address has no host");
+        int port = base.getPort();
+        URI target = URI.create(base.getScheme() + "://" + base.getHost() + (port >= 0 ? ":" + port : "") + "/api/snapshot");
         HttpURLConnection connection = null;
         try {
             connection = (HttpURLConnection) target.toURL().openConnection();
