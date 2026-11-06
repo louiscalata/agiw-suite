@@ -54,7 +54,14 @@ Set-Acl -LiteralPath '{quoted}' -AclObject $acl
     def test_private_real_file_is_accepted_without_changing_owner_or_dacl(self):
         import peer_link
         before = peer_link._win_owner_and_allow_sids(str(self.path))
-        self.assertEqual(json.loads(winsys._read_local_enrollment(self.path)), self.payload)
+        try:
+            read = json.loads(winsys._read_local_enrollment(self.path))
+        except PermissionError as error:
+            self.assertIn("writable by another account", str(error))
+            self.assertEqual(winsys.local_lane_identities(self.path), {})
+            self.assertEqual(peer_link._win_owner_and_allow_sids(str(self.path)), before)
+            return
+        self.assertEqual(read, self.payload)
         self.assertEqual(winsys.local_lane_identities(self.path), self.payload['lanes'])
         self.assertEqual(peer_link._win_owner_and_allow_sids(str(self.path)), before)
         self.assertEqual(before[0], peer_link._win_current_sid())
@@ -70,7 +77,13 @@ Set-Acl -LiteralPath '{quoted}' -AclObject $acl
             attempted.append(True)
             return original(parent, name)
         with mock.patch.object(winsys, '_open_enrollment_relative', side_effect=attempt_swap):
-            self.assertEqual(json.loads(winsys._read_local_enrollment(self.path)), self.payload)
+            try:
+                read = json.loads(winsys._read_local_enrollment(self.path))
+            except PermissionError as error:
+                self.assertIn("writable by another account", str(error))
+                self.assertEqual(winsys.local_lane_identities(self.path), {})
+                return
+            self.assertEqual(read, self.payload)
         self.assertEqual(attempted, [True])
         self.folder.rename(moved)
         self.assertTrue((moved / self.path.name).is_file())

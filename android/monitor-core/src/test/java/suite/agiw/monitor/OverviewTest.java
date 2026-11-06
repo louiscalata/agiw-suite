@@ -1,7 +1,10 @@
 package suite.agiw.monitor;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+
 public final class OverviewTest {
-    public static void main(String[] args) {
+    public static void main(String[] args) throws Exception {
         check(Overview.word(false, true, false, false, false, false, false) == Overview.Word.UNKNOWN, "no snapshot");
         check(Overview.word(true, true, false, false, false, false, true) == Overview.Word.UNKNOWN, "unsettled is not idle");
         check(Overview.word(true, true, false, false, false, true, false) == Overview.Word.BLOCKED, "blocked");
@@ -34,9 +37,19 @@ public final class OverviewTest {
         check(!Surface.fullyVisible(10, 10, 748, 0, 0, 0), "empty line");
         check(Acceptance.notes().contains("Not a pass"), "receipts are not a pass");
         check(Acceptance.notes().contains("ROLLBACK"), "receipts keep rollback");
+        Path sample = Files.createTempFile("agiw-sample", ".txt");
+        Board idle = Board.read("{\"schemaVersion\":1,\"observedAt\":\"2026-11-06T20:00:00Z\",\"pipeline\":{\"status\":\"idle\",\"pipelines\":[]}}", java.time.Instant.parse("2026-11-06T20:00:00Z"));
+        SampleStore.write(sample, idle, 1_000L);
+        check(SampleStore.present(sample, 1_000L).process.equals("IDLE"), "fresh stored sample");
+        check(SampleStore.present(sample, 40_000L).process.equals("STALE"), "old stored sample is not read again");
+        SampleStore.write(sample, Board.disconnected("Observer did not answer"), 1_000L);
+        Board down = SampleStore.present(sample, 90_000L);
+        check(down.connect.equals("DISCONNECTED"), "stored disconnect");
+        check(down.process.equals("UNKNOWN"), "stored disconnect is not idle");
+        Files.deleteIfExists(sample);
         check(!Surface.motion(0f), "reduced motion");
         check(Surface.motion(1f), "motion allowed");
-        System.out.println("android monitor-core: 34 checks passed");
+        System.out.println("android monitor-core: 38 checks passed");
     }
 
     private static void check(boolean value, String name) {

@@ -26,6 +26,14 @@ public final class Board {
         this.observed = observed;
     }
 
+    public static Board stored(String process, String lane, String attachment, String runId, String detail, String connect, String observed) {
+        return new Board(process, lane, attachment, runId, detail, connect, observed);
+    }
+
+    public Board aged(String process, String detail) {
+        return new Board(process, lane, attachment, runId, detail, connect, observed);
+    }
+
     public static Board none(String detail) {
         return new Board("UNKNOWN", "NOT MEASURED", "NO RUN", "not reported", detail, "NONE", "not reported");
     }

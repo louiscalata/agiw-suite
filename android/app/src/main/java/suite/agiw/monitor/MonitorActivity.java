@@ -103,6 +103,15 @@ public final class MonitorActivity extends Activity {
         reveal(findViewById(R.id.acceptance));
     }
 
+    private void remember(Board board) {
+        try {
+            SampleStore.write(StatusWidget.file(this), board, System.currentTimeMillis());
+        } catch (java.io.IOException ignored) {
+            return;
+        }
+        StatusWidget.publish(this);
+    }
+
     private boolean compactNow() {
         int width = getResources().getDisplayMetrics().widthPixels;
         int height = getResources().getDisplayMetrics().heightPixels;
@@ -133,6 +142,7 @@ public final class MonitorActivity extends Activity {
                 read.setContentDescription("Read the observer snapshot");
             }
             show(Board.none("Read cancelled"));
+            remember(Board.none("Read cancelled"));
             return;
         }
         EditText address = findViewById(R.id.address);
@@ -162,6 +172,7 @@ public final class MonitorActivity extends Activity {
                 if (isDestroyed() || !gate.accepts(token)) return;
                 inflight = 0;
                 show(board);
+                remember(board);
                 Button again = findViewById(R.id.read);
                 if (again != null) {
                     again.setText("Read");

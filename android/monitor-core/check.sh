@@ -63,5 +63,17 @@ for name in ("activity_inner.xml", "activity_cover.xml"):
         raise SystemExit(name + " puts receipts in the main layout")
     if "minHeight=\"48dp\"" not in text or "@font/inter_semibold" not in text:
         raise SystemExit(name + " missing type or target size")
+widget = (main / "java/suite/agiw/monitor/StatusWidget.java").read_text()
+samsung = (main / "res/xml/samsung_status_widget.xml").read_text()
+info = (main / "res/xml/status_widget_info.xml").read_text()
+if "com.samsung.android.appwidget.provider" not in manifest_text:
+    raise SystemExit("manifest has no Samsung widget metadata")
+if 'display="sub_screen"' not in samsung:
+    raise SystemExit("Samsung metadata does not name the cover display")
+if 'android:minWidth="352dp"' not in info or "keyguard" not in info:
+    raise SystemExit("widget provider misses the published Flex Window size or category")
+for banned in ("HttpURLConnection", "openConnection", "https://", "http://"):
+    if banned in widget:
+        raise SystemExit("status widget contacts a network")
 print("android layouts: ids and clipping checked")
 PY
