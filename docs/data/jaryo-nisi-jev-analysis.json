@@ -7,7 +7,8 @@
     "phasesRequested": ["jev-pre", "jev-post"],
     "machines": ["mac", "pc"],
     "gate": "Bounded independent analysis may proceed only where an actual Jev pre record and an actual Jev post record exist. Unavailable is not that record.",
-    "machineResultsReceivedByWriter": null,
+    "machineResultsReceivedByWriter": "docs/data/jaryo-jev-phase-receipts.json",
+    "machineResultsAreJevPasses": false,
     "promotedUnavailableToPass": false
   },
   "timing": {
@@ -67,7 +68,7 @@
         "open": false,
         "pre": "unavailable",
         "post": "unavailable",
-        "blocker": "Jev pre and post were requested. This cloud checkout only has JevConnection.status() unavailable, and the hosted probe was not called. No Mac or PC Jev analysis receipt has been delivered to this writer. Unavailable is not a pass."
+        "blocker": "Jev pre and post were requested. Mac task jaryo-liveval-20261106-022202 returned BLOCKED_NOT_RUN for both phases because jev-task calls the hosted TypeSafe API and spend was not authorized. PC task jaryo-liveval-20261106-022221 returned UNAVAILABLE_NOT_RUN for both phases because the Jev queue watcher was not running and was not started. This cloud checkout's JevConnection.status() is also unavailable. None of these are passes."
       },
       "repeatOnWorkingTree": "Commands were repeated on working tree 1dfccce before the Windows-peer patch commit. verify exit 0 PASS 18 files 0.2.0; version exit 0 0.2.0; demo exit 0 COMPLETED modelCalls 0 repairAttempts 1; Jev status exit 0 unavailable. Still not a hosted Jev pass."
     }

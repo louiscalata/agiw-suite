@@ -108,7 +108,7 @@ function monitor(fields) {
   };
 }
 
-const ANALYSIS_STATES = new Set(['pending', 'failed', 'skipped', 'unavailable', 'passed']);
+const ANALYSIS_STATES = new Set(['pending', 'failed', 'skipped', 'unavailable', 'blocked', 'passed']);
 const ANALYSIS_PAIRS = [['nisi', 'pre'], ['jev', 'pre'], ['nisi', 'post'], ['jev', 'post']];
 
 function attemptToken(row) {

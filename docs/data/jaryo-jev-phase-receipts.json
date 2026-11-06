@@ -1,0 +1,65 @@
+{
+  "schema": "agiw.jaryo.jev-phase-receipts.v1",
+  "generated_pst": "2026-11-06 02:22 America/Los_Angeles",
+  "integratedBy": "PR21 cloud writer copied this receipt. The machines were not probed again from this checkout.",
+  "cloud_note": "PR21 tests may pass monitor-tab unit tests; these are NOT Jev phase PASSes. unavailable/blocked ≠ pass.",
+  "pass_claimed": false,
+  "parallel": true,
+  "machines": {
+    "mac": {
+      "machineId": "96551fcd-ec3b-46ae-8687-cdf6bfda3e7e",
+      "task_id": "jaryo-liveval-20261106-022202",
+      "pre": {
+        "result": "BLOCKED_NOT_RUN",
+        "reason": "hosted TypeSafe https://api.typesafe.ai/v1/systemone via jev-task/agiw-jev; no paid hosted probes"
+      },
+      "post": {
+        "result": "BLOCKED_NOT_RUN",
+        "reason": "same hosted dependency; not executed"
+      },
+      "monitor_refresh": {
+        "observedAt": "2026-11-06T10:22:01.645683Z",
+        "host": "mac",
+        "port": 50073,
+        "nisi": {
+          "id": "nisi",
+          "state": "needs-action",
+          "detail": "Current Nisi installation binding is pending, invalid, stale or unavailable",
+          "label": "Nisi route adapter"
+        },
+        "jev": {
+          "id": "jev",
+          "state": "configured",
+          "detail": "Opted in (key file present, not read); no archived Jev judgment yet",
+          "label": "Jev"
+        },
+        "loaded": ["lfm3-1.7b"]
+      }
+    },
+    "pc": {
+      "machineId": "cab24b61-79b1-4dae-8097-006acf68585f",
+      "task_id": "jaryo-liveval-20261106-022221",
+      "pre": {
+        "result": "UNAVAILABLE_NOT_RUN",
+        "reason": "opos-pc/jev watcher.pid not running; start-watcher not invoked"
+      },
+      "post": {
+        "result": "UNAVAILABLE_NOT_RUN",
+        "reason": "same"
+      },
+      "monitor_health": {
+        "service": "agiw-win-observer",
+        "version": "0.1.0",
+        "pid": 2456,
+        "port": 8767
+      },
+      "snapshot": {
+        "observedAt": "2026-11-06T10:22:21.737296Z",
+        "host": "windows",
+        "observerVersion": "0.1.0",
+        "nisi": {"state": "needs-action", "detail": "Lane identity mismatch on deep; the gate would review with the wrong model"},
+        "jev": {"state": "stale", "detail": "On-demand Jev; configuration evidence stale"}
+      }
+    }
+  }
+}

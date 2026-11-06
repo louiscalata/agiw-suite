@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {
-  DEMO_BANNER, createMonitorDesk, demoSnapshot, deriveMonitors, healthPresentation,
+  DEMO_BANNER, analysisSlots, createMonitorDesk, demoSnapshot, deriveMonitors, healthPresentation,
   initialMonitorId, jevGate, mapMonitors, moveMonitorTab, nextTabFocus, nodeInMonitor,
 } from './web/monitor-tabs.mjs';
 
@@ -222,6 +222,47 @@ test('reconnect does not double-count and a new attempt drops prior events and a
   assert.equal(second.events[0].attemptId, '2');
   assert.equal(second.analyses.find(item => item.tool === 'nisi' && item.phase === 'pre').state, 'unavailable');
   assert.equal(second.word, 'RUNNING');
+});
+
+test('2026-11-06 Mac and PC receipts keep the Jev gate closed', () => {
+  const receipts = JSON.parse(read('./docs/data/jaryo-jev-phase-receipts.json'));
+  assert.equal(receipts.pass_claimed, false);
+  assert.equal(receipts.machines.mac.task_id, 'jaryo-liveval-20261106-022202');
+  assert.equal(receipts.machines.pc.task_id, 'jaryo-liveval-20261106-022221');
+  for (const phase of ['pre', 'post']) {
+    assert.equal(receipts.machines.mac[phase].result, 'BLOCKED_NOT_RUN');
+    assert.equal(receipts.machines.pc[phase].result, 'UNAVAILABLE_NOT_RUN');
+  }
+  const mac = receipts.machines.mac;
+  const macSlots = analysisSlots(['pre', 'post'].map(phase => ({
+    tool: 'jev', phase, state: 'blocked', provenance: mac.task_id,
+    detail: `${mac[phase].result}: ${mac[phase].reason}`,
+  })), {runId: mac.task_id, attemptId: '1'});
+  const macGate = jevGate(macSlots);
+  assert.equal(macGate.open, false);
+  assert.equal(macGate.pre, 'blocked');
+  assert.equal(macGate.post, 'blocked');
+  const snapshot = {
+    schemaVersion: 1, host: 'mac',
+    models: [{id: 'lfm3-1.7b', host: 'mac', loaded: true, state: 'idle', ageSeconds: 1}],
+    components: [mac.monitor_refresh.nisi, mac.monitor_refresh.jev],
+    pipeline: {pipelines: [], pipelinesComplete: true, steps: []},
+    clients: [],
+  };
+  const monitors = deriveMonitors(snapshot, {feedFresh: true});
+  assert.equal(byId(monitors, 'machine:mac').word, 'IDLE');
+  assert.equal(byId(monitors, 'route:nisi').metrics.find(item => item.label === 'Nisi').value, 'needs-action');
+  assert.equal(byId(monitors, 'route:nisi').metrics.find(item => item.label === 'Jev').value, 'configured');
+  assert.notEqual(byId(monitors, 'route:nisi').word, 'RUNNING');
+  assert.equal(monitors.some(item => item.kind === 'session'), false);
+  const pc = receipts.machines.pc;
+  const pcSlots = ['pre', 'post'].map(phase => ({
+    tool: 'jev', phase, state: 'unavailable', evidenced: true, provenance: pc.task_id,
+    detail: `${pc[phase].result}: ${pc[phase].reason}`,
+  }));
+  assert.equal(jevGate(pcSlots).open, false);
+  assert.equal(pc.monitor_health.service, 'agiw-win-observer');
+  assert.equal(pc.monitor_health.pid, 2456);
 });
 
 test('unavailable Jev pre or post does not open the analysis gate', () => {
