@@ -5,8 +5,10 @@ import android.content.res.Configuration;
 import android.os.Bundle;
 import android.provider.Settings;
 import android.view.View;
+import android.view.ViewTreeObserver;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import java.net.URI;
 import java.time.Instant;
@@ -27,8 +29,10 @@ public final class MonitorActivity extends Activity {
     private static final String KEY_OBSERVED = "observed";
 
     private final ObserverClient client = new ObserverClient();
+    private final ReadGate gate = new ReadGate();
     private boolean cover;
     private String addressText = "";
+    private int inflight;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -70,7 +74,18 @@ public final class MonitorActivity extends Activity {
             if (address != null) address.setText(addressText);
         }
         Button read = findViewById(R.id.read);
-        if (read != null) read.setOnClickListener(view -> readOnce());
+        if (read != null) {
+            read.setOnClickListener(view -> readOnce());
+            read.setText(inflight == 0 ? "Read" : "Cancel");
+            read.setContentDescription(inflight == 0 ? "Read the observer snapshot" : "Cancel the observer read");
+        }
+        EditText address = findViewById(R.id.address);
+        if (address != null) {
+            address.setOnFocusChangeListener((view, focused) -> {
+                if (focused) reveal(view);
+            });
+        }
+        reveal(findViewById(R.id.detail));
     }
 
     private boolean compactNow() {
@@ -93,9 +108,19 @@ public final class MonitorActivity extends Activity {
     }
 
     private void readOnce() {
+        Button read = findViewById(R.id.read);
+        if (inflight != 0) {
+            gate.cancel();
+            inflight = 0;
+            if (read != null) {
+                read.setText("Read");
+                read.setContentDescription("Read the observer snapshot");
+            }
+            show(Board.none("Read cancelled"));
+            return;
+        }
         EditText address = findViewById(R.id.address);
         if (address != null) addressText = address.getText().toString().trim();
-        Button read = findViewById(R.id.read);
         String raw = addressText.trim();
         if (raw.isEmpty()) {
             show(Board.none("No address"));
@@ -108,26 +133,37 @@ public final class MonitorActivity extends Activity {
             show(Board.refused("Address was not read"));
             return;
         }
-        if (read != null) read.setEnabled(false);
+        int token = gate.begin();
+        inflight = token;
+        if (read != null) {
+            read.setText("Cancel");
+            read.setContentDescription("Cancel the observer read");
+        }
         new Thread(() -> {
             ObserverClient.Result result = client.getSnapshot(uri, 4000);
-            Board board;
-            if (result.detail().equals("Cleartext is not used") || result.detail().equals("No address")) {
-                board = Board.refused(result.detail());
-            } else if (!result.ok() && result.detail().equals("Observer did not answer")) {
-                board = Board.disconnected(result.detail());
-            } else if (!result.ok()) {
-                board = Board.none(result.detail());
-            } else {
-                board = Board.read(result.body(), Instant.now());
-            }
+            Board board = boardFor(result);
             runOnUiThread(() -> {
-                if (isDestroyed()) return;
+                if (isDestroyed() || !gate.accepts(token)) return;
+                inflight = 0;
                 show(board);
                 Button again = findViewById(R.id.read);
-                if (again != null) again.setEnabled(true);
+                if (again != null) {
+                    again.setText("Read");
+                    again.setContentDescription("Read the observer snapshot");
+                }
             });
         }, "agiw-observer").start();
+    }
+
+    private static Board boardFor(ObserverClient.Result result) {
+        if (result.detail().equals("Cleartext is not used") || result.detail().equals("No address")) {
+            return Board.refused(result.detail());
+        }
+        if (!result.ok() && result.detail().equals("Observer did not answer")) {
+            return Board.disconnected(result.detail());
+        }
+        if (!result.ok()) return Board.none(result.detail());
+        return Board.read(result.body(), Instant.now());
     }
 
     private void show(Board board) {
@@ -138,6 +174,35 @@ public final class MonitorActivity extends Activity {
         set(R.id.observed, "TIME  " + board.observed);
         set(R.id.detail, board.detail);
         set(R.id.acceptance, board.acceptance);
+        reveal(findViewById(R.id.detail));
+    }
+
+    private void reveal(View child) {
+        ScrollView scroller = findViewById(R.id.scroller);
+        if (child == null || scroller == null) return;
+        ViewTreeObserver observer = scroller.getViewTreeObserver();
+        observer.addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener() {
+            @Override
+            public void onGlobalLayout() {
+                ViewTreeObserver current = scroller.getViewTreeObserver();
+                if (current.isAlive()) current.removeOnGlobalLayoutListener(this);
+                place(scroller, child);
+                scroller.post(() -> place(scroller, child));
+            }
+        });
+    }
+
+    private void place(ScrollView scroller, View child) {
+        if (child.getHeight() == 0 || scroller.getHeight() == 0) return;
+        int contentTop = child.getTop();
+        if (child.getParent() instanceof View parent && parent != scroller) contentTop += parent.getTop();
+        int contentBottom = contentTop + child.getHeight();
+        if (Surface.fullyVisible(contentTop, contentBottom, scroller.getHeight(),
+                scroller.getPaddingTop(), scroller.getPaddingBottom(), scroller.getScrollY())) {
+            return;
+        }
+        int visible = scroller.getHeight() - scroller.getPaddingTop() - scroller.getPaddingBottom();
+        scroller.scrollTo(0, Math.max(0, contentBottom - visible));
     }
 
     private String text(int id) {

@@ -28,9 +28,13 @@ public final class OverviewTest {
         check(Overview.word(true, true, false, false, false, true, true) == Overview.Word.BLOCKED, "blocked beats unsettled");
         check(Overview.word(false, true, false, false, true, true, false) == Overview.Word.UNKNOWN, "no snapshot");
         check(Overview.word(true, true, false, true, false, false, false) == Overview.Word.IDLE, "fictional quiet");
+        check(!Surface.fullyVisible(700, 748, 748, 12, 24, 0), "edge line is clipped");
+        check(Surface.fullyVisible(680, 710, 748, 12, 24, 0), "line above the pad");
+        check(Surface.fullyVisible(700, 748, 748, 12, 24, 40), "scroll clears the edge");
+        check(!Surface.fullyVisible(10, 10, 748, 0, 0, 0), "empty line");
         check(!Surface.motion(0f), "reduced motion");
         check(Surface.motion(1f), "motion allowed");
-        System.out.println("android monitor-core: 28 checks passed");
+        System.out.println("android monitor-core: 32 checks passed");
     }
 
     private static void check(boolean value, String name) {

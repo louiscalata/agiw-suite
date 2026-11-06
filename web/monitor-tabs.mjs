@@ -798,6 +798,8 @@ const ACCEPTANCE_LEDGER = [
   {gate: 'Mac unsigned Debug', env: 'Mac', state: 'recorded', verdict: '0/4', time: '2026-11-06 11:54 file stamp', receipt: 'mac-unsigned-build-20261106-115509', next: 'Exit 0 on web HEAD 317aad2. That tree is not this head. Not PASS.'},
   {gate: 'Windows node tests', env: 'PC', state: 'recorded', verdict: 'not acceptance', time: '2026-11-06 11:58 file stamp', receipt: 'pc-win-node-20261106', next: '123 tests passed excluding pipe-host. pipe-host listen EACCES. POST ROLLBACK stays open.'},
   {gate: 'Android parser', env: 'Mac Astra', state: 'recorded', verdict: '0/4', time: '2026-11-06 11:56 file stamp', receipt: 'astra1103-mac-ANDJAVA-20261106-115608', next: 'Not PASS. Missing payload data stays UNKNOWN.'},
+  {gate: 'Mac sync', env: 'Mac', state: 'recorded', verdict: '0/4', time: '2026-11-06 12:09 file stamp', receipt: 'mac-jaryo-sync-52e902d-20261106-120956', next: 'sync-web exit 1. simple-view.mjs is absent. Wrapper rules were not changed. Not PASS.'},
+  {gate: 'Windows installer', env: 'PC', state: 'recorded', verdict: 'not acceptance', time: '2026-11-06 12:16 file stamp', receipt: 'pc-52e902d-windows-tests', next: '532 tests, 14 failed before the jaryo directory allowlist fix. ROLLBACK stays open.'},
   {gate: 'Fixture tests', env: 'this checkout', state: 'reported', verdict: 'not acceptance', time: 'this head', receipt: 'node test files', next: 'Receipt verification pending'},
 ];
 

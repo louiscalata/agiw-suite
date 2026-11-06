@@ -39,5 +39,23 @@ def check(path, extra, banned):
 
 check(layout / "activity_inner.xml", {"address"}, set())
 check(layout / "activity_cover.xml", set(), {"address"})
-print("android layouts: ids checked")
+for name in ("activity_inner.xml", "activity_cover.xml"):
+    text = (layout / name).read_text()
+    for needle in ('android:id="@+id/scroller"', 'android:clipToPadding="true"', 'android:fitsSystemWindows="true"',
+                   'android:paddingBottom="24dp"', 'android:isScrollContainer="true"', "<ScrollView"):
+        if needle not in text:
+            raise SystemExit(f"{name} missing {needle}")
+main = Path(sys.argv[1]).parents[1]
+activity = main / "java/suite/agiw/monitor/MonitorActivity.java"
+manifest = main / "AndroidManifest.xml"
+activity_text = activity.read_text()
+manifest_text = manifest.read_text()
+for needle in ("gate.accepts", "Read cancelled", "adjustResize"):
+    if needle not in activity_text and needle not in manifest_text:
+        raise SystemExit("missing safeguard " + needle)
+if "gate.accepts" not in activity_text or "Read cancelled" not in activity_text:
+    raise SystemExit("activity does not keep the latest read")
+if "adjustResize" not in manifest_text:
+    raise SystemExit("keyboard does not resize the window")
+print("android layouts: ids and clipping checked")
 PY

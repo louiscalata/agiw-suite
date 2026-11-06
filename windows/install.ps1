@@ -198,6 +198,16 @@ function Test-InstalledInventory($Files, $Destination, $Stage, $Guard, $RejectUn
     $expected = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
     foreach ($pair in $Files) { [void]$expected.Add($pair[1]) }
     foreach ($name in '.agiw-win-install', 'build.json', 'config.json', 'lane-processes.json') { [void]$expected.Add($name) }
+    # A directory is expected only when an installed file lives inside it. jaryo and jaryo\marks
+    # are parents of shipped files. Any other directory remains an unexpected install entry.
+    $expectedDirs = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+    foreach ($pair in $Files) {
+        $parent = Split-Path -Parent $pair[1]
+        while ($parent) {
+            [void]$expectedDirs.Add($parent)
+            $parent = Split-Path -Parent $parent
+        }
+    }
     $pending = New-Object System.Collections.Generic.Queue[string]
     $pending.Enqueue($Destination)
     while ($pending.Count) {
@@ -213,7 +223,7 @@ function Test-InstalledInventory($Files, $Destination, $Stage, $Guard, $RejectUn
             if ($item.PSIsContainer) {
                 # Observer state is mutable and not on the package import path.
                 if ($relative -eq 'state') { continue }
-                if ($relative -notin @('agiw_win', 'web')) {
+                if (-not $expectedDirs.Contains($relative)) {
                     if ($RejectUnexpected) { throw "Unexpected install entries: $($item.FullName); inspect before retrying." }
                     return $false
                 }

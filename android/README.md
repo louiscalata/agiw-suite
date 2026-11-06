@@ -1,6 +1,6 @@
 # AGIW Android monitor
 
-Read-only screen. A person can type an `https` address on the tall window and read `/api/snapshot` once. The nearly square window keeps that address in memory and shows one Read action. It does not show the address form. There is no default host, no stored credential, and no repair control. `http` is refused before a socket opens. Cleartext is off in the network security config. The desktop monitors stay on `127.0.0.1` and this module does not open them, change a firewall, or open a tunnel.
+Read-only screen. A person can type an `https` address on the tall window and read `/api/snapshot` once. The nearly square window keeps that address in memory and shows Read. While a read is in flight the same button says Cancel, and a late reply from the cancelled read is ignored. The rows sit in a scroll view with padding, so the last line can move fully above the window edge and above the keyboard. A square window is the window aspect. Samsung’s cover is a widget the person turns on. This activity does not place itself on that cover. `http` is refused before a socket opens. Cleartext is off in the network security config. The desktop monitors stay on `127.0.0.1` and this module does not open them, change a firewall, or open a tunnel.
 
 The name is the word AGIW. With no sample, the words are PROCESS UNKNOWN, LANE NOT MEASURED, ATTACH NO RUN, CONNECT NONE, TIME not reported, and the acceptance line stays blocked. Empty JSON, a non-object, a missing timestamp, and `pipeline.status` of `idle` without a `pipelines` array stay UNKNOWN. They do not become IDLE. A sample older than 30 seconds is STALE. Stale is not idle and not unknown. Nisi `needs-action` is BLOCKED. A live route wins over that blocked row. A run id without a matching analysis is UNATTACHED. The observation time is the payload string. Missing numbers stay missing. `Surface.compact` multiplies in 64-bit arithmetic so a huge window cannot overflow into a square result.
 
@@ -13,10 +13,11 @@ The debug APK from the earlier static build hashed `37b44f0f4992be2f05a29f8250c3
 Sources, read 6 Nov 2026:
 
 - Samsung UK, Flip 6 versus Flip 5: cover 3.4 inch Super AMOLED 60 Hz, 720×748; inner 6.7 inch, 2640×1080. https://www.samsung.com/uk/support/mobile-devices/what-is-the-difference-between-the-galaxy-z-flip6-and-z-flip5/
+- Samsung developer, Flex Window: the cover path for an app is an App Widget with `display="sub_screen"`, after the person enables it under Cover screen Widgets. https://developer.samsung.com/galaxy-z/flex_window.html
 - Samsung developer note: the cover is primarily for widgets. A full app reaches it through Good Lock, Life up, MultiStar, I ♡ Galaxy Foldable, Launcher Widget. https://developer.samsung.com/sdp/blog/en/2024/01/09/best-practices-of-app-development-for-various-screen-sizespowered-by-good-lock
 - One UI Labs can allow a short list of apps on the cover. That list is the phone setting, not something this repository turns on. https://www.androidcentral.com/apps-software/how-to-set-up-and-use-apps-on-the-samsung-galaxy-z-flip-6-cover-screen
 
-This activity does not start itself on the cover. It uses the square layout only when the window is nearly square.
+This activity does not start itself on the cover. The square layout is used when the window is nearly square. That is not the operating system placing the activity on the cover. A stock emulator does not reproduce Labs or Good Lock.
 
 ## Reproduce the debug APK
 

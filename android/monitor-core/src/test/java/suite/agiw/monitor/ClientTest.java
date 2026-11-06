@@ -7,6 +7,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.KeyStore;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.TrustManagerFactory;
@@ -15,6 +17,15 @@ import com.sun.net.httpserver.HttpsServer;
 
 public final class ClientTest {
     public static void main(String[] args) throws Exception {
+        ReadGate gate = new ReadGate();
+        int first = gate.begin();
+        int second = gate.begin();
+        check(!gate.accepts(first), "older reply dropped");
+        check(gate.accepts(second), "newer reply kept");
+        gate.cancel();
+        check(!gate.accepts(second), "cancelled reply dropped");
+        check(!gate.accepts(0), "zero token");
+
         ObserverClient client = new ObserverClient();
         ObserverClient.Result clear = client.getSnapshot(URI.create("http://127.0.0.1:9/api/snapshot"), 500);
         check(!clear.ok() && clear.detail().equals("Cleartext is not used"), "cleartext");
@@ -76,10 +87,34 @@ public final class ClientTest {
                     + "\",\"pipeline\":{\"status\":\"idle\",\"pipelines\":[{\"runId\":\"run-1\",\"status\":\"running\",\"live\":true}]},"
                     + "\"components\":[{\"id\":\"nisi\",\"state\":\"needs-action\"}]}", Instant.now());
             check(both.process.equals("RUNNING"), "live beats blocked " + both.process);
+
+            fixture.body = "{";
+            ObserverClient.Result malformed = trusted.getSnapshot(fixture.base, 2000);
+            check(malformed.ok(), "malformed transport");
+            check(Board.read(malformed.body(), Instant.now()).process.equals("UNKNOWN"), "malformed is unknown");
+
+            fixture.body = "{\"schemaVersion\":1,\"observedAt\":\"" + Instant.now()
+                    + "\",\"pipeline\":{\"status\":\"idle\"}}";
+            Board partialFetch = Board.read(trusted.getSnapshot(fixture.base, 2000).body(), Instant.now());
+            check(partialFetch.process.equals("UNKNOWN"), "partial fetch " + partialFetch.process);
+
+            fixture.mode = "drop";
+            ObserverClient.Result dropped = trusted.getSnapshot(fixture.base, 1500);
+            check(!dropped.ok() && dropped.body().isEmpty(), "fixture disconnect " + dropped.detail());
+            check(!dropped.detail().equals("Cleartext is not used"), "disconnect is not a policy refusal");
+
+            Fixture wrongHost = Fixture.start(false);
+            try {
+                ObserverClient named = new ObserverClient(wrongHost.trust);
+                ObserverClient.Result host = named.getSnapshot(wrongHost.base, 2000);
+                check(!host.ok(), "trusted certificate still checks the host");
+            } finally {
+                wrongHost.server.stop(0);
+            }
         } finally {
             fixture.server.stop(0);
         }
-        System.out.println("android client: checks passed");
+        System.out.println("android client: " + checks + " checks passed");
     }
 
     private static String payload(String observed, String status, boolean live) {
@@ -93,7 +128,10 @@ public final class ClientTest {
                 + "\",\"pipeline\":{\"status\":\"idle\",\"pipelines\":[]},\"components\":[{\"id\":\"nisi\",\"state\":\"needs-action\"}]}";
     }
 
+    private static int checks;
+
     private static void check(boolean value, String name) {
+        checks++;
         if (!value) throw new AssertionError(name);
     }
 
@@ -102,14 +140,41 @@ public final class ClientTest {
         URI base;
         SSLContext trust;
         volatile String body = "{}";
+        volatile String mode = "body";
 
         static Fixture start() throws Exception {
+            return start(true);
+        }
+
+        static Fixture start(boolean san) throws Exception {
             Path dir = Files.createTempDirectory("agiw-tls");
             Path store = dir.resolve("test.p12");
-            Process tool = new ProcessBuilder("keytool", "-genkeypair", "-alias", "t", "-keyalg", "RSA", "-keysize", "2048",
-                    "-storetype", "PKCS12", "-keystore", store.toString(), "-storepass", "changeit", "-keypass", "changeit",
-                    "-dname", "CN=localhost", "-validity", "1", "-ext", "SAN=dns:localhost,ip:127.0.0.1")
-                    .redirectErrorStream(true).start();
+            List<String> command = new ArrayList<>();
+            command.add("keytool");
+            command.add("-genkeypair");
+            command.add("-alias");
+            command.add("t");
+            command.add("-keyalg");
+            command.add("RSA");
+            command.add("-keysize");
+            command.add("2048");
+            command.add("-storetype");
+            command.add("PKCS12");
+            command.add("-keystore");
+            command.add(store.toString());
+            command.add("-storepass");
+            command.add("changeit");
+            command.add("-keypass");
+            command.add("changeit");
+            command.add("-dname");
+            command.add(san ? "CN=localhost" : "CN=example.invalid");
+            command.add("-validity");
+            command.add("1");
+            if (san) {
+                command.add("-ext");
+                command.add("SAN=dns:localhost,ip:127.0.0.1");
+            }
+            Process tool = new ProcessBuilder(command).redirectErrorStream(true).start();
             String log = new String(tool.getInputStream().readAllBytes());
             if (tool.waitFor() != 0) throw new IllegalStateException(log);
             KeyStore keys = KeyStore.getInstance("PKCS12");
@@ -127,6 +192,10 @@ public final class ClientTest {
             HttpsServer server = HttpsServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
             server.setHttpsConfigurator(new HttpsConfigurator(serverContext));
             server.createContext("/api/snapshot", exchange -> {
+                if ("drop".equals(fixture.mode)) {
+                    exchange.close();
+                    return;
+                }
                 byte[] bytes = fixture.body.getBytes(java.nio.charset.StandardCharsets.UTF_8);
                 exchange.getResponseHeaders().set("Content-Type", "application/json");
                 exchange.sendResponseHeaders(200, bytes.length);
