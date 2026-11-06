@@ -481,26 +481,34 @@ body.jaryo-app .node.is-outside-monitor { opacity: .28; }
 .j-map .node.is-outside-monitor { opacity: .28; }
 
 body.jaryo-app .brand-monogram {
-  border-radius: 0;
-  border: 1px solid var(--j-text);
-  background: var(--j-text);
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  border: 0;
+  background: none;
   box-shadow: none;
   text-shadow: none;
-  color: transparent;
-  font-size: 0;
-  -webkit-mask: url("/jaryo/marks/d4-split.svg") center / 78% 78% no-repeat;
-  mask: url("/jaryo/marks/d4-split.svg") center / 78% 78% no-repeat;
+  mask: none;
+  -webkit-mask: none;
 }
 
-.j-appmark {
-  width: 36px;
-  height: 36px;
-  flex: none;
-  display: inline-block;
-  background: var(--j-text);
-  -webkit-mask: url("/jaryo/marks/d4-split.svg") center / contain no-repeat;
-  mask: url("/jaryo/marks/d4-split.svg") center / contain no-repeat;
+body.jaryo-app .brand-wordmark strong,
+body.jaryo-app .j-brand strong,
+body.jaryo-app .j-type {
+  font-family: Inter, "Inter SemiBold", "Liberation Sans", "Noto Sans", sans-serif;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  line-height: 1;
 }
+
+body.jaryo-app .brand-wordmark strong { font-size: 18px; }
+body.jaryo-app .j-brand strong,
+body.jaryo-app .j-type { font-size: 20px; }
 
 .j-provisional {
   margin: 0 0 16px;
@@ -575,7 +583,10 @@ body.jaryo-app .brand-monogram {
 }
 .j-plate-narrow svg { width: 32px; height: 32px; }
 .j-plate-narrow .j-lockup { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
-.j-lockup { font-weight: 650; letter-spacing: .14em; overflow-wrap: anywhere; }
+.j-type-16 { font-size: 16px; }
+.j-type-24 { font-size: 24px; }
+.j-type-32 { font-size: 32px; }
+.j-type-sample { font-size: 32px; margin: 8px 0; padding: 12px; }
 .j-id-selected { border-width: 2px; }
 .j-size-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; margin: 12px 0; }
 .j-size-cell { margin: 0; display: grid; gap: 6px; justify-items: center; }
@@ -629,6 +640,10 @@ body.jaryo-app #monitorBoard.j-board {
   min-height: 0;
   margin: 0;
   z-index: 5;
+}
+
+@media (max-width: 560px) {
+  body.jaryo-app .brand-wordmark strong { font-size: 16px; }
 }
 
 @media (max-width: 800px) {

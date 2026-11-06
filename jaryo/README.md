@@ -10,7 +10,7 @@ AGIW decisions recorded here:
 - Persistent desktop sidebar. Overview, map, components, and identity stay reachable on a small screen.
 - Motion is for schematics and transitions. It is not false telemetry. Reduced motion removes that motion.
 - The app opens on Overview.
-- D4 Split is the selected direction. It is not final approved artwork. No option id is inferred.
+- The chrome word is AGIW in Inter, provisional. D4 Split is rejected. No option id is inferred.
 - `appliedChoiceFile` is null. `chosenFamilyIds` is empty. Do not infer option ids.
 
 `c92dab2` is historical. A later verified head supersedes it. Receipts stay in `docs/data/`. They are not a pass on the current head.

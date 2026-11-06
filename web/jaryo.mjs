@@ -35,8 +35,10 @@ export function initTheme(select) {
 
 if (typeof document !== 'undefined' && typeof document.querySelector === 'function') {
   document.documentElement.dataset.tokenSource = 'black-white-system';
-  document.documentElement.dataset.chromeMark = 'd4-split';
-  document.documentElement.dataset.selectedDirection = 'd4-split';
+  document.documentElement.dataset.chromeMark = 'type-agiw';
+  document.documentElement.dataset.selectedDirection = '';
+  document.documentElement.dataset.rejectedDirection = 'd4-split';
+  document.documentElement.dataset.provisionalTypeface = 'Inter';
   document.documentElement.dataset.artworkApproval = 'none';
   const themeSelect = document.querySelector('#jaryoTheme');
   if (themeSelect) initTheme(themeSelect);
