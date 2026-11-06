@@ -520,6 +520,8 @@ test('provisional identity is unlabeled as a choice and the board no longer cove
   assert.match(css, /font-family: Inter/);
   assert.match(read('./web/index.html'), /AGIW Suite/);
   assert.doesNotMatch(read('./web/index.html'), /D4 direction/);
+  assert.match(css, /grid-column: 1/);
+  assert.match(css, /flex-direction: column/);
   assert.match(css, /#monitorBoard\.j-board \{\s*position: relative;/);
   assert.doesNotMatch(css, /\.j-board \{\s*position: absolute/);
   assert.equal(resolveTheme('system', true).resolved, 'light');

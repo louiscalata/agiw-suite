@@ -10,24 +10,23 @@
 <body class="jaryo-app">
 <header class="j-top">
   <div class="j-brand"><strong class="j-type">AGIW</strong><span>Inference Monitor</span></div>
-  <nav class="j-nav" aria-label="Inference Monitor">
-    <a href="/">Overview</a>
-    <a href="/monitor">Map</a>
-    <a href="/components">Components</a>
-    <a href="/identity" aria-current="page">Identity</a>
-    <label class="j-theme">Theme
-      <select id="jaryoTheme" aria-label="Theme">
-        <option value="system">System</option>
-        <option value="light">Light</option>
-        <option value="dark">Dark</option>
-      </select>
-    </label>
-  </nav>
 </header>
+<nav class="j-nav" aria-label="Inference Monitor">
+  <a href="/">Overview</a>
+  <a href="/monitor">Map</a>
+  <a href="/components">Components</a>
+  <a href="/identity" aria-current="page">Identity</a>
+  <label class="j-theme">Theme
+    <select id="jaryoTheme" aria-label="Theme">
+      <option value="system">System</option>
+      <option value="light">Light</option>
+      <option value="dark">Dark</option>
+    </select>
+  </label>
+</nav>
 <main class="j-page">
-  <p class="j-provisional">TYPE ONLY · The name AGIW is set in Inter. Provisional, not a font Louis chose. D4 Split is rejected.</p>
   <h1 class="j-type">AGIW</h1>
-  <p>The identity is the word, in a real typeface. There is no separate symbol. Inter is installed on this machine and licensed under the SIL Open Font License 1.1. If Inter is absent, the stack uses Liberation Sans, then Noto Sans. Weight 600. Tracking is 0.02em on top of the font’s own kerning.</p>
+  <p>The name is the identity. There is no separate symbol.</p>
   <section aria-labelledby="sampleHeading">
     <h2 id="sampleHeading">Wordmark</h2>
     <p class="j-type j-type-16">AGIW</p>
@@ -36,10 +35,11 @@
     <p class="j-type j-type-sample j-plate j-plate-dark">AGIW</p>
     <p class="j-type j-type-sample j-plate j-plate-light">AGIW</p>
   </section>
-  <section aria-labelledby="rejectHeading">
-    <h2 id="rejectHeading">D4 Split is rejected</h2>
-    <p>Louis rejected the split-block render. Those files stay in <code>jaryo/marks/</code> as a superseded study. They are not selected and they are not on the chrome, the favicon, or the app mark. The tab icon is the letters AG, because the full word does not fit at that size.</p>
-  </section>
+  <details>
+    <summary>Typeface notes</summary>
+    <p>TYPE ONLY · The name AGIW is set in Inter. Provisional, not a font Louis chose. D4 Split is rejected.</p>
+    <p>Inter is licensed under the SIL Open Font License 1.1. If Inter is absent, the stack uses Liberation Sans, then Noto Sans. Weight 600. Tracking is 0.02em on top of the font’s own kerning. The tab icon is the letters AG, because the full word does not fit at that size. The earlier split-block files stay in jaryo/marks/ and are not used.</p>
+  </details>
 </main>
 <script src="/jaryo.mjs" type="module"></script>
 </body>
