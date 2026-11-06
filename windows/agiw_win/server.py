@@ -45,7 +45,12 @@ ASSETS = {"/": ("index.html", "text/html; charset=utf-8"),
           "/style.css": ("style.css", "text/css; charset=utf-8"),
           "/monitor": ("monitor.html", "text/html; charset=utf-8"),
           "/monitor.mjs": ("monitor.mjs", "text/javascript; charset=utf-8"),
-          "/monitor.css": ("monitor.css", "text/css; charset=utf-8")}
+          "/monitor.css": ("monitor.css", "text/css; charset=utf-8"),
+          "/monitor-tabs.mjs": ("monitor-tabs.mjs", "text/javascript; charset=utf-8"),
+          "/monitor-board.mjs": ("monitor-board.mjs", "text/javascript; charset=utf-8"),
+          "/monitor-map.mjs": ("monitor-map.mjs", "text/javascript; charset=utf-8"),
+          "/jaryo.css": ("jaryo.css", "text/css; charset=utf-8"),
+          "/jaryo.mjs": ("jaryo.mjs", "text/javascript; charset=utf-8")}
 _INFERENCE_RATES = RateMemory()
 CSP = ("default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; "
        "frame-ancestors 'none'; base-uri 'none'; form-action 'none'")

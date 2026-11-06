@@ -274,7 +274,8 @@ class InstallerOnWindows(unittest.TestCase):
                         ("agiw_observer.py", "agiw-monitor.ps1", "AGIW Monitor.vbs", "AGIW Monitor.cmd", "README.md")]
             sources += [(REPO / "web" / name, Path("web") / name) for name in
                         ("index.html", "app.js", "style.css", "map-layout.mjs", "model-control-view.mjs",
-                         "online-code-mode.mjs", "monitor.html", "monitor.mjs", "monitor.css")]
+                         "online-code-mode.mjs", "monitor.html", "monitor.mjs", "monitor.css",
+                         "monitor-tabs.mjs", "monitor-board.mjs", "monitor-map.mjs", "jaryo.css", "jaryo.mjs")]
             sources += [(REPO / name, Path(name)) for name in
                         ("usage-format.mjs", "client_models.py", "peer_link.py", "inference_stats.py",
                          "inference_collect.py", "LICENSE", "NOTICE")]

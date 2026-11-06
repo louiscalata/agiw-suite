@@ -4,19 +4,39 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>AGIW Inference Monitor</title>
+<link rel="stylesheet" href="/jaryo.css">
 <link rel="stylesheet" href="/monitor.css">
 </head>
-<body>
-<header>
-  <h1>Inference Monitor</h1>
-  <a href="/">Full dashboard</a>
-  <p id="tunnel" role="status"></p>
+<body class="jaryo-app">
+<header class="j-top">
+  <div class="j-brand"><strong>AGIW</strong><span>Inference Monitor</span><small class="j-draft">Jaryo draft</small></div>
+  <nav class="j-nav" aria-label="Inference Monitor">
+    <a href="/">Overview</a>
+    <a href="/monitor" aria-current="page">Map</a>
+    <a href="/components">Components</a>
+    <label class="j-theme">Surface
+      <select id="jaryoTheme" aria-label="Surface">
+        <option value="graphite">Graphite</option>
+        <option value="paper">Paper</option>
+        <option value="mono">Mono</option>
+      </select>
+    </label>
+  </nav>
 </header>
-<svg id="map" role="img" aria-label="Machines and model servers"></svg>
-<section id="detail" hidden>
-  <h2 id="detailTitle"></h2>
-  <dl id="detailFacts"></dl>
-</section>
+<p id="jaryoDemo" class="j-demo" hidden></p>
+<p id="tunnel" role="status"></p>
+<p class="j-hint" id="mapTabHint">Arrow keys switch map monitors. Switching does not pause, cancel, or restart inference. Route sessions are on the overview.</p>
+<div id="monitorTabs" class="j-tabs" role="tablist" aria-label="Inference map monitors" aria-describedby="mapTabHint" data-jaryo-tabs="1"></div>
+<div class="j-map">
+  <svg id="map" role="img" aria-label="Machines and model servers"></svg>
+  <section id="detail" hidden>
+    <h2 id="detailTitle"></h2>
+    <dl id="detailFacts"></dl>
+  </section>
+</div>
+<section id="mapLedger" class="j-board" data-jaryo-board="1" hidden></section>
+<script src="/jaryo.mjs" type="module"></script>
 <script src="/monitor.mjs" type="module"></script>
+<script src="/monitor-map.mjs" type="module"></script>
 </body>
 </html>

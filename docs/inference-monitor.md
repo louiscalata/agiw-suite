@@ -13,6 +13,8 @@ The Mac sampler uses the verified telemetry endpoint for `mac:lmstudio`. The Win
 
 A null tok/s, latency, slot, context or VRAM field means that reading was not measured. Health is `ok`, `degraded`, `down` or `not_measured`. The Mac observer and browser expire Mac nodes after three seconds and PC nodes after 30 seconds; missing or invalid observation times are unknown. Fetch failures clear health and measurements, and only one refresh can be in flight. **Full dashboard** opens the existing view at `/`. The Mac native shell supplies control authorization; standalone browser launches cannot dispatch control POSTs.
 
+The overview at `/` and the map at `/monitor` share a view-only monitor tab strip (Jaryo draft). Tabs are derived from the snapshot or inference map already on the page: machine rows, the Nisi route, client identity rows, and in-flight route or PC-job sessions. A tab that the sample does not contain is not shown. Switching tabs changes the visible monitor and keeps that monitor's filter and selection; it does not pause, cancel, or restart inference. `?demo=1` fills the tab board from a labeled fictional sample and leaves the live map on the observer's own feed. Unknown, stale, disconnected, and unavailable stay worded that way. Graphite is the draft surface; paper and mono are alternates on the same tokens.
+
 ## PC tunnel
 
 The PC lanes bind to 127.0.0.1. On the Mac, `python3 pc_tunnel.py` runs `ssh -N -L` when user, host and an identity file are configured. Set them in the environment or in `~/.config/agiw/pc-tunnel.json`:

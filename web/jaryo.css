@@ -1,0 +1,424 @@
+/* Jaryo draft tokens. Graphite is the working default. Paper and mono are alternates.
+   Copper from the narrow-journey study is not a token here.
+   Status is glyph + word. Identity tags are text. Hue is not a status channel. */
+
+:root {
+  color-scheme: dark;
+  --j-bg: #101418;
+  --j-surface: #171d22;
+  --j-surface-2: #101418;
+  --j-text: #f4f1ea;
+  --j-muted: #a3adb4;
+  --j-border: #3c474e;
+  --j-focus: #e4d7a4;
+  --j-identity: #8fb4c4;
+  --j-invert: #f4f1ea;
+  --j-invert-ink: #101418;
+  --j-grid: #243038;
+  --j-font: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+}
+
+html[data-theme="paper"] {
+  color-scheme: light;
+  --j-bg: #f3efe4;
+  --j-surface: #faf7f0;
+  --j-surface-2: #e7e1d4;
+  --j-text: #1a1814;
+  --j-muted: #5c564c;
+  --j-border: #1a1814;
+  --j-focus: #1a1814;
+  --j-identity: #1a1814;
+  --j-invert: #1a1814;
+  --j-invert-ink: #faf7f0;
+  --j-grid: #d9d3c6;
+}
+
+html[data-theme="mono"] {
+  color-scheme: dark;
+  --j-bg: #000000;
+  --j-surface: #000000;
+  --j-surface-2: #000000;
+  --j-text: #ffffff;
+  --j-muted: #c8c8c8;
+  --j-border: #ffffff;
+  --j-focus: #ffffff;
+  --j-identity: #ffffff;
+  --j-invert: #ffffff;
+  --j-invert-ink: #000000;
+  --j-grid: #2a2a2a;
+}
+
+body.jaryo-app {
+  background: var(--j-bg);
+  color: var(--j-text);
+  font-family: var(--j-font);
+}
+
+body.jaryo-app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+body.jaryo-app:has(.j-page) {
+  display: block;
+  height: auto;
+  min-height: 100%;
+  overflow: auto;
+}
+
+body.jaryo-app main {
+  flex: 1 1 auto;
+  height: auto !important;
+  min-height: 0;
+}
+
+body.jaryo-app .topbar,
+body.jaryo-app > footer {
+  height: auto;
+  min-height: 44px;
+  background: var(--j-bg);
+  color: var(--j-text);
+  border-color: var(--j-border);
+  border-radius: 0;
+}
+
+body.jaryo-app h1,
+body.jaryo-app h2,
+body.jaryo-app .brand strong,
+body.jaryo-app .metrics strong,
+body.jaryo-app .drawer h2,
+body.jaryo-app .about-panel h2 {
+  font-family: var(--j-font);
+  letter-spacing: 0;
+}
+
+body.jaryo-app button,
+body.jaryo-app input,
+body.jaryo-app select,
+body.jaryo-app .drawer,
+body.jaryo-app .sidebar,
+body.jaryo-app .about-panel,
+body.jaryo-app .mode-details,
+body.jaryo-app .model-action-dock,
+body.jaryo-app .search-label,
+body.jaryo-app .model-scope {
+  border-radius: 0;
+}
+
+body.jaryo-app button:focus,
+body.jaryo-app a:focus,
+body.jaryo-app input:focus,
+body.jaryo-app select:focus,
+body.jaryo-app summary:focus,
+body.jaryo-app [role="tab"]:focus {
+  outline: none;
+}
+
+body.jaryo-app button:focus-visible,
+body.jaryo-app a:focus-visible,
+body.jaryo-app input:focus-visible,
+body.jaryo-app select:focus-visible,
+body.jaryo-app summary:focus-visible,
+body.jaryo-app [role="tab"]:focus-visible,
+body.jaryo-app .node:focus-visible {
+  outline: 3px dashed var(--j-focus);
+  outline-offset: 3px;
+}
+
+body.jaryo-app .graph-region {
+  background-color: var(--j-bg);
+  background-image: linear-gradient(var(--j-grid) 1px, transparent 1px), linear-gradient(90deg, var(--j-grid) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+body.jaryo-app .sidebar,
+body.jaryo-app .drawer,
+body.jaryo-app .mode-details,
+body.jaryo-app .about-panel {
+  background: var(--j-surface);
+  color: var(--j-text);
+  border-color: var(--j-border);
+}
+
+body.jaryo-app .item.selected,
+body.jaryo-app .j-selected,
+body.jaryo-app .j-tab[aria-selected="true"] {
+  background: var(--j-invert);
+  color: var(--j-invert-ink);
+}
+
+body.jaryo-app .dot,
+body.jaryo-app .status-dot,
+body.jaryo-app .legend-dot,
+body.jaryo-app .tiny-dot {
+  background: transparent !important;
+  border: 1px solid currentColor;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.j-chrome {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border-bottom: 1px solid var(--j-border);
+  background: var(--j-bg);
+  flex: none;
+}
+
+.j-nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 18px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--j-border);
+}
+
+.j-nav a {
+  color: var(--j-text);
+  text-decoration: none;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 4px;
+  border-bottom: 2px solid transparent;
+}
+
+.j-nav a[aria-current="page"] {
+  border-bottom-color: var(--j-identity);
+}
+
+.j-draft {
+  color: var(--j-identity);
+  border: 1px solid var(--j-identity);
+  padding: 2px 6px;
+  font-size: 11px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.j-theme {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--j-muted);
+  font-size: 12px;
+}
+
+.j-theme select {
+  min-height: 44px;
+  background: var(--j-surface);
+  color: var(--j-text);
+  border: 1px solid var(--j-border);
+  padding: 0 8px;
+}
+
+.j-hint, .j-footnote, .j-note, .j-reason, .j-step-detail, .j-step-reason {
+  color: var(--j-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.j-hint { margin: 0; padding: 4px 16px 0; }
+
+.j-tabs {
+  display: flex;
+  gap: 0;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+  border-top: 1px solid var(--j-border);
+}
+
+.j-tab {
+  flex: 0 0 auto;
+  min-height: 44px;
+  min-width: 44px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 0;
+  border-right: 1px solid var(--j-border);
+  background: transparent;
+  color: var(--j-text);
+  font: 12px/1.2 var(--j-font);
+  text-align: left;
+}
+
+.j-word { letter-spacing: .04em; }
+.j-glyph { min-width: 1ch; }
+
+.j-demo {
+  margin: 0;
+  padding: 8px 16px;
+  background: var(--j-invert);
+  color: var(--j-invert-ink);
+  font-size: 12px;
+  letter-spacing: .04em;
+}
+
+.j-board {
+  position: absolute;
+  z-index: 6;
+  left: 12px;
+  right: 12px;
+  bottom: 76px;
+  max-height: min(38%, 360px);
+  overflow: auto;
+  background: var(--j-surface);
+  color: var(--j-text);
+  border: 1px solid var(--j-border);
+  padding: 12px 14px 16px;
+}
+
+.j-board-head { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: baseline; }
+.j-eyebrow { margin: 0; font-size: 11px; letter-spacing: .14em; color: var(--j-muted); }
+.j-board-title { margin: 0; font-size: 18px; font-weight: 650; }
+
+.j-status, .j-callout {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: baseline;
+  margin: 10px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--j-border);
+}
+
+.j-unknown, .j-tab.j-unknown {
+  border-style: dashed;
+}
+
+.j-unavailable {
+  border-style: dashed;
+}
+
+.j-blocked {
+  border: 3px double var(--j-text);
+  background-image: repeating-linear-gradient(-45deg, transparent 0 6px, var(--j-border) 6px 7px);
+  background-clip: padding-box;
+}
+
+.j-selected-blocked {
+  outline: 3px dashed var(--j-focus);
+  outline-offset: 2px;
+}
+
+.j-identity, .j-metrics {
+  display: grid;
+  grid-template-columns: 9rem minmax(0, 1fr);
+  gap: 4px 12px;
+  margin: 8px 0 12px;
+}
+
+.j-identity dt, .j-metrics dt { color: var(--j-muted); }
+.j-identity dd, .j-metrics dd { margin: 0; overflow-wrap: anywhere; }
+
+.j-filter { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--j-muted); }
+.j-filter input {
+  min-height: 44px;
+  border: 1px solid var(--j-border);
+  background: var(--j-bg);
+  color: var(--j-text);
+  padding: 0 10px;
+}
+
+.j-steps { list-style: none; margin: 8px 0; padding: 0; display: grid; gap: 6px; }
+.j-step { border: 1px solid var(--j-border); padding: 0; }
+.j-step-hit, .j-open {
+  width: 100%;
+  min-height: 44px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 8px 10px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+.j-step-label { font-weight: 650; overflow-wrap: anywhere; }
+.j-step-detail, .j-step-reason { margin: 0; padding: 0 10px 8px; }
+.j-selected-word { margin-left: auto; font-size: 11px; letter-spacing: .08em; }
+.j-open { border-top: 1px solid var(--j-border); }
+
+body.jaryo-app .node.is-outside-monitor { opacity: .28; }
+
+.j-map {
+  min-height: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(260px, .8fr);
+  gap: 0;
+}
+
+.j-map #map { width: 100%; min-height: 420px; background: var(--j-bg); }
+.j-map #detail { border-left: 1px solid var(--j-border); padding: 16px; overflow: auto; }
+.j-map #detail h2 { margin: 0 0 12px; font-size: 18px; }
+.j-map dl { display: grid; grid-template-columns: 9rem minmax(0, 1fr); gap: 4px 12px; margin: 0; }
+.j-map dt { color: var(--j-muted); }
+.j-map dd { margin: 0; overflow-wrap: anywhere; }
+
+.j-top {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--j-border);
+}
+
+.j-brand { display: flex; gap: 10px; align-items: baseline; }
+.j-brand strong { font-size: 16px; letter-spacing: .12em; }
+.j-brand span { color: var(--j-muted); }
+
+.j-page { max-width: 920px; margin: 0 auto; padding: 24px 16px 64px; }
+.j-page section {
+  border: 1px solid var(--j-border);
+  background: var(--j-surface);
+  padding: 16px;
+  margin: 16px 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+.j-page h1, .j-page h2 { font-family: var(--j-font); }
+.j-page a { color: var(--j-text); }
+.j-page button {
+  min-height: 44px;
+  border: 1px solid var(--j-border);
+  background: var(--j-invert);
+  color: var(--j-invert-ink);
+  border-radius: 0;
+}
+.j-page button:disabled { background: transparent; color: var(--j-muted); }
+
+.j-map .node text { font-family: var(--j-font); fill: var(--j-text); }
+.j-map .node .sub { fill: var(--j-muted); }
+.j-map .edge { stroke: var(--j-border); stroke-width: 1.5; }
+.j-map .node circle { fill: var(--j-text); stroke: none; }
+.j-map .node.not_measured circle, .j-map .node.down circle { fill: none; stroke: var(--j-text); }
+.j-map .node.not_measured circle { stroke-dasharray: 2 2; }
+.j-map .node.degraded circle { fill: none; stroke: var(--j-text); stroke-width: 2; }
+.j-map .node.is-outside-monitor { opacity: .28; }
+
+@media (max-width: 800px) {
+  .j-board { left: 8px; right: 8px; bottom: 12px; max-height: 48%; }
+  .j-map { grid-template-columns: 1fr; }
+  .j-map #detail { border-left: 0; border-top: 1px solid var(--j-border); }
+  .j-theme { margin-left: 0; }
+  .j-identity, .j-metrics, .j-map dl { grid-template-columns: 7.5rem minmax(0, 1fr); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body.jaryo-app *, body.jaryo-app *::before, body.jaryo-app *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

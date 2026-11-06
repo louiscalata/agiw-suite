@@ -60,10 +60,30 @@ export function rateText(node) {
   return '';
 }
 
+function mapFocus() {
+  if (typeof window === 'undefined' || typeof window.__jaryoMapTab !== 'string') return 'all';
+  return window.__jaryoMapTab || 'all';
+}
+
+function statusWord(node) {
+  if (feedUnavailable) return 'DISCONNECTED';
+  if (node.health === 'ok') return 'OK';
+  if (node.health === 'degraded') return 'DEGRADED';
+  if (node.health === 'down') return 'DOWN';
+  if (node.reason === 'stale') return 'STALE';
+  if (node.reason === 'feed_unavailable' || node.reason === 'tunnel_down') return 'DISCONNECTED';
+  return 'UNKNOWN';
+}
+
 function draw(map, selected) {
   const svg = document.querySelector('#map');
   const placed = place(map.nodes);
-  svg.style.height = `${Math.max(420, ...placed.map(node => node.y + 40))}px`;
+  const tab = mapFocus();
+  const width = Math.max(720, ...placed.map(node => node.x + 180));
+  const height = Math.max(420, ...placed.map(node => node.y + 48));
+  svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+  svg.style.width = '100%';
+  svg.style.height = 'auto';
   const byId = new Map(placed.map(node => [node.id, node]));
   svg.replaceChildren();
   for (const edge of map.edges || []) {
@@ -80,7 +100,8 @@ function draw(map, selected) {
   }
   for (const node of placed) {
     const group = document.createElementNS(NS, 'g');
-    group.setAttribute('class', 'node');
+    const dim = tab !== 'all' && tab !== node.id && tab !== `machine:${node.machine}`;
+    group.setAttribute('class', `node${selected === node.id ? ' selected' : ''}${dim ? ' is-outside-monitor' : ''}`);
     group.dataset.id = node.id;
     const dot = document.createElementNS(NS, 'circle');
     dot.setAttribute('cx', node.x);
@@ -95,7 +116,7 @@ function draw(map, selected) {
     sub.setAttribute('x', node.x + 14);
     sub.setAttribute('y', node.y + 14);
     sub.setAttribute('class', 'sub');
-    sub.textContent = [node.modelId, rateText(node)].filter(Boolean).join(' · ');
+    sub.textContent = [node.modelId, rateText(node), statusWord(node)].filter(Boolean).join(' · ');
     group.append(dot, title, sub);
     svg.append(group);
   }
@@ -144,6 +165,7 @@ function ageMap(map, unavailable = false) {
 
 function render() {
   document.querySelector('#tunnel').textContent = feedUnavailable ? 'Monitor feed unavailable' : tunnelLine(current?.tunnel);
+  publishMap();
   if (!current) return;
   draw(current, selected);
   const node = (current.nodes || []).find(item => item.id === selected);
@@ -179,6 +201,13 @@ async function tick() {
   }
 }
 
+function publishMap() {
+  if (typeof window === 'undefined' || typeof window.dispatchEvent !== 'function') return;
+  try {
+    window.dispatchEvent(new CustomEvent('agiw-inference-map', {detail: {map: current, feedUnavailable}}));
+  } catch (_) { /* view hook only */ }
+}
+
 if (typeof document !== 'undefined' && document.querySelector('#map')) {
   document.querySelector('#map').addEventListener('click', event => {
     const group = event.target.closest('g');
@@ -189,6 +218,7 @@ if (typeof document !== 'undefined' && document.querySelector('#map')) {
     const node = current.nodes.find(item => item.id === id);
     if (node) show(node);
   });
+  if (typeof window !== 'undefined') window.__jaryoRerenderMap = () => render();
   tick();
   setInterval(tick, 2000);
 }

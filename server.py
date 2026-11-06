@@ -50,7 +50,12 @@ ASSETS = {'/': ('index.html', 'text/html; charset=utf-8'),
           '/style.css': ('style.css', 'text/css; charset=utf-8'),
           '/monitor': ('monitor.html', 'text/html; charset=utf-8'),
           '/monitor.mjs': ('monitor.mjs', 'text/javascript; charset=utf-8'),
-          '/monitor.css': ('monitor.css', 'text/css; charset=utf-8')}
+          '/monitor.css': ('monitor.css', 'text/css; charset=utf-8'),
+          '/monitor-tabs.mjs': ('monitor-tabs.mjs', 'text/javascript; charset=utf-8'),
+          '/monitor-board.mjs': ('monitor-board.mjs', 'text/javascript; charset=utf-8'),
+          '/monitor-map.mjs': ('monitor-map.mjs', 'text/javascript; charset=utf-8'),
+          '/jaryo.css': ('jaryo.css', 'text/css; charset=utf-8'),
+          '/jaryo.mjs': ('jaryo.mjs', 'text/javascript; charset=utf-8')}
 ACTIVE = {'generating', 'busy'}
 # The fast path may overlay a full sample only while that sample is this recent (seconds).
 FULL_SAMPLE_MAX_AGE = 3.0
