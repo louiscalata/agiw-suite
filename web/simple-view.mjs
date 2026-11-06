@@ -127,3 +127,13 @@ export function mountSimpleView({ window, document, fetch, setInterval, clearInt
     },
   };
 }
+
+if (typeof document !== 'undefined' && document.getElementById?.('advancedSwitch')) {
+  mountSimpleView({
+    window,
+    document,
+    fetch,
+    setInterval,
+    clearInterval,
+  });
+}
