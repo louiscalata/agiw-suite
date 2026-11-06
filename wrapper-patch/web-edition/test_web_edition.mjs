@@ -517,7 +517,7 @@ test('App Store Simple DOM has exactly three rows and preserves instance unload 
     loadedInstanceIds: ['instance-1'], sizeBytes: 4 * 2 ** 30 }];
   snapshot.sources = [{ id: 'lmstudio-api', state: 'live' }, { id: 'lms-ps', state: 'unavailable' }];
   snapshot.memory = { level: 'tight', availablePercent: 12, ramBytes: 16 * 2 ** 30, consumers: [], suggestions: [], paused: [] };
-  const ui = await bootBundledUI(snapshot, { simpleView: true, freshPolling: true });
+  const ui = await bootBundledUI(snapshot, { simpleView: true, prefs: { view: 'simple' }, freshPolling: true });
   await ui.advance(16000);
   assert.equal(ui.doc.documentElement.dataset.view, 'simple');
   assert.equal(ui.doc.documentElement.dataset.svReady, '1');
@@ -546,7 +546,7 @@ test('App Store Simple sample and unavailable feeds offer Open LM Studio', { ski
     const snapshot = demo ? snapshotFrom('demo-idle.json') : liveFixture();
     snapshot.sources = [{ id: 'lmstudio-api', state: 'unavailable' }];
     snapshot.modelControl = { supported: true, reason: '', unloadMode: 'instance' };
-    const ui = await bootBundledUI(snapshot, { simpleView: true, freshPolling: true });
+    const ui = await bootBundledUI(snapshot, { simpleView: true, prefs: { view: 'simple' }, freshPolling: true });
     await ui.advance(16000);
     const body = ui.$('svBody');
     assert.equal(body.querySelectorAll('.sv-row').length, 3);

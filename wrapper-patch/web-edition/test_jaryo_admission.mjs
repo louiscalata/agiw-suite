@@ -160,8 +160,11 @@ test('compact face keeps three rows, confirms unload, and posts no control fetch
     webkit: { messageHandlers: { monitor: { postMessage: message => posted.push(message) } } },
     addEventListener() {},
   };
+  const clock = 1_700_000_000;
   const snapshot = {
     demo: false,
+    sampledAt: clock,
+    fullSampledAt: clock,
     sources: [{ id: 'lmstudio-api', state: 'live' }, { id: 'lms-ps', state: 'unavailable' }],
     modelControl: { supported: true, unloadMode: 'instance' },
     memory: { availablePercent: 12 },
@@ -171,11 +174,11 @@ test('compact face keeps three rows, confirms unload, and posts no control fetch
   const fetch = async path => {
     fetches.push(`GET ${path}`);
     const body = path === '/api/snapshot' ? snapshot : { status: 'idle' };
-    return { json: async () => body };
+    return { ok: true, json: async () => body };
   };
   const timers = [];
   mountSimpleView({
-    window, document, fetch,
+    window, document, fetch, now: () => clock,
     setInterval: fn => { timers.push(fn); return timers.length; },
     clearInterval() {},
   });
@@ -202,8 +205,8 @@ test('compact face keeps three rows, confirms unload, and posts no control fetch
   const window2 = { agiwPrefs: { view: 'simple' }, webkit: { messageHandlers: { monitor: { postMessage: message => posted2.push(message) } } }, addEventListener() {} };
   const timers2 = [];
   mountSimpleView({
-    window: window2, document: document2,
-    fetch: async path => { second.push(path); return { json: async () => (path === '/api/snapshot' ? unavailable : { status: 'idle' }) }; },
+    window: window2, document: document2, now: () => clock,
+    fetch: async path => { second.push(path); return { ok: true, json: async () => (path === '/api/snapshot' ? unavailable : { status: 'idle' }) }; },
     setInterval: fn => { timers2.push(fn); return 1; }, clearInterval() {},
   });
   await new Promise(resolve => setImmediate(resolve));

@@ -1,22 +1,24 @@
 import { modelControlView } from '/model-control-view.mjs';
 
 /** Compact read-only face for the store edition: local inventory, memory, and one confirmed unload. */
-export function mountSimpleView({ window, document, fetch, setInterval, clearInterval }) {
+export function mountSimpleView({ window, document, fetch, setInterval, clearInterval, now }) {
   const root = document.documentElement;
   const body = document.createElement('div');
   body.id = 'svBody';
   document.body.append(body);
   let snapshot = null;
   let control = null;
+  let controlKnown = false;
   let confirming = false;
   let stopped = false;
   const post = message => window.webkit?.messageHandlers?.monitor?.postMessage(message);
-  const readView = () => (window.agiwPrefs?.view === 'advanced' ? 'advanced' : 'simple');
+  const readView = () => (window.agiwPrefs?.view === 'simple' ? 'simple' : 'advanced');
 
   const applyView = (next, echo) => {
     const changed = root.dataset.view !== next;
     root.dataset.view = next;
     root.dataset.svReady = '1';
+    if (switcher) switcher.textContent = next === 'simple' ? 'Overview' : 'Simple';
     if (next === 'simple') {
       const pause = document.getElementById('pause');
       if (pause) pause.setAttribute('aria-pressed', 'false');
@@ -41,17 +43,40 @@ export function mountSimpleView({ window, document, fetch, setInterval, clearInt
 
   const studioLive = () => (snapshot?.sources || []).some(source => source.id === 'lmstudio-api' && source.state === 'live');
   const chosen = () => (snapshot?.models || []).find(model => model.loaded === true) || (snapshot?.models || [])[0] || null;
+  const readNow = () => {
+    const clock = typeof now === 'function' ? now() : Date.now() / 1000;
+    return Number.isFinite(clock) ? clock : NaN;
+  };
+  const sampleIsFresh = data => {
+    const at = data?.fullSampledAt ?? data?.sampledAt;
+    const age = readNow() - at;
+    return Number.isFinite(at) && Number.isFinite(age) && age >= -1 && age <= 3;
+  };
 
   const draw = () => {
     body.replaceChildren();
-    if (root.dataset.view !== 'simple' || !snapshot) return;
+    if (root.dataset.view !== 'simple') return;
+    if (!snapshot) {
+      const unknown = document.createElement('div');
+      unknown.className = 'sv-row';
+      unknown.setAttribute('data-row', 'lmstudio');
+      unknown.setAttribute('data-tone', 'muted');
+      const copy = document.createElement('p');
+      copy.textContent = 'Inventory unknown. Control is unavailable.';
+      unknown.append(copy);
+      body.append(unknown);
+      return;
+    }
+    const fresh = sampleIsFresh(snapshot);
     const studio = document.createElement('div');
     studio.className = 'sv-row';
     studio.setAttribute('data-row', 'lmstudio');
-    studio.setAttribute('data-tone', studioLive() && snapshot.demo !== true ? 'ok' : 'muted');
+    studio.setAttribute('data-tone', fresh && studioLive() && snapshot.demo !== true && controlKnown ? 'ok' : 'muted');
     const studioCopy = document.createElement('p');
     if (snapshot.demo === true) studioCopy.textContent = 'Showing sample data, not your Mac';
     else if (!studioLive()) studioCopy.textContent = "LM Studio isn't answering";
+    else if (!fresh) studioCopy.textContent = 'Inventory is stale. Control is unavailable.';
+    else if (!controlKnown) studioCopy.textContent = 'Control is unavailable.';
     else studioCopy.textContent = 'LM Studio inventory is live';
     studio.append(studioCopy);
     if (snapshot.demo === true || !studioLive()) {
@@ -72,7 +97,7 @@ export function mountSimpleView({ window, document, fetch, setInterval, clearInt
     if (model) {
       const decision = modelControlView(model, {
         host: 'mac',
-        feedFresh: true,
+        feedFresh: fresh && controlKnown && snapshot.demo !== true && studioLive(),
         supported: snapshot.modelControl?.supported === true,
         reason: snapshot.modelControl?.reason || '',
         status: control,
@@ -101,16 +126,50 @@ export function mountSimpleView({ window, document, fetch, setInterval, clearInt
     body.append(studio, models, memory);
   };
 
+  let pollGeneration = 0;
+  const acceptedBody = async reply => {
+    if (reply?.ok !== true) return null;
+    const body = await reply.json();
+    return body && typeof body === 'object' && !Array.isArray(body) ? body : null;
+  };
   const tick = async () => {
     if (stopped) return;
+    const mine = ++pollGeneration;
+    const current = () => !stopped && mine === pollGeneration;
+    let nextSnapshot = null;
+    let nextControl = null;
+    let snapshotAccepted = false;
+    let nextControlKnown = false;
     try {
       const snapshotReply = await fetch('/api/snapshot');
-      snapshot = await snapshotReply.json();
-      const controlReply = await fetch('/api/models/control');
-      control = await controlReply.json();
+      if (!current()) return;
+      nextSnapshot = await acceptedBody(snapshotReply);
+      snapshotAccepted = nextSnapshot !== null;
     } catch (_) {
-      snapshot = snapshot || null;
+      snapshotAccepted = false;
     }
+    if (!current()) return;
+    if (snapshotAccepted) {
+      try {
+        const controlReply = await fetch('/api/models/control');
+        if (!current()) return;
+        nextControl = await acceptedBody(controlReply);
+        nextControlKnown = nextControl !== null;
+      } catch (_) {
+        nextControlKnown = false;
+      }
+    }
+    if (!current()) return;
+    if (!snapshotAccepted) {
+      snapshot = null;
+      control = null;
+      controlKnown = false;
+    } else {
+      snapshot = nextSnapshot;
+      control = nextControlKnown ? nextControl : null;
+      controlKnown = nextControlKnown;
+    }
+    if (!(sampleIsFresh(snapshot) && controlKnown && snapshot?.demo !== true && studioLive())) confirming = false;
     draw();
   };
 
