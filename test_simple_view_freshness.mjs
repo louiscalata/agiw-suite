@@ -181,6 +181,38 @@ test('unknown inventory does not claim that no model is loaded', async () => {
   await flush();
   assert.equal(unloadButton(empty.document.bodyNode), undefined);
   assert.match(empty.document.bodyNode.textContent, /No local model/);
+  const unloaded = { id: 'gone', host: 'mac', loaded: false, state: 'unloaded' };
+  const allUnloaded = mount(async path => path === '/api/snapshot' ? ok(snapshot('Example', { models: [unloaded, { ...unloaded, id: 'gone-2', state: 'idle' }] })) : ok({ status: 'idle' }));
+  await flush();
+  assert.equal(unloadButton(allUnloaded.document.bodyNode), undefined);
+  assert.match(allUnloaded.document.bodyNode.textContent, /No local model/);
+  const loaded = mount(async path => path === '/api/snapshot' ? ok(snapshot()) : ok({ status: 'failed' }));
+  await flush();
+  assert.equal(unloadButton(loaded.document.bodyNode).textContent, 'Unload Example');
+  assert.match(loaded.document.bodyNode.textContent, /Loaded/);
+});
+
+test('a malformed row keeps the inventory unknown in either order', async () => {
+  const unloaded = { id: 'gone', host: 'mac', loaded: false, state: 'unloaded' };
+  const unknown = { id: 'mystery', state: 'unknown', loaded: null };
+  const malformed = ['row', 1, null];
+  const lists = [
+    [null, unloaded],
+    [unloaded, null],
+    [unknown, unloaded],
+    [unloaded, unknown],
+    [malformed[0], unloaded],
+    [unloaded, malformed[1]],
+    [null, model('Beside')],
+    [model('Beside'), null],
+  ];
+  for (const models of lists) {
+    const view = mount(async path => path === '/api/snapshot' ? ok(snapshot('Example', { models })) : ok({ status: 'idle' }));
+    await flush();
+    assert.equal(unloadButton(view.document.bodyNode), undefined, JSON.stringify(models));
+    assert.match(view.document.bodyNode.textContent, /Model state unknown/);
+    assert.doesNotMatch(view.document.bodyNode.textContent, /No local model/);
+  }
 });
 
 test('demo, non-live, stale, and undated samples do not offer unload', async () => {

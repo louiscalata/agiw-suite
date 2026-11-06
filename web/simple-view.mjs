@@ -42,7 +42,12 @@ export function mountSimpleView({ window, document, fetch, setInterval, clearInt
   });
 
   const studioLive = () => (snapshot?.sources || []).some(source => source.id === 'lmstudio-api' && source.state === 'live');
-  const inventoryRows = () => Array.isArray(snapshot?.models) ? snapshot.models.filter(row => row && typeof row === 'object') : null;
+  const inventoryRows = () => {
+    const raw = snapshot?.models;
+    if (!Array.isArray(raw)) return null;
+    if (raw.some(row => !row || typeof row !== 'object' || Array.isArray(row))) return null;
+    return raw;
+  };
   const chosen = () => {
     const rows = inventoryRows();
     if (!rows) return null;
