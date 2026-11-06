@@ -18,6 +18,40 @@ function statusClass(status) {
   return '';
 }
 
+function matrixClass(matrix) {
+  if (matrix === 'Observed') return 'j-matrix-observed';
+  if (matrix === 'Untested') return 'j-matrix-untested';
+  if (matrix === 'Blocked') return 'j-matrix-blocked';
+  return 'j-matrix-untested';
+}
+
+export function appendEvidence(parent, evidence) {
+  if (!parent || !evidence) return;
+  const badges = evidence.badges || {};
+  const schematic = el('pre', 'j-schematic');
+  schematic.setAttribute('aria-label', 'Process liveness, lane readiness, and run attachment. These are separate.');
+  schematic.textContent = `PROCESS  ${badges.process || 'UNKNOWN'}\nLANE     ${badges.lane || 'UNKNOWN'}\nATTACH   ${badges.attachment || 'UNKNOWN'}`;
+  parent.append(schematic);
+  const acceptance = (evidence.rows || []).find(row => row.id === 'acceptance');
+  if (acceptance) {
+    parent.append(el('p', `j-callout ${matrixClass(acceptance.matrix)}`, `${acceptance.matrix} · ${acceptance.label} · ${acceptance.word}`));
+  }
+  const details = el('details', 'j-evidence');
+  const summary = el('summary', null, 'Evidence detail');
+  details.append(summary);
+  details.append(el('p', 'j-note', 'Observed, Untested, and Blocked describe the evidence. Observed is not a pass. A heartbeat does not make a lane ready.'));
+  const list = el('ul', 'j-steps');
+  for (const row of evidence.rows || []) {
+    const item = el('li', `j-step ${matrixClass(row.matrix)}`);
+    item.append(el('p', 'j-step-hit', `${row.matrix} · ${row.label}`));
+    item.append(el('p', 'j-word', row.word || row.matrix));
+    item.append(el('p', 'j-step-reason', `${row.detail || ''} Evidence: ${row.evidence || 'not recorded'}.`));
+    list.append(item);
+  }
+  details.append(list);
+  parent.append(details);
+}
+
 function appendIdentity(parent, monitor) {
   const grid = el('dl', 'j-identity');
   const workload = monitor.workload;
@@ -88,6 +122,7 @@ function paintBoard(board, monitor, desk) {
   if (monitor.reason) banner.append(el('span', 'j-reason', monitor.reason));
   board.append(banner);
   if (monitor.fictional) board.append(el('p', 'j-demo', DEMO_BANNER));
+  appendEvidence(board, monitor.evidence);
   appendIdentity(board, monitor);
   const filter = el('label', 'j-filter');
   filter.append(el('span', null, 'Filter this monitor'));
@@ -196,7 +231,7 @@ export function paintMonitorChrome({host, board, desk, snapshot, feedFresh, paus
   const applied = preferredId ? desk.select(preferredId) === true : false;
   const active = monitors.find(item => item.id === desk.active) || monitors[0];
   host.dataset.fictional = demo ? '1' : '0';
-  const signature = JSON.stringify([demo, paused, active?.id, monitors.map(item => [item.id, item.word, item.title, item.retained === true, (item.analyses || []).map(slot => `${slot.tool}:${slot.phase}:${slot.state}`).join(','), item.pipeline?.incomplete, item.pipeline?.steps?.length, item.workload?.servedModel || '', item.workload?.requestedModel || '']), desk.view(active.id)]);
+  const signature = JSON.stringify([demo, paused, active?.id, monitors.map(item => [item.id, item.word, item.title, item.retained === true, (item.analyses || []).map(slot => `${slot.tool}:${slot.phase}:${slot.state}`).join(','), item.pipeline?.incomplete, item.pipeline?.steps?.length, item.workload?.servedModel || '', item.workload?.requestedModel || '', item.evidence?.badges?.lane || '', (item.evidence?.rows || []).map(row => `${row.id}:${row.matrix}`).join(',')]), desk.view(active.id)]);
   if (host.dataset.signature === signature && board.dataset.signature === signature) return applied;
   host.dataset.signature = signature;
   board.dataset.signature = signature;

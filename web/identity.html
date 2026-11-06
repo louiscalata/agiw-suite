@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Identity · AGIW Suite</title>
+<link rel="icon" href="/jaryo/marks/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/jaryo.css">
+</head>
+<body class="jaryo-app">
+<header class="j-top">
+  <div class="j-brand"><span class="j-appmark" role="img" aria-label="Provisional AGIW mark, D1 Stamp"></span><strong>AGIW</strong><span>Inference Monitor</span><small class="j-draft">D1 provisional</small></div>
+  <nav class="j-nav" aria-label="Inference Monitor">
+    <a href="/">Overview</a>
+    <a href="/monitor">Map</a>
+    <a href="/components">Components</a>
+    <a href="/identity" aria-current="page">Identity</a>
+    <label class="j-theme">Theme
+      <select id="jaryoTheme" aria-label="Theme">
+        <option value="system">System</option>
+        <option value="light">Light</option>
+        <option value="dark">Dark</option>
+      </select>
+    </label>
+  </nav>
+</header>
+<main class="j-page">
+  <p class="j-provisional">PROVISIONAL · D1 Stamp is on the product chrome so the screens have one mark. It is not a selected identity. No choice file is applied.</p>
+  <h1>Five AGIW marks</h1>
+  <p>Original directions for review, in black and white. This gallery does not change the running monitor and does not store a choice. Logo selection is pending. The word AGIW stays. AGIW follows the system light or dark theme.</p>
+  <div id="identityGallery" class="j-id-grid"></div>
+  <section aria-labelledby="grammarHeading">
+    <h2 id="grammarHeading">State grammar stays separate from the mark</h2>
+    <pre class="j-schematic" aria-label="State words and glyphs">RUNNING ▶
+STALE ~
+UNKNOWN ?
+DISCONNECTED ⊘
+UNAVAILABLE ○
+BLOCKED ×
+SELECTED invert
+FOCUS 3px dashed ring</pre>
+    <p>Color is not a status channel. A dashed frame inside D3 or D5 is the drawing of that mark. Unknown data still uses the word UNKNOWN and the glyph ?. Selected is invert. Focus is the dashed ring. The two are not the same.</p>
+  </section>
+  <section aria-labelledby="useHeading">
+    <h2 id="useHeading">How to use a mark</h2>
+    <dl class="j-identity">
+      <dt>App mark</dt><dd>Square SVG, <code>currentColor</code> strokes, at least 32px.</dd>
+      <dt>Wordmark</dt><dd>The name AGIW in the UI mono, beside the mark. Do not substitute another name.</dd>
+      <dt>Favicon</dt><dd><code>/mark-favicon.svg</code> is the provisional D1 on a dark square, for the browser tab.</dd>
+      <dt>Dark</dt><dd>White strokes on black.</dd>
+      <dt>Light</dt><dd>Black strokes on white.</dd>
+      <dt>Narrow</dt><dd>The square mark alone. The wordmark may drop when the header is under 360px.</dd>
+      <dt>Files</dt><dd>Editable sources live in <code>jaryo/marks/</code>, shared by this suite and available to OPOS and Nisi later.</dd>
+    </dl>
+  </section>
+</main>
+<script src="/jaryo.mjs" type="module"></script>
+<script src="/identity.mjs" type="module"></script>
+</body>
+</html>

@@ -276,7 +276,12 @@ class InstallerOnWindows(unittest.TestCase):
                         ("index.html", "app.js", "style.css", "map-layout.mjs", "model-control-view.mjs",
                          "online-code-mode.mjs", "monitor.html", "monitor.mjs", "monitor.css",
                          "monitor-tabs.mjs", "monitor-board.mjs", "monitor-map.mjs", "jaryo.css", "jaryo.mjs",
+                         "identity.html", "identity.mjs",
                          "components.html", "components.js", "components.css")]
+            sources += [(REPO / "jaryo" / name, Path("jaryo") / name) for name in
+                        ("tokens.json", "theme.mjs", "primitives.css", "README.md",
+                         "marks/d1-stamp.svg", "marks/d2-ledger.svg", "marks/d3-schematic.svg",
+                         "marks/d4-split.svg", "marks/d5-signal.svg", "marks/favicon.svg")]
             sources += [(REPO / name, Path(name)) for name in
                         ("usage-format.mjs", "client_models.py", "peer_link.py", "inference_stats.py",
                          "inference_collect.py", "LICENSE", "NOTICE")]

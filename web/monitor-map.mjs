@@ -2,7 +2,8 @@
  * Tab strip for the native map. It only filters the drawing and restates
  * node fields already on the inference map. It does not probe or control.
  */
-import {mapMonitors, moveMonitorTab, DEMO_BANNER} from '/monitor-tabs.mjs';
+import {mapMonitors, mapEvidence, moveMonitorTab, DEMO_BANNER} from '/monitor-tabs.mjs';
+import {appendEvidence} from '/monitor-board.mjs';
 
 const DEMO_MAP = {
   fictional: true,
@@ -60,6 +61,7 @@ function paint(detail) {
   const visible = active === 'all' ? nodes : nodes.filter(node => node.id === active || `machine:${node.machine}` === active);
   ledger.replaceChildren(el('p', 'j-eyebrow', demo ? 'FICTIONAL MAP' : 'LIVE MAP'));
   ledger.append(el('h2', 'j-board-title', active === 'all' ? 'All inference' : (visible[0]?.label || active)));
+  appendEvidence(ledger, mapEvidence(source, {feedUnavailable: demo ? false : detail?.feedUnavailable === true || !source, fictional: demo}));
   if (!visible.length) ledger.append(el('p', 'j-unavailable j-callout', '○ UNAVAILABLE · no map nodes in this sample'));
   const list = el('ul', 'j-steps');
   for (const node of visible) {

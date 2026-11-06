@@ -676,9 +676,168 @@ function overview(children, snapshot, options) {
   });
 }
 
+function processReading(snapshot, monitor, options) {
+  if (!snapshot) {
+    return {word: monitor.word, matrix: 'Untested', detail: 'No snapshot. Process liveness was not measured.'};
+  }
+  if (options.fictional === true) {
+    return {word: monitor.word, matrix: 'Observed', detail: 'Fictional sample. The process word is not a live claim.'};
+  }
+  if (options.feedFresh !== true || options.paused === true) {
+    return {word: monitor.word, matrix: 'Observed', detail: 'A sample exists and the feed is not a fresh live claim. Liveness is not readiness.'};
+  }
+  return {word: monitor.word, matrix: 'Observed', detail: 'Process word from this sample. A fresh feed is not lane readiness, attachment, or acceptance.'};
+}
+
+function laneReading(snapshot) {
+  if (!snapshot) return {word: 'NOT MEASURED', matrix: 'Untested', detail: 'No snapshot.'};
+  const lanes = snapshot.windowsWorker?.lanes;
+  let named = false;
+  let mismatch = false;
+  let servedReady = false;
+  let upWithoutServed = false;
+  if (lanes && typeof lanes === 'object') {
+    for (const name of ['fast', 'deep']) {
+      const lane = lanes[name];
+      if (!lane || typeof lane !== 'object') continue;
+      const expected = text(lane.model, 200) || text(lane.expectedModel, 200);
+      const served = text(lane.servedModel, 200);
+      if (expected || served) named = true;
+      if (expected && served && expected !== served) mismatch = true;
+      if (served && (!expected || expected === served) && lane.activityKnown === true) servedReady = true;
+      if (lane.up === true && !served) upWithoutServed = true;
+    }
+  }
+  const models = macModels(snapshot);
+  if (models.length) named = true;
+  if (mismatch) {
+    return {word: 'MISMATCH', matrix: 'Blocked', detail: 'Requested lane model and served model differ. A model list is not readiness.'};
+  }
+  if (upWithoutServed) {
+    return {word: 'NOT READY', matrix: 'Blocked', detail: 'A lane reported up without a served model. Up is not readiness.'};
+  }
+  if (servedReady) {
+    return {word: 'READY', matrix: 'Observed', detail: 'Served model matches and the lane reported activityKnown. This is not a run and not acceptance.'};
+  }
+  if (named) {
+    return {word: 'INVENTORY', matrix: 'Observed', detail: 'Names or residency are in the sample. Inventory is not lane readiness.'};
+  }
+  return {word: 'UNKNOWN', matrix: 'Untested', detail: 'Lane readiness was not measured in this sample.'};
+}
+
+function attachmentReading(snapshot, monitor) {
+  const workload = monitor.workload;
+  const slots = Array.isArray(monitor.analyses) ? monitor.analyses : [];
+  const matched = slots.filter(slot => slot && slot.evidenced === true && workload?.attemptId
+    && slot.attemptId != null && String(slot.attemptId) === String(workload.attemptId));
+  if (monitor.kind === 'session') {
+    if (!workload?.attemptId) {
+      return {word: 'UNATTACHED', matrix: 'Blocked', detail: 'Attempt was not reported, so records stay unattached.'};
+    }
+    if (!matched.length) {
+      return {word: 'UNATTACHED', matrix: 'Blocked', detail: 'No analysis record matches this run and attempt.'};
+    }
+    return {word: 'ATTACHED', matrix: 'Observed', detail: 'Analysis matches this attempt. Attachment is not a Jev pass.'};
+  }
+  const routes = snapshot ? routeRows(snapshot) : [];
+  const jobs = snapshot ? jobRows(snapshot) : [];
+  if (!routes.length && !jobs.length) {
+    return {word: 'NO RUN', matrix: 'Untested', detail: 'No run or in-flight job is in this sample.'};
+  }
+  return {word: 'UNATTACHED', matrix: 'Blocked', detail: 'Runs are listed. This monitor is not an attempt-attached session.'};
+}
+
+function nisiReading(snapshot) {
+  const nisi = snapshot ? component(snapshot, 'nisi') : null;
+  if (!nisi) {
+    return {id: 'nisi', label: 'Nisi', matrix: 'Untested', word: 'NOT MEASURED', detail: 'Nisi was not in this sample.', evidence: 'components.nisi'};
+  }
+  if (nisi.state === 'needs-action') {
+    return {
+      id: 'nisi', label: 'Nisi', matrix: 'Blocked', word: 'NEEDS ACTION',
+      detail: text(nisi.detail) || 'Nisi needs action. That is not running and not a pass.',
+      evidence: 'components.nisi.state',
+    };
+  }
+  return {
+    id: 'nisi', label: 'Nisi', matrix: 'Observed', word: String(nisi.state || 'unknown').toUpperCase(),
+    detail: `${text(nisi.detail) || 'Nisi state is in the sample.'} This is not running proof and not a pass.`,
+    evidence: 'components.nisi.state',
+  };
+}
+
+function jevReading(monitor) {
+  const slots = Array.isArray(monitor.analyses) ? monitor.analyses : [];
+  const gate = jevGate(slots);
+  const pre = slots.find(slot => slot.tool === 'jev' && slot.phase === 'pre');
+  const post = slots.find(slot => slot.tool === 'jev' && slot.phase === 'post');
+  const evidence = `pre attempt ${pre?.attemptId || 'not reported'} · post attempt ${post?.attemptId || 'not reported'}`;
+  if (!slots.length) {
+    return {id: 'jev', label: 'Jev correlation', matrix: 'Untested', word: 'NO ATTEMPT', detail: 'No run or attempt to attach.', evidence};
+  }
+  if (gate.open) {
+    return {id: 'jev', label: 'Jev correlation', matrix: 'Observed', word: 'GATE OPEN', detail: 'Both phases are passed with provenance and verdict PASS.', evidence};
+  }
+  return {id: 'jev', label: 'Jev correlation', matrix: 'Blocked', word: 'GATE BLOCKED', detail: gate.blocker, evidence};
+}
+
+const ACCEPTANCE_ROW = {
+  id: 'acceptance',
+  label: 'Acceptance',
+  matrix: 'Blocked',
+  word: 'BLOCKED',
+  detail: 'Not established. Mac Jev POST 09:17 was 0/4 flags, exit 0, not PASS. PC Jev POST 09:17 and 03:29 remain ROLLBACK. STATUS OK and COMPLETED are not PASS.',
+  evidence: 'jaryo-codex0917-mac-20261106-092057; jaryo-codex0917-pc-20261106-092121; jaryo-auth0329-pc-20261106-033057',
+};
+
+export function evidenceFor(snapshot, monitor, options = {}) {
+  const process = processReading(snapshot, monitor, options);
+  const lane = laneReading(snapshot);
+  const attachment = attachmentReading(snapshot, monitor);
+  return {
+    badges: {process: process.word, lane: lane.word, attachment: attachment.word},
+    rows: [
+      {id: 'process', label: 'Process liveness', word: process.word, matrix: process.matrix, detail: process.detail, evidence: 'snapshot feed'},
+      {id: 'lane', label: 'Lane readiness', word: lane.word, matrix: lane.matrix, detail: lane.detail, evidence: 'lane model versus served model'},
+      {id: 'attach', label: 'Run attached', word: attachment.word, matrix: attachment.matrix, detail: attachment.detail, evidence: monitor.workload?.id || monitor.id},
+      nisiReading(snapshot),
+      jevReading(monitor),
+      {...ACCEPTANCE_ROW},
+    ],
+  };
+}
+
+function withEvidence(snapshot, monitors, options) {
+  return monitors.map(item => ({...item, evidence: evidenceFor(snapshot, item, options)}));
+}
+
+export function mapEvidence(source, {feedUnavailable = false, fictional = false} = {}) {
+  const nodes = Array.isArray(source?.nodes) ? source.nodes : [];
+  const process = feedUnavailable || !source
+    ? {word: 'UNKNOWN', matrix: 'Untested', detail: 'Map feed has no sample.'}
+    : fictional
+      ? {word: 'FICTIONAL', matrix: 'Observed', detail: 'Fictional map. Not a live process.'}
+      : {word: 'SAMPLE', matrix: 'Observed', detail: 'Map sample is present. Node health is not lane readiness or a run.'};
+  const named = nodes.some(node => node && (node.modelId || node.model));
+  const lane = named
+    ? {word: 'INVENTORY', matrix: 'Observed', detail: 'A model id on the map is inventory. It is not readiness. Tokens per second are not readiness.'}
+    : {word: 'NOT MEASURED', matrix: 'Untested', detail: 'No served-model readiness is on this map.'};
+  const attachment = {word: 'NO RUN', matrix: 'Untested', detail: 'The map does not attach a run or attempt.'};
+  return {
+    badges: {process: process.word, lane: lane.word, attachment: attachment.word},
+    rows: [
+      {id: 'process', label: 'Process liveness', ...process, evidence: 'inference map sample'},
+      {id: 'lane', label: 'Lane readiness', ...lane, evidence: 'node model id'},
+      {id: 'attach', label: 'Run attached', ...attachment, evidence: 'map has no attempt id'},
+      {...ACCEPTANCE_ROW},
+    ],
+  };
+}
+
 export function deriveMonitors(snapshot, options = {}) {
   if (!snapshot || snapshot.schemaVersion !== 1) {
-    return [overview([], null, options)];
+    const only = overview([], null, options);
+    return withEvidence(null, [only], options);
   }
   const children = [];
   if (wantsMac(snapshot)) children.push(macMonitor(snapshot, options));
@@ -695,7 +854,7 @@ export function deriveMonitors(snapshot, options = {}) {
     }
   }
   children.push(...sessionMonitors(snapshot, options));
-  return [overview(children, snapshot, options), ...children];
+  return withEvidence(snapshot, [overview(children, snapshot, options), ...children], options);
 }
 
 function observationKey(monitor) {
@@ -750,7 +909,17 @@ function retainSession(previous) {
     ? {status: previous.status, glyph: previous.glyph, word: previous.word,
       reason: 'No longer in the latest sample. Retained until dismissed. Last evidenced state kept.'}
     : presentation('disconnected', 'No longer in the latest sample. Retained until dismissed.');
-  return {...previous, ...face, retained: true, workload: previous.workload ? {...previous.workload, retained: true} : null};
+  const retained = {...previous, ...face, retained: true, workload: previous.workload ? {...previous.workload, retained: true} : null};
+  if (retained.evidence) {
+    retained.evidence = {
+      ...retained.evidence,
+      badges: {...retained.evidence.badges, process: face.word},
+      rows: retained.evidence.rows.map(row => row.id === 'process'
+        ? {...row, word: face.word, matrix: 'Observed', detail: face.reason}
+        : row),
+    };
+  }
+  return retained;
 }
 
 export function createMonitorDesk() {

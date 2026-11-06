@@ -55,7 +55,29 @@ ASSETS = {'/': ('index.html', 'text/html; charset=utf-8'),
           '/monitor-board.mjs': ('monitor-board.mjs', 'text/javascript; charset=utf-8'),
           '/monitor-map.mjs': ('monitor-map.mjs', 'text/javascript; charset=utf-8'),
           '/jaryo.css': ('jaryo.css', 'text/css; charset=utf-8'),
-          '/jaryo.mjs': ('jaryo.mjs', 'text/javascript; charset=utf-8')}
+          '/jaryo.mjs': ('jaryo.mjs', 'text/javascript; charset=utf-8'),
+          '/identity': ('identity.html', 'text/html; charset=utf-8'),
+          '/identity.mjs': ('identity.mjs', 'text/javascript; charset=utf-8')}
+
+JARYO_FILES = {
+    '/jaryo/tokens.json': ('tokens.json', 'application/json'),
+    '/jaryo/theme.mjs': ('theme.mjs', 'text/javascript; charset=utf-8'),
+    '/jaryo/primitives.css': ('primitives.css', 'text/css; charset=utf-8'),
+    '/jaryo/marks/d1-stamp.svg': ('marks/d1-stamp.svg', 'image/svg+xml'),
+    '/jaryo/marks/d2-ledger.svg': ('marks/d2-ledger.svg', 'image/svg+xml'),
+    '/jaryo/marks/d3-schematic.svg': ('marks/d3-schematic.svg', 'image/svg+xml'),
+    '/jaryo/marks/d4-split.svg': ('marks/d4-split.svg', 'image/svg+xml'),
+    '/jaryo/marks/d5-signal.svg': ('marks/d5-signal.svg', 'image/svg+xml'),
+    '/jaryo/marks/favicon.svg': ('marks/favicon.svg', 'image/svg+xml'),
+}
+
+
+def jaryo_root():
+    here = Path(__file__).resolve().parent
+    for candidate in (here / 'jaryo', here.parent / 'jaryo', here.parent.parent / 'jaryo'):
+        if (candidate / 'tokens.json').is_file():
+            return candidate
+    return here / 'jaryo'
 ACTIVE = {'generating', 'busy'}
 # The fast path may overlay a full sample only while that sample is this recent (seconds).
 FULL_SAMPLE_MAX_AGE = 3.0
@@ -551,6 +573,12 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(200, json.dumps(self.server.action_diagnosis or self.server.online_code_repair.read()).encode(),
                               'application/json')
         asset = ASSETS.get(path)
+        shared = JARYO_FILES.get(path)
+        if shared is not None:
+            try:
+                return self.reply(200, (jaryo_root() / shared[0]).read_bytes(), shared[1])
+            except OSError:
+                return self.reply(404, b'Not found', 'text/plain')
         if path == '/usage-format.mjs':
             try:
                 return self.reply(200, (ROOT.parent / 'usage-format.mjs').read_bytes(), 'text/javascript; charset=utf-8')

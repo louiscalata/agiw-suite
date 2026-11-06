@@ -36,6 +36,10 @@ resources=(
     web/map-layout.mjs web/model-control-view.mjs web/style.css
     inference_collect.py inference_stats.py pc_tunnel.py web/monitor.html web/monitor.mjs web/monitor.css
     web/monitor-tabs.mjs web/monitor-board.mjs web/monitor-map.mjs web/jaryo.css web/jaryo.mjs
+    web/identity.html web/identity.mjs
+    jaryo/tokens.json jaryo/theme.mjs jaryo/primitives.css jaryo/README.md
+    jaryo/marks/d1-stamp.svg jaryo/marks/d2-ledger.svg jaryo/marks/d3-schematic.svg
+    jaryo/marks/d4-split.svg jaryo/marks/d5-signal.svg jaryo/marks/favicon.svg
     bundle_nisi.py bundled_components.py jev_connection.py web/components.html web/components.js web/components.css
 )
 legal_files=(LICENSE NOTICE)
@@ -142,6 +146,7 @@ xcrun swiftc -O -target "$arch-apple-macosx13.0" -framework Cocoa -framework Sec
     "$input_dir/JevKeychain.swift" -o "$stage_app/Contents/MacOS/JevKeychain"
 cp "$input_dir/Info.plist" "$stage_app/Contents/Info.plist"
 for resource in "${resources[@]}"; do
+    mkdir -p "$stage_app/Contents/Resources/$(dirname "$resource")"
     cp "$input_dir/$resource" "$stage_app/Contents/Resources/$resource"
 done
 for legal_file in "${legal_files[@]}"; do

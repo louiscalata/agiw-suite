@@ -1,54 +1,28 @@
-/* Jaryo draft tokens. Graphite is the working default. Paper and mono are alternates.
-   Copper from the narrow-journey study is not a token here.
-   Status is glyph + word. Identity tags are text. Hue is not a status channel. */
+/* AGIW applies the shared Jaryo primitives. Black and white only.
+   Status is glyph + word. Selected is invert. Focus is a dashed ring. */
+@import url("/jaryo/primitives.css");
 
 :root {
-  color-scheme: dark;
-  --j-bg: #101418;
-  --j-surface: #171d22;
-  --j-surface-2: #101418;
-  --j-text: #f4f1ea;
-  --j-muted: #a3adb4;
-  --j-border: #3c474e;
-  --j-focus: #e4d7a4;
-  --j-identity: #8fb4c4;
-  --j-invert: #f4f1ea;
-  --j-invert-ink: #101418;
-  --j-grid: #243038;
-  --j-font: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
-}
-
-html[data-theme="paper"] {
-  color-scheme: light;
-  --j-bg: #f3efe4;
-  --j-surface: #faf7f0;
-  --j-surface-2: #e7e1d4;
-  --j-text: #1a1814;
-  --j-muted: #5c564c;
-  --j-border: #1a1814;
-  --j-focus: #1a1814;
-  --j-identity: #1a1814;
-  --j-invert: #1a1814;
-  --j-invert-ink: #faf7f0;
-  --j-grid: #d9d3c6;
-}
-
-html[data-theme="mono"] {
-  color-scheme: dark;
-  --j-bg: #000000;
-  --j-surface: #000000;
-  --j-surface-2: #000000;
-  --j-text: #ffffff;
-  --j-muted: #c8c8c8;
-  --j-border: #ffffff;
-  --j-focus: #ffffff;
-  --j-identity: #ffffff;
-  --j-invert: #ffffff;
-  --j-invert-ink: #000000;
-  --j-grid: #2a2a2a;
+  --j-muted: var(--j-text);
+  --j-identity: var(--j-text);
+  --j-surface-2: var(--j-bg);
 }
 
 body.jaryo-app {
+  --paper: var(--j-bg);
+  --panel: var(--j-bg);
+  --ink: var(--j-text);
+  --muted: var(--j-text);
+  --line: var(--j-border);
+  --wash: transparent;
+  --orange: var(--j-text);
+  --blue: var(--j-text);
+  --green: var(--j-text);
+  --violet: var(--j-text);
+  --red: var(--j-text);
+  --shadow: none;
+  --portfolio-rule: var(--j-border);
+  --portfolio-soft: var(--j-text);
   background: var(--j-bg);
   color: var(--j-text);
   font-family: var(--j-font);
@@ -133,6 +107,101 @@ body.jaryo-app .graph-region {
   background-size: 24px 24px;
 }
 
+body.jaryo-app .graph-region::before,
+body.jaryo-app .node .halo,
+body.jaryo-app .node .core,
+body.jaryo-app .node.hub .core,
+body.jaryo-app .node.model.loaded .core,
+body.jaryo-app .node.client .core {
+  filter: none;
+}
+
+body.jaryo-app a,
+body.jaryo-app h1 em,
+body.jaryo-app .sidebar h1 em,
+body.jaryo-app .connection.live,
+body.jaryo-app .client-summary strong,
+body.jaryo-app .host-rejected,
+body.jaryo-app .review-warning,
+body.jaryo-app .cluster-label,
+body.jaryo-app .legend .agent-color {
+  color: var(--j-text);
+  background-color: transparent;
+  box-shadow: none;
+}
+
+body.jaryo-app .node .core { fill: var(--j-text); stroke: var(--j-bg); }
+body.jaryo-app .node.unknown .core,
+body.jaryo-app .node.not_measured .core { fill: transparent; stroke: var(--j-text); }
+body.jaryo-app .node .halo,
+body.jaryo-app .node .ring,
+body.jaryo-app .edge,
+body.jaryo-app .node .label,
+body.jaryo-app .node .sub,
+body.jaryo-app .cluster-label { stroke: var(--j-text); fill: var(--j-text); }
+body.jaryo-app .node .halo,
+body.jaryo-app .node .ring,
+body.jaryo-app .edge { fill: none; }
+
+body.jaryo-app .topbar,
+body.jaryo-app .j-top,
+body.jaryo-app .j-nav,
+body.jaryo-app .j-chrome,
+body.jaryo-app .sidebar,
+body.jaryo-app .client-summary,
+body.jaryo-app .auto-unload-control,
+body.jaryo-app .j-page,
+body.jaryo-app .j-page section,
+body.jaryo-app .j-page h1,
+body.jaryo-app .j-page h2,
+body.jaryo-app .j-page h2 span,
+body.jaryo-app .j-page p,
+body.jaryo-app .j-page dt,
+body.jaryo-app .j-page dd,
+body.jaryo-app .j-page .eyebrow {
+  background-color: var(--j-bg);
+  color: var(--j-text);
+}
+
+body.jaryo-app .topbar {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  height: auto !important;
+  min-height: max-content;
+  overflow: visible;
+  position: relative;
+  z-index: 6;
+}
+
+body.jaryo-app .vital,
+body.jaryo-app .map-controls,
+body.jaryo-app .legend,
+body.jaryo-app .mode-tab,
+body.jaryo-app .fix-tab,
+body.jaryo-app .pc-switch,
+body.jaryo-app .tools button,
+body.jaryo-app .connection {
+  background: var(--j-bg);
+  color: var(--j-text);
+  border-color: var(--j-border);
+  box-shadow: none;
+}
+
+body.jaryo-app .brand { flex: 1 1 auto; }
+body.jaryo-app .tools { margin-left: auto; position: static; }
+body.jaryo-app .j-nav { flex: 1 0 100%; }
+
+@media (min-width: 980px) {
+  body.jaryo-app .sidebar {
+    position: relative;
+    transform: none;
+    inset: auto;
+  }
+}
+
 body.jaryo-app .sidebar,
 body.jaryo-app .drawer,
 body.jaryo-app .mode-details,
@@ -158,6 +227,8 @@ body.jaryo-app .tiny-dot {
   border-radius: 0;
   box-shadow: none;
 }
+
+.j-chrome, .j-nav, .j-top { min-width: 0; max-width: 100%; }
 
 .j-chrome {
   display: flex;
@@ -252,6 +323,7 @@ body.jaryo-app .tiny-dot {
 
 .j-word { letter-spacing: .04em; }
 .j-glyph { min-width: 1ch; }
+.j-tab-label { max-width: 12rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .j-demo {
   margin: 0;
@@ -263,17 +335,18 @@ body.jaryo-app .tiny-dot {
 }
 
 .j-board {
-  position: absolute;
-  z-index: 6;
-  left: 12px;
-  right: 12px;
-  bottom: 76px;
-  max-height: min(38%, 360px);
+  position: relative;
+  z-index: 5;
+  left: auto;
+  right: auto;
+  bottom: auto;
+  max-height: none;
   overflow: auto;
   background: var(--j-surface);
   color: var(--j-text);
   border: 1px solid var(--j-border);
   padding: 12px 14px 16px;
+  min-width: 0;
 }
 
 .j-board-head { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: baseline; }
@@ -406,8 +479,167 @@ body.jaryo-app .node.is-outside-monitor { opacity: .28; }
 .j-map .node.degraded circle { fill: none; stroke: var(--j-text); stroke-width: 2; }
 .j-map .node.is-outside-monitor { opacity: .28; }
 
+body.jaryo-app .brand-monogram {
+  border-radius: 0;
+  border: 1px solid var(--j-text);
+  background: var(--j-text);
+  box-shadow: none;
+  text-shadow: none;
+  color: transparent;
+  font-size: 0;
+  -webkit-mask: url("/jaryo/marks/d1-stamp.svg") center / 72% 72% no-repeat;
+  mask: url("/jaryo/marks/d1-stamp.svg") center / 72% 72% no-repeat;
+}
+
+.j-appmark {
+  width: 36px;
+  height: 36px;
+  flex: none;
+  display: inline-block;
+  background: var(--j-text);
+  -webkit-mask: url("/jaryo/marks/d1-stamp.svg") center / contain no-repeat;
+  mask: url("/jaryo/marks/d1-stamp.svg") center / contain no-repeat;
+}
+
+.j-provisional {
+  margin: 0 0 16px;
+  padding: 8px 10px;
+  border: 3px double var(--j-text);
+  background-image: repeating-linear-gradient(-45deg, transparent 0 6px, var(--j-border) 6px 7px);
+}
+
+.j-evidence summary {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.j-schematic {
+  margin: 8px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--j-border);
+  background-color: var(--j-bg);
+  color: var(--j-text);
+  font: 12px/1.45 var(--j-font);
+  white-space: pre;
+  overflow: auto;
+  max-width: 100%;
+}
+
+.j-matrix-observed { border-style: solid; }
+.j-matrix-untested { border-style: dashed; }
+.j-matrix-blocked {
+  border: 3px double var(--j-text);
+  background-image: repeating-linear-gradient(-45deg, transparent 0 6px, var(--j-border) 6px 7px);
+}
+
+.j-id-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  min-width: 0;
+}
+
+.j-id-card {
+  min-width: 0;
+  border: 1px solid var(--j-border);
+  background: var(--j-surface);
+  padding: 10px;
+}
+
+.j-id-card h2 { margin: 0 0 8px; font-size: 14px; }
+.j-plates { display: grid; gap: 8px; }
+.j-plate {
+  position: relative;
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  min-height: 64px;
+  padding: 8px;
+  border: 1px solid currentColor;
+  overflow: hidden;
+}
+.j-plate svg { width: 48px; height: 48px; display: block; }
+.j-plate-dark { color: #ffffff; background: #000000; }
+.j-plate-light { color: #000000; background: #ffffff; }
+.j-plate { transition: transform var(--j-motion, 240ms) linear; }
+.j-plate-narrow {
+  grid-template-columns: 32px;
+  width: 48px;
+  min-height: 48px;
+  color: var(--j-text);
+  background: var(--j-bg);
+}
+.j-plate-narrow svg { width: 32px; height: 32px; }
+.j-plate-narrow .j-lockup { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.j-lockup { font-weight: 650; letter-spacing: .14em; overflow-wrap: anywhere; }
+
+body.jaryo-app .j-page .logo {
+  border-radius: 0;
+  box-shadow: none;
+  text-shadow: none;
+  border: 1px solid var(--j-text);
+  width: 64px;
+  height: 64px;
+}
+
+body.jaryo-app .graph-region {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(160px, 1fr);
+  min-width: 0;
+}
+body.jaryo-app .graph-region:has(#monitorBoard:not([hidden])) {
+  grid-template-rows: minmax(180px, 1fr) minmax(148px, 34vh);
+}
+body.jaryo-app .graph-region > #map {
+  grid-row: 1;
+  grid-column: 1;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+body.jaryo-app .graph-region > .vitals,
+body.jaryo-app .graph-region > #memoryBanner,
+body.jaryo-app .graph-region > .map-controls,
+body.jaryo-app .graph-region > #mapLegend,
+body.jaryo-app .graph-region > #emptyMap,
+body.jaryo-app .graph-region > #sidebarToggle {
+  grid-row: 1;
+  grid-column: 1;
+}
+body.jaryo-app #monitorBoard.j-board {
+  position: relative;
+  left: auto;
+  right: auto;
+  bottom: auto;
+  grid-row: 2;
+  grid-column: 1;
+  max-height: none;
+  height: 100%;
+  min-height: 0;
+  margin: 0;
+  z-index: 5;
+}
+
 @media (max-width: 800px) {
-  .j-board { left: 8px; right: 8px; bottom: 12px; max-height: 48%; }
+  html:has(body.jaryo-app) { height: auto; overflow-x: hidden; overflow-y: auto; }
+  body.jaryo-app { height: auto; min-height: 100%; overflow-x: hidden; overflow-y: auto; }
+  body.jaryo-app main { height: auto !important; min-height: 70vh; overflow: visible; }
+  body.jaryo-app .graph-region {
+    position: relative !important;
+    inset: auto !important;
+    height: auto;
+    min-height: 560px;
+    overflow: visible;
+  }
+  body.jaryo-app .graph-region:has(#monitorBoard:not([hidden])) {
+    grid-template-rows: minmax(240px, 48vh) auto;
+  }
+  body.jaryo-app #monitorBoard.j-board { height: auto; max-height: none; overflow: visible; }
+  .j-id-grid { grid-template-columns: 1fr; }
   .j-map { grid-template-columns: 1fr; }
   .j-map #detail { border-left: 0; border-top: 1px solid var(--j-border); }
   .j-theme { margin-left: 0; }

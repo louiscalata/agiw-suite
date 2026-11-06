@@ -3,28 +3,31 @@
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Components · AGIW Suite</title>
+<link rel="icon" href="/jaryo/marks/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/components.css">
 <link rel="stylesheet" href="/jaryo.css">
 <script type="module" src="/components.js"></script>
 <script src="/jaryo.mjs" type="module"></script>
 </head>
 <body class="jaryo-app"><header class="j-top">
-<div class="j-brand"><strong>AGIW</strong><span>Inference Monitor</span><small class="j-draft">Jaryo draft</small></div>
+<div class="j-brand"><span class="j-appmark" role="img" aria-label="Provisional AGIW mark, D1 Stamp"></span><strong>AGIW</strong><span>Inference Monitor</span><small class="j-draft">D1 provisional</small></div>
 <nav class="j-nav" aria-label="Inference Monitor">
 <a href="/">Overview</a>
 <a href="/monitor">Map</a>
 <a href="/components" aria-current="page">Components</a>
-<label class="j-theme">Surface
-<select id="jaryoTheme" aria-label="Surface">
-<option value="graphite">Graphite</option>
-<option value="paper">Paper</option>
-<option value="mono">Mono</option>
+<a href="/identity">Identity</a>
+<label class="j-theme">Theme
+<select id="jaryoTheme" aria-label="Theme">
+<option value="system">System</option>
+<option value="light">Light</option>
+<option value="dark">Dark</option>
 </select>
 </label>
 </nav>
 </header><main class="j-page">
 <a class="back" href="/">← Overview</a>
-<header><span class="logo" aria-hidden="true">AS</span><div><p class="eyebrow">AGIW SUITE</p><h1>Your workflow components.</h1><p>Included tools, clear requirements, and optional connections.</p></div></header>
+<p class="j-provisional">PROVISIONAL · D1 Stamp is the working mark. It is not a selected identity.</p>
+<header><span class="logo j-appmark" role="img" aria-label="Provisional AGIW mark, D1 Stamp"></span><div><p class="eyebrow">AGIW SUITE</p><h1>Your workflow components.</h1><p>Included tools, clear requirements, and optional connections. Package checks and the optional Jev connection are unchanged.</p></div></header>
 <section aria-labelledby="nisiHeading">
 <p class="eyebrow">INCLUDED BY DEFAULT</p><h2 id="nisiHeading">Nisi <span>v0.2.0</span></h2>
 <p>The public Apache-2.0 workflow engine, journal, and CLI are included with this edition of AGIW. Nisi coordinates work; it does not load an extra model into memory.</p>

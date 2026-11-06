@@ -1,0 +1,71 @@
+/* Framework-neutral Jaryo primitives for AGIW. Black and white only.
+   OPOS and Nisi can consume this folder later. Do not fork a second palette. */
+
+:root {
+  color-scheme: dark;
+  --j-bg: #000000;
+  --j-surface: #000000;
+  --j-text: #ffffff;
+  --j-border: #ffffff;
+  --j-focus: #ffffff;
+  --j-invert: #ffffff;
+  --j-invert-ink: #000000;
+  --j-grid: rgb(255 255 255 / 0.16);
+  --j-font: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+  --j-motion: 240ms;
+}
+
+@media (prefers-color-scheme: light) {
+  html:not([data-theme="dark"]) {
+    color-scheme: light;
+    --j-bg: #ffffff;
+    --j-surface: #ffffff;
+    --j-text: #000000;
+    --j-border: #000000;
+    --j-focus: #000000;
+    --j-invert: #000000;
+    --j-invert-ink: #ffffff;
+    --j-grid: rgb(0 0 0 / 0.16);
+  }
+}
+
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --j-bg: #000000;
+  --j-surface: #000000;
+  --j-text: #ffffff;
+  --j-border: #ffffff;
+  --j-focus: #ffffff;
+  --j-invert: #ffffff;
+  --j-invert-ink: #000000;
+  --j-grid: rgb(255 255 255 / 0.16);
+}
+
+html[data-theme="light"] {
+  color-scheme: light;
+  --j-bg: #ffffff;
+  --j-surface: #ffffff;
+  --j-text: #000000;
+  --j-border: #000000;
+  --j-focus: #000000;
+  --j-invert: #000000;
+  --j-invert-ink: #ffffff;
+  --j-grid: rgb(0 0 0 / 0.16);
+}
+
+@keyframes j-rule-travel {
+  from { background-position: 0 100%; }
+  to { background-position: 28px 100%; }
+}
+
+.j-schematic {
+  background-image: linear-gradient(90deg, currentColor 0 8px, transparent 8px 14px);
+  background-size: 28px 2px;
+  background-repeat: repeat-x;
+  background-position: 0 100%;
+  animation: j-rule-travel 2.8s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .j-schematic { animation: none; }
+}

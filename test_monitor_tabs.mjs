@@ -1,9 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
+import {resolveTheme} from './jaryo/theme.mjs';
 import {
   DEMO_BANNER, analysisSlots, createMonitorDesk, demoSnapshot, deriveMonitors, healthPresentation,
-  initialMonitorId, jevGate, mapMonitors, moveMonitorTab, nextTabFocus, nodeInMonitor,
+  evidenceFor, initialMonitorId, jevGate, mapEvidence, mapMonitors, moveMonitorTab, nextTabFocus, nodeInMonitor,
 } from './web/monitor-tabs.mjs';
 
 const read = name => readFileSync(new URL(name, import.meta.url), 'utf8');
@@ -446,4 +447,77 @@ test('the demo fixture is labeled fictional and the painter does not inject mark
   const select = app.slice(app.indexOf('function selectMonitor'), app.indexOf('function bindMonitorTabs'));
   assert.doesNotMatch(select, /paused\s*=|fetch\(|requestOnlineCode|requestModel|requestAutoUnload/);
   assert.match(app, /Switching monitors only changes this view|selectMonitor/);
+});
+
+test('liveness, readiness, and attachment stay separate and acceptance stays blocked', () => {
+  const empty = deriveMonitors(null, {feedFresh: true})[0];
+  assert.equal(empty.evidence.rows.find(row => row.id === 'process').matrix, 'Untested');
+  assert.equal(empty.evidence.rows.find(row => row.id === 'lane').word, 'NOT MEASURED');
+  assert.equal(empty.evidence.badges.attachment, 'NO RUN');
+  assert.equal(empty.evidence.rows.find(row => row.id === 'acceptance').matrix, 'Blocked');
+  assert.equal(empty.evidence.rows.some(row => row.id === 'acceptance' && row.matrix === 'Observed'), false);
+
+  const demo = byId(deriveMonitors(demoSnapshot(), {feedFresh: true, fictional: true}), 'all');
+  assert.equal(demo.evidence.badges.process, 'RUNNING');
+  assert.equal(demo.evidence.badges.lane, 'NOT READY');
+  assert.match(demo.evidence.rows.find(row => row.id === 'lane').detail, /not readiness/);
+  assert.equal(demo.evidence.rows.find(row => row.id === 'acceptance').matrix, 'Blocked');
+  assert.match(demo.evidence.rows.find(row => row.id === 'acceptance').detail, /0\/4 flags/);
+  assert.match(demo.evidence.rows.find(row => row.id === 'acceptance').detail, /ROLLBACK/);
+
+  const mismatch = demoSnapshot();
+  mismatch.windowsWorker.lanes.fast.servedModel = 'other-model';
+  mismatch.windowsWorker.lanes.fast.activityKnown = true;
+  assert.equal(byId(deriveMonitors(mismatch, {feedFresh: true, fictional: true}), 'machine:pc').evidence.badges.lane, 'MISMATCH');
+
+  const blocked = demoSnapshot();
+  blocked.pipeline.status = 'idle';
+  blocked.pipeline.pipelines = [];
+  blocked.windowsJobs = {inFlight: [], liveAvailable: false};
+  blocked.components = [{id: 'nisi', state: 'needs-action', detail: 'Install evidence INVALID.'}];
+  const nisi = byId(deriveMonitors(blocked, {feedFresh: true, fictional: true}), 'route:nisi');
+  assert.equal(nisi.word, 'BLOCKED');
+  assert.equal(nisi.evidence.rows.find(row => row.id === 'nisi').word, 'NEEDS ACTION');
+  assert.equal(nisi.evidence.rows.find(row => row.id === 'nisi').matrix, 'Blocked');
+  assert.notEqual(nisi.word, 'RUNNING');
+
+  const map = mapEvidence({nodes: [{id: 'mac:lmstudio', modelId: 'example-local', health: 'ok'}]}, {fictional: false});
+  assert.equal(map.badges.lane, 'INVENTORY');
+  assert.equal(map.badges.attachment, 'NO RUN');
+  assert.equal(map.rows.find(row => row.id === 'acceptance').matrix, 'Blocked');
+  assert.equal(evidenceFor(null, {id: 'x', kind: 'machine', word: 'UNKNOWN', analyses: []}).rows.find(row => row.id === 'acceptance').matrix, 'Blocked');
+});
+
+test('provisional identity is unlabeled as a choice and the board no longer covers the map', () => {
+  const tokens = read('./jaryo/tokens.json');
+  assert.match(tokens, /"appliedChoiceFile": null/);
+  assert.match(tokens, /"chosenFamilyIds": \{\}/);
+  assert.match(tokens, /"logoSelection": null/);
+  assert.match(tokens, /"surface": "black-white"/);
+  assert.doesNotMatch(tokens, /Downloads|curated-85|F17\.01/);
+  const page = read('./web/identity.html');
+  const gallery = read('./web/identity.mjs');
+  assert.match(page, /not a selected identity/);
+  assert.match(page, /does not change the running monitor/);
+  assert.match(gallery, /D1 Stamp/);
+  assert.match(gallery, /D2 Ledger/);
+  assert.match(gallery, /D3 Schematic/);
+  assert.match(gallery, /D4 Split/);
+  assert.match(gallery, /D5 Signal/);
+  assert.match(gallery, /does not write a choice/);
+  const marks = ['d1-stamp', 'd2-ledger', 'd3-schematic', 'd4-split', 'd5-signal'].map(name => read(`./jaryo/marks/${name}.svg`));
+  assert.equal(new Set(marks).size, marks.length);
+  for (const mark of marks) assert.match(mark, /currentColor/);
+  const css = read('./web/jaryo.css');
+  assert.match(css, /#monitorBoard\.j-board \{\s*position: relative;/);
+  assert.doesNotMatch(css, /\.j-board \{\s*position: absolute/);
+  assert.equal(resolveTheme('system', true).resolved, 'light');
+  assert.equal(resolveTheme('system', false).resolved, 'dark');
+  assert.equal(resolveTheme('light', false).resolved, 'light');
+  assert.equal(resolveTheme('graphite', true).mode, 'system');
+  assert.match(read('./web/index.html'), /value="system"/);
+  assert.doesNotMatch(read('./web/index.html'), /value="graphite"/);
+  assert.match(read('./web/index.html'), /href="\/identity"/);
+  assert.match(read('./web/monitor.html'), /href="\/identity"/);
+  assert.match(read('./web/components.html'), /href="\/identity"/);
 });

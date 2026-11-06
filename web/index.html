@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>AGIW Suite · Inference Monitor</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect x='2' y='2' width='60' height='60' rx='13' fill='%23000000' stroke='%23b8d9ff' stroke-width='2'/%3E%3Ctext x='32' y='39' text-anchor='middle' fill='%23ffffff' font-family='Arial,sans-serif' font-size='23' font-weight='700'%3EAS%3C/text%3E%3C/svg%3E">
+<link rel="icon" href="/jaryo/marks/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/style.css">
 <link rel="stylesheet" href="/jaryo.css">
 <script src="/app.js" type="module"></script>
@@ -12,22 +12,23 @@
 <body class="jaryo-app">
 <header class="topbar">
 <div class="brand" role="group" aria-label="AGIW Suite Inference Monitor"><span class="brand-monogram" aria-hidden="true">AS</span><span class="brand-wordmark"><strong>AGIW Suite</strong><small>Inference Monitor</small></span></div>
-<div class="tools"><button id="onlineCodeMode" class="mode-tab unknown" aria-expanded="false" aria-controls="onlineCodeDetails" type="button"><i aria-hidden="true"></i><span class="mode-tab-copy"><strong>Check readiness</strong><small id="onlineCodeLabel">Mode · Unknown/unbound</small></span></button><button id="pcSwitch" class="pc-switch unknown" role="switch" aria-label="PC LLM" aria-checked="false" type="button" hidden><span class="pc-switch-track" aria-hidden="true"><i></i></span><span class="pc-switch-copy"><strong>PC LLM</strong><small id="pcSwitchLabel">Unknown</small></span></button><button id="fixInference" class="fix-tab" aria-expanded="false" aria-controls="fixInferenceDetails" type="button" title="Run inference repair and show progress"><span class="fix-tab-symbol" aria-hidden="true">✦</span><span class="fix-tab-long">Fix inference</span><span class="fix-tab-short">Fix</span></button><span id="connection" class="connection">CONNECTING</span><button id="pause" aria-pressed="false">Pause</button><button id="expand" aria-label="Open dashboard window" title="Open dashboard window">↗</button><button id="quit" aria-label="Quit monitor" title="Quit monitor">×</button></div>
-</header>
-<div class="j-chrome">
 <nav class="j-nav" aria-label="Inference Monitor">
 <a href="/" aria-current="page">Overview</a>
 <a href="/monitor">Map</a>
 <a href="/components">Components</a>
-<span class="j-draft">Jaryo draft</span>
-<label class="j-theme">Surface
-<select id="jaryoTheme" aria-label="Surface">
-<option value="graphite">Graphite</option>
-<option value="paper">Paper</option>
-<option value="mono">Mono</option>
+<a href="/identity">Identity</a>
+<span class="j-draft">D1 provisional</span>
+<label class="j-theme">Theme
+<select id="jaryoTheme" aria-label="Theme">
+<option value="system">System</option>
+<option value="light">Light</option>
+<option value="dark">Dark</option>
 </select>
 </label>
 </nav>
+<div class="tools"><button id="onlineCodeMode" class="mode-tab unknown" aria-expanded="false" aria-controls="onlineCodeDetails" type="button"><i aria-hidden="true"></i><span class="mode-tab-copy"><strong>Check readiness</strong><small id="onlineCodeLabel">Mode · Unknown/unbound</small></span></button><button id="pcSwitch" class="pc-switch unknown" role="switch" aria-label="PC LLM" aria-checked="false" type="button" hidden><span class="pc-switch-track" aria-hidden="true"><i></i></span><span class="pc-switch-copy"><strong>PC LLM</strong><small id="pcSwitchLabel">Unknown</small></span></button><button id="fixInference" class="fix-tab" aria-expanded="false" aria-controls="fixInferenceDetails" type="button" title="Run inference repair and show progress"><span class="fix-tab-symbol" aria-hidden="true">✦</span><span class="fix-tab-long">Fix inference</span><span class="fix-tab-short">Fix</span></button><span id="connection" class="connection">CONNECTING</span><button id="pause" aria-pressed="false">Pause</button><button id="expand" aria-label="Open dashboard window" title="Open dashboard window">↗</button><button id="quit" aria-label="Quit monitor" title="Quit monitor">×</button></div>
+</header>
+<div class="j-chrome">
 <p id="jaryoDemo" class="j-demo" hidden>DEMO · fictional monitors · not a live observation</p>
 <p class="j-hint" id="monitorTabHint">Arrow keys switch monitors. Switching does not pause, cancel, or restart inference.</p>
 <div id="monitorTabs" class="j-tabs" role="tablist" aria-label="Inference monitors" aria-describedby="monitorTabHint" data-jaryo-tabs="1"></div>
