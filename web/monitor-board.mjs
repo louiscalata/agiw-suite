@@ -34,12 +34,15 @@ export function appendEvidence(parent, evidence) {
   parent.append(schematic);
   const acceptance = (evidence.rows || []).find(row => row.id === 'acceptance');
   if (acceptance) {
-    parent.append(el('p', `j-callout ${matrixClass(acceptance.matrix)}`, `${acceptance.matrix} · ${acceptance.label} · ${acceptance.word}`));
+    const line = acceptance.word === 'BLOCKED'
+      ? 'BLOCKED · Acceptance · PC POST ROLLBACK OPEN'
+      : `${acceptance.matrix} · ${acceptance.label} · ${acceptance.word}`;
+    parent.append(el('p', `j-callout ${matrixClass(acceptance.matrix)}`, line));
   }
   const details = el('details', 'j-evidence');
   const summary = el('summary', null, 'Evidence detail');
   details.append(summary);
-  details.append(el('p', 'j-note', 'Observed, Untested, and Blocked describe the evidence. Observed is not a pass. A heartbeat does not make a lane ready.'));
+  details.append(el('p', 'j-note', 'Observed, Untested, and Blocked describe the evidence. Observed is not a pass. A heartbeat does not make a lane ready. Inventory is not disconnected.'));
   const list = el('ul', 'j-steps');
   for (const row of evidence.rows || []) {
     const item = el('li', `j-step ${matrixClass(row.matrix)}`);
@@ -49,6 +52,17 @@ export function appendEvidence(parent, evidence) {
     list.append(item);
   }
   details.append(list);
+  if (Array.isArray(acceptance?.ledger)) {
+    const ledger = el('ul', 'j-steps');
+    for (const row of acceptance.ledger) {
+      const item = el('li', 'j-step j-matrix-blocked');
+      item.append(el('p', 'j-step-hit', `${row.gate} · ${row.env}`));
+      item.append(el('p', 'j-word', row.verdict));
+      item.append(el('p', 'j-step-reason', `${row.state} · ${row.time} · ${row.receipt} · ${row.next}`));
+      ledger.append(item);
+    }
+    details.append(ledger);
+  }
   parent.append(details);
 }
 

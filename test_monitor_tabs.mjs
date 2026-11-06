@@ -462,8 +462,29 @@ test('liveness, readiness, and attachment stay separate and acceptance stays blo
   assert.equal(demo.evidence.badges.lane, 'NOT READY');
   assert.match(demo.evidence.rows.find(row => row.id === 'lane').detail, /not readiness/);
   assert.equal(demo.evidence.rows.find(row => row.id === 'acceptance').matrix, 'Blocked');
-  assert.match(demo.evidence.rows.find(row => row.id === 'acceptance').detail, /0\/4 flags/);
-  assert.match(demo.evidence.rows.find(row => row.id === 'acceptance').detail, /ROLLBACK/);
+  assert.match(demo.evidence.rows.find(row => row.id === 'acceptance').detail, /1\/4 FLAG/);
+  assert.equal(demo.evidence.rows.find(row => row.id === 'acceptance').ledger.some(row => row.verdict === 'PASS'), false);
+  assert.equal(demo.evidence.rows.find(row => row.id === 'acceptance').ledger.find(row => row.gate === 'Fixture tests').next, 'Receipt verification pending');
+
+  const unknownSample = {
+    schemaVersion: 1, host: 'mac',
+    models: [],
+    clients: [{id: 'claude', label: 'Claude', model: 'claude-example', models: [{id: 'claude-example'}]}],
+    pipeline: {status: 'idle', pipelines: [], pipelinesComplete: true, steps: []},
+    components: [{id: 'nisi', state: 'ready', detail: 'No unresolved route.'}],
+  };
+  assert.equal(byId(deriveMonitors(unknownSample, {feedFresh: true}), 'all').word, 'UNKNOWN');
+  const quiet = {
+    schemaVersion: 1, host: 'mac',
+    models: [{id: 'local', host: 'mac', loaded: false, state: 'idle', ageSeconds: 1}],
+    clients: [],
+    pipeline: {status: 'idle', pipelines: [], pipelinesComplete: true, steps: []},
+    components: [{id: 'nisi', state: 'ready', detail: 'No unresolved route.'}],
+  };
+  assert.equal(byId(deriveMonitors(quiet, {feedFresh: true}), 'all').word, 'IDLE');
+  assert.equal(healthPresentation({health: 'not_measured', modelId: 'listed-model', reason: 'not_measured'}).word, 'UNKNOWN');
+  assert.equal(healthPresentation({health: 'not_measured', reason: 'tunnel_down', ageSeconds: 12}).word, 'DISCONNECTED');
+  assert.match(healthPresentation({reason: 'tunnel_down', ageSeconds: 12}).reason, /12s/);
 
   const mismatch = demoSnapshot();
   mismatch.windowsWorker.lanes.fast.servedModel = 'other-model';

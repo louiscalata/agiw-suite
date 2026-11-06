@@ -634,7 +634,12 @@ function overview(children, snapshot, options) {
   else if (options.paused === true) face = presentation('stale', 'View paused. Tab counts are not live claims.');
   else if (options.feedFresh !== true) face = presentation('stale', 'Feed is not fresh. Tab counts are not live claims.');
   else if (running) face = presentation('live', `${running} monitor${running === 1 ? '' : 's'} report running work in this sample.`);
-  else face = presentation('idle', 'No monitor reports running work in this sample.');
+  else if (children.some(item => item.status === 'blocked')) {
+    const blocked = children.find(item => item.status === 'blocked');
+    face = presentation('blocked', blocked?.reason || 'A monitor is blocked. Blocked is not idle.');
+  } else if (children.some(item => !['idle', 'ok', 'unavailable', 'recorded'].includes(item.status))) {
+    face = presentation('unknown', 'This fresh sample does not show that work is idle. Unknown is not idle.');
+  } else face = presentation('idle', 'No monitor reports running work in this fresh sample.');
   const list = snapshot ? pipelineListNote(snapshot) : {incomplete: true, note: 'No snapshot.'};
   return monitor({
     id: 'all',
@@ -781,13 +786,22 @@ function jevReading(monitor) {
   return {id: 'jev', label: 'Jev correlation', matrix: 'Blocked', word: 'GATE BLOCKED', detail: gate.blocker, evidence};
 }
 
+const ACCEPTANCE_LEDGER = [
+  {gate: 'Jev post', env: 'Mac', state: 'recorded', verdict: '0/4 flags', time: '2026-11-06 09:17 PST', receipt: 'jaryo-codex0917-mac-20261106-092057', next: 'Not PASS'},
+  {gate: 'Jev post', env: 'PC', state: 'recorded', verdict: 'ROLLBACK', time: '2026-11-06 03:29 and 09:17 PST', receipt: 'jaryo-auth0329-pc-20261106-033057', next: 'Remains open'},
+  {gate: 'Jev post', env: 'Mac Astra', state: 'recorded', verdict: '1/4 FLAG', time: '2026-11-06 11:03 PST', receipt: 'astra1103-mac-A-20261106-110643', next: 'Not PASS'},
+  {gate: 'Jev post', env: 'PC Astra', state: 'recorded', verdict: 'ROLLBACK', time: '2026-11-06 11:12 PST', receipt: 'astra1103-pc-A2-20261106-111209', next: 'Remains open'},
+  {gate: 'Fixture tests', env: 'this checkout', state: 'reported', verdict: 'not acceptance', time: 'this head', receipt: 'node test files', next: 'Receipt verification pending'},
+];
+
 const ACCEPTANCE_ROW = {
   id: 'acceptance',
   label: 'Acceptance',
   matrix: 'Blocked',
   word: 'BLOCKED',
-  detail: 'Not established. Mac Jev POST 09:17 was 0/4 flags, exit 0, not PASS. PC Jev POST 09:17 and 03:29 remain ROLLBACK. STATUS OK and COMPLETED are not PASS.',
-  evidence: 'jaryo-codex0917-mac-20261106-092057; jaryo-codex0917-pc-20261106-092121; jaryo-auth0329-pc-20261106-033057',
+  detail: 'PC POST ROLLBACK remains open. Mac Jev POST 09:17 was 0/4 flags and Astra Mac POST was 1/4 FLAG. Neither is PASS. Exit 0, STATUS OK, and COMPLETED are not PASS.',
+  evidence: 'jaryo-codex0917-mac-20261106-092057; astra1103-pc-A2-20261106-111209',
+  ledger: ACCEPTANCE_LEDGER,
 };
 
 export function evidenceFor(snapshot, monitor, options = {}) {
@@ -1047,7 +1061,10 @@ export function healthPresentation(node, {feedUnavailable = false} = {}) {
   if (node?.health === 'down') return presentation('down', reason);
   if (reason === 'stale') return presentation('stale', 'Observation stale');
   if (reason === 'feed_unavailable') return presentation('disconnected', 'Monitor feed unavailable');
-  if (reason === 'tunnel_down') return presentation('disconnected', 'PC tunnel down');
+  if (reason === 'tunnel_down') {
+    const age = Number.isFinite(node?.ageSeconds) ? ` Last sample ${Math.floor(node.ageSeconds)}s.` : '';
+    return presentation('disconnected', `PC tunnel down.${age}`);
+  }
   return presentation('unknown', reason ? reason.replaceAll('_', ' ') : 'Not measured');
 }
 
