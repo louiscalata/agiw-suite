@@ -75,5 +75,16 @@ if 'android:minWidth="352dp"' not in info or "keyguard" not in info:
 for banned in ("HttpURLConnection", "openConnection", "https://", "http://"):
     if banned in widget:
         raise SystemExit("status widget contacts a network")
+if "tools:ignore" in widget or "RemoteViewLayout" in widget:
+    raise SystemExit("status widget suppresses RemoteViewLayout instead of using an allowed view")
+widget_layout = ET.parse(layout / "widget_status.xml").getroot()
+allowed = {"LinearLayout", "FrameLayout", "RelativeLayout", "GridLayout", "TextView", "ImageView", "Button"}
+tags = {node.tag.split("}", 1)[-1] for node in widget_layout.iter()}
+illegal = sorted(tags - allowed)
+if illegal:
+    raise SystemExit("widget_status uses views RemoteViews cannot host: " + ", ".join(illegal))
+if "View" in tags:
+    raise SystemExit("widget_status includes android.view.View")
 print("android layouts: ids and clipping checked")
+print("status widget: RemoteViews allowlist checked")
 PY

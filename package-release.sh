@@ -33,7 +33,7 @@ resources=(
     durable_model_journal.py auto_unload.py online_code_repair.py nisi_v02.py
     windows_probe.py live_feed.py gpu_probe.py local_callers.py mem_guard.py peer_feed.py peer_link.py
     pair_status.py usage-format.mjs web/index.html web/app.js web/online-code-mode.mjs
-    web/map-layout.mjs web/model-control-view.mjs web/style.css
+    web/map-layout.mjs web/model-control-view.mjs web/simple-view.mjs web/simple-view.css web/style.css
     inference_collect.py inference_stats.py pc_tunnel.py web/monitor.html web/monitor.mjs web/monitor.css
     web/monitor-tabs.mjs web/monitor-board.mjs web/monitor-map.mjs web/jaryo.css web/jaryo.mjs
     web/identity.html web/identity.mjs

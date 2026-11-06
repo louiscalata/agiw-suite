@@ -1,0 +1,29 @@
+# Private-edition features that must not appear anywhere in the App Store edition's bundled web UI
+# (App Review guideline 2.3.1: no hidden or dormant features; release plan D3 and the feature matrix).
+# Read by scripts/check-web-edition.sh (G3) and scripts/web-edition/build.mjs. Private strings (paths, hosts,
+# names) are leak-check's job, not this list's.
+#
+# Format: flags<TAB>label<TAB>POSIX extended regex. flags: i = case-insensitive, - = case-sensitive.
+# Keep each regex inside the subset grep -E and JavaScript agree on (no lookarounds, no \b, no \d).
+i	private API route	/api/(inference|online-code-mode)
+i	Online Code	online[- ]?code
+i	Fix inference	fix[- ]?inference
+i	PC LLM	pc[- _]?llm|pc_ask
+i	Windows	windows
+i	private Nisi controls	fix-nisi|nisi[- _](recovery|v02)|nisi \+ jev
+i	private Jev route	jev[- ]route|jevview
+i	Codex	codex
+i	Claude	claude
+i	OpenCode	opencode
+i	Grok	grok
+-	Cursor	(^|[^A-Za-z])Cursor([^A-Za-z]|$)
+i	share remount	unmount|remount
+i	headless	headless
+i	client identities	client[- ]?(model|identit|summary)|clientrows
+i	call traces	call[- ]?trace|tracegraph
+i	route pipeline	pipeline
+i	AFM adapter	(^|[^a-z])afm([^a-z]|$)|Apple Foundation Models
+i	Core model scope	core[ -]?6|model[- ]?scope
+i	automatic unload	auto[- ]?unload|automatic model unload
+i	memory banner	memory[- ]?banner|memory[- ]?announcement
+-	orphan private style	\.mode-v02[A-Za-z0-9-]*|\.completion-evidence[A-Za-z0-9-]*|#fixScopeNote|#drawerFixButton|\.view-tabs

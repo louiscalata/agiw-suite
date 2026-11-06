@@ -1,0 +1,10 @@
+#svBody{display:flex;flex-direction:column;gap:12px;margin:16px;color:#000;background:#fff}
+#svBody .sv-row{padding:12px 0;border-top:1px solid #000;font:600 16px/1.4 Inter,sans-serif;letter-spacing:.02em}
+#svBody .sv-row[data-tone="ok"]{border-top-color:#000}
+#svBody button{min-height:44px;margin-top:8px;padding:8px 12px;color:#fff;background:#000;border:0;font:inherit}
+#svBody .sv-confirm{margin:8px 0 0;font-weight:400}
+@media (prefers-color-scheme: dark){
+  #svBody{color:#fff;background:#000}
+  #svBody .sv-row{border-top-color:#fff}
+  #svBody button{color:#000;background:#fff}
+}

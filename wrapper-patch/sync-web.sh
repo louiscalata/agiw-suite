@@ -97,18 +97,20 @@ done
 
 echo "== App Store edition (scripts/web-edition/build.mjs)"
 "$NODE" "$ROOT/scripts/web-edition/build.mjs" "$STAGE/upstream" "$STAGE/web"
-echo "== edition tests (scripts/web-edition/test_web_edition.mjs)"
-AGIW_WEB_DIR="$STAGE/web" AGIW_WEB_UPSTREAM="$STAGE/upstream" "$NODE" --test --test-reporter=dot "$ROOT/scripts/web-edition/test_web_edition.mjs"
+echo "== edition tests (scripts/web-edition/test_web_edition.mjs test_jaryo_admission.mjs)"
+AGIW_WEB_DIR="$STAGE/web" AGIW_WEB_UPSTREAM="$STAGE/upstream" "$NODE" --test --test-reporter=dot \
+  "$ROOT/scripts/web-edition/test_web_edition.mjs" \
+  "$ROOT/scripts/web-edition/test_jaryo_admission.mjs"
 
 RULES_SUM="$(cat "$ROOT/scripts/web-edition/engine.mjs" "$ROOT/scripts/web-edition/appstore-rules.mjs" \
-  "$ROOT/scripts/web-edition/appstore-overrides.mjs" \
+  "$ROOT/scripts/web-edition/appstore-overrides.mjs" "$ROOT/scripts/web-edition/jaryo-adapt.mjs" \
   "$ROOT/scripts/web-edition/feature-denylist.txt" | shasum -a 256 | cut -c1-16)"
 {
   echo "# Shared web UI synced into the App Store edition by scripts/sync-web.sh. Do not edit these files here:"
   echo "# change the shared UI upstream (or the edition rules in scripts/web-edition/), then re-sync."
   echo "# Paths are relative to the source monitor tree."
   echo "# source: $ORIGIN"
-  echo "# edition: appstore, rules $RULES_SUM (sha256 of engine.mjs + appstore-rules.mjs + appstore-overrides.mjs + feature-denylist.txt)"
+  echo "# edition: appstore, rules $RULES_SUM (sha256 of engine.mjs + appstore-rules.mjs + appstore-overrides.mjs + jaryo-adapt.mjs + feature-denylist.txt)"
   echo "# synced-at: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
   echo "# upstream-sha256  bundled-name  source-path  bundled-sha256 (not-shipped: left out of the edition)"
 } > "$STAGE/web-SOURCES.txt"
