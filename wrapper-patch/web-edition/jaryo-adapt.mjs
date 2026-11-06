@@ -57,6 +57,95 @@ const FACTORY = [
   '}',
 ].join('\n');
 
+const SCREENS = [
+  '<section id="screenComponents" hidden>',
+  '<p class="eyebrow">INCLUDED IN THIS EDITION</p>',
+  '<h2>Local model server</h2>',
+  '<p id="componentServer">Unknown until a snapshot arrives.</p>',
+  '<p id="componentModels">Models unknown.</p>',
+  '<p>This edition does not include a package self-check or a hosted connection. There is no control here for either one.</p>',
+  '</section>',
+  '<section id="screenIdentity" hidden>',
+  '<h2 class="edition-word">AGIW</h2>',
+  '<p>The name is the identity. There is no separate symbol.</p>',
+  '<p class="edition-word">AGIW</p>',
+  '<details><summary>Typeface notes</summary>',
+  '<p>TYPE ONLY. The name AGIW is set in Inter when that font is installed. Provisional, not a chosen font. D4 Split is rejected. If Inter is absent, the stack is Liberation Sans, then Noto Sans. Weight 600. Tracking is 0.02em.</p>',
+  '</details></section>',
+].join('');
+
+const SCREEN_RUNTIME = `
+function editionScreenButtons(nav){
+  const out=[];
+  const walk=node=>{for(const child of node.children||[]){if(child.dataset&&child.dataset.screen)out.push(child);walk(child);}};
+  if(nav)walk(nav);
+  return out;
+}
+function showEditionScreen(name){
+  const screens=['overview','map','components','identity'];
+  if(!screens.includes(name))name='overview';
+  document.documentElement.dataset.screen=name;
+  const components=document.getElementById('screenComponents'),identity=document.getElementById('screenIdentity');
+  if(components)components.hidden=name!=='components';
+  if(identity)identity.hidden=name!=='identity';
+  editionScreenButtons(document.querySelector('.j-nav')).forEach(button=>{
+    const on=button.dataset.screen===name;
+    if(on)button.setAttribute('aria-current','page');
+    else button.removeAttribute('aria-current');
+  });
+  if(name==='components')paintEditionComponents();
+  if(name==='map')window.dispatchEvent(new Event('resize'));
+}
+function paintEditionComponents(){
+  const server=document.getElementById('componentServer'),models=document.getElementById('componentModels');
+  if(!server||!models)return;
+  const snap=window.agiwFeed?.snapshot?.()||null,fresh=window.agiwFeed?.fresh?.()===true;
+  if(!snap){server.textContent='Unknown until a snapshot arrives.';models.textContent='Models unknown.';return;}
+  const sources=Array.isArray(snap.sources)?snap.sources:[];
+  const local=sources.find(item=>item&&(item.id==='lmstudio-api'||item.id==='lms-ps'));
+  server.textContent=!local?'No local server is in this snapshot.':!fresh?'The last local server sample is stale.':\`\${local.label||'Local server'} · \${local.state||'unknown'}\`;
+  const rows=Array.isArray(snap.models)?snap.models.filter(item=>item&&item.host!=='linux'):[];
+  models.textContent=\`\${rows.length} models in this snapshot · \${rows.filter(item=>item.loaded===true).length} loaded.\`;
+}
+function editionTheme(choice){
+  const mode=['system','light','dark'].includes(choice)?choice:'system';
+  const light=window.matchMedia('(prefers-color-scheme: light)').matches===true;
+  document.documentElement.dataset.theme=mode==='system'?(light?'light':'dark'):mode;
+  document.documentElement.dataset.themeChoice=mode;
+  try{localStorage.setItem('agiw-theme',mode);}catch(_){}
+  const select=document.getElementById('jaryoTheme');
+  if(select)select.value=mode;
+}
+{
+  const nav=document.querySelector('.j-nav');
+  nav?.addEventListener('click',event=>{
+    const button=event.target.closest?.('[data-screen]');
+    if(!button||!nav.contains(button))return;
+    showEditionScreen(button.dataset.screen);
+  });
+  nav?.addEventListener('keydown',event=>{
+    const buttons=editionScreenButtons(nav);
+    const index=buttons.indexOf(document.activeElement);
+    if(index<0)return;
+    const next=event.key==='ArrowDown'||event.key==='ArrowRight'?buttons[index+1]:event.key==='ArrowUp'||event.key==='ArrowLeft'?buttons[index-1]:null;
+    if(!next)return;
+    event.preventDefault();
+    next.focus();
+    showEditionScreen(next.dataset.screen);
+  });
+  const select=document.getElementById('jaryoTheme');
+  let saved='system';
+  try{saved=localStorage.getItem('agiw-theme')||'system';}catch(_){}
+  editionTheme(saved);
+  select?.addEventListener('change',()=>editionTheme(select.value));
+  const media=window.matchMedia('(prefers-color-scheme: light)');
+  const onScheme=()=>{if(document.documentElement.dataset.themeChoice==='system')editionTheme('system');};
+  if(typeof media.addEventListener==='function')media.addEventListener('change',onScheme);
+  showEditionScreen(document.documentElement.dataset.screen||'overview');
+  setInterval(()=>{if(document.documentElement.dataset.screen==='components')paintEditionComponents();},1000);
+}
+`.trim();
+
 const occurrences = (text, needle) => text.split(needle).length - 1;
 
 function statementMap(source) {
@@ -185,15 +274,13 @@ export function adaptEdition(rules, upstream) {
   const html = rules.html['index.html'];
   const index = upstream.get('index.html') || '';
   html.removeIds = html.removeIds.filter(id => occurrences(index, `id="${id}"`) === 1);
-  for (const id of ['jaryoTheme', 'jaryoDemo', 'monitorTabHint', 'monitorTabs', 'monitorBoard']) {
+  for (const id of ['jaryoDemo', 'monitorTabHint', 'monitorTabs', 'monitorBoard']) {
     if (occurrences(index, `id="${id}"`) === 1 && !html.removeIds.includes(id)) html.removeIds.push(id);
   }
   html.removeElements = (html.removeElements || []).filter(start => occurrences(index, start) === 1);
-  // The Overview nav stays. It is the landing (href="/" aria-current="page").
-  // The theme control needs jaryo.mjs, which this edition does not ship.
-  // Map, Components, and Identity are separate documents outside the eight-file list.
-  // The engine refuses those hrefs, so the anchors are removed here on purpose and named in APPLY.md.
-  for (const start of ['<div class="j-chrome"', '<label class="j-theme"']) {
+  // The Mac origin serves only "/" as a document. Map, Components, and Identity are views in this
+  // page, not links to files the engine would refuse and WebPath would 404.
+  for (const start of ['<div class="j-chrome"']) {
     if (occurrences(index, start) === 1 && !html.removeElements.includes(start)) html.removeElements.push(start);
   }
   html.edit = html.edit.filter(edit => occurrences(index, edit[0]) === (edit[2] ?? 1));
@@ -210,12 +297,19 @@ export function adaptEdition(rules, upstream) {
   for (const edit of additions) {
     if (occurrences(index, edit[0]) === 1 && !html.edit.some(item => item[0] === edit[0])) html.edit.push(edit);
   }
-  for (const from of [
-    '<a href="/monitor">Map</a>\n',
-    '<a href="/components">Components</a>\n',
-    '<a href="/identity">Identity</a>\n',
-  ]) {
-    if (occurrences(index, from) === 1 && !html.edit.some(item => item[0] === from)) html.edit.push([from, '']);
+  const screenEdits = [
+    ['<html lang="en">', '<html lang="en" data-screen="overview">'],
+    ['<a href="/" aria-current="page">Overview</a>\n', '<button type="button" data-screen="overview" aria-current="page">Overview</button>\n'],
+    ['<a href="/monitor">Map</a>\n', '<button type="button" data-screen="map">Map</button>\n'],
+    ['<a href="/components">Components</a>\n', '<button type="button" data-screen="components">Components</button>\n'],
+    ['<a href="/identity">Identity</a>\n', '<button type="button" data-screen="identity">Identity</button>\n'],
+    ['</main>', `${SCREENS}</main>`],
+  ];
+  for (const edit of screenEdits) {
+    if (occurrences(index, edit[0]) === 1 && !html.edit.some(item => item[0] === edit[0])) html.edit.push(edit);
+  }
+  if (!(app.append || []).some(line => String(line).includes('function showEditionScreen'))) {
+    app.append = [...(app.append || []), SCREEN_RUNTIME];
   }
   const about = html.replaceContent?.aboutPanel;
   if (about?.includes('Jeview')) {

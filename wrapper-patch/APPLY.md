@@ -11,7 +11,7 @@ The web-edition already inside that archive still emits only `LOCAL MODELS` and 
 - `scripts/appstore-distribution.sh` still pins Xcode `27A266a`. This patch does not change that file and does not add a skip.
 - After the copy, `scripts/web-edition/feature-denylist.txt` must still be SHA-256 `03378746a130f9217b679a475a14ac14236c53e90c404c3fd3a5c426d0b761f9`.
 - After the copy, `scripts/web-edition/engine.mjs` must still be SHA-256 `159bb12d14edae6fca2d37643300dcac7c5e341d7d97c6e4dd2928c925ed576f`.
-- `jaryo-adapt.mjs` in this patch is SHA-256 `1fc9aba2ff76ea2f93db5b3e3d530d29c743deb0c652f53913bfbd2f92059a3e`. Its pins are literals. It does not hash the file being built.
+- `jaryo-adapt.mjs` in this patch is SHA-256 `259d8e3c9b5c6f3a78a9b6ed7b3579bbe15767f15adbb5709a3e7e8b0f5f2668`. Its pins are literals. It does not hash the file being built.
 - The source tree is the Jaryo checkout that contains this patch. The nine sync inputs stay, including `web/simple-view.mjs` and `web/simple-view.css`.
 - Node 18 or later is on `PATH`.
 
@@ -36,7 +36,7 @@ bash scripts/sync-web.sh --stage-only "$SOURCE_TREE"
 - A demo map label is `SAMPLE MODELS · N`. A live map label stays `LOCAL MODELS · N`.
 - Accepting a snapshot whose demo flag changed clears the model-control error and ignores a control reply that started before that change. The late text `old memory refusal` does not remain.
 - `simple-view.mjs` from the source tree mounts when the edition switch is in the document. The full Windows web has no switch, so Fix inference stays there.
-- The shipped `index.html` keeps the Overview landing. The nav contains `<a href="/" aria-current="page">Overview</a>` and the title is `AGIW · Overview`. Map, Components, and Identity stay out of this edition on purpose: they are separate documents, and the unchanged engine refuses an href to a file outside the eight shipped files. The theme control stays out because `jaryo.mjs` is not one of those eight.
+- The Mac origin serves only `/` as a document. Extensionless routes are not files. The eight-file list is unchanged. Overview, Map, Components, and Identity are buttons in that one page, not links to other files. Overview is the model list. Map is the local model graph already drawn from the snapshot. Components reads that same snapshot and says this edition has no package self-check and no hosted connection. Identity is the word AGIW. The theme control sets system, light, or dark in the shipped stylesheet. The engine, the denylist, and the Xcode pin are the same bytes.
 - The denylist, the engine, and the negative pin tests are the same files as the archive.
 
 A fresh extract of the archive above, with this patch and the current source tree, completed `--stage-only` with exit 0. `App/Resources/web/app.js` was byte-identical before and after. The distribution pin was still `27A266a`.
