@@ -19,15 +19,27 @@
         android:layout_marginTop="12dp"
         android:background="?android:attr/textColorPrimary"/>
     <TextView
-        android:id="@+id/activity"
+        android:id="@+id/process"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginTop="12dp"
-        android:textSize="16sp"/>
+        android:fontFamily="monospace"/>
+    <TextView
+        android:id="@+id/lane"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:fontFamily="monospace"/>
+    <TextView
+        android:id="@+id/attachment"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:fontFamily="monospace"/>
     <TextView
         android:id="@+id/acceptance"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
+        android:layout_marginTop="10dp"
         android:gravity="center_horizontal"/>
 </LinearLayout>

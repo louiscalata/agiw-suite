@@ -14,7 +14,8 @@
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Read-only monitor"/>
+        android:layout_marginTop="4dp"
+        android:text="Read-only. No observer is contacted."/>
     <View
         android:id="@+id/schematic"
         android:layout_width="match_parent"
@@ -22,28 +23,29 @@
         android:layout_marginTop="16dp"
         android:background="?android:attr/textColorPrimary"/>
     <TextView
-        android:id="@+id/activity"
+        android:id="@+id/process"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginTop="16dp"
-        android:textSize="18sp"/>
+        android:fontFamily="monospace"
+        android:textSize="16sp"/>
+    <TextView
+        android:id="@+id/lane"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:fontFamily="monospace"
+        android:textSize="16sp"/>
+    <TextView
+        android:id="@+id/attachment"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:fontFamily="monospace"
+        android:textSize="16sp"/>
     <TextView
         android:id="@+id/acceptance"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="12dp"/>
-    <EditText
-        android:id="@+id/observer"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="24dp"
-        android:hint="Observer address, if you have one"
-        android:importantForAutofill="no"
-        android:inputType="textUri"
-        android:minHeight="48dp"/>
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:text="No address is stored in the app. An empty address stays unavailable."/>
+        android:layout_marginTop="16dp"/>
 </LinearLayout>
