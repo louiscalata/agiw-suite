@@ -133,18 +133,22 @@ export function analysisSlots(records, {runId = null, attemptId = null} = {}) {
   return ANALYSIS_PAIRS.map(([tool, phase]) => {
     const found = list.find(row => row && row.tool === tool && row.phase === phase
       && (attemptId == null || row.attemptId == null || row.attemptId === attemptId));
-    if (!found || !ANALYSIS_STATES.has(found.state)) {
+    if (!found || !ANALYSIS_STATES.has(found.state) || (found.state === 'passed' && !text(found.provenance, 240))) {
       return {
-        tool, phase, state: 'unavailable', runId, attemptId,
-        detail: found
-          ? 'Analysis record state was not pending, failed, skipped, unavailable, or passed.'
-          : 'No analysis record for this run, attempt, and phase.',
+        tool, phase, state: 'unavailable', runId, attemptId, evidenced: Boolean(found), provenance: null,
+        detail: found && found.state === 'passed'
+          ? 'A passed analysis without provenance is not accepted.'
+          : found
+            ? 'Analysis record state was not pending, failed, skipped, unavailable, or passed.'
+            : 'No analysis record for this run, attempt, and phase.',
       };
     }
     return {
       tool, phase, state: found.state,
       runId: found.runId ?? runId,
       attemptId: found.attemptId ?? attemptId,
+      evidenced: true,
+      provenance: text(found.provenance, 240),
       detail: text(found.detail, 240) || found.state,
     };
   });
@@ -694,10 +698,24 @@ function observationKey(monitor) {
 
 function mergeAnalyses(previous, fresh) {
   return fresh.map(slot => {
-    if (slot.state !== 'unavailable') return slot;
+    if (slot.evidenced) return slot;
     const kept = (previous || []).find(item => item.tool === slot.tool && item.phase === slot.phase);
-    return kept && kept.state !== 'unavailable' ? kept : slot;
+    return kept && kept.evidenced === true && kept.state !== 'unavailable' ? kept : slot;
   });
+}
+
+export function jevGate(analyses) {
+  const slots = Array.isArray(analyses) ? analyses : [];
+  const pre = slots.find(slot => slot.tool === 'jev' && slot.phase === 'pre');
+  const post = slots.find(slot => slot.tool === 'jev' && slot.phase === 'post');
+  const accepted = slot => Boolean(slot && slot.state === 'passed' && slot.evidenced === true && text(slot.provenance, 240));
+  const open = accepted(pre) && accepted(post);
+  return {
+    open,
+    pre: pre?.state || 'unavailable',
+    post: post?.state || 'unavailable',
+    blocker: open ? null : 'Jev pre and post are not both passed records with provenance. Unavailable is not a pass.',
+  };
 }
 
 function mergeSession(previous, fresh) {
@@ -771,9 +789,12 @@ export function createMonitorDesk() {
       if (record.phase !== 'pre' && record.phase !== 'post') return false;
       const attemptId = item.workload?.attemptId ?? null;
       if (record.attemptId != null && record.attemptId !== attemptId) return false;
+      if (record.state === 'passed' && !text(record.provenance, 240)) return false;
       const slot = {
         tool: record.tool, phase: record.phase, state: record.state,
         runId: item.workload?.runId ?? null, attemptId,
+        evidenced: true,
+        provenance: text(record.provenance, 240),
         detail: text(record.detail, 240) || record.state,
       };
       item.analyses = analysisSlots([...(item.analyses || []).filter(existing => existing.state !== 'unavailable'), slot], {

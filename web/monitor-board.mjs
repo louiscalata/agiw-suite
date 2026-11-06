@@ -2,7 +2,7 @@
  * Paints the monitor tab strip and the selected monitor's board.
  * View only: callers must not wire these controls to pause, repair, or model posts.
  */
-import {demoSnapshot, DEMO_BANNER, nextTabFocus} from '/monitor-tabs.mjs';
+import {demoSnapshot, DEMO_BANNER, jevGate, nextTabFocus} from '/monitor-tabs.mjs';
 
 function el(tag, className, text) {
   const node = document.createElement(tag);
@@ -124,8 +124,13 @@ function paintBoard(board, monitor, desk) {
   }
   board.append(list);
   const analysis = el('section', 'j-analysis');
+  const gate = jevGate(monitor.analyses || []);
   analysis.append(el('p', 'j-eyebrow', 'NISI AND JEV ANALYSIS'));
-  analysis.append(el('p', 'j-note', 'Analysis state is not run success. A passed check does not make this workload OK, and a missing record stays unavailable.'));
+  const gateLine = el('p', gate.open ? 'j-status' : 'j-unavailable j-callout');
+  gateLine.append(el('span', 'j-glyph', gate.open ? '●' : '○'), el('span', 'j-word', gate.open ? 'JEV GATE OPEN' : 'JEV GATE BLOCKED'));
+  gateLine.append(el('span', 'j-reason', gate.blocker || 'Jev pre and post records are both passed. That is not this workload\'s run result.'));
+  analysis.append(gateLine);
+  analysis.append(el('p', 'j-note', 'Analysis state is not run success. Unavailable, skipped, pending, and failed Jev phases do not open the gate.'));
   const analysisList = el('ul', 'j-steps');
   for (const slot of monitor.analyses || []) {
     const row = el('li', `j-step ${statusClass(slot.state === 'passed' ? 'ok' : slot.state === 'failed' ? 'blocked' : slot.state === 'pending' ? 'unknown' : slot.state === 'skipped' ? 'idle' : slot.state)}`);

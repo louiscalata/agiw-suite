@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {
   DEMO_BANNER, createMonitorDesk, demoSnapshot, deriveMonitors, healthPresentation,
-  initialMonitorId, mapMonitors, moveMonitorTab, nextTabFocus, nodeInMonitor,
+  initialMonitorId, jevGate, mapMonitors, moveMonitorTab, nextTabFocus, nodeInMonitor,
 } from './web/monitor-tabs.mjs';
 
 const read = name => readFileSync(new URL(name, import.meta.url), 'utf8');
@@ -205,8 +205,9 @@ test('reconnect does not double-count and a new attempt drops prior events and a
   desk.note(snap, {feedFresh: true, fictional: true});
   const first = byId(desk.monitors, 'route:demo-claude');
   assert.equal(first.events.length, 1);
-  assert.equal(desk.attachAnalysis('route:demo-claude', {tool: 'nisi', phase: 'pre', state: 'passed', attemptId: '1', detail: 'baseline recorded'}), 'RUNNING');
+  assert.equal(desk.attachAnalysis('route:demo-claude', {tool: 'nisi', phase: 'pre', state: 'passed', attemptId: '1', detail: 'baseline recorded', provenance: 'fixture nisi demo, modelCalls 0'}), 'RUNNING');
   assert.equal(byId(desk.monitors, 'route:demo-claude').word, 'RUNNING');
+  assert.equal(jevGate(byId(desk.monitors, 'route:demo-claude').analyses).open, false);
   assert.equal(byId(desk.monitors, 'route:demo-claude').analyses.find(item => item.tool === 'nisi' && item.phase === 'pre').state, 'passed');
   assert.equal(byId(desk.monitors, 'route:demo-claude').analyses.find(item => item.tool === 'jev' && item.phase === 'post').state, 'unavailable');
   desk.note(snap, {feedFresh: true, fictional: true});
@@ -221,6 +222,32 @@ test('reconnect does not double-count and a new attempt drops prior events and a
   assert.equal(second.events[0].attemptId, '2');
   assert.equal(second.analyses.find(item => item.tool === 'nisi' && item.phase === 'pre').state, 'unavailable');
   assert.equal(second.word, 'RUNNING');
+});
+
+test('unavailable Jev pre or post does not open the analysis gate', () => {
+  const desk = createMonitorDesk();
+  const snap = demoSnapshot();
+  snap.pipeline.pipelines.find(row => row.runId === 'demo-claude').attemptId = '1';
+  snap.analyses = [
+    {workloadId: 'route:demo-claude', tool: 'jev', phase: 'pre', state: 'unavailable', attemptId: '1', detail: 'helper storage unavailable'},
+    {workloadId: 'route:demo-claude', tool: 'jev', phase: 'post', state: 'unavailable', attemptId: '1', detail: 'hosted probe not run'},
+  ];
+  desk.note(snap, {feedFresh: true, fictional: true});
+  const session = byId(desk.monitors, 'route:demo-claude');
+  assert.equal(session.word, 'RUNNING');
+  const gate = jevGate(session.analyses);
+  assert.equal(gate.open, false);
+  assert.equal(gate.pre, 'unavailable');
+  assert.equal(gate.post, 'unavailable');
+  assert.equal(desk.attachAnalysis('route:demo-claude', {tool: 'jev', phase: 'pre', state: 'passed', attemptId: '1', detail: 'no source'}), false);
+  assert.equal(desk.attachAnalysis('route:demo-claude', {tool: 'jev', phase: 'pre', state: 'passed', attemptId: '1', provenance: 'machine receipt not in this checkout', detail: 'claimed pass'}), 'RUNNING');
+  assert.equal(jevGate(byId(desk.monitors, 'route:demo-claude').analyses).open, false);
+  const cleared = demoSnapshot();
+  cleared.pipeline.pipelines.find(row => row.runId === 'demo-claude').attemptId = '1';
+  cleared.analyses = [{workloadId: 'route:demo-claude', tool: 'jev', phase: 'pre', state: 'unavailable', attemptId: '1', provenance: 'status read', detail: 'unavailable replaces a pass'}];
+  desk.note(cleared, {feedFresh: true, fictional: true});
+  assert.equal(byId(desk.monitors, 'route:demo-claude').analyses.find(item => item.tool === 'jev' && item.phase === 'pre').state, 'unavailable');
+  assert.equal(jevGate(byId(desk.monitors, 'route:demo-claude').analyses).open, false);
 });
 
 test('unknown, stale, and disconnected stay different words', () => {
