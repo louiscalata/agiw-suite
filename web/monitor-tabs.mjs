@@ -791,6 +791,13 @@ const ACCEPTANCE_LEDGER = [
   {gate: 'Jev post', env: 'PC', state: 'recorded', verdict: 'ROLLBACK', time: '2026-11-06 03:29 and 09:17 PST', receipt: 'jaryo-auth0329-pc-20261106-033057', next: 'Remains open'},
   {gate: 'Jev post', env: 'Mac Astra', state: 'recorded', verdict: '1/4 FLAG', time: '2026-11-06 11:03 PST', receipt: 'astra1103-mac-A-20261106-110643', next: 'Not PASS'},
   {gate: 'Jev post', env: 'PC Astra', state: 'recorded', verdict: 'ROLLBACK', time: '2026-11-06 11:12 PST', receipt: 'astra1103-pc-A2-20261106-111209', next: 'Remains open'},
+  {gate: 'Mac archive', env: 'Mac Astra', state: 'recorded', verdict: 'not acceptance', time: '2026-11-06 11:41 file stamp', receipt: 'astra1103-mac-DESK-20261106-114103', next: 'Xcode 27B52 is the default. The distribution script pins 27A266a. No archive.'},
+  {gate: 'Web sync', env: 'Mac Astra', state: 'recorded', verdict: 'not acceptance', time: '2026-11-06 11:49 file stamp', receipt: 'astra1103-mac-SYNC-20261106-114919', next: 'Local App Resources web is present. Fresh archive is unproven.'},
+  {gate: 'Android contract', env: 'PC Astra', state: 'recorded', verdict: 'not acceptance', time: '2026-11-06 11:41 file stamp', receipt: 'astra1103-pc-AND-20261106-114125', next: 'Compose proposal. This client stays Java.'},
+  {gate: 'Windows MSI', env: 'PC Astra', state: 'recorded', verdict: 'not acceptance', time: '2026-11-06 11:49 file stamp', receipt: 'astra1103-pc-WIN-20261106-114930', next: 'VS 18, MSBuild, and dotnet are present. WiX and the PC checkout are missing. ROLLBACK stays open.'},
+  {gate: 'Mac unsigned Debug', env: 'Mac', state: 'recorded', verdict: '0/4', time: '2026-11-06 11:54 file stamp', receipt: 'mac-unsigned-build-20261106-115509', next: 'Exit 0 on web HEAD 317aad2. That tree is not this head. Not PASS.'},
+  {gate: 'Windows node tests', env: 'PC', state: 'recorded', verdict: 'not acceptance', time: '2026-11-06 11:58 file stamp', receipt: 'pc-win-node-20261106', next: '123 tests passed excluding pipe-host. pipe-host listen EACCES. POST ROLLBACK stays open.'},
+  {gate: 'Android parser', env: 'Mac Astra', state: 'recorded', verdict: '0/4', time: '2026-11-06 11:56 file stamp', receipt: 'astra1103-mac-ANDJAVA-20261106-115608', next: 'Not PASS. Missing payload data stays UNKNOWN.'},
   {gate: 'Fixture tests', env: 'this checkout', state: 'reported', verdict: 'not acceptance', time: 'this head', receipt: 'node test files', next: 'Receipt verification pending'},
 ];
 
@@ -799,7 +806,7 @@ const ACCEPTANCE_ROW = {
   label: 'Acceptance',
   matrix: 'Blocked',
   word: 'BLOCKED',
-  detail: 'PC POST ROLLBACK remains open. Mac Jev POST 09:17 was 0/4 flags and Astra Mac POST was 1/4 FLAG. Neither is PASS. Exit 0, STATUS OK, and COMPLETED are not PASS.',
+  detail: 'PC POST ROLLBACK remains open. Mac Jev POST 09:17 was 0/4 flags and Astra Mac POST was 1/4 FLAG. The unsigned Debug POST was also 0/4, on web HEAD 317aad2, which is not this head. Neither is PASS. A PC analysis marked OK is not app acceptance. Exit 0, STATUS OK, and COMPLETED are not PASS.',
   evidence: 'jaryo-codex0917-mac-20261106-092057; astra1103-pc-A2-20261106-111209',
   ledger: ACCEPTANCE_LEDGER,
 };

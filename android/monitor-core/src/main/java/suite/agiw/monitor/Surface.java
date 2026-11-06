@@ -1,17 +1,18 @@
 package suite.agiw.monitor;
 
 /**
- * Cover versus inner is a shape choice only.
- * The OS does not start this activity on the Flip 6 cover by itself.
+ * A nearly square window uses the short layout. That is the window aspect,
+ * not a hinge angle and not evidence the Flip 6 cover launched this activity.
+ * Missing fold information stays an ordinary window choice.
  */
 public final class Surface {
     private Surface() {}
 
     public static boolean compact(int widthPx, int heightPx) {
         if (widthPx <= 0 || heightPx <= 0) return false;
-        int longSide = Math.max(widthPx, heightPx);
-        int shortSide = Math.min(widthPx, heightPx);
-        return longSide * 10 <= shortSide * 13;
+        long longSide = Math.max(widthPx, heightPx);
+        long shortSide = Math.min(widthPx, heightPx);
+        return longSide * 10L <= shortSide * 13L;
     }
 
     public static boolean motion(float animatorScale) {

@@ -1,8 +1,12 @@
 # AGIW Android monitor
 
-Read-only screen. It does not call an observer, store an address, or ship a credential. The desktop monitors stay on `127.0.0.1` and are not opened to the network by this module.
+Read-only screen. A person can type an `https` address on the tall window and read `/api/snapshot` once. The nearly square window keeps that address in memory and shows one Read action. It does not show the address form. There is no default host, no stored credential, and no repair control. `http` is refused before a socket opens. Cleartext is off in the network security config. The desktop monitors stay on `127.0.0.1` and this module does not open them, change a firewall, or open a tunnel.
 
-The name is the word AGIW. With no sample, the words are PROCESS UNKNOWN, LANE NOT MEASURED, ATTACH NO RUN, and the acceptance line stays blocked.
+The name is the word AGIW. With no sample, the words are PROCESS UNKNOWN, LANE NOT MEASURED, ATTACH NO RUN, CONNECT NONE, TIME not reported, and the acceptance line stays blocked. Empty JSON, a non-object, a missing timestamp, and `pipeline.status` of `idle` without a `pipelines` array stay UNKNOWN. They do not become IDLE. A sample older than 30 seconds is STALE. Stale is not idle and not unknown. Nisi `needs-action` is BLOCKED. A live route wins over that blocked row. A run id without a matching analysis is UNATTACHED. The observation time is the payload string. Missing numbers stay missing. `Surface.compact` multiplies in 64-bit arithmetic so a huge window cannot overflow into a square result.
+
+The screen is Java. A PC review proposed Kotlin and Compose, three destinations, and a cover identified by fold posture. Those proposals are not this client. Fold information is not read. A nearly square window is only the window aspect. It is not a hinge angle and it is not proof that Samsung launched the activity on the Flip 6 cover.
+
+The debug APK from the earlier static build hashed `37b44f0f4992be2f05a29f8250c3a5e1db5f1640ade24427ea48ba2ca0ba8d2b`. A written report of that file used a final `d`. The file ended in `b`. Hash the current `app-debug.apk` again after `assembleDebug`. Linux compilation is not Mac or PC native acceptance.
 
 ## Flip 6 constraints
 

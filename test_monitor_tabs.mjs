@@ -464,6 +464,10 @@ test('liveness, readiness, and attachment stay separate and acceptance stays blo
   assert.equal(demo.evidence.rows.find(row => row.id === 'acceptance').matrix, 'Blocked');
   assert.match(demo.evidence.rows.find(row => row.id === 'acceptance').detail, /1\/4 FLAG/);
   assert.equal(demo.evidence.rows.find(row => row.id === 'acceptance').ledger.some(row => row.verdict === 'PASS'), false);
+  assert.equal(demo.evidence.rows.find(row => row.id === 'acceptance').ledger.find(row => row.receipt === 'astra1103-mac-DESK-20261106-114103').verdict, 'not acceptance');
+  assert.equal(demo.evidence.rows.find(row => row.id === 'acceptance').ledger.find(row => row.receipt === 'mac-unsigned-build-20261106-115509').verdict, '0/4');
+  assert.match(demo.evidence.rows.find(row => row.id === 'acceptance').ledger.find(row => row.receipt === 'mac-unsigned-build-20261106-115509').next, /317aad2/);
+  assert.match(demo.evidence.rows.find(row => row.id === 'acceptance').ledger.find(row => row.receipt === 'astra1103-pc-WIN-20261106-114930').next, /WiX/);
   assert.equal(demo.evidence.rows.find(row => row.id === 'acceptance').ledger.find(row => row.gate === 'Fixture tests').next, 'Receipt verification pending');
 
   const unknownSample = {
