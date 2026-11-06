@@ -68,6 +68,11 @@ test('current Jaryo web builds a denylist-clean edition', { skip: !upstreamDir }
   assert.match(html, /src="\/simple-view\.mjs"/);
   assert.match(html, /href="\/simple-view\.css"/);
   assert.doesNotMatch(html, /jaryo\.css|jaryo\.mjs|simple-view-private|connection-switches/);
+  assert.match(html, /<nav class="j-nav"/);
+  assert.match(html, /<a href="\/" aria-current="page">Overview<\/a>/);
+  assert.match(html, /<title>AGIW · Overview<\/title>/);
+  assert.doesNotMatch(html, /href="\/monitor"|href="\/components"|href="\/identity"|<div class="j-chrome"/);
+  assert.match(files.get('style.css'), /\.j-nav\{display:flex/);
   const app = files.get('app.js');
   assert.equal((app.match(/function checkStreamHealth\(/g) || []).length, 1);
   assert.match(app, /window\.agiwFeed=Object\.freeze/);

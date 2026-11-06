@@ -189,7 +189,11 @@ export function adaptEdition(rules, upstream) {
     if (occurrences(index, `id="${id}"`) === 1 && !html.removeIds.includes(id)) html.removeIds.push(id);
   }
   html.removeElements = (html.removeElements || []).filter(start => occurrences(index, start) === 1);
-  for (const start of ['<nav class="j-nav"', '<div class="j-chrome"']) {
+  // The Overview nav stays. It is the landing (href="/" aria-current="page").
+  // The theme control needs jaryo.mjs, which this edition does not ship.
+  // Map, Components, and Identity are separate documents outside the eight-file list.
+  // The engine refuses those hrefs, so the anchors are removed here on purpose and named in APPLY.md.
+  for (const start of ['<div class="j-chrome"', '<label class="j-theme"']) {
     if (occurrences(index, start) === 1 && !html.removeElements.includes(start)) html.removeElements.push(start);
   }
   html.edit = html.edit.filter(edit => occurrences(index, edit[0]) === (edit[2] ?? 1));
@@ -205,6 +209,13 @@ export function adaptEdition(rules, upstream) {
   ];
   for (const edit of additions) {
     if (occurrences(index, edit[0]) === 1 && !html.edit.some(item => item[0] === edit[0])) html.edit.push(edit);
+  }
+  for (const from of [
+    '<a href="/monitor">Map</a>\n',
+    '<a href="/components">Components</a>\n',
+    '<a href="/identity">Identity</a>\n',
+  ]) {
+    if (occurrences(index, from) === 1 && !html.edit.some(item => item[0] === from)) html.edit.push([from, '']);
   }
   const about = html.replaceContent?.aboutPanel;
   if (about?.includes('Jeview')) {
