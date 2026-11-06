@@ -16,6 +16,8 @@ async function refresh(){
     $('command').textContent=(data.node?.path?quote(data.node.path):'node')+' '+quote(data.nisi?.entry||'')+' --version';
     if(running)timer=setTimeout(refresh,750);
   }catch{
+    $('integrity').textContent='Unknown · observer unavailable';
+    $('runtime').textContent='Unknown · observer unavailable';
     $('result').textContent='The local observer is unavailable. Reopen Components from the running app.';
     $('check').disabled=true;
   }

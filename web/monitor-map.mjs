@@ -117,4 +117,5 @@ window.addEventListener('agiw-inference-map', event => {
 });
 
 bind();
-if (demoRequested()) paint({map: null, feedUnavailable: true});
+if (window.__jaryoMapDetail) paint(window.__jaryoMapDetail);
+else if (demoRequested()) paint({map: null, feedUnavailable: false});

@@ -836,7 +836,9 @@ function withEvidence(snapshot, monitors, options) {
 
 export function mapEvidence(source, {feedUnavailable = false, fictional = false} = {}) {
   const nodes = Array.isArray(source?.nodes) ? source.nodes : [];
-  const process = feedUnavailable || !source
+  const process = feedUnavailable
+    ? {word: 'DISCONNECTED', matrix: 'Untested', detail: 'Monitor feed unavailable.'}
+    : !source
     ? {word: 'UNKNOWN', matrix: 'Untested', detail: 'Map feed has no sample.'}
     : fictional
       ? {word: 'FICTIONAL', matrix: 'Observed', detail: 'Fictional map. Not a live process.'}

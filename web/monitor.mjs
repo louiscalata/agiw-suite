@@ -202,9 +202,14 @@ async function tick() {
 }
 
 function publishMap() {
-  if (typeof window === 'undefined' || typeof window.dispatchEvent !== 'function') return;
+  const detail = {map: current, feedUnavailable};
+  if (typeof window === 'undefined') return;
+  window.__jaryoLastMap = current;
+  window.__jaryoFeedUnavailable = feedUnavailable;
+  window.__jaryoMapDetail = detail;
+  if (typeof window.dispatchEvent !== 'function') return;
   try {
-    window.dispatchEvent(new CustomEvent('agiw-inference-map', {detail: {map: current, feedUnavailable}}));
+    window.dispatchEvent(new CustomEvent('agiw-inference-map', {detail}));
   } catch (_) { /* view hook only */ }
 }
 

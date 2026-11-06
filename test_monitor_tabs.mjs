@@ -507,10 +507,27 @@ test('liveness, readiness, and attachment stay separate and acceptance stays blo
   assert.notEqual(nisi.word, 'RUNNING');
 
   const map = mapEvidence({nodes: [{id: 'mac:lmstudio', modelId: 'example-local', health: 'ok'}]}, {fictional: false});
+  assert.equal(map.badges.process, 'SAMPLE');
   assert.equal(map.badges.lane, 'INVENTORY');
   assert.equal(map.badges.attachment, 'NO RUN');
+  const down = mapEvidence(null, {feedUnavailable: true});
+  assert.equal(down.badges.process, 'DISCONNECTED');
+  assert.notEqual(down.badges.process, 'UNKNOWN');
+  assert.notEqual(down.badges.process, 'IDLE');
+  const missing = mapEvidence(null, {feedUnavailable: false});
+  assert.equal(missing.badges.process, 'UNKNOWN');
+  assert.notEqual(missing.badges.process, 'DISCONNECTED');
   assert.equal(map.rows.find(row => row.id === 'acceptance').matrix, 'Blocked');
   assert.equal(evidenceFor(null, {id: 'x', kind: 'machine', word: 'UNKNOWN', analyses: []}).rows.find(row => row.id === 'acceptance').matrix, 'Blocked');
+});
+
+test('components names an unavailable observer instead of staying on Checking', () => {
+  const source = read('./web/components.js');
+  const block = source.slice(source.indexOf('}catch{'), source.indexOf('}catch{') + 420);
+  assert.match(block, /integrity/);
+  assert.match(block, /runtime/);
+  assert.match(block, /Unknown · observer unavailable/);
+  assert.doesNotMatch(block, /Checking/);
 });
 
 test('provisional identity is unlabeled as a choice and the board no longer covers the map', () => {
