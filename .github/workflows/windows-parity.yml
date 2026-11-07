@@ -1,0 +1,75 @@
+name: Windows parity
+
+# Runs the Windows edition's unit tests on a real Windows runner. The
+# source-checks workflow runs the same suite on macOS only, which is not
+# native Windows evidence. This is source parity, not installer acceptance:
+# no MSI is built and nothing is installed.
+
+on:
+  push:
+    branches: ['claude/windows-parity-**']
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    name: windows edition (${{ matrix.python }})
+    runs-on: windows-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.13 is the recorded PC environment; 3.9 is the documented minimum.
+        python: ['3.13', '3.9']
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Record environment
+        shell: pwsh
+        run: |
+          git rev-parse HEAD
+          git rev-parse HEAD:windows
+          python --version
+          [System.Environment]::OSVersion.VersionString
+      # cmd, not pwsh: the installer tests start Windows PowerShell 5.1, which
+      # cannot load its own modules when it inherits PowerShell 7's
+      # PSModulePath ("Get-FileHash is not recognized").
+      - name: Windows edition tests
+        working-directory: windows
+        shell: cmd
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          python -B -m unittest discover -s tests -p "test_*.py" -v > ..\windows-tests.log 2>&1
+          set RC=%ERRORLEVEL%
+          type ..\windows-tests.log
+          exit /b %RC%
+      - name: Tray icons load in Windows PowerShell
+        shell: powershell
+        run: |
+          Add-Type -AssemblyName System.Drawing
+          $text = Get-Content -Raw windows\agiw-monitor.ps1
+          $start = $text.IndexOf('# BEGIN generated tray icons (')
+          $end = $text.IndexOf('# END generated tray icons', $start)
+          if ($start -lt 0 -or $end -lt 0) { throw 'generated tray icon block missing' }
+          Invoke-Expression $text.Substring($start, $end - $start)
+          $load = $text.Substring($text.IndexOf('function New-TrayIcon'))
+          $load = $load.Substring(0, $load.IndexOf('$Icons = @{'))
+          Invoke-Expression $load
+          foreach ($state in 'ok', 'live', 'warn', 'muted') {
+            $icon = New-TrayIcon $TrayIconData.$state
+            $bitmap = $icon.ToBitmap()
+            "$state icon $($icon.Width)x$($icon.Height) center=$($bitmap.GetPixel(8,8)) corner=$($bitmap.GetPixel(0,0))"
+            if ($icon.Width -ne 16 -or $icon.Height -ne 16) { throw "$state is not 16x16" }
+          }
+          $app = New-Object System.Drawing.Icon 'brand\windows\agiw.ico'
+          "app icon $($app.Width)x$($app.Height)"
+      - name: Keep the log
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-tests-py${{ matrix.python }}
+          path: windows-tests.log
