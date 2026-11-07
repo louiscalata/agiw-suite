@@ -1208,27 +1208,32 @@ def hands_off_public(value: Any) -> dict[str, Any]:
 # ------------------------------------------------------------- live decode rate
 def live_decode_rate(previous: dict[tuple[int, int], tuple[float, float]], lane: dict[str, Any], now: float) -> tuple[float | None, dict]:
     """Tokens per second generated across a lane's busy slots, from the change in each slot's decoded count
-    between two polls of the same request. Only slots that were generating in both polls count; a new
-    request (decoded count went down) or a long gap contributes nothing rather than a guess."""
+    between two polls of the same request. If any busy slot cannot be measured this poll (no prior sample,
+    a new request, a long gap, an odd count), the lane rate is None rather than a partial sum."""
     current: dict[tuple[int, int], tuple[float, float]] = {}
-    total, counted = 0.0, 0
+    total, counted, partial = 0.0, 0, False
     for slot in lane.get("slots") or []:
+        if not slot.get("isProcessing"):
+            continue
         decoded, slot_id, task = slot.get("decodedTokens"), slot.get("id"), slot.get("taskId")
         # Keyed by (slot, task): without llama-server's task id, two requests in one slot are
         # indistinguishable, so no rate is shown rather than a difference across requests.
-        if not slot.get("isProcessing") or not isinstance(decoded, (int, float)) or not isinstance(slot_id, int) \
-                or not isinstance(task, int):
+        if (type(decoded) not in (int, float) or not math.isfinite(decoded) or decoded < 0
+                or type(slot_id) is not int or type(task) is not int):
+            partial = True
             continue
         key = (slot_id, task)
         current[key] = (float(decoded), now)
         before = previous.get(key)
-        if before is None:
+        gap = now - before[1] if before is not None else None
+        if before is None or decoded < before[0] or not (0.2 <= gap <= 10.0):
+            # A busy slot this poll cannot measure: summing only the others would under-report the lane.
+            partial = True
             continue
-        delta, gap = decoded - before[0], now - before[1]
-        if delta > 0 and 0.2 <= gap <= 10.0:
-            total += delta / gap
-            counted += 1
-    return (round(total, 1) if counted else None), current
+        # A busy slot with no new tokens (still reading its prompt) adds 0, not nothing.
+        total += (decoded - before[0]) / gap
+        counted += 1
+    return (round(total, 1) if counted and not partial and math.isfinite(total) else None), current
 
 
 # ------------------------------------------------------------ codemode history

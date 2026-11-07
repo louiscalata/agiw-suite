@@ -919,8 +919,19 @@ def _no_constants(name: str):
     raise ValueError("non-finite number " + name)
 
 
+def _unique_keys(pairs: list[tuple[str, Any]]) -> dict:
+    # json.loads keeps the last of two equal keys; a signed document with two "health" keys must not
+    # mean whichever one a reader happens to keep.
+    out: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in out:
+            raise ValueError("duplicate key")  # never echo a peer-chosen key into local status rows
+        out[key] = value
+    return out
+
+
 def strict_json(raw: bytes | str) -> Any:
-    return json.loads(raw, parse_constant=_no_constants)
+    return json.loads(raw, parse_constant=_no_constants, object_pairs_hook=_unique_keys)
 
 
 def lan_source(address: str, allow_loopback: bool = False) -> bool:
@@ -990,7 +1001,9 @@ def validate_status(doc: Any, host: str, now: float | None = None) -> dict:
     (kind "agiw-peer", host = machine name, platform = kind)."""
     kind = doc.get("platform") if isinstance(doc, dict) and doc.get("kind") == "agiw-peer" else (
         doc.get("host") if isinstance(doc, dict) else None)
-    if (not isinstance(doc, dict) or doc.get("schemaVersion") != 1 or kind != host
+    # type() so True and 1.0 (both == 1 in Python) are not taken for schema 1
+    if (not isinstance(doc, dict) or type(doc.get("schemaVersion")) is not int or doc["schemaVersion"] != 1
+            or kind != host
             or not isinstance(doc.get("observedAt"), str) or not isinstance(doc.get("models"), list)
             or len(doc["models"]) > MAX_MODELS):
         raise ValueError("status document invalid")
@@ -1006,6 +1019,27 @@ def validate_status(doc: Any, host: str, now: float | None = None) -> dict:
                 or model.get("loadedState") not in ("loaded", "inactive", "unknown")):
             raise ValueError("status model invalid")
     return doc
+
+
+# Nisi and Jev as peers see them: one fixed label per component and one fixed detail per state. This is the
+# only component text that leaves a machine; free text from a status file or an observer is never forwarded.
+COMPONENTS = (
+    ("nisi", "Nisi route adapter", {
+        "ready": "Nisi Inference route ready on this Mac (pins verified, edit pair loaded)",
+        "partial": "Nisi Inference pins verified; the Mac edit pair is not fully loaded",
+        "in-use": "A Nisi call is in flight for a live route on this Mac",
+        "unresolved": "A Nisi pending marker on this Mac needs owner recovery",
+        "needs-action": "Nisi Inference host binding drifted since activation on this Mac",
+        "unknown": "Nisi Inference state not known on this Mac",
+    }),
+    ("jev", "Jev", {
+        "configured": "Jev opted in on this Mac (key never read or shared)",
+        "unavailable": "No Jev opt-in on this Mac",
+        "unknown": "Jev state not known on this Mac",
+    }),
+)
+_STATE_WORD = re.compile(r"[a-z][a-z0-9-]{0,23}\Z")
+_COMPONENT_WORDS = {component_id: (label, details) for component_id, label, details in COMPONENTS}
 
 
 def _scalar(value: Any, kind: type, limit: int = 128) -> Any:
@@ -1038,7 +1072,7 @@ def project_status(doc: dict) -> dict:
             if _scalar(model.get(key), str, 64) is not None:
                 row[key] = _scalar(model[key], str, 64)
         for key in ("slotsBusy", "slotsTotal", "liveTokensPerSecond"):
-            if _scalar(model.get(key), float) is not None:
+            if _scalar(model.get(key), float) is not None and model[key] >= 0:
                 row[key] = model[key]
         out["models"].append(row)
     gpus = doc.get("gpus") if isinstance(doc.get("gpus"), list) else []
@@ -1052,12 +1086,21 @@ def project_status(doc: dict) -> dict:
         out["version"] = _scalar(doc["version"], str, 32)
     # Route components (Nisi, Jev): only known ids, short printable words and one age; never free text blobs.
     components = doc.get("components") if isinstance(doc.get("components"), list) else []
-    rows = []
+    rows, seen = [], set()
     for item in components[:4]:
-        if not isinstance(item, dict) or item.get("id") not in ("nisi", "jev"):
+        if (not isinstance(item, dict) or not isinstance(item.get("id"), str)
+                or item["id"] not in _COMPONENT_WORDS or item["id"] in seen):
             continue
-        row = {k: _scalar(item.get(k), str, 128) for k in ("id", "label", "state", "detail")}
-        row = {k: v for k, v in row.items() if v is not None}
+        seen.add(item["id"])
+        label, details = _COMPONENT_WORDS[item["id"]]
+        row = {"id": item["id"], "label": label}
+        state = item.get("state")
+        if isinstance(state, str) and _STATE_WORD.match(state):
+            row["state"] = state
+            # Only the fixed sentence for that state crosses; any other text (a path, a user name) stays home.
+            expected = details.get(state)
+            if expected is not None and item.get("detail") == expected:
+                row["detail"] = expected
         age = _scalar(item.get("lastJudgedAgeSeconds"), float)
         if age is not None and age >= 0:
             row["lastJudgedAgeSeconds"] = age

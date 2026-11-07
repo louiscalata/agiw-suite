@@ -424,6 +424,36 @@ class LiveRate(unittest.TestCase):
         _, prev = probes.live_decode_rate({}, self.lane((True, 0), (True, 0)), 10.0)
         self.assertEqual(probes.live_decode_rate(prev, self.lane((True, 20), (True, 30)), 11.0)[0], 50.0)
 
+    def test_a_busy_slot_without_a_prior_sample_makes_the_lane_rate_unknown_not_partial(self):
+        # Slot 1 starts generating between polls: 20 tok/s from slot 0 alone would under-report the lane.
+        _, prev = probes.live_decode_rate({}, self.lane((True, 0), (False, None)), 10.0)
+        self.assertIsNone(probes.live_decode_rate(prev, self.lane((True, 20), (True, 30)), 11.0)[0])
+
+    def test_one_good_slot_beside_an_unmeasurable_busy_slot_is_no_rate(self):
+        for second_now in ((True, 5), (True, float("nan"))):  # count went down / odd count
+            _, prev = probes.live_decode_rate({}, self.lane((True, 0), (True, 40)), 10.0)
+            self.assertIsNone(probes.live_decode_rate(prev, self.lane((True, 20), second_now), 11.0)[0], second_now)
+        lane = self.lane((True, 0), (True, 0))
+        _, prev = probes.live_decode_rate({}, lane, 10.0)
+        later = self.lane((True, 20), (True, 30))
+        later["slots"][1]["taskId"] = None
+        self.assertIsNone(probes.live_decode_rate(prev, later, 11.0)[0])
+
+    def test_a_huge_count_is_not_an_infinite_rate(self):
+        _, prev = probes.live_decode_rate({}, self.lane((True, 0)), 10.0)
+        self.assertIsNone(probes.live_decode_rate(prev, self.lane((True, 1e308)), 10.2)[0])
+
+    def test_a_busy_slot_with_no_new_tokens_counts_as_zero(self):
+        _, prev = probes.live_decode_rate({}, self.lane((True, 0), (True, 40)), 10.0)
+        self.assertEqual(probes.live_decode_rate(prev, self.lane((True, 20), (True, 40)), 11.0)[0], 20.0)
+
+    def test_odd_decoded_counts_are_not_rates(self):
+        for odd in (True, float("nan"), float("inf"), -5):
+            lane = {"slots": [{"id": 0, "isProcessing": True, "decodedTokens": 5, "taskId": 7}]}
+            _, prev = probes.live_decode_rate({}, lane, 100.0)
+            lane["slots"][0]["decodedTokens"] = odd
+            self.assertIsNone(probes.live_decode_rate(prev, lane, 101.0)[0], odd)
+
 
 class Codemode(unittest.TestCase):
     def test_malformed_manifests_are_skipped_not_fatal(self):

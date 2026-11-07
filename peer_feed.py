@@ -75,21 +75,7 @@ TEMP_SWEEP_LIMIT = 1024
 
 # Nisi and Jev on this Mac as peers see them: the observer's own component states (telemetry._route_components),
 # published with fixed words per state. Free text from the snapshot never leaves the Mac.
-COMPONENTS = (
-    ("nisi", "Nisi route adapter", {
-        "ready": "Nisi Inference route ready on this Mac (pins verified, edit pair loaded)",
-        "partial": "Nisi Inference pins verified; the Mac edit pair is not fully loaded",
-        "in-use": "A Nisi call is in flight for a live route on this Mac",
-        "unresolved": "A Nisi pending marker on this Mac needs owner recovery",
-        "needs-action": "Nisi Inference host binding drifted since activation on this Mac",
-        "unknown": "Nisi Inference state not known on this Mac",
-    }),
-    ("jev", "Jev", {
-        "configured": "Jev opted in on this Mac (key never read or shared)",
-        "unavailable": "No Jev opt-in on this Mac",
-        "unknown": "Jev state not known on this Mac",
-    }),
-)
+COMPONENTS = peer_link.COMPONENTS
 
 
 class InventoryUnknown(ValueError):
