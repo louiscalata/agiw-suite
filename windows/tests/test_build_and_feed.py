@@ -294,7 +294,7 @@ class InstallerOnWindows(unittest.TestCase):
                          "simple-view.mjs", "simple-view.css",
                          "online-code-mode.mjs", "monitor.html", "monitor.mjs", "monitor.css",
                          "monitor-tabs.mjs", "monitor-board.mjs", "monitor-map.mjs", "jaryo.css", "jaryo.mjs",
-                         "identity.html", "identity.mjs",
+                         "identity.html", "identity.mjs", "machines.html", "machines.mjs",
                          "components.html", "components.js", "components.css")]
             sources += [(REPO / "jaryo" / name, Path("jaryo") / name) for name in
                         ("tokens.json", "theme.mjs", "primitives.css", "README.md",
