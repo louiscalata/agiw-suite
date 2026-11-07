@@ -27,8 +27,24 @@ function matrixClass(matrix) {
 
 const MACHINE_NAMES = {mac: 'MAC', windows: 'PC', linux: 'LINUX'};
 
-function plainReason(code) {
-  return typeof code === 'string' && /^[a-z_]{1,40}$/.test(code) ? code.replace(/_/g, ' ') : 'not observed';
+/**
+ * Plain words for every machine reason code machine_state and peer_feed send. A code not in the
+ * table but safe to show reads with its underscores as spaces; anything else is "not observed".
+ * "never observed" (nothing ever arrived) and "went silent" (it answered before) stay distinct.
+ */
+export const REASON_WORDS = Object.freeze({
+  observed: 'observed', reported_down: 'reported down', reported_degraded: 'reported degraded',
+  not_observed: 'never observed', not_connected: 'went silent', unavailable: 'unavailable',
+  timeout: 'timed out', refused: 'connection refused', non_json: 'unreadable reply',
+  oversize: 'reply too large', schema_invalid: 'unexpected reply', stale: 'reading too old',
+  clock_skew: 'clock out of step', host_key_mismatch: 'host key changed', share_unmounted: 'share not mounted',
+  asleep: 'asleep', untrusted: 'not trusted', unverified: 'not verified',
+  identity_mismatch: 'identity does not match', read_error: 'read failed',
+});
+
+export function reasonWords(code) {
+  if (typeof code !== 'string' || !/^[a-z_]{1,40}$/.test(code)) return 'not observed';
+  return Object.prototype.hasOwnProperty.call(REASON_WORDS, code) ? REASON_WORDS[code] : code.replace(/_/g, ' ');
 }
 
 /**
@@ -46,7 +62,7 @@ export function peerMap({machines, self, feedFresh}) {
     const state = row.state === 'up' ? (row.reasonCode === 'reported_degraded' ? 'DEGRADED' : 'UP') : row.state === 'down' ? 'DOWN' : 'UNKNOWN';
     const link = state === 'DOWN' ? '-x-' : state === 'UNKNOWN' ? '-?-' : '===';
     const parts = [];
-    if (state === 'UNKNOWN') parts.push(plainReason(row.reasonCode));
+    if (state === 'UNKNOWN') parts.push(reasonWords(row.reasonCode));
     else if (state === 'DOWN') parts.push('reported down');
     else if (row.modelsComplete === true && Number.isInteger(row.loadedCount)) {
       parts.push(`${row.loadedCount} loaded / ${Number.isInteger(row.busyCount) ? row.busyCount : '?'} busy`);

@@ -2,14 +2,14 @@
  * Machines: one tile per machine row from /api/snapshot, this machine first, under the peer map.
  * Read only. Every value is the row's own; a missing one is "Not measured" or "Unknown", never 0.
  */
-import {peerMap} from '/monitor-board.mjs';
+import {peerMap, reasonWords} from '/monitor-board.mjs';
 
 const NAMES = {mac: 'Mac', windows: 'PC', linux: 'Linux'};
 const STATE_WORDS = {up: 'Up', down: 'Down', unknown: 'Unknown'};
 const GLYPHS = {up: '■', down: '×', unknown: '?'};
 
 const safeWord = (value, max = 40) => (typeof value === 'string' && /^[A-Za-z0-9 _.:-]+$/.test(value) ? value.slice(0, max) : null);
-const plain = code => (safeWord(code) ? code.replace(/_/g, ' ') : null);
+const sentence = words => words.charAt(0).toUpperCase() + words.slice(1);
 const number = value => typeof value === 'number' && Number.isFinite(value);
 
 function rate(value) {
@@ -22,7 +22,7 @@ export function machineFacts(row) {
   const degraded = row?.state === 'up' && row?.reasonCode === 'reported_degraded';
   const facts = [
     ['State', degraded ? 'Up, degraded' : state],
-    ['Why', row?.state === 'up' && !degraded ? 'Observed' : plain(row?.reasonCode) || 'Not observed'],
+    ['Why', row?.state === 'up' && !degraded ? 'Observed' : sentence(reasonWords(row?.reasonCode))],
     ['Seen through', safeWord(row?.trust, 20) || 'Unknown'],
     ['Age', number(row?.ageSeconds) ? `${Math.round(row.ageSeconds)} s` : 'Unknown'],
     ['Fresh for', number(row?.freshForSeconds) ? `${Math.round(row.freshForSeconds)} s` : 'Unknown'],

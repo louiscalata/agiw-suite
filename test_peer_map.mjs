@@ -21,7 +21,7 @@ test('this machine is the hub and each peer has a link glyph and words', () => {
   const view = peerMap({ machines: [linux, pc, mac], self: 'mac', feedFresh: true });
   assert.deepEqual(lines(view), [
     'THIS MAC      UP       1 loaded / 0 busy · local · 1 s',
-    ' |-?- LINUX    UNKNOWN  stale · authenticated · 42 s',
+    ' |-?- LINUX    UNKNOWN  reading too old · authenticated · 42 s',
     ' |-x- PC       DOWN     reported down · share-reported · 3 s',
   ]);
 });
@@ -54,4 +54,20 @@ test('unexpected strings never reach the map as free text', () => {
   const view = peerMap({ machines: [mac, { host: 'x<script>', platform: 'other', state: 'unknown', reasonCode: 'Drop TABLE;', trust: 'very trusted!' }], self: 'mac', feedFresh: true });
   assert.match(lines(view)[1], /^ \|-\?- XSCRIPT +UNKNOWN +not observed$/);
   assert.match(view.text, /^[\x20-\x7e\n·]+$/);
+});
+
+test('reason codes read as plain words, and never-heard is not went-silent', async () => {
+  const { reasonWords, REASON_WORDS } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
+  assert.equal(reasonWords('not_observed'), 'never observed');
+  assert.equal(reasonWords('not_connected'), 'went silent');
+  assert.equal(reasonWords('some_new_code'), 'some new code');
+  for (const bad of [undefined, null, 7, '', 'Drop TABLE;', '__proto__x!', 'toString']) assert.ok(/^[a-z ]+$/.test(reasonWords(bad)), String(bad));
+  assert.equal(reasonWords('toString'), 'not observed');
+  assert.equal(reasonWords('constructor'), 'constructor');
+  // Every code the backend can send has its own words.
+  const backend = readFileSync(new URL('./machine_state.py', import.meta.url), 'utf8').match(/UNKNOWN_REASONS = frozenset\(\{([^}]*)\}/)[1];
+  for (const code of backend.match(/"([a-z_]+)"/g).map(q => q.slice(1, -1))) assert.ok(Object.prototype.hasOwnProperty.call(REASON_WORDS, code), code);
+  const view = peerMap({ machines: [mac, { ...linux, reasonCode: 'not_observed' }, { ...pc, state: 'unknown', reasonCode: 'not_connected' }], self: 'mac', feedFresh: true });
+  assert.match(lines(view)[1], /LINUX +UNKNOWN +never observed · authenticated · 42 s$/);
+  assert.match(lines(view)[2], /PC +UNKNOWN +went silent · share-reported · 3 s$/);
 });

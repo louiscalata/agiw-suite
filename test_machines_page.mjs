@@ -25,7 +25,7 @@ test('an observed machine lists its measured values', () => {
 test('missing values are not measured or unknown, never zero', () => {
   const f = facts(pc);
   assert.equal(f.State, 'Down');
-  assert.equal(f.Why, 'reported down');
+  assert.equal(f.Why, 'Reported down');
   assert.equal(f.Models, 'Model list incomplete');
   assert.equal(f['Models loaded'], undefined);
   assert.equal(f['Reading prompts'], 'Not measured');
@@ -38,7 +38,7 @@ test('missing values are not measured or unknown, never zero', () => {
 test('degraded is up but says so; a busy count may be unknown', () => {
   const f = facts({ ...mac, reasonCode: 'reported_degraded', busyCount: null });
   assert.equal(f.State, 'Up, degraded');
-  assert.equal(f.Why, 'reported degraded');
+  assert.equal(f.Why, 'Reported degraded');
   assert.equal(f['Models busy'], 'Unknown');
 });
 
@@ -65,4 +65,10 @@ test('every full-web page links Machines and both servers serve it', () => {
   assert.match(read('./server.py'), /'\/machines': \('machines\.html'/);
   assert.match(read('./windows/agiw_win/server.py'), /"\/machines\.mjs": \("machines\.mjs"/);
   assert.match(read('./wrapper-patch/web-edition/appstore-rules.mjs'), /<a href="\/machines">Machines<\/a>\\n/);
+});
+
+test('a never-heard peer and a silent peer give different reasons', () => {
+  assert.equal(facts({ state: 'unknown', reasonCode: 'not_observed' }).Why, 'Never observed');
+  assert.equal(facts({ state: 'unknown', reasonCode: 'not_connected' }).Why, 'Went silent');
+  assert.equal(facts({ state: 'unknown', reasonCode: 'share_unmounted' }).Why, 'Share not mounted');
 });
