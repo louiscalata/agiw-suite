@@ -167,7 +167,7 @@ def _summary(doc: dict, via: str, now: float, platform: str = "windows") -> dict
 
 
 REASON_CODES = frozenset({"ok", "timeout", "refused", "non_json", "oversize", "schema_invalid", "stale",
-                          "host_key_mismatch", "share_unmounted", "asleep", "clock_skew", "not_connected",
+                          "host_key_mismatch", "share_unmounted", "asleep", "clock_skew", "not_connected", "not_observed",
                           "unverified", "unavailable"})
 
 
@@ -334,7 +334,10 @@ def from_peer_link_hosts(now: float, state_dir: Path | None = None, port: int | 
                 else:
                     result["source"].update(host=host, label=host)
             else:
-                result = _feed_failure(platform, host, "not_connected")
+                # Never heard (no hello yet) or heard but never sent a status: nothing about this machine
+                # was ever observed, which is different from a peer that answered before and went silent.
+                never = ("lastHello" in row and row["lastHello"] is None) or row.get("state") == "connecting"
+                result = _feed_failure(platform, host, "not_observed" if never else "not_connected")
             # The paired UUID owns the row. A peer may report a label used by another
             # UUID; that cannot reserve the name or make the other peer fail validation.
             result["source"].update(node=node, host=node, id=f"{platform}:{node}-telemetry",

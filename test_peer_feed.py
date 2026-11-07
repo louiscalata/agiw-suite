@@ -139,6 +139,21 @@ class PerHostFeeds(unittest.TestCase):
             self.assertEqual(windows[0]["source"]["diagnostics"][0]["reasonCode"], "schema_invalid")
             self.assertEqual(windows[0]["source"]["diagnostics"][0]["host"], "pc1")
 
+    def test_never_heard_and_silent_peers_have_different_reasons(self):
+        node = "00000000-0000-4000-8000-000000000001"
+        cases = (({"state": "offline", "lastHello": None}, "not_observed"),   # paired, no hello ever
+                 ({"state": "connecting", "lastHello": 1.0}, "not_observed"),  # hellos, never a status
+                 ({"state": "offline", "lastHello": 1.0}, "not_connected"),    # answered before, now silent
+                 ({"state": "stale", "lastHello": 1.0}, "not_connected"))
+        for extra, reason in cases:
+            with self.subTest(**extra), tempfile.TemporaryDirectory() as directory:
+                state = Path(directory)
+                (state / "control-token").write_text("fixture")
+                peer = {"node": node, "paired": True, "host": "windows", "name": "pc1", **extra}
+                with mock.patch.object(peer_feed, "_control_get", return_value=(200, {"peers": [peer]})):
+                    rows = peer_feed.from_peer_link_hosts(time.time(), state)
+                self.assertEqual([row["source"]["reasonCode"] for row in rows], [reason])
+
     def test_cold_pair_modern_error_and_legacy_share_stay_one_uuid(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
