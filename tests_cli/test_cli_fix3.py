@@ -34,7 +34,7 @@ class CliFix3(unittest.TestCase):
     def test_foreground_lock_refusal_exits_tempfail(self):
         with mock.patch.object(cli.StateLock, "acquire", side_effect=StateLockBusy("busy")), \
                 mock.patch.object(cli.pl, "main") as peer:
-            code, output, error = self.invoke("serve", "--host", "linux")
+            code, output, error = self.invoke("serve", "--host", "mac")
         self.assertEqual(code, 75, output + error)
         self.assertIn("state folder", error)
         self.assertIn("stop it first", error)
@@ -102,7 +102,7 @@ class CliFix3(unittest.TestCase):
         state_home = self.home / "xdg state"
         # The default folder depends on the host: XDG on POSIX, %LOCALAPPDATA% on Windows (the CI runner).
         # POSIX service files are only meaningful on POSIX hosts, so Windows hosts check the Windows task.
-        kinds = ("windows",) if os.name == "nt" else ("mac", "linux", "windows")
+        kinds = ("windows",) if os.name == "nt" else ("mac", "windows")
         for kind in kinds:
             with self.subTest(kind=kind):
                 runner = FakeRunner({"/user": (0, '"user","S-1-5-21-42-1001"\n'),
@@ -122,8 +122,6 @@ class CliFix3(unittest.TestCase):
                 if kind == "mac":
                     args = plistlib.loads(raw)["ProgramArguments"]
                     self.assertEqual(args[args.index("--state-dir") + 1], expected)
-                elif kind == "linux":
-                    self.assertIn('"--state-dir" "' + expected + '"', raw.decode())
                 else:
                     root = ET.fromstring(raw)
                     ns = {"t": "http://schemas.microsoft.com/windows/2004/02/mit/task"}

@@ -85,7 +85,7 @@ class StateLocks(unittest.TestCase):
     def test_serve_refuses_a_lock_held_by_another_process(self):
         self.hold_in_child()
         with mock.patch.object(pl, "main", return_value=0) as run:
-            code, output, error = self.invoke("--status-port", "9000", "serve", "--host", "linux",
+            code, output, error = self.invoke("--status-port", "9000", "serve", "--host", "mac",
                                               "--beacon-port", "9001")
         self.assertEqual(code, 75, output + error)
         self.assertIn("stop it first", error)
@@ -99,7 +99,7 @@ class StateLocks(unittest.TestCase):
             return 17
 
         with mock.patch.object(pl, "main", side_effect=running):
-            code, output, error = self.invoke("serve", "--host", "linux")
+            code, output, error = self.invoke("serve", "--host", "mac")
         self.assertEqual(code, 17, output + error)
         with StateLock(self.state):
             pass
@@ -112,7 +112,7 @@ class StateLocks(unittest.TestCase):
             raise KeyboardInterrupt()
 
         with mock.patch.object(pl, "main", side_effect=interrupted):
-            code, _, _ = self.invoke("serve", "--host", "linux")
+            code, _, _ = self.invoke("serve", "--host", "mac")
         self.assertEqual(code, 130)
         with StateLock(self.state):
             pass

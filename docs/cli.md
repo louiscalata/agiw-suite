@@ -1,13 +1,14 @@
 # agiw command-line tool (v0.1)
 
-`agiw` connects your Mac, Linux and Windows machines on the same LAN. Each machine runs a small peer link that
+`agiw` connects your Mac and Windows PC on the same LAN. Each machine runs a small peer link that
 announces itself, pairs with your other machines through a 6-digit PIN, and answers paired machines with a
 signed, read-only status: health and model names. It is standard-library Python 3.9+ with no dependencies, and
 it reuses the suite's `peer_link.py` (protocol `agiw-peer/2`) unchanged apart from the host-kind default.
 
 **What v0.1 does not do.** Status is **signed but not encrypted**: anyone capturing LAN traffic can read the
 model names and states your machines report. v0.1 **dispatches no jobs**: it discovers, pairs and reads
-status, and no route starts, loads or changes anything on another machine. IPv4 LAN only.
+status, and no route starts, loads or changes anything on another machine. IPv4 LAN only. **Linux is not
+supported:** on Linux every `agiw` command refuses with exit 2 and changes nothing.
 
 ## Install
 
@@ -30,9 +31,6 @@ Do steps 1–2 on every machine, then pair each pair of machines once.
 2. **Start the peer link**, in a terminal you keep open: `agiw serve`. Or start it at every login:
    `agiw service install` (user level, no admin rights). What it reports depends on the machine:
    - **Mac:** the local LM Studio model list (`--lmstudio URL` to change it; default `http://127.0.0.1:1234`).
-   - **Linux:** the Linux observer's status file (`~/.local/state/agiw/linux-status.json`, or under an
-     absolute `$XDG_STATE_HOME`) while it exists, otherwise a minimal status whose health and models are
-     `unknown`.
    - **Windows:** the Windows observer's status file, which you name:
      `agiw serve --status-file "<observer folder>\state\peer-link-status.json"` (turn on the observer's
      `peerLinkStatus` option). Without it the peer link refuses to start, as before.
@@ -55,20 +53,8 @@ The PIN feeds SPAKE2, so a LAN attacker gets one online guess per attempt and no
 pipx install "git+https://github.com/louiscalata/agiw-suite@<tag>"
 agiw doctor
 agiw service install        # or: agiw serve
-agiw peers && agiw pair <linux or windows machine>
+agiw peers && agiw pair <windows machine>
 ```
-
-### Linux
-
-```sh
-pipx install "git+https://github.com/louiscalata/agiw-suite@<tag>"
-agiw doctor
-agiw service install        # systemd --user; see the lingering note below
-agiw accept                 # when the other machine shows a PIN
-```
-
-A `systemd --user` service stops when you log out unless lingering is on for your account
-(`loginctl enable-linger $USER`; some systems ask for an administrator). agiw does not change this.
 
 ### Windows
 
@@ -115,8 +101,6 @@ agiw never changes firewall settings; `agiw doctor` prints these hints.
 
 - **macOS:** with the firewall on, allow incoming connections for the Python that runs agiw
   (System Settings > Network > Firewall > Options).
-- **Linux (ufw):** allow your LAN only, for example
-  `sudo ufw allow from <your LAN>/24 to any port 8768 proto tcp` and the same for `port 8769 proto udp`.
 - **Windows:** add inbound rules yourself, Private profile, in an administrator PowerShell:
 
   ```powershell
@@ -133,7 +117,6 @@ you use the default. Options you pass (`--status-file`, `--name` and so on) go i
 | OS | Definition | Started with |
 | --- | --- | --- |
 | macOS | `~/Library/LaunchAgents/io.github.louiscalata.agiw.peer-link.plist`; log in `~/Library/Logs/agiw/` | `launchctl bootstrap gui/<uid>` |
-| Linux | `~/.config/systemd/user/agiw-peer-link.service` | `systemctl --user enable`, then `restart` (also applies changed options on reinstall) |
 | Windows | Task `\AGIW\PeerLink-<SID>` (your account's SID, logon trigger, least privilege); XML copy under `%LOCALAPPDATA%\AGIW\service\` | `schtasks /Create /XML`, then `/Run` |
 
 On Windows, agiw reads your SID with `whoami /user /fo csv /nh` and uses that same account-specific task
@@ -145,7 +128,7 @@ same State query; a failed query leaves status unknown and keeps the definition 
 
 `agiw service status` reports whether the definition exists and whether the service manager has it loaded
 and running. `agiw service uninstall` stops it and checks that launchd no longer holds the job on macOS,
-or that the service is stopped on Linux and Windows, before removing the definition. A waiting or exited
+or that the task is stopped on Windows, before removing the definition. A waiting or exited
 LaunchAgent is still loaded. If removal cannot be confirmed, agiw keeps the definition and reports how to stop it.
 
 ## State folder
@@ -153,7 +136,6 @@ LaunchAgent is still loaded. If removal cannot be confirmed, agiw keeps the defi
 Identity, control token and one trust record per paired machine, private to your account:
 
 - macOS: `~/Library/Application Support/AGIW/peer-link`
-- Linux: `~/.local/state/agiw/peer-link` (under an absolute `$XDG_STATE_HOME` when set)
 - Windows: `%LOCALAPPDATA%\AGIW\peer-link`, with link keys sealed by DPAPI and pairing generations in
   `HKCU\Software\AGIW\PeerLink`
 
@@ -164,8 +146,7 @@ live check. `agiw serve` repairs the state when started.
 `agiw serve` holds an exclusive process lock for its whole run and refuses to start if that state folder is
 already locked. The lock file sits next to the state folder, with `.agiw-lock` appended to its name (for
 example, `peer-link.agiw-lock` beside `peer-link`), so it does not enter the peer link's state-file checks.
-Lock refusal exits 75; systemd does not restart that exit and limits other failures to five starts in 300
-seconds, with 30 seconds between restarts. The LaunchAgent and Windows task pass `serve --service`,
+Lock refusal exits 75. The LaunchAgent and Windows task pass `serve --service`,
 which prints the same lock-refusal message and exits 0. The LaunchAgent throttles crashes to 60 seconds;
 the Windows task retries failures up to three times, one minute apart.
 

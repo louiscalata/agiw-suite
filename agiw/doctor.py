@@ -39,10 +39,6 @@ def firewall_hints(kind: str, tcp: int, udp: int) -> List[Row]:
         return [("info", f"firewall (macOS): if the firewall is on, allow incoming connections for the Python that "
                          f"runs agiw (System Settings > Network > Firewall > Options). Paired machines reach this "
                          f"one on tcp/{tcp}; discovery uses udp/{udp}.")]
-    if kind == "linux":
-        return [("info", f"firewall (Linux): if ufw is active, allow only your LAN, e.g. "
-                         f"`sudo ufw allow from <your LAN>/24 to any port {tcp} proto tcp` and the same for "
-                         f"`port {udp} proto udp`. Run these yourself; agiw changes no firewall settings.")]
     return [("info", f"firewall (Windows): add inbound rules yourself in an administrator PowerShell, Private "
                      f"profile only: New-NetFirewallRule -DisplayName 'AGIW peer link TCP' -Direction Inbound "
                      f"-Protocol TCP -LocalPort {tcp} -Profile Private -Action Allow, and the same with "

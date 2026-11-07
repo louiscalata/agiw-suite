@@ -8,7 +8,7 @@ from unittest import mock
 from support import FakeRunner, forbid_real_commands, temp_dir
 
 from agiw import cli
-from agiw.service import LAUNCHD_LABEL, SYSTEMD_UNIT, WINDOWS_TASK, ServiceManager, _systemd_quote
+from agiw.service import LAUNCHD_LABEL, WINDOWS_TASK, ServiceManager
 
 TASK_NS = {"t": "http://schemas.microsoft.com/windows/2004/02/mit/task"}
 ELEVATION_WORDS = ("sudo", "runas", "HighestAvailable", "/RL", "HIGHEST", "LaunchDaemons", "--system", "SYSTEM")
@@ -84,47 +84,6 @@ class Launchd(Base):
         self.assert_user_level(runner)
 
 
-class Systemd(Base):
-    def test_install_renders_a_user_unit_and_enables_it(self):
-        runner = FakeRunner({"is-active": (0, "active\n")})
-        manager = self.manager("linux", runner, ["--state-dir", "/srv/agiw state"], ["--name", "lab 100%"])
-        manager.install()
-        path = self.home / ".config" / "systemd" / "user" / SYSTEMD_UNIT
-        text = path.read_text()
-        self.assertIn('ExecStart="/opt/py/bin/python3" "-m" "agiw" "--state-dir" "/srv/agiw state" "serve" '
-                      '"--name" "lab 100%%"\n', text)
-        self.assertIn("WantedBy=default.target", text)
-        self.assertIn("Restart=on-failure", text)
-        systemctl = runner.calls[0][0]
-        self.assertTrue(systemctl.endswith("systemctl"))
-        self.assertEqual(runner.calls, [[systemctl, "--user", "daemon-reload"],
-                                        [systemctl, "--user", "enable", SYSTEMD_UNIT],
-                                        [systemctl, "--user", "restart", SYSTEMD_UNIT],
-                                        [systemctl, "--user", "is-active", SYSTEMD_UNIT]])
-        for argv in runner.calls:
-            self.assertEqual(argv[1], "--user")
-        self.assert_user_level(runner)
-
-    def test_xdg_config_home_is_respected_when_absolute(self):
-        config = temp_dir(self, "agiw-config-")
-        manager = self.manager("linux", FakeRunner(), env={"XDG_CONFIG_HOME": str(config)})
-        self.assertEqual(manager.definition_path(), config / "systemd" / "user" / SYSTEMD_UNIT)
-        relative = self.manager("linux", FakeRunner(), env={"XDG_CONFIG_HOME": "rel"})
-        self.assertEqual(relative.definition_path(), self.home / ".config" / "systemd" / "user" / SYSTEMD_UNIT)
-
-    def test_status_and_uninstall(self):
-        runner = FakeRunner({"is-enabled": (0, "enabled\n"), "is-active": (0, "active\n")})
-        manager = self.manager("linux", runner)
-        manager.install()
-        state = manager.status()
-        self.assertEqual((state["installed"], state["loaded"], state["running"]), (True, True, True))
-        runner.results["is-active"] = (3, "inactive\n")  # disable --now stopped it
-        manager.uninstall()
-        self.assertFalse(manager.definition_path().exists())
-        self.assertIn([runner.calls[0][0], "--user", "disable", "--now", SYSTEMD_UNIT], runner.calls)
-        self.assert_user_level(runner)
-
-
 class TaskScheduler(Base):
     def test_install_registers_a_least_privilege_logon_task_for_this_user(self):
         runner = FakeRunner({"/user": WHOAMI, "-Command": (0, "Running\n")})
@@ -171,7 +130,7 @@ class ThroughTheCli(Base):
         return code, lines
 
     def test_service_install_status_uninstall_on_each_kind(self):
-        for kind in ("mac", "linux", "windows"):
+        for kind in ("mac", "windows"):
             runner = FakeRunner({"/user": WHOAMI, "is-active": (0, "active\n"), "print": (113, ""),
                                  "-Command": (0, "Running\n")})
             extra = ["--status-file", str(self.home / "status.json")] if kind == "windows" else []
@@ -196,16 +155,6 @@ class ThroughTheCli(Base):
         self.assertEqual(code, 2)
         self.assertEqual(runner.calls, [])
         self.assertEqual(self.files_under_home(), [])
-
-    def test_custom_state_dir_and_options_reach_the_service_command(self):
-        runner = FakeRunner({"is-active": (0, "active\n")})
-        state = self.home / "custom state"
-        code, _ = self.run_cli("linux", "--state-dir", str(state), "service", "install", "--name", "lab",
-                               runner=runner)
-        self.assertEqual(code, 0)
-        text = (self.home / ".config" / "systemd" / "user" / SYSTEMD_UNIT).read_text()
-        self.assertIn(f'"--state-dir" {_systemd_quote(str(state.resolve()))} "serve" "--name" "lab"', text)
-
 
 if __name__ == "__main__":
     unittest.main()

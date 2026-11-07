@@ -1,5 +1,6 @@
-"""Run `agiw serve` at login as a user-level service: a launchd LaunchAgent (macOS), a systemd --user unit
-(Linux) or a Task Scheduler logon task (Windows). Nothing here asks for admin, sudo or UAC.
+"""Run `agiw serve` at login as a user-level service: a launchd LaunchAgent (macOS) or a Task Scheduler logon
+task (Windows). Nothing here asks for admin, sudo or UAC. Linux is not supported (AGIW's hosts are the Mac and
+the Windows PC).
 
 Definitions are rendered as text first, written under the user's own folders, and every system command goes
 through an injectable runner, so tests render into a temporary folder and never start a real service.
@@ -20,7 +21,6 @@ from typing import Callable, List, Optional, Sequence
 from xml.sax.saxutils import escape
 
 LAUNCHD_LABEL = "io.github.louiscalata.agiw.peer-link"
-SYSTEMD_UNIT = "agiw-peer-link.service"
 WINDOWS_TASK = "\\AGIW\\PeerLink"
 
 Runner = Callable[[Sequence[str]], "subprocess.CompletedProcess"]
@@ -37,11 +37,6 @@ def real_runner(argv: Sequence[str]) -> "subprocess.CompletedProcess":
 
 class ServiceError(RuntimeError):
     pass
-
-
-def _systemd_quote(arg: str) -> str:
-    """One ExecStart word: double-quoted, with systemd's specifier (%) and escape (\\) rules applied."""
-    return '"' + arg.replace("\\", "\\\\").replace('"', '\\"').replace("%", "%%").replace("$", "$$") + '"'
 
 
 def _windows_quote(arg: str) -> str:
@@ -62,14 +57,14 @@ def _windows_quote(arg: str) -> str:
 
 
 class ServiceManager:
-    """kind is mac, linux or windows. home, python, runner and the environment are injectable."""
+    """kind is mac or windows. home, python, runner and the environment are injectable."""
 
     def __init__(self, kind: str, serve_args: Sequence[str] = (), serve_options: Sequence[str] = (), *,
                  home: Optional[Path] = None,
                  python: Optional[str] = None, runner: Optional[Runner] = None, env: Optional[dict] = None,
                  uid: Optional[int] = None, system_dir: Optional[str] = None):
-        if kind not in ("mac", "linux", "windows"):
-            raise ValueError("kind must be mac, linux or windows")
+        if kind not in ("mac", "windows"):
+            raise ValueError("kind must be mac or windows")
         self.kind = kind
         self.serve_args = list(serve_args)        # global options, before `serve`
         self.serve_options = list(serve_options)  # `serve` options
@@ -102,15 +97,9 @@ class ServiceManager:
         value = self.env.get("LOCALAPPDATA")
         return Path(value) if value and Path(value).is_absolute() else self.home / "AppData" / "Local"
 
-    def _config_home(self) -> Path:
-        value = self.env.get("XDG_CONFIG_HOME")
-        return Path(value) if value and Path(value).is_absolute() else self.home / ".config"
-
     def definition_path(self) -> Path:
         if self.kind == "mac":
             return self.home / "Library" / "LaunchAgents" / f"{LAUNCHD_LABEL}.plist"
-        if self.kind == "linux":
-            return self._config_home() / "systemd" / "user" / SYSTEMD_UNIT
         return self._local_appdata() / "AGIW" / "service" / "agiw-peer-link.xml"
 
     def log_path(self) -> Optional[Path]:
@@ -119,7 +108,7 @@ class ServiceManager:
     # ---------- rendering ----------
 
     def render(self) -> bytes:
-        return {"mac": self._render_launchd, "linux": self._render_systemd, "windows": self._render_task}[self.kind]()
+        return {"mac": self._render_launchd, "windows": self._render_task}[self.kind]()
 
     def _render_launchd(self) -> bytes:
         log = str(self.log_path())
@@ -134,28 +123,6 @@ class ServiceManager:
             "StandardOutPath": log,
             "StandardErrorPath": log,
         })
-
-    def _render_systemd(self) -> bytes:
-        lines = [
-            "[Unit]",
-            "Description=AGIW peer link (agiw-peer/2): LAN discovery, PIN pairing and signed read-only status",
-            "After=network-online.target",
-            "StartLimitIntervalSec=300",
-            "StartLimitBurst=5",
-            "",
-            "[Service]",
-            "Type=simple",
-            "ExecStart=" + " ".join(_systemd_quote(a) for a in self.command()),
-            "Environment=PYTHONDONTWRITEBYTECODE=1",
-            "Restart=on-failure",
-            "RestartSec=30",
-            "RestartPreventExitStatus=75",
-            "",
-            "[Install]",
-            "WantedBy=default.target",
-            "",
-        ]
-        return "\n".join(lines).encode("utf-8")
 
     def windows_user(self) -> str:
         user = self.env.get("USERNAME") or "user"
@@ -212,12 +179,6 @@ class ServiceManager:
 
     def _launchctl(self) -> str:
         return "/bin/launchctl"
-
-    def _systemctl(self) -> str:
-        for candidate in ("/usr/bin/systemctl", "/bin/systemctl"):
-            if os.path.exists(candidate):
-                return candidate
-        return "systemctl"
 
     def _schtasks(self) -> str:
         if self._system_dir is None:
@@ -363,20 +324,6 @@ class ServiceManager:
                     raise ServiceError(f"LaunchAgent replacement failed: {exc}; rollback failed: {rollback}; {state}") from exc
                 raise ServiceError(f"LaunchAgent replacement failed: {exc}; rolled back to the previous loaded definition") from exc
             steps.append(f"loaded {LAUNCHD_LABEL} for this user (launchctl bootstrap {domain})")
-        elif self.kind == "linux":
-            path = self._write_definition()
-            steps.append("wrote " + str(path))
-            self._run([self._systemctl(), "--user", "daemon-reload"])
-            self._run([self._systemctl(), "--user", "enable", SYSTEMD_UNIT])
-            self._run([self._systemctl(), "--user", "restart", SYSTEMD_UNIT])
-            try:
-                active = self._run([self._systemctl(), "--user", "is-active", SYSTEMD_UNIT], check=False)
-            except (OSError, subprocess.SubprocessError) as exc:
-                raise ServiceError(f"{SYSTEMD_UNIT} is installed but not running; "
-                                   f"active state could not be confirmed: {exc}") from exc
-            if active.returncode != 0 or (active.stdout or "").strip() != "active":
-                raise ServiceError(f"{SYSTEMD_UNIT} is installed but not running; check `systemctl --user status {SYSTEMD_UNIT}`")
-            steps.append(f"enabled and started {SYSTEMD_UNIT} (systemctl --user)")
         else:
             task = self.windows_task()  # establish the account identity before writing anything
             path = self._write_definition()
@@ -404,15 +351,6 @@ class ServiceManager:
                 raise ServiceError(f"service definition was kept; {guidance}")
             if result is not None and result.returncode == 0:
                 steps.append(f"stopped {LAUNCHD_LABEL}")
-        elif self.kind == "linux":
-            guidance = f"stop it with `systemctl --user stop {SYSTEMD_UNIT}` and retry"
-            _, query = self._stop_and_query([self._systemctl(), "--user", "disable", "--now", SYSTEMD_UNIT],
-                                            [self._systemctl(), "--user", "is-active", SYSTEMD_UNIT], guidance)
-            state = (query.stdout or "").strip()
-            if (query.returncode, state) not in ((3, "inactive"), (3, "failed"), (3, "unknown"), (4, "unknown")):
-                raise ServiceError(f"service definition was kept; {guidance}")
-            if path.exists() or state != "unknown":
-                steps.append(f"confirmed {SYSTEMD_UNIT} is not running")
         else:
             task = self.windows_task()
             query_command = self._windows_state_command()
@@ -435,8 +373,6 @@ class ServiceManager:
         try:
             path.unlink()
             steps.append("removed " + str(path))
-            if self.kind == "linux":
-                self._run([self._systemctl(), "--user", "daemon-reload"], check=False)
         except FileNotFoundError:
             pass
         if not steps:
@@ -451,11 +387,6 @@ class ServiceManager:
             result = self._run([self._launchctl(), "print", f"gui/{self._uid_value()}/{LAUNCHD_LABEL}"], check=False)
             out["loaded"] = result.returncode == 0
             out["running"] = bool(out["loaded"] and re.search(r"^\s*state = running\s*$", result.stdout or "", re.M))
-        elif self.kind == "linux":
-            enabled = self._run([self._systemctl(), "--user", "is-enabled", SYSTEMD_UNIT], check=False)
-            active = self._run([self._systemctl(), "--user", "is-active", SYSTEMD_UNIT], check=False)
-            out["loaded"] = (enabled.stdout or "").strip() == "enabled"
-            out["running"] = (active.stdout or "").strip() == "active"
         else:
             try:
                 state = self._windows_state(self._windows_state_command())

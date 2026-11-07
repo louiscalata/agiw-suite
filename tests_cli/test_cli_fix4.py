@@ -56,12 +56,12 @@ class CliFix4(unittest.TestCase):
         self.assertEqual(self.key.read_bytes(), b"identity")
 
     def test_purge_refusal_preserves_confirmation_when_no_removal_was_reported(self):
-        self.manager = cli.ServiceManager("linux", home=self.home, env={},
-                                          runner=FakeRunner({"is-active": (3, "inactive\n")}))
+        self.manager = cli.ServiceManager("mac", home=self.home, env={}, uid=501,
+                                          runner=FakeRunner({"bootout": (113, ""), "print": (113, "")}))
         with mock.patch.object(cli.StateLock, "acquire", side_effect=StateLockBusy("busy")):
             code, output, error = self.invoke("uninstall", "--purge-keys", "--yes")
         self.assertEqual(code, 1, output)
-        self.assertIn("confirmed agiw-peer-link.service is not running; no key file was deleted", error)
+        self.assertIn("no agiw service was installed; no key file was deleted", error)
         self.assertNotIn("the login service was removed", error)
         self.assertEqual(self.key.read_bytes(), b"identity")
 
@@ -117,7 +117,7 @@ class CliFix4(unittest.TestCase):
         self.assertEqual(error, "")
 
     def test_service_lock_refusal_is_clean_on_every_host_kind(self):
-        for kind in ("mac", "linux", "windows"):
+        for kind in ("mac", "windows"):
             with self.subTest(kind=kind), \
                     mock.patch.object(cli.StateLock, "acquire", side_effect=StateLockBusy("busy")), \
                     mock.patch.object(cli.pl, "main") as peer:

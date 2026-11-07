@@ -61,7 +61,7 @@ class Doctor(unittest.TestCase):
         self.lines = []
 
     def run_doctor(self, probe=lambda port, proto: "free", **kw):
-        kw.setdefault("kind", "linux")
+        kw.setdefault("kind", "mac")
         state = kw.pop("state", self.state)
         return doctor.run(state, 8768, 8769, probe=probe, write=self.lines.append,
                           home=str(self.home), **kw)
@@ -117,7 +117,7 @@ class Doctor(unittest.TestCase):
         self.assertNotIn(str(outside), text)
 
     def test_firewall_hints_are_text_for_each_os(self):
-        for kind, word in (("mac", "System Settings"), ("linux", "ufw"), ("windows", "New-NetFirewallRule")):
+        for kind, word in (("mac", "System Settings"), ("windows", "New-NetFirewallRule")):
             self.lines = []
             self.run_doctor(kind=kind)
             text = self.assert_clean()
@@ -142,7 +142,7 @@ class Doctor(unittest.TestCase):
 
     def cli_doctor(self):
         return cli.main(["--state-dir", str(self.state), "doctor"], out=self.lines.append,
-                        runner=FakeRunner(), kind="linux", home=self.home, env={})
+                        runner=FakeRunner(), kind="mac", home=self.home, env={})
 
     def test_cli_doctor_opens_no_tcp_connection(self):
         with mock.patch.object(doctor, "probe_port", return_value="in use"), \

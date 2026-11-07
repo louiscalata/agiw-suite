@@ -138,11 +138,11 @@ class ServeWrapper(unittest.TestCase):
         from agiw import cli
         state = temp_dir(self) / "S"
         with mock.patch.object(pl, "main", return_value=0) as run:
-            code = cli.main(["--state-dir", str(state), "--status-port", "9000", "serve", "--host", "linux", "--name", "lab"],
+            code = cli.main(["--state-dir", str(state), "--status-port", "9000", "serve", "--host", "mac", "--name", "lab"],
                             out=lambda line: None)
         self.assertEqual(code, 0)
         self.assertEqual(run.call_args[0][0], ["--state-dir", str(state), "--status-port", "9000", "run", "--beacon-port",
-                                               "8769", "--host", "linux", "--name", "lab"])
+                                               "8769", "--host", "mac", "--name", "lab"])
 
     def test_windows_without_a_status_file_is_refused_in_agiw_words(self):
         from agiw import cli

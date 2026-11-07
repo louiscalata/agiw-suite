@@ -6,7 +6,7 @@ import unittest
 from unittest import mock
 
 from support import FakeRunner, forbid_real_commands, temp_dir
-from agiw.service import LAUNCHD_LABEL, SYSTEMD_UNIT, ServiceError, ServiceManager
+from agiw.service import LAUNCHD_LABEL, ServiceError, ServiceManager
 
 SID = "S-1-5-21-111-222-333-1001"
 TASK = "\\AGIW\\PeerLink-" + SID
@@ -57,7 +57,6 @@ class ServiceReview(unittest.TestCase):
 
     def test_uninstall_keeps_definition_when_stop_fails_and_service_is_running(self):
         cases = (("mac", {"bootout": (5, ""), "print": (0, "state = running\n")}),
-                 ("linux", {"disable": (1, ""), "is-active": (0, "active\n")}),
                  ("windows", {"/End": (1, ""), "-Command": (0, "Running\n")}))
         for kind, results in cases:
             with self.subTest(kind=kind):
@@ -71,7 +70,6 @@ class ServiceReview(unittest.TestCase):
 
     def test_uninstall_keeps_definition_when_post_stop_state_is_unknown(self):
         cases = (("mac", {"print": (5, "")}),
-                 ("linux", {"is-active": (1, "")}),
                  ("windows", {"-Command": (0, "Unknown\n")}))
         for kind, results in cases:
             with self.subTest(kind=kind):
@@ -102,7 +100,6 @@ class ServiceReview(unittest.TestCase):
 
     def test_failed_stop_can_remove_definition_after_confirmed_stopped_query(self):
         cases = (("mac", {"bootout": (5, ""), "print": (113, "")}),
-                 ("linux", {"disable": (1, ""), "is-active": (3, "inactive\n")}),
                  ("windows", {"/End": (1, ""), "-Command": (0, "Ready\n")}))
         for kind, results in cases:
             with self.subTest(kind=kind):
@@ -111,34 +108,16 @@ class ServiceReview(unittest.TestCase):
                 path = self.existing(manager)
                 manager.uninstall()
                 self.assertFalse(path.exists())
-                verb = {"mac": "print", "linux": "is-active", "windows": "-Command"}[kind]
+                verb = {"mac": "print", "windows": "-Command"}[kind]
                 self.assertTrue(any(verb in argv for argv in runner.calls))
 
     def test_never_installed_uninstall_succeeds_on_each_platform(self):
         cases = (("mac", {"bootout": (113, ""), "print": (113, "")}),
-                 ("linux", {"is-active": (4, "unknown\n")}),
                  ("windows", {"-Command": (3, "")}))
         for kind, results in cases:
             with self.subTest(kind=kind):
                 runner = self.windows_runner(results) if kind == "windows" else FakeRunner(results)
                 self.assertEqual(self.manager(kind, runner).uninstall(), ["no agiw service was installed"])
-
-    def test_linux_running_unit_without_definition_is_stopped_and_checked(self):
-        runner = FakeRunner({"disable": (1, ""), "is-active": (0, "active\n")})
-        manager = self.manager("linux", runner)
-        self.assertFalse(manager.definition_path().exists())
-        with self.assertRaisesRegex(ServiceError, "definition.*kept.*stop"):
-            manager.uninstall()
-        self.assertTrue(any("disable" in argv for argv in runner.calls))
-        self.assertTrue(any("is-active" in argv for argv in runner.calls))
-
-    def test_linux_inconsistent_query_result_does_not_prove_stopped(self):
-        runner = FakeRunner({"is-active": (0, "unknown\n")})
-        manager = self.manager("linux", runner)
-        path = self.existing(manager)
-        with self.assertRaisesRegex(ServiceError, "definition.*kept.*stop"):
-            manager.uninstall()
-        self.assertTrue(path.exists())
 
     def test_windows_absent_task_removes_stale_xml_without_deleting_a_task(self):
         runner = self.windows_runner({"-Command": (3, "")})
@@ -150,7 +129,6 @@ class ServiceReview(unittest.TestCase):
 
     def test_stop_timeout_is_followed_by_query_and_unknown_query_keeps_definition(self):
         for kind, stop, query, inactive in (("mac", "bootout", "print", (113, "")),
-                                           ("linux", "disable", "is-active", (3, "inactive\n")),
                                            ("windows", "/End", "-Command", (0, "Ready\n"))):
             for query_fails in (False, True):
                 with self.subTest(kind=kind, query_fails=query_fails):
@@ -269,38 +247,6 @@ class ServiceReview(unittest.TestCase):
             with self.assertRaisesRegex(ServiceError, "rollback failed.*definition restoration incomplete"):
                 manager.install()
         self.assertNotIn(b"previous definition\n", bootstraps)
-
-    def test_linux_reinstall_enables_then_restarts_and_verifies_active(self):
-        runner = FakeRunner({"is-active": (0, "active\n")})
-        manager = self.manager("linux", runner)
-        self.existing(manager)
-        manager.install()
-        words = [argv[2:] for argv in runner.calls]
-        self.assertEqual(words, [["daemon-reload"], ["enable", SYSTEMD_UNIT],
-                                 ["restart", SYSTEMD_UNIT], ["is-active", SYSTEMD_UNIT]])
-
-    def test_linux_restart_must_leave_unit_active(self):
-        for error in (None, subprocess.TimeoutExpired("systemctl", 60), PermissionError("cannot query")):
-            with self.subTest(error=error):
-                fake = FakeRunner({"is-active": (3, "inactive\n")})
-
-                def runner(argv):
-                    if "is-active" in argv and error is not None:
-                        raise error
-                    return fake(argv)
-
-                manager = self.manager("linux", runner)
-                with self.assertRaisesRegex(ServiceError, "installed but not running"):
-                    manager.install()
-                self.assertTrue(manager.definition_path().exists())
-
-    def test_linux_enable_and_restart_failures_are_checked(self):
-        for verb in ("enable", "restart"):
-            with self.subTest(verb=verb):
-                runner = FakeRunner({verb: (1, ""), "is-active": (0, "active\n")})
-                with self.assertRaises(ServiceError):
-                    self.manager("linux", runner).install()
-                self.assertTrue(any(verb in argv for argv in runner.calls))
 
     def test_windows_run_failure_reports_installed_task_and_reason(self):
         runner = self.windows_runner({"/Run": (5, "Access denied by scheduler")})

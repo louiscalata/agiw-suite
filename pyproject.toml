@@ -1,5 +1,5 @@
 # The `agiw` command-line tool only. The Mac app is built by build.sh from an explicit file list and
-# does not read this file; the Linux and Windows observers keep their own installers.
+# does not read this file; the Windows observer keeps its own installer. Linux is not supported.
 [build-system]
 requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "agiw"
 version = "0.1.0"
-description = "Pair your Mac, Linux and Windows machines with a PIN and read their signed AGIW status over the LAN"
+description = "Pair your Mac and Windows PC with a PIN and read their signed AGIW status over the LAN"
 readme = "docs/cli.md"
 requires-python = ">=3.9"
 license = "Apache-2.0"
@@ -18,7 +18,6 @@ classifiers = [
     "Environment :: Console",
     "Operating System :: MacOS",
     "Operating System :: Microsoft :: Windows",
-    "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3",
     "Topic :: System :: Networking :: Monitoring",
 ]

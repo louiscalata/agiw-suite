@@ -29,8 +29,8 @@ class Purge(unittest.TestCase):
     def run_cli(self, *argv):
         lines = []
         code = cli.main(["--state-dir", str(self.state), "uninstall", *argv], out=lines.append,
-                        runner=FakeRunner({"is-active": (4, "unknown\n")}),
-                        kind="linux", home=self.home, env={})
+                        runner=FakeRunner({"bootout": (113, ""), "print": (113, "")}),
+                        kind="mac", home=self.home, env={})
         return code, "\n".join(lines)
 
     def test_without_purge_keys_nothing_is_listed_or_deleted(self):
@@ -81,8 +81,8 @@ class Purge(unittest.TestCase):
         lines = []
         with mock.patch("sys.stderr"):
             code = cli.main(["--state-dir", str(link), "uninstall", "--purge-keys", "--yes"], out=lines.append,
-                            runner=FakeRunner({"is-active": (4, "unknown\n")}),
-                            kind="linux", home=self.home, env={})
+                            runner=FakeRunner({"bootout": (113, ""), "print": (113, "")}),
+                            kind="mac", home=self.home, env={})
         self.assertEqual(code, 1)
         self.assertTrue(all(p.exists() for p in self.ours))
 

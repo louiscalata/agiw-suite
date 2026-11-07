@@ -1,4 +1,4 @@
-"""agiw: connect your Mac, Linux and Windows machines on the LAN.
+"""agiw: connect your Mac and Windows PC on the LAN.
 
 Every command except `serve`, `doctor`, `service` and `uninstall` talks to this user's own peer link on
 127.0.0.1, which must first prove it holds the control token in the state folder (peer_link.py). Status is
@@ -28,6 +28,9 @@ from agiw.state_lock import StateLock, StateLockBusy
 
 EXIT_FAILED, EXIT_USAGE, EXIT_NOT_RUNNING = 1, 2, 3
 EXIT_TEMPFAIL = 75
+# AGIW's hosts are the Mac and the Windows PC; the peer link still knows "linux" for an occasional peer,
+# but this CLI neither runs nor installs a service there.
+SUPPORTED_KINDS = ("mac", "windows")
 NOT_RUNNING = ("the peer link is not running on this machine; start it with `agiw serve` "
                "(or `agiw service install` to start it at login)")
 WINDOWS_SOURCE = ("on Windows, pass --status-file with the Windows observer's status file "
@@ -442,7 +445,7 @@ def _cmd_uninstall(args, out, manager: ServiceManager, probe=None) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="agiw", description="Pair your Mac, Linux and Windows machines with a PIN and read their signed, "
+        prog="agiw", description="Pair your Mac and Windows PC with a PIN and read their signed, "
                                  "read-only status over the LAN (agiw-peer/2). Status is signed, not encrypted; "
                                  "v0.1 dispatches no jobs.")
     parser.add_argument("--version", action="version", version=f"agiw {__version__} ({pl.PROTOCOL})")
@@ -453,7 +456,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub.required = True
 
     def serve_flags(p):
-        p.add_argument("--host", choices=pl.HOST_KINDS, help="this machine's kind (default: detected)")
+        p.add_argument("--host", choices=SUPPORTED_KINDS, help="this machine's kind (default: detected)")
         p.add_argument("--name", help="name shown to other machines (default: the host name)")
         source = p.add_mutually_exclusive_group()
         source.add_argument("--status-file", type=Path, help="schema-1 status JSON kept fresh by a local observer")
@@ -494,6 +497,9 @@ def main(argv: Optional[Sequence[str]] = None, *, out: Optional[Callable[[str], 
     if args.state_dir is None:
         args.state_dir = pl.default_state_dir()
     try:
+        if (kind or pl.detect_host_kind()) not in SUPPORTED_KINDS:
+            raise CliError("agiw supports macOS and Windows only; Linux is not supported. Nothing was changed.",
+                           EXIT_USAGE)
         if args.command == "uninstall" and args.yes and not args.purge_keys:
             raise CliError("--yes requires --purge-keys; nothing was changed", EXIT_USAGE)
         if args.command == "serve":

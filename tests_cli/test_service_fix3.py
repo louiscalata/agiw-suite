@@ -183,16 +183,6 @@ class ServiceFix3(unittest.TestCase):
         self.assertEqual(plist["KeepAlive"], {"SuccessfulExit": False})
         self.assertEqual(plist["ThrottleInterval"], 60)
 
-    def test_systemd_prevents_lock_restart_and_has_effective_unit_start_limit(self):
-        text = self.manager("linux", python="python").render().decode()
-        unit, service = text.split("[Service]", 1)
-        self.assertIn("StartLimitIntervalSec=300\n", unit)
-        self.assertIn("StartLimitBurst=5\n", unit)
-        self.assertIn("RestartPreventExitStatus=75\n", service)
-        self.assertIn("RestartSec=30\n", service)
-        self.assertIn("Restart=on-failure\n", service)
-        self.assertNotIn("--service", text)
-
     def test_windows_task_restarts_failures_and_marks_lock_refusal_clean(self):
         root = ET.fromstring(self.manager("windows", python="python").render().decode("utf-16"))
         restart = root.find("t:Settings/t:RestartOnFailure", NS)

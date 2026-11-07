@@ -45,7 +45,7 @@ class CliReview(unittest.TestCase):
         kwargs = {} if probe is None else {"probe": probe}
         with mock.patch.object(cli, "make_manager", return_value=self.manager), mock.patch("sys.stderr", err):
             code = cli.main(["--state-dir", str(self.state), *args], out=lines.append,
-                            runner=FakeRunner(), kind="linux", home=self.home, env={}, **kwargs)
+                            runner=FakeRunner(), kind="mac", home=self.home, env={}, **kwargs)
         return code, "\n".join(lines), err.getvalue()
 
     def assert_refused(self, probe, port=pl.STATUS_PORT):
