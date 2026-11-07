@@ -15,6 +15,7 @@ import shutil
 import struct
 import subprocess
 import tempfile
+import zlib
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 BRAND = ROOT / 'brand'
@@ -66,18 +67,57 @@ def render(source, out, w, h=None):
     subprocess.run(['rsvg-convert', '-w', str(w), '-h', str(h or w), '-o', str(out), str(source)], check=True)
 
 
+def rgba(png):
+    """Width, height and RGBA rows of an 8-bit RGB or RGBA, non-interlaced PNG (what rsvg-convert writes)."""
+    data = png.read_bytes()
+    pos, idat, width = 8, b'', 0
+    while pos < len(data):
+        length, kind = struct.unpack('>I4s', data[pos:pos + 8])
+        chunk = data[pos + 8:pos + 8 + length]
+        if kind == b'IHDR':
+            width, height, depth, colour, _, _, interlace = struct.unpack('>IIBBBBB', chunk)
+            if depth != 8 or colour not in (2, 6) or interlace:
+                raise SystemExit(f'{png}: expected 8-bit RGB or RGBA, not interlaced')
+            channels = 4 if colour == 6 else 3
+        elif kind == b'IDAT':
+            idat += chunk
+        pos += 12 + length
+    raw, stride, rows = zlib.decompress(idat), width * channels, []
+    prior = bytearray(stride)
+    for y in range(height):
+        kind, line = raw[y * (stride + 1)], bytearray(raw[y * (stride + 1) + 1:(y + 1) * (stride + 1)])
+        for i in range(stride):
+            left = line[i - channels] if i >= channels else 0
+            up, corner = prior[i], prior[i - channels] if i >= channels else 0
+            if kind == 1: line[i] = (line[i] + left) & 255
+            elif kind == 2: line[i] = (line[i] + up) & 255
+            elif kind == 3: line[i] = (line[i] + (left + up) // 2) & 255
+            elif kind == 4:
+                p = left + up - corner
+                pa, pb, pc = abs(p - left), abs(p - up), abs(p - corner)
+                line[i] = (line[i] + (left if pa <= pb and pa <= pc else up if pb <= pc else corner)) & 255
+        rows.append(bytes(line) if channels == 4 else b''.join(bytes(line[x:x + 3]) + b'\xff' for x in range(0, stride, 3)))
+        prior = line
+    return width, height, rows
+
+
 def ico(pngs, out):
-    """A PNG-in-ICO file; every image is a full PNG."""
-    blobs = [p.read_bytes() for p in pngs]
-    header = struct.pack('<HHH', 0, 1, len(blobs))
+    """A classic ICO: 32-bit BGRA DIB entries. .NET Framework's System.Drawing.Icon (the tray) cannot
+    read PNG-compressed entries at 16 and 32 px."""
+    blobs = []
+    for png in pngs:
+        w, h, rows = rgba(png)
+        pixels = b''.join(bytes(b for x in range(w) for b in (r[x * 4 + 2], r[x * 4 + 1], r[x * 4], r[x * 4 + 3])) for r in reversed(rows))
+        mask = b'\0' * (((w + 31) // 32) * 4 * h)
+        header = struct.pack('<IiiHHIIiiII', 40, w, h * 2, 1, 32, 0, len(pixels) + len(mask), 0, 0, 0, 0)
+        blobs.append((w, h, header + pixels + mask))
     offset = 6 + 16 * len(blobs)
     entries = b''
-    for blob in blobs:
-        w, h = struct.unpack('>II', blob[16:24])
+    for w, h, blob in blobs:
         entries += struct.pack('<BBBBHHII', w % 256, h % 256, 0, 0, 1, 32, len(blob), offset)
         offset += len(blob)
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_bytes(header + entries + b''.join(blobs))
+    out.write_bytes(struct.pack('<HHH', 0, 1, len(blobs)) + entries + b''.join(blob for _, _, blob in blobs))
 
 
 def main():
