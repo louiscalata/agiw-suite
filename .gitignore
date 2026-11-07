@@ -38,3 +38,5 @@ htmlcov/
 *.swp
 /wt/
 /.fix*-evidence/
+.venv/
+*.egg-info/
