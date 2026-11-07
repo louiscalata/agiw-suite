@@ -114,6 +114,16 @@ class LinuxStatusSource(unittest.TestCase):
         with self.assertRaises(ValueError):
             pl.validate_status(doc, "mac", time.time())  # never passes as another kind
 
+    @unittest.skipIf(os.name == "nt" or getattr(os, "geteuid", lambda: 1)() == 0, "POSIX permission bits")
+    def test_an_unreadable_observer_file_is_refused_not_replaced_by_the_minimal_status(self):
+        path = self.base / "agiw" / "linux-status.json"
+        path.parent.mkdir(parents=True)
+        path.write_text("{}")
+        path.parent.chmod(0o600)  # no search bit: stat fails with EACCES, and Path.exists() says False
+        self.addCleanup(path.parent.chmod, 0o700)
+        with self.assertRaises(PermissionError):
+            pl.linux_status()()
+
     def test_a_fresh_observer_file_is_served_and_a_stale_one_refused(self):
         path = self.base / "agiw" / "linux-status.json"
         path.parent.mkdir(parents=True)

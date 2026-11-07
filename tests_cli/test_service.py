@@ -129,6 +129,16 @@ class ThroughTheCli(Base):
                         env={"USERNAME": "tester"})
         return code, lines
 
+    def test_custom_state_dir_and_options_reach_the_service_command(self):
+        import plistlib
+        state = self.home / "custom state"
+        code, lines = self.run_cli("mac", "--state-dir", str(state), "service", "install", "--name", "lab",
+                                   runner=FakeRunner({"print": (113, "")}))
+        self.assertEqual(code, 0, lines)
+        args = plistlib.loads(self.manager("mac", FakeRunner()).definition_path().read_bytes())["ProgramArguments"]
+        at = args.index("--state-dir")
+        self.assertEqual(args[at + 1:at + 6], [str(state.resolve()), "serve", "--service", "--name", "lab"])
+
     def test_service_install_status_uninstall_on_each_kind(self):
         for kind in ("mac", "windows"):
             runner = FakeRunner({"/user": WHOAMI, "is-active": (0, "active\n"), "print": (113, ""),

@@ -162,7 +162,7 @@ pipx uninstall agiw                  # or: uv tool uninstall agiw
 `--purge-keys --yes` deletes only files the peer link creates and leaves links, junctions, reparse points and
 unrecognized files in place. It first removes the login service, then must acquire the same process lock as
 `agiw serve` before deleting keys. If the lock is held, it reports the service manager's result (removed,
-none installed, or confirmed not running) and that no key file was deleted, even when that process uses
+or none installed) and that no key file was deleted, even when that process uses
 custom ports. It holds the
 lock through deletion and removes the lock file after the state folder is gone. The selected and default
 status TCP ports and the discovery UDP port must also all be free. Existing control tokens must pass the

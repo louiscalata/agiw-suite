@@ -1176,7 +1176,12 @@ def linux_status(path: Path | None = None) -> StatusProvider:
     observed, fallback = file_status(path), minimal_status("linux")
 
     def provide() -> dict:
-        return observed() if path.exists() else fallback()
+        # Only a missing file means "no observer": an unreadable or stale one is refused (503), never
+        # replaced by a fresh minimal status that would make the machine look up.
+        try:
+            return observed()
+        except FileNotFoundError:
+            return fallback()
 
     return provide
 

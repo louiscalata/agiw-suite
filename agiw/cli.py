@@ -130,7 +130,7 @@ def cmd_serve(args, out) -> int:
     if args.lmstudio:
         argv += ["--lmstudio", args.lmstudio]
     # launchd and Task Scheduler restart unsuccessful exits, so their service
-    # invocations treat a busy state folder as a clean stop. Foreground/systemd
+    # invocations treat a busy state folder as a clean stop. Foreground
     # invocations use EX_TEMPFAIL.
     with hold_state_lock(args.state_dir, busy_code=0 if args.service else EXIT_TEMPFAIL):
         return pl.main(argv)
