@@ -1390,6 +1390,7 @@ class WindowsJobsJournalTests(unittest.TestCase):
     JOB_A = "mac-20260925-080000-" + "a" * 32
     JOB_B = "mac-20260925-080100-" + "b" * 32
     JOB_C = "mac-20260925-080200-" + "c" * 32
+    JOB_D = "mac-20260925-080300-" + "d" * 32
 
     def _journal(self, records, mode=0o600, raw_extra=b""):
         temp = tempfile.TemporaryDirectory()
@@ -1682,6 +1683,43 @@ class WindowsJobsJournalTests(unittest.TestCase):
         row = telemetry._windows_jobs(self.NOW)[0]["recent"][0]
         self.assertEqual((row["promptPerSecond"], row["promptTokens"], row["flags"]), (None, None, []))
         self.assertNotIn("rm -rf", json.dumps(jobs, allow_nan=False))
+
+    def test_speed_needs_a_successful_answer_with_tokens_and_time(self):
+        self._journal([
+            self.rec("enqueued", self.JOB_A, 40, model="gpt-oss-20b", timeout=60),
+            self.rec("result", self.JOB_A, 30, status="error", elapsedSeconds=2.0, completionTokens=10,
+                     predictedPerSecond=50.0, promptTokens=20, promptPerSecond=90.0),
+            self.rec("enqueued", self.JOB_B, 20, model="gpt-oss-20b", timeout=60),
+            self.rec("result", self.JOB_B, 10, status="success", elapsedSeconds=0, completionTokens=10,
+                     predictedPerSecond=50.0),
+            self.rec("enqueued", self.JOB_D, 9, model="gpt-oss-20b", timeout=60),
+            self.rec("result", self.JOB_D, 8, status="success", completionTokens=10, predictedPerSecond=40.0),
+            self.rec("enqueued", self.JOB_C, 9, model="gpt-oss-20b", timeout=60),
+            self.rec("result", self.JOB_C, 8, status="success", elapsedSeconds=2.0, completionTokens=0,
+                     predictedPerSecond=50.0, promptPerSecond=90.0),
+        ])
+        rows = {row["id"]: row for row in telemetry._windows_jobs(self.NOW)[0]["recent"]}
+        for job in (self.JOB_A, self.JOB_B, self.JOB_D):  # error / 0 s / no elapsed time
+            self.assertEqual((rows[job]["predictedPerSecond"], rows[job]["promptPerSecond"]), (None, None), job)
+        # 0 completion tokens voids the generation speed; the prompt count is absent, so its speed stands.
+        self.assertEqual((rows[self.JOB_C]["predictedPerSecond"], rows[self.JOB_C]["promptPerSecond"]), (None, 90.0))
+
+    def test_an_older_result_line_never_undoes_a_newer_one(self):
+        # Journal lines out of time order: the cancel (newer) is written before an older success line.
+        self._journal([
+            self.rec("enqueued", self.JOB_A, 40, model="gpt-oss-20b", timeout=60),
+            self.rec("result", self.JOB_A, 10, status="cancelled", elapsedSeconds=30.0),
+            self.rec("result", self.JOB_A, 20, status="success", elapsedSeconds=2.0, completionTokens=80,
+                     predictedPerSecond=40.0, model="Qwen3.8-27B Q4_K_M", client="codex", lane="bionic"),
+            self.rec("enqueued", self.JOB_B, 40, model="gpt-oss-20b", timeout=60),
+            self.rec("result", self.JOB_B, 10, status="success", elapsedSeconds=2.0, completionTokens=80,
+                     predictedPerSecond=40.0),
+            self.rec("result", self.JOB_B, 20, status="cancelled", elapsedSeconds=1.0),
+        ])
+        rows = {row["id"]: row for row in telemetry._windows_jobs(self.NOW)[0]["recent"]}
+        self.assertEqual((rows[self.JOB_A]["state"], rows[self.JOB_A]["predictedPerSecond"], rows[self.JOB_A]["model"],
+                          rows[self.JOB_A]["lane"]), ("cancelled", None, "gpt-oss-20b", "fast"))
+        self.assertEqual((rows[self.JOB_B]["state"], rows[self.JOB_B]["predictedPerSecond"]), ("success", 40.0))
 
     def test_cancelled_result_settles_the_job_and_cancel_requested_is_informational(self):
         # Worker 1.2 (26 Sep): chami-dispatch journals 'cancel-requested' when it asks the worker to stop a

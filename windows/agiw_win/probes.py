@@ -344,9 +344,16 @@ def probe_lane(spec: dict[str, Any], fetch: Fetch = http_get_json, host: str = "
     lane.update(slots=slots, slotsBusy=len(busy), slotsTotal=len(slots),
                 status="busy" if busy else "idle")
     if busy:
-        # Decoded tokens > 0 on any busy slot means output is being generated; otherwise
-        # the lane is still evaluating a prompt (the Mac edition's "busy" phase).
-        lane["phase"] = "generating" if any((slot.get("decodedTokens") or 0) > 0 for slot in busy) else "busy"
+        # Decoded tokens > 0 on any busy slot means output is being generated; exactly 0 on every busy
+        # slot means the lane is still evaluating a prompt (the Mac edition's "busy" phase).
+        decoded = [slot.get("decodedTokens") for slot in busy]
+        if any(type(count) in (int, float) and count > 0 for count in decoded):
+            lane["phase"] = "generating"
+        elif all(type(count) in (int, float) and count == 0 for count in decoded):
+            lane["phase"] = "busy"
+        else:
+            # A busy slot without a decode count could be reading its prompt or generating: say unknown.
+            lane["phase"] = "unknown"
     else:
         lane["phase"] = "idle"
     return lane
@@ -1883,6 +1890,9 @@ def write_json_atomic(path: Path, value: Any, max_bytes: int | None = None, stop
 # here opens a listener, and a peer file is evidence of what that host observed, not a live connection.
 PEER_DIR = ("llm-lab", "status", "agiw-peers")
 PEER_FRESH_SECONDS = 30.0
+# A report dated further ahead than this is a clock mismatch, never freshness. The Mac reader
+# (peer_feed, machine_state) uses the same 2 s, so both editions refuse the same reports.
+PEER_FUTURE_SKEW = 2.0
 PEER_MAX_FILES = 16
 PEER_MAX_BYTES = 65536
 PEER_SCAN_LIMIT = 256
@@ -1980,7 +1990,7 @@ def _validate_peer(value: Any, now: float) -> dict[str, Any] | None:
         return None
     host = value.get("host")
     observed = _number(value.get("observedUnix"))
-    if not isinstance(host, str) or not PEER_HOST.match(host) or observed is None or observed > now + 5:
+    if not isinstance(host, str) or not PEER_HOST.match(host) or observed is None or observed > now + PEER_FUTURE_SKEW:
         return None
     platform = _string(value.get("platform"), 24) or "unknown"
     # A relayed report (Linux, written by the Mac) keeps the source machine's observedUnix, so its age is the age of
@@ -2024,7 +2034,7 @@ def _legacy_mac_status(share_root: Path, now: float, *, on_refusal=None) -> dict
         return refused("report-refused")
     if type(value.get("schemaVersion")) is not int or value["schemaVersion"] != 1 or value.get("host") != "mac":
         return refused("report-refused")
-    if observed > now + 5:
+    if observed > now + PEER_FUTURE_SKEW:
         return refused("clock-ahead")
     models, complete = _peer_models(value.get("models"), legacy=True)
     age = max(0.0, now - observed)
@@ -2089,7 +2099,7 @@ def read_peers(share_root: Path, self_host: str, now: float) -> tuple[list[dict[
             peer = _validate_peer(value, now)
             if peer is None:
                 observed = _number(value.get("observedUnix")) if isinstance(value, dict) else None
-                refused("clock-ahead" if observed is not None and observed > now + 5 else "report-refused", entry.name[:-5])
+                refused("clock-ahead" if observed is not None and observed > now + PEER_FUTURE_SKEW else "report-refused", entry.name[:-5])
         except OSError:
             refused("report-unreadable", entry.name[:-5])
             peer = None
@@ -2335,7 +2345,7 @@ def _peer_link_status(value: Any, host: str, now: float) -> dict[str, Any] | Non
     kind = value.get("platform") if value.get("kind") == "agiw-peer" else value.get("host")
     age = _peer_link_age(value.get("observedAt"), now)
     models = value.get("models")
-    if kind != host or age is None or not -5 <= age <= 30 or not isinstance(models, list) or len(models) > 32:
+    if kind != host or age is None or not -PEER_FUTURE_SKEW <= age <= 30 or not isinstance(models, list) or len(models) > 32:
         return None
     rows = []
     for model in models:
@@ -2408,7 +2418,8 @@ def read_peer_link(now: float, *, enabled: bool = False) -> tuple[list[dict[str,
         paired_count = sum(row["paired"] is True for row in rows)
         connected_count = sum(row["state"] == "connected" for row in rows)
         return rows, _source("peer-link", "Peer link", "live",
-                             f"Pairing service reports {paired_count} paired, {connected_count} connected (authenticated)",
+                             f"Pairing service reports {paired_count} paired, {connected_count} connected "
+                             "(local pairing service file; not independently verified)",
                              round(max(0.0, age), 1))
     except FileNotFoundError:
         return [], _source("peer-link", "Peer link", "unavailable", "Pairing service status unavailable (no peers.json)")

@@ -86,7 +86,9 @@ class PeerLinkReader(unittest.TestCase):
                                      "models": [{"id": "m", "loadedState": "loaded", "activity": "busy"}],
                                      "components": [{"id": "nisi", "label": "Nisi", "state": "ready", "detail": "ok"}]}}])
         self.assertEqual(source["state"], "live")
-        self.assertIn("Pairing service reports 1 paired, 1 connected (authenticated)", source["detail"])
+        self.assertIn("Pairing service reports 1 paired, 1 connected (local pairing service file; not independently verified)",
+                      source["detail"])
+        self.assertNotIn("authenticated", source["detail"])
         self.assertNotIn("secret", json.dumps((rows, source)))
         self.assertNotIn("123456", json.dumps((rows, source)))
 
@@ -131,13 +133,13 @@ class PeerLinkReader(unittest.TestCase):
                                  ("unknown", None, "unavailable"))
 
     def test_nested_clock_must_be_fresh_independently_of_the_outer_report(self):
-        for age in (-5, 0, 30, -5.001, 30.001, 60):
+        for age in (-2, 0, 30, -2.001, -5, 30.001, 60):
             doc = document()
             doc["peers"][0]["status"]["observedAt"] = iso(NOW - age)
             with self.subTest(age=age):
                 rows, source = self.read(doc)
-                self.assertEqual(rows[0]["state"], "connected" if -5 <= age <= 30 else "unknown")
-                self.assertEqual(rows[0]["status"] is not None, -5 <= age <= 30)
+                self.assertEqual(rows[0]["state"], "connected" if -2 <= age <= 30 else "unknown")
+                self.assertEqual(rows[0]["status"] is not None, -2 <= age <= 30)
                 self.assertEqual(source["state"], "live")  # the service report itself is fresh
         doc = document()
         doc["peers"][0]["status"]["observedAt"] = "2023-11-14T22:13:20"

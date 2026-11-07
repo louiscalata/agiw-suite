@@ -218,6 +218,15 @@ class Files(unittest.TestCase):
         return {'schemaVersion': 1, 'kind': 'agiw-peer', 'host': 'mac', 'platform': 'macos',
                 'observedUnix': observed, 'models': [], 'modelsTotal': 0}
 
+    def test_the_pc_refuses_the_same_future_skew_as_the_mac_reader(self):
+        # 3 s ahead: the Mac reader refuses it (2 s), so the PC must too; 2 s ahead is still accepted.
+        self.write(probes.peer_dir(self.root) / 'mac.json', self.peer(1003))
+        peers, source = probes.read_peers(self.root, 'pc', 1000)
+        self.assertEqual((peers, source['reason']), ([], 'clock-ahead'))
+        self.write(probes.peer_dir(self.root) / 'mac.json', self.peer(1002))
+        peers, _ = probes.read_peers(self.root, 'pc', 1000)
+        self.assertEqual(len(peers), 1)
+
     def test_future_dated_peer_has_a_clock_reason(self):
         self.write(probes.peer_dir(self.root) / 'mac.json', self.peer(1006))
         peers, source = probes.read_peers(self.root, 'pc', 1000)
