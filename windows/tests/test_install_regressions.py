@@ -47,7 +47,21 @@ class InstallerRegressionContracts(unittest.TestCase):
         self.assertIn('Rollback left file:', self.source)
         self.assertIn('Install cleanup left:', self.source)
 
-    def test_unexpected_code_and_state_acl_are_checked_before_staging(self):
+    def test_shipped_directories_follow_installed_files(self):
+        self.assertNotIn("-notin @('agiw_win', 'web')", self.source)
+        self.assertIn('$expectedDirs.Contains($relative)', self.source)
+        names = re.findall(r"'([^']+)'", self.source[self.source.index("foreach ($file in 'tokens.json'"):self.source.index('# peer_link.py')])
+        parents = set()
+        for name in names:
+            relative = Path('jaryo') / Path(name.replace('\\', '/'))
+            current = relative.parent
+            while str(current) not in ('', '.'):
+                parents.add(str(current).replace('/', '\\'))
+                current = current.parent
+        self.assertIn('jaryo', parents)
+        self.assertIn('jaryo\\marks', parents)
+        self.assertNotIn('plugin', parents)
+        self.assertIn('Unexpected install entries', self.source)
         preflight = self.source[:self.source.index('$guard.Directory($stage, $true)')]
         self.assertIn('Unexpected install entries', preflight)
         self.assertIn('$guard.Directory($state, $false)', preflight)

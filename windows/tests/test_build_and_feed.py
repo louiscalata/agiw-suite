@@ -133,6 +133,12 @@ class BuildRecord(unittest.TestCase):
         self.assertEqual(build["provenance"], "unverified")
         self.assertTrue(buildinfo.producer(build).endswith(".unverified"))
 
+    def test_install_without_a_commit_is_labeled_unverified(self):
+        shown = buildinfo.producer({"version": VERSION, "commit": None, "dirty": None,
+                                    "provenance": "unverified", "state": "no-commit"})
+        self.assertEqual(shown, f"{SERVICE} {VERSION}.unverified")
+        self.assertNotIn("+", shown)
+
     def test_producer_does_not_trust_missing_or_nonboolean_clean_status(self):
         for dirty in (None, 0, "false"):
             build = {"version": VERSION, "commit": COMMIT, "dirty": dirty, "provenance": "signed-head"}
@@ -155,7 +161,8 @@ class BuildRecord(unittest.TestCase):
                 write_build(self.path, **over)
                 build = buildinfo.read_build(self.path)
                 self.assertEqual((build["state"], build["commit"], build["dirty"]), (state, None, None))
-                self.assertEqual(buildinfo.producer(build), "agiw-win-observer 0.2.0")
+                expected = "agiw-win-observer 0.2.0.unverified" if state == "no-commit" else "agiw-win-observer 0.2.0"
+                self.assertEqual(buildinfo.producer(build), expected)
         write_build(self.path, installedAt="yesterday", dirty="no")
         build = buildinfo.read_build(self.path)
         self.assertEqual((build["installedAt"], build["dirty"]), (None, None))
@@ -238,21 +245,31 @@ class InstallerSourceStatus(unittest.TestCase):
             arguments.append("--")
         result = subprocess.run([shutil.which("git"), "-C", str(REPO), "status", *arguments, str(source)],
                                 capture_output=True, text=True, timeout=30)
+        if result.returncode == 128 and "not a git repository" in result.stderr:
+            return None
         self.assertEqual(result.returncode, 0, result.stderr)
         return result.stdout.strip()
+
+    def assert_git_or_unverified_artifact(self, marker, prefix):
+        if marker is None:
+            record = {"version": VERSION, "commit": None, "dirty": None, "provenance": "unverified", "state": "no-commit"}
+            self.assertEqual(buildinfo.producer(record), f"{SERVICE} {VERSION}.unverified")
+            self.assertNotIn("signed-head", buildinfo.producer(record))
+            return
+        self.assertTrue(marker.startswith(prefix), marker)
 
     def test_untracked_installed_module_marks_the_build_dirty(self):
         with tempfile.TemporaryDirectory(prefix=".agiw-build-test-", dir=REPO) as tmp:
             source = Path(tmp) / "extra_module.py"
             source.write_text("VALUE = 1\n", encoding="utf-8")
-            self.assertTrue(self.status(source).startswith("?? "), "an untracked copied module is not clean source")
+            self.assert_git_or_unverified_artifact(self.status(source), "?? ")
 
     def test_ignored_installed_module_also_marks_the_build_dirty(self):
         with tempfile.TemporaryDirectory(prefix=".agiw-build-test-", dir=REPO) as tmp:
             (Path(tmp) / ".gitignore").write_text("ignored_module.py\n", encoding="utf-8")
             source = Path(tmp) / "ignored_module.py"
             source.write_text("VALUE = 1\n", encoding="utf-8")
-            self.assertTrue(self.status(source).startswith("!! "), "ignored files are still copied by the installer")
+            self.assert_git_or_unverified_artifact(self.status(source), "!! ")
 
 
 @unittest.skipUnless(os.name == "nt", "Windows installer only")
@@ -274,9 +291,19 @@ class InstallerOnWindows(unittest.TestCase):
                         ("agiw_observer.py", "agiw-monitor.ps1", "AGIW Monitor.vbs", "AGIW Monitor.cmd", "README.md")]
             sources += [(REPO / "web" / name, Path("web") / name) for name in
                         ("index.html", "app.js", "style.css", "map-layout.mjs", "model-control-view.mjs",
-                         "online-code-mode.mjs", "monitor.html", "monitor.mjs", "monitor.css")]
+                         "simple-view.mjs", "simple-view.css",
+                         "online-code-mode.mjs", "monitor.html", "monitor.mjs", "monitor.css",
+                         "monitor-tabs.mjs", "monitor-board.mjs", "monitor-map.mjs", "jaryo.css", "jaryo.mjs",
+                         "identity.html", "identity.mjs",
+                         "components.html", "components.js", "components.css")]
+            sources += [(REPO / "jaryo" / name, Path("jaryo") / name) for name in
+                        ("tokens.json", "theme.mjs", "primitives.css", "README.md",
+                         "marks/d1-stamp.svg", "marks/d2-ledger.svg", "marks/d3-schematic.svg",
+                         "marks/d4-split.svg", "marks/d4-split-before.svg", "marks/d4-split-wordmark.svg",
+                         "marks/d4-split-on-dark.svg", "marks/d4-split-on-light.svg",
+                         "marks/d5-signal.svg", "marks/favicon.svg")]
             sources += [(REPO / name, Path(name)) for name in
-                        ("usage-format.mjs", "client_models.py", "peer_link.py", "inference_stats.py",
+                        ("usage-format.mjs", "client_models.py", "peer_link.py", "peer_feed.py", "inference_stats.py",
                          "inference_collect.py", "LICENSE", "NOTICE")]
             for source, relative in sources:
                 with self.subTest(installed=str(relative)):

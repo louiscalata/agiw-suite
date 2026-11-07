@@ -3,11 +3,33 @@
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Components · AGIW Suite</title>
-<link rel="stylesheet" href="/components.css"><script type="module" src="/components.js"></script>
+<link rel="icon" href="/jaryo/marks/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/components.css">
+<link rel="stylesheet" href="/jaryo.css">
+<script type="module" src="/components.js"></script>
+<script src="/jaryo.mjs" type="module"></script>
 </head>
-<body><main>
-<a class="back" href="/">← Inference map</a>
-<header><span class="logo" aria-hidden="true">AS</span><div><p class="eyebrow">AGIW SUITE</p><h1>Your workflow components.</h1><p>Included tools, clear requirements, and optional connections.</p></div></header>
+<body class="jaryo-app"><header class="j-top">
+<div class="j-brand"><strong class="j-type">AGIW</strong><span>Inference Monitor</span></div>
+</header>
+<nav class="j-nav" aria-label="Inference Monitor">
+<a href="/">Overview</a>
+<a href="/monitor">Map</a>
+<a href="/components" aria-current="page">Components</a>
+<a href="/identity">Identity</a>
+<label class="j-theme">Theme
+<select id="jaryoTheme" aria-label="Theme">
+<option value="system">System</option>
+<option value="light">Light</option>
+<option value="dark">Dark</option>
+</select>
+</label>
+</nav><main class="j-page">
+<details>
+<summary>Typeface notes</summary>
+<p>TYPE · AGIW is set in Inter. Provisional, not a chosen font. D4 Split is rejected.</p>
+</details>
+<header><strong class="j-type">AGIW</strong><div><p class="eyebrow">AGIW SUITE</p><h1>Your workflow components.</h1><p>Included tools, clear requirements, and optional connections. Package checks and the optional Jev connection are unchanged.</p></div></header>
 <section aria-labelledby="nisiHeading">
 <p class="eyebrow">INCLUDED BY DEFAULT</p><h2 id="nisiHeading">Nisi <span>v0.2.0</span></h2>
 <p>The public Apache-2.0 workflow engine, journal, and CLI are included with this edition of AGIW. Nisi coordinates work; it does not load an extra model into memory.</p>

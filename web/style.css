@@ -723,7 +723,6 @@ body>footer,body>footer button{font-size:10px}
 :root{--portfolio-rail:clamp(354px,31vw,464px);--portfolio-rule:#303137;--portfolio-soft:#aeb3bd}
 .topbar{height:74px;padding:0 clamp(18px,2.5vw,36px);gap:18px;background:#000;border-bottom:1px solid var(--portfolio-rule)}
 .brand{gap:14px;flex:0 0 auto;min-width:0}
-.brand-monogram{display:grid;place-items:center;width:46px;height:46px;flex:none;border:1px solid #c2ddff;border-radius:1px;background:radial-gradient(circle at 30% 22%,#1b2b42 0,#080b12 55%,#050506 100%);color:#fff;font:700 16px/1 var(--type-display);letter-spacing:-.05em;text-shadow:0 0 9px #e9f4ffb3,0 0 19px #86baff8c;box-shadow:0 0 0 1px #b7d8ff36,0 0 15px #82b7ff9c,0 0 38px #659cff5c,0 0 48px #f5a77529,inset 0 0 15px #82b7ff36}
 .brand-wordmark{display:flex;flex-direction:column;gap:3px;min-width:0}
 .brand-wordmark strong{font:600 13px/1.05 var(--type-display);letter-spacing:.15em;text-transform:uppercase;white-space:nowrap}
 .brand-wordmark small{font:500 10px/1.1 var(--type-body);letter-spacing:.16em;text-transform:uppercase;color:var(--portfolio-soft);white-space:nowrap}
@@ -807,7 +806,6 @@ main{height:calc(100% - 108px)}
 @media (max-width:979px){
   .topbar{height:58px;padding:0 14px}
   main{height:calc(100% - 92px)}
-  .brand-monogram{width:37px;height:37px;font-size:13px}
   .brand-wordmark strong{font-size:11px}
   .brand-wordmark small{font-size:10px}
   .sidebar h1{font-size:35px;letter-spacing:-.04em}
@@ -816,7 +814,7 @@ main{height:calc(100% - 108px)}
 @media (max-width:820px),(max-height:700px){body>footer{display:none}}
 @media (max-width:820px){main{height:calc(100% - 58px)}}
 @media (min-width:821px) and (max-width:979px) and (max-height:700px){main{height:calc(100% - 58px)}}
-@media (max-width:560px){.brand-wordmark small{display:none}.brand-wordmark strong{font-size:10px}.brand{gap:7px}.brand-monogram{width:31px;height:31px;font-size:11px}}
+@media (max-width:560px){.brand-wordmark small{display:none}.brand-wordmark strong{font-size:10px}.brand{gap:7px}}
 @media (max-width:720px){
   .vitals{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));left:12px;right:12px;gap:6px;overflow:visible}
   .vital,#vitalActivity{width:100%;min-width:0;max-width:none}
@@ -838,6 +836,6 @@ main{height:calc(100% - 108px)}
   .tools #pause[aria-pressed=true]::before{content:'▶';font-size:11px}
   .tools #expand,.tools #quit{width:36px;min-width:36px;min-height:36px;padding:0}
 }
-@media (prefers-contrast:more){.brand-monogram{border-color:#fff}.sidebar,.evidence-rail{border-color:#a0a7b5}.sidebar .view-tabs button[aria-pressed=true]{outline:2px solid var(--blue);outline-offset:-2px}}
-@media (forced-colors:active){.brand-monogram{border:1px solid CanvasText;color:CanvasText;background:Canvas;text-shadow:none;box-shadow:none}.graph-region::before{display:none}.node.hub .core,.node.model.loaded .core,.node.model.loaded:not(.active) .core,.node.client .core{filter:none}.legend .agent-color{color:CanvasText;box-shadow:none}}
+@media (prefers-contrast:more){.sidebar,.evidence-rail{border-color:#a0a7b5}.sidebar .view-tabs button[aria-pressed=true]{outline:2px solid var(--blue);outline-offset:-2px}}
+@media (forced-colors:active){.graph-region::before{display:none}.node.hub .core,.node.model.loaded .core,.node.model.loaded:not(.active) .core,.node.client .core{filter:none}.legend .agent-color{color:CanvasText;box-shadow:none}}
 .vital strong{font-size:10px}

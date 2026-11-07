@@ -1,0 +1,256 @@
+/**
+ * Paints the monitor tab strip and the selected monitor's board.
+ * View only: callers must not wire these controls to pause, repair, or model posts.
+ */
+import {demoSnapshot, DEMO_BANNER, jevGate, nextTabFocus} from '/monitor-tabs.mjs';
+
+function el(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+function statusClass(status) {
+  if (status === 'blocked') return 'j-blocked';
+  if (status === 'unknown' || status === 'stale') return 'j-unknown';
+  if (status === 'unavailable' || status === 'disconnected' || status === 'partial') return 'j-unavailable';
+  return '';
+}
+
+function matrixClass(matrix) {
+  if (matrix === 'Observed') return 'j-matrix-observed';
+  if (matrix === 'Untested') return 'j-matrix-untested';
+  if (matrix === 'Blocked') return 'j-matrix-blocked';
+  return 'j-matrix-untested';
+}
+
+export function appendEvidence(parent, evidence) {
+  if (!parent || !evidence) return;
+  const badges = evidence.badges || {};
+  const schematic = el('pre', 'j-schematic');
+  schematic.setAttribute('aria-label', 'Process liveness, lane readiness, and run attachment. These are separate.');
+  schematic.textContent = `PROCESS  ${badges.process || 'UNKNOWN'}\nLANE     ${badges.lane || 'UNKNOWN'}\nATTACH   ${badges.attachment || 'UNKNOWN'}`;
+  parent.append(schematic);
+  const acceptance = (evidence.rows || []).find(row => row.id === 'acceptance');
+  if (acceptance) {
+    const line = acceptance.word === 'BLOCKED'
+      ? 'BLOCKED · Acceptance · PC POST ROLLBACK OPEN'
+      : `${acceptance.matrix} · ${acceptance.label} · ${acceptance.word}`;
+    parent.append(el('p', `j-callout ${matrixClass(acceptance.matrix)}`, line));
+  }
+  const details = el('details', 'j-evidence');
+  const summary = el('summary', null, 'Evidence detail');
+  details.append(summary);
+  details.append(el('p', 'j-note', 'Observed, Untested, and Blocked describe the evidence. Observed is not a pass. A heartbeat does not make a lane ready. Inventory is not disconnected.'));
+  const list = el('ul', 'j-steps');
+  for (const row of evidence.rows || []) {
+    const item = el('li', `j-step ${matrixClass(row.matrix)}`);
+    item.append(el('p', 'j-step-hit', `${row.matrix} · ${row.label}`));
+    item.append(el('p', 'j-word', row.word || row.matrix));
+    item.append(el('p', 'j-step-reason', `${row.detail || ''} Evidence: ${row.evidence || 'not recorded'}.`));
+    list.append(item);
+  }
+  details.append(list);
+  if (Array.isArray(acceptance?.ledger)) {
+    const ledger = el('ul', 'j-steps');
+    for (const row of acceptance.ledger) {
+      const item = el('li', 'j-step j-matrix-blocked');
+      item.append(el('p', 'j-step-hit', `${row.gate} · ${row.env}`));
+      item.append(el('p', 'j-word', row.verdict));
+      item.append(el('p', 'j-step-reason', `${row.state} · ${row.time} · ${row.receipt} · ${row.next}`));
+      ledger.append(item);
+    }
+    details.append(ledger);
+  }
+  parent.append(details);
+}
+
+function appendIdentity(parent, monitor) {
+  const grid = el('dl', 'j-identity');
+  const workload = monitor.workload;
+  const rows = [
+    ['Workload', workload?.id || monitor.id],
+    ['Machine', monitor.identity.machineLabel],
+    ['Provider', monitor.identity.providerLabel],
+    ['Requested model', workload?.requestedModel || 'Not reported'],
+    ['Served model', workload?.servedModel || 'Not reported'],
+    ['Run', workload?.runId || monitor.identity.session || 'None in this sample'],
+    ['Attempt', workload?.attemptId || 'Not reported'],
+  ];
+  for (const [name, value] of rows) {
+    grid.append(el('dt', null, name), el('dd', null, value));
+  }
+  parent.append(grid);
+}
+
+function appendMetrics(parent, metrics) {
+  const grid = el('dl', 'j-metrics');
+  for (const item of metrics || []) {
+    grid.append(el('dt', null, item.label), el('dd', null, item.value));
+  }
+  parent.append(grid);
+}
+
+function filteredSteps(monitor, query) {
+  const needle = query.trim().toLowerCase();
+  return (monitor.pipeline?.steps || []).filter(item => {
+    if (!needle) return true;
+    return `${item.label} ${item.word} ${item.reason || ''} ${item.detail || ''}`.toLowerCase().includes(needle);
+  });
+}
+
+function appendStep(list, item, {pressed, onPress, open}) {
+  const row = el('li', `j-step ${statusClass(item.status)}${pressed && item.status !== 'blocked' ? ' j-selected' : ''}${pressed && item.status === 'blocked' ? ' j-selected-blocked' : ''}`);
+  const button = el('button', 'j-step-hit');
+  button.type = 'button';
+  button.setAttribute('aria-pressed', String(pressed));
+  button.append(el('span', 'j-glyph', item.glyph), el('span', 'j-step-label', item.label), el('span', 'j-word', item.word));
+  if (pressed) button.append(el('span', 'j-selected-word', 'SELECTED'));
+  button.addEventListener('click', () => onPress(item.id));
+  row.append(button);
+  if (item.detail) row.append(el('p', 'j-step-detail', item.detail));
+  if (item.reason) row.append(el('p', 'j-step-reason', item.reason));
+  if (open) {
+    const jump = el('button', 'j-open', 'Open monitor');
+    jump.type = 'button';
+    jump.dataset.openMonitor = item.id;
+    row.append(jump);
+  }
+  list.append(row);
+}
+
+function paintBoard(board, monitor, desk) {
+  const saved = desk.view(monitor.id);
+  const focusFilter = document.activeElement?.id === 'monitorFilter';
+  const caret = focusFilter ? document.activeElement.selectionStart : null;
+  board.replaceChildren();
+  board.hidden = false;
+  board.dataset.monitor = monitor.id;
+  const head = el('div', 'j-board-head');
+  head.append(el('p', 'j-eyebrow', monitor.eyebrow), el('h2', 'j-board-title', monitor.title));
+  head.querySelector('h2').id = 'monitorBoardTitle';
+  board.append(head);
+  const banner = el('p', `j-status ${statusClass(monitor.status)}`);
+  banner.append(el('span', 'j-glyph', monitor.glyph), el('span', 'j-word', monitor.word));
+  if (monitor.reason) banner.append(el('span', 'j-reason', monitor.reason));
+  board.append(banner);
+  if (monitor.fictional) board.append(el('p', 'j-demo', DEMO_BANNER));
+  appendEvidence(board, monitor.evidence);
+  appendIdentity(board, monitor);
+  const filter = el('label', 'j-filter');
+  filter.append(el('span', null, 'Filter this monitor'));
+  const input = el('input');
+  input.id = 'monitorFilter';
+  input.type = 'search';
+  input.value = saved.boardQuery || '';
+  input.autocomplete = 'off';
+  input.setAttribute('aria-label', `Filter ${monitor.title}`);
+  input.addEventListener('input', () => {
+    desk.patch(monitor.id, {boardQuery: input.value});
+    paintBoard(board, monitor, desk);
+  });
+  filter.append(input);
+  board.append(filter);
+  const pipeline = monitor.pipeline || {steps: [], note: '', declared: false, incomplete: false};
+  board.append(el('p', 'j-note', pipeline.note || ''));
+  if (pipeline.incomplete) board.append(el('p', 'j-unknown j-callout', '? INCOMPLETE · the list below is only what this sample contained'));
+  if (!pipeline.declared && !(pipeline.steps || []).length) {
+    board.append(el('p', 'j-unavailable j-callout', '○ UNAVAILABLE · no pipeline rows were declared for this monitor'));
+  }
+  const steps = filteredSteps(monitor, saved.boardQuery || '');
+  if ((saved.boardQuery || '') && !steps.length) board.append(el('p', 'j-note', 'Nothing in this monitor matches the filter.'));
+  const list = el('ol', 'j-steps');
+  for (const item of steps) {
+    appendStep(list, item, {
+      pressed: saved.boardSelected === item.id,
+      open: monitor.kind === 'overview',
+      onPress: id => {
+        desk.patch(monitor.id, {boardSelected: id});
+        paintBoard(board, monitor, desk);
+      },
+    });
+  }
+  board.append(list);
+  const analysis = el('section', 'j-analysis');
+  const gate = jevGate(monitor.analyses || []);
+  analysis.append(el('p', 'j-eyebrow', 'NISI AND JEV ANALYSIS'));
+  const gateLine = el('p', gate.open ? 'j-status' : 'j-unavailable j-callout');
+  gateLine.append(el('span', 'j-glyph', gate.open ? '●' : '○'), el('span', 'j-word', gate.open ? 'JEV GATE OPEN' : 'JEV GATE BLOCKED'));
+  gateLine.append(el('span', 'j-reason', gate.blocker || 'Jev pre and post records are both passed. That is not this workload\'s run result.'));
+  analysis.append(gateLine);
+  analysis.append(el('p', 'j-note', 'Analysis state is not run success. Unavailable, skipped, pending, and failed Jev phases do not open the gate.'));
+  const analysisList = el('ul', 'j-steps');
+  for (const slot of monitor.analyses || []) {
+    const negativeVerdict = slot.verdict === 'ROLLBACK' || slot.verdict === 'NOT_PASS';
+    const row = el('li', `j-step ${negativeVerdict ? 'j-blocked' : statusClass(slot.state === 'passed' ? 'ok' : slot.state === 'failed' ? 'blocked' : slot.state === 'pending' ? 'unknown' : slot.state === 'skipped' ? 'idle' : slot.state)}`);
+    row.append(el('p', 'j-step-hit', `${slot.tool} ${slot.phase}`));
+    row.append(el('p', 'j-word', negativeVerdict ? slot.verdict : slot.state.toUpperCase()));
+    row.append(el('p', 'j-step-reason', [slot.verdict ? `Verdict ${slot.verdict}` : null, slot.detail, `Run ${slot.runId || 'not reported'}`, `attempt ${slot.attemptId || 'not reported'}`].filter(Boolean).join(' · ') + '.'));
+    analysisList.append(row);
+  }
+  if (!(monitor.analyses || []).length) analysis.append(el('p', 'j-unavailable j-callout', '○ UNAVAILABLE · this monitor has no run or attempt to attach'));
+  analysis.append(analysisList);
+  board.append(analysis);
+  appendMetrics(board, monitor.metrics);
+  if (monitor.retained && monitor.kind === 'session') {
+    const dismiss = el('button', 'j-open', 'Dismiss retained session');
+    dismiss.type = 'button';
+    dismiss.dataset.dismissMonitor = monitor.id;
+    board.append(dismiss);
+  }
+  board.append(el('p', 'j-footnote', 'Switching monitors only changes this view. It does not pause, cancel, restart, or starve inference.'));
+  if (focusFilter) {
+    const next = board.querySelector('#monitorFilter');
+    next?.focus();
+    if (caret != null && next?.setSelectionRange) next.setSelectionRange(caret, caret);
+  }
+}
+
+function paintTabs(host, monitors, active) {
+  const focused = host.contains(document.activeElement) ? document.activeElement?.dataset?.monitor : null;
+  host.replaceChildren();
+  for (const tab of monitors) {
+    const button = el('button', 'j-tab');
+    button.type = 'button';
+    button.dataset.monitor = tab.id;
+    button.setAttribute('role', 'tab');
+    button.setAttribute('aria-selected', String(tab.id === active));
+    button.tabIndex = tab.id === active ? 0 : -1;
+    button.setAttribute('aria-controls', 'monitorBoard');
+    button.title = tab.reason || tab.word;
+    button.append(el('span', 'j-glyph', tab.glyph), el('span', 'j-tab-label', tab.title), el('span', 'j-word', tab.word));
+    host.append(button);
+  }
+  const ids = monitors.map(tab => tab.id);
+  const focusId = nextTabFocus(focused, ids, active);
+  if (focusId) [...host.querySelectorAll('[role="tab"]')].find(tab => tab.dataset.monitor === focusId)?.focus();
+  else {
+    const selected = [...host.querySelectorAll('[role="tab"]')].find(tab => tab.getAttribute('aria-selected') === 'true');
+    if (selected?.scrollIntoView) {
+      try { selected.scrollIntoView({block: 'nearest', inline: 'nearest'}); }
+      catch (_) { /* older webviews */ }
+    }
+  }
+}
+
+export function paintMonitorChrome({host, board, desk, snapshot, feedFresh, paused, demo, preferredId}) {
+  if (!host || !board || !desk) return;
+  const source = demo ? demoSnapshot() : snapshot;
+  const monitors = desk.note(source, {
+    feedFresh: demo ? true : feedFresh === true,
+    paused: demo ? false : paused === true,
+    fictional: demo === true,
+  });
+  const applied = preferredId ? desk.select(preferredId) === true : false;
+  const active = monitors.find(item => item.id === desk.active) || monitors[0];
+  host.dataset.fictional = demo ? '1' : '0';
+  const signature = JSON.stringify([demo, paused, active?.id, monitors.map(item => [item.id, item.word, item.title, item.retained === true, (item.analyses || []).map(slot => `${slot.tool}:${slot.phase}:${slot.state}`).join(','), item.pipeline?.incomplete, item.pipeline?.steps?.length, item.workload?.servedModel || '', item.workload?.requestedModel || '', item.evidence?.badges?.lane || '', (item.evidence?.rows || []).map(row => `${row.id}:${row.matrix}`).join(',')]), desk.view(active.id)]);
+  if (host.dataset.signature === signature && board.dataset.signature === signature) return applied;
+  host.dataset.signature = signature;
+  board.dataset.signature = signature;
+  paintTabs(host, monitors, active.id);
+  paintBoard(board, active, desk);
+  document.body.classList.toggle('monitor-scoped', active.id !== 'all');
+  return applied;
+}
