@@ -46,6 +46,44 @@ export function observationBus({ snapshot, fresh, studioLive, frame = 0, reduced
   return { text, label, moving: first === 'flow' || second === 'flow' };
 }
 
+/**
+ * The model load/unload path as monospace text: MODEL -> YOU -> LM STUDIO -> INVENTORY.
+ * [x] done, [>] now, [!] failed, [?] not known, [ ] not yet. The last step is only [x] when fresh
+ * inventory has confirmed the result; a failure after dispatch stays [?] because it may have happened.
+ */
+export function controlSchematic({ model, control, controlKnown, decision, confirming }) {
+  const name = String(model?.name || model?.id || 'NO MODEL').toUpperCase();
+  if (!controlKnown) return { text: `CONTROL   ${name}\nstate     UNKNOWN`, label: `Model control for ${name.toLowerCase()}: state unknown.` };
+  const status = control?.status, settlement = control?.settlement;
+  const action = String((status === 'idle' ? decision?.action : control?.action) || 'control').toUpperCase();
+  let marks, state;
+  if (status === 'running') {
+    marks = ['x', 'x', '>', ' '];
+    state = 'RUNNING';
+  } else if (status === 'reported') {
+    marks = settlement === 'confirmed' ? ['x', 'x', 'x', 'x'] : ['x', 'x', 'x', '?'];
+    state = settlement === 'confirmed' ? 'DONE, INVENTORY CONFIRMS' : 'REPORTED, WAITING FOR INVENTORY';
+  } else if (status === 'failed') {
+    const sent = settlement !== 'not-started';
+    marks = sent ? ['x', 'x', '!', '?'] : ['x', 'x', '!', ' '];
+    state = sent ? 'FAILED, MAY HAVE HAPPENED' : 'FAILED, NOTHING WAS SENT';
+  } else if (confirming) {
+    marks = ['x', '>', ' ', ' '];
+    state = 'WAITING FOR YOU';
+  } else if (decision?.action) {
+    marks = ['x', ' ', ' ', ' '];
+    state = 'READY';
+  } else {
+    marks = ['?', ' ', ' ', ' '];
+    state = 'UNAVAILABLE';
+  }
+  const trail = ['MODEL', 'YOU', 'LM STUDIO', 'INVENTORY'].map((step, i) => `${step} [${marks[i]}]`).join(' -> ');
+  const why = state === 'UNAVAILABLE' ? decision?.reason : status !== 'idle' && typeof control?.message === 'string' ? control.message : '';
+  const lines = [`${action.padEnd(9)} ${name}`, trail, `state     ${state}`];
+  if (why) lines.push(`why       ${why.replace(/[^\x20-\x7e]/g, '?').slice(0, 120)}`);
+  return { text: lines.join('\n'), label: `${action.toLowerCase()} ${name.toLowerCase()}: ${state.toLowerCase()}.${why ? ' ' + why : ''}` };
+}
+
 /** Compact read-only face for the store edition: local inventory, memory, and one confirmed unload. */
 export function mountSimpleView({ window, document, fetch, setInterval, clearInterval, now }) {
   const root = document.documentElement;
@@ -181,6 +219,13 @@ export function mountSimpleView({ window, document, fetch, setInterval, clearInt
         confirm.textContent = "AGIW can't see whether it's answering right now. Unloading stops it.";
         models.append(confirm);
       }
+      const path = controlSchematic({ model, control, controlKnown, decision, confirming });
+      const schematic = document.createElement('pre');
+      schematic.className = 'j-bus sv-control';
+      schematic.setAttribute('role', 'img');
+      schematic.setAttribute('aria-label', path.label);
+      schematic.textContent = path.text;
+      models.append(schematic);
     }
     const memory = document.createElement('div');
     memory.className = 'sv-row';
