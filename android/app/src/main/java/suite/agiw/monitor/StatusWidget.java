@@ -51,6 +51,9 @@ public final class StatusWidget extends AppWidgetProvider {
         views.setContentDescription(R.id.widgetConnect, "Connection " + board.connect);
         views.setContentDescription(R.id.widgetDetail, board.detail.isEmpty() ? "No detail" : board.detail);
         views.setContentDescription(R.id.widgetAcceptance, board.acceptance);
+        // Opens the inner activity on the normal display. The intent does not name a display.
+        // One UI does not host this activity on the cover from this tap. Cover placement
+        // is the widget metadata, after the person enables it under Cover screen Widgets.
         Intent open = new Intent(context, MonitorActivity.class);
         PendingIntent pending = PendingIntent.getActivity(context, 0, open,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);

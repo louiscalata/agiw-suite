@@ -8,6 +8,23 @@ The screen is Java. A PC review proposed Kotlin and Compose, three destinations,
 
 The debug APK from the earlier static build hashed `37b44f0f4992be2f05a29f8250c3a5e1db5f1640ade24427ea48ba2ca0ba8d2b`. A written report of that file used a final `d`. The file ended in `b`. Hash the current `app-debug.apk` again after `assembleDebug`. Linux compilation is not Mac or PC native acceptance.
 
+## Flip 6 cover widget
+
+The cover path in this module is the read-only `StatusWidget`. It is an App Widget. It is not a cover Activity. `MonitorActivity` stays the primary activity and opens from the launcher. A nearly square window uses the short layout. That layout is the window aspect. It does not mean the activity is running on the cover.
+
+The widget shows the last stored sample: process, connection, detail, and the blocked acceptance line. It does not send a repair, load or unload a model, or open a network connection. Its update period only rereads `last-sample.txt`. Cleartext stays off. A tap builds an immutable `PendingIntent` to `MonitorActivity` and does not set `launchDisplayId`. One UI can open that activity on the inner screen. This intent is not a claim that the activity is hosted on the cover.
+
+Samsung metadata is `com.samsung.android.appwidget.provider` with `display="sub_screen"`. The provider is 352 by 339 dp, `resizeMode` `horizontal|vertical`, and `widgetCategory` `home_screen|keyguard`. Samsung's sample uses `keyguard` alone. `home_screen` is included so a normal launcher can host the same widget. Whether a Flip 6 cover list requires the category string to be exactly `keyguard` was not measured on a device.
+
+The person turns the widget on under Settings, Cover screen, Widgets. Labs and Good Lock are phone settings the person can change. This app does not enable them and does not receive an entitlement from them.
+
+Not proven:
+
+- No physical Flip 6, and no cover host. The phone was disconnected.
+- A stock emulator, including a 720×748 window, is not Samsung Flex Window.
+- Nothing was installed and nothing was published to a store.
+- The widget does not prove a live observer. With no stored sample it shows UNKNOWN and CONNECT NONE.
+
 ## Flip 6 constraints
 
 Sources, read 6 Nov 2026:
