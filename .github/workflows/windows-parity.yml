@@ -1,0 +1,50 @@
+name: Windows parity
+
+# Runs the Windows edition's unit tests on a real Windows runner. The
+# source-checks workflow runs the same suite on macOS only, which is not
+# native Windows evidence. This is source parity, not installer acceptance:
+# no MSI is built and nothing is installed.
+
+on:
+  push:
+    branches: ['claude/windows-parity-**']
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    name: windows edition (${{ matrix.python }})
+    runs-on: windows-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.13 is the recorded PC environment; 3.9 is the documented minimum.
+        python: ['3.13', '3.9']
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Record environment
+        shell: pwsh
+        run: |
+          git rev-parse HEAD
+          git rev-parse HEAD:windows
+          python --version
+          [System.Environment]::OSVersion.VersionString
+      - name: Windows edition tests
+        working-directory: windows
+        shell: pwsh
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          python -B -m unittest discover -s tests -p 'test_*.py' -v 2>&1 | Tee-Object -FilePath ..\windows-tests.log
+          exit $LASTEXITCODE
+      - name: Keep the log
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-tests-py${{ matrix.python }}
+          path: windows-tests.log
