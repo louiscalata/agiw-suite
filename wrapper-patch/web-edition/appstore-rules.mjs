@@ -39,8 +39,8 @@ export const html = {
       ['<script src="/simple-view-private.mjs" type="module"></script>', ''],
       ['aria-label="Interactive constellation of local runtime and recorded client model evidence"', 'aria-label="Interactive map of the local runtime and its models"'],
       ['<title>AGIW Suite · Inference Monitor</title>', '<title>AGIW · Overview</title>'],
-      ['<div class="brand" role="group" aria-label="AGIW Suite Inference Monitor"><span class="brand-monogram" aria-hidden="true">AS</span><span class="brand-wordmark"><strong>AGIW Suite</strong><small>Inference Monitor</small></span></div>',
-        '<div class="brand" role="group" aria-label="Agiw Inference Monitor"><span class="brand-monogram" aria-hidden="true">AS</span><span class="brand-wordmark"><strong>AGIW Suite</strong><small>Inference Monitor</small></span><span id="sampleData" class="sample-badge" role="status" title="Invented sample data, not read from this Mac" hidden>Sample data</span></div>'],
+      ['<div class="brand" role="group" aria-label="AGIW Suite Inference Monitor"><span class="brand-wordmark"><strong>AGIW Suite</strong><small>Inference Monitor</small></span></div>',
+        '<div class="brand" role="group" aria-label="Agiw Inference Monitor"><span class="brand-wordmark"><strong>AGIW Suite</strong><small>Inference Monitor</small></span><span id="sampleData" class="sample-badge" role="status" title="Invented sample data, not read from this Mac" hidden>Sample data</span></div>'],
       ['<span id="connection" class="connection">CONNECTING</span>',
         '<button id="openRuntimeApp" class="runtime-app" type="button" title="Open LM Studio, or its website when it is '
         + 'not installed">Open LM Studio</button><span id="connection" class="connection">CONNECTING</span>'],
@@ -314,7 +314,6 @@ export const css = {
       'html:not([data-screen="map"]) #drawer,html:not([data-screen="map"]) #evidenceRail{display:none}',
       '.topbar,body>footer{background:var(--paper);color:var(--ink);border-color:var(--line)}',
       '.brand-wordmark strong,.brand-wordmark small{color:var(--ink)}',
-      '.brand-monogram{background:var(--ink);color:var(--paper);border-color:var(--ink);text-shadow:none;box-shadow:none}',
       '.sidebar{background:var(--paper);color:var(--ink)}',
       '.sidebar h1,.sidebar h1 em{color:var(--ink)}',
       '.sidebar .search-label,.sidebar .search-label input{background:var(--paper);color:var(--ink);border-color:var(--line)}',

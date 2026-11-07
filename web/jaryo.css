@@ -480,22 +480,6 @@ body.jaryo-app .node.is-outside-monitor { opacity: .28; }
 .j-map .node.degraded circle { fill: none; stroke: var(--j-text); stroke-width: 2; }
 .j-map .node.is-outside-monitor { opacity: .28; }
 
-body.jaryo-app .brand-monogram {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: -1px;
-  padding: 0;
-  overflow: hidden;
-  clip-path: inset(50%);
-  border: 0;
-  background: none;
-  box-shadow: none;
-  text-shadow: none;
-  mask: none;
-  -webkit-mask: none;
-}
-
 body.jaryo-app .brand-wordmark strong,
 body.jaryo-app .j-brand strong,
 body.jaryo-app .j-type {
