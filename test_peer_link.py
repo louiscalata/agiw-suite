@@ -1348,10 +1348,13 @@ class Hardening3(PeerLinkCase):
             {"id": "secrets", "state": "leak"}, {"id": "jev", "state": "y" * 500}]}
         out = pl.project_status(pl.validate_status(doc, "mac"))
         self.assertEqual(out["version"], "0.1.0")
-        self.assertEqual([c["id"] for c in out["components"]], ["nisi", "jev", "jev"])
+        # One row per known id; a repeated id or an over-long state word is not forwarded.
+        self.assertEqual([c["id"] for c in out["components"]], ["nisi", "jev"])
         self.assertNotIn("extra", out["components"][0])
         self.assertEqual(out["components"][1]["lastJudgedAgeSeconds"], 12)
-        self.assertEqual(len(out["components"][2]["state"]), 128)
+        # Free-text details ("pins verified", "opted in") stay home; only the fixed sentences cross.
+        self.assertNotIn("detail", out["components"][0])
+        self.assertNotIn("detail", out["components"][1])
 
     def test_invite_notice_from_an_undiscovered_machine_is_refused(self):
         pc = Node(self, "windows", "winpc01")
@@ -2350,6 +2353,58 @@ class StatusDocs(PeerLinkCase):
             os.utime(path, (old, old))
             with self.assertRaises(ValueError):
                 pl.file_status(path)()
+
+
+
+peer_link = pl
+
+
+class StatusStrictnessTests(unittest.TestCase):
+    def doc(self, **extra):
+        return {"schemaVersion": 1, "host": "windows", "observedAt": "2026-11-07T00:00:00Z", "models": [], **extra}
+
+    def test_schema_version_must_be_the_integer_one(self):
+        peer_link.validate_status(self.doc(), "windows")
+        for odd in (True, 1.0, "1", 2, None):
+            with self.assertRaises(ValueError, msg=repr(odd)):
+                peer_link.validate_status(self.doc(schemaVersion=odd), "windows")
+
+    def test_duplicate_keys_are_refused(self):
+        with self.assertRaises(ValueError):
+            peer_link.strict_json('{"health": "down", "health": "ok"}')
+        with self.assertRaises(ValueError):
+            peer_link.strict_json('{"a": {"x": 1, "x": 2}}')
+        self.assertEqual(peer_link.strict_json('{"a": 1, "b": {"a": 2}}'), {"a": 1, "b": {"a": 2}})
+
+    def test_component_free_text_never_crosses(self):
+        out = peer_link.project_status(self.doc(components=[
+            {"id": "nisi", "label": "/Users/someone", "state": "ready", "detail": "edit pair /Users/someone/secret"},
+            {"id": "nisi", "state": "ready"},
+            {"id": "jev", "state": "configured", "detail": "Jev opted in on this Mac (key never read or shared)"},
+            {"id": "pair", "state": "ready", "detail": "x"}]))
+        self.assertEqual(out["components"], [
+            {"id": "nisi", "label": "Nisi route adapter", "state": "ready"},
+            {"id": "jev", "label": "Jev", "state": "configured",
+             "detail": "Jev opted in on this Mac (key never read or shared)"}])
+        self.assertNotIn("/Users", json.dumps(out))
+        odd = peer_link.project_status(self.doc(components=[{"id": "jev", "state": "Has a Space /x"}]))
+        self.assertEqual(odd["components"], [{"id": "jev", "label": "Jev"}])
+
+    def test_unknown_state_or_odd_id_never_breaks_the_projection(self):
+        out = peer_link.project_status(self.doc(components=[
+            {"id": "nisi", "state": "idle"}, {"id": ["jev"], "state": "ready"}, {"id": "jev", "state": "error", "detail": None}]))
+        self.assertEqual(out["components"], [{"id": "nisi", "label": "Nisi route adapter", "state": "idle"},
+                                             {"id": "jev", "label": "Jev", "state": "error"}])
+
+    def test_duplicate_key_error_does_not_echo_the_key(self):
+        with self.assertRaises(ValueError) as caught:
+            peer_link.strict_json('{"PEER-CHOSEN-TEXT": 1, "PEER-CHOSEN-TEXT": 2}')
+        self.assertNotIn("PEER-CHOSEN", str(caught.exception))
+
+    def test_negative_model_numbers_are_dropped(self):
+        out = peer_link.project_status(self.doc(models=[
+            {"id": "m", "loadedState": "loaded", "slotsBusy": -1, "slotsTotal": 2, "liveTokensPerSecond": -3.0}]))
+        self.assertEqual(out["models"], [{"id": "m", "loadedState": "loaded", "slotsTotal": 2}])
 
 
 if __name__ == "__main__":

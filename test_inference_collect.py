@@ -45,6 +45,32 @@ def route(table):
     return fetch
 
 
+class RateMemoryTests(unittest.TestCase):
+    COUNTERS = {"prompt_tokens_total": 100.0, "tokens_predicted_total": 50.0}
+
+    def test_scrapes_closer_than_half_a_second_give_no_rate(self):
+        rates = RateMemory()
+        rates.update("lane", self.COUNTERS, 100.0)
+        later = {"prompt_tokens_total": 101.0, "tokens_predicted_total": 51.0}
+        # 1 token in 1 ms used to read as 1000 tok/s.
+        self.assertEqual(rates.update("lane", later, 100.001), (None, None))
+
+    def test_a_tiny_busy_seconds_delta_falls_back_to_wall_clock(self):
+        rates = RateMemory()
+        rates.update("lane", {**self.COUNTERS, "predicted_seconds_total": 3.0}, 100.0)
+        prompt, generation = rates.update(
+            "lane", {"prompt_tokens_total": 100.0, "tokens_predicted_total": 60.0,
+                     "predicted_seconds_total": 3.000001}, 102.0)
+        self.assertEqual(generation, 5.0)  # 10 tokens / 2 s, not 10 tokens / 1 microsecond
+        self.assertEqual(prompt, 0.0)
+
+    def test_counter_reset_is_no_rate(self):
+        rates = RateMemory()
+        rates.update("lane", self.COUNTERS, 100.0)
+        self.assertEqual(rates.update("lane", {"prompt_tokens_total": 3.0, "tokens_predicted_total": 1.0}, 102.0),
+                         (None, None))
+
+
 class CollectorTests(unittest.TestCase):
     def test_llama_metrics_slots_and_a_second_sample_rate(self):
         rates = RateMemory()

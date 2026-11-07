@@ -44,6 +44,10 @@ class ProbeError(Exception):
         super().__init__(reason)
 
 
+_MIN_RATE_GAP = 0.5          # seconds between two scrapes before a wall-clock rate means anything
+_MIN_COUNTER_SECONDS = 0.01  # llama-server's own busy-seconds delta below this is rounding, not work
+
+
 class RateMemory:
     """Last prometheus counters, in memory only, so a second scrape can yield tok/s."""
 
@@ -56,7 +60,8 @@ class RateMemory:
         if not prev:
             return None, None
         elapsed = now - prev["at"]
-        if not elapsed or elapsed <= 0:
+        if not _finite(elapsed) or elapsed < _MIN_RATE_GAP:
+            # Two scrapes a few milliseconds apart turn one token into thousands per second.
             return None, None
         return (_speed(prev, counters, elapsed, "prompt_tokens_total", "prompt_seconds_total"),
                 _speed(prev, counters, elapsed, "tokens_predicted_total", "predicted_seconds_total"))
@@ -67,9 +72,11 @@ def _speed(prev, counters, elapsed, tokens, seconds):
     if before is None or after is None or after < before:
         return None
     spent_before, spent_after = prev.get(seconds), counters.get(seconds)
-    if spent_before is not None and spent_after is not None and spent_after > spent_before:
-        return (after - before) / (spent_after - spent_before)
-    return (after - before) / elapsed
+    if spent_before is not None and spent_after is not None and spent_after - spent_before >= _MIN_COUNTER_SECONDS:
+        rate = (after - before) / (spent_after - spent_before)
+    else:
+        rate = (after - before) / elapsed
+    return rate if _finite(rate) and rate >= 0 else None
 
 
 def _finite(value):
