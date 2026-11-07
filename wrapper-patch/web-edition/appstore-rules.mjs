@@ -35,6 +35,8 @@ export const html = {
     },
     edit: [
       ['<link rel="stylesheet" href="/connection-switches.css">', ''],
+      // The Mac origin serves one document; the full web's Machines page has no edition view.
+      ['<a href="/machines">Machines</a>\n', ''],
       ['<script src="/connection-switches.mjs" type="module"></script>', ''],
       ['<script src="/simple-view-private.mjs" type="module"></script>', ''],
       ['aria-label="Interactive constellation of local runtime and recorded client model evidence"', 'aria-label="Interactive map of the local runtime and its models"'],

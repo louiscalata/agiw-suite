@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Machines · AGIW Suite</title>
+<link rel="icon" href="/jaryo/marks/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/jaryo.css">
+</head>
+<body class="jaryo-app">
+<header class="j-top">
+  <div class="j-brand"><strong class="j-type">AGIW</strong><span>Inference Monitor</span></div>
+</header>
+<nav class="j-nav" aria-label="Inference Monitor">
+  <a href="/">Overview</a>
+  <a href="/monitor">Map</a>
+  <a href="/machines" aria-current="page">Machines</a>
+  <a href="/components">Components</a>
+  <a href="/identity">Identity</a>
+  <label class="j-theme">Theme
+    <select id="jaryoTheme" aria-label="Theme">
+      <option value="system">System</option>
+      <option value="light">Light</option>
+      <option value="dark">Dark</option>
+    </select>
+  </label>
+</nav>
+<main class="j-page">
+  <h1>Machines</h1>
+  <p>Each machine as this monitor sees it. A missing read is unknown, never down. Nothing here controls a machine.</p>
+  <p id="machinesStatus" class="j-hint" aria-live="polite">Reading the snapshot.</p>
+  <div id="machinesBody"></div>
+</main>
+<script src="/jaryo.mjs" type="module"></script>
+<script src="/machines.mjs" type="module"></script>
+</body>
+</html>
