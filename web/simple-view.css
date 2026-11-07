@@ -9,3 +9,13 @@
   #svBody button{color:#000;background:#fff}
 }
 .j-bus{margin:14px 0 4px;padding:10px 0;border-top:1px solid currentColor;font:11px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.04em;white-space:pre;overflow-x:auto;color:inherit;background:transparent}
+html[data-text-size="125"] body{zoom:1.25}
+html[data-text-size="150"] body{zoom:1.5}
+html[data-text-size="200"] body{zoom:2}
+html[data-text-size] .j-nav{overflow-y:auto}
+html:is([data-text-size="150"],[data-text-size="200"]) body{grid-template-columns:1fr;grid-template-rows:auto auto minmax(0,1fr) auto;overflow-x:hidden}
+html:is([data-text-size="150"],[data-text-size="200"]) body>.j-nav{grid-column:1;grid-row:2;flex-direction:row;flex-wrap:wrap;align-items:stretch;overflow:visible;border-right:0;border-bottom:1px solid currentColor}
+html:is([data-text-size="150"],[data-text-size="200"]) body>main{grid-column:1;grid-row:3}
+html:is([data-text-size="150"],[data-text-size="200"]) .j-nav button{flex:1 1 8rem;text-align:left}
+html:is([data-text-size="150"],[data-text-size="200"]) .j-theme{flex:1 1 40%;flex-direction:row;align-items:center;margin:0;gap:8px}
+html:is([data-text-size="150"],[data-text-size="200"]) .j-theme select{flex:1;min-width:0}

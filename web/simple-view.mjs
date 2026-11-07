@@ -84,6 +84,45 @@ export function controlSchematic({ model, control, controlKnown, decision, confi
   return { text: lines.join('\n'), label: `${action.toLowerCase()} ${name.toLowerCase()}: ${state.toLowerCase()}.${why ? ' ' + why : ''}` };
 }
 
+export const TEXT_SIZES = ['100', '125', '150', '200'];
+
+/** A saved text size, or 100 when the value is missing or not one of the offered sizes. */
+export function textSizeChoice(saved) {
+  return TEXT_SIZES.includes(String(saved)) ? String(saved) : '100';
+}
+
+/** Adds Text size beside Theme. The choice scales the whole page and is kept in this browser only. */
+export function mountTextSize({ window, document }) {
+  const theme = document.getElementById?.('jaryoTheme')?.closest?.('.j-theme');
+  if (!theme?.after) return null;
+  const root = document.documentElement;
+  let saved = null;
+  try { saved = window.localStorage?.getItem('agiw-text-size'); } catch (_) { saved = null; }
+  const apply = value => {
+    const size = textSizeChoice(value);
+    root.dataset.textSize = size;
+    try { window.localStorage?.setItem('agiw-text-size', size); } catch (_) { /* private mode: still applies */ }
+    return size;
+  };
+  const label = document.createElement('label');
+  label.className = 'j-theme j-text-size';
+  label.append(document.createTextNode('Text size'));
+  const select = document.createElement('select');
+  select.id = 'jaryoTextSize';
+  select.setAttribute('aria-label', 'Text size');
+  for (const size of TEXT_SIZES) {
+    const option = document.createElement('option');
+    option.value = size;
+    option.textContent = `${size}%`;
+    select.append(option);
+  }
+  select.value = apply(saved);
+  select.addEventListener('change', () => { select.value = apply(select.value); });
+  label.append(select);
+  theme.after(label);
+  return label;
+}
+
 /** Compact read-only face for the store edition: local inventory, memory, and one confirmed unload. */
 export function mountSimpleView({ window, document, fetch, setInterval, clearInterval, now }) {
   const root = document.documentElement;
@@ -335,6 +374,7 @@ export function mountSimpleView({ window, document, fetch, setInterval, clearInt
 }
 
 if (typeof document !== 'undefined' && document.getElementById?.('advancedSwitch')) {
+  mountTextSize({ window, document });
   mountSimpleView({
     window,
     document,
