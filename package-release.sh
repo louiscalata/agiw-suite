@@ -42,6 +42,7 @@ resources=(
     jaryo/marks/d4-split.svg jaryo/marks/d4-split-before.svg jaryo/marks/d4-split-wordmark.svg
     jaryo/marks/d4-split-on-dark.svg jaryo/marks/d4-split-on-light.svg
     jaryo/marks/d5-signal.svg jaryo/marks/favicon.svg
+    brand/macos/AppIcon.icns brand/macos/MenuBarMark.png brand/macos/MenuBarMark@2x.png
     bundle_nisi.py bundled_components.py jev_connection.py web/components.html web/components.js web/components.css
 )
 legal_files=(LICENSE NOTICE)
@@ -150,6 +151,10 @@ cp "$input_dir/Info.plist" "$stage_app/Contents/Info.plist"
 for resource in "${resources[@]}"; do
     mkdir -p "$stage_app/Contents/Resources/$(dirname "$resource")"
     cp "$input_dir/$resource" "$stage_app/Contents/Resources/$resource"
+done
+# The app icon and the menu-bar mark are looked up at the top of Resources.
+for mark in AppIcon.icns MenuBarMark.png MenuBarMark@2x.png; do
+    cp "$input_dir/brand/macos/$mark" "$stage_app/Contents/Resources/$mark"
 done
 for legal_file in "${legal_files[@]}"; do
     cp "$input_dir/$legal_file" "$payload_dir/$legal_file"

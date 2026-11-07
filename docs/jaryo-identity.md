@@ -29,6 +29,24 @@ Shared files live in `jaryo/`. They are framework-neutral. OPOS and Nisi can use
 
 The favicon is the letters AG in Inter, white on black, because the full word does not fit there. There is no geometric app mark.
 
+## Icons
+
+Louis, Nov 7 2026: the logo and every icon use Inter 600 (SemiBold). The letters are outlines taken from Inter 4.1 (SIL Open Font License 1.1) with the font's own kerning plus 0.02em tracking, so no icon needs the font installed. Every icon is black and white. `brand/build-icons.py` builds all of them from `brand/glyphs.json`; run it with `--font Inter-SemiBold.ttf` to re-read the outlines.
+
+| Where | File | Mark |
+| --- | --- | --- |
+| Logo | `brand/agiw-wordmark-on-light.svg`, `brand/agiw-wordmark-on-dark.svg` | AGIW |
+| Square mark | `brand/agiw-mark.svg` | AG, white on black |
+| Favicon | `jaryo/marks/favicon.svg` | AG, white on black |
+| Mac app (full monitor) | `brand/macos/AppIcon.icns` | AG on a black rounded square |
+| Mac menu bar (full monitor) | `brand/macos/MenuBarMark.png`, `@2x` | AG template image; the count beside it carries state |
+| Mac App Store edition | `wrapper-patch/app-icon/AppIcon.appiconset` | Same as the Mac app; see its README to apply |
+| Windows tray | `brand/windows/tray-*.ico`, embedded in `windows/agiw-monitor.ps1` | AG; state is a shape: plain = idle, inverted = working, framed = needs attention, dashed = starting or stale |
+| Windows app | `brand/windows/agiw.ico` | AG, white on black |
+| Android launcher | `android/app/src/main/res/mipmap-*` | AG; adaptive icon on black with a monochrome layer |
+
+Controls inside the pages stay text only. The marks are product icons, not UI glyphs.
+
 Review them at `/identity`. The gallery does not change the running monitor.
 
 Dark treatment is white on black. Light treatment is black on white. Narrow treatment is the square mark alone. The favicon is `jaryo/marks/favicon.svg`.
