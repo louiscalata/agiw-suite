@@ -44,6 +44,10 @@ class LaneProbe(unittest.TestCase):
         prompt = probes.probe_lane(FAST, fake_fetch({"/health": {"status": "ok"}, "/v1/models": {"data": [{"id": "openai/gpt-oss-20b"}]},
                                                      "/slots": slots((True, 0), (False, 0))}))
         self.assertEqual(prompt["phase"], "busy")
+        # A busy slot without a decode count is not proof of prompt reading.
+        unknown = probes.probe_lane(FAST, fake_fetch({"/health": {"status": "ok"}, "/v1/models": {"data": [{"id": "openai/gpt-oss-20b"}]},
+                                                      "/slots": slots((True, None), (True, 0))}))
+        self.assertEqual((unknown["status"], unknown["phase"]), ("busy", "unknown"))
 
     def test_identity_mismatch_never_claims_activity(self):
         lane = probes.probe_lane(FAST, fake_fetch({"/health": {"status": "ok"}, "/v1/models": {"data": [{"id": "qwen3.8-27b"}]},
@@ -637,7 +641,8 @@ class PeerLink(unittest.TestCase):
 
     def test_clock_future_and_freshness_boundaries(self):
         now = 2_000_000_000.0
-        for offset, accepted, fresh in ((4, True, True), (5, True, True), (6, False, None),
+        # The future limit is the Mac reader's 2 s (PEER_FUTURE_SKEW), so both editions refuse the same reports.
+        for offset, accepted, fresh in ((1, True, True), (2, True, True), (2.5, False, None), (5, False, None),
                                          (-30, True, True), (-30.04, True, False)):
             with self.subTest(offset=offset):
                 peer = probes._validate_peer(self.peer("mac", now + offset), now)

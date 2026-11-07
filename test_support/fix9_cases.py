@@ -38,7 +38,7 @@ def healthy(host, active=False):
                 return {'status': 'ok'}
             if url.endswith('/v1/models'):
                 return {'data': [{'id': spec['alias']}]}
-            return [{'id': i, 'is_processing': active, 'n_ctx': 64} for i in range(2)]
+            return [{'id': i, 'is_processing': active, 'n_ctx': 64, 'next_token': [{'n_decoded': 0}]} for i in range(2)]
         lanes.append({**probes.probe_lane(spec, fetch), 'ageSeconds': 0.0})
     rows = [probes.lane_model_row(lane, spec, NOW) for lane, spec in zip(lanes, specs)]
     for row in rows:

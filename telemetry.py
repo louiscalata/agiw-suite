@@ -2871,6 +2871,12 @@ def _windows_jobs(now: float) -> tuple[dict[str, Any], dict[str, Any]]:
                                        "client": None, "lane": None, "predictedPerSecond": None,
                                        "completionTokens": None, "promptPerSecond": None,
                                        "promptTokens": None, "flags": [], "cancelRequested": False})
+        if (event == "result" and record.get("status") in _WINDOWS_JOB_RESULTS
+                and job["state"] in _WINDOWS_JOB_RESULTS and job["settledUnix"] is not None
+                and unix < job["settledUnix"]):
+            # An older result line (journal lines are not guaranteed to be in time order) never undoes a
+            # newer one: not its state, speed, model, client or lane.
+            continue
         model = _metadata_label(record.get("model"))
         if model:
             job["model"] = model
@@ -2905,12 +2911,20 @@ def _windows_jobs(now: float) -> tuple[dict[str, Any], dict[str, Any]]:
             # A validated result is terminal and wins over any earlier timeout. Prompt (read) speed
             # and size sit beside generation speed; flags keep only the known ones, in a fixed order.
             flags = record.get("flags")
-            job.update(state=status, settledUnix=unix,
-                       elapsedSeconds=_finite_number(record.get("elapsedSeconds"), 0.0, 86400.0),
-                       predictedPerSecond=_finite_number(record.get("predictedPerSecond"), 0.0, 1e6),
-                       completionTokens=_integer(record.get("completionTokens"), 0, 2**31 - 1),
-                       promptPerSecond=_finite_number(record.get("promptPerSecond"), 0.0, 1e6),
-                       promptTokens=_integer(record.get("promptTokens"), 0, 2**31 - 1),
+            elapsed = _finite_number(record.get("elapsedSeconds"), 0.0, 86400.0)
+            completion = _integer(record.get("completionTokens"), 0, 2**31 - 1)
+            prompt_tokens = _integer(record.get("promptTokens"), 0, 2**31 - 1)
+            # A speed is evidence only for a successful answer: an error line, a zero-second line or a
+            # reported count of 0 tokens cannot vouch for one. (Speed comes from llama-server timings and the
+            # count from usage, so a missing count alone does not void a speed.)
+            timed = status == "success" and bool(elapsed)  # None (missing/invalid) or 0 s: no speed
+            job.update(state=status, settledUnix=unix, elapsedSeconds=elapsed,
+                       predictedPerSecond=(_finite_number(record.get("predictedPerSecond"), 0.0, 1e6)
+                                           if timed and completion != 0 else None),
+                       completionTokens=completion,
+                       promptPerSecond=(_finite_number(record.get("promptPerSecond"), 0.0, 1e6)
+                                        if timed and prompt_tokens != 0 else None),
+                       promptTokens=prompt_tokens,
                        flags=[flag for flag in _WINDOWS_JOB_FLAGS
                               if isinstance(flags, list) and flag in flags[:16]])
         elif event == "cancel-requested":
