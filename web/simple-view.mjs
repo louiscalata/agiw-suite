@@ -1,5 +1,51 @@
 import { modelControlView } from '/model-control-view.mjs';
 
+const BUS_SEGMENT = 12;
+
+function busSegment(mode, frame) {
+  const dashes = Array(BUS_SEGMENT).fill('-');
+  if (mode === 'flow') dashes[((frame % BUS_SEGMENT) + BUS_SEGMENT) % BUS_SEGMENT] = '>';
+  else if (mode === 'still') dashes[Math.floor(BUS_SEGMENT / 2)] = '>';
+  else if (mode === 'broken') dashes[Math.floor(BUS_SEGMENT / 2)] = 'x';
+  else if (mode === 'unknown') dashes[Math.floor(BUS_SEGMENT / 2)] = '?';
+  else if (mode === 'stale') return '.'.repeat(BUS_SEGMENT);
+  return dashes.join('');
+}
+
+/**
+ * The observation bus as monospace text: LM Studio -> observer -> this view.
+ * Only what the sample says is drawn. Words carry every state; the moving glyph is decoration
+ * and only moves while the sample is fresh, the source is live, and motion is allowed.
+ */
+export function observationBus({ snapshot, fresh, studioLive, frame = 0, reducedMotion = false, paused = false }) {
+  const rows = Array.isArray(snapshot?.models) && snapshot.models.every(row => row && typeof row === 'object' && !Array.isArray(row))
+    ? snapshot.models : null;
+  const demo = snapshot?.demo === true;
+  let source = 'UNKNOWN', inventory = 'UNKNOWN', sample = 'NO SAMPLE YET', first = 'unknown', second = 'unknown';
+  if (snapshot) {
+    sample = paused ? 'PAUSED' : fresh ? 'FRESH' : 'STALE';
+    if (demo) {
+      source = 'SAMPLE DATA';
+      first = 'still';
+    } else if (studioLive) {
+      source = 'LIVE';
+      first = fresh && !paused ? (reducedMotion ? 'still' : 'flow') : 'still';
+    } else {
+      source = 'NOT ANSWERING';
+      first = 'broken';
+    }
+    if (rows && (fresh || demo)) {
+      const loaded = rows.filter(row => row.loaded === true).length;
+      inventory = `${rows.length} MODEL${rows.length === 1 ? '' : 'S'} / ${loaded} LOADED${demo ? ' (SAMPLE)' : ''}`;
+    }
+    second = paused ? 'still' : fresh ? (reducedMotion || demo ? 'still' : 'flow') : 'stale';
+  }
+  const art = `LM STUDIO ${busSegment(first, frame)} OBSERVER ${busSegment(second, frame + BUS_SEGMENT / 2)} THIS VIEW`;
+  const text = [art, `source    ${source}`, `inventory ${inventory}`, `sample    ${sample}`].join('\n');
+  const label = `Observation bus. Source ${source.toLowerCase()}. Inventory ${inventory.toLowerCase()}. Sample ${sample.toLowerCase()}.`;
+  return { text, label, moving: first === 'flow' || second === 'flow' };
+}
+
 /** Compact read-only face for the store edition: local inventory, memory, and one confirmed unload. */
 export function mountSimpleView({ window, document, fetch, setInterval, clearInterval, now }) {
   const root = document.documentElement;
@@ -144,6 +190,37 @@ export function mountSimpleView({ window, document, fetch, setInterval, clearInt
     body.append(studio, models, memory);
   };
 
+  const subline = document.getElementById?.('subline');
+  let bus = null;
+  let busFrame = 0;
+  if (subline?.after) {
+    bus = document.createElement('pre');
+    bus.id = 'svBus';
+    bus.className = 'j-bus';
+    bus.setAttribute('role', 'img');
+    subline.after(bus);
+  }
+  const reducedMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches === true;
+  const drawBus = () => {
+    if (!bus) return false;
+    const view = observationBus({
+      snapshot,
+      fresh: sampleIsFresh(snapshot),
+      studioLive: studioLive(),
+      frame: busFrame,
+      reducedMotion: reducedMotion(),
+      paused: document.getElementById?.('pause')?.getAttribute?.('aria-pressed') === 'true',
+    });
+    if (bus.textContent !== view.text) bus.textContent = view.text;
+    if (bus.getAttribute('aria-label') !== view.label) bus.setAttribute('aria-label', view.label);
+    return view.moving;
+  };
+  const busTimer = bus ? setInterval(() => {
+    if (root.dataset.view === 'simple') return;
+    busFrame += 1;
+    drawBus();
+  }, 250) : null;
+
   const CONTROL_STATUSES = new Set(['idle', 'running', 'reported', 'failed']);
   let pollGeneration = 0;
   const acceptedBody = async reply => {
@@ -193,6 +270,7 @@ export function mountSimpleView({ window, document, fetch, setInterval, clearInt
     }
     if (!(sampleIsFresh(snapshot) && controlKnown && snapshot?.demo !== true && studioLive())) confirming = false;
     draw();
+    drawBus();
   };
 
   applyView(readView(), false);
@@ -202,6 +280,8 @@ export function mountSimpleView({ window, document, fetch, setInterval, clearInt
     destroy() {
       stopped = true;
       clearInterval(timer);
+      if (busTimer !== null) clearInterval(busTimer);
+      bus?.remove?.();
       switcher?.removeEventListener?.('click', onSwitch);
       document.removeEventListener?.('click', onSwitch);
       body.remove();
