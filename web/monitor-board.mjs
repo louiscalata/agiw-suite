@@ -25,6 +25,57 @@ function matrixClass(matrix) {
   return 'j-matrix-untested';
 }
 
+const MACHINE_NAMES = {mac: 'MAC', windows: 'PC', linux: 'LINUX'};
+
+function plainReason(code) {
+  return typeof code === 'string' && /^[a-z_]{1,40}$/.test(code) ? code.replace(/_/g, ' ') : 'not observed';
+}
+
+/**
+ * The machine rows as a monospace peer map, this machine first. Words carry every state;
+ * the link glyph repeats it: === up, -x- reported down, -?- unknown. Counts appear only when the
+ * row says its model list is complete. A missing read is unknown, never down.
+ */
+export function peerMap({machines, self, feedFresh}) {
+  const rows = Array.isArray(machines) ? machines.filter(row => row && typeof row === 'object' && !Array.isArray(row)) : [];
+  if (!rows.length) {
+    return {text: 'MACHINES  UNKNOWN\n          no machine rows in this sample', label: 'Machines: unknown. No machine rows in this sample.'};
+  }
+  const hubIndex = Math.max(0, rows.findIndex(row => row.host === self || row.platform === self));
+  const describe = row => {
+    const state = row.state === 'up' ? (row.reasonCode === 'reported_degraded' ? 'DEGRADED' : 'UP') : row.state === 'down' ? 'DOWN' : 'UNKNOWN';
+    const link = state === 'DOWN' ? '-x-' : state === 'UNKNOWN' ? '-?-' : '===';
+    const parts = [];
+    if (state === 'UNKNOWN') parts.push(plainReason(row.reasonCode));
+    else if (state === 'DOWN') parts.push('reported down');
+    else if (row.modelsComplete === true && Number.isInteger(row.loadedCount)) {
+      parts.push(`${row.loadedCount} loaded / ${Number.isInteger(row.busyCount) ? row.busyCount : '?'} busy`);
+    } else parts.push('model list incomplete');
+    if (typeof row.trust === 'string' && /^[a-z-]{1,20}$/.test(row.trust)) parts.push(row.trust);
+    if (typeof row.ageSeconds === 'number' && Number.isFinite(row.ageSeconds)) parts.push(`${Math.round(row.ageSeconds)} s`);
+    const name = MACHINE_NAMES[row.platform] || String(row.host || 'MACHINE').toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 12) || 'MACHINE';
+    return {name, state, link, detail: parts.join(' · ')};
+  };
+  const hub = describe(rows[hubIndex]);
+  const peers = rows.filter((_, i) => i !== hubIndex).map(describe);
+  const lines = [`THIS ${hub.name}`.padEnd(14) + `${hub.state.padEnd(9)}${hub.detail}`];
+  for (const peer of peers) lines.push(` |${peer.link} ${peer.name.padEnd(8)} ${peer.state.padEnd(9)}${peer.detail}`);
+  if (!peers.length) lines.push(' |    no other machine in this sample');
+  if (feedFresh !== true) lines.push('          last sample, not live');
+  const label = [`This ${hub.name.toLowerCase()} ${hub.state.toLowerCase()}`, ...peers.map(peer => `${peer.name.toLowerCase()} ${peer.state.toLowerCase()}, ${peer.detail}`)].join('. ') + (feedFresh === true ? '.' : '. Last sample, not live.');
+  return {text: lines.join('\n'), label: `Machines: ${label}`};
+}
+
+function appendPeerMap(parent, context) {
+  if (!parent || !context) return;
+  const view = peerMap(context);
+  const map = el('pre', 'j-schematic j-peer-map');
+  map.setAttribute('role', 'img');
+  map.setAttribute('aria-label', view.label);
+  map.textContent = view.text;
+  parent.append(map);
+}
+
 export function appendEvidence(parent, evidence) {
   if (!parent || !evidence) return;
   const badges = evidence.badges || {};
@@ -136,6 +187,7 @@ function paintBoard(board, monitor, desk) {
   if (monitor.reason) banner.append(el('span', 'j-reason', monitor.reason));
   board.append(banner);
   if (monitor.fictional) board.append(el('p', 'j-demo', DEMO_BANNER));
+  if (monitor.id === 'all') appendPeerMap(board, board.jaryoMachines);
   appendEvidence(board, monitor.evidence);
   appendIdentity(board, monitor);
   const filter = el('label', 'j-filter');
@@ -246,9 +298,13 @@ export function paintMonitorChrome({host, board, desk, snapshot, feedFresh, paus
   const active = monitors.find(item => item.id === desk.active) || monitors[0];
   host.dataset.fictional = demo ? '1' : '0';
   const signature = JSON.stringify([demo, paused, active?.id, monitors.map(item => [item.id, item.word, item.title, item.retained === true, (item.analyses || []).map(slot => `${slot.tool}:${slot.phase}:${slot.state}`).join(','), item.pipeline?.incomplete, item.pipeline?.steps?.length, item.workload?.servedModel || '', item.workload?.requestedModel || '', item.evidence?.badges?.lane || '', (item.evidence?.rows || []).map(row => `${row.id}:${row.matrix}`).join(',')]), desk.view(active.id)]);
-  if (host.dataset.signature === signature && board.dataset.signature === signature) return applied;
-  host.dataset.signature = signature;
-  board.dataset.signature = signature;
+  const machines = Array.isArray(source?.machines) ? source.machines : null;
+  board.jaryoMachines = {machines, self: source?.host, feedFresh: demo ? false : feedFresh === true && paused !== true};
+  const machineSignature = JSON.stringify([board.jaryoMachines.feedFresh, (machines || []).map(row => row && [row.host, row.platform, row.state, row.reasonCode, row.trust, row.modelsComplete, row.loadedCount, row.busyCount, typeof row.ageSeconds === 'number' ? Math.round(row.ageSeconds) : null])]);
+  const fullSignature = signature + machineSignature;
+  if (host.dataset.signature === fullSignature && board.dataset.signature === fullSignature) return applied;
+  host.dataset.signature = fullSignature;
+  board.dataset.signature = fullSignature;
   paintTabs(host, monitors, active.id);
   paintBoard(board, active, desk);
   document.body.classList.toggle('monitor-scoped', active.id !== 'all');
