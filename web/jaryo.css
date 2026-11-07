@@ -743,3 +743,55 @@ body.jaryo-app .sidebar h1 {
     scroll-behavior: auto !important;
   }
 }
+
+/* Black and white on the map and the sidebar controls in both themes. app.js gives each node a
+   per-capability or per-client colour (the group's color attribute, used through currentColor, and
+   SVG fill attributes), and style.css carries the dark monitor's literal colours. The id keeps these
+   ahead of those class rules. State stays in the words under each node. */
+body.jaryo-app #nodes .node { color: var(--j-text); }
+body.jaryo-app #nodes .node .label,
+body.jaryo-app #nodes .node .sub,
+body.jaryo-app #nodes .node .capability-line { fill: var(--j-text); color: var(--j-text); stroke: var(--j-bg); }
+body.jaryo-app #nodes .node .core { fill: var(--j-text); stroke: var(--j-bg); filter: none; }
+body.jaryo-app #nodes .node.unknown .core,
+body.jaryo-app #nodes .node.not_measured .core { fill: var(--j-bg); stroke: var(--j-text); }
+body.jaryo-app #nodes .node .halo,
+body.jaryo-app #nodes .node .ring { fill: none; stroke: var(--j-text); }
+body.jaryo-app .edge { stroke: var(--j-text); }
+body.jaryo-app .glow { display: none; }
+
+body.jaryo-app .memory-banner {
+  background: var(--j-bg);
+  color: var(--j-text);
+  border-color: var(--j-border);
+  box-shadow: none;
+  backdrop-filter: none;
+}
+body.jaryo-app .memory-banner strong,
+body.jaryo-app .memory-banner span,
+body.jaryo-app .memory-banner button { color: var(--j-text); border-color: var(--j-border); background: transparent; }
+
+body.jaryo-app .pc-switch-track { background: var(--j-bg); border-color: var(--j-border); }
+body.jaryo-app .pc-switch-track > i { background: var(--j-text); }
+body.jaryo-app #runtimeSidebar .eyebrow,
+body.jaryo-app #runtimeSidebar .view-tabs button { color: var(--j-text); }
+body.jaryo-app #autoUnloadToggle,
+body.jaryo-app #modelScopeControls > button,
+body.jaryo-app #runtimeSidebar .search-label {
+  background: var(--j-bg);
+  color: var(--j-text);
+  border-color: var(--j-border);
+  box-shadow: none;
+}
+body.jaryo-app .vital small { color: var(--j-text); }
+body.jaryo-app .vital i { border-color: var(--j-text); }
+/* style.css marks an active model green with !important and a coloured glow; activity stays in motion
+   and the words under the node. */
+body.jaryo-app #nodes .node.active .halo,
+body.jaryo-app #nodes .node.active .core { stroke: var(--j-text) !important; }
+body.jaryo-app #nodes .node .halo,
+body.jaryo-app #nodes .node.model.active .halo { filter: none; }
+body.jaryo-app .vital[data-tone=live] i,
+body.jaryo-app [data-tone=live] > .status-dot { box-shadow: none; }
+/* Group labels get a paper halo like node labels; an ink halo smeared the letters into blocks. */
+body.jaryo-app svg .cluster-label { fill: var(--j-text); stroke: var(--j-bg); }
