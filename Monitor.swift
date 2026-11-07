@@ -350,7 +350,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         NSApp.setActivationPolicy(.accessory)
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
-            button.image = NSImage(systemSymbolName: "cpu", accessibilityDescription: "Inference Monitor")
+            // The AGIW letters as a template image (macOS tints it); the system symbol is only a fallback.
+            let mark = Bundle.main.image(forResource: "MenuBarMark")
+            mark?.size = NSSize(width: 22, height: 16)
+            mark?.accessibilityDescription = "Inference Monitor"
+            button.image = mark ?? NSImage(systemSymbolName: "cpu", accessibilityDescription: "Inference Monitor")
             button.image?.isTemplate = true
             button.imagePosition = .imageLeading
             button.title = " ?"

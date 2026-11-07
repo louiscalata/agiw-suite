@@ -140,23 +140,25 @@ function Open-Dashboard {
 }
 
 # ---------------------------------------------------------------- icons
-function New-DotIcon([string]$Hex) {
-    $bitmap = New-Object System.Drawing.Bitmap 16, 16
-    $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
-    $graphics.SmoothingMode = 'AntiAlias'
-    $graphics.Clear([System.Drawing.Color]::Transparent)
-    $ring = New-Object System.Drawing.Pen ([System.Drawing.ColorTranslator]::FromHtml('#d7d7d7')), 1.5
-    $fill = New-Object System.Drawing.SolidBrush ([System.Drawing.ColorTranslator]::FromHtml($Hex))
-    $graphics.FillEllipse($fill, 2, 2, 12, 12)
-    $graphics.DrawEllipse($ring, 2, 2, 12, 12)
-    $graphics.Dispose()
-    [System.Drawing.Icon]::FromHandle($bitmap.GetHicon())
+# One black-and-white AGIW mark per state. The state is a shape (plain, inverted, framed, dashed),
+# never a colour; the tray text says it in words.
+# BEGIN generated tray icons (brand/build-icons.py; do not edit by hand)
+$TrayIconData = @{
+    ok = 'AAABAAIAEBAAAAEAIAAhAQAAJgAAACAgAAABACAAjQIAAEcBAACJUE5HDQoaCgAAAA1JSERSAAAAEAAAABAIAgAAAJCRaDYAAAAGYktHRAD/AP8A/6C9p5MAAADWSURBVCiR5ZCtioZAGIUPRpM3oOAfeA0iCiaDdqcJJjV4EzYvweI9mMbgpAExTBKsNoN3MMUNH3zLLps27j7twPscDi/w3ymKYts2TdNesaoqIcQ8z2EY/iys60opLcsSQJZlx3F4nhfH8X3f75ZPbNs+zzNJEsYYgGEY2rYFYJqmZVmqqr7OlLeQ5/l1XY7jBEGg6zoAKSWArus4577vfxcIIZRSKSVjjBAyTVNd167r9n3/PM++71/2GIaxLIuiKACiKBrHEUDTNEIIznmapr944R/iAwqrTrYT+VuDAAAAAElFTkSuQmCCiVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAABmJLR0QA/wD/AP+gvaeTAAACQklEQVRIie2TvUuyURjGbx9fUDcVhBCd1CHwa8pNcJEgUBTSSHTRoKXBwbGh/gAXN6dqSQhycNBFcFIQExy0MBRU/EAh6CG/ML3e4eF9CHvJGgN/0zn3dXNdnPucQ7Rly5bfj+ALLRKJaLXa2WwWDodXq9WaajAY/H6/Tqcbj8f5fP7m5ubt7e0HyXK5fD6fAwBgtVrX1PPz89VqhQ+02229Xv+DgJOTEwCZTAZAPB7/KB0fHwNgWTYUCimVSqPReHt7C6DZbIrF4u8GZLNZABaLZTqdvry8iEQiXqrX6wCcTidfYRjm4eEBgNvt/pa7UqlcLpe9Xk8gEKTTaQAul4uTdnd3AbRaLYHgq/vj+fPfqtfrZRiGs06lUvv7+z6fL5lMEpFarSaix8dHAFyzzWYTCoXcut1u1+v1zbHFYhHAwcEBEe3s7Ly/v0+nU6lUSkR2ux1ANpvlm1mW5a86Go1udtdqtVx3pVIplUqlUol7TsFgkP6NqNPp8CNyuVyHh4fX19cALi8v19yYzwFHR0dE1O/3F4sFV2m1WkTk8/mI6OnpqdFoqFQqj8fDqclk8u7uTiaTEVGtVtt8gmq1CsDhcPAVhUKxWCyWy6VKpSKiQCAAYDwen52daTQavV4fi8UAdLtdiUSywd1kMgF4fX1de9Hch4hEItz24uJi7aMNBoO9vb3PhsK1vdlsnkwmiUQin89/rA8Gg9lsNhqNCoUCEeVyufv7e5Zlh8NhuVy+uro6PT19fn7ePJ8tW7b8Rv4CiQtOYQCCBE0AAAAASUVORK5CYII='
+    live = 'AAABAAIAEBAAAAEAIAA8AQAAJgAAACAgAAABACAAmAIAAGIBAACJUE5HDQoaCgAAAA1JSERSAAAAEAAAABAIAgAAAJCRaDYAAAAGYktHRAD/AP8A/6C9p5MAAADxSURBVCiR3ZE/rkVgEMXHK6xAo9IqNBQkNL7mU1mDxhZ0FqEQGoWOmkIlERFbUPiTiAXQKGVuIS8391VP84p3uknOL3PODMBDMQCAiL91M8zX0w1/DKRpqqrqcRz3GMexoiiU0rZtPyD8lqZplNIkSRCxKApRFIdhqOua47h939+3ud3TNAmCUFWVaZqI6LpuEASIuCzLPM/ned7AO1Ke5zzPT9PUdd22bQDAsiwA+L5vGEbf9z87ZFlmWRbLsoSQLMts246iaBxHz/MYhpEk6aPDuq6EkOu6ELFpGsdxEDEMQ1mWdV0vy/KODf/j04/1AlRDhebds7bbAAAAAElFTkSuQmCCiVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAABmJLR0QA/wD/AP+gvaeTAAACTUlEQVRIie1VPWjqYBQ9xh/SqgVBEEsbEVHaIg4NLo4u1qGDYKFLs7WTi+BqoR11KHS0LiKBKigKHeokbu1WCbjEzQalULKpi/k6fBB86nsWXpf38CzJd8/lni/n3kuAfx0G+iCE/HxpgwEA8+N1F7AR2Aj8PUx/4PL5fL/fZ1n27u6OYRavIklSuVyWZdlqtUYiEUEQbDbbb2uRJXx+flosFsp2Op0F9vb2lu6Rjv39fUmS5nPWCBQKBQCxWAzA5eXlPCWKIgC73f7w8KAoSrfbPT8/B+D1eieTyXcFotEogJeXF5ZlHQ7HdDrVKb/fD6DRaOiR2Wx2fHwMoFarfUtAURSGYdxut6ZpJycnAOr1OqV6vR4AjuM0TVu+1rJFq5tcqVQ0TYvH4waD4fT09Pn5WRTFRCIBYDAYADg8PNR70G63Z7MZfec4LhAIrG9yOBwG8PT0RAgZDodGo5FlWVVVCSGtVgtANBrVk+12u14nnU6vt0iWZRoMhUI8z/M8T8epWCzqFu3t7ekW1ev1arUqCAKAbDa7ILBi0R4fHwG43W6z2UwjHo8HAB2eg4MDn8/3/v5erVYpm0gkzs7OVFUFcHR0tNLzX76AJjWbTT3y8fFhMpkYhhkMBoSQUqkEYHt7+/7+vt/vS5KUSqUA7O7ujsfjNRa9vb0B2NnZmZ9oQghdiFwuR4/X19cLi+ZyuV5fX9dP0Wg0urq6CgaDLMvOxzOZjMfjMRqN9Hhzc5NMJkVRlGV5a2uL5/mLiwun07nszeafvBHYCPwP+ALuKAEV0ScUDAAAAABJRU5ErkJggg=='
+    warn = 'AAABAAIAEBAAAAEAIAA1AQAAJgAAACAgAAABACAArgIAAFsBAACJUE5HDQoaCgAAAA1JSERSAAAAEAAAABAIAgAAAJCRaDYAAAAGYktHRAD/AP8A/6C9p5MAAADqSURBVCiR3ZItqoVQFIXXNZqcgIJ/4BhEFEwG7doEkxqchM0hWJyD6Rg0CWI4SbDaDM7glHPDDb53m+WFt9uGtRZ8e+0X5xyP5pGBcy48iwf+2JCm6bqukiR91jzPKaXDMLiue4t+Qi/LQgjJsgxAFEX7vluW5fv+dV2fFM75bdB1/TiOIAimaQLQtm1VVQBUVdU0TRRFfF0pjuPzPA3DcBxHlmUAjDEAdV3P82zb9jdDkiSEEMbYNE1JkvR9XxSFaZpN03DOt237xaAoyjiOgiAA8Dyv6zoAZVlSSud5DsPwFv+Dpl9P3/sNc2Jyon+QZKsAAAAASUVORK5CYIKJUE5HDQoaCgAAAA1JSERSAAAAIAAAACAIAgAAAPwY7aMAAAAGYktHRAD/AP8A/6C9p5MAAAJjSURBVEiJ7VYxSDJhGH7vDMqtgkBEJ3UQrLbcgpYIBEVBCw9bytHBwTFCZ2lpc7OGhgQHB11cHUQHQSsEhVOshgg6Ok6x82n44JDT/y/4/4af33e5+97neJ73e77v/b7jANBPBv+j7ES0xB4cx/11aubNj89gIbAQ+PNY+g2WSCTsdvtwOIzH45PJRIdubm5GIhGHwyHLcqVSubq6en9/n8MCYO5psb6+PhqNGLq7u6tDz87OJpMJpqLX67lcrjnMvxKIRqMASqUSgEwmMw2Fw2EAkiSdnp6azeatra2bmxsA3W53ZWXluwLlchmA2+1WFOX19XV5eVmD2u02AJ/Pp2V4nq/X6wACgcC3BMxms6qqj4+PHMcVi0UAfr+fQU6nE4Aoil8eX4x5/iIfHh7yPM+oC4XCwcGBIAj5fJ6IrFYrEd3f32tl7e3tGQwG9t7r9drt9hwdnUC1WgXg8XiIyGQyfXx8KIqyurpKRPv7+wDK5bL2sSRJ2lJfXFx8bZHdbmfJRqNRq9VqtRrbTicnJ5pF/X5fs8jv9weDwWw2CyCVSukE5jTa0dERET09PY3HY5YRRZGIBEEgooeHh06nY7FYQqEQQ/P5/O3t7draGhHd3d3p6WZn0Gq1AHi9Xi2zsbExHo9VVbVYLER0fHwMQJblWCxms9lcLtfl5SWAwWBgNBq/sGh7exvA29vb9I4mItYQiUSCDZPJpK7Rnp+fd3Z2ZkvX7yKTyZTJZJrN5nA4nM6n02lRFFVVZcPz8/NcLicIgsPhUBSlXq9fX1+/vLzMGs6x8hd38kLgvxbg/vm/608NP7ZyQKin2AAAAABJRU5ErkJggg=='
+    muted = 'AAABAAIAEBAAAAEAIABcAQAAJgAAACAgAAABACAA1wIAAIIBAACJUE5HDQoaCgAAAA1JSERSAAAAEAAAABAIAgAAAJCRaDYAAAAGYktHRAD/AP8A/6C9p5MAAAERSURBVCiRvZKxaoNgFIVPHePiCySgZnB2DKLg5KCLOGQMOIUMeYVfiE+RxQdwFgyi/yKIg5Ogo5MR8gZZ/g6WlpRCG2h7pnuHc797uBeUUsYYIQQAIeTb+jkRQvCUjzEGxtgfEj5rt9vVdS0Iwtzu9/umaS6Xi67rXxOqqkrT1Pd9AI7jdF2nKIppmrfbbZ7ykEGW5WEYLMsqigLA+Xw+Ho8ARFGUJGmxWMwELgiC2bDdbq/X63q91jRtuVwCuN/vAE6nU1mWm81mNry879O2bRzH4zh6npdlWd/3YRi6rsvzfJIkqqpO0/SRYbVa5XnOcRwAwzCiKAJwOByapinL0rbteej/3+H3CW8Zfv7blNJXmc6sPyBBGPcAAAAASUVORK5CYIKJUE5HDQoaCgAAAA1JSERSAAAAIAAAACAIAgAAAPwY7aMAAAAGYktHRAD/AP8A/6C9p5MAAAKMSURBVEiJ7VYxSGpRGP7vLbC2DAQRndJB0Np0E1xECBIDLbrkYo0NDY4ROYuLm5s2OBQ4NOji2hA6BFohFFwlbQghUa5h1+8NJy6X+3z53sPL40HfdM7//+f/zv+f79x7OACkAsdxyljt+ms7r474L6Hj9lnHeP0IGHgAmnOeM4F+qRkW9UvN9Kl7BbrjK5kmEgm73T4ajY6PjyeTicbrdrv39/cdDsdwOLy+vs7n84PB4A+YV1dX39/fmcZ8Pp/Ge3JyMplMoEKr1XK5XOqYGfo8PDwEUC6XAWSzWbVrb28PQL/fPzg4sFgs6+vrhUIBwNPT09LSkpbgVzyVSgWA1+uVJKnX6xkMBsXVbDYBhEIhxcLzfK1WA7C9vf1bBBaLRZblTqfDcVypVAIQDoeZy+l0AhBFceZXkmWefg92dnZ4nmepr66ugsGgIAjFYpGIbDYbEd3f3yvb8vv9CwsLbNxqtZrNJht/7mBqBTc3NwA2NzeJyGw2f3x8SJK0srJCRIFAAEClUlGC+/2+ctTpdPrrsoiI7HY7i769va1Wq9VqlckpHo8rLWq320qLwuFwJBLJ5XIAksmkJtuUm7y7u0tE3W53PB4ziyiKRCQIAhE9PDw8Pj5ardZoNMq8xWLx4uLCaDQS0d3d3ewKGo0GgK2tLcViMpnG47Esy1arlYhisRiA4XB4dHS0trbmcrkymQyA5+fn5eVlZdV0fW5sbAB4e3tTK5qI2IVIJBJsenZ2prloLy8vHo9HveRTRYxEaajZbM5ms/V6fTQaqaNTqZQoirIss+np6enl5aUgCA6HQ5KkWq12fn7++vr6cz84DcEcwTJ//w/+Pb7fRTPxKVMAc39XM+jYIsb0A0tYsJfp9CFuAAAAAElFTkSuQmCC'
+}
+# END generated tray icons
+function New-TrayIcon([string]$Data) {
+    $stream = New-Object System.IO.MemoryStream (, [Convert]::FromBase64String($Data))
+    New-Object System.Drawing.Icon $stream, 16, 16
 }
 $Icons = @{
-    live    = New-DotIcon '#4c9cff'   # a lane is evaluating or generating
-    ok      = New-DotIcon '#36c48a'   # lanes up and idle
-    warn    = New-DotIcon '#e9b85c'   # a lane down, identity mismatch, or memory tight
-    muted   = New-DotIcon '#7a7a86'   # observer starting or feed stale
+    live    = New-TrayIcon $TrayIconData.live    # a lane is evaluating or generating
+    ok      = New-TrayIcon $TrayIconData.ok      # lanes up and idle
+    warn    = New-TrayIcon $TrayIconData.warn    # a lane down, identity mismatch, or memory tight
+    muted   = New-TrayIcon $TrayIconData.muted   # observer starting or feed stale
 }
 
 # ---------------------------------------------------------------- status
