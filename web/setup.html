@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Setup · AGIW Suite</title>
+<link rel="icon" href="/jaryo/marks/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/jaryo.css">
+</head>
+<body class="jaryo-app">
+<header class="j-top">
+  <div class="j-brand"><strong class="j-type">AGIW</strong><span>Inference Monitor</span></div>
+</header>
+<nav class="j-nav" aria-label="Inference Monitor">
+  <a href="/">Overview</a>
+  <a href="/monitor">Map</a>
+  <a href="/machines">Machines</a>
+  <a href="/components">Components</a>
+  <a href="/identity">Identity</a>
+  <a href="/setup" aria-current="page">Setup</a>
+  <label class="j-theme">Theme
+    <select id="jaryoTheme" aria-label="Theme">
+      <option value="system">System</option>
+      <option value="light">Light</option>
+      <option value="dark">Dark</option>
+    </select>
+  </label>
+</nav>
+<main class="j-page">
+  <h1>Setup</h1>
+  <p>The activation guide, checked against what this monitor can already see. Nothing here installs, starts or changes anything; each next step is yours to take.</p>
+  <p id="setupProgress" class="j-hint" aria-live="polite">Reading the monitor.</p>
+  <ol id="setupSteps" class="j-setup"></ol>
+</main>
+<script src="/jaryo.mjs" type="module"></script>
+<script src="/setup.mjs" type="module"></script>
+</body>
+</html>
