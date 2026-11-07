@@ -8,3 +8,4 @@
   #svBody .sv-row{border-top-color:#fff}
   #svBody button{color:#000;background:#fff}
 }
+.j-bus{margin:14px 0 4px;padding:10px 0;border-top:1px solid currentColor;font:11px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.04em;white-space:pre;overflow-x:auto;color:inherit;background:transparent}
