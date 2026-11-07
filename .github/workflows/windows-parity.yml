@@ -34,14 +34,19 @@ jobs:
           git rev-parse HEAD:windows
           python --version
           [System.Environment]::OSVersion.VersionString
+      # cmd, not pwsh: the installer tests start Windows PowerShell 5.1, which
+      # cannot load its own modules when it inherits PowerShell 7's
+      # PSModulePath ("Get-FileHash is not recognized").
       - name: Windows edition tests
         working-directory: windows
-        shell: pwsh
+        shell: cmd
         env:
           PYTHONDONTWRITEBYTECODE: '1'
         run: |
-          python -B -m unittest discover -s tests -p 'test_*.py' -v 2>&1 | Tee-Object -FilePath ..\windows-tests.log
-          exit $LASTEXITCODE
+          python -B -m unittest discover -s tests -p "test_*.py" -v > ..\windows-tests.log 2>&1
+          set RC=%ERRORLEVEL%
+          type ..\windows-tests.log
+          exit /b %RC%
       - name: Keep the log
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
