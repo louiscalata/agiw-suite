@@ -1,0 +1,110 @@
+{
+  "schema": "agiw.jaryo.authorized-0329.receipts.v1",
+  "authorization": "pt1693u Go for it",
+  "when_pst": "2026-11-06 03:30-03:42 America/Los_Angeles",
+  "parallel": true,
+  "quota_payment_topup": false,
+  "repo_writes": false,
+  "integratedBy": "PR21 cloud writer recorded this receipt. No new machine action, hosted probe, or rollback was performed here.",
+  "pass_claimed": false,
+  "gate_open": false,
+  "acceptance_observed": false,
+  "mac_model_text": "OpenCode lfm3 analysis is advisory and contains stale runtime claims. Contemporaneous jev-task stdout and the PC verdict files are the phase evidence.",
+  "mac": {
+    "machineId": "96551fcd-ec3b-46ae-8687-cdf6bfda3e7e",
+    "task_id": "jaryo-auth0329-mac-20261106-033030",
+    "phases": {
+      "pre": {
+        "result": "COMPLETED",
+        "exit": 0,
+        "verdict": "NOT_PASS",
+        "flags": "3/5",
+        "tool": "jev-task pre --driver never",
+        "model": "jev-1.14.0",
+        "requestedModel": "jev-1.14.0",
+        "servedModel": "jev-1.14.0",
+        "ledgerAt": "2026-11-06T11:30:30Z",
+        "usage": {"template_input_tokens": 864, "template_output_tokens": 100, "route_input_tokens": 970, "route_output_tokens": 65, "error": null},
+        "flag_questions": [
+          "Would a worker following task rely on claims from a report, build log or earlier review instead of re-checking the actual files, tests or live state?",
+          "Is task under-specified: missing scope, inputs or acceptance criteria a worker would need?",
+          "Is there an unaddressed precondition or blocker for task that should be resolved before it starts?"
+        ],
+        "note": "Template flags are checks, not verdicts. Exit 0 is not PASS."
+      },
+      "analysis": {
+        "result": "COMPLETED",
+        "exit": 0,
+        "tool": "opencode",
+        "model": "lmstudio/lfm3-1.7b",
+        "label": "requirements/runtime not PR21 code review",
+        "trust": "advisory; stale claims are not probe facts"
+      },
+      "post": {
+        "result": "COMPLETED",
+        "exit": 0,
+        "verdict": "NOT_PASS",
+        "flags": "1/4",
+        "statedVerdict": "none",
+        "tool": "jev-task post --driver never",
+        "model": "jev-1.14.0",
+        "requestedModel": "jev-1.14.0",
+        "servedModel": "jev-1.14.0",
+        "ledgerAt": "2026-11-06T11:33:16Z",
+        "usage": {"template_input_tokens": 1453, "template_output_tokens": 78, "error": null},
+        "flag_question": "Does task treat as a blocking code defect something that an operator procedure note or documentation fix could handle safely instead, or the reverse?",
+        "note": "Exit 0 and 1/4 flags are not PASS."
+      }
+    }
+  },
+  "pc": {
+    "machineId": "cab24b61-79b1-4dae-8097-006acf68585f",
+    "task_id": "jaryo-auth0329-pc-20261106-033057",
+    "watcher_started": {"pid": 25108, "health_pid": 30224, "via": "start-watcher.ps1 once"},
+    "fresh_watcher_health_verified": false,
+    "phases": {
+      "pre": {
+        "result": "COMPLETED",
+        "verdict": "PROCEED-WITH-CHANGES",
+        "status": "OK",
+        "verdict_is_pass": false,
+        "engine": "gpt-6.1-sol",
+        "confidence": 93,
+        "seconds": 71,
+        "time": "2026-11-06T03:38:58.6478120-08:00",
+        "requirements": [
+          "Limit the PC watcher to passive observation. Do not approve Nisi actions or start, retry, cancel, or modify inference workloads.",
+          "Document watcher startup and cleanup. Check for an existing observer before starting another.",
+          "Distinguish supplied runtime facts from freshly verified observations. A :1236 model inventory does not establish inference readiness."
+        ]
+      },
+      "analysis": {
+        "result": "COMPLETED",
+        "tool": "codex exec",
+        "model": "gpt-6.1-sol",
+        "label": "requirements/runtime",
+        "acceptance_criteria_observed": false
+      },
+      "post": {
+        "result": "COMPLETED",
+        "verdict": "ROLLBACK",
+        "status": "OK",
+        "verdict_is_pass": false,
+        "engine": "gpt-6.1-sol",
+        "confidence": 95,
+        "seconds": 40,
+        "time": "2026-11-06T03:42:33.6880975-08:00",
+        "repo_rollback_performed": false,
+        "reason": "No observed post-change acceptance passes. Fresh watcher health verification was denied. The task made no repository edits, so this advisory does not revert PR21.",
+        "still_unverified": [
+          "attribution",
+          "concurrency",
+          "telemetry freshness",
+          "execution independence",
+          "endpoint recovery",
+          "accessibility"
+        ]
+      }
+    }
+  }
+}

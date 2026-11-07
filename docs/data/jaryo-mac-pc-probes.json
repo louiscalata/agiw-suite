@@ -1,0 +1,42 @@
+{
+  "kind": "validation-probe-list",
+  "notResults": true,
+  "note": "Interfaces that already exist in this repository. This cloud checkout did not run them against Louis's Mac or PC. Do not treat a cloud fixture test as a live machine result. Do not add endpoints.",
+  "mac": {
+    "observer": "python3 -B server.py --port 8765 binds 127.0.0.1 only. Standalone launch cannot dispatch control POSTs.",
+    "reads": [
+      "GET /api/snapshot — schemaVersion 1, host mac, models, clients, pipeline.pipelines, windowsWorker, windowsJobs, components",
+      "GET /api/inference — schema agiw.inference-map.v1. Stable node ids: mac, mac:lmstudio, mac:veritas, pc, pc:router, pc:gpt-oss-20b, pc:qwen3.8-27b. Null measurements mean not measured.",
+      "GET /api/stream — SSE event snapshot. One refresh in flight on /monitor.",
+      "GET /api/components — public Nisi integrity and Node availability. No model call.",
+      "GET /api/components/jev — configured and state only. No key in the body.",
+      "GET /api/online-code-mode/readiness — cached observations. POST is not routed."
+    ],
+    "freshnessAlreadyInCode": [
+      "Mac map nodes expire after 3 seconds. PC map nodes expire after 30 seconds. Source: docs/inference-monitor.md and inference_stats.expire_map.",
+      "A missing or invalid observation time is unknown. Fetch failure clears measurements.",
+      "PC tunnel down reason is tunnel_down. Unconfigured SSH is host_unconfigured from pc_tunnel.py. Default forwards are local 1334, 1345, 1336 to remote 1234, 1245, 1236."
+    ],
+    "doNotCallForThisValidation": [
+      "POST /api/components/jev/check — hosted TypeSafe probe; can spend provider usage.",
+      "POST /api/components/nisi/check — starts the fixed model-free demo inside the observer. Separate from reading status.",
+      "POST /api/models/control, /api/inference/fix, /api/online-code-mode/repair, /api/online-code-mode/headless — actions, not connectivity reads."
+    ]
+  },
+  "windows": {
+    "observer": "windows/agiw_win/server.py default port 8767, loopback. The edition is read-only: POST returns 501.",
+    "reads": [
+      "GET /api/health — service, version, pid",
+      "GET /api/snapshot — schemaVersion 1, host windows. windowsWorker.lanes.fast and .deep carry model (expected) and servedModel. windowsJobs.inFlight is empty unless a reader fills it; codemode manifests are published on recent and liveAvailable stays false. pipeline.pipelines is empty; pipeline.queue holds pending, claimed, and completed counts. macPeer is presence only.",
+      "GET /api/inference — same map document when the Windows sampler has published one.",
+      "GET /api/models/control — supported false. It does not load or unload.",
+      "GET /api/components and GET /api/components/jev — 501 with message Not available in the Windows edition yet. The page may load and must show that message, not a connected Jev."
+    ],
+    "freshnessAlreadyInCode": [
+      "LANE_ACTIVITY_FRESH_SECONDS is 5.0 in windows/agiw_win/collect.py.",
+      "LANE_FRESH_SECONDS is 2 * (2 * HTTP_TIMEOUT + SLOTS_TIMEOUT) + 1.0 with HTTP_TIMEOUT 0.7 and SLOTS_TIMEOUT 4.0 in windows/agiw_win/probes.py. The snapshot adds the lane interval.",
+      "Lane ids are fast and deep. A claim file is not proof the job is still executing."
+    ]
+  },
+  "cloudFixtureVersusLive": "node --test test_monitor_tabs.mjs uses fixtures, including a Windows-shaped snapshot. Those assertions are not Mac or PC connectivity results."
+}

@@ -180,13 +180,16 @@ foreach ($item in Get-ChildItem -LiteralPath (Join-Path $sourceWindows 'agiw_win
 foreach ($file in 'agiw_observer.py', 'agiw-monitor.ps1', 'AGIW Monitor.vbs', 'AGIW Monitor.cmd', 'README.md') {
     $files.Add(@((Join-Path $sourceWindows $file), $file))
 }
-foreach ($file in 'index.html', 'app.js', 'style.css', 'map-layout.mjs', 'model-control-view.mjs', 'online-code-mode.mjs', 'monitor.html', 'monitor.mjs', 'monitor.css') {
+foreach ($file in 'index.html', 'app.js', 'style.css', 'map-layout.mjs', 'model-control-view.mjs', 'simple-view.mjs', 'simple-view.css', 'online-code-mode.mjs', 'monitor.html', 'monitor.mjs', 'monitor.css', 'monitor-tabs.mjs', 'monitor-board.mjs', 'monitor-map.mjs', 'jaryo.css', 'jaryo.mjs', 'identity.html', 'identity.mjs', 'components.html', 'components.js', 'components.css') {
     $files.Add(@((Join-Path $repo "web\$file"), "web\$file"))
+}
+foreach ($file in 'tokens.json', 'theme.mjs', 'primitives.css', 'README.md', 'marks\d1-stamp.svg', 'marks\d2-ledger.svg', 'marks\d3-schematic.svg', 'marks\d4-split.svg', 'marks\d4-split-before.svg', 'marks\d4-split-wordmark.svg', 'marks\d4-split-on-dark.svg', 'marks\d4-split-on-light.svg', 'marks\d5-signal.svg', 'marks\favicon.svg') {
+    $files.Add(@((Join-Path $repo "jaryo\$file"), "jaryo\$file"))
 }
 # peer_link.py is the LAN pairing service (agiw-peer/2), shipped by Louis's decision of 2026-10-17. Installing it
 # starts nothing: it runs only when started (python peer_link.py run --status-file state\peer-link-status.json), after
 # PIN pairing and the 8768/8769 firewall rules.
-foreach ($file in 'usage-format.mjs', 'client_models.py', 'peer_link.py', 'inference_stats.py', 'inference_collect.py', 'LICENSE', 'NOTICE') {
+foreach ($file in 'usage-format.mjs', 'client_models.py', 'peer_link.py', 'peer_feed.py', 'inference_stats.py', 'inference_collect.py', 'LICENSE', 'NOTICE') {
     $files.Add(@((Join-Path $repo $file), $file))
 }
 
@@ -195,6 +198,16 @@ function Test-InstalledInventory($Files, $Destination, $Stage, $Guard, $RejectUn
     $expected = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
     foreach ($pair in $Files) { [void]$expected.Add($pair[1]) }
     foreach ($name in '.agiw-win-install', 'build.json', 'config.json', 'lane-processes.json') { [void]$expected.Add($name) }
+    # A directory is expected only when an installed file lives inside it. jaryo and jaryo\marks
+    # are parents of shipped files. Any other directory remains an unexpected install entry.
+    $expectedDirs = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+    foreach ($pair in $Files) {
+        $parent = Split-Path -Parent $pair[1]
+        while ($parent) {
+            [void]$expectedDirs.Add($parent)
+            $parent = Split-Path -Parent $parent
+        }
+    }
     $pending = New-Object System.Collections.Generic.Queue[string]
     $pending.Enqueue($Destination)
     while ($pending.Count) {
@@ -210,7 +223,7 @@ function Test-InstalledInventory($Files, $Destination, $Stage, $Guard, $RejectUn
             if ($item.PSIsContainer) {
                 # Observer state is mutable and not on the package import path.
                 if ($relative -eq 'state') { continue }
-                if ($relative -notin @('agiw_win', 'web')) {
+                if (-not $expectedDirs.Contains($relative)) {
                     if ($RejectUnexpected) { throw "Unexpected install entries: $($item.FullName); inspect before retrying." }
                     return $false
                 }

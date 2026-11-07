@@ -42,10 +42,47 @@ ASSETS = {"/": ("index.html", "text/html; charset=utf-8"),
           "/online-code-mode.mjs": ("online-code-mode.mjs", "text/javascript; charset=utf-8"),
           "/map-layout.mjs": ("map-layout.mjs", "text/javascript; charset=utf-8"),
           "/model-control-view.mjs": ("model-control-view.mjs", "text/javascript; charset=utf-8"),
+          "/simple-view.mjs": ("simple-view.mjs", "text/javascript; charset=utf-8"),
+          "/simple-view.css": ("simple-view.css", "text/css; charset=utf-8"),
           "/style.css": ("style.css", "text/css; charset=utf-8"),
           "/monitor": ("monitor.html", "text/html; charset=utf-8"),
           "/monitor.mjs": ("monitor.mjs", "text/javascript; charset=utf-8"),
-          "/monitor.css": ("monitor.css", "text/css; charset=utf-8")}
+          "/monitor.css": ("monitor.css", "text/css; charset=utf-8"),
+          "/monitor-tabs.mjs": ("monitor-tabs.mjs", "text/javascript; charset=utf-8"),
+          "/monitor-board.mjs": ("monitor-board.mjs", "text/javascript; charset=utf-8"),
+          "/monitor-map.mjs": ("monitor-map.mjs", "text/javascript; charset=utf-8"),
+          "/jaryo.css": ("jaryo.css", "text/css; charset=utf-8"),
+          "/jaryo.mjs": ("jaryo.mjs", "text/javascript; charset=utf-8"),
+          "/identity": ("identity.html", "text/html; charset=utf-8"),
+          "/identity.mjs": ("identity.mjs", "text/javascript; charset=utf-8"),
+          "/components": ("components.html", "text/html; charset=utf-8"),
+          "/components.js": ("components.js", "text/javascript; charset=utf-8"),
+          "/components.css": ("components.css", "text/css; charset=utf-8")}
+JARYO_FILES = {
+    "/jaryo/tokens.json": ("tokens.json", "application/json"),
+    "/jaryo/theme.mjs": ("theme.mjs", "text/javascript; charset=utf-8"),
+    "/jaryo/primitives.css": ("primitives.css", "text/css; charset=utf-8"),
+    "/jaryo/marks/d1-stamp.svg": ("marks/d1-stamp.svg", "image/svg+xml"),
+    "/jaryo/marks/d2-ledger.svg": ("marks/d2-ledger.svg", "image/svg+xml"),
+    "/jaryo/marks/d3-schematic.svg": ("marks/d3-schematic.svg", "image/svg+xml"),
+    "/jaryo/marks/d4-split.svg": ("marks/d4-split.svg", "image/svg+xml"),
+    "/jaryo/marks/d4-split-before.svg": ("marks/d4-split-before.svg", "image/svg+xml"),
+    "/jaryo/marks/d4-split-wordmark.svg": ("marks/d4-split-wordmark.svg", "image/svg+xml"),
+    "/jaryo/marks/d4-split-on-dark.svg": ("marks/d4-split-on-dark.svg", "image/svg+xml"),
+    "/jaryo/marks/d4-split-on-light.svg": ("marks/d4-split-on-light.svg", "image/svg+xml"),
+    "/jaryo/marks/d5-signal.svg": ("marks/d5-signal.svg", "image/svg+xml"),
+    "/jaryo/marks/favicon.svg": ("marks/favicon.svg", "image/svg+xml"),
+}
+
+
+def jaryo_root() -> Path:
+    here = Path(__file__).resolve().parent
+    for candidate in (here / "jaryo", here.parent / "jaryo", here.parent.parent / "jaryo"):
+        if (candidate / "tokens.json").is_file():
+            return candidate
+    return here / "jaryo"
+
+
 _INFERENCE_RATES = RateMemory()
 CSP = ("default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; "
        "frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
@@ -279,6 +316,9 @@ class Handler(BaseHTTPRequestHandler):
                     "/api/online-code-mode/entry", "/api/online-code-mode/headless", "/api/components",
                     "/api/components/jev"):
             return self.json_reply(501, {"status": "error", "message": "Not available in the Windows edition yet."})
+        shared = JARYO_FILES.get(path)
+        if shared is not None:
+            return self.asset(jaryo_root() / shared[0], shared[1])
         if path == "/usage-format.mjs":
             return self.asset(self.server.web_root.parent / "usage-format.mjs", "text/javascript; charset=utf-8")
         asset = ASSETS.get(path)

@@ -89,6 +89,8 @@ def producer(build: Any, version: Any = None) -> str:
         if build.get("dirty") is not False or build.get("provenance") != "signed-head":
             qualifier += ".unverified"
         suffix = f"+{commit[:12]}{qualifier}"
+    elif build.get("state") == "no-commit":
+        suffix = ".unverified"
     return f"{SERVICE} {shown}{suffix}"
 
 

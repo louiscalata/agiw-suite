@@ -1,0 +1,83 @@
+{
+  "kind": "repository-analysis-record",
+  "notInferenceTelemetry": true,
+  "requestedTask": {
+    "asked": "Use the LLM pipeline with Jev pre and post analysis.",
+    "requestedAt": "2026-11-06T10:17:00Z",
+    "phasesRequested": ["jev-pre", "jev-post"],
+    "machines": ["mac", "pc"],
+    "gate": "Bounded independent analysis may proceed only where an actual Jev pre record and an actual Jev post record exist. Unavailable is not that record.",
+    "machineResultsReceivedByWriter": "docs/data/jaryo-jev-phase-receipts.json",
+    "machineResultsAreJevPasses": false,
+    "promotedUnavailableToPass": false
+  },
+  "timing": {
+    "honestLabel": "retrospective-base-ref",
+    "reason": "The Jaryo draft commit 6ad894c57ae99574a3798a51d4002ae13f810f61 already existed before this Nisi/Jev request. The base commands were run afterward on a detached worktree. They are not a pre-check performed before the draft.",
+    "baseRef": "c71661f66bf2f258aa0d19172b272f070e4a4a7c",
+    "draftRefWhenPostCommandsRan": "6ad894c57ae99574a3798a51d4002ae13f810f61",
+    "postCommandsNote": "Post commands ran on the draft working tree after the workload-id patch and before this record was committed. The vendored Nisi payload was not edited. modelCalls stayed 0."
+  },
+  "supportedCommands": {
+    "nisiVerify": "python3 -B bundle_nisi.py --verify",
+    "nisiVersion": "node vendor/nisi/package/bin/nisi.mjs --version",
+    "nisiDemo": "node vendor/nisi/package/bin/nisi.mjs demo",
+    "jevStatus": "python3 -B -c \"import json; from jev_connection import JevConnection; print(json.dumps(JevConnection().status()))\""
+  },
+  "notRun": [
+    "JevConnection.request_check was not called. It would start the hosted TypeSafe probe. This Linux checkout has no signed JevKeychain helper, and a hosted check can spend provider usage.",
+    "nisi local-model was not run. No loopback model server was configured for it.",
+    "codex and opencode are not installed in this cloud VM (command -v returned absent). The requirements critiques were produced on Louis's Mac and attached; they were not re-executed here.",
+    "PC Glimmer and PC OpenCode produced no critique text. No further PC retries were made."
+  ],
+  "phases": {
+    "nisi": {
+      "pre": {
+        "label": "retrospective-base-ref",
+        "ref": "c71661f66bf2f258aa0d19172b272f070e4a4a7c",
+        "verify": {"exit": 0, "stdout": {"files": 18, "status": "PASS", "version": "0.2.0"}},
+        "version": {"exit": 0, "stdout": "0.2.0"},
+        "demo": {"exit": 0, "stdout": {"outcome": "COMPLETED", "code": null, "repairAttempts": 1, "reportStored": true, "modelCalls": 0}}
+      },
+      "post": {
+        "label": "draft-working-tree",
+        "ref": "6ad894c57ae99574a3798a51d4002ae13f810f61",
+        "verify": {"exit": 0, "stdout": {"files": 18, "status": "PASS", "version": "0.2.0"}},
+        "version": {"exit": 0, "stdout": "0.2.0"},
+        "demo": {"exit": 0, "stdout": {"outcome": "COMPLETED", "code": null, "repairAttempts": 1, "reportStored": true, "modelCalls": 0}}
+      },
+      "difference": "No difference in verify, version, or demo stdout or exit codes. The demo repairAttempts value 1 is the fixed example's own report, with modelCalls 0. It is not an inference-run success and not a Jev result."
+    },
+    "jev": {
+      "pre": {
+        "label": "retrospective-base-ref",
+        "ref": "c71661f66bf2f258aa0d19172b272f070e4a4a7c",
+        "statusExit": 0,
+        "status": {"configured": false, "state": "unavailable", "message": "Secure Jev credential storage is unavailable."},
+        "hostedCheck": "not-run"
+      },
+      "post": {
+        "label": "draft-working-tree",
+        "ref": "6ad894c57ae99574a3798a51d4002ae13f810f61",
+        "statusExit": 0,
+        "status": {"configured": false, "state": "unavailable", "message": "Secure Jev credential storage is unavailable."},
+        "hostedCheck": "not-run"
+      },
+      "difference": "No difference. Both phases read local helper status only. The hosted connection check was not run, so Jev is not claimed connected or analyzed as a passing post-check.",
+      "gate": {
+        "open": false,
+        "pre": "unavailable",
+        "post": "unavailable",
+        "blocker": "Jev pre and post were requested. The 02:22 receipts are BLOCKED_NOT_RUN on Mac and UNAVAILABLE_NOT_RUN on PC. The authorized 03:29 pass ran: Mac jev-1.14.0 pre exit 0 with 3/5 flags and post exit 0 with 1/4 flags; PC pre PROCEED-WITH-CHANGES and post ROLLBACK, both with engine STATUS OK. Exit 0 and STATUS OK are not verdict PASS. ROLLBACK did not revert this draft because that task made no repository edits. Acceptance remains unobserved. Gate stays closed."
+      },
+      "repeatOnWorkingTree": "Commands were repeated on working tree 1dfccce before the Windows-peer patch commit. verify exit 0 PASS 18 files 0.2.0; version exit 0 0.2.0; demo exit 0 COMPLETED modelCalls 0 repairAttempts 1; Jev status exit 0 unavailable. Still not a hosted Jev pass."
+    }
+  },
+  "requirementsCritiques": {
+    "nature": "Requirements critiques, not code review, not accessibility lab results, and not Nisi or Jev execution.",
+    "codex": "Succeeded on Louis's Mac with codex exec, model gpt-6.1-sol. Not re-run in this cloud VM.",
+    "macOpenCode": "Succeeded on Louis's Mac with opencode run and lmstudio/lfm3-1.7b. The suggested stale>30s and incomplete-after-5min flags were not adopted; this monitor already uses its own 3s Mac and 30s PC observation windows.",
+    "pcGlimmer": "curl exit 28 after about 240s with 0 bytes. No PC critique text.",
+    "pcOpenCode": "Hard timeout at 240s with empty output after one .cmd retry. No further retries. No PC critique text."
+  }
+}

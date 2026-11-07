@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 184 32" role="img" aria-labelledby="title">
+  <title id="title">AGIW wordmark with D4 Split</title>
+  <desc>App mark plus the name AGIW. The blocks are not a status glyph.</desc>
+  <g fill="currentColor" shape-rendering="crispEdges">
+    <rect x="2" y="6" width="12" height="20"/>
+    <path fill-rule="evenodd" d="M18 6h12v20H18zM20 8h8v16h-8z"/>
+  </g>
+  <g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="miter" stroke-linecap="square">
+    <path d="M46 26 L54 6 L62 26"/>
+    <path d="M49 17 H59"/>
+    <path d="M70 8 H88 V26 H70 V8"/>
+    <path d="M88 17 H79"/>
+    <path d="M100 6 V26"/>
+    <path d="M112 6 L122 26 L132 6 L142 26 L152 6"/>
+  </g>
+</svg>

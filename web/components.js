@@ -5,6 +5,7 @@ async function refresh(){
   clearTimeout(timer);
   try{
     const response=await fetch('/api/components',{cache:'no-store',signal:AbortSignal.timeout(4000)});
+    if(response.status===501){const refusal=await response.json().catch(()=>null);const message=refusal&&typeof refusal.message==='string'?refusal.message:'Not available in the Windows edition yet.';$('integrity').textContent='Unavailable';$('runtime').textContent=message;$('result').textContent=message;$('check').disabled=true;return;}
     if(!response.ok)throw new Error('unavailable');
     const data=await response.json(),verified=data.nisi?.integrity==='verified',running=data.check?.state==='running';
     $('integrity').textContent=verified?'Verified · public 0.2.0 payload':'Unavailable · package verification failed';
@@ -15,6 +16,8 @@ async function refresh(){
     $('command').textContent=(data.node?.path?quote(data.node.path):'node')+' '+quote(data.nisi?.entry||'')+' --version';
     if(running)timer=setTimeout(refresh,750);
   }catch{
+    $('integrity').textContent='Unknown · observer unavailable';
+    $('runtime').textContent='Unknown · observer unavailable';
     $('result').textContent='The local observer is unavailable. Reopen Components from the running app.';
     $('check').disabled=true;
   }
@@ -37,6 +40,7 @@ async function refreshJev(){
   clearTimeout(jevTimer);
   try{
     const response=await fetch('/api/components/jev',{cache:'no-store',signal:AbortSignal.timeout(6000)});
+    if(response.status===501){const refusal=await response.json().catch(()=>null);const message=refusal&&typeof refusal.message==='string'?refusal.message:'Not available in the Windows edition yet.';$('jevStatus').textContent=message;$('jevCheck').disabled=true;return;}
     if(!response.ok)throw new Error('unavailable');
     const data=await response.json();
     $('jevStatus').textContent=data.configured?'API key saved in Keychain.':'Not configured. '+(!bridge?'Open this page in the installed AGIW app to set it up.':'Set up a connection with your own TypeSafe key.');

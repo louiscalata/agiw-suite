@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="widget_description">Read-only AGIW status. The cover list is a phone setting. This widget does not read the observer by itself.</string>
+</resources>

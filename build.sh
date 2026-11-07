@@ -22,8 +22,15 @@ resources=(
     durable_model_journal.py auto_unload.py online_code_repair.py nisi_v02.py
     windows_probe.py live_feed.py gpu_probe.py local_callers.py mem_guard.py peer_feed.py peer_link.py
     pair_status.py usage-format.mjs web/index.html web/app.js web/online-code-mode.mjs
-    web/map-layout.mjs web/model-control-view.mjs web/style.css
+    web/map-layout.mjs web/model-control-view.mjs web/simple-view.mjs web/simple-view.css web/style.css
     inference_collect.py inference_stats.py pc_tunnel.py web/monitor.html web/monitor.mjs web/monitor.css
+    web/monitor-tabs.mjs web/monitor-board.mjs web/monitor-map.mjs web/jaryo.css web/jaryo.mjs
+    web/identity.html web/identity.mjs
+    jaryo/tokens.json jaryo/theme.mjs jaryo/primitives.css jaryo/README.md
+    jaryo/marks/d1-stamp.svg jaryo/marks/d2-ledger.svg jaryo/marks/d3-schematic.svg
+    jaryo/marks/d4-split.svg jaryo/marks/d4-split-before.svg jaryo/marks/d4-split-wordmark.svg
+    jaryo/marks/d4-split-on-dark.svg jaryo/marks/d4-split-on-light.svg
+    jaryo/marks/d5-signal.svg jaryo/marks/favicon.svg
     bundle_nisi.py bundled_components.py jev_connection.py web/components.html web/components.js web/components.css
 )
 for resource in "${resources[@]}" Info.plist Monitor.swift JevKeychain.swift freeze_build_inputs.py; do
@@ -71,6 +78,7 @@ if [[ "$(lipo -archs "$stage_app/Contents/MacOS/JevKeychain")" != arm64 ]]; then
 fi
 cp "$input_dir/Info.plist" "$stage_app/Contents/Info.plist"
 for resource in "${resources[@]}"; do
+    mkdir -p "$stage_app/Contents/Resources/$(dirname "$resource")"
     cp "$input_dir/$resource" "$stage_app/Contents/Resources/$resource"
 done
 plutil -lint "$stage_app/Contents/Info.plist"
