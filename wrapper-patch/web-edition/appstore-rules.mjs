@@ -312,6 +312,15 @@ export const css = {
       '.node.unknown .core{fill:var(--paper)}',
       '.graph-region{background:var(--paper)}',
       '.map-controls,.legend,.drawer,.sidebar-toggle{background:var(--paper);color:var(--ink)}',
+      // Black and white only: the capability palette and glow are set as SVG attributes, which CSS overrides.
+      '.edge,.node .halo,.node .ring,.node.unknown .core{stroke:var(--ink)}',
+      '.node.hub .core{fill:var(--ink);filter:none}',
+      '.glow{display:none}',
+      '.legend .legend-line,.legend .cap-color,.legend-dot{background:var(--ink)}',
+      // The map hint and its About panel belong to the Map view only.
+      'html:not([data-screen="map"]) #footerNote,html:not([data-screen="map"]) #about,html:not([data-screen="map"]) #aboutPanel{display:none}',
+      // An empty evidence rail draws no rule across the map.
+      '.evidence-rail:not(:has(>:not([hidden]))){border:0;background:transparent}',
       'html #svBody{color:var(--ink);background:var(--paper)}',
       'html #svBody .sv-row{border-top-color:var(--line)}',
       'html #svBody button{color:var(--paper);background:var(--ink)}',
