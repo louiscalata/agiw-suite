@@ -136,14 +136,18 @@ The [roadmap](roadmap.md) records compiled source, package provenance and remain
 
 ## Command-line connection tool
 
-`agiw` pairs your Mac and Windows PC with a 6-digit PIN and reads their signed, read-only status over the LAN (`agiw-peer/2`, standard-library Python 3.9+). Status is signed but not encrypted, and v0.1 does no job dispatch.
+`agiw` pairs your Mac and Windows PC with a 6-digit PIN and reads their signed, read-only status over the IPv4 LAN (`agiw-peer/2`, standard-library Python 3.9+). Status is signed but not encrypted, and v0.1 does no job dispatch.
 
 Available once published:
 
 ```sh
 pipx install "git+https://github.com/louiscalata/agiw-suite@<tag>"   # or: uv tool install "git+https://github.com/louiscalata/agiw-suite@<tag>"
-agiw doctor && agiw serve    # on each machine; then `agiw pair <name>` on one and `agiw accept` on the other
+agiw doctor && agiw serve    # Mac; see the Windows source option below
 ```
+
+On Windows, pass `--status-file "<observer folder>\state\peer-link-status.json"` or
+`--lmstudio http://127.0.0.1:1234` to `agiw serve`. Once both links are running, run `agiw peers`
+first, then `agiw pair <name>` on one machine and `agiw accept` on the other; type the displayed PIN.
 
 Each machine needs inbound tcp/8768 and udp/8769 from the LAN; agiw changes no firewall settings. The [CLI guide](docs/cli.md) covers first-run pairing on Mac and Windows, firewall rules, the user-level login service and uninstalling.
 

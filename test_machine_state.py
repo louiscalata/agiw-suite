@@ -103,6 +103,19 @@ class MachineStateTests(unittest.TestCase):
                     row = machine_summary(platform, platform, report(ageSeconds=age), now=NOW, trust="authenticated")
                     self.assertEqual(row["state"], state)
 
+    def test_fresh_seconds_overrides_the_window_only_when_given_a_positive_number(self):
+        # A caller whose reports arrive less often (signed peer-link status) can widen the window...
+        row = machine_summary("mac", "mac", report(ageSeconds=20), now=NOW, trust="authenticated", fresh_seconds=30.0)
+        self.assertEqual((row["state"], row["freshForSeconds"]), ("up", 30.0))
+        row = machine_summary("mac", "mac", report(ageSeconds=30.001), now=NOW, trust="authenticated", fresh_seconds=30.0)
+        self.assertEqual((row["state"], row["reasonCode"]), ("unknown", "stale"))
+        # ...and the default (or any unusable value) keeps the platform's own 3 s for the Mac.
+        for odd in (None, 0, -5, True, float("nan"), "30"):
+            with self.subTest(fresh_seconds=odd):
+                row = machine_summary("mac", "mac", report(ageSeconds=20), now=NOW, trust="authenticated",
+                                      fresh_seconds=odd)
+                self.assertEqual((row["state"], row["reasonCode"], row["freshForSeconds"]), ("unknown", "stale", 3.0))
+
     def test_original_timestamp_wins_over_relay_age(self):
         observed = dt.datetime.fromtimestamp(NOW - 31, dt.timezone.utc).isoformat()
         row = machine_summary("linux", "linux", report(observedAt=observed), now=NOW, trust="authenticated")

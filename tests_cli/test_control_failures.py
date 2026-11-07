@@ -9,7 +9,7 @@ from unittest import mock
 
 from support import forbid_real_commands, pl
 from agiw import cli
-from test_machine_status_contract import SCHEMA, validate_schema
+from support import validate_row
 
 
 class ControlFailures(unittest.TestCase):
@@ -47,13 +47,13 @@ class ControlFailures(unittest.TestCase):
                 self.assertEqual((code, stderr), (0, ""))
                 doc = json.loads("\n".join(lines))
                 self.assertEqual(doc["schemaVersion"], 2)
-                self.assertEqual(doc["contract"], "machine-status/v1")
+                self.assertEqual(doc["contract"], "machine-state/1")
                 self.assertEqual(doc["linkState"], state)
                 self.assertEqual(doc["self"], {"node": "mac", "name": "test-host", "host": "mac"})
-                self.assertEqual(len(doc["machines"]), 3)
-                self.assertEqual({row["platform"] for row in doc["machines"]}, {"mac", "windows", "linux"})
+                self.assertEqual(len(doc["machines"]), 2)
+                self.assertEqual({row["platform"] for row in doc["machines"]}, {"mac", "windows"})
                 for row in doc["machines"]:
-                    validate_schema(row, SCHEMA)
+                    validate_row(row)
                     self.assertEqual(row["state"], "unknown")
                     self.assertIsNone(row["observedAt"])
                     self.assertIsNone(row["ageSeconds"])

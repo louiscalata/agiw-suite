@@ -109,7 +109,7 @@ class StatusRows(unittest.TestCase):
         self.assertEqual(states["down"], ("unknown", "unavailable"))
         self.assertEqual(states["never"], ("unknown", "unavailable"))
         self.assertEqual(states["stale"], ("unknown", "unavailable"))
-        self.assertEqual(states["connecting"], ("unknown", "not_connected"))
+        self.assertEqual(states["connecting"], ("unknown", "not_observed"))
         self.assertNotIn("guest", states)
         up = next(r for r in rows if r["id"] == "up")
         self.assertEqual((up["modelsComplete"], up["loadedCount"], up["busyCount"]), (False, None, None))

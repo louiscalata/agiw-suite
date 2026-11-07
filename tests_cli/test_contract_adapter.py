@@ -14,14 +14,13 @@ from support import ROOT, forbid_real_commands
 
 import peer_link as pl
 from agiw import cli, contract
-from test_machine_status_contract import SCHEMA, validate_schema
+from support import validate_row
 
 
 NOW = 1700000000.0
 NODE = "11111111-1111-4111-8111-111111111111"
 LOCAL_NODE = "22222222-2222-4222-8222-222222222222"
 OTHER_NODE = "33333333-3333-4333-8333-333333333333"
-CONTRACT = ROOT / "contracts" / "machine-status"
 PRODUCERS = {"cli_peer_link": "agiw-peer-link lmstudio",
              "linux_observer": "agiw-linux-observer",
              "windows_observer": "agiw-win-observer 0.2.0"}
@@ -59,61 +58,25 @@ class ContractAdapter(unittest.TestCase):
     def adapt(self, source, **kwargs):
         output = contract.status_document(source, now=NOW, **kwargs)
         self.assertEqual(output["schemaVersion"], 2)
-        self.assertEqual(output["contract"], "machine-status/v1")
+        self.assertEqual(output["contract"], "machine-state/1")
         self.assertEqual(output["sampledAt"], NOW)
         self.assertIs(output["signed"], True)
         self.assertIs(output["encrypted"], False)
         self.assertIsInstance(output["observedAt"], str)
-        self.assertEqual({"mac", "windows", "linux"},
-                         {row["platform"] for row in output["machines"] if row["platform"]})
+        self.assertLessEqual({"mac", "windows"},
+                             {row["platform"] for row in output["machines"] if row["platform"]})
         for row in output["machines"]:
-            validate_schema(row, SCHEMA)
+            validate_row(row)
         return output
 
     def row(self, source, node=NODE, **kwargs):
         output = self.adapt(source, **kwargs)
         return next(row for row in output["machines"] if row["id"] == node)
 
-    def test_all_relevant_m0_fixtures_have_exact_parity(self):
-        covered = []
-        for path in sorted((CONTRACT / "fixtures").glob("*.json")):
-            case = json.loads(path.read_text(encoding="utf-8"))
-            inputs = case["input"]
-            producer = inputs.get("producer")
-            if producer not in PRODUCERS:
-                continue
-            with self.subTest(fixture=case["name"]):
-                self.assertEqual(case["kind"], "summary")
-                report = copy.deepcopy(inputs["report"])
-                complete = report.pop("modelsComplete", False)
-                doc = document(inputs["platform"], **report)
-                doc.update(host=inputs["host"], producer=PRODUCERS[producer],
-                           loadedListComplete=complete)
-                if complete:
-                    doc["modelsTotal"] = len(doc["models"])
-                if inputs["trust"] == "local":
-                    source = snapshot(self_status=doc, platform=inputs["platform"])
-                    row_id = LOCAL_NODE
-                else:
-                    source = snapshot([peer(doc, platform=inputs["platform"])])
-                    row_id = NODE
-                row = self.row(source, row_id)
-                self.assertEqual(row, dict(case["expected"], id=row_id))
-                covered.append(case["name"])
-        self.assertEqual(set(covered), {
-            "cli-file-degraded", "cli-file-down", "cli-file-unlisted", "cli-lmstudio-ok",
-            "cli-minimal-unknown", "linux-observer-down", "linux-observer-unknown",
-            "linux-observer-up", "windows-observer-degraded", "windows-observer-down",
-            "windows-observer-ok", "windows-observer-unknown"})
-
-    def test_embedded_health_table_matches_frozen_file(self):
-        expected = json.loads((CONTRACT / "health-words.json").read_text(encoding="utf-8"))
-        self.assertEqual(contract.HEALTH_WORDS, expected)
-
     def test_every_snapshot_state(self):
         for state, last_hello, reason in [
             ("stale", NOW, "not_connected"),
-            ("connecting", NOW, "not_connected"),
+            ("connecting", NOW, "not_observed"),
             ("offline", NOW, "not_connected"),
             ("offline", 0, "not_connected"),
             ("offline", None, "not_observed"),
@@ -247,11 +210,14 @@ class ContractAdapter(unittest.TestCase):
     def test_missing_platforms_and_two_nodes_on_one_platform(self):
         source = snapshot([peer(document(), node=NODE), peer(document(host="second"), node=OTHER_NODE)])
         rows = self.adapt(source)["machines"]
-        self.assertEqual(len(rows), 4)
+        # Local Mac + two Windows nodes; no Linux row is invented for a machine AGIW does not expect.
+        self.assertEqual(len(rows), 3)
         self.assertEqual(len([row for row in rows if row["platform"] == "windows"]), 2)
-        missing = next(row for row in rows if row["id"] == "linux")
-        self.assertEqual((missing["host"], missing["state"], missing["reasonCode"], missing["trust"]),
-                         ("linux", "unknown", "not_observed", "unverified"))
+        self.assertNotIn("linux", {row["platform"] for row in rows})
+        missing = self.adapt(snapshot())["machines"]
+        row = next(row for row in missing if row["id"] == "windows")
+        self.assertEqual((row["host"], row["state"], row["reasonCode"], row["trust"]),
+                         ("windows", "unknown", "not_observed", "unverified"))
 
     def test_labels_and_legacy_identity(self):
         source = snapshot([peer(document(host="reported-host"), name="Friendly")])
@@ -298,9 +264,9 @@ class ContractAdapter(unittest.TestCase):
             err.write.assert_not_called()
             output = json.loads("\n".join(lines))
             self.assertEqual(output["linkState"], "not_running")
-            self.assertEqual(len(output["machines"]), 3)
+            self.assertEqual(len(output["machines"]), 2)
             for row in output["machines"]:
-                validate_schema(row, SCHEMA)
+                validate_row(row)
                 self.assertEqual(row["state"], "unknown")
             self.assertEqual("documents" in output, full)
         for code in (cli.EXIT_FAILED, cli.EXIT_USAGE):
@@ -309,12 +275,12 @@ class ContractAdapter(unittest.TestCase):
                     mock.patch("sys.stderr"):
                 self.assertEqual(cli.main(["--state-dir", "unused", "status", "--json"], out=lambda line: None), code)
 
-    def test_not_running_returns_three_unknown_rows(self):
+    def test_not_running_returns_two_unknown_rows(self):
         local = {"node": LOCAL_NODE, "name": "this-machine", "host": "macos"}
         output = self.adapt(None, local=local, full=True)
         self.assertEqual(output["linkState"], "not_running")
         self.assertEqual(output["self"], local)
-        self.assertEqual(len(output["machines"]), 3)
+        self.assertEqual(len(output["machines"]), 2)
         self.assertEqual(output["documents"], {})
         for row in output["machines"]:
             self.assertEqual(row["state"], "unknown")

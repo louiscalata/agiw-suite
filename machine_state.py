@@ -41,14 +41,18 @@ def observation_age(report, now):
     return age if finite_number(age) else None
 
 
-def machine_summary(host, platform, report=None, *, now, trust="unverified", reason=None):
-    """A validated feed's state and counts. Only positive, attributed evidence permits down."""
+def machine_summary(host, platform, report=None, *, now, trust="unverified", reason=None, fresh_seconds=None):
+    """A validated feed's state and counts. Only positive, attributed evidence permits down.
+
+    fresh_seconds overrides the platform's freshness window (FRESH_SECONDS) for a caller whose reports
+    arrive less often, such as signed peer-link status; the default keeps the platform window."""
     platform = platform_name(platform)
     trust = trust if isinstance(trust, str) and trust in TRUST_LEVELS else "unverified"
     row = {"id": host, "host": host, "platform": platform, "state": "unknown",
            "reasonCode": reason if reason in UNKNOWN_REASONS else "not_observed",
            "trust": trust, "observedAt": None, "ageSeconds": None,
-           "freshForSeconds": FRESH_SECONDS.get(platform), "modelsComplete": False,
+           "freshForSeconds": (fresh_seconds if finite_number(fresh_seconds) and fresh_seconds > 0
+                               else FRESH_SECONDS.get(platform)), "modelsComplete": False,
            "loadedCount": None, "busyCount": None, "promptTokensPerSecond": None,
            "generationTokensPerSecond": None, "handsOff": None}
     if not isinstance(report, dict):
@@ -61,7 +65,7 @@ def machine_summary(host, platform, report=None, *, now, trust="unverified", rea
         row["reasonCode"] = "schema_invalid"
     elif age < -2:
         row["reasonCode"] = "clock_skew"
-    elif age > FRESH_SECONDS[platform]:
+    elif age > row["freshForSeconds"]:
         row["reasonCode"] = "stale"
     elif trust == "unverified" or (platform != "windows" and trust == "share-reported"):
         row["reasonCode"] = "untrusted"

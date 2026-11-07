@@ -3,8 +3,12 @@
 `agiw` connects your Mac and Windows PC on the same LAN. Each machine runs a small peer link that
 announces itself, pairs with your other machines through a 6-digit PIN, and answers paired machines with a
 signed, read-only status: health and model names. It is standard-library Python 3.9+ with no dependencies, and
-it reuses the suite's `peer_link.py` (protocol `agiw-peer/2`). The authenticated local control snapshot also
-includes the local provider's validated, projected status; the LAN status answer and protocol are unchanged.
+it reuses the suite's `peer_link.py` (protocol `agiw-peer/2`). The host-kind default follows the current OS.
+The authenticated local control snapshot includes a validated, projected self-status read, bounded to
+one worker and 3 s; a stuck read cannot accumulate workers or block polling. Component `detail` stays
+local and is no longer sent to peers. Status `schemaVersion` must be exactly integer 1 (bool, float and
+string values are rejected), and strict JSON parsing rejects duplicate object keys and non-finite numbers.
+Pairing, keys, signatures and the trust store are unchanged.
 
 **What v0.1 does not do.** Status is **signed but not encrypted**: anyone capturing LAN traffic can read the
 model names and states your machines report. v0.1 **dispatches no jobs**: it discovers, pairs and reads
@@ -34,7 +38,8 @@ Do steps 1–2 on every machine, then pair each pair of machines once.
    - **Mac:** the local LM Studio model list (`--lmstudio URL` to change it; default `http://127.0.0.1:1234`).
    - **Windows:** the Windows observer's status file, which you name:
      `agiw serve --status-file "<observer folder>\state\peer-link-status.json"` (turn on the observer's
-     `peerLinkStatus` option). Without it the peer link refuses to start, as before.
+     `peerLinkStatus` option). Alternatively, use `agiw serve --lmstudio http://127.0.0.1:1234`.
+     Both `serve` and `service install` refuse on Windows without `--status-file` or `--lmstudio`.
 3. **Pair.** On machine A, list what it sees, then invite B by the name shown:
 
    ```sh
@@ -63,6 +68,7 @@ agiw peers && agiw pair <windows machine>
 pipx install "git+https://github.com/louiscalata/agiw-suite@<tag>"
 agiw doctor
 agiw service install --status-file "<observer folder>\state\peer-link-status.json"
+# Or: agiw service install --lmstudio http://127.0.0.1:1234
 agiw accept
 ```
 
@@ -81,12 +87,17 @@ agiw accept
 | `agiw uninstall [--purge-keys [--yes]]` | Remove the service; optionally list, then delete, pairing keys. |
 
 Global options: `--state-dir` (default below) and `--status-port` (default 8768). Exit codes: 0 done,
-1 failed, 2 usage, 3 the peer link is not running here, 75 the state-folder lock is held by another serve.
+1 failed (including text `status` when the peer link is running but did not answer), 2 usage, and 3 text
+`status` when the peer link is not running here. `status --json` returns unknown rows and exits 0 for
+both of those control-availability cases. Exit 75 applies to a busy state-folder lock only for foreground
+`agiw serve`. The LaunchAgent and Windows task use `serve --service` and exit 0
+on a busy folder. Key deletion with `uninstall --purge-keys --yes` exits 1 when the lock is held.
 
-**Status meanings.** Rows follow the frozen [machine-status/v1 contract](../contracts/machine-status/README.md).
+**Status meanings.** Each row is a `machine_state.machine_summary` row, the same shape the monitor's
+`snapshot.machines[]` uses.
 `up` needs a fresh local or authenticated report with accepted `ok` or `degraded` health. `down` needs a
 fresh report that explicitly says `down`. Silence and disconnected peers are `unknown`. Freshness uses the
-document's own `observedAt`: 3 seconds for the local Mac and 30 for local Windows/Linux or any remote
+document's own `observedAt`: 3 seconds for the local Mac and 30 for local Windows or any remote
 authenticated report, inclusive, with at most 2 seconds of future clock tolerance. Connection time and
 the CLI's sampling time never refresh an observation.
 
@@ -94,7 +105,8 @@ The human table has MACHINE, PLATFORM, STATE, REASON, AGE and MODELS columns. MO
 `loadedCount`, or `?` when unknown; AGE is elapsed seconds or `?`. Local health comes from the observer
 document in the authenticated control snapshot, rather than from the peer link answering.
 Control snapshots read local status only for `/control/peers`, in a daemon worker with a three-second deadline.
-A timeout returns `selfStatus: {"error": "local status timed out"}`. While that read is still running,
+A timeout returns `selfStatus: {"error": "local status timed out", "code": "timeout"}`. Other provider
+errors include `code: "unavailable"`. While that read is still running,
 later control requests return the same timeout error without starting another read. Polling and the
 `peers.json` snapshots it writes never read the local provider and never include `selfStatus`.
 
@@ -103,7 +115,7 @@ later control requests return the same timeout error without starting another re
 ```json
 {
   "schemaVersion": 2,
-  "contract": "machine-status/v1",
+  "contract": "machine-state/1",
   "sampledAt": 1700000000.0,
   "observedAt": "2023-11-14T22:13:20+00:00",
   "protocol": "agiw-peer/2",
@@ -116,7 +128,8 @@ later control requests return the same timeout error without starting another re
 ```
 
 The example omits the row bodies for readability; actual output always includes at least one row for
-each of `mac`, `windows` and `linux`. Machines on the same platform keep separate rows. Local and paired
+each of `mac` and `windows` (a paired Linux peer also gets a row). Machines on the same platform keep
+separate rows. Local and paired
 rows use their node UUID as `id`, a reported machine identity as `host` when the document supplies one,
 and the display name as optional `label`. Legacy documents put a platform kind in `host`; those rows use
 their node UUID for `host` too. Missing-platform rows use the platform as both `id` and `host`.
@@ -130,7 +143,9 @@ Connected peers still pass through health and freshness checks. This adapter ret
 document, so `stale` and `connecting` snapshots become `unknown/not_connected`. Offline peers heard
 before are also `not_connected`; those never heard since startup are `not_observed`. Unpaired available
 machines have no row. Read errors become `unavailable`; transport diagnostics do not replace an accepted
-document. A local `selfStatus` error becomes `unknown/unavailable`.
+document. A local `selfStatus` error with machine-readable `code: "timeout"` becomes `unknown/timeout`;
+all other local provider errors become `unknown/unavailable`. Error text is not used to select the reason.
+Both keep `linkState: "running"`: the peer link answered the control request.
 
 The producer selects the health vocabulary: exact `agiw-linux-observer` uses the Linux table (`up` becomes
 `ok`); the Windows producer is `agiw-win-observer <version>[+<build provenance>]` and uses the Windows
@@ -141,7 +156,7 @@ Compared with schema 1, silence never implies `down`, all platforms are listed, 
 JSON `null`. Counts require `loadedListComplete: true`, a list with every residency `loaded` or `inactive`,
 and a matching `modelsTotal` when present. A list alone establishes no count. The LM Studio provider
 does not supply completeness evidence, so its counts stay null. A complete empty list gives zero.
-The contract keeps both token-rate fields null in v1.
+The contract keeps both token-rate fields null in v1.1.
 
 `linkState` describes the local control exchange, separately from machine health:
 
@@ -154,6 +169,10 @@ The contract keeps both token-rate fields null in v1.
 Without a usable snapshot, `self.node` uses the detected platform as a fallback identity and `--full`
 contains an empty `documents` object. Control authentication and permission failures retain their normal
 error behavior, including exit 1 for both JSON and human output.
+
+`status --json` and `peers --json` print unredacted values for scripts, including LAN addresses and raw
+error strings wherever those fields are included. Text output is redacted. Treat JSON captures as local
+diagnostics and remove private values before sharing them.
 
 All commands except `serve`, `doctor`, `service` and `uninstall` talk to your own peer link on
 127.0.0.1. It must first prove that it holds the control token in your state folder, so another program on
@@ -184,8 +203,12 @@ you use the default. Options you pass (`--status-file`, `--name` and so on) go i
 
 | OS | Definition | Started with |
 | --- | --- | --- |
-| macOS | `~/Library/LaunchAgents/io.github.louiscalata.agiw.peer-link.plist`; log in `~/Library/Logs/agiw/` | `launchctl bootstrap gui/<uid>` |
+| macOS | `~/Library/LaunchAgents/io.github.louiscalata.agiw.peer-link.plist`; stdout and stderr in `~/Library/Logs/agiw/peer-link.log` | `launchctl bootstrap gui/<uid>` |
 | Windows | Task `\AGIW\PeerLink-<SID>` (your account's SID, logon trigger, least privilege); XML copy under `%LOCALAPPDATA%\AGIW\service\` | `schtasks /Create /XML`, then `/Run` |
+
+On Windows, inspect
+the task in Task Scheduler (state, Last Run Result and task history when enabled); agiw defines no stdout
+or stderr log file for the task. The macOS LaunchAgent writes both streams to the log in the table.
 
 On Windows, agiw reads your SID with `whoami /user /fo csv /nh` and uses that same account-specific task
 name for install, status and uninstall. Installation refuses if the SID cannot be read. After `/Run`,
@@ -204,8 +227,9 @@ LaunchAgent is still loaded. If removal cannot be confirmed, agiw keeps the defi
 Identity, control token and one trust record per paired machine, private to your account:
 
 - macOS: `~/Library/Application Support/AGIW/peer-link`
-- Windows: `%LOCALAPPDATA%\AGIW\peer-link`, with link keys sealed by DPAPI and pairing generations in
-  `HKCU\Software\AGIW\PeerLink`
+- Windows: `%LOCALAPPDATA%\AGIW\peer-link` when `LOCALAPPDATA` is absolute, otherwise
+  `~/AppData/Local/AGIW/peer-link`, with link keys sealed by DPAPI and pairing generations in
+  `HKCU\Software\AGIW\PeerLink`. The service definition uses the same `LOCALAPPDATA` fallback.
 
 `agiw doctor` checks the folder's owner and permissions and the privacy of existing key files without
 reading or unsealing their contents. It never repairs state or contacts the peer link; `agiw status` is the
@@ -231,7 +255,7 @@ pipx uninstall agiw                  # or: uv tool uninstall agiw
 unrecognized files in place. It first removes the login service, then must acquire the same process lock as
 `agiw serve` before deleting keys. If the lock is held, it reports the service manager's result (removed,
 or none installed) and that no key file was deleted, even when that process uses
-custom ports. It holds the
+custom ports, and exits 1. The dry run lists files without taking this lock. Deletion holds the
 lock through deletion and removes the lock file after the state folder is gone. The selected and default
 status TCP ports and the discovery UDP port must also all be free. Existing control tokens must pass the
 privacy and validity checks; unsafe tokens and busy or unknown ports prevent key deletion. These checks
@@ -251,6 +275,53 @@ Your other machines keep their side: run `agiw unpair <this machine>` there.
 
 Discovery hellos (unsigned): node id, machine name, host kind and port. Signed status, to paired machines
 only, after cutting it down to an allowlist: host name, platform, health, timestamps, model ids with
-loaded/activity state, and a few GPU and memory numbers when the status source provides them. No
-files, prompts, keys or paths are sent. `agiw doctor` prints your home folder as `~` and never prints keys,
-tokens or share paths.
+loaded/activity state, a few GPU and memory numbers when the status source provides them, and component
+id, label, state and age. Component `detail` is omitted because it can contain a path or account name.
+The allowlist does not include files, prompts, keys or path fields; allowed strings such as model ids
+and component labels are still supplied by the source and should be safe to share. `agiw doctor` prints
+your home folder as `~` and never prints keys, tokens or share paths.
+
+## Tests
+
+Run from the repository root. [CLI CI](../.github/workflows/cli.yml) runs this suite on macOS and
+Windows with Python 3.9 and 3.12:
+
+```sh
+python -B -m unittest discover -s tests_cli -v
+```
+
+Use `python3` in place of `python` where needed. Run the peer-link regression suite alongside it:
+
+```sh
+python -B -m unittest test_peer_link
+```
+
+Service tests use fake command runners. Provider-selection tests in `test_host_kind.py` replace
+`PeerLink` and `directed_broadcasts`, not the status factories: the factories select providers without
+calling the returned providers. `LinuxStatusSource` separately reads temporary status files without sockets.
+Two CLI tests use real loopback sockets: `test_loopback_pairing.py` runs two in-process peers on ephemeral
+`127.0.0.1` ports to exercise PIN pairing and signed status; the
+`test_purge_real_probe_refuses_a_listening_loopback_status_port_without_token` test in `test_cli_review.py`
+uses a real loopback listener and port probe. The peer-link suite also contains socket integration tests.
+If a sandbox denies port creation, report those cases as `NOT_RUN` with the denial message, and retain the
+command's actual exit code and test counts. A blocked socket check does not establish integration success.
+
+The hosted Windows CI runner is elevated. In `LoopbackPairing.setUp`, only in that elevated session, the
+test wraps `_win_owner_and_allow_sids` to treat an Administrators owner as the current account. This
+bypasses the owner precondition in `_win_restrict_dir` and `_win_check_private` for the pairing fixture;
+it preserves the native DACL and reparse checks and the real pairing, DPAPI, key and signature checks.
+The patch is removed by test cleanup, an assertion limits it to elevated Windows, and the existing
+`test_peer_link` ownership-refusal tests keep the real checks. The CLI suite also simulates elevation
+and verifies that non-elevated Windows and other platforms receive no owner patch.
+
+The broader source checks documented in [Development](development.md#source-checks) are:
+
+```sh
+MONITOR_ALLOW_ROUTER_FIXTURE_SKIP=1 PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest discover -p 'test_*.py' -q
+node --test test_*.mjs
+```
+
+The allowance permits the documented router fixture skips when the separate project's writers are absent;
+report actual skips alongside passes. These source checks do not establish a live model route or native
+platform acceptance. CLI CI separately installs the package and checks `agiw --help`, `agiw --version` and
+`python -m agiw --version`; it does not run the separate peer-link command above.

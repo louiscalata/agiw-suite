@@ -177,6 +177,8 @@ class Spake:
 def default_state_dir() -> Path:
     if os.name == "nt":
         base = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
+        if not base.is_absolute():
+            base = Path.home() / "AppData" / "Local"
         return base / "AGIW" / "peer-link"
     if sys.platform.startswith("linux"):
         base = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state")
@@ -1085,7 +1087,8 @@ def project_status(doc: dict) -> dict:
                      if _scalar(memory.get(k), str if k == "level" else float, 16) is not None}
     if _scalar(doc.get("version"), str, 32) is not None:
         out["version"] = _scalar(doc["version"], str, 32)
-    # Route components (Nisi, Jev): only known ids, short printable words and one age; never free text blobs.
+    # Route components (Nisi, Jev): known ids, a short label and state, and one age.
+    # Detail stays local: it can carry a path or an account name.
     components = doc.get("components") if isinstance(doc.get("components"), list) else []
     rows, seen = [], set()
     for item in components[:4]:
@@ -1765,12 +1768,12 @@ class PeerLink:
 
     def _bounded_self_status(self) -> dict:
         """One control-only provider read at a time; a stuck daemon never holds up polling."""
-        timeout = {"error": "local status timed out"}
+        timeout = {"error": "local status timed out", "code": "timeout"}
         with self._lock:
             previous = getattr(self, "_self_status_worker", None)
             if previous is not None and previous.is_alive():
                 return timeout
-            answer = [{"error": "local status unavailable or invalid"}]
+            answer = [{"error": "local status unavailable or invalid", "code": "unavailable"}]
 
             def read():
                 try:

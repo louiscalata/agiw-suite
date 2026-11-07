@@ -81,15 +81,15 @@ class ControlSnapshot(unittest.TestCase):
                     self.link.status_provider.side_effect = None
                     self.link.status_provider.return_value = {"schemaVersion": 1}
                 answer = self.link.snapshot(include_self_status=True)["selfStatus"]
-                self.assertEqual(answer, {"error": "local status unavailable or invalid"})
-                self.assertEqual(set(answer), {"error"})
+                self.assertEqual(answer, {"error": "local status unavailable or invalid", "code": "unavailable"})
+                self.assertEqual(set(answer), {"error", "code"})
                 self.assertTrue(0 < len(answer["error"]) <= 200)
                 self.assertNotIn("secret", answer["error"])
                 self.assertNotIn("token", answer["error"])
 
     def test_stale_provider_document_is_an_error(self):
         self.document["observedAt"] = pl._iso(NOW - pl.STATUS_MAX_AGE - 1)
-        self.assertEqual(set(self.link.snapshot(include_self_status=True)["selfStatus"]), {"error"})
+        self.assertEqual(set(self.link.snapshot(include_self_status=True)["selfStatus"]), {"error", "code"})
 
     def test_authenticated_control_answer_contains_self_status(self):
         handler = self.control_handler()
@@ -108,7 +108,7 @@ class ControlSnapshot(unittest.TestCase):
         handler.do_GET()
         self.assertEqual(handler._json.call_args[0][0], 200)
         self.assertEqual(handler._json.call_args[0][1]["selfStatus"],
-                         {"error": "local status unavailable or invalid"})
+                         {"error": "local status unavailable or invalid", "code": "unavailable"})
 
     def test_poll_once_publishes_peers_json_without_self_status(self):
         release = threading.Event()
@@ -150,7 +150,7 @@ class ControlSnapshot(unittest.TestCase):
         published = []
         self.link.on_change = published.append
         poller = threading.Thread(target=self.link.poll_once, daemon=True)
-        timeout = {"error": "local status timed out"}
+        timeout = {"error": "local status timed out", "code": "timeout"}
         with mock.patch.object(pl, "SELF_STATUS_DEADLINE", 0.05):
             try:
                 started = time.monotonic()

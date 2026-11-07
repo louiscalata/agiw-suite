@@ -41,8 +41,10 @@ def firewall_hints(kind: str, tcp: int, udp: int) -> List[Row]:
                          f"one on tcp/{tcp}; discovery uses udp/{udp}.")]
     return [("info", f"firewall (Windows): add inbound rules yourself in an administrator PowerShell, Private "
                      f"profile only: New-NetFirewallRule -DisplayName 'AGIW peer link TCP' -Direction Inbound "
-                     f"-Protocol TCP -LocalPort {tcp} -Profile Private -Action Allow, and the same with "
-                     f"-Protocol UDP -LocalPort {udp}. agiw changes no firewall settings.")]
+                     f"-Protocol TCP -LocalPort {tcp} -Profile Private -Action Allow; "
+                     f"New-NetFirewallRule -DisplayName 'AGIW peer link UDP' -Direction Inbound "
+                     f"-Protocol UDP -LocalPort {udp} -Profile Private -Action Allow. "
+                     f"agiw changes no firewall settings.")]
 
 
 def _secret_files(state_dir: Path) -> List[Path]:
