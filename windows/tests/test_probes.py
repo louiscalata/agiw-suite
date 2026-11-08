@@ -490,6 +490,23 @@ class Codemode(unittest.TestCase):
         self.assertEqual(jobs["lastSuccess"]["model"], "q")
         self.assertIn("not decode", source["detail"])
 
+    def test_a_manifest_a_few_milliseconds_ahead_of_the_clock_is_read(self):
+        specs = [{"id": "deep", "port": 1234, "alias": "q"}]
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp) / "20260924-053702-fd15a3"
+            run.mkdir()
+            manifest = run / "manifest.json"
+            manifest.write_text(json.dumps({"run_id": run.name, "metrics": [
+                {"stage": "draft", "kind": "local", "served": "q", "endpoint": "http://127.0.0.1:1234", "tok": 10, "sec": 1.0, "finish": "stop"}]}))
+            now = time.time()
+            os.utime(manifest, (now + 0.05, now + 0.05))
+            jobs, _ = probes.codemode_jobs(Path(tmp), specs, now)
+            self.assertEqual([r["stage"] for r in jobs["recent"]], ["draft"])
+            self.assertEqual(jobs["recent"][0]["ageSeconds"], 0.0)
+            os.utime(manifest, (now + 60, now + 60))
+            jobs, _ = probes.codemode_jobs(Path(tmp), specs, now)
+            self.assertEqual(jobs["recent"], [])
+
     def test_missing_folder(self):
         jobs, source = probes.codemode_jobs(Path("/nonexistent"), [], 0)
         self.assertEqual((jobs["recent"], source["state"]), ([], "unavailable"))

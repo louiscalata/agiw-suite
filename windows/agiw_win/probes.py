@@ -39,8 +39,8 @@ QUEUE_MAX_ENTRIES = 1000
 STALE_CLAIM_SECONDS = 900.0
 STALE_PENDING_SECONDS = 86400.0
 # A fresh file's mtime can read a few ms ahead of time.time() (NTFS timestamps are coarser than the clock), so a small
-# lead is not a future-dated entry.
-QUEUE_FUTURE_SKEW = 2.0
+# lead is not a future-dated queue entry or codemode manifest.
+FILE_FUTURE_SKEW = 2.0
 SLOTS_TIMEOUT = 4.0
 
 DEFAULT_SHARE_ROOT = Path(r"C:\SharedChami")
@@ -802,7 +802,7 @@ def route_queue(root: Path, now: float | None = None) -> tuple[dict[str, Any], d
                             break
                         total += 1
                         age = now - entry.stat(follow_symlinks=False).st_mtime
-                        if age < -QUEUE_FUTURE_SKEW or not isinstance(read_json(Path(entry.path)), dict):
+                        if age < -FILE_FUTURE_SKEW or not isinstance(read_json(Path(entry.path)), dict):
                             raise ValueError("queue entry future-dated or malformed")
                         age = max(age, 0.0)
                         if state == "pending":
@@ -1297,7 +1297,7 @@ def codemode_jobs(runs_root: Path, specs: list[dict[str, Any]], now: float) -> t
     malformed = 0
     truncated = max(0, len(runs) - CODEMODE_RUNS_MAX)
     for mtime, manifest in runs[:CODEMODE_RUNS_MAX]:
-        if mtime > now:
+        if mtime > now + FILE_FUTURE_SKEW:
             malformed += 1
             continue
         try:
