@@ -588,8 +588,12 @@ test('a PC snapshot shows the Mac monitor whether the Mac row says mac or macos'
 });
 
 test('a PC lane node that is not configured says NOT CONFIGURED, and a configured PC with its tunnel down still says DISCONNECTED', () => {
-  const none = healthPresentation({health: 'not_measured', reason: 'not_configured'});
+  const none = healthPresentation({health: 'not_measured', reason: 'not_configured', machine: 'pc', id: 'pc:router', label: 'Router'});
   assert.equal(none.word, 'NOT CONFIGURED');
+  // Only a PC node says "No PC": the Mac's Veritas reviewer and a node with no identity must not.
+  assert.equal(healthPresentation({health: 'not_measured', reason: 'not_configured', machine: 'mac', id: 'mac:veritas', label: 'Veritas reviewer'}).reason, 'Veritas reviewer is not configured');
+  assert.equal(healthPresentation({health: 'not_measured', reason: 'not_configured'}).reason, 'Not configured');
+  assert.equal(healthPresentation({health: 'not_measured', reason: 'not_configured', id: 'pc:qwen3.8-27b'}).reason, 'No PC is configured');
   assert.equal(none.status, 'unavailable', 'styled like the other unavailable states');
   assert.equal(none.reason, 'No PC is configured');
   assert.equal(healthPresentation({health: 'not_measured', reason: 'tunnel_down', ageSeconds: 4}).word, 'DISCONNECTED');

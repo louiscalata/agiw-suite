@@ -1066,6 +1066,14 @@ export function initialMonitorId(search) {
   return MONITOR_QUERY.test(id) ? id : null;
 }
 
+/** Says what is not configured. Only a PC lane node can say "No PC": the Mac's Veritas reviewer and any other node name themselves. */
+function notConfiguredText(node) {
+  const machine = text(node?.machine, 24);
+  const label = text(node?.label, 40);
+  if (machine === 'pc' || (typeof node?.id === 'string' && node.id.startsWith('pc:'))) return 'No PC is configured';
+  return label ? `${label} is not configured` : 'Not configured';
+}
+
 export function healthPresentation(node, {feedUnavailable = false} = {}) {
   if (feedUnavailable) return presentation('disconnected', 'Monitor feed unavailable');
   const reason = text(node?.reason, 80);
@@ -1074,7 +1082,7 @@ export function healthPresentation(node, {feedUnavailable = false} = {}) {
   if (node?.health === 'down') return presentation('down', reason);
   if (reason === 'stale') return presentation('stale', 'Observation stale');
   if (reason === 'feed_unavailable') return presentation('disconnected', 'Monitor feed unavailable');
-  if (reason === 'not_configured') return presentation('not_configured', 'No PC is configured');
+  if (reason === 'not_configured') return presentation('not_configured', notConfiguredText(node));
   if (reason === 'tunnel_down') {
     const age = Number.isFinite(node?.ageSeconds) ? ` Last sample ${Math.floor(node.ageSeconds)}s.` : '';
     return presentation('disconnected', `PC tunnel down.${age}`);
