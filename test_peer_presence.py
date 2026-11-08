@@ -103,7 +103,7 @@ class MacPresenceShape(unittest.TestCase):
         # Everything the PC publishes, plus this Mac's Nisi and Jev states (the PC's reader ignores unknown keys).
         # PC edition 0.2.0 (PLAN A3) adds its build identity, the D5 hands-off flag and the PAIR row; the Mac edition
         # has no equivalents yet (A1/A4), so these are the only PC-side keys the Mac may lack.
-        pc_only = {"producer", "build", "handsOff", "pair"}
+        pc_only = {"producer", "build", "handsOff", "pair", "loadedListComplete"}
         self.assertLessEqual({"producer", "build", "handsOff"}, set(pc))
         self.assertEqual(set(mac) - {"components", "loadedListComplete"}, set(pc) - pc_only)
         self.assertIn("components", mac)
@@ -111,6 +111,35 @@ class MacPresenceShape(unittest.TestCase):
         self.assertLessEqual(set(pc["models"][0]) - {"lane", "servedModel", "liveTokensPerSecond"}, set(mac["models"][0]))
         self.assertEqual(set(mac["gpus"][0]), set(pc["gpus"][0]))
         self.assertEqual((set(mac["memory"]), set(mac["dashboard"])), (set(pc["memory"]), set(pc["dashboard"])))
+
+    def test_pc_presence_says_whether_its_model_list_is_complete(self):
+        # The CLI only shows a PC's model counts when the list says it is complete (loadedListComplete).
+        probes = pc_probes()
+        now = time.time()
+
+        def presence(lanes):
+            return probes.peer_presence({"lanes": lanes, "pcGpus": [], "memory": {"level": "ok", "availablePercent": 50},
+                                         "observerVersion": "0.1.0", "observedAt": peer_feed._iso(now),
+                                         "sampledAt": now, "dashboardPort": 8767}, "winpc01")
+
+        def lane(index, status="idle"):
+            return {"id": f"lane{index}", "status": status, "phase": "idle", "port": 1235 + index,
+                    "expectedModel": f"model-{index}", "servedModel": f"model-{index}", "slotsBusy": 0, "slotsTotal": 2}
+
+        complete = presence([lane(0), lane(1)])
+        self.assertIs(complete["loadedListComplete"], True)
+        self.assertEqual(complete["modelsTotal"], len(complete["models"]))
+        self.assertTrue(all(m["loadedState"] in ("loaded", "inactive") for m in complete["models"]))
+        # More lanes than the 32-row cap: cut off, so not complete.
+        self.assertIs(presence([lane(i) for i in range(40)])["loadedListComplete"], False)
+        # A lane that is down has an unknown residency: not complete.
+        down = presence([lane(0), lane(1, status="down")])
+        self.assertEqual([m["loadedState"] for m in down["models"]], ["loaded", "unknown"])
+        self.assertIs(down["loadedListComplete"], False)
+        # A lane the configuration does not declare is counted in modelsTotal but listed nowhere: not complete.
+        undeclared = presence([lane(0), lane(1, status="undeclared")])
+        self.assertEqual((len(undeclared["models"]), undeclared["modelsTotal"]), (1, 2))
+        self.assertIs(undeclared["loadedListComplete"], False)
 
     def test_encoded_and_uri_forms_never_leak_folders(self):
         # Daybreak: single-part percent-encoded paths / URIs slipped past the two-part rule.

@@ -1934,6 +1934,9 @@ def peer_presence(snapshot: dict[str, Any], host: str) -> dict[str, Any]:
                 "observedAt": snapshot.get("observedAt"),
                 "observedUnix": snapshot.get("sampledAt"), "health": status["health"],
                 "modelsTotal": models_total, "models": models,
+                # Complete only when every lane is listed (none cut off) and each one has a known residency.
+                "loadedListComplete": (models_total <= 32 and len(models) == models_total
+                                       and all(model["loadedState"] in ("loaded", "inactive") for model in models)),
                 "gpus": status["gpus"], "memory": status["memory"],
                 # D5 hands-off flag: the Mac shows "PC: hands off" with its cause (AGIW lanes vs other processes).
                 "handsOff": status["handsOff"],

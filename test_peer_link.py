@@ -1173,8 +1173,8 @@ class Regressions(PeerLinkCase):
         big_rows = [{"node": f"{i:08x}-0000-4000-8000-000000000000", "status": {"models": [
             {"id": "m" * 256, "loadedState": "loaded"}] * pl.MAX_MODELS}} for i in range(8)]
 
-        def big():
-            doc = real()
+        def big(**kwargs):  # the control route asks for include_self_status=True
+            doc = real(**kwargs)
             doc["peers"] = doc["peers"] + big_rows
             return doc
 

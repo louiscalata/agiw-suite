@@ -89,25 +89,31 @@ class Purge(unittest.TestCase):
 
 class StatusRows(unittest.TestCase):
     def test_up_down_unknown(self):
-        status = {"observedAt": "2026-10-24T00:00:00.000Z", "health": "ok",
+        status = {"schemaVersion": 1, "kind": "agiw-peer", "host": "up", "platform": "windows",
+                  "observedAt": "2023-11-14T22:13:19+00:00", "health": "ok",
                   "models": [{"id": "a", "loadedState": "loaded"}, {"id": "b", "loadedState": "inactive"}]}
-        rows = cli.machine_rows({"peers": [
+        peers = [
             {"paired": True, "name": "up", "state": "connected", "status": status, "lastHello": 1.0},
             {"paired": True, "name": "down", "state": "offline", "lastHello": 1.0, "error": "TimeoutError"},
             {"paired": True, "name": "never", "state": "offline", "lastHello": None, "error": "no known endpoint"},
             {"paired": True, "name": "stale", "state": "stale", "lastHello": 2.0,
              "error": "ConnectionError: peer answered 503"},
             {"paired": True, "name": "connecting", "state": "connecting", "lastHello": 2.0, "error": None},
-            {"paired": False, "name": "guest", "state": "available"}]})
-        states = {r["name"]: (r["state"], r["reason"]) for r in rows}
-        self.assertEqual(states["up"], ("up", "signed status verified"))
-        self.assertEqual(states["down"][0], "down")
-        self.assertEqual(states["never"][0], "unknown")
-        self.assertEqual(states["stale"], ("unknown", "ConnectionError: peer answered 503"))
-        self.assertEqual(states["connecting"], ("unknown", "no signed reply yet"))
+            {"paired": False, "name": "guest", "state": "available"}]
+        for peer in peers:
+            peer.update(node=peer["name"], host="windows")
+        rows = cli.machine_rows({"self": {"node": "local", "host": "mac"}, "peers": peers},
+                                now=1700000000.0)
+        states = {r.get("label", r["id"]): (r["state"], r["reasonCode"]) for r in rows}
+        self.assertEqual(states["up"], ("up", "observed"))
+        # The same words the monitor shows (peer_feed): the error text does not choose them.
+        self.assertEqual(states["down"], ("unknown", "not_connected"))      # heard before, now silent
+        self.assertEqual(states["never"], ("unknown", "not_observed"))      # never heard
+        self.assertEqual(states["stale"], ("unknown", "not_connected"))
+        self.assertEqual(states["connecting"], ("unknown", "not_observed"))
         self.assertNotIn("guest", states)
-        up = next(r for r in rows if r["name"] == "up")
-        self.assertEqual((up["health"], up["modelsLoaded"]), ("ok", 1))
+        up = next(r for r in rows if r["id"] == "up")
+        self.assertEqual((up["modelsComplete"], up["loadedCount"], up["busyCount"]), (False, None, None))
 
     def test_commands_report_a_stopped_peer_link_clearly(self):
         lines = []

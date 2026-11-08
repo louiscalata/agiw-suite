@@ -30,7 +30,7 @@ Documentation = "https://github.com/louiscalata/agiw-suite/blob/main/docs/cli.md
 agiw = "agiw.cli:main"
 
 [tool.setuptools]
-# Only the CLI package and the unchanged peer-link module; the monitor's other modules are not packaged.
+# Only the CLI package, peer link and frozen machine-state core; other monitor modules are not packaged.
 packages = ["agiw"]
-py-modules = ["peer_link"]
+py-modules = ["peer_link", "machine_state"]
 include-package-data = false

@@ -78,3 +78,17 @@ def status_doc(host: str, name: str, health: str = "ok") -> dict:
 
 def env_without(*names: str) -> dict:
     return {k: v for k, v in os.environ.items() if k not in names}
+
+
+def validate_row(row):
+    """A status --json row is a machine_state.machine_summary row (plus an optional display label)."""
+    import machine_state
+    base = set(machine_state.machine_summary("x", "mac", now=0.0))
+    assert base <= set(row) <= base | {"label"}, sorted(set(row) ^ base)
+    assert row["state"] in ("up", "down", "unknown"), row["state"]
+    assert row["trust"] in machine_state.TRUST_LEVELS, row["trust"]
+    known = machine_state.UNKNOWN_REASONS | {"observed", "reported_down", "reported_degraded"}
+    assert row["reasonCode"] in known, row["reasonCode"]
+    assert row["platform"] in ("mac", "windows", "linux", None), row["platform"]
+    for key in ("loadedCount", "busyCount"):
+        assert row[key] is None or (type(row[key]) is int and row[key] >= 0), (key, row[key])

@@ -16,12 +16,24 @@ from agiw import cli
 
 class LoopbackPairing(unittest.TestCase):
     def setUp(self):
+        native_owner = pl._win_owner_and_allow_sids
+        elevated = False
         if os.name == "nt":
             import ctypes
-            if ctypes.windll.shell32.IsUserAnAdmin():
-                # Files made by an elevated process belong to Administrators, and peer_link correctly refuses
-                # a state folder owned by another account. Hosted Windows CI runners are always elevated.
-                self.skipTest("elevated Windows session: peer_link refuses Administrators-owned state folders")
+            elevated = bool(ctypes.windll.shell32.IsUserAnAdmin())
+            if elevated:
+                # _win_restrict_dir refuses an Administrators-owned folder. Elevated hosted CI creates
+                # these folders and files. Adapt only that owner precondition in this pairing test;
+                # keep the real DACL, reparse, DPAPI, key, PIN and signature checks. Ownership refusal
+                # remains covered by test_peer_link's Windows security tests without this patch.
+                def test_owner(target):
+                    owner, sids = native_owner(target)
+                    return (pl._win_current_sid() if owner == pl._ADMINS_SID else owner), sids
+
+                patcher = mock.patch.object(pl, "_win_owner_and_allow_sids", side_effect=test_owner)
+                patcher.start()
+                self.addCleanup(patcher.stop)
+        self.assertEqual(pl._win_owner_and_allow_sids is not native_owner, elevated)
         isolate_windows_registry(self)
         poller = mock.patch.object(pl.PeerLink, "_poll", lambda link: None)  # the test drives every poll
         poller.start()
@@ -73,12 +85,14 @@ class LoopbackPairing(unittest.TestCase):
         self.assertEqual(code, 0)
         doc = json.loads("\n".join(lines))
         self.assertEqual((doc["self"]["name"], doc["signed"], doc["encrypted"]), ("alpha", True, False))
-        (machine,) = doc["machines"]
-        self.assertEqual((machine["name"], machine["host"], machine["state"], machine["health"],
-                          machine["modelsLoaded"]), ("beta", "linux", "up", "ok", 1))
+        self.assertEqual(doc["schemaVersion"], 2)
+        machine = next(row for row in doc["machines"] if row["id"] == self.beta.node)
+        self.assertEqual((machine["label"], machine["host"], machine["platform"], machine["state"],
+                          machine["reasonCode"], machine["loadedCount"]),
+                         ("beta", "beta", "linux", "up", "observed", None))
 
         code, lines = self.agiw(self.alpha, "status")
-        self.assertTrue(any(re.match(r"beta\s+linux\s+up\s+ok, 1 model", line) for line in lines), lines)
+        self.assertTrue(any(re.match(r"beta\s+linux\s+up\s+observed\s+\S+\s+\?", line) for line in lines), lines)
 
         code, lines = self.agiw(self.alpha, "unpair", "beta")
         self.assertEqual(code, 0)
@@ -87,7 +101,10 @@ class LoopbackPairing(unittest.TestCase):
         row = next(r for r in snapshot["peers"] if r["name"] == "alpha")
         self.assertIn("403", row["error"])
         code, lines = self.agiw(self.alpha, "status", "--json")
-        self.assertEqual(json.loads("\n".join(lines))["machines"], [])
+        machines = json.loads("\n".join(lines))["machines"]
+        self.assertEqual(len(machines), 2)  # this Mac plus the expected Windows row; no Linux row once unpaired
+        self.assertEqual({row["platform"] for row in machines}, {"mac", "windows"})
+        self.assertNotIn(self.beta.node, {row["id"] for row in machines})
 
 
 if __name__ == "__main__":
