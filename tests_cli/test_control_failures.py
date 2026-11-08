@@ -110,9 +110,6 @@ class ControlFailures(unittest.TestCase):
                 self.assertEqual(stderr, "agiw: control authentication failed\n")
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class WriteOutcomeUnknown(unittest.TestCase):
     """A write with no readable answer may still have been applied; the CLI must not say it failed."""
@@ -153,3 +150,25 @@ class WriteOutcomeUnknown(unittest.TestCase):
         self.assertNotEqual(code, 0)
         self.assertIn("no such peer", err)
         self.assertNotIn("may or may not", err)
+
+    def test_a_folder_error_is_one_redacted_line_not_a_traceback(self):
+        err = io.StringIO()
+        boom = PermissionError(13, "Permission denied", str(Path.home() / "Library" / "Logs"))
+        with mock.patch.object(cli, "cmd_peers", side_effect=boom), mock.patch("sys.stderr", err):
+            code = cli.main(["--state-dir", "unused", "peers"], out=lambda _: None)
+        self.assertEqual(code, 1)
+        text = err.getvalue()
+        self.assertTrue(text.startswith("agiw: PermissionError"), text)
+        self.assertNotIn("Traceback", text)
+        self.assertNotIn(str(Path.home()), text)
+
+    def test_the_unpair_hint_names_a_command_that_runs(self):
+        lines = []
+        with mock.patch.object(pl, "control_request", return_value=(200, {})):
+            code = cli.main(["--state-dir", "unused", "unpair", "pc"], out=lines.append)
+        self.assertEqual(code, 0)
+        self.assertIn("agiw unpair <this machine's name>", lines[0])
+
+
+if __name__ == "__main__":
+    unittest.main()

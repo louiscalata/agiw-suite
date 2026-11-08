@@ -148,7 +148,7 @@ def cmd_accept(args, out, read_pin: Callable[[str], str]) -> int:
 
 def cmd_unpair(args, out) -> int:
     control(args.state_dir, args.status_port, "POST", "/control/unpair", {"peer": args.name})
-    out(f"unpaired {args.name}; on that machine, run `agiw unpair` for this one too")
+    out(f"unpaired {args.name}; on that machine, run `agiw unpair <this machine's name>` for this one too")
     return 0
 
 
@@ -531,6 +531,10 @@ def main(argv: Optional[Sequence[str]] = None, *, out: Optional[Callable[[str], 
         return exc.code
     except ServiceError as exc:
         print("agiw: " + redact(str(exc)), file=sys.stderr)
+        return EXIT_FAILED
+    except OSError as exc:
+        # A folder that cannot be created or listed: say so in one redacted line, not a traceback with full paths.
+        print("agiw: " + redact(f"{type(exc).__name__}: {exc}"), file=sys.stderr)
         return EXIT_FAILED
     except KeyboardInterrupt:
         return 130
