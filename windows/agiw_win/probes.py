@@ -38,6 +38,9 @@ MAX_SLOTS = 32
 QUEUE_MAX_ENTRIES = 1000
 STALE_CLAIM_SECONDS = 900.0
 STALE_PENDING_SECONDS = 86400.0
+# A fresh file's mtime can read a few ms ahead of time.time() (NTFS timestamps are coarser than the clock), so a small
+# lead is not a future-dated entry.
+QUEUE_FUTURE_SKEW = 2.0
 SLOTS_TIMEOUT = 4.0
 
 DEFAULT_SHARE_ROOT = Path(r"C:\SharedChami")
@@ -799,8 +802,9 @@ def route_queue(root: Path, now: float | None = None) -> tuple[dict[str, Any], d
                             break
                         total += 1
                         age = now - entry.stat(follow_symlinks=False).st_mtime
-                        if age < 0 or not isinstance(read_json(Path(entry.path)), dict):
+                        if age < -QUEUE_FUTURE_SKEW or not isinstance(read_json(Path(entry.path)), dict):
                             raise ValueError("queue entry future-dated or malformed")
+                        age = max(age, 0.0)
                         if state == "pending":
                             oldest_pending = age if oldest_pending is None else max(oldest_pending, age)
                             if age > STALE_PENDING_SECONDS:
@@ -1488,7 +1492,11 @@ def enforce_snapshot_evidence(snapshot: dict[str, Any]) -> dict[str, Any]:
         local = machine.get("role") == "this-machine"
         if local and (not inventory or unknown_lanes) or not local and not known("agiw-peers"):
             machine.update(state="unknown", health="unknown", loadedCount=None,
-                           reason="evidence-incomplete", detail="Machine evidence unavailable or incomplete")
+                           reason="evidence-incomplete", detail="Machine evidence unavailable or incomplete",
+                           reasonCode=MACHINE_REASON_CODES["evidence-incomplete"], modelsComplete=False,
+                           busyCount=None, promptTokensPerSecond=None, generationTokensPerSecond=None)
+            if not local:
+                machine["handsOff"] = None
         if local:
             machine["handsOff"] = (data.get("handsOff") or {}).get("active")
     # Publish invalid source states as unknown as well, so consumers cannot reuse a live flag.
@@ -2169,6 +2177,38 @@ MACHINE_REASONS = {
     ("peer", "down"): ("down", "reported-down"),
 }
 MACHINE_LABELS = {"windows": "PC", "macos": "Mac", "linux": "Linux"}
+# machines[] rows keep the PC's own fields (state, reason, label, role, detail, trust ...) and also carry the shared
+# row schema that web/machines.mjs, the peer map and the setup page read: host, reasonCode, observedAt,
+# freshForSeconds, modelsComplete, busyCount and the token rates. reasonCode comes from the PC's own reason word.
+MACHINE_REASON_CODES = {
+    "serving": "observed", "partly-serving": "reported_degraded", "no-lane-serving": "reported_down",
+    "lane-state-unknown": "unavailable",
+    "reported-serving": "observed", "reported-partly-serving": "reported_degraded", "reported-down": "reported_down",
+    "reported-service-unknown": "unavailable", "health-unknown": "unavailable",
+    "stale": "stale", "no-report": "not_observed", "unconfigured": "not_observed",
+    "config-unreadable": "unavailable", "clock-ahead": "clock_skew", "report-refused": "schema_invalid",
+    "peers-unreadable": "read_error", "report-unreadable": "read_error", "scan-truncated": "unavailable",
+    "evidence-incomplete": "unavailable",
+}
+# This PC's own row is judged by the sample cadence (1 Hz) like the Mac's own row; a peer's report is judged by
+# PEER_FRESH_SECONDS. Without a fresh sample the row's slot activity is not live, so it turns unknown.
+LOCAL_ROW_FRESH_SECONDS = 3.0
+
+
+def _machine_platform(platform: str) -> str:
+    """The shared schema names the Mac "mac"; the share reports it as "macos" (peers[] keeps that word)."""
+    return "mac" if platform == "macos" else platform
+
+
+def _shared_row_fields(host: Any, reason: str, observed_unix: Any, loaded_count: Any, busy_count: Any,
+                       fresh: float = PEER_FRESH_SECONDS) -> dict[str, Any]:
+    """The shared-schema fields of one machines[] row. Counts stay null unless the PC knows them (callers pass None
+    for a row that is not up); the PC reads no token rates for a machine, so those are null too."""
+    complete = loaded_count is not None
+    return {"host": host, "reasonCode": MACHINE_REASON_CODES.get(reason, "unavailable"),
+            "observedAt": _iso_utc(observed_unix), "freshForSeconds": fresh,
+            "modelsComplete": complete, "busyCount": busy_count if complete else None,
+            "promptTokensPerSecond": None, "generationTokensPerSecond": None}
 RELAYER_LABELS = {"mac": "Mac"}
 
 
@@ -2210,22 +2250,31 @@ def _peer_machine(record: dict[str, Any], platform: str, paired: list[dict[str, 
     kind = {"macos": "mac", "linux": "linux"}.get(platform)
     link = next((row for row in paired or [] if isinstance(row, dict) and kind and row.get("host") == kind
                  and row.get("paired") is True), None)
-    return {"id": record.get("host"), "name": record.get("host"), "platform": platform,
+    loaded_count = sum(m["loadedState"] == "loaded" for m in models) if known and record.get("fresh") is True else None
+    if state != "up":
+        loaded_count = None  # as on the Mac: a down or unknown machine makes no count claim
+    loaded = [m for m in models if isinstance(m, dict) and m.get("loadedState") == "loaded"]
+    busy_count = (sum(m.get("activity") in ("busy", "generating") for m in loaded)
+                  if loaded_count is not None and all(m.get("activity") in ("idle", "busy", "generating") for m in loaded)
+                  else None)
+    return {"id": record.get("host"), "name": record.get("host"), "platform": _machine_platform(platform),
             "label": MACHINE_LABELS.get(platform, platform), "role": "peer", "state": state, "reason": reason,
             "detail": detail, "trust": trust, "relayedBy": relayed, "source": record.get("source"),
             "ageSeconds": age if isinstance(age, (int, float)) else None, "observedUnix": observed,
             "health": health if record.get("fresh") is True else "unknown",
-            "loadedCount": sum(m["loadedState"] == "loaded" for m in models) if known and record.get("fresh") is True else None,
+            "loadedCount": loaded_count,
             "version": record.get("version"), "handsOff": None,
-            "peerLink": link.get("state") if link else None}
+            "peerLink": link.get("state") if link else None,
+            **_shared_row_fields(record.get("host"), reason, observed, loaded_count, busy_count)}
 
 
 def _missing_machine(platform: str, name: str | None, reason: str, detail: str) -> dict[str, Any]:
-    return {"id": short_host(name) or {"macos": "mac"}.get(platform, platform), "name": name, "platform": platform,
+    row_id = short_host(name) or {"macos": "mac"}.get(platform, platform)
+    return {"id": row_id, "name": name, "platform": _machine_platform(platform),
             "label": MACHINE_LABELS.get(platform, platform), "role": "peer", "state": "unknown", "reason": reason,
             "detail": detail, "trust": None, "relayedBy": None, "source": None, "ageSeconds": None,
             "observedUnix": None, "health": "unknown", "loadedCount": None, "version": None, "handsOff": None,
-            "peerLink": None}
+            "peerLink": None, **_shared_row_fields(row_id, reason, None, None, None)}
 
 
 def machine_rows(*, host: str, sampled_at: Any, lanes: list[dict[str, Any]], hands: dict[str, Any] | None,
@@ -2242,6 +2291,12 @@ def machine_rows(*, host: str, sampled_at: Any, lanes: list[dict[str, Any]], han
     state, reason = MACHINE_REASONS[("local", health)]
     statuses = [lane.get("status") for lane in lanes]
     serving = sum(status in LANE_UP for status in statuses)
+    loaded_count = serving if lanes and serving == len(lanes) else None
+    if state != "up":
+        loaded_count = None
+    # Busy lanes are counted only when every lane's slot activity is known.
+    busy_count = sum(status == "busy" for status in statuses) if lanes and all(
+        status in ("idle", "busy") for status in statuses) else None
     rows = [{"id": host, "name": host, "platform": "windows", "label": "This PC", "role": "this-machine",
              "state": state, "reason": reason,
              "detail": {"serving": "Every lane answers as declared", "partly-serving": f"{serving} of {len(lanes)} lanes answer as declared",
@@ -2250,8 +2305,10 @@ def machine_rows(*, host: str, sampled_at: Any, lanes: list[dict[str, Any]], han
              "trust": "local", "relayedBy": None, "source": "local", "ageSeconds": 0.0, "observedUnix": _number(sampled_at, low=0),
              "health": health,
              # Residency is known only when every lane answered; otherwise a count would hide unknown lanes.
-             "loadedCount": serving if lanes and serving == len(lanes) else None,
-             "version": version, "handsOff": hands.get("active") if isinstance(hands, dict) else None, "peerLink": None}]
+             "loadedCount": loaded_count,
+             "version": version, "handsOff": hands.get("active") if isinstance(hands, dict) else None, "peerLink": None,
+             **_shared_row_fields(host, reason, _number(sampled_at, low=0), loaded_count, busy_count,
+                                  LOCAL_ROW_FRESH_SECONDS)}]
     records = sorted((p for p in peers or [] if isinstance(p, dict)), key=lambda p: p.get("ageSeconds") or 0)
     want = short_host(mac_name)
     if want is None:

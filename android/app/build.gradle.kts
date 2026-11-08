@@ -4,6 +4,7 @@ plugins {
 android {
     namespace = "suite.agiw.monitor"
     compileSdk = 35
+    buildToolsVersion = "35.0.0"
     defaultConfig {
         applicationId = "suite.agiw.monitor"
         minSdk = 26

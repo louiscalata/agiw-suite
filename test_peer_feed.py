@@ -486,6 +486,51 @@ class PerHostFeeds(unittest.TestCase):
             rows = peer_feed.from_share_hosts(time.time(), root, base)
             self.assertEqual([r["feed"]["host"] for r in rows if r["feed"]], ["windows"])
 
+    def test_a_sleeping_pc_is_one_machine_not_two(self):
+        # Both the modern and the legacy report are stale (a sleeping PC leaves exactly that behind). The legacy
+        # platform-named file names no machine, so it must not become a second row.
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            root = base / "llm-lab" / "status"
+            peers = root / "agiw-peers"
+            peers.mkdir(parents=True)
+            (peers / "pc1.json").write_text(json.dumps(presence(age=100.0, host="pc1")))
+            (root / "windows-status.json").write_text(json.dumps(presence(age=100.0, host="windows", kind=None)))
+            now = time.time()
+            share = peer_feed.from_share_hosts(now, root, base)
+            rows = peer_feed.peer_feeds(now, peer_reader=lambda _: [], share_reader=lambda _: share)
+            windows = [r for r in rows if r["source"]["platform"] == "windows"]
+            self.assertEqual([r["source"]["host"] for r in windows], ["pc1"])
+            self.assertEqual(windows[0]["source"]["reasonCode"], "stale")
+            # Only the legacy file: it is the sole evidence and stays the one machine.
+            (peers / "pc1.json").unlink()
+            share = peer_feed.from_share_hosts(now, root, base)
+            rows = peer_feed.peer_feeds(now, peer_reader=lambda _: [], share_reader=lambda _: share)
+            self.assertEqual([r["source"]["host"] for r in rows if r["source"]["platform"] == "windows"], ["windows"])
+            # A fresh legacy report beside a stale modern one is still the only fresh evidence.
+            (peers / "pc1.json").write_text(json.dumps(presence(age=100.0, host="pc1")))
+            (root / "windows-status.json").write_text(json.dumps(presence(age=2.0, host="windows", kind=None)))
+            share = peer_feed.from_share_hosts(now, root, base)
+            rows = peer_feed.peer_feeds(now, peer_reader=lambda _: [], share_reader=lambda _: share)
+            self.assertIn("windows", [r["feed"]["host"] for r in rows if r["feed"]])
+
+    def test_a_pc_that_was_never_seen_is_not_observed_not_went_silent(self):
+        rows = peer_feed.peer_feeds(time.time(), peer_reader=lambda _: [], share_reader=lambda _: [])
+        windows = [r for r in rows if r["source"]["platform"] == "windows"]
+        self.assertEqual([(r["feed"], r["source"]["reasonCode"]) for r in windows], [(None, "not_observed")])
+
+    def test_the_pcs_hands_off_object_becomes_one_bool(self):
+        for value, expected in (({"active": True, "state": "hands-off"}, True), ({"active": False}, False),
+                                ({"active": None, "state": "unknown"}, None), ({"active": "yes"}, None),
+                                (True, True), (False, False), ("true", None), (1, None), (None, None), ([], None)):
+            with self.subTest(handsOff=value):
+                self.assertIs(peer_link.hands_off_flag(value), expected)
+                summary = peer_feed.summarize_document(presence(handsOff=value), "share", time.time())
+                self.assertEqual(summary["feed"].get("handsOff"), expected)
+                projected = peer_link.project_status(peer_link.validate_status(
+                    presence(handsOff=value, host="windows"), "windows"))
+                self.assertEqual(projected.get("handsOff"), expected)
+
     def test_unattributed_bad_document_keeps_failure_on_missing_platform(self):
         now = time.time()
         good = peer_feed.summarize_document(presence(host="pc1"), "share", now)

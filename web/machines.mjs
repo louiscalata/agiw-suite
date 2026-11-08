@@ -2,9 +2,9 @@
  * Machines: one tile per machine row from /api/snapshot, this machine first, under the peer map.
  * Read only. Every value is the row's own; a missing one is "Not measured" or "Unknown", never 0.
  */
-import {peerMap, reasonWords} from '/monitor-board.mjs';
+import {own, peerMap, reasonWords, rowDegraded} from '/monitor-board.mjs';
 
-const NAMES = {mac: 'Mac', windows: 'PC', linux: 'Linux'};
+const NAMES = {mac: 'Mac', macos: 'Mac', windows: 'PC', linux: 'Linux'};
 const STATE_WORDS = {up: 'Up', down: 'Down', unknown: 'Unknown'};
 const GLYPHS = {up: '■', down: '×', unknown: '?'};
 
@@ -18,11 +18,11 @@ function rate(value) {
 
 /** The facts for one machine row, as [label, text] pairs, in reading order. */
 export function machineFacts(row) {
-  const state = STATE_WORDS[row?.state] || 'Unknown';
-  const degraded = row?.state === 'up' && row?.reasonCode === 'reported_degraded';
+  const state = own(STATE_WORDS, row?.state) || 'Unknown';
+  const degraded = rowDegraded(row);
   const facts = [
     ['State', degraded ? 'Up, degraded' : state],
-    ['Why', row?.state === 'up' && !degraded ? 'Observed' : sentence(reasonWords(row?.reasonCode))],
+    ['Why', degraded ? 'Reported degraded' : row?.state === 'up' ? 'Observed' : sentence(reasonWords(row?.reasonCode))],
     ['Seen through', safeWord(row?.trust, 20) || 'Unknown'],
     ['Age', number(row?.ageSeconds) ? `${Math.round(row.ageSeconds)} s` : 'Unknown'],
     ['Fresh for', number(row?.freshForSeconds) ? `${Math.round(row.freshForSeconds)} s` : 'Unknown'],
@@ -45,14 +45,15 @@ export function machineTiles(machines, self) {
   const hub = rows.findIndex(row => row.host === self || row.platform === self);
   const ordered = hub > 0 ? [rows[hub], ...rows.filter((_, i) => i !== hub)] : rows;
   return ordered.map((row, i) => {
-    const name = NAMES[row.platform] || safeWord(row.host, 24) || 'Machine';
-    const state = STATE_WORDS[row.state] ? row.state : 'unknown';
+    const name = own(NAMES, row.platform) || safeWord(row.host, 24) || 'Machine';
+    const state = own(STATE_WORDS, row.state) ? row.state : 'unknown';
+    const degraded = rowDegraded(row);
     return {
       key: safeWord(row.host, 40) || `row-${i}`,
       title: i === 0 && hub >= 0 ? `This ${name}` : name,
       host: safeWord(row.host, 40),
-      glyph: GLYPHS[state],
-      word: STATE_WORDS[state].toUpperCase(),
+      glyph: degraded ? '◐' : GLYPHS[state],
+      word: degraded ? 'DEGRADED' : STATE_WORDS[state].toUpperCase(),
       facts: machineFacts(row),
     };
   });
@@ -109,8 +110,9 @@ export function mountMachines({document, fetch, setTimeout, now = () => Date.now
       snapshot = null;
     }
     if (stopped) return;
-    const age = now() - snapshot?.sampledAt;
-    paintMachines(document, snapshot, {fresh: number(age) && age >= -2 && age <= 5});
+    const stamp = snapshot?.fullSampledAt ?? snapshot?.sampledAt;
+    const age = typeof stamp === 'number' ? now() - stamp : NaN;
+    paintMachines(document, snapshot, {fresh: number(age) && age >= -1 && age <= 3});
     timer = setTimeout(tick, 1000);
   };
   tick();

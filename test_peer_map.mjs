@@ -71,3 +71,22 @@ test('reason codes read as plain words, and never-heard is not went-silent', asy
   assert.match(lines(view)[1], /LINUX +UNKNOWN +never observed · authenticated · 42 s$/);
   assert.match(lines(view)[2], /PC +UNKNOWN +went silent · share-reported · 3 s$/);
 });
+
+test('the map names the Mac whether a PC row says mac or macos, and reads the PC superset row', () => {
+  const pcSuperset = { id: 'pc', platform: 'windows', host: 'louisaurorar12', state: 'up', reasonCode: 'observed', trust: 'local', ageSeconds: 2,
+    freshForSeconds: 30, modelsComplete: true, loadedCount: 1, busyCount: null, reason: 'serving' };
+  for (const platform of ['mac', 'macos']) {
+    const view = peerMap({ machines: [pcSuperset, { id: 'mac', platform, host: 'louismac', state: 'unknown', reasonCode: 'not_observed', trust: 'unverified' }], self: 'windows', feedFresh: true });
+    assert.match(lines(view)[0], /^THIS PC +UP +1 loaded \/ \? busy · local · 2 s$/);
+    assert.match(lines(view)[1], /^ \|-\?- MAC +UNKNOWN +never observed · unverified$/, platform);
+  }
+});
+
+test('a PC row that says partly-serving is DEGRADED on the map, and odd platform words never reach a function', () => {
+  const view = peerMap({ machines: [{ platform: 'windows', host: 'pc', state: 'up', reason: 'partly-serving', trust: 'local', ageSeconds: 0 }, { platform: 'constructor', host: 'x', state: 'unknown' }], self: 'windows', feedFresh: true });
+  assert.match(lines(view)[0], /^THIS PC +DEGRADED /);
+  assert.match(lines(view)[1], /^ \|-\?- X +UNKNOWN/);
+  assert.match(view.text, /^[\x20-\x7e\n·]+$/);
+  const shared = peerMap({ machines: [{ platform: 'windows', host: 'pc', state: 'up', reasonCode: 'observed', reason: 'partly-serving' }], self: 'windows', feedFresh: true });
+  assert.match(lines(shared)[0], /^THIS PC +UP /);
+});

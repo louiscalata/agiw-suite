@@ -16,6 +16,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / 'windows'), str(ROOT)]
 from agiw_win import probes, collect
 from agiw_win.server import SnapshotStore
+from agiw_win import server as windows_server
+from unittest import mock
 import peer_feed
 
 NOW = 1_800_000_000.0
@@ -153,7 +155,11 @@ def main():
             if host == 'windows':
                 store = SnapshotStore()
                 store.publish(data)
-                snapshot = store.read()
+                # These cases drive the renderer with fixed fake sample times, so the store's read-time aging
+                # (machine rows and activityKnown, tested in windows/tests/test_machines.py) is switched off here.
+                with mock.patch.object(windows_server, 'expire_machines', lambda rows, now: rows), \
+                        mock.patch.object(windows_server, 'FULL_SAMPLE_MAX_AGE', float('inf')):
+                    snapshot = store.read()
                 status = probes.pc_status(snapshot)
                 presence = probes.peer_presence(snapshot, 'fixture-pc')
             else:

@@ -54,15 +54,23 @@ export function observationBus({ snapshot, fresh, studioLive, frame = 0, reduced
 export function controlSchematic({ model, control, controlKnown, decision, confirming }) {
   const name = String(model?.name || model?.id || 'NO MODEL').toUpperCase();
   if (!controlKnown) return { text: `CONTROL   ${name}\nstate     UNKNOWN`, label: `Model control for ${name.toLowerCase()}: state unknown.` };
-  const status = control?.status, settlement = control?.settlement;
+  // The last operation's outcome belongs to the model it was about; another chosen model starts from idle.
+  // 'running' is global (one operation at a time), so it is always shown.
+  const aboutThis = typeof control?.modelId !== 'string' || [model?.id, model?.instanceId, model?.modelKey].includes(control.modelId);
+  const status = control?.status === 'running' || aboutThis ? control?.status : 'idle';
+  const settlement = aboutThis ? control?.settlement : undefined;
   const action = String((status === 'idle' ? decision?.action : control?.action) || 'control').toUpperCase();
   let marks, state;
   if (status === 'running') {
     marks = ['x', 'x', '>', ' '];
     state = 'RUNNING';
-  } else if (status === 'reported') {
+  } else if (status === 'reported' || status === 'succeeded') {
     marks = settlement === 'confirmed' ? ['x', 'x', 'x', 'x'] : ['x', 'x', 'x', '?'];
     state = settlement === 'confirmed' ? 'DONE, INVENTORY CONFIRMS' : 'REPORTED, WAITING FOR INVENTORY';
+  } else if (status === 'failed' && settlement === 'confirmed') {
+    // A restart interrupted the operation, and fresh inventory later showed it had completed.
+    marks = ['x', 'x', 'x', 'x'];
+    state = 'INTERRUPTED, INVENTORY CONFIRMS';
   } else if (status === 'failed') {
     const sent = settlement !== 'not-started';
     marks = sent ? ['x', 'x', '!', '?'] : ['x', 'x', '!', ' '];
@@ -83,6 +91,9 @@ export function controlSchematic({ model, control, controlKnown, decision, confi
   if (why) lines.push(`why       ${why.replace(/[^\x20-\x7e]/g, '?').slice(0, 120)}`);
   return { text: lines.join('\n'), label: `${action.toLowerCase()} ${name.toLowerCase()}: ${state.toLowerCase()}.${why ? ' ' + why : ''}` };
 }
+
+/** The control statuses model_control.py sends ('succeeded' after a confirmed load or unload) plus 'reported'. */
+export const CONTROL_STATUSES = new Set(['idle', 'running', 'succeeded', 'reported', 'failed']);
 
 export const TEXT_SIZES = ['100', '125', '150', '200'];
 
@@ -320,7 +331,8 @@ export function mountSimpleView({ window, document, fetch, setInterval, clearInt
     memory.className = 'sv-row';
     memory.setAttribute('data-row', 'memory');
     const percent = snapshot.memory?.availablePercent;
-    memory.textContent = Number.isFinite(percent) ? `${percent}% available` : 'Memory not reported';
+    // A percentage is shown only for a fresh sample and a value that can be one; otherwise it is not reported.
+    memory.textContent = fresh && Number.isFinite(percent) && percent >= 0 && percent <= 100 ? `${percent}% available` : 'Memory not reported';
     body.append(studio, models, memory);
   };
 
@@ -355,7 +367,6 @@ export function mountSimpleView({ window, document, fetch, setInterval, clearInt
     drawBus();
   }, 250) : null;
 
-  const CONTROL_STATUSES = new Set(['idle', 'running', 'reported', 'failed']);
   let pollGeneration = 0;
   const acceptedBody = async reply => {
     if (reply?.ok !== true) return null;

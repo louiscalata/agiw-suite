@@ -1056,6 +1056,14 @@ def _scalar(value: Any, kind: type, limit: int = 128) -> Any:
         return None
 
 
+def hands_off_flag(value: Any) -> bool | None:
+    """The PC publishes handsOff as a small object ({"active": bool|null, "state": ...}); a reader wants one
+    bool, and anything else is unknown."""
+    if isinstance(value, dict):
+        value = value.get("active")
+    return value if type(value) is bool else None
+
+
 def project_status(doc: dict) -> dict:
     """What leaves this machine: only the documented fields, nothing a provider happened to include."""
     out: dict[str, Any] = {"schemaVersion": 1, "observedAt": doc["observedAt"], "models": []}
@@ -1064,8 +1072,9 @@ def project_status(doc: dict) -> dict:
             out[key] = _scalar(doc[key], str, 64)
     if _scalar(doc.get("observedUnix"), float) is not None:
         out["observedUnix"] = doc["observedUnix"]
-    if type(doc.get("handsOff")) is bool:
-        out["handsOff"] = doc["handsOff"]
+    hands_off = hands_off_flag(doc.get("handsOff"))
+    if hands_off is not None:
+        out["handsOff"] = hands_off
     # The publisher's uncapped model count, so a reader can tell a whole list from a capped one.
     if type(doc.get("modelsTotal")) is int and 0 <= doc["modelsTotal"] <= 1 << 16:
         out["modelsTotal"] = doc["modelsTotal"]
@@ -1781,7 +1790,8 @@ class PeerLink:
             previous = getattr(self, "_self_status_worker", None)
             if previous is not None and previous.is_alive():
                 started = getattr(self, "_self_status_started", None)
-                if started is not None and time.monotonic() - started < SELF_STATUS_DEADLINE:
+                expired = getattr(self, "_self_status_expired", None) is previous
+                if not expired and started is not None and time.monotonic() - started < SELF_STATUS_DEADLINE:
                     # Another caller's read is still inside its own deadline: that is not a timeout yet.
                     return {"error": "local status read in progress", "code": "busy"}
                 return timeout
@@ -1798,7 +1808,13 @@ class PeerLink:
             self._self_status_started = time.monotonic()
             worker.start()
         worker.join(SELF_STATUS_DEADLINE)
-        return timeout if worker.is_alive() else answer[0]
+        if worker.is_alive():
+            # The first caller's own wait ran out. Say so directly: a coarse clock (Windows ticks about every 15 ms)
+            # or an early join must not leave later callers on "busy" past the deadline.
+            with self._lock:
+                self._self_status_expired = worker
+            return timeout
+        return answer[0]
 
     def snapshot(self, *, include_self_status: bool = False) -> dict:
         now = self.clock()

@@ -25,7 +25,16 @@ function matrixClass(matrix) {
   return 'j-matrix-untested';
 }
 
-const MACHINE_NAMES = {mac: 'MAC', windows: 'PC', linux: 'LINUX'};
+const MACHINE_NAMES = {mac: 'MAC', macos: 'MAC', windows: 'PC', linux: 'LINUX'};
+/** A table entry by an own key only, so a snapshot string like 'constructor' never reaches a function. */
+export const own = (table, key) => (typeof key === 'string' && Object.prototype.hasOwnProperty.call(table, key) ? table[key] : undefined);
+
+/** Up, but the machine says it is degraded: by reasonCode, or (older PC rows without one) by reason 'partly-serving'. */
+export function rowDegraded(row) {
+  if (row?.state !== 'up') return false;
+  if (row.reasonCode !== undefined && row.reasonCode !== null) return row.reasonCode === 'reported_degraded';
+  return row.reason === 'partly-serving';
+}
 
 /**
  * Plain words for every machine reason code machine_state and peer_feed send. A code not in the
@@ -59,7 +68,7 @@ export function peerMap({machines, self, feedFresh}) {
   }
   const hubIndex = Math.max(0, rows.findIndex(row => row.host === self || row.platform === self));
   const describe = row => {
-    const state = row.state === 'up' ? (row.reasonCode === 'reported_degraded' ? 'DEGRADED' : 'UP') : row.state === 'down' ? 'DOWN' : 'UNKNOWN';
+    const state = row.state === 'up' ? (rowDegraded(row) ? 'DEGRADED' : 'UP') : row.state === 'down' ? 'DOWN' : 'UNKNOWN';
     const link = state === 'DOWN' ? '-x-' : state === 'UNKNOWN' ? '-?-' : '===';
     const parts = [];
     if (state === 'UNKNOWN') parts.push(reasonWords(row.reasonCode));
@@ -69,7 +78,7 @@ export function peerMap({machines, self, feedFresh}) {
     } else parts.push('model list incomplete');
     if (typeof row.trust === 'string' && /^[a-z-]{1,20}$/.test(row.trust)) parts.push(row.trust);
     if (typeof row.ageSeconds === 'number' && Number.isFinite(row.ageSeconds)) parts.push(`${Math.round(row.ageSeconds)} s`);
-    const name = MACHINE_NAMES[row.platform] || String(row.host || 'MACHINE').toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 12) || 'MACHINE';
+    const name = own(MACHINE_NAMES, row.platform) || String(row.host || 'MACHINE').toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 12) || 'MACHINE';
     return {name, state, link, detail: parts.join(' · ')};
   };
   const hub = describe(rows[hubIndex]);

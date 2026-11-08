@@ -303,8 +303,8 @@ class InstallerOnWindows(unittest.TestCase):
                          "marks/d4-split-on-dark.svg", "marks/d4-split-on-light.svg",
                          "marks/d5-signal.svg", "marks/favicon.svg")]
             sources += [(REPO / name, Path(name)) for name in
-                        ("usage-format.mjs", "client_models.py", "peer_link.py", "peer_feed.py", "inference_stats.py",
-                         "inference_collect.py", "LICENSE", "NOTICE")]
+                        ("usage-format.mjs", "client_models.py", "peer_link.py", "peer_feed.py", "machine_state.py",
+                         "inference_stats.py", "inference_collect.py", "LICENSE", "NOTICE")]
             for source, relative in sources:
                 with self.subTest(installed=str(relative)):
                     self.assertEqual((destination / relative).read_bytes(), source.read_bytes())

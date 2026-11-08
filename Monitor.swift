@@ -804,7 +804,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
                  decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
         let documentation = Set(["https://nodejs.org/en/download", "https://docs.typesafe.ai/",
-                                 "https://github.com/louiscalata/nisi/tree/v0.2.0#command-line"])
+                                 "https://typesafe.ai/legal/privacy-policy",
+                                 "https://github.com/louiscalata/nisi/tree/v0.2.0#command-line",
+                                 "https://github.com/andududu/jeview"])
         if navigationAction.navigationType == .linkActivated,
            let url = navigationAction.request.url, documentation.contains(url.absoluteString) {
             NSWorkspace.shared.open(url)
