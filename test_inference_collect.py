@@ -10,7 +10,7 @@ METRICS = """\
 llamacpp:prompt_tokens_total 100
 llamacpp:prompt_seconds_total 2
 llamacpp:tokens_predicted_total 50
-llamacpp:predicted_seconds_total 1
+llamacpp:tokens_predicted_seconds_total 1
 llamacpp:requests_deferred 3
 llamacpp:n_busy_slots 1
 ignored_metric 9
@@ -20,7 +20,7 @@ METRICS_LATER = """\
 llamacpp:prompt_tokens_total 180
 llamacpp:prompt_seconds_total 3
 llamacpp:tokens_predicted_total 130
-llamacpp:predicted_seconds_total 2
+llamacpp:tokens_predicted_seconds_total 2
 llamacpp:requests_deferred 0
 """
 
@@ -57,10 +57,10 @@ class RateMemoryTests(unittest.TestCase):
 
     def test_a_tiny_busy_seconds_delta_falls_back_to_wall_clock(self):
         rates = RateMemory()
-        rates.update("lane", {**self.COUNTERS, "predicted_seconds_total": 3.0}, 100.0)
+        rates.update("lane", {**self.COUNTERS, "tokens_predicted_seconds_total": 3.0}, 100.0)
         prompt, generation = rates.update(
             "lane", {"prompt_tokens_total": 100.0, "tokens_predicted_total": 60.0,
-                     "predicted_seconds_total": 3.000001}, 102.0)
+                     "tokens_predicted_seconds_total": 3.000001}, 102.0)
         self.assertEqual(generation, 5.0)  # 10 tokens / 2 s, not 10 tokens / 1 microsecond
         self.assertEqual(prompt, 0.0)
 
