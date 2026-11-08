@@ -367,15 +367,16 @@ def _read_router(spec, base, fetch, observed, endpoint):
                   models=models)
 
 
-def _read_pc(target, fetch, rates, now, observed):
+def _read_pc(target, fetch, rates, now, observed, *, unconfigured=False):
     spec = _BY_ID.get(target.get("id"))
     endpoint = target.get("base")
     if spec is None:
         return _blank(str(target.get("id") or "pc:unknown"), "pc", "llama", "Unknown lane", observed,
                       health="not_measured", reason="unknown_lane", endpoint=endpoint)
     if not target.get("base"):
-        return _blank(spec["id"], "pc", spec["role"], spec["label"], observed,
-                      health="not_measured", reason="tunnel_down", endpoint=endpoint)
+        # No SSH user/host set up at all is "not configured"; a set-up tunnel that is closed stays "tunnel_down".
+        return _blank(spec["id"], "pc", spec["role"], spec["label"], observed, health="not_measured",
+                      reason="not_configured" if unconfigured else "tunnel_down", endpoint=endpoint)
     if spec["role"] == "router":
         return _read_router(spec, target["base"], fetch, observed, endpoint)
     node = _read_llama(spec, target["base"], fetch, rates, now, observed, endpoint)
@@ -476,7 +477,9 @@ def collect_map(host, *, fetch=None, rates=None, now=None, targets=None, veritas
             studio = pool.submit(_read_lmstudio, fetch, observed) if lmstudio is None else None
             veritas = pool.submit(_read_veritas, fetch, observed,
                                   os.environ.get("VERITAS_REVIEWER_URL") if veritas_url is None else veritas_url)
-        pc_reads = [pool.submit(_read_pc, item, fetch, rates, now, observed) for item in pc_targets]
+        unconfigured = host == "mac" and isinstance(tunnel, dict) and tunnel.get("reason") == "host_unconfigured"
+        pc_reads = [pool.submit(_read_pc, item, fetch, rates, now, observed, unconfigured=unconfigured)
+                    for item in pc_targets]
         mac_children = (_mac_absent(observed) if host == "pc" else
                         [studio.result() if studio is not None else lmstudio, veritas.result()])
         pc_children = [read.result() for read in pc_reads]
