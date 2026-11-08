@@ -1,6 +1,6 @@
 # Advanced configuration
 
-Optional routing, recovery and memory controls require separately configured components. Start with the [release installation guide](../README.md#first-run).
+Optional routing, recovery and memory controls require separately configured components. Start with the [release installation guide](../README.md#install-and-first-run).
 
 ## Resident model budget
 

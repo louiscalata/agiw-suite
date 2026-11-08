@@ -209,14 +209,14 @@ class Fix5(unittest.TestCase):
 
 
 class Fix5Docs(unittest.TestCase):
-    def test_9_readme_windows_source_and_pairing_order(self):
-        text = (ROOT / "README.md").read_text(encoding="utf-8").split("## Command-line connection tool", 1)[1]
-        text = text.split("## Development", 1)[0]
-        self.assertIn("over the IPv4 LAN", text)
+    def test_9_cli_guide_windows_source_and_pairing_order(self):
+        text = (ROOT / "docs" / "cli.md").read_text(encoding="utf-8")
+        self.assertIn("IPv4 LAN", text)
         self.assertIn('--status-file "<observer folder>\\state\\peer-link-status.json"', text)
         self.assertIn("--lmstudio", text)
-        self.assertLess(text.index("agiw peers"), text.index("agiw pair <name>"))
-        self.assertIn("agiw accept", text)
+        steps = text.split("3. **Pair.**", 1)[1]
+        self.assertLess(steps.index("agiw peers"), steps.index("agiw pair studio-pc"))
+        self.assertLess(steps.index("agiw pair studio-pc"), steps.index("agiw accept"))
 
     def test_11_cli_guide_records_current_sources_tests_and_service_limits(self):
         text = (ROOT / "docs" / "cli.md").read_text(encoding="utf-8")
