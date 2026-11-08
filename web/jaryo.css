@@ -832,11 +832,13 @@ body.jaryo-app #runtimeSidebar #modelScopeControls > button:last-child { border-
 body.jaryo-app #runtimeSidebar .view-tabs button::after { content: none; }
 /* Hover is an underline, for a pointer only (docs: state without colour); the selected option needs none. */
 @media (hover: hover) {
+  body.jaryo-app .j-tab:hover,
   body.jaryo-app #runtimeSidebar .view-tabs button:hover,
   body.jaryo-app #runtimeSidebar #modelScopeControls > button:hover {
     background: transparent;
     text-decoration: underline;
   }
+  body.jaryo-app .j-tab[aria-selected="true"]:hover,
   body.jaryo-app #runtimeSidebar .view-tabs button[aria-pressed="true"]:hover,
   body.jaryo-app #runtimeSidebar #modelScopeControls > button[aria-pressed="true"]:hover {
     background: var(--j-invert);
@@ -851,6 +853,50 @@ body.jaryo-app #runtimeSidebar #modelScopeControls > button[aria-pressed="true"]
 }
 /* No focus rule of its own: the dashed 3 px ring every Jaryo button gets (`body.jaryo-app button:focus-visible`) applies, outside the
    control, so it is visible on the inverted option as well. A second ring here would be a second tab look. */
+/* Focus on a tab-like control is drawn INSIDE it. The monitor tab strip scrolls (overflow-y: auto) and its tabs sit flush with its edges, so the
+   shared outer ring is clipped top and bottom there; and between two options an outer ring lands on the neighbour, where it is the same
+   colour as the inverted fill and vanishes. Inside, it is never clipped, and on the selected option it takes the ink colour. */
+body.jaryo-app .j-tab:focus-visible,
+body.jaryo-app #runtimeSidebar .view-tabs button:focus-visible,
+body.jaryo-app #runtimeSidebar #modelScopeControls > button:focus-visible {
+  outline: 3px dashed var(--j-focus);
+  outline-offset: -4px;
+}
+body.jaryo-app .j-tab[aria-selected="true"]:focus-visible,
+body.jaryo-app #runtimeSidebar .view-tabs button[aria-pressed="true"]:focus-visible,
+body.jaryo-app #runtimeSidebar #modelScopeControls > button[aria-pressed="true"]:focus-visible {
+  outline-color: var(--j-invert-ink);
+}
+
+/* A pressed or expanded toggle is inverted, like a selected tab (the two-colour rule: state is shape, never a grey or a colour). These showed
+   no change at all, or a hard-coded #202020 grey (Fix inference), and several were under the 44 px target. */
+body.jaryo-app .tools #pause[aria-pressed="true"],
+body.jaryo-app .tools .fix-tab[aria-expanded="true"],
+body.jaryo-app .vital[aria-expanded="true"],
+body.jaryo-app .map-controls .legend-toggle[aria-expanded="true"],
+body.jaryo-app .map-controls .about-compact[aria-expanded="true"] {
+  background: var(--j-invert);
+  color: var(--j-invert-ink);
+  border-color: var(--j-border);
+}
+body.jaryo-app .tools .fix-tab:hover:not([aria-expanded="true"]) {
+  background: var(--j-bg);
+  text-decoration: underline;
+}
+body.jaryo-app .tools .mode-tab,
+body.jaryo-app .tools .fix-tab,
+body.jaryo-app .tools .pc-switch,
+body.jaryo-app .tools #pause,
+body.jaryo-app .tools #expand,
+body.jaryo-app .tools #quit,
+body.jaryo-app .vital {
+  min-height: 44px;
+}
+body.jaryo-app .tools #pause,
+body.jaryo-app .tools #expand,
+body.jaryo-app .tools #quit {
+  min-width: 44px;
+}
 body.jaryo-app #autoUnloadToggle,
 body.jaryo-app #runtimeSidebar .search-label {
   background: var(--j-bg);
@@ -888,6 +934,32 @@ body.jaryo-app .j-setup-evidence { margin: .4rem 0 0; }
 body.jaryo-app .j-setup-next { margin: .4rem 0 0; font-weight: 600; }
 body.jaryo-app .j-setup-next a { color: var(--j-text); text-decoration: underline; }
 
+/* Two-colour and square-corner stragglers. A palette audit of every page in both themes (computed colours, shadows and radii of every visible element)
+   found only these: the Components page kept blue-grey borders and pale text from components.css (unreadable on white in the light theme) and an
+   8px rounded command box, and several toolbar controls kept a 2px or 9px radius from style.css. Everything else was already black, white and square.
+   The round status dots (the Check readiness dot and the vitals' ● and ○) are NOT squared: their shape is the state. */
+body.jaryo-app dl,
+body.jaryo-app details { border-color: var(--j-border); }
+body.jaryo-app #result,
+body.jaryo-app footer { color: var(--j-text); }
+body.jaryo-app pre#command {
+  color: var(--j-text);
+  background: var(--j-bg);
+  border: 1px solid var(--j-border);
+  border-radius: 0;
+}
+body.jaryo-app .tools .mode-tab,
+body.jaryo-app .tools .fix-tab,
+body.jaryo-app .tools .pc-switch,
+body.jaryo-app .tools .pc-switch-track,
+body.jaryo-app .tools .pc-switch-track i,
+body.jaryo-app .tools #pause,
+body.jaryo-app .tools #expand,
+body.jaryo-app .tools #quit,
+body.jaryo-app .auto-unload-control,
+body.jaryo-app #autoUnloadToggle,
+body.jaryo-app .map-controls,
+body.jaryo-app #memoryBanner { border-radius: 0; }
 /* Windows High Contrast (forced colours). The browser replaces author backgrounds and text colours with the user's palette, so an inverted
    fill no longer differs from an unselected option and the selected tab looks like the others (reported by four independent model reviews).
    A selected option takes the palette's own selection colours instead, and keeps them (forced-color-adjust: none) so it is still the one
@@ -897,7 +969,12 @@ body.jaryo-app .j-setup-next a { color: var(--j-text); text-decoration: underlin
   body.jaryo-app .j-selected,
   body.jaryo-app .j-tab[aria-selected="true"],
   body.jaryo-app #runtimeSidebar .view-tabs button[aria-pressed="true"],
-  body.jaryo-app #runtimeSidebar #modelScopeControls > button[aria-pressed="true"] {
+  body.jaryo-app #runtimeSidebar #modelScopeControls > button[aria-pressed="true"],
+  body.jaryo-app .tools #pause[aria-pressed="true"],
+  body.jaryo-app .tools .fix-tab[aria-expanded="true"],
+  body.jaryo-app .vital[aria-expanded="true"],
+  body.jaryo-app .map-controls .legend-toggle[aria-expanded="true"],
+  body.jaryo-app .map-controls .about-compact[aria-expanded="true"] {
     forced-color-adjust: none;
     background: Highlight;
     color: HighlightText;

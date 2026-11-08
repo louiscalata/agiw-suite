@@ -16,12 +16,12 @@ test('selected options take the palette selection colours in forced-colours mode
 });
 
 test('every selected selector the normal theme inverts is also covered here', () => {
-  // The normal rule that inverts these (so this test fails if someone adds a new inverted selection and forgets High Contrast).
-  const normal = css.slice(0, at === -1 ? css.length : at);
-  const inverted = [...normal.matchAll(/([^{}]*aria-(?:selected|pressed)="true"\][^{}]*)\{[^}]*background:\s*var\(--j-invert\)/g)]
+  // The normal rules that invert a selection (so this test fails if someone adds a new inverted selection and forgets High Contrast).
+  const normal = css.slice(0, at === -1 ? css.length : at).replace(/\/\*[\s\S]*?\*\//g, '');
+  const inverted = [...normal.matchAll(/([^{}]*(?:aria-(?:selected|pressed|expanded)="true"\]|\.selected\b|\.j-selected\b)[^{}]*)\{[^}]*background:\s*var\(--j-invert\)/g)]
     .flatMap(m => m[1].split(',').map(s => s.trim()))
-    .filter(s => !s.includes(':hover') && !s.includes(':focus') && !s.includes('.tools') && !s.includes('.vital') && !s.includes('.map-controls'));
-  assert.ok(inverted.length >= 3, 'found the inverted selections');
+    .filter(s => s && !s.includes(':hover') && !s.includes(':focus'));
+  assert.ok(inverted.length >= 8, `found the inverted selections (${inverted.length})`);
   for (const selector of inverted) {
     const tail = selector.replace(/^body\.jaryo-app\s*/, '');
     assert.ok(block.includes(tail), `${selector} must be covered for forced colours`);
