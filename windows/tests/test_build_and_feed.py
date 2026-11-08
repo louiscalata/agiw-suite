@@ -235,12 +235,13 @@ class Installer(unittest.TestCase):
             self.assertTrue((REPO / "jaryo" / name).is_file(), name)
 
     def test_the_app_icon_is_installed_and_is_the_sign_in_shortcuts_icon(self):
-        icon = "brand\\windows\\agiw.ico"
-        root = next(names for names in self.install_lists() if "peer_link.py" in names)
-        self.assertIn(icon, root, "the icon must be in the installed file list")
-        self.assertIn("$shortcut.IconLocation = '{0},0' -f (Join-Path $Destination 'brand\\windows\\agiw.ico')", INSTALLER)
+        # At the install root: the installer's directory guard creates one new directory level at a time, and the
+        # first native Windows run showed that a nested brand\\windows folder made 18 installer tests fail.
+        self.assertIn("$files.Add(@((Join-Path $repo 'brand\\windows\\agiw.ico'), 'agiw.ico'))", INSTALLER)
+        self.assertNotRegex(INSTALLER, r"foreach \(\$file in [^)]*brand")
+        self.assertIn("$shortcut.IconLocation = '{0},0' -f (Join-Path $Destination 'agiw.ico')", INSTALLER)
         monitor = (WINDOWS / "agiw-monitor.ps1").read_text(encoding="utf-8")
-        self.assertIn("$link.IconLocation = '{0},0' -f (Join-Path $Root 'brand\\windows\\agiw.ico')", monitor)
+        self.assertIn("$link.IconLocation = '{0},0' -f (Join-Path $Root 'agiw.ico')", monitor)
         data = (REPO / "brand" / "windows" / "agiw.ico").read_bytes()
         self.assertEqual(data[:4], b"\x00\x00\x01\x00", "an ICO header")
         self.assertGreaterEqual(int.from_bytes(data[4:6], "little"), 1)
@@ -346,7 +347,8 @@ class InstallerOnWindows(unittest.TestCase):
                          "marks/d5-signal.svg", "marks/favicon.svg")]
             sources += [(REPO / name, Path(name)) for name in
                         ("usage-format.mjs", "client_models.py", "peer_link.py", "peer_feed.py", "machine_state.py",
-                         "inference_stats.py", "inference_collect.py", "LICENSE", "NOTICE", "brand/windows/agiw.ico")]
+                         "inference_stats.py", "inference_collect.py", "LICENSE", "NOTICE")]
+            sources += [(REPO / "brand" / "windows" / "agiw.ico", Path("agiw.ico"))]
             for source, relative in sources:
                 with self.subTest(installed=str(relative)):
                     self.assertEqual((destination / relative).read_bytes(), source.read_bytes())

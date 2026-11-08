@@ -29,7 +29,7 @@ says so, rather than moving to another address.
 Tray icon: one black-and-white AGIW mark per state, and the state is a shape, never a colour: **plain** both lanes confirmed idle · **inverted** a lane is
 working · **framed** a lane does not answer, is loading, serves the wrong model, or memory is tight · **dashed** starting, stale, or activity unconfirmed.
 The tray text says the same in words. Right-click for *Restart observer*, *Start at sign-in* and *Open log folder*. The sign-in shortcut carries the
-AGIW app icon (`brand\windows\agiw.ico`, installed with the other files).
+AGIW app icon (`agiw.ico` in the install folder).
 
 One-shot check without the tray:
 
