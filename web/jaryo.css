@@ -933,3 +933,30 @@ body.jaryo-app .j-setup-title { margin: 0 0 .4rem; font-size: 1.15rem; font-weig
 body.jaryo-app .j-setup-evidence { margin: .4rem 0 0; }
 body.jaryo-app .j-setup-next { margin: .4rem 0 0; font-weight: 600; }
 body.jaryo-app .j-setup-next a { color: var(--j-text); text-decoration: underline; }
+
+/* Two-colour and square-corner stragglers. A palette audit of every page in both themes (computed colours, shadows and radii of every visible element)
+   found only these: the Components page kept blue-grey borders and pale text from components.css (unreadable on white in the light theme) and an
+   8px rounded command box, and several toolbar controls kept a 2px or 9px radius from style.css. Everything else was already black, white and square.
+   The round status dots (the Check readiness dot and the vitals' ● and ○) are NOT squared: their shape is the state. */
+body.jaryo-app dl,
+body.jaryo-app details { border-color: var(--j-border); }
+body.jaryo-app #result,
+body.jaryo-app footer { color: var(--j-text); }
+body.jaryo-app pre#command {
+  color: var(--j-text);
+  background: var(--j-bg);
+  border: 1px solid var(--j-border);
+  border-radius: 0;
+}
+body.jaryo-app .tools .mode-tab,
+body.jaryo-app .tools .fix-tab,
+body.jaryo-app .tools .pc-switch,
+body.jaryo-app .tools .pc-switch-track,
+body.jaryo-app .tools .pc-switch-track i,
+body.jaryo-app .tools #pause,
+body.jaryo-app .tools #expand,
+body.jaryo-app .tools #quit,
+body.jaryo-app .auto-unload-control,
+body.jaryo-app #autoUnloadToggle,
+body.jaryo-app .map-controls,
+body.jaryo-app #memoryBanner { border-radius: 0; }
