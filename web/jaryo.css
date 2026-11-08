@@ -791,8 +791,67 @@ body.jaryo-app .pc-switch-track { background: var(--j-bg); border-color: var(--j
 body.jaryo-app .pc-switch-track > i { background: var(--j-text); }
 body.jaryo-app #runtimeSidebar .eyebrow,
 body.jaryo-app #runtimeSidebar .view-tabs button { color: var(--j-text); }
+/* One tab look for every switch between views. The monitor tabs (.j-tab), Models / Call traces (.view-tabs) and
+   Core 6 / All discovered (#modelScopeControls) used three different faces, sizes and heights, and the last two
+   showed no selected state at all. All three are now the same control: monospace, 44 px, one rule between
+   options, the selected option inverted. Selection is `aria-pressed` here (they switch a list, they do not own a panel),
+   so the inverted fill, not colour, carries it. */
+body.jaryo-app #runtimeSidebar .view-tabs,
+body.jaryo-app #runtimeSidebar #modelScopeControls {
+  display: flex;
+  gap: 0;
+  margin: 0 0 12px;
+  padding: 0;
+  border: 1px solid var(--j-border);
+  border-radius: 0;
+  background: transparent;
+}
+body.jaryo-app #runtimeSidebar .view-tabs button,
+body.jaryo-app #runtimeSidebar #modelScopeControls > button {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 8px 12px;
+  border: 0;
+  border-right: 1px solid var(--j-border);
+  border-radius: 0;
+  background: transparent;
+  color: var(--j-text);
+  font: 12px/1.2 var(--j-font);
+  letter-spacing: normal;
+  text-align: center;
+  overflow-wrap: anywhere;
+  box-shadow: none;
+}
+body.jaryo-app #runtimeSidebar .view-tabs button:last-child,
+body.jaryo-app #runtimeSidebar #modelScopeControls > button:last-child { border-right: 0; }
+body.jaryo-app #runtimeSidebar .view-tabs button::after { content: none; }
+/* Hover is an underline, for a pointer only (docs: state without colour); the selected option needs none. */
+@media (hover: hover) {
+  body.jaryo-app #runtimeSidebar .view-tabs button:hover,
+  body.jaryo-app #runtimeSidebar #modelScopeControls > button:hover {
+    background: transparent;
+    text-decoration: underline;
+  }
+  body.jaryo-app #runtimeSidebar .view-tabs button[aria-pressed="true"]:hover,
+  body.jaryo-app #runtimeSidebar #modelScopeControls > button[aria-pressed="true"]:hover {
+    background: var(--j-invert);
+    text-decoration: none;
+  }
+}
+body.jaryo-app #runtimeSidebar .view-tabs button[aria-pressed="true"],
+body.jaryo-app #runtimeSidebar #modelScopeControls > button[aria-pressed="true"] {
+  background: var(--j-invert);
+  color: var(--j-invert-ink);
+  box-shadow: none;
+}
+/* No focus rule of its own: the dashed 3 px ring every Jaryo button gets (`body.jaryo-app button:focus-visible`) applies, outside the
+   control, so it is visible on the inverted option as well. A second ring here would be a second tab look. */
 body.jaryo-app #autoUnloadToggle,
-body.jaryo-app #modelScopeControls > button,
 body.jaryo-app #runtimeSidebar .search-label {
   background: var(--j-bg);
   color: var(--j-text);
