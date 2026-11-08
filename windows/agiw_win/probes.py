@@ -38,6 +38,9 @@ MAX_SLOTS = 32
 QUEUE_MAX_ENTRIES = 1000
 STALE_CLAIM_SECONDS = 900.0
 STALE_PENDING_SECONDS = 86400.0
+# A fresh file's mtime can read a few ms ahead of time.time() (NTFS timestamps are coarser than the clock), so a small
+# lead is not a future-dated entry.
+QUEUE_FUTURE_SKEW = 2.0
 SLOTS_TIMEOUT = 4.0
 
 DEFAULT_SHARE_ROOT = Path(r"C:\SharedChami")
@@ -799,8 +802,9 @@ def route_queue(root: Path, now: float | None = None) -> tuple[dict[str, Any], d
                             break
                         total += 1
                         age = now - entry.stat(follow_symlinks=False).st_mtime
-                        if age < 0 or not isinstance(read_json(Path(entry.path)), dict):
+                        if age < -QUEUE_FUTURE_SKEW or not isinstance(read_json(Path(entry.path)), dict):
                             raise ValueError("queue entry future-dated or malformed")
+                        age = max(age, 0.0)
                         if state == "pending":
                             oldest_pending = age if oldest_pending is None else max(oldest_pending, age)
                             if age > STALE_PENDING_SECONDS:
