@@ -189,7 +189,7 @@ foreach ($file in 'tokens.json', 'theme.mjs', 'primitives.css', 'README.md', 'ma
 # peer_link.py is the LAN pairing service (agiw-peer/2), shipped by Louis's decision of 2026-10-17. Installing it
 # starts nothing: it runs only when started (python peer_link.py run --status-file state\peer-link-status.json), after
 # PIN pairing and the 8768/8769 firewall rules.
-foreach ($file in 'usage-format.mjs', 'client_models.py', 'peer_link.py', 'peer_feed.py', 'machine_state.py', 'inference_stats.py', 'inference_collect.py', 'LICENSE', 'NOTICE') {
+foreach ($file in 'usage-format.mjs', 'client_models.py', 'peer_link.py', 'peer_feed.py', 'machine_state.py', 'inference_stats.py', 'inference_collect.py', 'LICENSE', 'NOTICE', 'brand\windows\agiw.ico') {
     $files.Add(@((Join-Path $repo $file), $file))
 }
 
@@ -367,6 +367,8 @@ try {
         $shortcut.TargetPath = $wscript
         $shortcut.Arguments = $expectedArguments
         $shortcut.WorkingDirectory = $Destination
+        # The AGIW app icon, not wscript.exe's default; it is installed with the other files above.
+        $shortcut.IconLocation = '{0},0' -f (Join-Path $Destination 'brand\windows\agiw.ico')
         $shortcut.Save()
         if (-not (Test-Path -LiteralPath $stagedLink)) { throw 'Sign-in shortcut staging failed.' }
     }

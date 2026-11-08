@@ -94,7 +94,7 @@ def main() -> None:
     for name in quoted[2]:
         windows_rows.append((f"jaryo/{name.replace(chr(92), '/')}", f"jaryo/{name.replace(chr(92), '/')}"))
     for name in quoted[3]:
-        windows_rows.append((name, name))
+        windows_rows.append((name.replace(chr(92), '/'), name.replace(chr(92), '/')))
     windows_rows.append(("windows/install.ps1", "windows/install.ps1"))
     for path in sorted((ROOT / "windows" / "tests").rglob("*")):
         if path.is_file() and not path.is_symlink() and "__pycache__" not in path.parts:

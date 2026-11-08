@@ -270,6 +270,31 @@ class EndToEnd(unittest.TestCase):
         self.assertEqual(self.get("/etc/passwd")[0], 404)
         self.assertEqual(json.loads(self.get("/api/models/control")[1])["supported"], False)
 
+    def test_every_page_and_asset_route_serves_its_file(self):
+        """Every route in ASSETS and JARYO_FILES answers 200 with the bytes on disk; nothing else leaks."""
+        from agiw_win.server import ASSETS, JARYO_FILES
+        repo = Path(__file__).resolve().parents[2]
+        for route, (name, kind) in ASSETS.items():
+            with self.subTest(route=route):
+                status, body, response = self.get(route)
+                self.assertEqual(status, 200)
+                self.assertEqual(body, (repo / "web" / name).read_bytes())
+                self.assertEqual(response.getheader("Content-Type"), kind)
+                self.assertIn("default-src 'none'", response.getheader("Content-Security-Policy"))
+        for route, (name, kind) in JARYO_FILES.items():
+            with self.subTest(route=route):
+                status, body, response = self.get(route)
+                self.assertEqual(status, 200)
+                self.assertEqual(body, (repo / "jaryo" / name).read_bytes())
+                self.assertEqual(response.getheader("Content-Type"), kind)
+        for page in ("/setup", "/machines", "/components", "/identity", "/monitor"):
+            self.assertIn(b"<html", self.get(page)[1].lower(), page)
+        for path in ("/jaryo/../server.py", "/jaryo/marks/../../server.py", "/jaryo/nope.css", "/web/index.html", "/index.html", "/brand/windows/agiw.ico"):
+            self.assertEqual(self.get(path)[0], 404, path)
+        # The Mac app's component routes are not part of this edition and say so.
+        self.assertEqual(self.get("/api/components")[0], 501)
+        self.assertEqual(self.get("/api/components/jev")[0], 501)
+
     def test_stream_delivers_snapshot(self):
         stop = threading.Event()
         threading.Thread(target=sample, args=(self.store, self.collector, stop, 0.2), daemon=True).start()
