@@ -9,6 +9,8 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from agiw_win import probes  # noqa: E402
 from agiw_win.collect import Collector  # noqa: E402
+sys.path.append(str(Path(__file__).resolve().parents[2]))  # the shared root modules, as the installed layout has them
+import machine_state  # noqa: E402
 
 NOW = 2_000_000_000.0
 UP_LANES = [{"id": "fast", "status": "idle"}, {"id": "deep", "status": "busy"}]
@@ -21,8 +23,8 @@ def record(host, platform, age=2.0, health="ok", models=None, relayed=None, sour
             "observedUnix": NOW - age, "relayedBy": relayed, "verified": False}
 
 
-def rows(peers=(), mac_name="target-mac.local", lanes=UP_LANES, hands=None, paired=None):
-    return probes.machine_rows(host="test-pc", sampled_at=NOW, lanes=lanes, hands=hands, version="0.2.0",
+def rows(peers=(), mac_name="target-mac.local", lanes=UP_LANES, hands=None, paired=None, sampled=NOW):
+    return probes.machine_rows(host="test-pc", sampled_at=sampled, lanes=lanes, hands=hands, version="0.2.0",
                                peers=list(peers), mac_name=mac_name, paired=paired)
 
 
@@ -30,7 +32,7 @@ class MachineRows(unittest.TestCase):
     def test_expected_machines_are_this_pc_and_the_mac(self):
         out = rows()
         self.assertEqual([(r["platform"], r["role"]) for r in out],
-                         [("windows", "this-machine"), ("macos", "peer")])
+                         [("windows", "this-machine"), ("mac", "peer")])  # the shared schema says "mac"
         self.assertEqual([(r["state"], r["reason"]) for r in out],
                          [("up", "serving"), ("unknown", "no-report")])
         self.assertEqual(out[1]["name"], "target-mac.local")
@@ -76,7 +78,7 @@ class MachineRows(unittest.TestCase):
     def test_unsigned_linux_relay_does_not_become_a_machine(self):
         for age in (6.5, 31.0):
             out = rows([record("linux-node-1", "linux", age=age, relayed="mac")])
-            self.assertEqual([row["platform"] for row in out], ["windows", "macos"])
+            self.assertEqual([row["platform"] for row in out], ["windows", "mac"])
             self.assertTrue(all(row.get("relayedBy") is None for row in out))
             self.assertIsNone(out[1]["loadedCount"])
 
@@ -96,6 +98,146 @@ class MachineRows(unittest.TestCase):
     def test_rows_are_json_safe(self):
         out = rows([record("target-mac", "macos"), record("linux-node-1", "linux", relayed="mac")], hands={"active": None})
         json.dumps(out, allow_nan=False)
+
+
+class SharedRowSchema(unittest.TestCase):
+    """machines[] rows also speak the shared (Mac) row schema that the shared pages read."""
+    SHARED = {"id", "host", "platform", "state", "reasonCode", "trust", "observedAt", "ageSeconds", "freshForSeconds",
+              "modelsComplete", "loadedCount", "busyCount", "promptTokensPerSecond", "generationTokensPerSecond",
+              "handsOff"}
+
+    def check(self, row):
+        self.assertLessEqual(self.SHARED, set(row), sorted(self.SHARED - set(row)))
+        self.assertIn(row["platform"], ("windows", "mac"))
+        if row["state"] == "up":
+            self.assertIn(row["reasonCode"], ("observed", "reported_degraded"))
+        elif row["state"] == "down":
+            self.assertEqual(row["reasonCode"], "reported_down")
+        else:
+            self.assertIn(row["reasonCode"], machine_state.UNKNOWN_REASONS)
+        self.assertEqual(row["freshForSeconds"], 3.0 if row["role"] == "this-machine" else 30.0)
+        if row["state"] != "up":
+            self.assertEqual((row["loadedCount"], row["busyCount"], row["modelsComplete"]), (None, None, False))
+        for key in ("promptTokensPerSecond", "generationTokensPerSecond"):
+            self.assertIsNone(row[key])
+        for key in ("loadedCount", "busyCount"):
+            self.assertTrue(row[key] is None or (type(row[key]) is int and row[key] >= 0), (key, row[key]))
+        # A count is claimed only with a complete list; never a complete list without a count.
+        self.assertEqual(row["modelsComplete"], row["loadedCount"] is not None)
+        if row["busyCount"] is not None:
+            self.assertIsNotNone(row["loadedCount"])
+        if row["state"] != "unknown":
+            self.assertIsInstance(row["observedAt"], str)  # a live row must be able to age
+
+    def test_every_row_kind_carries_the_shared_fields(self):
+        for peers in ([], [record("target-mac", "macos")], [record("target-mac", "macos", age=60.0)],
+                      [record("target-mac", "macos", health="down")], [record("target-mac", "macos", health="degraded")],
+                      [record("other-pc", "windows"), record("target-mac", "macos")],
+                      [record("target-mac", "macos", complete=False)]):
+            for mac_name in ("target-mac.local", None):
+                for lanes in (UP_LANES, [], [{"id": "fast", "status": "down"}], [{"id": "f", "status": "slots_unknown"}]):
+                    with self.subTest(peers=len(peers), mac=mac_name, lanes=len(lanes)):
+                        for row in rows(peers, mac_name=mac_name, lanes=lanes):
+                            self.check(row)
+
+    def test_the_degraded_pc_is_up_but_not_plain_observed(self):
+        degraded = rows(lanes=[{"id": "fast", "status": "idle"}, {"id": "deep", "status": "loading"}])[0]
+        self.assertEqual((degraded["state"], degraded["reason"], degraded["reasonCode"]),
+                         ("up", "partly-serving", "reported_degraded"))
+        peer = rows([record("target-mac", "macos", health="degraded")])[1]
+        self.assertEqual((peer["state"], peer["reasonCode"]), ("up", "reported_degraded"))
+
+    def test_counts_follow_what_is_known(self):
+        pc = rows()[0]  # one idle lane and one busy lane, both answering
+        self.assertEqual((pc["loadedCount"], pc["busyCount"], pc["modelsComplete"]), (2, 1, True))
+        slots_unknown = rows(lanes=[{"id": "fast", "status": "idle"}, {"id": "deep", "status": "slots_unknown"}])[0]
+        self.assertEqual((slots_unknown["loadedCount"], slots_unknown["busyCount"], slots_unknown["modelsComplete"]),
+                         (2, None, True))
+        down = rows(lanes=[{"id": "fast", "status": "idle"}, {"id": "deep", "status": "down"}])[0]
+        self.assertEqual((down["loadedCount"], down["busyCount"], down["modelsComplete"]), (None, None, False))
+        mac = rows([record("target-mac", "macos", models=[
+            {"id": "a", "loadedState": "loaded", "activity": "generating"},
+            {"id": "b", "loadedState": "loaded", "activity": "idle"},
+            {"id": "c", "loadedState": "inactive", "activity": "unknown"}])])[1]
+        self.assertEqual((mac["loadedCount"], mac["busyCount"], mac["modelsComplete"]), (2, 1, True))
+        unknown_activity = rows([record("target-mac", "macos", models=[
+            {"id": "a", "loadedState": "loaded", "activity": "unknown"}])])[1]
+        self.assertEqual((unknown_activity["loadedCount"], unknown_activity["busyCount"]), (1, None))
+
+    def test_every_reason_word_the_pc_can_emit_has_a_code(self):
+        words = {reason for _, reason in probes.MACHINE_REASONS.values()}
+        words |= {"health-unknown", "reported-service-unknown", "stale", "no-report", "unconfigured", "config-unreadable",
+                  "clock-ahead", "report-refused", "peers-unreadable", "report-unreadable", "scan-truncated"}
+        for word in sorted(words):
+            with self.subTest(reason=word):
+                self.assertIn(word, probes.MACHINE_REASON_CODES)
+                code = probes.MACHINE_REASON_CODES[word]
+                self.assertTrue(code in machine_state.UNKNOWN_REASONS or code in (
+                    "observed", "reported_degraded", "reported_down"), code)
+
+    def test_a_demoted_row_does_not_keep_saying_observed(self):
+        snapshot = {"sources": [{"id": "lane-inventory", "state": "unavailable"},
+                                {"id": "agiw-peers", "state": "unavailable"}],
+                    "machines": rows([record("target-mac", "macos")]), "lanes": [], "models": [], "handsOff": {"active": True}}
+        out = probes.enforce_snapshot_evidence(snapshot)["machines"]
+        for row in out:
+            self.assertEqual((row["state"], row["reason"], row["reasonCode"]), ("unknown", "evidence-incomplete", "unavailable"))
+            self.assertEqual((row["loadedCount"], row["busyCount"], row["modelsComplete"]), (None, None, False))
+            self.assertIsNone(row["promptTokensPerSecond"])
+        self.assertIsNone(out[1]["handsOff"])
+
+    def test_the_pcs_own_row_goes_unknown_after_three_seconds_without_a_sample(self):
+        out = rows([record("target-mac", "macos")])
+        self.assertEqual(out[0]["freshForSeconds"], 3.0)
+        later = machine_state.expire_machines(json.loads(json.dumps(out)), NOW + 4.0)
+        self.assertEqual((later[0]["state"], later[0]["reasonCode"], later[0]["busyCount"]), ("unknown", "stale", None))
+        self.assertEqual(later[1]["state"], "up")  # the Mac's report still has its 30 s window
+
+    def test_the_mac_row_ages_at_read_time_like_the_macs_own(self):
+        out = rows([record("target-mac", "macos")])
+        later = NOW + 45.0  # past the 30 s window with no new sample
+        aged = machine_state.expire_machines(json.loads(json.dumps(out)), later)
+        for row in aged:
+            self.assertEqual((row["state"], row["reasonCode"]), ("unknown", "stale"), row["id"])
+            self.assertEqual((row["loadedCount"], row["busyCount"], row["modelsComplete"]), (None, None, False))
+        # Inside the window nothing changes.
+        fresh = machine_state.expire_machines(json.loads(json.dumps(out)), NOW + 2.0)
+        self.assertEqual([r["state"] for r in fresh], [r["state"] for r in out])
+
+
+class WindowsStoreAging(unittest.TestCase):
+    """The Windows store ages machines[] and activityKnown on read and stream, like the Mac store."""
+
+    def snapshot(self, sampled):
+        return {"sampledAt": sampled, "fullSampledAt": sampled, "activityKnown": True,
+                "machines": rows(sampled=sampled), "inference": None}
+
+    def store(self, sampled):
+        from agiw_win import server
+        store = server.SnapshotStore()
+        store.snapshot = self.snapshot(sampled)
+        return server, store
+
+    def test_read_ages_a_stale_sample(self):
+        import time
+        server, store = self.store(time.time() - 120.0)
+        data = store.read()
+        self.assertIs(data["activityKnown"], False)
+        self.assertTrue(all(row["state"] == "unknown" and row["reasonCode"] == "stale" for row in data["machines"][:1]))
+        self.assertEqual(data["machines"][0]["loadedCount"], None)
+        # The PC's own words agree with the aged state; they no longer say the lanes are serving.
+        local = data["machines"][0]
+        self.assertEqual((local["reason"], local["health"]), ("stale", "unknown"))
+        self.assertNotIn("answers as declared", local["detail"])
+        # The stored snapshot is not changed by reading.
+        self.assertEqual(store.snapshot["machines"][0]["state"], "up")
+
+    def test_read_keeps_a_fresh_sample(self):
+        import time
+        server, store = self.store(time.time())
+        data = store.read()
+        self.assertIs(data["activityKnown"], True)
+        self.assertEqual(data["machines"][0]["state"], "up")
 
 
 class RelayedPeers(unittest.TestCase):
@@ -151,7 +293,7 @@ class MachinesInTheSnapshot(unittest.TestCase):
             snapshot = collector.collect()
         machines = snapshot["machines"]
         self.assertEqual([(m["platform"], m["state"], m["reason"]) for m in machines],
-                         [("windows", "unknown", "lane-state-unknown"), ("macos", "up", "reported-serving")])
+                         [("windows", "unknown", "lane-state-unknown"), ("mac", "up", "reported-serving")])
         self.assertNotIn("linux", [m["platform"] for m in machines])
         self.assertIsNone(machines[1]["loadedCount"], "an empty inventory is not proof of zero loaded")
         json.dumps(snapshot, allow_nan=False, default=str)

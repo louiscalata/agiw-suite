@@ -1114,7 +1114,7 @@ class ObserverRecovery(unittest.TestCase):
         shutil.copytree(windows / "agiw_win", self.install / "agiw_win", ignore=shutil.ignore_patterns("__pycache__"))
         shutil.copy2(windows / "agiw_observer.py", self.install / "agiw_observer.py")
         repo = windows.parent
-        for name in ("inference_collect.py", "inference_stats.py"):
+        for name in ("inference_collect.py", "inference_stats.py", "machine_state.py"):
             shutil.copy2(repo / name, self.install / name)
         (self.install / "web").mkdir()
         (self.install / "web" / "index.html").write_text("<!doctype html>")
