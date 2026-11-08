@@ -171,7 +171,7 @@ known residency. A complete empty list gives zero. The CLI reads no token rates,
 | --- | --- | --- | --- |
 | `running` | The link returned a usable control snapshot. | Contract rows from that snapshot; exit 0. | Machine table; exit 0. |
 | `not_running` | Connection refused or no listener on the status port. | Two unknown rows: local `unavailable`, the other expected platform `not_observed`; exit 0. | Start-the-link message; exit 3. |
-| `unreachable` | The control exchange timed out, reset, or could not be read or decoded. | Two unknown rows: local `timeout` for a timeout, otherwise `read_error`; the other expected platform `not_observed`; exit 0. | `the peer link is running but did not answer: <short reason>`; exit 1. |
+| `unreachable` | The control exchange timed out, reset, or could not be read or decoded. | Two unknown rows: local `timeout` for a timeout, otherwise `read_error`; the other expected platform `not_observed`; exit 0. | `the peer link is running but did not answer: <short reason>`; exit 1. For `pair`, `accept` and `unpair` the line adds `; the request may or may not have taken effect; run `agiw peers` to see`, because a write with no readable answer may still have been applied. |
 
 Without a usable snapshot, `self.node` uses the detected platform as a fallback identity and `--full`
 contains an empty `documents` object. Control authentication and permission failures retain their normal
