@@ -1050,7 +1050,10 @@ def _scalar(value: Any, kind: type, limit: int = 128) -> Any:
         return value[:limit] if isinstance(value, str) and value.isprintable() else None
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
-    return value if math.isfinite(float(value)) else None
+    try:
+        return value if math.isfinite(float(value)) else None
+    except OverflowError:  # an int too large for a float, like machine_state.finite_number
+        return None
 
 
 def project_status(doc: dict) -> dict:
@@ -1087,8 +1090,9 @@ def project_status(doc: dict) -> dict:
                      if _scalar(memory.get(k), str if k == "level" else float, 16) is not None}
     if _scalar(doc.get("version"), str, 32) is not None:
         out["version"] = _scalar(doc["version"], str, 32)
-    # Route components (Nisi, Jev): known ids, a short label and state, and one age.
-    # Detail stays local: it can carry a path or an account name.
+    # Route components (Nisi, Jev): known ids, the table's own label, a short state word and one age. Detail
+    # crosses only when it is exactly the fixed sentence COMPONENTS holds for that state; any other text (a
+    # path, an account name) stays on the machine.
     components = doc.get("components") if isinstance(doc.get("components"), list) else []
     rows, seen = [], set()
     for item in components[:4]:
@@ -1362,6 +1366,10 @@ class LinkHandler(BaseHTTPRequestHandler):
                 return self._send(429)
             return self._json(200, {"ns": ns, "proof": control_server_proof(token, nc, ns)})
         if self.path == "/control/peers" and self._local_control(b""):
+            return self._json(200, link.snapshot())
+        if self.path == "/control/status" and self._local_control(b""):
+            # Only `agiw status` asks for this one: it reads this machine's own status provider, which can take
+            # up to SELF_STATUS_DEADLINE, so the monitor's short-deadline poll of /control/peers never waits on it.
             return self._json(200, link.snapshot(include_self_status=True))
         self._send(404)
 
@@ -1772,6 +1780,10 @@ class PeerLink:
         with self._lock:
             previous = getattr(self, "_self_status_worker", None)
             if previous is not None and previous.is_alive():
+                started = getattr(self, "_self_status_started", None)
+                if started is not None and time.monotonic() - started < SELF_STATUS_DEADLINE:
+                    # Another caller's read is still inside its own deadline: that is not a timeout yet.
+                    return {"error": "local status read in progress", "code": "busy"}
                 return timeout
             answer = [{"error": "local status unavailable or invalid", "code": "unavailable"}]
 
@@ -1783,6 +1795,7 @@ class PeerLink:
 
             worker = threading.Thread(target=read, daemon=True)
             self._self_status_worker = worker
+            self._self_status_started = time.monotonic()
             worker.start()
         worker.join(SELF_STATUS_DEADLINE)
         return timeout if worker.is_alive() else answer[0]

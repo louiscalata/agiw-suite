@@ -106,9 +106,10 @@ class StatusRows(unittest.TestCase):
                                 now=1700000000.0)
         states = {r.get("label", r["id"]): (r["state"], r["reasonCode"]) for r in rows}
         self.assertEqual(states["up"], ("up", "observed"))
-        self.assertEqual(states["down"], ("unknown", "unavailable"))
-        self.assertEqual(states["never"], ("unknown", "unavailable"))
-        self.assertEqual(states["stale"], ("unknown", "unavailable"))
+        # The same words the monitor shows (peer_feed): the error text does not choose them.
+        self.assertEqual(states["down"], ("unknown", "not_connected"))      # heard before, now silent
+        self.assertEqual(states["never"], ("unknown", "not_observed"))      # never heard
+        self.assertEqual(states["stale"], ("unknown", "not_connected"))
         self.assertEqual(states["connecting"], ("unknown", "not_observed"))
         self.assertNotIn("guest", states)
         up = next(r for r in rows if r["id"] == "up")

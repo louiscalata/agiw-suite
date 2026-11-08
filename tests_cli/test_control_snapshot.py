@@ -53,11 +53,10 @@ class ControlSnapshot(unittest.TestCase):
         handler._send, handler._json = mock.Mock(), mock.Mock()
         return handler
 
-    def control_handler(self):
+    def control_handler(self, path="/control/status"):
         token, nc, ns = "a" * 64, "b" * 32, pl.secrets.token_hex(16)
         self.link.current_control_token = lambda: token
         self.link._control_challenges[ns] = (nc, float("inf"), pl.control_token_id(token))
-        path = "/control/peers"
         return self.handler(path, headers={
             "X-Agiw-Control-Nonce": ns,
             "X-Agiw-Control-Proof": pl.control_client_proof(token, ns, nc, "GET", path, b""),
@@ -102,6 +101,25 @@ class ControlSnapshot(unittest.TestCase):
         self.assertNotIn("selfStatus", self.link.snapshot())
         self.link.status_provider.assert_not_called()
 
+    def test_control_peers_never_reads_the_provider_so_the_monitor_never_waits(self):
+        # The Mac monitor polls /control/peers with a 1 s budget; a slow local provider must not touch it.
+        release = threading.Event()
+        self.link.status_provider.side_effect = lambda: release.wait()
+        handler = self.control_handler("/control/peers")
+        worker = threading.Thread(target=handler.do_GET, daemon=True)
+        started = time.monotonic()
+        try:
+            worker.start()
+            worker.join(0.5)
+            self.assertFalse(worker.is_alive(), "/control/peers waited on the status provider")
+            self.assertLess(time.monotonic() - started, 0.5)
+            self.assertEqual(handler._json.call_args[0][0], 200)
+            self.assertNotIn("selfStatus", handler._json.call_args[0][1])
+            self.link.status_provider.assert_not_called()
+        finally:
+            release.set()
+            worker.join(1)
+
     def test_control_provider_failure_returns_safe_error(self):
         self.link.status_provider.side_effect = RuntimeError("private path and token")
         handler = self.control_handler()
@@ -113,6 +131,11 @@ class ControlSnapshot(unittest.TestCase):
     def test_poll_once_publishes_peers_json_without_self_status(self):
         release = threading.Event()
         self.link.status_provider.side_effect = lambda: release.wait()
+        # A plain write: the real private write goes through the Windows owner/ACL/registry checks, which
+        # this test is not about (and which must never touch real pairing state from a test).
+        plain = mock.patch.object(pl, "_write_private", side_effect=lambda p, t: Path(p).write_text(t, encoding="utf-8"))
+        plain.start()
+        self.addCleanup(plain.stop)
         with tempfile.TemporaryDirectory(prefix="agiw-m2-poll-") as folder:
             path = Path(folder) / "peers.json"
             published = []
@@ -151,7 +174,8 @@ class ControlSnapshot(unittest.TestCase):
         self.link.on_change = published.append
         poller = threading.Thread(target=self.link.poll_once, daemon=True)
         timeout = {"error": "local status timed out", "code": "timeout"}
-        with mock.patch.object(pl, "SELF_STATUS_DEADLINE", 0.05):
+        busy = {"error": "local status read in progress", "code": "busy"}
+        with mock.patch.object(pl, "SELF_STATUS_DEADLINE", 0.4):
             try:
                 started = time.monotonic()
                 request.start()
@@ -159,10 +183,10 @@ class ControlSnapshot(unittest.TestCase):
                 # A concurrent request must not launch a second blocked provider read.
                 second = self.control_handler()
                 second.do_GET()
-                self.assertEqual(second._json.call_args[0][1]["selfStatus"], timeout)
-                request.join(0.5)
+                self.assertEqual(second._json.call_args[0][1]["selfStatus"], busy)  # still inside its deadline
+                request.join(1.0)
                 self.assertFalse(request.is_alive(), "control answer exceeded the bounded wait")
-                self.assertLess(time.monotonic() - started, 0.75)
+                self.assertLess(time.monotonic() - started, 1.0)
                 self.assertEqual(handler._json.call_args[0][0], 200)
                 self.assertEqual(handler._json.call_args[0][1]["selfStatus"], timeout)
                 self.assertTrue(self.link._self_status_worker.daemon)
@@ -191,11 +215,23 @@ class ControlSnapshot(unittest.TestCase):
         self.assertEqual(self.link.status_provider.call_count, 2)
 
     def test_unauthenticated_control_never_reads_provider(self):
-        handler = self.handler("/control/peers")
-        handler.do_GET()
-        handler._send.assert_called_once_with(404)
-        handler._json.assert_not_called()
-        self.link.status_provider.assert_not_called()
+        for path in ("/control/peers", "/control/status"):
+            with self.subTest(path=path):
+                self.link.status_provider.reset_mock()
+                handler = self.handler(path)
+                handler.do_GET()
+                handler._send.assert_called_once_with(404)
+                handler._json.assert_not_called()
+                self.link.status_provider.assert_not_called()
+
+    def test_an_integer_too_large_for_a_float_is_dropped_not_a_crash(self):
+        self.document["gpus"] = [{"name": "gpu", "utilizationPercent": 10 ** 400}]
+        self.document["models"][0]["slotsTotal"] = 10 ** 400
+        answer = self.link.snapshot(include_self_status=True)["selfStatus"]
+        self.assertNotIn("error", answer)
+        self.assertEqual(answer["gpus"], [{"name": "gpu"}])
+        self.assertNotIn("slotsTotal", answer["models"][0])
+        json.dumps(answer, allow_nan=False)
 
     def test_lan_status_body_and_signature_remain_the_projected_document(self):
         peer, key, nonce, ts = "peer-node", b"k" * 32, "d" * 32, str(NOW)

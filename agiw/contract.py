@@ -1,14 +1,13 @@
 """Adapt authenticated peer-link snapshots to machine_state.machine_summary rows (what the monitor reads).
 
-The wheel deliberately ships no contracts/ directory. Keep this embedded table
-in parity with contracts/machine-status/health-words.json (checked by tests).
-Transport acceptance belongs to peer_link; health and freshness belong to the
-frozen machine_state core. Neither connection time nor receipt time is evidence
-of a new observation.
+HEALTH_WORDS below maps each producer's health words onto machine_state's vocabulary; tests_cli checks every
+cell of it. Transport acceptance belongs to peer_link; health and freshness belong to machine_state. Neither
+connection time nor receipt time is evidence of a new observation.
 """
 from __future__ import annotations
 
 import datetime as dt
+import re
 import time
 
 import machine_state
@@ -37,10 +36,20 @@ HEALTH_WORDS = {
 # The machines AGIW expects; a paired Linux peer still gets its own row, but a missing one is not invented.
 PLATFORMS = ("mac", "windows")
 REMOTE_FRESH_SECONDS = 30.0
+CONTRACT = "machine-state/1"  # the envelope's name for the row format; the help text and docs/cli.md use it too
 
 
 def _text(value, fallback):
     return value if isinstance(value, str) and value else fallback
+
+
+# Same rule as peer_feed.PEER_HOST and the Windows observer's reader (copied: peer_feed is not in the wheel).
+# A peer chooses its reported host, so it is printed only when it looks like a host name.
+_PEER_HOST = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,62}\Z")
+
+
+def _host(value, fallback):
+    return value if isinstance(value, str) and _PEER_HOST.fullmatch(value) else fallback
 
 
 def producer_table(producer):
@@ -89,7 +98,7 @@ def _report(document):
 
 def _row(node, name, platform, document, *, now, trust, reason=None):
     # Legacy status.host is a platform kind, not a machine identity.
-    host = (_text(document.get("host"), node)
+    host = (_host(document.get("host"), node)
             if document is not None and document.get("kind") == "agiw-peer" else node)
     report = None
     if document is not None:
@@ -143,15 +152,17 @@ def status_document(snapshot, *, now=None, full=False, local=None, protocol=pl.P
         platform = _platform(document) if document is not None else peer.get("host")
         reason = None
         if document is None:
-            if peer.get("error") or snapshot.get("pollError") or peer.get("state") in ("error", "connected"):
+            if peer.get("state") == "connected":
+                # Connected, but its signed status was missing or rejected.
                 reason = "unavailable"
-            elif peer.get("state") == "stale" or (peer.get("state") != "connecting"
-                                                   and peer.get("lastHello") is not None):
-                # It answered or was heard before and went silent (same rule as peer_feed).
-                reason = "not_connected"
-            else:
+            elif ("lastHello" in peer and peer["lastHello"] is None) or peer.get("state") == "connecting":
                 # Never heard, or hellos but never a status: nothing about it was ever observed.
                 reason = "not_observed"
+            else:
+                # It answered or was heard before and went silent. This is exactly peer_feed's rule, so the
+                # CLI and the monitor give the same word. A peer's last fetch error and the link's sticky
+                # pollError are diagnostics; they never pick the reason.
+                reason = "not_connected"
         machines.append(_row(peer_node, peer.get("name"), platform, document, now=now,
                              trust="authenticated", reason=reason))
         if document is not None:
@@ -160,7 +171,7 @@ def status_document(snapshot, *, now=None, full=False, local=None, protocol=pl.P
     for platform in PLATFORMS:
         if platform not in present:
             machines.append(machine_state.machine_summary(platform, platform, now=now))
-    result = {"schemaVersion": 2, "contract": "machine-state/1", "sampledAt": now,
+    result = {"schemaVersion": 2, "contract": CONTRACT, "sampledAt": now,
               "observedAt": dt.datetime.fromtimestamp(now, dt.timezone.utc).isoformat(),
               "protocol": snapshot.get("protocol", protocol),
               "linkState": "running" if running else "unreachable" if link_error else "not_running",

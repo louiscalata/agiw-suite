@@ -24,7 +24,7 @@ import peer_link as pl
 
 from agiw import __version__
 from agiw import doctor as doctor_mod
-from agiw.contract import status_document
+from agiw.contract import CONTRACT, status_document
 from agiw.redact import redact, show_path
 from agiw.service import ServiceError, ServiceManager
 from agiw.state_lock import StateLock, StateLockBusy
@@ -174,7 +174,7 @@ def cmd_peers(args, out) -> int:
 def cmd_status(args, out) -> int:
     link_error = None
     try:
-        snapshot = control(args.state_dir, args.status_port, "GET", "/control/peers")
+        snapshot = control(args.state_dir, args.status_port, "GET", "/control/status")
     except CliError as exc:
         if not args.json:
             raise
@@ -474,7 +474,7 @@ def build_parser() -> argparse.ArgumentParser:
     unpair.add_argument("name")
     peers = sub.add_parser("peers", help="discovered and paired machines")
     peers.add_argument("--json", action="store_true")
-    status = sub.add_parser("status", help="machine-status/v1 observations for local and paired machines")
+    status = sub.add_parser("status", help=f"{CONTRACT} observations for local and paired machines")
     status.add_argument("--json", action="store_true")
     status.add_argument("--full", action="store_true", help="include projected source documents with --json")
     doctor = sub.add_parser("doctor", help="read-only local checks: ports, firewall hints, folder and token privacy")

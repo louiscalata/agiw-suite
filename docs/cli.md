@@ -4,9 +4,10 @@
 announces itself, pairs with your other machines through a 6-digit PIN, and answers paired machines with a
 signed, read-only status: health and model names. It is standard-library Python 3.9+ with no dependencies, and
 it reuses the suite's `peer_link.py` (protocol `agiw-peer/2`). The host-kind default follows the current OS.
-The authenticated local control snapshot includes a validated, projected self-status read, bounded to
-one worker and 3 s; a stuck read cannot accumulate workers or block polling. Component `detail` stays
-local and is no longer sent to peers. Status `schemaVersion` must be exactly integer 1 (bool, float and
+`agiw status` reads this machine's own status through its own control route (`/control/status`), bounded to
+one worker and 3 s; a stuck read cannot accumulate workers, block polling or slow `/control/peers`, which
+the Mac monitor polls. Component `detail` leaves the machine only when it is exactly the fixed sentence for
+the component's state; any other text stays local. Status `schemaVersion` must be exactly integer 1 (bool, float and
 string values are rejected), and strict JSON parsing rejects duplicate object keys and non-finite numbers.
 Pairing, keys, signatures and the trust store are unchanged.
 
@@ -87,28 +88,30 @@ agiw accept
 | `agiw uninstall [--purge-keys [--yes]]` | Remove the service; optionally list, then delete, pairing keys. |
 
 Global options: `--state-dir` (default below) and `--status-port` (default 8768). Exit codes: 0 done,
-1 failed (including text `status` when the peer link is running but did not answer), 2 usage, and 3 text
-`status` when the peer link is not running here. `status --json` returns unknown rows and exits 0 for
-both of those control-availability cases. Exit 75 applies to a busy state-folder lock only for foreground
+1 failed (including a peer link that is running but did not answer), 2 usage (Linux is refused with 2), and
+3 the peer link is not running here. Every command that talks to the link uses them; only `status --json`
+turns the last two into unknown rows and exits 0. Exit 75 applies to a busy state-folder lock only for foreground
 `agiw serve`. The LaunchAgent and Windows task use `serve --service` and exit 0
 on a busy folder. Key deletion with `uninstall --purge-keys --yes` exits 1 when the lock is held.
 
 **Status meanings.** Each row is a `machine_state.machine_summary` row, the same shape the monitor's
-`snapshot.machines[]` uses.
+`snapshot.machines[]` uses; the envelope's `contract` value `machine-state/1` names that row format.
 `up` needs a fresh local or authenticated report with accepted `ok` or `degraded` health. `down` needs a
 fresh report that explicitly says `down`. Silence and disconnected peers are `unknown`. Freshness uses the
 document's own `observedAt`: 3 seconds for the local Mac and 30 for local Windows or any remote
 authenticated report, inclusive, with at most 2 seconds of future clock tolerance. Connection time and
 the CLI's sampling time never refresh an observation.
 
-The human table has MACHINE, PLATFORM, STATE, REASON, AGE and MODELS columns. MODELS is the contract's
+The human table has MACHINE, PLATFORM, STATE, REASON, AGE and MODELS columns. MODELS is the row's
 `loadedCount`, or `?` when unknown; AGE is elapsed seconds or `?`. Local health comes from the observer
 document in the authenticated control snapshot, rather than from the peer link answering.
-Control snapshots read local status only for `/control/peers`, in a daemon worker with a three-second deadline.
-A timeout returns `selfStatus: {"error": "local status timed out", "code": "timeout"}`. Other provider
-errors include `code: "unavailable"`. While that read is still running,
-later control requests return the same timeout error without starting another read. Polling and the
-`peers.json` snapshots it writes never read the local provider and never include `selfStatus`.
+Only `/control/status` (used by `agiw status`) reads the local provider, in a daemon worker with a
+three-second deadline. `/control/peers` (used by `agiw peers`, the pairing commands and the Mac monitor) never
+does and never includes `selfStatus`; polling and the `peers.json` snapshots it writes do not either. A timeout
+returns `selfStatus: {"error": "local status timed out", "code": "timeout"}`. Other provider errors include
+`code: "unavailable"`. While a read started by another request is still inside its deadline, a later request
+gets `{"error": "local status read in progress", "code": "busy"}` (shown as `unknown/unavailable`); after the
+deadline it gets the timeout answer, and no second read starts while one is stuck.
 
 `agiw status --json` emits this schema-2 envelope (each `machines` element is one full contract row):
 
@@ -140,10 +143,12 @@ documents used for those rows. These documents stay outside the rows; each row h
 `local`, connected signed reports have trust `authenticated`, and placeholders have trust `unverified`.
 
 Connected peers still pass through health and freshness checks. This adapter retains no previous verified
-document, so `stale` and `connecting` snapshots become `unknown/not_connected`. Offline peers heard
-before are also `not_connected`; those never heard since startup are `not_observed`. Unpaired available
-machines have no row. Read errors become `unavailable`; transport diagnostics do not replace an accepted
-document. A local `selfStatus` error with machine-readable `code: "timeout"` becomes `unknown/timeout`;
+document. A paired peer without an accepted status is `unknown`, and the reason follows the monitor's rule:
+a peer whose link state is `connected` but whose signed status was missing or rejected is `unavailable`; a
+peer never heard (no hello yet) or heard but never sent a status (`connecting`) is `not_observed`; a peer
+that answered before and went silent (`stale`, or `offline` after a hello) is `not_connected`. A peer's last
+fetch error and the link's `pollError` are diagnostics; they never choose the word. Unpaired available
+machines have no row, and transport diagnostics do not replace an accepted document. A local `selfStatus` error with machine-readable `code: "timeout"` becomes `unknown/timeout`;
 all other local provider errors become `unknown/unavailable`. Error text is not used to select the reason.
 Both keep `linkState: "running"`: the peer link answered the control request.
 
@@ -152,19 +157,20 @@ The producer selects the health vocabulary: exact `agiw-linux-observer` uses the
 table. All other producers use the CLI table. CLI/Windows `unknown` and Linux `unknown` become
 `unavailable`; an unlisted health word becomes `schema_invalid`.
 
-Compared with schema 1, silence never implies `down`, all platforms are listed, and unknown counts are
-JSON `null`. Counts require `loadedListComplete: true`, a list with every residency `loaded` or `inactive`,
-and a matching `modelsTotal` when present. A list alone establishes no count. The LM Studio provider
-does not supply completeness evidence, so its counts stay null. A complete empty list gives zero.
-The contract keeps both token-rate fields null in v1.1.
+Compared with schema 1, silence never implies `down`, the Mac and Windows rows are always listed (a paired
+Linux peer also gets its own row), and unknown counts are JSON `null`. Counts require
+`loadedListComplete: true`, a list with every residency `loaded` or `inactive`, and a matching `modelsTotal`
+when present. A list alone establishes no count. The LM Studio provider does not supply completeness
+evidence, so its counts stay null; the Windows observer's presence sets it when every lane is listed with a
+known residency. A complete empty list gives zero. The CLI reads no token rates, so both rate fields stay null.
 
 `linkState` describes the local control exchange, separately from machine health:
 
 | Value | Meaning | `status --json` | Human output |
 | --- | --- | --- | --- |
 | `running` | The link returned a usable control snapshot. | Contract rows from that snapshot; exit 0. | Machine table; exit 0. |
-| `not_running` | Connection refused, no listener, or a missing control token/state file. | Three unknown rows: local `unavailable`, other platforms `not_observed`; exit 0. | Start-the-link message; exit 3. |
-| `unreachable` | The control exchange timed out, reset, or could not be read or decoded. | Three unknown rows: local `timeout` for a timeout, otherwise `read_error`; other platforms `not_observed`; exit 0. | `the peer link is running but did not answer: <short reason>`; exit 1. |
+| `not_running` | Connection refused or no listener on the status port. | Two unknown rows: local `unavailable`, the other expected platform `not_observed`; exit 0. | Start-the-link message; exit 3. |
+| `unreachable` | The control exchange timed out, reset, or could not be read or decoded. | Two unknown rows: local `timeout` for a timeout, otherwise `read_error`; the other expected platform `not_observed`; exit 0. | `the peer link is running but did not answer: <short reason>`; exit 1. |
 
 Without a usable snapshot, `self.node` uses the detected platform as a fallback identity and `--full`
 contains an empty `documents` object. Control authentication and permission failures retain their normal
@@ -276,7 +282,8 @@ Your other machines keep their side: run `agiw unpair <this machine>` there.
 Discovery hellos (unsigned): node id, machine name, host kind and port. Signed status, to paired machines
 only, after cutting it down to an allowlist: host name, platform, health, timestamps, model ids with
 loaded/activity state, a few GPU and memory numbers when the status source provides them, and component
-id, label, state and age. Component `detail` is omitted because it can contain a path or account name.
+id, label, state and age. Component `detail` is sent only when it is exactly the fixed sentence for the
+component's state; any other text, which can contain a path or account name, is dropped.
 The allowlist does not include files, prompts, keys or path fields; allowed strings such as model ids
 and component labels are still supplied by the source and should be safe to share. `agiw doctor` prints
 your home folder as `~` and never prints keys, tokens or share paths.

@@ -26,6 +26,29 @@ def status_file(components):
 
 
 class ComponentDetailStaysLocal(unittest.TestCase):
+    """Free-text component detail stays on the machine; only a component's own fixed sentence crosses."""
+
+    def test_only_the_fixed_sentence_for_the_components_state_crosses(self):
+        label, details = dict((cid, (lab, det)) for cid, lab, det in pl.COMPONENTS)["nisi"]
+        ready, partial = details["ready"], details["partial"]
+        cases = (
+            (ready, "ready", True),                       # exactly the fixed sentence for its state
+            (ready + " " + SECRET, "ready", False),       # the fixed sentence with extra text appended
+            (partial, "ready", False),                    # another state's fixed sentence
+            (ready, "no-such-state", False),              # a state this table does not know
+            (SECRET, "ready", False),
+            (None, "ready", False),
+            (5, "ready", False),
+        )
+        for detail, state, crosses in cases:
+            with self.subTest(detail=str(detail)[:40], state=state):
+                out = pl.project_status(pl.validate_status(
+                    status_file([{"id": "nisi", "label": "x", "state": state, "detail": detail}]), "windows"))
+                row = out["components"][0]
+                self.assertEqual(row.get("detail"), detail if crosses else None)
+                self.assertEqual(row["label"], label)  # the label is the table's, never the peer's
+                self.assertNotIn(SECRET, json.dumps(out))
+
     def test_status_file_and_windows_detail_do_not_cross_the_link(self):
         # Windows pc_status keeps this detail (lanes.py:492-495); file_status serves it.
         doc = status_file([

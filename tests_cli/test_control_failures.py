@@ -26,7 +26,7 @@ class ControlFailures(unittest.TestCase):
                 mock.patch.object(cli.socket, "gethostname", return_value="test-host"), \
                 mock.patch("sys.stderr", stderr):
             code = cli.main(argv, out=lines.append)
-        request.assert_called_once_with(Path("unused"), pl.STATUS_PORT, "GET", "/control/peers", None)
+        request.assert_called_once_with(Path("unused"), pl.STATUS_PORT, "GET", "/control/status", None)
         return code, lines, stderr.getvalue()
 
     def check_failure(self, error, state, reason):

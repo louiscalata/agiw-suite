@@ -41,7 +41,16 @@ class Fix5(unittest.TestCase):
         row = next(row for row in output["machines"] if row["id"] == NODE)
         self.assertEqual((row["state"], row["reasonCode"]), ("unknown", "unavailable"))
 
-    def test_c4_envelope_names_v11_contract(self):
+    def test_the_row_format_name_is_the_same_in_code_help_and_docs(self):
+        self.assertEqual(contract.CONTRACT, "machine-state/1")
+        self.assertEqual(contract.status_document(snapshot(), now=NOW)["contract"], contract.CONTRACT)
+        subcommands = cli.build_parser()._subparsers._group_actions[0]._choices_actions
+        status_help = next(action.help for action in subcommands if action.dest == "status")
+        self.assertIn(contract.CONTRACT, status_help)
+        docs = (ROOT / "docs" / "cli.md").read_text(encoding="utf-8")
+        self.assertGreaterEqual(docs.count(contract.CONTRACT), 2)
+
+    def test_c4_envelope_names_the_row_format(self):
         self.assertEqual(contract.status_document(snapshot(), now=NOW)["contract"], "machine-state/1")
         self.assertEqual(self.cli_status(snapshot())["contract"], "machine-state/1")
 

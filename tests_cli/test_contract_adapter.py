@@ -99,17 +99,72 @@ class ContractAdapter(unittest.TestCase):
         self.assertIsNone(row["observedAt"])
         self.assertNotIn(NODE, self.adapt(source, full=True)["documents"])
 
-    def test_peer_errors_and_poll_errors_fail_unavailable(self):
-        for state in ("connected", "stale", "connecting", "offline"):
+    def test_reason_follows_the_monitor_rule_whatever_the_error_text_says(self):
+        # peer_feed.from_peer_link_hosts picks the word from the peer's state and lastHello only. A peer's last
+        # fetch error and the link's sticky pollError are diagnostics: they never change the word.
+        for state, last_hello, expected in (("connected", NOW, "unavailable"),  # connected, status rejected
+                                            ("stale", NOW, "not_connected"),
+                                            ("offline", NOW, "not_connected"),   # heard before, now silent
+                                            ("offline", None, "not_observed"),   # never heard
+                                            ("connecting", NOW, "not_observed")):  # hellos, no status yet
             for fields in ({"error": "read failed"}, {"error": None}):
-                source = snapshot([peer(None, state, **fields)], pollError="poll failed")
-                with self.subTest(state=state, fields=fields):
-                    row = self.row(source)
-                    self.assertEqual((row["state"], row["reasonCode"]), ("unknown", "unavailable"))
+                for poll_error in (None, "poll failed"):
+                    source = snapshot([peer(None, state, lastHello=last_hello, **fields)], pollError=poll_error)
+                    with self.subTest(state=state, lastHello=last_hello, fields=fields, pollError=poll_error):
+                        row = self.row(source)
+                        self.assertEqual((row["state"], row["reasonCode"]), ("unknown", expected))
         for bad in (None, {"error": "provider failed"}, [], "bad"):
             with self.subTest(status=bad):
                 row = self.row(snapshot([peer(bad)]))
                 self.assertEqual(row["reasonCode"], "unavailable")
+
+    def test_a_peer_chosen_host_is_printed_only_when_it_looks_like_a_host_name(self):
+        for host, expected in (("example-pc.test", "example-pc.test"), ("pc_1", "pc_1"),
+                               ("/Users/someone/secret", NODE), ("x" * 64, NODE), ("a b", NODE),
+                               ("\x1b[31mred", NODE), ("", NODE), (7, NODE)):
+            with self.subTest(host=str(host)[:30]):
+                row = self.row(snapshot([peer(document(host=host))]))
+                self.assertEqual(row["host"], expected)
+
+    def test_a_status_with_an_oversized_number_does_not_crash_any_mode(self):
+        doc = document(models=[{"id": "m", "loadedState": "loaded", "slotsTotal": 10 ** 400}],
+                       gpus=[{"name": "g", "utilizationPercent": 10 ** 400}])
+        for full in (False, True):
+            with self.subTest(full=full):
+                output = self.adapt(snapshot([peer(doc)]), full=full)
+                self.assertTrue(any(row["id"] == NODE for row in output["machines"]))
+                json.dumps(output, allow_nan=False)
+
+    def test_every_health_word_cell(self):
+        # (producer string, health word) -> (state, reasonCode) for the three tables a producer can select.
+        cells = {
+            ("agiw-peer-link lmstudio", "ok"): ("up", "observed"),
+            ("agiw-peer-link lmstudio", "degraded"): ("up", "reported_degraded"),
+            ("agiw-peer-link lmstudio", "down"): ("down", "reported_down"),
+            ("agiw-peer-link lmstudio", "unknown"): ("unknown", "unavailable"),
+            ("agiw-win-observer 0.2.0", "ok"): ("up", "observed"),
+            ("agiw-win-observer 0.2.0", "degraded"): ("up", "reported_degraded"),
+            ("agiw-win-observer 0.2.0", "down"): ("down", "reported_down"),
+            ("agiw-win-observer 0.2.0", "unknown"): ("unknown", "unavailable"),
+            ("agiw-linux-observer", "up"): ("up", "observed"),
+            ("agiw-linux-observer", "down"): ("down", "reported_down"),
+            ("agiw-linux-observer", "unknown"): ("unknown", "unavailable"),
+        }
+        # Words a table does not list are refused, not guessed: UP/serving/ok-for-linux, and the wrong
+        # table's words (the Linux observer says "up", never "ok").
+        refused = [("agiw-peer-link lmstudio", word) for word in ("UP", "serving", "up", "", "OK")]
+        refused += [("agiw-win-observer 0.2.0", "up"), ("agiw-linux-observer", "ok"),
+                    ("agiw-linux-observer", "degraded")]
+        for (producer, word), (state, reason) in cells.items():
+            platform = "linux" if "linux" in producer else "windows"
+            with self.subTest(producer=producer, word=word):
+                row = self.row(snapshot([peer(document(platform, word, producer=producer), platform=platform)]))
+                self.assertEqual((row["state"], row["reasonCode"]), (state, reason))
+        for producer, word in refused:
+            platform = "linux" if "linux" in producer else "windows"
+            with self.subTest(refused=(producer, word)):
+                row = self.row(snapshot([peer(document(platform, word, producer=producer), platform=platform)]))
+                self.assertEqual((row["state"], row["reasonCode"]), ("unknown", "schema_invalid"))
 
     def test_transport_diagnostics_do_not_replace_usable_documents(self):
         source = snapshot([peer(document(), error="old transport diagnostic")], pollError="old poll failure")
