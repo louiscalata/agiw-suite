@@ -927,7 +927,7 @@ export function machineStatusView(machine, {snapshotAge = 0, fresh = true, now =
   const trusted = ['local', 'authenticated', 'share-reported'].includes(machine?.trust);
   const reasons = ['not_observed', 'unavailable', 'timeout', 'refused', 'non_json', 'oversize', 'schema_invalid',
     'stale', 'clock_skew', 'host_key_mismatch', 'share_unmounted', 'asleep', 'untrusted', 'unverified',
-    'not_connected', 'identity_mismatch', 'read_error'];
+    'not_connected', 'not_configured', 'identity_mismatch', 'read_error'];
   const reason = reasons.includes(machine?.reasonCode) ? machine.reasonCode.replaceAll('_', ' ') : 'not observed';
   if (!current || !trusted || !['up', 'down'].includes(machine?.state)) {
     const detail = `? Unknown · ${machine?.state === 'unknown' ? reason : 'observation unavailable or stale'}`;
