@@ -43,7 +43,7 @@ export function rowDegraded(row) {
  */
 export const REASON_WORDS = Object.freeze({
   observed: 'observed', reported_down: 'reported down', reported_degraded: 'reported degraded',
-  not_observed: 'never observed', not_connected: 'went silent', unavailable: 'unavailable',
+  not_observed: 'never observed', not_connected: 'went silent', not_configured: 'not configured', unavailable: 'unavailable',
   timeout: 'timed out', refused: 'connection refused', non_json: 'unreadable reply',
   oversize: 'reply too large', schema_invalid: 'unexpected reply', stale: 'reading too old',
   clock_skew: 'clock out of step', host_key_mismatch: 'host key changed', share_unmounted: 'share not mounted',

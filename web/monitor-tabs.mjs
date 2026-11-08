@@ -27,6 +27,8 @@ const STATUS = {
   recorded: {status: 'idle', glyph: '–', word: 'RECORDED'},
   unavailable: {status: 'unavailable', glyph: '○', word: 'UNAVAILABLE'},
   disconnected: {status: 'disconnected', glyph: '⊘', word: 'DISCONNECTED'},
+  // No machine of this kind is set up at all. Styled like unavailable; never confused with a configured one that is down.
+  not_configured: {status: 'unavailable', glyph: '○', word: 'NOT CONFIGURED'},
   partial: {status: 'unavailable', glyph: '○', word: 'PARTIAL'},
 };
 
@@ -1072,6 +1074,7 @@ export function healthPresentation(node, {feedUnavailable = false} = {}) {
   if (node?.health === 'down') return presentation('down', reason);
   if (reason === 'stale') return presentation('stale', 'Observation stale');
   if (reason === 'feed_unavailable') return presentation('disconnected', 'Monitor feed unavailable');
+  if (reason === 'not_configured') return presentation('not_configured', 'No PC is configured');
   if (reason === 'tunnel_down') {
     const age = Number.isFinite(node?.ageSeconds) ? ` Last sample ${Math.floor(node.ageSeconds)}s.` : '';
     return presentation('disconnected', `PC tunnel down.${age}`);
