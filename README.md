@@ -142,7 +142,11 @@ Available once published:
 
 ```sh
 pipx install "git+https://github.com/louiscalata/agiw-suite@<tag>"   # or: uv tool install "git+https://github.com/louiscalata/agiw-suite@<tag>"
-agiw doctor && agiw serve    # Mac; see the Windows source option below
+agiw doctor && agiw serve    # Mac
+```
+
+```powershell
+agiw doctor; agiw serve --status-file "<observer folder>\state\peer-link-status.json"    # Windows
 ```
 
 On Windows, pass `--status-file "<observer folder>\state\peer-link-status.json"` or

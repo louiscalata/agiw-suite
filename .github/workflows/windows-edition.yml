@@ -1,0 +1,40 @@
+name: Windows edition
+
+# The Windows edition's tests, run natively on Windows. On macOS and Linux the Windows-only cases skip, so this is the
+# only place they run.
+on:
+  push:
+    branches: [main]
+    paths: ['windows/**', 'peer_link.py', 'peer_feed.py', 'machine_state.py', 'inference_collect.py',
+            'inference_stats.py', 'client_models.py', 'usage-format.mjs', 'web/**', 'jaryo/**',
+            '.github/workflows/windows-edition.yml']
+  pull_request:
+    paths: ['windows/**', 'peer_link.py', 'peer_feed.py', 'machine_state.py', 'inference_collect.py',
+            'inference_stats.py', 'client_models.py', 'usage-format.mjs', 'web/**', 'jaryo/**',
+            '.github/workflows/windows-edition.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    name: windows edition (${{ matrix.python }})
+    runs-on: windows-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.9', '3.12']
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Windows edition tests
+        working-directory: windows
+        # cmd, not the default pwsh: pwsh puts its own module folders first in PSModulePath, and the installer tests
+        # start Windows PowerShell 5.1, which then cannot load Microsoft.PowerShell.Security (Get-Acl, Get-FileHash).
+        shell: cmd
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: python -B -m unittest discover -s tests -p "test_*.py" -v

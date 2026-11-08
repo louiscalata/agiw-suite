@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import re
 import shlex
+import stat
 import subprocess
 import sys
 import tempfile
@@ -32,6 +33,17 @@ class FrozenInputTests(unittest.TestCase):
         freeze.freeze_inputs(self.root_fd, self.destination, ['pair_status.py'])
         source.write_bytes(b'changed source')
         self.assertEqual((self.destination / source.name).read_bytes(), b'checked source')
+
+    def test_an_executable_input_stays_executable_and_a_plain_one_does_not(self):
+        runner = self.source / 'agiw-status'
+        runner.write_bytes(b'#!/usr/bin/env python3\n')
+        runner.chmod(0o755)
+        plain = self.source / 'agiw_status.py'
+        plain.write_bytes(b'module')
+        plain.chmod(0o644)
+        freeze.freeze_inputs(self.root_fd, self.destination, ['agiw-status', 'agiw_status.py'])
+        self.assertEqual(stat.S_IMODE((self.destination / 'agiw-status').stat().st_mode), 0o755)
+        self.assertEqual(stat.S_IMODE((self.destination / 'agiw_status.py').stat().st_mode), 0o644)
 
     def test_file_and_parent_symlinks_are_refused_before_copying(self):
         outside = self.root / 'outside'

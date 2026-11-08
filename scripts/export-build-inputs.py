@@ -79,7 +79,10 @@ def main() -> None:
     release = bash_resources(ROOT / "package-release.sh")
     if build != release:
         raise SystemExit("build.sh and package-release.sh resource lists differ")
-    mac_inputs = [name for name in build if name.startswith("web/") or name.startswith("jaryo/")]
+    # wrapper-patch/sync-web.sh reads usage-format.mjs from the tree root beside web/ (web/app.js imports it), so it
+    # travels with the web inputs.
+    mac_inputs = [name for name in build
+                  if name.startswith("web/") or name.startswith("jaryo/") or name == "usage-format.mjs"]
     if not mac_inputs:
         raise SystemExit("No web or jaryo inputs in the resource list")
     install = ROOT / "windows" / "install.ps1"
