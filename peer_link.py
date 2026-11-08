@@ -1056,6 +1056,14 @@ def _scalar(value: Any, kind: type, limit: int = 128) -> Any:
         return None
 
 
+def hands_off_flag(value: Any) -> bool | None:
+    """The PC publishes handsOff as a small object ({"active": bool|null, "state": ...}); a reader wants one
+    bool, and anything else is unknown."""
+    if isinstance(value, dict):
+        value = value.get("active")
+    return value if type(value) is bool else None
+
+
 def project_status(doc: dict) -> dict:
     """What leaves this machine: only the documented fields, nothing a provider happened to include."""
     out: dict[str, Any] = {"schemaVersion": 1, "observedAt": doc["observedAt"], "models": []}
@@ -1064,8 +1072,9 @@ def project_status(doc: dict) -> dict:
             out[key] = _scalar(doc[key], str, 64)
     if _scalar(doc.get("observedUnix"), float) is not None:
         out["observedUnix"] = doc["observedUnix"]
-    if type(doc.get("handsOff")) is bool:
-        out["handsOff"] = doc["handsOff"]
+    hands_off = hands_off_flag(doc.get("handsOff"))
+    if hands_off is not None:
+        out["handsOff"] = hands_off
     # The publisher's uncapped model count, so a reader can tell a whole list from a capped one.
     if type(doc.get("modelsTotal")) is int and 0 <= doc["modelsTotal"] <= 1 << 16:
         out["modelsTotal"] = doc["modelsTotal"]

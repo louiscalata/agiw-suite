@@ -194,14 +194,18 @@ def edges_for(nodes):
 
 
 def _sum(nodes, machine, key):
-    total = None
+    total, unmeasured_busy = None, False
     for node in nodes:
         if node.get("machine") != machine or node.get("role") in ("machine", "client"):
             continue
         value = node.get(key)
         if _finite(value) and value >= 0:
             total = value if total is None else total + value
-    return total
+        elif type(node.get("slotsBusy")) is int and node["slotsBusy"] > 0:
+            unmeasured_busy = True  # a lane known to be working has no rate yet: the sum would be a lower bound
+        elif node.get("role") == "llama" and node.get("slotsBusy") is None and node.get("reason") == "timeout":
+            unmeasured_busy = True  # a lane that did not answer in time may be working: its rate is unknown
+    return None if unmeasured_busy else total
 
 
 def machine_node(machine, label, children, *, observed_at=None, vram=None, reason=None):
@@ -237,6 +241,10 @@ def apply_rates(machines, nodes):
         prompt = _sum(nodes, machine, "promptTokensPerSecond")
         generation = _sum(nodes, machine, "generationTokensPerSecond")
         for row in rows:
+            # These rates are probed through the tunnel, not reported by the machine: they go only on a row that is
+            # up, never on one that is unknown or never observed.
+            if row.get("state") != "up":
+                continue
             if prompt is not None:
                 row["promptTokensPerSecond"] = prompt
             if generation is not None:
