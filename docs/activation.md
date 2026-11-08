@@ -4,7 +4,7 @@ The installation steps describe the 1.0.0 (7) download, which has the [known loc
 
 Start with the **GitHub 1.0.0 (7) Apple-silicon application**. This guide explains how to launch the monitor, connect local models and run the included Nisi tools. The Mac App Store edition has separate menus, runtime packaging and acceptance requirements.
 
-[Download and verify](../README.md#first-run) · [Architecture](architecture.md) · [Configuration](advanced-configuration.md) · [Developer commands](development.md)
+[Download and verify](../README.md#install-and-first-run) · [Architecture](architecture.md) · [Configuration](advanced-configuration.md) · [Developer commands](development.md)
 
 ## Quick start: get the monitor running
 
@@ -120,4 +120,4 @@ The script validates the signed app and refuses a conflicting launcher or alread
 | Route unknown / launcher unavailable | Install/configure the separately managed router tools. The bundled Nisi self-check cannot provision them. |
 | PC absent or stale | Check the independently managed worker, dispatcher and transport. A KVM is optional console access, not a replacement for the network route. |
 
-For a bug report, use [GitHub Issues](https://github.com/louiscalata/agiw-suite/issues) with sanitized steps and observed status. Keep keys, private hostnames and machine state out of public reports. [Known validation limits](../README.md#known-validation-limits) remain separate from these source-backed instructions.
+For a bug report, use [GitHub Issues](https://github.com/louiscalata/agiw-suite/issues) with sanitized steps and observed status. Keep keys, private hostnames and machine state out of public reports. [Open checks](status.md#open-checks) remain separate from these source-backed instructions.

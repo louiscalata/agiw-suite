@@ -4,7 +4,7 @@ AGIW Suite's public application is **Inference Monitor**: a Swift menu-bar shell
 
 This guide describes the public repository. The downloadable **1.0.0 (7)** application was compiled from `caaa7d4`; later source and documentation commits do not change that binary. The Mac App Store application, external coding router and worker programs have separate implementation and acceptance boundaries.
 
-[Install](../README.md#first-run) · [Activate the suite](activation.md) · [Run from source](development.md#try-the-local-view) · [Configuration](advanced-configuration.md) · [Release evidence](../roadmap.md) · [Security reporting](../SECURITY.md)
+[Install](../README.md#install-and-first-run) · [Activate the suite](activation.md) · [Run from source](development.md#try-the-local-view) · [Configuration](advanced-configuration.md) · [Release evidence](../roadmap.md) · [Security reporting](../SECURITY.md)
 
 **In this guide:** [Processes](#1-system-and-process-boundaries) · [Lifecycle](#2-startup-updates-and-shutdown) · [Evidence](#3-evidence-model-and-map-semantics) · [Resources](#4-model-operations-and-resource-budgeting) · [Nisi](#5-nisi-workflow-engine-and-local-pipeline) · [Jev](#6-jev-credential-and-network-boundary) · [Recovery](#7-recovery-workers-and-parallel-work) · [Storage](#8-state-and-storage-ownership) · [HTTP](#9-local-http-interface) · [Verification](#10-platforms-distribution-and-verification)
 
