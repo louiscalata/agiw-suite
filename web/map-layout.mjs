@@ -915,7 +915,12 @@ export function machineStatusView(machine, {snapshotAge = 0, fresh = true, now =
   const thresholds = {mac: 3, windows: 30, linux: 30};
   // The PC's own rows call the Mac 'macos'; the shared rows call it 'mac'.
   const platform = machine?.platform === 'macos' ? 'mac' : machine?.platform;
-  const limit = Object.prototype.hasOwnProperty.call(thresholds, platform) ? thresholds[platform] : undefined;
+  const platformLimit = Object.prototype.hasOwnProperty.call(thresholds, platform) ? thresholds[platform] : undefined;
+  // The row says how long its own report stays fresh (3 s for a machine's own row, 30 s for a peer's report). That
+  // window is used when it is a sensible number; it is clamped, because a row must not be able to keep itself current.
+  const claimed = machine?.freshForSeconds;
+  const limit = Number.isFinite(platformLimit) && typeof claimed === 'number' && Number.isFinite(claimed) && claimed >= 1
+    ? Math.min(claimed, 60) : platformLimit;
   const stamp = machine?.observedAt;
   const observed = typeof stamp === 'string'
     && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(stamp)
@@ -930,7 +935,9 @@ export function machineStatusView(machine, {snapshotAge = 0, fresh = true, now =
     'not_connected', 'not_configured', 'identity_mismatch', 'read_error'];
   const reason = reasons.includes(machine?.reasonCode) ? machine.reasonCode.replaceAll('_', ' ') : 'not observed';
   if (!current || !trusted || !['up', 'down'].includes(machine?.state)) {
-    const detail = `? Unknown · ${machine?.state === 'unknown' ? reason : 'observation unavailable or stale'}`;
+    // Say which condition failed: a report nobody vouches for (relayed, legacy-share, unverified) is not an old one.
+    const why = machine?.state === 'unknown' ? reason : !trusted ? 'report not verified' : 'observation stale';
+    const detail = `? Unknown · ${why}`;
     return {tone: 'muted', detail, short: '? Unknown', tiny: '? Unknown'};
   }
   if (machine.state === 'down') return {tone: 'warn', detail: '■ Down · reported not serving', short: '■ Down', tiny: '■ Down'};

@@ -2723,3 +2723,38 @@ test('a PC that is not configured reads NOT CONFIGURED on the chip, never Down o
   }
   assert.match(layout.machineStatusView({platform: 'windows', state: 'unknown', reasonCode: 'not_observed'}).detail, /not observed/, 'a configured PC never heard is a different word');
 });
+
+test('the chip uses the row\'s own freshness window, clamped, and falls back to the platform default', () => {
+  const row = {platform: 'mac', state: 'up', trust: 'share-reported', reasonCode: 'observed', modelsComplete: true, loadedCount: 1, busyCount: 0};
+  const view = (extra, ageSeconds) => layout.machineStatusView({...row, ageSeconds, ...extra}).detail;
+  // A peer's report (30 s) is current at 20 s; with no window of its own the Mac default of 3 s applies.
+  assert.match(view({freshForSeconds: 30}, 20), /● Up/);
+  assert.match(view({}, 20), /Unknown/);
+  assert.match(view({}, 2), /● Up/);
+  // A stricter window of its own wins over the platform default.
+  assert.match(view({platform: 'windows', freshForSeconds: 3}, 4), /Unknown/);
+  assert.match(view({platform: 'windows', freshForSeconds: 3}, 2), /● Up/);
+  assert.match(view({platform: 'windows'}, 20), /● Up/, 'the PC default is 30 s');
+  // The window is clamped to 60 s, so a row cannot keep itself current.
+  assert.match(view({freshForSeconds: 1e9}, 59), /● Up/);
+  assert.match(view({freshForSeconds: 1e9}, 61), /Unknown/);
+  assert.match(view({freshForSeconds: Infinity}, 20), /Unknown/);
+  for (const bad of [0, -5, NaN, '30', true, null, [], {}, 0.5]) assert.match(view({freshForSeconds: bad}, 20), /Unknown/, `ignored: ${JSON.stringify(bad)}`);
+  assert.match(view({platform: 'constructor', freshForSeconds: 30}, 1), /Unknown/, 'an unknown platform is never current');
+  // A window under one second is not a sensible claim and is ignored (the platform default applies), not obeyed.
+  for (const tiny of [0, 0.5, 0.999, -1]) assert.match(view({freshForSeconds: tiny}, 1), /● Up/, `ignored: ${tiny}`);
+  assert.match(view({freshForSeconds: 1}, 1), /● Up/);
+  assert.match(view({freshForSeconds: 1}, 1.5), /Unknown/, 'one second is the smallest window a row can set');
+});
+
+test('the chip says why it is unknown: a report nobody vouches for is not an old report', () => {
+  const base = {platform: 'windows', state: 'up', reasonCode: 'observed', ageSeconds: 1, freshForSeconds: 30, modelsComplete: true, loadedCount: 1, busyCount: 0};
+  for (const trust of ['relayed', 'legacy-share', 'unverified', null, undefined, 'anything']) {
+    assert.equal(layout.machineStatusView({...base, trust}).detail, '? Unknown · report not verified', String(trust));
+  }
+  for (const trust of ['local', 'authenticated', 'share-reported']) assert.match(layout.machineStatusView({...base, trust}).detail, /● Up/, trust);
+  assert.equal(layout.machineStatusView({...base, trust: 'local', ageSeconds: 45}).detail, '? Unknown · observation stale');
+  assert.equal(layout.machineStatusView({...base, trust: 'relayed', ageSeconds: 45}).detail, '? Unknown · report not verified', 'untrusted outranks stale');
+  assert.match(layout.machineStatusView({...base, trust: 'local'}, {fresh: false}).detail, /observation stale/, 'a stale feed is not a trust problem');
+  assert.match(layout.machineStatusView({...base, trust: 'relayed', state: 'unknown', reasonCode: 'not_observed'}).detail, /not observed/, 'a stated reason is shown as it is');
+});
