@@ -8,6 +8,10 @@ from machine_state import expire_machines, finite_number, machine_summary, machi
 NOW = 1800000000.0
 
 
+def _iso(at):
+    return dt.datetime.fromtimestamp(at, dt.timezone.utc).isoformat()
+
+
 def report(**extra):
     return {"health": "ok", "ageSeconds": 0, "modelsComplete": True,
             "models": [{"id": "m", "loadedState": "loaded", "activity": "busy"}], **extra}
@@ -115,6 +119,21 @@ class MachineStateTests(unittest.TestCase):
                 row = machine_summary("mac", "mac", report(ageSeconds=20), now=NOW, trust="authenticated",
                                       fresh_seconds=odd)
                 self.assertEqual((row["state"], row["reasonCode"], row["freshForSeconds"]), ("unknown", "stale", 3.0))
+
+    def test_a_row_with_its_own_window_is_aged_by_it(self):
+        # A remote report keeps a 30 s window even for the Mac platform (3 s); the monitor's own rows carry the
+        # platform window, so they age exactly as before.
+        def row(**extra):
+            return {"platform": "mac", "state": "up", "reasonCode": "observed", "loadedCount": 1, "busyCount": 0,
+                    "modelsComplete": True, "ageSeconds": 10.0, "observedAt": None, **extra}
+        remote = expire_machines([row(freshForSeconds=30.0, observedAt=_iso(NOW - 10))], NOW)[0]
+        self.assertEqual((remote["state"], remote["reasonCode"]), ("up", "observed"))
+        remote = expire_machines([row(freshForSeconds=30.0, observedAt=_iso(NOW - 31))], NOW)[0]
+        self.assertEqual((remote["state"], remote["reasonCode"]), ("unknown", "stale"))
+        for own in (None, 0, -1, True, "30", float("nan")):
+            with self.subTest(freshForSeconds=own):
+                local = expire_machines([row(freshForSeconds=own, observedAt=_iso(NOW - 10))], NOW)[0]
+                self.assertEqual((local["state"], local["reasonCode"]), ("unknown", "stale"))  # the Mac's 3 s
 
     def test_original_timestamp_wins_over_relay_age(self):
         observed = dt.datetime.fromtimestamp(NOW - 31, dt.timezone.utc).isoformat()

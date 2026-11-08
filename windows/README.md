@@ -14,7 +14,7 @@ observer that serves **the same dashboard** as the Mac edition, in its `host: "w
 | Peer | Windows worker heartbeat | The Mac's own presence on SharedChami (unsigned, expires after 30 s), attributed only to the Mac named in `hosts.json`; nothing is sent to the Mac |
 | Controls | Guarded load/unload, repair | **Read-only**: nothing loads, unloads or restarts a model |
 | Peers | — | AGIW instances meet on SharedChami (`llm-lab/status/agiw-peers/<host>.json`); opt-in in `config.json`. Linux is retired, so a share file cannot become a machine row |
-| Machines | — | `machines[]`: this PC and the Mac, each up / down / unknown with a named reason (unknown is never shown as down). The Linux node is retired |
+| Machines | — | `machines[]`: this PC and the Mac, each up / down / unknown with a named reason (unknown is never shown as down). Each row also carries the shared row fields the Mac monitor uses (`host`, `reasonCode`, `observedAt`, `freshForSeconds`, `modelsComplete`, `loadedCount`, `busyCount`, token rates as null), the Mac is named `mac` in `platform`, and the server ages the rows on every read so a stopped sampler turns them `unknown/stale`. The Linux node is retired |
 | NVIDIA PAIR | — | Uninstalled. A leftover PAIR row is process and listener ownership only; lane polling requires a positively pinned AGIW process identity and parks for every other owner. PAIR's llama-server is never counted as a lane |
 | Hands off | — | `handsOff`: a GPU above 40 %, a full-screen game/app, presentation mode or a Windows Store app, with the cause (AGIW lanes, other processes, mixed, unknown) |
 

@@ -191,7 +191,9 @@ def expire_machines(rows, now):
     """Expire aged overlays without inventing a fresh observation or replacing its named failure."""
     for row in rows:
         age = observation_age(row, now)
-        limit = FRESH_SECONDS.get(platform_name(row.get("platform")))
+        # A row built with its own window (a remote report) is aged by that window, not the platform's.
+        own = row.get("freshForSeconds")
+        limit = own if finite_number(own) and own > 0 else FRESH_SECONDS.get(platform_name(row.get("platform")))
         reason = ("schema_invalid" if age is None or limit is None else "clock_skew" if age < -2
                   else "stale" if age > limit else None)
         if row.get("state") != "unknown" and reason:

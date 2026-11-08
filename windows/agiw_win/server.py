@@ -33,6 +33,10 @@ if _INFERENCE_ROOT is not None and str(_INFERENCE_ROOT) not in sys.path:
     sys.path.append(str(_INFERENCE_ROOT))
 from inference_collect import RateMemory, attach, vram_from_gpus
 from inference_stats import expire_map
+from machine_state import expire_machines
+
+AGED_REASONS = {"stale": "stale", "clock_skew": "clock-ahead", "schema_invalid": "report-refused"}
+FULL_SAMPLE_MAX_AGE = 3.0  # same as the Mac server and the UI: a sample older than this is not live activity
 
 DEFAULT_PORT = 8767
 ACTIVE = {"generating", "busy"}
@@ -171,22 +175,38 @@ class SnapshotStore:
             self.snapshot = data
             self.changed.notify_all()
 
+    def _aged(self, data):
+        """A copy aged to now: machine rows past their window turn unknown, and a stale sample is not activity."""
+        now = time.time()
+        expire_map(data.get("inference"), now)
+        if isinstance(data.get("machines"), list):
+            was_known = [isinstance(row, dict) and row.get("state") != "unknown" for row in data["machines"]]
+            expire_machines(data["machines"], now)
+            for row, known in zip(data["machines"], was_known):
+                if known and row.get("state") == "unknown":
+                    # expire_machines rewrites the shared fields; make the PC's own words agree with them.
+                    row.update(reason=AGED_REASONS.get(row.get("reasonCode"), "stale"), health="unknown", loadedCount=None,
+                               detail="No fresh observation inside its window; state unknown")
+        sampled = data.get("sampledAt")
+        if isinstance(sampled, (int, float)) and now - sampled > FULL_SAMPLE_MAX_AGE:
+            data["activityKnown"] = False
+        return data
+
     def read(self):
         with self.lock:
             data = copy.deepcopy(self.snapshot)
-            if data is not None:
-                expire_map(data.get("inference"), time.time())
-            return data
+            return self._aged(data) if data is not None else None
 
     def wait_for_change(self, last: int | None, timeout: float):
         with self.changed:
             changed = self.changed.wait_for(lambda: self.snapshot is not None and self.sequence != last, timeout=timeout)
             if self.snapshot is None:
                 return None, last
-            data = copy.deepcopy(self.snapshot)
-            expire_map(data.get("inference"), time.time())
+            data = self._aged(copy.deepcopy(self.snapshot))
             # A stopped sampler still needs to publish expiry to stream readers.
-            if not changed and data.get("inference") == self.snapshot.get("inference"):
+            if (not changed and data.get("inference") == self.snapshot.get("inference")
+                    and data.get("machines") == self.snapshot.get("machines")
+                    and data.get("activityKnown") == self.snapshot.get("activityKnown")):
                 return None, last
             return data, self.sequence
 
