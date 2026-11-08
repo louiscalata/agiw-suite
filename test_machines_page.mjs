@@ -6,7 +6,7 @@ const board = new URL('./web/monitor-board.mjs', import.meta.url);
 const boardSource = readFileSync(board, 'utf8').replace("'/monitor-tabs.mjs'", JSON.stringify(new URL('./web/monitor-tabs.mjs', import.meta.url).href));
 const boardURL = `data:text/javascript;base64,${Buffer.from(boardSource).toString('base64')}`;
 const source = readFileSync(new URL('./web/machines.mjs', import.meta.url), 'utf8').replace("'/monitor-board.mjs'", JSON.stringify(boardURL));
-const { machineFacts, machineTiles } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
+const { machineFacts, machineTiles, mountMachines } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
 const read = path => readFileSync(new URL(path, import.meta.url), 'utf8');
 
 const mac = { host: 'mac', platform: 'mac', state: 'up', reasonCode: 'observed', trust: 'local', ageSeconds: 1.4, freshForSeconds: 3,
@@ -71,4 +71,94 @@ test('a never-heard peer and a silent peer give different reasons', () => {
   assert.equal(facts({ state: 'unknown', reasonCode: 'not_observed' }).Why, 'Never observed');
   assert.equal(facts({ state: 'unknown', reasonCode: 'not_connected' }).Why, 'Went silent');
   assert.equal(facts({ state: 'unknown', reasonCode: 'share_unmounted' }).Why, 'Share not mounted');
+});
+
+// The PC sends hyphenated reasons and platform 'macos' today; the backend is adding the Mac's fields on top (a superset).
+const pcRow = { id: 'pc', name: 'PC', platform: 'windows', label: 'This PC', reason: 'serving', state: 'up', trust: 'local', ageSeconds: 2, loadedCount: 1 };
+const pcSuperset = { ...pcRow, host: 'louisaurorar12', reasonCode: 'observed', freshForSeconds: 30, modelsComplete: true, busyCount: 0,
+  promptTokensPerSecond: null, generationTokensPerSecond: null };
+const macOnPc = { id: 'mac', name: 'Mac', platform: 'macos', label: 'Mac', reason: 'stale', state: 'unknown', trust: 'relayed', ageSeconds: 70 };
+const macOnPcSuperset = { ...macOnPc, host: 'louismac', platform: 'mac', reasonCode: 'stale', freshForSeconds: 30, modelsComplete: false, busyCount: null };
+
+test('a PC-sent row set reads as tiles, with the Mac named even when it says macos', () => {
+  for (const rows of [[pcRow, macOnPc], [pcSuperset, macOnPcSuperset], [pcSuperset, macOnPc]]) {
+    const tiles = machineTiles(rows, 'windows');
+    assert.deepEqual(tiles.map(t => t.title), ['This PC', 'Mac']);
+    assert.deepEqual(tiles.map(t => t.word), ['UP', 'UNKNOWN']);
+  }
+  const superset = Object.fromEntries(machineFacts(pcSuperset));
+  assert.equal(superset.Why, 'Observed');
+  assert.equal(superset['Models loaded'], '1');
+  assert.equal(superset['Models busy'], '0');
+  assert.equal(superset['Reading prompts'], 'Not measured');
+  assert.equal(superset['Fresh for'], '30 s');
+  const old = Object.fromEntries(machineFacts(pcRow));
+  assert.equal(old.Why, 'Observed', 'an up row is observed whichever reason words it carries');
+  assert.equal(old.Models, 'Model list incomplete', 'a count with no completeness flag is never shown');
+  assert.equal(old['Models loaded'], undefined);
+  const stale = Object.fromEntries(machineFacts(macOnPcSuperset));
+  assert.equal(stale.Why, 'Reading too old');
+  assert.equal(machineTiles([pcSuperset], 'louisaurorar12')[0].title, 'This PC');
+});
+
+test('the page judges freshness by fullSampledAt within 3 seconds', async () => {
+  const run = async (body, now = 1000) => {
+    const els = {};
+    const make = () => ({ children: [], className: '', attrs: {}, setAttribute(k, v) { this.attrs[k] = v; }, append(...c) { this.children.push(...c); },
+      replaceChildren(...c) { this.children = c; }, textContent: '' });
+    const document = { getElementById: id => (els[id] ||= make()), createElement: () => make() };
+    const handle = mountMachines({ document, fetch: async () => ({ ok: true, json: async () => body }), setTimeout: () => 1, now: () => now });
+    for (let i = 0; i < 6; i++) await new Promise(r => setImmediate(r));
+    handle.destroy();
+    return els.machinesStatus.textContent;
+  };
+  assert.equal(await run({ host: 'mac', sampledAt: 999, fullSampledAt: 999 }), 'Live sample.');
+  assert.equal(await run({ host: 'mac', sampledAt: 999 }), 'Live sample.');
+  assert.equal(await run({ host: 'mac', sampledAt: 999, fullSampledAt: 990 }), 'Last sample, not live.');
+  assert.equal(await run({ host: 'mac', sampledAt: 996 }), 'Last sample, not live.');
+});
+
+test('a machine that is up but degraded is a DEGRADED tile, whichever reason words say so', () => {
+  const base = { host: 'pc', platform: 'windows', state: 'up', trust: 'local', ageSeconds: 1, freshForSeconds: 30, modelsComplete: true, loadedCount: 1, busyCount: 0 };
+  for (const row of [{ ...base, reasonCode: 'reported_degraded' }, { ...base, reason: 'partly-serving' }, { ...base, reasonCode: null, reason: 'partly-serving' }]) {
+    const [tile] = machineTiles([row], 'windows');
+    assert.deepEqual([tile.word, tile.glyph], ['DEGRADED', '◐'], JSON.stringify(row));
+    const f = Object.fromEntries(machineFacts(row));
+    assert.equal(f.State, 'Up, degraded');
+    assert.equal(f.Why, 'Reported degraded');
+  }
+  // The shared word wins over the older one, and a degraded word on a machine that is not up is not a claim about an up machine.
+  assert.equal(machineTiles([{ ...base, reasonCode: 'observed', reason: 'partly-serving' }], 'windows')[0].word, 'UP');
+  assert.equal(machineTiles([{ ...base, state: 'down', reasonCode: 'reported_degraded' }], 'windows')[0].word, 'DOWN');
+  assert.equal(machineTiles([{ ...base, state: 'unknown', reason: 'partly-serving' }], 'windows')[0].word, 'UNKNOWN');
+  assert.equal(machineTiles([{ ...base, reason: 'serving' }], 'windows')[0].word, 'UP');
+});
+
+test('names and states come from the tables by own key only', () => {
+  for (const word of ['constructor', 'toString', '__proto__', 'hasOwnProperty', 'valueOf']) {
+    const [tile] = machineTiles([{ host: 'x', platform: word, state: word }], 'mac');
+    assert.equal(tile.title, 'x', word);
+    assert.equal(tile.word, 'UNKNOWN', word);
+    assert.equal(tile.glyph, '?', word);
+    assert.equal(Object.fromEntries(machineFacts({ state: word })).State, 'Unknown', word);
+  }
+});
+
+test('a timestamp that is not a number never makes the page live', async () => {
+  const run = async stamp => {
+    const els = {};
+    const make = () => ({ children: [], className: '', attrs: {}, setAttribute(k, v) { this.attrs[k] = v; }, append(...c) { this.children.push(...c); },
+      replaceChildren(...c) { this.children = c; }, textContent: '' });
+    const document = { getElementById: id => (els[id] ||= make()), createElement: () => make() };
+    const handle = mountMachines({ document, fetch: async () => ({ ok: true, json: async () => ({ host: 'mac', ...stamp }) }), setTimeout: () => 1, now: () => 1000 });
+    for (let i = 0; i < 6; i++) await new Promise(r => setImmediate(r));
+    handle.destroy();
+    return els.machinesStatus.textContent;
+  };
+  for (const stamp of ['999', [999], true, null, {}, '', NaN, Infinity]) {
+    assert.equal(await run({ sampledAt: stamp }), 'Last sample, not live.', JSON.stringify(stamp));
+    if (stamp !== null) assert.equal(await run({ fullSampledAt: stamp, sampledAt: 999 }), 'Last sample, not live.', `full ${JSON.stringify(stamp)}`);
+  }
+  assert.equal(await run({ sampledAt: 999 }), 'Live sample.');
+  assert.equal(await run({ fullSampledAt: null, sampledAt: 999 }), 'Live sample.', 'a null full sample time is absent, so sampledAt is read');
 });

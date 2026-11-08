@@ -576,3 +576,13 @@ test('provisional identity is unlabeled as a choice and the board no longer cove
   assert.match(read('./web/monitor.html'), /href="\/identity"/);
   assert.match(read('./web/components.html'), /href="\/identity"/);
 });
+
+test('a PC snapshot shows the Mac monitor whether the Mac row says mac or macos', () => {
+  for (const platform of ['mac', 'macos']) {
+    const monitors = deriveMonitors({schemaVersion: 1, host: 'windows', machines: [
+      {id: 'pc', platform: 'windows', state: 'up'}, {id: 'mac', platform, host: 'peer', state: 'unknown'}]}, {feedFresh: true});
+    assert.ok(monitors.some(item => item.id === 'machine:mac'), platform);
+  }
+  const none = deriveMonitors({schemaVersion: 1, host: 'windows', machines: [{id: 'pc', platform: 'windows', state: 'up'}]}, {feedFresh: true});
+  assert.equal(none.some(item => item.id === 'machine:mac'), false);
+});
