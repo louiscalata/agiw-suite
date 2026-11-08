@@ -123,6 +123,44 @@ export function mountTextSize({ window, document }) {
   return label;
 }
 
+const ZOOM_SWAP_LIMIT_MS = 400;
+
+/**
+ * Runs `change` inside a View Transition so the new face zooms in (simple-view.css draws it), or
+ * plainly when the browser has no View Transitions or the person asked for reduced motion.
+ * `change` runs exactly once whichever path is taken, and the html class is always removed.
+ */
+export function zoomSwap({ window, document }, change) {
+  let ran = false;
+  let fallback = null;
+  const once = () => {
+    if (ran) return;
+    ran = true;
+    if (fallback !== null) window.clearTimeout?.(fallback);
+    change();
+  };
+  const reduced = window?.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches === true;
+  if (reduced || typeof document?.startViewTransition !== 'function' || !document.documentElement?.classList) {
+    once();
+    return false;
+  }
+  const classes = document.documentElement.classList;
+  const done = () => classes.remove('j-zooming');
+  try {
+    classes.add('j-zooming');
+    const transition = document.startViewTransition(once);
+    // A window that gets no frames (hidden or covered) never calls back; the face must still change.
+    if (typeof window?.setTimeout === 'function') fallback = window.setTimeout(once, ZOOM_SWAP_LIMIT_MS);
+    if (typeof transition?.finished?.then === 'function') transition.finished.then(done, done);
+    else done();
+  } catch (_) {
+    done();
+    once();
+    return false;
+  }
+  return true;
+}
+
 /** Compact read-only face for the store edition: local inventory, memory, and one confirmed unload. */
 export function mountSimpleView({ window, document, fetch, setInterval, clearInterval, now }) {
   const root = document.documentElement;
@@ -137,31 +175,43 @@ export function mountSimpleView({ window, document, fetch, setInterval, clearInt
   const post = message => window.webkit?.messageHandlers?.monitor?.postMessage(message);
   const readView = () => (window.agiwPrefs?.view === 'simple' ? 'simple' : 'advanced');
 
-  const applyView = (next, echo) => {
-    const changed = root.dataset.view !== next;
-    root.dataset.view = next;
-    root.dataset.svReady = '1';
-    if (switcher) switcher.textContent = next === 'simple' ? 'Overview' : 'Simple';
-    if (next === 'simple') {
-      const pause = document.getElementById('pause');
-      if (pause) pause.setAttribute('aria-pressed', 'false');
-    }
-    if (echo && changed) post({ action: next === 'simple' ? 'view-simple' : 'view-advanced' });
-    draw();
+  // The face a person has asked for, which can run ahead of the page while a transition captures the old one.
+  let pendingView = null;
+  let latestRequest = 0;
+  const applyView = (next, echo, animate = false) => {
+    const mine = ++latestRequest;
+    const run = () => {
+      if (mine !== latestRequest) return; // a newer request replaced this one before its swap landed
+      pendingView = null;
+      const changed = root.dataset.view !== next;
+      root.dataset.view = next;
+      root.dataset.svReady = '1';
+      if (switcher) switcher.textContent = next === 'simple' ? 'Overview' : 'Simple';
+      if (next === 'simple') {
+        const pause = document.getElementById('pause');
+        if (pause) pause.setAttribute('aria-pressed', 'false');
+      }
+      if (echo && changed) post({ action: next === 'simple' ? 'view-simple' : 'view-advanced' });
+      draw();
+    };
+    if (animate && root.dataset.view !== next) {
+      pendingView = next;
+      zoomSwap({ window, document }, run);
+    } else run();
   };
 
   const onSwitch = event => {
     const button = event?.target?.closest?.('#advancedSwitch') || event?.currentTarget;
     if (button?.id !== 'advancedSwitch' && event?.target) return;
-    applyView(root.dataset.view === 'simple' ? 'advanced' : 'simple', true);
+    applyView((pendingView ?? root.dataset.view) === 'simple' ? 'advanced' : 'simple', true, true);
   };
   const switcher = document.getElementById('advancedSwitch');
   if (switcher) switcher.addEventListener('click', onSwitch);
   else document.addEventListener?.('click', onSwitch);
   window.addEventListener('agiw:view', event => {
     if (event.detail !== 'simple' && event.detail !== 'advanced') return;
-    if (root.dataset.view === event.detail) return;
-    applyView(event.detail, false);
+    if ((pendingView ?? root.dataset.view) === event.detail) return;
+    applyView(event.detail, false, true);
   });
 
   const studioLive = () => (snapshot?.sources || []).some(source => source.id === 'lmstudio-api' && source.state === 'live');
