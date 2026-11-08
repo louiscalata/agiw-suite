@@ -90,3 +90,12 @@ test('a PC row that says partly-serving is DEGRADED on the map, and odd platform
   const shared = peerMap({ machines: [{ platform: 'windows', host: 'pc', state: 'up', reasonCode: 'observed', reason: 'partly-serving' }], self: 'windows', feedFresh: true });
   assert.match(lines(shared)[0], /^THIS PC +UP /);
 });
+
+test('a PC that is not configured has its own words, apart from one that was never heard', async () => {
+  const { reasonWords, REASON_WORDS } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
+  assert.equal(REASON_WORDS.not_configured, 'not configured');
+  assert.equal(reasonWords('not_configured'), 'not configured');
+  assert.notEqual(reasonWords('not_configured'), reasonWords('not_observed'));
+  const view = peerMap({ machines: [mac, { host: 'pc', platform: 'windows', state: 'unknown', reasonCode: 'not_configured', trust: null, ageSeconds: null }], self: 'mac', feedFresh: true });
+  assert.match(lines(view)[1], /^ \|-\?- PC +UNKNOWN +not configured$/);
+});

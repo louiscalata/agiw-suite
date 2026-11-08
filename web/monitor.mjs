@@ -71,6 +71,7 @@ function statusWord(node) {
   if (node.health === 'degraded') return 'DEGRADED';
   if (node.health === 'down') return 'DOWN';
   if (node.reason === 'stale') return 'STALE';
+  if (node.reason === 'not_configured') return 'NOT CONFIGURED';
   if (node.reason === 'feed_unavailable' || node.reason === 'tunnel_down') return 'DISCONNECTED';
   return 'UNKNOWN';
 }

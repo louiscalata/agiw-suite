@@ -2714,3 +2714,12 @@ test('the machine chip reads the PC row words: macos like mac, partly-serving as
   assert.match(layout.machineStatusView({...old, reasonCode: 'observed'}).detail, /● Up/);
   assert.match(layout.machineStatusView({...old, state: 'down'}).detail, /Down/);
 });
+
+test('a PC that is not configured reads NOT CONFIGURED on the chip, never Down or Disconnected', () => {
+  for (const trust of [null, 'unverified', 'share-reported']) {
+    const view = layout.machineStatusView({platform: 'windows', host: 'pc', state: 'unknown', reasonCode: 'not_configured', trust, ageSeconds: null});
+    assert.match(view.detail, /^\? Unknown · not configured$/, String(trust));
+    assert.equal(view.tone, 'muted');
+  }
+  assert.match(layout.machineStatusView({platform: 'windows', state: 'unknown', reasonCode: 'not_observed'}).detail, /not observed/, 'a configured PC never heard is a different word');
+});

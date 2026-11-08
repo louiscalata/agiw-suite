@@ -586,3 +586,18 @@ test('a PC snapshot shows the Mac monitor whether the Mac row says mac or macos'
   const none = deriveMonitors({schemaVersion: 1, host: 'windows', machines: [{id: 'pc', platform: 'windows', state: 'up'}]}, {feedFresh: true});
   assert.equal(none.some(item => item.id === 'machine:mac'), false);
 });
+
+test('a PC lane node that is not configured says NOT CONFIGURED, and a configured PC with its tunnel down still says DISCONNECTED', () => {
+  const none = healthPresentation({health: 'not_measured', reason: 'not_configured'});
+  assert.equal(none.word, 'NOT CONFIGURED');
+  assert.equal(none.status, 'unavailable', 'styled like the other unavailable states');
+  assert.equal(none.reason, 'No PC is configured');
+  assert.equal(healthPresentation({health: 'not_measured', reason: 'tunnel_down', ageSeconds: 4}).word, 'DISCONNECTED');
+  assert.equal(healthPresentation({health: 'not_measured', reason: 'not_configured'}, {feedUnavailable: true}).word, 'DISCONNECTED', 'no feed at all outranks it');
+  assert.equal(healthPresentation({health: 'down', reason: 'not_configured'}).word, 'DOWN', 'a measured health outranks a reason');
+  assert.equal(healthPresentation({health: 'not_measured', reason: 'not_configured'}).glyph, '○');
+  // The Map's own node word (monitor.mjs statusWord) follows the same order: measured health, stale, not configured, disconnected.
+  const map = read('./web/monitor.mjs');
+  assert.ok(map.indexOf("node.reason === 'not_configured') return 'NOT CONFIGURED'") > map.indexOf("node.reason === 'stale') return 'STALE'"));
+  assert.ok(map.indexOf("node.reason === 'not_configured') return 'NOT CONFIGURED'") < map.indexOf("node.reason === 'feed_unavailable'"));
+});
