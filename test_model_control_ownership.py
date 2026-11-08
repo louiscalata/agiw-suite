@@ -368,7 +368,10 @@ class RealSubprocessTests(unittest.TestCase):
             script.write_text('#!' + sys.executable + '\n' +
                               'import subprocess,sys,json,os\n' +
                               "child=subprocess.Popen([sys.executable,'-c','import time; time.sleep(5)'])\n" +
-                              f"open({str(receipt)!r},'w').write(json.dumps({{'child':child.pid,'leader':os.getpid()}}))\n")
+                              # Write then rename: the test reads the file as soon as it exists, and a plain
+                              # open(...,'w') creates it empty before the content lands.
+                              f"open({str(receipt) + '.tmp'!r},'w').write(json.dumps({{'child':child.pid,'leader':os.getpid()}}))\n" +
+                              f"os.replace({str(receipt) + '.tmp'!r},{str(receipt)!r})\n")
             script.chmod(0o700)
             control = ModelControl(MutableStore(inventory()))
             with patch('model_control._find_lms', return_value=str(script)):
