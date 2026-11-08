@@ -49,6 +49,17 @@ test('this machine is first and named as such', () => {
   assert.deepEqual(machineTiles(null, 'mac'), []);
 });
 
+test('a paired machine named by its UUID shows its label, or the host it reported marked as reported, never silently the reported host', () => {
+  const uuid = '3f2b8c1e-5d4a-4b7e-9a10-6c2d7e8f9a0b';
+  const row = { host: uuid, platform: 'windows', state: 'up', reasonCode: 'observed', trust: 'paired' };
+  assert.equal(machineTiles([{ ...row, label: 'LOUISAURORAR12 (reported)', reportedHost: 'LOUISAURORAR12' }], 'mac')[0].host, 'LOUISAURORAR12 (reported)');
+  assert.equal(machineTiles([{ ...row, reportedHost: 'LOUISAURORAR12' }], 'mac')[0].host, 'LOUISAURORAR12 (reported)');
+  assert.equal(machineTiles([{ ...row, label: uuid }], 'mac')[0].host, uuid, 'a label that is the UUID again adds nothing');
+  assert.equal(machineTiles([row], 'mac')[0].host, uuid, 'nothing better to show: keep the identifier');
+  assert.equal(machineTiles([{ ...row, label: '<b>x</b>', reportedHost: '<i>' }], 'mac')[0].host, uuid, 'unsafe words never reach the page');
+  assert.equal(machineTiles([{ host: 'mac', platform: 'mac', label: 'Other', reportedHost: 'Other' }], 'mac')[0].host, 'mac', 'a normal host is not replaced');
+});
+
 test('unsafe strings do not reach the page', () => {
   const [tile] = machineTiles([{ host: '<img src=x>', platform: 'other', state: 'weird', reasonCode: 'a<b', trust: 'x"y' }], 'mac');
   assert.equal(tile.title, 'Machine');

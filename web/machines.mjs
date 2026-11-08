@@ -8,6 +8,7 @@ const NAMES = {mac: 'Mac', macos: 'Mac', windows: 'PC', linux: 'Linux'};
 const STATE_WORDS = {up: 'Up', down: 'Down', unknown: 'Unknown'};
 const GLYPHS = {up: '■', down: '×', unknown: '?'};
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const safeWord = (value, max = 40) => (typeof value === 'string' && /^[A-Za-z0-9 _.:-]+$/.test(value) ? value.slice(0, max) : null);
 const sentence = words => words.charAt(0).toUpperCase() + words.slice(1);
 const number = value => typeof value === 'number' && Number.isFinite(value);
@@ -39,6 +40,19 @@ export function machineFacts(row) {
   return facts;
 }
 
+/** The host line of a card. A paired machine's own row is named by its pairing UUID, which says nothing to a reader: show its label
+ *  when it has one, else the host it reported, marked "(reported)" because a peer chose that word, else the identifier. */
+function hostLine(row) {
+  const host = safeWord(row?.host, 40);
+  if (!host || !UUID.test(host)) return host;
+  // The server's own label for a renamed peer ends in "(reported)"; parentheses are allowed here and nowhere else.
+  const label = typeof row?.label === 'string' && /^[A-Za-z0-9 _.:()-]+$/.test(row.label) ? row.label.slice(0, 48) : null;
+  if (label && !UUID.test(label)) return label;
+  const reported = safeWord(row?.reportedHost, 40);
+  if (reported && !UUID.test(reported)) return `${reported} (reported)`;
+  return host;
+}
+
 /** Tiles in display order: this machine first, then the rest in the sample's order. */
 export function machineTiles(machines, self) {
   const rows = Array.isArray(machines) ? machines.filter(row => row && typeof row === 'object' && !Array.isArray(row)) : [];
@@ -51,7 +65,7 @@ export function machineTiles(machines, self) {
     return {
       key: safeWord(row.host, 40) || `row-${i}`,
       title: i === 0 && hub >= 0 ? `This ${name}` : name,
-      host: safeWord(row.host, 40),
+      host: hostLine(row),
       glyph: degraded ? '◐' : GLYPHS[state],
       word: degraded ? 'DEGRADED' : STATE_WORDS[state].toUpperCase(),
       facts: machineFacts(row),
