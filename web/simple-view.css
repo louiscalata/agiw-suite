@@ -1,13 +1,10 @@
-#svBody{display:flex;flex-direction:column;gap:12px;margin:16px;color:#000;background:#fff}
-#svBody .sv-row{padding:12px 0;border-top:1px solid #000;font:600 16px/1.4 Inter,sans-serif;letter-spacing:.02em}
-#svBody .sv-row[data-tone="ok"]{border-top-color:#000}
-#svBody button{min-height:44px;margin-top:8px;padding:8px 12px;color:#fff;background:#000;border:0;font:inherit}
+/* The simple view takes its colours from the Jaryo tokens, so the Theme control (System, Light, Dark) reaches it like every other page.
+   It used to hard-code #000/#fff and follow only the operating system's scheme, which ignored an explicit Light or Dark choice. */
+#svBody{display:flex;flex-direction:column;gap:12px;margin:16px;color:var(--j-text,#000);background:var(--j-bg,#fff)}
+#svBody .sv-row{padding:12px 0;border-top:1px solid var(--j-border,#000);font:600 16px/1.4 Inter,sans-serif;letter-spacing:.02em}
+#svBody .sv-row[data-tone="ok"]{border-top-color:var(--j-border,#000)}
+#svBody button{min-height:44px;margin-top:8px;padding:8px 12px;color:var(--j-invert-ink,#fff);background:var(--j-invert,#000);border:0;font:inherit}
 #svBody .sv-confirm{margin:8px 0 0;font-weight:400}
-@media (prefers-color-scheme: dark){
-  #svBody{color:#fff;background:#000}
-  #svBody .sv-row{border-top-color:#fff}
-  #svBody button{color:#000;background:#fff}
-}
 .j-bus{margin:14px 0 4px;padding:10px 0;border-top:1px solid currentColor;font:11px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.04em;white-space:pre;overflow-x:auto;color:inherit;background:transparent}
 html[data-text-size="125"] body{zoom:1.25}
 html[data-text-size="150"] body{zoom:1.5}
