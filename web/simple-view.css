@@ -19,3 +19,11 @@ html:is([data-text-size="150"],[data-text-size="200"]) body>main{grid-column:1;g
 html:is([data-text-size="150"],[data-text-size="200"]) .j-nav button{flex:1 1 8rem;text-align:left}
 html:is([data-text-size="150"],[data-text-size="200"]) .j-theme{flex:1 1 40%;flex-direction:row;align-items:center;margin:0;gap:8px}
 html:is([data-text-size="150"],[data-text-size="200"]) .j-theme select{flex:1;min-width:0}
+/* Zoom into the new face. Only transform moves, so every frame is pure black and white: the old face
+   is dropped and the new one grows from just under full size. Reduced motion never gets the class. */
+@keyframes j-zoom-in{from{transform:scale(.96)}to{transform:none}}
+@media (prefers-reduced-motion:no-preference){
+  html.j-zooming::view-transition-group(root){animation:none}
+  html.j-zooming::view-transition-old(root){animation:none;display:none}
+  html.j-zooming::view-transition-new(root){animation:j-zoom-in var(--j-motion,240ms) cubic-bezier(.2,0,0,1) both;mix-blend-mode:normal}
+}

@@ -735,6 +735,22 @@ body.jaryo-app .sidebar h1 {
   }
 }
 
+/* Moving between the reading pages (Components, Identity, Machines, Setup) zooms the page body in
+   while the nav stays put. Cross-document View Transitions: a browser without them just loads the
+   page. Only transform moves, so no frame is grey, and reduced motion never opts in. */
+@keyframes j-zoom-in { from { transform: scale(0.96); } to { transform: none; } }
+@media (prefers-reduced-motion: no-preference) {
+  @view-transition { navigation: auto; }
+  body.jaryo-app main.j-page { view-transition-name: j-article; }
+  ::view-transition-group(root), ::view-transition-group(j-article) { animation: none; }
+  ::view-transition-old(root), ::view-transition-new(root) { animation: none; mix-blend-mode: normal; }
+  ::view-transition-old(j-article) { animation: none; display: none; }
+  ::view-transition-new(j-article) {
+    animation: j-zoom-in var(--j-motion, 240ms) cubic-bezier(0.2, 0, 0, 1) both;
+    mix-blend-mode: normal;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   body.jaryo-app *, body.jaryo-app *::before, body.jaryo-app *::after {
     animation-duration: 0.01ms !important;
