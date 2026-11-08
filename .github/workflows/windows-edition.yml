@@ -32,6 +32,9 @@ jobs:
           python-version: ${{ matrix.python }}
       - name: Windows edition tests
         working-directory: windows
+        # cmd, not the default pwsh: pwsh puts its own module folders first in PSModulePath, and the installer tests
+        # start Windows PowerShell 5.1, which then cannot load Microsoft.PowerShell.Security (Get-Acl, Get-FileHash).
+        shell: cmd
         env:
           PYTHONDONTWRITEBYTECODE: '1'
         run: python -B -m unittest discover -s tests -p "test_*.py" -v
