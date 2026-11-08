@@ -28,6 +28,11 @@ def rows(peers=(), mac_name="target-mac.local", lanes=UP_LANES, hands=None, pair
                                peers=list(peers), mac_name=mac_name, paired=paired)
 
 
+def machine_state_time(text):
+    import datetime as _dt
+    return _dt.datetime.fromisoformat(text.replace('Z', '+00:00')).timestamp()
+
+
 class MachineRows(unittest.TestCase):
     def test_expected_machines_are_this_pc_and_the_mac(self):
         out = rows()
@@ -63,6 +68,7 @@ class MachineRows(unittest.TestCase):
         self.assertEqual(len(out), 2, "an unattributed Mac report gets no machine row")
         unconfigured = rows([record("target-mac", "macos")], mac_name=None)[1]
         self.assertEqual((unconfigured["state"], unconfigured["reason"]), ("unknown", "unconfigured"))
+        self.assertEqual(unconfigured["reasonCode"], "not_configured")  # not "never observed": nothing is set up
 
     def test_down_only_from_a_fresh_report_and_stale_is_not_observed_since(self):
         self.assertEqual(rows([record("target-mac", "macos", health="down")])[1][("state")], "down")
@@ -174,6 +180,22 @@ class SharedRowSchema(unittest.TestCase):
                 code = probes.MACHINE_REASON_CODES[word]
                 self.assertTrue(code in machine_state.UNKNOWN_REASONS or code in (
                     "observed", "reported_degraded", "reported_down"), code)
+
+    def test_a_stale_mac_report_keeps_its_stale_reason_when_the_peer_source_is_unavailable(self):
+        snapshot = {"sources": [{"id": "lane-inventory", "state": "live"},
+                                {"id": "agiw-peers", "state": "unavailable"}],
+                    "machines": rows([record("target-mac", "macos", age=7200.0)]), "lanes": [], "models": []}
+        mac = probes.enforce_snapshot_evidence(snapshot)["machines"][1]
+        self.assertEqual((mac["state"], mac["reason"], mac["reasonCode"]), ("unknown", "stale", "stale"))
+        self.assertIsNone(mac["handsOff"])
+
+    def test_observed_at_keeps_the_milliseconds(self):
+        out = rows([record("target-mac", "macos", age=2.0)], sampled=NOW + 0.75)
+        self.assertRegex(out[0]["observedAt"], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$")
+        self.assertRegex(out[1]["observedAt"], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$")
+        # Whole-second floor would put the row up to 1 s further in the past; the milliseconds put it back.
+        parsed = machine_state_time(out[0]["observedAt"])
+        self.assertAlmostEqual(parsed, NOW + 0.75, delta=0.001)
 
     def test_a_demoted_row_does_not_keep_saying_observed(self):
         snapshot = {"sources": [{"id": "lane-inventory", "state": "unavailable"},

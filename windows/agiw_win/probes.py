@@ -1490,7 +1490,10 @@ def enforce_snapshot_evidence(snapshot: dict[str, Any]) -> dict[str, Any]:
             peer.update(modelsComplete=False, fresh=False)
     for machine in data.get("machines") or []:
         local = machine.get("role") == "this-machine"
-        if local and (not inventory or unknown_lanes) or not local and not known("agiw-peers"):
+        if local and (not inventory or unknown_lanes) or (
+                not local and not known("agiw-peers") and machine.get("state") != "unknown"):
+            # A peer row that already reads unknown (for example a stale report) claims nothing the missing evidence
+            # could contradict; it keeps its own reason instead of becoming "evidence incomplete".
             machine.update(state="unknown", health="unknown", loadedCount=None,
                            reason="evidence-incomplete", detail="Machine evidence unavailable or incomplete",
                            reasonCode=MACHINE_REASON_CODES["evidence-incomplete"], modelsComplete=False,
@@ -2185,7 +2188,7 @@ MACHINE_REASON_CODES = {
     "lane-state-unknown": "unavailable",
     "reported-serving": "observed", "reported-partly-serving": "reported_degraded", "reported-down": "reported_down",
     "reported-service-unknown": "unavailable", "health-unknown": "unavailable",
-    "stale": "stale", "no-report": "not_observed", "unconfigured": "not_observed",
+    "stale": "stale", "no-report": "not_observed", "unconfigured": "not_configured",
     "config-unreadable": "unavailable", "clock-ahead": "clock_skew", "report-refused": "schema_invalid",
     "peers-unreadable": "read_error", "report-unreadable": "read_error", "scan-truncated": "unavailable",
     "evidence-incomplete": "unavailable",
@@ -2206,17 +2209,20 @@ def _shared_row_fields(host: Any, reason: str, observed_unix: Any, loaded_count:
     for a row that is not up); the PC reads no token rates for a machine, so those are null too."""
     complete = loaded_count is not None
     return {"host": host, "reasonCode": MACHINE_REASON_CODES.get(reason, "unavailable"),
-            "observedAt": _iso_utc(observed_unix), "freshForSeconds": fresh,
+            "observedAt": _iso_utc(observed_unix, millis=True), "freshForSeconds": fresh,
             "modelsComplete": complete, "busyCount": busy_count if complete else None,
             "promptTokensPerSecond": None, "generationTokensPerSecond": None}
 RELAYER_LABELS = {"mac": "Mac"}
 
 
-def _iso_utc(unix: Any) -> str | None:
+def _iso_utc(unix: Any, *, millis: bool = False) -> str | None:
     value = _number(unix, low=0, high=4e9)
     if value is None:
         return None
-    return dt.datetime.fromtimestamp(value, dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    text = dt.datetime.fromtimestamp(value, dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+    # A row's observedAt keeps the milliseconds: a whole-second floor would age the row up to 1 s early. Text shown
+    # to a person stays in whole seconds.
+    return text + (f".{int(value % 1 * 1000):03d}Z" if millis else "Z")
 
 
 def _age_words(age: float) -> str:
