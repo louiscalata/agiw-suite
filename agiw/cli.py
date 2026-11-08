@@ -47,10 +47,15 @@ class CliError(Exception):
 
 
 class ControlUnreachable(CliError):
-    def __init__(self, reason: str):
+    def __init__(self, reason: str, *, may_have_applied: bool = False):
         self.reason = reason
+        self.may_have_applied = may_have_applied
         detail = "timeout" if reason == "timeout" else "read error"
-        super().__init__(f"the peer link is running but did not answer: {detail}")
+        message = f"the peer link is running but did not answer: {detail}"
+        if may_have_applied:
+            # A write that got no readable answer may still have been applied; do not say it failed.
+            message += "; the request may or may not have taken effect; run `agiw peers` to see"
+        super().__init__(message)
 
 
 def control(state_dir: Path, port: int, method: str, path: str, body: Optional[dict] = None) -> dict:
@@ -63,12 +68,12 @@ def control(state_dir: Path, port: int, method: str, path: str, body: Optional[d
         raise CliError(NOT_RUNNING, EXIT_NOT_RUNNING)
     except (OSError, ValueError, http.client.HTTPException) as exc:
         reason = "timeout" if isinstance(exc, (TimeoutError, socket.timeout)) else "read_error"
-        raise ControlUnreachable(reason) from exc
+        raise ControlUnreachable(reason, may_have_applied=method != "GET") from exc
     if status != 200:
         message = doc.get("error") if isinstance(doc, dict) else None
         raise CliError(str(message or f"the peer link answered {status}"))
     if not isinstance(doc, dict):
-        raise ControlUnreachable("read_error")
+        raise ControlUnreachable("read_error", may_have_applied=method != "GET")
     return doc
 
 

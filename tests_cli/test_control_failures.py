@@ -112,3 +112,44 @@ class ControlFailures(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class WriteOutcomeUnknown(unittest.TestCase):
+    """A write with no readable answer may still have been applied; the CLI must not say it failed."""
+
+    def setUp(self):
+        forbid_real_commands(self)
+
+    def run_cli(self, argv, **patch):
+        lines, stderr = [], io.StringIO()
+        with mock.patch.object(pl, "control_request", **patch), mock.patch("sys.stderr", stderr):
+            code = cli.main(["--state-dir", "unused", *argv], out=lines.append)
+        return code, stderr.getvalue()
+
+    def test_a_write_without_a_readable_answer_says_it_may_have_taken_effect(self):
+        for argv in (["pair", "pc"], ["unpair", "pc"]):
+            for error in (TimeoutError("deadline exceeded"), ConnectionResetError("reset")):
+                with self.subTest(argv=argv, error=type(error).__name__):
+                    code, err = self.run_cli(argv, side_effect=error)
+                    self.assertNotEqual(code, 0)
+                    self.assertIn("may or may not have taken effect", err)
+                    self.assertIn("agiw peers", err)
+
+    def test_a_write_with_a_non_object_answer_says_it_may_have_taken_effect(self):
+        code, err = self.run_cli(["unpair", "pc"], return_value=(200, []))
+        self.assertNotEqual(code, 0)
+        self.assertIn("may or may not have taken effect", err)
+
+    def test_a_read_or_a_refused_write_does_not_claim_an_unknown_outcome(self):
+        code, err = self.run_cli(["peers"], side_effect=TimeoutError("deadline exceeded"))
+        self.assertNotEqual(code, 0)
+        self.assertNotIn("may or may not", err)
+        code, err = self.run_cli(["unpair", "pc"], side_effect=ConnectionRefusedError())
+        self.assertNotEqual(code, 0)
+        self.assertNotIn("may or may not", err)
+
+    def test_an_answered_error_is_a_definite_failure(self):
+        code, err = self.run_cli(["unpair", "pc"], return_value=(404, {"error": "no such peer"}))
+        self.assertNotEqual(code, 0)
+        self.assertIn("no such peer", err)
+        self.assertNotIn("may or may not", err)
