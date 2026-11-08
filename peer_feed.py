@@ -267,8 +267,9 @@ def summarize_document(doc: Any, via: str, now: float, *, platform: str | None =
             return result
         trust = "authenticated" if via in ("lan", "ssh") else "share-reported" if via == "share" else "unverified"
         summary.update(host=identity, platform=actual, trust=trust, reasonCode="ok")
-        if type(doc.get("handsOff")) is bool:
-            summary["handsOff"] = doc["handsOff"]
+        hands_off = peer_link.hands_off_flag(doc.get("handsOff"))
+        if hands_off is not None:
+            summary["handsOff"] = hands_off
         source = {"id": f"{actual}:{identity}-telemetry", "label": identity, "host": identity,
                   "platform": actual, "state": "live" if trust == "authenticated" else "recorded",
                   "trust": trust, "reasonCode": "ok", "ageSeconds": summary["ageSeconds"],
@@ -464,16 +465,21 @@ def peer_feeds(now: float, *, peer_reader: Callable | None = None, share_reader:
             elif previous["feed"] and row["feed"] and previous["source"]["trust"] == source["trust"]:
                 if peer_link._parse_iso(row["feed"]["observedAt"]) > peer_link._parse_iso(previous["feed"]["observedAt"]):
                     merged[key] = row
-    if any(row["feed"] and row["source"]["platform"] == "windows"
-           and row["source"].get("legacy") is not True for row in merged.values()):
+    modern = [row for row in merged.values()
+              if row["source"]["platform"] == "windows" and row["source"].get("legacy") is not True]
+    if modern:
+        # The legacy platform-named report is a fallback, not a second machine. It stays only as the sole fresh
+        # evidence (it has a feed while no modern file does); a stale one with no feed names no machine.
+        modern_seen = any(row["feed"] for row in modern)
         merged = {key: row for key, row in merged.items()
-                  if not (row["source"]["platform"] == "windows" and row["source"].get("legacy") is True)}
+                  if not (row["source"]["platform"] == "windows" and row["source"].get("legacy") is True
+                          and (modern_seen or not row["feed"]))}
     represented = {key[0] for key in merged}
     unattributed = [row["source"]["reasonCode"] for key, row in merged.items()
                     if key[0] == "unknown" and row["feed"] is None]
     for platform in ("windows",):
         if platform not in represented:
-            reason = unattributed[0] if unattributed else failures[-1] if failures else "not_connected"
+            reason = unattributed[0] if unattributed else failures[-1] if failures else "not_observed"
             missing = _feed_failure(platform, platform, reason)
             if unattributed:
                 missing["source"]["detail"] = "Peer document could not be attributed: " + reason.replace("_", " ")
