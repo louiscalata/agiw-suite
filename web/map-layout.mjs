@@ -913,7 +913,9 @@ export const ROUTE_REVIEW_WINDOW_SECONDS = 86400;
 /** Machine evidence leads the headline; transport loss never turns yesterday's idle count into today's zero. */
 export function machineStatusView(machine, {snapshotAge = 0, fresh = true, now = Date.now() / 1000} = {}) {
   const thresholds = {mac: 3, windows: 30, linux: 30};
-  const limit = thresholds[machine?.platform];
+  // The PC's own rows call the Mac 'macos'; the shared rows call it 'mac'.
+  const platform = machine?.platform === 'macos' ? 'mac' : machine?.platform;
+  const limit = Object.prototype.hasOwnProperty.call(thresholds, platform) ? thresholds[platform] : undefined;
   const stamp = machine?.observedAt;
   const observed = typeof stamp === 'string'
     && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(stamp)
@@ -932,6 +934,9 @@ export function machineStatusView(machine, {snapshotAge = 0, fresh = true, now =
     return {tone: 'muted', detail, short: '? Unknown', tiny: '? Unknown'};
   }
   if (machine.state === 'down') return {tone: 'warn', detail: '■ Down · reported not serving', short: '■ Down', tiny: '■ Down'};
+  // A machine that is up but reports itself degraded is not plainly Up: the chip says so before any count.
+  const degraded = machine.reasonCode !== undefined && machine.reasonCode !== null ? machine.reasonCode === 'reported_degraded' : machine.reason === 'partly-serving';
+  if (degraded) return {tone: 'warn', detail: '◐ Degraded · reported degraded', short: '◐ Degraded', tiny: '◐ Degraded'};
   const count = value => Number.isSafeInteger(value) && value >= 0;
   const complete = machine.modelsComplete === true;
   const loaded = complete && count(machine.loadedCount) ? `${machine.loadedCount} loaded` : 'loaded unknown';

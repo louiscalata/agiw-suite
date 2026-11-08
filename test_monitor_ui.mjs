@@ -2683,3 +2683,34 @@ test('pass 8: aged activity cannot leave the runtime headline or inspector quiet
   assert.match($('inspector').querySelector('.panel-summary').textContent, /Activity unknown/);
   assert.doesNotMatch(api.vitalsInput().vitals.mac.detail, /idle|quiet/i);
 });
+
+test('a machine that is up but reports itself degraded is not shown as plainly Up', () => {
+  const row = {platform: 'linux', state: 'up', trust: 'authenticated', reasonCode: 'reported_degraded', ageSeconds: 10, modelsComplete: true, busyCount: 1, loadedCount: 2};
+  const view = layout.machineStatusView(row);
+  assert.equal(view.tone, 'warn');
+  assert.match(view.detail, /Degraded/);
+  assert.doesNotMatch(view.detail, /● Up/);
+  assert.match(view.short, /Degraded/);
+  assert.match(view.tiny, /Degraded/);
+  // Not fresh or not trusted still reads Unknown: the degraded word is a claim, and needs the same evidence as Up.
+  for (const changed of [{...row, ageSeconds: 31}, {...row, trust: 'unverified'}]) {
+    assert.match(layout.machineStatusView(changed).detail, /Unknown/);
+    assert.doesNotMatch(layout.machineStatusView(changed).detail, /Degraded/);
+  }
+  const plain = layout.machineStatusView({...row, reasonCode: 'observed'});
+  assert.equal(plain.tone, 'ok');
+  assert.match(plain.detail, /● Up/);
+});
+
+test('the machine chip reads the PC row words: macos like mac, partly-serving as degraded, odd platforms as unknown', () => {
+  const row = {state: 'up', trust: 'share-reported', ageSeconds: 1, reasonCode: 'observed', modelsComplete: true, loadedCount: 1, busyCount: 0};
+  assert.match(layout.machineStatusView({...row, platform: 'macos'}).detail, /● Up · 1 loaded · 0 busy/);
+  assert.match(layout.machineStatusView({...row, platform: 'mac'}).detail, /● Up/);
+  assert.match(layout.machineStatusView({...row, platform: 'macos', ageSeconds: 4}).detail, /Unknown/, 'the Mac window is 3 s whichever name it goes by');
+  assert.match(layout.machineStatusView({...row, platform: 'windows', ageSeconds: 4}).detail, /● Up/, 'the PC window is 30 s');
+  for (const platform of ['constructor', 'toString', '__proto__', undefined, 5]) assert.match(layout.machineStatusView({...row, platform}).detail, /Unknown/, String(platform));
+  const old = {...row, platform: 'windows', reasonCode: undefined, reason: 'partly-serving', trust: 'local'};
+  assert.match(layout.machineStatusView(old).detail, /Degraded/);
+  assert.match(layout.machineStatusView({...old, reasonCode: 'observed'}).detail, /● Up/);
+  assert.match(layout.machineStatusView({...old, state: 'down'}).detail, /Down/);
+});

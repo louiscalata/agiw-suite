@@ -567,7 +567,7 @@ function sessionMonitors(snapshot, options) {
 
 function wantsMac(snapshot) {
   return snapshot.host === 'mac' || macModels(snapshot).length > 0
-    || (Array.isArray(snapshot.machines) && snapshot.machines.some(row => row && (row.platform === 'macos' || row.host === 'mac')));
+    || (Array.isArray(snapshot.machines) && snapshot.machines.some(row => row && (row.platform === 'macos' || row.platform === 'mac' || row.host === 'mac')));
 }
 
 function peerMacMonitor(snapshot, options) {
