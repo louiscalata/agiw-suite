@@ -1084,6 +1084,30 @@ class Queue(unittest.TestCase):
         self.assertEqual(pipeline["status"], "queued")
         self.assertEqual(pipeline["queue"]["stalePending"], 1)
 
+    def test_a_file_a_few_milliseconds_ahead_of_the_clock_is_not_future_dated(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "pending").mkdir()
+            (root / "claimed").mkdir()
+            (root / "pending" / "new.json").write_text("{}")
+            now = time.time()
+            os.utime(root / "pending" / "new.json", (now + 0.05, now + 0.05))
+            pipeline, _ = probes.route_queue(root, now)
+        self.assertEqual(pipeline["status"], "queued")
+        self.assertEqual(pipeline["queue"]["oldestPendingSeconds"], 0.0)
+
+    def test_a_file_well_ahead_of_the_clock_is_still_refused(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "pending").mkdir()
+            (root / "claimed").mkdir()
+            (root / "pending" / "new.json").write_text("{}")
+            now = time.time()
+            os.utime(root / "pending" / "new.json", (now + 60, now + 60))
+            pipeline, source = probes.route_queue(root, now)
+        self.assertIsNone(pipeline["status"])
+        self.assertEqual(source["state"], "unavailable")
+
     def test_only_stale_claims_reads_queued_or_idle(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
