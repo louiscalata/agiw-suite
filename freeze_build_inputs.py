@@ -67,7 +67,8 @@ def freeze_inputs(source_fd, destination, inputs):
             if (before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (
                     after.st_size, after.st_mtime_ns, after.st_ctime_ns):
                 raise ValueError('Build input changed while freezing: ' + name)
-            target.chmod(0o644)
+            # A script that was executable stays so (agiw-status is copied into the app and run by name).
+            target.chmod(0o755 if before.st_mode & stat.S_IXUSR else 0o644)
 
 
 if __name__ == '__main__':

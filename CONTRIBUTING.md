@@ -13,7 +13,12 @@ Run from the repository root on macOS with Python and Node.js available:
 ```sh
 PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest discover -p 'test_*.py' -q
 node --test test_*.mjs
+python3 -B -m unittest discover -s tests_cli -q                            # the agiw command-line tool
+(cd windows && python3 -B -m unittest discover -s tests -p 'test_*.py' -q)  # the Windows edition
 ```
+
+On macOS the Windows edition's native cases skip; the `Windows edition` workflow runs them on Windows. A change to
+`agiw/`, `pyproject.toml`, `machine_state.py` or `docs/cli.md` is also checked by the `CLI` workflow on macOS and Windows.
 
 The R2.9 dual-read integration cases require state writers from the separate router project. If a required writer is missing, the test fails by default. For an isolated source checkout, use the explicit CI allowance:
 
