@@ -8,7 +8,7 @@ async function refresh(){
     if(response.status===501){const refusal=await response.json().catch(()=>null);const message=refusal&&typeof refusal.message==='string'?refusal.message:'Not available in the Windows edition yet.';$('integrity').textContent='Unavailable';$('runtime').textContent=message;$('result').textContent=message;$('check').disabled=true;return;}
     if(!response.ok)throw new Error('unavailable');
     const data=await response.json(),verified=data.nisi?.integrity==='verified',running=data.check?.state==='running';
-    $('integrity').textContent=verified?'Verified · public 0.2.0 payload':'Unavailable · package verification failed';
+    const version=typeof data.nisi?.version==='string'&&/^\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(data.nisi.version)?data.nisi.version:null,tag=document.querySelector('#nisiHeading span');if(tag&&version)tag.textContent='v'+version;$('integrity').textContent=verified?(version?'Verified · public '+version+' payload':'Verified · public payload'):'Unavailable · package verification failed';
     $('runtime').textContent=data.check?.state==='passed'?`Node ${data.check.nodeVersion} · Apple silicon verified`:data.node?.found?'Node found · run self-check to verify':'Node.js 22+ required';
     $('check').disabled=!verified||running;
     $('check').textContent=running?'Checking…':'Run Nisi self-check';

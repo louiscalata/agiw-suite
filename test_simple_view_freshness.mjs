@@ -273,3 +273,31 @@ test('an older poll cannot overwrite a newer result', async () => {
   assert.equal(unloadButton(view.document.bodyNode).textContent, 'Unload Newest');
   assert.doesNotMatch(view.document.bodyNode.textContent, /Stale/);
 });
+
+test('the status ModelControl sends after a confirmed operation keeps the compact view answering', async () => {
+  const reply = { status: 'succeeded', operationId: 'abc', action: 'unload', modelId: 'instance-1', settlement: 'confirmed',
+    message: 'Model unload confirmed by fresh LM Studio inventory.', cancellationRequested: false };
+  const view = mount(async path => path === '/api/snapshot' ? ok(snapshot()) : ok(reply));
+  await flush();
+  assert.doesNotMatch(view.document.bodyNode.textContent, /Control is unavailable/);
+  assert.ok(unloadButton(view.document.bodyNode), 'the next unload is offered again');
+  assert.match(view.document.bodyNode.textContent, /DONE, INVENTORY CONFIRMS/);
+});
+
+test('the compact memory line needs a fresh sample and a percentage that can be one', async () => {
+  const cases = [
+    [{ memory: { availablePercent: 40 } }, /40% available/],
+    [{ memory: { availablePercent: 0 } }, /0% available/],
+    [{ memory: { availablePercent: 100 } }, /100% available/],
+    [{ memory: { availablePercent: 140 } }, /Memory not reported/],
+    [{ memory: { availablePercent: -5 } }, /Memory not reported/],
+    [{ memory: { availablePercent: '40' } }, /Memory not reported/],
+    [{ memory: {} }, /Memory not reported/],
+    [{ sampledAt: CLOCK - 100, fullSampledAt: CLOCK - 100, memory: { availablePercent: 40 } }, /Memory not reported/],
+  ];
+  for (const [extra, expected] of cases) {
+    const view = mount(async path => path === '/api/snapshot' ? ok(snapshot('Example', extra)) : ok({ status: 'idle' }));
+    await flush();
+    assert.match(view.document.bodyNode.textContent, expected, JSON.stringify(extra));
+  }
+});
