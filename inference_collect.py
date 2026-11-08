@@ -32,7 +32,7 @@ PC_LANES = (
 )
 _BY_ID = {lane["id"]: lane for lane in PC_LANES}
 _METRIC = re.compile(r"^([a-zA-Z_:][a-zA-Z0-9_:]*)(?:\{[^}]*\})?\s+(\S+)")
-_COUNTERS = ("prompt_tokens_total", "tokens_predicted_total", "prompt_seconds_total", "predicted_seconds_total")
+_COUNTERS = ("prompt_tokens_total", "tokens_predicted_total", "prompt_seconds_total", "tokens_predicted_seconds_total")
 _GAUGES = ("requests_deferred", "requests_processing", "n_busy_slots")
 _WANTED = set(_COUNTERS + _GAUGES)
 _LMSTUDIO = "http://127.0.0.1:1234"
@@ -64,7 +64,7 @@ class RateMemory:
             # Two scrapes a few milliseconds apart turn one token into thousands per second.
             return None, None
         return (_speed(prev, counters, elapsed, "prompt_tokens_total", "prompt_seconds_total"),
-                _speed(prev, counters, elapsed, "tokens_predicted_total", "predicted_seconds_total"))
+                _speed(prev, counters, elapsed, "tokens_predicted_total", "tokens_predicted_seconds_total"))
 
 
 def _speed(prev, counters, elapsed, tokens, seconds):
