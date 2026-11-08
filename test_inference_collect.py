@@ -201,6 +201,24 @@ class CollectorTests(unittest.TestCase):
         self.assertNotIn("http://127.0.0.1:1236", seen)
         self.assertNotIn("http://127.0.0.1:1334", "".join(seen))
 
+
+    def test_pc_lanes_are_not_configured_only_when_no_ssh_host_is_set_up(self):
+        lanes = ({"id": "pc:router", "port": 1234}, {"id": "pc:gpt-oss-20b", "port": 1245},
+                 {"id": "pc:qwen3.8-27b", "port": 1236})
+        targets = [{"id": lane["id"], "service": f"127.0.0.1:{lane['port']}", "base": None} for lane in lanes]
+
+        def fetch(url):
+            raise ProbeError("refused")
+
+        def reasons(tunnel):
+            document = collect_map("mac", fetch=fetch, now=1000, targets=targets, tunnel=tunnel, veritas_url=None)
+            return {item["id"]: item["reason"] for item in document["nodes"] if item["id"].startswith("pc:")}
+
+        unset = {"state": "down", "reason": "host_unconfigured", "detail": "PC SSH user and host are not configured."}
+        self.assertEqual(set(reasons(unset).values()), {"not_configured"})
+        for tunnel in ({"state": "down", "reason": "tunnel_down"}, {"state": "down", "reason": "config_invalid"}, None):
+            self.assertEqual(set(reasons(tunnel).values()), {"tunnel_down"}, tunnel)
+
     def test_unconfigured_and_non_loopback_veritas_make_no_request(self):
         calls = []
 
