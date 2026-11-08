@@ -146,7 +146,8 @@ Connected peers still pass through health and freshness checks. This adapter ret
 document. A paired peer without an accepted status is `unknown`, and the reason follows the monitor's rule:
 a peer whose link state is `connected` but whose signed status was missing or rejected is `unavailable`; a
 peer never heard (no hello yet) or heard but never sent a status (`connecting`) is `not_observed`; a peer
-that answered before and went silent (`stale`, or `offline` after a hello) is `not_connected`. A peer's last
+that answered before and went silent (`stale`, or `offline` after a hello) is `not_connected`. The monitor's own PC row reads `not_configured` only when no PC is paired, no PC report
+is on the share and no reader failed; a paired PC that has not been heard stays `not_observed`. A peer's last
 fetch error and the link's `pollError` are diagnostics; they never choose the word. Unpaired available
 machines have no row, and transport diagnostics do not replace an accepted document. A local `selfStatus` error with machine-readable `code: "timeout"` becomes `unknown/timeout`;
 all other local provider errors become `unknown/unavailable`. Error text is not used to select the reason.

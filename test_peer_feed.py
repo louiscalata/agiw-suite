@@ -514,10 +514,31 @@ class PerHostFeeds(unittest.TestCase):
             rows = peer_feed.peer_feeds(now, peer_reader=lambda _: [], share_reader=lambda _: share)
             self.assertIn("windows", [r["feed"]["host"] for r in rows if r["feed"]])
 
-    def test_a_pc_that_was_never_seen_is_not_observed_not_went_silent(self):
+    def test_no_pc_configured_at_all_is_not_configured(self):
         rows = peer_feed.peer_feeds(time.time(), peer_reader=lambda _: [], share_reader=lambda _: [])
         windows = [r for r in rows if r["source"]["platform"] == "windows"]
-        self.assertEqual([(r["feed"], r["source"]["reasonCode"]) for r in windows], [(None, "not_observed")])
+        self.assertEqual([(r["feed"], r["source"]["reasonCode"]) for r in windows], [(None, "not_configured")])
+
+    def test_a_configured_pc_that_was_never_heard_stays_not_observed(self):
+        node = "00000000-0000-4000-8000-000000000001"
+        for extra in ({"state": "offline", "lastHello": None}, {"state": "connecting", "lastHello": 1.0}):
+            with self.subTest(**extra), tempfile.TemporaryDirectory() as directory:
+                state = Path(directory)
+                (state / "control-token").write_text("fixture")
+                peer = {"node": node, "paired": True, "host": "windows", "name": "pc1", **extra}
+                with mock.patch.object(peer_feed, "_control_get", return_value=(200, {"peers": [peer]})):
+                    rows = peer_feed.peer_feeds(time.time(), peer_reader=lambda now: peer_feed.from_peer_link_hosts(now, state),
+                                                share_reader=lambda _: [])
+                reasons = [r["source"]["reasonCode"] for r in rows if r["source"]["platform"] == "windows"]
+                self.assertEqual(reasons, ["not_observed"])
+
+    def test_a_failed_reader_is_not_a_missing_pc(self):
+        def broken(_):
+            raise OSError("share gone")
+        rows = peer_feed.peer_feeds(time.time(), peer_reader=lambda _: [], share_reader=broken)
+        reasons = [r["source"]["reasonCode"] for r in rows if r["source"]["platform"] == "windows"]
+        self.assertEqual(len(reasons), 1)
+        self.assertNotIn(reasons[0], ("not_configured", "not_observed"))
 
     def test_the_pcs_hands_off_object_becomes_one_bool(self):
         for value, expected in (({"active": True, "state": "hands-off"}, True), ({"active": False}, False),

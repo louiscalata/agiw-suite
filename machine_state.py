@@ -10,7 +10,7 @@ TRUST_LEVELS = {"local", "authenticated", "share-reported", "unverified"}
 UNKNOWN_REASONS = frozenset({
     "not_observed", "unavailable", "timeout", "refused", "non_json", "oversize",
     "schema_invalid", "stale", "clock_skew", "host_key_mismatch", "share_unmounted",
-    "asleep", "untrusted", "unverified", "not_connected", "identity_mismatch", "read_error",
+    "asleep", "untrusted", "unverified", "not_connected", "identity_mismatch", "read_error", "not_configured",
 })
 
 

@@ -168,7 +168,7 @@ def _summary(doc: dict, via: str, now: float, platform: str = "windows") -> dict
 
 REASON_CODES = frozenset({"ok", "timeout", "refused", "non_json", "oversize", "schema_invalid", "stale",
                           "host_key_mismatch", "share_unmounted", "asleep", "clock_skew", "not_connected", "not_observed",
-                          "unverified", "unavailable"})
+                          "unverified", "unavailable", "not_configured"})
 
 
 class FeedUnavailable(Exception):
@@ -479,7 +479,9 @@ def peer_feeds(now: float, *, peer_reader: Callable | None = None, share_reader:
                     if key[0] == "unknown" and row["feed"] is None]
     for platform in ("windows",):
         if platform not in represented:
-            reason = unattributed[0] if unattributed else failures[-1] if failures else "not_observed"
+            # No paired PC, no PC report on the share and no failed reader: no PC is configured at all. A PC that
+            # is paired but not heard yet is a row above (not_observed); a failed reader keeps its own reason.
+            reason = unattributed[0] if unattributed else failures[-1] if failures else "not_configured"
             missing = _feed_failure(platform, platform, reason)
             if unattributed:
                 missing["source"]["detail"] = "Peer document could not be attributed: " + reason.replace("_", " ")
