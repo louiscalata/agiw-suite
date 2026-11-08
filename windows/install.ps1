@@ -193,6 +193,10 @@ foreach ($file in 'usage-format.mjs', 'client_models.py', 'peer_link.py', 'peer_
     $files.Add(@((Join-Path $repo $file), $file))
 }
 
+# The app icon sits at the install root, so it needs no directory of its own (the install guard creates one new
+# directory level at a time). The shortcut the installer stages, and the one the tray toggle makes, point at it.
+$files.Add(@((Join-Path $repo 'brand\windows\agiw.ico'), 'agiw.ico'))
+
 function Test-InstalledInventory($Files, $Destination, $Stage, $Guard, $RejectUnexpected = $false) {
     # Retained no-follow directory handles also protect the inventory walk. Extra code is never deleted.
     $expected = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
@@ -367,6 +371,8 @@ try {
         $shortcut.TargetPath = $wscript
         $shortcut.Arguments = $expectedArguments
         $shortcut.WorkingDirectory = $Destination
+        # The AGIW app icon, not wscript.exe's default; it is installed with the other files above.
+        $shortcut.IconLocation = '{0},0' -f (Join-Path $Destination 'agiw.ico')
         $shortcut.Save()
         if (-not (Test-Path -LiteralPath $stagedLink)) { throw 'Sign-in shortcut staging failed.' }
     }

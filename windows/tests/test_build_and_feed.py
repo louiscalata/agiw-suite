@@ -214,6 +214,49 @@ class Installer(unittest.TestCase):
         self.assertIn("'monitor.html'", INSTALLER)
         self.assertIn("'inference_collect.py'", INSTALLER)
 
+    def install_lists(self):
+        """The quoted file lists of every `foreach ($file in ...)` in install.ps1, in order."""
+        return [re.findall(r"'([^']+)'", block) for block in re.findall(r"foreach \(\$file in ([^)]*)\)", INSTALLER)]
+
+    def test_the_web_files_it_installs_are_the_files_it_serves_and_the_files_that_exist(self):
+        lists = self.install_lists()
+        web = next(names for names in lists if "index.html" in names and "setup.mjs" in names)
+        served = {file for file, _kind in server.ASSETS.values()}
+        self.assertEqual(set(web), served, "install.ps1's web list and the server's routes have drifted")
+        on_disk = {path.name for path in (REPO / "web").iterdir() if path.is_file() and path.suffix in (".html", ".mjs", ".js", ".css")}
+        # Files this edition deliberately does not install or serve (the Mac app's own pages).
+        self.assertEqual(on_disk - set(web), set(), "a web file exists that the Windows install would leave out")
+        jaryo = next(names for names in lists if "tokens.json" in names)
+        installed = {name.replace("\\", "/") for name in jaryo}
+        self.assertEqual({file for file, _kind in server.JARYO_FILES.values()} - installed, set())
+        for name in web:
+            self.assertTrue((REPO / "web" / name).is_file(), name)
+        for name in installed:
+            self.assertTrue((REPO / "jaryo" / name).is_file(), name)
+
+    def test_the_app_icon_is_installed_and_is_the_sign_in_shortcuts_icon(self):
+        # At the install root: the installer's directory guard creates one new directory level at a time, and the
+        # first native Windows run showed that a nested brand\\windows folder made 18 installer tests fail.
+        self.assertIn("$files.Add(@((Join-Path $repo 'brand\\windows\\agiw.ico'), 'agiw.ico'))", INSTALLER)
+        self.assertNotRegex(INSTALLER, r"foreach \(\$file in [^)]*brand")
+        self.assertIn("$shortcut.IconLocation = '{0},0' -f (Join-Path $Destination 'agiw.ico')", INSTALLER)
+        monitor = (WINDOWS / "agiw-monitor.ps1").read_text(encoding="utf-8")
+        self.assertIn("$link.IconLocation = '{0},0' -f (Join-Path $Root 'agiw.ico')", monitor)
+        data = (REPO / "brand" / "windows" / "agiw.ico").read_bytes()
+        self.assertEqual(data[:4], b"\x00\x00\x01\x00", "an ICO header")
+        self.assertGreaterEqual(int.from_bytes(data[4:6], "little"), 1)
+        readme = (WINDOWS / "README.md").read_text(encoding="utf-8")
+        self.assertIn("agiw.ico", readme)
+
+    def test_the_readme_describes_the_black_and_white_tray_and_the_pages(self):
+        readme = (WINDOWS / "README.md").read_text(encoding="utf-8")
+        for stale in ("**blue**", "**green**", "**amber**", "**grey**"):
+            self.assertNotIn(stale, readme)
+        for shape in ("plain", "inverted", "framed", "dashed"):
+            self.assertIn(f"**{shape}**", readme)
+        for route in ("/machines", "/setup", "/components", "/identity"):
+            self.assertIn(f"`{route}`", readme)
+
     def test_build_json_is_staged_and_swapped_with_every_file(self):
         loop = INSTALLER[INSTALLER.index("foreach ($relative in $installed)"):INSTALLER.index("Set-Content -LiteralPath $marker")]
         self.assertIn("Join-Path $backup $relative", loop)
@@ -305,6 +348,7 @@ class InstallerOnWindows(unittest.TestCase):
             sources += [(REPO / name, Path(name)) for name in
                         ("usage-format.mjs", "client_models.py", "peer_link.py", "peer_feed.py", "machine_state.py",
                          "inference_stats.py", "inference_collect.py", "LICENSE", "NOTICE")]
+            sources += [(REPO / "brand" / "windows" / "agiw.ico", Path("agiw.ico"))]
             for source, relative in sources:
                 with self.subTest(installed=str(relative)):
                     self.assertEqual((destination / relative).read_bytes(), source.read_bytes())

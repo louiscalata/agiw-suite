@@ -346,6 +346,7 @@ $startupItem.add_Click({
             $link.TargetPath = Join-Path $env:SystemRoot 'System32\wscript.exe'
             $link.Arguments = '"{0}" /quiet' -f $Launcher
             $link.WorkingDirectory = $Root
+            $link.IconLocation = '{0},0' -f (Join-Path $Root 'agiw.ico')
             $link.Description = 'AGIW Inference Monitor (Windows)'
             $link.Save()
         }

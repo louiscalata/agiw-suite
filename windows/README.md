@@ -21,12 +21,15 @@ observer that serves **the same dashboard** as the Mac edition, in its `host: "w
 ## Run
 
 Double-click **`AGIW Monitor.vbs`** (or `AGIW Monitor.cmd`). The tray icon appears and the dashboard opens in an
-Edge app window at `http://127.0.0.1:8767/monitor`; **Full dashboard** opens the earlier view at `/`. If 8767 is held by something else the observer stops and the tray
+Edge app window at `http://127.0.0.1:8767/monitor`; **Full dashboard** opens the earlier view at `/`. The same server also serves
+`/machines` (one tile per machine), `/setup` (this edition's own steps), `/components` (the Mac app's components, answered here with "Not available in the
+Windows edition yet") and `/identity`. If 8767 is held by something else the observer stops and the tray
 says so, rather than moving to another address.
 
-Tray icon colours: **blue** a lane is working · **green** both lanes confirmed idle · **amber** a lane does not
-answer, is loading, serves the wrong model, or memory is tight · **grey** starting, stale, or activity unconfirmed. Right-click for *Restart observer*,
-*Start at sign-in* and *Open log folder*.
+Tray icon: one black-and-white AGIW mark per state, and the state is a shape, never a colour: **plain** both lanes confirmed idle · **inverted** a lane is
+working · **framed** a lane does not answer, is loading, serves the wrong model, or memory is tight · **dashed** starting, stale, or activity unconfirmed.
+The tray text says the same in words. Right-click for *Restart observer*, *Start at sign-in* and *Open log folder*. The sign-in shortcut carries the
+AGIW app icon (`agiw.ico` in the install folder).
 
 One-shot check without the tray:
 
