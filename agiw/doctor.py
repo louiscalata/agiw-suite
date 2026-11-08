@@ -26,6 +26,11 @@ def probe_port(port: int, proto: str, *, address: str = "0.0.0.0") -> str:
     try:
         if os.name == "nt":
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        elif proto == "tcp":
+            # The peer link binds with SO_REUSEADDR on POSIX; without it here, the TIME_WAIT sockets a stopped link
+            # leaves behind (it closes each connection first) read as "in use" for about 30 s. A live listener still
+            # refuses the bind.
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.bind((address, port))
         return "free"
     except OSError as exc:

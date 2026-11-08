@@ -233,5 +233,35 @@ class Doctor(unittest.TestCase):
             self.run_doctor()
         self.assertEqual(self.state_snapshot(), before)
 
+@unittest.skipIf(os.name == "nt", "TIME_WAIT and SO_REUSEADDR are the POSIX behavior")
+class PortProbe(unittest.TestCase):
+    def listener(self):
+        import socket
+        server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        server.bind(("127.0.0.1", 0))
+        server.listen(1)
+        return server
+
+    def test_a_live_listener_reads_in_use(self):
+        server = self.listener()
+        try:
+            self.assertEqual(doctor.probe_port(server.getsockname()[1], "tcp", address="127.0.0.1"), "in use")
+        finally:
+            server.close()
+
+    def test_time_wait_after_the_server_closed_first_reads_free(self):
+        import socket
+        server = self.listener()
+        port = server.getsockname()[1]
+        client = socket.create_connection(("127.0.0.1", port))
+        conn, _ = server.accept()
+        conn.close()        # the server closes first, as the HTTP/1.0 peer link does, leaving TIME_WAIT on its port
+        client.recv(1)
+        client.close()
+        server.close()
+        self.assertEqual(doctor.probe_port(port, "tcp", address="127.0.0.1"), "free")
+
+
 if __name__ == "__main__":
     unittest.main()
