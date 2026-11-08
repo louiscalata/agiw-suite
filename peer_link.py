@@ -1781,7 +1781,8 @@ class PeerLink:
             previous = getattr(self, "_self_status_worker", None)
             if previous is not None and previous.is_alive():
                 started = getattr(self, "_self_status_started", None)
-                if started is not None and time.monotonic() - started < SELF_STATUS_DEADLINE:
+                expired = getattr(self, "_self_status_expired", None) is previous
+                if not expired and started is not None and time.monotonic() - started < SELF_STATUS_DEADLINE:
                     # Another caller's read is still inside its own deadline: that is not a timeout yet.
                     return {"error": "local status read in progress", "code": "busy"}
                 return timeout
@@ -1798,7 +1799,13 @@ class PeerLink:
             self._self_status_started = time.monotonic()
             worker.start()
         worker.join(SELF_STATUS_DEADLINE)
-        return timeout if worker.is_alive() else answer[0]
+        if worker.is_alive():
+            # The first caller's own wait ran out. Say so directly: a coarse clock (Windows ticks about every 15 ms)
+            # or an early join must not leave later callers on "busy" past the deadline.
+            with self._lock:
+                self._self_status_expired = worker
+            return timeout
+        return answer[0]
 
     def snapshot(self, *, include_self_status: bool = False) -> dict:
         now = self.clock()

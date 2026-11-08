@@ -214,6 +214,35 @@ class ControlSnapshot(unittest.TestCase):
                          pl.project_status(pl.validate_status(self.document, "linux", NOW)))
         self.assertEqual(self.link.status_provider.call_count, 2)
 
+    def test_the_answer_after_the_deadline_does_not_depend_on_the_clock(self):
+        # Windows' monotonic clock ticks about every 15 ms and a join can return early. Emulate a clock that never
+        # advances: once the first caller's own wait has run out, later callers must still get the timeout.
+        entered, release = threading.Event(), threading.Event()
+
+        def blocked():
+            entered.set()
+            release.wait()
+            return copy.deepcopy(self.document)
+
+        self.link.status_provider.side_effect = blocked
+        with mock.patch.object(pl, "SELF_STATUS_DEADLINE", 0.05), \
+                mock.patch.object(pl.time, "monotonic", return_value=1000.0):
+            try:
+                first = self.control_handler()
+                first.do_GET()  # waits out its 0.05 s and answers timeout
+                self.assertTrue(entered.wait(0.5))
+                self.assertEqual(first._json.call_args[0][1]["selfStatus"],
+                                 {"error": "local status timed out", "code": "timeout"})
+                later = self.control_handler()
+                later.do_GET()
+                self.assertEqual(later._json.call_args[0][1]["selfStatus"],
+                                 {"error": "local status timed out", "code": "timeout"})
+            finally:
+                release.set()
+                worker = getattr(self.link, "_self_status_worker", None)
+                if worker is not None:
+                    worker.join(1)
+
     def test_unauthenticated_control_never_reads_provider(self):
         for path in ("/control/peers", "/control/status"):
             with self.subTest(path=path):
