@@ -849,16 +849,8 @@ body.jaryo-app #runtimeSidebar #modelScopeControls > button[aria-pressed="true"]
   color: var(--j-invert-ink);
   box-shadow: none;
 }
-body.jaryo-app #runtimeSidebar .view-tabs button:focus-visible,
-body.jaryo-app #runtimeSidebar #modelScopeControls > button:focus-visible {
-  outline: 2px solid var(--j-focus);
-  outline-offset: -4px;
-}
-/* On the inverted option the ring takes the ink colour, or it would be the same colour as the fill. */
-body.jaryo-app #runtimeSidebar .view-tabs button[aria-pressed="true"]:focus-visible,
-body.jaryo-app #runtimeSidebar #modelScopeControls > button[aria-pressed="true"]:focus-visible {
-  outline-color: var(--j-invert-ink);
-}
+/* No focus rule of its own: the dashed 3 px ring every Jaryo button gets (`body.jaryo-app button:focus-visible`) applies, outside the
+   control, so it is visible on the inverted option as well. A second ring here would be a second tab look. */
 body.jaryo-app #autoUnloadToggle,
 body.jaryo-app #runtimeSidebar .search-label {
   background: var(--j-bg);
