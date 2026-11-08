@@ -887,3 +887,19 @@ body.jaryo-app .j-setup-title { margin: 0 0 .4rem; font-size: 1.15rem; font-weig
 body.jaryo-app .j-setup-evidence { margin: .4rem 0 0; }
 body.jaryo-app .j-setup-next { margin: .4rem 0 0; font-weight: 600; }
 body.jaryo-app .j-setup-next a { color: var(--j-text); text-decoration: underline; }
+
+/* Windows High Contrast (forced colours). The browser replaces author backgrounds and text colours with the user's palette, so an inverted
+   fill no longer differs from an unselected option and the selected tab looks like the others (reported by four independent model reviews).
+   A selected option takes the palette's own selection colours instead, and keeps them (forced-color-adjust: none) so it is still the one
+   option that differs. Unselected options keep the user's palette. */
+@media (forced-colors: active) {
+  body.jaryo-app .item.selected,
+  body.jaryo-app .j-selected,
+  body.jaryo-app .j-tab[aria-selected="true"],
+  body.jaryo-app #runtimeSidebar .view-tabs button[aria-pressed="true"],
+  body.jaryo-app #runtimeSidebar #modelScopeControls > button[aria-pressed="true"] {
+    forced-color-adjust: none;
+    background: Highlight;
+    color: HighlightText;
+  }
+}
