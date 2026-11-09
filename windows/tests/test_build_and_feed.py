@@ -1,4 +1,4 @@
-"""PLAN A3: VERSION 0.2.0 with build.json from install.ps1, the shipped peer link and its local status feed, and
+"""VERSION 1.1.0 with build.json from install.ps1, the shipped peer link and its local status feed, and
 test discovery from the repository root."""
 import json
 import os
@@ -83,9 +83,9 @@ def write_build(path: Path, **over):
 
 
 class Version(unittest.TestCase):
-    def test_version_is_0_2_0_and_fits_the_worker_pattern(self):
-        self.assertEqual(VERSION, "0.2.0")
-        self.assertEqual(WORKER_VERSION, "win-0.2.0")
+    def test_version_is_1_1_0_and_fits_the_worker_pattern(self):
+        self.assertEqual(VERSION, "1.1.0")
+        self.assertEqual(WORKER_VERSION, "win-1.1.0")
         self.assertLessEqual(len(WORKER_VERSION), 16)
 
     def test_the_installer_can_read_the_version_line(self):
@@ -107,9 +107,9 @@ class BuildRecord(unittest.TestCase):
         build = buildinfo.read_build(self.path)
         self.assertEqual((build["state"], build["commit"], build["dirty"], build["installedAt"]),
                          ("recorded", COMMIT, False, "2026-10-17T19:30:00Z"))
-        self.assertEqual(buildinfo.producer(build), f"agiw-win-observer 0.2.0+{COMMIT[:12]}")
+        self.assertEqual(buildinfo.producer(build), f"agiw-win-observer {VERSION}+{COMMIT[:12]}")
         write_build(self.path, dirty=True)
-        self.assertEqual(buildinfo.producer(buildinfo.read_build(self.path)), f"agiw-win-observer 0.2.0+{COMMIT[:12]}.dirty.unverified")
+        self.assertEqual(buildinfo.producer(buildinfo.read_build(self.path)), f"agiw-win-observer {VERSION}+{COMMIT[:12]}.dirty.unverified")
 
     def test_unknown_status_signature_or_bytes_never_looks_like_a_clean_signed_commit(self):
         for over in ({"dirty": None}, {"dirty": "false"}, {"signatureVerified": False},
@@ -120,7 +120,7 @@ class BuildRecord(unittest.TestCase):
                 build = buildinfo.read_build(self.path)
                 self.assertEqual(build["provenance"], "unverified")
                 self.assertIn("unverified", build["detail"])
-                self.assertEqual(buildinfo.producer(build), f"agiw-win-observer 0.2.0+{COMMIT[:12]}.unverified")
+                self.assertEqual(buildinfo.producer(build), f"agiw-win-observer {VERSION}+{COMMIT[:12]}.unverified")
                 self.assertEqual(buildinfo.build_public(build)["provenance"], "unverified")
 
     def test_legacy_record_has_unverified_provenance_even_if_dirty_is_false(self):
@@ -161,7 +161,7 @@ class BuildRecord(unittest.TestCase):
                 write_build(self.path, **over)
                 build = buildinfo.read_build(self.path)
                 self.assertEqual((build["state"], build["commit"], build["dirty"]), (state, None, None))
-                expected = "agiw-win-observer 0.2.0.unverified" if state == "no-commit" else "agiw-win-observer 0.2.0"
+                expected = f"agiw-win-observer {VERSION}.unverified" if state == "no-commit" else f"agiw-win-observer {VERSION}"
                 self.assertEqual(buildinfo.producer(build), expected)
         write_build(self.path, installedAt="yesterday", dirty="no")
         build = buildinfo.read_build(self.path)
@@ -180,7 +180,7 @@ class BuildRecord(unittest.TestCase):
 
     def test_producer_and_public_identity_are_bounded(self):
         self.assertEqual(buildinfo.producer(None, "0.2.0"), "agiw-win-observer 0.2.0")
-        self.assertEqual(buildinfo.producer({"version": "x" * 40}), "agiw-win-observer 0.2.0")
+        self.assertEqual(buildinfo.producer({"version": "x" * 40}), f"agiw-win-observer {VERSION}")
         self.assertEqual(buildinfo.producer({"version": "0.2.0", "commit": "../etc"}), "agiw-win-observer 0.2.0")
         self.assertEqual(buildinfo.build_public({"version": "0.2.0", "commit": COMMIT, "dirty": True}),
                          {"version": "0.2.0", "commit": COMMIT[:12], "dirty": True, "provenance": "unverified"})
@@ -196,9 +196,9 @@ class BuildRecord(unittest.TestCase):
                                                "phase": "idle"}]}
         status = probes.pc_status(snapshot)
         presence = probes.peer_presence(snapshot, "test-pc")
-        self.assertEqual(status["producer"], f"agiw-win-observer 0.2.0+{COMMIT[:12]}")
-        self.assertEqual((presence["producer"], presence["version"]), (status["producer"], "0.2.0"))
-        self.assertEqual(presence["build"], {"version": "0.2.0", "commit": COMMIT[:12], "dirty": False, "provenance": "signed-head"})
+        self.assertEqual(status["producer"], f"agiw-win-observer {VERSION}+{COMMIT[:12]}")
+        self.assertEqual((presence["producer"], presence["version"]), (status["producer"], VERSION))
+        self.assertEqual(presence["build"], {"version": VERSION, "commit": COMMIT[:12], "dirty": False, "provenance": "signed-head"})
 
 
 class Installer(unittest.TestCase):
@@ -478,7 +478,7 @@ class PeerLinkFeed(unittest.TestCase):
         peer_link.validate_status(doc, "windows")
         projected = peer_link.project_status(doc)
         self.assertEqual((projected["kind"], projected["platform"], projected["producer"]),
-                         ("agiw-peer", "windows", f"agiw-win-observer 0.2.0+{COMMIT[:12]}.unverified"))
+                         ("agiw-peer", "windows", f"agiw-win-observer {VERSION}+{COMMIT[:12]}.unverified"))
         self.assertEqual([c["id"] for c in projected["components"]], ["nisi", "jev"])
         self.assertNotIn("models\\\\", json.dumps(projected))
 

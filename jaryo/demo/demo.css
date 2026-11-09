@@ -1,0 +1,15 @@
+/* Gallery placement only. Control appearance lives in components.css. */
+
+.jk-gallery {
+  display: grid;
+  gap: var(--j-space-4);
+}
+
+.jk-specimen { display: grid; gap: var(--j-space-3); padding: var(--j-space-4); border: var(--j-border-width) solid var(--j-border); }
+
+.jk-span { min-width: 0; }
+
+@media (min-width: 840px) {
+  .jk-gallery { grid-template-columns: 1fr 1fr; }
+  .jk-span { grid-column: 1 / -1; }
+}

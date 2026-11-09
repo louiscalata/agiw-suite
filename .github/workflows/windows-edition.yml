@@ -7,10 +7,12 @@ on:
     branches: [main]
     paths: ['windows/**', 'peer_link.py', 'peer_feed.py', 'machine_state.py', 'inference_collect.py',
             'inference_stats.py', 'client_models.py', 'usage-format.mjs', 'web/**', 'jaryo/**',
+            'test_*.mjs', 'android/**', 'wrapper-patch/**', '.gitattributes',
             '.github/workflows/windows-edition.yml']
   pull_request:
     paths: ['windows/**', 'peer_link.py', 'peer_feed.py', 'machine_state.py', 'inference_collect.py',
             'inference_stats.py', 'client_models.py', 'usage-format.mjs', 'web/**', 'jaryo/**',
+            'test_*.mjs', 'android/**', 'wrapper-patch/**', '.gitattributes',
             '.github/workflows/windows-edition.yml']
 
 permissions:
@@ -38,3 +40,17 @@ jobs:
         env:
           PYTHONDONTWRITEBYTECODE: '1'
         run: python -B -m unittest discover -s tests -p "test_*.py" -v
+
+  # The root JavaScript suite is what failed on a Windows checkout (CRLF in two unpinned text
+  # files). It runs once, not once per Python version.
+  node:
+    name: windows node tests
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: '22'
+      - name: Root JavaScript tests
+        run: node --test test_*.mjs

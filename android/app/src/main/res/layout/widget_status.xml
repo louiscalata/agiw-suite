@@ -5,7 +5,7 @@
     android:layout_height="match_parent"
     android:background="@color/agiw_bg"
     android:orientation="vertical"
-    android:padding="16dp">
+    android:padding="12dp">
     <TextView
         android:id="@+id/widgetName"
         android:layout_width="wrap_content"
@@ -34,6 +34,14 @@
         android:textColor="@color/agiw_ink"
         android:textSize="20sp"/>
     <TextView
+        android:id="@+id/widgetAcceptance"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:fontFamily="@font/inter_semibold"
+        android:textColor="@color/agiw_ink"
+        android:textSize="13sp"/>
+    <TextView
         android:id="@+id/widgetConnect"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -46,15 +54,9 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="6dp"
+        android:ellipsize="end"
         android:fontFamily="@font/inter_regular"
+        android:maxLines="3"
         android:textColor="@color/agiw_ink"
         android:textSize="14sp"/>
-    <TextView
-        android:id="@+id/widgetAcceptance"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="12dp"
-        android:fontFamily="@font/inter_semibold"
-        android:textColor="@color/agiw_ink"
-        android:textSize="13sp"/>
 </LinearLayout>

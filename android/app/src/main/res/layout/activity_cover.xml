@@ -25,6 +25,7 @@
             android:layout_height="wrap_content"
             android:contentDescription="@string/wordmark"
             android:fontFamily="@font/inter_semibold"
+            android:textColor="@color/agiw_ink"
             android:includeFontPadding="false"
             android:letterSpacing="0.02"
             android:text="@string/wordmark"
@@ -38,10 +39,11 @@
             android:contentDescription="@string/schematic_description"/>
         <TextView
             android:id="@+id/process"
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
             android:fontFamily="@font/inter_semibold"
+            android:textColor="@color/agiw_ink"
             android:gravity="center_horizontal"
             android:textSize="22sp"/>
         <TextView
@@ -50,6 +52,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
             android:fontFamily="@font/inter_semibold"
+            android:textColor="@color/agiw_ink"
             android:gravity="center_horizontal"
             android:textSize="14sp"/>
         <TextView

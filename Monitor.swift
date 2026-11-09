@@ -138,6 +138,15 @@ final class InstanceLock {
     }
 }
 
+/// NSViewController has no appearance callback. The root view does, since macOS 10.14.
+private final class AppearanceView: NSView {
+    weak var chrome: DashboardController?
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        chrome?.paintChrome()
+    }
+}
+
 final class DashboardController: NSViewController {
     let webView: WKWebView
     private(set) var expectedURL: URL?
@@ -161,10 +170,24 @@ final class DashboardController: NSViewController {
         webView.underPageBackgroundColor = .black
     }
 
+    /// Black or white from the system appearance. The waiting copy stays ink on paper, with no gray.
+    fileprivate func paintChrome() {
+        let dark = view.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) != .aqua
+        let paper = dark ? NSColor.black : NSColor.white
+        let ink = dark ? NSColor.white : NSColor.black
+        view.layer?.backgroundColor = paper.cgColor
+        waiting.wantsLayer = true
+        waiting.layer?.backgroundColor = paper.cgColor
+        titleLabel.textColor = ink
+        detailLabel.textColor = ink
+        webView.underPageBackgroundColor = paper
+    }
+
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     override func loadView() {
-        let root = NSView(frame: NSRect(x: 0, y: 0, width: 820, height: 660))
+        let root = AppearanceView(frame: NSRect(x: 0, y: 0, width: 820, height: 660))
+        root.chrome = self
         root.wantsLayer = true
         root.layer?.backgroundColor = NSColor.black.cgColor
         view = root
@@ -183,9 +206,7 @@ final class DashboardController: NSViewController {
             waiting.bottomAnchor.constraint(equalTo: root.bottomAnchor)
         ])
         titleLabel.font = .systemFont(ofSize: 22, weight: .semibold)
-        titleLabel.textColor = .white
         detailLabel.font = .systemFont(ofSize: 14)
-        detailLabel.textColor = NSColor(calibratedWhite: 0.72, alpha: 1)
         detailLabel.alignment = .center
         detailLabel.maximumNumberOfLines = 5
         spinner.style = .spinning
@@ -204,6 +225,7 @@ final class DashboardController: NSViewController {
             detailLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 560)
         ])
         webView.isHidden = true
+        paintChrome()
     }
 
     func loadDashboard(_ url: URL) {

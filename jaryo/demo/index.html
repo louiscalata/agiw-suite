@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jaryo pipeline</title>
+<link rel="stylesheet" href="../primitives.css">
+<link rel="stylesheet" href="../components.css">
+<link rel="stylesheet" href="../layout.css">
+<link rel="stylesheet" href="../motion.css">
+<link rel="stylesheet" href="./demo.css">
+<script src="../boot.js"></script>
+</head>
+<body>
+<div class="jk-shell">
+  <header class="jk-top">
+    <a class="jk-skip" href="#pipeline">Skip to pipeline</a>
+    <p class="jk-wordmark">AGIW</p>
+    <p class="jk-meta">Jaryo kit</p>
+    <label class="jk-theme">Theme
+      <select id="jk-theme" data-jk-theme>
+        <option value="system">System</option>
+        <option value="light">Light</option>
+        <option value="dark">Dark</option>
+      </select>
+    </label>
+  </header>
+  <div class="jk-frame">
+    <nav class="jk-nav" aria-label="Sections">
+      <div class="jk-nav-sticky">
+        <a href="#pipeline" aria-current="page">Pipeline</a>
+        <a href="#states">States</a>
+        <a href="#motion">Motion</a>
+      </div>
+    </nav>
+    <main class="jk-main" id="main">
+      <section id="pipeline" aria-labelledby="jk-pipeline-title">
+        <div class="jk-copy">
+          <p class="jk-eyebrow">Pipeline</p>
+          <h1 class="jk-title" id="jk-pipeline-title">Sample lane</h1>
+          <p class="jk-note" id="jk-pipeline-note">Specimen. Not a live pipeline.</p>
+        </div>
+        <div class="jk-transport" aria-hidden="true">
+          <span class="jk-arm"></span>
+          <span class="jk-belt"></span>
+        </div>
+        <div id="jk-pipeline" data-jk-pipeline>
+          <div class="jk-empty">
+            <p class="jk-empty-title">Empty</p>
+            <p>The pipeline has not loaded.</p>
+          </div>
+        </div>
+        <p class="jk-acceptance" id="jk-acceptance"><span>Acceptance</span><strong id="jk-acceptance-word">Blocked</strong></p>
+      </section>
+
+      <section id="states" aria-labelledby="states-title">
+        <div class="jk-copy">
+          <p class="jk-eyebrow">Gallery</p>
+          <h2 class="jk-section-title" id="states-title">States</h2>
+          <p class="jk-note">Hover, focus, active, disabled, loading, error, and empty. Focus is a dashed ring.</p>
+        </div>
+        <div class="jk-gallery">
+          <div class="jk-specimen">
+            <h3>Button</h3>
+            <div class="jk-row">
+              <button type="button" class="jk-button">Hold</button>
+              <button type="button" class="jk-button jk-force-hover">Hover</button>
+              <button type="button" class="jk-button jk-force-focus">Focus</button>
+              <button type="button" class="jk-button jk-force-active">Active</button>
+              <button type="button" class="jk-button" disabled>Disabled</button>
+              <button type="button" class="jk-button" aria-busy="true" aria-disabled="true">Loading</button>
+            </div>
+          </div>
+          <div class="jk-specimen">
+            <h3>Primary</h3>
+            <div class="jk-row">
+              <button type="button" class="jk-button jk-button-primary">Run</button>
+              <button type="button" class="jk-button jk-button-primary jk-force-hover">Hover</button>
+              <button type="button" class="jk-button jk-button-primary jk-force-focus">Focus</button>
+              <button type="button" class="jk-button jk-button-primary jk-force-active">Active</button>
+              <button type="button" class="jk-button jk-button-primary" disabled>Disabled</button>
+            </div>
+          </div>
+          <div class="jk-specimen">
+            <h3>Field</h3>
+            <div class="jk-field-block">
+              <label for="jk-packet">Packet</label>
+              <input id="jk-packet" class="jk-field" name="packet" value="sample">
+            </div>
+            <div class="jk-field-block">
+              <label for="jk-lane-name">Lane name</label>
+              <input id="jk-lane-name" class="jk-field" name="lane" aria-invalid="true" aria-describedby="jk-lane-error">
+              <p id="jk-lane-error" class="jk-field-error">Enter a lane name.</p>
+            </div>
+          </div>
+          <div class="jk-specimen">
+            <h3>Empty</h3>
+            <div class="jk-empty">
+              <p class="jk-empty-title">Empty</p>
+              <p>No runs on this lane yet.</p>
+            </div>
+          </div>
+          <div class="jk-specimen">
+            <h3>Error</h3>
+            <div class="jk-alert" role="alert">
+              <p class="jk-alert-title">Error</p>
+              <p>The lane did not accept the run.</p>
+            </div>
+          </div>
+          <div class="jk-specimen jk-span">
+            <h3>Tabs</h3>
+            <div data-jk-tabs>
+              <div class="jk-tabs" role="tablist" aria-label="Lane samples">
+                <button type="button" class="jk-tab" role="tab" id="jk-tab-holding" aria-controls="jk-panel-holding" aria-selected="true">Holding</button>
+                <button type="button" class="jk-tab" role="tab" id="jk-tab-blocked" aria-controls="jk-panel-blocked" aria-selected="false" tabindex="-1">Blocked</button>
+              </div>
+              <div class="jk-panel" role="tabpanel" id="jk-panel-holding" aria-labelledby="jk-tab-holding">
+                <p>The lane is holding a packet.</p>
+              </div>
+              <div class="jk-panel" role="tabpanel" id="jk-panel-blocked" aria-labelledby="jk-tab-blocked" hidden>
+                <p>Acceptance is blocked.</p>
+              </div>
+            </div>
+          </div>
+          <div class="jk-specimen jk-span">
+            <h3>Detail</h3>
+            <details class="jk-disclosure">
+              <summary>Evidence row</summary>
+              <p>The row expands in place. The acceptance line stays outside it.</p>
+            </details>
+          </div>
+        </div>
+      </section>
+
+      <section id="motion" aria-labelledby="motion-title">
+        <div class="jk-copy">
+          <p class="jk-eyebrow">Motion</p>
+          <h2 class="jk-section-title" id="motion-title">Belt and arm</h2>
+          <p class="jk-note">The belt travels and the arm ticks. Reduced motion holds both still. This is structure, not a measurement.</p>
+        </div>
+        <div class="jk-lane" aria-hidden="true">
+          <span class="jk-arm"></span>
+          <span class="jk-belt"></span>
+        </div>
+      </section>
+    </main>
+  </div>
+</div>
+<script type="module" src="../behavior.mjs"></script>
+</body>
+</html>
