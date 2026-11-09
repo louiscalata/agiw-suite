@@ -92,6 +92,9 @@ test('the shell keeps a desktop sidebar, a cover width, and reduced motion', () 
 
 test('Mac waiting chrome and Android covers stay black and white type', () => {
   const swift = read('./Monitor.swift');
+  assert.match(swift, /final class AppearanceView: NSView/);
+  assert.match(swift, /override func viewDidChangeEffectiveAppearance\(\)/);
+  assert.ok(swift.indexOf('final class AppearanceView') < swift.indexOf('final class DashboardController'));
   assert.match(swift, /effectiveAppearance/);
   assert.match(swift, /NSColor\.black/);
   assert.match(swift, /NSColor\.white/);
