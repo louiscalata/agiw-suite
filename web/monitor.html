@@ -9,6 +9,7 @@
 <link rel="stylesheet" href="/monitor.css">
 </head>
 <body class="jaryo-app">
+<a class="j-skip" href="#content">Skip to content</a>
 <header class="j-top">
   <div class="j-brand"><strong class="j-type">AGIW</strong><span>Inference Monitor</span></div>
 </header>
@@ -28,10 +29,10 @@
   </label>
 </nav>
 <p id="jaryoDemo" class="j-demo" hidden></p>
-<p id="tunnel" role="status"></p>
+<p id="tunnel" role="status">Reading the monitor feed.</p>
 <p class="j-hint" id="mapTabHint">Arrow keys switch map monitors. Switching does not pause, cancel, or restart inference. Route sessions are on the overview.</p>
 <div id="monitorTabs" class="j-tabs" role="tablist" aria-label="Inference map monitors" aria-describedby="mapTabHint" data-jaryo-tabs="1"></div>
-<div class="j-map">
+<div class="j-map" id="content" tabindex="-1">
   <svg id="map" role="img" aria-label="Machines and model servers"></svg>
   <section id="detail" hidden>
     <h2 id="detailTitle"></h2>

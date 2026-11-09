@@ -92,7 +92,15 @@ export function paintMachines(document, snapshot, {fresh}) {
   map.setAttribute('aria-label', view.label);
   map.textContent = view.text;
   const grid = el(document, 'div', 'j-machine-grid');
-  for (const tile of machineTiles(snapshot?.machines, snapshot?.host)) {
+  const tiles = machineTiles(snapshot?.machines, snapshot?.host);
+  if (!tiles.length) {
+    const empty = el(document, 'p', 'j-empty', snapshot
+      ? 'No machine rows in this sample. A missing read stays unknown.'
+      : 'No machine rows. The snapshot could not be read, so every machine stays unknown.');
+    empty.setAttribute('role', 'status');
+    grid.append(empty);
+  }
+  for (const tile of tiles) {
     const card = el(document, 'section', 'j-machine');
     card.setAttribute('aria-label', `${tile.title}: ${tile.word.toLowerCase()}`);
     const head = el(document, 'h2', 'j-machine-title', tile.title);

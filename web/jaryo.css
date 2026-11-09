@@ -191,8 +191,8 @@ body.jaryo-app .connection {
   box-shadow: none;
 }
 
-body.jaryo-app .brand { flex: 1 1 auto; }
-body.jaryo-app .tools { margin-left: auto; position: static; }
+body.jaryo-app .brand { flex: 1 1 auto; min-width: 0; }
+body.jaryo-app .tools { margin-left: auto; position: static; flex-wrap: wrap; justify-content: flex-end; max-width: 100%; }
 body.jaryo-app .j-nav { flex: 0 0 auto; width: 100%; }
 
 @media (min-width: 980px) {
@@ -230,6 +230,21 @@ body.jaryo-app .tiny-dot {
 }
 
 .j-chrome, .j-nav, .j-top { min-width: 0; max-width: 100%; }
+
+.j-skip {
+  position: fixed;
+  left: 8px;
+  top: 8px;
+  z-index: 20;
+  padding: 8px 12px;
+  background: var(--j-invert);
+  color: var(--j-invert-ink);
+  text-decoration: none;
+  transform: translateY(-200%);
+}
+.j-skip:focus {
+  transform: none;
+}
 
 .j-chrome {
   display: flex;
@@ -447,11 +462,33 @@ body.jaryo-app .node.is-outside-monitor { opacity: .28; }
   border-bottom: 1px solid var(--j-border);
 }
 
+/* components.css gives every header a 48px margin. That belongs to the page hero, not the chrome. */
+body.jaryo-app > header {
+  margin: 0;
+}
+
+/* Narrow style.css hides the connection word. State stays a word on a cover-width screen. */
+body.jaryo-app .connection {
+  display: inline;
+}
+
 .j-brand { display: flex; gap: 10px; align-items: baseline; }
 .j-brand strong { font-size: 16px; letter-spacing: .12em; }
 .j-brand span { color: var(--j-muted); }
 
 .j-page { max-width: 920px; margin: 0 auto; padding: 24px 16px 64px; }
+body.jaryo-app .j-page > header {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  margin: 0 0 12px;
+}
+body.jaryo-app .j-page > details:first-child {
+  border-top: 0;
+  margin-top: 0;
+  padding-top: 0;
+}
 .j-page section {
   border: 1px solid var(--j-border);
   background: var(--j-surface);
@@ -571,6 +608,12 @@ body.jaryo-app .j-type { font-size: 20px; }
 .j-type-24 { font-size: 24px; }
 .j-type-32 { font-size: 32px; }
 .j-type-sample { font-size: 32px; margin: 8px 0; padding: 12px; }
+/* A type specimen is one word. The icon plate's two columns were splitting AGIW into AGI / W. */
+p.j-type-sample.j-plate {
+  display: flex;
+  align-items: center;
+  min-height: 72px;
+}
 .j-id-selected { border-width: 2px; }
 .j-size-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; margin: 12px 0; }
 .j-size-cell { margin: 0; display: grid; gap: 6px; justify-items: center; }
@@ -628,6 +671,55 @@ body.jaryo-app #monitorBoard.j-board {
 
 @media (max-width: 560px) {
   body.jaryo-app .brand-wordmark strong { font-size: 16px; }
+}
+
+/* Flip6 cover and other narrow windows. 22.5rem is the short edge the cover layouts are built for. */
+@media (max-width: 22.5rem) {
+  body.jaryo-app .topbar,
+  .j-top { padding: 8px 12px; }
+  .j-nav { gap: 0 8px; padding: 4px 10px; }
+  .j-page { padding: 16px 12px 40px; }
+  .j-brand { flex-wrap: wrap; min-width: 0; }
+  .j-brand span,
+  .j-page h1,
+  .j-page p,
+  .j-machine-host,
+  .j-demo,
+  #tunnel { overflow-wrap: anywhere; }
+  .j-type-32,
+  .j-type-sample { font-size: 24px; }
+  body.jaryo-app .j-machine-facts,
+  .j-identity,
+  .j-metrics,
+  .j-map dl { grid-template-columns: minmax(0, 1fr); }
+  .j-map #map { min-height: 240px; }
+  #svBody { margin: 12px; }
+  #svBody .sv-row { overflow-wrap: anywhere; }
+}
+
+/* The pre-Jaryo 720px toolbar turned Pause into a roman-numeral icon and hid the PC LLM words. */
+@media (max-width: 720px) {
+  body.jaryo-app .tools .mode-tab {
+    flex: 1 1 auto;
+    max-width: none;
+    white-space: normal;
+  }
+  body.jaryo-app .mode-tab-copy small { display: block; }
+  body.jaryo-app .tools .pc-switch {
+    width: auto;
+    min-width: 44px;
+    padding: 6px 8px;
+    justify-content: flex-start;
+  }
+  body.jaryo-app .pc-switch-copy { display: flex; }
+  body.jaryo-app .pc-switch-copy strong { display: block; }
+  body.jaryo-app .tools #pause {
+    width: auto;
+    min-width: 44px;
+    padding: 6px 8px;
+    font-size: 13px;
+  }
+  body.jaryo-app .tools #pause::before { content: none; }
 }
 
 @media (max-width: 800px) {
@@ -694,9 +786,18 @@ body.jaryo-app .sidebar h1 {
     overflow: visible;
     grid-template-rows: auto minmax(0, 1fr);
   }
+  body.jaryo-app > header.topbar,
+  body.jaryo-app > header.j-top {
+    grid-column: 1 / -1;
+    grid-row: 1;
+    align-self: start;
+    position: relative;
+    z-index: 6;
+  }
   body.jaryo-app .j-nav {
     grid-column: 1;
-    grid-row: 1 / -1;
+    grid-row: 2 / span 8;
+    align-self: stretch;
     display: flex;
     flex-direction: column;
     align-items: stretch;
@@ -709,8 +810,17 @@ body.jaryo-app .sidebar h1 {
     border-bottom: 0;
     position: sticky;
     top: 0;
+    min-height: calc(100vh - 3.5rem);
     max-height: 100vh;
     overflow: auto;
+  }
+  /* Overview keeps the tool bar, the monitor strip, the map, and the footer in one viewport.
+     The nav column stays put. The map row is the only one that grows. */
+  body.jaryo-app:not(:has(.j-page)):not(:has(.j-map)) {
+    grid-template-rows: auto auto minmax(0, 1fr) auto;
+  }
+  body.jaryo-app:not(:has(.j-page)):not(:has(.j-map)) > main {
+    min-height: 0;
   }
   body.jaryo-app .j-nav a {
     border-bottom-color: transparent;
@@ -924,7 +1034,14 @@ body.jaryo-app .j-machine-title { margin: 0; font-size: 1.5rem; font-weight: 600
 body.jaryo-app .j-machine-host { margin: .15rem 0 .75rem; font-family: var(--j-mono, ui-monospace, monospace); font-size: .8rem; }
 body.jaryo-app .j-machine-facts { display: grid; grid-template-columns: max-content 1fr; gap: .3rem 1rem; margin: .75rem 0 0; font-size: .9rem; }
 body.jaryo-app .j-machine-facts dt { font-weight: 600; }
-body.jaryo-app .j-machine-facts dd { margin: 0; overflow-wrap: anywhere; }
+body.jaryo-app .j-machine-facts dd { margin: 0; overflow-wrap: break-word; }
+body.jaryo-app .j-empty {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 16px 1.25rem;
+  border-right: 1px solid var(--j-border);
+  border-bottom: 1px solid var(--j-border);
+}
 
 /* Setup: numbered steps separated by rules. The status word carries the state. */
 body.jaryo-app .j-setup { list-style: none; margin: 1.5rem 0 0; padding: 0; border-top: 1px solid var(--j-border); }

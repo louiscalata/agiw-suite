@@ -161,6 +161,24 @@ final class DashboardController: NSViewController {
         webView.underPageBackgroundColor = .black
     }
 
+    /// Black or white from the system appearance. The waiting copy stays ink on paper, with no gray.
+    private func paintChrome() {
+        let dark = view.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) != .aqua
+        let paper = dark ? NSColor.black : NSColor.white
+        let ink = dark ? NSColor.white : NSColor.black
+        view.layer?.backgroundColor = paper.cgColor
+        waiting.wantsLayer = true
+        waiting.layer?.backgroundColor = paper.cgColor
+        titleLabel.textColor = ink
+        detailLabel.textColor = ink
+        webView.underPageBackgroundColor = paper
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        paintChrome()
+    }
+
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     override func loadView() {
@@ -183,9 +201,7 @@ final class DashboardController: NSViewController {
             waiting.bottomAnchor.constraint(equalTo: root.bottomAnchor)
         ])
         titleLabel.font = .systemFont(ofSize: 22, weight: .semibold)
-        titleLabel.textColor = .white
         detailLabel.font = .systemFont(ofSize: 14)
-        detailLabel.textColor = NSColor(calibratedWhite: 0.72, alpha: 1)
         detailLabel.alignment = .center
         detailLabel.maximumNumberOfLines = 5
         spinner.style = .spinning
@@ -204,6 +220,7 @@ final class DashboardController: NSViewController {
             detailLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 560)
         ])
         webView.isHidden = true
+        paintChrome()
     }
 
     func loadDashboard(_ url: URL) {

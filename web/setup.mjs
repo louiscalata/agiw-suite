@@ -164,6 +164,7 @@ export function setupProgress(steps) {
 }
 
 const GLYPH = {DONE: '■', 'NOT YET': '□', FAILED: '×', UNKNOWN: '?', OPTIONAL: '·'};
+const STATUS_CLASS = {DONE: '', 'NOT YET': ' j-unknown', FAILED: ' j-blocked', UNKNOWN: ' j-unknown', OPTIONAL: ' j-unavailable'};
 
 function el(document, tag, className, value) {
   const node = document.createElement(tag);
@@ -188,7 +189,7 @@ export function paintSetup(document, state) {
   const items = steps.map((item, i) => {
     const row = el(document, 'li', `j-setup-step j-setup-${item.status.toLowerCase().replace(' ', '-')}`);
     row.setAttribute('aria-label', `Step ${i + 1}, ${item.title}: ${item.status.toLowerCase()}. ${item.evidence}${item.next ? ' ' + item.next : ''}`);
-    const head = el(document, 'p', 'j-status');
+    const head = el(document, 'p', `j-status${STATUS_CLASS[item.status] || ''}`);
     head.append(el(document, 'span', 'j-glyph', GLYPH[item.status]), el(document, 'span', 'j-word', item.status));
     row.append(el(document, 'h2', 'j-setup-title', `${i + 1}. ${item.title}`), head, el(document, 'p', 'j-setup-evidence', item.evidence));
     if (item.next) {
