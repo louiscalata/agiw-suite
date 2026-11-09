@@ -3,14 +3,16 @@
     android:id="@+id/scroller"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:clipToPadding="true"
+    android:clipToPadding="false"
     android:fillViewport="true"
     android:fitsSystemWindows="true"
     android:isScrollContainer="true"
     android:paddingBottom="24dp"
-    android:paddingLeft="24dp"
-    android:paddingRight="24dp"
+    android:paddingEnd="16dp"
+    android:paddingStart="16dp"
     android:paddingTop="24dp"
+    android:scrollbarSize="4dp"
+    android:scrollbarThumbVertical="@drawable/agiw_scrollbar"
     android:scrollbars="vertical">
     <LinearLayout
         android:layout_width="match_parent"
@@ -22,26 +24,26 @@
             android:layout_height="wrap_content"
             android:fontFamily="@font/inter_semibold"
             android:letterSpacing="0.14"
-            android:text="INFERENCE MONITOR"
+            android:text="@string/eyebrow"
             android:textAllCaps="true"
             android:textSize="11sp"/>
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:contentDescription="AGIW"
+            android:contentDescription="@string/wordmark"
             android:fontFamily="@font/inter_semibold"
             android:textColor="@color/agiw_ink"
             android:includeFontPadding="false"
             android:letterSpacing="0.02"
-            android:text="AGIW"
+            android:text="@string/wordmark"
             android:textSize="36sp"/>
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
             android:fontFamily="@font/inter_regular"
-            android:text="Read-only overview. One snapshot at a time."
+            android:text="@string/overview_lead"
             android:textSize="16sp"/>
         <View
             android:id="@+id/schematic"
@@ -49,21 +51,21 @@
             android:layout_height="1dp"
             android:layout_marginTop="20dp"
             android:background="@color/agiw_ink"
-            android:contentDescription="Schematic rule"/>
+            android:contentDescription="@string/schematic_description"/>
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="20dp"
             android:fontFamily="@font/inter_semibold"
             android:letterSpacing="0.14"
-            android:text="CONNECTION"
+            android:text="@string/connection_label"
             android:textSize="11sp"/>
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
             android:fontFamily="@font/inter_regular"
-            android:text="Type an https address. This app does not repair a run."
+            android:text="@string/connection_help"
             android:textSize="16sp"/>
         <EditText
             android:id="@+id/address"
@@ -72,7 +74,9 @@
             android:layout_marginTop="12dp"
             android:background="@drawable/agiw_field"
             android:fontFamily="@font/inter_regular"
-            android:hint="https address"
+            android:hint="@string/address_hint"
+            android:textColor="@color/agiw_ink"
+            android:textColorHint="@color/agiw_ink"
             android:imeOptions="actionDone"
             android:importantForAutofill="no"
             android:inputType="textUri"
@@ -85,13 +89,13 @@
             android:layout_marginTop="12dp"
             android:background="@color/agiw_ink"
             android:backgroundTint="@color/agiw_ink"
-            android:contentDescription="Read the observer snapshot"
+            android:contentDescription="@string/read_description"
             android:fontFamily="@font/inter_semibold"
             android:minHeight="48dp"
             android:minWidth="48dp"
-            android:paddingLeft="20dp"
-            android:paddingRight="20dp"
-            android:text="Read"
+            android:paddingEnd="20dp"
+            android:paddingStart="20dp"
+            android:text="@string/read"
             android:textAllCaps="false"
             android:textColor="@color/agiw_bg"
             android:textSize="16sp"/>
@@ -108,7 +112,7 @@
             android:layout_marginTop="28dp"
             android:fontFamily="@font/inter_semibold"
             android:letterSpacing="0.14"
-            android:text="OVERVIEW"
+            android:text="@string/overview_label"
             android:textSize="11sp"/>
         <LinearLayout
             android:layout_width="match_parent"
@@ -120,7 +124,7 @@
                 android:layout_height="wrap_content"
                 android:fontFamily="@font/inter_semibold"
                 android:letterSpacing="0.08"
-                android:text="PROCESS"
+                android:text="@string/label_process"
                 android:textSize="12sp"/>
             <TextView
                 android:id="@+id/process"
@@ -140,7 +144,7 @@
                 android:layout_height="wrap_content"
                 android:fontFamily="@font/inter_semibold"
                 android:letterSpacing="0.08"
-                android:text="LANE"
+                android:text="@string/label_lane"
                 android:textSize="12sp"/>
             <TextView
                 android:id="@+id/lane"
@@ -160,7 +164,7 @@
                 android:layout_height="wrap_content"
                 android:fontFamily="@font/inter_semibold"
                 android:letterSpacing="0.08"
-                android:text="ATTACH"
+                android:text="@string/label_attach"
                 android:textSize="12sp"/>
             <TextView
                 android:id="@+id/attachment"
@@ -180,7 +184,7 @@
                 android:layout_height="wrap_content"
                 android:fontFamily="@font/inter_semibold"
                 android:letterSpacing="0.08"
-                android:text="CONNECT"
+                android:text="@string/label_connect"
                 android:textSize="12sp"/>
             <TextView
                 android:id="@+id/connect"
@@ -200,7 +204,7 @@
                 android:layout_height="wrap_content"
                 android:fontFamily="@font/inter_semibold"
                 android:letterSpacing="0.08"
-                android:text="TIME"
+                android:text="@string/label_time"
                 android:textSize="12sp"/>
             <TextView
                 android:id="@+id/observed"
@@ -229,11 +233,11 @@
             android:layout_marginTop="8dp"
             android:background="@android:color/transparent"
             android:backgroundTint="@android:color/transparent"
-            android:contentDescription="Show recorded receipts. They are not a pass."
+            android:contentDescription="@string/receipts_show_description"
             android:fontFamily="@font/inter_semibold"
             android:minHeight="48dp"
             android:minWidth="48dp"
-            android:text="Receipts"
+            android:text="@string/receipts"
             android:textAllCaps="false"
             android:textColor="@color/agiw_ink"
             android:textSize="16sp"/>

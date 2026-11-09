@@ -2,10 +2,17 @@ package suite.agiw.monitor;
 
 import android.app.Activity;
 import android.content.res.Configuration;
+import android.graphics.Color;
+import android.graphics.Insets;
+import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
 import android.view.View;
 import android.view.ViewTreeObserver;
+import android.view.Window;
+import android.view.WindowInsets;
+import android.view.WindowInsetsController;
+import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ScrollView;
@@ -39,12 +46,14 @@ public final class MonitorActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        edgeToEdge();
         bind(savedInstanceState);
     }
 
     @Override
     public void onConfigurationChanged(Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
+        edgeToEdge();
         Bundle kept = new Bundle();
         capture(kept);
         bind(kept);
@@ -59,6 +68,7 @@ public final class MonitorActivity extends Activity {
     private void bind(Bundle state) {
         cover = compactNow();
         setContentView(cover ? R.layout.activity_cover : R.layout.activity_inner);
+        applyInsets();
         float scale = Settings.Global.getFloat(getContentResolver(), Settings.Global.ANIMATOR_DURATION_SCALE, 1f);
         View rule = findViewById(R.id.schematic);
         if (rule != null) rule.setVisibility(Surface.motion(scale) ? View.VISIBLE : View.INVISIBLE);
@@ -79,11 +89,8 @@ public final class MonitorActivity extends Activity {
         TextView receipts = findViewById(R.id.receipts);
         if (receipts != null) receipts.setText(Acceptance.notes());
         Button read = findViewById(R.id.read);
-        if (read != null) {
-            read.setOnClickListener(view -> readOnce());
-            read.setText(inflight == 0 ? "Read" : "Cancel");
-            read.setContentDescription(inflight == 0 ? "Read the observer snapshot" : "Cancel the observer read");
-        }
+        if (read != null) read.setOnClickListener(view -> readOnce());
+        showReadButton(inflight != 0);
         EditText address = findViewById(R.id.address);
         if (address != null) {
             address.setOnFocusChangeListener((view, focused) -> {
@@ -100,7 +107,8 @@ public final class MonitorActivity extends Activity {
             applyReceipts();
         });
         applyReceipts();
-        reveal(findViewById(R.id.acceptance));
+        if (cover) openAtTop();
+        else reveal(findViewById(R.id.acceptance));
     }
 
     private void remember(Board board) {
@@ -133,14 +141,10 @@ public final class MonitorActivity extends Activity {
     }
 
     private void readOnce() {
-        Button read = findViewById(R.id.read);
         if (inflight != 0) {
             gate.cancel();
             inflight = 0;
-            if (read != null) {
-                read.setText("Read");
-                read.setContentDescription("Read the observer snapshot");
-            }
+            showReadButton(false);
             show(Board.none("Read cancelled"));
             remember(Board.none("Read cancelled"));
             return;
@@ -161,10 +165,7 @@ public final class MonitorActivity extends Activity {
         }
         int token = gate.begin();
         inflight = token;
-        if (read != null) {
-            read.setText("Cancel");
-            read.setContentDescription("Cancel the observer read");
-        }
+        showReadButton(true);
         new Thread(() -> {
             ObserverClient.Result result = client.getSnapshot(uri, 4000);
             Board board = boardFor(result);
@@ -173,11 +174,7 @@ public final class MonitorActivity extends Activity {
                 inflight = 0;
                 show(board);
                 remember(board);
-                Button again = findViewById(R.id.read);
-                if (again != null) {
-                    again.setText("Read");
-                    again.setContentDescription("Read the observer snapshot");
-                }
+                showReadButton(false);
             });
         }, "agiw-observer").start();
     }
@@ -201,7 +198,7 @@ public final class MonitorActivity extends Activity {
         set(R.id.observed, cover ? board.observed : board.observed);
         set(R.id.detail, board.detail);
         set(R.id.acceptance, board.acceptance);
-        reveal(findViewById(R.id.acceptance));
+        if (!cover) reveal(findViewById(R.id.acceptance));
     }
 
     private void applyReceipts() {
@@ -209,11 +206,108 @@ public final class MonitorActivity extends Activity {
         Button toggle = findViewById(R.id.receiptsToggle);
         if (receipts != null) receipts.setVisibility(receiptsOpen ? View.VISIBLE : View.GONE);
         if (toggle != null) {
-            toggle.setText(receiptsOpen ? "Hide receipts" : "Receipts");
-            toggle.setContentDescription(receiptsOpen
-                    ? "Hide recorded receipts"
-                    : "Show recorded receipts. They are not a pass.");
+            toggle.setText(getString(receiptsOpen ? R.string.receipts_hide : R.string.receipts));
+            toggle.setContentDescription(getString(receiptsOpen
+                    ? R.string.receipts_hide_description
+                    : R.string.receipts_show_description));
         }
+    }
+
+    private void showReadButton(boolean cancel) {
+        Button read = findViewById(R.id.read);
+        if (read == null) return;
+        read.setText(getString(cancel ? R.string.cancel : R.string.read));
+        read.setContentDescription(getString(cancel
+                ? R.string.cancel_description
+                : R.string.read_description));
+    }
+
+    private void edgeToEdge() {
+        Window window = getWindow();
+        if (Build.VERSION.SDK_INT >= 30) window.setDecorFitsSystemWindows(false);
+        if (Build.VERSION.SDK_INT >= 28) {
+            window.setNavigationBarDividerColor(Color.TRANSPARENT);
+            WindowManager.LayoutParams attrs = window.getAttributes();
+            attrs.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+            window.setAttributes(attrs);
+        }
+        if (Build.VERSION.SDK_INT >= 29) {
+            window.setStatusBarContrastEnforced(false);
+            window.setNavigationBarContrastEnforced(false);
+            window.getDecorView().setForceDarkAllowed(false);
+        }
+        boolean night = (getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK)
+                == Configuration.UI_MODE_NIGHT_YES;
+        if (Build.VERSION.SDK_INT >= 30) {
+            WindowInsetsController controller = window.getInsetsController();
+            if (controller == null) return;
+            int light = WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
+                    | WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;
+            controller.setSystemBarsAppearance(night ? 0 : light, light);
+            return;
+        }
+        if (Build.VERSION.SDK_INT >= 27) {
+            View decor = window.getDecorView();
+            int flags = decor.getSystemUiVisibility();
+            if (night) flags &= ~View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+            else flags |= View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+            decor.setSystemUiVisibility(flags);
+        }
+    }
+
+    /**
+     * Target SDK 35 draws edge to edge, and fitsSystemWindows replaces padding
+     * with the raw system insets. Side insets are often zero, which drops the
+     * Jaryo margin. Keep a 4dp-rhythm inset (16dp inner, 12dp cover) and add
+     * the bars, cutout, and keyboard on top of it.
+     */
+    private void applyInsets() {
+        ScrollView scroller = findViewById(R.id.scroller);
+        if (scroller == null) return;
+        final int side = dp(cover ? 12 : 16);
+        final int top = dp(cover ? 16 : 24);
+        final int bottom = dp(24);
+        scroller.setClipToPadding(false);
+        scroller.setPadding(side, top, side, bottom);
+        scroller.setOnApplyWindowInsetsListener((view, insets) -> {
+            int left = side;
+            int padTop = top;
+            int right = side;
+            int padBottom = bottom;
+            if (Build.VERSION.SDK_INT >= 30) {
+                Insets bars = insets.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
+                Insets ime = insets.getInsets(WindowInsets.Type.ime());
+                left += bars.left;
+                padTop += bars.top;
+                right += bars.right;
+                padBottom += Math.max(bars.bottom, ime.bottom);
+                view.setPadding(left, padTop, right, padBottom);
+                return WindowInsets.CONSUMED;
+            }
+            left += insets.getSystemWindowInsetLeft();
+            padTop += insets.getSystemWindowInsetTop();
+            right += insets.getSystemWindowInsetRight();
+            padBottom += insets.getSystemWindowInsetBottom();
+            view.setPadding(left, padTop, right, padBottom);
+            return insets;
+        });
+        scroller.requestApplyInsets();
+    }
+
+    private int dp(int value) {
+        return Math.round(value * getResources().getDisplayMetrics().density);
+    }
+
+    /**
+     * The short window used to scroll the acceptance line into the padded
+     * viewport, which lands on the bottom of that screen. Open at the top.
+     * A later read does not pull the scroll position back.
+     */
+    private void openAtTop() {
+        ScrollView scroller = findViewById(R.id.scroller);
+        if (scroller == null) return;
+        scroller.scrollTo(0, 0);
+        scroller.post(() -> scroller.scrollTo(0, 0));
     }
 
     private void reveal(View child) {

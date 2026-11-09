@@ -28,6 +28,33 @@ function navLinks(html) {
   return [...nav.matchAll(/<a href="([^"]+)"[^>]*>([^<]+)<\/a>/g)].map(match => [match[1], match[2].trim()]);
 }
 
+function stringValues() {
+  const xml = read('./android/app/src/main/res/values/strings.xml');
+  const values = new Map();
+  for (const match of xml.matchAll(/<string\s+name="([^"]+)">([^<]*)<\/string>/g)) {
+    values.set(match[1], match[2]
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&apos;/g, "'")
+      .replace(/&#(\d+);/g, (_, code) => String.fromCodePoint(Number(code)))
+      .replace(/&#x([0-9A-Fa-f]+);/g, (_, code) => String.fromCodePoint(parseInt(code, 16)))
+      .replace(/&amp;/g, '&'));
+  }
+  return values;
+}
+
+// A layout shows the words either as a literal android:text or as @string whose
+// default value in res/values/strings.xml is those exact words.
+function layoutShows(layout, literal) {
+  if (layout.includes(`text="${literal}"`)) return true;
+  const values = stringValues();
+  for (const match of layout.matchAll(/android:text="@string\/([A-Za-z0-9_]+)"/g)) {
+    if (values.get(match[1]) === literal) return true;
+  }
+  return false;
+}
+
 test('every screen uses the same Jaryo chrome', () => {
   for (const [name, path, href] of SCREENS) {
     const html = read(path);
@@ -110,7 +137,9 @@ test('Mac waiting chrome and Android covers stay black and white type', () => {
   const cover = read('./android/app/src/main/res/layout/activity_cover.xml');
   const inner = read('./android/app/src/main/res/layout/activity_inner.xml');
   const widget = read('./android/app/src/main/res/layout/widget_status.xml');
-  for (const layout of [cover, inner, widget]) assert.match(layout, /text="AGIW"/);
+  for (const [name, layout] of [['cover', cover], ['inner', inner], ['widget', widget]]) {
+    assert.ok(layoutShows(layout, 'AGIW'), `${name} shows AGIW`);
+  }
   assert.ok(widget.indexOf('widgetAcceptance') < widget.indexOf('widgetDetail'), 'the acceptance line stays above the detail that can clip');
   assert.match(widget, /android:maxLines="3"/);
   assert.match(cover, /android:textColor="@color\/agiw_ink"/);
