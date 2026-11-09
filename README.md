@@ -54,10 +54,10 @@ The separate `agiw` command pairs a Mac and a Windows PC. It is not the monitor.
 
 ```sh
 python3 -m pip install .
-agiw --version
+python3 -m agiw --version
 ```
 
-Expect `agiw 1.1.0 (agiw-peer/2)`. On Linux the version flag prints, and every command exits 2 with `Linux is not supported`.
+Expect `agiw 1.1.0 (agiw-peer/2)`. A user install may also place an `agiw` script in `~/.local/bin`. If that directory is not on `PATH`, `python3 -m agiw` is the form that runs. On Linux the version flag prints, and every command exits 2 with `Linux is not supported`.
 
 ## How it works
 
