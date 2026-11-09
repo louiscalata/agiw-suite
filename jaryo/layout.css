@@ -1,0 +1,106 @@
+/* Shell, sidebar, and the widths a pipeline has to survive.
+   Cover is the foldable outer screen (about 260–300px).
+   Handset is a phone. Inner is the foldable inner screen up to the desktop sidebar. */
+
+body:has(.jk-shell) {
+  margin: 0;
+  background: var(--j-bg);
+  color: var(--j-text);
+  font-family: var(--j-font);
+  font-size: var(--j-type-ui);
+  line-height: var(--j-leading-ui);
+}
+
+.jk-shell { min-height: 100vh; }
+
+.jk-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--j-space-2) var(--j-space-4);
+  min-height: var(--j-control-min);
+  padding: var(--j-space-2) var(--j-space-4);
+  border-bottom: var(--j-border-width) solid var(--j-border);
+  background: var(--j-surface);
+  position: relative;
+}
+
+.jk-frame { min-width: 0; }
+
+.jk-nav {
+  background: var(--j-surface);
+  border-bottom: var(--j-border-width) solid var(--j-border);
+}
+
+.jk-nav-sticky {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.jk-main {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: var(--j-space-6);
+  padding: var(--j-space-5);
+  background-color: var(--j-bg);
+  background-image:
+    linear-gradient(var(--j-grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--j-grid) 1px, transparent 1px);
+  background-size: var(--j-grid-size) var(--j-grid-size);
+}
+
+.jk-stations { grid-template-columns: minmax(0, 1fr); }
+
+@media (min-width: 301px) {
+  .jk-stations { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (min-width: 720px) {
+  .jk-stations { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+
+@media (max-width: 599px) {
+  .jk-main { padding: var(--j-space-4); gap: var(--j-space-5); }
+  .jk-top { padding: var(--j-space-2) var(--j-space-3); }
+}
+
+@media (max-width: 300px) {
+  .jk-main { padding: var(--j-space-3); gap: var(--j-space-4); }
+  .jk-title { font-size: var(--j-type-title); }
+  .jk-top { gap: var(--j-space-2); }
+  .jk-theme {
+    width: 100%;
+    margin-left: 0;
+  }
+  .jk-theme select {
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: 100%;
+  }
+  .jk-nav a { padding: 0 var(--j-space-3); }
+  .jk-acceptance { align-items: start; }
+}
+
+@media (min-width: 980px) {
+  .jk-frame {
+    display: grid;
+    grid-template-columns: var(--j-sidebar) minmax(0, 1fr);
+    align-items: stretch;
+  }
+
+  .jk-nav {
+    min-height: 100vh;
+    border-bottom: 0;
+    border-right: var(--j-border-width) solid var(--j-border);
+  }
+
+  .jk-nav-sticky {
+    position: sticky;
+    top: 0;
+    flex-direction: column;
+    flex-wrap: nowrap;
+  }
+
+  .jk-nav a { width: 100%; }
+}

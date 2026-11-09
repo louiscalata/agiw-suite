@@ -69,3 +69,40 @@ html[data-theme="light"] {
 @media (prefers-reduced-motion: reduce) {
   .j-schematic { animation: none; }
 }
+
+/* Scale shared by the kit. Colours stay in the blocks above. Ink is only black or white. */
+:root {
+  --j-space-1: 4px;
+  --j-space-2: 8px;
+  --j-space-3: 12px;
+  --j-space-4: 16px;
+  --j-space-5: 24px;
+  --j-space-6: 32px;
+  --j-space-7: 48px;
+  --j-space-8: 64px;
+  --j-type-meta: 11px;
+  --j-type-ui: 13px;
+  --j-type-body: 14px;
+  --j-type-name: 16px;
+  --j-type-title: 20px;
+  --j-type-display: 28px;
+  --j-leading-meta: 1.4;
+  --j-leading-ui: 1.4;
+  --j-leading-body: 1.45;
+  --j-leading-title: 1.2;
+  --j-leading-display: 1.15;
+  --j-tracking-wordmark: 0.02em;
+  --j-tracking-meta: 0.08em;
+  --j-border-width: 1px;
+  --j-focus-width: 3px;
+  --j-focus-offset: 3px;
+  --j-radius: 0px;
+  --j-control-min: 44px;
+  --j-sidebar: 220px;
+  --j-grid-size: 24px;
+  --j-bp-cover: 300px;
+  --j-bp-handset: 599px;
+  --j-bp-inner: 979px;
+  --j-bp-desktop: 980px;
+  --j-font-display: Inter, "Liberation Sans", "Noto Sans", sans-serif;
+}
