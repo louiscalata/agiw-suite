@@ -14,6 +14,9 @@ vendor/nisi/package/LICENSE whitespace=-blank-at-eof
 *.sh text eol=lf
 *.swift text eol=lf
 *.yml text eol=lf
+# The OFL text and the web-edition denylist are line-oriented. A Windows autocrlf checkout
+# must not turn the license sentence into CR LF, or append CR to a denylist regex.
+*.txt text eol=lf
 *.ps1 text eol=crlf
 *.cmd text eol=crlf
 *.vbs text eol=crlf
