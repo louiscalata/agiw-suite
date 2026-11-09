@@ -5,8 +5,8 @@ import { existsSync, symlinkSync } from 'node:fs';
 import { request } from 'node:http';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { basename, dirname, join } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { applyTheme, escapeHtml, nextIndex, pipelineMarkup, readThemeChoice } from './jaryo/behavior.mjs';
 import { checkKit, contrastRatio } from './jaryo/contract.mjs';
 import { parseArgs, run } from './jaryo/cli.mjs';
@@ -14,7 +14,8 @@ import { kitRoot } from './jaryo/install.mjs';
 import { frameMessage, handleMessage, readFrames } from './jaryo/mcp.mjs';
 import { resolveTheme } from './jaryo/theme.mjs';
 
-const repo = kitRoot().endsWith('/jaryo') ? kitRoot().slice(0, -'/jaryo'.length) : kitRoot();
+const kit = kitRoot();
+const repo = basename(kit) === 'jaryo' ? dirname(kit) : dirname(fileURLToPath(import.meta.url));
 
 test('black and white contrast and the theme resolver stay strict', () => {
   assert.ok(contrastRatio('#000000', '#ffffff') >= 7);

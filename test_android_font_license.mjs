@@ -9,7 +9,9 @@ test('the Inter fonts in the Android app ship with their copyright line and the 
   const fonts = readdirSync(res).filter(name => name.endsWith('.ttf'));
   assert.ok(fonts.length >= 2, fonts.join());
   assert.ok(existsSync(license), 'assets/licenses/Inter-OFL-1.1.txt is missing');
-  const text = readFileSync(license, 'utf8');
+  // A Windows autocrlf checkout rewrites the OFL file to CR LF. The sentence is still
+  // one line break, and the assertions below stay on the LF form of that text.
+  const text = readFileSync(license, 'utf8').replace(/\r\n/g, '\n');
   assert.match(text, /^Copyright 2016 The Inter Project Authors \(https:\/\/github\.com\/rsms\/inter\)/);
   assert.match(text, /SIL OPEN FONT LICENSE Version 1\.1 - 26 February 2007/);
   for (const clause of ['PREAMBLE', 'DEFINITIONS', 'PERMISSION & CONDITIONS', 'TERMINATION', 'DISCLAIMER',

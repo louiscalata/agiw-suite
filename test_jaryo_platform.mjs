@@ -1,7 +1,9 @@
 // Shared Jaryo contracts and the places the Mac edition is allowed to differ from the Windows web.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { routeAdmissionText } from './web/online-code-mode.mjs';
 import { ship } from './wrapper-patch/web-edition/appstore-rules.mjs';
 import { loadDenylist } from './wrapper-patch/web-edition/build.mjs';
@@ -40,4 +42,19 @@ test('removing the pipeline denylist pattern would stop catching that word', () 
   const weakened = full.filter(item => item.label !== 'route pipeline');
   assert.equal(denylistHits('const leak = "pipeline";\n', full).length, 1);
   assert.equal(denylistHits('const leak = "pipeline";\n', weakened).length, 0);
+});
+
+test('a CRLF denylist still means pipeline, not pipeline plus a carriage return', () => {
+  const source = readFileSync(new URL('./wrapper-patch/web-edition/feature-denylist.txt', import.meta.url));
+  const dir = mkdtempSync(join(tmpdir(), 'agiw-denylist-'));
+  const file = join(dir, 'feature-denylist.txt');
+  try {
+    writeFileSync(file, source.toString('utf8').replace(/\n/g, '\r\n'));
+    const parsed = loadDenylist(file);
+    const pipeline = parsed.find(item => item.label === 'route pipeline');
+    assert.equal(pipeline.re.source, 'pipeline');
+    assert.equal(denylistHits('const leak = "pipeline";\n', parsed).length, 1);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

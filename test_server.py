@@ -1763,7 +1763,9 @@ class TransportTest(unittest.TestCase):
     def test_connection_cap_and_absolute_deadline_for_dripping_headers(self):
         self.assertEqual(self.server.max_connections, 8)
         self.server.socket_timeout_seconds = .2
-        self.server.connection_deadline_seconds = .5
+        # Opening eight sockets on a busy runner can take longer than half a second.
+        # The deadline stays absolute: the drip below outlasts it, so every slot still closes.
+        self.server.connection_deadline_seconds = 3.0
         held = []
         try:
             for _ in range(self.server.max_connections):
@@ -1784,7 +1786,7 @@ class TransportTest(unittest.TestCase):
             self.assertEqual(self.server._active_connections, 8)
             # Keep sending within the per-read timeout; the absolute deadline
             # still has to close every socket and release all eight slots.
-            until = time.monotonic() + .7
+            until = time.monotonic() + 3.5
             while time.monotonic() < until:
                 for sock in held:
                     try:

@@ -24,7 +24,9 @@ import { adaptEdition } from './jaryo-adapt.mjs';
 const here = dirname(fileURLToPath(import.meta.url));
 
 export function loadDenylist(file = join(here, 'feature-denylist.txt')) {
-  return readFileSync(file, 'utf8').split('\n').filter(line => line.trim() && !line.startsWith('#')).map(line => {
+  // Drop a checkout CR before the tab split. Otherwise the last alternative, or the whole
+  // pattern, includes that CR and a line ending in LF no longer matches.
+  return readFileSync(file, 'utf8').split('\n').map(line => line.endsWith('\r') ? line.slice(0, -1) : line).filter(line => line.trim() && !line.startsWith('#')).map(line => {
     const [flags, label, pattern] = line.split('\t');
     if (!pattern) throw new Error(`feature-denylist.txt: malformed line ${JSON.stringify(line)}`);
     return { label, re: new RegExp(pattern, flags.includes('i') ? 'i' : '') };

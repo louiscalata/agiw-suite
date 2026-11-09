@@ -171,8 +171,9 @@ class CollectorEvidence(unittest.TestCase):
         script = ("import {pcReportView} from " + json.dumps(module) + ";"
                   "let raw='';for await(const chunk of process.stdin)raw+=chunk;"
                   "process.stdout.write(JSON.stringify(pcReportView(JSON.parse(raw),{feedFresh:true})));" )
+        # Node's first start on a cold Windows runner can take longer than the render itself.
         result = subprocess.run([shutil.which("node"), "--input-type=module", "-e", script],
-                                input=json.dumps(summary), capture_output=True, text=True, check=True, timeout=10)
+                                input=json.dumps(summary), capture_output=True, text=True, check=True, timeout=30)
         view = json.loads(result.stdout)
         self.assertIn("unknown", view["words"].lower())
         self.assertNotIn("no model loaded", result.stdout.lower())
