@@ -1,4 +1,4 @@
-body.jaryo-app { display: block; height: auto; min-height: 100%; overflow: auto; position: relative; }
+body.jaryo-app { height: auto; min-height: 100%; overflow: auto; }
 .j-map { min-height: 52vh; }
 #mapLedger.j-board { position: relative; left: auto; right: auto; bottom: auto; max-height: none; margin: 16px; }
 #map { display: block; }

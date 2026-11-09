@@ -1,0 +1,50 @@
+/* Factory motion: a belt travels and an arm ticks. Nothing here is a live measurement.
+   The resting picture is the same when motion is reduced. */
+
+@media (prefers-reduced-motion: no-preference) {
+  .jk-belt {
+    animation: jk-belt-move 2.8s linear infinite;
+  }
+
+  .jk-arm::before {
+    animation: jk-arm 2.8s linear infinite;
+  }
+
+  .jk-detail-rule {
+    transform-origin: left center;
+    animation: jk-rule-draw var(--j-motion) linear;
+  }
+
+  .jk-button[aria-busy="true"] {
+    animation: jk-belt-move 1.2s linear infinite;
+  }
+}
+
+@keyframes jk-belt-move {
+  from { background-position: 0 center; }
+  to { background-position: 16px center; }
+}
+
+@keyframes jk-arm {
+  0%, 45% { transform: rotate(0deg); }
+  55%, 90% { transform: rotate(-32deg); }
+  100% { transform: rotate(0deg); }
+}
+
+@keyframes jk-rule-draw {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .jk-belt,
+  .jk-arm,
+  .jk-arm::before,
+  .jk-detail-rule,
+  .jk-button,
+  .jk-button[aria-busy="true"],
+  .j-schematic {
+    animation: none;
+    transition: none;
+  }
+}

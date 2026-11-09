@@ -5,6 +5,7 @@
 #svBody .sv-row[data-tone="ok"]{border-top-color:var(--j-border,#000)}
 #svBody button{min-height:44px;margin-top:8px;padding:8px 12px;color:var(--j-invert-ink,#fff);background:var(--j-invert,#000);border:0;font:inherit}
 #svBody .sv-confirm{margin:8px 0 0;font-weight:400}
+@media(max-width:22.5rem){#svBody{margin:12px}#svBody .sv-row{overflow-wrap:anywhere}}
 .j-bus{margin:14px 0 4px;padding:10px 0;border-top:1px solid currentColor;font:11px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.04em;white-space:pre;overflow-x:auto;color:inherit;background:transparent}
 html[data-text-size="125"] body{zoom:1.25}
 html[data-text-size="150"] body{zoom:1.5}

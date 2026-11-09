@@ -31,6 +31,7 @@
             android:layout_marginTop="8dp"
             android:contentDescription="AGIW"
             android:fontFamily="@font/inter_semibold"
+            android:textColor="@color/agiw_ink"
             android:includeFontPadding="false"
             android:letterSpacing="0.02"
             android:text="AGIW"
