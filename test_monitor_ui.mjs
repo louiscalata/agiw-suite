@@ -759,7 +759,7 @@ test('Follow-up 5: a choice made in the compact Browse sidebar closes it and han
 
 test('portfolio split docks an interactive browser on wide screens and retains the compact Browse gate', () => {
   assert.doesNotMatch(html, /brand-monogram|>AS</);
-  assert.match(html, /<span class="brand-wordmark"><strong>AGIW Suite<\/strong><small>Inference Monitor<\/small><\/span>/);
+  assert.match(html, /<span class="brand-wordmark"><strong class="j-type">AGIW<\/strong><small>Inference Monitor<\/small><\/span>/);
   const wide = cssRules(css).filter(([media]) => media === '(min-width:980px)');
   const has = (selector, pattern) => wide.some(([, head, body]) => selectors(head).includes(selector) && pattern.test(body));
   assert.ok(has('main', /display:grid;grid-template-columns:minmax\(0,1fr\) var\(--portfolio-rail\)/));

@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="/jaryo.css">
 </head>
 <body class="jaryo-app">
+<a class="j-skip" href="#content">Skip to content</a>
 <header class="j-top">
   <div class="j-brand"><strong class="j-type">AGIW</strong><span>Inference Monitor</span></div>
 </header>
@@ -26,7 +27,7 @@
     </select>
   </label>
 </nav>
-<main class="j-page">
+<main id="content" class="j-page" tabindex="-1">
   <h1>Machines</h1>
   <p>Each machine as this monitor sees it. A missing read is unknown, never down. Nothing here controls a machine.</p>
   <p id="machinesStatus" class="j-hint" aria-live="polite">Reading the snapshot.</p>
