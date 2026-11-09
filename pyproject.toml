@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agiw"
-version = "0.1.0"
+version = "1.1.0"
 description = "Pair your Mac and Windows PC with a PIN and read their signed AGIW status over the LAN"
 readme = "docs/cli.md"
 requires-python = ">=3.9"

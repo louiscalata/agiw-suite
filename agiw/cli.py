@@ -2,7 +2,7 @@
 
 Every command except `serve`, `doctor`, `service` and `uninstall` talks to this user's own peer link on
 127.0.0.1, which must first prove it holds the control token in the state folder (peer_link.py). Status is
-signed but not encrypted, and v0.1 dispatches no jobs: it only discovers, pairs and reads status.
+signed but not encrypted, and v1.1.0 dispatches no jobs: it only discovers, pairs and reads status.
 """
 from __future__ import annotations
 
@@ -452,7 +452,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="agiw", description="Pair your Mac and Windows PC with a PIN and read their signed, "
                                  "read-only status over the LAN (agiw-peer/2). Status is signed, not encrypted; "
-                                 "v0.1 dispatches no jobs.")
+                                 "v1.1.0 dispatches no jobs.")
     parser.add_argument("--version", action="version", version=f"agiw {__version__} ({pl.PROTOCOL})")
     parser.add_argument("--state-dir", type=Path, default=None,
                         help="peer-link state folder (default: the per-OS user folder)")

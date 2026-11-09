@@ -7,5 +7,5 @@ node relayed by the Mac). It serves the same dashboard as the Mac edition with
 restarts a model.
 """
 
-VERSION = "0.2.0"
+VERSION = "1.1.0"
 SERVICE = "agiw-win-observer"
