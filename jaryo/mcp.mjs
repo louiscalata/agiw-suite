@@ -1,9 +1,8 @@
 /** Stdio tool host for the kit. Logs stay on stderr. Stdout is framed JSON only. */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
 import { checkKit } from './contract.mjs';
-import { installKit, kitRoot } from './install.mjs';
+import { installKit, isDirectRun, kitRoot } from './install.mjs';
 
 const TOOLS = [
   {
@@ -124,5 +123,4 @@ export function serveMcp(input = process.stdin, output = process.stdout) {
   });
 }
 
-const entry = process.argv[1] ? pathToFileURL(process.argv[1]).href : '';
-if (import.meta.url === entry) serveMcp();
+if (isDirectRun(import.meta.url)) serveMcp();

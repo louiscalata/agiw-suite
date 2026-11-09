@@ -2,9 +2,8 @@
 /** Jaryo kit command. Install copies this folder. Demo serves the pipeline page. */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
 import { checkKit } from './contract.mjs';
-import { installKit, kitRoot, startServer } from './install.mjs';
+import { installKit, isDirectRun, kitRoot, startServer } from './install.mjs';
 import { serveMcp } from './mcp.mjs';
 
 export function parseArgs(argv) {
@@ -116,7 +115,7 @@ export async function run(argv, io = {}) {
   }
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] || '').href) {
+if (isDirectRun(import.meta.url)) {
   run(process.argv.slice(2)).then((code) => {
     if (code !== 0) process.exitCode = code;
   });

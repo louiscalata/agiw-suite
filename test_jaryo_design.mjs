@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, symlinkSync } from 'node:fs';
 import { request } from 'node:http';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -86,28 +86,34 @@ test('javascript files parse', () => {
 
 test('a fresh install serves the pipeline page', async () => {
   const dest = await mkdtemp(join(tmpdir(), 'jaryo-kit-'));
+  let linkDir = '';
   try {
     const installed = spawnSync(process.execPath, [join(repo, 'jaryo', 'cli.mjs'), 'install', '--dest', dest], { encoding: 'utf8' });
     assert.equal(installed.status, 0, installed.stderr);
     assert.match(installed.stdout, /Installed Jaryo kit/);
-    const child = spawn(process.execPath, [join(dest, 'cli.mjs'), 'demo', '--port', '0'], {
+    linkDir = await mkdtemp(join(tmpdir(), 'jaryo-link-'));
+    symlinkSync(dest, join(linkDir, 'kit'));
+    const child = spawn(process.execPath, [join(linkDir, 'kit', 'cli.mjs'), 'demo', '--port', '0'], {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let stdout = '';
+    let stderr = '';
     const port = await new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error(`demo did not start: ${stdout}`)), 8000);
+      let settled = false;
+      const finish = (fn, value) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        fn(value);
+      };
+      const timer = setTimeout(() => finish(reject, new Error(`demo did not start: ${stdout} ${stderr}`)), 8000);
       child.stdout.on('data', (chunk) => {
         stdout += chunk;
         const match = /http:\/\/127\.0\.0\.1:(\d+)\//.exec(stdout);
-        if (match) {
-          clearTimeout(timer);
-          resolve(Number(match[1]));
-        }
+        if (match) finish(resolve, Number(match[1]));
       });
-      child.once('exit', (code) => {
-        clearTimeout(timer);
-        reject(new Error(`demo exited ${code}`));
-      });
+      child.stderr.on('data', (chunk) => { stderr += chunk; });
+      child.once('exit', (code) => finish(reject, new Error(`demo exited ${code}: ${stderr || stdout}`)));
     });
     try {
       const page = await fetch(`http://127.0.0.1:${port}/`);
@@ -139,6 +145,7 @@ test('a fresh install serves the pipeline page', async () => {
       await new Promise((resolve) => child.once('exit', () => resolve()));
     }
   } finally {
+    if (linkDir) await rm(linkDir, { recursive: true, force: true });
     await rm(dest, { recursive: true, force: true });
   }
 });

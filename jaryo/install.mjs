@@ -1,8 +1,8 @@
 /** Copy the kit to a clean directory and serve it. The source of a copy is that copy. */
 import { createServer } from 'node:http';
-import { mkdirSync, readFileSync, statSync, cpSync } from 'node:fs';
+import { mkdirSync, readFileSync, realpathSync, statSync, cpSync } from 'node:fs';
 import { dirname, extname, join, resolve, sep } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -48,6 +48,18 @@ const TYPES = {
 
 export function kitRoot() {
   return here;
+}
+
+/** True when this module is the program Node was asked to run, after symlinks. macOS temp dirs are symlinks. */
+export function isDirectRun(moduleUrl) {
+  const entry = process.argv[1];
+  if (!entry || !moduleUrl) return false;
+  try {
+    return realpathSync(fileURLToPath(moduleUrl)) === realpathSync(entry);
+  } catch {
+    try { return pathToFileURL(entry).href === moduleUrl; }
+    catch { return false; }
+  }
 }
 
 export function assertInstallDest(source, dest) {
