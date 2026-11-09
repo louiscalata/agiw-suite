@@ -107,7 +107,8 @@ public final class MonitorActivity extends Activity {
             applyReceipts();
         });
         applyReceipts();
-        reveal(findViewById(R.id.acceptance));
+        if (cover) openAtTop();
+        else reveal(findViewById(R.id.acceptance));
     }
 
     private void remember(Board board) {
@@ -197,7 +198,7 @@ public final class MonitorActivity extends Activity {
         set(R.id.observed, cover ? board.observed : board.observed);
         set(R.id.detail, board.detail);
         set(R.id.acceptance, board.acceptance);
-        reveal(findViewById(R.id.acceptance));
+        if (!cover) reveal(findViewById(R.id.acceptance));
     }
 
     private void applyReceipts() {
@@ -266,6 +267,7 @@ public final class MonitorActivity extends Activity {
         final int side = dp(cover ? 12 : 16);
         final int top = dp(cover ? 16 : 24);
         final int bottom = dp(24);
+        scroller.setClipToPadding(false);
         scroller.setPadding(side, top, side, bottom);
         scroller.setOnApplyWindowInsetsListener((view, insets) -> {
             int left = side;
@@ -294,6 +296,18 @@ public final class MonitorActivity extends Activity {
 
     private int dp(int value) {
         return Math.round(value * getResources().getDisplayMetrics().density);
+    }
+
+    /**
+     * The short window used to scroll the acceptance line into the padded
+     * viewport, which lands on the bottom of that screen. Open at the top.
+     * A later read does not pull the scroll position back.
+     */
+    private void openAtTop() {
+        ScrollView scroller = findViewById(R.id.scroller);
+        if (scroller == null) return;
+        scroller.scrollTo(0, 0);
+        scroller.post(() -> scroller.scrollTo(0, 0));
     }
 
     private void reveal(View child) {

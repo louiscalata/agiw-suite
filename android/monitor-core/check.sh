@@ -41,7 +41,7 @@ check(layout / "activity_inner.xml", {"address"}, set())
 check(layout / "activity_cover.xml", set(), {"address"})
 for name in ("activity_inner.xml", "activity_cover.xml"):
     text = (layout / name).read_text()
-    for needle in ('android:id="@+id/scroller"', 'android:clipToPadding="true"', 'android:fitsSystemWindows="true"',
+    for needle in ('android:id="@+id/scroller"', 'android:clipToPadding="false"', 'android:fitsSystemWindows="true"',
                    'android:paddingBottom="24dp"', 'android:isScrollContainer="true"', "<ScrollView"):
         if needle not in text:
             raise SystemExit(f"{name} missing {needle}")
