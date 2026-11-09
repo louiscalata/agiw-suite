@@ -7,5 +7,11 @@
         <item name="android:textColorPrimary">@color/agiw_ink</item>
         <item name="android:colorAccent">@color/agiw_ink</item>
         <item name="android:fontFamily">@font/inter</item>
+        <item name="android:editTextColor">@color/agiw_ink</item>
+        <item name="android:textColorHint">@color/agiw_ink</item>
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">true</item>
     </style>
 </resources>

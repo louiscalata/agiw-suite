@@ -3,8 +3,8 @@ set -eu
 root=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
-find "$root/src/main/java" "$root/src/test/java" -name '*.java' > "$out/sources"
-javac --release 17 -d "$out/classes" @"$out/sources"
+find "$root/src/main/java" "$root/src/test/java" -name '*.java' ! -name 'MonitorCoreGradleTest.java' > "$out/sources"
+javac --release 17 -encoding UTF-8 -d "$out/classes" @"$out/sources"
 java -cp "$out/classes" suite.agiw.monitor.OverviewTest
 java -cp "$out/classes" suite.agiw.monitor.ClientTest
 python3 - "$root/../app/src/main/res/layout" <<'PY'
@@ -55,6 +55,24 @@ for needle in ("gate.accepts", "Read cancelled", "adjustResize"):
         raise SystemExit("missing safeguard " + needle)
 if "gate.accepts" not in activity_text or "Read cancelled" not in activity_text:
     raise SystemExit("activity does not keep the latest read")
+if "setOnApplyWindowInsetsListener" not in activity_text or "setDecorFitsSystemWindows" not in activity_text:
+    raise SystemExit("window insets are not applied")
+inner = (layout / "activity_inner.xml").read_text()
+cover_text = (layout / "activity_cover.xml").read_text()
+if 'android:paddingStart="16dp"' not in inner or 'android:paddingEnd="16dp"' not in inner:
+    raise SystemExit("inner screen missing 16dp side inset")
+if 'android:paddingStart="12dp"' not in cover_text or 'android:paddingEnd="12dp"' not in cover_text:
+    raise SystemExit("cover screen missing 12dp side inset")
+android_root = layout.parents[4]
+for rel in ("app/build.gradle.kts", "monitor-core/build.gradle.kts"):
+    gradle = (android_root / rel).read_text()
+    if "UTF-8" not in gradle or "JavaCompile" not in gradle:
+        raise SystemExit(rel + " does not set JavaCompile UTF-8")
+gradle_test = android_root / "monitor-core/src/test/java/suite/agiw/monitor/MonitorCoreGradleTest.java"
+gradle_test_text = gradle_test.read_text()
+for needle in ("OverviewTest.main", "ClientTest.main", "@Test"):
+    if needle not in gradle_test_text:
+        raise SystemExit("gradle suite missing " + needle)
 if "adjustResize" not in manifest_text:
     raise SystemExit("keyboard does not resize the window")
 for name in ("activity_inner.xml", "activity_cover.xml"):

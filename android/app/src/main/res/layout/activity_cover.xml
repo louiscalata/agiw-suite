@@ -8,9 +8,11 @@
     android:fitsSystemWindows="true"
     android:isScrollContainer="true"
     android:paddingBottom="24dp"
-    android:paddingLeft="16dp"
-    android:paddingRight="16dp"
+    android:paddingEnd="12dp"
+    android:paddingStart="12dp"
     android:paddingTop="16dp"
+    android:scrollbarSize="4dp"
+    android:scrollbarThumbVertical="@drawable/agiw_scrollbar"
     android:scrollbars="vertical">
     <LinearLayout
         android:layout_width="match_parent"
@@ -21,11 +23,11 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:contentDescription="AGIW"
+            android:contentDescription="@string/wordmark"
             android:fontFamily="@font/inter_semibold"
             android:includeFontPadding="false"
             android:letterSpacing="0.02"
-            android:text="AGIW"
+            android:text="@string/wordmark"
             android:textSize="28sp"/>
         <View
             android:id="@+id/schematic"
@@ -33,7 +35,7 @@
             android:layout_height="1dp"
             android:layout_marginTop="12dp"
             android:background="@color/agiw_ink"
-            android:contentDescription="Schematic rule"/>
+            android:contentDescription="@string/schematic_description"/>
         <TextView
             android:id="@+id/process"
             android:layout_width="wrap_content"
@@ -65,13 +67,13 @@
             android:layout_marginTop="12dp"
             android:background="@color/agiw_ink"
             android:backgroundTint="@color/agiw_ink"
-            android:contentDescription="Read the observer snapshot"
+            android:contentDescription="@string/read_description"
             android:fontFamily="@font/inter_semibold"
             android:minHeight="48dp"
             android:minWidth="48dp"
-            android:paddingLeft="20dp"
-            android:paddingRight="20dp"
-            android:text="Read"
+            android:paddingEnd="20dp"
+            android:paddingStart="20dp"
+            android:text="@string/read"
             android:textAllCaps="false"
             android:textColor="@color/agiw_bg"
             android:textSize="16sp"/>
@@ -114,11 +116,11 @@
             android:layout_marginTop="4dp"
             android:background="@android:color/transparent"
             android:backgroundTint="@android:color/transparent"
-            android:contentDescription="Show recorded receipts. They are not a pass."
+            android:contentDescription="@string/receipts_show_description"
             android:fontFamily="@font/inter_semibold"
             android:minHeight="48dp"
             android:minWidth="48dp"
-            android:text="Receipts"
+            android:text="@string/receipts"
             android:textAllCaps="false"
             android:textColor="@color/agiw_ink"
             android:textSize="14sp"/>

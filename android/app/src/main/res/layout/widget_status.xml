@@ -13,7 +13,7 @@
         android:fontFamily="@font/inter_semibold"
         android:includeFontPadding="false"
         android:letterSpacing="0.02"
-        android:text="AGIW"
+        android:text="@string/wordmark"
         android:textColor="@color/agiw_ink"
         android:textSize="22sp"/>
     <TextView

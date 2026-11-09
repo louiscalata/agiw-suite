@@ -1,4 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="widget_description">Read-only AGIW status. The cover list is a phone setting. This widget does not read the observer by itself.</string>
+    <string name="wordmark">AGIW</string>
+    <string name="eyebrow">INFERENCE MONITOR</string>
+    <string name="overview_lead">Read-only overview. One snapshot at a time.</string>
+    <string name="connection_label">CONNECTION</string>
+    <string name="connection_help">Type an https address. This app does not repair a run.</string>
+    <string name="address_hint">https address</string>
+    <string name="overview_label">OVERVIEW</string>
+    <string name="label_process">PROCESS</string>
+    <string name="label_lane">LANE</string>
+    <string name="label_attach">ATTACH</string>
+    <string name="label_connect">CONNECT</string>
+    <string name="label_time">TIME</string>
+    <string name="read">Read</string>
+    <string name="read_description">Read the observer snapshot</string>
+    <string name="cancel">Cancel</string>
+    <string name="cancel_description">Cancel the observer read</string>
+    <string name="receipts">Receipts</string>
+    <string name="receipts_show_description">Show recorded receipts. They are not a pass.</string>
+    <string name="receipts_hide">Hide receipts</string>
+    <string name="receipts_hide_description">Hide recorded receipts</string>
+    <string name="schematic_description">Schematic rule</string>
 </resources>

@@ -13,6 +13,17 @@ public final class OverviewTest {
         check(Overview.word(true, true, false, false, true, true, true) == Overview.Word.RUNNING, "live wins");
         check(!Acceptance.passClaimed(), "no pass");
         check(Acceptance.LINE.contains("ROLLBACK OPEN"), "rollback open");
+        // Reflection reads the class-file constant. A direct Acceptance.LINE
+        // use is inlined, so a UTF-8 test compile would hide a Cp1252 miscompile.
+        String rendered;
+        try {
+            rendered = (String) Acceptance.class.getField("LINE").get(null);
+        } catch (ReflectiveOperationException ex) {
+            throw new AssertionError("acceptance line", ex);
+        }
+        check(rendered.indexOf('\u00B7') >= 0, "rendered acceptance contains U+00B7");
+        check(rendered.indexOf('\u00C2') < 0 && rendered.indexOf('\u00C3') < 0, "rendered acceptance is not mojibake");
+        check(rendered.equals(Board.none("No address").acceptance), "board renders the acceptance line");
         check(Acceptance.MAC_ASTRA.startsWith("astra1103-mac-A"), "mac receipt");
         check(Acceptance.MAC_DESK.contains("DESK"), "desk receipt");
         check(Acceptance.MAC_SYNC.contains("SYNC"), "sync receipt");
