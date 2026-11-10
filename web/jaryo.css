@@ -1033,7 +1033,13 @@ body.jaryo-app .j-tabs {
   overflow: visible;
   max-width: 100%;
 }
-body.jaryo-app .j-tab { flex: 1 1 9rem; min-width: 0; }
+body.jaryo-app .j-tab { flex: 1 1 14rem; min-width: 0; }
+body.jaryo-app .j-tab-label {
+  max-width: none;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+}
 
 /* 375px: the full Fix inference label stays visible, and the board row is reserved
    so the first sample cannot grow the page. */
