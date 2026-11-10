@@ -3010,10 +3010,28 @@ def _windows_jobs(now: float) -> tuple[dict[str, Any], dict[str, Any]]:
 _JEV_CACHE: dict[str, Any] = {"key": None, "when": None, "model": None}
 
 
+def _archive_signature(archive: Path) -> tuple:
+    """Names and file identities under the archive. Directory mtime is not enough:
+    a file added in the same timestamp tick leaves the directory stat unchanged."""
+    found = []
+    for entry in os.scandir(archive):
+        if not entry.name.endswith(".json"):
+            continue
+        try:
+            info = entry.stat(follow_symlinks=False)
+        except OSError:
+            continue
+        if not stat.S_ISREG(info.st_mode):
+            continue
+        found.append((entry.name, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns))
+    found.sort()
+    return tuple(found)
+
+
 def _last_jev_judgment(now: float) -> tuple[float | None, str | None]:
     """Newest archived route whose shared intake was judged by Jev (file-only).
 
-    Rescanned only when the archive directory changes; ages are recomputed.
+    Rescanned when the archive's json files change. Ages are recomputed every call.
     """
     archive = _ROUTER_ROOT / "archive"
     try:
@@ -3021,9 +3039,9 @@ def _last_jev_judgment(now: float) -> tuple[float | None, str | None]:
         if (not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid()
                 or stat.S_IMODE(info.st_mode) & 0o077):
             return None, None
+        key = _archive_signature(archive)
     except OSError:
         return None, None
-    key = (info.st_ino, info.st_mtime_ns)
     if _JEV_CACHE["key"] != key:
         when, model = _scan_jev_judgment(archive)
         _JEV_CACHE.update(key=key, when=when, model=model)
