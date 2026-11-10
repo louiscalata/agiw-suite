@@ -376,8 +376,10 @@ body.jaryo-app .tiny-dot {
   gap: 8px;
   align-items: baseline;
   margin: 10px 0;
-  padding: 8px 10px;
-  border: 1px solid var(--j-border);
+  padding: 8px 0;
+  border: 0;
+  border-bottom: 1px solid var(--j-border);
+  background-image: none;
 }
 
 .j-unknown, .j-tab.j-unknown {
@@ -389,9 +391,10 @@ body.jaryo-app .tiny-dot {
 }
 
 .j-blocked {
-  border: 3px double var(--j-text);
-  background-image: repeating-linear-gradient(-45deg, transparent 0 6px, var(--j-border) 6px 7px);
-  background-clip: padding-box;
+  border: 0;
+  border-bottom: 1px solid var(--j-text);
+  background-image: none;
+  background-color: transparent;
 }
 
 .j-selected-blocked {
@@ -418,8 +421,8 @@ body.jaryo-app .tiny-dot {
   padding: 0 10px;
 }
 
-.j-steps { list-style: none; margin: 8px 0; padding: 0; display: grid; gap: 6px; }
-.j-step { border: 1px solid var(--j-border); padding: 0; }
+.j-steps { list-style: none; margin: 8px 0; padding: 0; display: grid; gap: 0; }
+.j-step { border: 0; border-bottom: 1px solid var(--j-border); padding: 0; background-image: none; }
 .j-step-hit, .j-open {
   width: 100%;
   min-height: 44px;
@@ -541,9 +544,10 @@ body.jaryo-app .j-type { font-size: 20px; }
 
 .j-provisional {
   margin: 0 0 16px;
-  padding: 8px 10px;
-  border: 3px double var(--j-text);
-  background-image: repeating-linear-gradient(-45deg, transparent 0 6px, var(--j-border) 6px 7px);
+  padding: 8px 0;
+  border: 0;
+  border-bottom: 1px solid var(--j-text);
+  background-image: none;
 }
 
 .j-evidence summary {
@@ -555,9 +559,11 @@ body.jaryo-app .j-type { font-size: 20px; }
 
 .j-schematic {
   margin: 8px 0;
-  padding: 8px 10px;
-  border: 1px solid var(--j-border);
-  background-color: var(--j-bg);
+  padding: 8px 0;
+  border: 0;
+  border-bottom: 1px solid var(--j-border);
+  background-color: transparent;
+  background-image: none;
   color: var(--j-text);
   font: 12px/1.45 var(--j-font);
   white-space: pre;
@@ -568,8 +574,10 @@ body.jaryo-app .j-type { font-size: 20px; }
 .j-matrix-observed { border-style: solid; }
 .j-matrix-untested { border-style: dashed; }
 .j-matrix-blocked {
-  border: 3px double var(--j-text);
-  background-image: repeating-linear-gradient(-45deg, transparent 0 6px, var(--j-border) 6px 7px);
+  border: 0;
+  border-bottom: 1px solid var(--j-text);
+  background-image: none;
+  background-color: transparent;
 }
 
 .j-id-grid {
@@ -622,6 +630,10 @@ p.j-type-sample.j-plate {
   align-items: center;
   min-height: 72px;
 }
+body.jaryo-app .j-page .j-type-16 { font-size: var(--j-size-3) !important; }
+body.jaryo-app .j-page .j-type-24 { font-size: var(--j-size-5) !important; }
+body.jaryo-app .j-page .j-type-32,
+body.jaryo-app .j-page .j-type-sample { font-size: var(--j-size-6) !important; }
 .j-id-selected { border-width: 2px; }
 .j-size-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; margin: 12px 0; }
 .j-size-cell { margin: 0; display: grid; gap: 6px; justify-items: center; }
