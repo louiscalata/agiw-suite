@@ -238,27 +238,21 @@ public final class MonitorActivity extends Activity {
         inflight = token;
         showReadButton(true);
         new Thread(() -> {
-            ObserverClient.Result result = client.getSnapshot(uri, 4000);
-            Board board = boardFor(result);
+            Board board;
+            try {
+                board = Board.from(client.getSnapshot(uri, 4000), Instant.now());
+            } catch (RuntimeException ex) {
+                board = Board.disconnected("Observer did not answer");
+            }
+            Board shown = board;
             runOnUiThread(() -> {
                 if (isDestroyed() || !gate.accepts(token)) return;
                 inflight = 0;
-                show(board);
-                remember(board);
+                show(shown);
+                remember(shown);
                 showReadButton(false);
             });
         }, "agiw-observer").start();
-    }
-
-    private static Board boardFor(ObserverClient.Result result) {
-        if (result.detail().equals("Cleartext is not used") || result.detail().equals("No address")) {
-            return Board.refused(result.detail());
-        }
-        if (!result.ok() && result.detail().equals("Observer did not answer")) {
-            return Board.disconnected(result.detail());
-        }
-        if (!result.ok()) return Board.none(result.detail());
-        return Board.read(result.body(), Instant.now());
     }
 
     private void show(Board board) {
