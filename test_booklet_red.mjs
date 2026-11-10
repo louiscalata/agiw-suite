@@ -28,8 +28,8 @@ test('the accent is headlines, the wordmark, and the current tab', () => {
     assert.ok(css.includes(selector), selector);
   }
   assert.match(css, /\.j-callout,\s*body\.jaryo-app \.j-step,[\s\S]*color:\s*var\(--j-text\);/);
-  assert.doesNotMatch(css, /\.j-blocked[^{]*\{[^}]*--j-accent/);
-  assert.doesNotMatch(css, /\.j-word[^{]*\{[^}]*--j-accent(?!-)/);
+  assert.doesNotMatch(css, /\.j-blocked[^{]*\{[^}]*var\(--j-accent\)/);
+  assert.doesNotMatch(css, /\.j-word[^{]*\{[^}]*var\(--j-accent\)/);
 });
 
 test('selected tab labels use the forced-colors selection text', () => {

@@ -180,7 +180,7 @@ foreach ($item in Get-ChildItem -LiteralPath (Join-Path $sourceWindows 'agiw_win
 foreach ($file in 'agiw_observer.py', 'agiw-monitor.ps1', 'AGIW Monitor.vbs', 'AGIW Monitor.cmd', 'README.md') {
     $files.Add(@((Join-Path $sourceWindows $file), $file))
 }
-foreach ($file in 'index.html', 'app.js', 'style.css', 'map-layout.mjs', 'model-control-view.mjs', 'simple-view.mjs', 'simple-view.css', 'online-code-mode.mjs', 'monitor.html', 'monitor.mjs', 'monitor.css', 'monitor-tabs.mjs', 'monitor-board.mjs', 'monitor-map.mjs', 'jaryo.css', 'jaryo.mjs', 'identity.html', 'identity.mjs', 'machines.html', 'machines.mjs', 'setup.html', 'setup.mjs', 'components.html', 'components.js', 'components.css') {
+foreach ($file in 'index.html', 'app.js', 'style.css', 'map-layout.mjs', 'model-control-view.mjs', 'simple-view.mjs', 'simple-view.css', 'online-code-mode.mjs', 'monitor.html', 'monitor.mjs', 'monitor.css', 'monitor-tabs.mjs', 'monitor-board.mjs', 'monitor-map.mjs', 'jaryo.css', 'jaryo.mjs', 'identity.html', 'identity.mjs', 'machines.html', 'machines.mjs', 'setup.html', 'setup.mjs', 'components.html', 'components.js', 'components.css', 'fonts/ibm-plex-sans-400.woff2', 'fonts/ibm-plex-sans-700.woff2', 'fonts/ibm-plex-mono-400.woff2', 'fonts/ibm-plex-mono-700.woff2') {
     $files.Add(@((Join-Path $repo "web\$file"), "web\$file"))
 }
 foreach ($file in 'tokens.json', 'theme.mjs', 'primitives.css', 'README.md', 'marks\d1-stamp.svg', 'marks\d2-ledger.svg', 'marks\d3-schematic.svg', 'marks\d4-split.svg', 'marks\d4-split-before.svg', 'marks\d4-split-wordmark.svg', 'marks\d4-split-on-dark.svg', 'marks\d4-split-on-light.svg', 'marks\d5-signal.svg', 'marks\favicon.svg') {

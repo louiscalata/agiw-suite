@@ -22,6 +22,7 @@ test('the overview uses six type steps and none of them is under 12px', () => {
     assert.match(block, new RegExp(`--j-size-\\d: ${size};`));
   }
   assert.match(block, /font-size: var\(--j-size-3\) !important;/);
-  assert.match(block, /font-family: Inter, "Liberation Sans", "Noto Sans", sans-serif !important;/);
+  assert.match(block, /font-family: "IBM Plex Sans", "Liberation Sans", "Noto Sans", sans-serif !important;/);
+  assert.match(block, /font-family: "IBM Plex Mono"/);
   assert.doesNotMatch(block, /font-size:\s*(?:[0-9]|1[01])px/);
 });
