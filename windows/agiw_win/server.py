@@ -34,6 +34,7 @@ if _INFERENCE_ROOT is not None and str(_INFERENCE_ROOT) not in sys.path:
 from inference_collect import RateMemory, attach, vram_from_gpus
 from inference_stats import expire_map
 from machine_state import expire_machines
+import eci_tuning
 
 AGED_REASONS = {"stale": "stale", "clock_skew": "clock-ahead", "schema_invalid": "report-refused"}
 FULL_SAMPLE_MAX_AGE = 3.0  # same as the Mac server and the UI: a sample older than this is not live activity
@@ -336,6 +337,11 @@ class Handler(BaseHTTPRequestHandler):
             return self.json_reply(200, data) if data is not None else self.json_reply(503, {"status": "starting"})
         if path == "/api/stream":
             return self.stream()
+        if path == "/api/eci-tuning":
+            try:
+                return self.json_reply(200, eci_tuning.status())
+            except (OSError, ValueError, TypeError, KeyError):
+                return self.json_reply(503, {"status": "unknown"})
         if path == "/api/models/control":
             return self.json_reply(200, {"status": "idle", "operationId": 0, "supported": False,
                                          "message": "Model load and unload are not offered on the PC lanes."})
