@@ -5,12 +5,26 @@ set -eu
 ANDROID_HOME="${ANDROID_HOME:-$HOME/android-sdk}"
 export ANDROID_HOME
 export ANDROID_SDK_ROOT="$ANDROID_HOME"
+# Keep the AVD next to the user home. A runner that also sets ANDROID_SDK_ROOT
+# would otherwise leave the ini under a different tree.
+export ANDROID_USER_HOME="${ANDROID_USER_HOME:-$HOME/.android}"
+export ANDROID_AVD_HOME="${ANDROID_AVD_HOME:-$ANDROID_USER_HOME/avd}"
+export ANDROID_SDK_HOME="$HOME"
+mkdir -p "$ANDROID_AVD_HOME"
 export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH"
 android_root=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 cd "$android_root"
 
 echo no | avdmanager create avd --name agiw --package "system-images;android-35;google_apis;x86_64" --force
-config="$HOME/.android/avd/agiw.avd/config.ini"
+config="$ANDROID_AVD_HOME/agiw.avd/config.ini"
+if [ ! -f "$config" ]; then
+    config=$(find "$HOME" "$ANDROID_HOME" -path '*/agiw.avd/config.ini' 2>/dev/null | head -1 || true)
+fi
+if [ -z "$config" ] || [ ! -f "$config" ]; then
+    echo "avdmanager did not write agiw.avd/config.ini" >&2
+    find "$HOME" "$ANDROID_HOME" -type d -name '*.avd' 2>/dev/null | head
+    exit 1
+fi
 printf '\nshowDeviceFrame=no\nskin.dynamic=yes\nhw.lcd.width=1080\nhw.lcd.height=2400\nhw.lcd.density=420\nhw.keyboard=no\n' >> "$config"
 
 emulator -avd agiw -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect -accel auto -memory 2048 -port 5554 >/tmp/agiw-emulator.log 2>&1 &
