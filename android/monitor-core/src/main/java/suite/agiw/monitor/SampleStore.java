@@ -21,7 +21,7 @@ public final class SampleStore {
                 + line("detail", board.detail)
                 + line("connect", board.connect)
                 + line("observed", board.observed);
-        Files.writeString(file, text, StandardCharsets.UTF_8);
+        Files.write(file, text.getBytes(StandardCharsets.UTF_8));
     }
 
     public static Board present(Path file, long nowMillis) {
@@ -70,7 +70,7 @@ public final class SampleStore {
 
     private static Map<String, String> read(Path file) throws IOException {
         Map<String, String> fields = new LinkedHashMap<>();
-        for (String row : Files.readString(file).split("\n")) {
+        for (String row : new String(Files.readAllBytes(file), StandardCharsets.UTF_8).split("\n")) {
             int cut = row.indexOf('=');
             if (cut <= 0) continue;
             fields.put(row.substring(0, cut), row.substring(cut + 1).replace("\\n", "\n"));
