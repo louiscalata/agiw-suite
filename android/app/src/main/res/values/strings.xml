@@ -29,10 +29,7 @@
     <string name="desc_time">Observation time %1$s</string>
     <string name="desc_detail">Detail %1$s</string>
     <string name="desc_acceptance">Acceptance %1$s</string>
-    <string name="cover_lane">LANE  %1$s</string>
-    <string name="cover_attach">ATTACH  %1$s</string>
     <string name="cover_connect">CONNECT  %1$s</string>
-    <string name="attach_value">%1$s  %2$s</string>
     <string name="posture_flex">FLEX</string>
     <string name="posture_flex_description">Flex mode. Content stays above the hinge.</string>
     <string name="posture_book">BOOK</string>
