@@ -110,7 +110,9 @@ const failures = [];
 let browser;
 try {
   const port = await observer.port;
-  browser = await chromium.launch();
+  browser = await chromium.launch({
+    args: ['--use-mock-keychain', '--password-store=basic'],
+  });
   for (const scheme of ['light', 'dark']) {
     const context = await browser.newContext({
       forcedColors: 'active',
