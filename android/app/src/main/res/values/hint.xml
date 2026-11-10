@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- #5C5C5C on #FFFFFF is 6.69:1. Typed text stays #000000, so the hint is not the value. -->
+    <color name="agiw_hint">#5C5C5C</color>
+</resources>

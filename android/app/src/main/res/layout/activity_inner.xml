@@ -102,7 +102,7 @@
             android:lineSpacingMultiplier="@dimen/leading_body"
             android:minHeight="@dimen/space_7"
             android:textColor="@color/agiw_ink"
-            android:textColorHint="@color/agiw_ink"
+            android:textColorHint="@color/agiw_hint"
             android:textSize="@dimen/type_name"/>
         <Button
             android:id="@+id/read"

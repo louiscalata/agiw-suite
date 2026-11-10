@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- #B0B0B0 on #000000 is 9.68:1. Typed text stays #FFFFFF. -->
+    <color name="agiw_hint">#B0B0B0</color>
+</resources>
