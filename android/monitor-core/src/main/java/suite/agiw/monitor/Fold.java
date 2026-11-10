@@ -22,7 +22,8 @@ public final class Fold {
     }
 
     /**
-     * Extra pixels beyond the page inset, in window coordinates: left, top, right, bottom.
+     * Extra pixels beyond the page inset. Width, height, and the hinge rect are one
+     * window coordinate space, not the full display. Left, top, right, bottom.
      * A hinge outside the middle band is ignored so a bad rect cannot pad the page away.
      */
     public static int[] avoid(int width, int height, int left, int top, int right, int bottom, Posture posture) {
