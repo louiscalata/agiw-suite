@@ -7,6 +7,7 @@ find "$root/src/main/java" "$root/src/test/java" -name '*.java' ! -name 'Monitor
 javac --release 17 -encoding UTF-8 -d "$out/classes" @"$out/sources"
 java -cp "$out/classes" suite.agiw.monitor.OverviewTest
 java -cp "$out/classes" suite.agiw.monitor.ClientTest
+java -cp "$out/classes" suite.agiw.monitor.FoldTest
 python3 - "$root/../app/src/main/res/layout" <<'PY'
 import re
 import sys
@@ -75,7 +76,7 @@ for rel in ("app/build.gradle.kts", "monitor-core/build.gradle.kts"):
         raise SystemExit(rel + " does not set JavaCompile UTF-8")
 gradle_test = android_root / "monitor-core/src/test/java/suite/agiw/monitor/MonitorCoreGradleTest.java"
 gradle_test_text = gradle_test.read_text()
-for needle in ("OverviewTest.main", "ClientTest.main", "@Test"):
+for needle in ("OverviewTest.main", "ClientTest.main", "FoldTest.main", "@Test"):
     if needle not in gradle_test_text:
         raise SystemExit("gradle suite missing " + needle)
 if "adjustResize" not in manifest_text:

@@ -4,8 +4,11 @@ import android.app.Activity;
 import android.content.res.Configuration;
 import android.graphics.Color;
 import android.graphics.Insets;
+import android.graphics.drawable.ColorDrawable;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.provider.Settings;
 import android.view.View;
 import android.view.ViewTreeObserver;
@@ -15,10 +18,18 @@ import android.view.WindowInsetsController;
 import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import androidx.core.util.Consumer;
+import androidx.window.java.layout.WindowInfoTrackerCallbackAdapter;
+import androidx.window.layout.DisplayFeature;
+import androidx.window.layout.FoldingFeature;
+import androidx.window.layout.WindowInfoTracker;
+import androidx.window.layout.WindowLayoutInfo;
 import java.net.URI;
 import java.time.Instant;
+import java.util.concurrent.Executor;
 
 /**
  * Read-only monitor. The address is typed on the tall window. The square window
@@ -39,15 +50,27 @@ public final class MonitorActivity extends Activity {
 
     private final ObserverClient client = new ObserverClient();
     private final ReadGate gate = new ReadGate();
+    private final Executor mainExecutor = command -> new Handler(Looper.getMainLooper()).post(command);
+    private final Consumer<WindowLayoutInfo> foldConsumer = this::onWindowLayout;
+    private WindowInfoTrackerCallbackAdapter foldAdapter;
     private boolean cover;
     private String addressText = "";
     private int inflight;
     private boolean receiptsOpen;
     private Board shown = Board.none("No address");
+    private Fold.Posture posture = Fold.Posture.FLAT;
+    private int foldLeft;
+    private int foldTop;
+    private int foldRight;
+    private int foldBottom;
+    private int lastWidthDp = -1;
+    private int lastHeightDp = -1;
+    private int lastKeyboard = -1;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        noteConfig(getResources().getConfiguration(), false);
         edgeToEdge();
         bind(savedInstanceState);
     }
@@ -55,10 +78,50 @@ public final class MonitorActivity extends Activity {
     @Override
     public void onConfigurationChanged(Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
+        noteConfig(newConfig, true);
+        setTheme(R.style.Theme_Agiw);
         edgeToEdge();
         Bundle kept = new Bundle();
         capture(kept);
         bind(kept);
+    }
+
+    /**
+     * A new window size drops the previous hinge until the next layout callback.
+     * Font scale, night mode, and the keyboard keep it. The keyboard also changes
+     * the reported height, so a keyboard change is not treated as a new window.
+     */
+    private void noteConfig(Configuration config, boolean resetOnResize) {
+        boolean sizeChanged = lastWidthDp >= 0
+                && (config.screenWidthDp != lastWidthDp || config.screenHeightDp != lastHeightDp);
+        boolean keyboardChanged = lastKeyboard >= 0 && config.keyboardHidden != lastKeyboard;
+        lastWidthDp = config.screenWidthDp;
+        lastHeightDp = config.screenHeightDp;
+        lastKeyboard = config.keyboardHidden;
+        if (resetOnResize && sizeChanged && !keyboardChanged) clearFold();
+    }
+
+    private void clearFold() {
+        posture = Fold.Posture.FLAT;
+        foldLeft = 0;
+        foldTop = 0;
+        foldRight = 0;
+        foldBottom = 0;
+    }
+
+    @Override
+    protected void onStart() {
+        super.onStart();
+        if (foldAdapter == null) {
+            foldAdapter = new WindowInfoTrackerCallbackAdapter(WindowInfoTracker.getOrCreate(this));
+        }
+        foldAdapter.addWindowLayoutInfoListener(this, mainExecutor, foldConsumer);
+    }
+
+    @Override
+    protected void onStop() {
+        if (foldAdapter != null) foldAdapter.removeWindowLayoutInfoListener(foldConsumer);
+        super.onStop();
     }
 
     @Override
@@ -70,6 +133,9 @@ public final class MonitorActivity extends Activity {
     private void bind(Bundle state) {
         cover = compactNow();
         setContentView(cover ? R.layout.activity_cover : R.layout.activity_inner);
+        markHeading(R.id.wordmark);
+        applyFontScale();
+        applyPostureLabel();
         applyInsets();
         float scale = Settings.Global.getFloat(getContentResolver(), Settings.Global.ANIMATOR_DURATION_SCALE, 1f);
         View rule = findViewById(R.id.schematic);
@@ -230,6 +296,7 @@ public final class MonitorActivity extends Activity {
 
     private void edgeToEdge() {
         Window window = getWindow();
+        window.setBackgroundDrawable(new ColorDrawable(getColor(R.color.agiw_bg)));
         if (Build.VERSION.SDK_INT >= 30) window.setDecorFitsSystemWindows(false);
         if (Build.VERSION.SDK_INT >= 28) {
             window.setNavigationBarDividerColor(Color.TRANSPARENT);
@@ -283,17 +350,17 @@ public final class MonitorActivity extends Activity {
             if (Build.VERSION.SDK_INT >= 30) {
                 Insets bars = insets.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
                 Insets ime = insets.getInsets(WindowInsets.Type.ime());
-                left += bars.left;
-                padTop += bars.top;
-                right += bars.right;
-                padBottom += Math.max(bars.bottom, ime.bottom);
+                left += bars.left + foldLeft;
+                padTop += bars.top + foldTop;
+                right += bars.right + foldRight;
+                padBottom += Math.max(Math.max(bars.bottom, ime.bottom), foldBottom);
                 view.setPadding(left, padTop, right, padBottom);
                 return WindowInsets.CONSUMED;
             }
-            left += insets.getSystemWindowInsetLeft();
-            padTop += insets.getSystemWindowInsetTop();
-            right += insets.getSystemWindowInsetRight();
-            padBottom += insets.getSystemWindowInsetBottom();
+            left += insets.getSystemWindowInsetLeft() + foldLeft;
+            padTop += insets.getSystemWindowInsetTop() + foldTop;
+            right += insets.getSystemWindowInsetRight() + foldRight;
+            padBottom += Math.max(insets.getSystemWindowInsetBottom(), foldBottom);
             view.setPadding(left, padTop, right, padBottom);
             return insets;
         });
@@ -346,6 +413,98 @@ public final class MonitorActivity extends Activity {
 
     private void set(int id, String value) {
         TextView view = findViewById(id);
-        if (view != null) view.setText(value);
+        if (view == null) return;
+        String shown = value == null ? "" : value;
+        view.setText(shown);
+        int template = descriptionFor(id);
+        if (template != 0) view.setContentDescription(getString(template, shown));
+    }
+
+    private int descriptionFor(int id) {
+        if (id == R.id.process) return R.string.desc_process;
+        if (id == R.id.detail) return R.string.desc_detail;
+        if (id == R.id.acceptance) return R.string.desc_acceptance;
+        if (cover) return 0;
+        if (id == R.id.lane) return R.string.desc_lane;
+        if (id == R.id.attachment) return R.string.desc_attach;
+        if (id == R.id.connect) return R.string.desc_connect;
+        if (id == R.id.observed) return R.string.desc_time;
+        return 0;
+    }
+
+    private void markHeading(int id) {
+        View view = findViewById(id);
+        if (view != null && Build.VERSION.SDK_INT >= 28) view.setAccessibilityHeading(true);
+    }
+
+    private void applyFontScale() {
+        if (cover || !Surface.stackRows(getResources().getConfiguration().fontScale)) return;
+        int[] rows = {R.id.rowProcess, R.id.rowLane, R.id.rowAttach, R.id.rowConnect, R.id.rowTime};
+        for (int id : rows) {
+            View view = findViewById(id);
+            if (!(view instanceof LinearLayout row)) continue;
+            row.setOrientation(LinearLayout.VERTICAL);
+            for (int i = 0; i < row.getChildCount(); i++) {
+                View child = row.getChildAt(i);
+                child.setLayoutParams(new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT));
+            }
+        }
+    }
+
+    private void onWindowLayout(WindowLayoutInfo info) {
+        FoldingFeature hinge = null;
+        for (DisplayFeature feature : info.getDisplayFeatures()) {
+            if (feature instanceof FoldingFeature fold) {
+                hinge = fold;
+                break;
+            }
+        }
+        if (hinge == null) {
+            posture = Fold.Posture.FLAT;
+            foldLeft = 0;
+            foldTop = 0;
+            foldRight = 0;
+            foldBottom = 0;
+        } else {
+            boolean half = hinge.getState() == FoldingFeature.State.HALF_OPENED;
+            boolean horizontal = hinge.getOrientation() == FoldingFeature.Orientation.HORIZONTAL;
+            posture = Fold.posture(true, half, horizontal);
+            int width = getResources().getDisplayMetrics().widthPixels;
+            int height = getResources().getDisplayMetrics().heightPixels;
+            int[] extra = Fold.avoid(width, height,
+                    hinge.getBounds().left, hinge.getBounds().top,
+                    hinge.getBounds().right, hinge.getBounds().bottom, posture);
+            foldLeft = extra[0];
+            foldTop = extra[1];
+            foldRight = extra[2];
+            foldBottom = extra[3];
+        }
+        if (findViewById(R.id.scroller) == null) return;
+        applyPostureLabel();
+        applyInsets();
+    }
+
+    private void applyPostureLabel() {
+        TextView view = findViewById(R.id.posture);
+        if (view == null) return;
+        String label = switch (posture) {
+            case FLAT -> null;
+            case TABLETOP -> getString(R.string.posture_flex);
+            case BOOK -> getString(R.string.posture_book);
+        };
+        String description = switch (posture) {
+            case FLAT -> null;
+            case TABLETOP -> getString(R.string.posture_flex_description);
+            case BOOK -> getString(R.string.posture_book_description);
+        };
+        if (label == null) {
+            view.setVisibility(View.GONE);
+            return;
+        }
+        view.setVisibility(View.VISIBLE);
+        view.setText(label);
+        view.setContentDescription(description);
     }
 }

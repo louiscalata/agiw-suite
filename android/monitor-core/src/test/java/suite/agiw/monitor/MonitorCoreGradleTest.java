@@ -16,4 +16,9 @@ public final class MonitorCoreGradleTest {
     public void client() throws Exception {
         ClientTest.main(new String[0]);
     }
+
+    @Test
+    public void fold() throws Exception {
+        FoldTest.main(new String[0]);
+    }
 }

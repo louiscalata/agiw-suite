@@ -26,4 +26,12 @@ public final class Surface {
     public static boolean motion(float animatorScale) {
         return animatorScale > 0f;
     }
+
+    /**
+     * At 1.3 and above the inner ledger stacks each label over its value.
+     * A fixed row would let the scaled label take the whole width.
+     */
+    public static boolean stackRows(float fontScale) {
+        return fontScale >= 1.3f;
+    }
 }
