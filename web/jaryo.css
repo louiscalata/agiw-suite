@@ -1,11 +1,14 @@
-/* AGIW applies the shared Jaryo primitives. Black and white only.
-   Status is glyph + word. Selected is invert. Focus is a dashed ring. */
+/* AGIW applies the shared Jaryo primitives.
+   Readings stay ink. Booklet red is display only.
+   Status is glyph + word. Focus is a dashed ring. */
 @import url("/jaryo/primitives.css");
 
 :root {
   --j-muted: var(--j-text);
   --j-identity: var(--j-text);
   --j-surface-2: var(--j-bg);
+  --j-accent: #C21A27;
+  --j-accent-ink: #ffffff;
 }
 
 body.jaryo-app {
@@ -1392,4 +1395,58 @@ body.jaryo-app .map-lane.client {
   color: var(--j-text);
   fill: var(--j-text);
   stroke: var(--j-text);
+}
+
+/* Booklet red, from --j-accent, for headlines, the wordmark, and the current tab.
+   White on that red clears normal text. Red on black clears large bold type.
+   Readings, labels, and status words stay ink, and a status word is never the only cue. */
+body.jaryo-app h1,
+body.jaryo-app .sidebar h1,
+body.jaryo-app h2,
+body.jaryo-app .j-board-title,
+body.jaryo-app .brand-wordmark strong,
+body.jaryo-app .j-brand strong,
+body.jaryo-app .j-type {
+  color: var(--j-accent);
+  font-weight: 700;
+}
+body.jaryo-app h1 small,
+body.jaryo-app .brand-wordmark small,
+body.jaryo-app small,
+body.jaryo-app p,
+body.jaryo-app .j-eyebrow,
+body.jaryo-app .eyebrow,
+body.jaryo-app .j-word,
+body.jaryo-app .j-callout,
+body.jaryo-app .j-step,
+body.jaryo-app .j-schematic,
+body.jaryo-app dt,
+body.jaryo-app dd,
+body.jaryo-app .legend,
+body.jaryo-app > footer,
+body.jaryo-app .connection,
+body.jaryo-app .vital,
+body.jaryo-app .metrics {
+  color: var(--j-text);
+}
+body.jaryo-app .j-nav a[aria-current="page"],
+body.jaryo-app .j-tab[aria-selected="true"],
+body.jaryo-app .j-tab[aria-selected="true"]:hover {
+  background: var(--j-accent);
+  color: var(--j-accent-ink);
+  font-weight: 700;
+}
+body.jaryo-app .j-tab[aria-selected="true"] .j-word,
+body.jaryo-app .j-tab[aria-selected="true"] .j-glyph,
+body.jaryo-app .j-tab[aria-selected="true"] .j-tab-label {
+  color: var(--j-accent-ink);
+}
+@media (forced-colors: active) {
+  body.jaryo-app .j-nav a[aria-current="page"],
+  body.jaryo-app .j-tab[aria-selected="true"],
+  body.jaryo-app .j-tab[aria-selected="true"]:hover {
+    forced-color-adjust: none;
+    background: Highlight;
+    color: HighlightText;
+  }
 }

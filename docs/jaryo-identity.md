@@ -6,7 +6,7 @@ Shared files live in `jaryo/`. They are framework-neutral. OPOS and Nisi can use
 
 ## Binding decisions
 
-- Strict black and white. No graphite, copper, or color accent in AGIW.
+- Ink and paper for readings. Booklet red `#C21A27` is the display accent for headlines, the AGIW wordmark, and the current tab. Status stays a glyph plus a word, so the accent is not an error colour.
 - System light/dark is the default. Light or Dark is an explicit override and follows later system changes only while Theme is System.
 - Factory structure, quiet surfaces, balanced density. Evidence rows expand. The acceptance line stays visible.
 - Persistent sidebar on a wide desktop. Overview, map, components, and identity stay reachable on a small screen.
