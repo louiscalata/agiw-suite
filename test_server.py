@@ -1348,6 +1348,11 @@ class TransportTest(unittest.TestCase):
         self.store=SnapshotStore();self.store.publish(snapshot())
         self.server=MonitorServer(('127.0.0.1',0),self.store, control_capability='fixture-only')
         self.thread=threading.Thread(target=self.server.serve_forever,daemon=True);self.thread.start()
+        # Owner routes refuse off macOS. These cases test the route contract, so the gate is open here.
+        # Cases that cover the refusal patch it back to false.
+        self.mac_gate = patch('server.mac_online_code_controls_enabled', return_value=True)
+        self.mac_gate.start()
+        self.addCleanup(self.mac_gate.stop)
     def tearDown(self):
         self.server.shutdown();self.server.server_close();self.thread.join()
     def get(self,path,headers=None,method='GET'):

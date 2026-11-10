@@ -2256,6 +2256,9 @@ class FixNisiTests(unittest.TestCase):
         def same_bytes_new_inode(state):
             raw = (state / "pending.json").read_bytes()
             (state / "pending.json").unlink()
+            # Take the freed inode. A following create can otherwise reuse it, and the
+            # recovered file would then look like the measured marker.
+            private_file(state / f"hold-{uuid.uuid4().hex}.json", b"hold")
             private_file(state / f"recovered-{uuid.uuid4().hex}.json", raw)
             return reply(dict(repair.NISI_RECOVERED))
 
