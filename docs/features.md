@@ -1,6 +1,6 @@
 # Features and components
 
-This page describes the 1.0.0 (7) download unless marked otherwise. See [status](status.md) for what the unreleased source changes.
+This page describes the 1.0.0 (7) download unless marked otherwise. See [status](status.md) for what the v1.1.0 source changes. The download does not include the per-launch control check that is in that source.
 
 - **Nisi**: the public workflow engine, journal and CLI that the app bundles (version 0.2.0).
 - **Jev**: the optional hosted connection to TypeSafe, used with your own TypeSafe API key.
@@ -22,7 +22,7 @@ Opening the app starts no coding task or model, and changing a catalog view load
 
 ### Recovery
 
-Route and worker recovery depends on separately installed maintainer integrations (`chami-dispatch`, `pc-llm`, the private router and a configured share). These are not bundled and are not general-purpose setup tools. In the unreleased source, the native launcher leaves owner recovery closed. Read the [known local-control issue](../SECURITY.md#known-issue-in-v100-build-7-local-control-authentication) before using the released app.
+Route and worker recovery depends on separately installed maintainer integrations (`chami-dispatch`, `pc-llm`, the private router and a configured share). These are not bundled and are not general-purpose setup tools. In the v1.1.0 source, the native launcher leaves owner recovery closed. Read the [known local-control issue](../SECURITY.md#known-issue-in-v100-build-7-local-control-authentication) before using the released app.
 
 ### Not bundled
 

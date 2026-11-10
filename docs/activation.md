@@ -1,6 +1,6 @@
 # Activate AGIW Suite
 
-The installation steps describe the 1.0.0 (7) download, which has the [known local-control authentication issue](../SECURITY.md#known-issue-in-v100-build-7-local-control-authentication). In the unreleased 1.1.0 (14) native app, open **Full dashboard** from `/monitor` to reach Browse, Components and controls. A standalone browser preview has observation access only.
+The installation steps describe the 1.0.0 (7) download, which has the [known local-control authentication issue](../SECURITY.md#known-issue-in-v100-build-7-local-control-authentication). The v1.1.0 source requires a per-launch capability on those control routes. That check is not in the download. In a native app built from that source, open **Full dashboard** from `/monitor` to reach Browse, Components and controls. A standalone browser preview has observation access only.
 
 Start with the **GitHub 1.0.0 (7) Apple-silicon application**. This guide explains how to launch the monitor, connect local models and run the included Nisi tools. The Mac App Store edition has separate menus, runtime packaging and acceptance requirements.
 
@@ -74,7 +74,7 @@ No files, project prompts or model inventory are sent by this check. Nisi's offl
 
 The GitHub package includes observation/recovery adapters. It does **not install the external coding router, client integrations, Windows worker, models or their credentials**. On a fresh Mac, unknown/unbound routing is expected until those separately managed tools are installed and configured. There is no included command that installs the entire multi-machine development stack.
 
-In this unreleased source, **Check readiness**, **Fix inference** and **PC LLM** submit recovery or headless POSTs. The native launcher leaves L2 closed: authenticated requests return HTTP 423 (`l2_closed`) with a read-only diagnosis and no executed steps, and the panel reports the rejection. A standalone `server.py` lacks the native control capability and returns HTTP 403 before the L2 check, even with `--l2-open`.
+In the v1.1.0 source, **Check readiness**, **Fix inference** and **PC LLM** submit recovery or headless POSTs. The native launcher leaves L2 closed: authenticated requests return HTTP 423 (`l2_closed`) with a read-only diagnosis and no executed steps, and the panel reports the rejection. A standalone `server.py` lacks the native control capability and returns HTTP 403 before the L2 check, even with `--l2-open`.
 
 Neither documented launch path enables these actions. The recovery and headless steps below describe conditional behavior: they require verified L2 handover, an observer started with `--l2-open` through a native launcher that supplies the control capability, and the separately configured owner launcher/router and worker contracts:
 

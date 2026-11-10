@@ -1,6 +1,6 @@
 # Source review and verification · 2026-11-03
 
-This page is the 3 November 2026 review. It describes the unreleased **1.2.0 (13)** label at base `c0a057dbebecfa4d95469d1b158ce040a541d8f0`. This checkout is **1.1.0 (14)**. The review does not update the **1.0.0 (7)** download or establish native, package or release acceptance. The canonical [roadmap](../roadmap.md) retains release gates.
+This page is the 3 November 2026 review. The working copy was labeled **1.2.0 (13)** at base `c0a057dbebecfa4d95469d1b158ce040a541d8f0`. That label was never published. The checkout is now **1.1.0 (14)**, tagged as a source release. The review does not update the **1.0.0 (7)** download or establish native, package or release acceptance. The canonical [roadmap](../roadmap.md) retains release gates.
 
 ## Source dispositions
 

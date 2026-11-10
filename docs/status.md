@@ -5,13 +5,13 @@ What the AGIW Suite download and the source each cover, how the two machines con
 ## Release status
 
 - **Download:** 1.0.0 (build 7). It is Developer ID signed and Apple-notarized, and is published on GitHub only. There is no Mac App Store release; an App Store edition would follow a separate release process.
-- **Known issue:** the download's local control routes do not authenticate callers ([details](../SECURITY.md#known-issue-in-v100-build-7-local-control-authentication)). The unreleased source adds a per-launch capability; the download remains affected.
-- **Tags:** v1.0.0 is the only download. The tags `v1.0.0-macos-rc.2` and `v1.0.0-macos-rc.1` remain, but their release pages are no longer published. The tag `v1.0.0-source-preview.1` marks the earlier source preview.
+- **Known issue:** the 1.0.0 (7) download's local control routes do not authenticate callers ([details](../SECURITY.md#known-issue-in-v100-build-7-local-control-authentication)). The published v1.1.0 source adds a per-launch capability. That check is not in the download.
+- **Tags:** v1.0.0 is the only release with an app to install. v1.1.0 is a source release with no files to download. The tags `v1.0.0-macos-rc.2` and `v1.0.0-macos-rc.1` remain, but their release pages are no longer published. The tag `v1.0.0-source-preview.1` marks the earlier source preview.
 - **Commit ids:** the CI run and the roadmap name commits by their ids before a later history rewrite that changed commit metadata only. The roadmap [maps each to its current commit](../roadmap.md#commit-ids-before-the-history-rewrite), with the same source tree.
 
 ## Source status
 
-The source in this checkout is **1.1.0 (build 14), unreleased**. Building it does not reproduce the released ZIP. It differs from the download as follows. The earlier label 1.2.0 (13) was not shipped.
+The source in this checkout is **1.1.0 (build 14)**, published as the source tag [v1.1.0](https://github.com/louiscalata/agiw-suite/releases/tag/v1.1.0). That tag has no Mac app attached. The earlier label 1.2.0 (13) was not shipped. Building this source does not reproduce the 1.0.0 (7) ZIP. It differs from the download as follows.
 
 - The native window opens `/monitor` and polls `/api/inference` every two seconds without overlapping requests.
 - Old readings expire, and measurements clear when a refresh fails.
