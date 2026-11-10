@@ -1008,6 +1008,10 @@ body.jaryo-app .tools #expand,
 body.jaryo-app .tools #quit {
   min-width: 44px;
 }
+body.jaryo-app > footer #about {
+  min-height: 44px;
+  padding: 8px 12px;
+}
 body.jaryo-app #autoUnloadToggle,
 body.jaryo-app #runtimeSidebar .search-label {
   background: var(--j-bg);
