@@ -1204,6 +1204,12 @@ body.jaryo-app #memoryBanner { border-radius: 0; }
     background: Highlight;
     color: HighlightText;
   }
+  body.jaryo-app .j-tab[aria-selected="true"] .j-word,
+  body.jaryo-app .j-tab[aria-selected="true"] .j-glyph,
+  body.jaryo-app .j-tab[aria-selected="true"] .j-tab-label {
+    color: HighlightText;
+    forced-color-adjust: none;
+  }
 }
 
 /* Overview panels. style.css still paints the evidence rail, tiles, legend and model
@@ -1448,5 +1454,11 @@ body.jaryo-app .j-tab[aria-selected="true"] .j-tab-label {
     forced-color-adjust: none;
     background: Highlight;
     color: HighlightText;
+  }
+  body.jaryo-app .j-tab[aria-selected="true"] .j-word,
+  body.jaryo-app .j-tab[aria-selected="true"] .j-glyph,
+  body.jaryo-app .j-tab[aria-selected="true"] .j-tab-label {
+    color: HighlightText;
+    forced-color-adjust: none;
   }
 }

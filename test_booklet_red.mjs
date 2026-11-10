@@ -29,5 +29,20 @@ test('the accent is headlines, the wordmark, and the current tab', () => {
   }
   assert.match(css, /\.j-callout,\s*body\.jaryo-app \.j-step,[\s\S]*color:\s*var\(--j-text\);/);
   assert.doesNotMatch(css, /\.j-blocked[^{]*\{[^}]*--j-accent/);
-  assert.doesNotMatch(css, /\.j-word[^{]*\{[^}]*--j-accent/);
+  assert.doesNotMatch(css, /\.j-word[^{]*\{[^}]*--j-accent(?!-)/);
+});
+
+test('selected tab labels use the forced-colors selection text', () => {
+  const blocks = [...css.matchAll(/@media\s*\(forced-colors:\s*active\)\s*\{([\s\S]*?)^\}/gm)];
+  assert.ok(blocks.length > 0, 'forced-colors rules exist');
+  for (const [, block] of blocks) {
+    const rules = [...block.matchAll(/([^{}]+)\{([^{}]*)\}/g)];
+    for (const label of ['j-word', 'j-glyph', 'j-tab-label']) {
+      const selector = `body.jaryo-app .j-tab[aria-selected="true"] .${label}`;
+      const rule = rules.find(([, selectors]) => selectors.split(',').some((s) => s.trim() === selector));
+      assert.ok(rule, `${selector} has a forced-colors rule`);
+      assert.match(rule[2], /(?:^|;)\s*color:\s*HighlightText\s*;/);
+      assert.match(rule[2], /(?:^|;)\s*forced-color-adjust:\s*none\s*;/);
+    }
+  }
 });
