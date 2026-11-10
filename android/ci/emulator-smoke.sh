@@ -31,10 +31,15 @@ if [ ! -x "$ANDROID_HOME/emulator/emulator" ]; then
     echo "emulator binary is missing under $ANDROID_HOME/emulator" >&2
     exit 1
 fi
+if [ -e /dev/kvm ] && [ ! -w /dev/kvm ]; then
+    sudo chmod 666 /dev/kvm || true
+fi
 if [ -w /dev/kvm ]; then
     accel=on
+    boot_tries=150
 else
     accel=off
+    boot_tries=400
 fi
 "$ANDROID_HOME/emulator/emulator" -avd agiw -no-window -no-audio -no-boot-anim -no-snapshot -no-metrics -gpu swiftshader_indirect -accel "$accel" -memory 2048 -port 5554 >/tmp/agiw-emulator.log 2>&1 &
 pid=$!
@@ -63,7 +68,7 @@ fi
 
 booted=0
 i=0
-while [ "$i" -lt 90 ]; do
+while [ "$i" -lt "$boot_tries" ]; do
     if ! kill -0 "$pid" 2>/dev/null; then
         echo "emulator process exited during boot" >&2
         tail -n 120 /tmp/agiw-emulator.log || true
