@@ -44,6 +44,7 @@ Windows and two-machine coordination are in development. Simultaneous two-machin
 | **Distribution** | [Exact-source CI](https://github.com/louiscalata/agiw-suite/actions/runs/36758069996), notarization, signature and Gatekeeper checks, ZIP verification and installation parity passed on the maintainer’s Mac. |
 | **Component checks** | The native Nisi offline self-check passed with zero model calls. One authorized fixed hosted Jev probe, using an existing Keychain credential, returned `connected`. |
 | **Still open** | Complete native rendering and animation, a quarantined clean-Mac first install, and Jev Cancel/reopen and credential entry, save and remove remain unverified. |
+| **Clean-Mac install** | **NOT_RUN.** Steps and the receipt template are in [release-checklist.md](release-checklist.md). No receipt is stored. |
 | **Forced colors** | Ubuntu CI emulates `forced-colors: active` in Chromium on `/` and `/monitor`, in light and dark. Windows High Contrast on hardware: NOT_RUN. |
 
 The Jev probe tests connectivity only. It does not establish native setup acceptance, live task routing or provider model identity. The [roadmap](../roadmap.md) records compiled source, package provenance and remaining acceptance work.
