@@ -271,6 +271,11 @@ public final class MonitorActivity extends Activity {
     private void applyReceipts() {
         TextView receipts = findViewById(R.id.receipts);
         Button toggle = findViewById(R.id.receiptsToggle);
+        if (cover) {
+            if (receipts != null) receipts.setVisibility(View.GONE);
+            if (toggle != null) toggle.setVisibility(View.GONE);
+            return;
+        }
         if (receipts != null) receipts.setVisibility(receiptsOpen ? View.VISIBLE : View.GONE);
         if (toggle != null) {
             toggle.setText(getString(receiptsOpen ? R.string.receipts_hide : R.string.receipts));
@@ -450,7 +455,7 @@ public final class MonitorActivity extends Activity {
     }
 
     private void applyFontScale() {
-        if (cover || !Surface.stackRows(getResources().getConfiguration().fontScale)) return;
+        if (!Surface.stackRows(getResources().getConfiguration().fontScale)) return;
         int[] rows = {R.id.rowProcess, R.id.rowLane, R.id.rowAttach, R.id.rowConnect, R.id.rowTime};
         for (int id : rows) {
             View view = findViewById(id);
