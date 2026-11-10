@@ -581,7 +581,7 @@ function inspectorBody(n,body,{firstBuild=true}={}){
     // Every routed task the router lists, stacked: running, queued for a lane, or left unresolved.
     const routes=isFresh?routePipelines():[];if(routes.length){const list=el('div','route-runs');list.append(el('p','route-runs-head',`Routed tasks (${p.pipelinesComplete===false?'at least ':''}${routes.length})`),...routes.map(r=>el('p','step-line route-run',routeRunLine(r))));body.append(list);}
     const recoveryKnown=isFresh&&snapshot.host==='mac'&&(!snapshot.sources?.some(s=>s.id==='pipeline-router')||routeSourceCurrent('pipeline-router'));factTiles(body,[['Route',isFresh?(p.status==='recovery-required'?'Recovery required':capital(p.status||'Unknown')):'Unknown'],['Nisi',isFresh?compLabel(comp('nisi')):'Unknown'],['Jev',isFresh?compLabel(comp('jev')):'Unknown'],['Recovery',recoveryKnown?(recovery.needed&&recovery.age?`Pending ${recovery.age}`:p.recoveryRequired?'Marker present':'None'):'Unknown']]);
-    const box=tech();detailPairs(box,[['Shared route',p.status],['Unresolved run',recoveryKnown?p.runId||'None recorded':'Unknown'],['Checkpoint',p.stage],['Recovery marker',recoveryKnown?(p.recoveryRequired?'Present':'Not observed'):'Unknown'],...(recovery.needed?[['Pending record age',recovery.age||'Not reported'],['Pending record owner',recovery.owner||'Not reported']]:[]),['Nisi',comp('nisi')?`${comp('nisi').state} · ${comp('nisi').detail}`:'Unknown'],['Jev',comp('jev')?`${comp('jev').state} · ${comp('jev').detail}`:'Unknown']]);box.append(el('p','detail-note',recovery.needed&&snapshot.host==='mac'?'This observer reads their recorded evidence and does not invoke them. Fix Nisi Inference opens the combined Fix inference panel; nothing runs until you press Run check.':'This observer reads their recorded evidence and does not invoke them.'));return'runs';}
+    const box=tech();detailPairs(box,[['Shared route',p.status],['Unresolved run',recoveryKnown?p.runId||'None recorded':'Unknown'],['Checkpoint',p.stage],['Recovery marker',recoveryKnown?(p.recoveryRequired?'Present':'Not observed'):'Unknown'],...(recovery.needed?[['Pending record age',recovery.age||'Not reported'],['Pending record owner',recovery.owner||'Not reported']]:[]),['Nisi',comp('nisi')?`${comp('nisi').state} · ${comp('nisi').detail}`:'Unknown'],['Jev',comp('jev')?`${comp('jev').state} · ${comp('jev').detail}`:'Unknown']]);box.append(el('p','detail-note',recovery.needed&&snapshot.host==='mac'?'This observer reads their recorded evidence and does not invoke them. Model tuning opens the AGIW x ECI Model Tuning Tool; nothing runs until you press Run check.':'This observer reads their recorded evidence and does not invoke them.'));return'runs';}
   if(snapshot?.host==='windows'&&(n.kind==='mac-peer'||n.kind==='mac-model')){const peer=macPeerView(snapshot?.macPeer,{feedFresh:fresh(),snapshotAge:Math.max(0,sampleAge())});
     const modelReportedLoaded=n.kind==='mac-model'&&peer.loaded.some(m=>m.id===n.macModel.id);
     panelSummary(body,peer.linked?'muted':peer.reachable?'ok':peer.state==='unreachable'?'warn':'muted',peer.linked?'Mac reported through SharedChami (unverified)':peer.reachable?'Mac answering on the LAN':peer.state==='unreachable'?peer.failureTitle:'Mac presence unknown',
@@ -776,7 +776,7 @@ function updateInferenceFix(){
   button.classList.toggle('fix-tab-needs-action',fixAction&&state==='needs-action');
   button.classList.toggle('fix-tab-error',fixAction&&state==='error');
   button.setAttribute('aria-busy',String(active&&fixAction));
-  button.setAttribute('aria-label',!snapshot?'Fix inference. Waiting for the live feed.':!macOwner?'Fix inference. Available only on the Mac owner.':active?'Fix inference is running. Open its progress; no second request can start.':'Fix inference. Check and repair inference and show its progress.');
+  button.setAttribute('aria-label',!snapshot?'Model Tuning Tool. Waiting for the live feed.':!macOwner?'Model Tuning Tool. Available only on the Mac owner.':active?'Model Tuning Tool repair is running. Open its progress; no second request can start.':'Model Tuning Tool. Check and repair inference and show its progress.');
   const submit=$('fixInferenceSubmit');
   submit.disabled=!macOwner||active;
   submit.textContent=active?'Check in progress…':'Run check';
@@ -807,7 +807,7 @@ function renderFixResult({macOwner,action,state,active,fixAction}){
 }
 const fixScopeText=()=> 'Checks and repairs the Mac runtime, Windows route and Nisi Inference in one guarded run.';
 function updateFixScopeNote(){const note=fixScopeText(),result=$('fixInferenceResult'),idle=result.dataset.scopeSummary==='true';$('fixScopeNote').textContent=note;$('fixScopeNote').hidden=idle;if(idle){const line=result.querySelector('p');if(line&&line.textContent!==note)line.textContent=note;}}
-// Inspector opening is read-only until Run check. The top button always requests the combined repair.
+// All compatibility entry points open the tuning tool without repair. Only Run check submits it.
 // Keep the running action visible while the shared guard blocks another request.
 function openFixInference(scope){
   const fromInspector=scope==='nisi';
@@ -894,7 +894,7 @@ async function requestOnlineCodeAction(action){
   const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),6000);
   try{
     const fixAction=FIX_ACTIONS.has(action),headless=HEADLESS_ACTIONS.has(action);
-    const path=fixAction?'/api/inference/fix':headless?'/api/online-code-mode/headless':action==='readiness'?'/api/online-code-mode/entry':'/api/online-code-mode/repair';
+    const path=fixAction?'/api/eci-tuning/repair':headless?'/api/online-code-mode/headless':action==='readiness'?'/api/online-code-mode/entry':'/api/online-code-mode/repair';
     const body=fixAction?{scope:action.slice(4)}:{action};
     if(headless)body.action=HEADLESS_ACTIONS.get(action);
     const response=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),cache:'no-store',credentials:'same-origin',signal:controller.signal});
@@ -1064,9 +1064,11 @@ $('onlineCodeMode').addEventListener('click',()=>{
 $('onlineCodeRepair').addEventListener('click',()=>requestOnlineCodeAction('check-and-repair'));
 $('pcHeadless').addEventListener('click',()=>requestOnlineCodeAction(headlessAction()));
 $('pcSwitch').addEventListener('click',()=>{if(!$('pcSwitch').disabled)requestOnlineCodeAction(headlessAction());});
+function openTuningLink(){if(window.location?.hash==='#model-tuning')openFixInference();}
+window.addEventListener('hashchange',openTuningLink);
+openTuningLink();
 $('fixInference').addEventListener('click',()=>{
   openFixInference();
-  requestOnlineCodeAction('fix-all');
 });
 $('fixInferenceForm').addEventListener('submit',event=>{
   event.preventDefault();

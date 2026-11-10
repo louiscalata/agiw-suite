@@ -117,7 +117,7 @@ test('stripCommentLines keeps code, strings and regexes that look like comments'
 test('the feature denylist matches private-edition terms and leaves ordinary words alone', () => {
   const denylist = loadDenylist();
   const hit = text => denylistHits(text, denylist).length > 0;
-  for (const text of ['Initiate Online Code', "fetch('/api/inference/fix')", 'Windows PC', 'Nisi + Jev', 'PC LLM',
+  for (const text of ['Initiate Online Code', "fetch('/api/inference/fix')", "fetch('/api/eci-tuning/repair')", 'Model tuning', 'AGIW x ECI', 'Windows PC', 'Nisi + Jev', 'PC LLM',
     'force-unmount', 'Cursor', 'client-model', 'traceGraph', 'jev route', 'AFM', 'Core 6',
     'auto-unload', 'memory-banner', 'model-scope', '.mode-v02-evidence', '.completion-evidence-title',
     '#fixScopeNote', '#drawerFixButton', '.view-tabs']) assert.ok(hit(text), text);

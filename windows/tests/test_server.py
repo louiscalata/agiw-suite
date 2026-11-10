@@ -900,11 +900,20 @@ class EndToEnd(unittest.TestCase):
         self.assertTrue(publish_source(done, 101.0, ("status", "presence"))["detail"].startswith("Status and presence published"))
 
     def test_post_is_read_only(self):
-        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=3)
         origin = f"http://127.0.0.1:{self.port}"
-        conn.request("POST", "/api/models/control", body=b"{}", headers={"Host": f"127.0.0.1:{self.port}",
-                                                                          "Origin": origin, "Content-Type": "application/json"})
-        self.assertEqual(conn.getresponse().status, 501)
+        for path in ("/api/models/control", "/api/eci-tuning/repair", "/api/inference/fix"):
+            with self.subTest(path=path):
+                if path != "/api/models/control":
+                    self.assertEqual(self.get(path)[0], 501)
+                for request_origin, expected in ((origin, 501), ("http://evil.example", 403)):
+                    conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=3)
+                    conn.request("POST", path, body=b'{"scope":"all"}', headers={
+                        "Origin": request_origin, "Content-Type": "application/json"})
+                    response = conn.getresponse()
+                    self.assertEqual(response.status, expected)
+                    response.read()
+                    conn.close()
+
 
 
 class PostBodyRequests(unittest.TestCase):

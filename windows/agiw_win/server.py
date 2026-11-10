@@ -339,7 +339,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/models/control":
             return self.json_reply(200, {"status": "idle", "operationId": 0, "supported": False,
                                          "message": "Model load and unload are not offered on the PC lanes."})
-        if path in ("/api/models/auto-unload", "/api/online-code-mode/repair", "/api/inference/fix",
+        if path in ("/api/models/auto-unload", "/api/online-code-mode/repair", "/api/inference/fix", "/api/eci-tuning/repair",
                     "/api/online-code-mode/entry", "/api/online-code-mode/headless", "/api/components",
                     "/api/components/jev"):
             return self.json_reply(501, {"status": "error", "message": "Not available in the Windows edition yet."})

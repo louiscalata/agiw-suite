@@ -215,7 +215,7 @@ The GitHub edition's explicit check and the separate MAS edition's consent flow 
 
 ## 7. Recovery, workers and parallel work
 
-The earlier dashboard's top-bar **Fix inference** button immediately requests scope `all`: local runtime, Nisi and route checks. The inspector's **Fix Nisi Inference** shortcut opens that panel without dispatch; **Run check** submits the same combined action. Closing the panel does not cancel a running repair. Legacy scoped API callers remain supported. When L2 is open, the adapter records bounded steps and can report `ready`, `needs-action` or `error`; an action's name does not guarantee recovery.
+The **AGIW x ECI Model Tuning Tool** replaces Fix inference. The top-bar and inspector **Model tuning** buttons open the tool without dispatch; its **Run check** confirms and submits scope `all`: local runtime, Nisi and route checks. Recorded rankings at `/eci-tuning` link back to the check panel. The old names and control IDs remain deprecated compatibility hooks. Closing the panel does not cancel a running repair. Legacy scoped API callers remain supported. When L2 is open, the adapter records bounded steps and can report `ready`, `needs-action` or `error`; an action's name does not guarantee recovery.
 
 - **Local runtime:** start a stopped LM Studio server only after owner status and the fixed loopback port are checked and rechecked. A running-but-unreachable server is not replaced, and loaded models are preserved. Fresh inventory and activity are required to report readiness.
 - **Route/share:** use trusted owner commands and explicitly configured SMB host/account settings. Guest/Anonymous and ambiguous mounts are refused. Running or unresolved work blocks disruptive recovery. An exact retained Windows job can be reconciled; a timeout is not permission to resend it.
@@ -265,7 +265,8 @@ The native app chooses its port. For source exploration, `python3 -B server.py -
 | GET / POST | `/api/online-code-mode/repair` | Read recovery / `{"action":"check-and-repair"}` |
 | GET | `/api/online-code-mode/entry` | Read retained recovery/diagnosis state in the Mac-owner context; POST is not routed |
 | GET / POST | `/api/online-code-mode/headless` | Read state / `{"action":"on"}` or `{"action":"off"}` |
-| GET / POST | `/api/inference/fix` | Read recovery / `{"scope":"all"}`; legacy `local`, `route`, `both`, `nisi` also accepted |
+| GET / POST | `/api/eci-tuning/repair` | Read recovery without mutation / `{"scope":"all"}`; legacy `local`, `route`, `both`, `nisi` also accepted |
+| GET / POST | `/api/inference/fix` | Deprecated alias to the same guarded tuning repair handler and scopes; Windows denies both repair routes |
 
 ### Read-only snapshot export
 

@@ -5,9 +5,10 @@
 #
 # Format: flags<TAB>label<TAB>POSIX extended regex. flags: i = case-insensitive, - = case-sensitive.
 # Keep each regex inside the subset grep -E and JavaScript agree on (no lookarounds, no \b, no \d).
-i	private API route	/api/(inference|online-code-mode)
+i	private API route	/api/(inference|online-code-mode|eci-tuning)
 i	Online Code	online[- ]?code
 i	Fix inference	fix[- ]?inference
+i	Model tuning	model[- ]?tuning|eci[- ]tuning|AGIW x ECI
 i	PC LLM	pc[- _]?llm|pc_ask
 i	Windows	windows
 i	private Nisi controls	fix-nisi|nisi[- _](recovery|v02)|nisi \+ jev

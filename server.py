@@ -102,11 +102,14 @@ MODEL_JOURNAL_PATH = Path.home() / '.local/state/inference-monitor/model-operati
 # The HTTP dispatcher and its gate tests consume the same complete owner-action table.
 # Receipt-writing Entry is not exposed over HTTP; readiness GET uses cached evidence.
 # Each choice is (request value, diagnosis action, controller method arguments).
+# Canonical tuning repair and the deprecated Fix inference alias share every guard and scope.
+INFERENCE_REPAIR_ROUTE = ('scope', 'request_fix', tuple(
+    (scope, f'fix-{scope}', (scope,)) for scope in FIX_SCOPES))
 OWNER_ACTION_ROUTES = {
     '/api/online-code-mode/repair': ('action', 'request', (
         ('check-and-repair', 'check-and-repair', ()),)),
-    '/api/inference/fix': ('scope', 'request_fix', tuple(
-        (scope, f'fix-{scope}', (scope,)) for scope in FIX_SCOPES)),
+    '/api/eci-tuning/repair': INFERENCE_REPAIR_ROUTE,
+    '/api/inference/fix': INFERENCE_REPAIR_ROUTE,
     '/api/online-code-mode/headless': ('action', 'request_headless', tuple(
         (action, f'headless-{action}', (action,)) for action in HEADLESS_COMMANDS)),
 }
