@@ -1122,6 +1122,7 @@ body.jaryo-app #memoryBanner { border-radius: 0; }
   body.jaryo-app .item.selected,
   body.jaryo-app .j-selected,
   body.jaryo-app .j-tab[aria-selected="true"],
+  body.jaryo-app .j-nav a[aria-current="page"],
   body.jaryo-app #runtimeSidebar .view-tabs button[aria-pressed="true"],
   body.jaryo-app #runtimeSidebar #modelScopeControls > button[aria-pressed="true"],
   body.jaryo-app .tools #pause[aria-pressed="true"],
