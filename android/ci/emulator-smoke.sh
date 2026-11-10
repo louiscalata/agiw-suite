@@ -27,14 +27,48 @@ if [ -z "$config" ] || [ ! -f "$config" ]; then
 fi
 printf '\nshowDeviceFrame=no\nskin.dynamic=yes\nhw.lcd.width=1080\nhw.lcd.height=2400\nhw.lcd.density=420\nhw.keyboard=no\n' >> "$config"
 
-emulator -avd agiw -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect -accel auto -memory 2048 -port 5554 >/tmp/agiw-emulator.log 2>&1 &
+if [ ! -x "$ANDROID_HOME/emulator/emulator" ]; then
+    echo "emulator binary is missing under $ANDROID_HOME/emulator" >&2
+    exit 1
+fi
+if [ -w /dev/kvm ]; then
+    accel=on
+else
+    accel=off
+fi
+"$ANDROID_HOME/emulator/emulator" -avd agiw -no-window -no-audio -no-boot-anim -no-snapshot -no-metrics -gpu swiftshader_indirect -accel "$accel" -memory 2048 -port 5554 >/tmp/agiw-emulator.log 2>&1 &
 pid=$!
 trap 'kill "$pid" 2>/dev/null || true' EXIT
 
-adb wait-for-device
+registered=0
+i=0
+while [ "$i" -lt 90 ]; do
+    if ! kill -0 "$pid" 2>/dev/null; then
+        echo "emulator process exited before adb saw it" >&2
+        tail -n 120 /tmp/agiw-emulator.log || true
+        exit 1
+    fi
+    if adb devices | tr -d '\r' | grep -q '^emulator-'; then
+        registered=1
+        break
+    fi
+    i=$((i + 1))
+    sleep 2
+done
+if [ "$registered" != "1" ]; then
+    echo "emulator did not register with adb" >&2
+    tail -n 120 /tmp/agiw-emulator.log || true
+    exit 1
+fi
+
 booted=0
 i=0
-while [ "$i" -lt 120 ]; do
+while [ "$i" -lt 90 ]; do
+    if ! kill -0 "$pid" 2>/dev/null; then
+        echo "emulator process exited during boot" >&2
+        tail -n 120 /tmp/agiw-emulator.log || true
+        exit 1
+    fi
     boot=$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')
     if [ "$boot" = "1" ]; then
         booted=1
@@ -44,8 +78,8 @@ while [ "$i" -lt 120 ]; do
     sleep 2
 done
 if [ "$booted" != "1" ]; then
-    echo "emulator did not finish booting"
-    tail -n 80 /tmp/agiw-emulator.log || true
+    echo "emulator did not finish booting" >&2
+    tail -n 120 /tmp/agiw-emulator.log || true
     exit 1
 fi
 
