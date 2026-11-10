@@ -11,7 +11,7 @@ Shared files live in `jaryo/`. They are framework-neutral. OPOS and Nisi can use
 - Factory structure, quiet surfaces, balanced density. Evidence rows expand. The acceptance line stays visible.
 - Persistent sidebar on a wide desktop. Overview, map, components, and identity stay reachable on a small screen.
 - Motion is the schematic rule and transitions. It is not false telemetry. Reduced motion removes it.
-- Transitions zoom into the new page. Moving between Components, Identity, Machines and Setup grows the page body from 96% to full size in 240 ms while the nav stays put, and the Overview/Simple switch does the same to the whole face. Only transform moves, so no frame is grey. Reduced motion, or a browser without View Transitions, gets an instant change. If a window gets no frames the switch still lands after 400 ms.
+- Transitions zoom into the new page. Moving between Components, Identity, Machines and Setup grows the page body from 96% to full size in 240 ms while the nav stays put, and the Overview/Simple switch does the same to the whole face. Only transform moves, so no frame is gray. Reduced motion, or a browser without View Transitions, gets an instant change. If a window gets no frames the switch still lands after 400 ms.
 - The app opens on Overview.
 - The chrome name is the word AGIW in Inter (SIL Open Font License 1.1), weight 600, with the font’s own kerning plus 0.02em tracking. This is provisional. Louis did not choose the font. Fallbacks are Liberation Sans and Noto Sans.
 - D4 Split is rejected. The geometric files remain in `jaryo/marks/` as a superseded study. They are not on the chrome or the favicon.
