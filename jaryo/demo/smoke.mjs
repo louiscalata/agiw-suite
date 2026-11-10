@@ -9,7 +9,8 @@ import { fileURLToPath } from 'node:url';
 import { installKit, startServer } from '../install.mjs';
 
 const kitDemo = dirname(fileURLToPath(import.meta.url));
-const chromeBin = existsSync('/usr/bin/google-chrome-stable') ? '/usr/bin/google-chrome-stable' : 'google-chrome';
+const chromeBin = process.env.CHROME_BIN
+  || (existsSync('/usr/bin/google-chrome-stable') ? '/usr/bin/google-chrome-stable' : 'google-chrome');
 const outDir = process.argv.includes('--out')
   ? process.argv[process.argv.indexOf('--out') + 1]
   : join(tmpdir(), 'jaryo-shots');
@@ -162,6 +163,8 @@ async function main() {
     '--no-first-run',
     '--disable-dev-shm-usage',
     '--disable-extensions',
+    '--use-mock-keychain',
+    '--password-store=basic',
     `--remote-debugging-port=${debugPort}`,
     `--user-data-dir=${profile}`,
     'about:blank',

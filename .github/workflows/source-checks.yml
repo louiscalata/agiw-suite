@@ -77,16 +77,39 @@ jobs:
           NODE_PATH: ${{ runner.temp }}/pw/node_modules
         run: node checks/forced-colors-emulation.mjs
 
+  # Headless Chrome for the Jaryo kit page. Not a Mac job: the Mac does not
+  # launch Chrome. Flags match the box and the PC.
+  jaryo-smoke:
+    name: jaryo kit smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: '22'
+      - name: Install Chromium
+        run: |
+          npm install --prefix "$RUNNER_TEMP/pw" playwright@1.49.1
+          (cd "$RUNNER_TEMP/pw" && npx playwright install --with-deps chromium)
+      - name: Overflow, station keys, reduced motion, and axe
+        env:
+          NODE_PATH: ${{ runner.temp }}/pw/node_modules
+        run: |
+          export CHROME_BIN="$(node -e "console.log(require('playwright').chromium.executablePath())")"
+          node jaryo/demo/smoke.mjs --out "$RUNNER_TEMP/jaryo-shots"
+
   # Branch protection requires a check named exactly "monitor". A matrix job
   # reports only "monitor (<version>)", so this job reports the combined result.
   monitor:
     if: ${{ always() }}
-    needs: [tests, forced-colors]
+    needs: [tests, forced-colors, jaryo-smoke]
     runs-on: ${{ fromJSON((github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "box-linux"]' || '"ubuntu-latest"') }}
     timeout-minutes: 5
     steps:
-      - name: Require the suites and the forced-colors emulation
+      - name: Require the suites, forced-colors, and the kit smoke
         env:
           RESULT: ${{ needs.tests.result }}
           FORCED: ${{ needs.forced-colors.result }}
-        run: test "$RESULT" = success && test "$FORCED" = success
+          SMOKE: ${{ needs.jaryo-smoke.result }}
+        run: test "$RESULT" = success && test "$FORCED" = success && test "$SMOKE" = success
