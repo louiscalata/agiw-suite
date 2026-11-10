@@ -11,7 +11,7 @@ What the AGIW Suite download and the source each cover, how the two machines con
 
 ## Source status
 
-The source in this checkout is **1.1.0 (build 14)**, published as the source tag [v1.1.0](https://github.com/louiscalata/agiw-suite/releases/tag/v1.1.0). That tag has no Mac app attached. The earlier label 1.2.0 (13) was not shipped. Building this source does not reproduce the 1.0.0 (7) ZIP. It differs from the download as follows.
+Version identifiers in this checkout are **1.1.0 (build 14)**. The source tag [v1.1.0](https://github.com/louiscalata/agiw-suite/releases/tag/v1.1.0) is `c776a2c` (the merge of #66) and has no Mac app attached. This checkout is ahead of that tag. Changes merged after the tag are listed under Unreleased in the [changelog](../CHANGELOG.md). The earlier label 1.2.0 (13) was not shipped. Building this source does not reproduce the 1.0.0 (7) ZIP. It differs from the download as follows.
 
 - The native window opens `/monitor` and polls `/api/inference` every two seconds without overlapping requests.
 - Old readings expire, and measurements clear when a refresh fails.
