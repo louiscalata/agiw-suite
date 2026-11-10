@@ -8,6 +8,7 @@ javac --release 17 -encoding UTF-8 -d "$out/classes" @"$out/sources"
 java -cp "$out/classes" suite.agiw.monitor.OverviewTest
 java -cp "$out/classes" suite.agiw.monitor.ClientTest
 python3 - "$root/../app/src/main/res/layout" <<'PY'
+import re
 import sys
 from pathlib import Path
 import xml.etree.ElementTree as ET
@@ -79,12 +80,33 @@ for needle in ("OverviewTest.main", "ClientTest.main", "@Test"):
         raise SystemExit("gradle suite missing " + needle)
 if "adjustResize" not in manifest_text:
     raise SystemExit("keyboard does not resize the window")
+type_tokens = {
+    "@dimen/type_meta", "@dimen/type_ui", "@dimen/type_body",
+    "@dimen/type_name", "@dimen/type_title", "@dimen/type_display",
+}
+tracking_tokens = {"@dimen/tracking_wordmark", "@dimen/tracking_meta"}
+for name in ("activity_inner.xml", "activity_cover.xml", "widget_status.xml"):
+    text = (layout / name).read_text()
+    for size in re.findall(r'android:textSize="([^"]+)"', text):
+        if size not in type_tokens:
+            raise SystemExit(f"{name} textSize {size} is outside the Jaryo type scale")
+    for spacing in re.findall(r'android:letterSpacing="([^"]+)"', text):
+        if spacing not in tracking_tokens:
+            raise SystemExit(f"{name} letterSpacing {spacing} is outside the Jaryo tracking tokens")
+    if "@color/agiw_ink" not in text or "@font/inter_semibold" not in text:
+        raise SystemExit(f"{name} drops the Jaryo ink or the Inter semibold cut")
+for name in ("colors.xml",):
+    for folder in ("values", "values-night"):
+        color_file = main / "res" / folder / name
+        hexes = sorted(set(re.findall(r"#[0-9A-Fa-f]{3,8}", color_file.read_text())))
+        if hexes != ["#000000", "#FFFFFF"]:
+            raise SystemExit(f"{folder}/{name} is not strict black and white: {hexes}")
 for name in ("activity_inner.xml", "activity_cover.xml"):
     text = (layout / name).read_text()
     if "astra1103" in text or "jaryo-codex" in text:
         raise SystemExit(name + " puts receipts in the main layout")
-    if "minHeight=\"48dp\"" not in text or "@font/inter_semibold" not in text:
-        raise SystemExit(name + " missing type or target size")
+    if "@dimen/space_7" not in text or "@font/inter_semibold" not in text:
+        raise SystemExit(name + " missing type or the 48dp target")
 widget = (main / "java/suite/agiw/monitor/StatusWidget.java").read_text()
 samsung = (main / "res/xml/samsung_status_widget.xml").read_text()
 info = (main / "res/xml/status_widget_info.xml").read_text()

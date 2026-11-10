@@ -5,7 +5,12 @@
         <item name="android:colorBackground">@color/agiw_bg</item>
         <item name="android:textColor">@color/agiw_ink</item>
         <item name="android:textColorPrimary">@color/agiw_ink</item>
+        <item name="android:textColorSecondary">@color/agiw_ink</item>
+        <item name="android:textColorLink">@color/agiw_ink</item>
         <item name="android:colorAccent">@color/agiw_ink</item>
+        <item name="android:colorControlNormal">@color/agiw_ink</item>
+        <item name="android:colorControlActivated">@color/agiw_ink</item>
+        <item name="android:textCursorDrawable">@drawable/agiw_cursor</item>
         <item name="android:fontFamily">@font/inter</item>
         <item name="android:editTextColor">@color/agiw_ink</item>
         <item name="android:textColorHint">@color/agiw_ink</item>
