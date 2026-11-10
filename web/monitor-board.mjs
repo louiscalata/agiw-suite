@@ -111,7 +111,7 @@ export function appendEvidence(parent, evidence) {
   const acceptance = (evidence.rows || []).find(row => row.id === 'acceptance');
   if (acceptance) {
     const line = acceptance.word === 'BLOCKED'
-      ? 'BLOCKED · Acceptance · PC POST ROLLBACK OPEN'
+      ? 'BLOCKED · Acceptance · Windows review is not a pass'
       : `${acceptance.matrix} · ${acceptance.label} · ${acceptance.word}`;
     parent.append(el('p', `j-callout ${matrixClass(acceptance.matrix)}`, line));
   }

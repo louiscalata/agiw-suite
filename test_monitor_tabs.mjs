@@ -462,7 +462,8 @@ test('liveness, readiness, and attachment stay separate and acceptance stays blo
   assert.equal(demo.evidence.badges.lane, 'NOT READY');
   assert.match(demo.evidence.rows.find(row => row.id === 'lane').detail, /not readiness/);
   assert.equal(demo.evidence.rows.find(row => row.id === 'acceptance').matrix, 'Blocked');
-  assert.match(demo.evidence.rows.find(row => row.id === 'acceptance').detail, /1\/4 FLAG/);
+  assert.match(demo.evidence.rows.find(row => row.id === 'acceptance').detail, /Windows review is not a pass/);
+  assert.match(demo.evidence.rows.find(row => row.id === 'acceptance').detail, /one flag of four/);
   assert.equal(demo.evidence.rows.find(row => row.id === 'acceptance').ledger.some(row => row.verdict === 'PASS'), false);
   assert.equal(demo.evidence.rows.find(row => row.id === 'acceptance').ledger.find(row => row.receipt === 'astra1103-mac-DESK-20261106-114103').verdict, 'not acceptance');
   assert.equal(demo.evidence.rows.find(row => row.id === 'acceptance').ledger.find(row => row.receipt === 'mac-unsigned-build-20261106-115509').verdict, '0/4');
