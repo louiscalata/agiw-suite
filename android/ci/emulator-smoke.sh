@@ -39,6 +39,8 @@ adb shell settings put global transition_animation_scale 0
 adb shell settings put global animator_duration_scale 0
 
 ./gradlew :app:connectedDebugAndroidTest --no-daemon
+# The test task removes the APK when it finishes. Put the debug build back for the window checks.
+adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 launch() {
     adb shell am force-stop suite.agiw.monitor
