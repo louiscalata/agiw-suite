@@ -77,7 +77,7 @@ The CLI workflow runs the `tests_cli` suite on macOS and Windows. On this Linux 
 
 | Workflow | When | Where |
 | --- | --- | --- |
-| `.github/workflows/source-checks.yml` | push to `main`, every pull request | macOS, Python 3.9 and 3.14, Node 22. The required check is named `monitor`. Ubuntu emulates forced-colors. |
+| `.github/workflows/source-checks.yml` | push to `main`, every pull request | GitHub-hosted `macos-latest`, Python 3.9 and 3.14, Node 22. The required check is named `monitor`. Ubuntu emulates forced-colors. The Mac's own Actions runner stays off. |
 | `.github/workflows/cli.yml` | path-filtered | macOS and Windows, Python 3.9 and 3.12. |
 | `.github/workflows/windows-edition.yml` | path-filtered | Windows, Python 3.9 and 3.12, plus the root Node tests. |
 | `.github/workflows/android.yml` | path-filtered | Ubuntu unit tests, lint, debug APK, and an emulator smoke. |
@@ -93,6 +93,9 @@ Python tests are unittest. JavaScript tests are `node --test`. Use `python3 -B` 
 - No device installs. A Galaxy Z Flip6 install needs Louis. Leave the debug APK off a phone.
 - No tags and no releases. Leave tags, GitHub releases, and publication alone. `package-release.sh` is not a release.
 - Honest NOT_RUN. A skip, an emulator, a Linux refusal, or a check that did not run stays NOT_RUN or a reported skip. It is not hardware acceptance.
+- The Mac is on macOS 27.2.1. Codex on that Mac does the heavy Mac work.
+- The Mac never launches headless Chrome, Playwright, or Lighthouse. Browser tests run on the box or the PC, and Chrome there uses `--use-mock-keychain --password-store=basic`.
+- The Mac's GitHub Actions runners stay off. Do not register or start one.
 
 ## Jaryo
 
