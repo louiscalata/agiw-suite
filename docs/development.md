@@ -22,6 +22,14 @@ node --test test_*.mjs
 (cd windows && PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest discover -s tests -p 'test_*.py' -q)
 ```
 
+An Ubuntu job emulates `forced-colors: active` in Chromium for `/` and `/monitor`, in light and dark. It checks that the selected option and the focused control keep an outline or a border, and that laid-out text stays painted. That job is browser emulation. Windows High Contrast on hardware: NOT_RUN.
+
+```sh
+npm install --prefix /tmp/pw playwright@1.49.1
+(cd /tmp/pw && npx playwright install chromium)
+NODE_PATH=/tmp/pw/node_modules node checks/forced-colors-emulation.mjs
+```
+
 The runner also checks the Mac build inputs: `bash -n` on `build.sh`, `login-agent.sh` and `package-release.sh`, `plutil -lint Info.plist`, an arm64 `swiftc -typecheck` of `Monitor.swift` and `JevKeychain.swift`, `python3 -B bundle_nisi.py --verify` and `node --check` on `web/components.js` and `web/monitor.mjs` ([source-checks.yml](../.github/workflows/source-checks.yml)). On macOS, the Windows tests need a `TMPDIR` without symbolic links anywhere in its path.
 
 CI runs the Python suites on both 3.9 (the supported minimum) and 3.14. The CI app typecheck targets arm64. Source tests and the isolated Swift policy harness run on the CI host architecture; passing those on Intel does not establish native Apple silicon runtime acceptance.
