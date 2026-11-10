@@ -159,7 +159,7 @@ def main() -> None:
             "pipe-host tests and installer/wxs-reader.test.mjs are not in this checkout.",
             "The PC listen EACCES result on %TEMP%\\*.sock stays a blocked test in that other tree. It was not skipped here.",
             "WiX is not installed by this export. A parent may install the free official toolchain. That is not MSI acceptance.",
-            "PC POST ROLLBACK remains open. Mac POST 0/4 is not PASS.",
+            "The Windows review is not a pass. The Mac checks had no passing flags.",
             "",
         ])
     )
