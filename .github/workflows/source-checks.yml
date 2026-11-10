@@ -11,8 +11,7 @@ permissions:
 jobs:
   tests:
     name: monitor (${{ matrix.python }})
-    # Same-repo pushes and pull requests use Louis's Mac runner; fork pull requests stay on GitHub-hosted macOS.
-    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted","mac-m5"]') || 'macos-latest' }}
+    runs-on: macos-latest
     timeout-minutes: 35
     strategy:
       fail-fast: false
