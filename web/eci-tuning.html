@@ -1,18 +1,41 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>AGIW x ECI Model Tuning Tool</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Model tuning · AGIW Suite</title>
+<link rel="icon" href="/jaryo/marks/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/jaryo.css">
 <link rel="stylesheet" href="/eci-tuning.css">
+<script src="/jaryo.mjs" type="module"></script>
 <script src="/eci-tuning.mjs" type="module"></script>
 </head>
-<body>
-<nav aria-label="Inference Monitor"><a href="/">Overview</a> · <a href="/eci-tuning" aria-current="page">Model tuning</a></nav>
-<main>
-<h1>AGIW x ECI Model Tuning Tool</h1>
-<p>Recorded evidence · 10 November 2026 snapshot. This page makes no model requests.</p>
-<p id="tuningStatus" role="status">Loading recorded scores…</p>
-<div id="tuningEvidence"></div>
+<body class="jaryo-app">
+<a class="j-skip" href="#content">Skip to content</a>
+<header class="j-top">
+  <div class="j-brand"><strong class="j-type">AGIW</strong><span>Inference Monitor</span></div>
+</header>
+<nav class="j-nav" aria-label="Inference Monitor">
+  <a href="/">Overview</a>
+  <a href="/monitor">Map</a>
+  <a href="/machines">Machines</a>
+  <a href="/components">Components</a>
+  <a href="/eci-tuning" aria-current="page">Model tuning</a>
+  <a href="/identity">Identity</a>
+  <a href="/setup">Setup</a>
+  <label class="j-theme">Theme
+    <select id="jaryoTheme" aria-label="Theme">
+      <option value="system">System</option>
+      <option value="light">Light</option>
+      <option value="dark">Dark</option>
+    </select>
+  </label>
+</nav>
+<main id="content" class="j-page" tabindex="-1">
+  <h1>AGIW x ECI Model Tuning Tool</h1>
+  <p>Recorded evidence · 10 November 2026 snapshot. This page makes no model requests.</p>
+  <p id="tuningStatus" role="status">Loading recorded scores…</p>
+  <div id="tuningEvidence"></div>
 </main>
 </body>
 </html>
