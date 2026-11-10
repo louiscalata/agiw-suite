@@ -42,7 +42,9 @@ public final class StatusWidget extends AppWidgetProvider {
         views.setTextColor(R.id.widgetDetail, ink);
         views.setTextColor(R.id.widgetAcceptance, ink);
         views.setTextViewText(R.id.widgetProcess, board.process);
-        views.setTextViewText(R.id.widgetConnect, "CONNECT  " + board.connect);
+        views.setTextViewText(R.id.widgetConnect, context.getString(R.string.cover_connect, board.connect));
+        views.setContentDescription(R.id.widgetRoot,
+                context.getString(R.string.widget_summary, board.process, board.connect, board.acceptance));
         views.setTextViewText(R.id.widgetDetail, board.detail);
         views.setTextViewText(R.id.widgetAcceptance, board.acceptance);
         views.setContentDescription(R.id.widgetProcess, board.process);

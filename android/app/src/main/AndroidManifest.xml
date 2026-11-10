@@ -13,7 +13,7 @@
         android:theme="@style/Theme.Agiw">
         <activity
             android:name=".MonitorActivity"
-            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|uiMode|fontScale|density|keyboard|keyboardHidden"
             android:exported="true"
             android:resizeableActivity="true"
             android:windowSoftInputMode="adjustResize">
