@@ -29,8 +29,10 @@ def mac_row(loaded, **extra):
 class CollectionReviewFixes(unittest.TestCase):
     def test_slow_successful_lanes_keep_qwen_inside_shared_deadline(self):
         def slow_get(url, timeout=.4):
-            time.sleep(min(.15, timeout))
-            if timeout < .15:
+            # 0.05s keeps three serial reads inside the 0.8s lane budget on a busy runner.
+            # A shorter timeout is still a failed probe.
+            time.sleep(min(.05, timeout))
+            if timeout < .05:
                 raise inference_collect.ProbeError('timeout')
             if url.endswith('/metrics'):
                 body = 'llamacpp:tokens_predicted_total 50\n'
