@@ -253,7 +253,7 @@ The native app chooses its port. For source exploration, `python3 -B server.py -
 | GET | `/monitor` | Native window's map/details page |
 | GET | `/` | Earlier dashboard with Browse, Core 6, Components and action controls |
 | GET | `/api/inference` | Inference map; 503 `status: starting` before it is available |
-| GET | `/api/snapshot` | Latest snapshot; 503 `status: starting` before the first sample |
+| GET | `/api/snapshot` | Read-only export of the latest snapshot. See [below](#read-only-snapshot-export). |
 | GET | `/api/stream` | SSE snapshots, sequence IDs and heartbeat comments |
 | GET | `/api/components` | Public Nisi integrity, Node availability and self-check status |
 | GET | `/api/components/jev` | Configuration/check status; no key |
@@ -266,6 +266,20 @@ The native app chooses its port. For source exploration, `python3 -B server.py -
 | GET | `/api/online-code-mode/entry` | Read retained recovery/diagnosis state in the Mac-owner context; POST is not routed |
 | GET / POST | `/api/online-code-mode/headless` | Read state / `{"action":"on"}` or `{"action":"off"}` |
 | GET / POST | `/api/inference/fix` | Read recovery / `{"scope":"all"}`; legacy `local`, `route`, `both`, `nisi` also accepted |
+
+### Read-only snapshot export
+
+`GET /api/snapshot` is the read-only export of the latest observation. The observer listens on IPv4 loopback only. It is not a hosted API.
+
+Before the first sample the response is HTTP 503 and the body is `{"status":"starting"}`. After that the body is one JSON object:
+
+- `schemaVersion` is the integer `1`.
+- The object includes `host`, `observedAt`, `sampledAt`, `models`, `localInstanceObservations`, `afm`, `sources`, `pipeline`, `onlineCodeMode`, `windowsWorker`, `windowsLive`, `windowsJobs`, `canary`, `nisiV02`, `pair`, `machines`, and `components`.
+- `host` is the observer role `mac` in this server. It is not a computer name.
+- The field set may grow. Readers use the fields they know and ignore the rest.
+- The export does not include key, token, or hostname fields.
+
+A standalone `python3 -B server.py` can answer this GET. Control POSTs still return 403 without the per-launch capability.
 
 Action jobs generally return **202 Accepted**, followed by status reads. The auto-unload setting returns 200 after saving. Invalid requests, stale evidence, unavailable components and conflicts return distinct errors; acceptance is not execution completion. Route controls need the supported Mac-owner/configured recovery context.
 
