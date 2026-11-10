@@ -5,58 +5,58 @@
     android:layout_height="match_parent"
     android:background="@color/agiw_bg"
     android:orientation="vertical"
-    android:padding="12dp">
+    android:padding="@dimen/space_3">
     <TextView
         android:id="@+id/widgetName"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:fontFamily="@font/inter_semibold"
         android:includeFontPadding="false"
-        android:letterSpacing="0.02"
+        android:letterSpacing="@dimen/tracking_wordmark"
         android:text="@string/wordmark"
         android:textColor="@color/agiw_ink"
-        android:textSize="22sp"/>
+        android:textSize="@dimen/type_display"/>
     <TextView
         android:id="@+id/widgetRule"
-        android:importantForAccessibility="no"
-        android:layout_width="72dp"
-        android:layout_height="2dp"
-        android:layout_marginTop="8dp"
+        android:layout_width="@dimen/space_8"
+        android:layout_height="@dimen/border_width"
+        android:layout_marginTop="@dimen/space_2"
         android:background="@color/agiw_ink"
+        android:importantForAccessibility="no"
         android:text=""
         android:textColor="@color/agiw_ink"/>
     <TextView
         android:id="@+id/widgetProcess"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="12dp"
+        android:layout_marginTop="@dimen/space_3"
         android:fontFamily="@font/inter_semibold"
         android:textColor="@color/agiw_ink"
-        android:textSize="20sp"/>
+        android:textSize="@dimen/type_title"/>
     <TextView
         android:id="@+id/widgetAcceptance"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
+        android:layout_marginTop="@dimen/space_2"
         android:fontFamily="@font/inter_semibold"
         android:textColor="@color/agiw_ink"
-        android:textSize="13sp"/>
+        android:textSize="@dimen/type_body"/>
     <TextView
         android:id="@+id/widgetConnect"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="6dp"
+        android:layout_marginTop="@dimen/space_2"
         android:fontFamily="@font/inter_regular"
         android:textColor="@color/agiw_ink"
-        android:textSize="14sp"/>
+        android:textSize="@dimen/type_body"/>
     <TextView
         android:id="@+id/widgetDetail"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="6dp"
+        android:layout_marginTop="@dimen/space_2"
         android:ellipsize="end"
         android:fontFamily="@font/inter_regular"
         android:maxLines="3"
         android:textColor="@color/agiw_ink"
-        android:textSize="14sp"/>
+        android:textSize="@dimen/type_body"/>
 </LinearLayout>

@@ -17,6 +17,11 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
         encoding = "UTF-8"
     }
+    lint {
+        abortOnError = true
+        checkReleaseBuilds = false
+        textReport = true
+    }
 }
 
 tasks.withType<JavaCompile>().configureEach {

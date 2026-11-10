@@ -11,242 +11,315 @@
     android:paddingEnd="16dp"
     android:paddingStart="16dp"
     android:paddingTop="24dp"
-    android:scrollbarSize="4dp"
+    android:scrollbarSize="@dimen/space_1"
     android:scrollbarThumbVertical="@drawable/agiw_scrollbar"
     android:scrollbars="vertical">
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:paddingBottom="8dp">
+        android:paddingBottom="@dimen/space_2">
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:fontFamily="@font/inter_semibold"
-            android:letterSpacing="0.14"
+            android:letterSpacing="@dimen/tracking_meta"
+            android:lineSpacingMultiplier="@dimen/leading_meta"
             android:text="@string/eyebrow"
             android:textAllCaps="true"
-            android:textSize="11sp"/>
+            android:textColor="@color/agiw_ink"
+            android:textSize="@dimen/type_meta"/>
         <TextView
+            android:id="@+id/wordmark"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
+            android:layout_marginTop="@dimen/space_2"
             android:contentDescription="@string/wordmark"
             android:fontFamily="@font/inter_semibold"
-            android:textColor="@color/agiw_ink"
             android:includeFontPadding="false"
-            android:letterSpacing="0.02"
+            android:letterSpacing="@dimen/tracking_wordmark"
+            android:lineSpacingMultiplier="@dimen/leading_display"
             android:text="@string/wordmark"
-            android:textSize="36sp"/>
+            android:textColor="@color/agiw_ink"
+            android:textSize="@dimen/type_display"/>
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
+            android:layout_marginTop="@dimen/space_2"
             android:fontFamily="@font/inter_regular"
+            android:lineSpacingMultiplier="@dimen/leading_body"
             android:text="@string/overview_lead"
-            android:textSize="16sp"/>
+            android:textColor="@color/agiw_ink"
+            android:textSize="@dimen/type_body"/>
         <View
             android:id="@+id/schematic"
             android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:layout_marginTop="20dp"
+            android:layout_height="@dimen/border_width"
+            android:layout_marginTop="@dimen/space_5"
             android:background="@color/agiw_ink"
             android:contentDescription="@string/schematic_description"/>
         <TextView
+            android:id="@+id/posture"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/space_2"
+            android:fontFamily="@font/inter_semibold"
+            android:letterSpacing="@dimen/tracking_meta"
+            android:lineSpacingMultiplier="@dimen/leading_meta"
+            android:textColor="@color/agiw_ink"
+            android:textSize="@dimen/type_meta"
+            android:visibility="gone"/>
+        <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="20dp"
+            android:layout_marginTop="@dimen/space_5"
             android:fontFamily="@font/inter_semibold"
-            android:letterSpacing="0.14"
+            android:letterSpacing="@dimen/tracking_meta"
+            android:lineSpacingMultiplier="@dimen/leading_meta"
             android:text="@string/connection_label"
-            android:textSize="11sp"/>
+            android:textColor="@color/agiw_ink"
+            android:textSize="@dimen/type_meta"/>
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
+            android:layout_marginTop="@dimen/space_2"
             android:fontFamily="@font/inter_regular"
+            android:lineSpacingMultiplier="@dimen/leading_body"
             android:text="@string/connection_help"
-            android:textSize="16sp"/>
+            android:textColor="@color/agiw_ink"
+            android:textSize="@dimen/type_body"/>
         <EditText
             android:id="@+id/address"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
+            android:layout_marginTop="@dimen/space_3"
             android:background="@drawable/agiw_field"
             android:fontFamily="@font/inter_regular"
             android:hint="@string/address_hint"
-            android:textColor="@color/agiw_ink"
-            android:textColorHint="@color/agiw_ink"
             android:imeOptions="actionDone"
             android:importantForAutofill="no"
             android:inputType="textUri"
-            android:minHeight="48dp"
-            android:textSize="16sp"/>
+            android:lineSpacingMultiplier="@dimen/leading_body"
+            android:minHeight="@dimen/space_7"
+            android:textColor="@color/agiw_ink"
+            android:textColorHint="@color/agiw_ink"
+            android:textSize="@dimen/type_name"/>
         <Button
             android:id="@+id/read"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:background="@color/agiw_ink"
-            android:backgroundTint="@color/agiw_ink"
+            android:layout_marginTop="@dimen/space_3"
+            android:background="@drawable/agiw_button"
             android:contentDescription="@string/read_description"
+            android:elevation="0dp"
             android:fontFamily="@font/inter_semibold"
-            android:minHeight="48dp"
-            android:minWidth="48dp"
-            android:paddingEnd="20dp"
-            android:paddingStart="20dp"
+            android:minHeight="@dimen/space_7"
+            android:minWidth="@dimen/space_7"
+            android:paddingEnd="@dimen/space_4"
+            android:paddingStart="@dimen/space_4"
+            android:stateListAnimator="@null"
             android:text="@string/read"
             android:textAllCaps="false"
-            android:textColor="@color/agiw_bg"
-            android:textSize="16sp"/>
+            android:textColor="@color/agiw_button_text"
+            android:textSize="@dimen/type_name"/>
         <TextView
             android:id="@+id/detail"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
+            android:layout_marginTop="@dimen/space_3"
             android:fontFamily="@font/inter_regular"
-            android:textSize="16sp"/>
+            android:lineSpacingMultiplier="@dimen/leading_body"
+            android:textColor="@color/agiw_ink"
+            android:textSize="@dimen/type_name"/>
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="28dp"
+            android:layout_marginTop="@dimen/space_6"
             android:fontFamily="@font/inter_semibold"
-            android:letterSpacing="0.14"
+            android:letterSpacing="@dimen/tracking_meta"
+            android:lineSpacingMultiplier="@dimen/leading_meta"
             android:text="@string/overview_label"
-            android:textSize="11sp"/>
+            android:textColor="@color/agiw_ink"
+            android:textSize="@dimen/type_meta"/>
         <LinearLayout
+            android:id="@+id/rowProcess"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
+            android:layout_marginTop="@dimen/space_3"
             android:orientation="horizontal">
             <TextView
-                android:layout_width="104dp"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:fontFamily="@font/inter_semibold"
-                android:letterSpacing="0.08"
+                android:letterSpacing="@dimen/tracking_meta"
+                android:lineSpacingMultiplier="@dimen/leading_meta"
+                android:minWidth="@dimen/space_8"
+                android:paddingEnd="@dimen/space_3"
+                android:paddingStart="0dp"
                 android:text="@string/label_process"
-                android:textSize="12sp"/>
+                android:textColor="@color/agiw_ink"
+                android:textSize="@dimen/type_meta"/>
             <TextView
                 android:id="@+id/process"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:fontFamily="@font/inter_regular"
-                android:textSize="20sp"/>
+                android:lineSpacingMultiplier="@dimen/leading_title"
+                android:textColor="@color/agiw_ink"
+                android:textSize="@dimen/type_title"/>
         </LinearLayout>
         <LinearLayout
+            android:id="@+id/rowLane"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
+            android:layout_marginTop="@dimen/space_2"
             android:orientation="horizontal">
             <TextView
-                android:layout_width="104dp"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:fontFamily="@font/inter_semibold"
-                android:letterSpacing="0.08"
+                android:letterSpacing="@dimen/tracking_meta"
+                android:lineSpacingMultiplier="@dimen/leading_meta"
+                android:minWidth="@dimen/space_8"
+                android:paddingEnd="@dimen/space_3"
+                android:paddingStart="0dp"
                 android:text="@string/label_lane"
-                android:textSize="12sp"/>
+                android:textColor="@color/agiw_ink"
+                android:textSize="@dimen/type_meta"/>
             <TextView
                 android:id="@+id/lane"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:fontFamily="@font/inter_regular"
-                android:textSize="20sp"/>
+                android:lineSpacingMultiplier="@dimen/leading_title"
+                android:textColor="@color/agiw_ink"
+                android:textSize="@dimen/type_title"/>
         </LinearLayout>
         <LinearLayout
+            android:id="@+id/rowAttach"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
+            android:layout_marginTop="@dimen/space_2"
             android:orientation="horizontal">
             <TextView
-                android:layout_width="104dp"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:fontFamily="@font/inter_semibold"
-                android:letterSpacing="0.08"
+                android:letterSpacing="@dimen/tracking_meta"
+                android:lineSpacingMultiplier="@dimen/leading_meta"
+                android:minWidth="@dimen/space_8"
+                android:paddingEnd="@dimen/space_3"
+                android:paddingStart="0dp"
                 android:text="@string/label_attach"
-                android:textSize="12sp"/>
+                android:textColor="@color/agiw_ink"
+                android:textSize="@dimen/type_meta"/>
             <TextView
                 android:id="@+id/attachment"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:fontFamily="@font/inter_regular"
-                android:textSize="20sp"/>
+                android:lineSpacingMultiplier="@dimen/leading_title"
+                android:textColor="@color/agiw_ink"
+                android:textSize="@dimen/type_title"/>
         </LinearLayout>
         <LinearLayout
+            android:id="@+id/rowConnect"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
+            android:layout_marginTop="@dimen/space_2"
             android:orientation="horizontal">
             <TextView
-                android:layout_width="104dp"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:fontFamily="@font/inter_semibold"
-                android:letterSpacing="0.08"
+                android:letterSpacing="@dimen/tracking_meta"
+                android:lineSpacingMultiplier="@dimen/leading_meta"
+                android:minWidth="@dimen/space_8"
+                android:paddingEnd="@dimen/space_3"
+                android:paddingStart="0dp"
                 android:text="@string/label_connect"
-                android:textSize="12sp"/>
+                android:textColor="@color/agiw_ink"
+                android:textSize="@dimen/type_meta"/>
             <TextView
                 android:id="@+id/connect"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:fontFamily="@font/inter_regular"
-                android:textSize="20sp"/>
+                android:lineSpacingMultiplier="@dimen/leading_title"
+                android:textColor="@color/agiw_ink"
+                android:textSize="@dimen/type_title"/>
         </LinearLayout>
         <LinearLayout
+            android:id="@+id/rowTime"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
+            android:layout_marginTop="@dimen/space_2"
             android:orientation="horizontal">
             <TextView
-                android:layout_width="104dp"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:fontFamily="@font/inter_semibold"
-                android:letterSpacing="0.08"
+                android:letterSpacing="@dimen/tracking_meta"
+                android:lineSpacingMultiplier="@dimen/leading_meta"
+                android:minWidth="@dimen/space_8"
+                android:paddingEnd="@dimen/space_3"
+                android:paddingStart="0dp"
                 android:text="@string/label_time"
-                android:textSize="12sp"/>
+                android:textColor="@color/agiw_ink"
+                android:textSize="@dimen/type_meta"/>
             <TextView
                 android:id="@+id/observed"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:fontFamily="@font/inter_regular"
-                android:textSize="16sp"/>
+                android:lineSpacingMultiplier="@dimen/leading_body"
+                android:textColor="@color/agiw_ink"
+                android:textSize="@dimen/type_name"/>
         </LinearLayout>
         <View
             android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:layout_marginTop="24dp"
-            android:background="@color/agiw_ink"/>
+            android:layout_height="@dimen/border_width"
+            android:layout_marginTop="@dimen/space_5"
+            android:background="@color/agiw_ink"
+            android:importantForAccessibility="no"/>
         <TextView
             android:id="@+id/acceptance"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
+            android:layout_marginTop="@dimen/space_4"
             android:fontFamily="@font/inter_semibold"
-            android:textSize="16sp"/>
+            android:lineSpacingMultiplier="@dimen/leading_body"
+            android:textColor="@color/agiw_ink"
+            android:textSize="@dimen/type_name"/>
         <Button
             android:id="@+id/receiptsToggle"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:background="@android:color/transparent"
-            android:backgroundTint="@android:color/transparent"
+            android:layout_marginTop="@dimen/space_2"
+            android:background="@drawable/agiw_text_button"
             android:contentDescription="@string/receipts_show_description"
+            android:elevation="0dp"
             android:fontFamily="@font/inter_semibold"
-            android:minHeight="48dp"
-            android:minWidth="48dp"
+            android:minHeight="@dimen/space_7"
+            android:minWidth="@dimen/space_7"
+            android:stateListAnimator="@null"
             android:text="@string/receipts"
             android:textAllCaps="false"
             android:textColor="@color/agiw_ink"
-            android:textSize="16sp"/>
+            android:textSize="@dimen/type_name"/>
         <TextView
             android:id="@+id/receipts"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:fontFamily="@font/inter_regular"
-            android:textSize="14sp"
+            android:lineSpacingMultiplier="@dimen/leading_body"
+            android:textColor="@color/agiw_ink"
+            android:textSize="@dimen/type_body"
             android:visibility="gone"/>
     </LinearLayout>
 </ScrollView>

@@ -30,10 +30,8 @@ public final class StatusWidget extends AppWidgetProvider {
 
     private static void render(Context context, AppWidgetManager manager, int id) {
         Board board = SampleStore.present(file(context), System.currentTimeMillis());
-        boolean night = (context.getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK)
-                == Configuration.UI_MODE_NIGHT_YES;
-        int ink = night ? 0xFFFFFFFF : 0xFF000000;
-        int bg = night ? 0xFF000000 : 0xFFFFFFFF;
+        int ink = themedColor(context, R.color.agiw_ink);
+        int bg = themedColor(context, R.color.agiw_bg);
         RemoteViews views = new RemoteViews(context.getPackageName(), R.layout.widget_status);
         views.setInt(R.id.widgetRoot, "setBackgroundColor", bg);
         views.setTextColor(R.id.widgetName, ink);
@@ -59,5 +57,15 @@ public final class StatusWidget extends AppWidgetProvider {
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         views.setOnClickPendingIntent(R.id.widgetRoot, pending);
         manager.updateAppWidget(id, views);
+    }
+
+    /** Night and day stay the two Jaryo inks, even when the host context is stale. */
+    private static int themedColor(Context context, int id) {
+        boolean night = (context.getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK)
+                == Configuration.UI_MODE_NIGHT_YES;
+        Configuration config = new Configuration(context.getResources().getConfiguration());
+        config.uiMode = (config.uiMode & ~Configuration.UI_MODE_NIGHT_MASK)
+                | (night ? Configuration.UI_MODE_NIGHT_YES : Configuration.UI_MODE_NIGHT_NO);
+        return context.createConfigurationContext(config).getColor(id);
     }
 }
