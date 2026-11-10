@@ -972,6 +972,7 @@ class StartPeerLink(unittest.TestCase):
         self.assertRegex(fresh.decode().strip(), r"^[0-9a-f]{64}$")
         self.assertNotIn(str(self.state), err)
 
+    @unittest.skipUnless(sys.platform == "darwin", "extended ACL checks run only on macOS")
     def test_slow_acl_check_timeout_is_caught_too(self):
         with mock.patch.object(peer_link.subprocess, "run", side_effect=subprocess.TimeoutExpired(["/bin/ls"], 10)):
             link, reported, _ = self.start()
