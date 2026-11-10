@@ -340,7 +340,7 @@ def _bounded_command(arguments: list[str], *, limit: int = 8192,
             # parent on a timeout leaves that reader behind on a stuck mount.
             try:
                 os.killpg(process.pid, signal.SIGKILL)
-            except ProcessLookupError:
+            except (ProcessLookupError, PermissionError):
                 pass
             try:
                 process.wait(timeout=0.1)
