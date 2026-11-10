@@ -18,10 +18,10 @@ test('the overview uses six type steps and none of them is under 12px', () => {
   const marker = 'Six steps, none under 12px';
   const block = jaryo.slice(jaryo.indexOf(marker));
   assert.ok(block.length > marker.length);
-  for (const size of ['12px', '14px', '16px', '20px', '24px', '32px']) {
+  for (const size of ['13px', '21px', '34px', '55px', '89px', '144px']) {
     assert.match(block, new RegExp(`--j-size-\\d: ${size};`));
   }
-  assert.match(block, /font-size: var\(--j-size-3\) !important;/);
+  assert.match(block, /font-size: var\(--j-size-2\) !important;/);
   assert.match(block, /font-family: "IBM Plex Sans", "Liberation Sans", "Noto Sans", sans-serif !important;/);
   assert.match(block, /font-family: "IBM Plex Mono"/);
   assert.doesNotMatch(block, /font-size:\s*(?:[0-9]|1[01])px/);

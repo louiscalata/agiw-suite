@@ -663,9 +663,9 @@ p.j-type-sample.j-plate {
   min-height: 72px;
 }
 body.jaryo-app .j-page .j-type-16 { font-size: var(--j-size-3) !important; }
-body.jaryo-app .j-page .j-type-24 { font-size: var(--j-size-5) !important; }
-body.jaryo-app .j-page .j-type-32,
-body.jaryo-app .j-page .j-type-sample { font-size: var(--j-size-6) !important; }
+body.jaryo-app .j-page .j-type-24 { font-size: var(--j-size-4) !important; }
+body.jaryo-app .j-page .j-type-32 { font-size: var(--j-size-5) !important; }
+body.jaryo-app .j-page .j-poster { font-size: var(--j-size-6) !important; }
 .j-id-selected { border-width: 2px; }
 .j-size-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; margin: 12px 0; }
 .j-size-cell { margin: 0; display: grid; gap: 6px; justify-items: center; }
@@ -1098,7 +1098,7 @@ body.jaryo-app .j-tab-label {
     white-space: normal;
     min-height: 44px;
   }
-  body.jaryo-app .topbar { min-height: 7.5rem; }
+  body.jaryo-app .topbar { min-height: 16rem; }
   body.jaryo-app .j-tabs { min-height: 26rem; }
   body.jaryo-app .graph-region,
   body.jaryo-app .graph-region:has(#monitorBoard:not([hidden])) {
@@ -1109,6 +1109,12 @@ body.jaryo-app .j-tab-label {
   body.jaryo-app #monitorBoard.j-board {
     max-height: 34vh;
     height: 34vh;
+    overflow: auto;
+  }
+}
+@media (min-width: 801px) {
+  body.jaryo-app #monitorBoard.j-board {
+    max-height: 34vh;
     overflow: auto;
   }
 }
@@ -1356,21 +1362,22 @@ body.jaryo-app input::placeholder {
 }
 
 /* style.css still supplies the overview structure. These steps replace its
-   palette and its 7px-and-up sizes. Six steps, none under 12px:
-   12 meta, 14 label, 16 body, 20 title, 24 wordmark, 32 headline. */
+   palette and its 7px-and-up sizes. Six steps, none under 12px.
+   Fibonacci jumps from the Typography 1 proportion study:
+   13 meta, 21 body, 34 title, 55 wordmark, 89 headline, 144 poster. */
 body.jaryo-app {
-  --j-size-1: 12px;
-  --j-size-2: 14px;
-  --j-size-3: 16px;
-  --j-size-4: 20px;
-  --j-size-5: 24px;
-  --j-size-6: 32px;
-  font-size: var(--j-size-3);
+  --j-size-1: 13px;
+  --j-size-2: 21px;
+  --j-size-3: 34px;
+  --j-size-4: 55px;
+  --j-size-5: 89px;
+  --j-size-6: 144px;
+  font-size: var(--j-size-2);
   font-family: "IBM Plex Sans", "Liberation Sans", "Noto Sans", sans-serif;
 }
 body.jaryo-app * {
   font-family: "IBM Plex Sans", "Liberation Sans", "Noto Sans", sans-serif !important;
-  font-size: var(--j-size-3) !important;
+  font-size: var(--j-size-2) !important;
 }
 body.jaryo-app .j-schematic,
 body.jaryo-app .j-page pre,
@@ -1388,7 +1395,6 @@ body.jaryo-app .j-word,
 body.jaryo-app .connection,
 body.jaryo-app > footer,
 body.jaryo-app .legend,
-body.jaryo-app .j-tab,
 body.jaryo-app .quiet,
 body.jaryo-app .coverage {
   font-size: var(--j-size-1) !important;
@@ -1400,21 +1406,23 @@ body.jaryo-app .tools .fix-tab {
   font-size: var(--j-size-2) !important;
 }
 body.jaryo-app h2,
-body.jaryo-app .j-board-title,
+body.jaryo-app .j-board-title {
+  font-size: var(--j-size-3) !important;
+}
 body.jaryo-app .brand-wordmark,
-body.jaryo-app .brand-wordmark strong {
+body.jaryo-app .brand-wordmark strong,
+body.jaryo-app .j-type {
   font-size: var(--j-size-4) !important;
 }
-body.jaryo-app .j-type,
 body.jaryo-app .metrics strong {
-  font-size: var(--j-size-5) !important;
+  font-size: var(--j-size-2) !important;
 }
 body.jaryo-app h1,
 body.jaryo-app .sidebar h1 {
-  font-size: var(--j-size-6) !important;
-  font-weight: 600;
+  font-size: var(--j-size-5) !important;
+  font-weight: 700;
   letter-spacing: -0.02em;
-  line-height: 1.1;
+  line-height: 1.05;
 }
 body.jaryo-app .graph-region,
 body.jaryo-app .graph-region::before {
