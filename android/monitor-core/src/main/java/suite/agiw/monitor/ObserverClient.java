@@ -1,5 +1,6 @@
 package suite.agiw.monitor;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
@@ -67,9 +68,16 @@ public final class ObserverClient {
     /** Null means the body was larger than the cap. The caller does not keep it. */
     private static String readLimited(InputStream stream) throws IOException {
         if (stream == null) return "";
-        byte[] data = stream.readNBytes(1_000_001);
-        if (data.length > 1_000_000) return null;
-        return new String(data, StandardCharsets.UTF_8);
+        byte[] buf = new byte[8192];
+        int total = 0;
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        int read;
+        while ((read = stream.read(buf)) >= 0) {
+            if (total + read > 1_000_000) return null;
+            out.write(buf, 0, read);
+            total += read;
+        }
+        return new String(out.toByteArray(), StandardCharsets.UTF_8);
     }
 
     public record Result(boolean ok, int status, String body, String detail) {
