@@ -6,11 +6,13 @@ The tall window (`activity_inner.xml`) is the inner screen: the word AGIW, an `h
 
 Receipt ids stay behind Receipts. The blocked acceptance line stays visible. `http` is refused before a socket opens. Cleartext is off in the network security config. The desktop monitors stay on `127.0.0.1` and this module does not open them, change a firewall, or open a tunnel.
 
-A nearly square window is the window aspect (`Surface.compact`). It is not a hinge angle and it is not proof that Samsung launched the activity on a Flip 6 cover. Fold posture is not read. Physical Flip 6: **NOT_RUN**.
+A nearly square window is the window aspect (`Surface.compact`). It is not a hinge angle and it is not proof that Samsung launched the activity on a Flip 6 cover. Physical Flip 6: **NOT_RUN**.
 
 The name is the word AGIW, set in Inter. Inter is provisional. Louis did not choose it. The files in this module are the regular and semibold cuts, SIL Open Font License 1.1 (the copyright line and licence text ship in the APK at `assets/licenses/Inter-OFL-1.1.txt`). With no sample, the words are PROCESS UNKNOWN, LANE NOT MEASURED, ATTACH NO RUN, CONNECT NONE, TIME not reported, and the acceptance line stays blocked. Empty JSON, a non-object, a missing timestamp, and `pipeline.status` of `idle` without a `pipelines` array stay UNKNOWN. They do not become IDLE. A sample older than 30 seconds is STALE. Stale is not idle and not unknown. Nisi `needs-action` is BLOCKED. A live route wins over that blocked row. A run id without a matching analysis is UNATTACHED. The observation time is the payload string. Missing numbers stay missing. `Surface.compact` multiplies in 64-bit arithmetic so a huge window cannot overflow into a square result.
 
-The screen is Java. A PC review proposed Kotlin and Compose, three destinations, and a cover identified by fold posture. Those proposals are not this client.
+The screen is Java. Jetpack WindowManager is read when the activity is in the foreground. A half-open horizontal hinge, the Flip flex posture, pads the page so the viewport ends at the hinge. A half-open vertical hinge keeps the page in the wider pane. A flat window adds no hinge padding. The word FLEX or BOOK is shown only in those half-open postures. Night mode and font scale rebind this activity in place. At a font scale of 1.3 or higher the inner ledger stacks each label over its value. TalkBack gets a label on each value, the Read and Receipts controls, and the wordmark as a heading. The address field is labeled by its hint.
+
+An empty address stays on screen as CONNECT NONE and does not open a socket. A host with no scheme, cleartext, or typed credentials is REFUSED before a socket opens. HTTP 404 and 410 say the endpoint was not found. A connection failure, a timeout, and a payload larger than 1 MB stay DISCONNECTED. The acceptance line stays visible in each of those states. The screen does not show the exception text.
 
 The debug APK from the earlier static build hashed `37b44f0f4992be2f05a29f8250c3a5e1db5f1640ade24427ea48ba2ca0ba8d2b`. A written report of that file used a final `d`. The file ended in `b`. Hash the current `app-debug.apk` again after `assembleDebug`. Linux compilation is not Mac or PC native acceptance.
 
@@ -65,3 +67,25 @@ cd android
 ```
 
 The debug APK is `android/app/build/outputs/apk/debug/app-debug.apk`. It is a build output, not a store package, and it is not installed on a device.
+
+## Tests
+
+From `android/`, with `ANDROID_HOME` pointing at a SDK that has `platforms;android-35` and `build-tools;35.0.0`:
+
+```bash
+sh monitor-core/check.sh
+./gradlew :monitor-core:test :app:lintDebug :app:assembleDebug --no-daemon
+```
+
+`lintDebug` stops the build when it reports an error. `android/ci/sdk.sh` installs the pinned command-line tools, platform, and build-tools. `android/ci/sdk.sh --emulator` also installs the API 35 Google APIs system image. `android/ci/emulator-smoke.sh` boots that image, runs `:app:connectedDebugAndroidTest`, then checks a 1080×2640 window and a 720×748 window, night mode, and font scale 1.3.
+
+GitHub Actions workflow `Android monitor` runs the unit job and the emulator job on changes under `android/`. The instrumentation tests expect a tall window, so they exercise the inner layout. The 720×748 step is the cover-sized check. The UI dump includes `content-desc` for Read. The TalkBack service is not started.
+
+## Limitations
+
+- Physical Galaxy Z Flip6, inner and cover: NOT_RUN. No Flex Window host, no Labs list, and no Good Lock session was used.
+- A stock emulator at 720×748 is not the Flip 6 cover. Passing that step does not mean Samsung placed the activity on the cover.
+- The widget still does not open a network connection. With no stored sample it shows UNKNOWN and CONNECT NONE.
+- Nothing is published to a store.
+- `compileSdk` stays 35, so AndroidX is held at the last line that still builds with Android Gradle Plugin 8.7.3. Newer `androidx.core` asks for compile SDK 37.
+- Inter remains provisional. Louis did not choose it. The bundled files are the regular and semibold cuts. Liberation Sans and Noto Sans are the documented fallbacks and are not bundled again; if the bundled files fail to load, the system sans is what remains.
