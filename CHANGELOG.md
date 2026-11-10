@@ -5,6 +5,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- The AGIW x ECI Model Tuning Tool replaces Fix inference. The old name, control IDs and `/api/inference/fix` route are deprecated compatibility aliases; `/api/eci-tuning/repair` uses the same guarded repair. Opening the tool never starts repair; Run check confirms it. This is not a tagged release.
+
 - Add the AGIW x ECI Model Tuning Tool: offline ingest, protocol-separated rankings, explicit policy apply, and a read-only model tuning page with provisional and pending scores.
 
 Previously merged after the v1.1.0 tag:

@@ -5,12 +5,12 @@ import { fixNisiStepView, fixNisiStepsView, markerAgeText, nisiRecoveryView, fix
 import { memoryView, memoryBannerView, memoryDismissal, memoryHold, memoryHoldAt, memoryAnnouncement, memorySize, vitalsView, MEMORY_RANK,
   MEMORY_EASE_SECONDS, MEMORY_SAMPLE_GAP_SECONDS } from './web/map-layout.mjs';
 
-// 27 Sep 2026: the pure helpers behind Fix Nisi Inference (Fix scope "nisi") and the memory UI (snapshot.memory from mem_guard).
+// 27 Sep 2026: the pure helpers behind Model Tuning Tool repair (Fix scope "nisi") and the memory UI (snapshot.memory from mem_guard).
 
 const repair = readFileSync(new URL('./online_code_repair.py', import.meta.url), 'utf8');
 const fixNisiSource = repair.slice(repair.indexOf('    def _fix_nisi(self)'), repair.indexOf('    def _headless(self'));
 
-test('Fix Nisi Inference: every step the controller can record has a plain label, a sentence and a known tone', () => {
+test('Model Tuning Tool repair: every step the controller can record has a plain label, a sentence and a known tone', () => {
   assert.ok(fixNisiSource.length > 2000, 'the controller section was found');
   const pairs = [...fixNisiSource.matchAll(/_step\("([a-z-]+)", "([a-z-]+)"/g)].map(m => [m[1], m[2]]);
   // Recorded through variables: the server-idle verdicts, the journal outcome, and the status reads' own step names.
@@ -32,7 +32,7 @@ test('Fix Nisi Inference: every step the controller can record has a plain label
     assert.notEqual(fixNisiStepView({ name, result }).tone, 'ok', `${name} ${result}`);
 });
 
-test('converge: a queued route never offers Fix Nisi Inference, and a refusing install fence has its own step words', () => {
+test('converge: a queued route never offers Model Tuning Tool repair, and a refusing install fence has its own step words', () => {
   const view = nisiRecoveryView({ status: 'queued', runId: 'run-q', recoveryRequired: true, pendingMarkerObserved: true },
     [{ id: 'nisi', state: 'unresolved' }], { feedFresh: true });
   assert.equal(view.needed, false);
@@ -42,7 +42,7 @@ test('converge: a queued route never offers Fix Nisi Inference, and a refusing i
   assert.match(fixNisiStepView({ name: 'route-status', result: 'install-in-progress' }).text, /install in progress/);
 });
 
-test('Fix Nisi Inference: step identities join the sentence only when they are printable and sane', () => {
+test('Model Tuning Tool repair: step identities join the sentence only when they are printable and sane', () => {
   assert.deepEqual(fixNisiStepView({ name: 'marker', result: 'stale', ageSeconds: '33000', owner: 'anonymous (legacy)', inputSha256: '81dbab4f0000' }),
     { name: 'marker', result: 'stale', label: 'Pending record', text: '9 h 10 min old, owner anonymous (legacy): old enough to recover', tone: 'ok', mark: '✓' });
   assert.equal(fixNisiStepView({ name: 'marker', result: 'too-young', ageSeconds: '240', owner: 'route-1' }).text,
@@ -65,13 +65,13 @@ test('Fix Nisi Inference: step identities join the sentence only when they are p
   assert.deepEqual(fixNisiStepsView('nope'), []);
 });
 
-test('Fix Nisi Inference: an open router run with a pending record says the run blocks the fix, in the route chip\'s words', () => {
+test('Model Tuning Tool repair: an open router run with a pending record says the run blocks the fix, in the route chip\'s words', () => {
   const on = { feedFresh: true, macOwner: true };
   // The router's own 5-key marker (owner = runId), as a crashed route run leaves it.
   const both = nisiRecoveryView(pendingPipeline({ runId: 'route-20260927-011504', stage: 'review', pendingMarkerAgeSeconds: 7260, pendingMarkerOwner: 'route-20260927-011504' }), unresolved, on);
   assert.deepEqual([both.needed, both.blocked, both.line, both.age, both.owner, both.young], [true, true, 'Unsettled run recorded', '2 h 1 min', 'route-20260927-011504', false]);
   assert.equal(both.meaning, 'Route run route-20260927-011504 is still open, and a Nisi call left a pending record 2 h 1 min ago. '
-    + 'Fix Nisi Inference stops at its first step until that run is resolved; its check names the manual steps.');
+    + 'Model Tuning Tool repair stops at its first step until that run is resolved; its check names the manual steps.');
   assert.doesNotMatch(both.meaning, /recovers it only when/);
   // The chip reads the same words for the same state.
   const chip = vitalsView({ fresh: true, models: [], pipeline: { status: 'recovery-required', runId: 'route-20260927-011504' }, nisi: { state: 'unresolved' } }).route;
@@ -89,7 +89,7 @@ test('Fix Nisi Inference: an open router run with a pending record says the run 
   assert.equal(nisiRecoveryView(pendingPipeline({ runId: '' }), unresolved, on).blocked, false);
 });
 
-test('Fix Nisi Inference: the young-record cut-off is the controller\'s NISI_MARKER_MIN_AGE (drift check)', () => {
+test('Model Tuning Tool repair: the young-record cut-off is the controller\'s NISI_MARKER_MIN_AGE (drift check)', () => {
   const cap = /^NISI_CALL_CAP_SECONDS = (\d+)$/m.exec(repair), rule = /^NISI_MARKER_MIN_AGE = max\((\d+), (\d+) \* NISI_CALL_CAP_SECONDS\)$/m.exec(repair);
   assert.ok(cap && rule, 'the controller still defines the cap and derives the minimum age as max(floor, k * cap)');
   assert.equal(NISI_MARKER_MIN_AGE_SECONDS, Math.max(Number(rule[1]), Number(rule[2]) * Number(cap[1])));
@@ -102,7 +102,7 @@ test('Fix Nisi Inference: the young-record cut-off is the controller\'s NISI_MAR
   assert.match(repair, /it is at least \{NISI_MARKER_MIN_AGE \/\/ 60\} min old so a slow call can settle/);
 });
 
-test('Fix Nisi Inference: the panel prints the controller\'s message without the digest, the repeated status or a second "no model"', () => {
+test('Model Tuning Tool repair: the panel prints the controller\'s message without the digest, the repeated status or a second "no model"', () => {
   const ready = 'Nisi + Jev ready. Recovered the Nisi marker through the launcher (age 9 h 12 min, owner anonymous (legacy), input 81dbab4f0c2e). No model inference was run.';
   assert.equal(fixNisiMessage(ready, 'ready', { scoped: true }), 'Recovered the Nisi marker through the launcher (age 9 h 12 min, owner anonymous (legacy)).');
   // Without the scope note (the Online Code summary) the "no model" sentence stays; the digest never does.
@@ -122,7 +122,7 @@ test('Fix Nisi Inference: the panel prints the controller\'s message without the
   assert.equal(fixNisiEvidence(undefined), undefined);
 });
 
-test('Fix Nisi Inference: marker ages read like the controller writes them', () => {
+test('Model Tuning Tool repair: marker ages read like the controller writes them', () => {
   assert.deepEqual([45, 720, 33000, 266400, 0].map(markerAgeText), ['45 s', '12 min', '9 h 10 min', '3 d 2 h', '0 s']);
   for (const bad of [-1, NaN, Infinity, '60', null, 4000 * 86400]) assert.equal(markerAgeText(bad), null);
 });
@@ -130,11 +130,11 @@ test('Fix Nisi Inference: marker ages read like the controller writes them', () 
 const pendingPipeline = extra => ({ status: 'recovery-required', recoveryRequired: true, pendingMarkerObserved: true, runId: null, ...extra });
 const unresolved = [{ id: 'nisi', state: 'unresolved', detail: 'Nisi pending marker present; the owner must recover it' }, { id: 'jev', state: 'configured' }];
 
-test('Fix Nisi Inference: the inspector offers it only for a pending record on a fresh Mac feed, with the age and owner when known', () => {
+test('Model Tuning Tool repair: the inspector offers it only for a pending record on a fresh Mac feed, with the age and owner when known', () => {
   const on = { feedFresh: true, macOwner: true };
   assert.deepEqual(nisiRecoveryView(pendingPipeline({ pendingMarkerAgeSeconds: 33000, pendingMarkerOwner: 'anonymous (legacy)' }), unresolved, { ...on, snapshotAge: 60 }),
     { needed: true, blocked: false, line: 'Nisi call left a pending record 9 h 11 min ago', age: '9 h 11 min', owner: 'anonymous (legacy)', young: false,
-      meaning: 'Owner: anonymous (legacy). New Nisi work is refused until it is recovered. Fix Nisi Inference recovers it only when it can prove nothing is running.' });
+      meaning: 'Owner: anonymous (legacy). New Nisi work is refused until it is recovered. Model Tuning Tool repair recovers it only when it can prove nothing is running.' });
   // Without the snapshot fields: no numbers at all.
   const plain = nisiRecoveryView(pendingPipeline({}), unresolved, on);
   assert.equal(plain.line, 'Nisi call left a pending record');
@@ -142,14 +142,14 @@ test('Fix Nisi Inference: the inspector offers it only for a pending record on a
   // A young record may still be a running call.
   const young = nisiRecoveryView(pendingPipeline({ pendingMarkerAgeSeconds: 120, pendingMarkerOwner: 'route-7' }), unresolved, on);
   assert.equal(young.young, true);
-  assert.match(young.meaning, /^Owner: route-7\. The call may still be running; Fix Nisi Inference waits until the record is at least 10 min old\.$/);
+  assert.match(young.meaning, /^Owner: route-7\. The call may still be running; Model Tuning Tool repair waits until the record is at least 10 min old\.$/);
   // Either signal alone offers it: an unresolved component on an idle-looking route, or a recovery-required route.
   assert.equal(nisiRecoveryView({ status: 'idle' }, unresolved, on).needed, true);
   assert.equal(nisiRecoveryView(pendingPipeline({}), [], on).needed, true);
   // A router run that needs recovery (no pending marker): the route chip's words, no marker facts, and the fix is blocked.
   const run = nisiRecoveryView({ status: 'recovery-required', runId: 'route-20260927-1', pendingMarkerObserved: false, pendingMarkerAgeSeconds: 99 }, [{ id: 'nisi', state: 'ready' }], on);
   assert.deepEqual([run.line, run.blocked, run.age, run.owner], ['Unsettled run recorded', true, null, null]);
-  assert.equal(run.meaning, 'Route run route-20260927-1 is still open and reports recovery required. Fix Nisi Inference stops at its first step until that run is resolved; its check names the manual steps.');
+  assert.equal(run.meaning, 'Route run route-20260927-1 is still open and reports recovery required. Model Tuning Tool repair stops at its first step until that run is resolved; its check names the manual steps.');
   // Never offered: stale feed, a Windows observer, a verified running route, a settled route, bad input.
   for (const [pipeline, components, options] of [[pendingPipeline({}), unresolved, { feedFresh: false, macOwner: true }],
     [pendingPipeline({}), unresolved, { feedFresh: true, macOwner: false }], [{ status: 'running', runId: 'r' }, unresolved, on],

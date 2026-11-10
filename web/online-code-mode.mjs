@@ -182,7 +182,7 @@ export function nisiV02View(record, { feedFresh = false } = {}) {
   };
 }
 
-/* Fix Nisi Inference (Fix scope "nisi", online_code_repair._fix_nisi). The controller records each step as
+/* Model Tuning Tool repair (Fix scope "nisi", online_code_repair._fix_nisi). The controller records each step as
  * {name, result, ...identities}; these tables give each one a plain label and a short sentence. Each step
  * carries a mark that is a shape as well as a colour (✓ done, • noted, ! needs action, ✕ failed), so colour
  * is never the only signal. An unknown step or result is shown as recorded, never as a success. */
@@ -234,7 +234,7 @@ export function markerAgeText(seconds) {
   return h < 48 ? `${h} h ${m % 60} min` : `${Math.floor(h / 24)} d ${h % 24} h`;
 }
 
-/** One recorded Fix Nisi Inference step as {label, text, tone, mark}; null when it has no printable name and result. */
+/** One recorded Model Tuning Tool repair step as {label, text, tone, mark}; null when it has no printable name and result. */
 export function fixNisiStepView(step) {
   const name = step && typeof step === 'object' ? stepField(step.name) : null;
   const result = name ? stepField(step.result) : null;
@@ -257,13 +257,13 @@ export function fixNisiStepsView(steps) {
 }
 
 /**
- * How old a pending record must be before Fix Nisi Inference recovers it: online_code_repair.NISI_MARKER_MIN_AGE, which is
+ * How old a pending record must be before Model Tuning Tool repair recovers it: online_code_repair.NISI_MARKER_MIN_AGE, which is
  * max(600, 4 * NISI_CALL_CAP_SECONDS). test_fix_nisi_memory_ui.mjs reads both from the controller and fails on drift.
  */
 export const NISI_MARKER_MIN_AGE_SECONDS = 600;
 const MARKER_OWNER = /^[\x20-\x7e]{1,128}$/;
 /**
- * Whether the Nisi Inference inspector offers "Fix Nisi Inference", and the summary it opens with. Only a fresh Mac
+ * Whether the Nisi Inference inspector offers "Model Tuning Tool repair", and the summary it opens with. Only a fresh Mac
  * feed whose route reads recovery-required, or whose Nisi component is unresolved (a pending call record),
  * offers it, and never while the route is verified running (a live call owns its record). The age and owner
  * come from the snapshot's pending-marker fields when it has them, the age advancing by the time since the
@@ -289,7 +289,7 @@ export function nisiRecoveryView(pipeline, components, { feedFresh = false, macO
   // Open like the route chip reads it (any recorded runId); the id itself is printed only when it is printable.
   const open = typeof pipeline?.runId === 'string' && pipeline.runId.trim() !== '';
   const run = open && MARKER_OWNER.test(pipeline.runId) ? pipeline.runId : null;
-  const blockedText = 'Fix Nisi Inference stops at its first step until that run is resolved; its check names the manual steps.';
+  const blockedText = 'Model Tuning Tool repair stops at its first step until that run is resolved; its check names the manual steps.';
   if (open) {
     const runText = run ? `Route run ${run} is still open` : 'A route run is still open';
     return { needed: true, blocked: true, line: 'Unsettled run recorded', age: record ? age : null, owner: record ? owner : null, young: false,
@@ -298,21 +298,21 @@ export function nisiRecoveryView(pipeline, components, { feedFresh = false, macO
   }
   if (!record) {
     return { needed: true, blocked: false, line: 'The route reports recovery required', age: null, owner: null, young: false,
-      meaning: 'No pending Nisi record is reported. Fix Nisi Inference checks the route and Nisi, and names the next step.' };
+      meaning: 'No pending Nisi record is reported. Model Tuning Tool repair checks the route and Nisi, and names the next step.' };
   }
   return { needed: true, blocked: false, line: age ? `Nisi call left a pending record ${age} ago` : 'Nisi call left a pending record', age, owner, young,
-    meaning: [owner ? `Owner: ${owner}.` : null, young ? `The call may still be running; Fix Nisi Inference waits until the record is at least ${NISI_MARKER_MIN_AGE_SECONDS / 60} min old.`
-      : 'New Nisi work is refused until it is recovered. Fix Nisi Inference recovers it only when it can prove nothing is running.'].filter(Boolean).join(' ') };
+    meaning: [owner ? `Owner: ${owner}.` : null, young ? `The call may still be running; Model Tuning Tool repair waits until the record is at least ${NISI_MARKER_MIN_AGE_SECONDS / 60} min old.`
+      : 'New Nisi work is refused until it is recovered. Model Tuning Tool repair recovers it only when it can prove nothing is running.'].filter(Boolean).join(' ') };
 }
 
-/** Fix Nisi Inference's evidence tokens without the input digest prefix or the recovered file name ("input=…", "file=…"). */
+/** Model Tuning Tool repair's evidence tokens without the input digest prefix or the recovered file name ("input=…", "file=…"). */
 export function fixNisiEvidence(evidence) {
   if (typeof evidence !== 'string') return evidence;
   return evidence.split(/;\s*/).filter(token => token && !/^(input|file)=/.test(token)).join('; ');
 }
 
 /**
- * The controller's Fix Nisi Inference message as the panel prints it: without the input digest prefix (the snapshot never
+ * The controller's Model Tuning Tool repair message as the panel prints it: without the input digest prefix (the snapshot never
  * copies it either); once ready, without the leading "Nisi Inference ready." (or a legacy label) that the status line already says; and, where
  * the panel's scope note already says no model was called (`scoped`), without the controller's own "No model inference
  * was run." Anything else is left as written.
