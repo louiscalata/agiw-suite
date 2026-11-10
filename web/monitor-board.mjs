@@ -95,6 +95,7 @@ function appendPeerMap(parent, context) {
   if (!parent || !context) return;
   const view = peerMap(context);
   const map = el('pre', 'j-schematic j-peer-map');
+  map.tabIndex = 0;
   map.setAttribute('role', 'img');
   map.setAttribute('aria-label', view.label);
   map.textContent = view.text;

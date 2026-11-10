@@ -528,6 +528,13 @@ body.jaryo-app .j-type {
   line-height: 1;
 }
 
+body.jaryo-app .brand-wordmark {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: 0;
+  line-height: 1.2;
+}
 body.jaryo-app .brand-wordmark strong { font-size: 18px; }
 body.jaryo-app .j-brand strong,
 body.jaryo-app .j-type { font-size: 20px; }
@@ -1011,6 +1018,48 @@ body.jaryo-app .tools #quit {
 body.jaryo-app > footer #about {
   min-height: 44px;
   padding: 8px 12px;
+}
+
+/* The evidence rail is an opaque column. With every panel hidden it covered the
+   runtime sidebar, so the right side of the desktop grid looked empty. */
+body.jaryo-app .evidence-rail:not(:has(> :not([hidden]))) {
+  display: none;
+}
+
+/* Status tabs wrap inside the content column instead of running off the viewport. */
+body.jaryo-app .j-chrome { min-width: 0; max-width: 100%; }
+body.jaryo-app .j-tabs {
+  flex-wrap: wrap;
+  overflow: visible;
+  max-width: 100%;
+}
+body.jaryo-app .j-tab { flex: 1 1 9rem; min-width: 0; }
+
+/* 375px: the full Fix inference label stays visible, and the board row is reserved
+   so the first sample cannot grow the page. */
+@media (max-width: 800px) {
+  body.jaryo-app .fix-tab-long { display: inline; }
+  body.jaryo-app .fix-tab-short { display: none; }
+  body.jaryo-app .tools .fix-tab {
+    flex: 1 1 auto;
+    width: auto;
+    max-width: 100%;
+    white-space: normal;
+    min-height: 44px;
+  }
+  body.jaryo-app .topbar { min-height: 7.5rem; }
+  body.jaryo-app .j-tabs { min-height: 14rem; }
+  body.jaryo-app .graph-region,
+  body.jaryo-app .graph-region:has(#monitorBoard:not([hidden])) {
+    grid-template-rows: minmax(240px, 42vh) 34vh;
+    min-height: 0;
+    height: auto;
+  }
+  body.jaryo-app #monitorBoard.j-board {
+    max-height: 34vh;
+    height: 34vh;
+    overflow: auto;
+  }
 }
 body.jaryo-app #autoUnloadToggle,
 body.jaryo-app #runtimeSidebar .search-label {
