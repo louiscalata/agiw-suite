@@ -29,6 +29,16 @@ public final class ClientTest {
         ObserverClient client = new ObserverClient();
         ObserverClient.Result clear = client.getSnapshot(URI.create("http://127.0.0.1:9/api/snapshot"), 500);
         check(!clear.ok() && clear.detail().equals("Cleartext is not used"), "cleartext");
+        Board clearBoard = Board.from(clear, Instant.now());
+        check(clearBoard.connect.equals("REFUSED") && clearBoard.acceptance.contains("ROLLBACK OPEN"), "cleartext stays refused");
+        ObserverClient.Result bare = client.getSnapshot(URI.create("example.com"), 500);
+        check(!bare.ok() && bare.detail().equals("Type an https address"), "bare host");
+        check(Board.from(bare, Instant.now()).connect.equals("REFUSED"), "bare host is refused");
+        check(Board.from(null, Instant.now()).detail.equals("No address"), "null result");
+        ObserverClient.Result v6 = client.getSnapshot(URI.create("https://[::1]:9/"), 800);
+        check(!v6.ok() && v6.detail().equals("Observer did not answer"), "ipv6 unreachable " + v6.detail());
+        check(ObserverClient.bracketedHost("::1").equals("[::1]"), "ipv6 host is bracketed");
+        check(ObserverClient.bracketedHost("127.0.0.1").equals("127.0.0.1"), "ipv4 host is unchanged");
         ObserverClient.Result upper = client.getSnapshot(URI.create("HTTP://127.0.0.1:9/api/snapshot"), 500);
         check(!upper.ok() && upper.detail().equals("Cleartext is not used"), "uppercase cleartext");
         ObserverClient.Result file = client.getSnapshot(URI.create("file:///etc/passwd"), 500);
@@ -74,6 +84,10 @@ public final class ClientTest {
 
             ObserverClient.Result down = trusted.getSnapshot(URI.create("https://127.0.0.1:9/"), 500);
             check(!down.ok() && down.detail().equals("Observer did not answer"), "down " + down.detail());
+            Board downBoard = Board.from(down, Instant.now());
+            check(downBoard.connect.equals("DISCONNECTED") && downBoard.process.equals("UNKNOWN"), "unreachable stays unknown");
+            check(downBoard.acceptance.contains("ROLLBACK OPEN"), "unreachable keeps the acceptance line");
+            check(Board.from(new ObserverClient.Result(false, 500, "", "HTTP 500"), Instant.now()).connect.equals("DISCONNECTED"), "http 500 is disconnected");
             Board blocked = Board.read(blockedPayload(Instant.now().toString()), Instant.now());
             check(blocked.process.equals("BLOCKED"), "blocked " + blocked.process);
             String mismatch = "{\"schemaVersion\":1,\"observedAt\":\"" + Instant.now()
@@ -106,6 +120,18 @@ public final class ClientTest {
                     + "\",\"pipeline\":{\"status\":\"idle\"}}";
             Board partialFetch = Board.read(trusted.getSnapshot(fixture.base, 2000).body(), Instant.now());
             check(partialFetch.process.equals("UNKNOWN"), "partial fetch " + partialFetch.process);
+
+            fixture.mode = "missing";
+            ObserverClient.Result missing = trusted.getSnapshot(fixture.base, 2000);
+            check(!missing.ok() && missing.status() == 404 && missing.detail().equals("Endpoint was not found"), "missing endpoint " + missing.detail());
+            Board missingBoard = Board.from(missing, Instant.now());
+            check(missingBoard.connect.equals("DISCONNECTED") && missingBoard.process.equals("UNKNOWN"), "missing endpoint is not a sample");
+            check(missingBoard.acceptance.contains("ROLLBACK OPEN"), "missing endpoint keeps acceptance");
+
+            fixture.mode = "huge";
+            ObserverClient.Result huge = trusted.getSnapshot(fixture.base, 2000);
+            check(!huge.ok() && huge.detail().equals("Payload was not read"), "huge payload " + huge.detail());
+            check(Board.from(huge, Instant.now()).connect.equals("DISCONNECTED"), "huge payload is disconnected");
 
             fixture.mode = "redirect";
             ObserverClient.Result redirect = trusted.getSnapshot(fixture.base, 2000);
@@ -208,6 +234,17 @@ public final class ClientTest {
             server.createContext("/api/snapshot", exchange -> {
                 if ("drop".equals(fixture.mode)) {
                     exchange.close();
+                    return;
+                }
+                if ("missing".equals(fixture.mode)) {
+                    exchange.sendResponseHeaders(404, -1);
+                    exchange.close();
+                    return;
+                }
+                if ("huge".equals(fixture.mode)) {
+                    byte[] bytes = new byte[1_000_001];
+                    exchange.sendResponseHeaders(200, bytes.length);
+                    try (OutputStream out = exchange.getResponseBody()) { out.write(bytes); }
                     return;
                 }
                 if ("redirect".equals(fixture.mode)) {
