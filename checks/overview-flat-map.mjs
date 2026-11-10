@@ -1,4 +1,6 @@
 // The overview map is flat ink. A glow, halo blur, drop shadow, or radial wash fails this check.
+// The runtime line under the headline must be upright Jost with normal tracking.
+// Visible map labels must not keep a stroke, which paints an empty rectangle on the grid.
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
@@ -84,7 +86,36 @@ try {
       }
       return out.slice(0, 20);
     });
-    if (hits.length) failures.push({ scheme, hits });
+    const headline = await page.evaluate(() => {
+      const em = document.querySelector('#headline em');
+      if (!em) return { missing: true };
+      const style = getComputedStyle(em);
+      const spacing = parseFloat(style.letterSpacing);
+      return {
+        text: em.textContent,
+        family: style.fontFamily,
+        style: style.fontStyle,
+        letterSpacing: style.letterSpacing,
+        crushed: style.fontStyle !== 'normal' || (Number.isFinite(spacing) && spacing < -0.5) || !/Jost/.test(style.fontFamily),
+      };
+    });
+    const masks = await page.evaluate(() => {
+      const texts = [...document.querySelectorAll('#map text')];
+      return texts.filter((el) => {
+        const style = getComputedStyle(el);
+        if (Number(style.opacity) === 0 || style.display === 'none' || style.visibility === 'hidden') return false;
+        const width = parseFloat(style.strokeWidth);
+        return style.stroke !== 'none' && Number.isFinite(width) && width > 0;
+      }).slice(0, 8).map((el) => ({
+        text: el.textContent.slice(0, 32),
+        cls: el.getAttribute('class'),
+        stroke: getComputedStyle(el).stroke,
+        strokeWidth: getComputedStyle(el).strokeWidth,
+      }));
+    });
+    if (hits.length || headline.crushed || headline.missing || masks.length) {
+      failures.push({ scheme, hits, headline, masks });
+    }
     await page.close();
   }
 } finally {

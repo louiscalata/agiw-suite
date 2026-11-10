@@ -802,7 +802,7 @@ body.jaryo-app .sidebar h1 {
   font-family: "Jost", "Liberation Sans", "Noto Sans", sans-serif;
   font-size: clamp(28px, 2.2vw, 40px);
   font-weight: 600;
-  letter-spacing: -0.03em;
+  letter-spacing: normal;
   line-height: 1.05;
 }
 
@@ -1466,5 +1466,19 @@ body.jaryo-app .node .label,
 body.jaryo-app .node .sub,
 body.jaryo-app .cluster-label {
   stroke: none;
+  paint-order: normal;
+}
+body.jaryo-app .sidebar h1 em {
+  font-family: "Jost", "Liberation Sans", "Noto Sans", sans-serif !important;
+  font-style: normal;
+  font-weight: 400;
+  letter-spacing: normal;
+}
+body.jaryo-app svg .cluster-label,
+body.jaryo-app #nodes .node .label,
+body.jaryo-app #nodes .node .sub,
+body.jaryo-app #nodes .node .capability-line {
+  stroke: none !important;
+  stroke-width: 0 !important;
   paint-order: normal;
 }
