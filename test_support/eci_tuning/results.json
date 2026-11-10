@@ -1,0 +1,31 @@
+{
+  "status": "COMPUTED",
+  "results": [
+    {
+      "model_id": "llama-3.1-8b-instruct-q4km-epoch-eci",
+      "status": "COMPUTED",
+      "component_raw_scores": {
+        "OpenBookQA": 0.752,
+        "ARC AI2": 0.7696245733788396,
+        "GSM8K": 0.800606520090978,
+        "Winogrande": 0.585635359116022
+      },
+      "normalized_scores": {
+        "OpenBookQA": 0.6693333333333333,
+        "ARC AI2": 0.6928327645051194,
+        "GSM8K": 0.800606520090978,
+        "Winogrande": 0.1712707182320441
+      },
+      "eci_posterior_mean": 105.37592661908786,
+      "eci_p05": 94.31056484138705,
+      "eci_p95": 115.13793099094659,
+      "diagnostic_status": "PASS",
+      "divergences": 0.0,
+      "max_rhat": 1.0059072289992441,
+      "min_bulk_ess": 1427.84894024366,
+      "run_id": "pc-llama31-baseline-max1024",
+      "machine": "pc",
+      "comparability_class": "baseline_protocol"
+    }
+  ]
+}

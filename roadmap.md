@@ -1,5 +1,13 @@
 # AGIW Suite roadmap and release evidence
 
+## AGIW x ECI Model Tuning Tool · PR 1 · 2026-11-10
+
+- [x] Add offline refit/manifest/extra-score and analysis item/run adapters, a versioned schema, comparability-separated ECI/component rankings, explicit policy apply and a read-only model tuning page.
+- [x] Set the repo's provisional PC-eligible policy to Llama-3.1-8B-Instruct Q4_K_M, local ECI 105.38 [94.31, 115.14], low-to-moderate confidence; retain lenient 108.59 as a separate scoring view with overlapping CI.
+- [ ] Admit Bonsai, LFM3 and Glimmer scores when independently computed; do not infer them from partial or withheld inspect accuracy.
+- [ ] Have the external AGIW routing owner integrate and test the config hook. Runtime activation remains NOT_APPLIED; Nisi Mac requires two distinct resident Mac LLMs and remains NOT_APPLIED.
+- [ ] PR 2: separately review replacing Fix inference. Its current controls, API and repair behavior remain unchanged in PR 1.
+
 ## Current source and artifact status · 2026-11-03
 
 The canonical roadmap remains this file. The downloadable application is **1.0.0 (7)**. `Info.plist` in this checkout is **1.1.0 (14)**, tagged `v1.1.0` on 9 November 2026 as a source release with no app attached. The earlier label 1.2.0 (13) was not shipped. The repository's release record lists only v1.0.0 as a binary download: rc.1, rc.2 and source-preview release pages were withdrawn on 18 October, while their tags remain. Historical release evidence below describes those earlier checkpoints, not current rollback availability.

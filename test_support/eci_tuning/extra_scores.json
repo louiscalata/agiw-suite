@@ -1,0 +1,34 @@
+[
+  {
+    "model_id": "Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf",
+    "benchmark": "GSM8K",
+    "raw_score": 0.800606520090978,
+    "status": "OK",
+    "host": "pc",
+    "n_items": 1319
+  },
+  {
+    "model_id": "Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf",
+    "benchmark": "Winogrande",
+    "raw_score": 0.585635359116022,
+    "status": "OK",
+    "host": "pc",
+    "n_items": 1267
+  },
+  {
+    "model_id": "Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf",
+    "benchmark": "OpenBookQA",
+    "raw_score": 0.752,
+    "status": "OK",
+    "host": "pc",
+    "n_items": 500
+  },
+  {
+    "model_id": "Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf",
+    "benchmark": "ARC AI2",
+    "raw_score": 0.7696245733788396,
+    "status": "OK",
+    "host": "pc",
+    "n_items": 1172
+  }
+]

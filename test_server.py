@@ -1380,6 +1380,18 @@ class TransportTest(unittest.TestCase):
         self.assertNotIn('Access-Control-Allow-Origin',headers)
         self.assertEqual(self.get('/api/snapshot',method='POST')[0],404)
 
+    def test_eci_tuning_is_read_only_same_origin_and_reports_unknown(self):
+        with patch('server.eci_tuning.status', return_value={'pending': [{'status': 'NOT_COMPUTED'}]}):
+            code, raw, headers = self.get('/api/eci-tuning')
+            self.assertEqual(code, 200)
+            self.assertEqual(json.loads(raw)['pending'][0]['status'], 'NOT_COMPUTED')
+            self.assertEqual(headers['Cache-Control'], 'no-store')
+            self.assertEqual(self.get('/api/eci-tuning', headers={'Origin':'https://example.invalid'})[0], 403)
+            self.assertEqual(self.get('/api/eci-tuning', method='POST')[0], 404)
+        with patch('server.eci_tuning.status', side_effect=ValueError('private detail')):
+            code, raw, _ = self.get('/api/eci-tuning')
+            self.assertEqual((code, json.loads(raw)), (503, {'status':'unknown'}))
+
     def test_readiness_status_is_available_with_l2_closed_and_no_owner(self):
         self.server.online_code_repair = None
         self.server.l2_open = False

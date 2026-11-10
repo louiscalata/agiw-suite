@@ -5,7 +5,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Merged after the v1.1.0 tag. Each pull request below is merged. Open pull requests are not listed.
+- Add the AGIW x ECI Model Tuning Tool: offline ingest, protocol-separated rankings, explicit policy apply, and a read-only model tuning page with provisional and pending scores.
+
+Previously merged after the v1.1.0 tag:
 
 - #69 Android monitor encoding, insets, and Gradle tests.
 - #71 Flip6 inner and cover readings stay when the window turns.
