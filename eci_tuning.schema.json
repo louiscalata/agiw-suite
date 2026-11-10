@@ -1,0 +1,527 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AGIW x ECI Model Tuning Tool v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "runs",
+    "items"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "runs": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/run"
+      }
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/item"
+      }
+    }
+  },
+  "$defs": {
+    "run": {
+      "type": "object",
+      "required": [
+        "run_id",
+        "model",
+        "status",
+        "comparability_class"
+      ],
+      "properties": {
+        "model": {
+          "type": "string",
+          "minLength": 1
+        },
+        "quant": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "backend": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "backend_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "machine": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "protocol_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "run_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "enum": [
+            "COMPUTED",
+            "NOT_COMPUTED",
+            "NOT_RUN",
+            "FAILED"
+          ]
+        },
+        "comparability_class": {
+          "enum": [
+            "baseline_protocol",
+            "pipeline_configured",
+            "published_reference",
+            "unclassified"
+          ]
+        },
+        "settings": {
+          "type": "object",
+          "properties": {
+            "temperature": {},
+            "max_tokens": {},
+            "ctx": {},
+            "n_gpu_layers": {},
+            "reasoning_budget": {},
+            "stop": {},
+            "system_message": {},
+            "n_epochs": {},
+            "prompt_template_id": {},
+            "scorer_id": {}
+          },
+          "additionalProperties": false
+        },
+        "components": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "required": [
+              "score",
+              "normalized_score",
+              "n",
+              "stderr",
+              "scorer_id",
+              "prompt_template_id",
+              "admitted"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "score": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "minimum": 0,
+                "maximum": 1
+              },
+              "normalized_score": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "n": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "minimum": 0
+              },
+              "stderr": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "minimum": 0
+              },
+              "scorer_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "prompt_template_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "admitted": {
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        "diagnostics": {
+          "type": "object"
+        },
+        "latency_s": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "tokens_per_s": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "cost_usd": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "memory_bytes": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "peak_memory_bytes": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "aggregate_score": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1
+        },
+        "n": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "stderr": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "eci_posterior_mean": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "eci_p05": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "eci_p95": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "benchmark": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "eci_associations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "fit_id",
+              "eci",
+              "eci_p05",
+              "eci_p95"
+            ],
+            "properties": {
+              "fit_id": {
+                "type": "string"
+              },
+              "eci": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "eci_p05": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "eci_p95": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "gpu_memory_bytes": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "source_status": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "partial": {
+          "type": "boolean"
+        },
+        "admitted_score": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "item": {
+      "type": "object",
+      "required": [
+        "run_id",
+        "model",
+        "benchmark",
+        "item_id",
+        "scorer_id"
+      ],
+      "properties": {
+        "run_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1
+        },
+        "quant": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "backend": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "backend_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "machine": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "benchmark": {
+          "type": "string",
+          "minLength": 1
+        },
+        "item_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "finish_reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "prompt_template_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "system_message": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "latency_s": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "tokens_per_s": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "cost_usd": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "memory_bytes": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "peak_memory_bytes": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "tokens_in": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "tokens_out": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "epoch": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "temperature": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "max_tokens": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "ctx": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "n_gpu_layers": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "n_epochs": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "correct": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "truncated": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "gold": {},
+        "parsed_answer": {},
+        "stop": {},
+        "reasoning_budget": {},
+        "scorer_id": {
+          "enum": [
+            "strict_choice",
+            "lenient_v1",
+            "gsm_numeric_em"
+          ]
+        },
+        "gpu_memory_bytes": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "comparability_class": {
+          "enum": [
+            "baseline_protocol",
+            "pipeline_configured",
+            "published_reference",
+            "unclassified"
+          ]
+        },
+        "protocol_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "inference_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "split": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

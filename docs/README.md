@@ -6,6 +6,7 @@ Start with the [project README](../README.md). Each line says what the page cove
 
 - [Activate AGIW Suite](activation.md): after installing the 1.0.0 (7) download, to connect LM Studio, verify Nisi, set up Jev and start at login.
 - [Features and components](features.md): to see every feature, the local-only pipeline, and what Nisi and Jev do and send.
+- [AGIW x ECI Model Tuning Tool](eci-model-tuning.md): ingest score records, rank separate protocols and apply a provisional PC routing policy (unreleased source).
 - [Advanced configuration](advanced-configuration.md): to set resident-model policy, LM Studio port, share recovery, memory readings for sandboxed callers and the Windows edition link.
 - [Inference Monitor map](inference-monitor.md): to learn what the `/monitor` map nodes, tabs and health states mean.
 - [agiw command-line tool](cli.md): to pair a Mac and a Windows PC with a PIN, add the firewall rules yourself, run the login service or uninstall.
