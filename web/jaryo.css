@@ -21,6 +21,7 @@ body.jaryo-app {
   --violet: var(--j-text);
   --red: var(--j-text);
   --shadow: none;
+  --sheet: var(--j-bg);
   --portfolio-rule: var(--j-border);
   --portfolio-soft: var(--j-text);
   background: var(--j-bg);
@@ -1096,4 +1097,118 @@ body.jaryo-app #memoryBanner { border-radius: 0; }
     background: Highlight;
     color: HighlightText;
   }
+}
+
+/* Overview panels. style.css still paints the evidence rail, tiles, legend and model
+   actions with the old dark surfaces and copper accents. In the light theme that left
+   black text on near-black. These rules put those surfaces on the Jaryo tokens.
+   Status stays in the words. The map key keeps solid, dashed and double lines. */
+body.jaryo-app .evidence-rail,
+body.jaryo-app .evidence-rail > .panel,
+body.jaryo-app .mode-details,
+body.jaryo-app .drawer,
+body.jaryo-app .panel-head,
+body.jaryo-app .panel-summary,
+body.jaryo-app .tile,
+body.jaryo-app .model-action-dock,
+body.jaryo-app .legend,
+body.jaryo-app .legend .agent-key,
+body.jaryo-app .map-controls,
+body.jaryo-app .sidebar-toggle,
+body.jaryo-app .sidebar-toggle:hover,
+body.jaryo-app .evidence-rail .panel-actions .mode-repair-button {
+  background: var(--j-bg);
+  color: var(--j-text);
+  border-color: var(--j-border);
+  box-shadow: none;
+  backdrop-filter: none;
+}
+body.jaryo-app .panel-eyebrow,
+body.jaryo-app .tile-label,
+body.jaryo-app .tile-value,
+body.jaryo-app .panel-more > summary,
+body.jaryo-app .legend .agent-key strong,
+body.jaryo-app .legend .agent-key span,
+body.jaryo-app .fix-step,
+body.jaryo-app .fix-step-mark,
+body.jaryo-app .fix-step[data-tone="bad"] .fix-step-copy,
+body.jaryo-app .step-line,
+body.jaryo-app .model-action-dock strong,
+body.jaryo-app .model-action-dock span,
+body.jaryo-app .sidebar-toggle,
+body.jaryo-app .sidebar-toggle:hover {
+  color: var(--j-text);
+}
+body.jaryo-app .step-line,
+body.jaryo-app .fix-step,
+body.jaryo-app .tile,
+body.jaryo-app .model-action-dock,
+body.jaryo-app .mode-details,
+body.jaryo-app .drawer {
+  border-color: var(--j-border);
+  border-radius: 0;
+}
+body.jaryo-app .model-action-dock button,
+body.jaryo-app .model-action-dock button:hover:not(:disabled),
+body.jaryo-app .fix-details .fix-submit,
+body.jaryo-app .fix-details .fix-submit:hover:not(:disabled),
+body.jaryo-app #fixInferenceSubmit,
+body.jaryo-app #fixInferenceSubmit:hover:not(:disabled),
+body.jaryo-app .evidence-rail .panel-actions button,
+body.jaryo-app .evidence-rail .panel-actions button:hover:not(:disabled),
+body.jaryo-app .evidence-rail .panel-actions #onlineCodeRepair,
+body.jaryo-app .evidence-rail .panel-actions #onlineCodeRepair:hover:not(:disabled),
+body.jaryo-app .evidence-rail .panel-actions #drawerFixButton,
+body.jaryo-app .evidence-rail .panel-actions #drawerFixButton.panel-primary,
+body.jaryo-app .evidence-rail .panel-actions #drawerFixButton.panel-primary:hover,
+body.jaryo-app .evidence-rail #drawerJumpButton,
+body.jaryo-app .evidence-rail #drawerJumpButton:hover {
+  background: var(--j-invert);
+  color: var(--j-invert-ink);
+  border: 1px solid var(--j-border);
+  border-radius: 0;
+  box-shadow: none;
+}
+body.jaryo-app .model-action-dock button:disabled,
+body.jaryo-app #modelAction:disabled,
+body.jaryo-app .fix-details .fix-submit:disabled,
+body.jaryo-app .evidence-rail .panel-actions button:disabled {
+  background: transparent;
+  color: var(--j-text);
+  border-style: dashed;
+}
+body.jaryo-app .tools .mode-tab > i,
+body.jaryo-app .mode-tab.inactive i,
+body.jaryo-app .mode-tab.ready i,
+body.jaryo-app .mode-tab.unfinished i,
+body.jaryo-app .mode-tab.processing i {
+  background: var(--j-text);
+}
+body.jaryo-app .legend .legend-line {
+  background: var(--j-text);
+  border-color: var(--j-text);
+}
+body.jaryo-app .legend .legend-line.recorded,
+body.jaryo-app .legend .legend-line.flow {
+  background: transparent;
+  border-color: var(--j-text);
+}
+body.jaryo-app .legend .cap-color,
+body.jaryo-app .legend .cap-color.embedding,
+body.jaryo-app .legend .cap-color.reasoning,
+body.jaryo-app .legend .cap-color.vision,
+body.jaryo-app .legend .cap-color.tool,
+body.jaryo-app .legend .agent-color,
+body.jaryo-app .legend .agent-color.codex,
+body.jaryo-app .legend .agent-color.claude,
+body.jaryo-app .legend .agent-color.opencode,
+body.jaryo-app .legend .agent-color.cursor,
+body.jaryo-app .legend .agent-color.grok {
+  background: var(--j-text);
+  color: var(--j-text);
+  box-shadow: none;
+}
+body.jaryo-app input::placeholder {
+  color: var(--j-text);
+  opacity: 1;
 }
