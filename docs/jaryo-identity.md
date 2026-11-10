@@ -6,14 +6,14 @@ Shared files live in `jaryo/`. They are framework-neutral. OPOS and Nisi can use
 
 ## Binding decisions
 
-- Strict black and white. No graphite, copper, or color accent in AGIW.
+- Ink and paper for readings. Booklet red `#C21A27` is the display accent for headlines, the AGIW wordmark, and the current tab. Status stays a glyph plus a word.
 - System light/dark is the default. Light or Dark is an explicit override and follows later system changes only while Theme is System.
 - Factory structure, quiet surfaces, balanced density. Evidence rows expand. The acceptance line stays visible.
 - Persistent sidebar on a wide desktop. Overview, map, components, and identity stay reachable on a small screen.
 - Motion is the schematic rule and transitions. It is not false telemetry. Reduced motion removes it.
 - Transitions zoom into the new page. Moving between Components, Identity, Machines and Setup grows the page body from 96% to full size in 240 ms while the nav stays put, and the Overview/Simple switch does the same to the whole face. Only transform moves, so no frame is gray. Reduced motion, or a browser without View Transitions, gets an instant change. If a window gets no frames the switch still lands after 400 ms.
 - The app opens on Overview.
-- The chrome name is the word AGIW in Inter (SIL Open Font License 1.1), weight 600, with the font’s own kerning plus 0.02em tracking. This is provisional. Louis did not choose the font. Fallbacks are Liberation Sans and Noto Sans.
+- The chrome name is the word AGIW in IBM Plex Sans, weight 700, in booklet red. Body text is IBM Plex Sans. Numbers, IDs, and code are IBM Plex Mono. Both are SIL Open Font License 1.1. If Plex is absent, the stack uses Liberation Sans, then Noto Sans. The favicon outlines remain Inter. The type scale is 13, 21, 34, 55, 89, and 144.
 - D4 Split is rejected. The geometric files remain in `jaryo/marks/` as a superseded study. They are not on the chrome or the favicon.
 - No choice file is applied. Option ids are not inferred.
 - `c92dab2` is historical. Receipts in `docs/data/` stay. They are not a pass on the current head.

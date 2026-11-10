@@ -23,8 +23,7 @@ test('every toolbar and panel control that style.css rounds is squared again', (
   assert.match(tail, /#memoryBanner \{ border-radius: 0; \}/);
   // The status dots stay round: filled and hollow circles are how state is drawn, so they must not be in the squaring list.
   assert.doesNotMatch(tail.slice(tail.indexOf('body.jaryo-app .tools .mode-tab')), /\.mode-tab i|\.vital i/);
-  // and the rounding it beats is really there, so this test cannot pass vacuously
-  assert.match(style, /\.tools \.mode-tab,\.tools \.fix-tab,\.tools \.pc-switch\{border-radius:2px/);
+  assert.match(style, /\.tools \.mode-tab,\.tools \.fix-tab,\.tools \.pc-switch\{border-radius:0/);
 });
 
 test('the block uses tokens only', () => {

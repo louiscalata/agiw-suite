@@ -65,7 +65,11 @@ ASSETS = {"/": ("index.html", "text/html; charset=utf-8"),
           "/identity.mjs": ("identity.mjs", "text/javascript; charset=utf-8"),
           "/components": ("components.html", "text/html; charset=utf-8"),
           "/components.js": ("components.js", "text/javascript; charset=utf-8"),
-          "/components.css": ("components.css", "text/css; charset=utf-8")}
+          "/components.css": ("components.css", "text/css; charset=utf-8"),
+          "/fonts/ibm-plex-sans-400.woff2": ("fonts/ibm-plex-sans-400.woff2", "font/woff2"),
+          "/fonts/ibm-plex-sans-700.woff2": ("fonts/ibm-plex-sans-700.woff2", "font/woff2"),
+          "/fonts/ibm-plex-mono-400.woff2": ("fonts/ibm-plex-mono-400.woff2", "font/woff2"),
+          "/fonts/ibm-plex-mono-700.woff2": ("fonts/ibm-plex-mono-700.woff2", "font/woff2")}
 JARYO_FILES = {
     "/jaryo/tokens.json": ("tokens.json", "application/json"),
     "/jaryo/theme.mjs": ("theme.mjs", "text/javascript; charset=utf-8"),
@@ -92,7 +96,7 @@ def jaryo_root() -> Path:
 
 
 _INFERENCE_RATES = RateMemory()
-CSP = ("default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; "
+CSP = ("default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; connect-src 'self'; img-src 'self' data:; "
        "frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
 
 

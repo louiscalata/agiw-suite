@@ -218,12 +218,12 @@ test('model node sizes use a bounded logarithmic count, then a labeled byte prox
 
 test('primary hues encode type or positive capabilities without encoding activity',()=>{
   const embedding=modelStarSize({metadata:{type:'embedding',capabilities:{vision:true,toolUse:true,reasoning:false}}});
-  assert.equal(embedding.color,'#bd9cff');
+  assert.equal(embedding.color,'currentColor');
   assert.match(embedding.capabilityLabel,/embedding · vision · tool use/);
-  assert.equal(modelStarSize({metadata:{capabilities:{reasoning:true}}}).color,'#70d7ed');
-  assert.equal(modelStarSize({metadata:{capabilities:{vision:true}}}).color,'#f1b568');
-  assert.equal(modelStarSize({metadata:{capabilities:{toolUse:true}}}).color,'#6bd6a2');
-  assert.equal(modelStarSize({}).color,'#99a3b7');
+  assert.equal(modelStarSize({metadata:{capabilities:{reasoning:true}}}).color,'currentColor');
+  assert.equal(modelStarSize({metadata:{capabilities:{vision:true}}}).color,'currentColor');
+  assert.equal(modelStarSize({metadata:{capabilities:{toolUse:true}}}).color,'currentColor');
+  assert.equal(modelStarSize({}).color,'currentColor');
 });
 
 test('fit uses actual graph extents and handles empty or zero-sized areas', () => {
@@ -1619,10 +1619,10 @@ test('web glows: one per working or in-flight node on a fresh feed, green for wo
   assert.deepEqual(glows.map(x => x.id), want.map(n => n.id));
   const pc = glows.find(x => x.id === 'windows-worker'), lane = glows.find(x => x.id === 'windows-lane:deep');
   assert.deepEqual([pc.tone, pc.color], ['flight', g.nodes.find(n => n.id === 'windows-worker').color]);
-  assert.deepEqual([lane.tone, lane.color], ['working', '#63d6ac']);
+  assert.deepEqual([lane.tone, lane.color], ['working', 'currentColor']);
   assert.deepEqual(webGlows(graphFor({ job: false }).nodes, { fresh: true }).glows, [], 'an idle map has no glow');
   assert.equal(webGlows(g.nodes.map(n => ({ ...n, subtitle: 'x', label: 'y' })), { fresh: true }).key, key, 'captions do not rebuild the glows');
-  assert.equal(webGlows([{ id: 'a', x: 0, y: 0, inFlight: true, color: 'url(javascript:x)' }], { fresh: true }).glows[0].color, '#63d6ac');
+  assert.equal(webGlows([{ id: 'a', x: 0, y: 0, inFlight: true, color: 'url(javascript:x)' }], { fresh: true }).glows[0].color, 'currentColor');
   assert.equal(glowRadius(.77), 110); assert.equal(glowRadius(1), 110); assert.equal(glowRadius(3), 50); assert.equal(glowRadius(1.7), 88.2);
   for (const bad of [0, -1, NaN, undefined]) assert.equal(glowRadius(bad), 110);
   assert.ok([.1, .5, 1, 2, 3, 30].every(z => glowRadius(z) * z <= 150 + 1e-9 || glowRadius(z) === 24), 'never more than 150 screen pixels');
