@@ -13,6 +13,7 @@ Start with the [project README](../README.md). Each line says what the page cove
 ## Status and evidence
 
 - [Status](status.md): what the 1.0.0 (7) download and the v1.1.0 source each cover, the two-machine layout and the open checks.
+- [Release checklist](release-checklist.md): checks before a signed Mac download, including the clean-Mac install. That install is NOT_RUN until a receipt is stored.
 - [Mac and Windows PC connection record](three-machine-connection.md): the dated record of how the two machines connect, plus the retired Linux history.
 - [Inference performance](performance.md): tables, methods, the Windows lane layouts, the comparison protocol and the comparison with Ollama and vLLM.
 - [Source review results](source-verification.md): dated review from 3 November 2026, written while the source label was 1.2.0 (13). The checkout label is now 1.1.0 (14).
