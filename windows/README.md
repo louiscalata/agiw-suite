@@ -23,7 +23,7 @@ observer that serves **the same dashboard** as the Mac edition, in its `host: "w
 Double-click **`AGIW Monitor.vbs`** (or `AGIW Monitor.cmd`). The tray icon appears and the dashboard opens in an
 Edge app window at `http://127.0.0.1:8767/monitor`; **Full dashboard** opens the earlier view at `/`. The same server also serves
 `/machines` (one tile per machine), `/setup` (this edition's own steps), `/components` (the Mac app's components, answered here with "Not available in the
-Windows edition yet") and `/identity`. If 8767 is held by something else the observer stops and the tray
+Windows edition yet") and `/identity` and `/eci-tuning`. If 8767 is held by something else the observer stops and the tray
 says so, rather than moving to another address.
 
 Tray icon: one black-and-white AGIW mark per state, and the state is a shape, never a color: **plain** both lanes confirmed idle · **inverted** a lane is

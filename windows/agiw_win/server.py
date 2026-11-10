@@ -65,7 +65,10 @@ ASSETS = {"/": ("index.html", "text/html; charset=utf-8"),
           "/identity.mjs": ("identity.mjs", "text/javascript; charset=utf-8"),
           "/components": ("components.html", "text/html; charset=utf-8"),
           "/components.js": ("components.js", "text/javascript; charset=utf-8"),
-          "/components.css": ("components.css", "text/css; charset=utf-8")}
+          "/components.css": ("components.css", "text/css; charset=utf-8"),
+          "/eci-tuning": ("eci-tuning.html", "text/html; charset=utf-8"),
+          "/eci-tuning.mjs": ("eci-tuning.mjs", "text/javascript; charset=utf-8"),
+          "/eci-tuning.css": ("eci-tuning.css", "text/css; charset=utf-8")}
 JARYO_FILES = {
     "/jaryo/tokens.json": ("tokens.json", "application/json"),
     "/jaryo/theme.mjs": ("theme.mjs", "text/javascript; charset=utf-8"),

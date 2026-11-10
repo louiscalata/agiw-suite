@@ -287,7 +287,7 @@ class EndToEnd(unittest.TestCase):
                 self.assertEqual(status, 200)
                 self.assertEqual(body, (repo / "jaryo" / name).read_bytes())
                 self.assertEqual(response.getheader("Content-Type"), kind)
-        for page in ("/setup", "/machines", "/components", "/identity", "/monitor"):
+        for page in ("/setup", "/machines", "/components", "/identity", "/monitor", "/eci-tuning"):
             self.assertIn(b"<html", self.get(page)[1].lower(), page)
         for path in ("/jaryo/../server.py", "/jaryo/marks/../../server.py", "/jaryo/nope.css", "/web/index.html", "/index.html", "/brand/windows/agiw.ico"):
             self.assertEqual(self.get(path)[0], 404, path)
