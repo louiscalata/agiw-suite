@@ -69,6 +69,6 @@ The check tests connectivity only. It does not enable coding-task routing, verif
 
 ## Command-line connection tool
 
-`agiw` is a separate command-line tool (v0.1). It pairs your Mac and Windows PC with a 6-digit PIN and reads their signed, read-only status over the IPv4 LAN. Status is signed but not encrypted. It dispatches no jobs.
+`agiw` is a separate command-line tool (1.1.0). It pairs your Mac and Windows PC with a 6-digit PIN and reads their signed, read-only status over the IPv4 LAN. Status is signed but not encrypted. It dispatches no jobs.
 
 The install commands work only once a release tag is published. Each machine needs inbound tcp/8768 and udp/8769 from the LAN. `agiw` changes no firewall settings; you add the rules yourself. Pairing steps, firewall rules, the login service and uninstalling: [cli.md](cli.md).

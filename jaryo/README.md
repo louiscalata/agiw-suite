@@ -1,6 +1,6 @@
 # Jaryo kit
 
-Shared tokens, theme, controls, and a pipeline page. The folder is the product. This checkout does not publish it to a registry, and it does not change the AGIW monitor screens.
+Shared tokens, theme, controls, and a pipeline page. The folder is the product. This checkout does not publish it to a registry. The AGIW monitor pages have their own shell in `web/jaryo.css` and `web/jaryo.mjs`. This kit does not draw those pages.
 
 AGIW decisions recorded here:
 

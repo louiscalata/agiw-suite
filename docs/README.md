@@ -15,7 +15,7 @@ Start with the [project README](../README.md). Each line says what the page cove
 - [Status](status.md): what the download and the unreleased source each cover, the two-machine layout and the open checks.
 - [Mac and Windows PC connection record](three-machine-connection.md): the dated record of how the two machines connect, plus the retired Linux history.
 - [Inference performance](performance.md): tables, methods, the Windows lane layouts, the comparison protocol and the comparison with Ollama and vLLM.
-- [Source review results](source-verification.md): dated source-review dispositions for unreleased 1.2.0 (13).
+- [Source review results](source-verification.md): dated review written against the unreleased 1.2.0 (13) label. This checkout is 1.1.0 (14).
 
 ## Build and extend
 
