@@ -144,6 +144,8 @@ for needle in ("setContentDescription(R.id.widgetProcess", "setContentDescriptio
         raise SystemExit("status widget missing " + needle)
 if "setContentDescription(R.id.widgetRoot" in widget:
     raise SystemExit("widget root repeats the spoken rows")
+if "WIDGET_CATEGORY_KEYGUARD" not in widget:
+    raise SystemExit("keyguard widget shows the pipeline")
 if "if (cover) return 0" in activity_text:
     raise SystemExit("cover rows have no spoken label")
 if "FLAG_MUTABLE" in widget or "launchDisplayId" in widget:

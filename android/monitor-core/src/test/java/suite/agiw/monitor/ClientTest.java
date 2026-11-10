@@ -128,6 +128,13 @@ public final class ClientTest {
             check(missingBoard.connect.equals("DISCONNECTED") && missingBoard.process.equals("UNKNOWN"), "missing endpoint is not a sample");
             check(missingBoard.acceptance.contains("ROLLBACK OPEN"), "missing endpoint keeps acceptance");
 
+            fixture.mode = "gone";
+            ObserverClient.Result gone = trusted.getSnapshot(fixture.base, 2000);
+            check(!gone.ok() && gone.status() == 410 && gone.detail().equals("Endpoint is gone"), "gone endpoint " + gone.detail());
+            check(!gone.detail().equals(missing.detail()), "410 is not the 404 sentence");
+            Board goneBoard = Board.from(gone, Instant.now());
+            check(goneBoard.connect.equals("DISCONNECTED") && goneBoard.process.equals("UNKNOWN"), "gone endpoint is not a sample");
+
             fixture.mode = "huge";
             ObserverClient.Result huge = trusted.getSnapshot(fixture.base, 2000);
             check(!huge.ok() && huge.detail().equals("Payload was not read"), "huge payload " + huge.detail());
@@ -238,6 +245,11 @@ public final class ClientTest {
                 }
                 if ("missing".equals(fixture.mode)) {
                     exchange.sendResponseHeaders(404, -1);
+                    exchange.close();
+                    return;
+                }
+                if ("gone".equals(fixture.mode)) {
+                    exchange.sendResponseHeaders(410, -1);
                     exchange.close();
                     return;
                 }

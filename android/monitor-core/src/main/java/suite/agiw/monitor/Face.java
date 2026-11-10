@@ -1,6 +1,7 @@
 package suite.agiw.monitor;
 
 import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -42,15 +43,24 @@ public final class Face {
         return value == null ? fallback : value;
     }
 
-    public static String lane(boolean cover, Board board) {
-        return cover ? "LANE  " + board.lane : board.lane;
+    public static String lane(boolean cover, Board board, String coverPattern) {
+        return cover ? format(coverPattern, board.lane) : board.lane;
     }
 
-    public static String attachment(boolean cover, Board board) {
-        return cover ? "ATTACH  " + board.attachment : board.attachment + "  " + board.runId;
+    public static String attachment(boolean cover, Board board, String coverPattern, String innerPattern) {
+        if (cover) return format(coverPattern, board.attachment);
+        return String.format(Locale.ROOT, innerPattern, text(board.attachment), text(board.runId));
     }
 
-    public static String connect(boolean cover, Board board) {
-        return cover ? "CONNECT  " + board.connect : board.connect;
+    public static String connect(boolean cover, Board board, String coverPattern) {
+        return cover ? format(coverPattern, board.connect) : board.connect;
+    }
+
+    private static String format(String pattern, String value) {
+        return String.format(Locale.ROOT, pattern, text(value));
+    }
+
+    private static String text(String value) {
+        return value == null ? "" : value;
     }
 }

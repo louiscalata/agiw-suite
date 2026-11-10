@@ -263,9 +263,10 @@ public final class MonitorActivity extends Activity {
     private void show(Board board) {
         shown = board;
         paint(R.id.process, board.process, R.string.desc_process, board.process);
-        paint(R.id.lane, Face.lane(cover, board), R.string.desc_lane, board.lane);
-        paint(R.id.attachment, Face.attachment(cover, board), R.string.desc_attach, board.attachment);
-        paint(R.id.connect, Face.connect(cover, board), R.string.desc_connect, board.connect);
+        paint(R.id.lane, Face.lane(cover, board, getString(R.string.cover_lane)), R.string.desc_lane, board.lane);
+        paint(R.id.attachment, Face.attachment(cover, board, getString(R.string.cover_attach), getString(R.string.attach_value)),
+                R.string.desc_attach, board.attachment);
+        paint(R.id.connect, Face.connect(cover, board, getString(R.string.cover_connect)), R.string.desc_connect, board.connect);
         paint(R.id.observed, board.observed, R.string.desc_time, board.observed);
         paint(R.id.detail, board.detail, R.string.desc_detail, board.detail);
         paint(R.id.acceptance, board.acceptance, R.string.desc_acceptance, board.acceptance);

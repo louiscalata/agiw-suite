@@ -47,7 +47,8 @@ public final class ObserverClient {
             int status = connection.getResponseCode();
             InputStream stream = status >= 400 ? connection.getErrorStream() : connection.getInputStream();
             String body = readLimited(stream);
-            if (status == 404 || status == 410) return new Result(false, status, "", "Endpoint was not found");
+            if (status == 404) return new Result(false, status, "", "Endpoint was not found");
+            if (status == 410) return new Result(false, status, "", "Endpoint is gone");
             if (status != 200) return new Result(false, status, "", "HTTP " + status);
             if (body == null) return new Result(false, status, "", "Payload was not read");
             return new Result(true, status, body, "");

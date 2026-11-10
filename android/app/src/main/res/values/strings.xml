@@ -38,4 +38,6 @@
     <string name="posture_book">BOOK</string>
     <string name="posture_book_description">Book posture. Content stays off the hinge.</string>
     <string name="widget_no_detail">No detail</string>
+    <string name="widget_locked">Locked</string>
+    <string name="widget_locked_description">AGIW status is hidden on the lock screen</string>
 </resources>
