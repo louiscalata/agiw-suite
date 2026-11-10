@@ -1304,3 +1304,80 @@ body.jaryo-app input::placeholder {
   color: var(--j-text);
   opacity: 1;
 }
+
+/* style.css still supplies the overview structure. These steps replace its
+   palette and its 7px-and-up sizes. Six steps, none under 12px:
+   12 meta, 14 label, 16 body, 20 title, 24 wordmark, 32 headline. */
+body.jaryo-app {
+  --j-size-1: 12px;
+  --j-size-2: 14px;
+  --j-size-3: 16px;
+  --j-size-4: 20px;
+  --j-size-5: 24px;
+  --j-size-6: 32px;
+  font-size: var(--j-size-3);
+  font-family: Inter, "Liberation Sans", "Noto Sans", sans-serif;
+}
+body.jaryo-app * {
+  font-family: Inter, "Liberation Sans", "Noto Sans", sans-serif !important;
+  font-size: var(--j-size-3) !important;
+}
+body.jaryo-app small,
+body.jaryo-app .eyebrow,
+body.jaryo-app .j-eyebrow,
+body.jaryo-app .j-word,
+body.jaryo-app .connection,
+body.jaryo-app > footer,
+body.jaryo-app .legend,
+body.jaryo-app .j-tab,
+body.jaryo-app .quiet,
+body.jaryo-app .coverage {
+  font-size: var(--j-size-1) !important;
+}
+body.jaryo-app .vital strong,
+body.jaryo-app .mode-tab-copy strong,
+body.jaryo-app .pc-switch-copy strong,
+body.jaryo-app .tools .fix-tab {
+  font-size: var(--j-size-2) !important;
+}
+body.jaryo-app h2,
+body.jaryo-app .j-board-title,
+body.jaryo-app .brand-wordmark,
+body.jaryo-app .brand-wordmark strong {
+  font-size: var(--j-size-4) !important;
+}
+body.jaryo-app .j-type,
+body.jaryo-app .metrics strong {
+  font-size: var(--j-size-5) !important;
+}
+body.jaryo-app h1,
+body.jaryo-app .sidebar h1 {
+  font-size: var(--j-size-6) !important;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+body.jaryo-app .graph-region,
+body.jaryo-app .graph-region::before {
+  background-image: none;
+  background-color: var(--j-bg);
+}
+body.jaryo-app .sidebar,
+body.jaryo-app .sidebar .view-tabs button,
+body.jaryo-app .legend .agent-key,
+body.jaryo-app .legend .agent-key strong,
+body.jaryo-app .legend .agent-key span {
+  color: var(--j-text);
+  border-color: var(--j-border);
+  background-color: var(--j-bg);
+}
+body.jaryo-app .client-summary strong,
+body.jaryo-app .node.client .sub,
+body.jaryo-app .node.client-model .sub,
+body.jaryo-app .node.clients .sub,
+body.jaryo-app .cluster-label,
+body.jaryo-app .map-lane.client {
+  color: var(--j-text);
+  fill: var(--j-text);
+  stroke: var(--j-text);
+}
