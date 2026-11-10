@@ -43,14 +43,14 @@ public final class StatusWidget extends AppWidgetProvider {
         views.setTextColor(R.id.widgetAcceptance, ink);
         views.setTextViewText(R.id.widgetProcess, board.process);
         views.setTextViewText(R.id.widgetConnect, context.getString(R.string.cover_connect, board.connect));
-        views.setContentDescription(R.id.widgetRoot,
-                context.getString(R.string.widget_summary, board.process, board.connect, board.acceptance));
         views.setTextViewText(R.id.widgetDetail, board.detail);
         views.setTextViewText(R.id.widgetAcceptance, board.acceptance);
-        views.setContentDescription(R.id.widgetProcess, board.process);
-        views.setContentDescription(R.id.widgetConnect, "Connection " + board.connect);
-        views.setContentDescription(R.id.widgetDetail, board.detail.isEmpty() ? "No detail" : board.detail);
-        views.setContentDescription(R.id.widgetAcceptance, board.acceptance);
+        // The root stays unlabeled. A summary there plus these rows is spoken twice.
+        views.setContentDescription(R.id.widgetProcess, context.getString(R.string.desc_process, board.process));
+        views.setContentDescription(R.id.widgetConnect, context.getString(R.string.desc_connect, board.connect));
+        views.setContentDescription(R.id.widgetDetail, context.getString(R.string.desc_detail,
+                board.detail.isEmpty() ? context.getString(R.string.widget_no_detail) : board.detail));
+        views.setContentDescription(R.id.widgetAcceptance, context.getString(R.string.desc_acceptance, board.acceptance));
         // Opens the inner activity on the normal display. The intent does not name a display.
         // One UI does not host this activity on the cover from this tap. Cover placement
         // is the widget metadata, after the person enables it under Cover screen Widgets.

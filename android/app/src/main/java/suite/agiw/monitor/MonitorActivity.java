@@ -258,13 +258,13 @@ public final class MonitorActivity extends Activity {
 
     private void show(Board board) {
         shown = board;
-        set(R.id.process, board.process);
-        set(R.id.lane, Face.lane(cover, board));
-        set(R.id.attachment, Face.attachment(cover, board));
-        set(R.id.connect, Face.connect(cover, board));
-        set(R.id.observed, board.observed);
-        set(R.id.detail, board.detail);
-        set(R.id.acceptance, board.acceptance);
+        paint(R.id.process, board.process, R.string.desc_process, board.process);
+        paint(R.id.lane, Face.lane(cover, board), R.string.desc_lane, board.lane);
+        paint(R.id.attachment, Face.attachment(cover, board), R.string.desc_attach, board.attachment);
+        paint(R.id.connect, Face.connect(cover, board), R.string.desc_connect, board.connect);
+        paint(R.id.observed, board.observed, R.string.desc_time, board.observed);
+        paint(R.id.detail, board.detail, R.string.desc_detail, board.detail);
+        paint(R.id.acceptance, board.acceptance, R.string.desc_acceptance, board.acceptance);
         if (!cover) reveal(findViewById(R.id.acceptance));
     }
 
@@ -428,25 +428,12 @@ public final class MonitorActivity extends Activity {
         scroller.scrollTo(0, Math.max(0, contentBottom - visible));
     }
 
-    private void set(int id, String value) {
+    /** Visible text may carry a cover prefix. The spoken label uses the raw field. */
+    private void paint(int id, String visible, int template, String spoken) {
         TextView view = findViewById(id);
         if (view == null) return;
-        String shown = value == null ? "" : value;
-        view.setText(shown);
-        int template = descriptionFor(id);
-        if (template != 0) view.setContentDescription(getString(template, shown));
-    }
-
-    private int descriptionFor(int id) {
-        if (id == R.id.process) return R.string.desc_process;
-        if (id == R.id.detail) return R.string.desc_detail;
-        if (id == R.id.acceptance) return R.string.desc_acceptance;
-        if (cover) return 0;
-        if (id == R.id.lane) return R.string.desc_lane;
-        if (id == R.id.attachment) return R.string.desc_attach;
-        if (id == R.id.connect) return R.string.desc_connect;
-        if (id == R.id.observed) return R.string.desc_time;
-        return 0;
+        view.setText(visible == null ? "" : visible);
+        view.setContentDescription(getString(template, spoken == null ? "" : spoken));
     }
 
     private void markHeading(int id) {

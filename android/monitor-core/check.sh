@@ -142,6 +142,10 @@ for needle in ("setContentDescription(R.id.widgetProcess", "setContentDescriptio
                "FLAG_IMMUTABLE", "MonitorActivity.class"):
     if needle not in widget:
         raise SystemExit("status widget missing " + needle)
+if "setContentDescription(R.id.widgetRoot" in widget:
+    raise SystemExit("widget root repeats the spoken rows")
+if "if (cover) return 0" in activity_text:
+    raise SystemExit("cover rows have no spoken label")
 if "FLAG_MUTABLE" in widget or "launchDisplayId" in widget:
     raise SystemExit("status widget opens a mutable or cover-display intent")
 if "getData(" in activity_text or "getStringExtra(" in activity_text:

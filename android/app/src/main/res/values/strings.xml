@@ -37,5 +37,5 @@
     <string name="posture_flex_description">Flex mode. Content stays above the hinge.</string>
     <string name="posture_book">BOOK</string>
     <string name="posture_book_description">Book posture. Content stays off the hinge.</string>
-    <string name="widget_summary">%1$s. Connection %2$s. %3$s</string>
+    <string name="widget_no_detail">No detail</string>
 </resources>
