@@ -1374,7 +1374,7 @@ test('Orb web: the glow and web layers sit first inside the camera viewport, dec
 test('Orb web: hairline thread token mixed from the ink, rings fading outward, fillers fainter, contrast and forced colours handled, dark theme only', () => {
   const rule = selector => { const at = css.lastIndexOf(`${selector}{`); assert.ok(at >= 0, selector); return css.slice(at + selector.length + 1, css.indexOf('}', at)); };
   const opacity = selector => Number(/opacity:([.\d]+)/.exec(rule(selector))[1]);
-  assert.match(css, /:root\{--web-thread:#[0-9a-f]{6};--web-dew:#[0-9a-f]{6};--glow-peak:\.22\}/);
+  assert.match(css, /:root\{--web-thread:var\(--ink\);--web-dew:#e8ecf5;--glow-peak:\.22\}/);
   assert.match(css, /@supports \(color:color-mix\(in oklab,red,blue\)\)\{:root\{--web-thread:color-mix\(in oklab,var\(--ink\) 80%,var\(--blue\)\);/);
   assert.doesNotMatch(css.slice(css.indexOf('/* Orb web (spiderweb')), /light-dark\(/, 'no light-dark(): Safari before 17.5 lacks it');
   assert.match(rule('#web path'), /^fill:none;stroke:var\(--web-thread\);stroke-width:1;vector-effect:non-scaling-stroke;/);
@@ -2096,7 +2096,7 @@ test('Memory: the map banner shows for tight and critical only, is dismissible u
   const rules = cssRules(css);
   assert.ok(rules.some(([media, head, body]) => /min-width:821px/.test(media) && /#memoryBanner:not\(\[hidden\]\)\) \.evidence-rail/.test(head) && /top:102px/.test(body)));
   assert.ok(!rules.some(([media, head]) => !/min-width/.test(media) && /#memoryBanner:not\(\[hidden\]\)\) \.evidence-rail/.test(head)));
-  assert.ok(rules.some(([media, head, body]) => !media && head === '.memory-banner[data-level=critical]' && /border-color:#c25a58/.test(body)));
+  assert.ok(rules.some(([media, head, body]) => !media && head === '.memory-banner[data-level=critical]' && /border-color:var\(--ink\)/.test(body)));
   // A long banner wraps rather than cutting its suggestion: two lines at every width (no single-line ellipsis, which hid a
   // Nisi caveat at 1280 and 1512 px), the rail stepping lower up to 1100 px, three lines at 560 px.
   assert.ok(rules.some(([media, head, body]) => !media && head === '.memory-banner-copy' && /display:-webkit-box/.test(body) && /-webkit-line-clamp:2/.test(body) && /-webkit-box-orient:vertical/.test(body)));

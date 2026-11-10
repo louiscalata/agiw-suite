@@ -71,6 +71,10 @@ jobs:
         env:
           NODE_PATH: ${{ runner.temp }}/pw/node_modules
         run: node checks/forced-colors-emulation.mjs
+      - name: Prove the overview paints ink
+        env:
+          NODE_PATH: ${{ runner.temp }}/pw/node_modules
+        run: node checks/overview-ink.mjs
 
   # Branch protection requires a check named exactly "monitor". A matrix job
   # reports only "monitor (<version>)", so this job reports the combined result.
