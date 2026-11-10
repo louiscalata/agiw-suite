@@ -1032,6 +1032,7 @@ body.jaryo-app .j-tabs {
   flex-wrap: wrap;
   overflow: visible;
   max-width: 100%;
+  min-height: 9rem;
 }
 body.jaryo-app .j-tab { flex: 1 1 14rem; min-width: 0; }
 body.jaryo-app .j-tab-label {
@@ -1054,7 +1055,7 @@ body.jaryo-app .j-tab-label {
     min-height: 44px;
   }
   body.jaryo-app .topbar { min-height: 7.5rem; }
-  body.jaryo-app .j-tabs { min-height: 14rem; }
+  body.jaryo-app .j-tabs { min-height: 26rem; }
   body.jaryo-app .graph-region,
   body.jaryo-app .graph-region:has(#monitorBoard:not([hidden])) {
     grid-template-rows: minmax(240px, 42vh) 34vh;
