@@ -6,11 +6,11 @@ The tall window (`activity_inner.xml`) is the inner screen: the word AGIW, an `h
 
 Receipt ids stay behind Receipts. The blocked acceptance line stays visible. `http` is refused before a socket opens. Cleartext is off in the network security config. The desktop monitors stay on `127.0.0.1` and this module does not open them, change a firewall, or open a tunnel.
 
-A nearly square window is the window aspect (`Surface.compact`). It is not a hinge angle and it is not proof that Samsung launched the activity on a Flip 6 cover. Fold posture is not read. Physical Flip 6: **NOT_RUN**.
+A nearly square window is the window aspect (`Surface.compact`). It is not a hinge angle and it is not proof that Samsung launched the activity on a Flip 6 cover. While the activity is in the foreground it reads fold posture from `WindowInfoTracker`. A half-open horizontal hinge pads the page so the viewport ends at the crease. A half-open vertical hinge keeps the page in the wider pane. The Samsung cover host and a physical Flip 6 are **NOT_RUN**.
 
 The name is the word AGIW, set in Inter. Inter is provisional. Louis did not choose it. The files in this module are the regular and semibold cuts, SIL Open Font License 1.1 (the copyright line and licence text ship in the APK at `assets/licenses/Inter-OFL-1.1.txt`). With no sample, the words are PROCESS UNKNOWN, LANE NOT MEASURED, ATTACH NO RUN, CONNECT NONE, TIME not reported, and the acceptance line stays blocked. Empty JSON, a non-object, a missing timestamp, and `pipeline.status` of `idle` without a `pipelines` array stay UNKNOWN. They do not become IDLE. A sample older than 30 seconds is STALE. Stale is not idle and not unknown. Nisi `needs-action` is BLOCKED. A live route wins over that blocked row. A run id without a matching analysis is UNATTACHED. The observation time is the payload string. Missing numbers stay missing. `Surface.compact` multiplies in 64-bit arithmetic so a huge window cannot overflow into a square result.
 
-The screen is Java. A PC review proposed Kotlin and Compose, three destinations, and a cover identified by fold posture. Those proposals are not this client.
+The screen is Java. A PC review proposed Kotlin and Compose and three destinations. Those proposals are not this client. Fold posture is read, as the paragraph above says.
 
 The debug APK from the earlier static build hashed `37b44f0f4992be2f05a29f8250c3a5e1db5f1640ade24427ea48ba2ca0ba8d2b`. A written report of that file used a final `d`. The file ended in `b`. Hash the current `app-debug.apk` again after `assembleDebug`. Linux compilation is not Mac or PC native acceptance.
 
