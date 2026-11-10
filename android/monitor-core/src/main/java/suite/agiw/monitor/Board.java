@@ -46,6 +46,24 @@ public final class Board {
         return new Board("UNKNOWN", "NOT MEASURED", "NO RUN", "not reported", detail, "DISCONNECTED", "not reported");
     }
 
+    /** A refusal stays REFUSED. Anything else that is not a sample stays DISCONNECTED. */
+    public static Board from(ObserverClient.Result result, Instant now) {
+        if (result == null) return none("No address");
+        String detail = result.detail() == null ? "" : result.detail();
+        if (refusedDetail(detail)) return refused(detail);
+        if (!result.ok()) return disconnected(detail.isEmpty() ? "Observer did not answer" : detail);
+        return read(result.body(), now == null ? Instant.EPOCH : now);
+    }
+
+    private static boolean refusedDetail(String detail) {
+        return "Cleartext is not used".equals(detail)
+                || "No address".equals(detail)
+                || "Type an https address".equals(detail)
+                || "Address was not read".equals(detail)
+                || "Address has credentials".equals(detail)
+                || "Address has no host".equals(detail);
+    }
+
     public static Board read(String json, Instant now) {
         Object parsed;
         try {

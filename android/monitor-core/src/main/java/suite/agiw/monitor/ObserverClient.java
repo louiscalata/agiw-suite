@@ -1,5 +1,6 @@
 package suite.agiw.monitor;
 
+import java.io.IOException;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URI;
@@ -21,12 +22,19 @@ public final class ObserverClient {
     }
 
     public Result getSnapshot(URI base, int timeoutMs) {
-        if (base == null || base.getScheme() == null) return Result.refused("No address");
+        if (base == null) return Result.refused("No address");
+        if (base.getScheme() == null) return Result.refused("Type an https address");
         if (!"https".equalsIgnoreCase(base.getScheme())) return Result.refused("Cleartext is not used");
         if (base.getUserInfo() != null) return Result.refused("Address has credentials");
-        if (base.getHost() == null || base.getHost().isBlank()) return Result.refused("Address has no host");
+        String host = bracketedHost(base.getHost());
+        if (host == null || host.isBlank() || "[]".equals(host)) return Result.refused("Address has no host");
         int port = base.getPort();
-        URI target = URI.create(base.getScheme() + "://" + base.getHost() + (port >= 0 ? ":" + port : "") + "/api/snapshot");
+        URI target;
+        try {
+            target = URI.create(base.getScheme() + "://" + host + (port >= 0 ? ":" + port : "") + "/api/snapshot");
+        } catch (IllegalArgumentException ex) {
+            return Result.refused("Address was not read");
+        }
         HttpURLConnection connection = null;
         try {
             connection = (HttpURLConnection) target.toURL().openConnection();
@@ -37,14 +45,31 @@ public final class ObserverClient {
             connection.setRequestMethod("GET");
             int status = connection.getResponseCode();
             InputStream stream = status >= 400 ? connection.getErrorStream() : connection.getInputStream();
-            String body = stream == null ? "" : new String(stream.readAllBytes(), StandardCharsets.UTF_8);
+            String body = readLimited(stream);
+            if (status == 404 || status == 410) return new Result(false, status, "", "Endpoint was not found");
             if (status != 200) return new Result(false, status, "", "HTTP " + status);
+            if (body == null) return new Result(false, status, "", "Payload was not read");
             return new Result(true, status, body, "");
         } catch (Exception ex) {
             return new Result(false, 0, "", "Observer did not answer");
         } finally {
             if (connection != null) connection.disconnect();
         }
+    }
+
+    /** IPv6 hosts from URI.getHost() have no brackets. The snapshot URI needs them. */
+    static String bracketedHost(String host) {
+        if (host == null) return null;
+        if (host.indexOf(':') >= 0 && !host.startsWith("[")) return "[" + host + "]";
+        return host;
+    }
+
+    /** Null means the body was larger than the cap. The caller does not keep it. */
+    private static String readLimited(InputStream stream) throws IOException {
+        if (stream == null) return "";
+        byte[] data = stream.readNBytes(1_000_001);
+        if (data.length > 1_000_000) return null;
+        return new String(data, StandardCharsets.UTF_8);
     }
 
     public record Result(boolean ok, int status, String body, String detail) {
