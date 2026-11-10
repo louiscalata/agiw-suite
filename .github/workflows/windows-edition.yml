@@ -21,7 +21,8 @@ permissions:
 jobs:
   windows:
     name: windows edition (${{ matrix.python }})
-    runs-on: windows-latest
+    # Same-repo events use Louis's PC runner; fork pull requests stay on GitHub-hosted Windows.
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted","pc-win"]') || 'windows-latest' }}
     timeout-minutes: 25
     strategy:
       fail-fast: false
@@ -45,7 +46,8 @@ jobs:
   # files). It runs once, not once per Python version.
   node:
     name: windows node tests
-    runs-on: windows-latest
+    # Same-repo events use Louis's PC runner; fork pull requests stay on GitHub-hosted Windows.
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted","pc-win"]') || 'windows-latest' }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7.0.1

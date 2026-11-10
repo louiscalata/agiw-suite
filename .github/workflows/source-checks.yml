@@ -11,7 +11,8 @@ permissions:
 jobs:
   tests:
     name: monitor (${{ matrix.python }})
-    runs-on: macos-latest
+    # Same-repo events use Louis's Mac runner; fork pull requests stay on GitHub-hosted macOS.
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted","mac-m5"]') || 'macos-latest' }}
     timeout-minutes: 35
     strategy:
       fail-fast: false
@@ -50,10 +51,10 @@ jobs:
           node --check web/monitor.mjs
 
   # Chromium emulation of forced-colors: active. Not a Windows High Contrast
-  # hardware pass. Ubuntu only: the macOS job does not install Playwright.
+  # hardware pass. Linux only: the observer requires POSIX fcntl.
   forced-colors:
     name: forced-colors emulation
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON((github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "box-linux"]' || '"ubuntu-latest"') }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7.0.1
@@ -66,7 +67,11 @@ jobs:
       - name: Install Chromium for the emulation
         run: |
           npm install --prefix "$RUNNER_TEMP/pw" playwright@1.49.1
-          (cd "$RUNNER_TEMP/pw" && npx playwright install --with-deps chromium)
+          if [ "${{ runner.environment }}" = "self-hosted" ]; then
+            (cd "$RUNNER_TEMP/pw" && npx playwright install chromium)
+          else
+            (cd "$RUNNER_TEMP/pw" && npx playwright install --with-deps chromium)
+          fi
       - name: Emulate forced-colors on / and /monitor
         env:
           NODE_PATH: ${{ runner.temp }}/pw/node_modules
@@ -77,7 +82,7 @@ jobs:
   monitor:
     if: ${{ always() }}
     needs: [tests, forced-colors]
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON((github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "box-linux"]' || '"ubuntu-latest"') }}
     timeout-minutes: 5
     steps:
       - name: Require the suites and the forced-colors emulation
