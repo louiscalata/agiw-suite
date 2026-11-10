@@ -1,5 +1,6 @@
 :root { color-scheme: light dark; font-family: Jost, system-ui, sans-serif; }
-body { margin: auto; padding: 1.5rem; max-width: 76rem; line-height: 1.6; background: Canvas; color: CanvasText; }
+body { line-height: 1.6; background: Canvas; color: CanvasText; }
+main#content { margin: auto; padding: 1.5rem; max-width: 76rem; }
 h1, h2, h3 { font-family: Newsreader, system-ui, serif; line-height: 1.2; font-weight: 500; }
 h1 { font-size: clamp(2rem, 5vw, 3.25rem); }
 section { border-top: 1px solid GrayText; margin-top: 2rem; padding-top: 1rem; }
@@ -9,4 +10,4 @@ th { font-weight: 600; }
 .table-scroll { overflow-x: auto; }
 a { color: LinkText; }
 a:focus-visible { outline: 3px dashed Highlight; outline-offset: 4px; }
-@media (max-width: 40rem) { body { padding: 1rem; } table { min-width: 38rem; } }
+@media (max-width: 40rem) { main#content { padding: 1rem; } table { min-width: 38rem; } }
