@@ -30,6 +30,7 @@ public final class MonitorActivity extends Activity {
     private static final String KEY_PROCESS = "process";
     private static final String KEY_LANE = "lane";
     private static final String KEY_ATTACH = "attach";
+    private static final String KEY_RUN = "runId";
     private static final String KEY_CONNECT = "connect";
     private static final String KEY_DETAIL = "detail";
     private static final String KEY_ACCEPT = "accept";
@@ -42,6 +43,7 @@ public final class MonitorActivity extends Activity {
     private String addressText = "";
     private int inflight;
     private boolean receiptsOpen;
+    private Board shown = Board.none("No address");
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -72,20 +74,22 @@ public final class MonitorActivity extends Activity {
         float scale = Settings.Global.getFloat(getContentResolver(), Settings.Global.ANIMATOR_DURATION_SCALE, 1f);
         View rule = findViewById(R.id.schematic);
         if (rule != null) rule.setVisibility(Surface.motion(scale) ? View.VISIBLE : View.INVISIBLE);
-        if (state == null) show(Board.none("No address"));
+        if (state == null) shown = Board.none("No address");
         else {
-            set(R.id.process, state.getString(KEY_PROCESS, ""));
-            set(R.id.lane, state.getString(KEY_LANE, ""));
-            set(R.id.attachment, state.getString(KEY_ATTACH, ""));
-            set(R.id.connect, state.getString(KEY_CONNECT, ""));
-            set(R.id.detail, state.getString(KEY_DETAIL, ""));
-            set(R.id.acceptance, state.getString(KEY_ACCEPT, Acceptance.LINE));
-            set(R.id.observed, state.getString(KEY_OBSERVED, ""));
+            shown = Board.stored(
+                    state.getString(KEY_PROCESS, "UNKNOWN"),
+                    state.getString(KEY_LANE, "NOT MEASURED"),
+                    state.getString(KEY_ATTACH, "NO RUN"),
+                    state.getString(KEY_RUN, "not reported"),
+                    state.getString(KEY_DETAIL, ""),
+                    state.getString(KEY_CONNECT, "NONE"),
+                    state.getString(KEY_OBSERVED, "not reported"));
             addressText = state.getString(KEY_ADDRESS, "");
             receiptsOpen = state.getBoolean(KEY_RECEIPTS, false);
             EditText address = findViewById(R.id.address);
             if (address != null) address.setText(addressText);
         }
+        show(shown);
         TextView receipts = findViewById(R.id.receipts);
         if (receipts != null) receipts.setText(Acceptance.notes());
         Button read = findViewById(R.id.read);
@@ -130,13 +134,14 @@ public final class MonitorActivity extends Activity {
         EditText address = findViewById(R.id.address);
         if (address != null) addressText = address.getText().toString();
         outState.putString(KEY_ADDRESS, addressText);
-        outState.putString(KEY_PROCESS, text(R.id.process));
-        outState.putString(KEY_LANE, text(R.id.lane));
-        outState.putString(KEY_ATTACH, text(R.id.attachment));
-        outState.putString(KEY_CONNECT, text(R.id.connect));
-        outState.putString(KEY_DETAIL, text(R.id.detail));
-        outState.putString(KEY_ACCEPT, text(R.id.acceptance));
-        outState.putString(KEY_OBSERVED, text(R.id.observed));
+        outState.putString(KEY_PROCESS, shown.process);
+        outState.putString(KEY_LANE, shown.lane);
+        outState.putString(KEY_ATTACH, shown.attachment);
+        outState.putString(KEY_RUN, shown.runId);
+        outState.putString(KEY_CONNECT, shown.connect);
+        outState.putString(KEY_DETAIL, shown.detail);
+        outState.putString(KEY_ACCEPT, shown.acceptance);
+        outState.putString(KEY_OBSERVED, shown.observed);
         outState.putBoolean(KEY_RECEIPTS, receiptsOpen);
     }
 
@@ -191,11 +196,12 @@ public final class MonitorActivity extends Activity {
     }
 
     private void show(Board board) {
+        shown = board;
         set(R.id.process, board.process);
-        set(R.id.lane, cover ? "LANE  " + board.lane : board.lane);
-        set(R.id.attachment, cover ? "ATTACH  " + board.attachment : board.attachment + "  " + board.runId);
-        set(R.id.connect, cover ? "CONNECT  " + board.connect : board.connect);
-        set(R.id.observed, cover ? board.observed : board.observed);
+        set(R.id.lane, Face.lane(cover, board));
+        set(R.id.attachment, Face.attachment(cover, board));
+        set(R.id.connect, Face.connect(cover, board));
+        set(R.id.observed, board.observed);
         set(R.id.detail, board.detail);
         set(R.id.acceptance, board.acceptance);
         if (!cover) reveal(findViewById(R.id.acceptance));
@@ -336,11 +342,6 @@ public final class MonitorActivity extends Activity {
         }
         int visible = scroller.getHeight() - scroller.getPaddingTop() - scroller.getPaddingBottom();
         scroller.scrollTo(0, Math.max(0, contentBottom - visible));
-    }
-
-    private String text(int id) {
-        TextView view = findViewById(id);
-        return view == null || view.getText() == null ? "" : view.getText().toString();
     }
 
     private void set(int id, String value) {

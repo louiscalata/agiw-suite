@@ -72,6 +72,17 @@ public final class OverviewTest {
         Files.deleteIfExists(sample);
         check(!Surface.motion(0f), "reduced motion");
         check(Surface.motion(1f), "motion allowed");
+        Board face = Board.stored("RUNNING", "INVENTORY", "UNATTACHED", "run-1", "RUNNING", "SAMPLE", "2026-11-06T20:00:00Z");
+        check(Face.lane(true, face).equals("LANE  INVENTORY"), "cover lane prefix");
+        check(Face.lane(false, face).equals("INVENTORY"), "inner lane is the field");
+        check(Face.attachment(true, face).equals("ATTACH  UNATTACHED"), "cover attach");
+        check(Face.attachment(false, face).equals("UNATTACHED  run-1"), "inner attach keeps the run id");
+        check(Face.connect(true, face).equals("CONNECT  SAMPLE"), "cover connect");
+        check(Face.connect(false, face).equals("SAMPLE"), "inner connect");
+        Board kept = Board.stored(face.process, face.lane, face.attachment, face.runId, face.detail, face.connect, face.observed);
+        check(Face.lane(false, kept).equals("INVENTORY"), "inner after cover does not keep the prefix");
+        check(Face.attachment(false, kept).equals("UNATTACHED  run-1"), "run id survives the short window");
+        check(!Face.lane(true, kept).contains("LANE  LANE"), "cover prefix is not doubled");
         System.out.println("android monitor-core: " + checks + " checks passed");
     }
 

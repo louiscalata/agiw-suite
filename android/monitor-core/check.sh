@@ -55,6 +55,10 @@ for needle in ("gate.accepts", "Read cancelled", "adjustResize"):
         raise SystemExit("missing safeguard " + needle)
 if "gate.accepts" not in activity_text or "Read cancelled" not in activity_text:
     raise SystemExit("activity does not keep the latest read")
+if "KEY_RUN" not in activity_text or "shown.lane" not in activity_text or "Face.lane" not in activity_text:
+    raise SystemExit("rotation stores the decorated line instead of the board fields")
+if "outState.putString(KEY_LANE, text(R.id.lane))" in activity_text:
+    raise SystemExit("lane state stores the decorated line")
 if "setOnApplyWindowInsetsListener" not in activity_text or "setDecorFitsSystemWindows" not in activity_text:
     raise SystemExit("window insets are not applied")
 inner = (layout / "activity_inner.xml").read_text()
