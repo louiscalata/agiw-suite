@@ -17,8 +17,8 @@ jobs:
       matrix:
         os: [macos-latest, windows-latest]
         python: ['3.9', '3.12']
-    # Same-repo Windows legs use Louis's PC runner; macOS legs and fork pull requests stay on GitHub-hosted runners.
-    runs-on: ${{ matrix.os == 'windows-latest' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted","pc-win"]') || matrix.os }}
+    # Same-repo legs use their matching self-hosted runner; fork pull requests stay on GitHub-hosted runners.
+    runs-on: ${{ matrix.os == 'macos-latest' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted","mac-m5"]') || matrix.os == 'windows-latest' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted","pc-win"]') || matrix.os }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7.0.1
