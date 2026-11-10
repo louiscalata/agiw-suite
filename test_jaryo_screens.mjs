@@ -145,6 +145,11 @@ test('Mac waiting chrome and Android covers stay black and white type', () => {
   assert.match(cover, /android:textColor="@color\/agiw_ink"/);
 });
 
+test('the footer About control uses the same 44px target as the toolbar', () => {
+  const css = read('./web/jaryo.css');
+  assert.match(css, /body\.jaryo-app > footer #about \{\s*min-height: 44px;\s*padding: 8px 12px;\s*\}/);
+});
+
 test('the map key and activity dots use Jaryo ink over the old palette', () => {
   const css = read('./web/jaryo.css');
   const style = read('./web/style.css');
