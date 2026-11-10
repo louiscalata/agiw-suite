@@ -30,6 +30,8 @@ import androidx.window.layout.WindowInfoTracker;
 import androidx.window.layout.WindowLayoutInfo;
 import java.net.URI;
 import java.time.Instant;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.concurrent.Executor;
 
 /**
@@ -143,14 +145,15 @@ public final class MonitorActivity extends Activity {
         if (rule != null) rule.setVisibility(Surface.motion(scale) ? View.VISIBLE : View.INVISIBLE);
         if (state == null) shown = Board.none("No address");
         else {
-            shown = Board.stored(
-                    state.getString(KEY_PROCESS, "UNKNOWN"),
-                    state.getString(KEY_LANE, "NOT MEASURED"),
-                    state.getString(KEY_ATTACH, "NO RUN"),
-                    state.getString(KEY_RUN, "not reported"),
-                    state.getString(KEY_DETAIL, ""),
-                    state.getString(KEY_CONNECT, "NONE"),
-                    state.getString(KEY_OBSERVED, "not reported"));
+            Map<String, String> saved = new LinkedHashMap<>();
+            saved.put("process", state.getString(KEY_PROCESS, "UNKNOWN"));
+            saved.put("lane", state.getString(KEY_LANE, "NOT MEASURED"));
+            saved.put("attachment", state.getString(KEY_ATTACH, "NO RUN"));
+            saved.put("runId", state.getString(KEY_RUN, "not reported"));
+            saved.put("detail", state.getString(KEY_DETAIL, ""));
+            saved.put("connect", state.getString(KEY_CONNECT, "NONE"));
+            saved.put("observed", state.getString(KEY_OBSERVED, "not reported"));
+            shown = Face.restore(saved);
             addressText = state.getString(KEY_ADDRESS, "");
             receiptsOpen = state.getBoolean(KEY_RECEIPTS, false);
             EditText address = findViewById(R.id.address);
@@ -201,14 +204,15 @@ public final class MonitorActivity extends Activity {
         EditText address = findViewById(R.id.address);
         if (address != null) addressText = address.getText().toString();
         outState.putString(KEY_ADDRESS, addressText);
-        outState.putString(KEY_PROCESS, shown.process);
-        outState.putString(KEY_LANE, shown.lane);
-        outState.putString(KEY_ATTACH, shown.attachment);
-        outState.putString(KEY_RUN, shown.runId);
-        outState.putString(KEY_CONNECT, shown.connect);
-        outState.putString(KEY_DETAIL, shown.detail);
+        Map<String, String> fields = Face.capture(shown);
+        outState.putString(KEY_PROCESS, fields.get("process"));
+        outState.putString(KEY_LANE, fields.get("lane"));
+        outState.putString(KEY_ATTACH, fields.get("attachment"));
+        outState.putString(KEY_RUN, fields.get("runId"));
+        outState.putString(KEY_CONNECT, fields.get("connect"));
+        outState.putString(KEY_DETAIL, fields.get("detail"));
         outState.putString(KEY_ACCEPT, shown.acceptance);
-        outState.putString(KEY_OBSERVED, shown.observed);
+        outState.putString(KEY_OBSERVED, fields.get("observed"));
         outState.putBoolean(KEY_RECEIPTS, receiptsOpen);
     }
 

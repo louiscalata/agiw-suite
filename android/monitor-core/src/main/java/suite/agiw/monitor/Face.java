@@ -1,5 +1,8 @@
 package suite.agiw.monitor;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
+
 /**
  * Words for one board on the tall window or the short window.
  * The short window prefixes LANE, ATTACH, and CONNECT. The stored board
@@ -8,6 +11,36 @@ package suite.agiw.monitor;
  */
 public final class Face {
     private Face() {}
+
+    /** Raw fields. Not the painted cover line. */
+    public static Map<String, String> capture(Board board) {
+        Map<String, String> out = new LinkedHashMap<>();
+        out.put("process", board.process);
+        out.put("lane", board.lane);
+        out.put("attachment", board.attachment);
+        out.put("runId", board.runId);
+        out.put("detail", board.detail);
+        out.put("connect", board.connect);
+        out.put("observed", board.observed);
+        return out;
+    }
+
+    public static Board restore(Map<String, String> saved) {
+        if (saved == null) return Board.none("No address");
+        return Board.stored(
+                field(saved, "process", "UNKNOWN"),
+                field(saved, "lane", "NOT MEASURED"),
+                field(saved, "attachment", "NO RUN"),
+                field(saved, "runId", "not reported"),
+                field(saved, "detail", ""),
+                field(saved, "connect", "NONE"),
+                field(saved, "observed", "not reported"));
+    }
+
+    private static String field(Map<String, String> saved, String key, String fallback) {
+        String value = saved.get(key);
+        return value == null ? fallback : value;
+    }
 
     public static String lane(boolean cover, Board board) {
         return cover ? "LANE  " + board.lane : board.lane;

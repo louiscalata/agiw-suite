@@ -2,6 +2,7 @@ package suite.agiw.monitor;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Map;
 
 public final class OverviewTest {
     public static void main(String[] args) throws Exception {
@@ -79,10 +80,16 @@ public final class OverviewTest {
         check(Face.attachment(false, face).equals("UNATTACHED  run-1"), "inner attach keeps the run id");
         check(Face.connect(true, face).equals("CONNECT  SAMPLE"), "cover connect");
         check(Face.connect(false, face).equals("SAMPLE"), "inner connect");
-        Board kept = Board.stored(face.process, face.lane, face.attachment, face.runId, face.detail, face.connect, face.observed);
-        check(Face.lane(false, kept).equals("INVENTORY"), "inner after cover does not keep the prefix");
-        check(Face.attachment(false, kept).equals("UNATTACHED  run-1"), "run id survives the short window");
-        check(!Face.lane(true, kept).contains("LANE  LANE"), "cover prefix is not doubled");
+        Map<String, String> saved = Face.capture(face);
+        check("INVENTORY".equals(saved.get("lane")), "capture stores the lane field");
+        check(!"LANE  INVENTORY".equals(saved.get("lane")), "capture does not store the painted cover line");
+        Board restored = Face.restore(saved);
+        check(Face.lane(false, restored).equals("INVENTORY"), "restore binds the inner field");
+        check(Face.attachment(false, restored).equals("UNATTACHED  run-1"), "run id survives capture and restore");
+        check(!Face.lane(true, restored).contains("LANE  LANE"), "a second cover paint is not doubled");
+        Map<String, String> again = Face.capture(restored);
+        check("INVENTORY".equals(again.get("lane")), "the next capture still stores the field");
+        check("run-1".equals(again.get("runId")), "the next capture still stores the run id");
         System.out.println("android monitor-core: " + checks + " checks passed");
     }
 
