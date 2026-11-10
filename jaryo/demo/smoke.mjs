@@ -158,6 +158,8 @@ async function main() {
   const profile = await mkdtemp(join(tmpdir(), 'jaryo-chrome-'));
   const chrome = spawn(chromeBin, [
     '--headless=new',
+    '--use-mock-keychain',
+    '--password-store=basic',
     '--disable-gpu',
     '--no-first-run',
     '--disable-dev-shm-usage',
