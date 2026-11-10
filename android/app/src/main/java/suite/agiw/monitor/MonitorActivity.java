@@ -345,7 +345,7 @@ public final class MonitorActivity extends Activity {
             int padTop = top;
             int right = side;
             int padBottom = bottom;
-            view.setClipToPadding(folded);
+            ((ScrollView) view).setClipToPadding(folded);
             if (Build.VERSION.SDK_INT >= 30) {
                 Insets bars = insets.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
                 Insets ime = insets.getInsets(WindowInsets.Type.ime());
