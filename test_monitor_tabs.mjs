@@ -560,7 +560,8 @@ test('provisional identity is unlabeled as a choice and the board no longer cove
   assert.match(read('./jaryo/marks/d4-split-on-dark.svg'), /#ffffff/);
   assert.doesNotMatch(css, /d4-split\.svg/);
   assert.doesNotMatch(css, /d1-stamp\.svg/);
-  assert.match(css, /font-family: "IBM Plex Sans"/);
+  assert.match(css, /font-family: "Jost"/);
+  assert.match(css, /font-family: "Newsreader"/);
   assert.match(read('./web/index.html'), /AGIW Suite/);
   assert.doesNotMatch(read('./web/index.html'), /D4 direction/);
   assert.match(css, /grid-column: 1/);

@@ -3,32 +3,32 @@
 @import url("/jaryo/primitives.css");
 
 @font-face {
-  font-family: "IBM Plex Sans";
+  font-family: "Jost";
   font-style: normal;
   font-weight: 400;
-  font-display: swap;
-  src: url("/fonts/ibm-plex-sans-400.woff2") format("woff2");
+  font-display: optional;
+  src: url("/fonts/jost-400.woff2") format("woff2");
 }
 @font-face {
-  font-family: "IBM Plex Sans";
+  font-family: "Jost";
   font-style: normal;
   font-weight: 700;
-  font-display: swap;
-  src: url("/fonts/ibm-plex-sans-700.woff2") format("woff2");
+  font-display: optional;
+  src: url("/fonts/jost-700.woff2") format("woff2");
 }
 @font-face {
-  font-family: "IBM Plex Mono";
+  font-family: "Newsreader";
   font-style: normal;
   font-weight: 400;
-  font-display: swap;
-  src: url("/fonts/ibm-plex-mono-400.woff2") format("woff2");
+  font-display: optional;
+  src: url("/fonts/newsreader-400.woff2") format("woff2");
 }
 @font-face {
-  font-family: "IBM Plex Mono";
+  font-family: "Newsreader";
   font-style: normal;
   font-weight: 700;
-  font-display: swap;
-  src: url("/fonts/ibm-plex-mono-700.woff2") format("woff2");
+  font-display: optional;
+  src: url("/fonts/newsreader-700.woff2") format("woff2");
 }
 
 :root {
@@ -562,7 +562,7 @@ body.jaryo-app .j-page > details:first-child {
 body.jaryo-app .brand-wordmark strong,
 body.jaryo-app .j-brand strong,
 body.jaryo-app .j-type {
-  font-family: "IBM Plex Sans", "Liberation Sans", "Noto Sans", sans-serif;
+  font-family: "Jost", "Liberation Sans", "Noto Sans", sans-serif;
   font-weight: 600;
   letter-spacing: 0.02em;
   text-transform: none;
@@ -799,7 +799,7 @@ body.jaryo-app #monitorBoard.j-board {
 }
 
 body.jaryo-app .sidebar h1 {
-  font-family: "IBM Plex Sans", "Liberation Sans", "Noto Sans", sans-serif;
+  font-family: "Jost", "Liberation Sans", "Noto Sans", sans-serif;
   font-size: clamp(28px, 2.2vw, 40px);
   font-weight: 600;
   letter-spacing: -0.03em;
@@ -1298,7 +1298,7 @@ body.jaryo-app .j-chrome { min-width: 0; max-width: 100%; }
 body.jaryo-app .j-tabs { min-height: 9rem; }
 @media (max-width: 800px) {
   body.jaryo-app .topbar { min-height: 8rem; }
-  body.jaryo-app .j-tabs { min-height: 18rem; }
+  body.jaryo-app .j-tabs { min-height: 25rem; }
 }
 
 /* Six steps, none under 12px. Booklet jumps: 13 meta, 21 body, 34 title,
@@ -1310,20 +1310,37 @@ body.jaryo-app {
   --j-size-4: 55px;
   --j-size-5: 89px;
   --j-size-6: 144px;
-  font-family: "IBM Plex Sans", "Liberation Sans", "Noto Sans", sans-serif;
+  font-family: "Jost", "Liberation Sans", "Noto Sans", sans-serif;
 }
 body.jaryo-app * {
-  font-family: "IBM Plex Sans", "Liberation Sans", "Noto Sans", sans-serif !important;
+  font-family: "Jost", "Liberation Sans", "Noto Sans", sans-serif !important;
   font-size: var(--j-size-2) !important;
 }
+body.jaryo-app h1,
+body.jaryo-app h2,
+body.jaryo-app .sidebar h1,
+body.jaryo-app .brand-wordmark,
+body.jaryo-app .brand-wordmark strong,
+body.jaryo-app .j-brand strong,
+body.jaryo-app .j-type,
+body.jaryo-app .j-board-title {
+  font-family: "Newsreader", "Liberation Serif", "Noto Serif", serif !important;
+}
+body.jaryo-app .metrics,
+body.jaryo-app .metrics dd,
+body.jaryo-app .metrics strong,
+body.jaryo-app .j-metrics,
+body.jaryo-app .j-metrics dd,
+body.jaryo-app .run-id,
+body.jaryo-app .j-machine-host {
+  font-family: "Jost", "Liberation Sans", "Noto Sans", sans-serif !important;
+  font-variant-numeric: tabular-nums;
+}
+/* The peer map is space-padded columns, so those lines need a real monospace. */
 body.jaryo-app .j-schematic,
 body.jaryo-app .j-page pre,
-body.jaryo-app .j-page code,
-body.jaryo-app .run-id,
-body.jaryo-app .j-machine-host,
-body.jaryo-app .metrics dd,
-body.jaryo-app .j-metrics dd {
-  font-family: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace !important;
+body.jaryo-app .j-page code {
+  font-family: ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace !important;
 }
 body.jaryo-app small,
 body.jaryo-app .eyebrow,
@@ -1413,4 +1430,41 @@ body.jaryo-app .j-tab[aria-selected="true"] .j-tab-label {
     background: Highlight;
     color: HighlightText;
   }
+}
+
+/* Flat ink on the map. No glow, halo, blur, shadow, or radial wash. */
+body.jaryo-app .graph-region::before,
+body.jaryo-app .graph-region::after {
+  content: none;
+  background: none;
+  filter: none;
+  box-shadow: none;
+}
+body.jaryo-app .graph-region,
+body.jaryo-app #map,
+body.jaryo-app #map *,
+body.jaryo-app .vital,
+body.jaryo-app .map-controls,
+body.jaryo-app .legend,
+body.jaryo-app .node,
+body.jaryo-app .node *,
+body.jaryo-app .edge,
+body.jaryo-app #glows,
+body.jaryo-app #glows * {
+  filter: none !important;
+  box-shadow: none !important;
+  text-shadow: none !important;
+  backdrop-filter: none !important;
+}
+body.jaryo-app .node .halo,
+body.jaryo-app .node .ring,
+body.jaryo-app #glows,
+body.jaryo-app .glow {
+  display: none !important;
+}
+body.jaryo-app .node .label,
+body.jaryo-app .node .sub,
+body.jaryo-app .cluster-label {
+  stroke: none;
+  paint-order: normal;
 }

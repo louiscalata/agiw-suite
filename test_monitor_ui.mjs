@@ -1485,8 +1485,8 @@ test('Orb web: reduced motion or a paused feed turns a poke into one brief highl
 test('Orb web: a live job with motion allowed puts nothing on the threads; reduced motion gets static dew; forced colours build no glows', () => {
   const w = webHarness();
   w.api.setFeed(webFeed(true)); w.api.build(); w.api.renderWeb(); w.api.renderGlows();
-  assert.equal(w.$('web').querySelector('.web-live').children.length, 0, 'no drop and no dew: the halo, glow and heartbeat carry the job');
-  assert.ok(w.$('glows').querySelectorAll('.glow').length > 0, 'the glows are built');
+  assert.equal(w.$('web').querySelector('.web-live').children.length, 0, 'no drop and no dew');
+  assert.equal(w.$('glows').querySelectorAll('.glow').length, 0, 'the map does not paint a glow');
   const reduced = webHarness({ reduced: true });
   reduced.api.setFeed(webFeed(true)); reduced.api.build(); reduced.api.renderWeb();
   assert.deepEqual(reduced.$('web').querySelector('.web-live').children.map(child => child.className), ['web-dew']);
@@ -1498,21 +1498,19 @@ test('Orb web: a live job with motion allowed puts nothing on the threads; reduc
 
 test('a verified model aura follows busy to generating cadence and stops when activity is paused or idle', () => {
   const w = webHarness();
-  const modelGlow = () => w.$('glows').querySelectorAll('.glow').find(node => node.getAttribute('data-node')?.startsWith('model:'));
+  const model = () => w.api.graph.nodes.find(node => node.kind === 'model');
   const busy = webFeed(true); busy.models[0].state = 'busy';
   w.api.setFeed(busy); w.api.build(); w.api.renderGlows();
-  assert.equal(w.api.graph.nodes.find(node => node.kind === 'model').auraPeriodMs, 2400);
-  assert.equal(modelGlow()?.getAttribute('style'), 'animation-duration:2400ms');
-  const first = modelGlow();
+  assert.equal(model().auraPeriodMs, 2400);
+  assert.equal(w.$('glows').querySelector('.glow'), null, 'a busy model does not paint a glow');
   const generating = webFeed(true);
   w.api.setFeed(generating); w.api.build(); w.api.renderGlows();
-  assert.equal(w.api.graph.nodes.find(node => node.kind === 'model').auraPeriodMs, 1200);
-  assert.equal(modelGlow()?.getAttribute('style'), 'animation-duration:1200ms');
-  assert.notEqual(modelGlow(), first, 'the phase change refreshes the glow cadence');
+  assert.equal(model().auraPeriodMs, 1200);
+  assert.equal(w.$('glows').querySelector('.glow'), null);
   w.api.setPaused(true); w.api.build(); w.api.renderGlows();
-  assert.equal(modelGlow(), undefined, 'a paused model has no active aura');
+  assert.equal(w.$('glows').querySelector('.glow'), null, 'a paused model does not paint a glow');
   w.api.setPaused(false); w.api.setFeed(webFeed(false)); w.api.build(); w.api.renderGlows();
-  assert.equal(modelGlow(), undefined, 'an idle model has no active aura');
+  assert.equal(w.$('glows').querySelector('.glow'), null, 'an idle model does not paint a glow');
   assert.match(appSource, /halo\.setAttribute\('style',n\.auraPeriodMs\?`animation-duration:\$\{n\.auraPeriodMs\}ms`:''\)/);
 });
 

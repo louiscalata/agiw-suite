@@ -66,10 +66,10 @@ ASSETS = {"/": ("index.html", "text/html; charset=utf-8"),
           "/components": ("components.html", "text/html; charset=utf-8"),
           "/components.js": ("components.js", "text/javascript; charset=utf-8"),
           "/components.css": ("components.css", "text/css; charset=utf-8"),
-          "/fonts/ibm-plex-sans-400.woff2": ("fonts/ibm-plex-sans-400.woff2", "font/woff2"),
-          "/fonts/ibm-plex-sans-700.woff2": ("fonts/ibm-plex-sans-700.woff2", "font/woff2"),
-          "/fonts/ibm-plex-mono-400.woff2": ("fonts/ibm-plex-mono-400.woff2", "font/woff2"),
-          "/fonts/ibm-plex-mono-700.woff2": ("fonts/ibm-plex-mono-700.woff2", "font/woff2")}
+          "/fonts/jost-400.woff2": ("fonts/jost-400.woff2", "font/woff2"),
+          "/fonts/jost-700.woff2": ("fonts/jost-700.woff2", "font/woff2"),
+          "/fonts/newsreader-400.woff2": ("fonts/newsreader-400.woff2", "font/woff2"),
+          "/fonts/newsreader-700.woff2": ("fonts/newsreader-700.woff2", "font/woff2")}
 JARYO_FILES = {
     "/jaryo/tokens.json": ("tokens.json", "application/json"),
     "/jaryo/theme.mjs": ("theme.mjs", "text/javascript; charset=utf-8"),

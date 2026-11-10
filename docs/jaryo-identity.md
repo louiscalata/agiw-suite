@@ -13,7 +13,7 @@ Shared files live in `jaryo/`. They are framework-neutral. OPOS and Nisi can use
 - Motion is the schematic rule and transitions. It is not false telemetry. Reduced motion removes it.
 - Transitions zoom into the new page. Moving between Components, Identity, Machines and Setup grows the page body from 96% to full size in 240 ms while the nav stays put, and the Overview/Simple switch does the same to the whole face. Only transform moves, so no frame is gray. Reduced motion, or a browser without View Transitions, gets an instant change. If a window gets no frames the switch still lands after 400 ms.
 - The app opens on Overview.
-- The chrome name is the word AGIW in IBM Plex Sans, weight 700, in booklet red. Body text is IBM Plex Sans. Numbers, IDs, and code are IBM Plex Mono. Both are SIL Open Font License 1.1. If Plex is absent, the stack uses Liberation Sans, then Noto Sans. The favicon outlines remain Inter. The type scale is 13, 21, 34, 55, 89, and 144.
+- The chrome name is the word AGIW in Newsreader, weight 700, in booklet red. Body text and UI labels are Jost. Numbers and IDs use Jost with tabular figures. The peer map is space-padded, so those lines stay monospace. Newsreader and Jost are SIL Open Font License 1.1. The favicon outlines remain Inter. The type scale is 13, 21, 34, 55, 89, and 144.
 - D4 Split is rejected. The geometric files remain in `jaryo/marks/` as a superseded study. They are not on the chrome or the favicon.
 - No choice file is applied. Option ids are not inferred.
 - `c92dab2` is historical. Receipts in `docs/data/` stay. They are not a pass on the current head.

@@ -234,11 +234,9 @@ function renderWeb(){
 // sit) changes; applyCamera only re-clamps the radius on zoom. Model glow cadence follows its observed activity phase.
 // Forced colours hide the layer, so none are built there (a hidden glow would still run its animation).
 function renderGlows(){
-  const layer=$('glows');if(!layer)return;const {glows,key}=webGlows(graph.nodes,{fresh:fresh()&&!forcedColors()});if(key===glowKey)return;glowKey=key;glowZoom=camera.z;
-  const radius=glowRadius(camera.z),colors=[...new Set(glows.map(g=>g.color))],defs=svg('defs');
-  colors.forEach((color,i)=>{const gradient=svg('radialGradient',{id:`web-glow-${i}`});gradient.append(svg('stop',{offset:'0','stop-color':color}),svg('stop',{offset:'.4','stop-color':color,'stop-opacity':'.35'}),svg('stop',{offset:'1','stop-color':color,'stop-opacity':'0'}));defs.append(gradient);});
-  layer.replaceChildren(...(glows.length?[defs,...glows.map(g=>svg('circle',{class:`glow ${g.tone}`,cx:g.x,cy:g.y,r:radius,fill:`url(#web-glow-${colors.indexOf(g.color)})`,'data-node':g.id,style:g.periodMs?`animation-duration:${g.periodMs}ms`:''}))]:[]));
-  syncBeat();
+  const layer=$('glows');if(!layer)return;
+  layer.replaceChildren();
+  glowKey='';
 }
 // Halos and their background glows start on the same boundary of their own measured-phase cadence.
 // Other live nodes and the dormant web wobble retain the shared 2 s beat.
