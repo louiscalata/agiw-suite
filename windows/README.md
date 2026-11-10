@@ -1,4 +1,4 @@
-# AGIW Inference Monitor · Windows edition (0.2.0, preview)
+# AGIW Inference Monitor · Windows edition (1.1.0, preview)
 
 The Windows counterpart of the Mac menu-bar monitor. A notification-area icon supervises a loopback Python
 observer that serves **the same dashboard** as the Mac edition, in its `host: "windows"` mode.

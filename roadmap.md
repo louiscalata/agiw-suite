@@ -2,7 +2,7 @@
 
 ## Current source and artifact status · 2026-11-03
 
-The canonical roadmap remains this file. The downloadable application is **1.0.0 (7)**; `Info.plist` in this checkout is **1.2.0 (13), unreleased**. The repository's release record lists only v1.0.0 as a binary download: rc.1, rc.2 and source-preview release pages were withdrawn on 18 October, while their tags remain. Historical release evidence below describes those earlier checkpoints, not current rollback availability.
+The canonical roadmap remains this file. The downloadable application is **1.0.0 (7)**; `Info.plist` in this checkout is **1.1.0 (14), unreleased**. The earlier label 1.2.0 (13) was not shipped. The repository's release record lists only v1.0.0 as a binary download: rc.1, rc.2 and source-preview release pages were withdrawn on 18 October, while their tags remain. Historical release evidence below describes those earlier checkpoints, not current rollback availability.
 
 The 1.0.0 download has the [known local-control authentication issue](SECURITY.md#known-issue-in-v100-build-7-local-control-authentication). Source fixes do not update the signed ZIP. Native rendering, a quarantined clean-Mac first install and the full Jev credential-entry lifecycle remain open. The Windows observer source is included as an unreleased preview; external Windows model workers and the private router are separate.
 

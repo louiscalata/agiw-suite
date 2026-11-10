@@ -1,10 +1,10 @@
 # Activate AGIW Suite
 
-The installation steps describe the 1.0.0 (7) download, which has the [known local-control authentication issue](../SECURITY.md#known-issue-in-v100-build-7-local-control-authentication). In the unreleased 1.2.0 native app, open **Full dashboard** from `/monitor` to reach Browse, Components and controls. A standalone browser preview has observation access only.
+The installation steps describe the 1.0.0 (7) download, which has the [known local-control authentication issue](../SECURITY.md#known-issue-in-v100-build-7-local-control-authentication). In the unreleased 1.1.0 (14) native app, open **Full dashboard** from `/monitor` to reach Browse, Components and controls. A standalone browser preview has observation access only.
 
 Start with the **GitHub 1.0.0 (7) Apple-silicon application**. This guide explains how to launch the monitor, connect local models and run the included Nisi tools. The Mac App Store edition has separate menus, runtime packaging and acceptance requirements.
 
-[Download and verify](../README.md#install-and-first-run) · [Architecture](architecture.md) · [Configuration](advanced-configuration.md) · [Developer commands](development.md)
+[Download and verify](../README.md#install-the-100-download) · [Architecture](architecture.md) · [Configuration](advanced-configuration.md) · [Developer commands](development.md)
 
 ## Quick start: get the monitor running
 

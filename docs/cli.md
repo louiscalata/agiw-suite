@@ -1,4 +1,4 @@
-# agiw command-line tool (v0.1)
+# agiw command-line tool (1.1.0)
 
 `agiw` connects your Mac and Windows PC on the same LAN. Each machine runs a small peer link that
 announces itself, pairs with your other machines through a 6-digit PIN, and answers paired machines with a
@@ -11,8 +11,8 @@ the component's state; any other text stays local. Status `schemaVersion` must b
 string values are rejected), and strict JSON parsing rejects duplicate object keys and non-finite numbers.
 Pairing, keys, signatures and the trust store are unchanged.
 
-**What v0.1 does not do.** Status is **signed but not encrypted**: anyone capturing LAN traffic can read the
-model names and states your machines report. v0.1 **dispatches no jobs**: it discovers, pairs and reads
+**What 1.1.0 does not do.** Status is **signed but not encrypted**: anyone capturing LAN traffic can read the
+model names and states your machines report. 1.1.0 **dispatches no jobs**: it discovers, pairs and reads
 status, and no route starts, loads or changes anything on another machine. IPv4 LAN only. **Linux is not
 supported:** on Linux every `agiw` command refuses with exit 2 and changes nothing.
 

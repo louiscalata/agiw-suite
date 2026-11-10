@@ -11,7 +11,7 @@ What the AGIW Suite download and the source each cover, how the two machines con
 
 ## Source status
 
-The source in this checkout is **1.2.0 (build 13), unreleased**. Building it does not reproduce the released ZIP. It differs from the download as follows.
+The source in this checkout is **1.1.0 (build 14), unreleased**. Building it does not reproduce the released ZIP. It differs from the download as follows. The earlier label 1.2.0 (13) was not shipped.
 
 - The native window opens `/monitor` and polls `/api/inference` every two seconds without overlapping requests.
 - Old readings expire, and measurements clear when a refresh fails.
