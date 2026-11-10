@@ -49,15 +49,39 @@ jobs:
           node --check web/components.js
           node --check web/monitor.mjs
 
+  # Chromium emulation of forced-colors: active. Not a Windows High Contrast
+  # hardware pass. Ubuntu only: the macOS job does not install Playwright.
+  forced-colors:
+    name: forced-colors emulation
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: '22'
+      - name: Install Chromium for the emulation
+        run: |
+          npm install --prefix "$RUNNER_TEMP/pw" playwright@1.49.1
+          (cd "$RUNNER_TEMP/pw" && npx playwright install --with-deps chromium)
+      - name: Emulate forced-colors on / and /monitor
+        env:
+          NODE_PATH: ${{ runner.temp }}/pw/node_modules
+        run: node checks/forced-colors-emulation.mjs
+
   # Branch protection requires a check named exactly "monitor". A matrix job
   # reports only "monitor (<version>)", so this job reports the combined result.
   monitor:
     if: ${{ always() }}
-    needs: tests
+    needs: [tests, forced-colors]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Require every Python version to pass
+      - name: Require the suites and the forced-colors emulation
         env:
           RESULT: ${{ needs.tests.result }}
-        run: test "$RESULT" = success
+          FORCED: ${{ needs.forced-colors.result }}
+        run: test "$RESULT" = success && test "$FORCED" = success
