@@ -1052,6 +1052,38 @@ body.jaryo-app .j-setup-evidence { margin: .4rem 0 0; }
 body.jaryo-app .j-setup-next { margin: .4rem 0 0; font-weight: 600; }
 body.jaryo-app .j-setup-next a { color: var(--j-text); text-decoration: underline; }
 
+/* Map key and activity rows. style.css still paints capability swatches, legend
+   lines, and a rejected host with literals, and app.js sets a client colour on
+   .activity-dot. The words already name the client, the capability, and the
+   line style (solid, dashed, double). Ink wins, including over those !important
+   and inline colours. */
+body.jaryo-app .legend .cap-color,
+body.jaryo-app .legend .cap-color.embedding,
+body.jaryo-app .legend .cap-color.reasoning,
+body.jaryo-app .legend .cap-color.vision,
+body.jaryo-app .legend .cap-color.tool {
+  background: var(--j-text);
+  color: var(--j-text);
+  box-shadow: none;
+  border-radius: 0;
+}
+body.jaryo-app .legend .legend-line {
+  background: var(--j-text);
+  border-color: var(--j-text);
+}
+body.jaryo-app .legend .legend-line.recorded,
+body.jaryo-app .legend .legend-line.flow {
+  background: transparent;
+  border-top-color: var(--j-text);
+}
+body.jaryo-app .host-rejected {
+  color: var(--j-text) !important;
+}
+body.jaryo-app .activity-dot {
+  background: var(--j-text) !important;
+  box-shadow: none;
+}
+
 /* Two-colour and square-corner stragglers. A palette audit of every page in both themes (computed colours, shadows and radii of every visible element)
    found only these: the Components page kept blue-grey borders and pale text from components.css (unreadable on white in the light theme) and an
    8px rounded command box, and several toolbar controls kept a 2px or 9px radius from style.css. Everything else was already black, white and square.
