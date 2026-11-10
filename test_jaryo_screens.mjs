@@ -144,3 +144,19 @@ test('Mac waiting chrome and Android covers stay black and white type', () => {
   assert.match(widget, /android:maxLines="3"/);
   assert.match(cover, /android:textColor="@color\/agiw_ink"/);
 });
+
+test('the map key and activity dots use Jaryo ink over the old palette', () => {
+  const css = read('./web/jaryo.css');
+  const style = read('./web/style.css');
+  const app = read('./web/app.js');
+  assert.match(style, /\.legend \.cap-color\.embedding\{background:#bd9cff\}/);
+  assert.match(style, /\.legend \.legend-line\{[^}]*background:#9ec7ee/);
+  assert.match(style, /\.host-rejected\{color:#a34a40!important/);
+  assert.match(app, /dot\.style\.background=/);
+  const block = css.slice(css.indexOf('Map key and activity rows'));
+  assert.match(block, /body\.jaryo-app \.legend \.cap-color\.embedding[\s\S]*?background: var\(--j-text\)/);
+  assert.match(block, /body\.jaryo-app \.legend \.legend-line\.recorded,\s*body\.jaryo-app \.legend \.legend-line\.flow \{[^}]*border-top-color: var\(--j-text\)/);
+  assert.match(block, /body\.jaryo-app \.host-rejected \{[^}]*color: var\(--j-text\) !important/);
+  assert.match(block, /body\.jaryo-app \.activity-dot \{[^}]*background: var\(--j-text\) !important/);
+  assert.doesNotMatch(block.slice(0, block.indexOf('Two-colour and square-corner')), /#[0-9A-Fa-f]{3,8}\b/);
+});
