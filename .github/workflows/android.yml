@@ -31,11 +31,13 @@ jobs:
       - name: Install the pinned SDK
         env:
           ANDROID_HOME: ${{ runner.temp }}/android-sdk
+          ANDROID_SDK_ROOT: ${{ runner.temp }}/android-sdk
         run: sh android/ci/sdk.sh
       - name: Lint, unit tests, and debug APK
         working-directory: android
         env:
           ANDROID_HOME: ${{ runner.temp }}/android-sdk
+          ANDROID_SDK_ROOT: ${{ runner.temp }}/android-sdk
         run: ./gradlew :monitor-core:test :app:lintDebug :app:assembleDebug --no-daemon --stacktrace
 
   emulator:
@@ -51,9 +53,11 @@ jobs:
       - name: Install the pinned SDK and the API 35 image
         env:
           ANDROID_HOME: ${{ runner.temp }}/android-sdk
+          ANDROID_SDK_ROOT: ${{ runner.temp }}/android-sdk
           AGIW_SDK_EMULATOR: '1'
         run: sh android/ci/sdk.sh
       - name: Instrumentation tests and window smoke
         env:
           ANDROID_HOME: ${{ runner.temp }}/android-sdk
+          ANDROID_SDK_ROOT: ${{ runner.temp }}/android-sdk
         run: sh android/ci/emulator-smoke.sh

@@ -4,6 +4,7 @@
 set -eu
 ANDROID_HOME="${ANDROID_HOME:-$HOME/android-sdk}"
 export ANDROID_HOME
+export ANDROID_SDK_ROOT="$ANDROID_HOME"
 export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH"
 android_root=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 cd "$android_root"

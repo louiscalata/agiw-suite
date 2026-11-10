@@ -4,6 +4,7 @@
 set -eu
 ANDROID_HOME="${ANDROID_HOME:-$HOME/android-sdk}"
 export ANDROID_HOME
+export ANDROID_SDK_ROOT="$ANDROID_HOME"
 mkdir -p "$ANDROID_HOME/cmdline-tools"
 if [ ! -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" ]; then
     tmp=$(mktemp -d)
