@@ -331,7 +331,12 @@ export function paintMonitorChrome({host, board, desk, snapshot, feedFresh, paus
   host.dataset.signature = fullSignature;
   board.dataset.signature = fullSignature;
   paintTabs(host, monitors, active.id);
-  paintBoard(board, active, desk);
+  if (board.dataset.hideBoard === '1') {
+    board.hidden = true;
+    board.replaceChildren();
+  } else {
+    paintBoard(board, active, desk);
+  }
   document.body.classList.toggle('monitor-scoped', active.id !== 'all');
   return applied;
 }

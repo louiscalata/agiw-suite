@@ -3,16 +3,20 @@
 @import url("/jaryo/primitives.css");
 
 :root {
-  --j-muted: var(--j-text);
+  --j-muted: #b3b3b3;
   --j-identity: var(--j-text);
   --j-surface-2: var(--j-bg);
 }
+@media (prefers-color-scheme: light) {
+  html:not([data-theme="dark"]) { --j-muted: #4d4d4d; }
+}
+html[data-theme="light"] { --j-muted: #4d4d4d; }
 
 body.jaryo-app {
   --paper: var(--j-bg);
   --panel: var(--j-bg);
   --ink: var(--j-text);
-  --muted: var(--j-text);
+  --muted: var(--j-muted);
   --line: var(--j-border);
   --wash: transparent;
   --orange: var(--j-text);
