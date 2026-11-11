@@ -38,3 +38,43 @@ test('variant validation rejects cross-platform drift and invented approvals', (
     assert.ok(checkPlatformVariants(changed).length > 0, mutate.toString());
   }
 });
+
+
+// Markup-backed source check: derive each counter's tag from the shipped page,
+// then require a matching explicit selector in the final Mono override. A rule
+// for a nonexistent dd is insufficient. This source check does not claim native computed-font verification.
+function assertOverviewCounterFonts(html, css) {
+  const finalScale = css.slice(css.indexOf('Six steps, none under 12px'));
+  const monoRule = [...finalScale.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+    .find(([, , declarations]) => /font-family:\s*"IBM Plex Mono"[^;]*!important;/.test(declarations));
+  assert.ok(monoRule, 'final Mono override exists after the blanket Sans rule');
+  const selectors = monoRule[1].split(',').map(value => value.trim());
+  const metrics = html.match(/<div class="metrics">([\s\S]*?)<div class="client-summary"/);
+  assert.ok(metrics, 'actual overview metrics region exists');
+  for (const id of ['activeCount', 'loadedCount', 'queuedCount', 'observedClientCount']) {
+    const region = id === 'observedClientCount' ? html : metrics[1];
+    const counter = region.match(new RegExp(`<([a-z][a-z0-9]*)\\b[^>]*\\bid="${id}"[^>]*>`));
+    assert.ok(counter, `${id} exists in its real markup region`);
+    const selector = id === 'observedClientCount'
+      ? `body.jaryo-app #${id}` : `body.jaryo-app .metrics ${counter[1]}`;
+    assert.ok(selectors.includes(selector), `${id} (${counter[1]}) must match the Mono override`);
+  }
+  assert.match(metrics[1], /<span>local working<\/span>/);
+  assert.ok(!selectors.includes('body.jaryo-app .metrics span'), 'counter labels remain body Sans');
+  assert.ok(!selectors.includes('body.jaryo-app .metrics'), 'counter container must not change text roles');
+}
+
+test('actual overview counters use Mono while their text labels stay Sans', () => {
+  assertOverviewCounterFonts(read('./web/index.html'), read('./web/jaryo.css'));
+});
+
+test('counter font coverage rejects nonexistent selectors, missing counters and tag drift', () => {
+  const html = read('./web/index.html');
+  const css = read('./web/jaryo.css');
+  assert.throws(() => assertOverviewCounterFonts(html,
+    css.replaceAll('body.jaryo-app .metrics strong,', 'body.jaryo-app .metrics dd,')), /activeCount.*Mono/);
+  assert.throws(() => assertOverviewCounterFonts(html,
+    css.replace('body.jaryo-app #observedClientCount,', 'body.jaryo-app #missingCounter,')), /observedClientCount.*Mono/);
+  assert.throws(() => assertOverviewCounterFonts(html.replace('id="activeCount"', 'id="missingCounter"'), css), /activeCount exists/);
+  assert.throws(() => assertOverviewCounterFonts(html.replace('<strong id="activeCount"', '<span id="activeCount"'), css), /activeCount.*Mono/);
+});

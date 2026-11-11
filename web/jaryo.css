@@ -1394,6 +1394,8 @@ body.jaryo-app .j-page pre,
 body.jaryo-app .j-page code,
 body.jaryo-app .run-id,
 body.jaryo-app .j-machine-host,
+body.jaryo-app .metrics strong,
+body.jaryo-app #observedClientCount,
 body.jaryo-app .metrics dd,
 body.jaryo-app .j-metrics dd {
   font-family: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace !important;
