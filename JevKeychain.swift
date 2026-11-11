@@ -28,6 +28,20 @@ func lookup(data: Bool) -> (OSStatus, CFTypeRef?) {
     return (status, result)
 }
 
+// Private association metadata only: never request or hash the credential bytes.
+// Dates identify legacy items without migrating them on a read. Every native
+// save also writes a fresh UUID, including replacements within one timestamp tick.
+func credentialRevision(_ value: CFTypeRef?) -> String? {
+    guard let attributes = value as? [String: Any],
+          let created = attributes[kSecAttrCreationDate as String] as? Date,
+          let modified = attributes[kSecAttrModificationDate as String] as? Date else { return nil }
+    let generation = (attributes[kSecAttrGeneric as String] as? Data)
+        .flatMap { String(data: $0, encoding: .utf8) }.flatMap { UUID(uuidString: $0) }
+    return [generation?.uuidString ?? "legacy",
+            String(created.timeIntervalSinceReferenceDate.bitPattern, radix: 16),
+            String(modified.timeIntervalSinceReferenceDate.bitPattern, radix: 16)].joined(separator: ":")
+}
+
 // This delegate accepts only the fixed provider response. It never exports a
 // credential, provider error body, or arbitrary response text to the observer.
 final class JevProbe: NSObject, URLSessionDataDelegate {
@@ -123,6 +137,10 @@ let args = Array(CommandLine.arguments.dropFirst())
 if args == ["status"] {
     let (status, _) = lookup(data: false)
     emit(["configured": status == errSecSuccess, "available": status == errSecSuccess || status == errSecItemNotFound])
+} else if args == ["status-revision"] {
+    let (status, value) = lookup(data: false)
+    emit(["configured": status == errSecSuccess, "available": status == errSecSuccess || status == errSecItemNotFound,
+          "revision": status == errSecSuccess ? (credentialRevision(value) as Any? ?? NSNull()) : NSNull()])
 } else if args == ["check"] {
     emit(["state": checkConnection()])
 } else if args == ["configure"] {
@@ -150,11 +168,12 @@ if args == ["status"] {
             failure.runModal()
             exit(1)
         }
-        let values: [String: Any] = [kSecValueData as String: Data(key.utf8)]
+        let values: [String: Any] = [kSecValueData as String: Data(key.utf8),
+                                   kSecAttrGeneric as String: Data(UUID().uuidString.utf8)]
         var status = SecItemUpdate(query as CFDictionary, values as CFDictionary)
         if status == errSecItemNotFound {
             var add = query
-            add[kSecValueData as String] = Data(key.utf8)
+            add.merge(values) { _, new in new }
             add[kSecAttrLabel as String] = "AGIW · Jev connection"
             status = SecItemAdd(add as CFDictionary, nil)
         }
