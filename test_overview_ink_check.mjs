@@ -30,8 +30,8 @@ const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 const run = new AsyncFunction('spawn', 'root', 'chromium', 'chromaOf', 'isWebAccent', 'overviewGeometry', 'setTimeout', 'clearTimeout',
   `${lifecycle}\nreturn failures;`);
 
-function harness({ launchError, closeError, pageError, startupError, timeout = false, paints = [], geometry = [] } = {}) {
-  const calls = { kill: 0, launch: 0, close: 0, pageClose: 0, cases: [], urls: [] };
+function harness({ launchError, closeError, pageError, tabWaitError, startupError, timeout = false, paints = [], geometry = [] } = {}) {
+  const calls = { kill: 0, launch: 0, close: 0, pageClose: 0, cases: [], urls: [], tabWaits: [] };
   const child = new EventEmitter();
   child.stdout = new EventEmitter();
   child.kill = () => { calls.kill++; };
@@ -53,7 +53,10 @@ function harness({ launchError, closeError, pageError, startupError, timeout = f
         return {
           goto: async url => { calls.urls.push(url); if (pageError) throw pageError; },
           waitForTimeout: async () => {},
-          waitForFunction: async () => {},
+          locator: selector => ({ nth: index => ({ waitFor: async options => {
+            calls.tabWaits.push({ selector, index, ...options });
+            if (tabWaitError) throw tabWaitError;
+          } }) }),
           evaluate: async callback => callback === overviewGeometry ? geometry : paints,
           close: async () => { calls.pageClose++; },
         };
@@ -126,6 +129,7 @@ test('geometry failures fail every case and Chromium remains isolated', async ()
   assert.deepEqual(h.calls.launchOptions.args, ['--use-mock-keychain', '--password-store=basic']);
   assert.equal(h.calls.urls.filter(url => url.endsWith('/')).length, 4);
   assert.equal(h.calls.urls.filter(url => url.endsWith('/?demo=1')).length, 4);
+  assert.deepEqual(h.calls.tabWaits, Array(4).fill({ selector: '#monitorTabs .j-tab-label', index: 1, state: 'visible', timeout: 10000 }));
   assert.equal(h.calls.close, 1);
   assert.equal(h.calls.kill, 1);
 });
@@ -149,5 +153,15 @@ test('the actual ink check permits display accent but rejects colored readings a
   ];
   const h = harness({ paints: [{ value: 'rgb(194, 26, 39)', accentAllowed: true }, ...rejected] });
   assert.deepEqual((await h.result).map(item => item.colored), Array(4).fill(rejected));
+  assert.equal(h.calls.kill, 1);
+});
+
+
+test('missing demo tab fails readiness and still cleans up the browser and server', async () => {
+  const failure = new Error('second visible tab timed out');
+  const h = harness({ tabWaitError: failure });
+  await assert.rejects(h.result, error => error === failure);
+  assert.equal(h.calls.tabWaits.length, 1);
+  assert.equal(h.calls.close, 1);
   assert.equal(h.calls.kill, 1);
 });

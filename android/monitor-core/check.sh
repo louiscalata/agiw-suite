@@ -14,7 +14,7 @@ import re
 import sys
 from pathlib import Path
 import xml.etree.ElementTree as ET
-layout = Path(sys.argv[1])
+layout = Path(sys.argv[1]).resolve()
 required = {"read", "schematic", "process", "lane", "attachment", "connect", "acceptance", "observed", "detail"}
 
 def ids(path):
