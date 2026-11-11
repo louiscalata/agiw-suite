@@ -22,9 +22,14 @@ Previously merged after the v1.1.0 tag:
 - #78 Mac route tests run on Linux.
 - #79 Flip hinge posture, font scale, and TalkBack labels.
 - #80 A missing or unreachable observer stays on the monitor screen.
+- #81 Android monitor tests, including an emulator smoke, run in CI.
 - #82 Forced-colors emulation on the monitor pages in Ubuntu CI.
 - #83 Acceptance block uses plain words.
+- #84 The footer About control has a 44px target.
 - #85 Development notes say the Windows review is not a pass.
+- #86 The README says fold posture is read, and that a physical Flip 6 is not.
+- #88 `GET /api/snapshot` is documented as the read-only export.
+- #89 The changelog uses Keep a Changelog form.
 
 ## [1.1.0] - 2026-11-09
 
