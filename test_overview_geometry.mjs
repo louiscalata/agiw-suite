@@ -97,3 +97,20 @@ test('a non-scrolling document cannot hide status tabs below its clipped edge', 
   f.tabs[1].box = rect(12, 900, 363, 980);
   assert.ok(f.run().some(row => row.target === 'status tab 2' && row.reason === 'text clipped on y'));
 });
+
+
+test('desktop heading font bounds need clearance inside the clipped viewport', () => {
+  const f = fixture(1280);
+  f.root.style.overflowY = f.body.style.overflowY = 'hidden';
+  f.heading.box = rect(28, 0, 250, 72);
+  f.heading.textBox = rect(28, -8, 250, 75);
+  const clipped = f.run().filter(row => row.target === 'heading' && row.reason === 'text clipped on y');
+  assert.equal(clipped.length, 2, 'both document clipping ancestors catch the text overhang');
+  assert.equal(clipped[0].textBounds.top, -8);
+  assert.equal(clipped[0].clipBounds.top, 0);
+  // Top clearance moves actual text within the viewport without hiding overflow
+  // or relaxing the geometry assertion. The UI uses the shared spacing token.
+  f.heading.box = rect(28, 12, 250, 84);
+  f.heading.textBox = rect(28, 4, 250, 87);
+  assert.deepEqual(f.run(), []);
+});

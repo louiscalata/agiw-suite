@@ -847,6 +847,8 @@ body.jaryo-app .sidebar h1 {
     overflow: visible;
     grid-template-rows: auto minmax(0, 1fr);
   }
+  /* Plex text extends beyond its tight line box; keep it inside the viewport. */
+  body.jaryo-app > header.topbar { padding-block: var(--j-space-3); }
   body.jaryo-app > header.topbar,
   body.jaryo-app > header.j-top {
     grid-column: 1 / -1;

@@ -40,7 +40,10 @@ export function overviewGeometry() {
         if (axis === 'y' && (parent === document.body || parent === document.documentElement)
             && ['auto', 'scroll', 'visible'].includes(overflow)) continue;
         if (['hidden', 'clip', 'auto', 'scroll'].includes(overflow) && outside(text, bounds, axis)) {
-          failures.push({ target, reason: `text clipped on ${axis}` });
+          failures.push({ target, reason: `text clipped on ${axis}`,
+            ancestor: String(parent.id || parent.className || parent.tagName || ''),
+            textBounds: { left: text.left, right: text.right, top: text.top, bottom: text.bottom },
+            clipBounds: { left: bounds.left, right: bounds.right, top: bounds.top, bottom: bounds.bottom } });
         }
       }
     }
