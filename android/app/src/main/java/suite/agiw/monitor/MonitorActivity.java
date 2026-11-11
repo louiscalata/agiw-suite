@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.content.res.Configuration;
 import android.graphics.Color;
 import android.graphics.Insets;
+import android.graphics.Rect;
 import android.graphics.drawable.ColorDrawable;
 import android.os.Build;
 import android.os.Bundle;
@@ -334,13 +335,17 @@ public final class MonitorActivity extends Activity {
         final int side = dp(cover ? 12 : 16);
         final int top = dp(cover ? 16 : 24);
         final int bottom = dp(24);
-        scroller.setClipToPadding(false);
+        final boolean folded = foldLeft != 0 || foldTop != 0 || foldRight != 0 || foldBottom != 0;
+        // A flat page may draw into the Jaryo margin. A hinge pad is the crease,
+        // and clipToPadding false would paint the rows through it.
+        scroller.setClipToPadding(folded);
         scroller.setPadding(side, top, side, bottom);
         scroller.setOnApplyWindowInsetsListener((view, insets) -> {
             int left = side;
             int padTop = top;
             int right = side;
             int padBottom = bottom;
+            ((ScrollView) view).setClipToPadding(folded);
             if (Build.VERSION.SDK_INT >= 30) {
                 Insets bars = insets.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
                 Insets ime = insets.getInsets(WindowInsets.Type.ime());
@@ -363,6 +368,19 @@ public final class MonitorActivity extends Activity {
 
     private int dp(int value) {
         return Math.round(value * getResources().getDisplayMetrics().density);
+    }
+
+    /**
+     * FoldingFeature bounds are in window coordinates. DisplayMetrics pixels
+     * are the whole panel, which is larger than the window in multi-window.
+     */
+    private int[] windowPx() {
+        if (Build.VERSION.SDK_INT >= 30) {
+            Rect bounds = getWindowManager().getCurrentWindowMetrics().getBounds();
+            return new int[] {bounds.width(), bounds.height()};
+        }
+        View decor = getWindow().getDecorView();
+        return new int[] {decor.getWidth(), decor.getHeight()};
     }
 
     /**
@@ -465,8 +483,9 @@ public final class MonitorActivity extends Activity {
             boolean half = hinge.getState() == FoldingFeature.State.HALF_OPENED;
             boolean horizontal = hinge.getOrientation() == FoldingFeature.Orientation.HORIZONTAL;
             posture = Fold.posture(true, half, horizontal);
-            int width = getResources().getDisplayMetrics().widthPixels;
-            int height = getResources().getDisplayMetrics().heightPixels;
+            int[] window = windowPx();
+            int width = window[0];
+            int height = window[1];
             int[] extra = Fold.avoid(width, height,
                     hinge.getBounds().left, hinge.getBounds().top,
                     hinge.getBounds().right, hinge.getBounds().bottom, posture);
