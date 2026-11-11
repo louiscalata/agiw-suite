@@ -224,6 +224,7 @@ class MonitorServer(ThreadingHTTPServer):
     allow_reuse_address = False
     request_queue_size = 8
     max_connections = 8
+    connection_wait_seconds = 0.5
     max_streams = 3
     connection_deadline_seconds = 3.0
 
@@ -233,14 +234,16 @@ class MonitorServer(ThreadingHTTPServer):
         self.store, self.web_root = store, web_root
         self.stopping = threading.Event()
         self._streams = threading.BoundedSemaphore(self.max_streams)
-        # Accepted sockets beyond the cap are closed before a handler thread exists.
+        # Admission waits briefly for a slot before allocating a handler thread.
         self._slots = threading.BoundedSemaphore(self.max_connections)
         self._deadlines: dict[int, threading.Timer] = {}
         self._deadline_lock = threading.Lock()
         super().__init__(address, Handler)
 
     def process_request(self, request, client_address):
-        if not self._slots.acquire(blocking=False):
+        # Let a short module-fetch burst wait for a finishing handler (streams
+        # share these slots). Bound the accept-loop wait and keep the thread cap.
+        if not self._slots.acquire(timeout=self.connection_wait_seconds):
             self.shutdown_request(request)
             return
         try:
