@@ -1095,7 +1095,7 @@ body.jaryo-app .j-tab-label {
   white-space: normal;
 }
 
-/* 375px: the full Fix inference label stays visible, and the board row is reserved
+/* 375px: the full Model tuning label stays visible, and the board row is reserved
    so the first sample cannot grow the page. */
 @media (max-width: 800px) {
   body.jaryo-app .fix-tab-long { display: inline; }

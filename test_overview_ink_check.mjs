@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { EventEmitter } from 'node:events';
 import { chromaOf } from './checks/ink-color.mjs';
+import { overviewGeometry } from './checks/overview-geometry.mjs';
 
 test('unknown color syntax fails the ink threshold', () => {
   for (const color of ['color-mix(in srgb, red 50%, white)', 'oklch(70% 0.2 30)',
@@ -26,11 +27,11 @@ test('rgb colors retain their chroma and transparent colors are ignored', () => 
 const source = readFileSync(new URL('./checks/overview-ink.mjs', import.meta.url), 'utf8');
 const lifecycle = source.slice(source.indexOf('const child = spawn('), source.indexOf('\nif (failures.length)'));
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
-const run = new AsyncFunction('spawn', 'root', 'chromium', 'chromaOf', 'setTimeout', 'clearTimeout',
+const run = new AsyncFunction('spawn', 'root', 'chromium', 'chromaOf', 'overviewGeometry', 'setTimeout', 'clearTimeout',
   `${lifecycle}\nreturn failures;`);
 
-function harness({ launchError, closeError, pageError, startupError, timeout = false, paints = [] } = {}) {
-  const calls = { kill: 0, launch: 0, close: 0, pageClose: 0, schemes: [] };
+function harness({ launchError, closeError, pageError, startupError, timeout = false, paints = [], geometry = [] } = {}) {
+  const calls = { kill: 0, launch: 0, close: 0, pageClose: 0, cases: [], urls: [] };
   const child = new EventEmitter();
   child.stdout = new EventEmitter();
   child.kill = () => { calls.kill++; };
@@ -42,16 +43,18 @@ function harness({ launchError, closeError, pageError, startupError, timeout = f
     });
     return child;
   };
-  const chromium = { launch: async () => {
+  const chromium = { launch: async options => {
     calls.launch++;
+    calls.launchOptions = options;
     if (launchError) throw launchError;
     return {
-      newPage: async ({ colorScheme }) => {
-        calls.schemes.push(colorScheme);
+      newPage: async ({ colorScheme, viewport }) => {
+        calls.cases.push({ scheme: colorScheme, width: viewport.width });
         return {
-          goto: async () => { if (pageError) throw pageError; },
+          goto: async url => { calls.urls.push(url); if (pageError) throw pageError; },
           waitForTimeout: async () => {},
-          evaluate: async () => paints,
+          waitForFunction: async () => {},
+          evaluate: async callback => callback === overviewGeometry ? geometry : paints,
           close: async () => { calls.pageClose++; },
         };
       },
@@ -64,7 +67,7 @@ function harness({ launchError, closeError, pageError, startupError, timeout = f
     return callback;
   };
   const clearTimeout = timer => timers.delete(timer);
-  return { calls, timers, result: run(spawn, '/unused', chromium, chromaOf, setTimeout, clearTimeout) };
+  return { calls, timers, result: run(spawn, '/unused', chromium, chromaOf, overviewGeometry, setTimeout, clearTimeout) };
 }
 
 test('the cleanup covers Chromium launch failure', async () => {
@@ -102,14 +105,27 @@ test('startup error and port timeout also reach child cleanup', async () => {
   }
 });
 
-test('the actual check applies the helper to both overview schemes', async () => {
+test('the actual check keeps ink validation at both widths and schemes', async () => {
   const unknown = { prop: 'color', value: 'oklch(70% 0.2 30)', tag: 'P', cls: '' };
   const h = harness({ paints: [
     { prop: 'color', value: 'rgb(242, 242, 242)', tag: 'P', cls: '' }, unknown,
   ] });
-  assert.deepEqual(await h.result, ['light', 'dark'].map(scheme => ({ scheme, colored: [unknown] })));
-  assert.deepEqual(h.calls.schemes, ['light', 'dark']);
-  assert.equal(h.calls.pageClose, 2);
+  const cases = [1280, 375].flatMap(width => ['light', 'dark'].map(scheme => ({ width, scheme })));
+  assert.deepEqual(await h.result, cases.map(item => ({ ...item, colored: [unknown] })));
+  assert.deepEqual(h.calls.cases, cases.map(({ width, scheme }) => ({ scheme, width })));
+  assert.equal(h.calls.pageClose, 4);
+  assert.equal(h.calls.close, 1);
+  assert.equal(h.calls.kill, 1);
+});
+
+test('geometry failures fail every case and Chromium remains isolated', async () => {
+  const geometry = [{ target: 'Model tuning', reason: 'text clipped on x' }];
+  const h = harness({ geometry });
+  const cases = [1280, 375].flatMap(width => ['light', 'dark'].map(scheme => ({ width, scheme })));
+  assert.deepEqual(await h.result, cases.map(item => ({ ...item, geometry })));
+  assert.deepEqual(h.calls.launchOptions.args, ['--use-mock-keychain', '--password-store=basic']);
+  assert.equal(h.calls.urls.filter(url => url.endsWith('/')).length, 4);
+  assert.equal(h.calls.urls.filter(url => url.endsWith('/?demo=1')).length, 4);
   assert.equal(h.calls.close, 1);
   assert.equal(h.calls.kill, 1);
 });

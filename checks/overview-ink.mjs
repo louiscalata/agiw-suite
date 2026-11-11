@@ -4,6 +4,7 @@ import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromaOf } from './ink-color.mjs';
+import { overviewGeometry } from './overview-geometry.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(import.meta.url);
@@ -45,9 +46,10 @@ try {
       }
     });
   });
-  browser = await chromium.launch();
-  for (const scheme of ['light', 'dark']) {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 800 }, colorScheme: scheme });
+  browser = await chromium.launch({ args: ['--use-mock-keychain', '--password-store=basic'] });
+  const cases = [1280, 375].flatMap(width => ['light', 'dark'].map(scheme => ({ width, scheme })));
+  for (const { width, scheme } of cases) {
+    const page = await browser.newPage({ viewport: { width, height: width === 1280 ? 800 : 812 }, colorScheme: scheme });
     await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'domcontentloaded' });
     await page.waitForTimeout(800);
     const paints = await page.evaluate(() => {
@@ -64,7 +66,12 @@ try {
       return hits;
     });
     const colored = paints.filter(({ value }) => chromaOf(value) > 18).slice(0, 12);
-    if (colored.length) failures.push({ scheme, colored });
+    if (colored.length) failures.push({ width, scheme, colored });
+    // Multiple fictional tabs exercise wrapping without depending on the CI host's clients.
+    await page.goto(`http://127.0.0.1:${port}/?demo=1`, { waitUntil: 'domcontentloaded' });
+    await page.waitForFunction(() => document.querySelectorAll('#monitorTabs .j-tab-label').length >= 2, undefined, { timeout: 10000 });
+    const geometry = await page.evaluate(overviewGeometry);
+    if (geometry.length) failures.push({ width, scheme, geometry });
     await page.close();
   }
 } finally {
@@ -79,4 +86,4 @@ if (failures.length) {
   console.error(JSON.stringify(failures, null, 2));
   process.exit(1);
 }
-console.log('ok light and dark overview ink');
+console.log('ok light and dark overview ink and geometry at 1280 and 375');
