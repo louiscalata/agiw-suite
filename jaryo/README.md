@@ -65,4 +65,4 @@ Controls use the page ink. Selected, pressed, and primary invert the fill. Hover
 
 `node --test test_jaryo_design.mjs` installs a fresh copy, serves it, and checks the contract.
 
-`node jaryo/demo/smoke.mjs --out /tmp/jaryo-shots` opens the served page in headless Chrome, checks overflow, the station keys, reduced motion, and axe, and writes screenshots. That script needs Chrome on the machine. It is not part of the source-check job.
+`node jaryo/demo/smoke.mjs --out /tmp/jaryo-shots` opens the served page in headless Chrome, checks overflow, the station keys, reduced motion, and axe, and writes screenshots. Set `CHROME_BIN` when `google-chrome` is not on `PATH`. The Ubuntu source-check job `jaryo kit smoke` runs it. It does not run on the Mac.
