@@ -31,6 +31,7 @@ import androidx.window.layout.WindowLayoutInfo;
 import java.net.URI;
 import java.time.Instant;
 import java.util.concurrent.Executor;
+import java.util.function.LongSupplier;
 
 /**
  * Read-only monitor. The address is typed on the tall window. The square window
@@ -52,6 +53,7 @@ public final class MonitorActivity extends Activity {
     private final ObserverClient client = new ObserverClient();
     private final ReadGate gate = new ReadGate();
     private final Executor mainExecutor = command -> new Handler(Looper.getMainLooper()).post(command);
+    private final Handler agingHandler = new Handler(Looper.getMainLooper());
     private final Consumer<WindowLayoutInfo> foldConsumer = this::onWindowLayout;
     private WindowInfoTrackerCallbackAdapter foldAdapter;
     private boolean cover;
@@ -59,6 +61,9 @@ public final class MonitorActivity extends Activity {
     private int inflight;
     private boolean receiptsOpen;
     private Board shown = Board.none("No address");
+    LongSupplier displayClock = System::currentTimeMillis;
+    private final Runnable ageDisplay = this::refreshDisplay;
+    private boolean started;
     private Fold.Posture posture = Fold.Posture.FLAT;
     private int foldLeft;
     private int foldTop;
@@ -113,6 +118,8 @@ public final class MonitorActivity extends Activity {
     @Override
     protected void onStart() {
         super.onStart();
+        started = true;
+        show(shown);
         if (foldAdapter == null) {
             foldAdapter = new WindowInfoTrackerCallbackAdapter(WindowInfoTracker.getOrCreate(this));
         }
@@ -121,6 +128,8 @@ public final class MonitorActivity extends Activity {
 
     @Override
     protected void onStop() {
+        started = false;
+        agingHandler.removeCallbacks(ageDisplay);
         if (foldAdapter != null) foldAdapter.removeWindowLayoutInfoListener(foldConsumer);
         super.onStop();
     }
@@ -141,9 +150,10 @@ public final class MonitorActivity extends Activity {
         float scale = Settings.Global.getFloat(getContentResolver(), Settings.Global.ANIMATOR_DURATION_SCALE, 1f);
         View rule = findViewById(R.id.schematic);
         if (rule != null) rule.setVisibility(Surface.motion(scale) ? View.VISIBLE : View.INVISIBLE);
-        if (state == null) shown = Board.none("No address");
+        Board restored;
+        if (state == null) restored = Board.none("No address");
         else {
-            shown = Board.stored(
+            restored = Board.stored(
                     state.getString(KEY_PROCESS, "UNKNOWN"),
                     state.getString(KEY_LANE, "NOT MEASURED"),
                     state.getString(KEY_ATTACH, "NO RUN"),
@@ -156,7 +166,7 @@ public final class MonitorActivity extends Activity {
             EditText address = findViewById(R.id.address);
             if (address != null) address.setText(addressText);
         }
-        show(shown);
+        show(restored);
         TextView receipts = findViewById(R.id.receipts);
         if (receipts != null) receipts.setText(Acceptance.notes());
         Button read = findViewById(R.id.read);
@@ -256,8 +266,17 @@ public final class MonitorActivity extends Activity {
         }, "agiw-observer").start();
     }
 
-    private void show(Board board) {
+    void refreshDisplay() {
+        show(shown);
+    }
+
+    void show(Board board) {
+        long now = displayClock.getAsLong();
+        board = DisplayedSample.present(board, now, "Last sample is old. Read again to refresh.", false);
         shown = board;
+        agingHandler.removeCallbacks(ageDisplay);
+        long expires = DisplayedSample.expiresAt(board, now);
+        if (started && expires >= 0) agingHandler.postDelayed(ageDisplay, expires - now);
         set(R.id.process, board.process);
         set(R.id.lane, Face.lane(cover, board));
         set(R.id.attachment, Face.attachment(cover, board));

@@ -1,5 +1,6 @@
 """Exercise the actual Swift delegate offline; never invoke Keychain or network."""
 from pathlib import Path
+import os
 import platform
 import shutil
 import subprocess
@@ -77,6 +78,105 @@ class JevPinTests(unittest.TestCase):
 
 @unittest.skipUnless(platform.system() == 'Darwin' and shutil.which('xcrun'), 'Requires macOS Swift toolchain')
 class NativeJevTests(unittest.TestCase):
+    def test_public_cli_receipts_offline(self):
+        source = SOURCE.read_text()
+        # Substitute only the Keychain and HTTPS boundaries; run the real CLI
+        # dispatch and serializer. Never invoke configure or a native key lookup.
+        start = source.index('func lookup(data:')
+        end = source.index('\n}\n', start) + 3
+        source = source[:start] + '''
+func lookup(data: Bool) -> (OSStatus, CFTypeRef?) {
+    let status = ProcessInfo.processInfo.environment["TEST_STATUS"] ?? "saved"
+    let attributes: [String: Any] = [kSecAttrCreationDate as String: Date(timeIntervalSinceReferenceDate: 0),
+                                    kSecAttrModificationDate as String: Date(timeIntervalSinceReferenceDate: 1)]
+    return (status == "saved" ? errSecSuccess : status == "absent" ? errSecItemNotFound : errSecAuthFailed,
+            attributes as CFDictionary)
+}
+''' + source[end:]
+        start = source.index('func checkConnection()')
+        end = source.index(MARKER, start)
+        source = source[:start] + '''
+func checkConnection() -> String {
+    return ProcessInfo.processInfo.environment["TEST_STATE"] ?? "connected"
+}
+''' + source[end:]
+        with tempfile.TemporaryDirectory(prefix='agiw-jev-cli-test-') as directory:
+            path = Path(directory)
+            swift = path / 'main.swift'
+            swift.write_text(source)
+            executable = path / 'test-cli'
+            compiled = subprocess.run(['xcrun', 'swiftc', str(swift), '-o', str(executable)],
+                                      capture_output=True, text=True, timeout=60)
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+            cases = [
+                ('status', {'TEST_STATUS': 'saved'}, b'{"available":true,"configured":true}\n', 0),
+                ('status', {'TEST_STATUS': 'absent'}, b'{"available":true,"configured":false}\n', 0),
+                ('status', {'TEST_STATUS': 'locked'}, b'{"available":false,"configured":false}\n', 0),
+                ('unknown', {}, b'', 2),
+                ('status-revision', {'TEST_STATUS': 'saved'},
+                 b'{"available":true,"configured":true,"revision":"legacy:0:3ff0000000000000"}\n', 0),
+                ('status-revision', {'TEST_STATUS': 'absent'},
+                 b'{"available":true,"configured":false,"revision":null}\n', 0),
+                ('status-revision', {'TEST_STATUS': 'locked'},
+                 b'{"available":false,"configured":false,"revision":null}\n', 0),
+            ]
+            for state in ('connected', 'not-configured', 'auth-failed', 'rate-limited', 'network-error',
+                          'invalid-response', 'unavailable', 'error'):
+                cases.append(('check', {'TEST_STATE': state}, ('{"state":"' + state + '"}\n').encode(), 0))
+            for command, env, output, code in cases:
+                with self.subTest(command=command, env=env):
+                    result = subprocess.run([str(executable), command], env={**os.environ, **env},
+                                            capture_output=True, timeout=10)
+                    self.assertEqual((result.returncode, result.stdout, result.stderr), (code, output, b''))
+
+    def test_credential_revision_and_saved_bytes_offline(self):
+        source = SOURCE.read_text()
+        # Execute the actual save-value construction, but never SecItemUpdate/Add.
+        values = source[source.index('        let values:'):source.index('        var status = SecItemUpdate')]
+        harness = '''
+func saveValues() -> [String: Any] {
+    let key = "fixture-key-only"
+''' + values + '''
+    return values
+}
+func expect(_ condition: Bool) {
+    if !condition { fputs("FAILED: credential association metadata\\n", stderr); exit(1) }
+}
+let first = saveValues(), second = saveValues()
+expect(Set(first.keys) == Set([kSecValueData as String, kSecAttrGeneric as String]))
+expect(first[kSecValueData as String] as? Data == Data("fixture-key-only".utf8))
+let firstGeneration = String(data: first[kSecAttrGeneric as String] as! Data, encoding: .utf8)!
+expect(UUID(uuidString: firstGeneration) != nil)
+expect(first[kSecAttrGeneric as String] as? Data != second[kSecAttrGeneric as String] as? Data)
+var attributes: [String: Any] = [kSecAttrCreationDate as String: Date(timeIntervalSinceReferenceDate: 0),
+                               kSecAttrModificationDate as String: Date(timeIntervalSinceReferenceDate: 1)]
+let legacy = credentialRevision(attributes as CFDictionary)
+expect(legacy == "legacy:0:3ff0000000000000")
+expect(credentialRevision(attributes as CFDictionary) == legacy)
+attributes[kSecAttrGeneric as String] = first[kSecAttrGeneric as String]
+let saved = credentialRevision(attributes as CFDictionary)
+expect(saved != legacy)
+attributes[kSecAttrGeneric as String] = second[kSecAttrGeneric as String]
+expect(credentialRevision(attributes as CFDictionary) != saved)
+attributes.removeValue(forKey: kSecAttrGeneric as String)
+attributes[kSecAttrModificationDate as String] = Date(timeIntervalSinceReferenceDate: 2)
+expect(credentialRevision(attributes as CFDictionary) != legacy)
+expect(credentialRevision(nil) == nil)
+expect(credentialRevision([:] as CFDictionary) == nil)
+print("PASS: 11 credential metadata checks; no Keychain or network calls")
+'''
+        with tempfile.TemporaryDirectory(prefix='agiw-jev-revision-test-') as directory:
+            path = Path(directory)
+            swift = path / 'main.swift'
+            swift.write_text(source.split(MARKER)[0] + harness)
+            executable = path / 'test-revision'
+            compiled = subprocess.run(['xcrun', 'swiftc', str(swift), '-o', str(executable)],
+                                      capture_output=True, text=True, timeout=60)
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+            result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=10)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.strip(), 'PASS: 11 credential metadata checks; no Keychain or network calls')
+
     def test_full_source_typechecks(self):
         result = subprocess.run(['xcrun', 'swiftc', '-typecheck', str(SOURCE)], capture_output=True, text=True, timeout=60)
         self.assertEqual(result.returncode, 0, result.stderr)

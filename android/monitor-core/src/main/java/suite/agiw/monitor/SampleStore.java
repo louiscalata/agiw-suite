@@ -50,22 +50,8 @@ public final class SampleStore {
     }
 
     static Board present(Board stored, long savedAtMillis, long nowMillis) {
-        if (closed(stored.connect)) {
-            if ("IDLE".equals(stored.process) || "RUNNING".equals(stored.process)) {
-                return Board.stored("UNKNOWN", stored.lane, stored.attachment, stored.runId,
-                        "A closed connection is not a live sample.", stored.connect, stored.observed);
-            }
-            return stored;
-        }
-        long age = nowMillis - savedAtMillis;
-        if (age < 0 || age > 30_000L) {
-            return stored.aged("STALE", "Last sample is old. This widget did not read again.");
-        }
-        return stored;
-    }
-
-    private static boolean closed(String connect) {
-        return "DISCONNECTED".equals(connect) || "REFUSED".equals(connect) || "NONE".equals(connect);
+        boolean savedExpired = nowMillis < savedAtMillis || nowMillis - savedAtMillis > 30_000L;
+        return DisplayedSample.present(stored, nowMillis, "Last sample is old. This widget did not read again.", savedExpired);
     }
 
     private static Map<String, String> read(Path file) throws IOException {
