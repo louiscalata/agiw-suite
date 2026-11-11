@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+import agiw.cli as cli  # noqa: E402
 import peer_link as pl  # noqa: E402
 
 
@@ -78,6 +79,25 @@ def status_doc(host: str, name: str, health: str = "ok") -> dict:
 
 def env_without(*names: str) -> dict:
     return {k: v for k, v in os.environ.items() if k not in names}
+
+
+_cli_main = cli.main
+
+
+def cli_main_without_kind_stub(argv=None, **kwargs):
+    """The product entry point. An omitted kind on Linux is refused."""
+    return _cli_main(argv, **kwargs)
+
+
+def _main_kind_stub(argv=None, **kwargs):
+    """Command tests describe Mac or Windows behavior. On a Linux runner, an omitted kind is mac
+    so the suite is not the unsupported-host refusal. Tests of that refusal call the unwrapped entry."""
+    if "kind" not in kwargs and pl.detect_host_kind() not in ("mac", "windows"):
+        kwargs["kind"] = "mac"
+    return _cli_main(argv, **kwargs)
+
+
+cli.main = _main_kind_stub
 
 
 def validate_row(row):
