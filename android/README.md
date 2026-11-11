@@ -2,7 +2,7 @@
 
 Read-only monitor. Version 1.1.0 (`versionCode` 2). One activity draws two layouts.
 
-The tall window (`activity_inner.xml`) is the inner screen: the word AGIW, an `https` address field, Read, and labeled rows. The nearly square window (`activity_cover.xml`) is the cover screen: the same readings, with LANE, ATTACH, and CONNECT written on the lines, and no address field. Read on the cover uses the address last typed on the inner screen. Turning the window keeps the board fields (process, lane, attachment, run id, connection, detail, time) and draws them again for that layout. It stores those fields, not the prefixed line, so a cover prefix is not shown on the inner screen and is not doubled on the way back.
+The tall window (`activity_inner.xml`) is the inner screen: the word AGIW, an `https` address field, Read, and labeled rows. The nearly square window (`activity_cover.xml`) is a glance for a window about the size of the Flip 6 cover: the word AGIW, the process, the acceptance line, and Read. It does not scroll a ledger. Read on that window uses the address last typed on the inner screen. Turning the window keeps the board fields (process, lane, attachment, run id, connection, detail, time) and draws them again for that layout. It stores those fields, not a prefixed line, so a cover prefix is not shown on the inner screen and is not doubled on the way back. Large type stacks a label over its value on both windows.
 
 Receipt ids stay behind Receipts. The blocked acceptance line stays visible. `http` is refused before a socket opens. Cleartext is off in the network security config. The desktop monitors stay on `127.0.0.1` and this module does not open them, change a firewall, or open a tunnel.
 
@@ -16,7 +16,7 @@ The debug APK from the earlier static build hashed `37b44f0f4992be2f05a29f8250c3
 
 ## Flip 6 cover widget
 
-The square activity layout above is the short window. It is not the Samsung cover host. The cover host in this module is the read-only `StatusWidget`. It is an App Widget. It is not a cover Activity. `MonitorActivity` stays the primary activity and opens from the launcher. A nearly square window uses the short layout. That layout is the window aspect. It does not mean the activity is running on the cover.
+The square activity layout above is only a nearly square window. It is not the Samsung cover host. The Flex Window path in this module is the read-only `StatusWidget`: an App Widget at 352 by 339 dp with `display="sub_screen"`. It is not a cover Activity. `MonitorActivity` stays the primary activity and opens from the launcher. A nearly square window uses the short layout. That layout is the window aspect. It does not mean the activity is running on the cover.
 
 The widget shows the last stored sample: process, connection, detail, and the blocked acceptance line. It does not send a repair, load or unload a model, or open a network connection. Its update period only rereads `last-sample.txt`. Cleartext stays off. A tap builds an immutable `PendingIntent` to `MonitorActivity` and does not set `launchDisplayId`. One UI can open that activity on the inner screen. This intent is not a claim that the activity is hosted on the cover.
 
