@@ -9,11 +9,12 @@ java -cp "$out/classes" suite.agiw.monitor.OverviewTest
 java -cp "$out/classes" suite.agiw.monitor.ClientTest
 java -cp "$out/classes" suite.agiw.monitor.FoldTest
 python3 - "$root/../app/src/main/res/layout" <<'PY'
+import json
 import re
 import sys
 from pathlib import Path
 import xml.etree.ElementTree as ET
-layout = Path(sys.argv[1])
+layout = Path(sys.argv[1]).resolve()
 required = {"read", "schematic", "process", "lane", "attachment", "connect", "acceptance", "observed", "detail"}
 
 def ids(path):
@@ -74,6 +75,21 @@ if 'android:paddingStart="16dp"' not in inner or 'android:paddingEnd="16dp"' not
 if 'android:paddingStart="12dp"' not in cover_text or 'android:paddingEnd="12dp"' not in cover_text:
     raise SystemExit("cover screen missing 12dp side inset")
 android_root = layout.parents[4]
+# The web variant is recorded alongside the foundation, not applied to Android.
+tokens = json.loads((android_root.parent / "jaryo/tokens.json").read_text())
+if tokens.get("surface") != "black-white" or tokens.get("provisionalTypeface") != "Inter":
+    raise SystemExit("Android foundation must remain Inter and strict black and white")
+variants = tokens.get("variants", {})
+if variants.get("android") != {"inherits": "foundation"}:
+    raise SystemExit("Android must inherit the foundation, not the web variant")
+web = variants.get("web", {})
+if (web.get("scope") != "full-observer-web"
+        or web.get("fonts") != {"text": "IBM Plex Sans", "figures": "IBM Plex Mono"}
+        or web.get("accent") != "#C21A27"
+        or web.get("typeScalePx") != [13, 21, 34, 55, 89, 144]):
+    raise SystemExit("web typography/accent contract is missing or unscoped")
+if tokens.get("appliedChoiceFile") is not None or tokens.get("chosenFamilyIds") != {}:
+    raise SystemExit("platform variants must not invent a choice-file approval")
 for rel in ("app/build.gradle.kts", "monitor-core/build.gradle.kts"):
     gradle = (android_root / rel).read_text()
     if "UTF-8" not in gradle or "JavaCompile" not in gradle:

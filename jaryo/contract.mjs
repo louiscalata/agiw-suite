@@ -74,6 +74,26 @@ export function contrastRatio(hexA, hexB) {
   return (hi + 0.05) / (lo + 0.05);
 }
 
+export function checkPlatformVariants(tokens) {
+  const problems = [];
+  if (tokens?.provisionalTypeface !== 'Inter' || tokens?.surface !== 'black-white') {
+    problems.push('foundation must remain Inter and black-white');
+  }
+  if (tokens?.appliedChoiceFile !== null || JSON.stringify(tokens?.chosenFamilyIds) !== '{}') {
+    problems.push('platform variants must not invent choice-file approvals');
+  }
+  const web = tokens?.variants?.web;
+  if (web?.scope !== 'full-observer-web' || web?.fonts?.text !== 'IBM Plex Sans'
+      || web?.fonts?.figures !== 'IBM Plex Mono' || web?.fontLicense !== 'SIL Open Font License 1.1'
+      || web?.accent !== '#C21A27' || JSON.stringify(web?.typeScalePx) !== '[13,21,34,55,89,144]') {
+    problems.push('web variant must record implemented Plex typography, booklet accent and six-step scale');
+  }
+  if (JSON.stringify(tokens?.variants?.android) !== '{"inherits":"foundation"}') {
+    problems.push('Android must inherit the foundation without web overrides');
+  }
+  return problems;
+}
+
 export function checkKit(root) {
   const problems = [];
   const fail = (message) => problems.push(message);
@@ -102,7 +122,7 @@ export function checkKit(root) {
   }
   if (/Downloads|curated-85|F17\.01/.test(tokens)) fail('tokens.json names a choice file');
   let scale;
-  try { scale = JSON.parse(tokens).scale; }
+  try { const parsed = JSON.parse(tokens); scale = parsed.scale; problems.push(...checkPlatformVariants(parsed)); }
   catch (_) { scale = null; }
   if (!scale) fail('tokens.json has no scale');
   const primitives = (() => { try { return read(root, 'primitives.css'); } catch (_) { return ''; } })();

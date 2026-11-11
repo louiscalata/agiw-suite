@@ -1,11 +1,43 @@
-/* AGIW applies the shared Jaryo primitives. Black and white only.
-   Status is glyph + word. Selected is invert. Focus is a dashed ring. */
+/* AGIW applies the shared Jaryo primitives.
+   Readings stay ink. Booklet red is display only.
+   Status is glyph + word. Focus is a dashed ring. */
 @import url("/jaryo/primitives.css");
+
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/ibm-plex-sans-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/ibm-plex-sans-700.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/ibm-plex-mono-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/ibm-plex-mono-700.woff2") format("woff2");
+}
 
 :root {
   --j-muted: #b3b3b3;
   --j-identity: var(--j-text);
   --j-surface-2: var(--j-bg);
+  --j-accent: #C21A27;
+  --j-accent-ink: #ffffff;
 }
 @media (prefers-color-scheme: light) {
   html:not([data-theme="dark"]) { --j-muted: #4d4d4d; }
@@ -385,8 +417,10 @@ body.jaryo-app .tools .fix-tab { white-space: normal; max-width: 100%; }
   gap: 8px;
   align-items: baseline;
   margin: 10px 0;
-  padding: 8px 10px;
-  border: 1px solid var(--j-border);
+  padding: 8px 0;
+  border: 0;
+  border-bottom: 1px solid var(--j-border);
+  background-image: none;
 }
 
 .j-unknown, .j-tab.j-unknown {
@@ -398,9 +432,10 @@ body.jaryo-app .tools .fix-tab { white-space: normal; max-width: 100%; }
 }
 
 .j-blocked {
-  border: 3px double var(--j-text);
-  background-image: repeating-linear-gradient(-45deg, transparent 0 6px, var(--j-border) 6px 7px);
-  background-clip: padding-box;
+  border: 0;
+  border-bottom: 1px solid var(--j-text);
+  background-image: none;
+  background-color: transparent;
 }
 
 .j-selected-blocked {
@@ -427,8 +462,8 @@ body.jaryo-app .tools .fix-tab { white-space: normal; max-width: 100%; }
   padding: 0 10px;
 }
 
-.j-steps { list-style: none; margin: 8px 0; padding: 0; display: grid; gap: 6px; }
-.j-step { border: 1px solid var(--j-border); padding: 0; }
+.j-steps { list-style: none; margin: 8px 0; padding: 0; display: grid; gap: 0; }
+.j-step { border: 0; border-bottom: 1px solid var(--j-border); padding: 0; background-image: none; }
 .j-step-hit, .j-open {
   width: 100%;
   min-height: 44px;
@@ -530,22 +565,30 @@ body.jaryo-app .j-page > details:first-child {
 body.jaryo-app .brand-wordmark strong,
 body.jaryo-app .j-brand strong,
 body.jaryo-app .j-type {
-  font-family: Inter, "Inter SemiBold", "Liberation Sans", "Noto Sans", sans-serif;
+  font-family: "IBM Plex Sans", "Liberation Sans", "Noto Sans", sans-serif;
   font-weight: 600;
   letter-spacing: 0.02em;
   text-transform: none;
   line-height: 1;
 }
 
+body.jaryo-app .brand-wordmark {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: 0;
+  line-height: 1.2;
+}
 body.jaryo-app .brand-wordmark strong { font-size: 18px; }
 body.jaryo-app .j-brand strong,
 body.jaryo-app .j-type { font-size: 20px; }
 
 .j-provisional {
   margin: 0 0 16px;
-  padding: 8px 10px;
-  border: 3px double var(--j-text);
-  background-image: repeating-linear-gradient(-45deg, transparent 0 6px, var(--j-border) 6px 7px);
+  padding: 8px 0;
+  border: 0;
+  border-bottom: 1px solid var(--j-text);
+  background-image: none;
 }
 
 .j-evidence summary {
@@ -557,9 +600,11 @@ body.jaryo-app .j-type { font-size: 20px; }
 
 .j-schematic {
   margin: 8px 0;
-  padding: 8px 10px;
-  border: 1px solid var(--j-border);
-  background-color: var(--j-bg);
+  padding: 8px 0;
+  border: 0;
+  border-bottom: 1px solid var(--j-border);
+  background-color: transparent;
+  background-image: none;
   color: var(--j-text);
   font: 12px/1.45 var(--j-font);
   white-space: pre;
@@ -570,8 +615,10 @@ body.jaryo-app .j-type { font-size: 20px; }
 .j-matrix-observed { border-style: solid; }
 .j-matrix-untested { border-style: dashed; }
 .j-matrix-blocked {
-  border: 3px double var(--j-text);
-  background-image: repeating-linear-gradient(-45deg, transparent 0 6px, var(--j-border) 6px 7px);
+  border: 0;
+  border-bottom: 1px solid var(--j-text);
+  background-image: none;
+  background-color: transparent;
 }
 
 .j-id-grid {
@@ -624,6 +671,10 @@ p.j-type-sample.j-plate {
   align-items: center;
   min-height: 72px;
 }
+body.jaryo-app .j-page .j-type-16 { font-size: var(--j-size-3) !important; }
+body.jaryo-app .j-page .j-type-24 { font-size: var(--j-size-4) !important; }
+body.jaryo-app .j-page .j-type-32 { font-size: var(--j-size-5) !important; }
+body.jaryo-app .j-page .j-poster { font-size: var(--j-size-6) !important; }
 .j-id-selected { border-width: 2px; }
 .j-size-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; margin: 12px 0; }
 .j-size-cell { margin: 0; display: grid; gap: 6px; justify-items: center; }
@@ -767,7 +818,7 @@ body.jaryo-app #monitorBoard.j-board {
 }
 
 body.jaryo-app .sidebar h1 {
-  font-family: Inter, "Liberation Sans", "Noto Sans", sans-serif;
+  font-family: "IBM Plex Sans", "Liberation Sans", "Noto Sans", sans-serif;
   font-size: clamp(28px, 2.2vw, 40px);
   font-weight: 600;
   letter-spacing: -0.03em;
@@ -796,6 +847,8 @@ body.jaryo-app .sidebar h1 {
     overflow: visible;
     grid-template-rows: auto minmax(0, 1fr);
   }
+  /* Plex text extends beyond its tight line box; keep it inside the viewport. */
+  body.jaryo-app > header.topbar { padding-block: var(--j-space-3); }
   body.jaryo-app > header.topbar,
   body.jaryo-app > header.j-top {
     grid-column: 1 / -1;
@@ -1021,6 +1074,61 @@ body.jaryo-app > footer #about {
   min-height: 44px;
   padding: 8px 12px;
 }
+
+/* The evidence rail is an opaque column. With every panel hidden it covered the
+   runtime sidebar, so the right side of the desktop grid looked empty. */
+body.jaryo-app .evidence-rail:not(:has(> :not([hidden]))) {
+  display: none;
+}
+
+/* Status tabs wrap inside the content column instead of running off the viewport. */
+body.jaryo-app .j-chrome { min-width: 0; max-width: 100%; }
+body.jaryo-app .j-tabs {
+  flex-wrap: wrap;
+  overflow: visible;
+  max-width: 100%;
+  min-height: 9rem;
+}
+body.jaryo-app .j-tab { flex: 1 1 14rem; min-width: 0; }
+body.jaryo-app .j-tab-label {
+  max-width: none;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+/* 375px: the full Model tuning label stays visible, and the board row is reserved
+   so the first sample cannot grow the page. */
+@media (max-width: 800px) {
+  body.jaryo-app .fix-tab-long { display: inline; }
+  body.jaryo-app .fix-tab-short { display: none; }
+  body.jaryo-app .tools .fix-tab {
+    flex: 1 1 auto;
+    width: auto;
+    max-width: 100%;
+    white-space: normal;
+    min-height: 44px;
+  }
+  body.jaryo-app .topbar { min-height: 16rem; }
+  body.jaryo-app .j-tabs { min-height: 26rem; }
+  body.jaryo-app .graph-region,
+  body.jaryo-app .graph-region:has(#monitorBoard:not([hidden])) {
+    grid-template-rows: minmax(240px, 42vh) 34vh;
+    min-height: 0;
+    height: auto;
+  }
+  body.jaryo-app #monitorBoard.j-board {
+    max-height: 34vh;
+    height: 34vh;
+    overflow: auto;
+  }
+}
+@media (min-width: 801px) {
+  body.jaryo-app #monitorBoard.j-board {
+    max-height: 34vh;
+    overflow: auto;
+  }
+}
 body.jaryo-app #autoUnloadToggle,
 body.jaryo-app #runtimeSidebar .search-label {
   background: var(--j-bg);
@@ -1143,6 +1251,12 @@ body.jaryo-app #memoryBanner { border-radius: 0; }
     background: Highlight;
     color: HighlightText;
   }
+  body.jaryo-app .j-tab[aria-selected="true"] .j-word,
+  body.jaryo-app .j-tab[aria-selected="true"] .j-glyph,
+  body.jaryo-app .j-tab[aria-selected="true"] .j-tab-label {
+    color: HighlightText;
+    forced-color-adjust: none;
+  }
 }
 
 /* Overview panels. style.css still paints the evidence rail, tiles, legend and model
@@ -1257,4 +1371,154 @@ body.jaryo-app .legend .agent-color.grok {
 body.jaryo-app input::placeholder {
   color: var(--j-text);
   opacity: 1;
+}
+
+/* style.css still supplies the overview structure. These steps replace its
+   palette and its 7px-and-up sizes. Six steps, none under 12px.
+   Fibonacci jumps from the Typography 1 proportion study:
+   13 meta, 21 body, 34 title, 55 wordmark, 89 headline, 144 poster. */
+body.jaryo-app {
+  --j-size-1: 13px;
+  --j-size-2: 21px;
+  --j-size-3: 34px;
+  --j-size-4: 55px;
+  --j-size-5: 89px;
+  --j-size-6: 144px;
+  font-size: var(--j-size-2);
+  font-family: "IBM Plex Sans", "Liberation Sans", "Noto Sans", sans-serif;
+}
+body.jaryo-app * {
+  font-family: "IBM Plex Sans", "Liberation Sans", "Noto Sans", sans-serif !important;
+  font-size: var(--j-size-2) !important;
+}
+body.jaryo-app .j-schematic,
+body.jaryo-app .j-page pre,
+body.jaryo-app .j-page code,
+body.jaryo-app .run-id,
+body.jaryo-app .j-machine-host,
+body.jaryo-app .metrics strong,
+body.jaryo-app #observedClientCount,
+body.jaryo-app .metrics dd,
+body.jaryo-app .j-metrics dd {
+  font-family: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace !important;
+}
+body.jaryo-app small,
+body.jaryo-app .eyebrow,
+body.jaryo-app .j-eyebrow,
+body.jaryo-app .j-word,
+body.jaryo-app .connection,
+body.jaryo-app > footer,
+body.jaryo-app .legend,
+body.jaryo-app .quiet,
+body.jaryo-app .coverage {
+  font-size: var(--j-size-1) !important;
+}
+body.jaryo-app .vital strong,
+body.jaryo-app .mode-tab-copy strong,
+body.jaryo-app .pc-switch-copy strong,
+body.jaryo-app .tools .fix-tab {
+  font-size: var(--j-size-2) !important;
+}
+body.jaryo-app h2,
+body.jaryo-app .j-board-title {
+  font-size: var(--j-size-3) !important;
+}
+body.jaryo-app .brand-wordmark,
+body.jaryo-app .brand-wordmark strong,
+body.jaryo-app .j-type {
+  font-size: var(--j-size-4) !important;
+}
+body.jaryo-app .metrics strong {
+  font-size: var(--j-size-2) !important;
+}
+body.jaryo-app h1,
+body.jaryo-app .sidebar h1 {
+  font-size: var(--j-size-5) !important;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+}
+body.jaryo-app .graph-region,
+body.jaryo-app .graph-region::before {
+  background-image: none;
+  background-color: var(--j-bg);
+}
+body.jaryo-app .sidebar,
+body.jaryo-app .sidebar .view-tabs button,
+body.jaryo-app .legend .agent-key,
+body.jaryo-app .legend .agent-key strong,
+body.jaryo-app .legend .agent-key span {
+  color: var(--j-text);
+  border-color: var(--j-border);
+  background-color: var(--j-bg);
+}
+body.jaryo-app .client-summary strong,
+body.jaryo-app .node.client .sub,
+body.jaryo-app .node.client-model .sub,
+body.jaryo-app .node.clients .sub,
+body.jaryo-app .cluster-label,
+body.jaryo-app .map-lane.client {
+  color: var(--j-text);
+  fill: var(--j-text);
+  stroke: var(--j-text);
+}
+
+/* Booklet red, from --j-accent, for headlines, the wordmark, and the current tab.
+   White on that red clears normal text. Red on black clears large bold type.
+   Readings, labels, and status words stay ink, and a status word is never the only cue. */
+body.jaryo-app h1,
+body.jaryo-app .sidebar h1,
+body.jaryo-app h2,
+body.jaryo-app .j-board-title,
+body.jaryo-app .brand-wordmark strong,
+body.jaryo-app .j-brand strong,
+body.jaryo-app .j-type {
+  color: var(--j-accent);
+  font-weight: 700;
+}
+body.jaryo-app h1 small,
+body.jaryo-app .brand-wordmark small,
+body.jaryo-app small,
+body.jaryo-app p,
+body.jaryo-app .j-eyebrow,
+body.jaryo-app .eyebrow,
+body.jaryo-app .j-word,
+body.jaryo-app .j-callout,
+body.jaryo-app .j-step,
+body.jaryo-app .j-schematic,
+body.jaryo-app dt,
+body.jaryo-app dd,
+body.jaryo-app .legend,
+body.jaryo-app > footer,
+body.jaryo-app .connection,
+body.jaryo-app .vital,
+body.jaryo-app .metrics {
+  color: var(--j-text);
+}
+body.jaryo-app .j-nav a[aria-current="page"],
+body.jaryo-app .j-tab[aria-selected="true"],
+body.jaryo-app .j-tab[aria-selected="true"]:hover {
+  background: var(--j-accent);
+  color: var(--j-accent-ink);
+  font-weight: 700;
+}
+body.jaryo-app .j-tab[aria-selected="true"] .j-word,
+body.jaryo-app .j-tab[aria-selected="true"] .j-glyph,
+body.jaryo-app .j-tab[aria-selected="true"] .j-tab-label {
+  color: var(--j-accent-ink);
+}
+@media (forced-colors: active) {
+  body.jaryo-app .j-nav a[aria-current="page"],
+  body.jaryo-app .j-tab[aria-selected="true"],
+  body.jaryo-app .j-tab[aria-selected="true"]:hover {
+    forced-color-adjust: none;
+    background: Highlight;
+    color: HighlightText;
+  }
+  body.jaryo-app .j-tab[aria-selected="true"] .j-word,
+  body.jaryo-app .j-tab[aria-selected="true"] .j-glyph,
+  body.jaryo-app .j-tab[aria-selected="true"] .j-tab-label {
+    color: HighlightText;
+    forced-color-adjust: none;
+  }
 }

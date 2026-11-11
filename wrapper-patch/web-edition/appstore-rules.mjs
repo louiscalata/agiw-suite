@@ -43,8 +43,8 @@ export const html = {
       ['<script src="/simple-view-private.mjs" type="module"></script>', ''],
       ['aria-label="Interactive constellation of local runtime and recorded client model evidence"', 'aria-label="Interactive map of the local runtime and its models"'],
       ['<title>AGIW Suite · Inference Monitor</title>', '<title>AGIW · Overview</title>'],
-      ['<div class="brand" role="group" aria-label="AGIW Inference Monitor"><span class="brand-wordmark"><strong class="j-type">AGIW</strong><small>Inference Monitor</small></span></div>',
-        '<div class="brand" role="group" aria-label="AGIW Inference Monitor"><span class="brand-wordmark"><strong class="j-type">AGIW</strong><small>Inference Monitor</small></span><span id="sampleData" class="sample-badge" role="status" title="Invented sample data, not read from this Mac" hidden>Sample data</span></div>'],
+      ['<div class="brand"><h1 class="brand-wordmark"><strong class="j-type">AGIW</strong><small>Inference Monitor</small></h1></div>',
+        '<div class="brand"><h1 class="brand-wordmark"><strong class="j-type">AGIW</strong><small>Inference Monitor</small></h1><span id="sampleData" class="sample-badge" role="status" title="Invented sample data, not read from this Mac" hidden>Sample data</span></div>'],
       ['<span id="connection" class="connection">CONNECTING</span>',
         '<button id="openRuntimeApp" class="runtime-app" type="button" title="Open LM Studio, or its website when it is '
         + 'not installed">Open LM Studio</button><span id="connection" class="connection">CONNECTING</span>'],

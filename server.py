@@ -67,7 +67,11 @@ ASSETS = {'/': ('index.html', 'text/html; charset=utf-8'),
           '/machines': ('machines.html', 'text/html; charset=utf-8'),
           '/machines.mjs': ('machines.mjs', 'text/javascript; charset=utf-8'),
           '/identity': ('identity.html', 'text/html; charset=utf-8'),
-          '/identity.mjs': ('identity.mjs', 'text/javascript; charset=utf-8')}
+          '/identity.mjs': ('identity.mjs', 'text/javascript; charset=utf-8'),
+          '/fonts/ibm-plex-sans-400.woff2': ('fonts/ibm-plex-sans-400.woff2', 'font/woff2'),
+          '/fonts/ibm-plex-sans-700.woff2': ('fonts/ibm-plex-sans-700.woff2', 'font/woff2'),
+          '/fonts/ibm-plex-mono-400.woff2': ('fonts/ibm-plex-mono-400.woff2', 'font/woff2'),
+          '/fonts/ibm-plex-mono-700.woff2': ('fonts/ibm-plex-mono-700.woff2', 'font/woff2')}
 
 JARYO_FILES = {
     '/jaryo/tokens.json': ('tokens.json', 'application/json'),
@@ -714,7 +718,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('Cache-Control', 'no-store')
         self.send_header('X-Content-Type-Options', 'nosniff')
         self.send_header('Referrer-Policy', 'no-referrer')
-        self.send_header('Content-Security-Policy', "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
+        self.send_header('Content-Security-Policy', "default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
         self.end_headers()
         try:
             self.wfile.write(payload)

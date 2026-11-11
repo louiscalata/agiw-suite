@@ -222,8 +222,13 @@ class Installer(unittest.TestCase):
         lists = self.install_lists()
         web = next(names for names in lists if "index.html" in names and "setup.mjs" in names)
         served = {file for file, _kind in server.ASSETS.values()}
-        self.assertEqual(set(web), served, "install.ps1's web list and the server's routes have drifted")
+        # The font license ships beside the assets but deliberately has no HTTP route.
+        legal = {"fonts/OFL-IBM-Plex.txt"}
+        self.assertTrue(legal.isdisjoint(served), "the legal sidecar must not widen the route allowlist")
+        self.assertEqual(set(web), served | legal, "install.ps1's web list and the server's routes have drifted")
         on_disk = {path.name for path in (REPO / "web").iterdir() if path.is_file() and path.suffix in (".html", ".mjs", ".js", ".css")}
+        on_disk.update(path.relative_to(REPO / "web").as_posix()
+                       for path in (REPO / "web/fonts").rglob("*") if path.is_file())
         # Files this edition deliberately does not install or serve (the Mac app's own pages).
         self.assertEqual(on_disk - set(web), set(), "a web file exists that the Windows install would leave out")
         jaryo = next(names for names in lists if "tokens.json" in names)

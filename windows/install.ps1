@@ -180,7 +180,7 @@ foreach ($item in Get-ChildItem -LiteralPath (Join-Path $sourceWindows 'agiw_win
 foreach ($file in 'agiw_observer.py', 'agiw-monitor.ps1', 'AGIW Monitor.vbs', 'AGIW Monitor.cmd', 'README.md') {
     $files.Add(@((Join-Path $sourceWindows $file), $file))
 }
-foreach ($file in 'index.html', 'app.js', 'style.css', 'map-layout.mjs', 'model-control-view.mjs', 'simple-view.mjs', 'simple-view.css', 'online-code-mode.mjs', 'monitor.html', 'monitor.mjs', 'monitor.css', 'monitor-tabs.mjs', 'monitor-board.mjs', 'monitor-map.mjs', 'jaryo.css', 'jaryo.mjs', 'identity.html', 'identity.mjs', 'machines.html', 'machines.mjs', 'setup.html', 'setup.mjs', 'components.html', 'components.js', 'components.css', 'eci-tuning.html', 'eci-tuning.mjs', 'eci-tuning.css') {
+foreach ($file in 'index.html', 'app.js', 'style.css', 'map-layout.mjs', 'model-control-view.mjs', 'simple-view.mjs', 'simple-view.css', 'online-code-mode.mjs', 'monitor.html', 'monitor.mjs', 'monitor.css', 'monitor-tabs.mjs', 'monitor-board.mjs', 'monitor-map.mjs', 'jaryo.css', 'jaryo.mjs', 'identity.html', 'identity.mjs', 'machines.html', 'machines.mjs', 'setup.html', 'setup.mjs', 'components.html', 'components.js', 'components.css', 'eci-tuning.html', 'eci-tuning.mjs', 'eci-tuning.css', 'fonts/ibm-plex-sans-400.woff2', 'fonts/ibm-plex-sans-700.woff2', 'fonts/ibm-plex-mono-400.woff2', 'fonts/ibm-plex-mono-700.woff2', 'fonts/OFL-IBM-Plex.txt') {
     $files.Add(@((Join-Path $repo "web\$file"), "web\$file"))
 }
 foreach ($file in 'tokens.json', 'theme.mjs', 'primitives.css', 'README.md', 'marks\d1-stamp.svg', 'marks\d2-ledger.svg', 'marks\d3-schematic.svg', 'marks\d4-split.svg', 'marks\d4-split-before.svg', 'marks\d4-split-wordmark.svg', 'marks\d4-split-on-dark.svg', 'marks\d4-split-on-light.svg', 'marks\d5-signal.svg', 'marks\favicon.svg') {
@@ -200,13 +200,14 @@ $files.Add(@((Join-Path $repo 'brand\windows\agiw.ico'), 'agiw.ico'))
 function Test-InstalledInventory($Files, $Destination, $Stage, $Guard, $RejectUnexpected = $false) {
     # Retained no-follow directory handles also protect the inventory walk. Extra code is never deleted.
     $expected = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
-    foreach ($pair in $Files) { [void]$expected.Add($pair[1]) }
+    # Manifests also use URL-style separators; the native inventory uses backslashes.
+    foreach ($pair in $Files) { [void]$expected.Add($pair[1].Replace('/', '\')) }
     foreach ($name in '.agiw-win-install', 'build.json', 'config.json', 'lane-processes.json') { [void]$expected.Add($name) }
     # A directory is expected only when an installed file lives inside it. jaryo and jaryo\marks
     # are parents of shipped files. Any other directory remains an unexpected install entry.
     $expectedDirs = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
     foreach ($pair in $Files) {
-        $parent = Split-Path -Parent $pair[1]
+        $parent = Split-Path -Parent ($pair[1].Replace('/', '\'))
         while ($parent) {
             [void]$expectedDirs.Add($parent)
             $parent = Split-Path -Parent $parent

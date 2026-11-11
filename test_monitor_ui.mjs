@@ -6,6 +6,7 @@ import * as layout from './web/map-layout.mjs';
 import * as usage from './usage-format.mjs';
 import * as onlineMode from './web/online-code-mode.mjs';
 import * as modelControl from './web/model-control-view.mjs';
+import * as monitorTabs from './web/monitor-tabs.mjs';
 
 // Review fixes, 26 Sep 2026 (monitor.json): the dashboard's own functions run against a small
 // fake DOM, without its polling loop or a browser.
@@ -13,6 +14,10 @@ const html = readFileSync(new URL('./web/index.html', import.meta.url), 'utf8');
 const css = readFileSync(new URL('./web/style.css', import.meta.url), 'utf8');
 const appSource = readFileSync(new URL('./web/app.js', import.meta.url), 'utf8');
 const definitions = appSource.replace(/^import .*;\r?\n/gm, '').split("$('pause').addEventListener")[0];
+
+const boardDefinitions = readFileSync(new URL('./web/monitor-board.mjs', import.meta.url), 'utf8')
+  .replace(/^import .*;\r?\n/gm, '').replace(/^export /gm, '');
+const startupTabs = appSource.slice(appSource.lastIndexOf('bindMonitorTabs();'), appSource.lastIndexOf('pollOnlineCodeAction();openStream();'));
 
 class FakeClassList {
   constructor(node) { this.node = node; }
@@ -64,7 +69,7 @@ class FakeElement {
   getBoundingClientRect() { return { left: 0, top: 0, right: 820, bottom: 604, width: 820, height: 604 }; }
 }
 
-function harness({ width = 1150, extra = {} } = {}) {
+function harness({ width = 1150, extra = {}, monitorChrome = false } = {}) {
   const doc = { elements: new Map() };
   doc.body = new FakeElement(doc, 'body');
   doc.activeElement = doc.body;
@@ -87,8 +92,10 @@ function harness({ width = 1150, extra = {} } = {}) {
   doc.getElementById('activityDetails').scroller = true;
   const view = { width };
   const window = { matchMedia: query => ({ matches: Number(/max-width:\s*(\d+)px/.exec(query)?.[1] ?? 0) >= view.width }) };
-  const api = runInNewContext(`${definitions}
-;({renderActivity,renderVitals,renderSummary,vitalsInput,syncCompactUI,toggleActivity,toggleAbout,closeCompactSidebar,setSidebarOpen,
+  const api = runInNewContext(`${monitorChrome ? `const paintMonitorChrome = (() => {${boardDefinitions}; return paintMonitorChrome;})();` : ''}${definitions}
+;({startMonitorTabs(){${monitorChrome ? startupTabs : ''}},
+  get monitorState(){return {snapshot, connected, paused, graph, monitors: desk()?.monitors};},
+  renderActivity,renderVitals,renderSummary,vitalsInput,syncCompactUI,toggleActivity,toggleAbout,closeCompactSidebar,setSidebarOpen,
   rebuildPanel,disclosure,onlineCodeSummary,liveNow,renderInspector,modelControlPollWanted,onlineCodePollWanted,pollOnlineCodeAction,
   renderModelScope,renderList,setModelScope,
   renderAutoUnload,pollAutoUnload,requestAutoUnload,get autoUnloadState(){return autoUnloadState;},
@@ -108,7 +115,7 @@ function harness({ width = 1150, extra = {} } = {}) {
   setFeed(value,isConnected=true){snapshot=value;connected=isConnected;},
   get lastPanel(){return lastEvidencePanel;},set lastPanel(value){lastEvidencePanel=value;},
   spyOpen(){const opened=[];openActivityRow=row=>opened.push(row.key);return opened;}})`,
-  { ...layout, ...usage, ...onlineMode, ...modelControl, document: doc, window, performance: { now: () => 0 }, ...extra });
+  { ...layout, ...usage, ...onlineMode, ...modelControl, ...(monitorChrome ? monitorTabs : {}), document: doc, window, performance: { now: () => 0 }, ...extra });
   return { api, doc, $: id => doc.getElementById(id), view };
 }
 
@@ -759,7 +766,7 @@ test('Follow-up 5: a choice made in the compact Browse sidebar closes it and han
 
 test('portfolio split docks an interactive browser on wide screens and retains the compact Browse gate', () => {
   assert.doesNotMatch(html, /brand-monogram|>AS</);
-  assert.match(html, /<span class="brand-wordmark"><strong class="j-type">AGIW<\/strong><small>Inference Monitor<\/small><\/span>/);
+  assert.match(html, /<h1 class="brand-wordmark"><strong class="j-type">AGIW<\/strong><small>Inference Monitor<\/small><\/h1>/);
   const wide = cssRules(css).filter(([media]) => media === '(min-width:980px)');
   const has = (selector, pattern) => wide.some(([, head, body]) => selectors(head).includes(selector) && pattern.test(body));
   assert.ok(has('main', /display:grid;grid-template-columns:minmax\(0,1fr\) var\(--portfolio-rail\)/));
@@ -2774,4 +2781,40 @@ test('closing Model Tuning Tool leaves the running repair and status polling int
   api.openFixInference();
   assert.equal($('fixInferenceSubmit').disabled,true);
   assert.equal($('fixInferenceResult').querySelector('p').textContent,'Checking.');
+});
+
+
+test('actual startup paints fictional tabs before any live snapshot without inventing live state', () => {
+  for (const search of ['?demo=1', '']) {
+    const calls = [];
+    const { api, $ } = harness({ monitorChrome: true, extra: {
+      location: { search },
+      fetch: (...args) => { calls.push(args); throw new Error('startup tabs must not fetch'); },
+    } });
+    $('monitorTabs').setAttribute('data-jaryo-tabs', '1');
+    $('jaryoDemo').hidden = true;
+    $('connection').textContent = 'CONNECTING';
+    api.startMonitorTabs();
+    const labels = $('monitorTabs').querySelectorAll('.j-tab-label');
+    assert.equal($('monitorTabs').dataset.bound, '1');
+    assert.equal(api.monitorState.snapshot, null);
+    assert.equal(api.monitorState.connected, false);
+    assert.equal(api.monitorState.graph.nodes.length, 0);
+    assert.equal($('connection').textContent, 'CONNECTING');
+    assert.equal($('monitorBoard').hidden, true);
+    assert.equal(calls.length, 0, 'no feed, control or model request');
+    if (search) {
+      assert.ok(labels.length >= 2);
+      assert.equal($('monitorTabs').dataset.fictional, '1');
+      assert.equal($('jaryoDemo').hidden, false);
+      assert.match($('jaryoDemo').textContent, /DEMO.*fictional.*not a live observation/);
+      assert.match($('jaryoDemo').textContent, /map is the live observer.*not filled from this sample/);
+      assert.ok(api.monitorState.monitors.every(item => item.fictional));
+    } else {
+      assert.equal(labels.length, 1);
+      assert.equal($('monitorTabs').dataset.fictional, '0');
+      assert.equal($('jaryoDemo').hidden, true);
+      assert.equal(api.monitorState.monitors[0].word, 'UNKNOWN');
+    }
+  }
 });

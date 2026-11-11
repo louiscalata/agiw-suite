@@ -14,7 +14,7 @@
 <body class="jaryo-app">
 <a class="j-skip" href="#content">Skip to content</a>
 <header class="topbar">
-<div class="brand" role="group" aria-label="AGIW Inference Monitor"><span class="brand-wordmark"><strong class="j-type">AGIW</strong><small>Inference Monitor</small></span></div>
+<div class="brand"><h1 class="brand-wordmark"><strong class="j-type">AGIW</strong><small>Inference Monitor</small></h1></div>
 <div class="tools"><button id="fixInference" class="fix-tab" aria-expanded="false" aria-controls="fixInferenceDetails" type="button" title="Open Model Tuning Tool. Nothing runs until you press Run check."><span class="fix-tab-long">Model tuning</span><span class="fix-tab-short">Tune</span></button><span id="connection" class="connection">CONNECTING</span></div>
 </header>
 <nav class="j-nav" aria-label="Inference Monitor">
@@ -33,10 +33,10 @@
 </select>
 </label>
 </nav>
-<div class="j-chrome">
+<div class="j-chrome" role="region" aria-label="Monitor status">
 <p id="jaryoDemo" class="j-demo" hidden>DEMO · fictional monitors · not a live observation</p>
 <p class="j-hint" id="monitorTabHint">Arrow keys switch monitors. Switching does not pause, cancel, or restart inference.</p>
-<div id="monitorTabs" class="j-tabs" role="tablist" aria-label="Inference monitors" aria-describedby="monitorTabHint" data-jaryo-tabs="1"></div>
+<div id="monitorTabs" class="j-tabs" role="tablist" aria-label="Inference monitors" aria-describedby="monitorTabHint" data-jaryo-tabs="1" tabindex="0"></div>
 </div>
 <main id="content" tabindex="-1">
 <aside class="sidebar" id="runtimeSidebar" aria-label="Runtime and client browser">
