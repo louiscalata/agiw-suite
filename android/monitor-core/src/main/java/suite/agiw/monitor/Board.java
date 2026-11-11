@@ -78,18 +78,14 @@ public final class Board {
         Instant observed = instant(observedText);
         if (observed == null) return none("Observation time was not reported");
         long age = now.toEpochMilli() - observed.toEpochMilli();
-        if (age < 0 || age > 30_000L) {
-            Hold hold = attachment(root);
-            return new Board("STALE", lane(root), hold.word, hold.runId,
-                    "Sample is " + (age / 1000L) + "s from the clock used by this client. Stale is not idle and not unknown.",
-                    "SAMPLE", observedText);
-        }
         boolean live = liveRoute(root) || liveJob(root);
         boolean blocked = needsAction(root);
         boolean unsettled = !live && !blocked && !quiet(root);
         Overview.Word word = Overview.word(true, true, false, false, live, blocked, unsettled);
         Hold hold = attachment(root);
-        return new Board(word.name(), lane(root), hold.word, hold.runId, word.name(), "SAMPLE", observedText);
+        Board sample = new Board(word.name(), lane(root), hold.word, hold.runId, word.name(), "SAMPLE", observedText);
+        return DisplayedSample.present(sample, now.toEpochMilli(),
+                "Sample is " + (age / 1000L) + "s from the clock used by this client. Stale is not idle and not unknown.", false);
     }
 
     private static boolean liveRoute(Map<?, ?> root) {
