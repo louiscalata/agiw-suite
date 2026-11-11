@@ -30,10 +30,10 @@ test('reviewed pins are literals and match the current statements', { skip: !ups
   }
 });
 
-test('feature denylist file is unchanged from the wrapper archive', () => {
+test('feature denylist includes the reviewed Model Tuning Tool aliases', () => {
   const text = readFileSync(join(here, 'feature-denylist.txt'));
   assert.equal(createHash('sha256').update(text).digest('hex'),
-    '03378746a130f9217b679a475a14ac14236c53e90c404c3fd3a5c426d0b761f9');
+    'a1e4735ae79ec4df2a2bd3992023e45ec4019f064011c59960678d7720d63c8f');
 });
 
 test('edition engine matches the archived fail-closed engine', () => {
@@ -60,7 +60,7 @@ test('current Jaryo web builds a denylist-clean edition', { skip: !upstreamDir }
   const html = files.get('index.html');
   const sourceHtml = upstream.get('index.html');
   assert.match(sourceHtml, /id="fixInference"/);
-  assert.match(sourceHtml, /Fix inference/);
+  assert.match(sourceHtml, /Model tuning/);
   for (const id of ['onlineCodeMode', 'fixInference', 'pcSwitch', 'vitalPc', 'vitalRoute', 'vitalActivity', 'memoryBanner']) {
     assert.equal(html.includes(`id="${id}"`), false, id);
   }

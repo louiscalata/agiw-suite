@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "routes": {
+    "general": {
+      "model": "Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf",
+      "machine": "pc",
+      "run_id": "pc-llama31-baseline-max1024",
+      "status": "PROVISIONAL",
+      "confidence": "low-to-moderate",
+      "eci": [
+        105.37592661908786,
+        94.31056484138705,
+        115.13793099094659
+      ],
+      "basis": "Highest available baseline local ECI; task-specific routing outcomes NOT_MEASURED. CI overlap is not a clean win."
+    },
+    "reasoning": {
+      "model": "Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf",
+      "machine": "pc",
+      "run_id": "pc-llama31-baseline-max1024",
+      "status": "PROVISIONAL",
+      "confidence": "low-to-moderate",
+      "eci": [
+        105.37592661908786,
+        94.31056484138705,
+        115.13793099094659
+      ],
+      "basis": "Highest available baseline local ECI; task-specific routing outcomes NOT_MEASURED. CI overlap is not a clean win."
+    },
+    "coding": {
+      "model": "Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf",
+      "machine": "pc",
+      "run_id": "pc-llama31-baseline-max1024",
+      "status": "PROVISIONAL",
+      "confidence": "low-to-moderate",
+      "eci": [
+        105.37592661908786,
+        94.31056484138705,
+        115.13793099094659
+      ],
+      "basis": "Highest available baseline local ECI; task-specific routing outcomes NOT_MEASURED. CI overlap is not a clean win."
+    }
+  },
+  "runtime_activation": "NOT_APPLIED",
+  "nisi_mac": {
+    "status": "NOT_APPLIED",
+    "author": null,
+    "reviewer": null,
+    "requires": "Two distinct LLMs already resident in Mac LM Studio; no PC artifact."
+  }
+}

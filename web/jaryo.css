@@ -312,13 +312,18 @@ body.jaryo-app .tiny-dot {
 }
 
 .j-hint { margin: 0; padding: 4px 16px 0; }
+body.jaryo-app .fix-tab-long { display: inline; }
+body.jaryo-app .fix-tab-short { display: none; }
+body.jaryo-app .tools .fix-tab { white-space: normal; max-width: 100%; }
+.monitor-controls { margin: 0 0 16px; }
+.monitor-controls summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; }
+.monitor-controls .tools, .monitor-controls button, .monitor-controls .connection { max-width: 100%; }
 
 .j-tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 0;
-  overflow-x: auto;
-  overscroll-behavior-x: contain;
-  scrollbar-width: thin;
+  overflow: visible;
   border-top: 1px solid var(--j-border);
 }
 
@@ -340,7 +345,7 @@ body.jaryo-app .tiny-dot {
 
 .j-word { letter-spacing: .04em; }
 .j-glyph { min-width: 1ch; }
-.j-tab-label { max-width: 12rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.j-tab-label { max-width: none; overflow: visible; text-overflow: clip; white-space: normal; }
 
 .j-demo {
   margin: 0;
@@ -1042,7 +1047,7 @@ body.jaryo-app .j-tab-label {
   white-space: normal;
 }
 
-/* 375px: the full Fix inference label stays visible, and the board row is reserved
+/* 375px: the full Model tuning label stays visible, and the board row is reserved
    so the first sample cannot grow the page. */
 @media (max-width: 800px) {
   body.jaryo-app .fix-tab-long { display: inline; }
@@ -1178,6 +1183,7 @@ body.jaryo-app #memoryBanner { border-radius: 0; }
   body.jaryo-app .item.selected,
   body.jaryo-app .j-selected,
   body.jaryo-app .j-tab[aria-selected="true"],
+  body.jaryo-app .j-nav a[aria-current="page"],
   body.jaryo-app #runtimeSidebar .view-tabs button[aria-pressed="true"],
   body.jaryo-app #runtimeSidebar #modelScopeControls > button[aria-pressed="true"],
   body.jaryo-app .tools #pause[aria-pressed="true"],

@@ -18,6 +18,8 @@ if [[ ! -x "$python_path" ]]; then
     exit 1
 fi
 resources=(
+    eci_tuning.py eci_tuning_catalog.json eci_tuning_routes.json eci_tuning.schema.json
+    web/eci-tuning.html web/eci-tuning.mjs web/eci-tuning.css
     server.py telemetry.py machine_state.py agiw_status.py agiw-status activity.py client_models.py model_control.py
     durable_model_journal.py auto_unload.py online_code_repair.py nisi_v02.py
     windows_probe.py live_feed.py gpu_probe.py local_callers.py mem_guard.py peer_feed.py peer_link.py

@@ -8,10 +8,15 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   tests:
     name: monitor (${{ matrix.python }})
-    runs-on: macos-latest
+    # Same-repo events use Louis's Mac runner; fork pull requests stay on GitHub-hosted macOS.
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted","mac-m5"]') || 'macos-latest' }}
     timeout-minutes: 35
     strategy:
       fail-fast: false
@@ -50,10 +55,10 @@ jobs:
           node --check web/monitor.mjs
 
   # Chromium emulation of forced-colors: active. Not a Windows High Contrast
-  # hardware pass. Ubuntu only: the macOS job does not install Playwright.
+  # hardware pass. Linux only: the observer requires POSIX fcntl.
   forced-colors:
     name: forced-colors emulation
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON((github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "box-linux"]' || '"ubuntu-latest"') }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7.0.1
@@ -66,22 +71,57 @@ jobs:
       - name: Install Chromium for the emulation
         run: |
           npm install --prefix "$RUNNER_TEMP/pw" playwright@1.49.1
-          (cd "$RUNNER_TEMP/pw" && npx playwright install --with-deps chromium)
+          if [ "${{ runner.environment }}" = "self-hosted" ]; then
+            (cd "$RUNNER_TEMP/pw" && npx playwright install chromium)
+          else
+            (cd "$RUNNER_TEMP/pw" && npx playwright install --with-deps chromium)
+          fi
       - name: Emulate forced-colors on / and /monitor
         env:
           NODE_PATH: ${{ runner.temp }}/pw/node_modules
         run: node checks/forced-colors-emulation.mjs
+      - name: Prove the overview paints ink
+        env:
+          NODE_PATH: ${{ runner.temp }}/pw/node_modules
+        run: node checks/overview-ink.mjs
+
+  # Headless Chrome for the Jaryo kit page. Not a Mac job: the Mac does not
+  # launch Chrome. Flags match the box and the PC.
+  jaryo-smoke:
+    name: jaryo kit smoke
+    runs-on: ${{ fromJSON((github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "box-linux"]' || '"ubuntu-latest"') }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: '22'
+      - name: Install Chromium
+        run: |
+          npm install --prefix "$RUNNER_TEMP/pw" playwright@1.49.1
+          if [ "${{ runner.environment }}" = "self-hosted" ]; then
+            (cd "$RUNNER_TEMP/pw" && npx playwright install chromium)
+          else
+            (cd "$RUNNER_TEMP/pw" && npx playwright install --with-deps chromium)
+          fi
+      - name: Overflow, station keys, reduced motion, and axe
+        env:
+          NODE_PATH: ${{ runner.temp }}/pw/node_modules
+        run: |
+          export CHROME_BIN="$(node -e "console.log(require('playwright').chromium.executablePath())")"
+          node jaryo/demo/smoke.mjs --out "$RUNNER_TEMP/jaryo-shots"
 
   # Branch protection requires a check named exactly "monitor". A matrix job
   # reports only "monitor (<version>)", so this job reports the combined result.
   monitor:
     if: ${{ always() }}
-    needs: [tests, forced-colors]
-    runs-on: ubuntu-latest
+    needs: [tests, forced-colors, jaryo-smoke]
+    runs-on: ${{ fromJSON((github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "box-linux"]' || '"ubuntu-latest"') }}
     timeout-minutes: 5
     steps:
-      - name: Require the suites and the forced-colors emulation
+      - name: Require the suites, forced-colors, and the kit smoke
         env:
           RESULT: ${{ needs.tests.result }}
           FORCED: ${{ needs.forced-colors.result }}
-        run: test "$RESULT" = success && test "$FORCED" = success
+          SMOKE: ${{ needs.jaryo-smoke.result }}
+        run: test "$RESULT" = success && test "$FORCED" = success && test "$SMOKE" = success

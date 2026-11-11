@@ -138,10 +138,11 @@ test('unverified Windows lane stays visible without claiming a live connection',
   assert.equal(result.nodes.filter(node=>node.kind==='model'&&node.model?.host==='windows').length,0);
 });
 
-test('client branch colors are distinct and their model nodes inherit the same hue',()=>{
+test('client branch colors are ink and their model nodes inherit that ink',()=>{
   const result=project([],'mac');
   const clients=result.nodes.filter(node=>node.kind==='client');
-  assert.equal(new Set(clients.map(node=>node.color)).size,5);
+  assert.equal(new Set(clients.map(node=>node.color)).size,1);
+  assert.equal(clients[0].color,'currentColor');
   for(const client of clients){
     const model=result.nodes.find(node=>node.id===`client-model:${client.client.id}:unknown`);
     assert.equal(model.color,client.color);

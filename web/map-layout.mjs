@@ -295,8 +295,7 @@ export function modelStarSize(model) {
   const radius = amount ? 10 + fraction * 12 : 11;
   const metadata = model?.metadata || {}, capabilities = metadata.capabilities || {};
   const type = typeof metadata.type === 'string' ? metadata.type.toLowerCase() : '';
-  const color = /embed/.test(type) ? '#bd9cff' : capabilities.reasoning === true ? '#70d7ed'
-    : capabilities.vision === true ? '#f1b568' : capabilities.toolUse === true ? '#6bd6a2' : '#99a3b7';
+  const color = 'currentColor';
   const labels = [['vision',capabilities.vision],['tool use',capabilities.toolUse],['reasoning',capabilities.reasoning],['reasoning options',capabilities.reasoningOptions]]
     .filter(([,enabled]) => enabled === true).map(([label]) => label);
   if (/embed/.test(type)) labels.unshift('embedding');
@@ -1499,10 +1498,10 @@ export function createWebMotion({ now, requestFrame, cancelFrame = () => {}, set
 }
 
 /* Background glow (Louis 26 Sep: "make the background glow too when the node pulse"): one soft radial glow
- * under the web per pulsing node (working or in flight on a fresh feed), green for work and the node's own
- * colour for a job in flight. Radius ~110 map units, clamped to 150 screen pixels so zooming in never floods
+ * under the web per pulsing node (working or in flight on a fresh feed). The glow is ink.
+ * Radius ~110 map units, clamped to 150 screen pixels so zooming in never floods
  * the map. */
-const GLOW_WORKING = '#63d6ac';
+const GLOW_WORKING = 'currentColor';
 const safeGlowColor = color => typeof color === 'string' && /^#[0-9a-f]{3,8}$/i.test(color) ? color.toLowerCase() : GLOW_WORKING;
 export function glowRadius(zoom, { radius = 110, maxScreen = 150 } = {}) {
   const z = Number.isFinite(zoom) && zoom > 0 ? zoom : 1, base = Number.isFinite(radius) && radius > 0 ? radius : 110;

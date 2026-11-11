@@ -37,9 +37,13 @@ from machine_state import FRESH_SECONDS, expire_machines, finite_number, platfor
 from inference_collect import RateMemory, attach, vram_from_reading
 from inference_stats import expire_map
 from pc_tunnel import load_config, port_accepts, targets as tunnel_targets
+import eci_tuning
 
 ROOT = Path(__file__).resolve().parent / 'web'
 ASSETS = {'/': ('index.html', 'text/html; charset=utf-8'),
+          '/eci-tuning': ('eci-tuning.html', 'text/html; charset=utf-8'),
+          '/eci-tuning.mjs': ('eci-tuning.mjs', 'text/javascript; charset=utf-8'),
+          '/eci-tuning.css': ('eci-tuning.css', 'text/css; charset=utf-8'),
           '/components': ('components.html', 'text/html; charset=utf-8'),
           '/components.js': ('components.js', 'text/javascript; charset=utf-8'),
           '/components.css': ('components.css', 'text/css; charset=utf-8'),
@@ -98,11 +102,14 @@ MODEL_JOURNAL_PATH = Path.home() / '.local/state/inference-monitor/model-operati
 # The HTTP dispatcher and its gate tests consume the same complete owner-action table.
 # Receipt-writing Entry is not exposed over HTTP; readiness GET uses cached evidence.
 # Each choice is (request value, diagnosis action, controller method arguments).
+# Canonical tuning repair and the deprecated Fix inference alias share every guard and scope.
+INFERENCE_REPAIR_ROUTE = ('scope', 'request_fix', tuple(
+    (scope, f'fix-{scope}', (scope,)) for scope in FIX_SCOPES))
 OWNER_ACTION_ROUTES = {
     '/api/online-code-mode/repair': ('action', 'request', (
         ('check-and-repair', 'check-and-repair', ()),)),
-    '/api/inference/fix': ('scope', 'request_fix', tuple(
-        (scope, f'fix-{scope}', (scope,)) for scope in FIX_SCOPES)),
+    '/api/eci-tuning/repair': INFERENCE_REPAIR_ROUTE,
+    '/api/inference/fix': INFERENCE_REPAIR_ROUTE,
     '/api/online-code-mode/headless': ('action', 'request_headless', tuple(
         (action, f'headless-{action}', (action,)) for action in HEADLESS_COMMANDS)),
 }
@@ -551,6 +558,12 @@ class Handler(BaseHTTPRequestHandler):
         if not self.same_origin():
             return self.reply(403, b'Invalid host or origin', 'text/plain')
         path = urlsplit(self.path).path
+        if path == '/api/eci-tuning':
+            try:
+                data = eci_tuning.status()
+                return self.reply(200, json.dumps(data, allow_nan=False).encode(), 'application/json')
+            except (OSError, ValueError, TypeError, KeyError):
+                return self.reply(503, b'{"status":"unknown"}', 'application/json')
         if path == '/api/components':
             return self.reply(200, json.dumps(self.server.bundled_components.status()).encode(), 'application/json')
         if path == '/api/components/jev':
