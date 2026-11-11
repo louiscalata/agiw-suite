@@ -1,6 +1,7 @@
 package suite.agiw.monitor;
 
 import android.app.PendingIntent;
+import android.app.AlarmManager;
 import android.appwidget.AppWidgetManager;
 import android.appwidget.AppWidgetProvider;
 import android.content.ComponentName;
@@ -12,6 +13,7 @@ import java.nio.file.Path;
 
 /** Cover-capable status. It shows the last sample and does not open a connection. */
 public final class StatusWidget extends AppWidgetProvider {
+    private static final String EXPIRE = "suite.agiw.monitor.DISPLAY_EXPIRE";
     static Path file(Context context) {
         return context.getFilesDir().toPath().resolve("last-sample.txt");
     }
@@ -20,16 +22,39 @@ public final class StatusWidget extends AppWidgetProvider {
         AppWidgetManager manager = AppWidgetManager.getInstance(context);
         ComponentName provider = new ComponentName(context, StatusWidget.class);
         int[] ids = manager.getAppWidgetIds(provider);
-        for (int id : ids) render(context, manager, id);
+        long now = System.currentTimeMillis();
+        Board board = SampleStore.present(file(context), now);
+        for (int id : ids) manager.updateAppWidget(id, views(context, board));
+        schedule(context, ids.length == 0 ? -1L : DisplayedSample.expiresAt(board, now));
     }
 
     @Override
     public void onUpdate(Context context, AppWidgetManager manager, int[] ids) {
-        for (int id : ids) render(context, manager, id);
+        publish(context);
     }
 
-    private static void render(Context context, AppWidgetManager manager, int id) {
-        Board board = SampleStore.present(file(context), System.currentTimeMillis());
+    @Override
+    public void onReceive(Context context, Intent intent) {
+        super.onReceive(context, intent);
+        if (EXPIRE.equals(intent.getAction())) publish(context);
+    }
+
+    @Override
+    public void onDisabled(Context context) {
+        schedule(context, -1L);
+    }
+
+    private static void schedule(Context context, long expires) {
+        AlarmManager alarms = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
+        Intent intent = new Intent(context, StatusWidget.class).setAction(EXPIRE);
+        PendingIntent pending = PendingIntent.getBroadcast(context, 0, intent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        alarms.cancel(pending);
+        // Android may defer this inexact alarm, especially in Doze.
+        if (expires >= 0) alarms.set(AlarmManager.RTC_WAKEUP, expires, pending);
+    }
+
+    static RemoteViews views(Context context, Board board) {
         int ink = themedColor(context, R.color.agiw_ink);
         int bg = themedColor(context, R.color.agiw_bg);
         RemoteViews views = new RemoteViews(context.getPackageName(), R.layout.widget_status);
@@ -58,7 +83,7 @@ public final class StatusWidget extends AppWidgetProvider {
         PendingIntent pending = PendingIntent.getActivity(context, 0, open,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         views.setOnClickPendingIntent(R.id.widgetRoot, pending);
-        manager.updateAppWidget(id, views);
+        return views;
     }
 
     /** Night and day stay the two Jaryo inks, even when the host context is stale. */

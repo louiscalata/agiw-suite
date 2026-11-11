@@ -13,6 +13,11 @@ public final class MonitorCoreGradleTest {
     }
 
     @Test
+    public void aging() throws Exception {
+        AgingTest.main(new String[0]);
+    }
+
+    @Test
     public void client() throws Exception {
         ClientTest.main(new String[0]);
     }
