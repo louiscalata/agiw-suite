@@ -270,6 +270,22 @@ class EndToEnd(unittest.TestCase):
         self.assertEqual(self.get("/etc/passwd")[0], 404)
         self.assertEqual(json.loads(self.get("/api/models/control")[1])["supported"], False)
 
+    def test_eci_tuning_is_read_only_same_origin_and_reports_unknown(self):
+        with mock.patch("agiw_win.server.eci_tuning.status", return_value={"pending": [{"status": "NOT_COMPUTED"}]}):
+            status, body, response = self.get("/api/eci-tuning")
+            self.assertEqual(status, 200)
+            self.assertEqual(json.loads(body)["pending"][0]["status"], "NOT_COMPUTED")
+            self.assertEqual(response.getheader("Cache-Control"), "no-store")
+            self.assertEqual(self.get("/api/eci-tuning", origin="https://example.invalid")[0], 403)
+        with mock.patch("agiw_win.server.eci_tuning.status", side_effect=ValueError("private detail")):
+            status, body, _ = self.get("/api/eci-tuning")
+            self.assertEqual((status, json.loads(body)), (503, {"status": "unknown"}))
+        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=3)
+        origin = f"http://127.0.0.1:{self.port}"
+        conn.request("POST", "/api/eci-tuning", body=b"{}", headers={"Host": f"127.0.0.1:{self.port}",
+                                                                     "Origin": origin, "Content-Type": "application/json"})
+        self.assertEqual(conn.getresponse().status, 501)
+
     def test_every_page_and_asset_route_serves_its_file(self):
         """Every route in ASSETS and JARYO_FILES answers 200 with the bytes on disk; nothing else leaks."""
         from agiw_win.server import ASSETS, JARYO_FILES
@@ -1148,7 +1164,9 @@ class ObserverRecovery(unittest.TestCase):
         shutil.copytree(windows / "agiw_win", self.install / "agiw_win", ignore=shutil.ignore_patterns("__pycache__"))
         shutil.copy2(windows / "agiw_observer.py", self.install / "agiw_observer.py")
         repo = windows.parent
-        for name in ("inference_collect.py", "inference_stats.py", "machine_state.py"):
+        for name in ("inference_collect.py", "inference_stats.py", "machine_state.py",
+                     "eci_tuning.py", "eci_tuning_catalog.json", "eci_tuning_routes.json",
+                     "eci_tuning.schema.json"):
             shutil.copy2(repo / name, self.install / name)
         (self.install / "web").mkdir()
         (self.install / "web" / "index.html").write_text("<!doctype html>")
