@@ -17,11 +17,11 @@ A missing or stale reading is unknown. It is never idle, zero, quiet, or none. O
 | Android | `android/`. Read-only monitor, version 1.1.0. Not a store package. |
 | Jaryo | `jaryo/` kit, `web/jaryo.css`, `web/jaryo.mjs`, and the marks in `brand/`. |
 
-Linux is retired as a product machine. On Linux every `agiw` command refuses and changes nothing. The version flag still prints.
+Linux is retired as a product machine. On Linux product commands exit 2 and change nothing. Argument-parser `--help` and `--version` still work.
 
 ## Commands
 
-Run these from the repository root. They were run on Linux with Python 3.12 and Node 22. Python 3.9 is the supported minimum. CI also runs the Python suites on 3.14.
+Run these from the repository root. Python 3.9 is the supported minimum. CI also runs the observer suites on 3.14 and uses Node 22. Record the actual command, version, result and skip count for the revision being checked; historical counts are not verification of a new change.
 
 ```sh
 python3 -B server.py --port 8765
@@ -55,7 +55,7 @@ On Linux this exits 2. The message says Linux is not supported and nothing was c
 
 ### Mac
 
-`bash -n` on `build.sh`, `login-agent.sh`, and `package-release.sh` ran here. The Xcode steps in `.github/workflows/source-checks.yml` are NOT_RUN on Linux. `build.sh` replaces `$HOME/Applications/Inference Monitor.app` on an Apple silicon Mac. That is an install, not a source check.
+The Xcode steps in `.github/workflows/source-checks.yml` require macOS. `build.sh` replaces `$HOME/Applications/Inference Monitor.app` on an Apple silicon Mac. That is an install, not a source check. `package-release.sh` requires a Developer ID identity; neither script is a routine verification command.
 
 ### Windows
 
@@ -63,11 +63,11 @@ The `windows/` unittest above is the part that runs on Linux, with native cases 
 
 ### CLI
 
-The CLI workflow runs the `tests_cli` suite on macOS and Windows. On this Linux host `PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest discover -s tests_cli -q` exited 1. The failures are the Linux refusal (exit 2). That run is not a CLI pass.
+The CLI workflow runs `PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest discover -s tests_cli -q` on macOS, Windows and hosted Ubuntu. Tests inject the supported host kind on Linux; a Linux CI pass does not make Linux a supported product host.
 
 ### Android
 
-`sh android/monitor-core/check.sh` is the check that ran here. Gradle lint, the debug APK, and the emulator smoke are NOT_RUN here. They run in `.github/workflows/android.yml`. A physical Galaxy Z Flip6 is NOT_RUN.
+`sh android/monitor-core/check.sh` checks source contracts and requires a Java runtime for its Java stage. Gradle lint, the debug APK and emulator smoke run in `.github/workflows/android.yml`. Report each stage separately. Emulator results do not establish physical-device acceptance.
 
 ### Web
 
@@ -77,14 +77,16 @@ The CLI workflow runs the `tests_cli` suite on macOS and Windows. On this Linux 
 
 | Workflow | When | Where |
 | --- | --- | --- |
-| `.github/workflows/source-checks.yml` | push to `main`, every pull request | GitHub-hosted `macos-latest`, Python 3.9 and 3.14, Node 22. The required check is named `monitor`. Ubuntu emulates forced-colors. The Mac's own Actions runner stays off. |
-| `.github/workflows/cli.yml` | path-filtered | macOS and Windows, Python 3.9 and 3.12. |
-| `.github/workflows/windows-edition.yml` | path-filtered | Windows, Python 3.9 and 3.12, plus the root Node tests. |
-| `.github/workflows/android.yml` | path-filtered | Ubuntu unit tests, lint, debug APK, and an emulator smoke. |
+| `.github/workflows/source-checks.yml` | push to `main`, every pull request | Same-repository Mac source checks use the existing `mac-m5` runner; fork PRs use hosted macOS. Python 3.9/3.14 and Node 22. Hosted Ubuntu runs forced-colors, overview ink and the kit smoke. The combined required check is `monitor`. |
+| `.github/workflows/cli.yml` | path-filtered | Python 3.9/3.12: existing `mac-m5` and `pc-win` runners for same-repository Mac/Windows jobs, hosted Mac/Windows for fork PRs, hosted Ubuntu 24.04 for Linux fixture checks. |
+| `.github/workflows/windows-edition.yml` | path-filtered | Existing `pc-win` runner for same-repository events; hosted Windows for fork PRs. Python 3.9/3.12 plus the root Node tests. |
+| `.github/workflows/android.yml` | path-filtered | Hosted Ubuntu unit tests, lint, debug APK and an emulator smoke. |
+
+The kit smoke uses Ubuntu 22.04 for compatibility with the pinned Chromium sandbox. Other hosted Ubuntu jobs keep their workflow-selected image. Inspect the workflow and current job receipts before claiming a runner or check passed. Registration and an online runner do not prove execution.
 
 ## Conventions
 
-Python tests are unittest. JavaScript tests are `node --test`. Use `python3 -B` and `PYTHONDONTWRITEBYTECODE=1`. Keep a change in its tree: Mac files at the root, Windows under `windows/`, the command under `agiw/` and `tests_cli/`, pages under `web/`, the phone under `android/`, the kit under `jaryo/`. The license is Apache-2.0. Leave credentials, private hostnames, and unsanitized machine state out of commits and issues. Longer notes: `CONTRIBUTING.md`, `docs/README.md`, `docs/development.md`, `docs/status.md`.
+Python tests are unittest. JavaScript tests are `node --test`. Use `python3 -B` and `PYTHONDONTWRITEBYTECODE=1`. Keep a change in its tree: Mac files at the root, Windows under `windows/`, the command under `agiw/` and `tests_cli/`, pages under `web/`, the phone under `android/`, the kit under `jaryo/`. The license is Apache-2.0. Leave credentials, private hostnames, and unsanitized machine state out of commits and issues. Use the existing `roadmap.md` as the canonical plan. Preserve source ownership and unrelated work. Push reviewed feature branches, then merge the exact reviewed head with a merge commit after the required checks pass; never bypass them. Longer notes: `CONTRIBUTING.md`, `docs/README.md`, `docs/development.md`, `docs/status.md`.
 
 ## Hard rules
 
@@ -93,12 +95,11 @@ Python tests are unittest. JavaScript tests are `node --test`. Use `python3 -B` 
 - No device installs. A Galaxy Z Flip6 install needs Louis. Leave the debug APK off a phone.
 - No tags and no releases. Leave tags, GitHub releases, and publication alone. `package-release.sh` is not a release.
 - Honest NOT_RUN. A skip, an emulator, a Linux refusal, or a check that did not run stays NOT_RUN or a reported skip. It is not hardware acceptance.
-- The Mac is on macOS 27.2.1. Codex on that Mac does the heavy Mac work.
-- The Mac never launches headless Chrome, Playwright, or Lighthouse. Browser tests run on the box or the PC, and Chrome there uses `--use-mock-keychain --password-store=basic`.
-- The Mac's GitHub Actions runners stay off. Do not register or start one.
+- The Mac never launches headless Chrome, Playwright, or Lighthouse. Browser tests run in hosted Linux CI or on the PC, and Chrome there uses `--use-mock-keychain --password-store=basic`.
+- Reuse the existing runner mappings. Do not register, start, stop or restart runner services as a source-check step.
 
 ## Jaryo
 
 Ink on paper. The accent is red `#C21A27`. Text is Plex Sans. Code and figures are Plex Mono.
 
-`node jaryo/cli.mjs tokens` prints `jaryo/tokens.json`. That file still records provisional Inter, surface `black-white`, and `appliedChoiceFile` null. The Android color check allows `#000000` and `#FFFFFF` only. An accent or type change lands in the token file and that check together. D4 Split is rejected. Files in `jaryo/marks/` are studies, not the wordmark.
+`node jaryo/cli.mjs tokens` prints `jaryo/tokens.json`. Its shared foundation records provisional Inter, surface `black-white`, and `appliedChoiceFile` null. The Android color check allows `#000000` and `#FFFFFF` only. When web typography or accents diverge from the foundation, record and verify an explicit platform variant; do not silently change Android's fonts or palette. Keep token contracts, CSS, distribution assets and affected checks in agreement. D4 Split is rejected. Files in `jaryo/marks/` are studies, not the wordmark.

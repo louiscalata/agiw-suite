@@ -1,5 +1,11 @@
 # AGIW Suite roadmap and release evidence
 
+## Agent guide reconciliation — 10 November 2026
+
+- [x] Reconcile the competing agent guide with the existing canonical file, preserving source ownership, release and device gates, and the Mac browser prohibition.
+- [x] Describe current same-repository Mac/PC and hosted Linux runner mappings from the workflows, and separate source checks from installation and historical test receipts.
+- [ ] Verify the reviewed guide revision in native CI before merge. Product and typography changes remain separate.
+
 ## Linux CI availability — 10 November 2026
 
 The registered `box-linux` runner lost communication during the current queue and is offline. Linux jobs now target GitHub-hosted Ubuntu: forced-colors emulation, Jaryo kit smoke, the combined `monitor` gate, and Android unit/lint. Existing Mac and Windows routing, required check names, timeouts, browser isolation flags, and test commands are unchanged. No runner is registered or started by this source change. Emulator and fixture results remain separate from phone and Windows High Contrast hardware acceptance.
