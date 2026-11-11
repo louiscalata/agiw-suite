@@ -16,6 +16,7 @@ import re
 import subprocess
 import sys
 import time
+from enum import Enum
 from pathlib import Path
 from typing import Callable, List, Optional, Sequence
 from xml.sax.saxutils import escape
@@ -37,6 +38,38 @@ def real_runner(argv: Sequence[str]) -> "subprocess.CompletedProcess":
 
 class ServiceError(RuntimeError):
     pass
+
+
+class ServiceObservation(Enum):
+    UNKNOWN = (None, None)
+    MISSING = (False, False)
+    LOADED_UNKNOWN = (True, None)
+    LOADED_NOT_RUNNING = (True, False)
+    RUNNING = (True, True)
+
+
+def _derive_service_observation(kind: str, result) -> ServiceObservation:
+    """Normalize a launchctl result or validated scheduler state, independently of definition presence."""
+    if kind == "mac":
+        if result.returncode == 0:
+            return (ServiceObservation.RUNNING if re.search(r"^\s*state = running\s*$", result.stdout or "", re.M)
+                    else ServiceObservation.LOADED_NOT_RUNNING)
+        if result.returncode == 113 or re.search(
+                r"Could not find service", (result.stderr or "") + (result.stdout or ""), re.I):
+            return ServiceObservation.MISSING
+        return ServiceObservation.UNKNOWN
+    return {"missing": ServiceObservation.MISSING,
+            "Unknown": ServiceObservation.LOADED_UNKNOWN,
+            "Disabled": ServiceObservation.LOADED_NOT_RUNNING,
+            "Queued": ServiceObservation.LOADED_NOT_RUNNING,
+            "Ready": ServiceObservation.LOADED_NOT_RUNNING,
+            "Running": ServiceObservation.RUNNING}.get(result, ServiceObservation.UNKNOWN)
+
+
+def _transition_service_observation(out: dict, state: ServiceObservation) -> dict:
+    """Replace both observation fields together; a failed query carries no prior certainty."""
+    out["loaded"], out["running"] = state.value
+    return out
 
 
 def _windows_quote(arg: str) -> str:
@@ -345,9 +378,7 @@ class ServiceManager:
             guidance = f"stop it with `launchctl bootout {target}` and retry"
             result, query = self._stop_and_query([self._launchctl(), "bootout", target],
                                                   [self._launchctl(), "print", target], guidance)
-            stopped = query.returncode != 0 and (query.returncode == 113 or bool(re.search(
-                r"Could not find service", (query.stderr or "") + (query.stdout or ""), re.I)))
-            if not stopped:
+            if _derive_service_observation("mac", query) is not ServiceObservation.MISSING:
                 raise ServiceError(f"service definition was kept; {guidance}")
             if result is not None and result.returncode == 0:
                 steps.append(f"stopped {LAUNCHD_LABEL}")
@@ -382,16 +413,12 @@ class ServiceManager:
     def status(self) -> dict:
         """installed: the definition file exists; running: the service manager says so (None = unknown)."""
         path = self.definition_path()
-        out = {"kind": self.kind, "definition": str(path), "installed": path.exists(), "loaded": None, "running": None}
+        out = {"kind": self.kind, "definition": str(path), "installed": path.exists()}
         if self.kind == "mac":
             result = self._run([self._launchctl(), "print", f"gui/{self._uid_value()}/{LAUNCHD_LABEL}"], check=False)
-            out["loaded"] = result.returncode == 0
-            out["running"] = bool(out["loaded"] and re.search(r"^\s*state = running\s*$", result.stdout or "", re.M))
         else:
             try:
-                state = self._windows_state(self._windows_state_command())
+                result = self._windows_state(self._windows_state_command())
             except ServiceError:
-                return out  # preserve unknown instead of reporting a query failure as stopped
-            out["loaded"] = state != "missing"
-            out["running"] = None if state == "Unknown" else state == "Running"
-        return out
+                result = None  # preserve unknown instead of reporting a query failure as stopped
+        return _transition_service_observation(out, _derive_service_observation(self.kind, result))
