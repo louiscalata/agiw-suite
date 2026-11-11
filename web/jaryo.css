@@ -1091,15 +1091,34 @@ body.jaryo-app .j-tabs {
 }
 body.jaryo-app .j-tab { flex: 1 1 14rem; min-width: 0; }
 body.jaryo-app .j-tab-label {
+  min-width: 0;
   max-width: none;
   overflow: visible;
   text-overflow: clip;
   white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 /* 375px: the full Model tuning label stays visible, and the board row is reserved
    so the first sample cannot grow the page. */
 @media (max-width: 800px) {
+  /* The zoom percentage changes when a live sample fits the map. At the 21px
+     type step, an unbounded single row can run past the viewport, especially
+     with a document scrollbar. Keep Browse's space and wrap within the rest. */
+  body.jaryo-app .map-controls {
+    right: 12px;
+    min-width: 0;
+    flex-wrap: wrap;
+  }
+  /* Initial machine labels and later activity ages must fit before and after
+     the first sample, with either the fallback font or Plex. */
+  body.jaryo-app .vital > span { flex-wrap: wrap; }
+  body.jaryo-app .vital strong {
+    min-width: 0;
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
   body.jaryo-app .fix-tab-long { display: inline; }
   body.jaryo-app .fix-tab-short { display: none; }
   body.jaryo-app .tools .fix-tab {
