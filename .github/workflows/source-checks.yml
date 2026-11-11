@@ -89,7 +89,9 @@ jobs:
   # launch Chrome. Flags match the box and the PC.
   jaryo-smoke:
     name: jaryo kit smoke
-    runs-on: ubuntu-latest
+    # The pinned Chromium uses its sandbox; Ubuntu 24.04's AppArmor policy
+    # rejects this downloaded build's unprivileged user namespace.
+    runs-on: ubuntu-22.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7.0.1
