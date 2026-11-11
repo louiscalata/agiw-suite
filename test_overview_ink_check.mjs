@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { EventEmitter } from 'node:events';
-import { chromaOf } from './checks/ink-color.mjs';
+import { chromaOf, isWebAccent } from './checks/ink-color.mjs';
 import { overviewGeometry } from './checks/overview-geometry.mjs';
 
 test('unknown color syntax fails the ink threshold', () => {
@@ -27,7 +27,7 @@ test('rgb colors retain their chroma and transparent colors are ignored', () => 
 const source = readFileSync(new URL('./checks/overview-ink.mjs', import.meta.url), 'utf8');
 const lifecycle = source.slice(source.indexOf('const child = spawn('), source.indexOf('\nif (failures.length)'));
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
-const run = new AsyncFunction('spawn', 'root', 'chromium', 'chromaOf', 'overviewGeometry', 'setTimeout', 'clearTimeout',
+const run = new AsyncFunction('spawn', 'root', 'chromium', 'chromaOf', 'isWebAccent', 'overviewGeometry', 'setTimeout', 'clearTimeout',
   `${lifecycle}\nreturn failures;`);
 
 function harness({ launchError, closeError, pageError, startupError, timeout = false, paints = [], geometry = [] } = {}) {
@@ -67,7 +67,7 @@ function harness({ launchError, closeError, pageError, startupError, timeout = f
     return callback;
   };
   const clearTimeout = timer => timers.delete(timer);
-  return { calls, timers, result: run(spawn, '/unused', chromium, chromaOf, overviewGeometry, setTimeout, clearTimeout) };
+  return { calls, timers, result: run(spawn, '/unused', chromium, chromaOf, isWebAccent, overviewGeometry, setTimeout, clearTimeout) };
 }
 
 test('the cleanup covers Chromium launch failure', async () => {
@@ -127,5 +127,27 @@ test('geometry failures fail every case and Chromium remains isolated', async ()
   assert.equal(h.calls.urls.filter(url => url.endsWith('/')).length, 4);
   assert.equal(h.calls.urls.filter(url => url.endsWith('/?demo=1')).length, 4);
   assert.equal(h.calls.close, 1);
+  assert.equal(h.calls.kill, 1);
+});
+
+
+test('only the exact opaque web accent passes the accent parser', () => {
+  for (const value of ['rgb(194, 26, 39)', 'rgb(194 26 39)', 'rgba(194, 26, 39, 1)', 'rgb(194 26 39 / 100%)']) {
+    assert.equal(isWebAccent(value), true, value);
+  }
+  for (const value of ['rgb(195, 26, 39)', 'rgba(194, 26, 39, 0.5)', 'rgb(194 26 39 / invalid)',
+    'rgb(194 26)', 'rgb(194,26,39,1,0)', 'red', 'color(srgb 0.76 0.1 0.15)']) {
+    assert.equal(isWebAccent(value), false, value);
+  }
+});
+
+test('the actual ink check permits display accent but rejects colored readings and unknown colors', async () => {
+  const rejected = [
+    { value: 'rgb(194, 26, 39)', accentAllowed: false },
+    { value: 'rgb(195, 26, 39)', accentAllowed: true },
+    { value: 'color(srgb 1 0 0)', accentAllowed: true },
+  ];
+  const h = harness({ paints: [{ value: 'rgb(194, 26, 39)', accentAllowed: true }, ...rejected] });
+  assert.deepEqual((await h.result).map(item => item.colored), Array(4).fill(rejected));
   assert.equal(h.calls.kill, 1);
 });

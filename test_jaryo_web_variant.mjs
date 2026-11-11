@@ -1,0 +1,40 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { checkPlatformVariants } from './jaryo/contract.mjs';
+
+const read = path => readFileSync(new URL(path, import.meta.url), 'utf8');
+const tokens = JSON.parse(read('./jaryo/tokens.json'));
+
+test('the implemented web variant is scoped separately from the Android foundation', () => {
+  assert.deepEqual(checkPlatformVariants(tokens), []);
+  const css = read('./web/jaryo.css');
+  assert.ok(css.includes(`--j-accent: ${tokens.variants.web.accent};`));
+  for (const family of Object.values(tokens.variants.web.fonts)) {
+    assert.ok(css.includes(`font-family: "${family}"`), family);
+  }
+  const finalScale = css.slice(css.indexOf('Six steps, none under 12px'));
+  const sizes = [...finalScale.matchAll(/--j-size-\d:\s*(\d+)px;/g)].map(match => Number(match[1]));
+  assert.deepEqual(sizes, tokens.variants.web.typeScalePx);
+  assert.match(read('./android/app/src/main/res/values/themes.xml'), /android:fontFamily">@font\/inter</);
+  assert.doesNotMatch(read('./android/app/src/main/res/values/colors.xml'), /C21A27|c21a27/);
+});
+
+test('variant validation rejects cross-platform drift and invented approvals', () => {
+  const mutations = [
+    t => { t.provisionalTypeface = 'IBM Plex Sans'; },
+    t => { t.surface = 'red'; },
+    t => { t.variants.android.fonts = t.variants.web.fonts; },
+    t => { t.variants.web.scope = 'all-platforms'; },
+    t => { t.variants.web.fonts.text = 'Jost'; },
+    t => { t.variants.web.accent = '#ff0000'; },
+    t => { t.variants.web.typeScalePx = [12, 21, 34]; },
+    t => { t.appliedChoiceFile = 'invented'; },
+    t => { t.chosenFamilyIds = { text: 'invented' }; },
+  ];
+  for (const mutate of mutations) {
+    const changed = structuredClone(tokens);
+    mutate(changed);
+    assert.ok(checkPlatformVariants(changed).length > 0, mutate.toString());
+  }
+});

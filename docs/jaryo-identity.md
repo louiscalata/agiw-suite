@@ -6,6 +6,8 @@ Shared files live in `jaryo/`. They are framework-neutral. OPOS and Nisi can use
 
 ## Binding decisions
 
+These web decisions apply to the full observer pages. `jaryo/tokens.json` records them in `variants.web`: IBM Plex Sans and Mono, booklet red, and type steps 13, 21, 34, 55, 89, and 144. The shared foundation and Android retain provisional Inter and strict black and white; `variants.android` inherits that foundation. The web variant does not claim an Android typography change or a device pass.
+
 - Ink and paper for readings. Booklet red `#C21A27` is the display accent for headlines, the AGIW wordmark, and the current tab. Status stays a glyph plus a word, so the accent is not an error colour.
 - System light/dark is the default. Light or Dark is an explicit override and follows later system changes only while Theme is System.
 - Factory structure, quiet surfaces, balanced density. Evidence rows expand. The acceptance line stays visible.

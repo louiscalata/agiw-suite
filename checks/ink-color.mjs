@@ -107,3 +107,19 @@ function oklchChroma(body) {
   const radians = hue * Math.PI / 180;
   return scaledChroma(chroma * Math.cos(radians), chroma * Math.sin(radians), alpha);
 }
+
+// Only the opaque booklet accent is admitted, and only at display roles by the
+// caller. Unknown serializations keep failing closed through chromaOf.
+export function isWebAccent(color) {
+  const match = String(color ?? '').trim().toLowerCase().match(/^rgba?\(([^()]*)\)$/);
+  if (!match) return false;
+  const body = match[1];
+  const comma = body.includes(',');
+  const parts = body.split(comma ? /\s*,\s*/ : /\s*\/\s*/);
+  const channels = (comma ? parts.slice(0, 3) : parts[0].trim().split(/\s+/)).map(value => value.trim());
+  if (channels.length !== 3 || parts.length > (comma ? 4 : 2)
+      || !channels.every(value => NUMBER.test(value))) return false;
+  if (alphaOf(comma ? parts[3] : parts[1]) !== 1) return false;
+  const values = channels.map(value => parseFloat(value) * (value.endsWith('%') ? 2.55 : 1));
+  return values.every((value, index) => Math.abs(value - [194, 26, 39][index]) < 0.001);
+}

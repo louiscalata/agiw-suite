@@ -26,5 +26,6 @@ test('typeface notes are on the identity page, and that page records the mark', 
   assert.match(identity, /D4 Split is rejected/);
   assert.match(identity, /Inter/);
   assert.match(identity, /The favicon is the letters AG/);
-  assert.match(identity, /p class="j-type j-type-sample j-plate j-plate-dark"/);
+  assert.doesNotMatch(identity, /sampleHeading|class="j-type j-poster"/);
+  assert.match(identity, /IBM Plex Sans/);
 });

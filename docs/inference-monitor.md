@@ -44,3 +44,5 @@ Admin step, not performed by this repo: if the PC key is restricted, its `author
 ## Later
 
 Alerts, history, spend and the live activity panel are not in this page. The activity panel will key off the node ids above. The PC router lives outside this repo; a tap there is a separate change and is not deployed by this tree.
+
+The full observer web pages use the `variants.web` contract in `jaryo/tokens.json`: IBM Plex Sans for text, Plex Mono for code and figures, and booklet red for display accents. The shared foundation and Android keep their existing Inter and black-and-white contract. This source change is not a device or packaged-app acceptance result.
