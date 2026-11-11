@@ -65,7 +65,10 @@ ASSETS = {"/": ("index.html", "text/html; charset=utf-8"),
           "/identity.mjs": ("identity.mjs", "text/javascript; charset=utf-8"),
           "/components": ("components.html", "text/html; charset=utf-8"),
           "/components.js": ("components.js", "text/javascript; charset=utf-8"),
-          "/components.css": ("components.css", "text/css; charset=utf-8")}
+          "/components.css": ("components.css", "text/css; charset=utf-8"),
+          "/eci-tuning": ("eci-tuning.html", "text/html; charset=utf-8"),
+          "/eci-tuning.mjs": ("eci-tuning.mjs", "text/javascript; charset=utf-8"),
+          "/eci-tuning.css": ("eci-tuning.css", "text/css; charset=utf-8")}
 JARYO_FILES = {
     "/jaryo/tokens.json": ("tokens.json", "application/json"),
     "/jaryo/theme.mjs": ("theme.mjs", "text/javascript; charset=utf-8"),
@@ -336,7 +339,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/models/control":
             return self.json_reply(200, {"status": "idle", "operationId": 0, "supported": False,
                                          "message": "Model load and unload are not offered on the PC lanes."})
-        if path in ("/api/models/auto-unload", "/api/online-code-mode/repair", "/api/inference/fix",
+        if path in ("/api/models/auto-unload", "/api/online-code-mode/repair", "/api/inference/fix", "/api/eci-tuning/repair",
                     "/api/online-code-mode/entry", "/api/online-code-mode/headless", "/api/components",
                     "/api/components/jev"):
             return self.json_reply(501, {"status": "error", "message": "Not available in the Windows edition yet."})

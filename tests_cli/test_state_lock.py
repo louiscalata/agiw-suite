@@ -57,7 +57,7 @@ class StateLocks(unittest.TestCase):
         with mock.patch.object(cli, "make_manager", return_value=self.manager), \
                 mock.patch("sys.stderr", error):
             code = cli.main(["--state-dir", str(self.state), *args], out=output.append,
-                            probe=probe or mock.Mock(return_value="free"))
+                            probe=probe or mock.Mock(return_value="free"), kind="mac")
         return code, "\n".join(output), error.getvalue()
 
     def test_helper_excludes_a_second_process_and_uses_a_sibling_file(self):

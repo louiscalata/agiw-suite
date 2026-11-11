@@ -10,6 +10,7 @@ const SCREENS = [
   ['Map', './web/monitor.html', '/monitor'],
   ['Machines', './web/machines.html', '/machines'],
   ['Components', './web/components.html', '/components'],
+  ['Model tuning', './web/eci-tuning.html', '/eci-tuning'],
   ['Identity', './web/identity.html', '/identity'],
   ['Setup', './web/setup.html', '/setup'],
 ];
@@ -19,6 +20,7 @@ const NAV = [
   ['/monitor', 'Map'],
   ['/machines', 'Machines'],
   ['/components', 'Components'],
+  ['/eci-tuning', 'Model tuning'],
   ['/identity', 'Identity'],
   ['/setup', 'Setup'],
 ];
@@ -78,7 +80,7 @@ test('every screen uses the same Jaryo chrome', () => {
 test('the wordmark is type, and demo copy is labeled', () => {
   const overview = read('./web/index.html');
   assert.match(overview, /<strong class="j-type">AGIW<\/strong><small>Inference Monitor<\/small>/);
-  for (const path of ['./web/monitor.html', './web/machines.html', './web/components.html', './web/identity.html', './web/setup.html']) {
+  for (const path of ['./web/monitor.html', './web/machines.html', './web/components.html', './web/eci-tuning.html', './web/identity.html', './web/setup.html']) {
     assert.match(read(path), /<strong class="j-type">AGIW<\/strong>/, path);
   }
   assert.match(read('./web/identity.html'), /The name is the identity/);

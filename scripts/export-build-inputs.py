@@ -153,7 +153,7 @@ def main() -> None:
             "appstore-distribution.sh: not in this repository. Its 27A266a pin was not changed and must not be skipped.",
             "This bundle is the Jaryo web and Windows edition inputs. It is not the Mac wrapper archive.",
             "A wrapper archive must pass scripts/check-wrapper-archive.py, including DemoGolden/demo-idle.json.",
-            "The Mac restricted edition may omit online-code-mode.mjs. The Windows web keeps Fix inference.",
+            "The Mac restricted edition may omit online-code-mode.mjs. The Windows web retains Model Tuning Tool compatibility hooks; Windows repair stays denied.",
             "Xcode 27B52 was the only measured install. Compatibility of that pin was not verified here.",
             "windows-edition: files named by windows/install.ps1, that script, and windows/tests. No .git directory.",
             "pipe-host tests and installer/wxs-reader.test.mjs are not in this checkout.",

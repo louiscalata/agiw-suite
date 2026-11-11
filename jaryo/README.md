@@ -9,7 +9,7 @@ AGIW decisions recorded here:
 - Factory structure, quiet surfaces, balanced density, expandable evidence detail.
 - Persistent desktop sidebar. The same sections stay reachable on a phone and on a foldable cover (about 260–300px wide).
 - Motion is the belt, the arm, and a short rule. It is not a measurement. Reduced motion holds them still.
-- The chrome word is AGIW in Inter, provisional. D4 Split is rejected. No option id is inferred.
+- The chrome word is AGIW. The kit names Inter as a provisional family and does not ship an `@font-face`. Body text on this checkout uses `--j-font` (ui-monospace and the named monospace fallbacks). Wordmark outlines are Inter paths. Overview headlines are Newsreader and overview body text is Jost, matching the website. The kit contract still requires provisional Inter and an empty `chosenFamilyIds`, so these pages are not retargeted here. D4 Split is rejected. No option id is inferred.
 - `appliedChoiceFile` is null. `chosenFamilyIds` is empty. Do not infer option ids.
 - Direction studies in `marks/` stay as files. They are not the wordmark and they are not loaded by the page.
 
@@ -65,4 +65,4 @@ Controls use the page ink. Selected, pressed, and primary invert the fill. Hover
 
 `node --test test_jaryo_design.mjs` installs a fresh copy, serves it, and checks the contract.
 
-`node jaryo/demo/smoke.mjs --out /tmp/jaryo-shots` opens the served page in headless Chrome, checks overflow, the station keys, reduced motion, and axe, and writes screenshots. That script needs Chrome on the machine. It is not part of the source-check job.
+`node jaryo/demo/smoke.mjs --out /tmp/jaryo-shots` opens the served page in headless Chrome, checks overflow, the station keys, reduced motion, and axe, and writes screenshots. Set `CHROME_BIN` when `google-chrome` is not on `PATH`. The Ubuntu source-check job `jaryo kit smoke` runs it. It does not run on the Mac.

@@ -43,7 +43,7 @@ check(layout / "activity_inner.xml", {"address"}, set())
 check(layout / "activity_cover.xml", set(), {"address"})
 for name in ("activity_inner.xml", "activity_cover.xml"):
     text = (layout / name).read_text()
-    for needle in ('android:id="@+id/scroller"', 'android:clipToPadding="false"', 'android:fitsSystemWindows="true"',
+    for needle in ('android:id="@+id/scroller"', 'android:fitsSystemWindows="true"',
                    'android:paddingBottom="24dp"', 'android:isScrollContainer="true"', "<ScrollView"):
         if needle not in text:
             raise SystemExit(f"{name} missing {needle}")
@@ -63,6 +63,10 @@ if "outState.putString(KEY_LANE, text(R.id.lane))" in activity_text:
     raise SystemExit("lane state stores the decorated line")
 if "setOnApplyWindowInsetsListener" not in activity_text or "setDecorFitsSystemWindows" not in activity_text:
     raise SystemExit("window insets are not applied")
+if "setClipToPadding(folded)" not in activity_text:
+    raise SystemExit("a hinge pad does not clip the crease")
+if "getCurrentWindowMetrics" not in activity_text:
+    raise SystemExit("fold bounds are compared with display pixels")
 inner = (layout / "activity_inner.xml").read_text()
 cover_text = (layout / "activity_cover.xml").read_text()
 if 'android:paddingStart="16dp"' not in inner or 'android:paddingEnd="16dp"' not in inner:

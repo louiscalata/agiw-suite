@@ -215,7 +215,7 @@ The GitHub edition's explicit check and the separate MAS edition's consent flow 
 
 ## 7. Recovery, workers and parallel work
 
-The earlier dashboard's top-bar **Fix inference** button immediately requests scope `all`: local runtime, Nisi and route checks. The inspector's **Fix Nisi Inference** shortcut opens that panel without dispatch; **Run check** submits the same combined action. Closing the panel does not cancel a running repair. Legacy scoped API callers remain supported. When L2 is open, the adapter records bounded steps and can report `ready`, `needs-action` or `error`; an action's name does not guarantee recovery.
+The **AGIW x ECI Model Tuning Tool** replaces Fix inference. The top-bar and inspector **Model tuning** buttons open the tool without dispatch; its **Run check** confirms and submits scope `all`: local runtime, Nisi and route checks. Recorded rankings at `/eci-tuning` link back to the check panel. The old names and control IDs remain deprecated compatibility hooks. Closing the panel does not cancel a running repair. Legacy scoped API callers remain supported. When L2 is open, the adapter records bounded steps and can report `ready`, `needs-action` or `error`; an action's name does not guarantee recovery.
 
 - **Local runtime:** start a stopped LM Studio server only after owner status and the fixed loopback port are checked and rechecked. A running-but-unreachable server is not replaced, and loaded models are preserved. Fresh inventory and activity are required to report readiness.
 - **Route/share:** use trusted owner commands and explicitly configured SMB host/account settings. Guest/Anonymous and ambiguous mounts are refused. Running or unresolved work blocks disruptive recovery. An exact retained Windows job can be reconciled; a timeout is not permission to resend it.
@@ -253,7 +253,7 @@ The native app chooses its port. For source exploration, `python3 -B server.py -
 | GET | `/monitor` | Native window's map/details page |
 | GET | `/` | Earlier dashboard with Browse, Core 6, Components and action controls |
 | GET | `/api/inference` | Inference map; 503 `status: starting` before it is available |
-| GET | `/api/snapshot` | Latest snapshot; 503 `status: starting` before the first sample |
+| GET | `/api/snapshot` | Read-only export of the latest snapshot. See [below](#read-only-snapshot-export). |
 | GET | `/api/stream` | SSE snapshots, sequence IDs and heartbeat comments |
 | GET | `/api/components` | Public Nisi integrity, Node availability and self-check status |
 | GET | `/api/components/jev` | Configuration/check status; no key |
@@ -265,7 +265,22 @@ The native app chooses its port. For source exploration, `python3 -B server.py -
 | GET / POST | `/api/online-code-mode/repair` | Read recovery / `{"action":"check-and-repair"}` |
 | GET | `/api/online-code-mode/entry` | Read retained recovery/diagnosis state in the Mac-owner context; POST is not routed |
 | GET / POST | `/api/online-code-mode/headless` | Read state / `{"action":"on"}` or `{"action":"off"}` |
-| GET / POST | `/api/inference/fix` | Read recovery / `{"scope":"all"}`; legacy `local`, `route`, `both`, `nisi` also accepted |
+| GET / POST | `/api/eci-tuning/repair` | Read recovery without mutation / `{"scope":"all"}`; legacy `local`, `route`, `both`, `nisi` also accepted |
+| GET / POST | `/api/inference/fix` | Deprecated alias to the same guarded tuning repair handler and scopes; Windows denies both repair routes |
+
+### Read-only snapshot export
+
+`GET /api/snapshot` is the read-only export of the latest observation. The observer listens on IPv4 loopback only. It is not a hosted API.
+
+Before the first sample the response is HTTP 503 and the body is `{"status":"starting"}`. After that the body is one JSON object:
+
+- `schemaVersion` is the integer `1`.
+- The object includes `host`, `observedAt`, `sampledAt`, `models`, `localInstanceObservations`, `afm`, `sources`, `pipeline`, `onlineCodeMode`, `windowsWorker`, `windowsLive`, `windowsJobs`, `canary`, `nisiV02`, `pair`, `machines`, and `components`.
+- `host` is the observer role `mac` in this server. It is not a computer name.
+- The field set may grow. Readers use the fields they know and ignore the rest.
+- The export does not include key, token, or hostname fields.
+
+A standalone `python3 -B server.py` can answer this GET. Control POSTs still return 403 without the per-launch capability.
 
 Action jobs generally return **202 Accepted**, followed by status reads. The auto-unload setting returns 200 after saving. Invalid requests, stale evidence, unavailable components and conflicts return distinct errors; acceptance is not execution completion. Route controls need the supported Mac-owner/configured recovery context.
 

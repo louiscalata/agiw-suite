@@ -1,0 +1,7 @@
+{
+  "status": "COMPUTED",
+  "diagnostic_status": "PASS",
+  "sampling": {
+    "ci_level": 0.9
+  }
+}

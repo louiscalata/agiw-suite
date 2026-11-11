@@ -287,7 +287,7 @@ class EndToEnd(unittest.TestCase):
                 self.assertEqual(status, 200)
                 self.assertEqual(body, (repo / "jaryo" / name).read_bytes())
                 self.assertEqual(response.getheader("Content-Type"), kind)
-        for page in ("/setup", "/machines", "/components", "/identity", "/monitor"):
+        for page in ("/setup", "/machines", "/components", "/identity", "/monitor", "/eci-tuning"):
             self.assertIn(b"<html", self.get(page)[1].lower(), page)
         for path in ("/jaryo/../server.py", "/jaryo/marks/../../server.py", "/jaryo/nope.css", "/web/index.html", "/index.html", "/brand/windows/agiw.ico"):
             self.assertEqual(self.get(path)[0], 404, path)
@@ -900,11 +900,20 @@ class EndToEnd(unittest.TestCase):
         self.assertTrue(publish_source(done, 101.0, ("status", "presence"))["detail"].startswith("Status and presence published"))
 
     def test_post_is_read_only(self):
-        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=3)
         origin = f"http://127.0.0.1:{self.port}"
-        conn.request("POST", "/api/models/control", body=b"{}", headers={"Host": f"127.0.0.1:{self.port}",
-                                                                          "Origin": origin, "Content-Type": "application/json"})
-        self.assertEqual(conn.getresponse().status, 501)
+        for path in ("/api/models/control", "/api/eci-tuning/repair", "/api/inference/fix"):
+            with self.subTest(path=path):
+                if path != "/api/models/control":
+                    self.assertEqual(self.get(path)[0], 501)
+                for request_origin, expected in ((origin, 501), ("http://evil.example", 403)):
+                    conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=3)
+                    conn.request("POST", path, body=b'{"scope":"all"}', headers={
+                        "Origin": request_origin, "Content-Type": "application/json"})
+                    response = conn.getresponse()
+                    self.assertEqual(response.status, expected)
+                    response.read()
+                    conn.close()
+
 
 
 class PostBodyRequests(unittest.TestCase):

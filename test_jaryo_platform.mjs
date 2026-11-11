@@ -24,14 +24,14 @@ test('Mac edition ships eight files and leaves online code out', () => {
   assert.equal(ship.includes('online-code-mode.mjs'), false);
 });
 
-test('Windows full web keeps fix inference and online code beside simple view', () => {
+test('Windows full web keeps tuning compatibility hooks and online code beside simple view', () => {
   const install = read('./windows/install.ps1');
   for (const name of ['app.js', 'online-code-mode.mjs', 'simple-view.mjs', 'simple-view.css', 'index.html']) {
     assert.match(install, new RegExp(`'${name}'`));
   }
   const index = read('./web/index.html');
   assert.match(index, /id="fixInference"/);
-  assert.match(index, /Fix inference/);
+  assert.match(index, /Model tuning/);
   const app = read('./web/app.js');
   assert.match(app, /windows/);
   assert.ok(denylistHits(app, loadDenylist()).length > 0, 'the full observer is not the restricted edition');

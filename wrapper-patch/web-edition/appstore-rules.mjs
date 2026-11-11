@@ -1,7 +1,7 @@
 // App Store edition of the shared web UI: what scripts/sync-web.sh ships in App/Resources/web.
 //
 // The private edition's panels are removed together with their code, not hidden (App Review guideline
-// 2.3.1; release plan D3): Online Code, Fix inference, the PC LLM switch, the Windows PC hub and lanes, the
+// 2.3.1; release plan D3): Online Code, Model tuning (formerly Fix inference), the PC LLM switch, the Windows PC hub and lanes, the
 // Nisi + Jev route and its call traces, client model identities, live activity and local callers. What stays
 // is the LM Studio inventory map, the model inspector, model control, the Mac status chip, sample-data
 // labelling, and an "Open LM Studio" button (release plan feature matrix).
@@ -38,6 +38,7 @@ export const html = {
       // The Mac origin serves one document; the full web's Machines page has no edition view.
       ['<a href="/machines">Machines</a>\n', ''],
       ['<a href="/setup">Setup</a>\n', ''],
+      ['<a href="/eci-tuning">Model tuning</a>\n', ''],
       ['<script src="/connection-switches.mjs" type="module"></script>', ''],
       ['<script src="/simple-view-private.mjs" type="module"></script>', ''],
       ['aria-label="Interactive constellation of local runtime and recorded client model evidence"', 'aria-label="Interactive map of the local runtime and its models"'],
@@ -78,6 +79,7 @@ export const js = {
       'function:nisiRecovery', 'function:memorySection', 'const:ROUTE_RUN_ID',
       'function:routePipelines', 'function:routeRunLine',
       'function:openFixInference', 'function:closeFixInference',
+      'function:openTuningLink', 'window:hashchange', 'stmt:openTuningLink();',
       'let:memoryDismissed', 'const:memoryClock', 'function:memoryNow',
       'function:renderMemoryBanner', 'function:dismissMemoryBanner', 'function:openMemoryDetails',
       'let:onlineCodeActionStatus', 'let:fixInferenceRenderKey', 'const:FIX_ACTIONS', 'const:HEADLESS_ACTIONS',

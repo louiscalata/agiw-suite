@@ -1752,7 +1752,7 @@ test('Fix Nisi + Jev: a pending Nisi record leads the Nisi + Jev inspector with 
   // The sticky footer: Fix Nisi + Jev is the primary action; the call-trace jump steps back beside it.
   assert.deepEqual([$('drawerJump').hidden, $('drawerFixButton').hidden, $('drawerJumpButton').classList.contains('panel-primary'), $('drawerJumpButton').textContent],
     [false, false, false, 'Call traces →']);
-  assert.match(html, /<div id="drawerJump" class="panel-actions" hidden><button id="drawerFixButton" class="panel-primary drawer-fix" type="button" title="Opens Fix inference\. Nothing runs until you press Run check\." hidden>Fix Nisi Inference<\/button><button id="drawerJumpButton" class="panel-primary" type="button">Explore call traces →<\/button><\/div>/);
+  assert.match(html, /<div id="drawerJump" class="panel-actions" hidden><button id="drawerFixButton" class="panel-primary drawer-fix" type="button" title="Opens Model Tuning Tool\. Nothing runs until you press Run check\." hidden>Model tuning<\/button><button id="drawerJumpButton" class="panel-primary" type="button">Explore call traces →<\/button><\/div>/);
   // Without the snapshot's marker fields: the same words, no numbers.
   api.setFeed(pendingFeed());
   api.render();
@@ -1770,14 +1770,14 @@ test('Fix Nisi + Jev: a pending Nisi record leads the Nisi + Jev inspector with 
   assert.doesNotMatch(note, /Fix Nisi Inference opens the Fix panel/);
   api.setFeed(pendingFeed());
   api.render();
-  assert.match([...body.querySelectorAll('.detail-note')].map(p => p.textContent).join(' '), /Fix Nisi Inference opens the combined Fix inference panel; nothing runs until you press Run check\./);
+  assert.match([...body.querySelectorAll('.detail-note')].map(p => p.textContent).join(' '), /Model tuning opens the AGIW x ECI Model Tuning Tool; nothing runs until you press Run check\./);
   // An open router run with the router's own marker blocks the fix: the summary says so in the route chip's words, the fix
   // steps back to a secondary action and the call traces (where that run is) lead again.
   api.setFeed(pendingFeed({ runId: 'route-20260927-011504', stage: 'review', pendingMarkerAgeSeconds: 7260, pendingMarkerOwner: 'route-20260927-011504' }));
   api.render();
   const blocked = body.querySelector('.panel-summary');
   assert.deepEqual([blocked.dataset.tone, blocked.querySelector('strong').textContent], ['warn', 'Unsettled run recorded']);
-  assert.match(blocked.querySelector('p').textContent, /^Route run route-20260927-011504 is still open, and a Nisi call left a pending record 2 h 1 min ago\. Fix Nisi Inference stops at its first step until that run is resolved/);
+  assert.match(blocked.querySelector('p').textContent, /^Route run route-20260927-011504 is still open, and a Nisi call left a pending record 2 h 1 min ago\. Model Tuning Tool repair stops at its first step until that run is resolved/);
   assert.deepEqual([$('drawerFixButton').hidden, $('drawerFixButton').classList.contains('panel-primary'), $('drawerJumpButton').classList.contains('panel-primary'), $('drawerJumpButton').textContent],
     [false, false, true, 'Explore call traces →']);
   api.renderVitals();
@@ -2348,7 +2348,7 @@ test('unified repair posts scope all once and preserves owner and pending-operat
   const first=api.requestOnlineCodeAction('fix-all');
   await api.requestOnlineCodeAction('fix-all');
   assert.equal(calls.length,1,'posting blocks duplicate');
-  assert.equal(calls[0].url,'/api/inference/fix');
+  assert.equal(calls[0].url,'/api/eci-tuning/repair');
   assert.equal(calls[0].options.body,JSON.stringify({scope:'all'}));
   release();await first;await settle();
   await api.requestOnlineCodeAction('fix-all');
@@ -2757,4 +2757,21 @@ test('the chip says why it is unknown: a report nobody vouches for is not an old
   assert.equal(layout.machineStatusView({...base, trust: 'relayed', ageSeconds: 45}).detail, '? Unknown · report not verified', 'untrusted outranks stale');
   assert.match(layout.machineStatusView({...base, trust: 'local'}, {fresh: false}).detail, /observation stale/, 'a stale feed is not a trust problem');
   assert.match(layout.machineStatusView({...base, trust: 'relayed', state: 'unknown', reasonCode: 'not_observed'}).detail, /not observed/, 'a stated reason is shown as it is');
+});
+
+test('closing Model Tuning Tool leaves the running repair and status polling intact', async () => {
+  const {api,$,fetches}=netHarness();
+  api.setFeed(pendingFeed());
+  api.spyRail();
+  api.openFixInference();
+  await settle();
+  api.setAction({status:'running',operationId:41,action:'fix-all',message:'Checking.',steps:[]});
+  api.closeFixInference();
+  assert.equal($('fixInferenceDetails').hidden,true);
+  assert.equal(api.onlineCodePollWanted(),true);
+  await api.requestOnlineCodeAction('fix-all');
+  assert.ok(fetches.every(url=>url==='/api/online-code-mode/entry'),'close and duplicate attempt send no repair or cancellation');
+  api.openFixInference();
+  assert.equal($('fixInferenceSubmit').disabled,true);
+  assert.equal($('fixInferenceResult').querySelector('p').textContent,'Checking.');
 });

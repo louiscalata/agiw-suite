@@ -132,7 +132,7 @@ class StaticGuardTests(unittest.TestCase):
         requests = {name for name in owner_methods() if name == 'request' or name.startswith('request_')}
         self.assertEqual({method for _, _, _, method, _ in owner_actions()}, requests - {'request_entry'})
         self.assertEqual(set(server.OWNER_ACTION_ROUTES), {'/api/online-code-mode/repair',
-                         '/api/inference/fix', '/api/online-code-mode/headless'})
+                         '/api/inference/fix', '/api/eci-tuning/repair', '/api/online-code-mode/headless'})
 
     def test_dispatch_guard_rejects_a_future_unguarded_owner_route(self):
         source = (ROOT / 'server.py').read_text().replace(

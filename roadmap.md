@@ -1,5 +1,19 @@
 # AGIW Suite roadmap and release evidence
 
+## Model Tuning Tool replaces Fix inference · PR 2 · 2026-11-10
+
+- [x] Replace the repair-only UI with the Model Tuning Tool, linking recorded rankings and an explicit Run check. Preserve guarded repair, scoped API aliases, read-only GET and Windows refusal.
+- [x] Keep legacy control IDs as compatibility hooks and `/api/inference/fix` as a deprecated alias of `/api/eci-tuning/repair`. Opening any entry point does not repair; closing does not cancel. This supersedes the historical immediate-click behavior below.
+- [ ] Merge PR 117 first; review this stacked PR against `feature/eci-model-tuning-tool`. No runtime activation, local LLM drafting, browser acceptance or tagged release is claimed.
+
+## AGIW x ECI Model Tuning Tool · PR 1 · 2026-11-10
+
+- [x] Add offline refit/manifest/extra-score and analysis item/run adapters, a versioned schema, comparability-separated ECI/component rankings, explicit policy apply and a read-only model tuning page.
+- [x] Set the repo's provisional PC-eligible policy to Llama-3.1-8B-Instruct Q4_K_M, local ECI 105.38 [94.31, 115.14], low-to-moderate confidence; retain lenient 108.59 as a separate scoring view with overlapping CI.
+- [ ] Admit Bonsai, LFM3 and Glimmer scores when independently computed; do not infer them from partial or withheld inspect accuracy.
+- [ ] Have the external AGIW routing owner integrate and test the config hook. Runtime activation remains NOT_APPLIED; Nisi Mac requires two distinct resident Mac LLMs and remains NOT_APPLIED.
+- [x] PR 2 replacement is implemented above for separate review; PR 1 preserves its original behavior until PR 2 merges.
+
 ## Current source and artifact status · 2026-11-03
 
 The canonical roadmap remains this file. The downloadable application is **1.0.0 (7)**. `Info.plist` in this checkout is **1.1.0 (14)**, tagged `v1.1.0` on 9 November 2026 as a source release with no app attached. The earlier label 1.2.0 (13) was not shipped. The repository's release record lists only v1.0.0 as a binary download: rc.1, rc.2 and source-preview release pages were withdrawn on 18 October, while their tags remain. Historical release evidence below describes those earlier checkpoints, not current rollback availability.

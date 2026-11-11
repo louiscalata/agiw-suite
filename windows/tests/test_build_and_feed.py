@@ -254,7 +254,7 @@ class Installer(unittest.TestCase):
             self.assertNotIn(stale, readme)
         for shape in ("plain", "inverted", "framed", "dashed"):
             self.assertIn(f"**{shape}**", readme)
-        for route in ("/machines", "/setup", "/components", "/identity"):
+        for route in ("/machines", "/setup", "/components", "/identity", "/eci-tuning"):
             self.assertIn(f"`{route}`", readme)
 
     def test_build_json_is_staged_and_swapped_with_every_file(self):
@@ -338,7 +338,8 @@ class InstallerOnWindows(unittest.TestCase):
                          "online-code-mode.mjs", "monitor.html", "monitor.mjs", "monitor.css",
                          "monitor-tabs.mjs", "monitor-board.mjs", "monitor-map.mjs", "jaryo.css", "jaryo.mjs",
                          "identity.html", "identity.mjs", "machines.html", "machines.mjs", "setup.html", "setup.mjs",
-                         "components.html", "components.js", "components.css")]
+                         "components.html", "components.js", "components.css",
+                         "eci-tuning.html", "eci-tuning.mjs", "eci-tuning.css")]
             sources += [(REPO / "jaryo" / name, Path("jaryo") / name) for name in
                         ("tokens.json", "theme.mjs", "primitives.css", "README.md",
                          "marks/d1-stamp.svg", "marks/d2-ledger.svg", "marks/d3-schematic.svg",
