@@ -34,6 +34,7 @@ if _INFERENCE_ROOT is not None and str(_INFERENCE_ROOT) not in sys.path:
 from inference_collect import RateMemory, attach, vram_from_gpus
 from inference_stats import expire_map
 from machine_state import expire_machines
+import eci_tuning
 
 AGED_REASONS = {"stale": "stale", "clock_skew": "clock-ahead", "schema_invalid": "report-refused"}
 FULL_SAMPLE_MAX_AGE = 3.0  # same as the Mac server and the UI: a sample older than this is not live activity
@@ -69,7 +70,10 @@ ASSETS = {"/": ("index.html", "text/html; charset=utf-8"),
           "/fonts/ibm-plex-sans-400.woff2": ("fonts/ibm-plex-sans-400.woff2", "font/woff2"),
           "/fonts/ibm-plex-sans-700.woff2": ("fonts/ibm-plex-sans-700.woff2", "font/woff2"),
           "/fonts/ibm-plex-mono-400.woff2": ("fonts/ibm-plex-mono-400.woff2", "font/woff2"),
-          "/fonts/ibm-plex-mono-700.woff2": ("fonts/ibm-plex-mono-700.woff2", "font/woff2")}
+          "/fonts/ibm-plex-mono-700.woff2": ("fonts/ibm-plex-mono-700.woff2", "font/woff2"),
+          "/eci-tuning": ("eci-tuning.html", "text/html; charset=utf-8"),
+          "/eci-tuning.mjs": ("eci-tuning.mjs", "text/javascript; charset=utf-8"),
+          "/eci-tuning.css": ("eci-tuning.css", "text/css; charset=utf-8")}
 JARYO_FILES = {
     "/jaryo/tokens.json": ("tokens.json", "application/json"),
     "/jaryo/theme.mjs": ("theme.mjs", "text/javascript; charset=utf-8"),
@@ -337,10 +341,15 @@ class Handler(BaseHTTPRequestHandler):
             return self.json_reply(200, data) if data is not None else self.json_reply(503, {"status": "starting"})
         if path == "/api/stream":
             return self.stream()
+        if path == "/api/eci-tuning":
+            try:
+                return self.json_reply(200, eci_tuning.status())
+            except (OSError, ValueError, TypeError, KeyError):
+                return self.json_reply(503, {"status": "unknown"})
         if path == "/api/models/control":
             return self.json_reply(200, {"status": "idle", "operationId": 0, "supported": False,
                                          "message": "Model load and unload are not offered on the PC lanes."})
-        if path in ("/api/models/auto-unload", "/api/online-code-mode/repair", "/api/inference/fix",
+        if path in ("/api/models/auto-unload", "/api/online-code-mode/repair", "/api/inference/fix", "/api/eci-tuning/repair",
                     "/api/online-code-mode/entry", "/api/online-code-mode/headless", "/api/components",
                     "/api/components/jev"):
             return self.json_reply(501, {"status": "error", "message": "Not available in the Windows edition yet."})

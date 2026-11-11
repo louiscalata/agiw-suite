@@ -8,7 +8,7 @@ export const PINS = {
   'app.js': {
     'function:renderList': '3df24fe44d98a4985be06c6344fe062bb0910efe3b8d64253c541c3d10395f72',
     'function:renderInspector': '4c6d1e941ed41fd2f248b45ec0662ed538ed672120f460a76c7e6d0270f4791a',
-    'function:inspectorBody': '775869f952a75b67c4040815441ebbd819104a224f43c551c37aa325c37bae39',
+    'function:inspectorBody': 'f318fa462cb970331526246f335aab2eae82ac1b5abf0d70044e4b460a72bc1c',
     'function:renderVitals': '41f8987af023d7fecd860c342d7941727fca9516c97ac0f7856aec19bed7fa7c',
     'const:INSPECTOR_EYEBROW': 'e0d88566ac70bd0420289911192fb369018c65fe16262a65f8ba45b6c0a614fc',
     'function:openStream': '637edf71ec0a32021c05e1504d9999d29b7b42f46ab688aeb9f974b0dd28590f',

@@ -37,6 +37,11 @@ def served_assets():
 
 
 class PackageResourceTests(unittest.TestCase):
+    def test_eci_runtime_data_is_packaged(self):
+        for script in ('build.sh', 'package-release.sh'):
+            for name in ('eci_tuning_catalog.json', 'eci_tuning_routes.json', 'eci_tuning.schema.json'):
+                self.assertIn(name, resources(script))
+
     def test_both_packagers_copy_the_same_resources(self):
         self.assertEqual(sorted(resources('build.sh')), sorted(resources('package-release.sh')))
 

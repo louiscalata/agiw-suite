@@ -1,4 +1,5 @@
 """peer_link.py's host-kind default: Linux is no longer served as a Mac; Mac and Windows are unchanged."""
+import io
 import json
 import os
 import sys
@@ -153,6 +154,22 @@ class ServeWrapper(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(run.call_args[0][0], ["--state-dir", str(state), "--status-port", "9000", "run", "--beacon-port",
                                                "8769", "--host", "mac", "--name", "lab"])
+
+    def test_an_omitted_kind_on_linux_refuses_before_any_change(self):
+        from support import cli_main_without_kind_stub
+        error = io.StringIO()
+        with mock.patch.object(pl, "detect_host_kind", return_value="linux"), mock.patch("sys.stderr", error):
+            code = cli_main_without_kind_stub(["--state-dir", "unused", "status"], out=lambda line: None)
+        self.assertEqual(code, 2)
+        self.assertIn("Linux is not supported. Nothing was changed.", error.getvalue())
+
+    def test_the_suite_stub_does_not_treat_linux_detection_as_the_refusal(self):
+        from agiw import cli
+        error = io.StringIO()
+        state = temp_dir(self)
+        with mock.patch.object(pl, "detect_host_kind", return_value="linux"), mock.patch("sys.stderr", error):
+            cli.main(["--state-dir", str(state), "peers"], out=lambda line: None)
+        self.assertNotIn("Linux is not supported", error.getvalue())
 
     def test_windows_without_a_status_file_is_refused_in_agiw_words(self):
         from agiw import cli

@@ -254,7 +254,7 @@ class Installer(unittest.TestCase):
             self.assertNotIn(stale, readme)
         for shape in ("plain", "inverted", "framed", "dashed"):
             self.assertIn(f"**{shape}**", readme)
-        for route in ("/machines", "/setup", "/components", "/identity"):
+        for route in ("/machines", "/setup", "/components", "/identity", "/eci-tuning"):
             self.assertIn(f"`{route}`", readme)
 
     def test_build_json_is_staged_and_swapped_with_every_file(self):
@@ -338,7 +338,8 @@ class InstallerOnWindows(unittest.TestCase):
                          "online-code-mode.mjs", "monitor.html", "monitor.mjs", "monitor.css",
                          "monitor-tabs.mjs", "monitor-board.mjs", "monitor-map.mjs", "jaryo.css", "jaryo.mjs",
                          "identity.html", "identity.mjs", "machines.html", "machines.mjs", "setup.html", "setup.mjs",
-                         "components.html", "components.js", "components.css")]
+                         "components.html", "components.js", "components.css",
+                         "eci-tuning.html", "eci-tuning.mjs", "eci-tuning.css")]
             sources += [(REPO / "jaryo" / name, Path("jaryo") / name) for name in
                         ("tokens.json", "theme.mjs", "primitives.css", "README.md",
                          "marks/d1-stamp.svg", "marks/d2-ledger.svg", "marks/d3-schematic.svg",
@@ -347,7 +348,9 @@ class InstallerOnWindows(unittest.TestCase):
                          "marks/d5-signal.svg", "marks/favicon.svg")]
             sources += [(REPO / name, Path(name)) for name in
                         ("usage-format.mjs", "client_models.py", "peer_link.py", "peer_feed.py", "machine_state.py",
-                         "inference_stats.py", "inference_collect.py", "LICENSE", "NOTICE")]
+                         "inference_stats.py", "inference_collect.py", "eci_tuning.py",
+                         "eci_tuning_catalog.json", "eci_tuning_routes.json", "eci_tuning.schema.json",
+                         "LICENSE", "NOTICE")]
             sources += [(REPO / "brand" / "windows" / "agiw.ico", Path("agiw.ico"))]
             for source, relative in sources:
                 with self.subTest(installed=str(relative)):

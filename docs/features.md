@@ -4,6 +4,7 @@ This page describes the 1.0.0 (7) download unless marked otherwise. See [status]
 
 - **Nisi**: the public workflow engine, journal and CLI that the app bundles (version 0.2.0).
 - **Jev**: the optional hosted connection to TypeSafe, used with your own TypeSafe API key.
+- **AGIW x ECI Model Tuning Tool** (unreleased source): compare recorded ECI and components by protocol, inspect pending scores, and explicitly apply a provisional PC routing policy. [Guide and CLI](eci-model-tuning.md).
 
 **Known issue:** the 1.0.0 (7) download does not authenticate callers of its local control routes (model load or unload, auto-unload settings, the Jev check). See [SECURITY.md](../SECURITY.md#known-issue-in-v100-build-7-local-control-authentication).
 
