@@ -1789,6 +1789,9 @@ class TransportTest(unittest.TestCase):
 
     def test_connection_cap_and_absolute_deadline_for_dripping_headers(self):
         self.assertEqual(self.server.max_connections, 8)
+        # Exhaust the bounded admission wait before the held sockets' read
+        # timeout. The separate burst regression covers admission after release.
+        self.server.connection_wait_seconds = .05
         self.server.socket_timeout_seconds = .2
         # Opening eight sockets on a busy runner can take longer than half a second.
         # The deadline stays absolute: the drip below outlasts it, so every slot still closes.

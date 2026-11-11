@@ -446,6 +446,7 @@ class MonitorServer(ThreadingHTTPServer):
     allow_reuse_address = False
     request_queue_size = 8
     max_connections = 8
+    connection_wait_seconds = 0.5
     socket_timeout_seconds = 1.0
     connection_deadline_seconds = 2.0
     max_streams = 3
@@ -494,8 +495,9 @@ class MonitorServer(ThreadingHTTPServer):
         self._streams.release()
 
     def process_request(self, request, client_address):
-        # Reject excess accepted sockets before allocating a handler thread.
-        if not self._slots.acquire(blocking=False):
+        # Let a short module-fetch burst wait for a finishing handler (streams
+        # share these slots). Bound the accept-loop wait and keep the thread cap.
+        if not self._slots.acquire(timeout=self.connection_wait_seconds):
             self.shutdown_request(request)
             return
         with self._active_lock:
