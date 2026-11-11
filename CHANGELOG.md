@@ -5,7 +5,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Merged after the v1.1.0 tag. Each pull request below is merged. Open pull requests are not listed.
+- The AGIW x ECI Model Tuning Tool replaces Fix inference. The old name, control IDs and `/api/inference/fix` route are deprecated compatibility aliases; `/api/eci-tuning/repair` uses the same guarded repair. Opening the tool never starts repair; Run check confirms it. This is not a tagged release.
+
+- Add the AGIW x ECI Model Tuning Tool: offline ingest, protocol-separated rankings, explicit policy apply, and a read-only model tuning page with provisional and pending scores.
+
+Previously merged after the v1.1.0 tag:
 
 - #69 Android monitor encoding, insets, and Gradle tests.
 - #71 Flip6 inner and cover readings stay when the window turns.
@@ -18,9 +22,14 @@ Merged after the v1.1.0 tag. Each pull request below is merged. Open pull reques
 - #78 Mac route tests run on Linux.
 - #79 Flip hinge posture, font scale, and TalkBack labels.
 - #80 A missing or unreachable observer stays on the monitor screen.
+- #81 Android monitor tests, including an emulator smoke, run in CI.
 - #82 Forced-colors emulation on the monitor pages in Ubuntu CI.
 - #83 Acceptance block uses plain words.
+- #84 The footer About control has a 44px target.
 - #85 Development notes say the Windows review is not a pass.
+- #86 The README says fold posture is read, and that a physical Flip 6 is not.
+- #88 `GET /api/snapshot` is documented as the read-only export.
+- #89 The changelog uses Keep a Changelog form.
 
 ## [1.1.0] - 2026-11-09
 

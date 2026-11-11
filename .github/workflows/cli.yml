@@ -10,14 +10,23 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   cli:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest]
+        # ubuntu-24.04 runs the same suite. Tests pass kind mac when the runner is
+        # Linux, so this job is not a Linux host. The product still refuses Linux
+        # when kind is omitted. macos-latest here is GitHub-hosted, not the Mac.
+        # Pin 24.04: ubuntu-latest is 26.04, and setup-python has no CPython 3.9 there.
+        os: [macos-latest, windows-latest, ubuntu-24.04]
         python: ['3.9', '3.12']
-    runs-on: ${{ matrix.os }}
+    # Same-repo legs use their matching self-hosted runner; fork pull requests stay on GitHub-hosted runners.
+    runs-on: ${{ matrix.os == 'macos-latest' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted","mac-m5"]') || matrix.os == 'windows-latest' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted","pc-win"]') || matrix.os }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7.0.1

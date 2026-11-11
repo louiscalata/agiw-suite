@@ -23,7 +23,7 @@ observer that serves **the same dashboard** as the Mac edition, in its `host: "w
 Double-click **`AGIW Monitor.vbs`** (or `AGIW Monitor.cmd`). The tray icon appears and the dashboard opens in an
 Edge app window at `http://127.0.0.1:8767/monitor`; **Full dashboard** opens the earlier view at `/`. The same server also serves
 `/machines` (one tile per machine), `/setup` (this edition's own steps), `/components` (the Mac app's components, answered here with "Not available in the
-Windows edition yet") and `/identity`. If 8767 is held by something else the observer stops and the tray
+Windows edition yet") and `/identity` and `/eci-tuning`. If 8767 is held by something else the observer stops and the tray
 says so, rather than moving to another address.
 
 Tray icon: one black-and-white AGIW mark per state, and the state is a shape, never a color: **plain** both lanes confirmed idle · **inverted** a lane is
@@ -160,7 +160,7 @@ node --test (Get-ChildItem test_*.mjs).Name              # dashboard view logic 
 - Native Windows acceptance is still required before D3: run `windows/tests`, including `InstallerOnWindows`, and
   verify process/listener ownership, PDH GPU counters and `SHQueryUserNotificationState` on the PC. Portable mocked
   tests cover logic and cleanup; they do not verify these Windows APIs or a native installation.
-- Read-only: no lane start/stop, model load/unload, Fix Inference or auto-unload.
+- Read-only: no lane start/stop, model load/unload, Model Tuning Tool repair or auto-unload. The shared UI names the new tool; repair belongs to the Mac owner. Both `/api/eci-tuning/repair` and its deprecated `/api/inference/fix` alias are denied on Windows. Recorded ECI rankings are served by the Mac at `/eci-tuning`.
 - GPU temperature and power are NVIDIA-only (from `nvidia-smi`).
 - A reader that opens `windows-status.json` while it is being replaced can be refused; the refusal can recur until
   the replace completes. A reader that keeps the file open keeps seeing the old contents (the replace swaps the

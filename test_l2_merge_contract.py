@@ -11,7 +11,8 @@ from server import Handler
 
 REASON = 'Repair, Fix and Headless require the default-off A1 L2 gate'
 ROUTES = [('/api/online-code-mode/repair', {'action': 'check-and-repair'})]
-ROUTES += [('/api/inference/fix', {'scope': scope}) for scope in ('local', 'route', 'both', 'nisi', 'all')]
+ROUTES += [(route, {'scope': scope}) for route in ('/api/inference/fix', '/api/eci-tuning/repair')
+           for scope in ('local', 'route', 'both', 'nisi', 'all')]
 ROUTES += [('/api/online-code-mode/headless', {'action': action}) for action in ('on', 'off')]
 
 

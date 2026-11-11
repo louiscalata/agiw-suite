@@ -1374,7 +1374,7 @@ test('Orb web: the glow and web layers sit first inside the camera viewport, dec
 test('Orb web: hairline thread token mixed from the ink, rings fading outward, fillers fainter, contrast and forced colours handled, dark theme only', () => {
   const rule = selector => { const at = css.lastIndexOf(`${selector}{`); assert.ok(at >= 0, selector); return css.slice(at + selector.length + 1, css.indexOf('}', at)); };
   const opacity = selector => Number(/opacity:([.\d]+)/.exec(rule(selector))[1]);
-  assert.match(css, /:root\{--web-thread:#[0-9a-f]{6};--web-dew:#[0-9a-f]{6};--glow-peak:\.22\}/);
+  assert.match(css, /:root\{--web-thread:var\(--ink\);--web-dew:#e8ecf5;--glow-peak:\.22\}/);
   assert.match(css, /@supports \(color:color-mix\(in oklab,red,blue\)\)\{:root\{--web-thread:color-mix\(in oklab,var\(--ink\) 80%,var\(--blue\)\);/);
   assert.doesNotMatch(css.slice(css.indexOf('/* Orb web (spiderweb')), /light-dark\(/, 'no light-dark(): Safari before 17.5 lacks it');
   assert.match(rule('#web path'), /^fill:none;stroke:var\(--web-thread\);stroke-width:1;vector-effect:non-scaling-stroke;/);
@@ -1752,7 +1752,7 @@ test('Fix Nisi + Jev: a pending Nisi record leads the Nisi + Jev inspector with 
   // The sticky footer: Fix Nisi + Jev is the primary action; the call-trace jump steps back beside it.
   assert.deepEqual([$('drawerJump').hidden, $('drawerFixButton').hidden, $('drawerJumpButton').classList.contains('panel-primary'), $('drawerJumpButton').textContent],
     [false, false, false, 'Call traces →']);
-  assert.match(html, /<div id="drawerJump" class="panel-actions" hidden><button id="drawerFixButton" class="panel-primary drawer-fix" type="button" title="Opens Fix inference\. Nothing runs until you press Run check\." hidden>Fix Nisi Inference<\/button><button id="drawerJumpButton" class="panel-primary" type="button">Explore call traces →<\/button><\/div>/);
+  assert.match(html, /<div id="drawerJump" class="panel-actions" hidden><button id="drawerFixButton" class="panel-primary drawer-fix" type="button" title="Opens Model Tuning Tool\. Nothing runs until you press Run check\." hidden>Model tuning<\/button><button id="drawerJumpButton" class="panel-primary" type="button">Explore call traces →<\/button><\/div>/);
   // Without the snapshot's marker fields: the same words, no numbers.
   api.setFeed(pendingFeed());
   api.render();
@@ -1770,14 +1770,14 @@ test('Fix Nisi + Jev: a pending Nisi record leads the Nisi + Jev inspector with 
   assert.doesNotMatch(note, /Fix Nisi Inference opens the Fix panel/);
   api.setFeed(pendingFeed());
   api.render();
-  assert.match([...body.querySelectorAll('.detail-note')].map(p => p.textContent).join(' '), /Fix Nisi Inference opens the combined Fix inference panel; nothing runs until you press Run check\./);
+  assert.match([...body.querySelectorAll('.detail-note')].map(p => p.textContent).join(' '), /Model tuning opens the AGIW x ECI Model Tuning Tool; nothing runs until you press Run check\./);
   // An open router run with the router's own marker blocks the fix: the summary says so in the route chip's words, the fix
   // steps back to a secondary action and the call traces (where that run is) lead again.
   api.setFeed(pendingFeed({ runId: 'route-20260927-011504', stage: 'review', pendingMarkerAgeSeconds: 7260, pendingMarkerOwner: 'route-20260927-011504' }));
   api.render();
   const blocked = body.querySelector('.panel-summary');
   assert.deepEqual([blocked.dataset.tone, blocked.querySelector('strong').textContent], ['warn', 'Unsettled run recorded']);
-  assert.match(blocked.querySelector('p').textContent, /^Route run route-20260927-011504 is still open, and a Nisi call left a pending record 2 h 1 min ago\. Fix Nisi Inference stops at its first step until that run is resolved/);
+  assert.match(blocked.querySelector('p').textContent, /^Route run route-20260927-011504 is still open, and a Nisi call left a pending record 2 h 1 min ago\. Model Tuning Tool repair stops at its first step until that run is resolved/);
   assert.deepEqual([$('drawerFixButton').hidden, $('drawerFixButton').classList.contains('panel-primary'), $('drawerJumpButton').classList.contains('panel-primary'), $('drawerJumpButton').textContent],
     [false, false, true, 'Explore call traces →']);
   api.renderVitals();
@@ -2096,7 +2096,7 @@ test('Memory: the map banner shows for tight and critical only, is dismissible u
   const rules = cssRules(css);
   assert.ok(rules.some(([media, head, body]) => /min-width:821px/.test(media) && /#memoryBanner:not\(\[hidden\]\)\) \.evidence-rail/.test(head) && /top:102px/.test(body)));
   assert.ok(!rules.some(([media, head]) => !/min-width/.test(media) && /#memoryBanner:not\(\[hidden\]\)\) \.evidence-rail/.test(head)));
-  assert.ok(rules.some(([media, head, body]) => !media && head === '.memory-banner[data-level=critical]' && /border-color:#c25a58/.test(body)));
+  assert.ok(rules.some(([media, head, body]) => !media && head === '.memory-banner[data-level=critical]' && /border-color:var\(--ink\)/.test(body)));
   // A long banner wraps rather than cutting its suggestion: two lines at every width (no single-line ellipsis, which hid a
   // Nisi caveat at 1280 and 1512 px), the rail stepping lower up to 1100 px, three lines at 560 px.
   assert.ok(rules.some(([media, head, body]) => !media && head === '.memory-banner-copy' && /display:-webkit-box/.test(body) && /-webkit-line-clamp:2/.test(body) && /-webkit-box-orient:vertical/.test(body)));
@@ -2348,7 +2348,7 @@ test('unified repair posts scope all once and preserves owner and pending-operat
   const first=api.requestOnlineCodeAction('fix-all');
   await api.requestOnlineCodeAction('fix-all');
   assert.equal(calls.length,1,'posting blocks duplicate');
-  assert.equal(calls[0].url,'/api/inference/fix');
+  assert.equal(calls[0].url,'/api/eci-tuning/repair');
   assert.equal(calls[0].options.body,JSON.stringify({scope:'all'}));
   release();await first;await settle();
   await api.requestOnlineCodeAction('fix-all');
@@ -2757,4 +2757,21 @@ test('the chip says why it is unknown: a report nobody vouches for is not an old
   assert.equal(layout.machineStatusView({...base, trust: 'relayed', ageSeconds: 45}).detail, '? Unknown · report not verified', 'untrusted outranks stale');
   assert.match(layout.machineStatusView({...base, trust: 'local'}, {fresh: false}).detail, /observation stale/, 'a stale feed is not a trust problem');
   assert.match(layout.machineStatusView({...base, trust: 'relayed', state: 'unknown', reasonCode: 'not_observed'}).detail, /not observed/, 'a stated reason is shown as it is');
+});
+
+test('closing Model Tuning Tool leaves the running repair and status polling intact', async () => {
+  const {api,$,fetches}=netHarness();
+  api.setFeed(pendingFeed());
+  api.spyRail();
+  api.openFixInference();
+  await settle();
+  api.setAction({status:'running',operationId:41,action:'fix-all',message:'Checking.',steps:[]});
+  api.closeFixInference();
+  assert.equal($('fixInferenceDetails').hidden,true);
+  assert.equal(api.onlineCodePollWanted(),true);
+  await api.requestOnlineCodeAction('fix-all');
+  assert.ok(fetches.every(url=>url==='/api/online-code-mode/entry'),'close and duplicate attempt send no repair or cancellation');
+  api.openFixInference();
+  assert.equal($('fixInferenceSubmit').disabled,true);
+  assert.equal($('fixInferenceResult').querySelector('p').textContent,'Checking.');
 });

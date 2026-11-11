@@ -214,7 +214,7 @@ class OnlineCodeRepairTests(unittest.TestCase):
         self.assertTrue(repair._WINDOWS_WORKER_IO_LOCK.acquire(blocking=False))
         repair._WINDOWS_WORKER_IO_LOCK.release()
 
-    def test_default_owner_does_not_overlap_passive_sharedchami_probe(self):
+    def test_preheld_worker_lock_pauses_windows_status_without_a_probe(self):
         controller = repair.OnlineCodeRepair(l2_open=True)
         self.assertTrue(repair._WINDOWS_WORKER_IO_LOCK.acquire(blocking=False))
         try:

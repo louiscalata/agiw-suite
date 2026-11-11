@@ -18,8 +18,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:gravity="center_horizontal"
-        android:orientation="vertical"
-        android:paddingBottom="@dimen/space_2">
+        android:orientation="vertical">
         <TextView
             android:id="@+id/wordmark"
             android:layout_width="wrap_content"
@@ -51,32 +50,39 @@
             android:textColor="@color/agiw_ink"
             android:textSize="@dimen/type_meta"
             android:visibility="gone"/>
-        <TextView
-            android:id="@+id/process"
+        <LinearLayout
+            android:id="@+id/rowProcess"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="@dimen/space_3"
-            android:fontFamily="@font/inter_semibold"
             android:gravity="center_horizontal"
-            android:lineSpacingMultiplier="@dimen/leading_title"
-            android:textColor="@color/agiw_ink"
-            android:textSize="@dimen/type_title"/>
+            android:orientation="horizontal">
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:fontFamily="@font/inter_semibold"
+                android:importantForAccessibility="no"
+                android:letterSpacing="@dimen/tracking_meta"
+                android:paddingEnd="@dimen/space_2"
+                android:text="@string/label_process"
+                android:textColor="@color/agiw_ink"
+                android:textSize="@dimen/type_meta"/>
+            <TextView
+                android:id="@+id/process"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:fontFamily="@font/inter_semibold"
+                android:gravity="center_horizontal"
+                android:lineSpacingMultiplier="@dimen/leading_title"
+                android:textColor="@color/agiw_ink"
+                android:textSize="@dimen/type_title"/>
+        </LinearLayout>
         <TextView
             android:id="@+id/acceptance"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="@dimen/space_3"
-            android:fontFamily="@font/inter_semibold"
-            android:gravity="center_horizontal"
-            android:lineSpacingMultiplier="@dimen/leading_body"
-            android:textColor="@color/agiw_ink"
-            android:textSize="@dimen/type_body"/>
-        <TextView
-            android:id="@+id/detail"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
             android:layout_marginTop="@dimen/space_2"
-            android:fontFamily="@font/inter_regular"
+            android:fontFamily="@font/inter_semibold"
             android:gravity="center_horizontal"
             android:lineSpacingMultiplier="@dimen/leading_body"
             android:textColor="@color/agiw_ink"
@@ -100,68 +106,61 @@
             android:textColor="@color/agiw_button_text"
             android:textSize="@dimen/type_name"/>
         <TextView
+            android:id="@+id/detail"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:fontFamily="@font/inter_regular"
+            android:textColor="@color/agiw_ink"
+            android:textSize="@dimen/type_body"
+            android:visibility="gone"/>
+        <TextView
             android:id="@+id/lane"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="@dimen/space_3"
             android:fontFamily="@font/inter_regular"
-            android:gravity="center_horizontal"
-            android:lineSpacingMultiplier="@dimen/leading_body"
             android:textColor="@color/agiw_ink"
-            android:textSize="@dimen/type_body"/>
+            android:textSize="@dimen/type_body"
+            android:visibility="gone"/>
         <TextView
             android:id="@+id/attachment"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="@dimen/space_1"
             android:fontFamily="@font/inter_regular"
-            android:gravity="center_horizontal"
-            android:lineSpacingMultiplier="@dimen/leading_body"
             android:textColor="@color/agiw_ink"
-            android:textSize="@dimen/type_body"/>
+            android:textSize="@dimen/type_body"
+            android:visibility="gone"/>
         <TextView
             android:id="@+id/connect"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="@dimen/space_1"
             android:fontFamily="@font/inter_regular"
-            android:gravity="center_horizontal"
-            android:lineSpacingMultiplier="@dimen/leading_body"
             android:textColor="@color/agiw_ink"
-            android:textSize="@dimen/type_body"/>
+            android:textSize="@dimen/type_body"
+            android:visibility="gone"/>
         <TextView
             android:id="@+id/observed"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="@dimen/space_1"
             android:fontFamily="@font/inter_regular"
-            android:gravity="center_horizontal"
-            android:lineSpacingMultiplier="@dimen/leading_ui"
             android:textColor="@color/agiw_ink"
-            android:textSize="@dimen/type_ui"/>
+            android:textSize="@dimen/type_ui"
+            android:visibility="gone"/>
         <Button
             android:id="@+id/receiptsToggle"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="@dimen/space_1"
-            android:background="@drawable/agiw_text_button"
-            android:contentDescription="@string/receipts_show_description"
-            android:elevation="0dp"
             android:fontFamily="@font/inter_semibold"
             android:minHeight="@dimen/space_7"
             android:minWidth="@dimen/space_7"
-            android:stateListAnimator="@null"
             android:text="@string/receipts"
-            android:textAllCaps="false"
             android:textColor="@color/agiw_ink"
-            android:textSize="@dimen/type_body"/>
+            android:textSize="@dimen/type_body"
+            android:visibility="gone"/>
         <TextView
             android:id="@+id/receipts"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:fontFamily="@font/inter_regular"
-            android:gravity="center_horizontal"
-            android:lineSpacingMultiplier="@dimen/leading_ui"
             android:textColor="@color/agiw_ink"
             android:textSize="@dimen/type_ui"
             android:visibility="gone"/>

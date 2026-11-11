@@ -2706,8 +2706,8 @@ def _windows_worker(now: float) -> tuple[dict[str, Any], dict[str, Any]]:
         stuck = cache.get("stuckReaders")
         stuck = stuck if type(stuck) is int and 0 <= stuck <= 10000 else None
         # Only a counted stuck reader recommends the share recovery in Fix.
-        hint = (f"; {stuck} stuck SharedChami reader{'s' if stuck != 1 else ''}: open Fix inference > "
-                "Route pipeline to recover the share") if probe_paused and stuck else ""
+        hint = (f"; {stuck} stuck SharedChami reader{'s' if stuck != 1 else ''}: open Model Tuning Tool > "
+                "Check and repair inference > Run check to recover the share") if probe_paused and stuck else ""
         if available:
             detail = "Recent registered Windows worker heartbeat; inventory only, inference unknown"
             if probe_paused:

@@ -1380,6 +1380,18 @@ class TransportTest(unittest.TestCase):
         self.assertNotIn('Access-Control-Allow-Origin',headers)
         self.assertEqual(self.get('/api/snapshot',method='POST')[0],404)
 
+    def test_eci_tuning_is_read_only_same_origin_and_reports_unknown(self):
+        with patch('server.eci_tuning.status', return_value={'pending': [{'status': 'NOT_COMPUTED'}]}):
+            code, raw, headers = self.get('/api/eci-tuning')
+            self.assertEqual(code, 200)
+            self.assertEqual(json.loads(raw)['pending'][0]['status'], 'NOT_COMPUTED')
+            self.assertEqual(headers['Cache-Control'], 'no-store')
+            self.assertEqual(self.get('/api/eci-tuning', headers={'Origin':'https://example.invalid'})[0], 403)
+            self.assertEqual(self.get('/api/eci-tuning', method='POST')[0], 404)
+        with patch('server.eci_tuning.status', side_effect=ValueError('private detail')):
+            code, raw, _ = self.get('/api/eci-tuning')
+            self.assertEqual((code, json.loads(raw)), (503, {'status':'unknown'}))
+
     def test_readiness_status_is_available_with_l2_closed_and_no_owner(self):
         self.server.online_code_repair = None
         self.server.l2_open = False
@@ -1522,77 +1534,86 @@ class TransportTest(unittest.TestCase):
         self.assertEqual(entry.calls, 0)
 
     def test_inference_fix_requires_explicit_scope_and_same_origin(self):
-        self.server.l2_open = True
-        class StubFix:
-            scopes = []
-            def read(self):
-                return {'status': 'idle', 'message': 'No fix requested.', 'steps': [],
-                        'operationId': 0, 'action': None}
-            def request_fix(self, scope):
-                self.scopes.append(scope)
-                return {'status': 'running', 'message': 'Checking.', 'steps': [],
-                        'operationId': len(self.scopes), 'action': f'fix-{scope}'}
-        control = StubFix()
-        self.server.online_code_repair = control
-        code, raw, headers = self.get('/api/inference/fix')
-        self.assertEqual(code, 200)
-        self.assertEqual(json.loads(raw)['status'], 'idle')
-        self.assertEqual(headers['Cache-Control'], 'no-store')
-        self.assertEqual(control.scopes, [])
-        self.assertEqual(self.post_json('/api/inference/fix', b'{"scope":"local"}',
-                                        {'Origin':'http://evil.example'})[0], 403)
-        for invalid in (b'{"scope":"all","task":"private"}', b'{"scope":"local","task":"private"}',
-                        b'{"scope":"local","scope":"both"}', b'{"scope":null}',
-                        b'{"action":"repair"}', b'{"scope":"NISI"}', b'{"scope":"nisi+jev"}',
-                        b'{"scope":"nisi","confirm":true}', b'{"scope":["nisi"]}'):
-            with self.subTest(invalid=invalid):
-                self.assertEqual(self.post_json('/api/inference/fix', invalid)[0], 400)
-        self.assertEqual(control.scopes, [])
-        for scope in ('all', 'local', 'route', 'both', 'nisi'):
-            code, raw = self.post_json('/api/inference/fix',
-                                       json.dumps({'scope': scope}).encode())
-            self.assertEqual(code, 202)
-            self.assertEqual(json.loads(raw)['action'], f'fix-{scope}')
-        self.assertEqual(control.scopes, ['all', 'local', 'route', 'both', 'nisi'])
+        from server import OWNER_ACTION_ROUTES
+        self.assertIs(OWNER_ACTION_ROUTES['/api/eci-tuning/repair'],
+                      OWNER_ACTION_ROUTES['/api/inference/fix'])
+        for route in ('/api/eci-tuning/repair', '/api/inference/fix'):
+            self.server.l2_open = True
+            class StubFix:
+                scopes = []
+                def read(self):
+                    return {'status': 'idle', 'message': 'No fix requested.', 'steps': [],
+                            'operationId': 0, 'action': None}
+                def request_fix(self, scope):
+                    self.scopes.append(scope)
+                    return {'status': 'running', 'message': 'Checking.', 'steps': [],
+                            'operationId': len(self.scopes), 'action': f'fix-{scope}'}
+            control = StubFix()
+            self.server.online_code_repair = control
+            code, raw, headers = self.get(route)
+            self.assertEqual(code, 200)
+            self.assertEqual(json.loads(raw)['status'], 'idle')
+            self.assertEqual(headers['Cache-Control'], 'no-store')
+            self.assertEqual(control.scopes, [])
+            self.assertEqual(self.post_json(route, b'{"scope":"local"}',
+                                            {'Origin':'http://evil.example'})[0], 403)
+            for invalid in (b'{"scope":"all","task":"private"}', b'{"scope":"local","task":"private"}',
+                            b'{"scope":"local","scope":"both"}', b'{"scope":null}',
+                            b'{"action":"repair"}', b'{"scope":"NISI"}', b'{"scope":"nisi+jev"}',
+                            b'{"scope":"nisi","confirm":true}', b'{"scope":["nisi"]}'):
+                with self.subTest(invalid=invalid):
+                    self.assertEqual(self.post_json(route, invalid)[0], 400)
+            self.assertEqual(control.scopes, [])
+            for capability in ('', 'wrong'):
+                self.assertEqual(self.post_json(route, b'{"scope":"all"}',
+                                                {'X-AGIW-Control': capability})[0], 403)
+            self.assertEqual(control.scopes, [])
+            for scope in ('all', 'local', 'route', 'both', 'nisi'):
+                code, raw = self.post_json(route,
+                                           json.dumps({'scope': scope}).encode())
+                self.assertEqual(code, 202)
+                self.assertEqual(json.loads(raw)['action'], f'fix-{scope}')
+            self.assertEqual(control.scopes, ['all', 'local', 'route', 'both', 'nisi'])
 
     def test_fix_nisi_scope_keeps_the_same_transport_checks(self):
-        self.server.l2_open = True
-        class StubFix:
-            scopes = []
-            def read(self):
-                return {'status': 'idle', 'message': 'No fix requested.', 'steps': [],
-                        'operationId': 0, 'action': None}
-            def request_fix(self, scope):
-                self.scopes.append(scope)
-                return {'status': 'running', 'message': 'Checking.', 'steps': [],
-                        'operationId': 1, 'action': f'fix-{scope}'}
-        control = StubFix()
-        self.server.online_code_repair = control
-        body = b'{"scope":"nisi"}'
-        self.assertEqual(self.post_json('/api/inference/fix', body, {'Origin': 'http://evil.example'})[0], 403)
-        self.assertEqual(self.post_json('/api/inference/fix', body, {'Origin': 'null'})[0], 403)
-        self.assertEqual(self.post_json('/api/inference/fix', body, {'Content-Type': 'text/plain'})[0], 415)
-        self.assertEqual(self.post_json('/api/inference/fix', b'{"scope":"nisi"' + b' ' * 1024 + b'}')[0], 413)
-        port = self.server.server_address[1]
-        c = HTTPConnection('127.0.0.1', port, timeout=2)
-        c.putrequest('POST', '/api/inference/fix')
-        c.putheader('Origin', f'http://127.0.0.1:{port}')
-        c.putheader('X-AGIW-Control', 'fixture-only')
-        c.putheader('Content-Type', 'application/json')
-        c.endheaders()
-        self.assertEqual(c.getresponse().status, 411)
-        c.close()
-        # A POST without any Origin header is refused too (no cross-site form or script fallback).
-        c = HTTPConnection('127.0.0.1', port, timeout=2)
-        c.request('POST', '/api/inference/fix', body=body, headers={'Content-Type': 'application/json', 'X-AGIW-Control': 'fixture-only'})
-        self.assertEqual(c.getresponse().status, 403)
-        c.close()
-        self.assertEqual(control.scopes, [])
-        with patch('server.mac_online_code_controls_enabled', return_value=False):
-            self.assertEqual(self.post_json('/api/inference/fix', body)[0], 501)
-        self.assertEqual(control.scopes, [])
-        self.assertEqual(self.post_json('/api/inference/fix', body)[0], 202)
-        self.assertEqual(control.scopes, ['nisi'])
+        for route in ('/api/eci-tuning/repair', '/api/inference/fix'):
+            self.server.l2_open = True
+            class StubFix:
+                scopes = []
+                def read(self):
+                    return {'status': 'idle', 'message': 'No fix requested.', 'steps': [],
+                            'operationId': 0, 'action': None}
+                def request_fix(self, scope):
+                    self.scopes.append(scope)
+                    return {'status': 'running', 'message': 'Checking.', 'steps': [],
+                            'operationId': 1, 'action': f'fix-{scope}'}
+            control = StubFix()
+            self.server.online_code_repair = control
+            body = b'{"scope":"nisi"}'
+            self.assertEqual(self.post_json(route, body, {'Origin': 'http://evil.example'})[0], 403)
+            self.assertEqual(self.post_json(route, body, {'Origin': 'null'})[0], 403)
+            self.assertEqual(self.post_json(route, body, {'Content-Type': 'text/plain'})[0], 415)
+            self.assertEqual(self.post_json(route, b'{"scope":"nisi"' + b' ' * 1024 + b'}')[0], 413)
+            port = self.server.server_address[1]
+            c = HTTPConnection('127.0.0.1', port, timeout=2)
+            c.putrequest('POST', route)
+            c.putheader('Origin', f'http://127.0.0.1:{port}')
+            c.putheader('X-AGIW-Control', 'fixture-only')
+            c.putheader('Content-Type', 'application/json')
+            c.endheaders()
+            self.assertEqual(c.getresponse().status, 411)
+            c.close()
+            # A POST without any Origin header is refused too (no cross-site form or script fallback).
+            c = HTTPConnection('127.0.0.1', port, timeout=2)
+            c.request('POST', route, body=body, headers={'Content-Type': 'application/json', 'X-AGIW-Control': 'fixture-only'})
+            self.assertEqual(c.getresponse().status, 403)
+            c.close()
+            self.assertEqual(control.scopes, [])
+            with patch('server.mac_online_code_controls_enabled', return_value=False):
+                self.assertEqual(self.post_json(route, body)[0], 501)
+            self.assertEqual(control.scopes, [])
+            self.assertEqual(self.post_json(route, body)[0], 202)
+            self.assertEqual(control.scopes, ['nisi'])
 
     def test_fix_nisi_over_http_runs_one_operation_and_one_recover(self):
         self._check_fix_nisi_over_http(verified_listener=True)
@@ -1635,7 +1656,7 @@ class TransportTest(unittest.TestCase):
                                        fix_journal_path=root / 'fix-journal.jsonl', l2_open=True)
             self.server.online_code_repair = control
             try:
-                code, raw = self.post_json('/api/inference/fix', b'{"scope":"nisi"}')
+                code, raw = self.post_json('/api/eci-tuning/repair', b'{"scope":"nisi"}')
                 self.assertEqual(code, 202)
                 first = json.loads(raw)
                 self.assertEqual((first['status'], first['action']), ('running', 'fix-nisi'))
@@ -1713,6 +1734,7 @@ class TransportTest(unittest.TestCase):
             self.assertEqual(self.post_json('/api/online-code-mode/entry', b'{"action":"readiness"}')[0], 404)
             for route, body in (('/api/online-code-mode/repair', b'{"action":"check-and-repair"}'),
                                 ('/api/inference/fix', b'{"scope":"both"}'),
+                                ('/api/eci-tuning/repair', b'{"scope":"both"}'),
                                 ('/api/online-code-mode/headless', b'{"action":"on"}')):
                 with self.subTest(route=route):
                     self.assertEqual(self.get(route)[0], 501)

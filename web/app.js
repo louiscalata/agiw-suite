@@ -6,13 +6,13 @@ import {createMonitorDesk, nodeInMonitor, moveMonitorTab, initialMonitorId} from
 import {paintMonitorChrome} from '/monitor-board.mjs';
 const $=id=>document.getElementById(id), NS='http://www.w3.org/2000/svg';
 const ACTIVE=new Set(['generating','busy']);
-const COLORS=['#369984','#4c7cba','#8471af','#ca8b46','#a76882','#5f8c9d'];
+const INK='currentColor';
 const STATE={generating:'Generating',busy:'Busy',idle:'Idle',loaded:'Activity unknown',unloaded:'Not loaded',unknown:'Unknown',stale:'Stale'};
 // LM Studio reports activity phases, not a completion percentage. These cadences follow only the observed phase.
 const MODEL_AURA_MS={busy:2400,generating:1200};
 const CLIENTS=[['codex','Codex'],['claude','Claude'],['opencode','OpenCode'],['cursor','Cursor'],['grok','Grok']];
-// Client hues identify the app. A hollow node still means activity is unknown.
-const CLIENT_COLORS={codex:'#70bbff',claude:'#ffae73',opencode:'#65e3b2',cursor:'#b99aff',grok:'#ff91c1'};
+// The name identifies the app. Ink is the only colour. A hollow node still means activity is unknown.
+const CLIENT_COLORS={codex:INK,claude:INK,opencode:INK,cursor:INK,grok:INK};
 const CLIENT_STATE={observed:'Recorded model',configured:'Saved session choice',unknown:'Model unknown'};
 let snapshot=null,connected=false,paused=false,view='runtime',modelScope='core',query='',selected=null,runId=null,modelControlStatus=null,modelControlError='',modelControlPosting=false;
 let autoUnloadState=null,autoUnloadError='',autoUnloadPosting=false,autoUnloadPolling=false,autoUnloadRevision=0;
@@ -20,7 +20,7 @@ let onlineCodeActionStatus=null,onlineCodeActionPosting=false,onlineCodeActionPo
 let fixInferenceRenderKey='',fixReturnTo=null;
 const FIX_ACTIONS=new Map([['fix-local','Local runtime'],['fix-route','Route pipeline'],['fix-both','Local runtime and route'],['fix-nisi','Nisi Inference'],['fix-all','Inference']]);
 const HEADLESS_ACTIONS=new Map([['headless-on','on'],['headless-off','off']]);
-const LANE_COLORS={fast:'#7fc8e8',deep:'#a99be0'};
+const LANE_COLORS={fast:'currentColor',deep:'currentColor'};
 let graph={nodes:[],edges:[],labels:[]},camera={x:0,y:0,z:1},userCamera=false,drag=null,justDragged=false,inspectorNode=null,inspectorShape='',paintCamera='',layoutMode='wide',hoveredNode=null;
 const nodeElements=new Map();
 // Moving the focused node into a fresh viewport fires blur and focus; those must not re-render mid-move.
@@ -89,7 +89,7 @@ function clientRows(){const input=Array.isArray(snapshot?.clients)?snapshot.clie
 function clientIdentityCounts(){const rows=clientRows(),observed=rows.filter(c=>c.models.some(m=>m.modelState==='observed')).length,configured=rows.filter(c=>!c.models.some(m=>m.modelState==='observed')&&c.models.some(m=>m.modelState==='configured')).length;return{observed,configured,unknown:rows.length-observed-configured,total:rows.length};}
 const clientAge=c=>Number.isFinite(c.observedAt)?(c.observedAt>Date.now()/1000?'Clock mismatch':ageText(Date.now()/1000-c.observedAt)):Number.isFinite(c.ageSeconds)?ageText(c.ageSeconds+Math.max(0,Date.now()/1000-snapshot.sampledAt)):'Unknown';
 function native(action){const bridge=window.webkit?.messageHandlers?.monitor;if(bridge)bridge.postMessage({action});else if(action==='expand')window.open(location.href,'_blank','noopener');}
-function addNode(id,label,x,y,options={}){const n={id,label,x,y,color:'#88887e',r:7,subtitle:'',...options};graph.nodes.push(n);return n;}
+function addNode(id,label,x,y,options={}){const n={id,label,x,y,color:'currentColor',r:7,subtitle:'',...options};graph.nodes.push(n);return n;}
 function edge(a,b,color,dim=false,bend=0,flow=false){graph.edges.push({a,b,color,dim,bend,flow});}
 function addLabel(label){graph.labels.push(label);}
 function runtimeGraph(){
@@ -98,7 +98,7 @@ function runtimeGraph(){
   const layout=constellationLayout(rows.length,clients.map(c=>({modelCount:c.models.length})),{viewportWidth:region.clientWidth||409,viewportHeight:region.clientHeight||800,host:snapshot?.host});
   layoutMode=layout.portrait?'portrait':'wide';
   layout.labels.forEach(addLabel);
-  const root=addNode('runtime',snapshot?.host==='windows'?'This PC':'This Mac',layout.runtime.x,layout.runtime.y,{root:true,hub:true,r:18,color:'#d7d7d7',subtitle:'LOCAL HUB',kind:'runtime'});
+  const root=addNode('runtime',snapshot?.host==='windows'?'This PC':'This Mac',layout.runtime.x,layout.runtime.y,{root:true,hub:true,r:18,color:'currentColor',subtitle:'LOCAL HUB',kind:'runtime'});
   rows.forEach((m,i)=>{
     const pos=layout.runtimeModels[i];
     const activity=modelActivity(m);
@@ -116,16 +116,16 @@ function runtimeGraph(){
   const readiness=nisiC?.state==='ready'?' · PAIR READY':nisiC?.state==='partial'?' · NEEDS 2ND MODEL':nisiC?.state==='needs-action'?' · NEEDS ACTION':'';
   // Router concurrency: several routes may run at once; the node counts them (its inspector lists each one).
   const runningRoutes=routePipelines().filter(r=>r.live&&r.status==='running').length;
-  const pipeline=addNode('pipeline','Nisi Inference',layout.pipeline.x,layout.pipeline.y,{color:'#8471af',r:9,subtitle:!fresh()?'ROUTE AGE UNKNOWN':p?.status==='installing'?'ROUTER INSTALL IN PROGRESS':p?.status==='running'&&runningRoutes>1?`ROUTES RUNNING · ${p.pipelinesComplete===false?'AT LEAST ':''}${runningRoutes}`:p?.status==='running'?`ROUTE RUNNING · ${String(p.stage||'').replaceAll('_',' ').toUpperCase()}`:p?.status==='queued'?`ROUTE ${routeQueuedWords(p).toUpperCase()}`:p?.status==='claimed'?'CLAIM RECORDED · EXECUTION UNKNOWN':p?.runId?'UNSETTLED RUN RECORDED':p?.status==='idle'?`ROUTE IDLE${readiness}`:p?.status==='recovery-required'||nisiC?.state==='unresolved'?'NISI RECORD PENDING':'ROUTE STATE UNKNOWN',kind:'pipeline',active:fresh()&&p?.status==='running',unknown:!p?.runId&&nisiC?.state!=='ready'});
+  const pipeline=addNode('pipeline','Nisi Inference',layout.pipeline.x,layout.pipeline.y,{color:'currentColor',r:9,subtitle:!fresh()?'ROUTE AGE UNKNOWN':p?.status==='installing'?'ROUTER INSTALL IN PROGRESS':p?.status==='running'&&runningRoutes>1?`ROUTES RUNNING · ${p.pipelinesComplete===false?'AT LEAST ':''}${runningRoutes}`:p?.status==='running'?`ROUTE RUNNING · ${String(p.stage||'').replaceAll('_',' ').toUpperCase()}`:p?.status==='queued'?`ROUTE ${routeQueuedWords(p).toUpperCase()}`:p?.status==='claimed'?'CLAIM RECORDED · EXECUTION UNKNOWN':p?.runId?'UNSETTLED RUN RECORDED':p?.status==='idle'?`ROUTE IDLE${readiness}`:p?.status==='recovery-required'||nisiC?.state==='unresolved'?'NISI RECORD PENDING':'ROUTE STATE UNKNOWN',kind:'pipeline',active:fresh()&&p?.status==='running',unknown:!p?.runId&&nisiC?.state!=='ready'});
   edge(root.id,pipeline.id,pipeline.color,true,0);
   const jevC=Array.isArray(snapshot?.components)?snapshot.components.find(c=>c.id==='jev'):null;
   const jev=jevView(jevC,{feedFresh:fresh(),snapshotAge:Math.max(0,sampleAge())});
   const jevSubtitle=jev.state==='unknown'?'STATUS UNKNOWN · HISTORY ONLY':jev.lastJudgedAgeSeconds!==null?`LAST JUDGMENT ${ageText(jev.lastJudgedAgeSeconds).toUpperCase()}`:jev.state==='configured'?'OPTED IN · NO JUDGMENT':'NO OPT-IN · NO JUDGMENT';
-  const jevNode=addNode('jev','Jev',layout.jev.x,layout.jev.y,{color:'#9b81c9',r:6,subtitle:jevSubtitle,kind:'jev',jev,captionSide:layout.portrait?'right':null,unknown:true});
+  const jevNode=addNode('jev','Jev',layout.jev.x,layout.jev.y,{color:'currentColor',r:6,subtitle:jevSubtitle,kind:'jev',jev,captionSide:layout.portrait?'right':null,unknown:true});
   edge(pipeline.id,jevNode.id,jevNode.color,true,0);
   if(snapshot?.host==='mac'){
     const afm=afmView(snapshot.afm,{feedFresh:fresh(),host:snapshot.host});
-    const afmNode=addNode('afm','AFM',layout.afm.x,layout.afm.y,{color:'#77c6ac',r:8,subtitle:afm.state==='executable'?'ADAPTER EXECUTABLE · INFERENCE UNTESTED':afm.label.toUpperCase(),kind:'afm',afm,unknown:afm.state!=='executable'});
+    const afmNode=addNode('afm','AFM',layout.afm.x,layout.afm.y,{color:'currentColor',r:8,subtitle:afm.state==='executable'?'ADAPTER EXECUTABLE · INFERENCE UNTESTED':afm.label.toUpperCase(),kind:'afm',afm,unknown:afm.state!=='executable'});
     edge(root.id,afmNode.id,afmNode.color,true,-12);
     const worker=snapshot.windowsWorker||{state:'unknown',detail:'Windows worker heartbeat not yet verified'};
     const age=Math.max(0,sampleAge()),heartbeatAge=Number.isFinite(worker.ageSeconds)?worker.ageSeconds+age:null;
@@ -143,7 +143,7 @@ function runtimeGraph(){
     // nearest client branch, so it keeps only the status and time; the lane captions name the models.
     const brief=jobs.running?`JOB IN FLIGHT · ${Math.floor(job.ageSeconds)}s`:condition==='degraded'?'WORKER DEGRADED':condition==='stopped'?'WORKER STOPPED':workerUnknown?'LANES UNKNOWN':last?`LAST ANSWER · ${last.elapsedSeconds.toFixed(1)}s`:advertised?'WORKER ADVERTISED':'WORKER UNVERIFIED';
     const full=headlessKnown?`${subtitle} · ${lanes.headless.label.toUpperCase()}`:subtitle;
-    const node=addNode('windows-worker','Windows PC',layout.windows.x,layout.windows.y,{color:'#96acd5',r:12,subtitle:link?`${link} · ${full}`:full,subtitleAbove:brief,kind:'windows-worker',windowsWorker:worker,workerAdvertised:advertised,windowsJobs:jobs,windowsLanes:lanes,inFlight:jobs.running,verified:!jobs.running&&Boolean(last),unknown:!jobs.running&&!last});
+    const node=addNode('windows-worker','Windows PC',layout.windows.x,layout.windows.y,{color:'currentColor',r:12,subtitle:link?`${link} · ${full}`:full,subtitleAbove:brief,kind:'windows-worker',windowsWorker:worker,workerAdvertised:advertised,windowsJobs:jobs,windowsLanes:lanes,inFlight:jobs.running,verified:!jobs.running&&Boolean(last),unknown:!jobs.running&&!last});
     edge(root.id,node.id,node.color,!jobs.running,18,jobs.running);
     if(visibleLanes)lanes.lanes.forEach((lane,i)=>{const live=lanes.edges.some(e=>e.lane===lane.id&&e.live),offset=i?1:-1,pos=layout.windowsLanes[i]||layout.windowsLanes[0],n=addNode(`windows-lane:${lane.id}`,trim(lane.label,22),pos.x,pos.y,{color:LANE_COLORS[lane.id],r:7,subtitle:lane.up===false?'DOWN':lane.up===true?lane.total!==null?`${lane.busy}/${lane.total} BUSY`:'UP · SLOTS UNKNOWN':'UNKNOWN',kind:'windows-lane',captionSide:layout.portrait&&region.clientWidth<520?'left':i?'right':'left',lane,headless:lanes.headless,active:lane.up===true&&lane.busy>0,inFlight:live,unknown:lane.up===null});
       edge(node.id,n.id,n.color,lane.up!==true,offset*10,live);});
@@ -158,9 +158,9 @@ function runtimeGraph(){
     const reportBody=report.node?.replace(/^MAC REPORTS /,'');
     const subtitle=report.known?`${peer.linkSubtitle} · ${peer.state==='linked'?report.node:`MAC REPORTS ${reportBody}`}`:peer.subtitle;
     const lanReachable=peer.state==='reachable';
-    const node=addNode('mac-peer','Mac',layout.windows.x,layout.windows.y,{color:'#96acd5',r:12,subtitle,subtitleAbove:peer.brief,kind:'mac-peer',macPeer:peer,unknown:!lanReachable});
+    const node=addNode('mac-peer','Mac',layout.windows.x,layout.windows.y,{color:'currentColor',r:12,subtitle,subtitleAbove:peer.brief,kind:'mac-peer',macPeer:peer,unknown:!lanReachable});
     edge(root.id,node.id,node.color,!lanReachable,18);
-    peer.satellites.forEach((m,i)=>{const pos=layout.windowsLanes[i]||layout.windowsLanes[0],n=addNode(`mac-model:${i}`,shortName(m.id),pos.x,pos.y,{color:'#a99be0',r:7,subtitle:peer.satelliteSubtitle,kind:'mac-model',macModel:m,macPeer:peer,captionSide:layout.portrait&&region.clientWidth<520?'left':i?'right':'left'});
+    peer.satellites.forEach((m,i)=>{const pos=layout.windowsLanes[i]||layout.windowsLanes[0],n=addNode(`mac-model:${i}`,shortName(m.id),pos.x,pos.y,{color:'currentColor',r:7,subtitle:peer.satelliteSubtitle,kind:'mac-model',macModel:m,macPeer:peer,captionSide:layout.portrait&&region.clientWidth<520?'left':i?'right':'left'});
       edge(node.id,n.id,n.color,true,(i?1:-1)*10);});
     addLabel({text:'MAC · PRESENCE',x:layout.windowsLabel.x,y:layout.windowsLabel.y,align:'middle',kind:'mac-peer'});
   }
@@ -175,7 +175,7 @@ function runtimeGraph(){
 function traceGraph(){
   const records=runs();if(!records.some(r=>runKey(r)===runId))runId=records[0]?runKey(records[0]):null;
   const run=records.find(r=>runKey(r)===runId);if(!run)return;
-  const root=addNode('run:'+runKey(run),'Nisi Inference',440,330,{root:true,r:18,color:'#f06b24',subtitle:run.hostAcceptance==='REJECTED'?'HOST ACCEPTANCE: REJECTED':reviewConsistencyView(run).badge?reviewConsistencyView(run).badge.toUpperCase():run.status==='RESPONSE_VALIDATED'?'RESPONSE VALIDATION ONLY':(run.status||'UNKNOWN').toUpperCase(),kind:'run',run,reviewLevel:reviewConsistencyView(run).level});
+  const root=addNode('run:'+runKey(run),'Nisi Inference',440,330,{root:true,r:18,color:'currentColor',subtitle:run.hostAcceptance==='REJECTED'?'HOST ACCEPTANCE: REJECTED':reviewConsistencyView(run).badge?reviewConsistencyView(run).badge.toUpperCase():run.status==='RESPONSE_VALIDATED'?'RESPONSE VALIDATION ONLY':(run.status||'UNKNOWN').toUpperCase(),kind:'run',run,reviewLevel:reviewConsistencyView(run).level});
   const calls=Array.isArray(run.calls)?run.calls:[];
   // Each edge groups a receipt under its recorded run. It never fabricates a causal
   // dependency between calls, nor claims a checkpoint is a currently running model.
@@ -183,11 +183,11 @@ function traceGraph(){
     const angle=(-115+i*(calls.length>1?255/(calls.length-1):0))*Math.PI/180;
     const id=`call:${runKey(run)}:${call.id||'unreported'}:${i}`;
     const model=call.servedModel||call.model||call.requestedModel||'Unreported model';
-    const n=addNode(id,trim(name(model)),440+Math.cos(angle)*235,330+Math.sin(angle)*235,{r:9,color:COLORS[i%COLORS.length],subtitle:(call.role||call.stage||'call').toUpperCase()+' RECEIPT',kind:'call',call,run});
+    const n=addNode(id,trim(name(model)),440+Math.cos(angle)*235,330+Math.sin(angle)*235,{r:9,color:INK,subtitle:(call.role||call.stage||'call').toUpperCase()+' RECEIPT',kind:'call',call,run});
     edge(root.id,n.id,n.color);
     if(call.role==='intake'&&call.decision?.choice){const d=addNode(id+':decision',trim(call.decision.choice),n.x-145,n.y+45,{r:4,color:n.color,subtitle:'ROUTE ADVICE',kind:'call',call,run});edge(n.id,d.id,n.color);}
   });
-  if(!calls.length){const n=addNode('checkpoint',run.stage||'Checkpoint',680,330,{color:'#8471af',subtitle:'EXECUTION UNKNOWN',kind:'run',run,unknown:true});edge(root.id,n.id,n.color,true);}
+  if(!calls.length){const n=addNode('checkpoint',run.stage||'Checkpoint',680,330,{color:'currentColor',subtitle:'EXECUTION UNKNOWN',kind:'run',run,unknown:true});edge(root.id,n.id,n.color,true);}
 }
 // On the Windows monitor, slot/decode readings also follow the lane's age. Process/caller readings
 // follow the full feed because they are sampled independently. Mac telemetry qualification is unchanged.
@@ -581,7 +581,7 @@ function inspectorBody(n,body,{firstBuild=true}={}){
     // Every routed task the router lists, stacked: running, queued for a lane, or left unresolved.
     const routes=isFresh?routePipelines():[];if(routes.length){const list=el('div','route-runs');list.append(el('p','route-runs-head',`Routed tasks (${p.pipelinesComplete===false?'at least ':''}${routes.length})`),...routes.map(r=>el('p','step-line route-run',routeRunLine(r))));body.append(list);}
     const recoveryKnown=isFresh&&snapshot.host==='mac'&&(!snapshot.sources?.some(s=>s.id==='pipeline-router')||routeSourceCurrent('pipeline-router'));factTiles(body,[['Route',isFresh?(p.status==='recovery-required'?'Recovery required':capital(p.status||'Unknown')):'Unknown'],['Nisi',isFresh?compLabel(comp('nisi')):'Unknown'],['Jev',isFresh?compLabel(comp('jev')):'Unknown'],['Recovery',recoveryKnown?(recovery.needed&&recovery.age?`Pending ${recovery.age}`:p.recoveryRequired?'Marker present':'None'):'Unknown']]);
-    const box=tech();detailPairs(box,[['Shared route',p.status],['Unresolved run',recoveryKnown?p.runId||'None recorded':'Unknown'],['Checkpoint',p.stage],['Recovery marker',recoveryKnown?(p.recoveryRequired?'Present':'Not observed'):'Unknown'],...(recovery.needed?[['Pending record age',recovery.age||'Not reported'],['Pending record owner',recovery.owner||'Not reported']]:[]),['Nisi',comp('nisi')?`${comp('nisi').state} · ${comp('nisi').detail}`:'Unknown'],['Jev',comp('jev')?`${comp('jev').state} · ${comp('jev').detail}`:'Unknown']]);box.append(el('p','detail-note',recovery.needed&&snapshot.host==='mac'?'This observer reads their recorded evidence and does not invoke them. Fix Nisi Inference opens the combined Fix inference panel; nothing runs until you press Run check.':'This observer reads their recorded evidence and does not invoke them.'));return'runs';}
+    const box=tech();detailPairs(box,[['Shared route',p.status],['Unresolved run',recoveryKnown?p.runId||'None recorded':'Unknown'],['Checkpoint',p.stage],['Recovery marker',recoveryKnown?(p.recoveryRequired?'Present':'Not observed'):'Unknown'],...(recovery.needed?[['Pending record age',recovery.age||'Not reported'],['Pending record owner',recovery.owner||'Not reported']]:[]),['Nisi',comp('nisi')?`${comp('nisi').state} · ${comp('nisi').detail}`:'Unknown'],['Jev',comp('jev')?`${comp('jev').state} · ${comp('jev').detail}`:'Unknown']]);box.append(el('p','detail-note',recovery.needed&&snapshot.host==='mac'?'This observer reads their recorded evidence and does not invoke them. Model tuning opens the AGIW x ECI Model Tuning Tool; nothing runs until you press Run check.':'This observer reads their recorded evidence and does not invoke them.'));return'runs';}
   if(snapshot?.host==='windows'&&(n.kind==='mac-peer'||n.kind==='mac-model')){const peer=macPeerView(snapshot?.macPeer,{feedFresh:fresh(),snapshotAge:Math.max(0,sampleAge())});
     const modelReportedLoaded=n.kind==='mac-model'&&peer.loaded.some(m=>m.id===n.macModel.id);
     panelSummary(body,peer.linked?'muted':peer.reachable?'ok':peer.state==='unreachable'?'warn':'muted',peer.linked?'Mac reported through SharedChami (unverified)':peer.reachable?'Mac answering on the LAN':peer.state==='unreachable'?peer.failureTitle:'Mac presence unknown',
@@ -776,7 +776,7 @@ function updateInferenceFix(){
   button.classList.toggle('fix-tab-needs-action',fixAction&&state==='needs-action');
   button.classList.toggle('fix-tab-error',fixAction&&state==='error');
   button.setAttribute('aria-busy',String(active&&fixAction));
-  button.setAttribute('aria-label',!snapshot?'Fix inference. Waiting for the live feed.':!macOwner?'Fix inference. Available only on the Mac owner.':active?'Fix inference is running. Open its progress; no second request can start.':'Fix inference. Check and repair inference and show its progress.');
+  button.setAttribute('aria-label',!snapshot?'Model Tuning Tool. Waiting for the live feed.':!macOwner?'Model Tuning Tool. Available only on the Mac owner.':active?'Model Tuning Tool repair is running. Open its progress; no second request can start.':'Model Tuning Tool. Check and repair inference and show its progress.');
   const submit=$('fixInferenceSubmit');
   submit.disabled=!macOwner||active;
   submit.textContent=active?'Check in progress…':'Run check';
@@ -807,7 +807,7 @@ function renderFixResult({macOwner,action,state,active,fixAction}){
 }
 const fixScopeText=()=> 'Checks and repairs the Mac runtime, Windows route and Nisi Inference in one guarded run.';
 function updateFixScopeNote(){const note=fixScopeText(),result=$('fixInferenceResult'),idle=result.dataset.scopeSummary==='true';$('fixScopeNote').textContent=note;$('fixScopeNote').hidden=idle;if(idle){const line=result.querySelector('p');if(line&&line.textContent!==note)line.textContent=note;}}
-// Inspector opening is read-only until Run check. The top button always requests the combined repair.
+// All compatibility entry points open the tuning tool without repair. Only Run check submits it.
 // Keep the running action visible while the shared guard blocks another request.
 function openFixInference(scope){
   const fromInspector=scope==='nisi';
@@ -894,7 +894,7 @@ async function requestOnlineCodeAction(action){
   const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),6000);
   try{
     const fixAction=FIX_ACTIONS.has(action),headless=HEADLESS_ACTIONS.has(action);
-    const path=fixAction?'/api/inference/fix':headless?'/api/online-code-mode/headless':action==='readiness'?'/api/online-code-mode/entry':'/api/online-code-mode/repair';
+    const path=fixAction?'/api/eci-tuning/repair':headless?'/api/online-code-mode/headless':action==='readiness'?'/api/online-code-mode/entry':'/api/online-code-mode/repair';
     const body=fixAction?{scope:action.slice(4)}:{action};
     if(headless)body.action=HEADLESS_ACTIONS.get(action);
     const response=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),cache:'no-store',credentials:'same-origin',signal:controller.signal});
@@ -990,7 +990,7 @@ function renderActivity(feed){const list=$('activityList'),key=JSON.stringify([a
   if(!feed.length)list.append(el('li','activity-empty',!windowsJobsCurrent().liveAvailable?'PC job activity is unknown; the live job feed is unavailable.'+(snapshot?.host==='mac'&&!routesAvailable()?' Route activity is unknown; the route readers are unavailable.':''):snapshot?.host==='mac'&&!routesAvailable()?'Route activity is unknown; the route readers are unavailable.':!activityComplete(feed)?'Activity unknown; the feed is incomplete or unavailable.':'Nothing recorded yet. Ask the PC from any agent (pc_ask) or run a task through online code mode.'));
   for(const row of feed){const li=el('li',['activity-row',row.state==='in-flight'?'in-flight':row.state==='in-flight-stale'?'in-flight-stale':/error|timeout|fail|reject|invalid/i.test(row.state)?'failed':row.state==='cancelled'?'cancelled':null,row.limitHit?'limit':null].filter(Boolean).join(' ')),button=el('button','activity-open'),dot=el('i','activity-dot'),body=el('span');button.type='button';li.dataset.key=row.key;button.dataset.key=row.key;
     // A token-limit hit gets the warning dot (orange, from the stylesheet); every other row keeps its client's colour.
-    if(!row.limitHit&&!li.classList.contains('failed'))dot.style.background=Object.hasOwn(CLIENT_COLORS,row.client)?CLIENT_COLORS[row.client]:'#8a90a0';
+    if(!row.limitHit&&!li.classList.contains('failed'))dot.style.background=Object.hasOwn(CLIENT_COLORS,row.client)?CLIENT_COLORS[row.client]:'currentColor';
     // The token-limit badge rides on the title line, so it stays visible without a third line in the narrow rail.
     const title=el('span','activity-title');title.append(el('strong',null,`${activityWho(row)} → ${row.target}`));if(row.limitHit)title.append(el('span','flag-badge','hit token limit'));
     body.append(title,el('small',null,activityMeta(row)));const speeds=row.speeds||row.rate;if(speeds)body.append(el('small','activity-speeds',speeds));
@@ -1024,7 +1024,7 @@ function setModelScope(value){if(view!=='runtime'||!['core','all'].includes(valu
 let monitorDesk=null,monitorQueryApplied=false;
 function desk(){if(typeof createMonitorDesk!=='function')return null;return monitorDesk||=createMonitorDesk();}
 function demoRequested(){try{return /(?:^|[?&])demo=1(?:&|$)/.test(String(location.search));}catch(_){return false;}}
-function renderMonitorTabs(){if(typeof paintMonitorChrome!=='function'||!desk())return;const host=document.getElementById('monitorTabs'),board=document.getElementById('monitorBoard');if(!host||host.getAttribute('data-jaryo-tabs')!=='1'||!board)return;const banner=document.getElementById('jaryoDemo');const demo=demoRequested();if(banner){banner.hidden=!demo;if(demo)banner.textContent='DEMO · fictional monitors · not a live observation. The map is the live observer and is not filled from this sample.';}let preferred=null;if(!monitorQueryApplied&&(snapshot||demo)&&typeof initialMonitorId==='function'){try{preferred=initialMonitorId(String(location.search));}catch(_){preferred=null;}}paintMonitorChrome({host,board,desk:desk(),snapshot,feedFresh:fresh()&&!paused,paused,demo,preferredId:preferred});if(snapshot||demo)monitorQueryApplied=true;}
+function renderMonitorTabs(){if(typeof paintMonitorChrome!=='function'||!desk())return;const host=document.getElementById('monitorTabs'),board=document.getElementById('monitorBoard');if(!host||host.getAttribute('data-jaryo-tabs')!=='1'||!board)return;const banner=document.getElementById('jaryoDemo');const demo=demoRequested();if(banner){banner.hidden=!demo;if(demo)banner.textContent='DEMO · fictional monitors · not a live observation. The map is the live observer and is not filled from this sample.';}let preferred=null;if(!monitorQueryApplied&&(snapshot||demo)&&typeof initialMonitorId==='function'){try{preferred=initialMonitorId(String(location.search));}catch(_){preferred=null;}}board.dataset.hideBoard='1';paintMonitorChrome({host,board,desk:desk(),snapshot,feedFresh:fresh()&&!paused,paused,demo,preferredId:preferred});if(snapshot||demo)monitorQueryApplied=true;}
 function paintMonitorScope(){if(typeof nodeInMonitor!=='function'||!desk())return;const board=document.getElementById('monitorBoard');if(!board||board.getAttribute('data-jaryo-board')!=='1')return;const item=desk().monitors.find(monitor=>monitor.id===desk().active);for(const node of graph.nodes){const group=nodeElements.get(node.id);if(!group?.classList)continue;group.classList.toggle('is-outside-monitor',!nodeInMonitor(item,node));}}
 function selectMonitor(id){monitorQueryApplied=true;const book=desk();if(!book||!id)return;const filter=document.getElementById('monitorFilter');book.patch(book.active,{listView:view,modelScope,mapSelected:selected,search:query,boardQuery:filter?filter.value:book.view(book.active).boardQuery});if(!book.select(id))return;const next=book.view(id);view=next.listView||'runtime';modelScope=next.modelScope||'core';selected=Object.prototype.hasOwnProperty.call(next,'mapSelected')?next.mapSelected:null;query=typeof next.search==='string'?next.search:'';const box=$('search');if(box)box.value=query;document.querySelectorAll('[data-view]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.view===view)));document.querySelectorAll('[data-model-scope]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.modelScope===modelScope)));userCamera=false;render();}
 function bindMonitorTabs(){const host=document.getElementById('monitorTabs'),board=document.getElementById('monitorBoard');if(host&&host.dataset.bound!=='1'){host.dataset.bound='1';host.addEventListener('click',event=>{const tab=event.target.closest?.('[data-monitor]');if(tab)selectMonitor(tab.dataset.monitor);});host.addEventListener('keydown',event=>{if(typeof moveMonitorTab!=='function')return;const tabs=[...host.querySelectorAll('[role="tab"]')];const next=moveMonitorTab(tabs.map(tab=>tab.dataset.monitor),desk()?.active,event.key);if(!next)return;event.preventDefault();selectMonitor(next);tabs.find(tab=>tab.dataset.monitor===next)?.focus();});}if(board&&board.dataset.bound!=='1'){board.dataset.bound='1';board.addEventListener('click',event=>{const open=event.target.closest?.('[data-open-monitor]');if(open)selectMonitor(open.dataset.openMonitor);const dismiss=event.target.closest?.('[data-dismiss-monitor]');if(dismiss){desk()?.dismiss(dismiss.dataset.dismissMonitor);render();}});}}
@@ -1064,9 +1064,11 @@ $('onlineCodeMode').addEventListener('click',()=>{
 $('onlineCodeRepair').addEventListener('click',()=>requestOnlineCodeAction('check-and-repair'));
 $('pcHeadless').addEventListener('click',()=>requestOnlineCodeAction(headlessAction()));
 $('pcSwitch').addEventListener('click',()=>{if(!$('pcSwitch').disabled)requestOnlineCodeAction(headlessAction());});
+function openTuningLink(){if(window.location?.hash==='#model-tuning')openFixInference();}
+window.addEventListener('hashchange',openTuningLink);
+openTuningLink();
 $('fixInference').addEventListener('click',()=>{
   openFixInference();
-  requestOnlineCodeAction('fix-all');
 });
 $('fixInferenceForm').addEventListener('submit',event=>{
   event.preventDefault();

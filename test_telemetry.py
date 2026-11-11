@@ -1506,7 +1506,7 @@ class WindowsJobsJournalTests(unittest.TestCase):
             snapshot = telemetry.collect_snapshot()
         self.assertEqual(snapshot["windowsWorker"]["stuckReaders"], 3)
         self.assertIn("3 stuck SharedChami readers", snapshot["windowsWorker"]["detail"])
-        self.assertIn("open Fix inference > Route pipeline", snapshot["windowsWorker"]["detail"])
+        self.assertIn("open Model Tuning Tool > Check and repair inference > Run check", snapshot["windowsWorker"]["detail"])
         self.assertEqual(len(snapshot["windowsJobs"]["inFlight"]), 1)
         self.assertEqual(snapshot["sources"][-1]["id"], "windows-jobs")
         self.assertEqual(snapshot["sources"][-1]["state"], "live")
@@ -1565,7 +1565,7 @@ class WindowsJobsJournalTests(unittest.TestCase):
                 worker, _ = telemetry._windows_worker(time.time())
             self.assertIn(expected, worker["detail"])
             self.assertEqual(worker["stuckReaders"], stuck)
-            self.assertEqual("Fix inference > Route pipeline" in worker["detail"], recommends_fix)
+            self.assertEqual("Model Tuning Tool > Check and repair inference > Run check" in worker["detail"], recommends_fix)
 
     def test_abandoned_job_settles_at_enqueue_and_never_outranks_a_later_success(self):
         child = __import__("subprocess").Popen(["/usr/bin/true"])

@@ -9,7 +9,8 @@ import { fileURLToPath } from 'node:url';
 import { installKit, startServer } from '../install.mjs';
 
 const kitDemo = dirname(fileURLToPath(import.meta.url));
-const chromeBin = existsSync('/usr/bin/google-chrome-stable') ? '/usr/bin/google-chrome-stable' : 'google-chrome';
+const chromeBin = process.env.CHROME_BIN
+  || (existsSync('/usr/bin/google-chrome-stable') ? '/usr/bin/google-chrome-stable' : 'google-chrome');
 const outDir = process.argv.includes('--out')
   ? process.argv[process.argv.indexOf('--out') + 1]
   : join(tmpdir(), 'jaryo-shots');
@@ -158,6 +159,8 @@ async function main() {
   const profile = await mkdtemp(join(tmpdir(), 'jaryo-chrome-'));
   const chrome = spawn(chromeBin, [
     '--headless=new',
+    '--use-mock-keychain',
+    '--password-store=basic',
     '--disable-gpu',
     '--no-first-run',
     '--disable-dev-shm-usage',
@@ -165,7 +168,11 @@ async function main() {
     `--remote-debugging-port=${debugPort}`,
     `--user-data-dir=${profile}`,
     'about:blank',
-  ], { stdio: 'ignore' });
+  ], { stdio: ['ignore', 'ignore', 'pipe'] });
+  let chromeStderr = '';
+  chrome.stderr.setEncoding('utf8');
+  chrome.stderr.on('data', (chunk) => { chromeStderr = (chromeStderr + chunk).slice(-4000); });
+  chrome.once('error', (error) => { chromeStderr = (chromeStderr + error.message).slice(-4000); });
   const report = {
     install: `node jaryo/cli.mjs install --dest ${installed}`,
     demo: `node ${installed}/cli.mjs demo --port ${running.port}`,
@@ -180,7 +187,11 @@ async function main() {
   };
   const pass = (name, detail) => report.checks.push({ name, ok: true, detail });
   try {
-    await waitForJson(debugPort);
+    try {
+      await waitForJson(debugPort);
+    } catch (error) {
+      throw new Error(`${error.message} (exit ${chrome.exitCode ?? chrome.signalCode ?? 'unknown'})\n${chromeStderr.trim()}`);
+    }
     const targets = await (await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json();
     const page = targets.find((target) => target.type === 'page');
     if (!page) throw new Error('Chrome opened no page');
