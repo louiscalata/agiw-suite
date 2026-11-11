@@ -200,13 +200,14 @@ $files.Add(@((Join-Path $repo 'brand\windows\agiw.ico'), 'agiw.ico'))
 function Test-InstalledInventory($Files, $Destination, $Stage, $Guard, $RejectUnexpected = $false) {
     # Retained no-follow directory handles also protect the inventory walk. Extra code is never deleted.
     $expected = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
-    foreach ($pair in $Files) { [void]$expected.Add($pair[1]) }
+    # Manifests also use URL-style separators; the native inventory uses backslashes.
+    foreach ($pair in $Files) { [void]$expected.Add($pair[1].Replace('/', '\')) }
     foreach ($name in '.agiw-win-install', 'build.json', 'config.json', 'lane-processes.json') { [void]$expected.Add($name) }
     # A directory is expected only when an installed file lives inside it. jaryo and jaryo\marks
     # are parents of shipped files. Any other directory remains an unexpected install entry.
     $expectedDirs = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
     foreach ($pair in $Files) {
-        $parent = Split-Path -Parent $pair[1]
+        $parent = Split-Path -Parent ($pair[1].Replace('/', '\'))
         while ($parent) {
             [void]$expectedDirs.Add($parent)
             $parent = Split-Path -Parent $parent
