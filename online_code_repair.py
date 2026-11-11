@@ -38,6 +38,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
+from enum import Enum
 import copy
 import ipaddress
 import json
@@ -1316,6 +1317,13 @@ def read_only_diagnosis(action: str | None, snapshot: dict | None = None) -> dic
             "operationId": 0, "action": action}
 
 
+class _RepairWorkerState(Enum):
+    IDLE = "idle"
+    RUNNING = "running"
+    FINISHED = "finished"
+    STOPPED = "stopped"
+
+
 class OnlineCodeRepair:
     """One explicit background check/repair at a time, with sanitized progress."""
 
@@ -1370,10 +1378,91 @@ class OnlineCodeRepair:
                                   else (FIX_JOURNAL if production else None))
         self._lock = threading.Lock()
         self._owner_children = _OwnerChildren()
-        self._worker: threading.Thread | None = None
-        self._operation_id = 0
-        self._state = {"status": "idle", "message": "No check requested yet.",
-                       "steps": [], "operationId": 0, "action": None}
+        self._transition("initialize")
+
+    def _worker_state(self) -> _RepairWorkerState:
+        """Derive lifecycle separately from the retained public repair outcome."""
+        if self._owner_children.cancelled.is_set():
+            return _RepairWorkerState.STOPPED
+        if self._state["status"] == "idle":
+            return _RepairWorkerState.IDLE
+        if self._state["status"] == "running":
+            return _RepairWorkerState.RUNNING
+        return _RepairWorkerState.FINISHED
+
+    def _transition(self, event: str, *, action: str | None = None, snapshot: dict | None = None,
+                    operation_id: int | None = None, status: str | None = None,
+                    message: str | None = None, step: dict | None = None,
+                    groups_stopped: bool = True) -> None:
+        """Only writer of the worker, operation counter and legacy progress payload.
+
+        Caller holds _lock, except during construction. Child ownership and its
+        immediate cancellation signal stay in _OwnerChildren.
+        """
+        if event == "initialize":
+            self._worker: threading.Thread | None = None
+            self._operation_id = 0
+            self._state = {"status": "idle", "message": "No check requested yet.",
+                           "steps": [], "operationId": 0, "action": None}
+        elif event == "l2-closed":
+            self._state = read_only_diagnosis(action, snapshot)
+        elif event == "requested":
+            if self._worker_state() in (_RepairWorkerState.RUNNING, _RepairWorkerState.STOPPED):
+                return
+            self._operation_id += 1
+            operation_id = self._operation_id
+            self._state = {"status": "running", "message": "Checking router and host owner state.",
+                           "steps": [], "operationId": operation_id, "action": action}
+            if action == "readiness":
+                self._state["message"] = "Invoking the computer-wide readiness entry."
+            elif action == "fix-all":
+                self._state["message"] = "Checking local runtime, Nisi Inference and the Windows route under their owner guards."
+            elif action == "fix-nisi":
+                self._state["message"] = "Checking the router, Nisi owner and model server before any Nisi recovery."
+            elif action.startswith("fix-"):
+                self._state["message"] = "Checking the selected inference scope."
+            elif action == "headless-on":
+                self._state["message"] = "Probing the PC before turning headless on."
+            elif action == "headless-off":
+                self._state["message"] = "Turning PC headless off."
+            try:
+                self._worker = threading.Thread(target=self._work, args=(operation_id, action),
+                                                name="online-code-repair", daemon=True)
+                self._worker.start()
+            except Exception:
+                self._transition("worker-start-failed")
+                raise
+        elif event == "worker-start-failed":
+            self._worker = None
+            self._state["status"] = "error"
+            self._state["message"] = "Repair worker could not start; no maintenance action was run."
+        elif event == "cancel-requested":
+            # _OwnerChildren has already latched STOPPED and signalled children.
+            # Retain any finished outcome; only a running payload needs settling.
+            if self._state["status"] == "running":
+                self._state["status"] = "needs-action"
+                self._state["message"] = (
+                    "Monitor stopped while pc-llm was probing the PC; check the headless switch before retrying."
+                    + ("" if groups_stopped else " An owner process group could not be confirmed terminated.")
+                    if self._state["action"] == "headless-on" else
+                    FIX_NISI_CANCELLED
+                    + ("" if groups_stopped else " An owner process group could not be confirmed terminated.")
+                    if self._state["action"] == "fix-nisi" else
+                    FIX_ALL_CANCELLED
+                    + ("" if groups_stopped else " An owner process group could not be confirmed terminated.")
+                    if self._state["action"] == "fix-all" else
+                    "Monitor stopped before this check completed. No model inference was run."
+                    if groups_stopped else
+                    "Monitor stopped; an owner process group could not be confirmed terminated. Inspect owner processes before retrying. No model inference was run.")
+        elif event == "step-recorded":
+            self._state["steps"].append(step)
+        elif event == "finished":
+            if (self._state["operationId"] == operation_id
+                    and self._worker_state() is not _RepairWorkerState.STOPPED):
+                self._state["status"] = status
+                self._state["message"] = message
+        else:
+            raise ValueError("unsupported repair worker event")
 
     def read(self) -> dict:
         with self._lock:
@@ -1399,53 +1488,16 @@ class OnlineCodeRepair:
         with self._lock:
             if self._l2_open is not True:
                 snapshot = self._snapshot_read() if self._snapshot_read is not None else None
-                self._state = read_only_diagnosis(action, snapshot)
-                return copy.deepcopy(self._state)
-            if self._owner_children.cancelled.is_set():
-                return copy.deepcopy(self._state)
-            if self._state["status"] == "running":
-                return copy.deepcopy(self._state)
-            self._operation_id += 1
-            operation_id = self._operation_id
-            self._state = {"status": "running", "message": "Checking router and host owner state.",
-                           "steps": [], "operationId": operation_id, "action": action}
-            if action == "readiness":
-                self._state["message"] = "Invoking the computer-wide readiness entry."
-            elif action == "fix-all":
-                self._state["message"] = "Checking local runtime, Nisi Inference and the Windows route under their owner guards."
-            elif action == "fix-nisi":
-                self._state["message"] = "Checking the router, Nisi owner and model server before any Nisi recovery."
-            elif action.startswith("fix-"):
-                self._state["message"] = "Checking the selected inference scope."
-            elif action == "headless-on":
-                self._state["message"] = "Probing the PC before turning headless on."
-            elif action == "headless-off":
-                self._state["message"] = "Turning PC headless off."
-            worker = threading.Thread(target=self._work, args=(operation_id, action),
-                                      name="online-code-repair", daemon=True)
-            self._worker = worker
-            worker.start()
+                self._transition("l2-closed", action=action, snapshot=snapshot)
+            else:
+                self._transition("requested", action=action)
             return copy.deepcopy(self._state)
 
     def cancel(self) -> None:
         """Stop private owner commands immediately when the monitor exits."""
         groups_stopped = self._owner_children.cancel()
         with self._lock:
-            if self._state["status"] == "running":
-                self._state["status"] = "needs-action"
-                self._state["message"] = (
-                    "Monitor stopped while pc-llm was probing the PC; check the headless switch before retrying."
-                    + ("" if groups_stopped else " An owner process group could not be confirmed terminated.")
-                    if self._state["action"] == "headless-on" else
-                    FIX_NISI_CANCELLED
-                    + ("" if groups_stopped else " An owner process group could not be confirmed terminated.")
-                    if self._state["action"] == "fix-nisi" else
-                    FIX_ALL_CANCELLED
-                    + ("" if groups_stopped else " An owner process group could not be confirmed terminated.")
-                    if self._state["action"] == "fix-all" else
-                    "Monitor stopped before this check completed. No model inference was run."
-                    if groups_stopped else
-                    "Monitor stopped; an owner process group could not be confirmed terminated. Inspect owner processes before retrying. No model inference was run.")
+            self._transition("cancel-requested", groups_stopped=groups_stopped)
 
     def join(self, timeout: float) -> bool:
         """Bound shutdown waiting; the Swift parent has a 1.5-second grace."""
@@ -1466,7 +1518,7 @@ class OnlineCodeRepair:
 
     def _step(self, name: str, result: str, **identities: str) -> None:
         with self._lock:
-            self._state["steps"].append({"name": name, "result": result, **identities})
+            self._transition("step-recorded", step={"name": name, "result": result, **identities})
 
     def _require_l2(self) -> None:
         if self._l2_open is not True:
@@ -2443,7 +2495,7 @@ class OnlineCodeRepair:
     def _work(self, operation_id: int, action: str) -> None:
         if self._l2_open is not True:
             with self._lock:
-                self._state = read_only_diagnosis(action)
+                self._transition("l2-closed", action=action)
             return
         _OWNER_THREAD.children = self._owner_children
         try:
@@ -2492,6 +2544,4 @@ class OnlineCodeRepair:
         if action in ("fix-nisi", "fix-all"):
             self._journal_fix(operation_id, action, status, message)
         with self._lock:
-            if self._state["operationId"] == operation_id and not self._owner_children.cancelled.is_set():
-                self._state["status"] = status
-                self._state["message"] = message
+            self._transition("finished", operation_id=operation_id, status=status, message=message)
