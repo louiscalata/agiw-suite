@@ -6,6 +6,7 @@ trap 'rm -rf "$out"' EXIT
 find "$root/src/main/java" "$root/src/test/java" -name '*.java' ! -name 'MonitorCoreGradleTest.java' > "$out/sources"
 javac --release 17 -encoding UTF-8 -d "$out/classes" @"$out/sources"
 java -cp "$out/classes" suite.agiw.monitor.OverviewTest
+java -cp "$out/classes" suite.agiw.monitor.AgingTest
 java -cp "$out/classes" suite.agiw.monitor.ClientTest
 java -cp "$out/classes" suite.agiw.monitor.FoldTest
 python3 - "$root/../app/src/main/res/layout" <<'PY'
