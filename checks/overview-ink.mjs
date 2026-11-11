@@ -4,7 +4,7 @@ import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromaOf, isWebAccent } from './ink-color.mjs';
-import { overviewGeometry } from './overview-geometry.mjs';
+import { overviewGeometry, demoReadinessState } from './overview-geometry.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(import.meta.url);
@@ -50,6 +50,19 @@ try {
   const cases = [1280, 375].flatMap(width => ['light', 'dark'].map(scheme => ({ width, scheme })));
   for (const { width, scheme } of cases) {
     const page = await browser.newPage({ viewport: { width, height: width === 1280 ? 800 : 812 }, colorScheme: scheme });
+    const events = [];
+    const note = event => { if (events.length < 20) events.push(event); };
+    const modules = new Set(['/app.js', '/monitor-tabs.mjs', '/monitor-board.mjs', '/map-layout.mjs',
+      '/usage-format.mjs', '/online-code-mode.mjs', '/model-control-view.mjs', '/jaryo.mjs', '/simple-view.mjs']);
+    page.on('pageerror', error => note({ kind: 'pageerror', message: String(error.message).slice(0, 400) }));
+    page.on('requestfailed', request => {
+      const path = new URL(request.url()).pathname;
+      if (modules.has(path)) note({ kind: 'requestfailed', path, error: String(request.failure()?.errorText || '').slice(0, 120) });
+    });
+    page.on('response', response => {
+      const path = new URL(response.url()).pathname;
+      if (modules.has(path) && !response.ok()) note({ kind: 'module-response', path, status: response.status() });
+    });
     await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'domcontentloaded' });
     await page.waitForTimeout(800);
     const paints = await page.evaluate(() => {
@@ -70,7 +83,15 @@ try {
     if (colored.length) failures.push({ width, scheme, colored });
     // Multiple fictional tabs exercise wrapping without depending on the CI host's clients.
     await page.goto(`http://127.0.0.1:${port}/?demo=1`, { waitUntil: 'domcontentloaded' });
-    await page.locator('#monitorTabs .j-tab-label').nth(1).waitFor({ state: 'visible', timeout: 10000 });
+    try {
+      await page.locator('#monitorTabs .j-tab-label').nth(1).waitFor({ state: 'visible', timeout: 10000 });
+    } catch (error) {
+      let state;
+      try { state = await page.evaluate(demoReadinessState); }
+      catch (diagnosticError) { state = { unavailable: String(diagnosticError.message).slice(0, 300) }; }
+      console.error(JSON.stringify({ width, scheme, phase: 'demo-tab-readiness', events, state }));
+      throw error;
+    }
     const geometry = await page.evaluate(overviewGeometry);
     if (geometry.length) failures.push({ width, scheme, geometry });
     await page.close();

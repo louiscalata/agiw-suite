@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { runInNewContext } from 'node:vm';
-import { overviewGeometry } from './checks/overview-geometry.mjs';
+import { overviewGeometry, demoReadinessState } from './checks/overview-geometry.mjs';
 
 const rect = (left, top, right, bottom) => ({ left, top, right, bottom, width: right - left, height: bottom - top });
 function fixture(width = 375) {
@@ -113,4 +113,25 @@ test('desktop heading font bounds need clearance inside the clipped viewport', (
   f.heading.box = rect(28, 12, 250, 84);
   f.heading.textBox = rect(28, 4, 250, 87);
   assert.deepEqual(f.run(), []);
+});
+
+
+test('readiness diagnostics distinguish an absent second label from a hidden one', () => {
+  const label = { tagName: 'SPAN', id: '', hidden: false, parentElement: null,
+    getBoundingClientRect: () => ({ x: 0, y: 0, width: 0, height: 0 }) };
+  let labels = [label];
+  const host = { dataset: { fictional: '1' }, querySelectorAll: () => labels };
+  const document = { readyState: 'complete', querySelectorAll: () => labels,
+    querySelector: selector => selector === '#monitorTabs' ? host : { hidden: false } };
+  const run = () => JSON.parse(JSON.stringify(runInNewContext(`(${demoReadinessState.toString()})()`, {
+    document, getComputedStyle: () => ({ display: 'none', visibility: 'hidden', opacity: '1', overflowX: 'visible', overflowY: 'visible' }),
+  })));
+  assert.equal(run().secondExists, false);
+  labels = [label, label];
+  const hidden = run();
+  assert.equal(hidden.secondExists, true);
+  assert.equal(hidden.labelCount, 2);
+  assert.equal(hidden.ancestors[0].display, 'none');
+  assert.equal(hidden.ancestors[0].bounds.width, 0);
+  assert.equal(hidden.fictional, '1');
 });

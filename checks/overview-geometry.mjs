@@ -59,3 +59,24 @@ export function overviewGeometry() {
   tabs.forEach((tab, index) => inspect(tab, `status tab ${index + 1}`));
   return failures;
 }
+
+
+// Failure-only state, excluding snapshots, label text and response bodies.
+export function demoReadinessState() {
+  const host = document.querySelector('#monitorTabs');
+  const labels = [...document.querySelectorAll('#monitorTabs .j-tab-label')];
+  const second = labels[1];
+  const ancestors = [];
+  for (let node = second; node && ancestors.length < 8; node = node.parentElement) {
+    const style = getComputedStyle(node);
+    const box = node.getBoundingClientRect();
+    ancestors.push({ tag: node.tagName, id: node.id || null, hidden: node.hidden,
+      display: style.display, visibility: style.visibility, opacity: style.opacity,
+      overflowX: style.overflowX, overflowY: style.overflowY,
+      bounds: { x: box.x, y: box.y, width: box.width, height: box.height } });
+  }
+  return { readyState: document.readyState, labelCount: labels.length,
+    tabCount: host?.querySelectorAll('[role="tab"]').length ?? 0,
+    bannerHidden: document.querySelector('#jaryoDemo')?.hidden ?? null,
+    fictional: host?.dataset.fictional ?? null, secondExists: Boolean(second), ancestors };
+}

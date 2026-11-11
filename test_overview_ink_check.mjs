@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { EventEmitter } from 'node:events';
 import { chromaOf, isWebAccent } from './checks/ink-color.mjs';
-import { overviewGeometry } from './checks/overview-geometry.mjs';
+import { overviewGeometry, demoReadinessState } from './checks/overview-geometry.mjs';
 
 test('unknown color syntax fails the ink threshold', () => {
   for (const color of ['color-mix(in srgb, red 50%, white)', 'oklch(70% 0.2 30)',
@@ -27,11 +27,11 @@ test('rgb colors retain their chroma and transparent colors are ignored', () => 
 const source = readFileSync(new URL('./checks/overview-ink.mjs', import.meta.url), 'utf8');
 const lifecycle = source.slice(source.indexOf('const child = spawn('), source.indexOf('\nif (failures.length)'));
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
-const run = new AsyncFunction('spawn', 'root', 'chromium', 'chromaOf', 'isWebAccent', 'overviewGeometry', 'setTimeout', 'clearTimeout',
+const run = new AsyncFunction('spawn', 'root', 'chromium', 'chromaOf', 'isWebAccent', 'overviewGeometry', 'demoReadinessState', 'setTimeout', 'clearTimeout', 'console',
   `${lifecycle}\nreturn failures;`);
 
-function harness({ launchError, closeError, pageError, tabWaitError, startupError, timeout = false, paints = [], geometry = [] } = {}) {
-  const calls = { kill: 0, launch: 0, close: 0, pageClose: 0, cases: [], urls: [], tabWaits: [] };
+function harness({ launchError, closeError, pageError, tabWaitError, diagnosticError, tabWaitEvents = [], startupError, timeout = false, paints = [], geometry = [] } = {}) {
+  const calls = { kill: 0, launch: 0, close: 0, pageClose: 0, cases: [], urls: [], tabWaits: [], diagnostics: [], pageEvents: {} };
   const child = new EventEmitter();
   child.stdout = new EventEmitter();
   child.kill = () => { calls.kill++; };
@@ -51,13 +51,21 @@ function harness({ launchError, closeError, pageError, tabWaitError, startupErro
       newPage: async ({ colorScheme, viewport }) => {
         calls.cases.push({ scheme: colorScheme, width: viewport.width });
         return {
+          on: (name, callback) => { calls.pageEvents[name] = callback; },
           goto: async url => { calls.urls.push(url); if (pageError) throw pageError; },
           waitForTimeout: async () => {},
           locator: selector => ({ nth: index => ({ waitFor: async options => {
             calls.tabWaits.push({ selector, index, ...options });
+            for (const [name, event] of tabWaitEvents) calls.pageEvents[name]?.(event);
             if (tabWaitError) throw tabWaitError;
           } }) }),
-          evaluate: async callback => callback === overviewGeometry ? geometry : paints,
+          evaluate: async callback => {
+            if (callback === demoReadinessState) {
+              if (diagnosticError) throw diagnosticError;
+              return { labelCount: 0, secondExists: false };
+            }
+            return callback === overviewGeometry ? geometry : paints;
+          },
           close: async () => { calls.pageClose++; },
         };
       },
@@ -70,7 +78,7 @@ function harness({ launchError, closeError, pageError, tabWaitError, startupErro
     return callback;
   };
   const clearTimeout = timer => timers.delete(timer);
-  return { calls, timers, result: run(spawn, '/unused', chromium, chromaOf, isWebAccent, overviewGeometry, setTimeout, clearTimeout) };
+  return { calls, timers, result: run(spawn, '/unused', chromium, chromaOf, isWebAccent, overviewGeometry, demoReadinessState, setTimeout, clearTimeout, { error: value => calls.diagnostics.push(JSON.parse(value)) }) };
 }
 
 test('the cleanup covers Chromium launch failure', async () => {
@@ -162,6 +170,37 @@ test('missing demo tab fails readiness and still cleans up the browser and serve
   const h = harness({ tabWaitError: failure });
   await assert.rejects(h.result, error => error === failure);
   assert.equal(h.calls.tabWaits.length, 1);
+  assert.equal(h.calls.diagnostics[0].phase, 'demo-tab-readiness');
+  assert.deepEqual(h.calls.diagnostics[0].state, { labelCount: 0, secondExists: false });
   assert.equal(h.calls.close, 1);
   assert.equal(h.calls.kill, 1);
+});
+
+
+test('failure diagnostics cannot replace the original readiness error or skip cleanup', async () => {
+  const failure = new Error('original readiness error');
+  const h = harness({ tabWaitError: failure, diagnosticError: new Error('page context unavailable') });
+  await assert.rejects(h.result, error => error === failure);
+  assert.equal(h.calls.diagnostics[0].state.unavailable, 'page context unavailable');
+  assert.equal(h.calls.close, 1);
+  assert.equal(h.calls.kill, 1);
+});
+
+
+test('readiness event diagnostics are bounded and exclude query strings and response bodies', async () => {
+  const failure = new Error('readiness failed');
+  const events = [
+    ['response', { url: () => 'http://localhost/api/snapshot', ok: () => false, status: () => 503 }],
+    ['requestfailed', { url: () => 'http://localhost/app.js?private=omit', failure: () => ({ errorText: 'closed' }) }],
+    ['response', { url: () => 'http://localhost/monitor-tabs.mjs?private=omit', ok: () => false, status: () => 503 }],
+    ...Array.from({ length: 30 }, () => ['pageerror', new Error('x'.repeat(800))]),
+  ];
+  const h = harness({ tabWaitError: failure, tabWaitEvents: events });
+  await assert.rejects(h.result, error => error === failure);
+  const recorded = h.calls.diagnostics[0].events;
+  assert.equal(recorded.length, 20);
+  assert.deepEqual(recorded[0], { kind: 'requestfailed', path: '/app.js', error: 'closed' });
+  assert.deepEqual(recorded[1], { kind: 'module-response', path: '/monitor-tabs.mjs', status: 503 });
+  assert.equal(recorded[2].message.length, 400);
+  assert.doesNotMatch(JSON.stringify(recorded), /private|snapshot/);
 });
