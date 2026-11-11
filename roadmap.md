@@ -1,5 +1,9 @@
 # AGIW Suite roadmap and release evidence
 
+## Linux CI availability — 10 November 2026
+
+The registered `box-linux` runner lost communication during the current queue and is offline. Linux jobs now target GitHub-hosted Ubuntu: forced-colors emulation, Jaryo kit smoke, the combined `monitor` gate, and Android unit/lint. Existing Mac and Windows routing, required check names, timeouts, browser isolation flags, and test commands are unchanged. No runner is registered or started by this source change. Emulator and fixture results remain separate from phone and Windows High Contrast hardware acceptance.
+
 ## Model Tuning Tool replaces Fix inference · PR 2 · 2026-11-10
 
 - [x] Replace the repair-only UI with the Model Tuning Tool, linking recorded rankings and an explicit Run check. Preserve guarded repair, scoped API aliases, read-only GET and Windows refusal.

@@ -58,7 +58,7 @@ jobs:
   # hardware pass. Linux only: the observer requires POSIX fcntl.
   forced-colors:
     name: forced-colors emulation
-    runs-on: ${{ fromJSON((github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "box-linux"]' || '"ubuntu-latest"') }}
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7.0.1
@@ -89,7 +89,7 @@ jobs:
   # launch Chrome. Flags match the box and the PC.
   jaryo-smoke:
     name: jaryo kit smoke
-    runs-on: ${{ fromJSON((github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "box-linux"]' || '"ubuntu-latest"') }}
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7.0.1
@@ -116,7 +116,7 @@ jobs:
   monitor:
     if: ${{ always() }}
     needs: [tests, forced-colors, jaryo-smoke]
-    runs-on: ${{ fromJSON((github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "box-linux"]' || '"ubuntu-latest"') }}
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Require the suites, forced-colors, and the kit smoke
