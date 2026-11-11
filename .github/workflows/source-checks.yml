@@ -80,6 +80,10 @@ jobs:
         env:
           NODE_PATH: ${{ runner.temp }}/pw/node_modules
         run: node checks/forced-colors-emulation.mjs
+      - name: Prove the overview paints ink
+        env:
+          NODE_PATH: ${{ runner.temp }}/pw/node_modules
+        run: node checks/overview-ink.mjs
 
   # Headless Chrome for the Jaryo kit page. Not a Mac job: the Mac does not
   # launch Chrome. Flags match the box and the PC.

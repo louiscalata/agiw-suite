@@ -156,9 +156,14 @@ test('the map key and activity dots use Jaryo ink over the old palette', () => {
   const css = read('./web/jaryo.css');
   const style = read('./web/style.css');
   const app = read('./web/app.js');
-  assert.match(style, /\.legend \.cap-color\.embedding\{background:#bd9cff\}/);
-  assert.match(style, /\.legend \.legend-line\{[^}]*background:#9ec7ee/);
-  assert.match(style, /\.host-rejected\{color:#a34a40!important/);
+  const layout = read('./web/map-layout.mjs');
+  for (const literal of ['#bd9cff', '#9ec7ee', '#a34a40', '#70d7ed', '#70bbff', '#ffae73']) {
+    assert.doesNotMatch(style, new RegExp(literal, 'i'), literal);
+    assert.doesNotMatch(app, new RegExp(literal, 'i'), literal);
+    assert.doesNotMatch(layout, new RegExp(literal, 'i'), literal);
+  }
+  assert.match(app, /CLIENT_COLORS=\{codex:INK/);
+  assert.match(layout, /const color = 'currentColor'/);
   assert.match(app, /dot\.style\.background=/);
   const block = css.slice(css.indexOf('Map key and activity rows'));
   assert.match(block, /body\.jaryo-app \.legend \.cap-color\.embedding[\s\S]*?background: var\(--j-text\)/);
