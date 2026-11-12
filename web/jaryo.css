@@ -1462,6 +1462,26 @@ body.jaryo-app .graph-region::before {
   background-image: none;
   background-color: var(--j-bg);
 }
+/* The overview map paints flat ink, including focused edges and active nodes. */
+body.jaryo-app .graph-region::before,
+body.jaryo-app .graph-region::after {
+  content: none;
+  background: none;
+}
+body.jaryo-app .graph-region,
+body.jaryo-app .graph-region * {
+  filter: none !important;
+  box-shadow: none !important;
+  text-shadow: none !important;
+  backdrop-filter: none !important;
+}
+body.jaryo-app #map .node .halo,
+body.jaryo-app #glows {
+  display: none;
+}
+body.jaryo-app #headline em {
+  letter-spacing: normal;
+}
 body.jaryo-app .sidebar,
 body.jaryo-app .sidebar .view-tabs button,
 body.jaryo-app .legend .agent-key,
@@ -1480,6 +1500,15 @@ body.jaryo-app .map-lane.client {
   color: var(--j-text);
   fill: var(--j-text);
   stroke: var(--j-text);
+}
+/* Text keeps its ink fill; a thick stroke masks the surrounding map. */
+body.jaryo-app svg .cluster-label,
+body.jaryo-app #nodes .node .label,
+body.jaryo-app #nodes .node .sub,
+body.jaryo-app #nodes .node .capability-line {
+  stroke: none;
+  stroke-width: 0;
+  paint-order: normal;
 }
 
 /* Booklet red, from --j-accent, for headlines, the wordmark, and the current tab.
