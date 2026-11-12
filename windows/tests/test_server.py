@@ -40,6 +40,43 @@ def lane_server(model, state):
 
 
 class HistoryRegression(unittest.TestCase):
+    def test_recovery_fixture_imports_transitive_runtime_dependencies_without_sockets(self):
+        """Exercise the recovery copy inventory without launching its observer."""
+        import subprocess
+        replay = ObserverRecovery('test_source_change_exits_for_reload')
+        with mock.patch.object(socket, 'socket') as socket_factory:
+            reserved = socket_factory.return_value.__enter__.return_value
+            reserved.getsockname.return_value = ('127.0.0.1', 12345)
+            replay.setUp()
+            self.addCleanup(replay.tearDown)
+            socket_factory.assert_called_once_with()
+            reserved.bind.assert_called_once_with(('127.0.0.1', 0))
+        code = """
+import json
+from pathlib import Path
+import sys
+
+def refuse_socket(event, args):
+    if event.startswith('socket.'):
+        raise AssertionError('isolated imports must not use sockets')
+
+sys.addaudithook(refuse_socket)
+sys.path.insert(0, sys.argv[1])
+import agiw_win.server
+import eci_fast_check
+print(json.dumps({'server': str(Path(agiw_win.server.__file__).resolve()),
+                  'fast_check': str(Path(eci_fast_check.__file__).resolve()),
+                  'schema': Path(eci_fast_check.__file__).with_name('eci_fast_check.schema.json').is_file()}))
+"""
+        result = subprocess.run([sys.executable, '-I', '-B', '-c', code, str(replay.install)],
+                                cwd=replay.install, stdin=subprocess.DEVNULL,
+                                capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        installed = json.loads(result.stdout)
+        self.assertEqual(installed['server'], str((replay.install / 'agiw_win/server.py').resolve()))
+        self.assertEqual(installed['fast_check'], str((replay.install / 'eci_fast_check.py').resolve()))
+        self.assertTrue(installed['schema'])
+
     def test_lan_clock_contract_body_without_socket_transport(self):
         """Replay the unchanged five-case assertion body through the real collector.
 
@@ -1165,7 +1202,7 @@ class ObserverRecovery(unittest.TestCase):
         shutil.copy2(windows / "agiw_observer.py", self.install / "agiw_observer.py")
         repo = windows.parent
         for name in ("inference_collect.py", "remote_machines.py", "inference_stats.py", "machine_state.py",
-                     "eci_tuning.py", "eci_tuning_catalog.json", "eci_tuning_routes.json",
+                     "eci_tuning.py", "eci_fast_check.py", "eci_fast_check.schema.json", "eci_tuning_catalog.json", "eci_tuning_routes.json",
                      "eci_tuning.schema.json"):
             shutil.copy2(repo / name, self.install / name)
         (self.install / "web").mkdir()

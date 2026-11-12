@@ -1,5 +1,18 @@
 # AGIW Suite roadmap and release evidence
 
+## ECI model fast check · first slice · 12 November 2026
+
+- [x] Add deterministic, versioned, content-pinned whole-benchmark simple random sample plans (default 200 items), Wilson 95% component intervals, admission-matched chance normalization and exact McNemar comparisons.
+- [x] Add a callable-only runner seam, cooperative wall budget, strict fast-check records, local fit/admissibility gates and advisory slots that can only tighten decisions. Nisi journal references may remain null.
+- [x] Extend offline tuning ingest and pure view/ranking functions with hardware/plan/settings-separated fast-check rankings, explicit INCONCLUSIVE ties and full-run finalists. Fast checks never become ECI scores or routing policy evidence.
+- [x] Address the fix-round review with protocol-alias isolation, adapter-owned outcome/parse/finish evidence, all-planned accuracy, exact decimal quality gates, full baseline/hash binding, complete pairs, fsynced checkpoint resume and free-form hardware identity. Synthetic regressions pin each fix.
+- [x] Address round-two source findings with recursive protocol isolation, explicit cutoff/answer evidence, parseability and exact binomial chance gates, ranking policy safety, exclusive checkpoint locks, resume artifact hashes and chained integrity, and benchmark-aware callbacks. Failing-before regressions pin each fix; native checks remain open.
+- [ ] Page integration is the next slice: configure and validate an explicit read-only local dataset source for both endpoints, then prove ingest-to-page behavior. The current Mac and Windows endpoints use the bundled catalog; ingested fast checks do not reach the page.
+- [ ] Implement and review the existing harness adapter: exact sample IDs, pinned scorers/prompts/settings, per-call deadlines, measured artifact/hardware identity and Nisi journal custody. Real model checks, served identity, device/browser acceptance and full ECI runs are NOT_RUN.
+- [ ] Validate finalists on independent full runs before changing the current best routing policy. No hosted advisory, model/server operation, commit or publication is part of this slice.
+
+See [Fast check](docs/eci-fast-check.md) for the contract, statistical limits and the unrun adapter handoff.
+
 ## Remote machine registry fix round — 12 November 2026
 
 - [x] Verify the FIX FIRST review against the draft; pin protected ports, Windows package imports, complete strict HTTP transport, configuration descriptor custody, explicit legacy replacement and namespace isolation.

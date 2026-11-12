@@ -1,0 +1,1218 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AGIW fast check v1 (never an ECI score)",
+  "$ref": "#/$defs/record",
+  "$defs": {
+    "text": {
+      "type": "string",
+      "minLength": 1
+    },
+    "nullableText": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1
+    },
+    "sha": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "nullableSha": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/sha"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "measurement": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "score": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 1
+    },
+    "interval": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1
+      },
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "file_sha256",
+        "quantization",
+        "file_size_bytes"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/text"
+        },
+        "file_sha256": {
+          "$ref": "#/$defs/nullableSha"
+        },
+        "quantization": {
+          "$ref": "#/$defs/nullableText"
+        },
+        "file_size_bytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        }
+      }
+    },
+    "hardware": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "machine_label",
+        "cpu",
+        "gpu",
+        "memory",
+        "runtime_build_id"
+      ],
+      "properties": {
+        "machine_label": {
+          "$ref": "#/$defs/nullableText"
+        },
+        "cpu": {
+          "$ref": "#/$defs/hardwareDescriptor"
+        },
+        "gpu": {
+          "$ref": "#/$defs/hardwareDescriptor"
+        },
+        "memory": {
+          "$ref": "#/$defs/hardwareDescriptor"
+        },
+        "runtime_build_id": {
+          "$ref": "#/$defs/nullableText"
+        },
+        "memory_bytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        }
+      }
+    },
+    "settings": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "scorer_id": {
+          "$ref": "#/$defs/nullableText"
+        },
+        "prompt_template_id": {
+          "$ref": "#/$defs/nullableText"
+        },
+        "backend": {
+          "$ref": "#/$defs/nullableText"
+        },
+        "backend_version": {
+          "$ref": "#/$defs/nullableText"
+        },
+        "temperature": {
+          "$ref": "#/$defs/measurement"
+        },
+        "max_tokens": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "ctx": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "seed": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "n_epochs": {
+          "enum": [
+            1,
+            null
+          ]
+        },
+        "stop": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "system_message": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "schema_version",
+        "plan_version",
+        "items_per_benchmark",
+        "wall_budget_s",
+        "benchmarks",
+        "plan_id"
+      ],
+      "properties": {
+        "kind": {
+          "const": "agiw_fast_check_plan"
+        },
+        "schema_version": {
+          "const": 1
+        },
+        "plan_version": {
+          "$ref": "#/$defs/text"
+        },
+        "plan_id": {
+          "$ref": "#/$defs/sha"
+        },
+        "items_per_benchmark": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "wall_budget_s": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/decimal"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Positive exact decimal seconds; per-invocation cooperative budget, enforced by Python validation."
+        },
+        "benchmarks": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/sample"
+          }
+        }
+      }
+    },
+    "sample": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "benchmark",
+        "dataset_revision",
+        "dataset_sha256",
+        "population",
+        "stratum_key",
+        "strata",
+        "chance",
+        "seed",
+        "item_ids",
+        "sampling",
+        "whole_dataset",
+        "answer_options"
+      ],
+      "properties": {
+        "benchmark": {
+          "$ref": "#/$defs/text"
+        },
+        "dataset_revision": {
+          "$ref": "#/$defs/nullableText"
+        },
+        "dataset_sha256": {
+          "$ref": "#/$defs/sha"
+        },
+        "seed": {
+          "$ref": "#/$defs/sha"
+        },
+        "population": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "stratum_key": {
+          "$ref": "#/$defs/nullableText"
+        },
+        "chance": {
+          "$ref": "#/$defs/nullableDecimal"
+        },
+        "item_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/text"
+          }
+        },
+        "strata": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "label",
+              "population",
+              "selected"
+            ],
+            "properties": {
+              "label": {
+                "$ref": "#/$defs/nullableText"
+              },
+              "population": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "selected": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          }
+        },
+        "sampling": {
+          "const": "simple_random_without_replacement"
+        },
+        "whole_dataset": {
+          "type": "boolean"
+        },
+        "answer_options": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 2
+        }
+      }
+    },
+    "preAdvisory": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "required": [
+        "decision",
+        "reasons"
+      ],
+      "properties": {
+        "decision": {
+          "enum": [
+            "CHECK",
+            "SKIP",
+            "UNKNOWN"
+          ]
+        },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/text"
+          }
+        }
+      }
+    },
+    "postAdvisory": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "required": [
+        "decision",
+        "reasons"
+      ],
+      "properties": {
+        "decision": {
+          "enum": [
+            "ADMIT",
+            "REJECT",
+            "UNKNOWN"
+          ]
+        },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/text"
+          }
+        }
+      }
+    },
+    "pre": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "decision",
+        "local_decision",
+        "reasons",
+        "inputs",
+        "advisory"
+      ],
+      "properties": {
+        "decision": {
+          "enum": [
+            "CHECK",
+            "SKIP",
+            "UNKNOWN"
+          ]
+        },
+        "local_decision": {
+          "enum": [
+            "CHECK",
+            "SKIP",
+            "UNKNOWN"
+          ]
+        },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/text"
+          }
+        },
+        "advisory": {
+          "$ref": "#/$defs/preAdvisory"
+        },
+        "inputs": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "file_size_bytes",
+            "quantization",
+            "available_memory_bytes",
+            "safety_margin"
+          ],
+          "properties": {
+            "file_size_bytes": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 1
+            },
+            "quantization": {
+              "$ref": "#/$defs/nullableText"
+            },
+            "available_memory_bytes": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            },
+            "safety_margin": {
+              "$ref": "#/$defs/decimal"
+            }
+          }
+        }
+      }
+    },
+    "post": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "decision",
+        "local_decision",
+        "reasons",
+        "inputs",
+        "advisory"
+      ],
+      "properties": {
+        "decision": {
+          "enum": [
+            "ADMIT",
+            "REJECT",
+            "UNKNOWN"
+          ]
+        },
+        "local_decision": {
+          "enum": [
+            "ADMIT",
+            "REJECT",
+            "UNKNOWN"
+          ]
+        },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/text"
+          }
+        },
+        "advisory": {
+          "$ref": "#/$defs/postAdvisory"
+        },
+        "inputs": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "evidence",
+            "min_coverage",
+            "max_interval_width",
+            "max_error_rate",
+            "max_truncation_rate",
+            "max_unparsed_rate",
+            "alpha"
+          ],
+          "properties": {
+            "evidence": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "planned",
+                  "attempted",
+                  "correct",
+                  "parsed",
+                  "errors",
+                  "truncations",
+                  "chance",
+                  "answer_options",
+                  "top_answer_count",
+                  "unknown_finish"
+                ],
+                "properties": {
+                  "planned": {
+                    "$ref": "#/$defs/count"
+                  },
+                  "attempted": {
+                    "$ref": "#/$defs/count"
+                  },
+                  "correct": {
+                    "$ref": "#/$defs/count"
+                  },
+                  "parsed": {
+                    "$ref": "#/$defs/count"
+                  },
+                  "errors": {
+                    "$ref": "#/$defs/count"
+                  },
+                  "truncations": {
+                    "$ref": "#/$defs/count"
+                  },
+                  "chance": {
+                    "$ref": "#/$defs/nullableDecimal"
+                  },
+                  "answer_options": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "minimum": 2
+                  },
+                  "top_answer_count": {
+                    "$ref": "#/$defs/count"
+                  },
+                  "unknown_finish": {
+                    "$ref": "#/$defs/count"
+                  }
+                }
+              }
+            },
+            "min_coverage": {
+              "$ref": "#/$defs/decimal"
+            },
+            "max_interval_width": {
+              "$ref": "#/$defs/decimal"
+            },
+            "max_error_rate": {
+              "$ref": "#/$defs/decimal"
+            },
+            "max_truncation_rate": {
+              "$ref": "#/$defs/decimal"
+            },
+            "max_unparsed_rate": {
+              "$ref": "#/$defs/decimal"
+            },
+            "alpha": {
+              "$ref": "#/$defs/decimal"
+            }
+          }
+        }
+      }
+    },
+    "observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "item_id",
+        "outcome",
+        "parsed",
+        "finish_reason",
+        "correct",
+        "prompt_tokens",
+        "completion_tokens",
+        "seconds",
+        "error",
+        "cut_off",
+        "answer_value"
+      ],
+      "properties": {
+        "item_id": {
+          "$ref": "#/$defs/text"
+        },
+        "outcome": {
+          "enum": [
+            "correct",
+            "wrong",
+            "truncated_empty",
+            "unparsed",
+            "error"
+          ]
+        },
+        "parsed": {
+          "type": "boolean"
+        },
+        "finish_reason": {
+          "$ref": "#/$defs/nullableText"
+        },
+        "correct": {
+          "type": "boolean"
+        },
+        "prompt_tokens": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "completion_tokens": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "seconds": {
+          "$ref": "#/$defs/measurement"
+        },
+        "error": {
+          "$ref": "#/$defs/nullableText"
+        },
+        "cut_off": {
+          "type": "boolean"
+        },
+        "answer_value": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 128
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "outcome": {
+                "const": "correct"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "correct": {
+                "const": true
+              },
+              "parsed": {
+                "const": true
+              },
+              "error": {
+                "type": "null"
+              },
+              "finish_reason": {
+                "$ref": "#/$defs/nullableText"
+              },
+              "answer_value": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "outcome": {
+                "const": "wrong"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "correct": {
+                "const": false
+              },
+              "parsed": {
+                "const": true
+              },
+              "error": {
+                "type": "null"
+              },
+              "finish_reason": {
+                "$ref": "#/$defs/nullableText"
+              },
+              "answer_value": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "outcome": {
+                "enum": [
+                  "truncated_empty",
+                  "unparsed"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "correct": {
+                "const": false
+              },
+              "parsed": {
+                "const": false
+              },
+              "error": {
+                "type": "null"
+              },
+              "finish_reason": {
+                "$ref": "#/$defs/nullableText"
+              },
+              "answer_value": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "outcome": {
+                "const": "truncated_empty"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "finish_reason": {
+                "$ref": "#/$defs/nullableText"
+              },
+              "cut_off": {
+                "const": true
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "outcome": {
+                "const": "error"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "correct": {
+                "const": false
+              },
+              "error": {
+                "$ref": "#/$defs/text"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "benchmark": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "benchmark",
+        "planned",
+        "attempted",
+        "completed",
+        "correct",
+        "errors",
+        "timeouts",
+        "observations",
+        "wall_time_s",
+        "tokens",
+        "answer_seconds",
+        "tokens_per_s",
+        "stop_reason",
+        "accuracy",
+        "interval95",
+        "normalized_score",
+        "normalized_interval95",
+        "parsed",
+        "truncations",
+        "prompt_tokens",
+        "accuracy_over_parsed_items",
+        "outcome_counts",
+        "outcome_rates",
+        "unknown_finish",
+        "answer_counts",
+        "top_answer_count",
+        "top_answer_share"
+      ],
+      "properties": {
+        "benchmark": {
+          "$ref": "#/$defs/text"
+        },
+        "planned": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "attempted": {
+          "$ref": "#/$defs/count"
+        },
+        "completed": {
+          "$ref": "#/$defs/count"
+        },
+        "correct": {
+          "$ref": "#/$defs/count"
+        },
+        "errors": {
+          "$ref": "#/$defs/count"
+        },
+        "timeouts": {
+          "$ref": "#/$defs/count"
+        },
+        "observations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/observation"
+          }
+        },
+        "wall_time_s": {
+          "type": "number",
+          "minimum": 0
+        },
+        "tokens": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "answer_seconds": {
+          "$ref": "#/$defs/measurement"
+        },
+        "tokens_per_s": {
+          "$ref": "#/$defs/measurement"
+        },
+        "stop_reason": {
+          "enum": [
+            "complete",
+            "pre",
+            "budget"
+          ]
+        },
+        "accuracy": {
+          "$ref": "#/$defs/score"
+        },
+        "interval95": {
+          "$ref": "#/$defs/interval"
+        },
+        "normalized_score": {
+          "$ref": "#/$defs/score"
+        },
+        "normalized_interval95": {
+          "$ref": "#/$defs/interval"
+        },
+        "parsed": {
+          "$ref": "#/$defs/count"
+        },
+        "truncations": {
+          "$ref": "#/$defs/count"
+        },
+        "prompt_tokens": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "accuracy_over_parsed_items": {
+          "$ref": "#/$defs/score"
+        },
+        "outcome_counts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "correct",
+            "wrong",
+            "truncated_empty",
+            "unparsed",
+            "error"
+          ],
+          "properties": {
+            "correct": {
+              "$ref": "#/$defs/count"
+            },
+            "wrong": {
+              "$ref": "#/$defs/count"
+            },
+            "truncated_empty": {
+              "$ref": "#/$defs/count"
+            },
+            "unparsed": {
+              "$ref": "#/$defs/count"
+            },
+            "error": {
+              "$ref": "#/$defs/count"
+            }
+          }
+        },
+        "outcome_rates": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "correct",
+            "wrong",
+            "truncated_empty",
+            "unparsed",
+            "error"
+          ],
+          "properties": {
+            "correct": {
+              "$ref": "#/$defs/score"
+            },
+            "wrong": {
+              "$ref": "#/$defs/score"
+            },
+            "truncated_empty": {
+              "$ref": "#/$defs/score"
+            },
+            "unparsed": {
+              "$ref": "#/$defs/score"
+            },
+            "error": {
+              "$ref": "#/$defs/score"
+            }
+          }
+        },
+        "unknown_finish": {
+          "$ref": "#/$defs/count"
+        },
+        "answer_counts": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "top_answer_count": {
+          "$ref": "#/$defs/count"
+        },
+        "top_answer_share": {
+          "$ref": "#/$defs/score"
+        }
+      }
+    },
+    "baseline": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "required": [
+        "record_id",
+        "outcomes_sha256",
+        "record"
+      ],
+      "properties": {
+        "record_id": {
+          "$ref": "#/$defs/sha"
+        },
+        "outcomes_sha256": {
+          "$ref": "#/$defs/sha"
+        },
+        "record": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/record"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "comparison": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "verdict",
+        "alpha",
+        "n_shared",
+        "n_discordant",
+        "both_correct",
+        "both_wrong",
+        "model_only",
+        "baseline_only",
+        "p_value",
+        "p_exact",
+        "verification",
+        "reason",
+        "n_expected",
+        "n_candidate",
+        "n_baseline"
+      ],
+      "properties": {
+        "verdict": {
+          "enum": [
+            "BETTER",
+            "WORSE",
+            "INCONCLUSIVE"
+          ]
+        },
+        "alpha": {
+          "$ref": "#/$defs/decimal"
+        },
+        "reason": {
+          "$ref": "#/$defs/text"
+        },
+        "n_shared": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "n_discordant": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "both_correct": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "both_wrong": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "model_only": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "baseline_only": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "p_value": {
+          "$ref": "#/$defs/score"
+        },
+        "p_exact": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "type": "string",
+            "pattern": "^[0-9]+$"
+          }
+        },
+        "verification": {
+          "enum": [
+            "VERIFIED",
+            "UNVERIFIED"
+          ]
+        },
+        "n_expected": {
+          "$ref": "#/$defs/count"
+        },
+        "n_candidate": {
+          "$ref": "#/$defs/count"
+        },
+        "n_baseline": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        }
+      }
+    },
+    "record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "schema_version",
+        "protocol_id",
+        "record_id",
+        "created_at",
+        "model",
+        "hardware",
+        "runtime_settings",
+        "plan",
+        "pre",
+        "journal",
+        "post",
+        "baseline",
+        "alpha",
+        "benchmarks",
+        "wall_time_s",
+        "comparison"
+      ],
+      "properties": {
+        "kind": {
+          "const": "agiw_fast_check"
+        },
+        "schema_version": {
+          "const": 1
+        },
+        "protocol_id": {
+          "const": "agiw-fast-check-v1"
+        },
+        "record_id": {
+          "$ref": "#/$defs/sha"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "model": {
+          "$ref": "#/$defs/model"
+        },
+        "hardware": {
+          "$ref": "#/$defs/hardware"
+        },
+        "runtime_settings": {
+          "$ref": "#/$defs/settings"
+        },
+        "plan": {
+          "$ref": "#/$defs/plan"
+        },
+        "pre": {
+          "$ref": "#/$defs/pre"
+        },
+        "journal": {
+          "$ref": "#/$defs/nullableText"
+        },
+        "post": {
+          "$ref": "#/$defs/post"
+        },
+        "baseline": {
+          "$ref": "#/$defs/baseline"
+        },
+        "alpha": {
+          "$ref": "#/$defs/decimal"
+        },
+        "benchmarks": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/benchmark"
+          }
+        },
+        "wall_time_s": {
+          "type": "number",
+          "minimum": 0
+        },
+        "comparison": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/comparison"
+          }
+        }
+      }
+    },
+    "decimal": {
+      "type": "string",
+      "pattern": "^(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$"
+    },
+    "nullableDecimal": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/decimal"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "hardwareDescriptor": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/text"
+        },
+        {
+          "type": "object",
+          "minProperties": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  }
+}

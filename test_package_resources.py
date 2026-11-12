@@ -13,6 +13,23 @@ def resources(script):
     return shlex.split(re.search(r'resources=\((.*?)\)', text, re.DOTALL).group(1))
 
 
+
+def windows_root_resources(text):
+    """Read the explicit root copy inventory, not filenames quoted elsewhere.
+
+    The installer uses a literal foreach list feeding the root Join-Path pair.
+    This is a source contract check, not a claim to execute PowerShell.
+    """
+    code = re.sub(r'(?ms)<#.*?#>', '', text)
+    code = re.sub(r'(?m)^\s*#.*$', '', code)
+    pattern = (r"foreach\s*\(\$file\s+in\s+((?:'(?:[^']|'')*'\s*,?\s*)+)\)\s*\{"
+               r"\s*\$files\.Add\(@\(\(Join-Path\s+\$repo\s+\$file\),\s*\$file\)\)\s*\}")
+    matches = re.findall(pattern, code)
+    if len(matches) != 1:
+        raise AssertionError('expected one literal root resource copy loop')
+    return [name.replace("''", "'") for name in re.findall(r"'((?:[^']|'')*)'", matches[0])]
+
+
 def local_imports(module):
     """Repository modules reachable from ``module`` through import statements."""
     seen, pending = set(), [module]
@@ -39,8 +56,24 @@ def served_assets():
 class PackageResourceTests(unittest.TestCase):
     def test_eci_runtime_data_is_packaged(self):
         for script in ('build.sh', 'package-release.sh'):
-            for name in ('eci_tuning_catalog.json', 'eci_tuning_routes.json', 'eci_tuning.schema.json'):
+            for name in ('eci_tuning_catalog.json', 'eci_tuning_routes.json', 'eci_tuning.schema.json',
+                         'eci_fast_check.py', 'eci_fast_check.schema.json'):
                 self.assertIn(name, resources(script))
+
+    def test_windows_installer_retains_fast_check_dependency_and_schema(self):
+        text = (REPO / 'windows/install.ps1').read_text()
+        for name in ('eci_fast_check.py', 'eci_fast_check.schema.json'):
+            self.assertIn(name, windows_root_resources(text))
+
+    def test_windows_resource_contract_ignores_names_only_in_comments(self):
+        text = (REPO / 'windows/install.ps1').read_text()
+        for name in ('eci_fast_check.py', 'eci_fast_check.schema.json'):
+            text = text.replace("'" + name + "', ", '')
+            text += "\n# '" + name + "' is only a comment\n"
+        names = windows_root_resources(text)
+        self.assertNotIn('eci_fast_check.py', names)
+        self.assertNotIn('eci_fast_check.schema.json', names)
+        self.assertIn('eci_tuning.py', names)
 
     def test_both_packagers_copy_the_same_resources(self):
         self.assertEqual(sorted(resources('build.sh')), sorted(resources('package-release.sh')))

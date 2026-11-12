@@ -23,6 +23,10 @@
       "items": {
         "$ref": "#/$defs/item"
       }
+    },
+    "fast_checks": {
+      "type": "array",
+      "items": {"$ref": "eci_fast_check.schema.json#/$defs/record"}
     }
   },
   "$defs": {

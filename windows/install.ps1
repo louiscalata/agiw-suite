@@ -189,7 +189,7 @@ foreach ($file in 'tokens.json', 'theme.mjs', 'primitives.css', 'README.md', 'ma
 # peer_link.py is the LAN pairing service (agiw-peer/2), included in the preview resource inventory. Installing it
 # starts nothing: it runs only when started (python peer_link.py run --status-file state\peer-link-status.json), after
 # PIN pairing and the 8768/8769 firewall rules.
-foreach ($file in 'usage-format.mjs', 'client_models.py', 'peer_link.py', 'peer_feed.py', 'machine_state.py', 'inference_stats.py', 'inference_collect.py', 'remote_machines.py', 'eci_tuning.py', 'eci_tuning_catalog.json', 'eci_tuning_routes.json', 'eci_tuning.schema.json', 'LICENSE', 'NOTICE') {
+foreach ($file in 'usage-format.mjs', 'client_models.py', 'peer_link.py', 'peer_feed.py', 'machine_state.py', 'inference_stats.py', 'inference_collect.py', 'remote_machines.py', 'eci_tuning.py', 'eci_fast_check.py', 'eci_fast_check.schema.json', 'eci_tuning_catalog.json', 'eci_tuning_routes.json', 'eci_tuning.schema.json', 'LICENSE', 'NOTICE') {
     $files.Add(@((Join-Path $repo $file), $file))
 }
 
