@@ -29,7 +29,7 @@ resources=(
     web/map-layout.mjs web/model-control-view.mjs web/simple-view.mjs web/simple-view.css web/style.css
     inference_collect.py inference_stats.py fleet_state.py pc_tunnel.py remote_machines.py web/monitor.html web/monitor.mjs web/monitor.css
     web/monitor-tabs.mjs web/monitor-board.mjs web/monitor-map.mjs web/jaryo.css web/jaryo.mjs
-    web/identity.html web/identity.mjs web/machines.html web/machines.mjs web/fleet-state.mjs web/setup.html web/setup.mjs
+    web/identity.html web/identity.mjs web/machines.html web/machines.mjs web/fleet-state.mjs web/monitor-store.mjs web/setup.html web/setup.mjs
     jaryo/tokens.json jaryo/theme.mjs jaryo/primitives.css jaryo/README.md
     jaryo/marks/d1-stamp.svg jaryo/marks/d2-ledger.svg jaryo/marks/d3-schematic.svg
     jaryo/marks/d4-split.svg jaryo/marks/d4-split-before.svg jaryo/marks/d4-split-wordmark.svg

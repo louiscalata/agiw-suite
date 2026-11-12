@@ -19,14 +19,24 @@ test('route admission text is the shared observer contract', () => {
   assert.equal(routeAdmissionText({ admission: { policy: 'multi', source: 'file', drainState: 'not-applicable' } }).startsWith('Multi'), true);
 });
 
-test('Mac edition ships eight files and leaves online code out', () => {
-  assert.deepEqual(ship, ['index.html', 'style.css', 'app.js', 'usage-format.mjs', 'map-layout.mjs', 'model-control-view.mjs', 'simple-view.mjs', 'simple-view.css']);
+test('Mac edition ships the shared store and its selector while leaving online code out', () => {
+  assert.deepEqual(ship, ['index.html', 'style.css', 'app.js', 'usage-format.mjs', 'map-layout.mjs', 'model-control-view.mjs', 'simple-view.mjs', 'simple-view.css', 'monitor-store.mjs', 'fleet-state.mjs']);
   assert.equal(ship.includes('online-code-mode.mjs'), false);
+});
+
+test('the edition sync stages the store and its transitive fleet selector', () => {
+  const sync = read('./wrapper-patch/sync-web.sh');
+  const sources = sync.match(/^SOURCES=\(([\s\S]*?)\)/m)?.[1].trim().split(/\s+/);
+  for (const name of ['monitor-store.mjs', 'fleet-state.mjs']) {
+    assert.ok(sources.includes(`web/${name}`), name);
+    assert.ok(ship.includes(name), name);
+  }
+  assert.match(read('./web/monitor-store.mjs'), /from ['"]\.\/fleet-state\.mjs['"]/);
 });
 
 test('Windows full web keeps tuning compatibility hooks and online code beside simple view', () => {
   const install = read('./windows/install.ps1');
-  for (const name of ['app.js', 'online-code-mode.mjs', 'simple-view.mjs', 'simple-view.css', 'index.html']) {
+  for (const name of ['app.js', 'online-code-mode.mjs', 'simple-view.mjs', 'simple-view.css', 'index.html', 'monitor-store.mjs', 'fleet-state.mjs']) {
     assert.match(install, new RegExp(`'${name}'`));
   }
   const index = read('./web/index.html');

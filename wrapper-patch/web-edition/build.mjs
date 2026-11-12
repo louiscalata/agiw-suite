@@ -3,8 +3,8 @@
 //
 //   node scripts/web-edition/build.mjs <upstream-dir> <out-dir>
 //
-// <upstream-dir> holds the nine synced files (flat). <out-dir> must be empty or missing; the edition's eight
-// files are written there only when every rule applied and every check passed:
+// <upstream-dir> holds the synced files (flat). <out-dir> must be empty or missing; the edition's
+// declared files are written there only when every rule applied and every check passed:
 //   - the rules (appstore-rules.mjs) matched exactly (missing statements, anchor counts, sha256 pins);
 //   - no dropped binding is still referenced, and every import names a function the edition still exports;
 //   - every $('id') in app.js exists in index.html, and index.html loads only shipped files;

@@ -10,6 +10,7 @@ not kept.
 from __future__ import annotations
 
 import datetime as dt
+import copy
 from concurrent.futures import ThreadPoolExecutor
 import json
 import math
@@ -43,6 +44,20 @@ class ProbeError(Exception):
     def __init__(self, reason):
         self.reason = reason
         super().__init__(reason)
+
+
+def collector_diagnostic(stage, error, *, now=None, last_success=None):
+    """Bounded public failure context. Never expose exception text or private paths."""
+    stage = stage if isinstance(stage, str) and re.fullmatch(r"[a-z][a-z0-9_]{0,47}", stage) else "collector"
+    code = ("timeout" if isinstance(error, TimeoutError) else
+            "permission_denied" if isinstance(error, PermissionError) else
+            "io_error" if isinstance(error, OSError) else
+            "missing_field" if isinstance(error, KeyError) else
+            "invalid_value" if isinstance(error, ValueError) else
+            "invalid_type" if isinstance(error, TypeError) else "collector_failed")
+    failed_at = now if _finite(now) else time.time()
+    return {"stage": stage, "code": code, "failedAt": failed_at,
+            "lastSuccessfulSampleAt": last_success if _finite(last_success) else None}
 
 
 _MIN_RATE_GAP = 0.5          # seconds between two scrapes before a wall-clock rate means anything
@@ -612,7 +627,7 @@ def _snapshot_lmstudio(snapshot):
     return node
 
 
-def attach(snapshot, host, **kwargs):
+def attach(snapshot, host, *, previous=None, **kwargs):
     """Add the map and copy measured tok/s onto the machine rows. A probe failure does not drop the sample."""
     if not isinstance(snapshot, dict):
         return None
@@ -620,10 +635,22 @@ def attach(snapshot, host, **kwargs):
         if host == "mac":
             kwargs["lmstudio"] = _snapshot_lmstudio(snapshot)
         document = collect_map(host, **kwargs)
-    except Exception:
-        document = {"schema": MAP_SCHEMA, "nodes": [], "edges": [], "error": "collector_failed"}
+    except Exception as error:
+        # Keep historical observations and their original times. A diagnostic is
+        # a newly observed failure, not a successful replacement measurement.
+        document = (copy.deepcopy(previous) if isinstance(previous, dict) and previous.get("schema") == MAP_SCHEMA
+                    else {"schema": MAP_SCHEMA, "nodes": [], "edges": []})
+        last_success = None
+        try:
+            stamp = dt.datetime.fromisoformat(document.get("observedAt", "").replace("Z", "+00:00"))
+            last_success = stamp.timestamp() if stamp.tzinfo is not None else None
+        except (ValueError, TypeError, AttributeError, OverflowError):
+            pass
+        diagnostic = collector_diagnostic("inference", error, now=kwargs.get("now"), last_success=last_success)
+        document.update(error="collector_failed", collectorDiagnostics=[diagnostic])
+        snapshot.setdefault("collectorDiagnostics", []).append(diagnostic)
         config = kwargs.get("remote_config")
-        if host == "mac" and config is not None:
+        if not document["nodes"] and host == "mac" and config is not None:
             try:
                 nodes = remote_machines.unavailable_nodes(config, now=kwargs.get("now"))
                 remote_machines.extend_map(document, config, nodes)
@@ -631,7 +658,7 @@ def attach(snapshot, host, **kwargs):
                 pass  # Invalid configuration cannot replace a legacy machine.
     snapshot["inference"] = document
     remote_machines.project_snapshot(snapshot)
-    if document.get("nodes"):
+    if document.get("nodes") and not document.get("error"):
         apply_rates(snapshot.get("machines"), document["nodes"])
     return document
 

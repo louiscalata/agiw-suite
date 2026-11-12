@@ -34,7 +34,7 @@ from mem_guard import Guard, LevelFile, unknown_block
 from bundled_components import BundledComponents
 from jev_connection import JevConnection
 from machine_state import FRESH_SECONDS, expire_machines, finite_number, platform_name
-from inference_collect import RateMemory, attach, vram_from_reading
+from inference_collect import RateMemory, attach, vram_from_reading, collector_diagnostic
 from inference_stats import expire_map
 from fleet_state import build_fleet_state
 from pc_tunnel import load_config, port_accepts, targets as tunnel_targets
@@ -58,6 +58,7 @@ ASSETS = {'/': ('index.html', 'text/html; charset=utf-8'),
           '/style.css': ('style.css', 'text/css; charset=utf-8'),
           '/monitor': ('monitor.html', 'text/html; charset=utf-8'),
           '/monitor.mjs': ('monitor.mjs', 'text/javascript; charset=utf-8'),
+          '/monitor-store.mjs': ('monitor-store.mjs', 'text/javascript; charset=utf-8'),
           '/monitor.css': ('monitor.css', 'text/css; charset=utf-8'),
           '/monitor-tabs.mjs': ('monitor-tabs.mjs', 'text/javascript; charset=utf-8'),
           '/monitor-board.mjs': ('monitor-board.mjs', 'text/javascript; charset=utf-8'),
@@ -299,6 +300,25 @@ class SnapshotStore:
         self.events = []
         self.previous = {}
         self.sequence = 0
+        self.collector_diagnostics = []
+
+    def diagnostics(self):
+        with self.lock:
+            return copy.deepcopy(self.collector_diagnostics)
+
+    def publish_error(self, stage, error):
+        """Wake clients with failure context without renewing any retained evidence."""
+        with self.changed:
+            previous = self.snapshot or {}
+            last_success = previous.get('fullSampledAt', previous.get('sampledAt'))
+            diagnostic = collector_diagnostic(stage, error, last_success=last_success)
+            self.collector_diagnostics = [row for row in self.collector_diagnostics if row['stage'] != stage][-7:]
+            self.collector_diagnostics.append(diagnostic)
+            self.sequence += 1
+            if self.snapshot is not None:
+                self.snapshot = copy.deepcopy(self.snapshot)
+                self.snapshot.update(sequence=self.sequence, collectorDiagnostics=copy.deepcopy(self.collector_diagnostics))
+            self.changed.notify_all()
 
     def publish(self, data, *, partial=False):
         # Whole snapshots replace atomically; clients never see partial updates.
@@ -391,6 +411,7 @@ class SnapshotStore:
                                      authorModel=None, reviewerModel=None)
         with self.lock:
             self.sequence += 1
+            self.collector_diagnostics = copy.deepcopy(data.get('collectorDiagnostics', []))
             for row in rows:
                 key = f"{row['host']}:{row['id']}"
                 before = self.previous.get(key)
@@ -427,7 +448,8 @@ class SnapshotStore:
                                      'loaded': loaded_count if inventory_known else None})
                 self.history = self.history[-90:]
             data.update(sequence=self.sequence, history=copy.deepcopy(self.history),
-                        events=copy.deepcopy(self.events), intervalSeconds=1)
+                        events=copy.deepcopy(self.events), intervalSeconds=1,
+                        collectorDiagnostics=copy.deepcopy(self.collector_diagnostics))
             self.snapshot = data
             self.changed.notify_all()
 
@@ -454,6 +476,7 @@ class SnapshotStore:
         data['fleetState'] = fleet
         if isinstance(data.get('inference'), dict):
             data['inference']['fleetState'] = fleet
+            data['inference']['collectorDiagnostics'] = copy.deepcopy(data.get('collectorDiagnostics', []))
         return data
 
     def wait_for_change(self, last_sequence, timeout):
@@ -605,12 +628,12 @@ class Handler(BaseHTTPRequestHandler):
             data = self.server.store.read()
             inference = data.get('inference') if isinstance(data, dict) else None
             if not isinstance(inference, dict):
-                return self.reply(503, b'{"status":"starting"}', 'application/json')
+                return self.reply(503, json.dumps({'status': 'starting', 'collectorDiagnostics': self.server.store.diagnostics()}).encode(), 'application/json')
             return self.reply(200, json.dumps(inference, allow_nan=False).encode(), 'application/json')
         if path == '/api/snapshot':
             data = self.server.store.read()
             if data is None:
-                return self.reply(503, b'{"status":"starting"}', 'application/json')
+                return self.reply(503, json.dumps({'status': 'starting', 'collectorDiagnostics': self.server.store.diagnostics()}).encode(), 'application/json')
             return self.reply(200, json.dumps(data, allow_nan=False).encode(), 'application/json')
         if path == '/api/online-code-mode/readiness':
             return self.reply(200, json.dumps(cached_readiness(self.server.store.read(), time.time())).encode(),
@@ -994,24 +1017,30 @@ def sample(store, stop, feed=None, tick=0.15, full_interval=1.0, guard=None, aut
                 if snapshot is not None and time.time() - snapshot.get('fullSampledAt', 0) <= FULL_SAMPLE_MAX_AGE:
                     store.publish(feed.overlay(snapshot, groups), partial=True)
                     feed.set_baseline(prints)
-            except Exception:
+            except Exception as error:
                 # A fast-path failure leaves the last full sample in place; the next
                 # full sample re-reads everything.
-                pass
+                store.publish_error('stream_overlay', error)
             stop.wait(max(.02, min(tick, next_full - time.monotonic())))
             continue
         next_full = started + full_interval
         # Prints taken before the full read: a change during the read is caught next tick.
+        diagnostics = []
         try:
             prints = feed.fingerprints()
-        except Exception:
+        except Exception as error:
             prints = None
+            diagnostics.append(collector_diagnostic('fingerprints', error))
         data = None
+        stage = 'collect_snapshot'
         try:
             try:
                 data = collect_snapshot()
                 data['fullSampledAt'] = data['sampledAt']
+                data['collectorDiagnostics'] = diagnostics
+                stage = 'model_control'
                 data['modelControl'] = model_control_capability()
+                stage = 'mac_gpu'
                 data['macGpu'], gpu_source = mac_gpu()
                 gpu = data.get('macGpu') if isinstance(data.get('macGpu'), dict) else {}
                 vram = vram_from_reading(gpu.get('inUseBytes'), gpu.get('unifiedMemoryCeilingBytes'))
@@ -1019,6 +1048,7 @@ def sample(store, stop, feed=None, tick=0.15, full_interval=1.0, guard=None, aut
                     vram = vram_from_reading(gpu.get('allocatedBytes'), gpu.get('unifiedMemoryCeilingBytes'))
                 activity_known = activity_is_known(data.get('models', []),
                                                   {s['id']: s.get('state') for s in data['sources']})
+                stage = 'local_callers'
                 data['localCallers'], callers_source = callers.sample(
                     data.get('models', []), port=_verified_direct_lmstudio_port(data),
                     listener=_verified_direct_lmstudio_listener(data),
@@ -1027,14 +1057,21 @@ def sample(store, stop, feed=None, tick=0.15, full_interval=1.0, guard=None, aut
             finally:
                 # One memory reading and one watchdog tick per full sample (slow probes are cached),
                 # taken even when the telemetry above failed: the watchdog resumes paused jobs.
+                prior_stage = stage
+                stage = 'memory'
                 memory = memory_sample(guard, data if isinstance(data, dict) else {})
+                stage = prior_stage
             data['memory'], memory_source = memory
             data['sources'].append(memory_source)
+            stage = 'remote_config'
             remote_config = remote_machines.load_config()
+            stage = 'tunnels'
             status, rows = ((None, []) if remote_machines.replaces_legacy_pc(remote_config)
                             else tunnel_targets(load_config(), port_accepts))
+            stage = 'inference'
             attach(data, 'mac', rates=_INFERENCE_RATES, targets=rows, tunnel=status, vram=vram,
-                   remote_config=remote_config)
+                   remote_config=remote_config, previous=(store.read() or {}).get('inference'))
+            stage = 'activity'
             activity = collect_activity()
             data['activity'] = {'runs': activity['runs'], 'sampledAt': activity.get('sampledAt'), 'historyBound': activity.get('historyBound'),
                                 'complete': activity.get('complete', False)}
@@ -1043,23 +1080,28 @@ def sample(store, stop, feed=None, tick=0.15, full_interval=1.0, guard=None, aut
                 clients, client_sources = collect_clients()
                 data['clients'] = clients
                 data['sources'].extend(client_sources)
-            except Exception:
+            except Exception as error:
                 # A client metadata reader must never interrupt the runtime
                 # feed or turn an old model identity into live activity.
                 data['clients'] = []
                 data['sources'].append({'id': 'client-metadata', 'label': 'Client metadata',
                                         'state': 'error', 'ageSeconds': None,
                                         'detail': 'Client model records unavailable'})
+                data['collectorDiagnostics'].append(collector_diagnostic('client_metadata', error))
+            stage = 'auto_unload_state'
             if auto_unloader is not None:
                 data['autoUnload'] = auto_unloader.state()
             if publisher is not None:
                 try:
                     data['sources'].extend(publisher.sources())
-                except Exception:
+                except Exception as error:
                     data['sources'].append({'id': 'agiw-presence', 'label': 'AGIW presence (share)',
                                             'state': 'error', 'ageSeconds': None,
                                             'detail': 'Presence publisher state unreadable'})
+                    data['collectorDiagnostics'].append(collector_diagnostic('presence_sources', error))
+            stage = 'snapshot_publish'
             store.publish(data)
+            stage = 'model_reconcile'
             if model_controller is not None:
                 state = model_controller.read()
                 if state.get('settlement') == 'unconfirmed' and not state.get('workerActive'):
@@ -1074,13 +1116,15 @@ def sample(store, stop, feed=None, tick=0.15, full_interval=1.0, guard=None, aut
                 except Exception:
                     pass
             if prints is not None:
+                stage = 'fingerprint_baseline'
                 feed.set_baseline(prints)
             if auto_unloader is not None:
+                stage = 'auto_unload_tick'
                 auto_unloader.tick(data)
-        except Exception:
+        except Exception as error:
             # Preserve last sample's time, so the UI ages it out. Never refresh
             # a stale busy model by stamping a failed collection as fresh.
-            pass
+            store.publish_error(stage, error)
         stop.wait(max(.02, min(tick, next_full - time.monotonic())))
 
 

@@ -71,7 +71,7 @@ test('registry Mac and PC roots stay beside their stable production lane ids', (
 // cannot silently make the escaping checks pass in this harness.
 const pageSource = readFileSync(new URL('./web/monitor.mjs', import.meta.url), 'utf8').replace(/^import .*;\r?\n/gm, '').replace(/export /g, '');
 const flush = () => new Promise(resolve => setImmediate(resolve));
-function mapPage(fetcher, clock) {
+function mapPage(map, clock) {
   class Element {
     constructor(tag) { this.tagName = tag; this.children = []; this.attributes = {}; this.dataset = {}; this.style = {}; this.hidden = true; this.ownText = ''; }
     set innerHTML(_) { throw new Error('HTML insertion is forbidden for map text'); }
@@ -84,15 +84,16 @@ function mapPage(fetcher, clock) {
     closest(tag) { return this.tagName === tag ? this : null; }
   }
   const elements = Object.fromEntries(['map', 'tunnel', 'detail', 'detailTitle', 'detailFacts'].map(id => [id, new Element(id)]));
-  const intervals = [];
-  const context = vm.createContext({...fleet, Date: clock, AbortController, fetch: fetcher,
-    setInterval: callback => { intervals.push(callback); return intervals.length; },
-    setTimeout: () => 1, clearTimeout: () => {},
+  let listener;
+  const publish = () => listener({inference: map, inferenceStatus: {error: null}});
+  const store = {subscribe(callback) { listener = callback; publish(); return () => {}; }, start() {}};
+  const context = vm.createContext({...fleet, Date: clock, getMonitorStore: () => store,
+    fetch: () => { throw new Error('map reads shared store'); },
     document: {querySelector: selector => elements[selector.slice(1)],
       createElementNS: (_ns, tag) => new Element(tag), createElement: tag => new Element(tag)},
   });
   vm.runInContext(pageSource, context);
-  return {elements, intervals, context,
+  return {elements, publish, context,
     lane(id) { return elements.map.children.find(node => node.dataset.id === id); },
     select(id) { elements.map.click({target: this.lane(id)}); },
   };
@@ -106,7 +107,7 @@ function registryMap(at, overrides = {}) {
 
 test('actual map DOM uses the shared fleet membership and source-scoped state words',async()=>{
   const now=shared.now*1000;class Clock extends Date{static now(){return now;}}
-  const h=mapPage(async()=>({ok:true,json:async()=>registryMap(now)}),Clock);await flush();
+  const h=mapPage(registryMap(now),Clock);await flush();
   assert.deepEqual(h.elements.map.children.filter(node=>node.dataset.id).map(node=>node.dataset.id),
     shared.fleetState.facts.filter(fact=>fact.scope==='machine').flatMap(root=>[root.id,...shared.fleetState.facts.filter(fact=>fact.parentId===root.id).map(fact=>fact.id)]));
   assert.match(h.lane('registry:pc:deep').textContent,/ENDPOINT ANSWERING/);
@@ -117,7 +118,7 @@ test('actual map DOM uses the shared fleet membership and source-scoped state wo
 test('actual map DOM keeps reported model paths and untrusted labels as literal text',async()=>{
   const now=shared.now*1000;class Clock extends Date{static now(){return now;}}
   const full='C:\\models\\Glimmer.gguf',label='<img src=x> & Deep';
-  const map=registryMap(now,{label,evidence:{modelId:full}}),h=mapPage(async()=>({ok:true,json:async()=>map}),Clock);await flush();
+  const map=registryMap(now,{label,evidence:{modelId:full}}),h=mapPage(map,Clock);await flush();
   const lane=h.lane('registry:pc:deep');assert.equal(lane.children[1].textContent,label);assert.equal(lane.children[1].children.length,0);
   assert.equal(lane.children[2].textContent,'reported Glimmer.gguf');assert.equal(lane.children[2].attributes.title,full);
   assert.match(lane.children[3].textContent,/ENDPOINT ANSWERING.*1.0 s ago/);
@@ -128,21 +129,20 @@ test('actual map DOM keeps reported model paths and untrusted labels as literal 
 
 test('actual fleet DOM ages independent facts while a refresh stalls',async()=>{
   let now=shared.now*1000;class Clock extends Date{static now(){return now;}}
-  let calls=0,complete;const map=registryMap(now);
-  const h=mapPage(()=>++calls===1?Promise.resolve({ok:true,json:async()=>map}):new Promise(resolve=>{complete=resolve;}),Clock);await flush();
+  const map=registryMap(now);
+  const h=mapPage(map,Clock);await flush();
   h.select('registry:pc:deep');assert.match(h.lane('registry:pc:deep').textContent,/ENDPOINT ANSWERING/);
-  const pending=h.intervals[0]();now+=4000;await h.intervals[0]();
+  now+=4000;h.publish();
   assert.match(h.lane('mac:lmstudio').textContent,/STALE.*5.0 s ago/);
   assert.match(h.lane('registry:pc:deep').textContent,/ENDPOINT ANSWERING/);
   assert.match(h.lane('peer:spare').textContent,/REPORTED/);
-  now+=2000;await h.intervals[0]();assert.match(h.lane('registry:pc:deep').textContent,/STALE.*7.0 s ago/);
-  assert.match(h.elements.detailFacts.textContent,/Observation age7.0 s/);assert.equal(calls,2);
-  complete({ok:true,json:async()=>map});await pending;
+  now+=2000;h.publish();assert.match(h.lane('registry:pc:deep').textContent,/STALE.*7.0 s ago/);
+  assert.match(h.elements.detailFacts.textContent,/Observation age7.0 s/);
 });
 
 test('a pending fleet lane does not borrow the enclosing snapshot clock',async()=>{
   const now=shared.now*1000;class Clock extends Date{static now(){return now;}}
-  const h=mapPage(async()=>({ok:true,json:async()=>registryMap(now)}),Clock);await flush();h.select('registry:pro:deep');
+  const h=mapPage(registryMap(now),Clock);await flush();h.select('registry:pro:deep');
   assert.match(h.lane('registry:pro:deep').textContent,/UNKNOWN.*Not observed/);
   assert.match(h.elements.detailFacts.textContent,/Observation age—/);
   assert.match(h.elements.detailFacts.textContent,/Configured endpointhttp:\/\/127.0.0.1:21003/);

@@ -1,4 +1,5 @@
 import { modelControlView } from '/model-control-view.mjs';
+import {getMonitorStore} from '/monitor-store.mjs';
 
 const BUS_SEGMENT = 12;
 
@@ -27,6 +28,9 @@ export function observationBus({ snapshot, fresh, studioLive, frame = 0, reduced
     if (demo) {
       source = 'SAMPLE DATA';
       first = 'still';
+    } else if (!fresh) {
+      source = 'STALE';
+      first = 'stale';
     } else if (studioLive) {
       source = 'LIVE';
       first = fresh && !paused ? (reducedMotion ? 'still' : 'flow') : 'still';
@@ -173,12 +177,14 @@ export function zoomSwap({ window, document }, change) {
 }
 
 /** Compact read-only face for the store edition: local inventory, memory, and one confirmed unload. */
-export function mountSimpleView({ window, document, fetch, setInterval, clearInterval, now }) {
+export function mountSimpleView({ window, document, fetch, setInterval, clearInterval, now, store = getMonitorStore(),
+  setTimeout: schedule = globalThis.setTimeout, clearTimeout: cancel = globalThis.clearTimeout }) {
   const root = document.documentElement;
   const body = document.createElement('div');
   body.id = 'svBody';
   document.body.append(body);
   let snapshot = null;
+  let snapshotFresh = false;
   let control = null;
   let controlKnown = false;
   let confirming = false;
@@ -244,7 +250,7 @@ export function mountSimpleView({ window, document, fetch, setInterval, clearInt
   const sampleIsFresh = data => {
     const at = data?.fullSampledAt ?? data?.sampledAt;
     const age = readNow() - at;
-    return Number.isFinite(at) && Number.isFinite(age) && age >= -1 && age <= 3;
+    return snapshotFresh && Number.isFinite(at) && Number.isFinite(age) && age >= -1 && age <= 3;
   };
 
   const draw = () => {
@@ -268,8 +274,12 @@ export function mountSimpleView({ window, document, fetch, setInterval, clearInt
     studio.setAttribute('data-tone', fresh && studioLive() && snapshot.demo !== true && controlKnown ? 'ok' : 'muted');
     const studioCopy = document.createElement('p');
     if (snapshot.demo === true) studioCopy.textContent = 'Showing sample data, not your Mac';
+    else if (!fresh) {
+      const at = snapshot.fullSampledAt ?? snapshot.sampledAt, age = readNow() - at;
+      const seen = Number.isFinite(at) && Number.isFinite(age) && age >= 0 ? ` (${Math.floor(age)} s old)` : '';
+      studioCopy.textContent = `Inventory is stale${seen}. Control is unavailable.`;
+    }
     else if (!studioLive()) studioCopy.textContent = "LM Studio isn't answering";
-    else if (!fresh) studioCopy.textContent = 'Inventory is stale. Control is unavailable.';
     else if (!controlKnown) studioCopy.textContent = 'Control is unavailable.';
     else studioCopy.textContent = 'LM Studio inventory is live';
     studio.append(studioCopy);
@@ -367,63 +377,63 @@ export function mountSimpleView({ window, document, fetch, setInterval, clearInt
     drawBus();
   }, 250) : null;
 
-  let pollGeneration = 0;
-  const acceptedBody = async reply => {
-    if (reply?.ok !== true) return null;
-    const body = await reply.json();
-    return body && typeof body === 'object' && !Array.isArray(body) ? body : null;
-  };
+  let inFlight = false, request = null, controlAt = null;
   const controlRecord = body => (
     body && typeof body.status === 'string' && CONTROL_STATUSES.has(body.status) ? body : null
   );
-  const tick = async () => {
-    if (stopped) return;
-    const mine = ++pollGeneration;
-    const current = () => !stopped && mine === pollGeneration;
-    let nextSnapshot = null;
-    let nextControl = null;
-    let snapshotAccepted = false;
-    let nextControlKnown = false;
-    try {
-      const snapshotReply = await fetch('/api/snapshot');
-      if (!current()) return;
-      nextSnapshot = await acceptedBody(snapshotReply);
-      snapshotAccepted = nextSnapshot !== null;
-    } catch (_) {
-      snapshotAccepted = false;
-    }
-    if (!current()) return;
-    if (snapshotAccepted) {
-      try {
-        const controlReply = await fetch('/api/models/control');
-        if (!current()) return;
-        nextControl = controlRecord(await acceptedBody(controlReply));
-        nextControlKnown = nextControl !== null;
-      } catch (_) {
-        nextControlKnown = false;
-      }
-    }
-    if (!current()) return;
-    if (!snapshotAccepted) {
-      snapshot = null;
-      control = null;
-      controlKnown = false;
-    } else {
-      snapshot = nextSnapshot;
-      control = nextControlKnown ? nextControl : null;
-      controlKnown = nextControlKnown;
-    }
+  const redraw = () => {
+    if (controlAt === null || readNow() - controlAt > 3) controlKnown = false;
     if (!(sampleIsFresh(snapshot) && controlKnown && snapshot?.demo !== true && studioLive())) confirming = false;
     draw();
     drawBus();
   };
+  const tick = async () => {
+    if (stopped || inFlight || !sampleIsFresh(snapshot)) return;
+    inFlight = true;
+    const controller = new AbortController();
+    request = controller;
+    let timeout;
+    const deadline = new Promise((_, reject) => {
+      timeout = schedule(() => { reject(new Error('Control deadline')); controller.abort(); }, 1800);
+    });
+    try {
+      const nextControl = await Promise.race([deadline, (async () => {
+        const reply = await fetch('/api/models/control', {cache: 'no-store', signal: controller.signal});
+        return reply?.ok === true ? controlRecord(await reply.json()) : null;
+      })()]);
+      if (stopped) return;
+      control = nextControl;
+      controlKnown = nextControl !== null;
+      controlAt = controlKnown ? readNow() : null;
+    } catch (_) {
+      if (stopped) return;
+      control = null;
+      controlKnown = false;
+      controlAt = null;
+    } finally {
+      cancel(timeout);
+      if (request === controller) request = null;
+      inFlight = false;
+      if (!stopped) redraw();
+    }
+  };
 
   applyView(readView(), false);
-  const timer = setInterval(() => { tick(); }, 1000);
-  tick();
+  const unsubscribe = store.subscribe(state => {
+    if (stopped) return;
+    snapshot = state.snapshot;
+    snapshotFresh = state.snapshotStatus.fresh === true && state.snapshotStatus.available === true && !state.snapshotStatus.error;
+    redraw();
+    if (controlAt === null) tick();
+  });
+  store.start({snapshot: true});
+  const timer = setInterval(() => { redraw(); tick(); }, 1000);
+
   return {
     destroy() {
       stopped = true;
+      unsubscribe();
+      request?.abort();
       clearInterval(timer);
       if (busTimer !== null) clearInterval(busTimer);
       bus?.remove?.();

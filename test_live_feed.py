@@ -189,14 +189,21 @@ class SamplerTests(unittest.TestCase):
         feed = mock.Mock()
         feed.changed.return_value = (["jobs"], {"jobs": (1,)})
         stop = threading.Event()
-        with mock.patch.object(server, "collect_snapshot", side_effect=RuntimeError("sampler down")):
-            thread = threading.Thread(target=server.sample, args=(store, stop, feed), kwargs={"tick": 0.02, "full_interval": 5.0})
+        with mock.patch.object(server, "collect_snapshot", side_effect=RuntimeError("sampler down")), \
+                mock.patch.object(server, "memory_sample", return_value=({}, {})), \
+                mock.patch.object(server, "LocalCallers"):
+            thread = threading.Thread(target=server.sample, args=(store, stop, feed),
+                                      kwargs={"tick": 0.02, "full_interval": 5.0, "guard": object()})
             thread.start()
             time.sleep(0.2)
             stop.set()
             thread.join(2)
         feed.overlay.assert_not_called()
-        self.assertEqual(store.read()["sequence"], 1)
+        result = store.read()
+        self.assertEqual(result["sequence"], 2, "the failure is published independently of old evidence")
+        self.assertEqual(result["sampledAt"], stale["sampledAt"])
+        self.assertEqual(len(result["history"]), 1)
+        self.assertEqual(result["collectorDiagnostics"][0]["stage"], "collect_snapshot")
 
 
 class StreamTests(unittest.TestCase):

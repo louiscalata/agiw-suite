@@ -4,8 +4,27 @@ import { readFileSync } from 'node:fs';
 
 const CLOCK = 1_700_000_000;
 const source = readFileSync(new URL('./web/simple-view.mjs', import.meta.url), 'utf8')
-  .replace("'/model-control-view.mjs'", JSON.stringify(new URL('./web/model-control-view.mjs', import.meta.url).href));
-const { mountSimpleView } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
+  .replace("'/model-control-view.mjs'", JSON.stringify(new URL('./web/model-control-view.mjs', import.meta.url).href))
+  .replace("'/monitor-store.mjs'", JSON.stringify(new URL('./web/monitor-store.mjs', import.meta.url).href));
+const { mountSimpleView: mountStoredSimpleView } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
+
+// Snapshot production is controlled through the store boundary; requests for controls stay in the view.
+function mountSimpleView(options) {
+  let state = {snapshot: null, snapshotStatus: {fresh: false, available: false}}, listener;
+  const refresh = async () => {
+    try {
+      const reply = await options.fetch('/api/snapshot');
+      const snapshot = reply.ok ? await reply.json() : null;
+      const stamp = snapshot?.fullSampledAt ?? snapshot?.sampledAt, age = options.now() - stamp;
+      state = {snapshot, snapshotStatus: {available: Boolean(snapshot), fresh: Number.isFinite(stamp) && age >= -1 && age <= 3}};
+    } catch (_) { state = {...state, snapshotStatus: {fresh: false, available: false}}; }
+    listener?.(state);
+  };
+  const store = options.store || {getState: () => state, subscribe(fn) { listener = fn; fn(state); return () => { listener = null; }; }, start: refresh};
+  return mountStoredSimpleView({...options, store, setInterval(fn, ms) {
+    return options.setInterval(ms === 1000 ? async () => { await refresh(); return fn(); } : fn, ms);
+  }});
+}
 
 function element(document, tag) {
   const node = {
@@ -230,12 +249,12 @@ test('demo, non-live, stale, and undated samples do not offer unload', async () 
   }
 });
 
-test('an older poll cannot overwrite a newer result', async () => {
-  const waiting = [];
-  let hold = false;
+test('a pending control refresh is serialized while store updates keep rendering', async () => {
+  let hold = false, finish, controls = 0;
   const view = mount(path => {
-    if (!hold) return Promise.resolve(ok(path === '/api/snapshot' ? snapshot('Seed') : { status: 'idle' }));
-    return new Promise(resolve => waiting.push({ path, resolve }));
+    if (path === '/api/snapshot') return Promise.resolve(ok(snapshot(hold ? 'Newest' : 'Seed')));
+    controls++;
+    return hold ? new Promise(resolve => { finish = resolve; }) : Promise.resolve(ok({status: 'idle'}));
   });
   await flush();
   assert.equal(unloadButton(view.document.bodyNode).textContent, 'Unload Seed');
@@ -243,35 +262,11 @@ test('an older poll cannot overwrite a newer result', async () => {
   view.document.tick();
   view.document.tick();
   await flush();
-  const olderSnapshot = waiting.shift();
-  const newerSnapshot = waiting.shift();
-  newerSnapshot.resolve(rejected());
-  await flush();
-  olderSnapshot.resolve(ok(snapshot('Old')));
+  assert.equal(controls, 2, 'one pending control read despite repeated refreshes');
+  assert.equal(unloadButton(view.document.bodyNode).textContent, 'Unload Newest', 'a pending control read cannot hide a newer snapshot');
+  finish(rejected());
   await flush();
   assert.equal(unloadButton(view.document.bodyNode), undefined);
-  assert.match(view.document.bodyNode.textContent, /Inventory unknown/);
-  assert.doesNotMatch(view.document.bodyNode.textContent, /Old/);
-
-  waiting.length = 0;
-  view.document.tick();
-  view.document.tick();
-  await flush();
-  const firstSnapshot = waiting.shift();
-  const secondSnapshot = waiting.shift();
-  secondSnapshot.resolve(ok(snapshot('Newest')));
-  await flush();
-  const secondControl = waiting.shift();
-  assert.equal(secondControl.path, '/api/models/control');
-  secondControl.resolve(ok({ status: 'idle' }));
-  await flush();
-  firstSnapshot.resolve(ok(snapshot('Stale')));
-  await flush();
-  const firstControl = waiting.find(item => item.path === '/api/models/control');
-  firstControl?.resolve(ok({ status: 'idle' }));
-  await flush();
-  assert.equal(unloadButton(view.document.bodyNode).textContent, 'Unload Newest');
-  assert.doesNotMatch(view.document.bodyNode.textContent, /Stale/);
 });
 
 test('the status ModelControl sends after a confirmed operation keeps the compact view answering', async () => {
@@ -300,4 +295,42 @@ test('the compact memory line needs a fresh sample and a percentage that can be 
     await flush();
     assert.match(view.document.bodyNode.textContent, expected, JSON.stringify(extra));
   }
+});
+
+
+test('store ageing reaches the simple face during a hung control read, and the deadline permits recovery', async () => {
+  const document = documentFor(), timers = [];
+  let now = CLOCK, listener, controls = 0, controlTick;
+  const state = {snapshot: snapshot(), snapshotStatus: {available: true, fresh: true, error: null}};
+  const store = {subscribe(fn) { listener = fn; fn(state); return () => {}; }, start() {}};
+  mountStoredSimpleView({window: windowFor(), document, store, now: () => now,
+    fetch: () => ++controls === 1 ? new Promise(() => {}) : Promise.resolve(ok({status: 'idle'})),
+    setInterval(fn) { controlTick = fn; return 1; }, clearInterval() {},
+    setTimeout(fn, ms) { timers.push({fn, ms}); return timers.length; }, clearTimeout() {}});
+  assert.match(document.bodyNode.textContent, /40% available/);
+  now += 4;
+  listener({...state, snapshotStatus: {available: true, fresh: false, error: null}});
+  assert.match(document.bodyNode.textContent, /Inventory is stale/);
+  assert.match(document.bodyNode.textContent, /Memory not reported/);
+  assert.equal(unloadButton(document.bodyNode), undefined);
+  timers.find(timer => timer.ms === 1800).fn();
+  await flush();
+  listener({snapshot: snapshot('Recovered', {sampledAt: now, fullSampledAt: now}), snapshotStatus: {available: true, fresh: true, error: null}});
+  await flush();
+  assert.equal(controls, 2);
+  assert.equal(unloadButton(document.bodyNode).textContent, 'Unload Recovered');
+  listener({snapshot: snapshot('Recovered', {sampledAt: now, fullSampledAt: now}), snapshotStatus: {available: true, fresh: true, error: {code: 'request_deadline'}}});
+  controlTick();
+  assert.equal(unloadButton(document.bodyNode), undefined, 'a retained fresh sample with a failed transport cannot authorize a control');
+});
+
+
+test('an expired unavailable source is historical rather than a current outage', async () => {
+  const view = mount(async path => path === '/api/snapshot'
+    ? ok(snapshot('Example', {sampledAt: CLOCK - 4, fullSampledAt: CLOCK - 4, sources: [{id: 'lmstudio-api', state: 'unavailable'}]}))
+    : ok({status: 'idle'}));
+  await flush();
+  assert.match(view.document.bodyNode.textContent, /Inventory is stale \(4 s old\)/);
+  assert.doesNotMatch(view.document.bodyNode.textContent, /isn't answering|inventory is live/);
+  assert.equal(unloadButton(view.document.bodyNode), undefined);
 });

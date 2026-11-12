@@ -1,3 +1,4 @@
+import {createMonitorStore} from './web/monitor-store.mjs';
 import * as fleet from './web/fleet-state.mjs';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
@@ -66,7 +67,10 @@ function harness(html) {
     matchMedia: () => ({matches: false, addEventListener() {}, removeEventListener() {}}),
     addEventListener() {}, dispatchEvent() {}, requestAnimationFrame(callback) {callback();},
     webkit: {messageHandlers: {monitor: {postMessage: message => nativeMessages.push(message)}}}};
+  let store;
   const context = vm.createContext({...layout, ...fleet, ...usage, ...onlineMode, ...modelControl, ...monitorTabs,
+    getMonitorStore: () => store ||= createMonitorStore({fetch: (...args) => context.fetch(...args),
+      EventSource: context.EventSource, setTimeout: context.setTimeout, clearTimeout: context.clearTimeout}),
     ...theme, document, window, location: window.location, localStorage: storage,
     fetch: (url, options = {}) => { requests.push({url, method: options.method || 'GET', body: options.body}); return new Promise(() => {}); },
     EventSource: class { constructor(url) { streams.push(url);streamObjects.push(this);this.listeners={}; } addEventListener(type,callback) {this.listeners[type]=callback;} close() {} },
@@ -94,7 +98,7 @@ for (const page of pages) {
         const paints = `
 render=()=>{};renderModelAction=()=>{};renderAutoUnload=()=>{};
 updateOnlineCodeMode=()=>{};updateInferenceFix=()=>{};renderActivity=()=>{};
-vitalsInput=()=>({feed:[]});syncCompactUI=()=>{};bindMonitorTabs=()=>{};
+updateFreshness=()=>{};vitalsInput=()=>({feed:[]});syncCompactUI=()=>{};bindMonitorTabs=()=>{};
 renderMonitorTabs=()=>{};fitMap=()=>{};revealSelected=()=>{};
 `;
         source = source.slice(0, split) + paints + source.slice(split);
@@ -102,9 +106,9 @@ renderMonitorTabs=()=>{};fitMap=()=>{};revealSelected=()=>{};
       h.run(`(() => {${source}\n})()`);
     }
     h.assertPassive();
-    const expected = {monitor: '/api/inference', machines: '/api/snapshot',
-      setup: '/api/snapshot', components: '/api/components', 'eci-tuning': '/api/eci-tuning'}[page];
+    const expected = {monitor: '/api/inference', components: '/api/components', 'eci-tuning': '/api/eci-tuning'}[page];
     if (expected) assert.ok(h.requests.some(row => row.url === expected), `${expected} was read`);
+    if (['machines', 'setup'].includes(page)) assert.deepEqual(h.streams, ['/api/stream']);
     if (page === 'index') assert.deepEqual(h.streams, ['/api/stream']);
   });
 }
@@ -116,7 +120,7 @@ test('opening readiness, repair details, deep links, Activity, About and Browse 
   h.run(source.slice(0, split) + `
 render=()=>{};renderModelAction=()=>{};renderAutoUnload=()=>{};
 updateOnlineCodeMode=()=>{};updateInferenceFix=()=>{};renderActivity=()=>{};
-vitalsInput=()=>({feed:[]});syncCompactUI=()=>{};bindMonitorTabs=()=>{};
+updateFreshness=()=>{};vitalsInput=()=>({feed:[]});syncCompactUI=()=>{};bindMonitorTabs=()=>{};
 renderMonitorTabs=()=>{};fitMap=()=>{};revealSelected=()=>{};
 snapshot={host:'mac',sampledAt:Date.now()/1000};connected=true;
 ` + source.slice(split));
@@ -236,7 +240,7 @@ for (const page of pages) {
         source = source.slice(0, split) + `
 render=()=>{};renderModelAction=()=>{};renderAutoUnload=()=>{};
 updateOnlineCodeMode=()=>{};updateInferenceFix=()=>{};renderActivity=()=>{};
-vitalsInput=()=>({feed:[]});syncCompactUI=()=>{};bindMonitorTabs=()=>{};
+updateFreshness=()=>{};vitalsInput=()=>({feed:[]});syncCompactUI=()=>{};bindMonitorTabs=()=>{};
 renderMonitorTabs=()=>{};fitMap=()=>{};revealSelected=()=>{};
 ` + source.slice(split);
       } else if (script === 'machines.mjs') {
