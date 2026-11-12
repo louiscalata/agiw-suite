@@ -2,16 +2,17 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {runInNewContext} from 'node:vm';
 import test from 'node:test';
+import * as fleet from './web/fleet-state.mjs';
 import {fitGraph,constellationLayout,focusedLaneLayout,prioritizeRuntimeModels,runtimeModelRoster,CORE_MODEL_IDS,hasAdvertisedWindowsWorker,afmView,jevView,modelStarSize,windowsJobsView,windowsJobsEvidence,windowsLaneView,macPeerView,macReportView,agiwPeersRows,friendlyModelName,pcReportView,pcAdaptersView} from './web/map-layout.mjs';
 
-const layoutContext={fitGraph,constellationLayout,focusedLaneLayout,prioritizeRuntimeModels,runtimeModelRoster,CORE_MODEL_IDS,hasAdvertisedWindowsWorker,afmView,jevView,modelStarSize,windowsJobsView,windowsJobsEvidence,windowsLaneView,macPeerView,macReportView,agiwPeersRows,friendlyModelName,pcReportView,pcAdaptersView};
+const layoutContext={...fleet,fitGraph,constellationLayout,focusedLaneLayout,prioritizeRuntimeModels,runtimeModelRoster,CORE_MODEL_IDS,hasAdvertisedWindowsWorker,afmView,jevView,modelStarSize,windowsJobsView,windowsJobsEvidence,windowsLaneView,macPeerView,macReportView,agiwPeersRows,friendlyModelName,pcReportView,pcAdaptersView};
 
 // Exercise the dashboard's actual projection and graph code without starting
 // its polling loop or requiring a browser DOM.
 const source=readFileSync(new URL('./web/app.js',import.meta.url),'utf8')
   .replace(/^import .*;\r?\n/gm,'').split("$('pause').addEventListener")[0];
 function project(clients,host='mac',width=820,height=660,extra={}){
-  const script=`${source}\nsnapshot={host,sampledAt:Date.now()/1000,models:[],clients,pipeline:{status:'idle'},...extra};connected=true;runtimeGraph();({rows:clientRows(),ages:clientRows().map(clientAge),counts:clientIdentityCounts(),nodes:graph.nodes,edges:graph.edges})`;
+  const script=`${source}\nsnapshot={host,sampledAt:Date.now()/1000,models:[],clients,pipeline:{status:'idle'},...extra};connected=true;legacyRuntimeGraph();({rows:clientRows(),ages:clientRows().map(clientAge),counts:clientIdentityCounts(),nodes:graph.nodes,edges:graph.edges})`;
   const context={...layoutContext,clients,host,extra,Date,Set,Map,Math,Number,String,Array,Object,window:{innerWidth:width},document:{getElementById:id=>id==='graphRegion'?{clientWidth:width-230,clientHeight:height-114}:null}};
   return JSON.parse(JSON.stringify(runInNewContext(script,context)));
 }
@@ -72,7 +73,7 @@ test('future client timestamp is shown as a clock mismatch',()=>{
 });
 
 test('future snapshot cannot keep a busy runtime model live',()=>{
-  const script=`${source}\nsnapshot={host:'mac',sampledAt:Date.now()/1000+30,models:[{id:'local-model',host:'mac',state:'busy',loaded:true,ageSeconds:0}],clients:[],sources:[{id:'lms-ps',state:'live'}],activityKnown:true,pipeline:{status:'idle'}};connected=true;runtimeGraph();({fresh:fresh(),clockMismatch:clockMismatch(),rows:models().map(m=>({state:m.state,loaded:m.loaded})),activeNodes:graph.nodes.filter(n=>n.kind==='model'&&n.active).length})`;
+  const script=`${source}\nsnapshot={host:'mac',sampledAt:Date.now()/1000+30,models:[{id:'local-model',host:'mac',state:'busy',loaded:true,ageSeconds:0}],clients:[],sources:[{id:'lms-ps',state:'live'}],activityKnown:true,pipeline:{status:'idle'}};connected=true;legacyRuntimeGraph();({fresh:fresh(),clockMismatch:clockMismatch(),rows:models().map(m=>({state:m.state,loaded:m.loaded})),activeNodes:graph.nodes.filter(n=>n.kind==='model'&&n.active).length})`;
   const result=JSON.parse(JSON.stringify(runInNewContext(script,{...layoutContext,Date,Set,Map,Math,Number,String,Array,Object,window:{innerWidth:820},document:{getElementById:id=>id==='graphRegion'?{clientWidth:590,clientHeight:546}:null}})));
   assert.equal(result.fresh,false);
   assert.equal(result.clockMismatch,true);
@@ -83,7 +84,7 @@ test('future snapshot cannot keep a busy runtime model live',()=>{
 test('aura cadence follows only a fresh, verified model phase and stops for pause or stale evidence',()=>{
   const projectActivity=(state,{activityKnown=true,paused=false,ageSeconds=0,sampledAt=Date.now()/1000,loaded=true}={})=>{
     const row={id:'google/gemma-3-4b',host:'mac',state,loaded,ageSeconds,queued:1,source:'lms-ps'};
-    const script=`${source}\nsnapshot={host:'mac',sampledAt:${sampledAt},fullSampledAt:${sampledAt},models:${JSON.stringify([row])},clients:[],sources:[{id:'lms-ps',state:'live'}],activityKnown:${activityKnown},pipeline:{status:'idle'}};connected=true;paused=${paused};runtimeGraph();({active:graph.nodes.find(n=>n.kind==='model').active,periodMs:graph.nodes.find(n=>n.kind==='model').auraPeriodMs,subtitle:graph.nodes.find(n=>n.kind==='model').subtitle})`;
+    const script=`${source}\nsnapshot={host:'mac',sampledAt:${sampledAt},fullSampledAt:${sampledAt},models:${JSON.stringify([row])},clients:[],sources:[{id:'lms-ps',state:'live'}],activityKnown:${activityKnown},pipeline:{status:'idle'}};connected=true;paused=${paused};legacyRuntimeGraph();({active:graph.nodes.find(n=>n.kind==='model').active,periodMs:graph.nodes.find(n=>n.kind==='model').auraPeriodMs,subtitle:graph.nodes.find(n=>n.kind==='model').subtitle})`;
     return JSON.parse(JSON.stringify(runInNewContext(script,{...layoutContext,Date,Set,Map,Math,Number,String,Array,Object,window:{innerWidth:820},document:{getElementById:id=>id==='graphRegion'?{clientWidth:590,clientHeight:546}:null}})));
   };
   assert.deepEqual(projectActivity('busy'),{active:true,periodMs:2400,subtitle:'Busy'});
@@ -118,7 +119,7 @@ test('identity summary counts observed, configured-only, and unknown clients sep
 });
 
 test('advertised Windows worker connects to Mac hub without implying models or activity',()=>{
-  const script=`${source}\nsnapshot={host:'mac',sampledAt:Date.now()/1000,models:[],clients:[],sources:[{id:'windows-jobs',state:'recorded',observedAgeSeconds:0}],windowsWorker:{state:'advertised',ageSeconds:4,modelsAdvertised:['local/a','local/b'],detail:'Heartbeat inventory only'},pipeline:{status:'idle'}};connected=true;runtimeGraph();({nodes:graph.nodes,edges:graph.edges})`;
+  const script=`${source}\nsnapshot={host:'mac',sampledAt:Date.now()/1000,models:[],clients:[],sources:[{id:'windows-jobs',state:'recorded',observedAgeSeconds:0}],windowsWorker:{state:'advertised',ageSeconds:4,modelsAdvertised:['local/a','local/b'],detail:'Heartbeat inventory only'},pipeline:{status:'idle'}};connected=true;legacyRuntimeGraph();({nodes:graph.nodes,edges:graph.edges})`;
   const result=JSON.parse(JSON.stringify(runInNewContext(script,{...layoutContext,Date,Set,Map,Math,Number,String,Array,Object,window:{innerWidth:820},document:{getElementById:id=>id==='graphRegion'?{clientWidth:590,clientHeight:546}:null}})));
   const windows=result.nodes.find(node=>node.kind==='windows-worker');
   assert.equal(windows.unknown,true);
@@ -154,7 +155,7 @@ test('client branch colors are ink and their model nodes inherit that ink',()=>{
 test('all local model stars stay in a compact grid with direct Mac hub spokes',()=>{
   const models=Array.from({length:9},(_,i)=>({id:`local/model-${i}`,host:'mac',state:'unloaded',loaded:false,
     metadata:{parameters:i===0?'370M':i===8?'27B':'4B',capabilities:{reasoning:i===8,vision:i===1}}}));
-  const script=`${source}\nsnapshot={host:'mac',sampledAt:Date.now()/1000,models:modelRows,clients:[],sources:[],pipeline:{status:'idle'}};connected=true;modelScope='all';runtimeGraph();({nodes:graph.nodes,edges:graph.edges})`;
+  const script=`${source}\nsnapshot={host:'mac',sampledAt:Date.now()/1000,models:modelRows,clients:[],sources:[],pipeline:{status:'idle'}};connected=true;modelScope='all';legacyRuntimeGraph();({nodes:graph.nodes,edges:graph.edges})`;
   const result=JSON.parse(JSON.stringify(runInNewContext(script,{...layoutContext,modelRows:models,Date,Set,Map,Math,Number,String,Array,Object,
     window:{innerWidth:639},document:{getElementById:id=>id==='graphRegion'?{clientWidth:607,clientHeight:1120}:null}})));
   const stars=result.nodes.filter(node=>node.kind==='model');
@@ -179,7 +180,7 @@ test('quiet headline explicitly scopes status to local runtime',()=>{
 test('in-flight Windows job animates the link and node without claiming generation',()=>{
   const now=Date.now()/1000;
   const jobs={schemaVersion:1,complete:true,journal:'recorded',inFlight:[{id:'mac-20260925-081500-'+'d'.repeat(32),model:'gpt-oss-20b',ageSeconds:7,timeoutSeconds:60}],recent:[],lastSuccess:null};
-  const script=`${source}\nsnapshot={host:'mac',sampledAt:${now},models:[],clients:[],sources:[{id:'windows-jobs',state:'recorded',observedAgeSeconds:0}],windowsWorker:{state:'advertised',ageSeconds:4,modelsAdvertised:['gpt-oss-20b'],detail:'x'},windowsJobs:${JSON.stringify(jobs)},pipeline:{status:'idle'}};connected=true;runtimeGraph();({nodes:graph.nodes,edges:graph.edges,labels:graph.labels})`;
+  const script=`${source}\nsnapshot={host:'mac',sampledAt:${now},models:[],clients:[],sources:[{id:'windows-jobs',state:'recorded',observedAgeSeconds:0}],windowsWorker:{state:'advertised',ageSeconds:4,modelsAdvertised:['gpt-oss-20b'],detail:'x'},windowsJobs:${JSON.stringify(jobs)},pipeline:{status:'idle'}};connected=true;legacyRuntimeGraph();({nodes:graph.nodes,edges:graph.edges,labels:graph.labels})`;
   const result=JSON.parse(JSON.stringify(runInNewContext(script,{...layoutContext,Date,Set,Map,Math,Number,String,Array,Object,JSON,window:{innerWidth:820},document:{getElementById:id=>id==='graphRegion'?{clientWidth:590,clientHeight:546}:null}})));
   const windows=result.nodes.find(node=>node.kind==='windows-worker');
   assert.equal(windows.inFlight,true);
@@ -194,7 +195,7 @@ test('in-flight Windows job animates the link and node without claiming generati
 test('last validated Windows result is shown when nothing is in flight',()=>{
   const now=Date.now()/1000;
   const jobs={schemaVersion:1,complete:true,journal:'recorded',inFlight:[],recent:[{id:'mac-20260925-081500-'+'d'.repeat(32),state:'success',model:'gpt-oss-20b',elapsedSeconds:6.25,ageSeconds:30}],lastSuccess:{id:'mac-20260925-081500-'+'d'.repeat(32),state:'success',model:'gpt-oss-20b',elapsedSeconds:6.25,ageSeconds:30}};
-  const script=`${source}\nsnapshot={host:'mac',sampledAt:${now},models:[],clients:[],sources:[{id:'windows-jobs',state:'recorded',observedAgeSeconds:0}],windowsWorker:{state:'advertised',ageSeconds:4,modelsAdvertised:['gpt-oss-20b'],detail:'x'},windowsJobs:${JSON.stringify(jobs)},pipeline:{status:'idle'}};connected=true;runtimeGraph();({nodes:graph.nodes,edges:graph.edges})`;
+  const script=`${source}\nsnapshot={host:'mac',sampledAt:${now},models:[],clients:[],sources:[{id:'windows-jobs',state:'recorded',observedAgeSeconds:0}],windowsWorker:{state:'advertised',ageSeconds:4,modelsAdvertised:['gpt-oss-20b'],detail:'x'},windowsJobs:${JSON.stringify(jobs)},pipeline:{status:'idle'}};connected=true;legacyRuntimeGraph();({nodes:graph.nodes,edges:graph.edges})`;
   const result=JSON.parse(JSON.stringify(runInNewContext(script,{...layoutContext,Date,Set,Map,Math,Number,String,Array,Object,JSON,window:{innerWidth:820},document:{getElementById:id=>id==='graphRegion'?{clientWidth:590,clientHeight:546}:null}})));
   const windows=result.nodes.find(node=>node.kind==='windows-worker');
   assert.equal(windows.inFlight,false);
@@ -207,7 +208,7 @@ test('an old or superseded Windows success does not paint the node verified',()=
   const now=Date.now()/1000;
   const ok={id:'mac-20260922-081500-'+'d'.repeat(32),state:'success',model:'gpt-oss-20b',elapsedSeconds:6.25,ageSeconds:3*86400};
   const jobs={schemaVersion:1,complete:true,journal:'recorded',inFlight:[],recent:[],lastSuccess:ok};
-  const script=`${source}\nsnapshot={host:'mac',sampledAt:${now},models:[],clients:[],sources:[{id:'windows-jobs',state:'recorded',observedAgeSeconds:0}],windowsWorker:{state:'unknown',ageSeconds:null,modelsAdvertised:[],detail:'x'},windowsJobs:${JSON.stringify(jobs)},pipeline:{status:'idle'}};connected=true;runtimeGraph();({nodes:graph.nodes,labels:graph.labels})`;
+  const script=`${source}\nsnapshot={host:'mac',sampledAt:${now},models:[],clients:[],sources:[{id:'windows-jobs',state:'recorded',observedAgeSeconds:0}],windowsWorker:{state:'unknown',ageSeconds:null,modelsAdvertised:[],detail:'x'},windowsJobs:${JSON.stringify(jobs)},pipeline:{status:'idle'}};connected=true;legacyRuntimeGraph();({nodes:graph.nodes,labels:graph.labels})`;
   const result=JSON.parse(JSON.stringify(runInNewContext(script,{...layoutContext,Date,Set,Map,Math,Number,String,Array,Object,JSON,window:{innerWidth:820},document:{getElementById:id=>id==='graphRegion'?{clientWidth:590,clientHeight:546}:null}})));
   const windows=result.nodes.find(node=>node.kind==='windows-worker');
   assert.equal(windows.verified,false);
@@ -217,7 +218,7 @@ test('an old or superseded Windows success does not paint the node verified',()=
 
 test('a degraded Windows worker says so instead of looking unverified',()=>{
   const now=Date.now()/1000;
-  const script=`${source}\nsnapshot={host:'mac',sampledAt:${now},models:[],clients:[],sources:[{id:'windows-jobs',state:'recorded',observedAgeSeconds:0}],windowsWorker:{state:'degraded',ageSeconds:5,modelsAdvertised:[],detail:'x'},windowsJobs:{schemaVersion:1,journal:'recorded',complete:true,inFlight:[],recent:[],lastSuccess:null},pipeline:{status:'idle'}};connected=true;runtimeGraph();({nodes:graph.nodes,labels:graph.labels})`;
+  const script=`${source}\nsnapshot={host:'mac',sampledAt:${now},models:[],clients:[],sources:[{id:'windows-jobs',state:'recorded',observedAgeSeconds:0}],windowsWorker:{state:'degraded',ageSeconds:5,modelsAdvertised:[],detail:'x'},windowsJobs:{schemaVersion:1,journal:'recorded',complete:true,inFlight:[],recent:[],lastSuccess:null},pipeline:{status:'idle'}};connected=true;legacyRuntimeGraph();({nodes:graph.nodes,labels:graph.labels})`;
   const result=JSON.parse(JSON.stringify(runInNewContext(script,{...layoutContext,Date,Set,Map,Math,Number,String,Array,Object,JSON,window:{innerWidth:820},document:{getElementById:id=>id==='graphRegion'?{clientWidth:590,clientHeight:546}:null}})));
   const windows=result.nodes.find(node=>node.kind==='windows-worker');
   assert.equal(windows.subtitle,'WORKER DEGRADED · NO MODEL LANE');
@@ -228,7 +229,7 @@ test('Windows lanes hang off the PC node and link journaled clients, live only w
   const now=Date.now()/1000;
   const lanes={fast:{up:true,model:'gpt-oss-20b',kind:'gpt-oss',slotsBusy:1,slotsTotal:2},deep:{up:false,model:'Qwen3.8-27B',kind:'qwen',slotsBusy:null,slotsTotal:null}};
   const jobs={schemaVersion:1,journal:'recorded',complete:true,inFlight:[{id:'mac-1',model:'gpt-oss-20b',ageSeconds:3,timeoutSeconds:120,client:'claude',lane:'fast'}],recent:[{id:'mac-0',state:'success',model:'Qwen3.8-27B',ageSeconds:90,client:'codex',lane:'deep'},{id:'mac-z',state:'success',ageSeconds:95,client:'nisi',lane:'fast',predictedPerSecond:135}],lastSuccess:null};
-  const script=`${source}\nsnapshot={host:'mac',sampledAt:${now},models:[],clients:[],sources:[{id:'windows-jobs',state:'recorded',observedAgeSeconds:0}],windowsWorker:{state:'advertised',ageSeconds:4,modelsAdvertised:['gpt-oss-20b'],detail:'x',lanes:${JSON.stringify(lanes)},headless:{state:'on',reason:null,expiresInSeconds:7530,grantedBy:'inference-monitor'}},windowsJobs:${JSON.stringify(jobs)},pipeline:{status:'idle'}};connected=true;runtimeGraph();({nodes:graph.nodes,edges:graph.edges})`;
+  const script=`${source}\nsnapshot={host:'mac',sampledAt:${now},models:[],clients:[],sources:[{id:'windows-jobs',state:'recorded',observedAgeSeconds:0}],windowsWorker:{state:'advertised',ageSeconds:4,modelsAdvertised:['gpt-oss-20b'],detail:'x',lanes:${JSON.stringify(lanes)},headless:{state:'on',reason:null,expiresInSeconds:7530,grantedBy:'inference-monitor'}},windowsJobs:${JSON.stringify(jobs)},pipeline:{status:'idle'}};connected=true;legacyRuntimeGraph();({nodes:graph.nodes,edges:graph.edges})`;
   const result=JSON.parse(JSON.stringify(runInNewContext(script,{...layoutContext,Date,Set,Map,Math,Number,String,Array,Object,JSON,window:{innerWidth:820},document:{getElementById:id=>id==='graphRegion'?{clientWidth:590,clientHeight:546}:null}})));
   const windows=result.nodes.find(node=>node.kind==='windows-worker');
   assert.match(windows.subtitle,/ · HEADLESS ON · 2H 5M LEFT$/);
@@ -241,7 +242,7 @@ test('Windows lanes hang off the PC node and link journaled clients, live only w
   assert.ok(result.edges.some(e=>e.a==='client:claude'&&e.b==='windows-lane:fast'&&e.flow&&!e.dim));
   assert.ok(result.edges.some(e=>e.a==='client:codex'&&e.b==='windows-lane:deep'&&!e.flow&&e.dim));
   assert.equal(result.edges.filter(e=>e.b.startsWith('windows-lane:')&&e.a.startsWith('client:')).length,2);
-  const stale=`${source}\nsnapshot={host:'mac',sampledAt:${now-60},models:[],clients:[],sources:[{id:'windows-jobs',state:'recorded',observedAgeSeconds:0}],windowsWorker:{state:'advertised',ageSeconds:4,lanes:${JSON.stringify(lanes)},headless:{state:'on',expiresInSeconds:7500}},windowsJobs:${JSON.stringify(jobs)},pipeline:{status:'idle'}};connected=true;runtimeGraph();({nodes:graph.nodes,edges:graph.edges})`;
+  const stale=`${source}\nsnapshot={host:'mac',sampledAt:${now-60},models:[],clients:[],sources:[{id:'windows-jobs',state:'recorded',observedAgeSeconds:0}],windowsWorker:{state:'advertised',ageSeconds:4,lanes:${JSON.stringify(lanes)},headless:{state:'on',expiresInSeconds:7500}},windowsJobs:${JSON.stringify(jobs)},pipeline:{status:'idle'}};connected=true;legacyRuntimeGraph();({nodes:graph.nodes,edges:graph.edges})`;
   const old=JSON.parse(JSON.stringify(runInNewContext(stale,{...layoutContext,Date,Set,Map,Math,Number,String,Array,Object,JSON,window:{innerWidth:820},document:{getElementById:id=>id==='graphRegion'?{clientWidth:590,clientHeight:546}:null}})));
   assert.equal(old.nodes.filter(node=>node.kind==='windows-lane').length,0);
   assert.doesNotMatch(old.nodes.find(node=>node.kind==='windows-worker').subtitle,/HEADLESS/);

@@ -15,40 +15,32 @@ DEFAULT_MACHINES = object()
 DRIVER = r'''
 let input = FileHandle.standardInput.readDataToEndOfFile()
 var snapshot = try JSONSerialization.jsonObject(with: input) as! [String: Any]
-if let sampleAge = snapshot.removeValue(forKey: "_sampleAge") as? Double {
-    snapshot["sampledAt"] = Date().timeIntervalSince1970 - sampleAge
-}
-if var machines = snapshot["machines"] as? [[String: Any]] {
-    for index in machines.indices {
-        if let age = machines[index].removeValue(forKey: "_observedAge") as? Double {
-            let format = machines[index].removeValue(forKey: "_observedFormat") as? String ?? "z"
-            let formatter = ISO8601DateFormatter()
-            if format == "fractional-offset" {
-                formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+if let base = snapshot.removeValue(forKey: "_fleetNow") as? Double,
+   var fleet = snapshot["fleetState"] as? [String: Any],
+   var facts = fleet["facts"] as? [[String: Any]] {
+    let delta = Date().timeIntervalSince1970 - base
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    let whole = ISO8601DateFormatter()
+    for index in facts.indices {
+        for field in ["observedAt", "expiresAt"] {
+            if let stamp = facts[index][field] as? String,
+               let date = formatter.date(from: stamp) ?? whole.date(from: stamp) {
+                facts[index][field] = formatter.string(from: date.addingTimeInterval(delta))
             }
-            var stamp = formatter.string(from: Date(timeIntervalSinceNow: -age))
-            if format == "fractional-offset" {
-                stamp = stamp.replacingOccurrences(of: "Z", with: "000+00:00")
-            }
-            machines[index]["observedAt"] = stamp
         }
     }
-    snapshot["machines"] = machines
+    fleet["facts"] = facts
+    snapshot["fleetState"] = fleet
 }
 harness.updateBadge(snapshot)
-let encoder = JSONEncoder()
-let output = try encoder.encode([
+let output = try JSONEncoder().encode([
     "title": button.title,
     "tooltip": button.toolTip ?? "",
     "accessibility": button.accessibilityValue ?? ""
 ])
 print(String(data: output, encoding: .utf8)!)
 '''
-
-
-def machine(platform, busy=0, **changes):
-    return {'host': platform, 'platform': platform, 'state': 'up', 'modelsComplete': True,
-            'busyCount': busy, 'ageSeconds': 0, **changes}
 
 
 @unittest.skipUnless(platform.system() == 'Darwin' and shutil.which('xcrun'), 'Requires macOS Swift toolchain')
@@ -93,142 +85,82 @@ final class BadgeHarness {
         if compiled.returncode:
             raise AssertionError('Native badge harness compilation failed:\n' + compiled.stderr)
 
-    def badge(self, machines=DEFAULT_MACHINES, **changes):
-        snapshot = {'schemaVersion': 1, '_sampleAge': 0,
-                    'machines': [machine('mac'), machine('windows'), machine('linux')]
-                    if machines is DEFAULT_MACHINES else machines, **changes}
+    def badge(self, fleet=None, base=None):
+        fixture = json.loads(SOURCE.with_name('test_support').joinpath('fleet-state.json').read_text())
+        snapshot = {'schemaVersion': 1, '_fleetNow': base if base is not None else fixture['now'],
+                    'fleetState': fixture['fleetState'] if fleet is None else fleet}
         result = subprocess.run([str(self.executable)], input=json.dumps(snapshot), env=self.environment,
                                 capture_output=True, text=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)
-        try:
-            return json.loads(result.stdout)
-        except json.JSONDecodeError as error:
-            self.fail(f'Native badge harness did not return JSON: {error}: {result.stdout!r}')
+        return json.loads(result.stdout)
 
-    def badge_title(self, machines=DEFAULT_MACHINES, **changes):
-        return self.badge(machines, **changes)['title'].strip()
+    def fixture(self):
+        return json.loads(SOURCE.with_name('test_support').joinpath('fleet-state.json').read_text())
 
-    def test_counts_busy_models_on_all_three_machines(self):
-        self.assertEqual(self.badge_title([machine('mac', 1), machine('windows', 2), machine('linux', 3)]), '6')
-
-    def test_actual_peer_hostnames_and_multiple_peers_count(self):
-        rows = [machine('mac', 1), machine('windows', 2, host='winpc01'),
-                machine('linux', 3, host='linux-node-1'), machine('linux', 4, host='second-linux')]
-        self.assertEqual(self.badge_title(rows), '10')
-
-    def test_fresh_complete_zero_is_known(self):
+    def test_same_fixture_membership_and_state_words_as_machine_ui(self):
+        fixture = self.fixture()
         state = self.badge()
-        self.assertEqual(state['title'].strip(), '0')
-        self.assertIn('0 observed working', state['tooltip'])
-        self.assertIn('0 models observed working', state['accessibility'])
+        self.assertEqual(state['title'].strip(), '3/4')
+        self.assertIn('3 of 4 lanes answering', state['tooltip'])
+        for fact in fixture['fleetState']['facts']:
+            self.assertIn('{} ({}): {}'.format(fact['label'], fact['id'], fact['state']), state['tooltip'])
+        self.assertIn('host health and fleet activity unknown', state['accessibility'])
+        self.assertNotIn('observed working', state['tooltip'])
 
-    def test_unknown_machine_is_not_zero(self):
-        rows = [machine(platform, None, state='unknown') for platform in ('mac', 'windows', 'linux')]
-        state = self.badge(rows)
+    def test_independent_expiry_and_original_age(self):
+        fixture = self.fixture()
+        # Four seconds after the fixture local evidence expires; registry lanes
+        # keep their independent six-second window, pending never becomes zero.
+        state = self.badge(base=fixture['now'] + 4)
+        self.assertEqual(state['title'].strip(), '2/4')
+        self.assertIn('Local endpoint (mac:lmstudio): stale (5 s old)', state['tooltip'])
+        self.assertIn('PC fast (registry:pc:fast): endpoint answering', state['tooltip'])
+        self.assertIn('unknown', state['tooltip'])
+
+    def test_expired_fact_does_not_borrow_fleet_timestamp(self):
+        fixture = self.fixture()
+        fixture['fleetState']['observedAt'] = '2099-01-01T00:00:00Z'
+        state = self.badge(fixture['fleetState'], base=fixture['now'] + 40)
+        self.assertEqual(state['title'].strip(), '?/4')
+        self.assertIn('Answering count unknown', state['tooltip'])
+        self.assertIn('stale', state['tooltip'])
+        self.assertNotIn('endpoint answering', state['tooltip'])
+
+    def test_missing_and_malformed_contract_is_unknown(self):
+        for fleet in ({}, {'schemaVersion': True, 'facts': []}, {'schemaVersion': 1, 'facts': None},
+                      {'schemaVersion': 1, 'facts': ['invalid']}, {'schemaVersion': 1, 'facts': []}):
+            with self.subTest(fleet=fleet):
+                state = self.badge(fleet)
+                self.assertEqual(state['title'].strip(), '?')
+                self.assertEqual(state['accessibility'], 'Fleet coverage unknown')
+
+    def test_missing_or_invalid_fact_clocks_are_unknown(self):
+        for field, value in (('observedAt', None), ('expiresAt', None),
+                             ('observedAt', 'bad'), ('expiresAt', 'bad'),
+                             ('expiresAt', '1970-01-01T00:00:00Z'),
+                             ('observedAt', '2099-01-01T00:00:00Z')):
+            fixture = self.fixture()
+            fleet = fixture['fleetState']
+            for fact in fleet['facts']:
+                if fact['scope'] == 'lane':
+                    fact[field] = value
+            with self.subTest(field=field, value=value):
+                state = self.badge(fleet)
+                self.assertEqual(state['title'].strip(), '?/4')
+                self.assertNotIn(': endpoint answering', state['tooltip'])
+
+    def test_duplicate_ids_are_invalid(self):
+        fleet = self.fixture()['fleetState']
+        fleet['facts'].append(fleet['facts'][0])
+        self.assertEqual(self.badge(fleet)['title'].strip(), '?')
+
+    def test_no_lane_facts_is_unknown_and_never_zero_working(self):
+        fleet = self.fixture()['fleetState']
+        fleet['facts'] = [fact for fact in fleet['facts'] if fact['scope'] == 'machine']
+        state = self.badge(fleet)
         self.assertEqual(state['title'].strip(), '?')
-        self.assertEqual(state['tooltip'], 'Inference Monitor · Working count unknown')
-        self.assertEqual(state['accessibility'], 'Working count unknown')
-
-    def test_unknown_retired_linux_does_not_withhold_a_known_count(self):
-        rows = [machine('mac', 2), machine('windows'), machine('linux', None, state='unknown')]
-        state = self.badge(rows)
-        self.assertEqual(state['title'].strip(), '2')
-        self.assertIn('2 observed working', state['tooltip'])
-        self.assertIn('2 models observed working', state['accessibility'])
-
-    def test_unknown_windows_peer_keeps_known_busy_count_and_uncertainty(self):
-        rows = [machine('mac', 2), machine('windows'),
-                machine('windows', None, state='unknown', host='pc-two')]
-        state = self.badge(rows)
-        self.assertEqual(state['title'].strip(), '2·?')
-        self.assertIn('At least 2 observed working; other activity unknown', state['tooltip'])
-        self.assertEqual(state['accessibility'], 'At least 2 observed working; other activity unknown')
-
-    def test_down_report_does_not_imply_known_zero_busy(self):
-        rows = [machine('mac'), machine('windows', None, state='down'), machine('linux')]
-        self.assertEqual(self.badge_title(rows), '?')
-
-    def test_mac_expires_at_three_seconds(self):
-        rows = [machine('mac', 4, ageSeconds=3.1), machine('windows'), machine('linux')]
-        self.assertEqual(self.badge_title(rows), '?')
-
-    def test_peers_use_thirty_second_threshold(self):
-        rows = [machine('mac'), machine('windows', 2, ageSeconds=29), machine('linux', 3, ageSeconds=29)]
-        self.assertEqual(self.badge_title(rows), '5')
-        rows = [machine('mac'), machine('windows'), machine('linux')]
-        next(row for row in rows if row['platform'] == 'windows').update(busyCount=4, ageSeconds=30.1)
-        self.assertEqual(self.badge_title(rows), '?')
-        rows = [machine('mac', 1), machine('windows', 2), machine('linux', 4, ageSeconds=30.1)]
-        self.assertEqual(self.badge_title(rows), '3')
-
-    def test_snapshot_elapsed_time_ages_machine_evidence(self):
-        rows = [machine('mac'), machine('windows', 2), machine('linux', 3, ageSeconds=29)]
-        self.assertEqual(self.badge_title(rows, _sampleAge=4), '2·?')
-
-    def test_serving_aged_peers_count_without_adding_snapshot_age_twice(self):
-        for format in ('fractional-offset', 'z'):
-            with self.subTest(format=format):
-                rows = [machine('mac'), machine('windows', 2, ageSeconds=29, _observedAge=29,
-                                               _observedFormat=format),
-                        machine('linux', 3, ageSeconds=29, _observedAge=29, _observedFormat=format)]
-                self.assertEqual(self.badge_title(rows, _sampleAge=2), '5')
-
-    def test_original_observation_expires_despite_fresh_cached_age(self):
-        rows = [machine('mac'), machine('windows', 4, _observedAge=31), machine('linux')]
-        self.assertEqual(self.badge_title(rows), '?')
-
-    def test_malformed_observation_timestamps_are_unknown(self):
-        for observed in ('', 'invalid', '1970-01-01T00:16:40', 1000, True):
-            with self.subTest(observed=observed):
-                rows = [machine('mac'), machine('windows', 4, observedAt=observed), machine('linux')]
-                self.assertEqual(self.badge_title(rows), '?')
-
-    def test_future_observation_timestamp_is_unknown(self):
-        rows = [machine('mac'), machine('windows', 4, _observedAge=-5), machine('linux')]
-        self.assertEqual(self.badge_title(rows), '?')
-
-    def test_future_snapshot_is_unknown(self):
-        self.assertEqual(self.badge_title(_sampleAge=-2.1), '?')
-
-    def test_incomplete_inventory_is_unknown(self):
-        rows = [machine('mac'), machine('windows', modelsComplete=False), machine('linux')]
-        self.assertEqual(self.badge_title(rows), '?')
-
-    def test_malformed_busy_counts_are_unknown(self):
-        for busy in (True, False, None, '1', -1, 0.5, 257):
-            with self.subTest(busy=busy):
-                rows = [machine('mac'), machine('windows', busy), machine('linux')]
-                self.assertEqual(self.badge_title(rows), '?')
-                retired = [machine('mac', 1), machine('windows', 2), machine('linux', busy)]
-                self.assertEqual(self.badge_title(retired), '3')
-
-    def test_malformed_observation_ages_are_unknown(self):
-        for age in (True, False, None, '0', -1):
-            with self.subTest(age=age):
-                rows = [machine('mac'), machine('windows', ageSeconds=age), machine('linux')]
-                self.assertEqual(self.badge_title(rows), '?')
-                retired = [machine('mac', 1), machine('windows', 2), machine('linux', ageSeconds=age)]
-                self.assertEqual(self.badge_title(retired), '3')
-
-    def test_missing_or_unrecognized_platform_is_unknown(self):
-        for rows in ([], [machine('mac')],
-                     [machine('mac'), machine('windows'), machine('other')]):
-            with self.subTest(rows=rows):
-                self.assertEqual(self.badge_title(rows), '?')
-        self.assertEqual(self.badge_title([machine('mac'), machine('windows')]), '0')
-        self.assertEqual(self.badge_title([machine('mac', 1), machine('windows', 2)]), '3')
-
-    def test_invalid_snapshot_shape_is_unknown(self):
-        for changes in ({'schemaVersion': 2}, {'machines': None}, {'machines': ['linux']}):
-            with self.subTest(changes=changes):
-                self.assertEqual(self.badge_title(**changes), '?')
-
-    def test_numeric_inventory_completeness_is_not_boolean_evidence(self):
-        rows = [machine('mac'), machine('windows', modelsComplete=1), machine('linux')]
-        self.assertEqual(self.badge_title(rows), '?')
-
-    def test_boolean_schema_version_is_not_supported_schema(self):
-        self.assertEqual(self.badge_title(schemaVersion=True), '?')
+        self.assertIn('Lane coverage unknown', state['tooltip'])
+        self.assertNotIn('0 observed', state['tooltip'])
 
 
 if __name__ == '__main__':

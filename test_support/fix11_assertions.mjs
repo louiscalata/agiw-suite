@@ -1,4 +1,5 @@
 import * as layout from '../web/map-layout.mjs';
+import {fleetTileExpectations} from './monitor-harness.mjs';
 
 // Exact observations supplied by the healthy fixture: totals, per-model identity,
 // activity and slots, GPU, memory, callers, lane health, peer residency, route and
@@ -8,9 +9,10 @@ export function checkFix11({packet, api, $, input, check}) {
   const {snapshot, host} = packet, {dimension, expected: e} = snapshot.fixtureScenario;
   const tiles = $('activityTiles').textContent;
   if (dimension === 'healthy-exact') {
-    check($('loadedCount').textContent === String(e.loaded), 'exact loaded', $('loadedCount').textContent);
-    check($('activeCount').textContent === String(e.working), 'exact working', $('activeCount').textContent);
-    check($('queuedCount').textContent === (host === 'mac' ? '0' : `${e.slotsBusy}/4`), 'exact queue or slots', $('queuedCount').textContent);
+    for (const [id, expected] of Object.entries(fleetTileExpectations(snapshot, snapshot.sampledAt)))
+      check($(id).textContent === expected, 'exact endpoint coverage '+id, {actual: $(id).textContent, expected});
+    check(api.localRuntimeCounts().loadedCount === e.loaded, 'exact local loaded evidence', api.localRuntimeCounts());
+    check(api.localRuntimeCounts().busyCount === e.working, 'exact local working evidence', api.localRuntimeCounts());
     check(tiles.includes(`Answered${e.answered}`) && !/Answered(?:Unknown|at least)/.test(tiles), 'exact answered', tiles);
     check(tiles.includes('Failed0'), 'exact failed', tiles);
     if (host === 'mac') {

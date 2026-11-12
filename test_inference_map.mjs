@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {detailRows, displayModelId, place, rateText, tunnelLine} from './web/monitor.mjs';
+import {readFileSync} from 'node:fs';
+import {detailRows, displayModelId, fleetMap, place, rateText, tunnelLine} from './web/monitor.mjs';
 
 const nodes = [
   {id: 'mac', label: 'Mac', health: 'ok', generationTokensPerSecond: 3},
@@ -57,4 +58,42 @@ test('registry model filesystem paths use basenames while repository IDs stay in
   }
   assert.equal(displayModelId('google/gemma-4-12b-it'), 'google/gemma-4-12b-it');
   assert.equal(Object.fromEntries(detailRows({modelId: '/legacy/full.gguf'})).Model, '/legacy/full.gguf');
+});
+
+
+const sharedFleet = JSON.parse(readFileSync(new URL('./test_support/fleet-state.json', import.meta.url), 'utf8'));
+test('map membership and state words are projected from the shared contract, including unmatched reports', () => {
+  const source = {...sharedFleet.inference, fleetState: sharedFleet.fleetState};
+  const map = fleetMap(source, sharedFleet.now);
+  assert.deepEqual(map.nodes.map(node => node.id), sharedFleet.fleetState.facts.map(fact => fact.id));
+  for (const fact of sharedFleet.fleetState.facts) {
+    const node = map.nodes.find(item => item.id === fact.id);
+    assert.equal(node.factState, fact.state);
+    assert.equal(Object.fromEntries(detailRows(node)).State, fact.state);
+  }
+  const pc = map.nodes.find(node => node.id === 'registry:pc');
+  assert.equal(pc.factState, 'unknown', 'answering child endpoints never measure host health');
+  assert.equal(pc.generationTokensPerSecond, null);
+  const fast = Object.fromEntries(detailRows(map.nodes.find(node => node.id === 'registry:pc:fast')));
+  assert.equal(fast['Reported model'], 'pc/fast');
+  const pending = Object.fromEntries(detailRows(map.nodes.find(node => node.id === 'registry:pro:deep')));
+  assert.equal(pending['Configured endpoint'], 'http://127.0.0.1:21003');
+  assert.equal(pending['Configured context'], '32768');
+  assert.equal(pending['Configured thinking'], 'on');
+  assert.equal(pending['Last success'], 'Not available');
+  assert.equal(pending['Last probe'], 'Not observed');
+});
+
+test('map facts expire independently without hiding configured membership or historical identity', () => {
+  const map = fleetMap({...sharedFleet.inference, fleetState: sharedFleet.fleetState}, sharedFleet.now + 4);
+  assert.equal(map.nodes.find(node => node.id === 'mac:lmstudio').factState, 'stale');
+  assert.equal(map.nodes.find(node => node.id === 'mac:lmstudio').ageSeconds, 5);
+  assert.equal(map.nodes.find(node => node.id === 'registry:pc:fast').factState, 'endpoint answering');
+  assert.equal(map.nodes.find(node => node.id === 'peer:spare').factState, 'reported');
+  const old = fleetMap({...sharedFleet.inference, fleetState: sharedFleet.fleetState}, sharedFleet.now + 7);
+  assert.equal(old.nodes.length, sharedFleet.fleetState.facts.length);
+  assert.equal(old.nodes.find(node => node.id === 'registry:pc:fast').factState, 'stale');
+  assert.equal(old.nodes.find(node => node.id === 'registry:pc:fast').modelId, 'pc/fast');
+  assert.equal(Object.fromEntries(detailRows(old.nodes.find(node => node.id === 'registry:pc:fast')))['Last reported model'], 'pc/fast');
+  assert.deepEqual(fleetMap({nodes: [{id: 'invented'}]}, sharedFleet.now).nodes, []);
 });

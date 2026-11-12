@@ -1,5 +1,5 @@
 import {readFileSync} from 'node:fs';
-import {harness} from './monitor-harness.mjs';
+import {harness,fleetTileExpectations} from './monitor-harness.mjs';
 import {layout,onlineMode} from './production.mjs';
 import {checkDimensions} from './check-dimensions.mjs';
 import {checkTwoSided} from './check-two-sided.mjs';
@@ -10,7 +10,7 @@ const failedCases=new Set(), caseFailures=[];
 const dimensions={},properties={};
 let now=1800000000;
 class Clock extends Date {static now(){return now*1000;}}
-const {api,$}=harness({extra:{Date:Clock}});
+const {api,$}=harness({extra:{Date:Clock},legacyDetails:true});
 function fail(item,field,actual){
   failedCases.add(item.label);
   properties[item.property||'no-false-certainty'].failedCases.add(item.label);
@@ -36,6 +36,8 @@ for(const item of cases){
     now=1800000000+(item.clockOffset||0);api.setPaused(Boolean(item.paused));
     if(item.initial){api.setFeed(item.initial,true);api.renderActivity(api.vitalsInput().feed);}
     api.setFeed(d,item.connected!==false);api.renderSummary();
+    for(const [id,expected]of Object.entries(fleetTileExpectations(d,now)))
+      if($(id).textContent!==expected)fail(item,'endpoint.summary.'+id,{actual:$(id).textContent,expected});
     api.renderModelScope();
     const runtime=api.inspect({kind:'runtime'}),t=tiles(runtime);
     const vitals=api.vitalsInput().vitals;
@@ -52,13 +54,13 @@ for(const item of cases){
     checkDimensions(item,api,$,fail);
     if(item.property)checkTwoSided(item,api,$,fail);
     if(item.label==='healthy'){
-      for(const [field,actual,want] of [['loaded',$('loadedCount').textContent,'2'],
-        ['active',$('activeCount').textContent,'1'],['callers',caller.count,1],['gpu',gpu.percent,40]]){
+      for(const [field,actual,want] of [['loaded',api.localRuntimeCounts().loadedCount,2],
+        ['active',api.localRuntimeCounts().busyCount,1],['callers',caller.count,1],['gpu',gpu.percent,40]]){
         if(actual!==want)fail(item,'healthy control '+field,actual);
       }
     }
     if(c.control==='empty'){
-      for(const field of ['loadedCount','activeCount','queuedCount'])if($(field).textContent!=='0')fail(item,'healthy empty '+field,$(field).textContent);
+      for(const field of ['loadedCount','busyCount'])if(api.localRuntimeCounts()[field]!==0)fail(item,'healthy empty '+field,api.localRuntimeCounts()[field]);
       if(caller.count!==0)fail(item,'healthy empty callers',caller.count);
     }
     const cliGone=c.cli&&c.cli!=='partial';
@@ -67,16 +69,15 @@ for(const item of cases){
       ||(cliGone&&(apiGone||c.api==='partial'));
     const activityLost=c.cli||c['model-age']||c.snapshot;
     if(inventoryLost){
+      if(api.localRuntimeCounts().loadedCount!==null)fail(item,'runtime.loaded',api.localRuntimeCounts().loadedCount);
       if(!unknown($('modelScopeNote').textContent))fail(item,'roster.discovered',$('modelScopeNote').textContent);
-      if(!unknown($('loadedCount').textContent))fail(item,'summary.loaded',$('loadedCount').textContent);
       if(!unknown(t.Loaded))fail(item,'inspector.loaded',t.Loaded);
       if(!c.snapshot&&d.history.at(-1).loaded!==null)fail(item,'history.loaded',d.history.at(-1).loaded);
       if(!c.snapshot&&item.presence?.loadedListComplete===true)fail(item,'presence.loadedListComplete',true);
       if(!c.snapshot&&d.components?.some(row=>row.id==='nisi'&&['ready','partial'].includes(row.state)))fail(item,'route.inventoryReadiness',d.components.find(row=>row.id==='nisi').state);
     }
     if(activityLost){
-      if(!unknown($('activeCount').textContent))fail(item,'summary.active',$('activeCount').textContent);
-      if(!unknown($('queuedCount').textContent))fail(item,'summary.queued',$('queuedCount').textContent);
+      if(api.localRuntimeCounts().busyCount!==null)fail(item,'runtime.active',api.localRuntimeCounts().busyCount);
       if(/\bquiet\b|\bidle\b/i.test($('headline').textContent+vitals.mac.detail))fail(item,'runtime.activity',vitals.mac.detail);
       if(!c.snapshot&&d.activityKnown)fail(item,'publisher.activityKnown',true);
     }

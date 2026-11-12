@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
 import {detailRows, place} from './web/monitor.mjs';
+import * as fleet from './web/fleet-state.mjs';
 import {mapMonitors} from './web/monitor-tabs.mjs';
 
 const roots = [
@@ -32,16 +33,16 @@ test('additional machine lanes stay grouped even when input interleaves machines
   assert.ok(byId.get('worker-b:deep').x > byId.get('worker-b').x);
 });
 
-test('map tabs retain arbitrary machine ids and keep failed identity unknown', () => {
-  const map = {nodes: [...roots, ...lanes]};
-  const tabs = mapMonitors(map);
-  assert.deepEqual(tabs.map(tab => tab.id), ['all', ...map.nodes.map(node => node.id)]);
-  const failed = tabs.find(tab => tab.id === 'worker-b:deep');
-  assert.equal(failed.word, 'UNKNOWN');
-  assert.equal(failed.machine, 'worker-b');
+const shared = JSON.parse(readFileSync(new URL('./test_support/fleet-state.json', import.meta.url), 'utf8'));
+test('map tabs retain exactly the shared fleet IDs and endpoint state words', () => {
+  const map = {fleetState: shared.fleetState, nodes: [...roots, ...lanes]};
+  const tabs = mapMonitors(map, {now: shared.now});
+  assert.deepEqual(tabs.map(tab => tab.id), ['all', ...shared.fleetState.facts.map(fact => fact.id)]);
+  assert.equal(tabs.find(tab => tab.id === 'registry:pro:deep').word, 'UNKNOWN');
+  assert.equal(tabs.find(tab => tab.id === 'registry:pc:deep').word, 'ENDPOINT ANSWERING');
   assert.equal(Object.fromEntries(detailRows(lanes[1])).Model, '—');
   assert.equal(Object.fromEntries(detailRows(lanes[0])).Model, 'observed/model-c');
-  assert.equal(mapMonitors(map, {feedUnavailable: true}).find(tab => tab.id === 'worker-c:deep').word, 'DISCONNECTED');
+  assert.equal(mapMonitors(map, {now: shared.now, feedUnavailable: true}).find(tab => tab.id === 'registry:pc:deep').word, 'ENDPOINT ANSWERING');
 });
 
 test('registry Mac and PC roots stay beside their stable production lane ids', () => {
@@ -68,7 +69,7 @@ test('registry Mac and PC roots stay beside their stable production lane ids', (
 // Execute the page's actual tick/aging/draw/click path against a minimal DOM.
 // Markup assignments throw, so replacing a textContent write with innerHTML
 // cannot silently make the escaping checks pass in this harness.
-const pageSource = readFileSync(new URL('./web/monitor.mjs', import.meta.url), 'utf8').replace(/export /g, '');
+const pageSource = readFileSync(new URL('./web/monitor.mjs', import.meta.url), 'utf8').replace(/^import .*;\r?\n/gm, '').replace(/export /g, '');
 const flush = () => new Promise(resolve => setImmediate(resolve));
 function mapPage(fetcher, clock) {
   class Element {
@@ -84,7 +85,7 @@ function mapPage(fetcher, clock) {
   }
   const elements = Object.fromEntries(['map', 'tunnel', 'detail', 'detailTitle', 'detailFacts'].map(id => [id, new Element(id)]));
   const intervals = [];
-  const context = vm.createContext({Date: clock, AbortController, fetch: fetcher,
+  const context = vm.createContext({...fleet, Date: clock, AbortController, fetch: fetcher,
     setInterval: callback => { intervals.push(callback); return intervals.length; },
     setTimeout: () => 1, clearTimeout: () => {},
     document: {querySelector: selector => elements[selector.slice(1)],
@@ -97,89 +98,52 @@ function mapPage(fetcher, clock) {
   };
 }
 function registryMap(at, overrides = {}) {
-  return {observedAt: new Date(at).toISOString(), edges: [], nodes: [{
-    id: 'registry:pc:deep', machine: 'registry:pc', role: 'llama',
-    label: '<img src=x onerror=alert(1)> & Deep', health: 'ok',
-    modelId: '<script>alert(1)</script> & model', observedAt: new Date(at).toISOString(),
-    observationSource: 'registry', probeIntervalSeconds: 3, ageSeconds: 0, ...overrides,
-  }]};
+  const document=JSON.parse(JSON.stringify(shared.fleetState)),delta=at/1000-shared.now;
+  for(const fact of document.facts)for(const key of ['observedAt','expiresAt'])if(fact[key])fact[key]=new Date(Date.parse(fact[key])+delta*1000).toISOString();
+  if(Object.keys(overrides).length){const lane=document.facts.find(fact=>fact.id==='registry:pc:deep');Object.assign(lane,overrides);if(overrides.evidence)lane.evidence={...lane.evidence,...overrides.evidence};}
+  return {observedAt:new Date(at).toISOString(),fleetState:document,edges:[],nodes:[]};
 }
 
-for (const state of ['ok', 'unknown', 'stale']) {
-  test(`actual map DOM renders registry ${state} with literal labels and observation age`, async () => {
-    const now = Date.parse('2026-01-01T00:00:00Z');
-    class Clock extends Date { static now() { return now; } }
-    const map = registryMap(now - (state === 'stale' ? 6500 : 500), state === 'unknown'
-      ? {health: 'not_measured', reason: 'timeout', modelId: null} : {});
-    const h = mapPage(async () => ({ok: true, json: async () => map}), Clock);
-    await flush();
-    const lane = h.lane('registry:pc:deep');
-    assert.equal(lane.children[1].tagName, 'text');
-    assert.equal(lane.children[1].textContent, '<img src=x onerror=alert(1)> & Deep');
-    assert.equal(lane.children[1].children.length, 0);
-    const sub = lane.children[2].textContent;
-    assert.match(sub, state === 'ok' ? /OK/ : state === 'unknown' ? /UNKNOWN/ : /STALE/);
-    if (state === 'ok') assert.match(sub, /<script>alert\(1\)<\/script> & model/);
-    else assert.doesNotMatch(sub, /script|model/);
-    h.select('registry:pc:deep');
-    assert.equal(h.elements.detailTitle.textContent, '<img src=x onerror=alert(1)> & Deep');
-    assert.match(h.elements.detailFacts.textContent, /Observation age(?:0.5|6.5) s/);
-    assert.equal(h.elements.detailFacts.children.every(child => child.children.length === 0), true);
-  });
-}
-
-test('grouped registry DOM separates filename and health and retains the full model title', async () => {
-  const now = Date.parse('2026-01-01T00:00:00Z');
-  class Clock extends Date { static now() { return now; } }
-  const full = 'C:\\models\\Glimmer.gguf';
-  const map = registryMap(now, {modelId: full});
-  map.nodes.unshift({id: 'registry:pc', machine: 'registry:pc', role: 'machine', label: 'PC',
-    health: 'ok', observedAt: new Date(now).toISOString(), observationSource: 'registry', probeIntervalSeconds: 3});
-  const h = mapPage(async () => ({ok: true, json: async () => map}), Clock);
-  await flush();
-  const lane = h.lane('registry:pc:deep');
-  assert.equal(lane.children[2].textContent, 'Glimmer.gguf');
-  assert.equal(lane.children[2].attributes.title, full);
-  assert.match(lane.children[3].textContent, /OK.*0.0 s ago/);
-  h.select('registry:pc:deep');
-  const value = h.elements.detailFacts.children.find((node, index, all) => index > 0 && all[index - 1].textContent === 'Model');
-  assert.equal(value.textContent, 'Glimmer.gguf');
-  assert.equal(value.attributes.title, full);
+test('actual map DOM uses the shared fleet membership and source-scoped state words',async()=>{
+  const now=shared.now*1000;class Clock extends Date{static now(){return now;}}
+  const h=mapPage(async()=>({ok:true,json:async()=>registryMap(now)}),Clock);await flush();
+  assert.deepEqual(h.elements.map.children.filter(node=>node.dataset.id).map(node=>node.dataset.id),
+    shared.fleetState.facts.filter(fact=>fact.scope==='machine').flatMap(root=>[root.id,...shared.fleetState.facts.filter(fact=>fact.parentId===root.id).map(fact=>fact.id)]));
+  assert.match(h.lane('registry:pc:deep').textContent,/ENDPOINT ANSWERING/);
+  assert.match(h.lane('registry:pro').textContent,/UNKNOWN/);
+  assert.match(h.lane('peer:spare').textContent,/REPORTED/);
 });
 
-test('actual registry DOM ages while a refresh stalls, using its interval instead of the peer expiry', async () => {
-  let now = Date.parse('2026-01-01T00:00:00Z');
-  class Clock extends Date { static now() { return now; } }
-  let calls = 0;
-  let complete;
-  const map = registryMap(now, {machine: 'pc', probeIntervalSeconds: 4});
-  const h = mapPage(() => ++calls === 1 ? Promise.resolve({ok: true, json: async () => map})
-    : new Promise(resolve => { complete = resolve; }), Clock);
-  await flush();
-  h.select('registry:pc:deep');
-  assert.match(h.lane('registry:pc:deep').textContent, /OK/);
-  const pending = h.intervals[0]();
-  now += 7500;
-  await h.intervals[0]();
-  assert.match(h.lane('registry:pc:deep').textContent, /OK/);
-  assert.match(h.elements.detailFacts.textContent, /Observation age7.5 s/);
-  now += 501;
-  await h.intervals[0]();
-  assert.match(h.lane('registry:pc:deep').textContent, /STALE/);
-  assert.doesNotMatch(h.lane('registry:pc:deep').textContent, /script|model/);
-  assert.match(h.elements.detailFacts.textContent, /Observation age8.0 s/);
-  assert.equal(calls, 2);
-  complete({ok: true, json: async () => map});
-  await pending;
+test('actual map DOM keeps reported model paths and untrusted labels as literal text',async()=>{
+  const now=shared.now*1000;class Clock extends Date{static now(){return now;}}
+  const full='C:\\models\\Glimmer.gguf',label='<img src=x> & Deep';
+  const map=registryMap(now,{label,evidence:{modelId:full}}),h=mapPage(async()=>({ok:true,json:async()=>map}),Clock);await flush();
+  const lane=h.lane('registry:pc:deep');assert.equal(lane.children[1].textContent,label);assert.equal(lane.children[1].children.length,0);
+  assert.equal(lane.children[2].textContent,'reported Glimmer.gguf');assert.equal(lane.children[2].attributes.title,full);
+  assert.match(lane.children[3].textContent,/ENDPOINT ANSWERING.*1.0 s ago/);
+  h.select('registry:pc:deep');assert.equal(h.elements.detailTitle.textContent,label);
+  assert.equal(h.elements.detailFacts.children.every(child=>child.children.length===0),true);
+  assert.match(h.elements.detailFacts.textContent,/Last probe/);
 });
 
-test('registry pending observation does not borrow a fresh snapshot timestamp', async () => {
-  const now = Date.parse('2026-01-01T00:00:00Z');
-  class Clock extends Date { static now() { return now; } }
-  const map = registryMap(now, {observedAt: null, health: 'not_measured', modelId: null, reason: 'pending'});
-  const h = mapPage(async () => ({ok: true, json: async () => map}), Clock);
-  await flush();
-  h.select('registry:pc:deep');
-  assert.match(h.lane('registry:pc:deep').textContent, /UNKNOWN/);
-  assert.match(h.elements.detailFacts.textContent, /Observation age—/);
+test('actual fleet DOM ages independent facts while a refresh stalls',async()=>{
+  let now=shared.now*1000;class Clock extends Date{static now(){return now;}}
+  let calls=0,complete;const map=registryMap(now);
+  const h=mapPage(()=>++calls===1?Promise.resolve({ok:true,json:async()=>map}):new Promise(resolve=>{complete=resolve;}),Clock);await flush();
+  h.select('registry:pc:deep');assert.match(h.lane('registry:pc:deep').textContent,/ENDPOINT ANSWERING/);
+  const pending=h.intervals[0]();now+=4000;await h.intervals[0]();
+  assert.match(h.lane('mac:lmstudio').textContent,/STALE.*5.0 s ago/);
+  assert.match(h.lane('registry:pc:deep').textContent,/ENDPOINT ANSWERING/);
+  assert.match(h.lane('peer:spare').textContent,/REPORTED/);
+  now+=2000;await h.intervals[0]();assert.match(h.lane('registry:pc:deep').textContent,/STALE.*7.0 s ago/);
+  assert.match(h.elements.detailFacts.textContent,/Observation age7.0 s/);assert.equal(calls,2);
+  complete({ok:true,json:async()=>map});await pending;
+});
+
+test('a pending fleet lane does not borrow the enclosing snapshot clock',async()=>{
+  const now=shared.now*1000;class Clock extends Date{static now(){return now;}}
+  const h=mapPage(async()=>({ok:true,json:async()=>registryMap(now)}),Clock);await flush();h.select('registry:pro:deep');
+  assert.match(h.lane('registry:pro:deep').textContent,/UNKNOWN.*Not observed/);
+  assert.match(h.elements.detailFacts.textContent,/Observation age—/);
+  assert.match(h.elements.detailFacts.textContent,/Configured endpointhttp:\/\/127.0.0.1:21003/);
 });

@@ -1,3 +1,4 @@
+import * as fleet from './web/fleet-state.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';

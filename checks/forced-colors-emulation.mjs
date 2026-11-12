@@ -139,7 +139,15 @@ async function proveFixtures(page) {
   if ((await hiddenText(page)).length) throw new Error('visible open dialog text was rejected');
   await page.evaluate(() => { document.querySelector('label').style.cssText = 'forced-color-adjust: none; color: transparent'; });
   if (!(await hiddenText(page)).includes('Find a command')) throw new Error('unpainted open dialog text was missed');
-  console.log('ok fixture: transparent border rejected, Highlight accepted; closed/open dialog text checked');
+  await page.setContent('<details><summary>Show map</summary><div>Lane details</div></details>');
+  if ((await hiddenText(page)).length) throw new Error('closed disclosure body was audited');
+  await page.evaluate(() => { document.querySelector('summary').style.cssText = 'forced-color-adjust: none; color: transparent'; });
+  if (!(await hiddenText(page)).includes('Show map')) throw new Error('unpainted disclosure summary was missed');
+  await page.evaluate(() => { document.querySelector('summary').style.cssText = ''; document.querySelector('details').open = true; });
+  if ((await hiddenText(page)).length) throw new Error('visible open disclosure text was rejected');
+  await page.evaluate(() => { document.querySelector('div').style.cssText = 'forced-color-adjust: none; color: transparent'; });
+  if (!(await hiddenText(page)).includes('Lane details')) throw new Error('unpainted open disclosure text was missed');
+  console.log('ok fixture: transparent border rejected, Highlight accepted; closed/open dialog and disclosure text checked');
 }
 
 async function hiddenText(page) {
@@ -158,8 +166,20 @@ async function hiddenText(page) {
         if (!skip) {
           const style = getComputedStyle(el);
           const rect = el.getBoundingClientRect();
+          // Native disclosure suppresses its body, not its first summary. As
+          // with a closed dialog, audit that body when the disclosure is open.
+          let suppressed = false;
+          for (let parent = el; parent; parent = parent.parentElement) {
+            const ancestor = getComputedStyle(parent);
+            if (ancestor.display === 'none' || Number(ancestor.opacity) === 0
+                || (parent.matches('details:not([open])')
+                  && ![...parent.children].find(child => child.tagName === 'SUMMARY')?.contains(el))) {
+              suppressed = true;
+              break;
+            }
+          }
           const transparent = style.color === 'transparent' || style.color === 'rgba(0, 0, 0, 0)';
-          const shown = style.display !== 'none' && Number(style.opacity) !== 0;
+          const shown = !suppressed;
           const painted = shown && style.visibility !== 'hidden' && !transparent && rect.width >= 1 && rect.height >= 1;
           if (shown && !painted) problems.push(text.slice(0, 80));
         }
@@ -218,6 +238,11 @@ try {
         }
         const hidden = await hiddenText(page);
         if (hidden.length) throw new Error(`${label} hidden text: ${hidden.join(' | ')}`);
+        if (path === '/') {
+          await page.locator('#fleetMap > summary').click();
+          const expanded = await hiddenText(page);
+          if (expanded.length) throw new Error(`${label} expanded map hidden text: ${expanded.join(' | ')}`);
+        }
         console.log(`ok ${label}`);
       } catch (error) {
         failures.push(error.message);

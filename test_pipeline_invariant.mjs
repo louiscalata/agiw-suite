@@ -2,24 +2,18 @@ import test from 'node:test';
 import {resolvePython} from './test_support/python-interpreter.mjs';
 import assert from 'node:assert/strict';
 import {spawn} from 'node:child_process';
-import {readFileSync, writeFileSync} from 'node:fs';
+import {writeFileSync} from 'node:fs';
 import {createInterface} from 'node:readline';
-import {runInNewContext} from 'node:vm';
 import * as layout from './web/map-layout.mjs';
-import * as usage from './usage-format.mjs';
 import * as onlineMode from './web/online-code-mode.mjs';
-import * as modelControl from './web/model-control-view.mjs';
+import {harness, fleetTileExpectations} from './test_support/monitor-harness.mjs';
 
-// Reuse the established fake DOM without importing its registered tests. The
-// renderer itself is unmodified app.js, including summary, vitals and inspector.
-const appSource = readFileSync(new URL('./web/app.js', import.meta.url), 'utf8');
-const definitions = appSource.replace(/^import .*;\r?\n/gm, '').split("$('pause').addEventListener")[0];
-const harnessSource = readFileSync(new URL('./test_monitor_ui.mjs', import.meta.url), 'utf8');
-const start = harnessSource.indexOf('class FakeClassList');
-const end = harnessSource.indexOf('const nowSeconds');
-assert(start > 0 && end > start, 'DOM harness boundaries must remain present');
-const harness = runInNewContext(harnessSource.slice(start, end) + '\n;harness',
-  {definitions, runInNewContext, layout, usage, onlineMode, modelControl});
+// The shared fake DOM keeps endpoint summaries canonical while generated
+// model/control checks explicitly exercise the retained detail renderer.
+function endpointTiles(ui, snapshot, now, check) {
+  for (const [id, expected] of Object.entries(fleetTileExpectations(snapshot, now)))
+    check('fleet-endpoint-'+id, ui.$(id).textContent === expected, {actual: ui.$(id).textContent, expected});
+}
 
 function verify(row, ui) {
   const {snapshot: s, case: mutations, now} = row;
@@ -27,6 +21,7 @@ function verify(row, ui) {
   const check = (id, ok, actual) => { if (!ok) failures.push({id, input: mutations, wrongOutput: actual}); };
   ui.api.setFeed(s);
   ui.api.renderSummary();
+  endpointTiles(ui, s, now, check);
   ui.api.renderVitals();
   ui.api.renderModelScope();
   const summary = ui.$('headline').textContent + ' ' + ui.$('subline').textContent;
@@ -123,11 +118,11 @@ function verify(row, ui) {
     check('expired-presence', row.presence === null, row.presence);
   }
   if (mutations.profile && Object.keys(mutations).length === 1) {
-    check('healthy-idle', /quiet now/.test(summary) && mac.busyCount === 0 && mac.loadedCount === (mutations.profile === 'empty' ? 0 : 1), summary);
+    check('healthy-idle-evidence', mac.busyCount === 0 && mac.loadedCount === (mutations.profile === 'empty' ? 0 : 1), mac);
   }
   if (!Object.keys(mutations).length) {
     check('healthy-local', mac.loadedCount === 1 && mac.busyCount === 1 && row.presence !== null, mac);
-    check('healthy-render', /1 local model is working/.test(summary), summary);
+    check('healthy-render', /Endpoint coverage unknown/.test(summary) && /Endpoint identity only/.test(summary), summary);
   }
   return failures;
 }
@@ -137,7 +132,7 @@ test('generative invariant: real Python probes/publisher -> JSON -> dashboard re
   const python = resolvePython(t); if (!python) return;
   let now = 1_800_000_000;
   class ClockDate extends Date { static now() { return now * 1000; } }
-  const ui = harness({extra: {Date: ClockDate, machineStatusView: (machine, options) => layout.machineStatusView(machine, {...options, now})}});
+  const ui = harness({legacyDetails:true,extra: {Date: ClockDate, machineStatusView: (machine, options) => layout.machineStatusView(machine, {...options, now})}});
   ui.$('drawer').append(ui.$('inspector')); ui.$('drawer').hidden = false;
   const child = spawn(python.command, [...python.args, '-B', 'invariant_pipeline.py'], {cwd: new URL('.', import.meta.url)});
   let stderr = ''; child.stderr.on('data', chunk => { stderr += chunk; });
@@ -169,6 +164,7 @@ function verifyDimension(row, ui) {
   const check = (id, ok, actual) => { if (!ok) failures.push({id, dimension: d, input, wrongOutput: actual}); };
   ui.api.setPaused(d==='capture-range'&&input.frozen==='paused');
   ui.api.setFeed(s, !(d==='capture-range'&&input.frozen==='disconnected')); ui.api.renderSummary(); ui.api.renderVitals();
+  endpointTiles(ui, s, row.now ?? 1_800_000_000, check);
   const inspect = id => {ui.api.select(id); ui.$('drawer').hidden = false; ui.api.renderInspector(); return ui.$('inspector').textContent;};
   const {feed} = ui.api.vitalsInput(); ui.api.renderActivity(feed);
   const activityText = ui.$('activityStatus').textContent + ' ' + ui.$('activityTiles').textContent + ' ' + ui.$('activityList').textContent;
@@ -238,7 +234,7 @@ test('generated boundary dimensions: caps, journal lanes, Windows producers and 
   {skip: process.platform === 'win32' ? 'Requires POSIX fcntl imported by telemetry.py in the Mac publisher' : false}, async (t) => {
   const python = resolvePython(t); if (!python) return;
   class ClockDate extends Date { static now() { return 1_800_000_000_000; } }
-  const ui = harness({extra:{Date:ClockDate}});
+  const ui = harness({legacyDetails:true,extra:{Date:ClockDate}});
   ui.$('drawer').append(ui.$('inspector')); ui.$('drawer').hidden = false;
   const child = spawn(python.command, [...python.args, '-B', 'invariant_dimensions.py'], {cwd: new URL('.', import.meta.url)});
   let stderr=''; child.stderr.on('data', chunk=>{stderr+=chunk;});
@@ -270,6 +266,7 @@ function verifyTwoSided(row, ui) {
   ui.api.setPaused(frozen && input.frozen==='paused');
   ui.api.setFeed(s, !(frozen && input.frozen==='disconnected'));
   ui.api.renderSummary(); ui.api.renderVitals(); ui.api.renderModelScope();
+  endpointTiles(ui, s, now, check);
   const {feed}=ui.api.vitalsInput(); ui.api.renderActivity(feed);
   const tiles=ui.$('activityTiles').textContent, activityText=ui.$('activityStatus').textContent+' '+tiles;
   const inspect=id=>{ui.api.select(id);ui.$('drawer').hidden=false;ui.api.renderInspector();return ui.$('inspector').textContent;};
@@ -313,9 +310,8 @@ function verifyTwoSided(row, ui) {
     check('P2-active-render',e.complete?tiles===`In flight${input.state==='running'?input.count:0}Answered0Failed0Routes${input.count}`:/At least 12/.test(tiles),tiles);
   }
   if(d==='windows-healthy') {
-    check('P2-windows-counts',ui.$('loadedCount').textContent===String(input.count)&&ui.$('activeCount').textContent===String(input.busy?input.count:0)&&ui.$('queuedCount').textContent===`${input.busy?input.count:0}/${input.count*2}`,
-      [ui.$('loadedCount').textContent,ui.$('activeCount').textContent,ui.$('queuedCount').textContent]);
-    check('P2-windows-summary',ui.$('headline').textContent.includes(input.busy?'working now.':'quiet now.'),ui.$('headline').textContent);
+    check('P2-windows-counts',ui.api.localRuntimeCounts().loadedCount===input.count&&ui.api.localRuntimeCounts().busyCount===(input.busy?input.count:0),ui.api.localRuntimeCounts());
+    check('P2-windows-summary',ui.$('headline').textContent === '? Endpoint coverage unknown',ui.$('headline').textContent);
     check('P2-windows-history',tiles==='In flightUnknownAnswered1Failed0Routes0',tiles);
     for(let i=0;i<input.count;i++){
       inspect(`model:windows:fixture/model-${i}`); const p=pairs();
@@ -335,8 +331,8 @@ function verifyTwoSided(row, ui) {
     }
   }
   if(d==='healthy-exact') {
-    check('P2-summary-counts',ui.$('loadedCount').textContent===String(e.loaded)&&ui.$('activeCount').textContent===String(e.busy)&&ui.$('queuedCount').textContent===String(e.queued),[ui.$('loadedCount').textContent,ui.$('activeCount').textContent,ui.$('queuedCount').textContent]);
-    check('P2-summary-label',ui.$('headline').textContent.includes(e.busy?'working now.':'quiet now.'),ui.$('headline').textContent);
+    check('P2-local-runtime-counts',ui.api.localRuntimeCounts().loadedCount===e.loaded&&ui.api.localRuntimeCounts().busyCount===e.busy,ui.api.localRuntimeCounts());
+    check('P2-summary-label',ui.$('headline').textContent === '? Endpoint coverage unknown',ui.$('headline').textContent);
     check('P2-inventory-scope',!/(unknown|unavailable|incomplete|at least|stale)/i.test(ui.$('modelScopeNote').textContent),ui.$('modelScopeNote').textContent);
     for(const m of s.machines){const view=layout.machineStatusView(m,{now,snapshotAge:now-s.sampledAt,fresh:true});check('P2-machine-values',view.tone==='ok'&&view.detail.includes(`${m.loadedCount} loaded`)&&view.detail.includes(`${m.busyCount} busy`),view);}
     const roster=ui.api.scopeProjection();
@@ -381,7 +377,7 @@ test('two-sided generator: degraded certainty, healthy exactness, frozen capture
   {skip: process.platform === 'win32' ? 'Requires POSIX fcntl imported by telemetry.py in the Mac publisher' : false}, async(t)=>{
   const python = resolvePython(t); if (!python) return;
   let now=1_800_000_000; class ClockDate extends Date{static now(){return now*1000;}}
-  const ui=harness({extra:{Date:ClockDate,machineStatusView:(m,o)=>layout.machineStatusView(m,{...o,now})}});
+  const ui=harness({legacyDetails:true,extra:{Date:ClockDate,machineStatusView:(m,o)=>layout.machineStatusView(m,{...o,now})}});
   ui.$('drawer').append(ui.$('inspector')); ui.api.spyScope(); ui.api.setModelScope('all');
   const child=spawn(python.command,[...python.args,'-B','invariant_two_sided.py'],{cwd:new URL('.',import.meta.url)});
   let stderr='';child.stderr.on('data',chunk=>{stderr+=chunk;});const finished=new Promise(resolve=>child.on('close',resolve));

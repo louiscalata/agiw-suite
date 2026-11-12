@@ -1,8 +1,9 @@
 /**
- * Machines: one tile per machine row from /api/snapshot, this machine first, under the peer map.
+ * Machines: one tile per canonical fleet machine fact, with its own lane evidence.
  * Read only. Every value is the row's own; a missing one is "Not measured" or "Unknown", never 0.
  */
-import {own, peerMap, reasonWords, rowDegraded, registryMachineView, registryModelName} from '/monitor-board.mjs';
+import {own, reasonWords, rowDegraded, registryMachineView, registryModelName} from '/monitor-board.mjs';
+import {fleetState, fleetMachines, fleetLanes, fleetSummary, fleetWord, fleetAge} from '/fleet-state.mjs';
 
 const NAMES = {mac: 'Mac', macos: 'Mac', windows: 'PC', linux: 'Linux'};
 const STATE_WORDS = {up: 'Up', down: 'Down', unknown: 'Unknown'};
@@ -60,6 +61,23 @@ function hostLine(row) {
 
 /** Tiles in display order: this machine first, then the rest in the sample's order. */
 export function machineTiles(machines, self, {fresh = true, now} = {}) {
+  if (fleetState(machines, {now})) {
+    const lanes = fleetLanes(machines, {now});
+    return fleetMachines(machines, {now}).map(fact => {
+      const children = lanes.filter(lane => lane.parentId === fact.id);
+      const coverage = fleetSummary({schemaVersion: 1, facts: children}, {now});
+      const evidence = fact.evidence, current = fact.state === 'reported' && fact.completeness === 'complete' && evidence.state === 'up' && evidence.modelsComplete === true;
+      const facts = [['State', fleetWord(fact)], ['Source', fact.source || 'Unknown'],
+        ['Observed', fact.observedAt || 'Unknown'], ['Age', fleetAge(fact)], ['Expires', fact.expiresAt || 'Unknown'],
+        ['Completeness', fact.completeness || 'unknown'], ['Reason', fact.reason || 'Not reported'],
+        ['Endpoints', coverage.text], ['Host / hardware health', 'Unknown; endpoint responses do not measure hardware']];
+      for (const [label, field] of [['Models loaded', 'loadedCount'], ['Models busy', 'busyCount']])
+        facts.push([label, current && Number.isSafeInteger(evidence[field]) && evidence[field] >= 0 ? String(evidence[field]) : 'Unknown']);
+      return {key: fact.id, title: fact.label || fact.id, host: fact.id,
+        glyph: fact.state === 'reported' ? '■' : '?', word: fleetWord(fact), facts, lanes: children};
+    });
+  }
+  if (!Array.isArray(machines)) return [];
   const rows = Array.isArray(machines) ? machines.filter(row => row && typeof row === 'object' && !Array.isArray(row)) : [];
   const hub = rows.findIndex(row => row.host === self || row.platform === self);
   const ordered = hub > 0 ? [rows[hub], ...rows.filter((_, i) => i !== hub)] : rows;
@@ -82,8 +100,10 @@ export function machineTiles(machines, self, {fresh = true, now} = {}) {
 
 /** Lane facts stay words, including missing health and observation time. Model paths retain a full title. */
 export function laneFacts(lane) {
-  const model = registryModelName(lane?.modelId);
-  const health = lane?.health === 'ok' ? 'UP' : lane?.health === 'degraded' ? 'DEGRADED' : lane?.health === 'down' ? 'DOWN' : 'UNKNOWN';
+  const canonical = lane?.scope === 'lane';
+  const evidence = canonical ? lane.evidence || {} : lane;
+  const model = registryModelName(evidence?.modelId);
+  const health = canonical ? fleetWord(lane) : lane?.health === 'ok' ? 'UP' : lane?.health === 'degraded' ? 'DEGRADED' : lane?.health === 'down' ? 'DOWN' : 'UNKNOWN';
   const stamp = typeof lane?.observedAt === 'string' && Number.isFinite(Date.parse(lane.observedAt)) ? lane.observedAt : null;
   const seen = number(lane?.ageSeconds) && lane.ageSeconds >= 0 ? `${Math.round(lane.ageSeconds)} s ago` : stamp || 'Unknown';
   const code = lane?.reason;
@@ -92,7 +112,13 @@ export function laneFacts(lane) {
     ? code.replaceAll('_', ' ') : reasonWords(code);
   return {label: typeof lane?.label === 'string' ? lane.label : 'Lane', model, health,
     seen, observedAt: typeof lane?.observedAt === 'string' ? lane.observedAt : null,
-    reason: health === 'UP' ? null : sentence(reason)};
+    reason: canonical ? lane.reason || 'Not reported' : health === 'UP' ? null : sentence(reason),
+    id: canonical ? lane.id : null, configured: evidence?.configuredEndpoint || evidence?.endpoint || 'Unknown',
+    context: Number.isSafeInteger(evidence?.contextTokens) ? String(evidence.contextTokens) + ' tokens' : 'Unknown',
+    thinking: ['on', 'off', 'unknown'].includes(evidence?.thinking) ? evidence.thinking : 'Unknown',
+    timeout: number(evidence?.probeTimeoutSeconds) ? String(evidence.probeTimeoutSeconds) + ' s' : 'Unknown',
+    probeState: evidence?.probeState || 'Unknown',
+    lastSuccess: evidence?.lastSuccessAt || 'Unknown', lastSuccessModel: evidence?.lastSuccessModelId || null};
 }
 
 function appendLanes(document, card, lanes) {
@@ -103,10 +129,15 @@ function appendLanes(document, card, lanes) {
     const item = el(document, 'li', 'j-machine-lane');
     const model = el(document, 'span', 'j-lane-model', facts.model.label);
     if (facts.model.title) model.setAttribute('title', facts.model.title);
-    const seen = el(document, 'span', 'j-lane-seen', `Last seen: ${facts.seen}`);
+    const seen = el(document, 'span', 'j-lane-seen', `Last probe: ${facts.seen}`);
     if (facts.observedAt) seen.setAttribute('title', facts.observedAt);
     item.append(el(document, 'strong', 'j-lane-label', facts.label), model,
       el(document, 'span', 'j-lane-health', facts.health), seen);
+    if (facts.id) item.append(el(document, 'code', 'j-lane-id', facts.id),
+      el(document, 'span', 'j-lane-configured', `Configured endpoint: ${facts.configured}`),
+      el(document, 'span', 'j-lane-context', `Configured context: ${facts.context}; thinking: ${facts.thinking}`),
+      el(document, 'span', 'j-lane-probe-state', `Probe: ${facts.probeState}; configured timeout: ${facts.timeout}`),
+      el(document, 'span', 'j-lane-last-success', `Last successful probe: ${facts.lastSuccess}${facts.lastSuccessModel ? ' · reported model ' + facts.lastSuccessModel : ''}`));
     if (facts.reason) item.append(el(document, 'span', 'j-lane-reason', `Reason: ${facts.reason}`));
     list.append(item);
   }
@@ -121,26 +152,19 @@ function el(document, tag, className, text) {
 }
 
 /** Paints the page from one snapshot (or null when it could not be read). */
-export function paintMachines(document, snapshot, {fresh}) {
+export function paintMachines(document, snapshot, {fresh, now = Date.now() / 1000}) {
   const root = document.getElementById('machinesBody');
   if (!root) return;
   const status = document.getElementById('machinesStatus');
   if (status) status.textContent = !snapshot ? 'Snapshot unavailable. Machines are unknown.' : fresh ? 'Live sample.' : 'Last sample, not live.';
   const map = el(document, 'pre', 'j-schematic j-peer-map');
-  const view = peerMap({machines: snapshot?.machines, self: snapshot?.host, feedFresh: fresh});
+  const summary = fleetSummary(snapshot, {now});
+  const view = {label: summary.text, text: fleetMachines(snapshot, {now}).map(fact => `${fact.label} (${fact.id}) · ${fleetWord(fact)}`).join('\n') || summary.text};
   map.setAttribute('role', 'img');
   map.setAttribute('aria-label', view.label);
   map.textContent = view.text;
   const grid = el(document, 'div', 'j-machine-grid');
-  const tiles = machineTiles(snapshot?.machines, snapshot?.host, {fresh});
-  if (tiles.some(tile => tile.lanes !== null) && Array.isArray(snapshot?.inference?.nodes)) {
-    const local = tiles.find(tile => tile.title.startsWith('This '));
-    if (local) {
-      const machine = snapshot.host === 'windows' ? 'pc' : 'mac';
-      local.lanes = snapshot.inference.nodes.filter(node => node && node.machine === machine && node.role !== 'machine' && node.role !== 'client')
-        .map(node => ({...node, health: fresh ? node.health : 'unknown', reason: fresh ? node.reason : 'stale'}));
-    }
-  }
+  const tiles = machineTiles(snapshot, snapshot?.host, {fresh, now});
   if (!tiles.length) {
     const empty = el(document, 'p', 'j-empty', snapshot
       ? 'No machine rows in this sample. A missing read stays unknown.'
@@ -183,7 +207,7 @@ export function mountMachines({document, fetch, setTimeout, now = () => Date.now
     if (stopped) return;
     const stamp = snapshot?.fullSampledAt ?? snapshot?.sampledAt;
     const age = typeof stamp === 'number' ? now() - stamp : NaN;
-    paintMachines(document, snapshot, {fresh: number(age) && age >= -1 && age <= 3});
+    paintMachines(document, snapshot, {fresh: number(age) && age >= -1 && age <= 3, now: now()});
     timer = setTimeout(tick, 1000);
   };
   tick();

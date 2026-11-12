@@ -1,3 +1,4 @@
+import * as fleet from './web/fleet-state.mjs';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {runInNewContext} from 'node:vm';
@@ -26,7 +27,7 @@ function inspector(macPeer, {kind = 'mac-peer', peers = [], sources, snapshotAge
   const document = {createElement: tag => new Element(tag)};
   const api = runInNewContext(`${definitions}
     ;({draw(data, node, body, isConnected, isPaused) { snapshot=data; connected=isConnected; paused=isPaused; return inspectorBody(node, body); }})`,
-    {...layout, document, Date: Clock});
+    {...layout, ...fleet, document, Date: Clock});
   const body = new Element('main');
   api.draw({schemaVersion: 1, host: 'windows', sampledAt: now - snapshotAge, fullSampledAt: now - feedAge,
     models: [], macPeer, peers, sources}, {id: kind === 'mac-peer' ? 'mac-peer' : 'mac-model:a',

@@ -34,6 +34,7 @@ if _INFERENCE_ROOT is not None and str(_INFERENCE_ROOT) not in sys.path:
     sys.path.append(str(_INFERENCE_ROOT))
 from inference_collect import RateMemory, attach, vram_from_gpus
 from inference_stats import expire_map
+from fleet_state import build_fleet_state
 from machine_state import expire_machines
 import eci_tuning
 
@@ -85,6 +86,7 @@ ASSETS = {"/": ("index.html", "text/html; charset=utf-8"),
           "/setup.mjs": ("setup.mjs", "text/javascript; charset=utf-8"),
           "/machines": ("machines.html", "text/html; charset=utf-8"),
           "/machines.mjs": ("machines.mjs", "text/javascript; charset=utf-8"),
+          "/fleet-state.mjs": ("fleet-state.mjs", "text/javascript; charset=utf-8"),
           "/identity": ("identity.html", "text/html; charset=utf-8"),
           "/identity.mjs": ("identity.mjs", "text/javascript; charset=utf-8"),
           "/components": ("components.html", "text/html; charset=utf-8"),
@@ -209,6 +211,7 @@ class SnapshotStore:
     def _aged(self, data):
         """A copy aged to now: machine rows past their window turn unknown, and a stale sample is not activity."""
         now = time.time()
+        fleet = build_fleet_state(data, now=now)
         expire_map(data.get("inference"), now)
         if isinstance(data.get("machines"), list):
             was_known = [isinstance(row, dict) and row.get("state") != "unknown" for row in data["machines"]]
@@ -221,6 +224,9 @@ class SnapshotStore:
         sampled = data.get("sampledAt")
         if isinstance(sampled, (int, float)) and now - sampled > FULL_SAMPLE_MAX_AGE:
             data["activityKnown"] = False
+        data["fleetState"] = fleet
+        if isinstance(data.get("inference"), dict):
+            data["inference"]["fleetState"] = fleet
         return data
 
     def read(self):
@@ -235,7 +241,13 @@ class SnapshotStore:
                 return None, last
             data = self._aged(copy.deepcopy(self.snapshot))
             # A stopped sampler still needs to publish expiry to stream readers.
-            if (not changed and data.get("inference") == self.snapshot.get("inference")
+            inference = data.get("inference")
+            if isinstance(inference, dict):
+                inference = {key: value for key, value in inference.items() if key != "fleetState"}
+            original = self.snapshot.get("inference")
+            if isinstance(original, dict):
+                original = {key: value for key, value in original.items() if key != "fleetState"}
+            if (not changed and inference == original
                     and data.get("machines") == self.snapshot.get("machines")
                     and data.get("activityKnown") == self.snapshot.get("activityKnown")):
                 return None, last

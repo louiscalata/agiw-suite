@@ -6,6 +6,7 @@
  * client, route, job, and machine records — missing records stay absent.
  */
 import {registryMachineRows, registryMachineView, registryModelName} from './map-layout.mjs';
+import {fleetFacts, fleetMachines, fleetLanes, fleetSummary, fleetMachineCoverage} from './fleet-state.mjs';
 export {registryMachineRows, registryMachineView, registryModelName};
 
 const ROUTE_ID = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}$/;
@@ -657,61 +658,62 @@ function wantsPc(snapshot) {
     || (Array.isArray(snapshot.models) && snapshot.models.some(row => row && row.host === 'windows'));
 }
 
+function fleetOptions(options = {}) {
+  return {now: options.now, fresh: options.feedFresh === true && options.paused !== true};
+}
+
+function factFace(fact) {
+  const state = text(fact?.state, 80) || 'unknown';
+  const key = state === 'stale' ? 'stale' : state === 'endpoint unavailable' ? 'down'
+    : state === 'endpoint answering' ? 'ok' : 'unknown';
+  const age = Number.isFinite(fact?.ageSeconds) ? ` · ${Math.floor(fact.ageSeconds)}s old` : '';
+  return {...presentation(key, `${fact?.reason || (state === 'endpoint answering' ? 'Endpoint identity observed; host, hardware and inference activity unknown' : 'Evidence scope is unknown')}${age}`), word: state.toUpperCase()};
+}
+
+function machineFace(fact, lanes) {
+  const coverage = fleetMachineCoverage(fact, lanes);
+  return {...presentation(coverage.state, coverage.detail), word: coverage.text, glyph: coverage.glyph};
+}
+
+function fleetMachineMonitor(fact, lanes, options) {
+  const children = lanes.filter(lane => lane.parentId === fact.id);
+  const face = machineFace(fact, lanes);
+  return monitor({
+    id: `machine:${fact.id}`, kind: 'machine', title: fact.label || fact.id, eyebrow: 'MACHINE',
+    face, fictional: options.fictional,
+    identity: identity({machine: fact.id, machineLabel: fact.label || fact.id,
+      provider: 'fleet', providerLabel: fact.source || 'Source unknown'}),
+    pipeline: {declared: children.length > 0, incomplete: fact.completeness !== 'complete',
+      note: 'Endpoint identity observations do not establish host, hardware or inference health.',
+      steps: children.map(lane => ({id: lane.id, label: lane.label || lane.id, ...factFace(lane),
+        detail: registryModelName(lane.modelId || lane.evidence?.modelId).label || null}))},
+    metrics: [metric('ID', fact.id), metric('Source', fact.source), metric('Completeness', fact.completeness),
+      ...children.map(lane => metric(lane.label || lane.id,
+        `${lane.state}${lane.modelId || lane.evidence?.modelId ? ` · reported model ${registryModelName(lane.modelId || lane.evidence.modelId).label}` : ''}`))],
+  });
+}
+
 function overview(children, snapshot, options) {
-  const running = children.filter(item => item.status === 'live').length;
-  let face;
-  if (!snapshot) face = presentation('unknown', 'Observer has not published a snapshot.');
-  else if (options.fictional === true) face = presentation(running ? 'live' : 'idle', 'Fictional sample. Not a live observation.');
-  else if (options.paused === true) face = presentation('stale', 'View paused. Tab counts are not live claims.');
-  else if (options.feedFresh !== true) face = presentation('stale', 'Feed is not fresh. Tab counts are not live claims.');
-  else if (running) face = presentation('live', `${running} monitor${running === 1 ? '' : 's'} report running work in this sample.`);
-  else if (children.some(item => item.status === 'blocked')) {
-    const blocked = children.find(item => item.status === 'blocked');
-    const reachable = registryMachineRows(snapshot).some(row => registryMachineView(row, {fresh: liveView(options), now: options.now, snapshotAge: options.snapshotAge}).up > 0);
-    face = reachable
-      ? presentation('degraded', `Registry lanes are reachable. ${blocked?.title || 'A monitor'} is blocked: ${blocked?.reason || 'See its monitor for details.'}`)
-      : presentation('blocked', blocked?.reason || 'A monitor is blocked. Blocked is not idle.');
-  } else if (children.some(item => !['idle', 'ok', 'unavailable', 'recorded'].includes(item.status))) {
-    face = presentation('unknown', 'This fresh sample does not show that work is idle. Unknown is not idle.');
-  } else face = presentation('idle', 'No monitor reports running work in this fresh sample.');
+  const summary = fleetSummary(snapshot, fleetOptions(options));
+  const blocked = children.filter(item => item.status === 'blocked');
+  const scoped = blocked.map(item => `${item.title} blocked: ${item.reason || 'reason unknown'}`).join('; ');
+  const reason = [summary.text, scoped].filter(Boolean).join(' · ');
+  const face = {...presentation(summary.state === 'stale' ? 'stale' : 'unknown', reason),
+    word: summary.state === 'coverage' ? summary.headline : summary.state === 'stale' ? 'STALE' : 'UNKNOWN',
+    glyph: summary.counts.answering > 0 ? '■' : '?'};
   const list = snapshot ? pipelineListNote(snapshot) : {incomplete: true, note: 'No snapshot.'};
   return monitor({
-    id: 'all',
-    kind: 'overview',
-    title: 'All inference',
-    eyebrow: 'OVERVIEW',
-    face,
+    id: 'all', kind: 'overview', title: 'All inference', eyebrow: 'OVERVIEW', face,
     fictional: options.fictional,
-    identity: identity({
-      machine: text(snapshot?.host) === 'mac' || text(snapshot?.host) === 'windows' ? snapshot.host : null,
-      machineLabel: snapshot?.host === 'mac' ? 'Observer on this Mac' : snapshot?.host === 'windows' ? 'Observer on this PC' : 'Observer host not reported',
-      provider: null,
-      providerLabel: 'All providers in this sample',
-      model: null,
-      session: null,
-    }),
-    pipeline: {
-      declared: children.length > 0,
-      incomplete: list.incomplete,
-      note: list.note,
-      steps: children.map(item => step(item.id, item.title, item.status === 'live' ? 'live'
-        : item.status === 'queued' ? 'queued'
-        : item.status === 'blocked' ? 'blocked'
-        : item.status === 'down' ? 'down'
-        : item.status === 'degraded' ? 'degraded'
-        : item.status === 'stale' ? 'stale'
-        : item.status === 'disconnected' ? 'disconnected'
-        : item.status === 'unavailable' ? 'unavailable'
-        : item.status === 'idle' || item.status === 'ok' ? 'idle'
-        : 'unknown', item.reason, item.eyebrow)),
-    },
-    metrics: [
-      metric('Monitors', children.length),
-      metric('Running', options.feedFresh === true && options.paused !== true
-        ? (list.incomplete ? `at least ${running}` : running)
-        : options.fictional === true ? (list.incomplete ? `at least ${running}` : running) : null),
-      metric('Route list', snapshot ? (list.incomplete ? 'incomplete' : 'present') : null),
-    ],
+    identity: identity({machine: text(snapshot?.host), machineLabel: 'Observer sample',
+      provider: null, providerLabel: 'Scoped endpoint evidence'}),
+    pipeline: {declared: children.length > 0, incomplete: list.incomplete,
+      note: 'Workflows keep their own state. Endpoint coverage does not prove activity or readiness.',
+      steps: children.map(item => ({id: item.id, label: item.title,
+        status: item.status, word: item.word, glyph: item.glyph, reason: item.reason, detail: item.eyebrow}))},
+    metrics: [metric('Endpoint coverage', summary.text),
+      metric('Busy models', summary.counts.busy),
+      metric('Route list', snapshot ? (list.incomplete ? 'incomplete' : 'present') : null)],
   });
 }
 
@@ -728,8 +730,17 @@ function processReading(snapshot, monitor, options) {
   return {word: monitor.word, matrix: 'Observed', detail: 'Process word from this sample. A fresh feed is not lane readiness, attachment, or acceptance.'};
 }
 
-function laneReading(snapshot) {
+function laneReading(snapshot, options = {}, selected = null) {
+  if (snapshot?.fleetState) {
+    const allLanes = fleetLanes(snapshot, fleetOptions(options));
+    const lanes = selected?.kind === 'machine' && selected.identity?.provider === 'fleet'
+      ? allLanes.filter(lane => lane.parentId === selected.identity.machine) : allLanes;
+    return lanes.some(lane => lane.state === 'endpoint answering')
+      ? {word: 'ENDPOINT ANSWERING', matrix: 'Observed', detail: 'A lane answered its endpoint probe. Host, hardware and inference readiness are not measured.'}
+      : {word: lanes.some(lane => lane.state === 'stale') ? 'STALE' : 'UNKNOWN', matrix: 'Untested', detail: 'No fresh answering endpoint evidence. Host, hardware and readiness remain unknown.'};
+  }
   if (!snapshot) return {word: 'NOT MEASURED', matrix: 'Untested', detail: 'No snapshot.'};
+  if (options.fictional !== true) return {word: 'UNKNOWN', matrix: 'Untested', detail: 'Fleet evidence has not been published.'};
   const registry = registryMachineRows(snapshot);
   if (registry.some(row => row.replaces === 'legacy-pc')) {
     const named = registry.some(row => Array.isArray(row.lanes) && row.lanes.some(lane => text(lane?.modelId, 1024)));
@@ -856,7 +867,7 @@ const ACCEPTANCE_ROW = {
 
 export function evidenceFor(snapshot, monitor, options = {}) {
   const process = processReading(snapshot, monitor, options);
-  const lane = laneReading(snapshot);
+  const lane = laneReading(snapshot, options, monitor);
   const attachment = attachmentReading(snapshot, monitor);
   return {
     badges: {process: process.word, lane: lane.word, attachment: attachment.word},
@@ -875,8 +886,8 @@ function withEvidence(snapshot, monitors, options) {
   return monitors.map(item => ({...item, evidence: evidenceFor(snapshot, item, options)}));
 }
 
-export function mapEvidence(source, {feedUnavailable = false, fictional = false} = {}) {
-  const nodes = Array.isArray(source?.nodes) ? source.nodes : [];
+export function mapEvidence(source, {feedUnavailable = false, fictional = false, now} = {}) {
+  const nodes = fleetFacts(source, {now}).filter(fact => fact.scope === 'lane' && fact.state === 'endpoint answering');
   const process = feedUnavailable
     ? {word: 'DISCONNECTED', matrix: 'Untested', detail: 'Monitor feed unavailable.'}
     : !source
@@ -884,7 +895,7 @@ export function mapEvidence(source, {feedUnavailable = false, fictional = false}
     : fictional
       ? {word: 'FICTIONAL', matrix: 'Observed', detail: 'Fictional map. Not a live process.'}
       : {word: 'SAMPLE', matrix: 'Observed', detail: 'Map sample is present. Node health is not lane readiness or a run.'};
-  const named = nodes.some(node => node && (node.modelId || node.model));
+  const named = nodes.some(node => node && (node.modelId || node.evidence?.modelId));
   const lane = named
     ? {word: 'INVENTORY', matrix: 'Observed', detail: 'A model id on the map is inventory. It is not readiness. Tokens per second are not readiness.'}
     : {word: 'NOT MEASURED', matrix: 'Untested', detail: 'No served-model readiness is on this map.'};
@@ -906,14 +917,19 @@ export function deriveMonitors(snapshot, options = {}) {
     return withEvidence(null, [only], options);
   }
   const children = [];
-  if (wantsMac(snapshot)) children.push(macMonitor(snapshot, options));
-  else {
-    const peer = peerMacMonitor(snapshot, options);
-    if (peer) children.push(peer);
-  }
-  if (wantsPc(snapshot)) children.push(pcMonitor(snapshot, options));
-  for (const row of registryMachineRows(snapshot)) {
-    if (row.replaces !== 'legacy-pc') children.push(registryMonitor(row, options));
+  if (options.fictional === true && !snapshot.fleetState) {
+    if (wantsMac(snapshot)) children.push(macMonitor(snapshot, options));
+    else {
+      const peer = peerMacMonitor(snapshot, options);
+      if (peer) children.push(peer);
+    }
+    if (wantsPc(snapshot)) children.push(pcMonitor(snapshot, options));
+    for (const row of registryMachineRows(snapshot)) {
+      if (row.replaces !== 'legacy-pc') children.push(registryMonitor(row, options));
+    }
+  } else {
+    const lanes = fleetLanes(snapshot, fleetOptions(options));
+    for (const fact of fleetMachines(snapshot, fleetOptions(options))) children.push(fleetMachineMonitor(fact, lanes, options));
   }
   if (snapshot.pipeline && typeof snapshot.pipeline === 'object') children.push(nisiMonitor(snapshot, options));
   if (Array.isArray(snapshot.clients)) {
@@ -1118,6 +1134,7 @@ function notConfiguredText(node) {
 
 export function healthPresentation(node, {feedUnavailable = false} = {}) {
   if (feedUnavailable) return presentation('disconnected', 'Monitor feed unavailable');
+  if (node?.scope || node?.factState) return factFace({...node, state: node.factState || node.state});
   const reason = text(node?.reason, 80);
   if (node?.health === 'ok') return presentation('ok', reason);
   if (node?.health === 'degraded') return presentation('degraded', reason);
@@ -1133,24 +1150,18 @@ export function healthPresentation(node, {feedUnavailable = false} = {}) {
 }
 
 export function mapMonitors(map, options = {}) {
-  const nodes = Array.isArray(map?.nodes) ? map.nodes.filter(node => node && typeof node.id === 'string' && node.id.length <= 80) : [];
-  const faces = nodes.map(node => ({node, face: healthPresentation(node, options)}));
-  const unavailable = options.feedUnavailable === true || !map;
-  const allFace = unavailable
+  const facts = fleetFacts(map, {now: options.now, fresh: options.feedUnavailable !== true});
+  const summary = fleetSummary(map, {now: options.now, fresh: options.feedUnavailable !== true});
+  const allFace = options.feedUnavailable === true || !map
     ? presentation('disconnected', 'Monitor feed unavailable')
-    : faces.some(item => item.face.status === 'ok' || item.face.status === 'degraded' || item.face.status === 'down')
-      ? presentation('ok', 'Map nodes in this sample. Words on each tab are the status.')
-      : presentation('unknown', 'No measured health in this sample.');
+    : {...presentation('unknown', summary.text), word: summary.state === 'coverage' ? summary.headline : 'UNKNOWN', glyph: summary.counts.answering > 0 ? '■' : '?'};
   return [
     {id: 'all', title: 'All inference', eyebrow: 'MAP', ...allFace, fictional: false},
-    ...faces.map(({node, face}) => ({
-      id: node.id,
-      title: text(node.label, 80) || node.id,
-      eyebrow: text(node.role, 24) || 'NODE',
-      ...face,
-      fictional: false,
-      machine: typeof node.machine === 'string' ? node.machine : null,
-    })),
+    ...facts.map(fact => ({id: fact.id, title: fact.label || fact.id,
+      eyebrow: fact.scope.toUpperCase(), ...(fact.scope === 'machine'
+        ? machineFace(fact, facts.filter(item => item.scope === 'lane'))
+        : factFace(fact)), fictional: false,
+      machine: fact.scope === 'machine' ? fact.id : fact.parentId})),
   ];
 }
 
@@ -1158,6 +1169,10 @@ export function nodeInMonitor(item, node) {
   if (!item || item.id === 'all' || !node) return true;
   const id = typeof node.id === 'string' ? node.id : '';
   const kind = node.kind;
+  if (item.kind === 'machine' && item.identity?.provider === 'fleet') {
+    const machine = item.identity.machine;
+    return id === machine || node.parentId === machine || node.machine === machine;
+  }
   if (item.kind === 'machine' && item.identity?.provider === 'registry') {
     const machine = item.identity.machine;
     return id === machine || node.machine === machine || node.source?.machine === machine || node.source?.id === machine

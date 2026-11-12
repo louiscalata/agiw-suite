@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
-import { deriveMonitors, demoSnapshot } from './web/monitor-tabs.mjs';
+import { deriveMonitors, demoSnapshot, nextTabFocus } from './web/monitor-tabs.mjs';
 
 const css = readFileSync(new URL('./web/jaryo.css', import.meta.url), 'utf8');
 const html = readFileSync(new URL('./web/index.html', import.meta.url), 'utf8');
@@ -59,7 +59,7 @@ test('legitimate unbroken client and model names stay intact in wrappable status
     append(node) { this.children.push(node); }, querySelectorAll: () => [] };
   const paint = source.slice(source.indexOf('function paintTabs('), source.indexOf('\nexport function paintMonitorChrome'));
   runInNewContext(`${paint}\npaintTabs(host, monitors, 'all');`, {
-    host, monitors, el: element, document: { activeElement: null }, nextTabFocus: () => null,
+    host, monitors, el: element, document: { activeElement: null, body: { classList: { contains: () => false } } }, nextTabFocus: () => null,
   });
   const labels = host.children.flatMap(tab => tab.children).filter(node => node.className === 'j-tab-label');
   assert.ok(labels.some(label => label.textContent.includes(model)));
@@ -70,6 +70,81 @@ test('legitimate unbroken client and model names stay intact in wrappable status
   assert.equal(label['overflow-wrap'], 'anywhere');
   assert.equal(label['white-space'], 'normal');
   assert.equal(label.overflow, 'visible', 'keep all of the model name readable');
+});
+
+// Execute the production painter and model only the scroll side effects of
+// scrollIntoView/focus. This is a document-scroll regression, not a layout test.
+function tabScrollHarness(fleet = true) {
+  const calls = { reveal: [], focus: [] };
+  const document = { scrollingElement: { scrollTop: 0 } };
+  document.body = { classList: { contains: name => fleet && name === 'fleet-ledger' } };
+  document.activeElement = document.body;
+  const element = (tag, className, text = '') => ({
+    tag, className, textContent: text, dataset: {}, children: [], attributes: {},
+    setAttribute(name, value) { this.attributes[name] = String(value); },
+    getAttribute(name) { return this.attributes[name]; },
+    append(...children) { this.children.push(...children); },
+    focus() {
+      document.activeElement = this;
+      calls.focus.push(this.dataset.monitor);
+      document.scrollingElement.scrollTop = 900;
+    },
+    scrollIntoView(options) {
+      calls.reveal.push({ id: this.dataset.monitor, ...options });
+      document.scrollingElement.scrollTop = 900;
+    },
+  });
+  const host = { children: [],
+    contains(node) { return this.children.includes(node); },
+    replaceChildren() {
+      if (this.contains(document.activeElement)) document.activeElement = document.body;
+      this.children = [];
+    },
+    append(node) { this.children.push(node); },
+    querySelectorAll() { return this.children; },
+  };
+  const source = readFileSync(new URL('./web/monitor-board.mjs', import.meta.url), 'utf8');
+  const painter = source.slice(source.indexOf('function paintTabs('), source.indexOf('\nexport function paintMonitorChrome'));
+  const paint = runInNewContext(`${painter}\npaintTabs;`, { document, el: element, nextTabFocus });
+  const monitors = [
+    { id: 'all', title: 'All inference', glyph: '?', word: 'UNKNOWN' },
+    { id: 'client:claude', title: 'Claude', glyph: '?', word: 'UNKNOWN' },
+  ];
+  return { calls, document, host, monitors, paint: (tabs = monitors, active = 'all') => paint(host, tabs, active) };
+}
+
+test('Fleet tab initial and background paints preserve the root reading position', () => {
+  const h = tabScrollHarness();
+  h.paint();
+  assert.equal(h.document.scrollingElement.scrollTop, 0, 'initial paint keeps the heading in view');
+  h.document.scrollingElement.scrollTop = 620;
+  h.paint([...h.monitors, { id: 'job:new', title: 'New job', glyph: '?', word: 'UNKNOWN' }]);
+  assert.equal(h.document.scrollingElement.scrollTop, 620, 'a live tab refresh keeps the current ledger position');
+  assert.deepEqual(h.calls.reveal, []);
+  assert.deepEqual(h.calls.focus, []);
+  assert.equal(h.document.activeElement, h.document.body);
+});
+
+test('Fleet tab paints retain explicit focus scrolling and recover focus after a tab disappears', () => {
+  const h = tabScrollHarness();
+  h.paint();
+  h.host.children[1].focus();
+  h.document.scrollingElement.scrollTop = 620;
+  h.paint(h.monitors, 'client:claude');
+  assert.equal(h.document.activeElement, h.host.children[1]);
+  assert.equal(h.document.scrollingElement.scrollTop, 900, 'restoring an explicitly focused tab may reveal it');
+  h.paint([h.monitors[0]]);
+  assert.equal(h.document.activeElement, h.host.children[0]);
+  assert.deepEqual(h.calls.focus, ['client:claude', 'client:claude', 'all']);
+  assert.deepEqual(h.calls.reveal, []);
+});
+
+test('the retained non-Fleet tab strip still reveals the selected tab without taking focus', () => {
+  const h = tabScrollHarness(false);
+  h.paint();
+  assert.equal(h.document.scrollingElement.scrollTop, 900);
+  assert.deepEqual(h.calls.reveal, [{ id: 'all', block: 'nearest', inline: 'nearest' }]);
+  assert.deepEqual(h.calls.focus, []);
 });
 
 test('initial machine names and later activity ages can wrap inside narrow status chips', () => {
