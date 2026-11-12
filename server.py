@@ -36,6 +36,7 @@ from jev_connection import JevConnection
 from machine_state import FRESH_SECONDS, expire_machines, finite_number, platform_name
 from inference_collect import RateMemory, attach, vram_from_reading
 from inference_stats import expire_map
+from fleet_state import build_fleet_state
 from pc_tunnel import load_config, port_accepts, targets as tunnel_targets
 import eci_tuning
 import remote_machines
@@ -67,6 +68,7 @@ ASSETS = {'/': ('index.html', 'text/html; charset=utf-8'),
           '/setup.mjs': ('setup.mjs', 'text/javascript; charset=utf-8'),
           '/machines': ('machines.html', 'text/html; charset=utf-8'),
           '/machines.mjs': ('machines.mjs', 'text/javascript; charset=utf-8'),
+          '/fleet-state.mjs': ('fleet-state.mjs', 'text/javascript; charset=utf-8'),
           '/identity': ('identity.html', 'text/html; charset=utf-8'),
           '/identity.mjs': ('identity.mjs', 'text/javascript; charset=utf-8'),
           '/fonts/ibm-plex-sans-400.woff2': ('fonts/ibm-plex-sans-400.woff2', 'font/woff2'),
@@ -438,6 +440,9 @@ class SnapshotStore:
         if data is None:
             return None
         now = time.time()
+        # Build before legacy expiry clears historical identities and counts.
+        # Each fact is aged against its own original observation, not this read.
+        fleet = build_fleet_state(data, now=now)
         expire_map(data.get('inference'), now)
         remote_machines.project_snapshot(data)
         elapsed = max(0.0, now - data['sampledAt'])
@@ -446,6 +451,9 @@ class SnapshotStore:
             data['liveness'] = host_liveness(data['machines'])
         if elapsed > FULL_SAMPLE_MAX_AGE:
             data['activityKnown'] = False
+        data['fleetState'] = fleet
+        if isinstance(data.get('inference'), dict):
+            data['inference']['fleetState'] = fleet
         return data
 
     def wait_for_change(self, last_sequence, timeout):

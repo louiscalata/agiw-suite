@@ -325,7 +325,9 @@ function paintTabs(host, monitors, active) {
   const ids = monitors.map(tab => tab.id);
   const focusId = nextTabFocus(focused, ids, active);
   if (focusId) [...host.querySelectorAll('[role="tab"]')].find(tab => tab.dataset.monitor === focusId)?.focus();
-  else {
+  // Fleet tabs follow the ledger in the document. Initial and background paints
+  // must not scroll past its heading; explicit tab focus still scrolls normally.
+  else if (!document.body.classList.contains('fleet-ledger')) {
     const selected = [...host.querySelectorAll('[role="tab"]')].find(tab => tab.getAttribute('aria-selected') === 'true');
     if (selected?.scrollIntoView) {
       try { selected.scrollIntoView({block: 'nearest', inline: 'nearest'}); }

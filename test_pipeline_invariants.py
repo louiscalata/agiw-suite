@@ -20,6 +20,7 @@ import time
 import pair_status
 
 import local_callers
+import machine_state
 import peer_feed
 import server
 import telemetry
@@ -266,14 +267,24 @@ def cases():
         for one, two in itertools.product(MODES, repeat=2): yield {left: one, right: two}
 
 
+def publish_fixture(data):
+    # Real telemetry supplies a machine summary. Generate it from each mutated
+    # source set after the production evidence boundary, then retain the same
+    # fixture clock through publication and read-time fact expiry.
+    data = copy.deepcopy(data)
+    data['machines'] = [machine_state.local_summary(server.enforce_snapshot_evidence(data))]
+    store = server.SnapshotStore()
+    with mock.patch.object(server.time, 'time', return_value=NOW):
+        store.publish(data)
+        return store.read()
+
+
 def generate():
     for changes in cases():
         label = '+'.join(f'{k}:{v}' for k, v in changes.items()) or 'healthy'
         errors = []
         try:
-            store = server.SnapshotStore()
-            store.publish(fixture(changes))
-            data = store.read()
+            data = publish_fixture(fixture(changes))
             try: presence = peer_feed.mac_presence(data, 'fixture-mac')
             except peer_feed.InventoryUnknown: presence = None
         except Exception as error:
@@ -287,20 +298,18 @@ def generate():
         if changes.get('jobs') != 'stale': continue
         data = fixture(changes)
         next(s for s in data['sources'] if s['id'] == 'windows-jobs')['observedAgeSeconds'] = 0
-        store = server.SnapshotStore(); store.publish(data)
+        data = publish_fixture(data)
         other = {k:v for k,v in changes.items() if k != 'jobs'}
         incomplete = other.get('router') in ('partial', 'capped', 'stale', 'future')
         exact = {'coverageIncomplete': True} if incomplete else {} if 'snapshot' in other or 'history' in other else {'activityExact': {'In flight':'0','Answered':'1','Failed':'0','Routes':'0'}}
         yield {'label':'event-history-control:'+json.dumps(changes,sort_keys=True), 'dimension':'event-age-is-history',
-               'property':'no-false-doubt','input':changes,'changes':other,'snapshot':store.read(),
+               'property':'no-false-doubt','input':changes,'changes':other,'snapshot':data,
                'errors':[],'expect':exact,'presence':None}
 
     from test_support.pipeline_dimensions import dimensions
     from test_support.two_sided_dimensions import dimensions as two_sided
     for item in itertools.chain(dimensions(fixture({}), NOW), two_sided(fixture({}), NOW)):
-        store = server.SnapshotStore()
-        store.publish(item['snapshot'])
-        item['snapshot'] = store.read()
+        item['snapshot'] = publish_fixture(item['snapshot'])
         item['presence'] = None
         yield item
 

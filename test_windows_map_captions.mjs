@@ -1,3 +1,4 @@
+import * as fleet from './web/fleet-state.mjs';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {runInNewContext} from 'node:vm';
@@ -66,9 +67,9 @@ function graph(raw = peer(), {host = 'windows', width = 820, height = 604,
   const feed = {host, sampledAt: now - snapshotAge, fullSampledAt: now - feedAge,
     models: [], clients: [], sources: [], pipeline: {status: 'idle'}, macPeer: raw};
   const api = runInNewContext(`${app}
-    snapshot=input; connected=isConnected; runtimeGraph();
+    snapshot=input; connected=isConnected; legacyRuntimeGraph();
     ({nodes:graph.nodes, peer:graph.nodes.find(n=>n.kind==='mac-peer')?.macPeer})`,
-  {...layout, input: feed, isConnected: connected, Date: Clock,
+  {...layout, ...fleet, input: feed, isConnected: connected, Date: Clock,
     document: {getElementById: id => id === 'graphRegion' ? {clientWidth: width, clientHeight: height} : null}});
   return JSON.parse(JSON.stringify(api));
 }
@@ -147,14 +148,14 @@ test('actual cluster collision input reserves each visible Mac model name but no
   let captured;
   const groups = {children: []}, reads = [0, 0];
   const result = runInNewContext(`${app}
-    snapshot=input; connected=true; runtimeGraph(); camera.z=1;
+    snapshot=input; connected=true; legacyRuntimeGraph(); camera.z=1;
     const satellites=graph.nodes.filter(node=>node.kind==='mac-model');
     for(const node of satellites) nodeElements.set(node.id, {children:[null,null,null,null,
       {getBBox(){reads[0]++; return {x:-40,y:4,width:80,height:14};}},
       {getBBox(){reads[1]++; return {x:-999,y:30,width:1998,height:100};}}]});
     groups.children=graph.labels.map(()=>({getBBox(){return {width:120,height:11};},setAttribute(){}}));
     placeClusterLabels(); satellites.map(node=>({id:node.id,x:node.x,y:node.y}))`,
-  {...layout, Date: Clock, groups, reads,
+  {...layout, ...fleet, Date: Clock, groups, reads,
     input: {host: 'windows', sampledAt: now, models: [], clients: [], pipeline: {status: 'idle'}, macPeer: peer()},
     resolveLabelCollisions: (labels, obstacles) => { captured = JSON.parse(JSON.stringify(obstacles)); return labels; },
     document: {getElementById: id => id === 'groups' ? groups : id === 'graphRegion'
@@ -229,7 +230,7 @@ function cameraCaptions({zoom = .42, portrait = false, host = 'windows'} = {}) {
       spyOrder(){const calls=[],real=placeMacModelCaptions;
         placeMacModelCaptions=()=>{calls.push('Mac captions');real();};
         placeClusterLabels=()=>calls.push('cluster captions');return calls;}})`,
-  {...layout, inputHost: host, inputNodes: [parent, ...satellites], inputZoom: zoom,
+  {...layout, ...fleet, inputHost: host, inputNodes: [parent, ...satellites], inputZoom: zoom,
     inputElements: elements, document: {getElementById: id => ids.get(id)}});
   return {api, parent, satellites, elements};
 }

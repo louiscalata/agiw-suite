@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {runInNewContext} from 'node:vm';
 import test from 'node:test';
+import {harness as monitorHarness} from './test_support/monitor-harness.mjs';
+import * as fleet from './web/fleet-state.mjs';
 import {registryMachineRows,registryMachineView,registryModelName,registryMapLayout,machineStatusView} from './web/map-layout.mjs';
 import {activityFeed,routeReviewCounts,memoryView,macGpuView,pcGpuView,newestRunsFirst,vitalsView} from './web/map-layout.mjs';
 import {fitGraph,constellationLayout,focusedLaneLayout,prioritizeRuntimeModels,runtimeModelRoster,CORE_MODEL_IDS,hasAdvertisedWindowsWorker,afmView,jevView,modelStarSize,windowsJobsView,windowsJobsEvidence,windowsLaneView,macPeerView,macReportView,agiwPeersRows,friendlyModelName,pcReportView,pcAdaptersView} from './web/map-layout.mjs';
@@ -35,11 +37,11 @@ test('stale, paused-equivalent, malformed or unknown-transport feeds carry no li
   }
 });
 
-const layoutContext = {fitGraph,constellationLayout,focusedLaneLayout,prioritizeRuntimeModels,runtimeModelRoster,CORE_MODEL_IDS,hasAdvertisedWindowsWorker,afmView,jevView,modelStarSize,windowsJobsView,windowsJobsEvidence,windowsLaneView,macPeerView,macReportView,agiwPeersRows,friendlyModelName,pcReportView,pcAdaptersView,registryMachineRows,registryMachineView,registryModelName,registryMapLayout,machineStatusView};
+const layoutContext = {...fleet,fitGraph,constellationLayout,focusedLaneLayout,prioritizeRuntimeModels,runtimeModelRoster,CORE_MODEL_IDS,hasAdvertisedWindowsWorker,afmView,jevView,modelStarSize,windowsJobsView,windowsJobsEvidence,windowsLaneView,macPeerView,macReportView,agiwPeersRows,friendlyModelName,pcReportView,pcAdaptersView,registryMachineRows,registryMachineView,registryModelName,registryMapLayout,machineStatusView};
 const source = app.replace(/^import .*;\r?\n/gm, '').split("$('pause').addEventListener")[0];
 function pcNode(windowsLive, {paused = false, worker, jobs} = {}) {
   const extra = JSON.stringify({windowsLive, ...(worker ? {windowsWorker: worker} : {}), ...(jobs ? {windowsJobs: jobs} : {})});
-  const script = `${source}\nsnapshot={host:'mac',sampledAt:Date.now()/1000,models:[],clients:[],sources:[{id:'windows-jobs',state:'recorded',observedAgeSeconds:0}],pipeline:{status:'idle'},...${extra}};connected=true;paused=${paused};runtimeGraph();graph.nodes.find(n=>n.kind==='windows-worker')`;
+  const script = `${source}\nsnapshot={host:'mac',sampledAt:Date.now()/1000,models:[],clients:[],sources:[{id:'windows-jobs',state:'recorded',observedAgeSeconds:0}],pipeline:{status:'idle'},...${extra}};connected=true;paused=${paused};legacyRuntimeGraph();graph.nodes.find(n=>n.kind==='windows-worker')`;
   const context = {...layoutContext, Date, Set, Map, Math, Number, String, Array, Object, JSON, window: {innerWidth: 820},
     document: {getElementById: id => id === 'graphRegion' ? {clientWidth: 590, clientHeight: 546} : null}};
   return JSON.parse(JSON.stringify(runInNewContext(script, context)));
@@ -215,49 +217,59 @@ test('route review counts are computed only on the Mac host', () => {
   assert.match(app, /routeReviews:snapshot\?\.host==='mac'\?routeReviewCounts\(runs\(\),snapshot\?\.activity\?\.historyBound\):null/);
 });
 
-test('production registry graph shows PC and Mac Pro with their own lanes and suppresses the replaced PC',()=>{
-  const now=Date.now()/1000;
-  const lane=(id,modelId)=>({id,label:id.split(':').pop(),machine:id.split(':').slice(0,2).join(':'),health:'ok',ageSeconds:0,observedAt:new Date(now*1000).toISOString(),modelId});
-  const pc={host:'registry:pc',label:'PC',observationSource:'registry',replaces:'legacy-pc',freshForSeconds:6,lanes:[lane('registry:pc:fast','google/gemma-4-12b-it'),lane('registry:pc:review','ornith-ai/ornith-1.5-9b'),lane('registry:pc:glimmer','/models/glimmer.gguf')]};
-  const macpro={host:'registry:macpro',label:'Mac Pro',observationSource:'registry',freshForSeconds:6,lanes:[lane('registry:macpro:glimmer','/models/macpro.gguf')]};
-  const sample={host:'mac',sampledAt:now,models:[],clients:[],sources:[],machines:[{host:'mac',platform:'mac',state:'unknown'},{host:'pc',platform:'windows',state:'down'},pc,macpro]};
+const sharedFleet = JSON.parse(readFileSync(new URL('./test_support/fleet-state.json', import.meta.url), 'utf8'));
+function currentFleetSample() {
+  const delta = Date.now()/1000 - sharedFleet.now, contract=JSON.parse(JSON.stringify(sharedFleet.fleetState));
+  for (const fact of contract.facts) for (const key of ['observedAt','expiresAt']) if(fact[key]) fact[key]=new Date(Date.parse(fact[key])+delta*1000).toISOString();
+  return {...sharedFleet.snapshot,host:'mac',sampledAt:Date.now()/1000,models:[],clients:[],sources:[],fleetState:contract};
+}
+
+test('production fleet graph uses exactly the shared contract machine and lane IDs',()=>{
+  const sample=currentFleetSample();
   const context={...layoutContext,document:{getElementById:id=>id==='graphRegion'?{clientWidth:650,clientHeight:400}:null},window:{},Date,Set,Map,Math,Number,String,Array,Object,JSON};
   const graphResult=JSON.parse(JSON.stringify(runInNewContext(`${source}\nsnapshot=${JSON.stringify(sample)};connected=true;runtimeGraph();graph;`,context)));
-  assert.deepEqual(graphResult.nodes.filter(node=>node.kind==='registry-machine').map(node=>node.label),['PC','Mac Pro']);
+  assert.deepEqual(graphResult.nodes.map(node=>node.id), sample.fleetState.facts.filter(f=>f.scope==='machine').flatMap(machine=>[machine.id,...sample.fleetState.facts.filter(f=>f.parentId===machine.id).map(f=>f.id)]));
   assert.equal(graphResult.nodes.filter(node=>node.kind==='registry-lane').length,4);
   assert.equal(graphResult.nodes.some(node=>node.kind==='windows-worker'),false);
-  assert.equal(graphResult.nodes.find(node=>node.id==='registry:pc:glimmer').subtitle,'glimmer.gguf');
-  assert.equal(graphResult.edges.filter(edge=>edge.a==='registry:pc').length,3);
-  assert.equal(graphResult.edges.filter(edge=>edge.a==='registry:macpro').length,1);
+  assert.match(graphResult.nodes.find(node=>node.id==='registry:pc:fast').label,/endpoint answering/);
+  assert.match(graphResult.nodes.find(node=>node.id==='registry:pro:deep').label,/unknown/);
+  assert.equal(graphResult.edges.filter(edge=>edge.a==='registry:pc').length,2);
 });
 
-test('production Machines and lanes table retains model titles and status words',()=>{
-  const node=(tag,className,text)=>({tag,className,textContent:text||'',children:[],attributes:{},append(...children){this.children.push(...children);},replaceChildren(...children){this.children=children;},setAttribute(key,value){this.attributes[key]=value;}});
-  const root=node('section');root.style={};root.dataset={};root.getBoundingClientRect=()=>({top:0,bottom:0,height:0});
-  const machine={label:'Mac Pro',lanes:[{label:'Glimmer',modelId:'/models/glimmer.gguf',health:'unknown',reason:'timeout'}]};
-  const tableSource=app.slice(app.indexOf('function renderRegistryTable(){'),app.indexOf('\nfunction runtimeGraph(){'));
-  runInNewContext(`${tableSource}\nrenderRegistryTable();`,{$:()=>root,el:node,hasRegistry:()=>true,registryOverviewMachines:()=>[machine],registryModelName,document:{body:{classList:{toggle(){}}}}});
-  const table=root.children[1],cells=table.children[1].children[0].children;
+test('production Machines and lanes table retains reported models and endpoint words',()=>{
+  const sample=currentFleetSample(),lane=sample.fleetState.facts.find(fact=>fact.id==='registry:pro:deep');
+  lane.evidence.modelId='/models/glimmer.gguf';lane.state='endpoint unavailable';lane.reason='timeout';
+  const observed=sample.fleetState.facts.find(fact=>fact.id==='registry:pc:fast');
+  lane.observedAt=observed.observedAt;lane.expiresAt=observed.expiresAt;
+  const {api,$}=monitorHarness();api.setFeed(sample);api.renderRegistryTable();
+  const table=$('machineLanes').querySelector('table'),headers=table.querySelector('thead').querySelectorAll('th');
+  assert.equal(headers.length,5);
+  for(const cell of headers)assert.equal(cell.getAttribute('scope'),'col');
+  assert.equal(table.querySelector('colgroup').children.length,5);
+  const groups=table.querySelectorAll('tbody');
+  const row=groups.find(group=>group.children[0].children[0].textContent.includes('Mac Pro')).children[0],cells=row.children;
   assert.equal(cells[2].textContent,'glimmer.gguf');assert.equal(cells[2].title,'/models/glimmer.gguf');
-  assert.match(cells[3].textContent,/Unknown · timeout/);assert.doesNotMatch(cells[3].textContent,/down/i);
-  assert.equal(cells[0].attributes.scope,'row');
+  assert.match(cells[3].querySelector('span').textContent,/× endpoint unavailable/);
+  assert.match(cells[3].querySelector('time').textContent,/s ago/);
+  assert.equal(cells[3].querySelector('time').getAttribute('datetime'),lane.observedAt);
+  assert.equal(cells[4].textContent,'timeout');
+  assert.equal(cells[0].getAttribute('scope'),'rowgroup');
+  const pc=groups.find(group=>group.children[0].children[0].textContent.includes('registry:pc'));
+  assert.equal(pc.children.length,2);assert.equal(pc.children[0].children[0].getAttribute('rowspan'),'2');
+  assert.equal($('machineLanes').querySelector('.fleet-table-scroll').getAttribute('tabindex'),'0');
 });
 
-test('registry without replaces retains the legacy machine and its measured state',()=>{
-  const now=Date.now()/1000,lane={id:'registry:macpro:glimmer',machine:'registry:macpro',label:'Glimmer',health:'ok',modelId:'example/model',ageSeconds:0,observedAt:new Date(now*1000).toISOString()};
-  const sample={host:'mac',sampledAt:now,models:[],clients:[],sources:[],machines:[{host:'mac',platform:'mac',state:'unknown'},{host:'legacy-pc',platform:'windows',label:'Legacy PC',state:'down',trust:'share-reported',ageSeconds:0,freshForSeconds:30},{host:'registry:macpro',label:'Mac Pro',observationSource:'registry',freshForSeconds:6,lanes:[lane]}]};
+test('no contract cannot populate a fleet from an unrelated legacy feed',()=>{
+  const sample={host:'mac',sampledAt:Date.now()/1000,models:[],clients:[],sources:[],machines:[{host:'mac',platform:'mac',state:'up'}]};
   const context={...layoutContext,document:{getElementById:id=>id==='graphRegion'?{clientWidth:650,clientHeight:400}:null},window:{},Date,Set,Map,Math,Number,String,Array,Object,JSON};
-  const groups=JSON.parse(JSON.stringify(runInNewContext(`${source}\nsnapshot=${JSON.stringify(sample)};connected=true;runtimeGraph();graph.nodes.filter(node=>node.kind==='registry-machine');`,context)));
-  assert.deepEqual(groups.map(node=>node.label),['Legacy PC','Mac Pro']);
-  assert.match(groups[0].subtitle,/Down/);
+  assert.deepEqual(JSON.parse(JSON.stringify(runInNewContext(`${source}\nsnapshot=${JSON.stringify(sample)};connected=true;runtimeGraph();graph.nodes;`,context))),[]);
 });
 
-test('the compact registry map retains local model controls and all existing inspector targets',()=>{
+test('the canonical fleet graph keeps local model controls available in its inspector',()=>{
   const now=Date.now()/1000,makeNode=()=>({hidden:false,textContent:'',dataset:{},children:[],classList:{toggle(){}},append(...children){this.children.push(...children);},setAttribute(){}}),elements=new Map();
   const get=id=>{if(!elements.has(id))elements.set(id,makeNode());return elements.get(id);};
   Object.assign(get('graphRegion'),{clientWidth:650,clientHeight:400});
-  const machine={host:'registry:pc',label:'PC',observationSource:'registry',replaces:'legacy-pc',freshForSeconds:6,lanes:[{id:'registry:pc:fast',label:'Fast',health:'ok',ageSeconds:0,observedAt:new Date(now*1000).toISOString(),modelId:'example/model'}]};
-  const sample={host:'mac',sampledAt:now,activityKnown:true,models:[{id:'google/gemma-4-12b-it',host:'mac',state:'idle',loaded:true,ageSeconds:0}],clients:[],sources:[],machines:[{host:'mac',platform:'mac',state:'unknown'},machine]};
+  const sample={...currentFleetSample(),activityKnown:true,models:[{id:'google/gemma-4-12b-it',host:'mac',state:'idle',loaded:true,ageSeconds:0}]};
   const context={...layoutContext,document:{getElementById:get,createElement:()=>makeNode()},window:{},Date,Set,Map,Math,Number,String,Array,Object,JSON};
   const result=JSON.parse(JSON.stringify(runInNewContext(`${source}
     snapshot=${JSON.stringify(sample)};connected=true;runtimeGraph();
@@ -265,22 +277,29 @@ test('the compact registry map retains local model controls and all existing ins
     const targets=expected.map(id=>inspectorNodeFor(id)?.kind);
     inspectorBody=(node,body)=>{body.append({kind:node.kind});return null;};panelShape=()=>'';rebuildPanel=(scroller,body,build)=>build();
     modelActionState=()=>({action:'unload',reason:'Loaded'});selected=expected[0];renderInspector();renderModelAction();
-    ({targets,drawerClosed:$('drawer').hidden,bodyKind:$('inspector').children[0].kind,action:$('modelAction').textContent,obsolete:inspectorNodeFor('windows-worker'),localIsLocal:inspectorNodeFor('runtime').registryMachine.isLocal});`,context)));
+    ({targets,drawerClosed:$('drawer').hidden,bodyKind:$('inspector').children[0].kind,action:$('modelAction').textContent,obsolete:inspectorNodeFor('windows-worker'),localIsLocal:inspectorNodeFor('mac').registryMachine.isLocal});`,context)));
   assert.deepEqual(result.targets,['model','pipeline','jev','afm','client']);
   assert.equal(result.drawerClosed,false);assert.equal(result.bodyKind,'model');assert.equal(result.action,'Unload');
-  assert.equal(result.obsolete,undefined);assert.equal(result.localIsLocal,true);
+  assert.equal(result.obsolete.id,'registry:pc');assert.equal(result.localIsLocal,true);
 });
 
-test('the table is placed below both status chips and an expanded memory warning',()=>{
-  const table={hidden:false,style:{}},region={getBoundingClientRect:()=>({top:100})};
-  const heading={getBoundingClientRect:()=>({bottom:180,height:80})},banner={hidden:false,style:{top:''},dataset:{},getBoundingClientRect(){return {bottom:100+Number.parseFloat(this.style.top||'88')+54,height:54};}};
-  const nodes={machineLanes:table,graphRegion:region,mapHeading:heading,memoryBanner:banner};
-  const position=app.slice(app.indexOf('function positionRegistryTable(){'),app.indexOf('\nfunction inspectorNodeFor('));
-  const run=()=>runInNewContext(`${position}\npositionRegistryTable();`,{$:id=>nodes[id]});
-  assert.equal(run(),true);assert.equal(banner.style.top,'88px');assert.equal(table.style.top,'150px');assert.equal(run(),false);
-  heading.getBoundingClientRect=()=>({bottom:294,height:194});run();assert.equal(banner.style.top,'202px');assert.equal(table.style.top,'264px');
-  heading.getBoundingClientRect=()=>({bottom:180,height:80});
-  banner.hidden=true;assert.equal(run(),true);assert.equal(table.style.top,'88px');
-  heading.getBoundingClientRect=()=>({bottom:0,height:0});run();assert.equal(table.style.top,'12px');
-  banner.hidden=false;heading.getBoundingClientRect=()=>({bottom:180,height:80});run();table.hidden=true;run();assert.equal(banner.style.top,'','legacy banner positioning is restored without registry');
+test('the landing ledger uses document flow above controls and the collapsed map',()=>{
+  const html=readFileSync(new URL('./web/index.html',import.meta.url),'utf8');
+  assert.ok(html.indexOf('id="machineLanes"')<html.indexOf('id="runtimeSidebar"'));
+  assert.ok(html.indexOf('id="machineLanes"')<html.indexOf('id="fleetMap"'));
+  assert.match(html,/<details id="fleetMap"><summary>Show map<\/summary>/);
+  const position=app.slice(app.indexOf('function positionRegistryTable(){'),app.indexOf('\nfunction canonicalNodeId('));
+  const moved=runInNewContext(`${position}\npositionRegistryTable();`,{
+    document:{body:{classList:{contains:name=>name==='fleet-ledger'}}},
+    $:()=>{throw new Error('Flow ledger must not read or mutate map/table geometry');}
+  });
+  assert.equal(moved,false);
+});
+
+
+test('canonical fleet entrypoints resolve memory, machine chips and lane aliases to fact IDs',()=>{
+  const sample=currentFleetSample();
+  const inspector={querySelectorAll:()=>[]},context={...layoutContext,document:{getElementById:id=>id==='graphRegion'?{clientWidth:650,clientHeight:400}:id==='inspector'?inspector:null},window:{},Date,Set,Map,Math,Number,String,Array,Object,JSON};
+  const result=JSON.parse(JSON.stringify(runInNewContext(`${source}\nsnapshot=${JSON.stringify(sample)};connected=true;runtimeGraph();let opened=null;nodeSelect=id=>{opened=id;};openMemoryDetails();({memory:opened,local:canonicalNodeId('runtime'),pc:canonicalNodeId('windows-worker'),lane:canonicalNodeId('windows-lane:fast'),localKind:inspectorNodeFor('runtime').kind,pcId:inspectorNodeFor('windows-worker').id});`,context)));
+  assert.deepEqual(result,{memory:'mac',local:'mac',pc:'registry:pc',lane:'registry:pc:fast',localKind:'runtime',pcId:'registry:pc'});
 });

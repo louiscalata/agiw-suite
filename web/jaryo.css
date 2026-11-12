@@ -976,10 +976,10 @@ body.jaryo-app .sidebar h1 {
   }
   /* Overview keeps the tool bar, the monitor strip, the map, and the footer in one viewport.
      The nav column stays put. The map row is the only one that grows. */
-  body.jaryo-app:not(:has(.j-page)):not(:has(.j-map)) {
+  body.jaryo-app:not(.fleet-ledger):not(:has(.j-page)):not(:has(.j-map)) {
     grid-template-rows: auto auto minmax(0, 1fr) auto;
   }
-  body.jaryo-app:not(:has(.j-page)):not(:has(.j-map)) > main {
+  body.jaryo-app:not(.fleet-ledger):not(:has(.j-page)):not(:has(.j-map)) > main {
     min-height: 0;
   }
   body.jaryo-app .j-nav a {
@@ -1815,4 +1815,144 @@ body.jaryo-app .action-review button:disabled {
     background:ButtonFace; color:ButtonText; border-color:ButtonText;
   }
   body.jaryo-app .action-review button:disabled { color:GrayText; border-color:GrayText; }
+}
+
+/* Fleet landing: normal reading order, full-width evidence, optional topology.
+   Screen-specific roles: 13 meta, 14 controls, 16 evidence, 20 section, 28 brand. */
+html:has(body.fleet-ledger) {
+  height:auto;
+  min-height:100%;
+  overflow-x:hidden;
+  overflow-y:auto;
+}
+body.jaryo-app.fleet-ledger {
+  --j-size-1: 13px;
+  --j-size-2: 14px;
+  --j-size-3: 16px;
+  --j-size-4: 20px;
+  --j-size-5: 28px;
+  --j-size-6: 28px;
+  --fleet-nav-width: 180px;
+  display: flex !important;
+  height: auto !important;
+  min-height: 100%;
+  overflow: visible !important;
+}
+body.jaryo-app.fleet-ledger > main#content {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  width: 100%;
+  min-width: 0;
+  height: auto !important;
+  padding: 24px;
+  overflow: visible;
+}
+body.jaryo-app.fleet-ledger .brand-wordmark,
+body.jaryo-app.fleet-ledger .brand-wordmark strong,
+body.jaryo-app.fleet-ledger .j-type { font-size:28px !important; }
+body.jaryo-app.fleet-ledger .brand-wordmark small { display:block; white-space:normal; }
+body.jaryo-app.fleet-ledger #feedCoverage { display:flex; flex-wrap:wrap; align-items:baseline; gap:8px 16px; margin:0; }
+body.jaryo-app.fleet-ledger #headline { font-size:20px !important; line-height:1.4; }
+body.jaryo-app.fleet-ledger #feedFreshness { font-size:13px !important; }
+body.jaryo-app.fleet-ledger #subline { margin:8px 0 24px; }
+body.jaryo-app.fleet-ledger #machineLanes {
+  position: static;
+  width: 100%;
+  max-height: none;
+  overflow: visible;
+  border: 0;
+  padding: 0;
+}
+body.jaryo-app.fleet-ledger h2 { margin:0 0 12px; font-size:20px !important; line-height:1.4; }
+body.jaryo-app.fleet-ledger .fleet-table-scroll { width:100%; overflow-x:auto; }
+body.jaryo-app.fleet-ledger .fleet-table { width:100%; min-width:800px; table-layout:fixed; border-collapse:collapse; }
+body.jaryo-app.fleet-ledger .fleet-table col.machine { width:140px; }
+body.jaryo-app.fleet-ledger .fleet-table col.lane { width:140px; }
+body.jaryo-app.fleet-ledger .fleet-table col.model { width:160px; }
+body.jaryo-app.fleet-ledger .fleet-table col.endpoint { width:200px; }
+body.jaryo-app.fleet-ledger .fleet-table col.reason { width:160px; }
+body.jaryo-app.fleet-ledger .fleet-table th,
+body.jaryo-app.fleet-ledger .fleet-table td {
+  width:auto;
+  padding:12px 8px;
+  text-align:left;
+  vertical-align:top;
+  border-bottom:1px solid var(--j-border);
+  overflow-wrap:anywhere;
+  white-space:normal;
+  font-size:16px !important;
+  line-height:1.5;
+}
+body.jaryo-app.fleet-ledger .fleet-table thead th { font-size:14px !important; }
+body.jaryo-app.fleet-ledger .fleet-table tbody + tbody { border-top:2px solid var(--j-border); }
+body.jaryo-app.fleet-ledger .fleet-table small { display:block; margin-top:4px; font-size:13px !important; font-weight:400; }
+body.jaryo-app.fleet-ledger .fleet-machine-coverage { display:block; margin-top:8px; font-size:14px !important; }
+body.jaryo-app.fleet-ledger .fleet-counters { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:16px; margin:0; padding:16px 0; border-block:1px solid var(--j-border); }
+body.jaryo-app.fleet-ledger .fleet-counters > div { min-width:0; display:flex; flex-direction:column; gap:4px; }
+body.jaryo-app.fleet-ledger .fleet-counters strong { font-size:20px !important; }
+body.jaryo-app.fleet-ledger .fleet-counters span { font-size:13px !important; white-space:normal; overflow-wrap:anywhere; letter-spacing:normal; }
+body.jaryo-app.fleet-ledger .sidebar {
+  position:static; inset:auto; transform:none; visibility:visible;
+  width:100%; height:auto; max-height:none; min-width:0; overflow:visible;
+  margin:0; padding:0; border:0; box-shadow:none; background:var(--j-bg);
+}
+body.jaryo-app.fleet-ledger .sidebar .items { max-height:none; }
+body.jaryo-app.fleet-ledger .sidebar .view-tabs { margin:16px 0; }
+body.jaryo-app.fleet-ledger .monitor-controls { margin-bottom:24px; }
+body.jaryo-app.fleet-ledger .monitor-controls button { min-height:44px; margin:4px; }
+body.jaryo-app.fleet-ledger .j-chrome { margin:16px 0; }
+body.jaryo-app.fleet-ledger .j-tabs { grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); }
+body.jaryo-app.fleet-ledger .j-tab { min-width:0; white-space:normal; }
+body.jaryo-app.fleet-ledger #needsAttention { min-width:0; }
+body.jaryo-app.fleet-ledger #needsAttention li { margin:8px 0; overflow-wrap:anywhere; }
+body.jaryo-app.fleet-ledger #fleetMap { min-width:0; border-top:1px solid var(--j-border); }
+body.jaryo-app.fleet-ledger summary { min-height:44px; padding-block:12px; cursor:pointer; }
+body.jaryo-app.fleet-ledger #fleetMapList { overflow-x:auto; padding:8px; }
+body.jaryo-app.fleet-ledger .fleet-map-machines { margin:0; padding:0; list-style:none; }
+body.jaryo-app.fleet-ledger .fleet-map-lanes { margin:0 0 16px 24px; padding:0 0 0 16px; border-left:1px solid var(--j-border); list-style:none; }
+body.jaryo-app.fleet-ledger .fleet-map-node { display:block; min-height:44px; padding:8px; white-space:nowrap; text-align:left; font-size:14px !important; }
+body.jaryo-app.fleet-ledger .graph-region { position:relative; inset:auto; width:100%; height:440px; overflow:hidden; border:0; }
+body.jaryo-app.fleet-ledger.registry-overview #graphRegion { display:none; }
+body.jaryo-app.fleet-ledger #sidebarToggle { display:none !important; }
+body.jaryo-app.fleet-ledger .fleet-table-scroll:focus-visible,
+body.jaryo-app.fleet-ledger #fleetMapList:focus-visible { outline:3px dashed var(--j-focus); outline-offset:3px; }
+@media (min-width:900px) {
+  body.jaryo-app.fleet-ledger { display:grid !important; grid-template-columns:var(--fleet-nav-width) minmax(0,1fr); grid-template-rows:auto auto auto; }
+  body.jaryo-app.fleet-ledger > .topbar { grid-column:1 / -1; grid-row:1; }
+  body.jaryo-app.fleet-ledger > .j-nav { grid-column:1; grid-row:2 / 4; width:auto; min-height:0; max-height:none; position:static; display:flex; flex-direction:column; border-right:1px solid var(--j-border); }
+  body.jaryo-app.fleet-ledger > main#content { grid-column:2; grid-row:2; }
+  body.jaryo-app.fleet-ledger > footer { grid-column:2; grid-row:3; position:static; }
+}
+
+/* Alerts and the existing inspector stay reachable while the ledger scrolls. */
+body.jaryo-app.fleet-ledger #memoryBanner { position:static; width:100%; margin:0; }
+body.jaryo-app.fleet-ledger .evidence-rail { position:fixed; inset:16px 16px 16px auto; width:min(480px,calc(100vw - 32px)); max-height:calc(100dvh - 32px); }
+body.jaryo-app.fleet-ledger .evidence-rail > .panel { max-height:100%; }
+
+/* Fleet enlarged text keeps navigation and evidence in one reading column. */
+@media (min-width:900px) {
+  html:is([data-text-size="150"],[data-text-size="200"]) body.jaryo-app.fleet-ledger {
+    grid-template-columns:minmax(0,1fr);
+    grid-template-rows:auto auto auto auto;
+  }
+  html:is([data-text-size="150"],[data-text-size="200"]) body.jaryo-app.fleet-ledger > .j-nav {
+    grid-column:1;
+    grid-row:2;
+    flex-direction:row;
+    flex-wrap:wrap;
+    align-items:stretch;
+    gap:8px 12px;
+    padding:12px;
+    border-right:0;
+    border-bottom:1px solid var(--j-border);
+  }
+  html:is([data-text-size="150"],[data-text-size="200"]) body.jaryo-app.fleet-ledger > main#content {
+    grid-column:1;
+    grid-row:3;
+  }
+  html:is([data-text-size="150"],[data-text-size="200"]) body.jaryo-app.fleet-ledger > footer {
+    grid-column:1;
+    grid-row:4;
+  }
 }

@@ -3,6 +3,7 @@ import {readFileSync} from 'node:fs';
 import {runInNewContext} from 'node:vm';
 import test from 'node:test';
 import * as layout from './web/map-layout.mjs';
+import * as fleet from './web/fleet-state.mjs';
 import * as usage from './usage-format.mjs';
 import * as onlineMode from './web/online-code-mode.mjs';
 import * as modelControl from './web/model-control-view.mjs';
@@ -172,6 +173,7 @@ function sidebar(options = {}) {
   };
   const region = document.getElementById('graphRegion'); region.clientWidth = 820; region.clientHeight = 604;
   const api = runInNewContext(`${definitions}
+runtimeGraph=legacyRuntimeGraph;
     ;({draw(data, options) {
       snapshot=data; connected=options.connected; paused=options.paused; view=options.view;
       query=options.query; selected=options.selected; makeGraph(); renderList();
@@ -186,7 +188,7 @@ function sidebar(options = {}) {
     },
     inspect(key, body) { const node=graph.nodes.find(n=>n.id===key); if(!node)throw Error('missing map node '+key); return inspectorBody(node,body); },
     spySelection() { const picked=[]; nodeSelect=id=>{picked.push(id); selected=id; renderList();}; return picked; }})`,
-  {...layout, ...usage, ...onlineMode, ...modelControl, document, Date: Clock});
+  {...layout, ...fleet, ...usage, ...onlineMode, ...modelControl, document, Date: Clock});
   const host = options.host || 'windows';
   const feed = {schemaVersion: 1, host, sampledAt: now - (options.snapshotAge || 0),
     fullSampledAt: now - (options.feedAge || 0), activityKnown: true,

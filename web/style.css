@@ -586,14 +586,6 @@ body>footer{height:34px}
 
 /* Registry inventory is readable before interacting with the map. The map keeps
    a separate caption band for every lane; status always includes words. */
-body.registry-overview #machineLanes{position:absolute;z-index:6;top:10px;left:12px;right:12px;max-height:166px;overflow:auto;border:1px solid var(--j-border,var(--ink));background:var(--j-bg,var(--panel));color:var(--j-text,var(--ink));padding:8px 10px;user-select:text}
-body.registry-overview #machineLanes h2{font:600 12px/1.4 var(--type-body);margin:0 0 5px}
-body.registry-overview #machineLanes table{width:100%;border-collapse:collapse;table-layout:fixed;font:11px/1.4 var(--type-body)}
-body.registry-overview #machineLanes th,body.registry-overview #machineLanes td{text-align:left;vertical-align:top;padding:3px 6px;border-bottom:1px solid var(--j-border,var(--ink));overflow-wrap:anywhere}
-body.registry-overview #machineLanes th:nth-child(1){width:16%}
-body.registry-overview #machineLanes th:nth-child(2){width:20%}
-body.registry-overview #machineLanes th:nth-child(3){width:37%}
-body.registry-overview #machineLanes th:nth-child(4){width:27%}
 body.registry-overview .node.registry-machine .label,body.registry-overview .node.registry-machine .sub,body.registry-overview .node.registry-lane .label,body.registry-overview .node.registry-lane .sub{opacity:1;pointer-events:visiblePainted}
 body.registry-overview #mapHeading{flex-wrap:wrap}
 .vital-age{text-transform:none;letter-spacing:0}

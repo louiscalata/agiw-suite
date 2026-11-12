@@ -229,7 +229,7 @@ def _iso(now):
     return dt.datetime.fromtimestamp(now, dt.timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-def _lane_node(target, result, now, interval):
+def _lane_node(target, result, now, interval, success=None, started=None, running=False):
     model, latency, reason, completed = result or (None, None, "pending", None)
     node = make_node(id=target["id"], machine=target["machine"], role="llama", label=target["label"],
                      health="ok" if model is not None else "not_measured", endpoint=target["base"],
@@ -239,6 +239,14 @@ def _lane_node(target, result, now, interval):
     node.update(observationSource="registry", probeIntervalSeconds=interval,
                 ageSeconds=max(0, now - completed) if completed is not None else None)
     node.update({key: target[key] for key in ("contextTokens", "thinking") if key in target})
+    if success is None and model is not None and completed is not None:
+        success = (model, completed)
+    node.update(configuredEndpoint=target["base"], probeTimeoutSeconds=target["timeoutSeconds"],
+                probeState="running" if running else "completed" if completed is not None else "pending",
+                probeStartedAt=_iso(started) if started is not None else None,
+                lastProbeAt=_iso(completed) if completed is not None else None,
+                lastSuccessAt=_iso(success[1]) if success is not None else None,
+                lastSuccessModelId=success[0] if success is not None else None)
     return node
 
 
@@ -267,8 +275,11 @@ def _probe(target, fetch):
     return model, latency, reason
 
 
-def _nodes(config, targets, results, now, interval):
-    lanes = [_lane_node(target, results.get(target["id"]), now, interval) for target in targets]
+def _nodes(config, targets, results, now, interval, successes=None, starts=None, active=None):
+    successes, starts, active = successes or {}, starts or {}, active or set()
+    lanes = [_lane_node(target, results.get(target["id"]), now, interval,
+                        successes.get(target["id"]), starts.get(target["id"]), target["id"] in active)
+             for target in targets]
     nodes = []
     for machine in config["machines"]:
         machine_id = f"registry:{machine['id']}"
@@ -328,6 +339,8 @@ class BackgroundProbes:
         self.generation = 0
         self.targets = []
         self.results = {}
+        self.successes = {}
+        self.probe_started = {}
         self.started = {}
         self.running = {}
         self.thread = None
@@ -355,6 +368,8 @@ class BackgroundProbes:
             self.running.pop(future, None)
             if generation == self.generation and not self.stopped.is_set():
                 self.results[identity] = (*reading, completed)
+                if reading[0] is not None:
+                    self.successes[identity] = (reading[0], completed)
         self.wake.set()
 
     def _run(self):
@@ -368,6 +383,7 @@ class BackgroundProbes:
                 for target in due[:max(0, 8 - len(self.running))]:
                     identity, generation = target["id"], self.generation
                     self.started[identity] = now
+                    self.probe_started[identity] = time.time()
                     future = self.pool.submit(_probe, target, None)
                     self.running[future] = (generation, identity)
                     future.add_done_callback(lambda done, generation=generation, identity=identity:
@@ -384,6 +400,8 @@ class BackgroundProbes:
                 self.signature = signature
                 self.targets = copy.deepcopy(targets)
                 self.results = {}
+                self.successes = {}
+                self.probe_started = {}
                 self.started = {}
             if not targets:
                 return []
@@ -391,8 +409,12 @@ class BackgroundProbes:
                 self.thread = threading.Thread(target=self._run, name="registry-scheduler", daemon=True)
                 self.thread.start()
             results = dict(self.results)
+            successes = dict(self.successes)
+            starts = dict(self.probe_started)
+            active = {identity for generation, identity in self.running.values() if generation == self.generation}
         self.wake.set()
-        return _nodes(config, targets, results, time.time() if now is None else now, self.interval)
+        return _nodes(config, targets, results, time.time() if now is None else now, self.interval,
+                      successes, starts, active)
 
 
 _DEFAULT_PROBES = None
@@ -438,10 +460,15 @@ def project_snapshot(snapshot):
     if not roots:
         return
     replaces = any(root.get("replaces") == "legacy-pc" for root in roots)
+    def placeholder(row):
+        return (row.get("observedAt") is None and row.get("trust", "unverified") == "unverified"
+                and row.get("reasonCode", "not_observed") == "not_observed"
+                and (row.get("id") or row.get("host")) in ("pc", "windows"))
+
     rows = [row for row in snapshot.get("machines", [])
             if row.get("observationSource") != "registry"
             and not (replaces and row.get("platform") == "windows"
-                     and row.get("trust") != "local")]
+                     and placeholder(row))]
     for root in roots:
         identity = root["id"]
         interval = root.get("probeIntervalSeconds", PROBE_INTERVAL)

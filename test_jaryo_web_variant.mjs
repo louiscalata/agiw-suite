@@ -13,7 +13,7 @@ test('the implemented web variant is scoped separately from the Android foundati
   for (const family of Object.values(tokens.variants.web.fonts)) {
     assert.ok(css.includes(`font-family: "${family}"`), family);
   }
-  const finalScale = css.slice(css.indexOf('Six steps, none under 12px'));
+  const finalScale = css.slice(css.indexOf('Six steps, none under 12px'), css.indexOf('/* Fleet landing:'));
   const sizes = [...finalScale.matchAll(/--j-size-\d:\s*(\d+)px;/g)].map(match => Number(match[1]));
   assert.deepEqual(sizes, tokens.variants.web.typeScalePx);
   assert.match(read('./android/app/src/main/res/values/themes.xml'), /android:fontFamily">@font\/inter</);
@@ -49,7 +49,7 @@ function assertOverviewCounterFonts(html, css) {
     .find(([, , declarations]) => /font-family:\s*"IBM Plex Mono"[^;]*!important;/.test(declarations));
   assert.ok(monoRule, 'final Mono override exists after the blanket Sans rule');
   const selectors = monoRule[1].split(',').map(value => value.trim());
-  const metrics = html.match(/<div class="metrics">([\s\S]*?)<div class="client-summary"/);
+  const metrics = html.match(/<div class="metrics fleet-counters"[^>]*>([\s\S]*?)<aside\b/);
   assert.ok(metrics, 'actual overview metrics region exists');
   for (const id of ['activeCount', 'loadedCount', 'queuedCount', 'observedClientCount']) {
     const region = id === 'observedClientCount' ? html : metrics[1];
@@ -59,7 +59,7 @@ function assertOverviewCounterFonts(html, css) {
       ? `body.jaryo-app #${id}` : `body.jaryo-app .metrics ${counter[1]}`;
     assert.ok(selectors.includes(selector), `${id} (${counter[1]}) must match the Mono override`);
   }
-  assert.match(metrics[1], /<span>local working<\/span>/);
+  assert.match(metrics[1], /<span>lanes answering<\/span>/);
   assert.ok(!selectors.includes('body.jaryo-app .metrics span'), 'counter labels remain body Sans');
   assert.ok(!selectors.includes('body.jaryo-app .metrics'), 'counter container must not change text roles');
 }

@@ -3,6 +3,7 @@ import {runInNewContext} from 'node:vm';
 import {layout,onlineMode,appDefinitions} from './production.mjs';
 import * as usage from '../usage-format.mjs';
 import * as modelControl from '../web/model-control-view.mjs';
+import * as fleet from '../web/fleet-state.mjs';
 const definitions=appDefinitions
   .replace(/^import .*;\r?\n/gm,'').split("$('pause').addEventListener")[0];
 class FakeClassList {
@@ -55,7 +56,15 @@ class FakeElement {
   getBoundingClientRect() { return { left: 0, top: 0, right: 820, bottom: 604, width: 820, height: 604 }; }
 }
 
-export function harness({ width = 1150, extra = {} } = {}) {
+/** Expected endpoint tiles from the canonical selector, independently of model activity. */
+export function fleetTileExpectations(snapshot, now) {
+  const summary = fleet.fleetSummary(snapshot, {now});
+  return {activeCount: summary.state === 'unknown' || summary.counts.answering === null ? '—' : String(summary.counts.answering),
+    loadedCount: summary.state === 'unknown' ? '—' : String(summary.counts.lanes),
+    queuedCount: summary.state === 'unknown' ? '—' : String(summary.counts.unknown + summary.counts.stale)};
+}
+
+export function harness({ width = 1150, extra = {}, legacyDetails = false } = {}) {
   const doc = { elements: new Map() };
   doc.body = new FakeElement(doc, 'body');
   doc.activeElement = doc.body;
@@ -78,8 +87,15 @@ export function harness({ width = 1150, extra = {} } = {}) {
   doc.getElementById('activityDetails').scroller = true;
   const view = { width };
   const window = { matchMedia: query => ({ matches: Number(/max-width:\s*(\d+)px/.exec(query)?.[1] ?? 0) >= view.width }) };
+  // Generated model/control invariants opt into the retained detail graph. Fleet
+  // membership and endpoint tiles still use the unmodified production selectors.
+  const graphSeam = legacyDetails ? 'runtimeGraph=legacyRuntimeGraph;canonicalNodeId=id=>id;' : '';
+  const selectorClock = extra.Date || Date;
+  const selectors = Object.fromEntries(['fleetState','fleetFacts','fleetMachines','fleetLanes','fleetSummary']
+    .map(name => [name, (input, options) => fleet[name](input, {...options, now: options?.now ?? selectorClock.now()/1000})]));
   const api = runInNewContext(`${definitions}
-;({renderActivity,renderVitals,renderSummary,vitalsInput,syncCompactUI,toggleActivity,toggleAbout,closeCompactSidebar,setSidebarOpen,
+;${graphSeam}
+;({renderActivity,renderVitals,renderSummary,renderRegistryTable,localRuntimeCounts,vitalsInput,syncCompactUI,toggleActivity,toggleAbout,closeCompactSidebar,setSidebarOpen,
   rebuildPanel,disclosure,onlineCodeSummary,liveNow,renderInspector,modelControlPollWanted,onlineCodePollWanted,pollOnlineCodeAction,
   renderModelScope,renderList,setModelScope,
   renderAutoUnload,pollAutoUnload,requestAutoUnload,get autoUnloadState(){return autoUnloadState;},
@@ -102,7 +118,7 @@ export function harness({ width = 1150, extra = {} } = {}) {
   graphState(){return graph;},
   modelRows(){return models();},
   spyOpen(){const opened=[];openActivityRow=row=>opened.push(row.key);return opened;}})`,
-  { ...layout, ...usage, ...onlineMode, ...modelControl, document: doc, window, performance: { now: () => 0 }, ...extra });
+  { ...layout, ...usage, ...onlineMode, ...modelControl, ...fleet, ...selectors, document: doc, window, performance: { now: () => 0 }, ...extra });
   return { api, doc, $: id => doc.getElementById(id), view };
 }
 

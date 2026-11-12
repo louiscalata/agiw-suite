@@ -261,14 +261,15 @@ class SnapshotProjectionTests(unittest.TestCase):
         nodes = remote.collect(self.value, fetch=fetcher, now=1000)
         return remote.extend_map({"schema": MAP_SCHEMA, "nodes": [], "edges": []}, self.value, nodes)
 
-    def test_attach_projects_same_registry_health_and_removes_replaced_share_pc(self):
+    def test_attach_projects_registry_without_claiming_unmatched_share_identity(self):
         document = self.document()
         snapshot = {"machines": [copy.deepcopy(self.local), copy.deepcopy(self.legacy)]}
         with mock.patch("inference_collect.collect_map", return_value=document):
             self.assertIs(attach(snapshot, "mac"), document)
-        self.assertEqual([row["host"] for row in snapshot["machines"]], ["mac", "registry:pc", "registry:macpro"])
+        self.assertEqual([row["host"] for row in snapshot["machines"]], ["mac", "share-pc", "registry:pc", "registry:macpro"])
         self.assertEqual(snapshot["machines"][0], self.local)
-        pc, macpro = snapshot["machines"][1:]
+        self.assertEqual(snapshot["machines"][1], self.legacy, "replacement does not attribute an unmatched peer")
+        pc, macpro = snapshot["machines"][2:]
         self.assertEqual((pc["state"], pc["health"], pc["replaces"]), ("up", "ok", "legacy-pc"))
         self.assertEqual(macpro["label"], "Mac Pro")
         self.assertEqual(pc["lanes"][0]["modelId"], "server/current-model")
@@ -277,8 +278,17 @@ class SnapshotProjectionTests(unittest.TestCase):
         self.assertFalse(pc["modelsComplete"], "lane identity is not a machine model inventory")
         self.assertIsNone(pc["loadedCount"])
         remote.project_snapshot(snapshot)
-        self.assertEqual(len(snapshot["machines"]), 3, "projection is idempotent")
+        self.assertEqual(len(snapshot["machines"]), 4, "projection is idempotent")
         self.assertTrue(document["remoteMachines"]["replacesLegacyPc"])
+
+    def test_replacement_hides_only_unobserved_synthetic_placeholder(self):
+        placeholder = {"id": "windows", "host": "windows", "platform": "windows",
+                       "state": "unknown", "reasonCode": "not_observed", "trust": "unverified",
+                       "observedAt": None}
+        snapshot = {"machines": [self.local, placeholder, self.legacy], "inference": self.document()}
+        remote.project_snapshot(snapshot)
+        self.assertEqual([row["host"] for row in snapshot["machines"]],
+                         ["mac", "share-pc", "registry:pc", "registry:macpro"])
 
     def test_unknown_lane_stays_unknown_with_reason_and_no_previous_model_identity(self):
         def mixed(url):
@@ -287,7 +297,7 @@ class SnapshotProjectionTests(unittest.TestCase):
             return 200, json.dumps({"data": [{"id": "/models/reviewer.gguf"}]}), 2
         snapshot = {"machines": [self.local, self.legacy], "inference": self.document(fetcher=mixed)}
         remote.project_snapshot(snapshot)
-        pc, macpro = snapshot["machines"][1:]
+        pc, macpro = snapshot["machines"][2:]
         self.assertEqual((pc["state"], pc["health"], pc["reasonCode"]), ("unknown", "not_measured", "lane_unknown"))
         self.assertEqual(pc["lanes"][0]["reason"], "timeout")
         self.assertIsNone(pc["lanes"][0]["modelId"])
@@ -313,8 +323,9 @@ class SnapshotProjectionTests(unittest.TestCase):
         with mock.patch("inference_collect.collect_map", side_effect=RuntimeError("collector unavailable")):
             document = attach(snapshot, "mac", remote_config=self.value, now=1000)
         self.assertEqual(document["error"], "collector_failed")
-        self.assertEqual([row["host"] for row in snapshot["machines"]], ["mac", "registry:pc", "registry:macpro"])
-        for row in snapshot["machines"][1:]:
+        self.assertEqual([row["host"] for row in snapshot["machines"]], ["mac", "share-pc", "registry:pc", "registry:macpro"])
+        self.assertEqual(snapshot["machines"][1], self.legacy)
+        for row in snapshot["machines"][2:]:
             self.assertEqual(row["state"], "unknown")
             self.assertEqual(row["lanes"][0]["reason"], "collector_failed")
             self.assertIsNone(row["lanes"][0]["observedAt"])
@@ -327,8 +338,8 @@ class SnapshotProjectionTests(unittest.TestCase):
         with mock.patch.object(server.time, "time", return_value=1007):
             snapshot = store.read()
         self.assertEqual(store.snapshot, original, "read expiry must not mutate the stored sample")
-        self.assertEqual([row["host"] for row in snapshot["machines"]], ["mac", "registry:pc", "registry:macpro"])
-        for row in snapshot["machines"][1:]:
+        self.assertEqual([row["host"] for row in snapshot["machines"]], ["mac", "share-pc", "registry:pc", "registry:macpro"])
+        for row in snapshot["machines"][2:]:
             self.assertEqual((row["state"], row["health"]), ("unknown", "not_measured"))
             self.assertEqual(row["ageSeconds"], 7)
             for lane in row["lanes"]:

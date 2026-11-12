@@ -1,3 +1,4 @@
+import {fleetFacts} from './fleet-state.mjs';
 const NS = 'http://www.w3.org/2000/svg';
 const LANES = {
   mac: {x: 120, y: 48},
@@ -10,7 +11,7 @@ const LANES = {
 };
 
 export function place(nodes) {
-  if ((nodes || []).some(node => node.role === 'machine' && node.observationSource === 'registry')) {
+  if ((nodes || []).some(node => node.role === 'machine' && (node.scope === 'machine' || node.observationSource === 'registry'))) {
     const roots = nodes.filter(node => node.role === 'machine');
     const placed = [], grouped = new Set();
     let top = 42;
@@ -92,10 +93,10 @@ export function detailRows(node) {
   const vram = node.vramUsedMiB == null && node.vramTotalMiB == null
     ? '—' : `${node.vramUsedMiB ?? '—'}/${node.vramTotalMiB ?? '—'} MiB`;
   const rows = [
-    ['Health', node.health || '—'],
-    ['Model', (node.observationSource === 'registry' ? displayModelId(node.modelId) : node.modelId) || '—'],
+    [node.scope ? 'State' : 'Health', node.factState || node.health || '—'],
+    [node.scope ? (node.factState === 'stale' ? 'Last reported model' : 'Reported model') : 'Model', (node.observationSource === 'registry' || node.scope ? displayModelId(node.modelId) : node.modelId) || '—'],
     ['Upstream', node.upstream || '—'],
-    ['Endpoint', node.endpoint || '—'],
+    [node.scope ? 'Configured endpoint' : 'Endpoint', node.endpoint || '—'],
     ['Prompt tok/s', number(node.promptTokensPerSecond, '')],
     ['Generation tok/s', number(node.generationTokensPerSecond, '')],
     ['Latency', number(node.latencyMs, ' ms')],
@@ -104,7 +105,18 @@ export function detailRows(node) {
     ['Context', context],
     ['VRAM', vram],
   ];
-  if (node.observationSource === 'registry') {
+  if (node.scope) {
+    rows.push(['ID', node.id], ['Source', node.source || 'unknown'],
+      ['Completeness', node.completeness || 'unknown'],
+      [node.scope === 'lane' ? 'Last probe' : 'Observed time', node.evidence?.lastProbeAt || node.observedAt || 'Not observed'],
+      ['Last success', node.lastSuccessAt || node.evidence?.lastSuccessAt || 'Not available'],
+      ['Last successful model', node.evidence?.lastSuccessModelId || 'Not available'],
+      ['Probe state', node.evidence?.probeState || 'Not reported'],
+      ['Configured deadline', node.evidence?.probeTimeoutSeconds == null ? 'Not configured' : `${node.evidence.probeTimeoutSeconds} s`],
+      ['Configured context', node.evidence?.contextTokens == null ? 'Not configured' : String(node.evidence.contextTokens)],
+      ['Configured thinking', node.evidence?.thinking || 'Not configured']);
+  }
+  if (node.observationSource === 'registry' || node.scope) {
     rows.push(['Observation age', typeof node.ageSeconds === 'number' && Number.isFinite(node.ageSeconds)
       ? `${node.ageSeconds.toFixed(1)} s` : '—']);
   }
@@ -130,6 +142,7 @@ function mapFocus() {
 }
 
 function statusWord(node) {
+  if (node.factState) return node.factState.toUpperCase();
   if (feedUnavailable) return 'DISCONNECTED';
   if (node.health === 'ok') return 'OK';
   if (node.health === 'degraded') return 'DEGRADED';
@@ -143,7 +156,7 @@ function statusWord(node) {
 function draw(map, selected) {
   const svg = document.querySelector('#map');
   const placed = place(map.nodes);
-  const registryView = map.nodes.some(node => node.role === 'machine' && node.observationSource === 'registry');
+  const registryView = map.nodes.some(node => node.role === 'machine' && (node.scope === 'machine' || node.observationSource === 'registry'));
   const tab = mapFocus();
   const width = Math.max(720, ...placed.map(node => node.x + (registryView ? 300 : 180)));
   const height = Math.max(420, ...placed.map(node => node.y + 48));
@@ -183,10 +196,10 @@ function draw(map, selected) {
     sub.setAttribute('x', node.x + 14);
     sub.setAttribute('y', node.y + 14);
     sub.setAttribute('class', 'sub');
-    const observationAge = node.observationSource === 'registry'
+    const observationAge = node.observationSource === 'registry' || node.scope
       ? (typeof node.ageSeconds === 'number' && Number.isFinite(node.ageSeconds)
         ? `${node.ageSeconds.toFixed(1)} s ago` : 'Not observed') : '';
-    sub.textContent = registryView ? caption(displayModelId(node.modelId))
+    sub.textContent = registryView ? caption(node.modelId ? `${node.factState === 'stale' ? 'last reported' : 'reported'} ${displayModelId(node.modelId)}` : '')
       : [node.modelId, rateText(node), statusWord(node), observationAge].filter(Boolean).join(' · ');
     if (node.modelId) sub.setAttribute('title', node.modelId);
     const status = document.createElementNS(NS, 'text');
@@ -214,7 +227,7 @@ function show(node) {
     term.textContent = name;
     const data = document.createElement('dd');
     data.textContent = value;
-    if (name === 'Model' && node.modelId) data.setAttribute('title', node.modelId);
+    if (/model$/i.test(name) && node.modelId) data.setAttribute('title', node.modelId);
     facts.append(term, data);
   }
 }
@@ -224,33 +237,45 @@ let selected = null;
 let inFlight = false;
 let feedUnavailable = false;
 
+/** Project membership and words exclusively from fleet facts; source nodes only supply scoped readings. */
+export function fleetMap(map, now = Date.now() / 1000) {
+  if (!map) return map;
+  const facts = fleetFacts(map, {now});
+  const nodes = facts.map(fact => {
+    const evidence = fact.evidence || {};
+    const fresh = fact.state !== 'stale' && fact.state !== 'unknown';
+    const node = {...evidence, ...fact, factState: fact.state,
+      role: fact.scope === 'machine' ? 'machine' : evidence.role || 'llama',
+      machine: fact.scope === 'machine' ? fact.id : fact.parentId,
+      health: fact.state === 'endpoint answering' ? 'ok' : fact.state === 'endpoint unavailable' ? 'down' : 'not_measured',
+      modelId: fact.modelId || evidence.modelId || null,
+      endpoint: evidence.configuredEndpoint || evidence.endpoint || null,
+      observationSource: fact.source};
+    // Endpoint identity has no activity, rates, hardware or queue measurements.
+    for (const key of ['promptTokensPerSecond', 'generationTokensPerSecond', 'latencyMs', 'queueDepth',
+      'slotsBusy', 'slotsTotal', 'contextUsed', 'contextLimit', 'vramUsedMiB', 'vramTotalMiB']) {
+      if (!fresh || String(fact.source).startsWith('registry')) node[key] = key === 'latencyMs' && fresh ? evidence[key] ?? null : null;
+    }
+    return node;
+  });
+  const ids = new Set(nodes.map(node => node.id));
+  const expired = new Set(nodes.filter(node => ['stale', 'unknown'].includes(node.factState)).map(node => node.id));
+  const edges = (map.edges || []).filter(edge => ids.has(edge.from) && ids.has(edge.to)
+    && (!['upstream', 'caller'].includes(edge.kind) || !expired.has(edge.from) && !expired.has(edge.to)));
+  for (const node of nodes) {
+    if (node.role !== 'machine' && ids.has(node.parentId)
+        && !edges.some(edge => edge.from === node.parentId && edge.to === node.id))
+      edges.push({from: node.parentId, to: node.id, kind: 'hosts'});
+  }
+  return {...map, nodes, edges};
+}
+
 function ageMap(map, unavailable = false) {
   if (!map) return map;
   const age = Date.now() - Date.parse(map.observedAt);
   const tunnel = map.tunnel && (unavailable || !Number.isFinite(age) || age < -2000 || age > 30000)
     ? {state: 'not_measured', detail: 'PC tunnel observation stale.'} : map.tunnel;
-  const expired = new Set();
-  const nodes = (map.nodes || []).map(node => {
-    const registry = node.observationSource === 'registry';
-    // A registry observation has its own completion timestamp. A new snapshot
-    // must never renew it while a probe or sampler is stalled.
-    const age = Date.now() - Date.parse(registry ? node.observedAt : (node.observedAt || map.observedAt));
-    const interval = typeof node.probeIntervalSeconds === 'number' && Number.isFinite(node.probeIntervalSeconds)
-      && node.probeIntervalSeconds > 0 ? node.probeIntervalSeconds : 3;
-    const maxAge = registry ? 2 * interval * 1000 : (node.machine === 'pc' ? 30000 : 3000);
-    if (registry) node = {...node, ageSeconds: Number.isFinite(age) ? Math.max(0, age / 1000) : null};
-    if (!unavailable && Number.isFinite(age) && age >= -2000 && age <= maxAge) return node;
-    if (registry && !unavailable && node.observedAt == null && node.health === 'not_measured') return node;
-    expired.add(node.id);
-    const unknown = {...node, health: 'not_measured', reason: unavailable ? 'feed_unavailable' : 'stale'};
-    for (const field of ['modelId', 'upstream', 'detail', 'models', 'callers', 'promptTokensPerSecond',
-      'generationTokensPerSecond', 'latencyMs', 'queueDepth', 'slotsBusy', 'slotsTotal',
-      'contextUsed', 'contextLimit', 'vramUsedMiB', 'vramTotalMiB']) unknown[field] = null;
-    return unknown;
-  });
-  const edges = (map.edges || []).filter(edge => !['upstream', 'caller'].includes(edge.kind)
-    || (!expired.has(edge.from) && !expired.has(edge.to)));
-  return {...map, tunnel, nodes, edges};
+  return fleetMap({...map, tunnel});
 }
 
 function render() {
@@ -279,7 +304,7 @@ async function tick() {
     if (!response.ok) throw new Error(String(response.status));
     const map = await response.json();
     if (!map || !Array.isArray(map.nodes)) throw new Error('Invalid map');
-    current = ageMap(map);
+    current = ageMap(fleetMap(map));
     feedUnavailable = false;
   } catch (_) {
     current = ageMap(current, true);

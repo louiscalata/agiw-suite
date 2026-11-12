@@ -1,4 +1,5 @@
 import {layout,onlineMode} from './production.mjs';
+import {fleetTileExpectations} from './monitor-harness.mjs';
 const {onlineCodeModeView}=onlineMode;
 const pairs=body=>Object.fromEntries(body.querySelectorAll('dt').map(dt=>[dt.textContent,dt.parentNode.children[dt.parentNode.children.indexOf(dt)+1].textContent]));
 const tiles=body=>Object.fromEntries(body.querySelectorAll('.tile').map(t=>[t.querySelector('.tile-label')?.textContent,t.querySelector('.tile-value')?.textContent]));
@@ -15,7 +16,7 @@ export function checkTwoSided(item,api,$,fail){
   const w=pairs(worker);
   if(e.exact){
     const x=e.exact;
-    for(const [id,want] of [['loadedCount',x.loaded],['activeCount',x.active],['queuedCount',x.queued]])eq('exact.summary.'+id,$(id).textContent,String(want));
+    for(const [id,want] of Object.entries(fleetTileExpectations(d,1800000000+(item.clockOffset||0))))eq('exact.endpoint.summary.'+id,$(id).textContent,want);
     if(!$('modelScopeNote').textContent.startsWith(`${x.discovered} of 6 primary models discovered`))fail(item,'exact.catalog',$('modelScopeNote').textContent);
     const runtime=api.inspect({kind:'runtime'}),rt=tiles(runtime);
     eq('exact.runtime.Loaded',rt.Loaded,String(x.loaded));

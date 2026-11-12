@@ -1,0 +1,445 @@
+{
+  "now": 1794484800.0,
+  "snapshot": {
+    "schemaVersion": 1,
+    "sampledAt": 1794484800.0,
+    "machines": [
+      {
+        "id": "mac",
+        "host": "mac",
+        "platform": "mac",
+        "label": "This Mac",
+        "trust": "local",
+        "state": "up",
+        "observedAt": "2026-11-12T11:59:59Z",
+        "freshForSeconds": 3,
+        "modelsComplete": true,
+        "loadedCount": 1,
+        "busyCount": 0
+      },
+      {
+        "id": "peer:spare",
+        "host": "spare",
+        "platform": "mac",
+        "label": "Unmatched peer",
+        "trust": "authenticated",
+        "state": "up",
+        "observedAt": "2026-11-12T11:59:58Z",
+        "freshForSeconds": 30,
+        "modelsComplete": false,
+        "loadedCount": null,
+        "busyCount": null
+      }
+    ],
+    "inference": {
+      "observedAt": "2026-11-12T12:00:00Z",
+      "nodes": [
+        {
+          "id": "mac",
+          "machine": "mac",
+          "role": "machine",
+          "label": "This Mac"
+        },
+        {
+          "id": "registry:pc",
+          "machine": "registry:pc",
+          "role": "machine",
+          "label": "Configured PC",
+          "replaces": "legacy-pc",
+          "observationSource": "registry",
+          "probeIntervalSeconds": 3
+        },
+        {
+          "id": "registry:pro",
+          "machine": "registry:pro",
+          "role": "machine",
+          "label": "Configured Mac Pro",
+          "observationSource": "registry",
+          "probeIntervalSeconds": 3
+        },
+        {
+          "id": "mac:lmstudio",
+          "machine": "mac",
+          "role": "llama",
+          "label": "Local endpoint",
+          "health": "ok",
+          "modelId": "local/model",
+          "observedAt": "2026-11-12T11:59:59Z"
+        },
+        {
+          "id": "registry:pc:fast",
+          "machine": "registry:pc",
+          "role": "llama",
+          "label": "PC fast",
+          "health": "ok",
+          "modelId": "pc/fast",
+          "observedAt": "2026-11-12T11:59:59Z",
+          "observationSource": "registry",
+          "probeIntervalSeconds": 3
+        },
+        {
+          "id": "registry:pc:deep",
+          "machine": "registry:pc",
+          "role": "llama",
+          "label": "PC deep",
+          "health": "ok",
+          "modelId": "pc/deep",
+          "observedAt": "2026-11-12T11:59:59Z",
+          "observationSource": "registry",
+          "probeIntervalSeconds": 3
+        },
+        {
+          "id": "registry:pro:deep",
+          "machine": "registry:pro",
+          "role": "llama",
+          "label": "Mac Pro deep",
+          "health": "not_measured",
+          "modelId": null,
+          "observedAt": null,
+          "reason": "pending",
+          "contextTokens": 32768,
+          "thinking": "on",
+          "endpoint": "http://127.0.0.1:21003",
+          "observationSource": "registry",
+          "probeIntervalSeconds": 3
+        }
+      ]
+    }
+  },
+  "inference": {
+    "observedAt": "2026-11-12T12:00:00Z",
+    "nodes": [
+      {
+        "id": "mac",
+        "machine": "mac",
+        "role": "machine",
+        "label": "This Mac"
+      },
+      {
+        "id": "registry:pc",
+        "machine": "registry:pc",
+        "role": "machine",
+        "label": "Configured PC",
+        "replaces": "legacy-pc",
+        "observationSource": "registry",
+        "probeIntervalSeconds": 3
+      },
+      {
+        "id": "registry:pro",
+        "machine": "registry:pro",
+        "role": "machine",
+        "label": "Configured Mac Pro",
+        "observationSource": "registry",
+        "probeIntervalSeconds": 3
+      },
+      {
+        "id": "mac:lmstudio",
+        "machine": "mac",
+        "role": "llama",
+        "label": "Local endpoint",
+        "health": "ok",
+        "modelId": "local/model",
+        "observedAt": "2026-11-12T11:59:59Z"
+      },
+      {
+        "id": "registry:pc:fast",
+        "machine": "registry:pc",
+        "role": "llama",
+        "label": "PC fast",
+        "health": "ok",
+        "modelId": "pc/fast",
+        "observedAt": "2026-11-12T11:59:59Z",
+        "observationSource": "registry",
+        "probeIntervalSeconds": 3
+      },
+      {
+        "id": "registry:pc:deep",
+        "machine": "registry:pc",
+        "role": "llama",
+        "label": "PC deep",
+        "health": "ok",
+        "modelId": "pc/deep",
+        "observedAt": "2026-11-12T11:59:59Z",
+        "observationSource": "registry",
+        "probeIntervalSeconds": 3
+      },
+      {
+        "id": "registry:pro:deep",
+        "machine": "registry:pro",
+        "role": "llama",
+        "label": "Mac Pro deep",
+        "health": "not_measured",
+        "modelId": null,
+        "observedAt": null,
+        "reason": "pending",
+        "contextTokens": 32768,
+        "thinking": "on",
+        "endpoint": "http://127.0.0.1:21003",
+        "observationSource": "registry",
+        "probeIntervalSeconds": 3
+      }
+    ]
+  },
+  "fleetState": {
+    "schemaVersion": 1,
+    "observedAt": "2026-11-12T12:00:00Z",
+    "facts": [
+      {
+        "id": "mac",
+        "scope": "machine",
+        "label": "This Mac",
+        "parentId": null,
+        "source": "local report",
+        "observedAt": "2026-11-12T11:59:59Z",
+        "expiresAt": "2026-11-12T12:00:02Z",
+        "ageSeconds": 1.0,
+        "completeness": "complete",
+        "reason": "reported",
+        "state": "reported",
+        "evidence": {
+          "id": "mac",
+          "host": "mac",
+          "platform": "mac",
+          "label": "This Mac",
+          "trust": "local",
+          "state": "up",
+          "observedAt": "2026-11-12T11:59:59Z",
+          "freshForSeconds": 3,
+          "modelsComplete": true,
+          "loadedCount": 1,
+          "busyCount": 0,
+          "endpointCounts": {
+            "lanes": 1,
+            "answering": 1,
+            "unavailable": 0,
+            "stale": 0,
+            "unknown": 0
+          },
+          "configured": {
+            "id": "mac",
+            "machine": "mac",
+            "role": "machine",
+            "label": "This Mac"
+          },
+          "unmatchedPeer": false
+        }
+      },
+      {
+        "id": "registry:pc",
+        "scope": "machine",
+        "label": "Configured PC",
+        "parentId": null,
+        "source": "configured membership",
+        "observedAt": null,
+        "expiresAt": null,
+        "ageSeconds": null,
+        "completeness": "unknown",
+        "reason": "host_not_measured",
+        "state": "unknown",
+        "evidence": {
+          "endpointCounts": {
+            "lanes": 2,
+            "answering": 2,
+            "unavailable": 0,
+            "stale": 0,
+            "unknown": 0
+          },
+          "configured": {
+            "id": "registry:pc",
+            "machine": "registry:pc",
+            "role": "machine",
+            "label": "Configured PC",
+            "replaces": "legacy-pc",
+            "observationSource": "registry",
+            "probeIntervalSeconds": 3
+          },
+          "unmatchedPeer": false
+        }
+      },
+      {
+        "id": "registry:pro",
+        "scope": "machine",
+        "label": "Configured Mac Pro",
+        "parentId": null,
+        "source": "configured membership",
+        "observedAt": null,
+        "expiresAt": null,
+        "ageSeconds": null,
+        "completeness": "unknown",
+        "reason": "host_not_measured",
+        "state": "unknown",
+        "evidence": {
+          "endpointCounts": {
+            "lanes": 1,
+            "answering": null,
+            "unavailable": 0,
+            "stale": 0,
+            "unknown": 1
+          },
+          "configured": {
+            "id": "registry:pro",
+            "machine": "registry:pro",
+            "role": "machine",
+            "label": "Configured Mac Pro",
+            "observationSource": "registry",
+            "probeIntervalSeconds": 3
+          },
+          "unmatchedPeer": false
+        }
+      },
+      {
+        "id": "peer:spare",
+        "scope": "machine",
+        "label": "Unmatched peer",
+        "parentId": null,
+        "source": "peer report",
+        "observedAt": "2026-11-12T11:59:58Z",
+        "expiresAt": "2026-11-12T12:00:28Z",
+        "ageSeconds": 2.0,
+        "completeness": "partial",
+        "reason": "reported",
+        "state": "reported",
+        "evidence": {
+          "id": "peer:spare",
+          "host": "spare",
+          "platform": "mac",
+          "label": "Unmatched peer",
+          "trust": "authenticated",
+          "state": "up",
+          "observedAt": "2026-11-12T11:59:58Z",
+          "freshForSeconds": 30,
+          "modelsComplete": false,
+          "loadedCount": null,
+          "busyCount": null,
+          "endpointCounts": {
+            "lanes": 0,
+            "answering": null,
+            "unavailable": 0,
+            "stale": 0,
+            "unknown": 0
+          },
+          "configured": {
+            "id": "peer:spare",
+            "label": "Unmatched peer"
+          },
+          "unmatchedPeer": true
+        }
+      },
+      {
+        "id": "mac:lmstudio",
+        "scope": "lane",
+        "label": "Local endpoint",
+        "parentId": "mac",
+        "source": "inference endpoint",
+        "observedAt": "2026-11-12T11:59:59Z",
+        "expiresAt": "2026-11-12T12:00:02Z",
+        "ageSeconds": 1.0,
+        "completeness": "complete",
+        "reason": null,
+        "state": "endpoint answering",
+        "evidence": {
+          "id": "mac:lmstudio",
+          "machine": "mac",
+          "role": "llama",
+          "label": "Local endpoint",
+          "health": "ok",
+          "modelId": "local/model",
+          "observedAt": "2026-11-12T11:59:59Z",
+          "healthScope": "endpoint identity only; host, hardware and inference activity unknown"
+        }
+      },
+      {
+        "id": "registry:pc:fast",
+        "scope": "lane",
+        "label": "PC fast",
+        "parentId": "registry:pc",
+        "source": "registry /v1/models",
+        "observedAt": "2026-11-12T11:59:59Z",
+        "expiresAt": "2026-11-12T12:00:05Z",
+        "ageSeconds": 1.0,
+        "completeness": "complete",
+        "reason": null,
+        "state": "endpoint answering",
+        "evidence": {
+          "id": "registry:pc:fast",
+          "machine": "registry:pc",
+          "role": "llama",
+          "label": "PC fast",
+          "health": "ok",
+          "modelId": "pc/fast",
+          "observedAt": "2026-11-12T11:59:59Z",
+          "observationSource": "registry",
+          "probeIntervalSeconds": 3,
+          "healthScope": "endpoint identity only; host, hardware and inference activity unknown"
+        }
+      },
+      {
+        "id": "registry:pc:deep",
+        "scope": "lane",
+        "label": "PC deep",
+        "parentId": "registry:pc",
+        "source": "registry /v1/models",
+        "observedAt": "2026-11-12T11:59:59Z",
+        "expiresAt": "2026-11-12T12:00:05Z",
+        "ageSeconds": 1.0,
+        "completeness": "complete",
+        "reason": null,
+        "state": "endpoint answering",
+        "evidence": {
+          "id": "registry:pc:deep",
+          "machine": "registry:pc",
+          "role": "llama",
+          "label": "PC deep",
+          "health": "ok",
+          "modelId": "pc/deep",
+          "observedAt": "2026-11-12T11:59:59Z",
+          "observationSource": "registry",
+          "probeIntervalSeconds": 3,
+          "healthScope": "endpoint identity only; host, hardware and inference activity unknown"
+        }
+      },
+      {
+        "id": "registry:pro:deep",
+        "scope": "lane",
+        "label": "Mac Pro deep",
+        "parentId": "registry:pro",
+        "source": "registry /v1/models",
+        "observedAt": null,
+        "expiresAt": null,
+        "ageSeconds": null,
+        "completeness": "unknown",
+        "reason": "pending",
+        "state": "unknown",
+        "evidence": {
+          "id": "registry:pro:deep",
+          "machine": "registry:pro",
+          "role": "llama",
+          "label": "Mac Pro deep",
+          "health": "not_measured",
+          "modelId": null,
+          "observedAt": null,
+          "reason": "pending",
+          "contextTokens": 32768,
+          "thinking": "on",
+          "endpoint": "http://127.0.0.1:21003",
+          "observationSource": "registry",
+          "probeIntervalSeconds": 3,
+          "healthScope": "endpoint identity only; host, hardware and inference activity unknown"
+        }
+      }
+    ],
+    "counts": {
+      "lanes": 4,
+      "answering": 3,
+      "unavailable": 0,
+      "stale": 0,
+      "unknown": 1,
+      "machines": 4,
+      "loaded": null,
+      "busy": null
+    },
+    "completeness": "partial",
+    "state": "coverage",
+    "summary": "3 of 4 lanes answering; 1 unknown: Mac Pro deep (registry:pro:deep)"
+  }
+}

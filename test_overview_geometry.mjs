@@ -15,6 +15,8 @@ function fixture(width = 375) {
   const body = element('', rect(0, 0, width, 1200), root);
   body.scrollWidth = width;
   const heading = element('AGIW Inference Monitor', rect(12, 10, width - 12, 48), body);
+  const brand = element('AGIW', rect(12, 10, 120, 30), heading);
+  const subtitle = element('Inference Monitor', rect(12, 30, 160, 48), heading);
   const tuning = element('Model tuning', rect(12, 60, 150, 104), body);
   const tabs = [
     element('All inference', rect(12, 200, width - 12, 244), body),
@@ -22,14 +24,14 @@ function fixture(width = 375) {
   ];
   const document = {
     documentElement: root, body,
-    querySelector: selector => selector === '.brand-wordmark' ? heading : tuning,
+    querySelector: selector => ({'.brand-wordmark':heading, '.brand-wordmark strong':brand, '.brand-wordmark small':subtitle})[selector] || tuning,
     querySelectorAll: () => tabs,
     createRange: () => ({
       selectNodeContents(node) { this.node = node; },
       getBoundingClientRect() { return this.node.textBox || this.node.box; },
     }),
   };
-  return { root, body, heading, tuning, tabs, element,
+  return { root, body, heading, brand, subtitle, tuning, tabs, element,
     run: () => JSON.parse(JSON.stringify(runInNewContext(`(${overviewGeometry.toString()})()`, {
       document, window: { innerHeight: 812 }, getComputedStyle: node => node.style,
     }))),
@@ -42,6 +44,16 @@ test('wrapped labels and vertically scrollable document content fit at both widt
     f.tabs[1].box = rect(12, 900, width - 12, 980);
     f.body.style.overflowY = 'auto';
     assert.deepEqual(f.run(), []);
+  }
+});
+
+test('both full heading labels must be painted even when their parent heading has area', () => {
+  for (const kind of ['hidden', 'short', 'missing']) {
+    const f = fixture();
+    if (kind === 'hidden') f.subtitle.style.display = 'none';
+    if (kind === 'short') f.subtitle.textContent = 'Monitor';
+    if (kind === 'missing') f.subtitle.box = rect(0, 0, 0, 0);
+    assert.ok(f.run().some(row => row.target === 'Inference Monitor'), kind);
   }
 });
 

@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 const board = new URL('./web/monitor-board.mjs', import.meta.url);
 const boardSource = readFileSync(board, 'utf8').replace("'/monitor-tabs.mjs'", JSON.stringify(new URL('./web/monitor-tabs.mjs', import.meta.url).href));
 const boardURL = `data:text/javascript;base64,${Buffer.from(boardSource).toString('base64')}`;
-const source = readFileSync(new URL('./web/machines.mjs', import.meta.url), 'utf8').replace("'/monitor-board.mjs'", JSON.stringify(boardURL));
+const source = readFileSync(new URL('./web/machines.mjs', import.meta.url), 'utf8').replace("'/monitor-board.mjs'", JSON.stringify(boardURL)).replace("'/fleet-state.mjs'", JSON.stringify(new URL('./web/fleet-state.mjs', import.meta.url).href));
 const { machineFacts, machineTiles, mountMachines, paintMachines, laneFacts } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
 const read = path => readFileSync(new URL(path, import.meta.url), 'utf8');
 
@@ -213,23 +213,39 @@ test('lane model paths show the filename while repository IDs stay intact', () =
   assert.equal(laneFacts({reason: '<script>'}).reason, 'Not observed');
 });
 
-test('Machines DOM lists every registry lane and local lanes with text health, observation and full model title', () => {
+const shared = JSON.parse(read('./test_support/fleet-state.json'));
+
+test('Machines DOM reads membership and state words from the shared fleet fixture', () => {
   const els = {};
   const make = tag => ({tag, children: [], attrs: {}, textContent: '', className: '',
     setAttribute(k, v) { this.attrs[k] = v; }, append(...children) { this.children.push(...children); },
     replaceChildren(...children) { this.children = children; }});
   const document = {createElement: make, getElementById: id => (els[id] ||= make('div'))};
-  const registry = registryRow('pc', 'PC', 2);
-  const local = {id: 'mac:lmstudio', machine: 'mac', role: 'lmstudio', label: 'LM Studio', health: 'ok', modelId: '/models/local.gguf', observedAt: '2026-11-12T20:30:00Z'};
-  paintMachines(document, {host: 'mac', machines: [mac, registry, registryRow('macpro', 'Mac Pro')], inference: {nodes: [local]}}, {fresh: true});
+  const snapshot = {...shared.snapshot, fleetState: shared.fleetState};
+  paintMachines(document, snapshot, {fresh: true, now: shared.now});
   const flatten = node => [node, ...node.children.flatMap(flatten)];
   const all = flatten(els.machinesBody);
-  assert.equal(all.filter(node => node.className === 'j-machine').length, 3);
+  assert.equal(all.filter(node => node.className === 'j-machine').length, 4);
   assert.equal(all.filter(node => node.className === 'j-machine-lane').length, 4);
-  const model = all.find(node => node.textContent === 'glimmer.gguf');
-  assert.equal(model.attrs.title, 'C:\\models\\glimmer.gguf');
-  assert.ok(all.some(node => node.textContent === 'local.gguf' && node.attrs.title === '/models/local.gguf'));
-  assert.ok(all.some(node => node.className === 'j-lane-health' && node.textContent === 'UP'));
-  assert.ok(all.some(node => node.textContent === 'Last seen: 1 s ago'));
-  assert.ok(all.some(node => node.textContent === 'Last seen: 2026-11-12T20:30:00Z'));
+  assert.deepEqual(machineTiles(snapshot, 'mac', {now: shared.now}).map(tile => tile.key),
+    shared.fleetState.facts.filter(fact => fact.scope === 'machine').map(fact => fact.id));
+  assert.ok(all.some(node => node.textContent === 'endpoint answering'));
+  assert.ok(all.some(node => node.textContent === 'Configured Mac Pro'));
+  assert.ok(all.some(node => node.textContent === 'Unmatched peer'));
+  assert.ok(all.some(node => node.textContent === 'Configured endpoint: http://127.0.0.1:21003'));
+  assert.ok(all.some(node => node.textContent === 'Last successful probe: Unknown'));
+  assert.ok(all.some(node => node.textContent === 'Last probe: 1 s ago'));
+});
+
+test('Machines expires each fact independently while keeping membership and unknown counts', () => {
+  const snapshot = {...shared.snapshot, fleetState: shared.fleetState};
+  const tiles = machineTiles(snapshot, 'mac', {now: shared.now + 4});
+  assert.equal(tiles.length, 4);
+  assert.match(tiles[0].word, /^stale · 5 s ago$/);
+  const pc = tiles.find(tile => tile.key === 'registry:pc');
+  assert.equal(pc.word, 'unknown');
+  assert.equal(pc.lanes.every(lane => lane.state === 'endpoint answering'), true);
+  assert.equal(Object.fromEntries(pc.facts)['Models loaded'], 'Unknown');
+  assert.equal(Object.fromEntries(tiles.find(tile => tile.key === 'peer:spare').facts)['Models busy'], 'Unknown');
+  assert.deepEqual(machineTiles({machines: shared.snapshot.machines}, 'mac'), [], 'no alternate inventory when the contract is unavailable');
 });

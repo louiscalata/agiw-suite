@@ -180,7 +180,7 @@ foreach ($item in Get-ChildItem -LiteralPath (Join-Path $sourceWindows 'agiw_win
 foreach ($file in 'agiw_observer.py', 'agiw-monitor.ps1', 'AGIW Monitor.vbs', 'AGIW Monitor.cmd', 'README.md') {
     $files.Add(@((Join-Path $sourceWindows $file), $file))
 }
-foreach ($file in 'index.html', 'app.js', 'style.css', 'map-layout.mjs', 'model-control-view.mjs', 'simple-view.mjs', 'simple-view.css', 'online-code-mode.mjs', 'monitor.html', 'monitor.mjs', 'monitor.css', 'monitor-tabs.mjs', 'monitor-board.mjs', 'monitor-map.mjs', 'jaryo.css', 'jaryo.mjs', 'identity.html', 'identity.mjs', 'machines.html', 'machines.mjs', 'setup.html', 'setup.mjs', 'components.html', 'components.js', 'components.css', 'eci-tuning.html', 'eci-tuning.mjs', 'eci-tuning.css', 'fonts/ibm-plex-sans-400.woff2', 'fonts/ibm-plex-sans-700.woff2', 'fonts/ibm-plex-mono-400.woff2', 'fonts/ibm-plex-mono-700.woff2', 'fonts/OFL-IBM-Plex.txt') {
+foreach ($file in 'index.html', 'app.js', 'style.css', 'map-layout.mjs', 'model-control-view.mjs', 'simple-view.mjs', 'simple-view.css', 'online-code-mode.mjs', 'monitor.html', 'monitor.mjs', 'monitor.css', 'monitor-tabs.mjs', 'monitor-board.mjs', 'monitor-map.mjs', 'jaryo.css', 'jaryo.mjs', 'identity.html', 'identity.mjs', 'machines.html', 'machines.mjs', 'fleet-state.mjs', 'setup.html', 'setup.mjs', 'components.html', 'components.js', 'components.css', 'eci-tuning.html', 'eci-tuning.mjs', 'eci-tuning.css', 'fonts/ibm-plex-sans-400.woff2', 'fonts/ibm-plex-sans-700.woff2', 'fonts/ibm-plex-mono-400.woff2', 'fonts/ibm-plex-mono-700.woff2', 'fonts/OFL-IBM-Plex.txt') {
     $files.Add(@((Join-Path $repo "web\$file"), "web\$file"))
 }
 foreach ($file in 'tokens.json', 'theme.mjs', 'primitives.css', 'README.md', 'marks\d1-stamp.svg', 'marks\d2-ledger.svg', 'marks\d3-schematic.svg', 'marks\d4-split.svg', 'marks\d4-split-before.svg', 'marks\d4-split-wordmark.svg', 'marks\d4-split-on-dark.svg', 'marks\d4-split-on-light.svg', 'marks\d5-signal.svg', 'marks\favicon.svg') {
@@ -189,7 +189,7 @@ foreach ($file in 'tokens.json', 'theme.mjs', 'primitives.css', 'README.md', 'ma
 # peer_link.py is the LAN pairing service (agiw-peer/2), included in the preview resource inventory. Installing it
 # starts nothing: it runs only when started (python peer_link.py run --status-file state\peer-link-status.json), after
 # PIN pairing and the 8768/8769 firewall rules.
-foreach ($file in 'usage-format.mjs', 'client_models.py', 'peer_link.py', 'peer_feed.py', 'machine_state.py', 'inference_stats.py', 'inference_collect.py', 'remote_machines.py', 'eci_tuning.py', 'eci_fast_check.py', 'eci_fast_check.schema.json', 'eci_tuning_catalog.json', 'eci_tuning_routes.json', 'eci_tuning.schema.json', 'LICENSE', 'NOTICE') {
+foreach ($file in 'usage-format.mjs', 'client_models.py', 'peer_link.py', 'peer_feed.py', 'machine_state.py', 'fleet_state.py', 'inference_stats.py', 'inference_collect.py', 'remote_machines.py', 'eci_tuning.py', 'eci_fast_check.py', 'eci_fast_check.schema.json', 'eci_tuning_catalog.json', 'eci_tuning_routes.json', 'eci_tuning.schema.json', 'LICENSE', 'NOTICE') {
     $files.Add(@((Join-Path $repo $file), $file))
 }
 

@@ -20,36 +20,55 @@ const registryMachine = (id, label, health = 'ok') => ({id: `registry:${id}`, ho
   lanes: [{id: `registry:${id}:fast`, label: 'Fast', health, reason: health === 'ok' ? null : 'timeout',
     modelId: health === 'ok' ? '/models/author.gguf' : null, ageSeconds: 1, observedAt: new Date(999000).toISOString(), probeIntervalSeconds: 3}]});
 
-test('registry replacement governs PC LLM and lists other remote machines without a duplicate legacy monitor', () => {
-  const pc = {...registryMachine('pc', 'PC'), replaces: 'legacy-pc'};
-  const snapshot = {schemaVersion: 1, host: 'mac', machines: [pc, registryMachine('macpro', 'Mac Pro')],
-    windowsWorker: {state: 'stopped', lanes: {fast: {up: true, model: 'old', servedModel: 'wrong'}}}};
-  const monitors = deriveMonitors(snapshot, {feedFresh: true, now: 1000});
-  const remote = byId(monitors, 'machine:pc');
-  assert.equal(remote.word, 'OK');
-  assert.match(remote.reason, /PC · 1 lane up/);
-  assert.equal(remote.identity.machine, 'registry:pc');
-  assert.equal(remote.metrics.find(item => item.label === 'Fast model').value, 'author.gguf');
-  assert.equal(remote.metrics.find(item => item.label === 'Fast model').title, '/models/author.gguf');
-  assert.equal(byId(monitors, 'machine:registry:macpro').title, 'Mac Pro');
-  assert.equal(monitors.filter(item => item.id === 'machine:pc').length, 1);
-  assert.equal(remote.evidence.badges.lane, 'INVENTORY', 'legacy model mismatch does not override registry');
-  assert.equal(byId(monitors, 'machine:mac').metrics.find(item => item.label === 'Loaded').value, '—', 'registry identities do not establish empty local inventory');
-  assert.equal(byId(deriveMonitors(snapshot, {feedFresh: false, now: 1000}), 'machine:pc').word, 'UNKNOWN');
-  assert.equal(byId(deriveMonitors(snapshot, {feedFresh: true, paused: true, now: 1000}), 'machine:pc').word, 'UNKNOWN');
+const fleetFixture = JSON.parse(read('./test_support/fleet-state.json'));
+const fleetSnapshot = () => ({...structuredClone(fleetFixture.snapshot), fleetState: structuredClone(fleetFixture.fleetState)});
+
+test('machine monitors and map tabs use the shared fleet membership and scoped words', () => {
+  const snapshot = fleetSnapshot(), options = {feedFresh: true, now: fleetFixture.now};
+  const monitors = deriveMonitors(snapshot, options);
+  assert.deepEqual(monitors.filter(item => item.kind === 'machine').map(item => item.identity.machine),
+    fleetFixture.fleetState.facts.filter(item => item.scope === 'machine').map(item => item.id));
+  const pc = byId(monitors, 'machine:registry:pc');
+  assert.equal(pc.word, '2 of 2 lanes answering');
+  assert.match(pc.reason, /Host health not measured/);
+  assert.equal(pc.pipeline.steps[0].word, 'ENDPOINT ANSWERING');
+  assert.match(pc.metrics.find(item => item.label === 'PC fast').value, /reported model pc\/fast/);
+  const map = {...fleetFixture.inference, fleetState: snapshot.fleetState};
+  const tabs = mapMonitors(map, {now: fleetFixture.now});
+  assert.deepEqual(tabs.slice(1).map(item => item.id), snapshot.fleetState.facts.map(item => item.id));
+  for (const fact of snapshot.fleetState.facts.filter(fact => fact.scope === 'lane')) assert.equal(byId(tabs, fact.id).word, fact.state.toUpperCase());
+  assert.equal(byId(tabs, 'registry:pc').word, '2 of 2 lanes answering');
+  assert.equal(byId(tabs, 'peer:spare').word, 'peer report observed');
+  assert.match(byId(monitors, 'all').reason, /3 of 4 lanes answering.*unknown.*Mac Pro deep/);
 });
 
-test('reachable registry lanes keep All inference from implying every machine is blocked', () => {
-  const snapshot = {schemaVersion: 1, host: 'mac', machines: [{...registryMachine('pc', 'PC'), replaces: 'legacy-pc'}],
-    pipeline: {status: 'recovery-required'}, components: [{id: 'nisi', state: 'unresolved', detail: 'Recovery pending'}]};
-  const monitors = deriveMonitors(snapshot, {feedFresh: true, now: 1000});
+test('one blocked workflow neither blocks nor blesses fleet endpoint coverage', () => {
+  const snapshot = fleetSnapshot();
+  snapshot.pipeline = {status: 'recovery-required'};
+  snapshot.components = [{id: 'nisi', state: 'unresolved', detail: 'Recovery pending'}];
+  let monitors = deriveMonitors(snapshot, {feedFresh: true, now: fleetFixture.now});
   assert.equal(byId(monitors, 'route:nisi').word, 'BLOCKED');
-  assert.equal(byId(monitors, 'all').word, 'DEGRADED');
-  assert.match(byId(monitors, 'all').reason, /Registry lanes are reachable.*Recovery pending/);
-  snapshot.machines[0].lanes[0].health = 'not_measured';
-  const unknown = deriveMonitors(snapshot, {feedFresh: true, now: 1000});
-  assert.equal(byId(unknown, 'machine:pc').word, 'UNKNOWN');
-  assert.equal(byId(unknown, 'all').word, 'BLOCKED', 'genuine independent block remains when no registry lane is reachable');
+  assert.equal(byId(monitors, 'all').word, '3 of 4 lanes answering');
+  assert.match(byId(monitors, 'all').reason, /3 of 4 lanes answering.*Nisi Inference blocked.*Recovery pending/);
+  for (const fact of snapshot.fleetState.facts.filter(item => item.scope === 'lane')) {
+    fact.state = 'endpoint unavailable'; fact.observedAt = '2026-11-12T11:59:59Z'; fact.expiresAt = '2026-11-12T12:00:05Z';
+  }
+  monitors = deriveMonitors(snapshot, {feedFresh: true, now: fleetFixture.now});
+  assert.equal(byId(monitors, 'all').word, '0 of 4 lanes answering');
+  assert.match(byId(monitors, 'all').reason, /0 of 4 lanes answering.*4 unavailable/);
+  assert.equal(byId(mapMonitors({fleetState: snapshot.fleetState}, {now: fleetFixture.now}), 'all').word, '0 of 4 lanes answering');
+});
+
+test('all stale or unknown lane facts keep answering absence unknown', () => {
+  const snapshot = fleetSnapshot(), now = fleetFixture.now + 7;
+  const all = byId(deriveMonitors(snapshot, {feedFresh: true, now}), 'all');
+  assert.match(all.reason, /Answering count unknown; 4 lanes configured/);
+  assert.doesNotMatch(all.reason, /0 of 4 lanes answering/);
+  assert.match(all.reason, /stale.*8 s ago/);
+  assert.equal(all.metrics.find(item => item.label === 'Busy models').value, '—');
+  const tabs = mapMonitors({fleetState: snapshot.fleetState}, {now});
+  assert.match(byId(tabs, 'all').reason, /Answering count unknown/);
+  assert.equal(byId(tabs, 'registry:pc:fast').word, 'STALE');
 });
 
 test('an empty observer does not invent Claude, Nisi, or PC sessions', () => {
@@ -97,10 +116,10 @@ test('parallel mac route, PC job, and Claude route are independent monitors', ()
 test('a stale or paused feed cannot keep a running claim', () => {
   const snapshot = demoSnapshot();
   assert.equal(byId(deriveMonitors(snapshot, {feedFresh: false, fictional: false}), 'client:claude').word, 'STALE');
-  assert.equal(byId(deriveMonitors(snapshot, {feedFresh: true, paused: true}), 'machine:pc').word, 'STALE');
+  assert.notEqual(byId(deriveMonitors(snapshot, {feedFresh: true, paused: true}), 'job:demo-pc-job').word, 'RUNNING');
   const quiet = demoSnapshot();
   quiet.windowsJobs = {inFlight: quiet.windowsJobs.inFlight, liveAvailable: false, complete: true};
-  assert.notEqual(byId(deriveMonitors(quiet, {feedFresh: true}), 'machine:pc').word, 'RUNNING');
+  assert.notEqual(byId(deriveMonitors(quiet, {feedFresh: true, fictional: true}), 'machine:pc').word, 'RUNNING');
   assert.equal(byId(deriveMonitors(quiet, {feedFresh: true}), 'job:demo-pc-job').word, 'UNKNOWN');
 });
 
@@ -184,9 +203,9 @@ test('map tabs follow map nodes and status words, not a palette', () => {
   assert.equal(healthPresentation({health: 'not_measured', reason: 'tunnel_down'}).word, 'DISCONNECTED');
   assert.equal(healthPresentation({health: 'ok'}).word, 'OK');
   assert.equal(healthPresentation(null, {feedUnavailable: true}).word, 'DISCONNECTED');
-  const monitors = mapMonitors({nodes: [{id: 'mac', label: 'Mac', health: 'not_measured', reason: 'stale'}]}, {});
+  const monitors = mapMonitors({fleetState: {schemaVersion: 1, facts: [{id: 'mac', scope: 'machine', label: 'Mac', state: 'reported', observedAt: '2020-01-01T00:00:00Z', expiresAt: '2020-01-01T00:00:03Z'}]}}, {});
   assert.deepEqual(monitors.map(item => item.id), ['all', 'mac']);
-  assert.equal(monitors[1].word, 'STALE');
+  assert.equal(monitors[1].word, 'peer report stale');
   assert.equal(JSON.stringify(monitors).includes('Claude'), false);
 });
 
@@ -288,7 +307,7 @@ test('2026-11-06 Mac and PC receipts keep the Jev gate closed', () => {
     clients: [],
   };
   const monitors = deriveMonitors(snapshot, {feedFresh: true});
-  assert.equal(byId(monitors, 'machine:mac').word, 'IDLE');
+  assert.equal(monitors.some(item => item.kind === 'machine'), false, 'legacy model rows do not supply fleet membership');
   assert.equal(byId(monitors, 'route:nisi').metrics.find(item => item.label === 'Nisi').value, 'needs-action');
   assert.equal(byId(monitors, 'route:nisi').metrics.find(item => item.label === 'Jev').value, 'configured');
   assert.notEqual(byId(monitors, 'route:nisi').word, 'RUNNING');
@@ -332,7 +351,7 @@ test('authorized 0329 completions and STATUS OK do not open the Jev gate', () =>
     clients: [],
   }, {feedFresh: true});
   assert.equal(byId(idleMasked, 'route:nisi').word, 'BLOCKED');
-  assert.equal(byId(idleMasked, 'machine:mac').word, 'IDLE');
+  assert.equal(idleMasked.some(item => item.kind === 'machine'), false, 'missing fleet contract cannot establish machine state');
   assert.equal(jevGate(byId(idleMasked, 'route:nisi').analyses).open, false);
 });
 
@@ -369,41 +388,17 @@ test('unknown, stale, and disconnected stay different words', () => {
   assert.notEqual(healthPresentation({health: 'not_measured'}).glyph, healthPresentation({health: 'not_measured', reason: 'stale'}).glyph);
   const incomplete = demoSnapshot();
   incomplete.pipeline.pipelinesComplete = false;
-  const running = byId(deriveMonitors(incomplete, {feedFresh: true, fictional: true}), 'all').metrics.find(item => item.label === 'Running');
-  assert.match(running.value, /^at least /);
+  const running = byId(deriveMonitors(incomplete, {feedFresh: true, fictional: true}), 'all').metrics.find(item => item.label === 'Busy models');
+  assert.equal(running.value, '—', 'an incomplete workflow list cannot establish an absence or fleet total');
 });
 
-test('a Windows snapshot keeps Mac presence, lane models, and queue rows distinct', () => {
-  const snapshot = {
-    schemaVersion: 1,
-    host: 'windows',
-    macPeer: {state: 'linked', via: 'sharedchami', configuredName: 'studio', verified: false, loadedCount: 1,
-      models: [{id: 'example-mac', state: 'loaded'}],
-      detail: 'Reported through SharedChami; unsigned share file, not verified'},
-    windowsWorker: {state: 'advertised', ageSeconds: 0, lanes: {
-      fast: {up: true, model: 'expected-fast', servedModel: 'served-fast', slotsBusy: 0, slotsTotal: 2},
-      deep: {up: false, model: 'expected-deep', servedModel: null, slotsBusy: 0, slotsTotal: 1},
-    }},
-    windowsJobs: {liveAvailable: false, complete: true, inFlight: [], recent: [{id: 'old-run', model: 'served-fast', state: 'success'}]},
-    pipeline: {status: 'queued', pipelines: [], pipelinesComplete: false, queue: {pending: 2, claimed: 0}},
-    clients: [],
-  };
+test('legacy peer and worker reports cannot bypass the canonical fleet contract', () => {
+  const snapshot = {schemaVersion: 1, host: 'windows', macPeer: {state: 'linked'}, windowsWorker: {state: 'advertised'},
+    windowsJobs: {complete: true, inFlight: []}, pipeline: {status: 'queued', pipelines: [], pipelinesComplete: false}};
   const monitors = deriveMonitors(snapshot, {feedFresh: true});
-  const mac = byId(monitors, 'machine:mac');
-  assert.equal(mac.title, 'Mac peer');
-  assert.equal(mac.word, 'RECORDED');
-  assert.notEqual(mac.word, 'RUNNING');
-  assert.equal(mac.metrics.find(item => item.label === 'Verified').value, 'no');
-  const pc = byId(monitors, 'machine:pc');
-  assert.equal(pc.metrics.find(item => item.label === 'fast requested').value, 'expected-fast');
-  assert.equal(pc.metrics.find(item => item.label === 'fast served').value, 'served-fast');
-  assert.equal(pc.metrics.find(item => item.label === 'deep served').value, '—');
-  assert.equal(monitors.some(item => item.id === 'job:old-run'), false);
+  assert.equal(monitors.some(item => item.kind === 'machine'), false);
+  assert.equal(byId(monitors, 'all').word, 'UNKNOWN');
   assert.equal(byId(monitors, 'route:nisi').pipeline.incomplete, true);
-  const stale = deriveMonitors({...snapshot, macPeer: {...snapshot.macPeer, state: 'unknown', reason: 'stale', detail: 'Mac report is stale'}}, {feedFresh: true});
-  assert.equal(byId(stale, 'machine:mac').word, 'STALE');
-  const absent = deriveMonitors({...snapshot, macPeer: {...snapshot.macPeer, state: 'unknown', reason: 'no-report', detail: 'No presence'}}, {feedFresh: true});
-  assert.equal(byId(absent, 'machine:mac').word, 'UNAVAILABLE');
 });
 
 test('inserting a tab does not steal focus; removing the focused tab moves to the active tab', () => {
@@ -495,7 +490,7 @@ test('liveness, readiness, and attachment stay separate and acceptance stays blo
   assert.equal(empty.evidence.rows.some(row => row.id === 'acceptance' && row.matrix === 'Observed'), false);
 
   const demo = byId(deriveMonitors(demoSnapshot(), {feedFresh: true, fictional: true}), 'all');
-  assert.equal(demo.evidence.badges.process, 'RUNNING');
+  assert.equal(demo.evidence.badges.process, 'UNKNOWN');
   assert.equal(demo.evidence.badges.lane, 'NOT READY');
   assert.match(demo.evidence.rows.find(row => row.id === 'lane').detail, /not readiness/);
   assert.equal(demo.evidence.rows.find(row => row.id === 'acceptance').matrix, 'Blocked');
@@ -523,7 +518,7 @@ test('liveness, readiness, and attachment stay separate and acceptance stays blo
     pipeline: {status: 'idle', pipelines: [], pipelinesComplete: true, steps: []},
     components: [{id: 'nisi', state: 'ready', detail: 'No unresolved route.'}],
   };
-  assert.equal(byId(deriveMonitors(quiet, {feedFresh: true}), 'all').word, 'IDLE');
+  assert.equal(byId(deriveMonitors(quiet, {feedFresh: true}), 'all').word, 'UNKNOWN');
   assert.equal(healthPresentation({health: 'not_measured', modelId: 'listed-model', reason: 'not_measured'}).word, 'UNKNOWN');
   assert.equal(healthPresentation({health: 'not_measured', reason: 'tunnel_down', ageSeconds: 12}).word, 'DISCONNECTED');
   assert.match(healthPresentation({reason: 'tunnel_down', ageSeconds: 12}).reason, /12s/);
@@ -546,7 +541,7 @@ test('liveness, readiness, and attachment stay separate and acceptance stays blo
 
   const map = mapEvidence({nodes: [{id: 'mac:lmstudio', modelId: 'example-local', health: 'ok'}]}, {fictional: false});
   assert.equal(map.badges.process, 'SAMPLE');
-  assert.equal(map.badges.lane, 'INVENTORY');
+  assert.equal(map.badges.lane, 'NOT MEASURED');
   assert.equal(map.badges.attachment, 'NO RUN');
   const down = mapEvidence(null, {feedUnavailable: true});
   assert.equal(down.badges.process, 'DISCONNECTED');
@@ -617,14 +612,12 @@ test('owner choices retain unapproved artwork and the board does not cover the m
   assert.match(read('./web/components.html'), /href="\/identity"/);
 });
 
-test('a PC snapshot shows the Mac monitor whether the Mac row says mac or macos', () => {
+test('missing canonical inventory never infers machine membership from platform labels', () => {
   for (const platform of ['mac', 'macos']) {
     const monitors = deriveMonitors({schemaVersion: 1, host: 'windows', machines: [
       {id: 'pc', platform: 'windows', state: 'up'}, {id: 'mac', platform, host: 'peer', state: 'unknown'}]}, {feedFresh: true});
-    assert.ok(monitors.some(item => item.id === 'machine:mac'), platform);
+    assert.equal(monitors.some(item => item.kind === 'machine'), false);
   }
-  const none = deriveMonitors({schemaVersion: 1, host: 'windows', machines: [{id: 'pc', platform: 'windows', state: 'up'}]}, {feedFresh: true});
-  assert.equal(none.some(item => item.id === 'machine:mac'), false);
 });
 
 test('a PC lane node that is not configured says NOT CONFIGURED, and a configured PC with its tunnel down still says DISCONNECTED', () => {
@@ -644,4 +637,23 @@ test('a PC lane node that is not configured says NOT CONFIGURED, and a configure
   const map = read('./web/monitor.mjs');
   assert.ok(map.indexOf("node.reason === 'not_configured') return 'NOT CONFIGURED'") > map.indexOf("node.reason === 'stale') return 'STALE'"));
   assert.ok(map.indexOf("node.reason === 'not_configured') return 'NOT CONFIGURED'") < map.indexOf("node.reason === 'feed_unavailable'"));
+});
+
+
+test('the owner fleet displays answering coverage as aggregate and machine headlines', () => {
+  const snapshot = fleetSnapshot();
+  const machine = snapshot.fleetState.facts.find(item => item.scope === 'machine');
+  const lane = snapshot.fleetState.facts.find(item => item.scope === 'lane');
+  const machines = [['mac', 'Mac'], ['registry:pc', 'Windows PC'], ['registry:pro', 'Mac Pro']]
+    .map(([id, label]) => ({...machine, id, label, state: 'unknown'}));
+  const lanes = [['mac', 2, 'endpoint unavailable'], ['registry:pc', 3, 'endpoint answering'], ['registry:pro', 1, 'endpoint answering']]
+    .flatMap(([parentId, count, state]) => Array.from({length: count}, (_, index) => ({...lane,
+      id: `${parentId}:lane-${index}`, parentId, state})));
+  snapshot.fleetState.facts = [...machines, ...lanes];
+  const monitors = deriveMonitors(snapshot, {feedFresh: true, now: fleetFixture.now});
+  assert.equal(byId(monitors, 'all').word, '4 of 6 lanes answering');
+  assert.equal(byId(monitors, 'machine:registry:pc').word, '3 of 3 lanes answering');
+  assert.equal(byId(monitors, 'machine:registry:pro').word, '1 of 1 lane answering');
+  assert.equal(byId(monitors, 'machine:registry:pro').reason.match(/Host health not measured/g).length, 1);
+  assert.equal(byId(monitors, 'machine:registry:pc').glyph, '■');
 });

@@ -673,7 +673,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
                       let data = data, data.count < 2_000_000,
                       let snapshot = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                     self.observerHealthy = false
-                    self.showUnknownBadge("Observer data unavailable; working count is unknown")
+                    self.showUnknownBadge("Observer data unavailable; fleet coverage is unknown")
                     // A missing route is not evidence that the observer process died.
                     if (response as? HTTPURLResponse)?.statusCode == 404 { return }
                     self.pollFailures += 1
@@ -692,92 +692,78 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     }
 
     private func updateBadge(_ snapshot: [String: Any]) {
-        guard let schema = snapshot["schemaVersion"] as? NSNumber, CFGetTypeID(schema) != CFBooleanGetTypeID(),
+        guard let fleet = snapshot["fleetState"] as? [String: Any],
+              let schema = fleet["schemaVersion"] as? NSNumber, CFGetTypeID(schema) != CFBooleanGetTypeID(),
               schema.doubleValue == 1,
-              let sample = snapshot["sampledAt"] as? NSNumber, CFGetTypeID(sample) != CFBooleanGetTypeID(),
-              sample.doubleValue.isFinite,
-              let machines = snapshot["machines"] as? [[String: Any]] else {
-            showUnknownBadge("Unsupported observer data; working count is unknown")
+              let facts = fleet["facts"] as? [[String: Any]], !facts.isEmpty else {
+            showUnknownBadge("Fleet coverage unknown; fleet evidence unavailable")
             return
         }
         let now = Date().timeIntervalSince1970
-        let elapsed = now - sample.doubleValue
-        guard elapsed.isFinite, elapsed >= -2 else {
-            showUnknownBadge("Observer timestamp is invalid; working count is unknown")
-            return
-        }
-        var active = 0
-        var uncertain = machines.isEmpty
-        var platforms = Set<String>()
-        // The Mac and the Windows PC are the expected machines. Linux is retired:
-        // a missing or unverified Linux row must not keep the count unknown.
-        let requiredPlatforms: Set<String> = ["mac", "windows"]
-        let optionalPlatforms: Set<String> = ["linux"]
         let fractionalDate = ISO8601DateFormatter()
         fractionalDate.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let wholeDate = ISO8601DateFormatter()
-        for machine in machines {
-            let platform = machine["platform"] as? String ?? ""
-            let optional = optionalPlatforms.contains(platform)
-            platforms.insert(platform)
-            let thresholds: [String: Double] = ["mac": 3, "windows": 30, "linux": 30]
-            guard let threshold = thresholds[platform], machine["state"] as? String == "up",
-                  let complete = machine["modelsComplete"] as? NSNumber,
-                  CFGetTypeID(complete) == CFBooleanGetTypeID(), complete.boolValue,
-                  let busy = machine["busyCount"] as? NSNumber, CFGetTypeID(busy) != CFBooleanGetTypeID(),
-                  busy.doubleValue.isFinite, busy.doubleValue >= 0, busy.doubleValue <= 256,
-                  busy.doubleValue.rounded() == busy.doubleValue,
-                  let age = machine["ageSeconds"] as? NSNumber, CFGetTypeID(age) != CFBooleanGetTypeID(),
-                  age.doubleValue.isFinite, age.doubleValue >= 0 else {
-                if !optional { uncertain = true }
-                continue
+        func date(_ value: Any?) -> Double? {
+            guard let stamp = value as? String,
+                  let parsed = fractionalDate.date(from: stamp) ?? wholeDate.date(from: stamp) else { return nil }
+            return parsed.timeIntervalSince1970
+        }
+        var lanes = 0
+        var answering = 0
+        var incomplete = false
+        var lines: [String] = []
+        var identities = Set<String>()
+        for fact in facts {
+            guard let id = fact["id"] as? String, !id.isEmpty, !identities.contains(id),
+                  let scope = fact["scope"] as? String, ["machine", "lane"].contains(scope) else {
+                showUnknownBadge("Fleet coverage unknown; invalid fact identity")
+                return
             }
-            let currentAge: Double
-            if let observed = machine["observedAt"], !(observed is NSNull) {
-                guard let stamp = observed as? String,
-                      let date = fractionalDate.date(from: stamp) ?? wholeDate.date(from: stamp) else {
-                    if !optional { uncertain = true }
-                    continue
-                }
-                currentAge = now - date.timeIntervalSince1970
+            identities.insert(id)
+            let label = fact["label"] as? String ?? id
+            let original = fact["state"] as? String ?? "unknown"
+            let observed = date(fact["observedAt"])
+            let expiry = date(fact["expiresAt"])
+            let age = observed.map { now - $0 }
+            let current = observed != nil && expiry != nil && expiry! >= observed!
+                && age!.isFinite && age! >= -2 && now <= expiry!
+            let state: String
+            if let age = age, age >= -2, let observed = observed, let expiry = expiry,
+               expiry >= observed, now > expiry {
+                state = "stale"
+            } else if current && ["endpoint answering", "endpoint unavailable", "reported", "stale"].contains(original) {
+                state = original
             } else {
-                currentAge = age.doubleValue + max(0, elapsed)
+                state = "unknown"
             }
-            guard currentAge.isFinite, currentAge >= -2, currentAge <= threshold else {
-                if !optional { uncertain = true }
-                continue
+            if scope == "lane" {
+                lanes += 1
+                if state == "endpoint answering" { answering += 1 }
+                if state == "unknown" || state == "stale" { incomplete = true }
             }
-            active += busy.intValue
+            let ageText = state == "stale" ? " (\(Int(max(0, age ?? 0))) s old)" : ""
+            let model = (fact["evidence"] as? [String: Any])?["modelId"] as? String
+            let modelText = scope == "lane" && model != nil ? "; reported model: \(model!)" : ""
+            lines.append("\(label) (\(id)): \(state)\(ageText)\(modelText)")
         }
-        uncertain = uncertain || !requiredPlatforms.isSubset(of: platforms)
-        let label = uncertain ? (active > 0 ? "\(active)·?" : "?") : String(active)
-        let memory = Self.memoryBadge(snapshot, elapsed: elapsed)
+        let countUnknown = answering == 0 && incomplete
+        let summary = lanes == 0 ? "Lane coverage unknown" : countUnknown
+            ? "Answering count unknown; \(lanes) lanes configured" : "\(answering) of \(lanes) lanes answering"
+        let sample = snapshot["sampledAt"] as? Double
+        let memory = Self.memoryBadge(snapshot, elapsed: sample.map { max(0, now - $0) } ?? .infinity)
         applyMemoryTint(memory?.level)
-        // Critical also gets a "!" so the warning never depends on colour alone.
-        statusItem.button?.title = " \(label)" + (memory?.level == "critical" ? " !" : "")
-        let memoryLine = memory.map { "\nMemory \($0.level)" + ($0.summary.isEmpty ? "" : ": \($0.summary)") } ?? ""
-        let tooltipCount: String
-        let accessibilityCount: String
-        if uncertain {
-            let unknownCount = active > 0
-                ? "At least \(active) observed working; other activity unknown"
-                : "Working count unknown"
-            tooltipCount = unknownCount
-            accessibilityCount = unknownCount
-        } else {
-            tooltipCount = "\(active) observed working · fresh observed activity"
-            accessibilityCount = "\(active) models observed working · fresh observed activity"
-        }
-        statusItem.button?.toolTip = "Inference Monitor · \(tooltipCount)\(memoryLine)"
-        statusItem.button?.setAccessibilityValue(accessibilityCount
-            + (memory.map { ". Memory \($0.level)" } ?? ""))
+        statusItem.button?.title = " " + (lanes > 0 ? (countUnknown ? "?/\(lanes)" : "\(answering)/\(lanes)") : "?")
+            + (memory?.level == "critical" ? " !" : "")
+        let detail = summary + "; host health and fleet activity unknown\n" + lines.joined(separator: "\n")
+        statusItem.button?.toolTip = "Inference Monitor · " + detail
+        statusItem.button?.setAccessibilityValue(detail + (memory.map { ". Memory \($0.level)" } ?? ""))
     }
 
     private func showUnknownBadge(_ detail: String) {
         applyMemoryTint(nil)
         statusItem?.button?.title = " ?"
         statusItem?.button?.toolTip = "Inference Monitor · \(detail)"
-        statusItem?.button?.setAccessibilityValue("Working count unknown")
+        statusItem?.button?.setAccessibilityValue("Fleet coverage unknown")
     }
 
     /// Amber when memory is tight, red when critical; the normal menu bar colour otherwise.

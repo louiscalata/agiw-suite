@@ -1,13 +1,15 @@
-// The overview map is flat ink in both themes, including ::before and focused edges.
-// Labels retain their fill without a stroke; runtime emphasis keeps Plex and normal tracking.
+// The overview map is flat ink in both themes, including pseudos and focused controls.
+// The disclosed machine/lane list retains full labels; coverage keeps Plex and normal tracking.
 // Run only in hosted Linux CI, alongside overview-ink.mjs.
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
+import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(import.meta.url);
+const fixture = JSON.parse(readFileSync(new URL('../test_support/fleet-state.json', import.meta.url), 'utf8'));
 
 let chromium;
 try {
@@ -49,43 +51,40 @@ try {
   browser = await chromium.launch({ args: ['--use-mock-keychain', '--password-store=basic'] });
   for (const scheme of ['light', 'dark']) {
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 }, colorScheme: scheme });
-    // Fictional demo data guarantees nodes, labels and active states independently of CI's host.
+    // Use the shared fleet contract, independently of CI's configured endpoints.
+    await page.route('**/api/stream', route => route.fulfill({ status: 503, body: '' }));
+    await page.route('**/api/snapshot', async route => {
+      const response = await route.fetch();
+      const snapshot = await response.json();
+      await response.dispose();
+      await route.fulfill({ json: { ...snapshot, ...fixture.snapshot, sampledAt: Date.now() / 1000, fleetState: fixture.fleetState } });
+    });
     await page.goto(`http://127.0.0.1:${port}/?demo=1`, { waitUntil: 'domcontentloaded' });
-    await page.locator('#nodes .node.hub').first().waitFor({ state: 'visible' });
-    await page.locator('#groups .cluster-label').first().waitFor({ state: 'visible' });
+    const disclosure = page.locator('#fleetMap');
+    if (await disclosure.getAttribute('open') !== null) throw new Error('map must start collapsed');
+    const summary = page.locator('#fleetMap > summary');
+    if ((await summary.textContent()).trim() !== 'Show map') throw new Error('full Show map label changed');
+    await summary.click();
+    await page.locator('#fleetMapList .fleet-map-node').first().waitFor({ state: 'visible' });
     await page.evaluate(() => document.fonts.ready);
-    // Keyboard focus exercises the highlighted-edge drop shadow and reveals the hub's labels.
-    await page.locator('#nodes .node.hub').first().focus();
-    // A perfectly vertical or horizontal edge has a zero-width box, which Playwright calls hidden;
-    // wait for the class to be applied instead of for a non-empty box.
-    await page.locator('#edges .edge.highlighted').first().waitFor({ state: 'attached' });
-    // waitForFunction polls with eval, which the page's script-src 'self' policy refuses; poll from here.
-    {
-      const deadline = Date.now() + 30000;
-      for (;;) {
-        const shown = await page.evaluate(() => {
-          const sub = document.querySelector('#nodes .node.spotlight .sub');
-          return Boolean(sub) && parseFloat(getComputedStyle(sub).opacity) >= 0.99;
-        });
-        if (shown) break;
-        if (Date.now() > deadline) throw new Error('the spotlight sublabel never reached full opacity');
-        await page.waitForTimeout(100);
-      }
-    }
-    const result = await page.evaluate(() => {
-      const region = document.querySelector('.graph-region');
-      const map = document.querySelector('#map');
-      const em = document.querySelector('#headline em');
-      if (!region || !map || !em) return { missing: 'graph region, map or runtime emphasis' };
-      for (const selector of ['.cluster-label', '.node.hub .label', '.node.spotlight .sub']) {
-        if (!map.querySelector(selector)) return { missing: selector };
-      }
+    // Focus still exercises the flat-style rules on the map's actual controls.
+    await page.locator('#fleetMapList .fleet-map-lanes .fleet-map-node').first().focus();
+    const result = await page.evaluate(expected => {
+      const region = document.querySelector('#fleetMap');
+      const map = document.querySelector('#fleetMapList');
+      const heading = document.querySelector('#headline');
+      if (!region || !map || !heading) return { missing: 'map disclosure, machine/lane list or endpoint coverage' };
+      const requiredLabels = expected.map(fact => ({ fact,
+        element: [...map.querySelectorAll('.fleet-map-node')].find(el => el.dataset.node === fact.id) }));
+      const missing = requiredLabels.filter(({fact, element}) => !element || !element.textContent.includes(fact.label)).map(({fact}) => fact.id);
+      if (missing.length) return { missing };
       const painted = el => {
         for (let node = el; node instanceof Element; node = node.parentElement) {
           const style = getComputedStyle(node);
           if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) return false;
         }
-        return true;
+        const box = el.getBoundingClientRect();
+        return box.width > 0 && box.height > 0;
       };
       const hits = [];
       for (const el of [region, ...region.querySelectorAll('*')]) {
@@ -102,28 +101,31 @@ try {
       }
       const halos = [...map.querySelectorAll('.node .halo, #glows, .glow')]
         .filter(painted).map(el => el.getAttribute('class') || el.id);
-      const texts = [...map.querySelectorAll('.cluster-label, .label, .sub, .capability-line')];
+      const texts = [...map.querySelectorAll('.fleet-map-node')];
       const masks = texts.filter(el => {
         const style = getComputedStyle(el);
-        return style.stroke !== 'none' && parseFloat(style.strokeWidth) > 0;
+        return (style.stroke !== 'none' && parseFloat(style.strokeWidth) > 0)
+          || parseFloat(style.webkitTextStrokeWidth) > 0;
       }).map(el => ({ text: el.textContent.slice(0, 32), cls: el.getAttribute('class') }));
       // Missing or hidden labels cannot make the stroke check pass vacuously.
-      const requiredLabels = [...map.querySelectorAll('.cluster-label, .node.hub .label, .node.spotlight .sub')];
-      const invisible = requiredLabels.filter(el => {
+      const invisible = requiredLabels.map(({element}) => element).filter(el => {
         const style = getComputedStyle(el);
-        return !el.textContent.trim() || !painted(el) || style.fill === 'none'
-          || style.fill === 'transparent' || style.fill === 'rgba(0, 0, 0, 0)' || Number(style.fillOpacity) === 0;
+        return !el.textContent.trim() || !painted(el)
+          || style.color === 'transparent' || style.color === 'rgba(0, 0, 0, 0)';
       }).map(el => ({ text: el.textContent.slice(0, 32), cls: el.getAttribute('class') }));
-      const style = getComputedStyle(em);
+      const style = getComputedStyle(heading);
       const spacing = parseFloat(style.letterSpacing);
+      const lanes = expected.filter(fact => fact.scope === 'lane').length;
+      const coverage = new RegExp(`^[■?] (?:\\d+ of ${lanes} lanes answering|Answering count unknown; ${lanes} lanes configured)$`);
       const headline = {
-        text: em.textContent,
+        text: heading.textContent,
         family: style.fontFamily,
         letterSpacing: style.letterSpacing,
-        crushed: (Number.isFinite(spacing) && spacing < 0) || !/^"?IBM Plex Sans"?(?:,|$)/.test(style.fontFamily),
+        crushed: !painted(heading) || !coverage.test(heading.textContent.trim())
+          || (Number.isFinite(spacing) && spacing < 0) || !/^"?IBM Plex Sans"?(?:,|$)/.test(style.fontFamily),
       };
       return { hits: hits.slice(0, 20), halos, masks: masks.slice(0, 8), invisible, headline };
-    });
+    }, fixture.fleetState.facts);
     if (result.missing || result.hits.length || result.halos.length || result.masks.length
         || result.invisible.length || result.headline.crushed) failures.push({ scheme, ...result });
     await page.close();
@@ -140,4 +142,4 @@ if (failures.length) {
   console.error(JSON.stringify(failures, null, 2));
   process.exit(1);
 }
-console.log('ok light and dark flat map, unstroked labels and Plex runtime tracking');
+console.log('ok light and dark disclosed flat map, full machine/lane labels and Plex coverage tracking');

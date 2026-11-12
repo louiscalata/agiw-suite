@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { runInNewContext } from 'node:vm';
 import * as layoutModule from './web/map-layout.mjs';
+import * as fleet from './web/fleet-state.mjs';
 
 const registryFixture = (now = 100) => ({host:'registry:pc',label:'PC',observationSource:'registry',replaces:'legacy-pc',freshForSeconds:6,
   lanes:['fast','review','glimmer'].map((label,index)=>({id:`registry:pc:${label}`,label,health:'ok',ageSeconds:0,observedAt:new Date(now*1000).toISOString(),modelId:index?'ornith-ai/ornith-1.5-9b':'/models/gemma-4.gguf'}))});
@@ -1230,7 +1231,8 @@ test('Round 3: the Live activity meaning names the running job or the newest fai
 
 // Orb web, 26-27 Sep 2026 (Request: "make the constellation map like a hybrid of spiderweb", then "make the background
 // glow too when the node pulse" and "like when you poke a spiderweb it bounces"). The web is a pure function of the
-// graph the dashboard draws; these tests build that graph with the dashboard's own runtimeGraph/traceGraph.
+// retained operational-detail graph; use the legacy detail projection explicitly.
+// Canonical fleet membership is checked by the shared fixture in the fleet/map tests.
 const {
   orbWebKey, orbWebLayout, orbWebActivity, orbWebPluck, orbWebPathsAt, orbWebFlashPath, pluckOffsets, pluckWave, pokeScale,
   createWebMotion, edgeCurvePath, webGlows, glowRadius, ORB_WEB_LIMITS, WEB_PLUCK,
@@ -1253,8 +1255,8 @@ function orbSnapshot(job) {
     activity: { runs: [ORB_RUN] } };
 }
 function graphFor({ width = 1150, height = 690, job = false, view = 'runtime' } = {}) {
-  const script = `${orbAppSource}\nsnapshot=S;connected=true;view=V;makeGraph();({nodes:graph.nodes,edges:graph.edges})`;
-  return JSON.parse(JSON.stringify(runInNewContext(script, { ...layoutModule, S: orbSnapshot(job), V: view, Date, Set, Map, Math, Number, String, Array, Object, JSON,
+  const script = `${orbAppSource}\nruntimeGraph=legacyRuntimeGraph; snapshot=S;connected=true;view=V;makeGraph();({nodes:graph.nodes,edges:graph.edges})`;
+  return JSON.parse(JSON.stringify(runInNewContext(script, { ...layoutModule, ...fleet, S: orbSnapshot(job), V: view, Date, Set, Map, Math, Number, String, Array, Object, JSON,
     window: { innerWidth: width, matchMedia: () => ({ matches: false }) }, document: { getElementById: id => id === 'graphRegion' ? { clientWidth: width, clientHeight: height } : null } })));
 }
 const ORB_SIZES = [[1150, 690], [820, 604], [640, 505], [560, 900]];

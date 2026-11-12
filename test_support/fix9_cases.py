@@ -19,6 +19,7 @@ from agiw_win.server import SnapshotStore
 from agiw_win import server as windows_server
 from unittest import mock
 import peer_feed
+import machine_state
 
 NOW = 1_800_000_000.0
 MODES = ('missing', 'unreadable', 'malformed', 'partial', 'capped', 'stale', 'hidden', 'future')
@@ -153,21 +154,34 @@ def main():
         for data, changes, inputs in itertools.chain(source_cases(bases), source_cases(busy_bases), raw_cases(healthy), edge_cases(), dimensions(healthy), two_sided(healthy), integrated(healthy)):
             host = data['host']
             if host == 'windows':
+                # The real collector builds this report from its current lane
+                # observations. Rebuild after a generated lane/clock mutation so
+                # it cannot retain the healthy base fixture's old counts/time.
+                data = probes.enforce_snapshot_evidence(data)
+                data['machines'] = probes.machine_rows(host='fixture-pc', sampled_at=data['sampledAt'],
+                    lanes=data.get('lanes') or [], hands=data.get('handsOff'),
+                    version=data.get('observerVersion'), peers=data.get('peers'), mac_name='other')
                 store = SnapshotStore()
                 store.publish(data)
                 # These cases drive the renderer with fixed fake sample times, so the store's read-time aging
                 # (machine rows and activityKnown, tested in windows/tests/test_machines.py) is switched off here.
                 with mock.patch.object(windows_server, 'expire_machines', lambda rows, now: rows), \
-                        mock.patch.object(windows_server, 'FULL_SAMPLE_MAX_AGE', float('inf')):
+                        mock.patch.object(windows_server, 'FULL_SAMPLE_MAX_AGE', float('inf')), \
+                        mock.patch.object(windows_server.time, 'time', return_value=data['sampledAt']):
                     snapshot = store.read()
                 status = probes.pc_status(snapshot)
                 presence = probes.peer_presence(snapshot, 'fixture-pc')
             else:
                 # Root store is the Mac publisher, never constructs a server or binds a socket.
                 from server import SnapshotStore as MacStore
+                import server as mac_server
+                # Real Mac telemetry supplies this row. Rebuild it from each
+                # fixture's mutated evidence, never from hand-authored totals.
+                data['machines'] = [machine_state.local_summary(mac_server.enforce_snapshot_evidence(data))]
                 store = MacStore()
-                store.publish(data)
-                snapshot = store.read()
+                with mock.patch.object(mac_server.time, 'time', return_value=data['sampledAt']):
+                    store.publish(data)
+                    snapshot = store.read()
                 try:
                     presence = peer_feed.mac_presence(snapshot, 'fixture-mac')
                     status = presence

@@ -314,6 +314,15 @@ def public_map(document):
                 if not _finite(interval) or interval <= 0 or (age is not None and (not _finite(age) or age < 0)):
                     raise ValueError("registry freshness")
                 node.update(observationSource="registry", probeIntervalSeconds=interval, ageSeconds=age)
+                for field in ("configuredEndpoint", "probeState", "probeStartedAt", "lastProbeAt",
+                              "lastSuccessAt", "lastSuccessModelId"):
+                    if field in source:
+                        node[field] = _text(source[field], 1024 if field == "lastSuccessModelId" else 80)
+                if "probeTimeoutSeconds" in source:
+                    timeout = source["probeTimeoutSeconds"]
+                    if not _finite(timeout) or not 0 < timeout <= 6:
+                        raise ValueError("probeTimeoutSeconds")
+                    node["probeTimeoutSeconds"] = timeout
                 if source.get("inventoryScope") == "configured-lanes":
                     node["inventoryScope"] = "configured-lanes"
                 if "replaces" in source:
