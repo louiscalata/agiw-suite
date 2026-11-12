@@ -8,10 +8,11 @@
 - [x] Address the fix-round review with protocol-alias isolation, adapter-owned outcome/parse/finish evidence, all-planned accuracy, exact decimal quality gates, full baseline/hash binding, complete pairs, fsynced checkpoint resume and free-form hardware identity. Synthetic regressions pin each fix.
 - [x] Address round-two source findings with recursive protocol isolation, explicit cutoff/answer evidence, parseability and exact binomial chance gates, ranking policy safety, exclusive checkpoint locks, resume artifact hashes and chained integrity, and benchmark-aware callbacks. Failing-before regressions pin each fix; native checks remain open.
 - [ ] Page integration is the next slice: configure and validate an explicit read-only local dataset source for both endpoints, then prove ingest-to-page behavior. The current Mac and Windows endpoints use the bundled catalog; ingested fast checks do not reach the page.
-- [ ] Implement and review the existing harness adapter: exact sample IDs, pinned scorers/prompts/settings, per-call deadlines, measured artifact/hardware identity and Nisi journal custody. Real model checks, served identity, device/browser acceptance and full ECI runs are NOT_RUN.
+- [x] Add the opt-in stdlib loopback HTTP harness adapter and CLI: explicit unprotected endpoint/model/sample files, pinned scorer/prompts/settings, thinking-sized completion budget, reasoning-only truncation handling, per-request deadlines and locked/fsynced resume. Allowlisted server reports and caller-supplied artifact/fit inputs retain their evidence source; missing hardware remains unknown. Synthetic HTTP fixtures cover this source implementation.
+- [ ] Verify real model checks, measured artifact/hardware identity, served identity and Nisi journal custody. Journals remain null; device/browser acceptance and full ECI runs are NOT_RUN.
 - [ ] Validate finalists on independent full runs before changing the current best routing policy. No hosted advisory, model/server operation, commit or publication is part of this slice.
 
-See [Fast check](docs/eci-fast-check.md) for the contract, statistical limits and the unrun adapter handoff.
+See [Fast check](docs/eci-fast-check.md) for the contract, statistical limits, adapter interface and unrun native gates.
 
 ## Registry diagnostics and port guidance — 12 November 2026
 
