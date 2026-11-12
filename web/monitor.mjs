@@ -12,11 +12,33 @@ const LANES = {
 export function place(nodes) {
   const placed = [];
   const extra = [];
+  const configuredMachines = new Set((nodes || [])
+    .filter(node => node.role === 'machine' && node.inventoryScope === 'configured-lanes')
+    .map(node => node.machine));
   for (const node of nodes || []) {
-    if (LANES[node.id]) placed.push({...node, ...LANES[node.id]});
+    if (LANES[node.id] && !configuredMachines.has(node.machine)) placed.push({...node, ...LANES[node.id]});
     else extra.push(node);
   }
-  extra.forEach((node, index) => placed.push({...node, x: 40 + (index % 6) * 120, y: 390 + Math.floor(index / 6) * 60}));
+  // Keep additional machine roots beside their own lanes. One vertical row
+  // per label avoids the former six-column overlap for long server identities.
+  const roots = extra.filter(node => node.role === 'machine');
+  const grouped = new Set();
+  let y = 390;
+  for (const root of roots) {
+    placed.push({...root, x: 40, y});
+    grouped.add(root.id);
+    y += 60;
+    for (const child of extra.filter(node => node.role !== 'machine' && node.machine === root.machine)) {
+      placed.push({...child, x: 80, y});
+      grouped.add(child.id);
+      y += 60;
+    }
+    y += 30;
+  }
+  for (const node of extra.filter(node => !grouped.has(node.id))) {
+    placed.push({...node, x: 40, y});
+    y += 60;
+  }
   return placed;
 }
 
@@ -44,6 +66,10 @@ export function detailRows(node) {
     ['Context', context],
     ['VRAM', vram],
   ];
+  if (node.observationSource === 'registry') {
+    rows.push(['Observation age', typeof node.ageSeconds === 'number' && Number.isFinite(node.ageSeconds)
+      ? `${node.ageSeconds.toFixed(1)} s` : '—']);
+  }
   if (node.detail) rows.push(['Detail', node.detail]);
   if (node.reason) rows.push(['Reason', node.reason]);
   return rows;
@@ -117,7 +143,10 @@ function draw(map, selected) {
     sub.setAttribute('x', node.x + 14);
     sub.setAttribute('y', node.y + 14);
     sub.setAttribute('class', 'sub');
-    sub.textContent = [node.modelId, rateText(node), statusWord(node)].filter(Boolean).join(' · ');
+    const observationAge = node.observationSource === 'registry'
+      ? (typeof node.ageSeconds === 'number' && Number.isFinite(node.ageSeconds)
+        ? `${node.ageSeconds.toFixed(1)} s ago` : 'Not observed') : '';
+    sub.textContent = [node.modelId, rateText(node), statusWord(node), observationAge].filter(Boolean).join(' · ');
     group.append(dot, title, sub);
     svg.append(group);
   }
@@ -150,8 +179,16 @@ function ageMap(map, unavailable = false) {
     ? {state: 'not_measured', detail: 'PC tunnel observation stale.'} : map.tunnel;
   const expired = new Set();
   const nodes = (map.nodes || []).map(node => {
-    const age = Date.now() - Date.parse(node.observedAt || map.observedAt);
-    if (!unavailable && Number.isFinite(age) && age >= -2000 && age <= (node.machine === 'pc' ? 30000 : 3000)) return node;
+    const registry = node.observationSource === 'registry';
+    // A registry observation has its own completion timestamp. A new snapshot
+    // must never renew it while a probe or sampler is stalled.
+    const age = Date.now() - Date.parse(registry ? node.observedAt : (node.observedAt || map.observedAt));
+    const interval = typeof node.probeIntervalSeconds === 'number' && Number.isFinite(node.probeIntervalSeconds)
+      && node.probeIntervalSeconds > 0 ? node.probeIntervalSeconds : 3;
+    const maxAge = registry ? 2 * interval * 1000 : (node.machine === 'pc' ? 30000 : 3000);
+    if (registry) node = {...node, ageSeconds: Number.isFinite(age) ? Math.max(0, age / 1000) : null};
+    if (!unavailable && Number.isFinite(age) && age >= -2000 && age <= maxAge) return node;
+    if (registry && !unavailable && node.observedAt == null && node.health === 'not_measured') return node;
     expired.add(node.id);
     const unknown = {...node, health: 'not_measured', reason: unavailable ? 'feed_unavailable' : 'stale'};
     for (const field of ['modelId', 'upstream', 'detail', 'models', 'callers', 'promptTokensPerSecond',

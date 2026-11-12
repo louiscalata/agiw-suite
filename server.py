@@ -38,6 +38,7 @@ from inference_collect import RateMemory, attach, vram_from_reading
 from inference_stats import expire_map
 from pc_tunnel import load_config, port_accepts, targets as tunnel_targets
 import eci_tuning
+import remote_machines
 
 ROOT = Path(__file__).resolve().parent / 'web'
 ASSETS = {'/': ('index.html', 'text/html; charset=utf-8'),
@@ -1003,8 +1004,11 @@ def sample(store, stop, feed=None, tick=0.15, full_interval=1.0, guard=None, aut
                 memory = memory_sample(guard, data if isinstance(data, dict) else {})
             data['memory'], memory_source = memory
             data['sources'].append(memory_source)
-            status, rows = tunnel_targets(load_config(), port_accepts)
-            attach(data, 'mac', rates=_INFERENCE_RATES, targets=rows, tunnel=status, vram=vram)
+            remote_config = remote_machines.load_config()
+            status, rows = ((None, []) if remote_machines.replaces_legacy_pc(remote_config)
+                            else tunnel_targets(load_config(), port_accepts))
+            attach(data, 'mac', rates=_INFERENCE_RATES, targets=rows, tunnel=status, vram=vram,
+                   remote_config=remote_config)
             activity = collect_activity()
             data['activity'] = {'runs': activity['runs'], 'sampledAt': activity.get('sampledAt'), 'historyBound': activity.get('historyBound'),
                                 'complete': activity.get('complete', False)}

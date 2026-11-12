@@ -22,6 +22,7 @@ from urllib.parse import urlsplit
 import http.client
 
 from inference_stats import MAP_SCHEMA, apply_rates, client_nodes, edges_for, machine_node, make_node
+import remote_machines
 
 PC_LANES = (
     {"id": "pc:router", "role": "router", "label": "Router", "port": 1234},
@@ -99,8 +100,48 @@ def _iso(when):
     return dt.datetime.fromtimestamp(when, dt.timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-def loopback_get(url, timeout=0.4, limit=1024 * 1024):
-    """GET one loopback URL within a total deadline. Does not follow a redirect."""
+def _strict_chunked_read(response, limit):
+    """Require every chunk boundary and the final empty trailer line.
+
+    HTTPResponse tolerates EOF while discarding trailers. That tolerance cannot
+    establish a complete identity document, so registry reads check the framing.
+    """
+    body = bytearray()
+    while True:
+        line = response.fp.readline(8193)
+        if (len(line) > 8192 or not line.endswith(b"\r\n")
+                or any(byte < 32 or byte > 126 for byte in line[:-2])):
+            raise ProbeError("incomplete_body")
+        size_text = line[:-2].split(b";", 1)[0]
+        if not re.fullmatch(rb"[0-9a-fA-F]{1,16}", size_text):
+            raise ProbeError("incomplete_body")
+        size = int(size_text, 16)
+        if not size:
+            trailer_bytes = 0
+            while True:
+                trailer = response.fp.readline(8193)
+                trailer_bytes += len(trailer)
+                if (len(trailer) > 8192 or trailer_bytes > 65536
+                        or not trailer.endswith(b"\r\n")):
+                    raise ProbeError("incomplete_body")
+                if trailer == b"\r\n":
+                    return bytes(body)
+                if b":" not in trailer:
+                    raise ProbeError("incomplete_body")
+        if len(body) + size > limit:
+            raise ProbeError("oversize")
+        chunk = response.fp.read(size)
+        if len(chunk) != size or response.fp.read(2) != b"\r\n":
+            raise ProbeError("incomplete_body")
+        body.extend(chunk)
+
+
+def loopback_get(url, timeout=0.4, limit=1024 * 1024, *, strict=False):
+    """GET one loopback URL within a total deadline; never follow redirects.
+
+    Registry identity requires strict framing and UTF-8. Legacy text endpoint
+    readers retain their existing permissive decoding and close-delimited reads.
+    """
     parts = urlsplit(url)
     if (parts.scheme != "http" or parts.hostname != "127.0.0.1" or parts.port is None
             or parts.username or parts.password or parts.query or parts.fragment):
@@ -108,6 +149,7 @@ def loopback_get(url, timeout=0.4, limit=1024 * 1024):
     started = time.monotonic()
     deadline = started + timeout
     connection = http.client.HTTPConnection("127.0.0.1", parts.port, timeout=timeout)
+    response = None
     timer = None
     expired = threading.Event()
     try:
@@ -127,24 +169,55 @@ def loopback_get(url, timeout=0.4, limit=1024 * 1024):
         timer.start()
         connection.request("GET", parts.path or "/", headers={"Accept": "application/json, text/plain"})
         response = connection.getresponse()
-        body = response.read(limit + 1)
+        expected_length = None
+        strict_chunked = False
+        if strict:
+            lengths = response.headers.get_all("Content-Length", [])
+            transfers = response.headers.get_all("Transfer-Encoding", [])
+            if (len(lengths) > 1 or len(transfers) > 1 or lengths and transfers
+                    or transfers and transfers[0].strip().lower() != "chunked"):
+                raise ProbeError("ambiguous_framing")
+            if lengths:
+                value = lengths[0].strip()
+                if not re.fullmatch(r"[0-9]+", value) or len(value) > 20:
+                    raise ProbeError("invalid_length")
+                expected_length = int(value)
+                if expected_length > limit:
+                    raise ProbeError("oversize")
+            elif not transfers:
+                raise ProbeError("missing_length")
+            strict_chunked = bool(transfers)
+        body = (_strict_chunked_read(response, limit) if strict_chunked
+                else response.read(limit + 1))
         if expired.is_set() or time.monotonic() >= deadline:
             raise ProbeError("timeout")
         if len(body) > limit:
             raise ProbeError("oversize")
-        return response.status, body.decode("utf-8", "replace"), (time.monotonic() - started) * 1000
+        if strict and expected_length is not None and len(body) != expected_length:
+            raise ProbeError("incomplete_body")
+        try:
+            decoded = body.decode("utf-8", "strict" if strict else "replace")
+        except UnicodeDecodeError:
+            raise ProbeError("invalid_utf8")
+        return response.status, decoded, (time.monotonic() - started) * 1000
     except ProbeError:
+        if expired.is_set() or time.monotonic() >= deadline:
+            raise ProbeError("timeout")
         raise
     except TimeoutError:
         raise ProbeError("timeout")
     except ConnectionRefusedError:
         raise ProbeError("refused")
+    except http.client.IncompleteRead:
+        raise ProbeError("timeout" if expired.is_set() or time.monotonic() >= deadline else "incomplete_body")
     except (OSError, http.client.HTTPException):
         raise ProbeError("timeout" if expired.is_set() or time.monotonic() >= deadline else "unavailable")
     finally:
         if timer is not None:
             timer.cancel()
             timer.join()
+        if response is not None:
+            response.close()
         connection.close()
 
 
@@ -455,7 +528,7 @@ def _mac_absent(observed):
 
 
 def collect_map(host, *, fetch=None, rates=None, now=None, targets=None, veritas_url=None, tunnel=None, vram=None,
-                lmstudio=None):
+                lmstudio=None, remote_config=None, remote_probes=None):
     """The same node ids on the Mac and the PC. A machine only fills what it can probe."""
     if host not in ("mac", "pc"):
         raise ValueError(host)
@@ -470,6 +543,12 @@ def collect_map(host, *, fetch=None, rates=None, now=None, targets=None, veritas
     now = time.time() if now is None else now
     observed = _iso(now)
     pc_targets = (targets or direct_targets()) if host == "pc" else (targets if targets is not None else closed_targets())
+    registry_enabled = host == "mac" and remote_config is not None
+    if registry_enabled and remote_machines.replaces_legacy_pc(remote_config):
+        pc_targets = []
+    remote_nodes = ((remote_probes.snapshot(remote_config, now=now) if remote_probes is not None
+                     else remote_machines.background_snapshot(remote_config, now=now))
+                    if host == "mac" else None)
     # Each lane keeps its serial parsing/fallbacks, but independent lanes share
     # the deadline concurrently so a slow successful lane cannot starve Qwen.
     with ThreadPoolExecutor(max_workers=len(PC_LANES) + 2) as pool:
@@ -490,7 +569,8 @@ def collect_map(host, *, fetch=None, rates=None, now=None, targets=None, veritas
              machine_node("pc", "PC", pc_children, observed_at=observed, vram=vram if host == "pc" else None),
              *pc_children]
     nodes.extend(client_nodes(nodes))
-    return {"schema": MAP_SCHEMA, "observedAt": observed, "tunnel": tunnel, "nodes": nodes, "edges": edges_for(nodes)}
+    document = {"schema": MAP_SCHEMA, "observedAt": observed, "tunnel": tunnel, "nodes": nodes, "edges": edges_for(nodes)}
+    return remote_machines.extend_map(document, remote_config, remote_nodes) if registry_enabled else document
 
 
 def _snapshot_lmstudio(snapshot):
