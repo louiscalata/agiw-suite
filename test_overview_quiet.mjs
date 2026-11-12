@@ -9,12 +9,12 @@ const css = readFileSync(new URL('./web/jaryo.css', import.meta.url), 'utf8');
 const app = readFileSync(new URL('./web/app.js', import.meta.url), 'utf8');
 const board = readFileSync(new URL('./web/monitor-board.mjs', import.meta.url), 'utf8');
 
-test('muted ink clears AA on paper and on black', () => {
-  assert.match(css, /--j-muted:\s*#b3b3b3;/);
-  assert.match(css, /--j-muted:\s*#4d4d4d;/);
-  assert.doesNotMatch(css, /--j-muted:\s*var\(--j-text\)/);
-  assert.ok(contrastRatio('#4d4d4d', '#ffffff') >= 4.5);
-  assert.ok(contrastRatio('#b3b3b3', '#000000') >= 4.5);
+test('recorded muted ink clears AA on every light and dark surface', () => {
+  const tokens = JSON.parse(readFileSync(new URL('./jaryo/tokens.json', import.meta.url), 'utf8'));
+  for (const palette of Object.values(tokens.palette)) {
+    assert.ok(css.includes(`--j-muted: ${palette.muted};`));
+    for (const background of [palette.bg, palette.surface]) assert.ok(contrastRatio(palette.muted, background) >= 4.5);
+  }
 });
 
 test('the overview does not paint the duplicate monitor board', () => {

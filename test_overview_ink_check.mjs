@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { EventEmitter } from 'node:events';
-import { chromaOf, isWebAccent } from './checks/ink-color.mjs';
+import { chromaOf, isWebAccent, isChoiceInk } from './checks/ink-color.mjs';
 import { overviewGeometry, demoReadinessState } from './checks/overview-geometry.mjs';
 
 test('unknown color syntax fails the ink threshold', () => {
@@ -27,7 +27,7 @@ test('rgb colors retain their chroma and transparent colors are ignored', () => 
 const source = readFileSync(new URL('./checks/overview-ink.mjs', import.meta.url), 'utf8');
 const lifecycle = source.slice(source.indexOf('const child = spawn('), source.indexOf('\nif (failures.length)'));
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
-const run = new AsyncFunction('spawn', 'root', 'chromium', 'chromaOf', 'isWebAccent', 'overviewGeometry', 'demoReadinessState', 'setTimeout', 'clearTimeout', 'console',
+const run = new AsyncFunction('spawn', 'root', 'chromium', 'chromaOf', 'isWebAccent', 'isChoiceInk', 'overviewGeometry', 'demoReadinessState', 'setTimeout', 'clearTimeout', 'console',
   `${lifecycle}\nreturn failures;`);
 
 function harness({ launchError, closeError, pageError, tabWaitError, diagnosticError, tabWaitEvents = [], startupError, timeout = false, paints = [], geometry = [] } = {}) {
@@ -78,7 +78,7 @@ function harness({ launchError, closeError, pageError, tabWaitError, diagnosticE
     return callback;
   };
   const clearTimeout = timer => timers.delete(timer);
-  return { calls, timers, result: run(spawn, '/unused', chromium, chromaOf, isWebAccent, overviewGeometry, demoReadinessState, setTimeout, clearTimeout, { error: value => calls.diagnostics.push(JSON.parse(value)) }) };
+  return { calls, timers, result: run(spawn, '/unused', chromium, chromaOf, isWebAccent, isChoiceInk, overviewGeometry, demoReadinessState, setTimeout, clearTimeout, { error: value => calls.diagnostics.push(JSON.parse(value)) }) };
 }
 
 test('the cleanup covers Chromium launch failure', async () => {
@@ -203,4 +203,36 @@ test('readiness event diagnostics are bounded and exclude query strings and resp
   assert.deepEqual(recorded[1], { kind: 'module-response', path: '/monitor-tabs.mjs', status: 503 });
   assert.equal(recorded[2].message.length, 400);
   assert.doesNotMatch(JSON.stringify(recorded), /private|snapshot/);
+});
+
+
+test('choice ink is limited to its intended property, role and theme',async()=>{
+  const allowed=[
+    {value:'rgb(143, 196, 160)',prop:'color',role:'ok'},
+    {value:'rgb(143, 180, 214)',prop:'color',role:'running'},
+    {value:'rgb(232, 215, 168)',prop:'outlineColor',role:'focus'},
+    {value:'rgb(255, 210, 200)',prop:'color',role:'blocked'},
+    {value:'rgb(58, 32, 32)',prop:'backgroundColor',role:'blocked'},
+  ];
+  for(const paint of allowed) {
+    assert.equal(isChoiceInk(paint.value,{...paint,scheme:'dark'}),true);
+    assert.equal(isChoiceInk(paint.value,{...paint,scheme:'light'}),false);
+  }
+  const result=await harness({paints:allowed}).result;
+  assert.deepEqual(result.map(item=>item.scheme),['light','light']);
+  assert.deepEqual(result.map(item=>item.colored),[allowed,allowed]);
+});
+
+test('approved-token misuse cannot pass the actual overview ink check',async()=>{
+  const rejected=[
+    {value:'rgb(58, 32, 32)',prop:'color',role:'text'}, // blocked fill as low-contrast text
+    {value:'rgb(143, 196, 160)',prop:'backgroundColor',role:'text'},
+    {value:'rgb(143, 180, 214)',prop:'color',role:'text'},
+    {value:'rgb(232, 215, 168)',prop:'fill',role:'focus'},
+    {value:'rgb(255, 210, 200)',prop:'color',role:'selected'},
+    {value:'rgb(196, 122, 58)',prop:'color',role:'text',accentAllowed:true},
+    {value:'rgba(143, 196, 160, 0.5)',prop:'color',role:'ok'},
+  ];
+  for(const paint of rejected)assert.equal(isChoiceInk(paint.value,{...paint,scheme:'dark'}),false);
+  assert.deepEqual((await harness({paints:rejected}).result).map(item=>item.colored),Array(4).fill(rejected));
 });

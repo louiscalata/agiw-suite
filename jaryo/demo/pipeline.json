@@ -7,25 +7,35 @@
       "id": "ingress",
       "name": "Ingress",
       "word": "HOLDING",
-      "detail": "A packet is waiting at the edge of the lane."
+      "detail": "A packet is waiting at the edge of the lane.",
+      "inputs": []
     },
     {
       "id": "check",
       "name": "Check",
       "word": "READY",
-      "detail": "The contract can be read. Nothing has been sent."
+      "detail": "The contract can be read. Nothing has been sent.",
+      "inputs": [
+        "ingress"
+      ]
     },
     {
       "id": "run",
       "name": "Run",
       "word": "IDLE",
-      "detail": "No run is in flight."
+      "detail": "No run is in flight.",
+      "inputs": [
+        "check"
+      ]
     },
     {
       "id": "evidence",
       "name": "Evidence",
       "word": "BLOCKED",
-      "detail": "Acceptance stays blocked until a person reviews it."
+      "detail": "Acceptance stays blocked until a person reviews it.",
+      "inputs": [
+        "run"
+      ]
     }
   ]
 }

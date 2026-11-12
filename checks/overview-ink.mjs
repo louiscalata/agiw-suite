@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { chromaOf, isWebAccent } from './ink-color.mjs';
+import { chromaOf, isWebAccent, isChoiceInk } from './ink-color.mjs';
 import { overviewGeometry, demoReadinessState } from './overview-geometry.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -73,13 +73,26 @@ try {
         for (const prop of ['color', 'backgroundColor', 'borderTopColor', 'fill', 'stroke', 'outlineColor']) {
           const value = style[prop];
           if (!value || value === 'none') continue;
-          const accentAllowed = Boolean(el.closest('h1,h2,.j-board-title,.brand-wordmark strong,.j-brand strong,.j-type,.j-nav a[aria-current="page"],.j-tab[aria-selected="true"]'));
-          hits.push({ prop, value, accentAllowed, tag: el.tagName, cls: String(el.className).slice(0, 80) });
+          const accentAllowed = Boolean(el.closest('.brand-wordmark strong,.j-brand strong,.j-type,.jp-primary'));
+          const step = el.closest('.jp-step');
+          const selected = step?.getAttribute('aria-pressed') === 'true';
+          let role = 'text';
+          if (step) {
+            if (selected) role = el.closest('.jp-subline') ? 'selected-sub'
+              : step.dataset.state === 'BLOCKED' && !el.closest('.jp-state') ? 'selected-blocked'
+              : step.dataset.state === 'RUNNING' && el.closest('.jp-state') ? 'selected-running' : 'selected';
+            else if (step.dataset.state === 'BLOCKED') role = 'blocked';
+            else if (el.closest('.jp-state')) role = ['OK', 'READY'].includes(step.dataset.state) ? 'ok'
+              : step.dataset.state === 'RUNNING' ? 'running' : 'text';
+          }
+          if (el.closest('.jp-primary')) role = 'primary';
+          if (prop === 'outlineColor' && el.matches(':focus-visible')) role = 'focus';
+          hits.push({ prop, value, role, accentAllowed, tag: el.tagName, cls: String(el.className).slice(0, 80) });
         }
       }
       return hits;
     });
-    const colored = paints.filter(({ value, accentAllowed }) => chromaOf(value) > 18 && !(accentAllowed && isWebAccent(value))).slice(0, 12);
+    const colored = paints.filter(paint => chromaOf(paint.value) > 18 && !isChoiceInk(paint.value, {...paint, scheme}) && !(paint.accentAllowed && isWebAccent(paint.value))).slice(0, 12);
     if (colored.length) failures.push({ width, scheme, colored });
     // Multiple fictional tabs exercise wrapping without depending on the CI host's clients.
     await page.goto(`http://127.0.0.1:${port}/?demo=1`, { waitUntil: 'domcontentloaded' });

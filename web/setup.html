@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1, viewport-fit=cover">
 <title>Setup · AGIW Suite</title>
 <link rel="icon" href="/jaryo/marks/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/jaryo.css">
@@ -31,6 +31,15 @@
 <main id="content" class="j-page" tabindex="-1">
   <h1>Setup</h1>
   <p>The activation guide, checked against what this monitor can already see. Nothing here installs, starts or changes anything; each next step is yours to take.</p>
+  <section class="jp-install" aria-label="Install and connect">
+    <h2>Install the CLI, then connect</h2>
+    <p>From an AGIW source checkout on a supported Mac or Windows PC:</p>
+    <code id="jaryoInstallCommand">python3 -m pip install .</code>
+    <button type="button" class="jp-button" data-jaryo-copy="jaryoInstallCommand">Copy command</button>
+    <p role="status" aria-live="polite"></p>
+    <a class="jp-button jp-primary" href="#setupSteps">Open connection guide</a>
+    <p>The guide uses existing setup controls. Copying this command does not execute it.</p>
+  </section>
   <p id="setupNote" hidden></p>
   <p id="setupProgress" class="j-hint" aria-live="polite">Reading the monitor.</p>
   <ol id="setupSteps" class="j-setup"></ol>

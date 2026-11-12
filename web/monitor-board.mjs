@@ -201,6 +201,9 @@ function paintBoard(board, monitor, desk) {
   const saved = desk.view(monitor.id);
   const focusFilter = document.activeElement?.id === 'monitorFilter';
   const caret = focusFilter ? document.activeElement.selectionStart : null;
+  const resume = board.dataset.monitor === monitor.id
+    ? board.querySelector('[data-jaryo-choices]')?.choiceViewState?.() : null;
+  for (const old of board.querySelectorAll('[data-jaryo-choices]')) old.choiceCleanup?.();
   board.replaceChildren();
   board.hidden = false;
   board.dataset.monitor = monitor.id;
@@ -249,7 +252,17 @@ function paintBoard(board, monitor, desk) {
       },
     });
   }
-  board.append(list);
+  const presentation = el('div');
+  presentation.setAttribute('data-jaryo-choices', '');
+  presentation.jaryoChoices = {
+    steps, selectedId: saved.boardSelected, openMonitor: monitor.kind === 'overview', resume,
+    onSelect: id => desk.patch(monitor.id, {boardSelected:id}),
+  };
+  presentation.append(list);
+  board.append(presentation);
+  if (typeof document.dispatchEvent === 'function' && typeof CustomEvent === 'function') {
+    document.dispatchEvent(new CustomEvent('jaryo:pipeline', {detail:presentation}));
+  }
   const analysis = el('section', 'j-analysis');
   const gate = jevGate(monitor.analyses || []);
   analysis.append(el('p', 'j-eyebrow', 'NISI AND JEV ANALYSIS'));
@@ -334,6 +347,7 @@ export function paintMonitorChrome({host, board, desk, snapshot, feedFresh, paus
   paintTabs(host, monitors, active.id);
   if (board.dataset.hideBoard === '1') {
     board.hidden = true;
+    for (const old of board.querySelectorAll('[data-jaryo-choices]')) old.choiceCleanup?.();
     board.replaceChildren();
   } else {
     paintBoard(board, active, desk);

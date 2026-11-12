@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+const choiceTokens = JSON.parse(readFileSync(new URL('../jaryo/tokens.json', import.meta.url), 'utf8'));
+
 // Chroma for the overview ink check. RGB uses the channel span (max - min).
 // OKLab and OKLCH use chroma = sqrt(a^2 + b^2), then scale it onto that same
 // 0-255 span. CSS treats 0.4 as 100% chroma. Unknown syntax returns Infinity
@@ -110,7 +113,7 @@ function oklchChroma(body) {
 
 // Only the opaque booklet accent is admitted, and only at display roles by the
 // caller. Unknown serializations keep failing closed through chromaOf.
-export function isWebAccent(color) {
+function isOpaqueHexColor(color, hex) {
   const match = String(color ?? '').trim().toLowerCase().match(/^rgba?\(([^()]*)\)$/);
   if (!match) return false;
   const body = match[1];
@@ -121,5 +124,31 @@ export function isWebAccent(color) {
       || !channels.every(value => NUMBER.test(value))) return false;
   if (alphaOf(comma ? parts[3] : parts[1]) !== 1) return false;
   const values = channels.map(value => parseFloat(value) * (value.endsWith('%') ? 2.55 : 1));
-  return values.every((value, index) => Math.abs(value - [194, 26, 39][index]) < 0.001);
+  const expected = hex.slice(1).match(/../g).map(channel => parseInt(channel, 16));
+  return values.every((value, index) => Math.abs(value - expected[index]) < 0.001);
+}
+
+export function isWebAccent(color) {
+  return isOpaqueHexColor(color, choiceTokens.variants.web.accent);
+}
+
+// Exact tokens are admitted only for their theme and semantic paint role.
+export function isChoiceInk(color, {scheme, prop, role = 'text'} = {}) {
+  const palette = choiceTokens.palette[scheme];
+  if (!palette) return false;
+  const foreground = {
+    text: ['text', 'muted'], ok: ['status_ok'], running: ['status_run'],
+    blocked: ['status_blocked'], selected: ['selected_fg'],
+    'selected-sub': ['sel_sub'], 'selected-blocked': ['sel_blocked'],
+    'selected-running': ['sel_run'], primary: ['accent_ink'], focus: ['focus_ring'],
+  }[role];
+  if (!foreground) return false;
+  let keys = [];
+  if (prop === 'color') keys = role === 'focus' ? [] : foreground;
+  else if (prop === 'backgroundColor') keys = role === 'blocked' ? ['status_blocked_bg']
+    : role.startsWith('selected') ? ['selected_bg'] : role === 'text' ? ['bg', 'surface'] : [];
+  else if (prop === 'outlineColor') keys = role === 'focus' ? ['focus_ring'] : foreground;
+  else if (prop === 'borderTopColor') keys = ['border', ...foreground];
+  else if (prop === 'fill' || prop === 'stroke') keys = role === 'text' ? ['text', 'muted', ...(prop === 'stroke' ? ['border'] : [])] : [];
+  return keys.some(key => isOpaqueHexColor(color, palette[key]));
 }
