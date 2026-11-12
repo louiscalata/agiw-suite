@@ -2,6 +2,7 @@
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -33,6 +34,31 @@ def get_endpoint():
 
 
 class DatasetEndpointTests(unittest.TestCase):
+    def test_windows_server_and_dataset_import_without_fcntl(self):
+        # A fresh interpreter prevents a prior import from masking a dependency.
+        program = '''
+import builtins
+import os
+import sys
+real_import = builtins.__import__
+def without_fcntl(name, *args, **kwargs):
+    if name == "fcntl" or name.startswith("fcntl."):
+        raise ModuleNotFoundError("fcntl deliberately unavailable")
+    return real_import(name, *args, **kwargs)
+builtins.__import__ = without_fcntl
+sys.modules.pop("fcntl", None)
+sys.path.insert(0, "windows")
+import eci_tuning
+from agiw_win import server
+os.environ.pop('AGIW_ECI_TUNING_DATASET_DIR', None)
+os.environ['AGIW_ECI_TUNING_CONFIG'] = str(eci_tuning.ROOT / 'test_support/eci_tuning/absent-policy.json')
+assert eci_tuning.status()['dataset']['status'] == 'bundled'
+assert callable(server.Handler.do_GET)
+'''
+        result = subprocess.run([sys.executable, '-B', '-c', program], cwd=str(ROOT),
+                                capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_ingest_to_endpoint_and_invalid_input(self):
         with tempfile.TemporaryDirectory() as folder:
             directory = Path(folder)

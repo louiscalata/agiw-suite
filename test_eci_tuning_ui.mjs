@@ -96,7 +96,8 @@ test('renderer creates the supplied fast-check hardware table and pending reason
   }
 });
 
-test('ingested full ECI and fast check reach the DOM through the real Mac endpoint; invalid input stays unknown', t => {
+test('ingested full ECI and fast check reach the DOM through the real Mac endpoint; invalid input stays unknown',
+  {skip: process.platform === 'win32' ? 'Requires POSIX fcntl imported by the Mac server' : false}, t => {
   const python = resolvePython(t);
   if (!python) return;
   const directory = mkdtempSync(join(fileURLToPath(new URL('../', import.meta.url)), 'agiw-eci-ui-'));
