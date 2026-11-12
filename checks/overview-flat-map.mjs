@@ -56,7 +56,9 @@ try {
     await page.evaluate(() => document.fonts.ready);
     // Keyboard focus exercises the highlighted-edge drop shadow and reveals the hub's labels.
     await page.locator('#nodes .node.hub').first().focus();
-    await page.locator('#edges .edge.highlighted').first().waitFor({ state: 'visible' });
+    // A perfectly vertical or horizontal edge has a zero-width box, which Playwright calls hidden;
+    // wait for the class to be applied instead of for a non-empty box.
+    await page.locator('#edges .edge.highlighted').first().waitFor({ state: 'attached' });
     await page.waitForFunction(() => {
       const sub = document.querySelector('#nodes .node.spotlight .sub');
       return sub && parseFloat(getComputedStyle(sub).opacity) >= 0.99;
