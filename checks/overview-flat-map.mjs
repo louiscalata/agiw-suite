@@ -59,10 +59,19 @@ try {
     // A perfectly vertical or horizontal edge has a zero-width box, which Playwright calls hidden;
     // wait for the class to be applied instead of for a non-empty box.
     await page.locator('#edges .edge.highlighted').first().waitFor({ state: 'attached' });
-    await page.waitForFunction(() => {
-      const sub = document.querySelector('#nodes .node.spotlight .sub');
-      return sub && parseFloat(getComputedStyle(sub).opacity) >= 0.99;
-    });
+    // waitForFunction polls with eval, which the page's script-src 'self' policy refuses; poll from here.
+    {
+      const deadline = Date.now() + 30000;
+      for (;;) {
+        const shown = await page.evaluate(() => {
+          const sub = document.querySelector('#nodes .node.spotlight .sub');
+          return Boolean(sub) && parseFloat(getComputedStyle(sub).opacity) >= 0.99;
+        });
+        if (shown) break;
+        if (Date.now() > deadline) throw new Error('the spotlight sublabel never reached full opacity');
+        await page.waitForTimeout(100);
+      }
+    }
     const result = await page.evaluate(() => {
       const region = document.querySelector('.graph-region');
       const map = document.querySelector('#map');
