@@ -4,6 +4,53 @@ import test from 'node:test';
 import { runInNewContext } from 'node:vm';
 import * as layoutModule from './web/map-layout.mjs';
 
+const registryFixture = (now = 100) => ({host:'registry:pc',label:'PC',observationSource:'registry',replaces:'legacy-pc',freshForSeconds:6,
+  lanes:['fast','review','glimmer'].map((label,index)=>({id:`registry:pc:${label}`,label,health:'ok',ageSeconds:0,observedAt:new Date(now*1000).toISOString(),modelId:index?'ornith-ai/ornith-1.5-9b':'/models/gemma-4.gguf'}))});
+
+test('registry lane status replaces machine counts without claiming inference or residency',()=>{
+  const row=registryFixture(),view=layoutModule.registryMachineView(row,{now:100});
+  assert.deepEqual([view.word,view.up,view.total,view.detail],['UP',3,3,'3 lanes up']);
+  assert.equal(layoutModule.registryMachineRows({machines:[{host:'mac'},row]}).length,1);
+  assert.match(layoutModule.machineStatusView(row,{now:100}).detail,/3 lanes up/);
+  assert.doesNotMatch(layoutModule.machineStatusView(row,{now:100}).detail,/loaded|busy|down/i);
+  const partial=layoutModule.registryMachineView({...row,lanes:[row.lanes[0],{...row.lanes[1],health:'not_measured',reason:'timeout'}]},{now:100});
+  assert.deepEqual([partial.word,partial.up,partial.total],['DEGRADED',1,2]);
+  assert.equal(partial.lanes[1].reason,'timeout');
+});
+
+test('registry freshness expires independently per lane and unknown is never down',()=>{
+  const row=registryFixture();
+  for(const options of [{now:107},{now:100,snapshotAge:7},{now:100,fresh:false},{now:100,snapshotAge:NaN}]){
+    const view=layoutModule.registryMachineView(row,options);
+    assert.equal(view.word,'UNKNOWN');assert.equal(view.up,0);assert.doesNotMatch(view.detail,/down/i);
+  }
+  assert.equal(layoutModule.registryMachineView(row,{now:106}).up,3);
+  assert.equal(layoutModule.registryMachineView({...row,lanes:[{...row.lanes[0],ageSeconds:null}]},{now:100}).word,'UNKNOWN');
+  const independent=layoutModule.registryMachineView({...row,lanes:[row.lanes[0],{...row.lanes[1],observedAt:new Date(90000).toISOString(),ageSeconds:10}]},{now:100});
+  assert.deepEqual(independent.lanes.map(lane=>lane.health),['ok','unknown']);
+});
+
+test('registry file identities show a basename and preserve the full title',()=>{
+  for(const value of ['/models/Gemma 4.gguf','C:\\Models\\Gemma 4.gguf','~/models/Gemma 4.gguf','models/Gemma 4.gguf']){
+    assert.deepEqual(layoutModule.registryModelName(value),{label:'Gemma 4.gguf',title:value});
+  }
+  assert.deepEqual(layoutModule.registryModelName('google/gemma-4-12b-it'),{label:'google/gemma-4-12b-it',title:'google/gemma-4-12b-it'});
+  assert.equal(layoutModule.registryModelName(null).label,'Unknown');
+});
+
+test('three-machine map groups lanes into separate caption bands at readable scale',()=>{
+  const machines=[{label:'This Mac',lanes:[{},{}]},registryFixture(),{label:'Mac Pro',lanes:[{}]}];
+  const placed=layoutModule.registryMapLayout(machines),points=placed.flatMap(group=>[group,...group.lanes]);
+  assert.deepEqual(placed.map(group=>group.lanes.length),[2,3,1]);
+  const boxes=points.map(point=>({left:point.x+12,right:point.x+196,top:point.y-12,bottom:point.y+24}));
+  for(let index=0;index<boxes.length;index++)for(const other of boxes.slice(index+1)){
+    const box=boxes[index];assert.ok(box.right<=other.left||other.right<=box.left||box.bottom<=other.top||other.bottom<=box.top,'caption bands must not intersect');
+  }
+  // A 1000x700 window leaves a 650x240 map after the existing rail/chrome and compact table.
+  const fit=layoutModule.fitGraph(points,{left:16,top:0,width:618,height:240},{horizontalPadding:90,verticalPadding:46,maxScale:1});
+  assert.ok(fit.scale>=.85,`three-machine overview shrank to ${fit.scale}`);
+});
+
 test('Sol7: a partial PC inventory with only inactive retained rows has no numeric loaded count', () => {
   const view = layoutModule.pcReportView({via: 'share', ageSeconds: 0, health: 'ok', modelsComplete: false,
     models: [{id: 'inactive', loadedState: 'inactive', activity: 'unknown'}]}, {feedFresh: true});
@@ -1180,7 +1227,7 @@ test('Round 3: the Live activity meaning names the running job or the newest fai
   for (const s of [activitySummary(activityFeed(jobs, [], { feedFresh: true }), { live: true })]) assert.doesNotMatch(s.meaning, /journal|archive|mac-/);
 });
 
-// Orb web, 26-27 Sep 2026 (Louis: "make the constellation map like a hybrid of spiderweb", then "make the background
+// Orb web, 26-27 Sep 2026 (Request: "make the constellation map like a hybrid of spiderweb", then "make the background
 // glow too when the node pulse" and "like when you poke a spiderweb it bounces"). The web is a pure function of the
 // graph the dashboard draws; these tests build that graph with the dashboard's own runtimeGraph/traceGraph.
 const {

@@ -622,7 +622,15 @@ def attach(snapshot, host, **kwargs):
         document = collect_map(host, **kwargs)
     except Exception:
         document = {"schema": MAP_SCHEMA, "nodes": [], "edges": [], "error": "collector_failed"}
+        config = kwargs.get("remote_config")
+        if host == "mac" and config is not None:
+            try:
+                nodes = remote_machines.unavailable_nodes(config, now=kwargs.get("now"))
+                remote_machines.extend_map(document, config, nodes)
+            except (ValueError, TypeError, KeyError, AttributeError):
+                pass  # Invalid configuration cannot replace a legacy machine.
     snapshot["inference"] = document
+    remote_machines.project_snapshot(snapshot)
     if document.get("nodes"):
         apply_rates(snapshot.get("machines"), document["nodes"])
     return document

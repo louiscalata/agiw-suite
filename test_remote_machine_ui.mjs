@@ -128,6 +128,25 @@ for (const state of ['ok', 'unknown', 'stale']) {
   });
 }
 
+test('grouped registry DOM separates filename and health and retains the full model title', async () => {
+  const now = Date.parse('2026-01-01T00:00:00Z');
+  class Clock extends Date { static now() { return now; } }
+  const full = 'C:\\models\\Glimmer.gguf';
+  const map = registryMap(now, {modelId: full});
+  map.nodes.unshift({id: 'registry:pc', machine: 'registry:pc', role: 'machine', label: 'PC',
+    health: 'ok', observedAt: new Date(now).toISOString(), observationSource: 'registry', probeIntervalSeconds: 3});
+  const h = mapPage(async () => ({ok: true, json: async () => map}), Clock);
+  await flush();
+  const lane = h.lane('registry:pc:deep');
+  assert.equal(lane.children[2].textContent, 'Glimmer.gguf');
+  assert.equal(lane.children[2].attributes.title, full);
+  assert.match(lane.children[3].textContent, /OK.*0.0 s ago/);
+  h.select('registry:pc:deep');
+  const value = h.elements.detailFacts.children.find((node, index, all) => index > 0 && all[index - 1].textContent === 'Model');
+  assert.equal(value.textContent, 'Glimmer.gguf');
+  assert.equal(value.attributes.title, full);
+});
+
 test('actual registry DOM ages while a refresh stalls, using its interval instead of the peer expiry', async () => {
   let now = Date.parse('2026-01-01T00:00:00Z');
   class Clock extends Date { static now() { return now; } }

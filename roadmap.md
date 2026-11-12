@@ -1,5 +1,14 @@
 # AGIW Suite roadmap and release evidence
 
+## Registry machine visibility — 12 November 2026
+
+- [x] Project registry machines and their lane observations into snapshot machine and liveness summaries. An explicit `replaces: legacy-pc` removes the superseded remote PC row; absent or invalid registry configuration preserves the legacy behavior. Collector failures and expired evidence remain unknown.
+- [x] Use registry lane health in Machines cards, overview tiles, the text machine summary, and both maps. List model identity, health, last observation and failure reason; abbreviate filesystem model paths with their full identity in a title. Reachable lanes do not establish machine-wide inventory, model activity or inference admission.
+- [x] Add the compact Machines and lanes table and grouped machine/lane layout, with geometry and DOM regression coverage. Keep source ownership, dependencies and local control behavior unchanged.
+- [x] Run Python 3.9.6 source checks: 58 affected-path tests passed; the Windows-edition suite passed 575 tests with 72 platform skips. The full Mac suite ran 1,680 tests and exited 1 with one failure, three errors and 28 skips: sandbox process visibility blocks `/bin/ps` and the router-holder process attribution. These remain failed/unverified checks, not acceptance.
+- [x] Run the final Node suite: 825 tests passed, zero skipped, exit 0. Geometry, DOM, inspector controls and keyboard-focus checks use fixtures; they do not verify browser rendering. No new resource files, dependencies or edition package-list additions were needed.
+- [ ] Native rendering at 1000 × 700, live registry/model behavior, Windows-native execution and CI remain unverified. This lane performs source and fixture checks only; no browser, model server, install, commit or publication is authorized.
+
 ## ECI model fast check · first slice · 12 November 2026
 
 - [x] Add deterministic, versioned, content-pinned whole-benchmark simple random sample plans (default 200 items), Wilson 95% component intervals, admission-matched chance normalization and exact McNemar comparisons.
@@ -27,7 +36,7 @@ See [Fast check](docs/eci-fast-check.md) for the contract, statistical limits, a
 - [x] Preserve optional validated `contextTokens` and `thinking` metadata without consuming it. Keep this feature observational: it starts no tasks and changes no transport or model state.
 - [x] Move the original private audit outside the repository; retain a [general feature guide](docs/three-machine-pipeline.md) and placeholder registry. Historical repository-wide identity references remain a separate privacy finding pending scope clarification.
 - [x] Record [final source check results](docs/remote-machines-fix-results.md): 71 Python tests, 39 Node tests, one staged Windows package test and three Windows expiry tests passed, with zero skips. Source tests are separate from native Windows installation, native map acceptance, hardware behavior, deployment and release. No commit or push is authorized.
-- [ ] Migrate routing consumers and hardware receipts to a shared admitted manifest in a later integration; full Machines/Overview projection remains outside this visibility slice.
+- [ ] Migrate routing consumers and hardware receipts to a shared admitted manifest in a later integration. Machines/Overview projection is addressed by the subsequent Registry machine visibility slice above.
 
 ## Agent guide reconciliation — 10 November 2026
 

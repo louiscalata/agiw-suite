@@ -172,12 +172,28 @@ def host_liveness(machines):
             table[host] = (entry if host not in seen else
                            {'state': 'unknown', 'reasonCode': 'identity_mismatch', 'freshForSeconds': None})
             seen.add(host)
+    # Registry observations describe configured lanes, independently of the
+    # platform-specific peer telemetry. Retain that scope on compatibility
+    # aliases so a reachable lane never validates an old peer's model rows.
+    for machine in machines:
+        host = machine.get('host')
+        if machine.get('observationSource') != 'registry' or not isinstance(host, str):
+            continue
+        entry = {key: machine.get(key) for key in ('state', 'reasonCode', 'ageSeconds', 'freshForSeconds')}
+        entry.update(observationSource='registry', inventoryScope='configured-lanes')
+        table[host] = entry
+        table[f'remote:{host}'] = entry
+        if machine.get('replaces') == 'legacy-pc':
+            table['windows'] = entry
+            table['pc'] = entry
     return table
 
 
 def row_is_live(row, liveness):
     key = f"{row['platform']}:{row.get('host')}" if row.get('platform') else row.get('host')
     entry = liveness.get(key, {})
+    if entry.get('inventoryScope') == 'configured-lanes':
+        return False  # Identity probes cannot establish model residency/activity.
     age, limit = row.get('ageSeconds'), entry.get('freshForSeconds')
     return (finite_number(age) and finite_number(limit) and 0 <= age <= limit
             and entry.get('state', 'up') == 'up')
@@ -424,6 +440,7 @@ class SnapshotStore:
             return None
         now = time.time()
         expire_map(data.get('inference'), now)
+        remote_machines.project_snapshot(data)
         elapsed = max(0.0, now - data['sampledAt'])
         if isinstance(data.get('machines'), list):
             expire_machines(data['machines'], now)

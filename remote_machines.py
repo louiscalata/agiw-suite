@@ -283,6 +283,8 @@ def _nodes(config, targets, results, now, interval):
         root.update(detail="Configured lane identities only. Whole-machine health and inventory are unknown.",
                     inventoryScope="configured-lanes", observationSource="registry", probeIntervalSeconds=interval,
                     ageSeconds=max((child["ageSeconds"] for child in children if child["ageSeconds"] is not None), default=None))
+        if machine.get("replaces") == "legacy-pc":
+            root["replaces"] = "legacy-pc"
         nodes.extend([root, *children])
     return nodes
 
@@ -297,6 +299,15 @@ def collect(config, *, fetch=None, now=None):
         readings = list(pool.map(lambda target: _probe(target, fetch), targets))
     results = {target["id"]: (*reading, now) for target, reading in zip(targets, readings)}
     return _nodes(config, targets, results, now, PROBE_INTERVAL)
+
+
+def unavailable_nodes(config, *, now=None):
+    """Retain configured machines when another part of the collector fails."""
+    targets = lane_targets(config)
+    if not targets:
+        return []
+    results = {target["id"]: (None, None, "collector_failed", None) for target in targets}
+    return _nodes(config, targets, results, time.time() if now is None else now, PROBE_INTERVAL)
 
 
 class BackgroundProbes:
@@ -405,5 +416,47 @@ def extend_map(document, config, nodes):
         document["tunnel"] = None
     document["nodes"].extend(nodes)
     document["edges"] = edges_for(document["nodes"])
-    document["remoteMachines"] = {"schemaVersion": 1, "state": "invalid" if config.get("error") else "configured"}
+    document["remoteMachines"] = {"schemaVersion": 1, "state": "invalid" if config.get("error") else "configured",
+                                  "replacesLegacyPc": replaces_legacy_pc(config)}
     return document
+
+
+def project_snapshot(snapshot):
+    """Project the same registry observations into every machine summary.
+
+    These rows describe configured lanes only: their identities are not a local
+    model inventory, machine-wide health measurement, or inference admission.
+    Calling this again after ``expire_map`` keeps API reads and the map in step.
+    Without registry roots the legacy snapshot is left byte-for-byte alone.
+    """
+    document = snapshot.get("inference")
+    if not isinstance(document, dict):
+        return
+    nodes = document.get("nodes") or []
+    roots = [node for node in nodes if node.get("role") == "machine"
+             and node.get("observationSource") == "registry"]
+    if not roots:
+        return
+    replaces = any(root.get("replaces") == "legacy-pc" for root in roots)
+    rows = [row for row in snapshot.get("machines", [])
+            if row.get("observationSource") != "registry"
+            and not (replaces and row.get("platform") == "windows"
+                     and row.get("trust") != "local")]
+    for root in roots:
+        identity = root["id"]
+        interval = root.get("probeIntervalSeconds", PROBE_INTERVAL)
+        row = {"id": identity, "host": identity, "platform": "remote", "label": root["label"],
+               "observationSource": "registry", "inventoryScope": "configured-lanes",
+               "state": "up" if root.get("health") == "ok" else "unknown",
+               "health": root.get("health", "not_measured"), "reason": root.get("reason"),
+               "reasonCode": root.get("reason") or "observed", "trust": "registry",
+               "observedAt": root.get("observedAt"), "ageSeconds": root.get("ageSeconds"),
+               "freshForSeconds": 2 * interval, "modelsComplete": False,
+               "loadedCount": None, "busyCount": None, "promptTokensPerSecond": None,
+               "generationTokensPerSecond": None, "handsOff": None,
+               "lanes": [copy.deepcopy(node) for node in nodes if node.get("machine") == identity
+                         and node.get("role") not in ("machine", "client")]}
+        if root.get("replaces") == "legacy-pc":
+            row["replaces"] = "legacy-pc"
+        rows.append(row)
+    snapshot["machines"] = rows

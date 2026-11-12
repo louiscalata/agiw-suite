@@ -1,6 +1,6 @@
 import {formatTokens,summarizeReportedCalls} from '/usage-format.mjs';
 import {onlineCodeModeView,routeQueueRows,nisiV02View,fixNisiStepsView,nisiRecoveryView,fixNisiEvidence,fixNisiMessage} from '/online-code-mode.mjs';
-import {constellationLayout,fitGraph,prioritizeRuntimeModels,runtimeModelRoster,CORE_MODEL_IDS,hasAdvertisedWindowsWorker,afmView,jevView,modelStarSize,windowsJobsView,windowsJobsEvidence,windowsLaneView,windowsLaneActivitySummary,resolveLabelCollisions,clampCamera,nextNodeInDirection,reviewConsistencyView,headlessSwitchView,activityFeed,vitalsView,windowsLaneRows,nodeCaptionLayout,windowsMacCaptionShift,macGpuView,localCallersView,laneSpeeds,speedsText,jobFlags,activitySummary,pcGpuView,orbWebKey,orbWebLayout,orbWebActivity,orbWebPluck,orbWebPathsAt,orbWebFlashPath,pluckOffsets,createWebMotion,edgeCurvePath,webGlows,glowRadius,memoryView,memoryBannerView,memoryDismissal,memoryHoldAt,memoryAnnouncement,routeQueuedWords,macPeerView,macReportView,windowsMacListEntries,windowsMapListEntries,friendlyModelName,agiwPeersRows,windowsSharePublishRow,pcAdaptersView,newestRunsFirst,routeReviewCounts,pcReportView,machineStatusView} from '/map-layout.mjs';
+import {constellationLayout,fitGraph,prioritizeRuntimeModels,runtimeModelRoster,CORE_MODEL_IDS,hasAdvertisedWindowsWorker,afmView,jevView,modelStarSize,windowsJobsView,windowsJobsEvidence,windowsLaneView,windowsLaneActivitySummary,resolveLabelCollisions,clampCamera,nextNodeInDirection,reviewConsistencyView,headlessSwitchView,activityFeed,vitalsView,windowsLaneRows,nodeCaptionLayout,windowsMacCaptionShift,macGpuView,localCallersView,laneSpeeds,speedsText,jobFlags,activitySummary,pcGpuView,orbWebKey,orbWebLayout,orbWebActivity,orbWebPluck,orbWebPathsAt,orbWebFlashPath,pluckOffsets,createWebMotion,edgeCurvePath,webGlows,glowRadius,memoryView,memoryBannerView,memoryDismissal,memoryHoldAt,memoryAnnouncement,routeQueuedWords,macPeerView,macReportView,windowsMacListEntries,windowsMapListEntries,friendlyModelName,agiwPeersRows,windowsSharePublishRow,pcAdaptersView,newestRunsFirst,routeReviewCounts,pcReportView,machineStatusView,registryMachineRows,registryMachineView,registryModelName,registryMapLayout} from '/map-layout.mjs';
 import {modelControlView,submitModelControl} from '/model-control-view.mjs';
 import {createMonitorDesk, nodeInMonitor, moveMonitorTab, initialMonitorId} from '/monitor-tabs.mjs';
 import {paintMonitorChrome} from '/monitor-board.mjs';
@@ -71,7 +71,7 @@ function modelFreshness(m,elapsed=snapshot?Math.max(0,Date.now()/1000-snapshot.s
   const activityWindow=Number.isFinite(snapshot?.laneActivityFreshSeconds)&&snapshot.laneActivityFreshSeconds>0?Math.min(5,snapshot.laneActivityFreshSeconds):5;
   return{expired,current:!expired&&Number.isFinite(age),activityExpired:snapshot?.host==='windows'&&Number.isFinite(age)&&age>activityWindow};
 }
-function models(){const elapsed=snapshot?Math.max(0,Date.now()/1000-snapshot.sampledAt):0;return(snapshot?.models||[]).map(m=>{const evidence=modelFreshness(m,elapsed);return evidence.expired?{...m,state:'stale',loaded:null,queued:null}:evidence.activityExpired&&['idle','busy','generating'].includes(m.state)?{...m,state:'loaded',source:'llama-models',metadata:{...m.metadata,slotsBusy:null,liveTokensPerSecond:null}}:m;});}
+function models(){const elapsed=snapshot?Math.max(0,Date.now()/1000-snapshot.sampledAt):0;return(snapshot?.models||[]).filter(m=>!(snapshot?.host==='mac'&&registryPc()&&m.host==='windows')).map(m=>{const evidence=modelFreshness(m,elapsed);return evidence.expired?{...m,state:'stale',loaded:null,queued:null}:evidence.activityExpired&&['idle','busy','generating'].includes(m.state)?{...m,state:'loaded',source:'llama-models',metadata:{...m.metadata,slotsBusy:null,liveTokensPerSecond:null}}:m;});}
 function localActivityKnown(rows){return snapshot?.activityKnown===true&&rows.every(m=>typeof m.loaded==='boolean'&&(snapshot?.host!=='windows'||!m.loaded||modelFreshness(m).current&&!modelFreshness(m).activityExpired&&['idle','busy','generating'].includes(m.state)));}
 function localRuntimeCounts(){
   const host=snapshot?.host||'mac',rows=models().filter(m=>m.host===host&&m.representedByInstances!==true),sources=(snapshot?.sources||[]).filter(s=>['lmstudio-api','lms-ps',...(host==='windows'?['lane-inventory']:[])].includes(s.id));
@@ -92,7 +92,58 @@ function native(action){const bridge=window.webkit?.messageHandlers?.monitor;if(
 function addNode(id,label,x,y,options={}){const n={id,label,x,y,color:'currentColor',r:7,subtitle:'',...options};graph.nodes.push(n);return n;}
 function edge(a,b,color,dim=false,bend=0,flow=false){graph.edges.push({a,b,color,dim,bend,flow});}
 function addLabel(label){graph.labels.push(label);}
+function hasRegistry(){return Array.isArray(snapshot?.machines)&&snapshot.machines.some(row=>row?.observationSource==='registry');}
+function registryViews(){return registryMachineRows(snapshot).map(row=>({...registryMachineView(row,{fresh:liveNow(),snapshotAge:sampleAge()}),row}));}
+function registryPc(){return hasRegistry()?registryViews().find(machine=>machine.row.replaces==='legacy-pc'):null;}
+function registryOverviewMachines(){
+  const local=(snapshot?.machines||[]).find(row=>row?.host===snapshot.host),localStatus=machineStatusView(local,{fresh:liveNow(),snapshotAge:sampleAge()});
+  const lanes=(snapshot?.inference?.nodes||[]).filter(node=>node.machine==='mac'&&node.role!=='machine'&&node.role!=='client').map(node=>({...node,health:liveNow()&&node.health==='ok'?'ok':'unknown'}));
+  const replaced=registryMachineRows(snapshot).some(row=>row.replaces==='legacy-pc');
+  const legacy=(snapshot.machines||[]).filter(row=>row&&row!==local&&row.observationSource!=='registry'&&!(replaced&&(row.platform==='windows'||['pc','windows','legacy-pc'].includes(row.host)))).map(row=>{
+    const status=machineStatusView(row,{fresh:liveNow(),snapshotAge:sampleAge()}),machine=row.platform==='windows'?'pc':row.platform==='macos'?'mac':row.host;
+    return {label:row.label||(row.platform==='windows'?'PC':row.platform==='macos'?'Mac':row.host),word:status.tone==='ok'?'UP':status.tone==='warn'&&row.state==='down'?'DOWN':'UNKNOWN',glyph:status.tone==='ok'?'●':status.tone==='warn'?'×':'?',health:status.tone==='ok'?'ok':status.tone==='warn'?'down':'unknown',detail:status.detail,lanes:(snapshot.inference?.nodes||[]).filter(node=>node.machine===machine&&node.role!=='machine'&&node.role!=='client'),row};
+  });
+  return [{label:snapshot.host==='windows'?'This PC':'This Mac',isLocal:true,word:localStatus.tone==='ok'?'UP':'UNKNOWN',glyph:localStatus.tone==='ok'?'●':'?',health:localStatus.tone==='ok'?'ok':'unknown',detail:localStatus.detail,lanes,row:local||{host:snapshot.host}},...legacy,...registryViews()];
+}
+function registryGraph(){
+  const groups=registryMapLayout(registryOverviewMachines());layoutMode='machines';
+  for(const group of groups){const machine=group.machine,id=machine.isLocal?'runtime':machine.row.host;
+    const root=addNode(id,trim(machine.label,24),group.x,group.y,{kind:machine.isLocal?'runtime':'registry-machine',hub:id==='runtime',r:10,captionSide:'right',subtitle:machine.isLocal?machine.word:machine.detail,unknown:machine.health!=='ok',registryMachine:machine});
+    for(const child of group.lanes){const lane=child.lane,model=registryModelName(lane.modelId),state=lane.health==='ok'?'UP':lane.health==='degraded'?'DEGRADED':'UNKNOWN';
+      const node=addNode(lane.id,trim(lane.label,22)+' · '+state,child.x,child.y,{kind:'registry-lane',r:5,captionSide:'right',subtitle:trim(model.label,29),unknown:lane.health!=='ok',registryLane:lane,registryMachine:machine});
+      edge(root.id,node.id,INK,lane.health!=='ok');
+    }
+  }
+}
+function renderRegistryTable(){
+  const root=$('machineLanes');if(!root)return;root.hidden=!hasRegistry();document.body.classList.toggle('registry-overview',hasRegistry());if(root.hidden){root.replaceChildren();return;}
+  const title=el('h2',null,'Machines and lanes'),table=el('table'),head=el('thead'),row=el('tr');
+  for(const label of ['Machine','Lane','Model','Health']){const cell=el('th',null,label);cell.setAttribute('scope','col');row.append(cell);}head.append(row);table.append(head);const body=el('tbody');
+  for(const machine of registryOverviewMachines())for(const lane of machine.lanes.length?machine.lanes:[{label:'No lane observation',health:'unknown'}]){const row=el('tr'),model=registryModelName(lane.modelId),name=el('th',null,machine.label);name.setAttribute('scope','row');const modelCell=el('td',null,model.label);if(model.title)modelCell.title=model.title;const state=lane.health==='ok'?'● Up':lane.health==='degraded'?'◐ Degraded':'? Unknown';row.append(name,el('td',null,lane.label),modelCell,el('td',null,state+(lane.health!=='ok'&&lane.reason?' · '+String(lane.reason).replaceAll('_',' '):'')));body.append(row);}
+  table.append(body);root.replaceChildren(title,table);positionRegistryTable();
+}
+function positionRegistryTable(){
+  const table=$('machineLanes'),region=$('graphRegion'),heading=$('mapHeading'),banner=$('memoryBanner');if(!table||!region)return false;
+  let moved=false;
+  const restoreBanner=()=>{if(banner?.dataset.registryPositioned==='1'){banner.style.top=banner.dataset.registryTop||'';delete banner.dataset.registryPositioned;delete banner.dataset.registryTop;moved=true;}};
+  if(table.hidden){restoreBanner();return moved;}
+  const box=region.getBoundingClientRect(),head=heading?.getBoundingClientRect();
+  if(banner&&!banner.hidden&&head?.height>0){
+    if(banner.dataset.registryPositioned!=='1'){banner.dataset.registryTop=banner.style.top||'';banner.dataset.registryPositioned='1';}
+    const next=`${Math.round(head.bottom-box.top+8)}px`;if(banner.style.top!==next){banner.style.top=next;moved=true;}
+  }else restoreBanner();
+  const memory=banner&&!banner.hidden?banner.getBoundingClientRect():null;
+  const top=Math.max(12,head?.height>0?head.bottom-box.top+8:0,memory?.height>0?memory.bottom-box.top+8:0),value=`${Math.round(top)}px`;
+  if(table.style.top!==value){table.style.top=value;moved=true;}return moved;
+}
+
+function inspectorNodeFor(id){return graph.nodes.find(node=>node.id===id)||(graph.inspectorNodes||[]).find(node=>node.id===id);}
 function runtimeGraph(){
+  if(!hasRegistry())return legacyRuntimeGraph();
+  // Keep every existing inspector and model-control target while fitting the machine overview only.
+  legacyRuntimeGraph();const replaced=Boolean(registryPc()),details=graph.nodes.filter(node=>!replaced||!['windows-worker','windows-lane'].includes(node.kind));graph={nodes:[],edges:[],labels:[],inspectorNodes:details};registryGraph();
+}
+function legacyRuntimeGraph(){
   const {visible:rows}=prioritizeRuntimeModels(displayedModels().visible);
   const clients=clientRows(),region=$('graphRegion');
   const layout=constellationLayout(rows.length,clients.map(c=>({modelCount:c.models.length})),{viewportWidth:region.clientWidth||409,viewportHeight:region.clientHeight||800,host:snapshot?.host});
@@ -206,11 +257,11 @@ function graphBounds(){const points=[...graph.nodes,...graph.labels];if(!points.
 function boundCamera(){camera=clampCamera(camera,graphBounds(),visibleMapArea(),{keep:120});}
 function hideOnlineCodeDetails(){const panel=$('onlineCodeDetails');panel.hidden=true;$('onlineCodeMode').setAttribute('aria-expanded','false');}
 function hideFixInferenceDetails(){const panel=$('fixInferenceDetails');panel.hidden=true;fixReturnTo=null;$('fixInference').setAttribute('aria-expanded','false');}
-function closeDrawer(restoreFocus=true){const previous=selected;$('drawer').hidden=true;selected=null;inspectorNode=null;userCamera=false;renderGraph();renderList();fitMap();if(restoreFocus)nodeElements.get(previous)?.focus({preventScroll:true});}
+function closeDrawer(restoreFocus=true){const previous=selected;$('drawer').hidden=true;selected=null;inspectorNode=null;userCamera=false;renderGraph();renderList();fitMap();if(restoreFocus){const node=nodeElements.get(previous);if(node)node.focus({preventScroll:true});else{const button=[...$('list').querySelectorAll('button[data-key]')].find(item=>item.dataset.key===previous);if(button){if(!dockedSidebar())setSidebarOpen(true);button.focus({preventScroll:true});}else $('sidebarToggle').focus({preventScroll:true});}}}
 // Below the dock breakpoint, Browse covers the map. A choice closes it and
 // returns focus to the chosen map node before the inspector replaces it.
 function closeCompactSidebar(){if(dockedSidebar()||!document.body.classList.contains('sidebar-open'))return false;const inside=$('runtimeSidebar').contains(document.activeElement);setSidebarOpen(false);return inside;}
-function nodeSelect(id){let refocus=false;if(compactEvidence()){hideOnlineCodeDetails();hideFixInferenceDetails();hideActivityDetails();refocus=closeCompactSidebar();}else if(!dockedSidebar())refocus=closeCompactSidebar();const fromDockedBrowser=dockedSidebar()&&$('runtimeSidebar').contains(document.activeElement),fitForDrawer=!userCamera&&$('drawer').hidden&&$('onlineCodeDetails').hidden&&$('fixInferenceDetails').hidden;if(selected!==id)modelControlError='';selected=id;inspectorNode=null;$('drawer').hidden=false;renderGraph();renderInspector();renderList();if(fitForDrawer)fitMap();else revealSelected();userCamera=true;if(fromDockedBrowser)$('drawer').focus({preventScroll:true});if(refocus)nodeElements.get(id)?.focus({preventScroll:true});}
+function nodeSelect(id){let refocus=false;if(compactEvidence()){hideOnlineCodeDetails();hideFixInferenceDetails();hideActivityDetails();refocus=closeCompactSidebar();}else if(!dockedSidebar())refocus=closeCompactSidebar();const fromDockedBrowser=dockedSidebar()&&$('runtimeSidebar').contains(document.activeElement),fitForDrawer=!userCamera&&$('drawer').hidden&&$('onlineCodeDetails').hidden&&$('fixInferenceDetails').hidden;if(selected!==id)modelControlError='';selected=id;inspectorNode=null;$('drawer').hidden=false;renderGraph();renderInspector();renderList();if(fitForDrawer)fitMap();else revealSelected();userCamera=true;if(fromDockedBrowser)$('drawer').focus({preventScroll:true});if(refocus&&!nodeElements.has(id))$('drawer').focus({preventScroll:true});if(refocus)nodeElements.get(id)?.focus({preventScroll:true});}
 // Orb web (spiderweb, 26-27 Sep): geometry only. It is rebuilt when a node moves or the topology changes, never on
 // hover or on a stream tick that only changes status (#web's data-builds counts rebuilds). The reduced-motion dew is a
 // separate overlay, cached the same way; a poke's highlight has its own path.
@@ -280,7 +331,7 @@ function renderGraph(){
   renderGlows();
   const web=renderWeb();
   $('edges').replaceChildren();edgeGeoms=[];
-  const focusId=hoveredNode||selected,nearIds=new Set(focusId?[focusId]:[]);
+  const focusId=hoveredNode||(graph.nodes.some(node=>node.id===selected)?selected:null),nearIds=new Set(focusId?[focusId]:[]);
   for(const e of graph.edges)if(focusId&&(e.a===focusId||e.b===focusId)){nearIds.add(e.a);nearIds.add(e.b);}
   // A hub-to-child edge runs straight along its web spoke; one behind a nearer sibling keeps its bend.
   for(const [i,e] of graph.edges.entries()){const a=graph.nodes.find(n=>n.id===e.a),b=graph.nodes.find(n=>n.id===e.b);if(!a||!b)continue;const bend=web?.edgeBends?.[i]??e.bend,dx=b.x-a.x,dy=b.y-a.y,distance=Math.max(1,Math.hypot(dx,dy)),insetA=Math.min(a.r*.65,distance*.12),insetB=Math.min(b.r*.65,distance*.12),sx=a.x+dx/distance*insetA,sy=a.y+dy/distance*insetA,ex=b.x-dx/distance*insetB,ey=b.y-dy/distance*insetB,cx=(sx+ex)/2-dy/distance*bend,cy=(sy+ey)/2+dx/distance*bend,related=focusId&&(e.a===focusId||e.b===focusId),geometry={sx,sy,cx,cy,ex,ey},path=svg('path',{d:edgeCurvePath(geometry),stroke:e.color,class:`edge${e.dim?' dim':''}${e.flow&&fresh()?' in-flight':''}${related?' highlighted':''}${focusId&&!related?' quieted':''}`});$('edges').append(path);edgeGeoms[i]={...geometry,el:path,moved:false};}
@@ -297,7 +348,7 @@ function renderGraph(){
     const match=query&&(windowsMatches?.has(n.id)||[n.label,n.lane?.label,n.model?.id,n.client?.label,n.clientModel?.id,n.run?.runId,n.call?.model,n.call?.servedModel].filter(Boolean).some(s=>s.toLowerCase().includes(query)));
     const isNear=!focusId||nearIds.has(n.id),isFocused=focusId===n.id;
     g.setAttribute('class','node '+n.kind+(n.root?' root':'')+(n.hub?' hub':'')+(n.active&&fresh()?' active':'')+(n.inFlight&&fresh()?' in-flight':'')+(n.verified?' verified':'')+(n.reviewLevel?' review-'+n.reviewLevel:'')+(n.kind==='model'&&n.model?.loaded===true&&fresh()?' loaded':'')+(n.unknown?' unknown':'')+(selected===n.id?' selected':'')+(isNear&&focusId?' near':'')+(isFocused?' spotlight':'')+(query?(match?' match':' fade'):''));
-    const exactIdentity=n.kind==='model'?n.model?.id:n.kind==='client-model'?n.clientModel?.id:null;
+    const exactIdentity=n.registryLane?.modelId||(n.kind==='model'?n.model?.id:n.kind==='client-model'?n.clientModel?.id:null);
     g.setAttribute('color',n.color);g.setAttribute('transform',`translate(${n.x},${n.y})`);g.setAttribute('aria-label',[n.label,exactIdentity?'Model ID '+exactIdentity:null,n.subtitle,n.visual?.value,n.visual?.capabilityLabel].filter(Boolean).join('; '));g.setAttribute('aria-pressed',String(selected===n.id));g.children[7].textContent=[n.label,exactIdentity,n.subtitle,n.call?.status].filter(Boolean).join(' · ');
     const [hit,halo,ring,core,label,sub,capability]=g.children;halo.setAttribute('r',n.r+9);halo.setAttribute('stroke',n.active?'var(--green)':n.color);halo.setAttribute('style',n.auraPeriodMs?`animation-duration:${n.auraPeriodMs}ms`:'');ring.setAttribute('r',n.r+5);ring.setAttribute('stroke',n.color);core.setAttribute('r',n.r);core.setAttribute('fill',n.color);if(n.unknown)core.setAttribute('stroke',n.color);else core.removeAttribute('stroke');label.setAttribute('y',n.r+(n.root?32:22));label.textContent=n.label;sub.setAttribute('y',n.r+(n.root?50:37));sub.textContent=n.subtitle;capability.setAttribute('y',n.r+52);capability.setAttribute('font-size',`${8/Math.max(.1,camera.z)}px`);capability.textContent=n.kind==='model'?n.visual?.capabilityLabel||'Capabilities unknown':'';
   }
@@ -307,7 +358,8 @@ function visibleMapArea(){
   const box=$('graphRegion').getBoundingClientRect(),heading=$('mapHeading').getBoundingClientRect(),banner=$('memoryBanner');
   // The memory banner (when shown) sits under the status chips; the map fits below both.
   const bannerBottom=banner&&!banner.hidden?banner.getBoundingClientRect().bottom-box.top+12:0;
-  const area={left:16,right:box.width-16,top:Math.max(74,heading.bottom-box.top+16,bannerBottom),bottom:box.height-70};
+  const machineTable=$('machineLanes'),tableBottom=machineTable&&!machineTable.hidden?machineTable.getBoundingClientRect().bottom-box.top+18:0;
+  const area={left:16,right:box.width-16,top:Math.max(74,heading.bottom-box.top+16,bannerBottom,tableBottom),bottom:box.height-70};
   // The compact sheet slides up; measure panels where the slide ends, not mid-animation.
   let slide=0;try{const t=window.getComputedStyle?.($('evidenceRail')).transform;if(t&&t!=='none')slide=new DOMMatrixReadOnly(t).m42||0;}catch(_){}
   const panels=[$('drawer'),$('onlineCodeDetails'),$('fixInferenceDetails'),$('activityDetails')].filter(panel=>!panel.hidden).map(panel=>{const r=panel.getBoundingClientRect();return{left:r.left,right:r.right,top:r.top-slide,bottom:r.bottom-slide};});
@@ -319,7 +371,7 @@ function visibleMapArea(){
     .filter(r=>r.right-r.left>=80&&r.bottom-r.top>=90).sort((a,b)=>(b.right-b.left)*(b.bottom-b.top)-(a.right-a.left)*(a.bottom-a.top));
   return spaces[0]||area;
 }
-function fitMap(){const area=visibleMapArea(),points=[...graph.nodes,...graph.labels.map(label=>({x:label.x,y:label.y}))],fit=fitGraph(points,{left:area.left,top:area.top,width:area.right-area.left,height:area.bottom-area.top},{horizontalPadding:90,verticalPadding:46,maxScale:1.7});if(!fit)return;camera={x:fit.x,y:fit.y,z:fit.scale};applyCamera();}
+function fitMap(){const area=visibleMapArea(),points=[...graph.nodes,...graph.labels.map(label=>({x:label.x,y:label.y}))],fit=fitGraph(points,{left:area.left,top:area.top,width:area.right-area.left,height:area.bottom-area.top},{horizontalPadding:90,verticalPadding:46,maxScale:hasRegistry()?1:1.7,minScale:hasRegistry()?.8:.08});if(!fit)return;camera={x:fit.x,y:fit.y,z:fit.scale};applyCamera();}
 function revealSelected(){const n=graph.nodes.find(n=>n.id===selected);if(!n)return;const area=visibleMapArea(),width=area.right-area.left,height=area.bottom-area.top;if(width<=0||height<=0)return;const x=camera.x+n.x*camera.z,y=camera.y+n.y*camera.z;const marginX=Math.min(width/2,Math.max(65,n.label.length*3.5)),top=area.top+Math.min(26,height/3),bottom=area.bottom-Math.min(64,height/2);const targetX=Math.max(area.left+marginX,Math.min(area.right-marginX,x)),targetY=Math.max(top,Math.min(bottom,y));camera.x+=targetX-x;camera.y+=targetY-y;applyCamera();}
 function applyCamera(){
   const transform=`translate(${camera.x},${camera.y}) scale(${camera.z})`;
@@ -356,7 +408,7 @@ function placeMacModelCaptions(){
   for(const {label,sub} of captions)for(const text of [label,sub]){const y=Number(text.getAttribute('y'));if(Number.isFinite(y))text.setAttribute('y',y+shift);}
 }
 // Cluster labels are measured at the current zoom and moved off nodes, their always-on captions and each other.
-const CAPTIONED=new Set(['runtime','client','windows-worker','windows-lane','mac-model']);
+const CAPTIONED=new Set(['runtime','client','windows-worker','windows-lane','mac-model','registry-machine','registry-lane']);
 let labelsPlacedAt=null;
 function placeClusterLabels(){
   const texts=[...$('groups').children];if(!texts.length||texts.length!==graph.labels.length||labelsPlacedAt===camera.z)return;labelsPlacedAt=camera.z;
@@ -439,7 +491,7 @@ function capabilityDetail(value){
   return`Vision: ${flag('vision')} · Tools: ${flag('toolUse')} · Reasoning: ${flag('reasoning')} · Reasoning options: ${options||'Unknown'}`;
 }
 function modelActionState(m){return modelControlView(m,{host:snapshot?.host,feedFresh:fresh(),supported:snapshot?.modelControl?.supported,reason:snapshot?.modelControl?.reason,status:modelControlStatus,models:snapshot?.models});}
-function renderModelAction(){const dock=$('modelActionDock'),n=graph.nodes.find(node=>node.id===selected);if(view!=='runtime'||n?.kind!=='model'||n.model?.host!==snapshot?.host){dock.hidden=true;return;}dock.hidden=false;const m=n.model,state=modelActionState(m);$('modelActionTitle').textContent=m.name||name(m.id);$('modelActionStatus').textContent=modelControlError||(modelControlStatus?.settlement==='unconfirmed'?state.reason:modelControlPosting?'Submitting request…':(modelControlStatus?.modelId===m.id&&modelControlStatus.status!=='idle')?`${modelControlStatus.status}${modelControlStatus.message?` · ${modelControlStatus.message}`:''}`:state.reason);const button=$('modelAction');button.textContent=state.action==='unload'?'Unload':'Load';button.disabled=modelControlPosting||!state.action;button.dataset.action=state.action||'';button.setAttribute('aria-label',`${state.action==='unload'?'Unload':'Load'} ${m.id}`);}
+function renderModelAction(){const dock=$('modelActionDock'),n=inspectorNodeFor(selected);if(view!=='runtime'||n?.kind!=='model'||n.model?.host!==snapshot?.host){dock.hidden=true;return;}dock.hidden=false;const m=n.model,state=modelActionState(m);$('modelActionTitle').textContent=m.name||name(m.id);$('modelActionStatus').textContent=modelControlError||(modelControlStatus?.settlement==='unconfirmed'?state.reason:modelControlPosting?'Submitting request…':(modelControlStatus?.modelId===m.id&&modelControlStatus.status!=='idle')?`${modelControlStatus.status}${modelControlStatus.message?` · ${modelControlStatus.message}`:''}`:state.reason);const button=$('modelAction');button.textContent=state.action==='unload'?'Unload':'Load';button.disabled=modelControlPosting||!state.action;button.dataset.action=state.action||'';button.setAttribute('aria-label',`${state.action==='unload'?'Unload':'Load'} ${m.id}`);}
 // Model control status matters only while its Load/Unload footer shows or a request is posting or running.
 const modelControlPollWanted=()=>!$('modelActionDock').hidden||modelControlPosting||modelControlStatus?.status==='running';
 async function pollModelControl(){try{const response=await fetch('/api/models/control',{cache:'no-store'});if(!response.ok)throw new Error('Control status unavailable');const result=await response.json();if(result&&typeof result.status==='string')modelControlStatus=result;}catch(_){modelControlStatus=null;}renderModelAction();}
@@ -497,13 +549,13 @@ async function requestAutoUnload(){
   }catch(_){autoUnloadState=null;autoUnloadError='Could not confirm the setting. Reading it again; no retry was sent.';}
   finally{if(revision===autoUnloadRevision){autoUnloadPosting=false;renderAutoUnload();if(refresh)pollAutoUnload();}}
 }
-async function requestModelAction(){const n=graph.nodes.find(node=>node.id===selected);if(n?.kind!=='model')return;const state=modelActionState(n.model);if(!state.action||modelControlPosting)return;modelControlPosting=true;modelControlError='';renderModelAction();try{const response=await submitModelControl(fetch,state.action,n.model.id),result=response.result;if(!response.ok){modelControlError=result.message||`Request rejected (${response.statusCode}).`;modelControlStatus=result;}else if(result.status==='running'){modelControlStatus=result;}else{modelControlError=result.message||'The server did not confirm a running operation.';modelControlStatus=result;}}catch(_){modelControlError='Could not reach local model control.';}finally{modelControlPosting=false;}renderModelAction();pollModelControl();}
+async function requestModelAction(){const n=inspectorNodeFor(selected);if(n?.kind!=='model')return;const state=modelActionState(n.model);if(!state.action||modelControlPosting)return;modelControlPosting=true;modelControlError='';renderModelAction();try{const response=await submitModelControl(fetch,state.action,n.model.id),result=response.result;if(!response.ok){modelControlError=result.message||`Request rejected (${response.statusCode}).`;modelControlStatus=result;}else if(result.status==='running'){modelControlStatus=result;}else{modelControlError=result.message||'The server did not confirm a running operation.';modelControlStatus=result;}}catch(_){modelControlError='Could not reach local model control.';}finally{modelControlPosting=false;}renderModelAction();pollModelControl();}
 function headlessText(h,view){if(!view||view.headless.label==='Headless unknown')return'Unknown';return[view.headless.label,typeof h?.grantedBy==='string'?`granted by ${h.grantedBy}`:null,typeof h?.reason==='string'?h.reason:null].filter(Boolean).join(' · ');}
 const INSPECTOR_EYEBROW={model:'LOCAL MODEL',afm:'ON-DEVICE ADVISOR',jev:'ROUTE ADVISOR','model-overflow':'INSTALLED MODEL INVENTORY',call:'MODEL RECEIPT',run:'ROUTE RECORD',pipeline:'SHARED ROUTE','windows-worker':'PC WORKER','windows-lane':'PC MODEL LANE','mac-peer':'MAC PRESENCE','mac-model':'MODEL ON THE MAC',client:'CLIENT MODEL IDENTITY','client-model':'CLIENT MODEL IDENTITY',clients:'CLIENT MODEL IDENTITY'};
 // The drawer is built off-page on every render and compared with what is shown, never keyed on raw aged objects:
 // the same node with the same structure only has its text patched in place (ages tick without replacing a
 // disclosure mid-click or moving focus); a new structure rebuilds; another node rebuilds from the top.
-function renderInspector(){if($('drawer').hidden)return;const n=graph.nodes.find(n=>n.id===selected);if(!n){$('drawer').hidden=true;return;}
+function renderInspector(){if($('drawer').hidden)return;const n=inspectorNodeFor(selected);if(!n){$('drawer').hidden=true;return;}
   const eyebrow=INSPECTOR_EYEBROW[n.kind]||'LOCAL RUNTIME',title=n.kind==='model'?name(n.model.id):n.kind==='afm'?'Apple Foundation Models':n.kind==='windows-lane'?`${n.lane.id==='fast'?'Fast':'Deep'} lane`:n.kind==='mac-model'?name(n.macModel.id):n.label;
   if($('inspectorEyebrow').textContent!==eyebrow)$('inspectorEyebrow').textContent=eyebrow;if($('inspectorTitle').textContent!==title)$('inspectorTitle').textContent=title;
   const body=$('inspector'),next=el('div'),sameNode=inspectorNode===n.id,jump=inspectorBody(n,next,{firstBuild:!sameNode})==='runs',shape=panelShape(next);
@@ -540,7 +592,7 @@ function jobLine(row,{who=true}={}){return[row.model?name(row.model):'default mo
 // A job's own timeout (the dispatcher's extra 30 s grace is its waiting margin, not the job's budget).
 const timeoutText=seconds=>seconds<120?`${seconds} s`:`${Math.round(seconds/60)} min`;
 // The drawer's body for one node; returns 'runs' when its footer should offer the call-trace view.
-function inspectorBody(n,body,{firstBuild=true}={}){
+function inspectorBody(n,body,{firstBuild=true}={}){if(n.registryLane||n.registryMachine&&!n.registryMachine.isLocal){const machine=n.registryMachine,lane=n.registryLane;panelSummary(body,machine.tone,lane?`${lane.label} · ${lane.health==='ok'?'Up':'Unknown'}`:`${machine.label} · ${machine.detail}`,'Machine observations identify model servers; generation and hardware activity remain unmeasured.');if(lane){const model=registryModelName(lane.modelId),facts=factTiles(body,[['Model',model.label],['Health',lane.health],['Last seen',lane.observedAt||'Unknown'],['Why',lane.reason||'Observed']]);if(model.title)facts.title=model.title;}else factTiles(body,[['Lanes',String(machine.lanes.length)],['Health',machine.word]]);return null;}
   const tech=label=>disclosure(body,`${n.id}|tech`,label||'Technical details');
   if(n.kind==='jev'){
     const advisor=n.jev||jevView(null),last=advisor.lastJudgedAgeSeconds===null?'None archived':ageText(advisor.lastJudgedAgeSeconds);
@@ -631,7 +683,7 @@ function inspectorBody(n,body,{firstBuild=true}={}){
   const box=tech();detailPairs(box,[['Source',snapshot.host==='windows'?'llama-server lanes (/health, /v1/models, /slots)':'LM Studio runtime + inventory'],['Working models',known?String(active):active?`at least ${active}`:'Unknown'],...gpu.rows,['Local callers',callerDetail],['Map lines','Observation groups'],['Updates','Live stream, polling as fallback']]);box.append(el('p','detail-note','A light on the map is evidence, not decoration. Missing telemetry stays unknown. Select any model to inspect its state.'));return null;
 }
 function runtimeCopy(isFresh,known,activeCount,inventoryLive,loadedCount,queued){if(!isFresh)return{lead:'Local runtime',em:'signal stale.',sub:'Reconnecting. Previous local observations have aged out.'};if(activeCount)return{lead:'Local runtime',em:'working now.',sub:`${activeCount} local model${activeCount===1?' is':'s are'} working, as reported by the runtime.`};if(known)return{lead:'Local runtime',em:'quiet now.',sub:`${loadedCount===null?'Loaded count unknown':loadedCount+' loaded'}. ${queued===null?'Queue unknown':queued+' queued'}. No current local generation reported.`};if(inventoryLive)return{lead:'Local runtime',em:'activity unknown.',sub:'Model inventory is available. Local generation could not be verified.'};return{lead:'Local runtime',em:'signal unavailable.',sub:'Local runtime sources are unavailable; local model activity is unknown.'};}
-function renderSummary(){const counts=localRuntimeCounts(),rows=counts.rows,known=counts.busyCount!==null,loaded=rows.filter(m=>m.loaded===true),active=counts.busyCount,inventoryLive=counts.inventoryLive,loadedCount=counts.loadedCount;$('activeCount').textContent=active??(counts.observedBusy?`at least ${counts.observedBusy}`:'—');$('loadedCount').textContent=loadedCount??'—';const queueRows=loaded.filter(m=>!(m.source==='lmstudio-api'&&Array.isArray(m.loadedInstanceIds)&&m.loadedInstanceIds.length&&m.loadedInstanceIds.every(id=>loaded.some(c=>c.source==='lms-ps'&&(c.instanceId||c.id)===id&&(c.modelKey||c.id)===(m.modelKey||m.id))))),queued=known&&queueRows.every(m=>Number.isSafeInteger(m.queued))?queueRows.reduce((n,m)=>n+m.queued,0):null;// llama-server lanes report no queue; on the PC the third tile is slot occupancy across the lanes instead.
+function renderSummary(){renderRegistryTable();const counts=localRuntimeCounts(),rows=counts.rows,known=counts.busyCount!==null,loaded=rows.filter(m=>m.loaded===true),active=counts.busyCount,inventoryLive=counts.inventoryLive,loadedCount=counts.loadedCount;$('activeCount').textContent=active??(counts.observedBusy?`at least ${counts.observedBusy}`:'—');$('loadedCount').textContent=loadedCount??'—';const queueRows=loaded.filter(m=>!(m.source==='lmstudio-api'&&Array.isArray(m.loadedInstanceIds)&&m.loadedInstanceIds.length&&m.loadedInstanceIds.every(id=>loaded.some(c=>c.source==='lms-ps'&&(c.instanceId||c.id)===id&&(c.modelKey||c.id)===(m.modelKey||m.id))))),queued=known&&queueRows.every(m=>Number.isSafeInteger(m.queued))?queueRows.reduce((n,m)=>n+m.queued,0):null;// llama-server lanes report no queue; on the PC the third tile is slot occupancy across the lanes instead.
 if(snapshot.host==='windows'){const lanes=Object.values(snapshot.windowsWorker?.lanes||{}).filter(l=>l&&Number.isInteger(l.slotsTotal)&&Number.isInteger(l.slotsBusy)),slotText=known&&lanes.length?`${lanes.reduce((n,l)=>n+l.slotsBusy,0)}/${lanes.reduce((n,l)=>n+l.slotsTotal,0)}`:'—',label=$('queuedCount').nextElementSibling;$('queuedCount').textContent=slotText;if(label&&label.textContent!=='slots busy')label.textContent='slots busy';}else{$('queuedCount').textContent=queued??'—';const label=$('queuedCount').nextElementSibling;if(label&&label.textContent!=='local queued')label.textContent='local queued';}const copy=paused?{lead:'Local runtime',em:'view paused.',sub:'Resume to verify current activity; the displayed model states are from the last sample.'}:clockMismatch()?{lead:'Local runtime',em:'clock mismatch.',sub:snapshot.host==='windows'?'Observer timestamp is ahead of this PC clock; current activity cannot be verified.':'Observer timestamp is ahead of this Mac clock; current activity cannot be verified.'}:runtimeCopy(fresh(),known,active,inventoryLive,loadedCount,queued);$('headline').replaceChildren(document.createTextNode(copy.lead),el('br'),el('em',null,copy.em));$('subline').textContent=snapshot.host==='windows'?copy.sub.replace('Queue unknown.',$('queuedCount').textContent!=='—'?`${$('queuedCount').textContent.replace('/',' of ')} lane slots busy.`:'Lane slots unknown.'):copy.sub;if(!liveNow())$('subline').textContent+=` ${captureText()}.`;const identities=clientIdentityCounts();$('observedClientCount').textContent=`${identities.observed+identities.configured}/${identities.total}`;$('clientIdentityDetail').textContent=`${identities.observed} recorded · ${identities.configured} saved choices · ${identities.unknown} unknown`;
   const sourcesLive=liveNow();$('sources').replaceChildren();snapshot.sources.forEach(s=>{const row=el('div','source'),stale=!sourcesLive&&!['error','unavailable'].includes(s.state),unknownIdle=['idle','not-checked'].includes(s.state)&&!known;row.append(el('strong',null,s.label),el('span',null,stale?'stale':unknownIdle?'unavailable':s.state),el('small',null,stale?`Current state unknown (${paused?'view paused':'feed stale'})`:unknownIdle?'Local model activity could not be verified':s.detail));$('sources').append(row);});const liveSources=snapshot.sources.filter(s=>s.state==='live').length,recordedSources=snapshot.sources.filter(s=>s.state==='recorded').length;$('sourceCount').textContent=`${sourcesLive?`${liveSources} live`:`live unknown (${paused?'paused':'stale'})`} · ${recordedSources} recorded`;
 }
@@ -695,7 +747,7 @@ function updateOnlineCodeMode(){
   const summary=onlineCodeSummary(mode,{macOwner,actionState,action,isFresh:fresh(),hasFeed:Boolean(snapshot),message:onlineCodeActionStatus?.message});
   $('onlineCodeSummary').dataset.tone=summary.tone;$('onlineCodeStatus').textContent=trim(summary.line,60);$('onlineCodeMeaning').textContent=summary.meaning;
   const nisi=Array.isArray(snapshot?.components)?snapshot.components.find(component=>component.id==='nisi'):null;
-  fillTiles($('onlineCodeTiles'),[['Route',{processing:mode.runsTruncated?mode.countsLabel:mode.runCounts.running+mode.runCounts.queued>1?mode.countsLabel:mode.queuedOnly?'Queued':'Processing',unfinished:'Unfinished',ready:'Idle',inactive:'Idle',installing:'Installing'}[mode.state]||'Unknown'],['Setup',/^Checked/.test(mode.setupLabel)?mode.setupLabel:{'Not checked recently':'Not checked'}[mode.setupLabel]||(/expired/.test(mode.setupLabel)?'Expired':/invalid/.test(mode.setupLabel)?'Invalid':'Unknown')],['Nisi',fresh()?compLabel(nisi):'Unknown'],['PC LLM',headlessShort(headlessView())]]);
+  fillTiles($('onlineCodeTiles'),[['Route',{processing:mode.runsTruncated?mode.countsLabel:mode.runCounts.running+mode.runCounts.queued>1?mode.countsLabel:mode.queuedOnly?'Queued':'Processing',unfinished:'Unfinished',ready:'Idle',inactive:'Idle',installing:'Installing'}[mode.state]||'Unknown'],['Setup',/^Checked/.test(mode.setupLabel)?mode.setupLabel:{'Not checked recently':'Not checked'}[mode.setupLabel]||(/expired/.test(mode.setupLabel)?'Expired':/invalid/.test(mode.setupLabel)?'Invalid':'Unknown')],['Nisi',fresh()?compLabel(nisi):'Unknown'],['PC LLM',registryPc()?.detail||headlessShort(headlessView())]]);
   const result=$('onlineCodeResult'),statusLabel=!macOwner?'Mac owner only':onlineActionStatusLabel(actionState,action),steps=Array.isArray(onlineCodeActionStatus?.steps)?onlineCodeActionStatus.steps.map(step=>stepText(step,action)).filter(Boolean):[];
   // A finished check leads the summary with its own message, so its result block would only repeat it.
   result.hidden=!macOwner||['ready','needs-action','error'].includes(actionState)||!(onlineCodeActionPosting||onlineCodeActionStatus&&(onlineCodeActionStatus.status!=='idle'||onlineCodeActionStatus.message));
@@ -844,7 +896,8 @@ function renderMemoryBanner(){
   if(view.show){banner.dataset.level=view.level;$('memoryBannerMark').hidden=!view.mark;if($('memoryBannerTitle').textContent!==view.title)$('memoryBannerTitle').textContent=view.title;if($('memoryBannerText').textContent!==view.text)$('memoryBannerText').textContent=view.text;banner.title=`${view.title} · ${view.full}`;}
   const said=memoryAnnouncement(memoryAnnounced,memory,{at,shown:view.show});memoryAnnounced=said.announced;
   const announcer=$('memoryAnnounce');if(said.speak)announcer.textContent=view.announce;else if(!view.show&&announcer.textContent)announcer.textContent='';
-  if(was!==banner.hidden&&snapshot&&!userCamera)fitMap();
+  const tableMoved=positionRegistryTable();
+  if((tableMoved||was!==banner.hidden)&&snapshot&&!userCamera)fitMap();
 }
 // Focus goes to the This Mac chip (it keeps the memory word), or to the map when the chips are out of the layout.
 function dismissMemoryBanner(){const memory=memoryNow();if(memory.alert)memoryDismissed=memoryHoldAt(memory.level,memoryClock());renderMemoryBanner();const chip=$('vitalMac');chip.focus({preventScroll:true});if(document.activeElement!==chip)$('map').focus({preventScroll:true});}
@@ -926,6 +979,7 @@ function vitalsInput(){const worker=snapshot?.windowsWorker||null,age=Math.max(0
   const lanCount=report.known&&peer.state==='reachable'&&peer.loadedKnown&&peer.loadedCount!==report.loaded?`LM Studio lists ${peer.loadedCount} loaded`:null;
   const shortFailure=peer.state==='unreachable'?chip.short:peer.linkFailure?.short||null,reportShort=shortFailure?`${shortFailure} · ${report.words}`:report.words;
   vitals.pc={tone:report.known&&['down','degraded'].includes(report.health)&&chip.tone==='ok'?'warn':chip.tone,detail:report.known?[report.words,chip.link,lanCount].filter(Boolean).join(' · '):chip.detail,short:report.known?reportShort:chip.short};if(vitals.tiny)vitals.tiny.pc=report.known?(shortFailure||report.tiny):chip.short;if(vitals.micro)vitals.micro.pc=report.known?(shortFailure||report.tiny):chip.short;}
+  const registered=registryPc();if(registered){const detail=`${registered.glyph} ${registered.detail}`;vitals.pc={tone:registered.tone,detail,short:detail,tiny:detail};if(vitals.tiny)vitals.tiny.pc=detail;if(vitals.micro)vitals.micro.pc=detail;}
   return{feed,vitals};}
 // Status chips: id, view key, the label for title and aria, and the long and short visible labels.
 const CHIPS=[['vitalMac','mac','This Mac','This Mac','Mac'],['vitalPc','pc','Windows PC','Windows PC','PC'],['vitalRoute','route','Nisi Inference route','Nisi Inference','Route'],['vitalActivity','activity','Latest activity','Activity','Latest']];
@@ -937,22 +991,30 @@ const chipForms=c=>[[c.full,c.age,c.item.detail],[c.short,c.age,c.item.short||c.
 // The label keeps the activity age out of the uppercase run ("ACTIVITY · 32s", not "32S").
 function setChip(b,label,age,text){const strong=b.querySelector('strong'),small=b.querySelector('small'),want=age?`${label} · ${age}`:label;if(strong.textContent!==want)strong.replaceChildren(...(age?[`${label} · `,el('span','vital-age',age)]:[label]));if(small.textContent!==text)small.textContent=text;}
 const chipOverflow=b=>{const small=b.querySelector('small');return Math.max(0,(small.scrollWidth||0)-(small.clientWidth||0)-1);};
+function renderRegistryChips(){
+  const host=$('mapHeading');if(!host)return;
+  for(const node of host.querySelectorAll('[data-registry-chip]'))node.remove();
+  if(!hasRegistry())return;
+  for(const machine of registryViews().filter(item=>item.row.replaces!=='legacy-pc')){const button=el('button','vital');button.type='button';button.dataset.registryChip=machine.row.host;button.dataset.node=machine.row.host;button.dataset.tone=machine.tone;button.setAttribute('aria-label',`${machine.label}: ${machine.detail}`);button.title=`${machine.label}: ${machine.detail}`;button.append(el('i'));const text=el('span');text.append(el('strong',null,machine.label),el('small',null,`${machine.glyph} ${machine.detail}`));button.append(text);button.addEventListener('click',()=>nodeSelect(machine.row.host));host.append(button);}
+}
 function renderVitals(){if(!snapshot)return;const {feed,vitals}=vitalsInput();
   if(Array.isArray(snapshot.machines)){
     const local=snapshot.host==='windows'?'windows':'mac',peer=local==='mac'?'windows':'mac';
     for(const [key,platform] of [['mac',local],['pc',peer]]){
       const candidates=snapshot.machines.filter(row=>row?.platform===platform);
       const reportedHost=local==='mac'&&platform==='windows'?snapshot.windowsLive?.host:null;
-      const machine=candidates.find(row=>row.host===reportedHost)||candidates[0];
+      const machine=key==='pc'&&local==='mac'&&hasRegistry()?registryMachineRows(snapshot).find(row=>row.replaces==='legacy-pc')||candidates.find(row=>row.host===reportedHost)||candidates[0]:candidates.find(row=>row.host===reportedHost)||candidates[0];
       const item=machineStatusView(machine,{snapshotAge:sampleAge(),fresh:liveNow()});
       vitals[key]=item;if(vitals.tiny)vitals.tiny[key]=item.tiny;if(vitals.micro)vitals.micro[key]=item.tiny;
     }
   }
   const narrow=window.matchMedia?.('(max-width: 1000px)').matches===true;
   const age=Number.isFinite(vitals.lastAgeSeconds)?ageText(vitals.lastAgeSeconds).replace(' ago',''):'';
-  $('vitalPc').hidden=!['mac','windows'].includes(snapshot.host);$('vitalPc').dataset.node=snapshot.host==='windows'?'mac-peer':'windows-worker';
+  $('vitalPc').hidden=!['mac','windows'].includes(snapshot.host);$('vitalPc').dataset.node=registryPc()?.row.host||(snapshot.host==='windows'?'mac-peer':'windows-worker');
   const chips=(snapshot.host==='windows'?CHIPS_WINDOWS:CHIPS).map(([id,key,label,full,short])=>({b:$(id),item:vitals[key],tiny:vitals.tiny?.[key],micro:vitals.micro?.[key],label,full,short,age:key==='activity'?age:'',form:narrow?1:0}));
+  const registered=registryPc();if(registered){const chip=chips.find(c=>c.b===$('vitalPc'));if(chip){chip.label=registered.label;chip.full=registered.label;chip.short=registered.label;}}
   for(const c of chips){c.b.dataset.tone=c.item.tone;c.b.title=`${c.label}: ${c.item.detail}`;c.b.setAttribute('aria-label',`${c.label}: ${c.item.detail}`);setChip(c.b,...chipForms(c)[c.form]);}
+  renderRegistryChips();
   // Measured per chip: the chip with the largest overflow steps down one form, then the strip is measured again, so
   // one long chip no longer truncates all four and the rest keep their longer forms (the title keeps the long text).
   const stepDown=()=>{for(let steps=0;steps<12;steps++){const worst=chips.filter(c=>!c.b.hidden&&c.form<(c.last?2:3)).map(c=>[c,chipOverflow(c.b)]).filter(([,over])=>over>0).sort((a,b)=>b[1]-a[1])[0]?.[0];if(!worst)break;worst.form++;setChip(worst.b,...chipForms(worst)[worst.form]);}};
@@ -960,6 +1022,7 @@ function renderVitals(){if(!snapshot)return;const {feed,vitals}=vitalsInput();
   // The micro form stays only where it fits whole: a chip cut to "Me…" says less than its cut tiny form, which is also wider.
   for(const c of chips)if(c.form===3&&c.micro&&chipOverflow(c.b)>0){c.form=2;c.last=true;setChip(c.b,...chipForms(c)[2]);}
   if(chips.some(c=>c.last))stepDown();
+  if(positionRegistryTable()&&!userCamera)fitMap();
   if(!$('activityDetails').hidden)renderActivity(feed);}
 const ROUTE_WORDS={RESPONSE_VALIDATED:'Validated',REVIEW_FINDINGS:'Review findings',CHECKS_FAILED:'Checks failed',NEEDS_OWNER_REVIEW:'Needs owner review',PARTIAL:'Partial',queued:'Queued for a lane',unresolved:'Unresolved',unreadable:'Record unreadable',changing:'Changing; checked again next sample'};
 const activityWho=row=>row.probe?'PC LLM switch probe':row.client?(CLIENTS.find(([id])=>id===row.client)?.[1]||row.client):'Unknown client';
@@ -1000,7 +1063,7 @@ function renderActivity(feed){const list=$('activityList'),key=JSON.stringify([a
   // The list itself is not a live region (it would re-read every row); only new rows are announced.
   if(added.length)$('activityAnnounce').textContent=`New activity: ${added.map(row=>`${activityWho(row)} → ${row.target}`).join('; ')}`;}
 function openActivityRow(row){if(row.kind==='route'){const run=runs().find(r=>`run:${r.source||'route'}:${r.runId}`===row.key);if(!run)return;if(view!=='runs'){view='runs';document.querySelectorAll('[data-view]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.view==='runs')));}selectRun(run);return;}
-  if(view!=='runtime')setView('runtime');const id=row.lane&&graph.nodes.some(n=>n.id===`windows-lane:${row.lane}`)?`windows-lane:${row.lane}`:'windows-worker';if(graph.nodes.some(n=>n.id===id))nodeSelect(id);}
+  if(view!=='runtime')setView('runtime');const id=row.lane&&graph.nodes.some(n=>n.id===`windows-lane:${row.lane}`)?`windows-lane:${row.lane}`:'windows-worker';if(inspectorNodeFor(id))nodeSelect(id);}
 // A click on empty map (or Escape on the map) closes every panel and shows the whole map again.
 function showWholeMap(){hideOnlineCodeDetails();hideFixInferenceDetails();hideActivityDetails();if(document.body.classList.contains('sidebar-open'))setSidebarOpen(false);$('aboutPanel').hidden=true;syncAboutButtons();hoveredNode=null;if(!$('drawer').hidden)closeDrawer(false);else{userCamera=false;renderGraph();fitMap();}}
 // Two About controls open one panel: the footer link, and a map-controls button for when the footer is hidden.
@@ -1089,7 +1152,7 @@ $('onlineCodeDetails').addEventListener('keydown',event=>{
   }
 });
 $('onlineCodeClose').addEventListener('click',()=>{hideOnlineCodeDetails();$('onlineCodeMode').focus({preventScroll:true});});
-document.querySelectorAll('.vital[data-node]').forEach(b=>b.addEventListener('click',()=>{if(view!=='runtime')setView('runtime');const id=b.dataset.node;if(graph.nodes.some(n=>n.id===id))nodeSelect(id);}));
+document.querySelectorAll('.vital[data-node]').forEach(b=>b.addEventListener('click',()=>{if(view!=='runtime')setView('runtime');const id=b.dataset.node;if(inspectorNodeFor(id))nodeSelect(id);}));
 $('vitalActivity').addEventListener('click',toggleActivity);
 $('activityClose').addEventListener('click',()=>{hideActivityDetails();$('vitalActivity').focus({preventScroll:true});if(!userCamera)fitMap();});
 $('activityDetails').addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();hideActivityDetails();$('vitalActivity').focus({preventScroll:true});}});

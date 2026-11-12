@@ -15,6 +15,43 @@ function byId(monitors, id) {
   return found;
 }
 
+const registryMachine = (id, label, health = 'ok') => ({id: `registry:${id}`, host: `registry:${id}`, platform: 'remote', label,
+  observationSource: 'registry', health, state: health === 'ok' ? 'up' : 'unknown',
+  lanes: [{id: `registry:${id}:fast`, label: 'Fast', health, reason: health === 'ok' ? null : 'timeout',
+    modelId: health === 'ok' ? '/models/author.gguf' : null, ageSeconds: 1, observedAt: new Date(999000).toISOString(), probeIntervalSeconds: 3}]});
+
+test('registry replacement governs PC LLM and lists other remote machines without a duplicate legacy monitor', () => {
+  const pc = {...registryMachine('pc', 'PC'), replaces: 'legacy-pc'};
+  const snapshot = {schemaVersion: 1, host: 'mac', machines: [pc, registryMachine('macpro', 'Mac Pro')],
+    windowsWorker: {state: 'stopped', lanes: {fast: {up: true, model: 'old', servedModel: 'wrong'}}}};
+  const monitors = deriveMonitors(snapshot, {feedFresh: true, now: 1000});
+  const remote = byId(monitors, 'machine:pc');
+  assert.equal(remote.word, 'OK');
+  assert.match(remote.reason, /PC · 1 lane up/);
+  assert.equal(remote.identity.machine, 'registry:pc');
+  assert.equal(remote.metrics.find(item => item.label === 'Fast model').value, 'author.gguf');
+  assert.equal(remote.metrics.find(item => item.label === 'Fast model').title, '/models/author.gguf');
+  assert.equal(byId(monitors, 'machine:registry:macpro').title, 'Mac Pro');
+  assert.equal(monitors.filter(item => item.id === 'machine:pc').length, 1);
+  assert.equal(remote.evidence.badges.lane, 'INVENTORY', 'legacy model mismatch does not override registry');
+  assert.equal(byId(monitors, 'machine:mac').metrics.find(item => item.label === 'Loaded').value, '—', 'registry identities do not establish empty local inventory');
+  assert.equal(byId(deriveMonitors(snapshot, {feedFresh: false, now: 1000}), 'machine:pc').word, 'UNKNOWN');
+  assert.equal(byId(deriveMonitors(snapshot, {feedFresh: true, paused: true, now: 1000}), 'machine:pc').word, 'UNKNOWN');
+});
+
+test('reachable registry lanes keep All inference from implying every machine is blocked', () => {
+  const snapshot = {schemaVersion: 1, host: 'mac', machines: [{...registryMachine('pc', 'PC'), replaces: 'legacy-pc'}],
+    pipeline: {status: 'recovery-required'}, components: [{id: 'nisi', state: 'unresolved', detail: 'Recovery pending'}]};
+  const monitors = deriveMonitors(snapshot, {feedFresh: true, now: 1000});
+  assert.equal(byId(monitors, 'route:nisi').word, 'BLOCKED');
+  assert.equal(byId(monitors, 'all').word, 'DEGRADED');
+  assert.match(byId(monitors, 'all').reason, /Registry lanes are reachable.*Recovery pending/);
+  snapshot.machines[0].lanes[0].health = 'not_measured';
+  const unknown = deriveMonitors(snapshot, {feedFresh: true, now: 1000});
+  assert.equal(byId(unknown, 'machine:pc').word, 'UNKNOWN');
+  assert.equal(byId(unknown, 'all').word, 'BLOCKED', 'genuine independent block remains when no registry lane is reachable');
+});
+
 test('an empty observer does not invent Claude, Nisi, or PC sessions', () => {
   const monitors = deriveMonitors(null, {feedFresh: true});
   assert.deepEqual(monitors.map(item => item.id), ['all']);

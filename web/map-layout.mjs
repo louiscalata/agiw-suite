@@ -910,7 +910,61 @@ export function routeQueuedWords(pipeline) {
 export const ROUTE_REVIEW_WINDOW_SECONDS = 86400;
 
 /** Machine evidence leads the headline; transport loss never turns yesterday's idle count into today's zero. */
+/** Registry rows have a bounded lane inventory, not a complete machine model inventory. */
+export function registryMachineRows(snapshot) {
+  return Array.isArray(snapshot?.machines) ? snapshot.machines.filter(row => row && row.observationSource === 'registry') : [];
+}
+
+/** Keep repository model IDs intact; only filesystem identities lose their directory in visible text. */
+export function registryModelName(value) {
+  const title = typeof value === 'string' && value.trim() ? value : '';
+  const path = /^(?:[A-Za-z]:[\\/]|[\\/]|~[\\/])/.test(title) || /[\\/].*\.(?:gguf|bin|safetensors)$/i.test(title);
+  return {label: title ? path ? title.split(/[\\/]/).filter(Boolean).pop() || title : title : 'Unknown', title};
+}
+
+export function registryMachineView(row, {fresh = true, snapshotAge = 0, now = Date.now() / 1000} = {}) {
+  const lanes = (Array.isArray(row?.lanes) ? row.lanes : []).filter(lane => lane && typeof lane === 'object').map(lane => {
+    const interval = lane.probeIntervalSeconds ?? row.probeIntervalSeconds;
+    const limit = lane.freshForSeconds ?? row.freshForSeconds ?? (Number.isFinite(interval) ? interval * 2 : 6);
+    const elapsed = Number.isFinite(snapshotAge) && snapshotAge >= -1 ? Math.max(0, snapshotAge) : NaN;
+    const age = Number.isFinite(lane.ageSeconds) && lane.ageSeconds >= 0 ? lane.ageSeconds + elapsed : NaN;
+    const stamp = typeof lane.observedAt === 'string' ? Date.parse(lane.observedAt) / 1000 : NaN;
+    const clockAge = Number.isFinite(stamp) ? now - stamp : age;
+    const current = fresh && Number.isFinite(age) && Number.isFinite(clockAge) && clockAge >= -1
+      && Number.isFinite(limit) && limit > 0 && age <= Math.min(limit, 120) && clockAge <= Math.min(limit, 120);
+    const health = current && lane.health === 'ok' ? 'ok' : current && lane.health === 'degraded' ? 'degraded' : 'unknown';
+    return {...lane, label: typeof lane.label === 'string' ? lane.label : 'Lane', health,
+      ageSeconds: Number.isFinite(age) ? age : null,
+      reason: !current ? lane.reason || 'observation_stale' : health === 'ok' ? null : lane.reason || 'not_observed'};
+  });
+  const up = lanes.filter(lane => lane.health === 'ok').length, total = lanes.length;
+  const health = total > 0 && up === total ? 'ok' : up > 0 || lanes.some(lane => lane.health === 'degraded') ? 'degraded' : 'unknown';
+  const word = health === 'ok' ? 'UP' : health === 'degraded' ? 'DEGRADED' : 'UNKNOWN';
+  const detail = health === 'ok' ? `${up} lane${up === 1 ? '' : 's'} up` : up ? `${up}/${total} lanes up · others unknown` : `${total} lane${total === 1 ? '' : 's'} · unknown`;
+  return {label: typeof row?.label === 'string' ? row.label : 'Machine', word, glyph: health === 'ok' ? '●' : health === 'degraded' ? '◐' : '?',
+    health, lanes, up, total, detail, tone: health === 'ok' ? 'ok' : health === 'degraded' ? 'warn' : 'muted'};
+}
+
+/** A compact machine overview: each lane sits below its own machine, with a dedicated caption band. */
+export function registryMapLayout(machines) {
+  const columns = Math.min(3, Math.max(1, machines.length));
+  const rowHeights = [];
+  machines.forEach((machine, index) => {
+    const row = Math.floor(index / columns), count = Array.isArray(machine.lanes) ? machine.lanes.length : 0;
+    rowHeights[row] = Math.max(rowHeights[row] || 0, 76 + Math.max(1, count) * 52);
+  });
+  return machines.map((machine, index) => {
+    const column = index % columns, row = Math.floor(index / columns), top = rowHeights.slice(0, row).reduce((sum, height) => sum + height + 26, 0);
+    const x = 26 + column * 214, y = top + 12;
+    return {machine, x, y, lanes: (machine.lanes || []).map((lane, laneIndex) => ({lane, x: x + 8, y: y + 64 + laneIndex * 52}))};
+  });
+}
+
 export function machineStatusView(machine, {snapshotAge = 0, fresh = true, now = Date.now() / 1000} = {}) {
+  if (machine?.observationSource === 'registry') {
+    const view = registryMachineView(machine, {fresh, snapshotAge, now}), detail = `${view.glyph} ${view.detail}`;
+    return {tone: view.tone, detail, short: detail, tiny: detail};
+  }
   const thresholds = {mac: 3, windows: 30, linux: 30};
   // The PC's own rows call the Mac 'macos'; the shared rows call it 'mac'.
   const platform = machine?.platform === 'macos' ? 'mac' : machine?.platform;
@@ -1323,7 +1377,7 @@ export function orbWebActivity(web, options) {
   return { dew, dewPath, key: dewPath };
 }
 
-/* Web motion (Louis 26 Sep: "like when you poke a spiderweb it bounces"). A poke plucks the threads touching a
+/* Web motion (26 Sep request: "like when you poke a spiderweb it bounces"). A poke plucks the threads touching a
  * node with a damped wobble perpendicular to each thread, A·e^(-t/τ)·sin(2πft) with f 3 Hz and τ .35 s over
  * 1.2 s, and the wave travels outward: one hop (the hub's capture rings and the threads at the far ends) 90 ms
  * later at 45%, a second hop at 20%. The poked star dips and springs back. Each 2 s heartbeat of a working or
@@ -1497,7 +1551,7 @@ export function createWebMotion({ now, requestFrame, cancelFrame = () => {}, set
   };
 }
 
-/* Background glow (Louis 26 Sep: "make the background glow too when the node pulse"): one soft radial glow
+/* Background glow (26 Sep request: "make the background glow too when the node pulse"): one soft radial glow
  * under the web per pulsing node (working or in flight on a fresh feed). The glow is ink.
  * Radius ~110 map units, clamped to 150 screen pixels so zooming in never floods
  * the map. */

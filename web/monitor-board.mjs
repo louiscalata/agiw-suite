@@ -2,7 +2,8 @@
  * Paints the monitor tab strip and the selected monitor's board.
  * View only: callers must not wire these controls to pause, repair, or model posts.
  */
-import {demoSnapshot, DEMO_BANNER, jevGate, nextTabFocus} from '/monitor-tabs.mjs';
+import {demoSnapshot, DEMO_BANNER, jevGate, nextTabFocus, registryMachineView, registryModelName} from '/monitor-tabs.mjs';
+export {registryMachineView, registryModelName};
 
 function el(tag, className, text) {
   const node = document.createElement(tag);
@@ -68,6 +69,12 @@ export function peerMap({machines, self, feedFresh}) {
   }
   const hubIndex = Math.max(0, rows.findIndex(row => row.host === self || row.platform === self));
   const describe = row => {
+    if (row.observationSource === 'registry') {
+      const view = registryMachineView(row, {fresh: feedFresh === true});
+      const reason = row.reasonCode && row.reasonCode !== 'observed' ? ` · ${reasonWords(row.reasonCode)}` : '';
+      return {name: view.label.toUpperCase(), state: view.word, link: view.health === 'unknown' ? '-?-' : '===',
+        detail: `${view.detail}${view.health === 'unknown' ? reason : ''}`};
+    }
     const state = row.state === 'up' ? (rowDegraded(row) ? 'DEGRADED' : 'UP') : row.state === 'down' ? 'DOWN' : 'UNKNOWN';
     const link = state === 'DOWN' ? '-x-' : state === 'UNKNOWN' ? '-?-' : '===';
     const parts = [];
@@ -164,7 +171,9 @@ function appendIdentity(parent, monitor) {
 function appendMetrics(parent, metrics) {
   const grid = el('dl', 'j-metrics');
   for (const item of metrics || []) {
-    grid.append(el('dt', null, item.label), el('dd', null, item.value));
+    const value = el('dd', null, item.value);
+    if (item.title) value.setAttribute('title', item.title);
+    grid.append(el('dt', null, item.label), value);
   }
   parent.append(grid);
 }
@@ -339,7 +348,7 @@ export function paintMonitorChrome({host, board, desk, snapshot, feedFresh, paus
   const signature = JSON.stringify([demo, paused, active?.id, monitors.map(item => [item.id, item.word, item.title, item.retained === true, (item.analyses || []).map(slot => `${slot.tool}:${slot.phase}:${slot.state}`).join(','), item.pipeline?.incomplete, item.pipeline?.steps?.length, item.workload?.servedModel || '', item.workload?.requestedModel || '', item.evidence?.badges?.lane || '', (item.evidence?.rows || []).map(row => `${row.id}:${row.matrix}`).join(',')]), desk.view(active.id)]);
   const machines = Array.isArray(source?.machines) ? source.machines : null;
   board.jaryoMachines = {machines, self: source?.host, feedFresh: demo ? false : feedFresh === true && paused !== true};
-  const machineSignature = JSON.stringify([board.jaryoMachines.feedFresh, (machines || []).map(row => row && [row.host, row.platform, row.state, row.reasonCode, row.trust, row.modelsComplete, row.loadedCount, row.busyCount, typeof row.ageSeconds === 'number' ? Math.round(row.ageSeconds) : null])]);
+  const machineSignature = JSON.stringify([board.jaryoMachines.feedFresh, (machines || []).map(row => row && [row.host, row.platform, row.label, row.state, row.health, row.reasonCode, row.trust, row.modelsComplete, row.loadedCount, row.busyCount, typeof row.ageSeconds === 'number' ? Math.round(row.ageSeconds) : null, row.lanes])]);
   const fullSignature = signature + machineSignature;
   if (host.dataset.signature === fullSignature && board.dataset.signature === fullSignature) return applied;
   host.dataset.signature = fullSignature;

@@ -6,12 +6,12 @@ const board = new URL('./web/monitor-board.mjs', import.meta.url);
 const boardSource = readFileSync(board, 'utf8').replace("'/monitor-tabs.mjs'", JSON.stringify(new URL('./web/monitor-tabs.mjs', import.meta.url).href));
 const boardURL = `data:text/javascript;base64,${Buffer.from(boardSource).toString('base64')}`;
 const source = readFileSync(new URL('./web/machines.mjs', import.meta.url), 'utf8').replace("'/monitor-board.mjs'", JSON.stringify(boardURL));
-const { machineFacts, machineTiles, mountMachines } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
+const { machineFacts, machineTiles, mountMachines, paintMachines, laneFacts } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
 const read = path => readFileSync(new URL(path, import.meta.url), 'utf8');
 
 const mac = { host: 'mac', platform: 'mac', state: 'up', reasonCode: 'observed', trust: 'local', ageSeconds: 1.4, freshForSeconds: 3,
   modelsComplete: true, loadedCount: 2, busyCount: 1, promptTokensPerSecond: 812.4, generationTokensPerSecond: 4.25, handsOff: false };
-const pc = { host: 'louisaurorar12', platform: 'windows', state: 'down', reasonCode: 'reported_down', trust: 'share-reported', ageSeconds: 7,
+const pc = { host: 'worker-pc', platform: 'windows', state: 'down', reasonCode: 'reported_down', trust: 'share-reported', ageSeconds: 7,
   freshForSeconds: 30, modelsComplete: false, loadedCount: null, busyCount: null, promptTokensPerSecond: null, generationTokensPerSecond: null, handsOff: null };
 const facts = row => Object.fromEntries(machineFacts(row));
 
@@ -44,7 +44,7 @@ test('degraded is up but says so; a busy count may be unknown', () => {
 
 test('this machine is first and named as such', () => {
   const tiles = machineTiles([pc, mac], 'mac');
-  assert.deepEqual(tiles.map(t => [t.title, t.word, t.glyph, t.host]), [['This Mac', 'UP', '■', 'mac'], ['PC', 'DOWN', '×', 'louisaurorar12']]);
+  assert.deepEqual(tiles.map(t => [t.title, t.word, t.glyph, t.host]), [['This Mac', 'UP', '■', 'mac'], ['PC', 'DOWN', '×', 'worker-pc']]);
   assert.equal(machineTiles([mac, pc], 'windows')[0].title, 'This PC');
   assert.deepEqual(machineTiles(null, 'mac'), []);
 });
@@ -52,8 +52,8 @@ test('this machine is first and named as such', () => {
 test('a paired machine named by its UUID shows its label, or the host it reported marked as reported, never silently the reported host', () => {
   const uuid = '3f2b8c1e-5d4a-4b7e-9a10-6c2d7e8f9a0b';
   const row = { host: uuid, platform: 'windows', state: 'up', reasonCode: 'observed', trust: 'paired' };
-  assert.equal(machineTiles([{ ...row, label: 'LOUISAURORAR12 (reported)', reportedHost: 'LOUISAURORAR12' }], 'mac')[0].host, 'LOUISAURORAR12 (reported)');
-  assert.equal(machineTiles([{ ...row, reportedHost: 'LOUISAURORAR12' }], 'mac')[0].host, 'LOUISAURORAR12 (reported)');
+  assert.equal(machineTiles([{ ...row, label: 'WORKER-PC (reported)', reportedHost: 'WORKER-PC' }], 'mac')[0].host, 'WORKER-PC (reported)');
+  assert.equal(machineTiles([{ ...row, reportedHost: 'WORKER-PC' }], 'mac')[0].host, 'WORKER-PC (reported)');
   assert.equal(machineTiles([{ ...row, label: uuid }], 'mac')[0].host, uuid, 'a label that is the UUID again adds nothing');
   assert.equal(machineTiles([row], 'mac')[0].host, uuid, 'nothing better to show: keep the identifier');
   assert.equal(machineTiles([{ ...row, label: '<b>x</b>', reportedHost: '<i>' }], 'mac')[0].host, uuid, 'unsafe words never reach the page');
@@ -86,10 +86,10 @@ test('a never-heard peer and a silent peer give different reasons', () => {
 
 // The PC sends hyphenated reasons and platform 'macos' today; the backend is adding the Mac's fields on top (a superset).
 const pcRow = { id: 'pc', name: 'PC', platform: 'windows', label: 'This PC', reason: 'serving', state: 'up', trust: 'local', ageSeconds: 2, loadedCount: 1 };
-const pcSuperset = { ...pcRow, host: 'louisaurorar12', reasonCode: 'observed', freshForSeconds: 30, modelsComplete: true, busyCount: 0,
+const pcSuperset = { ...pcRow, host: 'worker-pc', reasonCode: 'observed', freshForSeconds: 30, modelsComplete: true, busyCount: 0,
   promptTokensPerSecond: null, generationTokensPerSecond: null };
 const macOnPc = { id: 'mac', name: 'Mac', platform: 'macos', label: 'Mac', reason: 'stale', state: 'unknown', trust: 'relayed', ageSeconds: 70 };
-const macOnPcSuperset = { ...macOnPc, host: 'louismac', platform: 'mac', reasonCode: 'stale', freshForSeconds: 30, modelsComplete: false, busyCount: null };
+const macOnPcSuperset = { ...macOnPc, host: 'desk-mac', platform: 'mac', reasonCode: 'stale', freshForSeconds: 30, modelsComplete: false, busyCount: null };
 
 test('a PC-sent row set reads as tiles, with the Mac named even when it says macos', () => {
   for (const rows of [[pcRow, macOnPc], [pcSuperset, macOnPcSuperset], [pcSuperset, macOnPc]]) {
@@ -109,7 +109,7 @@ test('a PC-sent row set reads as tiles, with the Mac named even when it says mac
   assert.equal(old['Models loaded'], undefined);
   const stale = Object.fromEntries(machineFacts(macOnPcSuperset));
   assert.equal(stale.Why, 'Reading too old');
-  assert.equal(machineTiles([pcSuperset], 'louisaurorar12')[0].title, 'This PC');
+  assert.equal(machineTiles([pcSuperset], 'worker-pc')[0].title, 'This PC');
 });
 
 test('the page judges freshness by fullSampledAt within 3 seconds', async () => {
@@ -172,4 +172,64 @@ test('a timestamp that is not a number never makes the page live', async () => {
   }
   assert.equal(await run({ sampledAt: 999 }), 'Live sample.');
   assert.equal(await run({ fullSampledAt: null, sampledAt: 999 }), 'Live sample.', 'a null full sample time is absent, so sampledAt is read');
+});
+
+const registryRow = (id, label, count = 1) => ({host: `registry:${id}`, id: `registry:${id}`, label,
+  platform: 'remote', observationSource: 'registry', state: 'up', health: 'ok', freshForSeconds: 6,
+  lanes: Array.from({length: count}, (_, i) => ({id: `registry:${id}:lane${i}`, label: `Lane ${i}`, health: 'ok',
+    modelId: i ? 'ornith-ai/ornith-1.5-9b' : 'C:\\models\\glimmer.gguf', ageSeconds: 1,
+    observedAt: new Date(Date.now() - 1000).toISOString()}))});
+
+test('registry machine cards retain machine labels, lane identities and unknown states', () => {
+  const pcRegistry = {...registryRow('pc', 'PC', 3), replaces: 'legacy-pc'};
+  const pro = registryRow('macpro', 'Mac Pro');
+  const tiles = machineTiles([mac, pcRegistry, pro], 'mac');
+  assert.deepEqual(tiles.map(tile => [tile.title, tile.word]), [['This Mac', 'UP'], ['PC', 'UP'], ['Mac Pro', 'UP']]);
+  assert.equal(tiles[1].lanes.length, 3);
+  assert.equal(Object.fromEntries(tiles[1].facts).Lanes, '3 lanes up');
+  assert.equal(Object.fromEntries(tiles[1].facts)['Models loaded'], undefined, 'lane identities are not loaded model counts');
+  const unknown = {...pro, lanes: pro.lanes.map(lane => ({...lane, health: 'not_measured', modelId: null, reason: 'timeout'}))};
+  const [tile] = machineTiles([unknown], 'mac');
+  assert.equal(tile.word, 'UNKNOWN');
+  assert.equal(laneFacts(tile.lanes[0]).health, 'UNKNOWN');
+  assert.equal(laneFacts(tile.lanes[0]).reason, 'Timed out');
+  assert.equal(machineTiles([pcRegistry], 'mac', {fresh: false})[0].word, 'UNKNOWN');
+});
+
+test('lane model paths show the filename while repository IDs stay intact', () => {
+  for (const modelId of ['/models/author.gguf', 'C:\\models\\author.gguf', '~/models/author.gguf', 'models/author.gguf']) {
+    const facts = laneFacts({label: 'Author', modelId, health: 'ok', ageSeconds: 2});
+    assert.equal(facts.model.label, 'author.gguf');
+    assert.equal(facts.model.title, modelId);
+    assert.equal(facts.seen, '2 s ago');
+  }
+  assert.equal(laneFacts({modelId: 'google/gemma-4-12b-it'}).model.label, 'google/gemma-4-12b-it');
+  assert.equal(laneFacts({}).health, 'UNKNOWN');
+  assert.equal(laneFacts({}).seen, 'Unknown');
+  assert.equal(laneFacts({observedAt: '2026-11-12T20:30:00Z'}).seen, '2026-11-12T20:30:00Z', 'a local lane timestamp remains visible without an age');
+  assert.equal(laneFacts({observedAt: 'invalid'}).seen, 'Unknown');
+  assert.equal(laneFacts({reason: 'invalid_utf8'}).reason, 'Invalid utf8');
+  assert.equal(laneFacts({reason: 'upstream_error'}).reason, 'Upstream error');
+  assert.equal(laneFacts({reason: '<script>'}).reason, 'Not observed');
+});
+
+test('Machines DOM lists every registry lane and local lanes with text health, observation and full model title', () => {
+  const els = {};
+  const make = tag => ({tag, children: [], attrs: {}, textContent: '', className: '',
+    setAttribute(k, v) { this.attrs[k] = v; }, append(...children) { this.children.push(...children); },
+    replaceChildren(...children) { this.children = children; }});
+  const document = {createElement: make, getElementById: id => (els[id] ||= make('div'))};
+  const registry = registryRow('pc', 'PC', 2);
+  const local = {id: 'mac:lmstudio', machine: 'mac', role: 'lmstudio', label: 'LM Studio', health: 'ok', modelId: '/models/local.gguf', observedAt: '2026-11-12T20:30:00Z'};
+  paintMachines(document, {host: 'mac', machines: [mac, registry, registryRow('macpro', 'Mac Pro')], inference: {nodes: [local]}}, {fresh: true});
+  const flatten = node => [node, ...node.children.flatMap(flatten)];
+  const all = flatten(els.machinesBody);
+  assert.equal(all.filter(node => node.className === 'j-machine').length, 3);
+  assert.equal(all.filter(node => node.className === 'j-machine-lane').length, 4);
+  const model = all.find(node => node.textContent === 'glimmer.gguf');
+  assert.equal(model.attrs.title, 'C:\\models\\glimmer.gguf');
+  assert.ok(all.some(node => node.textContent === 'local.gguf' && node.attrs.title === '/models/local.gguf'));
+  assert.ok(all.some(node => node.className === 'j-lane-health' && node.textContent === 'UP'));
+  assert.ok(all.some(node => node.textContent === 'Last seen: 1 s ago'));
+  assert.ok(all.some(node => node.textContent === 'Last seen: 2026-11-12T20:30:00Z'));
 });

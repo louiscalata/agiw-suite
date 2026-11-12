@@ -316,6 +316,10 @@ def public_map(document):
                 node.update(observationSource="registry", probeIntervalSeconds=interval, ageSeconds=age)
                 if source.get("inventoryScope") == "configured-lanes":
                     node["inventoryScope"] = "configured-lanes"
+                if "replaces" in source:
+                    if source.get("role") != "machine" or source["replaces"] != "legacy-pc":
+                        raise ValueError("registry replacement")
+                    node["replaces"] = "legacy-pc"
             if "contextTokens" in source:
                 value = source["contextTokens"]
                 if type(value) is not int or value < 0:

@@ -1273,6 +1273,11 @@ body.jaryo-app .j-machine-host { margin: .15rem 0 .75rem; font-family: var(--j-m
 body.jaryo-app .j-machine-facts { display: grid; grid-template-columns: max-content 1fr; gap: .3rem 1rem; margin: .75rem 0 0; font-size: .9rem; }
 body.jaryo-app .j-machine-facts dt { font-weight: 600; }
 body.jaryo-app .j-machine-facts dd { margin: 0; overflow-wrap: break-word; }
+body.jaryo-app .j-machine-lanes { list-style: none; margin: 1rem 0 0; padding: 0; }
+body.jaryo-app .j-machine-lane { display: grid; grid-template-columns: minmax(0, 1fr) max-content; gap: .25rem .75rem; padding: .65rem 0; border-top: 1px solid var(--j-border); font-size: .85rem; }
+body.jaryo-app .j-lane-model { grid-column: 1 / -1; font-family: var(--j-mono, ui-monospace, monospace); overflow-wrap: anywhere; }
+body.jaryo-app .j-lane-health { grid-column: 2; grid-row: 1; font-weight: 600; }
+body.jaryo-app .j-lane-seen, body.jaryo-app .j-lane-reason { grid-column: 1 / -1; }
 body.jaryo-app .j-empty {
   grid-column: 1 / -1;
   margin: 0;

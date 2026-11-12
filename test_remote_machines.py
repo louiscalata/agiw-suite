@@ -13,7 +13,7 @@ import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest import mock
 
-from inference_collect import ProbeError, collect_map
+from inference_collect import ProbeError, attach, collect_map
 from inference_stats import MAP_SCHEMA, expire_map, public_map
 import remote_machines as remote
 
@@ -245,6 +245,119 @@ class RegistryTests(unittest.TestCase):
         value["machines"].append(value["machines"][0])
         with self.assertRaises(ValueError):
             remote.validate_config(value)
+
+
+class SnapshotProjectionTests(unittest.TestCase):
+    def setUp(self):
+        self.value = config()
+        self.value["machines"][0].update(label="PC", replaces="legacy-pc")
+        self.value["machines"].append({"id": "macpro", "label": "Mac Pro", "lanes": [
+            {"id": "glimmer", "label": "Glimmer", "localPort": 21002}]})
+        self.local = {"host": "mac", "platform": "mac", "state": "unknown", "trust": "local"}
+        self.legacy = {"host": "share-pc", "platform": "windows", "state": "down",
+                       "reasonCode": "reported_down", "trust": "share-reported"}
+
+    def document(self, *, fetcher=fetch):
+        nodes = remote.collect(self.value, fetch=fetcher, now=1000)
+        return remote.extend_map({"schema": MAP_SCHEMA, "nodes": [], "edges": []}, self.value, nodes)
+
+    def test_attach_projects_same_registry_health_and_removes_replaced_share_pc(self):
+        document = self.document()
+        snapshot = {"machines": [copy.deepcopy(self.local), copy.deepcopy(self.legacy)]}
+        with mock.patch("inference_collect.collect_map", return_value=document):
+            self.assertIs(attach(snapshot, "mac"), document)
+        self.assertEqual([row["host"] for row in snapshot["machines"]], ["mac", "registry:pc", "registry:macpro"])
+        self.assertEqual(snapshot["machines"][0], self.local)
+        pc, macpro = snapshot["machines"][1:]
+        self.assertEqual((pc["state"], pc["health"], pc["replaces"]), ("up", "ok", "legacy-pc"))
+        self.assertEqual(macpro["label"], "Mac Pro")
+        self.assertEqual(pc["lanes"][0]["modelId"], "server/current-model")
+        self.assertEqual((pc["lanes"][0]["observedAt"], pc["lanes"][0]["ageSeconds"]),
+                         ("1970-01-01T00:16:40Z", 0))
+        self.assertFalse(pc["modelsComplete"], "lane identity is not a machine model inventory")
+        self.assertIsNone(pc["loadedCount"])
+        remote.project_snapshot(snapshot)
+        self.assertEqual(len(snapshot["machines"]), 3, "projection is idempotent")
+        self.assertTrue(document["remoteMachines"]["replacesLegacyPc"])
+
+    def test_unknown_lane_stays_unknown_with_reason_and_no_previous_model_identity(self):
+        def mixed(url):
+            if ":21001/" in url:
+                raise ProbeError("timeout")
+            return 200, json.dumps({"data": [{"id": "/models/reviewer.gguf"}]}), 2
+        snapshot = {"machines": [self.local, self.legacy], "inference": self.document(fetcher=mixed)}
+        remote.project_snapshot(snapshot)
+        pc, macpro = snapshot["machines"][1:]
+        self.assertEqual((pc["state"], pc["health"], pc["reasonCode"]), ("unknown", "not_measured", "lane_unknown"))
+        self.assertEqual(pc["lanes"][0]["reason"], "timeout")
+        self.assertIsNone(pc["lanes"][0]["modelId"])
+        self.assertEqual(macpro["lanes"][0]["modelId"], "/models/reviewer.gguf", "API retains full model identity")
+
+    def test_no_registry_and_invalid_registry_leave_legacy_snapshot_unchanged(self):
+        for document in (None, {"nodes": []}, {"nodes": [], "remoteMachines": {"state": "invalid"}}):
+            snapshot = {"machines": [self.local, self.legacy], "inference": document}
+            original = copy.deepcopy(snapshot)
+            remote.project_snapshot(snapshot)
+            self.assertEqual(snapshot, original)
+
+    def test_without_replacement_legacy_pc_is_preserved(self):
+        del self.value["machines"][0]["replaces"]
+        snapshot = {"machines": [self.local, self.legacy], "inference": self.document()}
+        remote.project_snapshot(snapshot)
+        self.assertEqual(snapshot["machines"][1], self.legacy)
+        self.assertEqual(len(snapshot["machines"]), 4)
+        self.assertFalse(snapshot["inference"]["remoteMachines"]["replacesLegacyPc"])
+
+    def test_collector_failure_keeps_registry_unknown_instead_of_reviving_legacy_down(self):
+        snapshot = {"machines": [self.local, self.legacy]}
+        with mock.patch("inference_collect.collect_map", side_effect=RuntimeError("collector unavailable")):
+            document = attach(snapshot, "mac", remote_config=self.value, now=1000)
+        self.assertEqual(document["error"], "collector_failed")
+        self.assertEqual([row["host"] for row in snapshot["machines"]], ["mac", "registry:pc", "registry:macpro"])
+        for row in snapshot["machines"][1:]:
+            self.assertEqual(row["state"], "unknown")
+            self.assertEqual(row["lanes"][0]["reason"], "collector_failed")
+            self.assertIsNone(row["lanes"][0]["observedAt"])
+
+    def test_read_boundary_expires_registry_machine_and_lanes_together(self):
+        import server
+        store = server.SnapshotStore()
+        store.snapshot = {"sampledAt": 1000, "machines": [self.local, self.legacy], "inference": self.document()}
+        original = copy.deepcopy(store.snapshot)
+        with mock.patch.object(server.time, "time", return_value=1007):
+            snapshot = store.read()
+        self.assertEqual(store.snapshot, original, "read expiry must not mutate the stored sample")
+        self.assertEqual([row["host"] for row in snapshot["machines"]], ["mac", "registry:pc", "registry:macpro"])
+        for row in snapshot["machines"][1:]:
+            self.assertEqual((row["state"], row["health"]), ("unknown", "not_measured"))
+            self.assertEqual(row["ageSeconds"], 7)
+            for lane in row["lanes"]:
+                self.assertEqual((lane["health"], lane["reason"], lane["modelId"]), ("not_measured", "stale", None))
+                self.assertEqual(lane["ageSeconds"], 7)
+            self.assertEqual(snapshot["liveness"][row["host"]]["state"], "unknown")
+        self.assertEqual(snapshot["liveness"]["windows"]["state"], "unknown")
+        self.assertEqual(snapshot["liveness"]["pc"]["state"], "unknown")
+
+    def test_liveness_uses_registry_state_without_validating_old_peer_model_rows(self):
+        from server import host_liveness, row_is_live
+        snapshot = {"machines": [self.local, self.legacy], "inference": self.document()}
+        remote.project_snapshot(snapshot)
+        table = host_liveness(snapshot["machines"])
+        for key in ("registry:pc", "remote:registry:pc", "windows", "pc", "registry:macpro"):
+            self.assertEqual((table[key]["state"], table[key]["freshForSeconds"]), ("up", 6))
+            self.assertEqual(table[key]["inventoryScope"], "configured-lanes")
+        for host in ("registry:pc", "windows", "pc", "share-pc"):
+            self.assertFalse(row_is_live({"host": host, "ageSeconds": 0}, table), host)
+        legacy_table = host_liveness([self.legacy])
+        self.assertEqual(legacy_table["share-pc"]["state"], "down")
+        self.assertNotIn("state", legacy_table["windows"], "legacy defaults are unchanged")
+
+    def test_public_map_keeps_explicit_replacement_and_rejects_other_markers(self):
+        document = self.document()
+        projected = public_map(document)
+        self.assertEqual(projected["nodes"][0]["replaces"], "legacy-pc")
+        document["nodes"][0]["replaces"] = "legacy-mac"
+        self.assertIsNone(public_map(document))
 
 
 class ConfigSafetyTests(unittest.TestCase):

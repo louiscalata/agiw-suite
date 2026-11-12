@@ -10,6 +10,34 @@ const LANES = {
 };
 
 export function place(nodes) {
+  if ((nodes || []).some(node => node.role === 'machine' && node.observationSource === 'registry')) {
+    const roots = nodes.filter(node => node.role === 'machine');
+    const placed = [], grouped = new Set();
+    let top = 42;
+    // Three columns keep the local machine and both remotes together. Further
+    // machines get another row, sized to the tallest group above it.
+    for (let start = 0; start < roots.length; start += 3) {
+      const band = roots.slice(start, start + 3);
+      let rows = 0;
+      band.forEach((root, column) => {
+        const x = 28 + column * 330;
+        placed.push({...root, x, y: top});
+        grouped.add(root.id);
+        const children = nodes.filter(node => node.role !== 'machine' && node.machine === root.machine);
+        rows = Math.max(rows, children.length);
+        children.forEach((child, row) => {
+          placed.push({...child, x: x + 12, y: top + (row + 1) * 72});
+          grouped.add(child.id);
+        });
+      });
+      top += (rows + 2) * 72;
+    }
+    for (const node of nodes.filter(node => !grouped.has(node.id))) {
+      placed.push({...node, x: 40, y: top});
+      top += 72;
+    }
+    return placed;
+  }
   const placed = [];
   const extra = [];
   const configuredMachines = new Set((nodes || [])
@@ -42,6 +70,16 @@ export function place(nodes) {
   return placed;
 }
 
+/** Keep repository model IDs intact, abbreviating only filesystem paths. */
+export function displayModelId(value) {
+  if (typeof value !== 'string') return '';
+  return /^(?:\/|~[\\/]|[A-Za-z]:[\\/]|\\\\)/.test(value)
+    || /[\\/].*\.(?:gguf|safetensors|bin)$/i.test(value)
+    ? value.replaceAll('\\', '/').split('/').filter(Boolean).pop() || value : value;
+}
+
+const caption = value => String(value || '').length > 38 ? `${String(value).slice(0, 35)}…` : String(value || '');
+
 function number(value, suffix) {
   return typeof value === 'number' && Number.isFinite(value) ? `${value}${suffix}` : '—';
 }
@@ -55,7 +93,7 @@ export function detailRows(node) {
     ? '—' : `${node.vramUsedMiB ?? '—'}/${node.vramTotalMiB ?? '—'} MiB`;
   const rows = [
     ['Health', node.health || '—'],
-    ['Model', node.modelId || '—'],
+    ['Model', (node.observationSource === 'registry' ? displayModelId(node.modelId) : node.modelId) || '—'],
     ['Upstream', node.upstream || '—'],
     ['Endpoint', node.endpoint || '—'],
     ['Prompt tok/s', number(node.promptTokensPerSecond, '')],
@@ -105,8 +143,9 @@ function statusWord(node) {
 function draw(map, selected) {
   const svg = document.querySelector('#map');
   const placed = place(map.nodes);
+  const registryView = map.nodes.some(node => node.role === 'machine' && node.observationSource === 'registry');
   const tab = mapFocus();
-  const width = Math.max(720, ...placed.map(node => node.x + 180));
+  const width = Math.max(720, ...placed.map(node => node.x + (registryView ? 300 : 180)));
   const height = Math.max(420, ...placed.map(node => node.y + 48));
   svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
   svg.style.width = '100%';
@@ -138,7 +177,8 @@ function draw(map, selected) {
     const title = document.createElementNS(NS, 'text');
     title.setAttribute('x', node.x + 14);
     title.setAttribute('y', node.y - 2);
-    title.textContent = node.label || node.id;
+    title.textContent = registryView ? caption(node.label || node.id) : node.label || node.id;
+    title.setAttribute('title', node.label || node.id);
     const sub = document.createElementNS(NS, 'text');
     sub.setAttribute('x', node.x + 14);
     sub.setAttribute('y', node.y + 14);
@@ -146,8 +186,19 @@ function draw(map, selected) {
     const observationAge = node.observationSource === 'registry'
       ? (typeof node.ageSeconds === 'number' && Number.isFinite(node.ageSeconds)
         ? `${node.ageSeconds.toFixed(1)} s ago` : 'Not observed') : '';
-    sub.textContent = [node.modelId, rateText(node), statusWord(node), observationAge].filter(Boolean).join(' · ');
+    sub.textContent = registryView ? caption(displayModelId(node.modelId))
+      : [node.modelId, rateText(node), statusWord(node), observationAge].filter(Boolean).join(' · ');
+    if (node.modelId) sub.setAttribute('title', node.modelId);
+    const status = document.createElementNS(NS, 'text');
+    status.setAttribute('x', node.x + 14);
+    status.setAttribute('y', node.y + 29);
+    status.setAttribute('class', 'sub');
+    status.textContent = [rateText(node), statusWord(node), observationAge].filter(Boolean).join(' · ');
+    const accessible = document.createElementNS(NS, 'title');
+    accessible.textContent = [node.label || node.id, node.modelId, status.textContent, node.reason].filter(Boolean).join(' · ');
     group.append(dot, title, sub);
+    if (registryView) group.append(status);
+    group.append(accessible);
     svg.append(group);
   }
 }
@@ -163,6 +214,7 @@ function show(node) {
     term.textContent = name;
     const data = document.createElement('dd');
     data.textContent = value;
+    if (name === 'Model' && node.modelId) data.setAttribute('title', node.modelId);
     facts.append(term, data);
   }
 }
