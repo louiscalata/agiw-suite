@@ -185,6 +185,19 @@
             "string",
             "null"
           ]
+        },
+        "parse_version": {
+          "$ref": "#/$defs/nullableText"
+        },
+        "prompt_template_version": {
+          "$ref": "#/$defs/nullableText"
+        },
+        "prompt_template_sha256": {
+          "$ref": "#/$defs/nullableSha"
+        },
+        "prompt_template": {
+          "type": "object",
+          "description": "Explicit template and descriptor-only demonstrations; canonical JSON SHA-256 must match prompt_template_sha256."
         }
       }
     },
@@ -638,6 +651,10 @@
           ],
           "minLength": 1,
           "maxLength": 128
+        },
+        "parse_rule": {
+          "$ref": "#/$defs/nullableText",
+          "description": "Screening parse rule, null for unparsed content. Absent only in legacy/generic callable evidence."
         }
       },
       "allOf": [

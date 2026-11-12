@@ -191,8 +191,41 @@ def population(rows):
     return sorted(rows, key=lambda row: row["id"])
 
 
+def demonstrations_for(benchmark, source):
+    """Descriptor-only training examples, disjoint from the test population."""
+    demos = source.get("demonstrations", [])
+    if not isinstance(demos, list) or ("demonstrations" in source and benchmark != "gsm8k"):
+        raise ValidationError("demonstrations must be a GSM8K training-example list")
+    questions = {
+        " ".join(row["question"].split()).casefold()
+        for row in source["items"] if isinstance(row.get("question"), str)
+    }
+    ids = {row["id"] for row in source["items"]}
+    seen = set()
+    seen_ids = set()
+    for demo in demos:
+        if (
+            not isinstance(demo, dict)
+            or not {"question", "answer"} <= set(demo)
+            or set(demo) - {"id", "question", "answer", "rationale"}
+        ):
+            raise ValidationError("demonstration requires question/answer and optional id/rationale")
+        for key in demo:
+            string(demo[key])
+        question = " ".join(demo["question"].split()).casefold()
+        if (
+            question in questions or question in seen
+            or "id" in demo and (demo["id"] in ids or demo["id"] in seen_ids)
+        ):
+            raise ValidationError("demonstrations must be unique and disjoint from test items")
+        seen.add(question)
+        if "id" in demo:
+            seen_ids.add(demo["id"])
+    return copy.deepcopy(demos)
+
+
 def make_plan(datasets, count=200, version=PLAN_VERSION, wall_budget_s=None):
-    """datasets: benchmark -> {items, revision?, chance?, stratum_key?}.
+    """datasets: benchmark -> {items, revision?, chance?, stratum_key?, demonstrations?}.
 
     SHA-256 seeded random priorities avoid Python random/hash version dependence.
     Simple random sampling without replacement over the whole population.
@@ -213,9 +246,11 @@ def make_plan(datasets, count=200, version=PLAN_VERSION, wall_budget_s=None):
             "chance",
             "stratum_key",
             "answer_options",
+            "demonstrations",
         }:
             raise ValidationError("invalid dataset descriptor")
         rows = population(source.get("items"))
+        demonstrations_for(benchmark, source)
         revision = source.get("revision")
         string(revision, nullable=True)
         chance = source.get("chance", CHANCE.get(benchmark))
@@ -735,8 +770,18 @@ def identity(model, hardware, settings):
         raise ValidationError("runtime settings must be an object or null")
     json_value(settings)
     if settings is not None:
-        for key in ("scorer_id", "prompt_template_id", "backend", "backend_version"):
+        for key in (
+            "scorer_id", "parse_version", "prompt_template_id",
+            "prompt_template_version", "backend", "backend_version",
+        ):
             string(settings.get(key), nullable=True)
+        sha(settings.get("prompt_template_sha256"), nullable=True)
+        if "prompt_template" in settings:
+            if (
+                not isinstance(settings["prompt_template"], dict)
+                or digest(settings["prompt_template"]) != settings.get("prompt_template_sha256")
+            ):
+                raise ValidationError("prompt template hash disagrees with manifest")
         for key in ("max_tokens", "ctx", "n_epochs"):
             numeric(settings.get(key), low=1, nullable=True, integer=True)
         numeric(settings.get("seed"), nullable=True, integer=True)
@@ -761,7 +806,7 @@ def settings_known(settings):
 
 def validate_observation(o):
     fields(
-        o,
+        {k: v for k, v in o.items() if k != "parse_rule"} if isinstance(o, dict) else o,
         "item_id outcome parsed finish_reason cut_off answer_value correct prompt_tokens completion_tokens seconds error",
     )
     string(o["item_id"])
@@ -798,6 +843,10 @@ def validate_observation(o):
             raise ValidationError("answer_value must be a short normalized string")
     elif value is not None:
         raise ValidationError("unparsed answer_value must be null")
+    if "parse_rule" in o:
+        string(o["parse_rule"], nullable=True)
+        if o["parsed"] != (o["parse_rule"] is not None):
+            raise ValidationError("parse rule disagrees with parsed state")
     string(o["error"], nullable=True)
     if (o["outcome"] == "error") != (o["error"] is not None):
         raise ValidationError("error outcome requires an error type")
@@ -917,6 +966,9 @@ def comparisons(record, binding, alpha, _seen=()):
         or canonical(baseline["runtime_settings"])
         != canonical(record["runtime_settings"])
     ):
+        # Full settings equality includes parse/template versions and template
+        # hashes when present. Legacy records remain valid in their own cohort;
+        # missing fields cannot silently match a versioned adapter result.
         raise ValidationError("baseline plan, hardware or settings mismatch")
     known = hardware_known(record["hardware"]) and settings_known(
         record["runtime_settings"]
@@ -1087,7 +1139,8 @@ def run_check(
     """answer(item) returns adapter-classified evidence, never an untyped tuple.
 
     Required: outcome, parsed, finish_reason, cut_off, answer_value, prompt_tokens, completion_tokens,
-    seconds, error. Optional prediction is used only by a supplied score checker.
+    seconds, error. Optional parse_rule records the screening parser rule;
+    optional prediction is used only by a supplied score checker.
     Optional benchmark/spec keyword context is passed to callbacks that accept it.
     Exceptions may expose measured seconds/prompt_tokens/completion_tokens attrs.
     Budget checks are cooperative between calls; adapters enforce call deadlines.
@@ -1226,7 +1279,7 @@ def run_check(
                     }
                     if (
                         not required <= set(supplied)
-                        or set(supplied) - required - {"prediction"}
+                        or set(supplied) - required - {"prediction", "parse_rule"}
                         or bad_measurement
                     ):
                         raise ValidationError(
@@ -1241,6 +1294,8 @@ def run_check(
                         cut_off=supplied["cut_off"],
                         answer_value=supplied["answer_value"],
                     )
+                    if "parse_rule" in supplied:
+                        observation["parse_rule"] = supplied["parse_rule"]
                     if (
                         observation["cut_off"] is True
                         and observation["parsed"] is False

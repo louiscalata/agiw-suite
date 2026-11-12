@@ -1,7 +1,7 @@
-"""Synthetic loopback HTTP fixtures; no model process or browser is used."""
+"""In-memory HTTP fixtures: no sockets, ports, model processes or browsers."""
 
 import contextlib
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import io
 import json
 from pathlib import Path
 import tempfile
@@ -51,84 +51,90 @@ def props():
 
 
 class Stub:
+    """Exercise adapter HTTP/JSON handling without opening any network port."""
     def __init__(self, *, properties=None, get_status=200, replies=None,
-                 wire_reply=None, model_meta=None):
+                 blocked_phase=None, model_meta=None):
         self.properties = props() if properties is None else properties
         self.get_status = get_status
         self.replies = [completion()] if replies is None else replies
-        self.wire_reply = wire_reply
+        self.blocked_phase = blocked_phase
         self.requests = []
         self.posts = []
         self.model_meta = model_meta
+        self.transports = []
 
     def __enter__(self):
         fixture = self
 
-        class Handler(BaseHTTPRequestHandler):
-            def log_message(self, *args):
+        class Transport:
+            def __init__(self):
+                self.closed = threading.Event()
+                self.shutdown_called = False
+
+            def shutdown(self, how):
+                self.shutdown_called = True
+                self.closed.set()
+
+            def settimeout(self, timeout):
                 pass
 
-            def send_json(self, status, body, headers=None):
-                encoded = json.dumps(body).encode("utf-8")
-                self.send_response(status)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(encoded)))
-                for name, value in (headers or {}).items():
-                    self.send_header(name, value)
-                self.end_headers()
-                try:
-                    self.wfile.write(encoded)
-                except OSError:
-                    # A timeout fixture closes its client before this write.
-                    pass
+        class Connection:
+            def __init__(self, host, port, timeout):
+                self.sock = Transport()
+                fixture.transports.append(self.sock)
+                self.transport = self.sock
 
-            def do_GET(self):
-                fixture.requests.append(("GET", self.path))
-                if self.path == "/props":
-                    self.send_json(fixture.get_status, fixture.properties)
-                elif self.path == "/v1/models":
+            def connect(self):
+                pass
+
+            def request(self, method, path, body=None, headers=None):
+                fixture.requests.append((method, path))
+                self.status = 200
+                if method == "GET" and path == "/props":
+                    self.status, reply = fixture.get_status, fixture.properties
+                elif method == "GET" and path == "/v1/models":
                     selected = {"id": MODEL_ID}
                     if fixture.model_meta is not None:
                         selected["meta"] = fixture.model_meta
-                    self.send_json(200, {"data": [selected]})
+                    reply = {"data": [selected]}
+                elif method == "POST" and path == "/v1/chat/completions":
+                    fixture.posts.append(json.loads(body))
+                    reply = fixture.replies[min(len(fixture.posts) - 1, len(fixture.replies) - 1)]
+                    if callable(reply):
+                        reply = reply()
+                    if isinstance(reply, tuple):
+                        self.status, reply = reply[:2]
                 else:
-                    self.send_json(404, {"error": "fixture missing route"})
+                    self.status, reply = 404, {"error": "fixture missing route"}
+                self.body = io.BytesIO(json.dumps(reply).encode("utf-8"))
 
-            def do_POST(self):
-                fixture.requests.append(("POST", self.path))
-                body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
-                fixture.posts.append(body)
-                if self.path != "/v1/chat/completions":
-                    self.send_json(404, {"error": "fixture missing route"})
-                    return
-                if fixture.wire_reply is not None:
-                    try:
-                        fixture.wire_reply(self)
-                    except OSError:
-                        # The deadline test deliberately shuts down this socket.
+            def getresponse(self):
+                if fixture.blocked_phase == "headers":
+                    # Simulate progress that never completes the headers. Only
+                    # the adapter's total-deadline shutdown interrupts it.
+                    while not self.transport.closed.wait(0.02):
                         pass
-                    return
-                reply = fixture.replies[min(len(fixture.posts) - 1, len(fixture.replies) - 1)]
-                if callable(reply):
-                    reply = reply()
-                if isinstance(reply, tuple):
-                    self.send_json(*reply)
-                else:
-                    self.send_json(200, reply)
+                    raise OSError("fixture transport shut down")
+                return self
 
-        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-        while self.server.server_port in PROTECTED_PORTS:
-            self.server.server_close()
-            self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
-        self.thread.start()
-        self.url = "http://127.0.0.1:%d" % self.server.server_port
+            def read1(self, size):
+                if fixture.blocked_phase == "body":
+                    if self.transport.closed.wait(0.02):
+                        raise OSError("fixture transport shut down")
+                    size = 1
+                return self.body.read(size)
+
+            def close(self):
+                self.transport.closed.set()
+
+        self.connection_type = Connection
+        self.patcher = patch.object(adapter.http.client, "HTTPConnection", Connection)
+        self.patcher.start()
+        self.url = "http://127.0.0.1:1"  # An inert parser input, never contacted.
         return self
 
     def __exit__(self, *args):
-        self.server.shutdown()
-        self.server.server_close()
-        self.thread.join(timeout=2)
+        self.patcher.stop()
 
 
 class AdapterTests(unittest.TestCase):
@@ -469,16 +475,8 @@ class AdapterTests(unittest.TestCase):
             self.assertIsNone(result["hardware"]["cpu"])
             self.assertIsNone(result["hardware"]["gpu"])
 
-    def test_total_deadline_interrupts_slow_drip_headers(self):
-        def slow_headers(handler):
-            handler.wfile.write(b"HTTP/1.1 200 OK\r\nX-Fixture: ")
-            handler.wfile.flush()
-            for _ in range(100):
-                handler.wfile.write(b"x")
-                handler.wfile.flush()
-                threading.Event().wait(0.02)
-
-        with Stub(wire_reply=slow_headers) as stub:
+    def check_transport_deadline(self, phase):
+        with Stub(blocked_phase=phase) as stub:
             client = adapter.OpenAIAdapter(stub.url, MODEL_ID, timeout=0.12)
             started = time.monotonic()
             with self.assertRaises(TimeoutError):
@@ -487,28 +485,85 @@ class AdapterTests(unittest.TestCase):
             elapsed = time.monotonic() - started
             self.assertGreaterEqual(elapsed, 0.08)
             self.assertLess(elapsed, 1)
+            self.assertTrue(stub.transports[-1].shutdown_called)
+
+    def test_total_deadline_interrupts_slow_drip_headers(self):
+        self.check_transport_deadline("headers")
 
     def test_total_deadline_interrupts_slow_drip_body(self):
-        def slow_body(handler):
-            body = json.dumps(completion()).encode("utf-8")
-            handler.send_response(200)
-            handler.send_header("Content-Type", "application/json")
-            handler.send_header("Content-Length", str(len(body)))
-            handler.end_headers()
-            for value in body:
-                handler.wfile.write(bytes([value]))
-                handler.wfile.flush()
-                threading.Event().wait(0.02)
+        self.check_transport_deadline("body")
 
-        with Stub(wire_reply=slow_body) as stub:
-            client = adapter.OpenAIAdapter(stub.url, MODEL_ID, timeout=0.12)
-            started = time.monotonic()
-            with self.assertRaises(TimeoutError):
-                client.answer({"id": "one", "question": "Choose.", "answer": "A"},
-                              benchmark="arc", spec={"answer_options": 4})
-            elapsed = time.monotonic() - started
-            self.assertGreaterEqual(elapsed, 0.08)
-            self.assertLess(elapsed, 1)
+    def test_deadline_shuts_down_before_timer_callback(self):
+        # A loaded machine can run the request thread past the deadline before
+        # dispatching the timer. Advance a controlled clock at each boundary.
+        for phase in ("connect", "getresponse", "read1"):
+            for detached in (False, True):
+                with self.subTest(phase=phase, detached=detached), Stub() as stub:
+                    clock = [0.0]
+                    connection_type = stub.connection_type
+                    getresponse = connection_type.getresponse
+                    close = connection_type.close
+                    shutdown_at_close = []
+
+                    def response(connection):
+                        value = getresponse(connection)
+                        if detached:
+                            connection.sock = None
+                        return value
+
+                    def cleanup(connection):
+                        shutdown_at_close.append(connection.transport.shutdown_called)
+                        close(connection)
+
+                    with patch.object(connection_type, "getresponse", response):
+                        operation = getattr(connection_type, phase)
+
+                        def reach_deadline(connection, *args, **kwargs):
+                            value = operation(connection, *args, **kwargs)
+                            clock[0] = 2.0
+                            return value
+
+                        with patch.object(connection_type, phase, reach_deadline), \
+                                patch.object(connection_type, "close", cleanup), \
+                                patch.object(adapter.time, "monotonic", side_effect=lambda: clock[0]), \
+                                patch.object(adapter.threading, "Timer"):
+                            client = adapter.OpenAIAdapter(stub.url, MODEL_ID, timeout=1)
+                            with self.assertRaises(TimeoutError):
+                                client.request("GET", "/props")
+                    self.assertTrue(stub.transports[-1].shutdown_called)
+                    self.assertEqual(shutdown_at_close, [True])
+
+    def test_socket_timeouts_shut_down_before_cleanup(self):
+        # Python 3.9 socket.timeout is distinct from TimeoutError. Connect can
+        # fail before the adapter has captured the connection's transport.
+        for phase in ("connect", "request", "getresponse", "read1"):
+            with self.subTest(phase=phase), Stub() as stub:
+                connection_type = stub.connection_type
+                getresponse = connection_type.getresponse
+                close = connection_type.close
+                shutdown_at_close = []
+
+                def detached_response(connection):
+                    value = getresponse(connection)
+                    connection.sock = None
+                    return value
+
+                def cleanup(connection):
+                    shutdown_at_close.append(connection.transport.shutdown_called)
+                    close(connection)
+
+                def socket_timeout(*args, **kwargs):
+                    raise adapter.socket.timeout("fixture inactivity timeout")
+
+                with patch.object(connection_type, "getresponse", detached_response), \
+                        patch.object(connection_type, phase, socket_timeout), \
+                        patch.object(connection_type, "close", cleanup), \
+                        patch.object(adapter.threading, "Timer"):
+                    client = adapter.OpenAIAdapter(stub.url, MODEL_ID, timeout=1)
+                    with self.assertRaises(TimeoutError):
+                        client.request("GET", "/props")
+                self.assertTrue(stub.transports[-1].shutdown_called)
+                self.assertEqual(shutdown_at_close, [True])
 
     def test_resume_refuses_changed_explicit_available_memory(self):
         with self.tempdir() as directory, Stub() as stub:

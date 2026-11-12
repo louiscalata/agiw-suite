@@ -393,10 +393,79 @@ or an exact decimal `--wall-budget-s` to change them. A wall budget is checked
 between items; a request may finish after that budget. The completion budget
 includes reasoning on servers that account for it there. Empty/whitespace final
 content with `reasoning_content` is always `truncated_empty`, even with finish
-reason `stop`. Reasoning is never scored or stored. Choices require a bare label,
-balanced `(label)`, or `Answer: label`/`Final answer: label`; GSM8K requires a bare
-number or final `#### number`/`Final answer: number` line. Other prose is unparsed
-for these choice/numeric formats.
+reason `stop`. The separate `reasoning_content` field is never scored or stored.
+Only the final content is passed to the screening parser; raw replies are not
+retained. The following versioned screening rules apply, with no ECI-score or
+official-harness equivalence claim.
+
+### Screening answers and explicit templates, version 2
+
+`scorer_id=fast-check-screening-final-v2` and
+`parse_version=fast-check-parse-v2` identify these rules. Every returned item
+records `parse_rule` (null when unparsed), which survives checkpoint/resume.
+Legacy generic callable records may omit it. A failed parse stays unparsed;
+it is never rescued by looking at a question's numbers or reference answer.
+
+- GSM8K normalizes **both** reference and reply to an exact finite `Decimal`
+  representation. Valid comma thousands groups, `$`/`£`/`€`/`¥`, trailing units
+  and a terminal period are removed: `2,125` becomes `2125`, `1,000.50` becomes
+  `1000.5`, and `$12` / `12 dollars` become `12`. Signs, fractional digits and
+  scientific notation preserve their exact value; there is no tolerance or
+  rounding. No unit conversion is performed. Units use the conservative
+  `UNITS` allowlist in the adapter (currencies, time, length, mass, volume,
+  percentages and common count nouns); arbitrary prose is refused.
+  A whole answer, a terminal `####` / `Answer:` / `Final answer:` line, or a
+  terminal balanced `\boxed{...}` answer is accepted, including `$...$`,
+  `\(...\)` and `\[...\]` wrappers. Rules are `numeric_complete`,
+  `numeric_marked_final` and `numeric_boxed_final`. Embedded numbers such as
+  `abc12`, invalid grouping such as `12,34`, and alternatives such as `12 or 13`
+  remain unparsed. `12` remains valid when it also appears in the question.
+- Choices accept a terminal `Answer: X` / `Final answer: X` line or the last
+  standalone label line, case-insensitively, with balanced optional parentheses
+  and one optional period. Labels take priority over choice-text fallback:
+  ARC can contain text `C` at choice A while C is the correct **label**.
+  Otherwise the terminal candidate must match exactly one choice text after
+  trimming the reply and case folding (no substring or punctuation guessing).
+  Rationale mentioning several labels is ignored when followed by a final
+  answer. Conflicting explicit answer lines, duplicate matching choice texts,
+  `A or B`, malformed labels and prose after a final answer remain unparsed.
+  Rules are `mc_explicit_label`, `mc_last_standalone_label`,
+  `mc_explicit_choice_text` and `mc_exact_choice_text`.
+
+Prompts request one final line: choices use `Answer: <choice label>`, GSM8K uses
+`#### <number>`, and other short answers use `Answer: <short answer>`.
+Results record `prompt_template_id=fast-check-question-choices-v2`,
+`prompt_template_version=fast-check-template-v2`, the complete `prompt_template`
+manifest, and `prompt_template_sha256` (SHA-256 of its UTF-8 canonical JSON:
+sorted keys, compact separators, ASCII escapes). The manifest contains system,
+question/choice, demonstration and few-shot templates plus the actual rendered
+demonstrations. Changing a parse/template ID, version, hash or any other runtime
+setting refuses paired comparison, separates ranking groups and refuses checkpoint
+reuse. Historical records can still validate in their original settings cohort;
+missing version/hash fields cannot match a new adapter result. This is a screening
+protocol; changing these rules can change results.
+
+GSM8K descriptors may supply a `demonstrations` list, separate from `items`:
+
+```json
+{"gsm8k":{"items":[
+  {"id":"test-example","question":"A test question?","answer":"12"}
+],"demonstrations":[
+  {"id":"training-example","question":"A separate training question?",
+   "answer":"Add 1 and 2.\n#### 3"}
+]}}
+```
+
+Each demonstration requires `question` and `answer`, with optional `id` and
+`rationale`. Worked reasoning is retained and its final number is normalized
+to `#### <number>`. The list order is preserved. Duplicate or test-overlapping
+questions (case/whitespace normalized), overlapping IDs, malformed examples and
+non-GSM8K demonstration blocks are refused before server discovery. Examples
+are never synthesized from test items. Without this list, the prompt is
+explicitly zero-shot; supply the five actual training demonstrations to reproduce
+that aspect of the reference harness. The result hash pins their rendered content
+and order; plan population/selection still hashes only the test items. This
+does not by itself establish reference-harness parity.
 
 Metadata GETs use `/props` and `/v1/models`; unsupported endpoints may return
 404/405. The selected model must be advertised. Recognized model facts are
@@ -432,7 +501,9 @@ python3 -B -m eci_fast_check validate ../fast-check-output/result.json
 ```
 
 Real inference, server identity, native hardware and full ECI remain **NOT_RUN**
-for this implementation; verification uses only synthetic HTTP stubs.
+for this implementation; verification uses in-memory HTTP transport doubles,
+including deadline shutdown, without binding or contacting ports. Real HTTP
+transport behavior needs a separately authorized runtime check.
 
 ## Verification
 
