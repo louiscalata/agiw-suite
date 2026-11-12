@@ -37,9 +37,10 @@ test('unconfirmed model operation disables controls and explains reconciliation'
 test('the actual control panel displays the settlement explanation', () => {
   const app = readFileSync(new URL('./web/app.js', import.meta.url), 'utf8');
   const render = app.split('\n').find(line => line.startsWith('function renderModelAction()'));
+  const lookup = app.split('\n').find(line => line.startsWith('function inspectorNodeFor('));
   const elements = Object.fromEntries(['modelActionDock', 'modelActionTitle', 'modelActionStatus', 'modelAction']
     .map(id => [id, {dataset: {}, setAttribute() {}}]));
-  vm.runInNewContext(render + '\nrenderModelAction();', {
+  vm.runInNewContext(lookup + '\n' + render + '\nrenderModelAction();', {
     $: id => elements[id], graph: {nodes: [{id: 'qwen', kind: 'model', model: {id: 'qwen', host: 'mac'}}]},
     selected: 'qwen', view: 'runtime', snapshot: {host: 'mac'}, name: value => value,
     modelActionState: () => ({action: null, reason: 'Waiting for fresh inventory to confirm settlement.'}),
@@ -47,4 +48,25 @@ test('the actual control panel displays the settlement explanation', () => {
     modelControlStatus: {modelId: 'qwen', status: 'failed', settlement: 'unconfirmed', message: 'Command failed'},
   });
   assert.match(elements.modelActionStatus.textContent, /fresh inventory/);
+});
+
+test('closing an inspector-only target restores its sidebar button and opens compact Browse', () => {
+  const app = readFileSync(new URL('./web/app.js', import.meta.url), 'utf8');
+  const close = app.split('\n').find(line => line.startsWith('function closeDrawer('));
+  const key = 'model:mac:vendor/path["quoted"]', focused = [], opened = [];
+  const button = {dataset: {key}, focus: () => focused.push('sidebar item')};
+  const toggle = {focus: () => focused.push('Browse')}, drawer = {};
+  const context = {selected: key, inspectorNode: key, userCamera: true, nodeElements: new Map(),
+    $: id => id === 'drawer' ? drawer : id === 'list' ? {querySelectorAll: () => [button]} : toggle,
+    renderGraph() {}, renderList() {}, fitMap() {}, dockedSidebar: () => false,
+    setSidebarOpen: value => opened.push(value)};
+  vm.runInNewContext(close + '\ncloseDrawer();', context);
+  assert.deepEqual(focused, ['sidebar item']);
+  assert.deepEqual(opened, [true]);
+  assert.equal(drawer.hidden, true);
+  assert.equal(context.selected, null);
+  focused.length = 0;
+  context.selected = 'filtered-away';
+  vm.runInNewContext(close + '\ncloseDrawer();', context);
+  assert.deepEqual(focused, ['Browse']);
 });

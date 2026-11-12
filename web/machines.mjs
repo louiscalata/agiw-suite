@@ -2,7 +2,7 @@
  * Machines: one tile per machine row from /api/snapshot, this machine first, under the peer map.
  * Read only. Every value is the row's own; a missing one is "Not measured" or "Unknown", never 0.
  */
-import {own, peerMap, reasonWords, rowDegraded} from '/monitor-board.mjs';
+import {own, peerMap, reasonWords, rowDegraded, registryMachineView, registryModelName} from '/monitor-board.mjs';
 
 const NAMES = {mac: 'Mac', macos: 'Mac', windows: 'PC', linux: 'Linux'};
 const STATE_WORDS = {up: 'Up', down: 'Down', unknown: 'Unknown'};
@@ -18,7 +18,12 @@ function rate(value) {
 }
 
 /** The facts for one machine row, as [label, text] pairs, in reading order. */
-export function machineFacts(row) {
+export function machineFacts(row, options) {
+  if (row?.observationSource === 'registry') {
+    const view = registryMachineView(row, options);
+    return [['Lane health', view.word], ['Lanes', view.detail], ['Seen through', 'Registry'],
+      ['Inventory', 'Configured lanes only; whole-machine inventory unknown']];
+  }
   const state = own(STATE_WORDS, row?.state) || 'Unknown';
   const degraded = rowDegraded(row);
   const facts = [
@@ -54,23 +59,58 @@ function hostLine(row) {
 }
 
 /** Tiles in display order: this machine first, then the rest in the sample's order. */
-export function machineTiles(machines, self) {
+export function machineTiles(machines, self, {fresh = true, now} = {}) {
   const rows = Array.isArray(machines) ? machines.filter(row => row && typeof row === 'object' && !Array.isArray(row)) : [];
   const hub = rows.findIndex(row => row.host === self || row.platform === self);
   const ordered = hub > 0 ? [rows[hub], ...rows.filter((_, i) => i !== hub)] : rows;
   return ordered.map((row, i) => {
+    const registry = row.observationSource === 'registry' ? registryMachineView(row, {fresh, now}) : null;
     const name = own(NAMES, row.platform) || safeWord(row.host, 24) || 'Machine';
     const state = own(STATE_WORDS, row.state) ? row.state : 'unknown';
     const degraded = rowDegraded(row);
     return {
       key: safeWord(row.host, 40) || `row-${i}`,
-      title: i === 0 && hub >= 0 ? `This ${name}` : name,
+      title: registry ? registry.label : i === 0 && hub >= 0 ? `This ${name}` : name,
       host: hostLine(row),
-      glyph: degraded ? '◐' : GLYPHS[state],
-      word: degraded ? 'DEGRADED' : STATE_WORDS[state].toUpperCase(),
-      facts: machineFacts(row),
+      glyph: registry ? registry.glyph : degraded ? '◐' : GLYPHS[state],
+      word: registry ? registry.word : degraded ? 'DEGRADED' : STATE_WORDS[state].toUpperCase(),
+      facts: machineFacts(row, {fresh, now}),
+      lanes: registry ? registry.lanes : null,
     };
   });
+}
+
+/** Lane facts stay words, including missing health and observation time. Model paths retain a full title. */
+export function laneFacts(lane) {
+  const model = registryModelName(lane?.modelId);
+  const health = lane?.health === 'ok' ? 'UP' : lane?.health === 'degraded' ? 'DEGRADED' : lane?.health === 'down' ? 'DOWN' : 'UNKNOWN';
+  const stamp = typeof lane?.observedAt === 'string' && Number.isFinite(Date.parse(lane.observedAt)) ? lane.observedAt : null;
+  const seen = number(lane?.ageSeconds) && lane.ageSeconds >= 0 ? `${Math.round(lane.ageSeconds)} s ago` : stamp || 'Unknown';
+  const code = lane?.reason;
+  // Framing failures can include a digit (invalid_utf8); retain those public codes as words too.
+  const reason = typeof code === 'string' && /^[a-z][a-z0-9_]{0,79}$/.test(code) && !/^[a-z_]{1,40}$/.test(code)
+    ? code.replaceAll('_', ' ') : reasonWords(code);
+  return {label: typeof lane?.label === 'string' ? lane.label : 'Lane', model, health,
+    seen, observedAt: typeof lane?.observedAt === 'string' ? lane.observedAt : null,
+    reason: health === 'UP' ? null : sentence(reason)};
+}
+
+function appendLanes(document, card, lanes) {
+  const list = el(document, 'ul', 'j-machine-lanes');
+  list.setAttribute('aria-label', 'Lanes');
+  for (const lane of lanes) {
+    const facts = laneFacts(lane);
+    const item = el(document, 'li', 'j-machine-lane');
+    const model = el(document, 'span', 'j-lane-model', facts.model.label);
+    if (facts.model.title) model.setAttribute('title', facts.model.title);
+    const seen = el(document, 'span', 'j-lane-seen', `Last seen: ${facts.seen}`);
+    if (facts.observedAt) seen.setAttribute('title', facts.observedAt);
+    item.append(el(document, 'strong', 'j-lane-label', facts.label), model,
+      el(document, 'span', 'j-lane-health', facts.health), seen);
+    if (facts.reason) item.append(el(document, 'span', 'j-lane-reason', `Reason: ${facts.reason}`));
+    list.append(item);
+  }
+  card.append(list);
 }
 
 function el(document, tag, className, text) {
@@ -92,7 +132,15 @@ export function paintMachines(document, snapshot, {fresh}) {
   map.setAttribute('aria-label', view.label);
   map.textContent = view.text;
   const grid = el(document, 'div', 'j-machine-grid');
-  const tiles = machineTiles(snapshot?.machines, snapshot?.host);
+  const tiles = machineTiles(snapshot?.machines, snapshot?.host, {fresh});
+  if (tiles.some(tile => tile.lanes !== null) && Array.isArray(snapshot?.inference?.nodes)) {
+    const local = tiles.find(tile => tile.title.startsWith('This '));
+    if (local) {
+      const machine = snapshot.host === 'windows' ? 'pc' : 'mac';
+      local.lanes = snapshot.inference.nodes.filter(node => node && node.machine === machine && node.role !== 'machine' && node.role !== 'client')
+        .map(node => ({...node, health: fresh ? node.health : 'unknown', reason: fresh ? node.reason : 'stale'}));
+    }
+  }
   if (!tiles.length) {
     const empty = el(document, 'p', 'j-empty', snapshot
       ? 'No machine rows in this sample. A missing read stays unknown.'
@@ -111,6 +159,7 @@ export function paintMachines(document, snapshot, {fresh}) {
     card.append(head);
     if (tile.host) card.append(el(document, 'p', 'j-machine-host', tile.host));
     card.append(state, list);
+    if (tile.lanes !== null) appendLanes(document, card, tile.lanes);
     grid.append(card);
   }
   root.replaceChildren(map, grid);

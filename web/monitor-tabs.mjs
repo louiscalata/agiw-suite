@@ -5,6 +5,8 @@
  * cancels, or starts inference. Session names come from the snapshot's own
  * client, route, job, and machine records — missing records stay absent.
  */
+import {registryMachineRows, registryMachineView, registryModelName} from './map-layout.mjs';
+export {registryMachineRows, registryMachineView, registryModelName};
 
 const ROUTE_ID = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}$/;
 const CLIENT_ID = /^[a-z0-9][a-z0-9_-]{0,31}$/;
@@ -317,7 +319,9 @@ function declaredSteps(snapshot, options) {
 function macMonitor(snapshot, options) {
   const models = macModels(snapshot);
   const face = cap(macFace(snapshot, options), options);
-  const loaded = models.every(row => typeof row.loaded === 'boolean') ? models.filter(row => row.loaded === true).length : null;
+  const inventoryKnown = registryMachineRows(snapshot).length === 0 || models.length > 0
+    || (Array.isArray(snapshot.sources) && snapshot.sources.some(source => source?.id === 'lmstudio-api' && source.state === 'live' && source.modelsComplete === true));
+  const loaded = inventoryKnown && models.every(row => typeof row.loaded === 'boolean') ? models.filter(row => row.loaded === true).length : null;
   return monitor({
     id: 'machine:mac',
     kind: 'machine',
@@ -335,9 +339,9 @@ function macMonitor(snapshot, options) {
     }),
     pipeline: blankPipeline('Local model residency is not a Nisi route pipeline. Per-model state is the reading.'),
     metrics: [
-      metric('Mac models in sample', models.length),
+      metric('Mac models in sample', inventoryKnown ? models.length : null),
       metric('Loaded', loaded == null || !liveView(options) ? null : loaded),
-      metric('Generating or busy', liveView(options) ? models.filter(row => row.loaded === true && (row.state === 'generating' || row.state === 'busy')).length : null),
+      metric('Generating or busy', inventoryKnown && liveView(options) ? models.filter(row => row.loaded === true && (row.state === 'generating' || row.state === 'busy')).length : null),
     ],
   });
 }
@@ -360,6 +364,8 @@ function laneMetric(worker) {
 }
 
 function pcMonitor(snapshot, options) {
+  const replacement = registryMachineRows(snapshot).find(row => row.replaces === 'legacy-pc');
+  if (replacement) return registryMonitor(replacement, options, true);
   const worker = snapshot.windowsWorker;
   const jobs = snapshot.windowsJobs;
   const face = cap(workerFace(worker, jobs, options), options);
@@ -393,6 +399,28 @@ function pcMonitor(snapshot, options) {
       metric('Route list', list.incomplete ? 'incomplete' : 'present'),
       ...laneModelMetrics(worker),
     ],
+  });
+}
+
+function registryMonitor(row, options, pc = false) {
+  const view = registryMachineView(row, {fresh: liveView(options), now: options.now, snapshotAge: options.snapshotAge});
+  const key = view.health === 'ok' ? 'ok' : view.health === 'degraded' ? 'degraded' : 'unknown';
+  return monitor({
+    id: pc ? 'machine:pc' : `machine:${row.host || row.id}`,
+    kind: 'machine', title: pc ? 'PC LLM' : view.label, eyebrow: 'MACHINE',
+    face: presentation(key, `${view.label} · ${view.detail}. Configured lane health; inference activity is not measured.`),
+    fictional: options.fictional,
+    identity: identity({machine: row.host || row.id, machineLabel: view.label, provider: 'registry', providerLabel: 'Registry lanes', model: null}),
+    pipeline: {
+      declared: view.lanes.length > 0, incomplete: false,
+      note: 'Server-reported lane identities. Reachability is not an inference run or whole-machine inventory.',
+      steps: view.lanes.map(lane => step(lane.id, lane.label, lane.health === 'ok' ? 'ok' : lane.health === 'degraded' ? 'degraded' : 'unknown',
+        lane.reason ? lane.reason.replaceAll('_', ' ') : null)),
+    },
+    metrics: [metric('Lanes', view.detail), ...view.lanes.map(lane => {
+      const model = registryModelName(lane.modelId);
+      return {...metric(`${lane.label} model`, model.label), title: model.title};
+    })],
   });
 }
 
@@ -624,7 +652,8 @@ function laneModelMetrics(worker) {
 }
 
 function wantsPc(snapshot) {
-  return snapshot.host === 'windows' || (snapshot.windowsWorker && typeof snapshot.windowsWorker === 'object')
+  return registryMachineRows(snapshot).some(row => row.replaces === 'legacy-pc')
+    || snapshot.host === 'windows' || (snapshot.windowsWorker && typeof snapshot.windowsWorker === 'object')
     || (Array.isArray(snapshot.models) && snapshot.models.some(row => row && row.host === 'windows'));
 }
 
@@ -638,7 +667,10 @@ function overview(children, snapshot, options) {
   else if (running) face = presentation('live', `${running} monitor${running === 1 ? '' : 's'} report running work in this sample.`);
   else if (children.some(item => item.status === 'blocked')) {
     const blocked = children.find(item => item.status === 'blocked');
-    face = presentation('blocked', blocked?.reason || 'A monitor is blocked. Blocked is not idle.');
+    const reachable = registryMachineRows(snapshot).some(row => registryMachineView(row, {fresh: liveView(options), now: options.now, snapshotAge: options.snapshotAge}).up > 0);
+    face = reachable
+      ? presentation('degraded', `Registry lanes are reachable. ${blocked?.title || 'A monitor'} is blocked: ${blocked?.reason || 'See its monitor for details.'}`)
+      : presentation('blocked', blocked?.reason || 'A monitor is blocked. Blocked is not idle.');
   } else if (children.some(item => !['idle', 'ok', 'unavailable', 'recorded'].includes(item.status))) {
     face = presentation('unknown', 'This fresh sample does not show that work is idle. Unknown is not idle.');
   } else face = presentation('idle', 'No monitor reports running work in this fresh sample.');
@@ -698,6 +730,13 @@ function processReading(snapshot, monitor, options) {
 
 function laneReading(snapshot) {
   if (!snapshot) return {word: 'NOT MEASURED', matrix: 'Untested', detail: 'No snapshot.'};
+  const registry = registryMachineRows(snapshot);
+  if (registry.some(row => row.replaces === 'legacy-pc')) {
+    const named = registry.some(row => Array.isArray(row.lanes) && row.lanes.some(lane => text(lane?.modelId, 1024)));
+    return named
+      ? {word: 'INVENTORY', matrix: 'Observed', detail: 'Registry lanes report model identities. Reachability and identity are not inference readiness or acceptance.'}
+      : {word: 'UNKNOWN', matrix: 'Untested', detail: 'Registry lane identity is unknown. Legacy worker readings do not replace it.'};
+  }
   const lanes = snapshot.windowsWorker?.lanes;
   let named = false;
   let mismatch = false;
@@ -873,6 +912,9 @@ export function deriveMonitors(snapshot, options = {}) {
     if (peer) children.push(peer);
   }
   if (wantsPc(snapshot)) children.push(pcMonitor(snapshot, options));
+  for (const row of registryMachineRows(snapshot)) {
+    if (row.replaces !== 'legacy-pc') children.push(registryMonitor(row, options));
+  }
   if (snapshot.pipeline && typeof snapshot.pipeline === 'object') children.push(nisiMonitor(snapshot, options));
   if (Array.isArray(snapshot.clients)) {
     for (const client of snapshot.clients) {
@@ -1116,8 +1158,14 @@ export function nodeInMonitor(item, node) {
   if (!item || item.id === 'all' || !node) return true;
   const id = typeof node.id === 'string' ? node.id : '';
   const kind = node.kind;
+  if (item.kind === 'machine' && item.identity?.provider === 'registry') {
+    const machine = item.identity.machine;
+    return id === machine || node.machine === machine || node.source?.machine === machine || node.source?.id === machine
+      || node.registryMachine?.row?.host === machine || node.registryMachine?.row?.id === machine;
+  }
   if (item.kind === 'machine' && item.identity?.machine === 'mac') {
-    return id === 'runtime' || kind === 'afm' || kind === 'model-overflow' || (kind === 'model' && node.model?.host !== 'windows');
+    return id === 'runtime' || kind === 'afm' || kind === 'model-overflow' || (kind === 'model' && node.model?.host !== 'windows')
+      || (kind === 'registry-lane' && node.registryLane?.machine === 'mac');
   }
   if (item.kind === 'machine' && item.identity?.machine === 'windows') {
     return id === 'windows-worker' || kind === 'windows-lane' || (kind === 'model' && node.model?.host === 'windows');

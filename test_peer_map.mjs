@@ -11,6 +11,17 @@ const linux = { host: 'linux', platform: 'linux', state: 'unknown', reasonCode: 
 const pc = { host: 'pc', platform: 'windows', state: 'down', reasonCode: 'reported_down', trust: 'share-reported', ageSeconds: 3 };
 const lines = view => view.text.split('\n');
 
+test('registry peers use their machine labels and lane health in the textual alternative', () => {
+  const registry = (id, label, health) => ({host: `registry:${id}`, platform: 'remote', label,
+    observationSource: 'registry', lanes: [{label: 'Fast', health, ageSeconds: 1, reason: health === 'ok' ? null : 'timeout',
+      observedAt: new Date(Date.now() - 1000).toISOString()}]});
+  const view = peerMap({machines: [mac, registry('pc', 'PC', 'ok'), registry('macpro', 'Mac Pro', 'not_measured')], self: 'mac', feedFresh: true});
+  assert.match(view.text, /PC +UP +1 lane up/);
+  assert.match(view.text, /MAC PRO +UNKNOWN +1 lane · unknown/);
+  assert.match(view.label, /mac pro unknown/);
+  assert.doesNotMatch(view.text, /DOWN|share-reported|REGISTRY/);
+});
+
 test('no rows is unknown, not an empty fleet', () => {
   for (const machines of [undefined, null, [], [null, 3]]) {
     assert.equal(peerMap({ machines, self: 'mac', feedFresh: true }).text, 'MACHINES  UNKNOWN\n          no machine rows in this sample');
@@ -73,10 +84,10 @@ test('reason codes read as plain words, and never-heard is not went-silent', asy
 });
 
 test('the map names the Mac whether a PC row says mac or macos, and reads the PC superset row', () => {
-  const pcSuperset = { id: 'pc', platform: 'windows', host: 'louisaurorar12', state: 'up', reasonCode: 'observed', trust: 'local', ageSeconds: 2,
+  const pcSuperset = { id: 'pc', platform: 'windows', host: 'worker-pc', state: 'up', reasonCode: 'observed', trust: 'local', ageSeconds: 2,
     freshForSeconds: 30, modelsComplete: true, loadedCount: 1, busyCount: null, reason: 'serving' };
   for (const platform of ['mac', 'macos']) {
-    const view = peerMap({ machines: [pcSuperset, { id: 'mac', platform, host: 'louismac', state: 'unknown', reasonCode: 'not_observed', trust: 'unverified' }], self: 'windows', feedFresh: true });
+    const view = peerMap({ machines: [pcSuperset, { id: 'mac', platform, host: 'desk-mac', state: 'unknown', reasonCode: 'not_observed', trust: 'unverified' }], self: 'windows', feedFresh: true });
     assert.match(lines(view)[0], /^THIS PC +UP +1 loaded \/ \? busy · local · 2 s$/);
     assert.match(lines(view)[1], /^ \|-\?- MAC +UNKNOWN +never observed · unverified$/, platform);
   }

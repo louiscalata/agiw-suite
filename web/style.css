@@ -583,6 +583,19 @@ body>footer{height:34px}
 .mode-tab-copy strong,.pc-switch-copy strong,.mode-tab-copy small,.pc-switch-copy small{font-size:10px}
 .tools .fix-tab{font-size:11px}
 .vital strong{font-size:10px}
+
+/* Registry inventory is readable before interacting with the map. The map keeps
+   a separate caption band for every lane; status always includes words. */
+body.registry-overview #machineLanes{position:absolute;z-index:6;top:10px;left:12px;right:12px;max-height:166px;overflow:auto;border:1px solid var(--j-border,var(--ink));background:var(--j-bg,var(--panel));color:var(--j-text,var(--ink));padding:8px 10px;user-select:text}
+body.registry-overview #machineLanes h2{font:600 12px/1.4 var(--type-body);margin:0 0 5px}
+body.registry-overview #machineLanes table{width:100%;border-collapse:collapse;table-layout:fixed;font:11px/1.4 var(--type-body)}
+body.registry-overview #machineLanes th,body.registry-overview #machineLanes td{text-align:left;vertical-align:top;padding:3px 6px;border-bottom:1px solid var(--j-border,var(--ink));overflow-wrap:anywhere}
+body.registry-overview #machineLanes th:nth-child(1){width:16%}
+body.registry-overview #machineLanes th:nth-child(2){width:20%}
+body.registry-overview #machineLanes th:nth-child(3){width:37%}
+body.registry-overview #machineLanes th:nth-child(4){width:27%}
+body.registry-overview .node.registry-machine .label,body.registry-overview .node.registry-machine .sub,body.registry-overview .node.registry-lane .label,body.registry-overview .node.registry-lane .sub{opacity:1;pointer-events:visiblePainted}
+body.registry-overview #mapHeading{flex-wrap:wrap}
 .vital-age{text-transform:none;letter-spacing:0}
 .connection{font-size:10px}
 .map-controls span{font-size:10px}
@@ -644,7 +657,7 @@ body>footer,body>footer button{font-size:10px}
 /* Captions sit on a paper-coloured halo (paint-order stroke), a little wider now that threads run behind them. */
 .node .label,.node .sub,.node .capability-line{stroke-width:5px}
 
-/* Heartbeat (Louis 26 Sep: "make the background glow too when the node pulse"). Working and in-flight halos, their
+/* Heartbeat (26 Sep request: "make the background glow too when the node pulse"). Working and in-flight halos, their
    background glow and their threads' small wobble share one 2 s beat: app.js syncBeat pins every breathe and glow-beat
    animation to 2 s boundaries of the document timeline, and the wobble (at most 30 frames a second) fires on the same
    boundaries. The glow brightens as the halo ring expands. */
