@@ -2,6 +2,20 @@
 
 This page is the 3 November 2026 review. The working copy was labeled **1.2.0 (13)** at base `c0a057dbebecfa4d95469d1b158ce040a541d8f0`. That label was never published. The checkout is now **1.1.0 (14)**, tagged as a source release. The review does not update the **1.0.0 (7)** download or establish native, package or release acceptance. The canonical [roadmap](../roadmap.md) retains release gates.
 
+## Local merge reconciliation — 12 November 2026
+
+Local history at `ef5193b` contains these merges. This establishes source integration only; CI receipt review is **NOT_RUN** here and CI outcomes remain unverified.
+
+| Pull request | Merge commit | Integrated concern |
+| --- | --- | --- |
+| #114 | `66a660a` | Agent guide and CI ownership |
+| #117 | `eedb253` | Model Tuning Tool adapters and read-only page |
+| #119 | `8230e60` | Model Tuning Tool replaces Fix inference after #117 |
+| #122 | `b80607b` | Hosted Linux CI fallback and Ubuntu 22.04 kit smoke |
+| #123 | `3a5b4da` | Plex observer web variant and font distribution checks |
+
+`Monitor.swift`'s `consumeStartup` schedules a one-second timer; `pollSnapshot` resolves `/api/snapshot` from the origin root and guards against overlapping requests. Current-source native GUI, clean-Mac installation and the full Jev credential lifecycle remain **NOT_RUN** in this source check. The historical Build 6/7 observations in the roadmap do not establish acceptance of this checkout.
+
 ## Source dispositions
 
 - Native polling resolves `/api/snapshot` from the origin root; 404 does not trigger observer recovery. Compiled production-method coverage is in `test_monitor_poll.py`.
