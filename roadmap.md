@@ -13,6 +13,12 @@
 
 See [Fast check](docs/eci-fast-check.md) for the contract, statistical limits and the unrun adapter handoff.
 
+## Registry diagnostics and port guidance — 12 November 2026
+
+- [x] Identify the rejected machine, field, value and validation rule in registry errors; document code-defined port roles and remove stale fixed-port worker guidance.
+- [x] Keep Windows lane discovery configuration-only and cover missing configuration without lane probes.
+- [ ] Verify native Windows behavior and any deployment separately from source tests.
+
 ## Remote machine registry fix round — 12 November 2026
 
 - [x] Verify the FIX FIRST review against the draft; pin protected ports, Windows package imports, complete strict HTTP transport, configuration descriptor custody, explicit legacy replacement and namespace isolation.

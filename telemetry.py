@@ -2731,8 +2731,7 @@ def _windows_worker(now: float) -> tuple[dict[str, Any], dict[str, Any]]:
         hardware = cache.get("hardware") if available and isinstance(cache.get("hardware"), dict) else None
         if condition == "degraded":
             detail = ("Windows worker heartbeat is fresh, but no model lane answers (worker reports degraded); "
-                      "start the model servers on the PC (router on port 1234, qwen3.8-27b on port 1236, "
-                      "gpt-oss-20b on port 1245)")
+                      "check the PC worker's configured lanes and start their model servers")
         elif condition == "stopped":
             detail = "Windows worker reports it has stopped; start the worker on the PC"
         worker = {
