@@ -913,7 +913,7 @@ function updateInferenceFix(){
   button.classList.toggle('fix-tab-needs-action',fixAction&&state==='needs-action');
   button.classList.toggle('fix-tab-error',fixAction&&state==='error');
   button.setAttribute('aria-busy',String(active&&fixAction));
-  button.setAttribute('aria-label',!snapshot?'Diagnostics. Waiting for the live feed.':!macOwner?'Diagnostics. Repair is available only on the Mac owner.':active?'Diagnostics. A repair is running. Open its status; no second request can start.':'Diagnostics. Read cached status and review a scoped repair.');
+  button.setAttribute('aria-label',!snapshot?'Model tuning. Waiting for the live feed.':!macOwner?'Model tuning. Repair is available only on the Mac owner.':active?'Model tuning. A repair is running. Open its status; no second request can start.':'Model tuning. Read cached diagnostics and review a scoped repair.');
   const submit=$('fixInferenceSubmit');
   submit.disabled=!macOwner||active;
   submit.textContent=active?'Operation in progress…':'Review repair…';

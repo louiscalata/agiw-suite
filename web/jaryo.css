@@ -1790,15 +1790,32 @@ body.jaryo-app .jp-ledger *, body.jaryo-app .jp-subline, body.jaryo-app .jp-port
 /* Consequential actions share a deliberate review with Cancel focused. */
 .action-review { background:var(--j-surface); color:var(--j-text); font:inherit; border:2px solid currentColor; width:min(32rem, calc(100vw - 32px)); max-height:calc(100vh - 32px); overflow:auto; padding:24px; }
 .action-review::backdrop { background:var(--j-bg); }
+body.jaryo-app .action-review h2,
+body.jaryo-app .action-review dt,
+body.jaryo-app .action-review dd { color:inherit; }
 .action-review h2 { font-size:20px; }
+.action-review dl { border-color:var(--j-border); }
 .action-review dt { font-weight:600; margin-top:16px; }
 .action-review dd { margin:4px 0 0; }
-@media (forced-colors:active) { .action-review { background:Canvas; color:CanvasText; } }
-
 .action-review .panel-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:8px; margin-top:24px; }
-.action-review button { min-height:44px; padding:8px 16px; }
-.action-review .panel-primary { background:var(--j-accent); color:var(--j-accent-ink); border:1px solid var(--j-accent); }
-@media (forced-colors:active) { .action-review .panel-primary { background:ButtonFace; color:ButtonText; border-color:ButtonText; } }
+/* Both dialogs sit outside the page/panel button scopes. Cover Cancel as well
+   as Confirm so neither falls back to legacy blue or display-only accent ink. */
+body.jaryo-app .action-review button {
+  min-height:44px; padding:8px 16px;
+  background:var(--j-surface); color:var(--j-text);
+  border:1px solid var(--j-border); border-radius:0; box-shadow:none;
+}
+.action-review .panel-primary { font-weight:700; }
+body.jaryo-app .action-review button:disabled {
+  color:var(--j-muted); border-style:dashed; opacity:1;
+}
+@media (forced-colors:active) {
+  .action-review, .action-review::backdrop { background:Canvas; color:CanvasText; }
+  body.jaryo-app .action-review button {
+    background:ButtonFace; color:ButtonText; border-color:ButtonText;
+  }
+  body.jaryo-app .action-review button:disabled { color:GrayText; border-color:GrayText; }
+}
 
 /* Fleet landing: normal reading order, full-width evidence, optional topology.
    Screen-specific roles: 13 meta, 14 controls, 16 evidence, 20 section, 28 brand. */
