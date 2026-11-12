@@ -49,6 +49,11 @@ export function overviewGeometry() {
     }
   };
   inspect(document.querySelector('.brand-wordmark'), 'heading', true);
+  for (const [selector, label] of [['.brand-wordmark strong', 'AGIW'], ['.brand-wordmark small', 'Inference Monitor']]) {
+    const part = document.querySelector(selector);
+    inspect(part, label, true);
+    if (part && part.textContent.trim() !== label) failures.push({ target: label, reason: 'full label changed' });
+  }
   const tuning = document.querySelector('#fixInference .fix-tab-long');
   inspect(tuning, 'Model tuning', true);
   if (tuning && tuning.textContent.trim() !== 'Model tuning') {

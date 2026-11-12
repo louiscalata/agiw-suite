@@ -809,6 +809,28 @@ test('portfolio split docks an interactive browser on wide screens and retains t
   assert.equal($('runtimeSidebar').inert, true);
 });
 
+test('Fleet controls and monitor tabs stay interactive in normal flow at every breakpoint', () => {
+  const { api, $, view, doc } = harness({ width: 375 });
+  doc.body.classList.add('fleet-ledger');
+  const tab = doc.createElement('button');
+  tab.setAttribute('role', 'tab');
+  tab.tabIndex = 0;
+  $('monitorTabs').append(tab);
+  $('runtimeSidebar').append($('search'), $('monitorTabs'));
+  tab.focus();
+  for (const width of [375, 900, 1280, 375]) {
+    view.width = width;
+    api.syncCompactUI();
+    assert.equal($('runtimeSidebar').inert, false, `${width}px visible controls must remain keyboard reachable`);
+    assert.equal($('sidebarToggle').hidden, true, `${width}px needs no hidden drawer gate`);
+    assert.equal(doc.activeElement, tab, `${width}px layout sync must retain focused status tab`);
+  }
+  api.setSidebarOpen(false);
+  assert.equal($('runtimeSidebar').inert, false, 'closing the legacy drawer state cannot disable the visible Fleet section');
+  assert.equal(api.closeCompactSidebar(), false, 'a Fleet selection keeps its normal-flow controls available');
+  assert.equal(doc.activeElement, tab);
+});
+
 test('portfolio compact layout keeps the complete status route and controls in the viewport', () => {
   const rules = cssRules(css);
   const hasRule = (media, selector, pattern) => rules.some(([query, head, body]) =>

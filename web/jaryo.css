@@ -1851,6 +1851,7 @@ body.jaryo-app.fleet-ledger > main#content {
 body.jaryo-app.fleet-ledger .brand-wordmark,
 body.jaryo-app.fleet-ledger .brand-wordmark strong,
 body.jaryo-app.fleet-ledger .j-type { font-size:28px !important; }
+body.jaryo-app.fleet-ledger .brand-wordmark small { display:block; white-space:normal; }
 body.jaryo-app.fleet-ledger #feedCoverage { display:flex; flex-wrap:wrap; align-items:baseline; gap:8px 16px; margin:0; }
 body.jaryo-app.fleet-ledger #headline { font-size:20px !important; line-height:1.4; }
 body.jaryo-app.fleet-ledger #feedFreshness { font-size:13px !important; }
