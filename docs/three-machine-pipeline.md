@@ -23,6 +23,8 @@ The collector reads `~/.config/agiw/remote-machines.json`, or the file selected 
 
 Unknown fields are rejected. Credentials, addresses, commands, configured model aliases, and remote port mappings are not registry fields. Every request uses exactly `http://127.0.0.1:<localPort>/v1/models`. A logical ID is a stable display identity, never a claim about a particular computer or model.
 
+Validation errors include the rejected machine ID, field, value, and rule. These details are logged when a configuration is disabled, so do not put secrets or private connection details in the registry, including in unsupported fields.
+
 The registry refuses these ports with an error naming the rejected entry: **8081, 1234, 1235, 8080, 11434, 18082, 8768, and 8769**. They are reserved for other local services and must never be probed by this feature. The check happens during configuration validation before any registry request is scheduled. Select an independently verified, nonprotected loopback binding for each lane; do not infer an available port from this example.
 
 ## Safe file handling

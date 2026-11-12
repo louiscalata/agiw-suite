@@ -745,13 +745,11 @@ class WindowsProbeScriptTests(unittest.TestCase):
                 self.assertEqual(json.loads(out.getvalue()), {"status": "not-run", "code": expected})
                 self.assertIn(expected, repair.PROBE_CODES)
 
-    def test_degraded_worker_advice_names_the_live_pc_ports(self):
+    def test_degraded_worker_advice_refers_to_configured_lanes(self):
         hint = repair.WINDOWS_UNAVAILABLE_HINTS["worker status degraded"]
-        self.assertIn("router on port 1234", hint)
-        self.assertIn("qwen3.8-27b on port 1236", hint)
-        self.assertIn("gpt-oss-20b on port 1245", hint)
-        self.assertNotIn("1235", hint)
-        self.assertIn("port 1234", hint)
+        self.assertIn("configured lanes", hint)
+        for port in ("1234", "1235", "1236", "1245"):
+            self.assertNotIn(port, hint)
 
     def test_not_ready_is_not_a_verification(self):
         for output in ("NOT READY", "not ready", "Not Ready.", "I am NOT READY today"):

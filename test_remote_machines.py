@@ -87,6 +87,58 @@ def registry_lane(document):
 
 
 class RegistryTests(unittest.TestCase):
+    def test_validation_errors_identify_machine_field_value_and_rule(self):
+        def altered(where, key, value):
+            document = config()
+            item = document["machines"][0]
+            if where == "lane":
+                item = item["lanes"][0]
+            item[key] = value
+            return document
+
+        cases = [
+            (altered("machine", "id", "Bad id"), "Bad id", "id", "Bad id", "lowercase ASCII"),
+            (altered("machine", "label", "Bad!"), "pc", "label", "Bad!", "ASCII letters, digits, spaces, periods, underscores or hyphens"),
+            (altered("machine", "lanes", []), "pc", "lanes", "[]", "1 to 8"),
+            (altered("machine", "replaces", "other"), "pc", "replaces", "other", "legacy-pc"),
+            (altered("lane", "id", "Bad id"), "pc", "id", "Bad id", "lowercase ASCII"),
+            (altered("lane", "label", "Bad!"), "pc", "label", "Bad!", "ASCII letters, digits, spaces, periods, underscores or hyphens"),
+            (config(5), "pc", "localPort", "5", "1024 to 65535"),
+            (config(1234), "pc", "localPort", "1234", "protected port"),
+            (config(timeoutSeconds=7), "pc", "timeoutSeconds", "7", "at most 6"),
+            (config(contextTokens=-1), "pc", "contextTokens", "-1", "nonnegative integer"),
+            (config(thinking="maybe"), "pc", "thinking", "maybe", "'on', 'off' or 'unknown'"),
+            (config(extra="invalid"), "pc", "extra", "invalid", "field is not allowed"),
+        ]
+        missing = config()
+        del missing["machines"][0]["lanes"][0]["label"]
+        cases.append((missing, "pc", "label", "<missing>", "required field"))
+        malformed = config()
+        malformed["machines"][0]["lanes"] = ["bad lane"]
+        cases.append((malformed, "pc", "lane", "bad lane", "must be an object"))
+        duplicate = config()
+        duplicate["machines"][0]["lanes"].append({"id": "deep", "label": "Other", "localPort": 21002})
+        cases.append((duplicate, "pc", "id", "deep", "unique within its machine"))
+        duplicate_port = config()
+        duplicate_port["machines"].append({"id": "second", "label": "Second", "lanes": [
+            {"id": "other", "label": "Other", "localPort": 21001}]})
+        cases.append((duplicate_port, "second", "localPort", "21001", "unique across the registry"))
+        for document, machine, field, value, rule in cases:
+            with self.subTest(field=field, value=value), self.assertRaises(ValueError) as caught:
+                remote.validate_config(document)
+            message = str(caught.exception)
+            for part in ("machine", machine, "field", field, "value", value, rule):
+                self.assertIn(part, message)
+
+    def test_registry_level_errors_describe_unavailable_machine_and_rule(self):
+        for document, field, value, rule in ((None, "registry", "None", "must be an object"),
+                ({"schemaVersion": 2, "machines": []}, "schemaVersion", "2", "integer 1"),
+                ({"schemaVersion": 1, "machines": []}, "machines", "[]", "1 to 32")):
+            with self.subTest(field=field), self.assertRaises(ValueError) as caught:
+                remote.validate_config(document)
+            for part in ("machine", "<unavailable>", "field", field, "value", value, rule):
+                self.assertIn(part, str(caught.exception))
+
     def test_protected_ports_rejected_by_name_before_any_probe(self):
         for port in (8081, 1234, 1235, 8080, 11434, 18082, 8768, 8769):
             with self.subTest(port=port), self.assertRaisesRegex(ValueError, str(port)):
@@ -245,6 +297,15 @@ class ConfigSafetyTests(unittest.TestCase):
         self.path.write_bytes(b" " * 65537)
         with mock.patch.object(remote.os, "read", side_effect=AssertionError("oversize read")):
             self.assertEqual(remote.load_config(self.path), {"error": "config_invalid"})
+
+    def test_invalid_entry_log_includes_actionable_details(self):
+        invalid = config()
+        invalid["machines"][0]["lanes"][0]["label"] = "Bad!"
+        self.path.write_text(json.dumps(invalid))
+        with self.assertLogs(remote.__name__, level=logging.WARNING) as logs:
+            self.assertEqual(remote.load_config(self.path), {"error": "config_invalid"})
+        for part in ("pc", "deep", "label", "Bad!", "ASCII letters, digits, spaces, periods, underscores or hyphens"):
+            self.assertIn(part, logs.output[0])
 
     def test_huge_numeric_timeout_disables_registry_without_raising(self):
         self.path.write_text(json.dumps(config(timeoutSeconds=10 ** 1000)))

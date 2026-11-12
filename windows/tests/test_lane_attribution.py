@@ -73,6 +73,23 @@ class FailClosedLanes(unittest.TestCase):
         self.assertEqual(snapshot["machines"][0]["state"], "unknown")
         self.assertEqual(snapshot["machines"][0]["reason"], "lane-state-unknown")
 
+    def test_collector_never_probes_when_pipeline_config_is_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            processes = mock.Mock()
+            processes.sample.return_value = ({}, [], {"id": "lane-processes", "state": "live", "detail": "x"})
+            fetch = mock.Mock(side_effect=AssertionError("no unconfigured lane may be probed"))
+            collector = Collector(root, root / "bin", runs_root=root / "runs", host="test-pc", clock=lambda: 1000.0,
+                                  fetch=fetch, gpu_fn=lambda: ([], None), adapters_fn=lambda: [],
+                                  lane_processes=processes, memory_fn=lambda: ({"level": "unknown"}, None),
+                                  notification_fn=lambda: None)
+            self.addCleanup(collector.close)
+            snapshot = collector.collect()
+        fetch.assert_not_called()
+        processes.sample.assert_called_once_with({})
+        self.assertEqual([(lane["id"], lane["status"], lane["port"], lane["endpoint"]) for lane in snapshot["lanes"]],
+                         [("fast", "undeclared", None, None), ("deep", "undeclared", None, None)])
+
 
 class AmbiguousLanePorts(unittest.TestCase):
     """Two lanes on one port (or one alias) cannot be told apart: fail closed, attribute nothing, probe nothing."""

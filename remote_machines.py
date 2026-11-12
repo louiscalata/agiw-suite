@@ -32,57 +32,86 @@ def _number(value):
     return type(value) is int or (type(value) is float and math.isfinite(value))
 
 
+def _invalid(machine_id, field, value, rule, lane_id=None):
+    """Include enough context to repair a rejected registry entry."""
+    location = f"machine {machine_id!r}"
+    if lane_id is not None:
+        location += f", lane {lane_id!r}"
+    raise ValueError(f"{location}, field {field!r}, value {value!r}: {rule}")
+
+
+def _fields(value, required, optional, machine_id, field, lane_id=None):
+    if not isinstance(value, dict):
+        _invalid(machine_id, field, value, "must be an object", lane_id)
+    for key in sorted(required):
+        if key not in value:
+            _invalid(machine_id, key, "<missing>", "required field", lane_id)
+    for key in sorted(set(value) - required - optional, key=repr):
+        _invalid(machine_id, key, value[key], "field is not allowed", lane_id)
+
+
 def validate_config(document):
     """Strict port-only schema. A registry machine is a separate namespace."""
-    if (not isinstance(document, dict) or set(document) != {"schemaVersion", "machines"}
-            or type(document["schemaVersion"]) is not int or document["schemaVersion"] != 1):
-        raise ValueError("schema")
+    no_machine = "<unavailable>"
+    _fields(document, {"schemaVersion", "machines"}, set(), no_machine, "registry")
+    version = document["schemaVersion"]
+    if type(version) is not int or version != 1:
+        _invalid(no_machine, "schemaVersion", version, "must be integer 1")
     machines = document["machines"]
     if not isinstance(machines, list) or not 1 <= len(machines) <= MAX_MACHINES:
-        raise ValueError("machines")
+        _invalid(no_machine, "machines", machines, f"must be a list of 1 to {MAX_MACHINES} machines")
     seen_machines, seen_ports, total, replacements = set(), set(), 0, 0
+    id_rule = "must start with a lowercase ASCII letter, followed by up to 15 lowercase ASCII letters, digits, underscores or hyphens"
+    label_rule = "must be 1 to 80 ASCII letters, digits, spaces, periods, underscores or hyphens"
     for machine in machines:
-        if (not isinstance(machine, dict) or not {"id", "label", "lanes"} <= set(machine)
-                or set(machine) - {"id", "label", "lanes", "replaces"}):
-            raise ValueError("machine")
-        identity, label, lanes = machine["id"], machine["label"], machine["lanes"]
-        if (not isinstance(identity, str) or not _ID.fullmatch(identity)
-                or identity in seen_machines or not isinstance(label, str) or not _LABEL.fullmatch(label)
-                or not isinstance(lanes, list) or not 1 <= len(lanes) <= 8):
-            raise ValueError("machine")
+        identity = machine.get("id", "<missing>") if isinstance(machine, dict) else no_machine
+        _fields(machine, {"id", "label", "lanes"}, {"replaces"}, identity, "machine")
+        label, lanes = machine["label"], machine["lanes"]
+        if not isinstance(identity, str) or not _ID.fullmatch(identity):
+            _invalid(identity, "id", identity, id_rule)
+        if identity in seen_machines:
+            _invalid(identity, "id", identity, "machine id must be unique")
+        if not isinstance(label, str) or not _LABEL.fullmatch(label):
+            _invalid(identity, "label", label, label_rule)
+        if not isinstance(lanes, list) or not 1 <= len(lanes) <= 8:
+            _invalid(identity, "lanes", lanes, "must be a list of 1 to 8 lanes")
         if "replaces" in machine:
             if machine["replaces"] != "legacy-pc":
-                raise ValueError("replaces")
+                _invalid(identity, "replaces", machine["replaces"], "must be 'legacy-pc'")
             replacements += 1
             if replacements > 1:
-                raise ValueError("duplicate_replacement")
+                _invalid(identity, "replaces", machine["replaces"], "only one machine may replace legacy-pc")
         seen_machines.add(identity)
         seen_lanes = set()
         for lane in lanes:
-            if (not isinstance(lane, dict) or not {"id", "label", "localPort"} <= set(lane)
-                    or set(lane) - {"id", "label", "localPort", "timeoutSeconds", "contextTokens", "thinking"}):
-                raise ValueError("lane")
-            lane_id, port = lane["id"], lane["localPort"]
+            lane_id = lane.get("id", "<missing>") if isinstance(lane, dict) else "<unavailable>"
+            _fields(lane, {"id", "label", "localPort"}, {"timeoutSeconds", "contextTokens", "thinking"},
+                    identity, "lane", lane_id)
+            port = lane["localPort"]
             if type(port) is not int or not 1024 <= port <= 65535:
-                raise ValueError("port_range_1024_65535")
+                _invalid(identity, "localPort", port, "must be an integer from 1024 to 65535", lane_id)
             if port in PROTECTED_PORTS:
-                raise ValueError(f"protected_port_{port}")
-            if (not isinstance(lane_id, str) or not _ID.fullmatch(lane_id) or lane_id in seen_lanes
-                    or not isinstance(lane["label"], str) or not _LABEL.fullmatch(lane["label"])
-                    or port in seen_ports):
-                raise ValueError("lane")
+                _invalid(identity, "localPort", port, "must not be a protected port", lane_id)
+            if not isinstance(lane_id, str) or not _ID.fullmatch(lane_id):
+                _invalid(identity, "id", lane_id, id_rule, lane_id)
+            if lane_id in seen_lanes:
+                _invalid(identity, "id", lane_id, "lane id must be unique within its machine", lane_id)
+            if not isinstance(lane["label"], str) or not _LABEL.fullmatch(lane["label"]):
+                _invalid(identity, "label", lane["label"], label_rule, lane_id)
+            if port in seen_ports:
+                _invalid(identity, "localPort", port, "port must be unique across the registry", lane_id)
             timeout = lane.get("timeoutSeconds", 1.5)
             if not _number(timeout) or not 0 < timeout <= 6:
-                raise ValueError("timeoutSeconds")
+                _invalid(identity, "timeoutSeconds", timeout, "must be a finite number greater than 0 and at most 6", lane_id)
             if "contextTokens" in lane and (type(lane["contextTokens"]) is not int or lane["contextTokens"] < 0):
-                raise ValueError("contextTokens")
+                _invalid(identity, "contextTokens", lane["contextTokens"], "must be a nonnegative integer", lane_id)
             if "thinking" in lane and lane["thinking"] not in ("on", "off", "unknown"):
-                raise ValueError("thinking")
+                _invalid(identity, "thinking", lane["thinking"], "must be 'on', 'off' or 'unknown'", lane_id)
             seen_lanes.add(lane_id)
             seen_ports.add(port)
             total += 1
-    if total > MAX_LANES:
-        raise ValueError("lanes")
+            if total > MAX_LANES:
+                _invalid(identity, "lanes", total, f"registry must have at most {MAX_LANES} lanes", lane_id)
     return document
 
 
@@ -100,7 +129,7 @@ def _unique(pairs):
 
 
 def _log_disabled(selected, reason):
-    # Suppress the same failure across sampler ticks. Never log file contents.
+    # Suppress the same failure across sampler ticks.
     with _ERROR_LOCK:
         key = str(selected)
         if _CONFIG_ERRORS.get(key) != reason:
