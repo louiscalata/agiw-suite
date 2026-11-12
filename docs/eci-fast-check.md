@@ -313,12 +313,11 @@ the dedicated collection (including arbitrary strings and mapping keys) and
 conflicting protocol aliases or parent/child fields reject the entire input.
 Direct ranking, recommendation and policy apply enforce the same barrier. Fast checks use protocol
 `agiw-fast-check-v1` and remain outside ECI runs, components and recommendations.
-The pure status/view functions can produce `rankings.fast_check.hardware_views`
-for explicitly supplied validated records. **Page integration is the next slice.**
-The current Mac and Windows endpoints use the bundled catalog; this slice does
-not wire those endpoints to ingested files. Named-file ingest does not install a
-catalog or change policy, and does not make its results appear in the page.
-The shipped catalog contains no actual fast-check results.
+The Mac and Windows endpoints can read an explicitly configured, validated local
+`dataset.json` and show `rankings.fast_check.hardware_views` separately from full
+ECI. See [dataset configuration](eci-model-tuning.md#rankings-and-uncertainty).
+Without configuration the endpoints use the shipped catalog, which contains no
+actual fast-check results. Named-file ingest does not change policy or run a check.
 
 Views group by exact hardware identity, plan ID, runtime settings, alpha and admission policy.
 Required known comparison settings are `scorer_id`, `prompt_template_id`,
