@@ -2,13 +2,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
+import * as fleet from './web/fleet-state.mjs';
 import {place, rateText} from './web/monitor.mjs';
 
-const source = readFileSync(new URL('./web/monitor.mjs', import.meta.url), 'utf8').replace(/export /g, '');
+const source = readFileSync(new URL('./web/monitor.mjs', import.meta.url), 'utf8').replace(/^import .*;\r?\n/gm, '').replace(/export /g, '');
 const flush = () => new Promise(resolve => setImmediate(resolve));
 const documentAt = (at, nodes = [{id: 'mac:lmstudio', machine: 'mac', label: 'LM Studio',
   health: 'ok', modelId: 'qwen', generationTokensPerSecond: 80}]) => ({
   observedAt: new Date(at).toISOString(), nodes: nodes.map(node => ({observedAt: new Date(at).toISOString(), ...node})),
+  fleetState: {schemaVersion: 1, facts: nodes.map(node => ({id: node.id, label: node.label || node.id, scope: node.role === 'machine' ? 'machine' : 'lane', parentId: node.machine || null, source: 'inference endpoint', observedAt: new Date(at).toISOString(), expiresAt: new Date(at + (node.machine === 'pc' ? 30000 : 3000)).toISOString(), state: node.health === 'ok' ? 'endpoint answering' : 'unknown', completeness: 'complete', evidence: node}))},
   edges: [], tunnel: {state: 'up'},
 });
 
@@ -24,6 +26,7 @@ function harness(fetcher, clock = Date) {
   const intervals = [];
   const timeouts = [];
   const context = vm.createContext({Date: clock, URL, AbortController, console, fetch: fetcher,
+    ...fleet,
     setInterval: callback => { intervals.push(callback); return intervals.length; },
     setTimeout: callback => { timeouts.push(callback); return timeouts.length; }, clearTimeout: () => {},
     document: {querySelector: selector => elements[selector.slice(1)],
@@ -54,10 +57,11 @@ test('a failed refresh clears health, measurements and selected details', async 
   await h.intervals[0]();
   await flush();
   const node = vm.runInContext('current.nodes[0]', h.context);
-  assert.equal(node.health, 'not_measured');
-  assert.equal(node.generationTokensPerSecond, null);
-  assert.equal(node.modelId, null);
-  assert.equal(h.elements.detailFacts.children.some(item => String(item.textContent).includes('80')), false);
+  assert.equal(node.health, 'ok');
+  assert.equal(node.generationTokensPerSecond, 80);
+  assert.equal(node.factState, 'endpoint answering', 'feed failure alone does not expire fresh endpoint evidence');
+  assert.equal(node.modelId, 'qwen');
+  assert.equal(h.elements.detailFacts.children.some(item => String(item.textContent).includes('80')), true);
   assert.equal(h.elements.tunnel.textContent, 'Monitor feed unavailable');
 });
 
@@ -67,12 +71,14 @@ test('a successful response with old timestamps cannot look healthy', async () =
   assert.equal(vm.runInContext('current.nodes[0].health', h.context), 'not_measured');
 });
 
-test('fresh not_measured observations keep links until expired or unavailable', async () => {
+test('canonical map retains declared membership while unsupported dynamic edges stay absent', async () => {
   const h = harness(async () => ({ok: true, json: async () => documentAt(Date.now())}));
   await flush();
   for (const [age, unavailable] of [[0, false], [31000, false], [0, true]]) {
-    const map = documentAt(Date.now() - age, [{id: 'pc:lane', machine: 'pc', health: 'not_measured',
-      upstream: 'http://lane'}]);
+    const map = documentAt(Date.now() - age, [
+      {id: 'pc', role: 'machine', machine: 'pc', health: 'not_measured'},
+      {id: 'pc:lane', machine: 'pc', health: 'not_measured', upstream: 'http://lane'},
+    ]);
     map.edges = [
       {from: 'pc', to: 'pc:lane', kind: 'hosts'},
       {from: 'pc:router', to: 'pc:lane', kind: 'upstream'},
@@ -80,8 +86,8 @@ test('fresh not_measured observations keep links until expired or unavailable', 
     ];
     h.context.fixtureMap = map;
     const result = vm.runInContext(`ageMap(fixtureMap, ${unavailable})`, h.context);
-    assert.deepEqual(Array.from(result.edges, edge => edge.kind),
-      age || unavailable ? ['hosts'] : ['hosts', 'upstream', 'caller']);
+    assert.deepEqual(Array.from(result.edges, edge => edge.kind), ['hosts']);
+    assert.equal(result.nodes.length, 2);
     assert.equal(map.edges.length, 3);
   }
 });
@@ -149,7 +155,7 @@ test('a stalled refresh aborts and a later refresh can proceed', async () => {
   h.intervals[0]();
   h.timeouts.at(-1)();
   await flush();
-  assert.equal(vm.runInContext('current.nodes[0].health', h.context), 'not_measured');
+  assert.equal(vm.runInContext('current.nodes[0].health', h.context), 'ok', 'fresh fact survives transport failure until its own expiry');
   h.intervals[0]();
   assert.equal(calls, 3);
   h.timeouts.at(-1)();

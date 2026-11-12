@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import test from 'node:test';
 import * as layout from './web/map-layout.mjs';
+import * as fleet from './web/fleet-state.mjs';
 import * as usage from './usage-format.mjs';
 import * as onlineMode from './web/online-code-mode.mjs';
 import * as modelControl from './web/model-control-view.mjs';
@@ -95,6 +96,8 @@ function harness({ width = 1150, extra = {}, monitorChrome = false } = {}) {
   const view = { width };
   const window = { matchMedia: query => ({ matches: Number(/max-width:\s*(\d+)px/.exec(query)?.[1] ?? 0) >= view.width }) };
   const api = runInNewContext(`${monitorChrome ? `const paintMonitorChrome = (() => {${boardDefinitions}; return paintMonitorChrome;})();` : ''}${definitions}
+// Legacy layout unit cases exercise the retained detail renderer; canonical fleet paths have dedicated shared-fixture checks.
+const canonicalRuntimeGraph=runtimeGraph;runtimeGraph=()=>snapshot?.fleetState?canonicalRuntimeGraph():legacyRuntimeGraph();
 ;({startMonitorTabs(){${monitorChrome ? startupTabs : ''}},
   get monitorState(){return {snapshot, connected, paused, graph, monitors: desk()?.monitors};},
   renderActivity,renderVitals,renderSummary,vitalsInput,syncCompactUI,toggleActivity,toggleAbout,closeCompactSidebar,setSidebarOpen,
@@ -117,7 +120,7 @@ function harness({ width = 1150, extra = {}, monitorChrome = false } = {}) {
   setFeed(value,isConnected=true){snapshot=value;connected=isConnected;},
   get lastPanel(){return lastEvidencePanel;},set lastPanel(value){lastEvidencePanel=value;},
   spyOpen(){const opened=[];openActivityRow=row=>opened.push(row.key);return opened;}})`,
-  { ...layout, ...usage, ...onlineMode, ...modelControl, ...(monitorChrome ? monitorTabs : {}), document: doc, window, performance: { now: () => 0 }, ...extra });
+  { ...fleet, ...layout, ...usage, ...onlineMode, ...modelControl, ...(monitorChrome ? monitorTabs : {}), document: doc, window, performance: { now: () => 0 }, ...extra });
   return { api, doc, $: id => doc.getElementById(id), view };
 }
 
@@ -134,38 +137,40 @@ function summaryView(host, { ageSeconds = 0, connected = true, paused = false, i
   return result;
 }
 
-for (const host of ['windows', 'mac']) {
-  test(`Summary clock: ${host} names its local clock when the observer timestamp is ahead`, () => {
-    const { $ } = summaryView(host, { ageSeconds: -30 });
-    assert.equal($('headline').children[0].textContent, 'Local runtime');
-    assert.equal($('headline').querySelector('em').textContent, 'clock mismatch.');
-    assert.equal($('subline').textContent,
-      `Observer timestamp is ahead of this ${host === 'windows' ? 'PC' : 'Mac'} clock; current activity cannot be verified. Captured at 2027-01-15T08:00:30.000Z.`);
-  });
-
-  test(`Summary clock: ${host} keeps paused, stale, disconnected and fresh copy`, () => {
-    const cases = [
-      { label: 'paused future sample', options: { ageSeconds: -30, paused: true }, em: 'view paused.',
-        sub: 'Resume to verify current activity; the displayed model states are from the last sample.' },
-      { label: 'stale sample', options: { ageSeconds: 4 }, em: 'signal stale.',
-        sub: 'Reconnecting. Previous local observations have aged out.' },
-      { label: 'disconnected future sample', options: { ageSeconds: -30, connected: false }, em: 'signal stale.',
-        sub: 'Reconnecting. Previous local observations have aged out.' },
-      { label: 'fresh sample without inventory', options: {}, em: 'signal unavailable.',
-        sub: 'Local runtime sources are unavailable; local model activity is unknown.' },
-      { label: 'fresh inventory without activity evidence', options: { inventory: true }, em: 'activity unknown.',
-        sub: 'Model inventory is available. Local generation could not be verified.' },
-    ];
-    for (const { label, options, em, sub } of cases) {
-      const { $ } = summaryView(host, options);
-      assert.equal($('headline').children[0].textContent, 'Local runtime', label);
-      assert.equal($('headline').querySelector('em').textContent, em, label);
-      const frozen = options.paused || options.connected === false || Math.abs(options.ageSeconds || 0) > 3;
-      const capture = new Date((1_800_000_000 - (options.ageSeconds || 0)) * 1000).toISOString();
-      assert.equal($('subline').textContent, sub + (frozen ? ` Captured at ${capture}.` : ''), label);
-    }
+const fleetFixture = JSON.parse(readFileSync(new URL('./test_support/fleet-state.json', import.meta.url), 'utf8'));
+function fleetHarness(offset = 0) {
+  class Clock extends Date { static now() { return (fleetFixture.now + offset) * 1000; } }
+  const bound = Object.fromEntries(['fleetState','fleetMachines','fleetLanes','fleetSummary'].map(name => [name, (input, options) => fleet[name](input, {now: Clock.now()/1000, ...options})]));
+  const h = harness({extra: {Date: Clock, ...bound}});
+  h.api.setFeed({...structuredClone(fleetFixture.snapshot), host: 'mac', sources: [], models: [],
+    fleetState: structuredClone(fleetFixture.fleetState)});
+  return h;
+}
+for (const offset of [0, 4, 7, 31]) {
+  test(`Fleet summary ages each source independently after ${offset}s using the shared fixture`, () => {
+    const {api, $} = fleetHarness(offset);
+    api.renderSummary();
+    const expected = fleet.fleetSummary(fleetFixture, {now: fleetFixture.now + offset});
+    assert.match($('headline').textContent, new RegExp(expected.headline));
+    if (expected.counts.answering === null) {
+      assert.match($('headline').textContent, /Answering count unknown; 4 lanes configured/);
+      assert.doesNotMatch($('headline').textContent, /0 of 4 lanes answering/);
+    } else assert.match($('headline').textContent, new RegExp(`${expected.counts.answering} of 4 lanes answering`));
+    assert.equal($('activeCount').textContent, expected.counts.answering === null ? '—' : String(expected.counts.answering));
+    assert.equal($('loadedCount').textContent, '4');
+    assert.match($('attentionReasons').textContent, /Mac Pro.*deep/i);
+    assert.doesNotMatch($('headline').textContent, /idle|quiet|blocked|healthy/i);
   });
 }
+test('summary without a fleet contract keeps coverage and absence unknown', () => {
+  const {api, $} = harness();
+  api.setFeed({host: 'mac', sampledAt: nowSeconds(), models: [], sources: [], activityKnown: true});
+  api.renderSummary();
+  assert.equal($('activeCount').textContent, '—');
+  assert.equal($('loadedCount').textContent, '—');
+  assert.equal($('queuedCount').textContent, '—');
+  assert.match($('headline').textContent, /Endpoint coverage unknown/);
+});
 
 // Producer shape: lane_model_row plus Collector's independently sampled process/caller metadata.
 // Collector._lane retains the slot total but clears busy/rate when its poll result expires.
@@ -451,11 +456,11 @@ test('Core 6 starts as the accessible default for both map and list; All restore
   const modelItems = () => $('list').querySelectorAll('button').filter(item => item.dataset.key?.startsWith('model:'));
   assert.deepEqual([...api.scopeProjection()].sort(), [...coreSixIds].sort());
   assert.equal(modelItems().length, 6);
-  assert.match($('modelScopeNote').textContent, /6 of 6 primary models discovered.*3 other discovered under All discovered/);
+  assert.match($('modelScopeNote').textContent, /At least 9 models.*inventory incomplete/);
   assert.deepEqual($('modelScopeControls').querySelectorAll('button').map(button => button.getAttribute('aria-pressed')), ['true', 'false']);
   api.setModelScope('all');
   assert.equal(modelItems().length, 9);
-  assert.match($('modelScopeNote').textContent, /All 9 discovered Mac models shown/);
+  assert.match($('modelScopeNote').textContent, /At least 9 models.*inventory incomplete/);
   assert.deepEqual($('modelScopeControls').querySelectorAll('button').map(button => button.getAttribute('aria-pressed')), ['false', 'true']);
   const hiddenId = `model:mac:${extras[0]}`;
   api.select(hiddenId);
@@ -473,7 +478,7 @@ test('Core 6 starts as the accessible default for both map and list; All restore
     sources: [{id:'lmstudio-api',state:'live',modelsComplete:true,route:'direct',ageSeconds:0}], clients: [], pipeline: { status: 'idle' } });
   api.setModelScope('all');
   assert.equal(modelItems().length, 6);
-  assert.match($('modelScopeNote').textContent, /All 6 discovered Mac models shown/);
+  assert.match($('modelScopeNote').textContent, /At least 6 models.*inventory incomplete/);
 });
 
 test('client inspector separates model IDs from unavailable live subagent evidence', () => {
@@ -734,16 +739,16 @@ test('C: activity rows show both speeds, a hit-token-limit badge and "Answer rej
   assert.deepEqual($('activityTiles').children.map(tile => tile.textContent), ['In flightUnknown', 'Answered1', 'FailedUnknown', 'RoutesUnknown']);
 });
 
-test('C: a fresh GPU sample joins the Mac chip', () => {
+test('C: unjoined GPU readings cannot establish fleet machine state', () => {
   const { api, $ } = harness();
   const gpu = { model: 'Apple M5 Max', cores: 40, utilizationPercent: 46, rendererPercent: 40, tilerPercent: 12, allocatedBytes: 40_500_000_000, inUseBytes: 30_000_000_000, ageSeconds: 0 };
   api.setFeed({ ...pcSnapshot(nowSeconds(), {}), macGpu: gpu });
   api.renderVitals();
   // Round 3 review: the GPU follows what the models are doing, so it never reads as a model at work.
-  assert.match($('vitalMac').querySelector('small').textContent, / · GPU 46%$/);
+  assert.equal($('vitalMac').querySelector('small').textContent, 'Machine evidence unknown');
   api.setFeed({ ...pcSnapshot(nowSeconds() - 12, {}), macGpu: gpu });
   api.renderVitals();
-  assert.equal($('vitalMac').querySelector('small').textContent, 'Signal stale');
+  assert.equal($('vitalMac').querySelector('small').textContent, 'Machine evidence unknown');
 });
 
 test('Follow-up 5: a choice made in the compact Browse sidebar closes it and hands focus to the map', () => {
@@ -976,7 +981,7 @@ test('A3 fix 6 finding 1: runtime residency and unchecked callers remain unknown
   }
 });
 
-test('A3 fix 6 finding 1: runtime counts require a live complete inventory and caller checks stay independent', () => {
+test('A3 fix 6 finding 1: runtime counts require the fleet contract and caller checks stay independent', () => {
   const cases = [
     { residency: [true, false], source: 'live', loaded: '1' },
     { residency: [false, false], source: 'live', loaded: '0' },
@@ -993,11 +998,10 @@ test('A3 fix 6 finding 1: runtime counts require a live complete inventory and c
         models: row.residency.map((loaded, i) => ({ id: `model-${i}`, host, loaded, state: loaded ? 'idle' : 'unknown', ageSeconds: 0 })) });
       api.select('runtime');
       api.renderInspector();
-      assert.equal(tiles(body).find(([label]) => label === 'Loaded')[1], row.loaded);
+      assert.equal(tiles(body).find(([label]) => label === 'Loaded')[1], 'Unknown');
       assert.match(body.textContent, /Local callersNone connected/);
       const headline = body.querySelector('.panel-summary').querySelector('strong').textContent;
-      if (row.loaded === 'Unknown') assert.match(headline, /^(?:Quiet · loaded unknown|Activity unknown)$/);
-      else assert.equal(headline, `Quiet · ${row.loaded} loaded`);
+      assert.equal(headline, 'Activity unknown', 'legacy counts do not bypass the fleet contract');
     }
   }
 });
@@ -1254,42 +1258,26 @@ test('repair panel asks for one target and explicit consequence review in its id
   assert.deepEqual([result.querySelector('strong').textContent, result.querySelector('p').textContent], ['Inference checks complete', 'Inference verified.']);
 });
 
-test('Round 3 (MEDIUM): a chip that overflows steps down to its short, then tiny, form, measured per chip', () => {
-  const { api, $, view } = harness({ width: 1150 });
-  const budget = { vitalMac: 200, vitalPc: 400, vitalRoute: 400, vitalActivity: 110 };
-  for (const [id, width] of Object.entries(budget)) {
-    const small = $(id).querySelector('small');
-    Object.defineProperty(small, 'clientWidth', { get: () => budget[id] });
-    Object.defineProperty(small, 'scrollWidth', { get() { return this.textContent.length * 6.5; } });
+test('fleet chip wording stays scoped at narrow widths', () => {
+  const {api, $, view} = fleetHarness();
+  for (const width of [1150, 800, 375]) {
+    view.width = width; api.renderVitals();
+    assert.match($('vitalMac').querySelector('strong').textContent, /1 of 1 lane answering/);
+    assert.match($('vitalMac').title, /1 of 1 lane answering/);
+    assert.match($('vitalPc').querySelector('strong').textContent, /2 of 2 lanes answering/);
+    assert.match($('vitalPc').title, /2 of 2 lanes answering/);
+    assert.doesNotMatch($('vitalPc').title, /healthy|idle|down|0 busy/i);
   }
-  api.setFeed({ ...pcSnapshot(nowSeconds(), { inFlight: [deepJob] }), macGpu: { utilizationPercent: 46, ageSeconds: 0 } });
-  api.renderVitals();
-  const chip = id => [$(id).querySelector('strong').textContent, $(id).querySelector('small').textContent];
-  // Mac: the long form overflows, the short one fits. PC and route keep their long forms.
-  assert.deepEqual(chip('vitalMac'), ['Mac', 'Activity unknown · GPU 46%']);
-  assert.deepEqual(chip('vitalPc'), ['Windows PC', 'Headless unknown']);
-  assert.deepEqual(chip('vitalRoute'), ['Nisi Inference', 'Idle']);
-  assert.deepEqual(chip('vitalActivity'), ['Latest · 20s', 'claude → PC deep']);
-  assert.equal($('vitalActivity').querySelector('strong').querySelector('.vital-age').textContent, '20s', 'the age is kept out of the uppercase label');
-  // Tighter still: the Mac chip drops to its tiny form. Titles and aria labels keep the long text throughout.
-  budget.vitalMac = 110;
-  api.renderVitals();
-  assert.deepEqual(chip('vitalMac'), ['Mac', 'Activity unknown']);
-  assert.equal($('vitalMac').title, 'This Mac: Loaded unknown · activity unknown · GPU 46%');
-  // Narrow windows start from the short forms.
-  view.width = 800; budget.vitalMac = 400;
-  api.renderVitals();
-  assert.deepEqual(chip('vitalMac'), ['Mac', 'Activity unknown · GPU 46%']);
 });
 
 test('Round 3 (LOW): the PC chip stops pulsing when paused, like the Activity chip', () => {
   const { api, $ } = harness();
   api.setFeed({ ...pcSnapshot(nowSeconds(), { inFlight: [deepJob] }), windowsJobs: { schemaVersion: 1, journal: 'recorded', complete: true, inFlight: [deepJob], recent: [], lastSuccess: null } });
   api.renderVitals();
-  assert.equal($('vitalPc').dataset.tone, 'live');
+  assert.equal($('vitalPc').dataset.tone, 'muted');
   api.setPaused(true);
   api.renderVitals();
-  assert.deepEqual([$('vitalPc').dataset.tone, $('vitalActivity').dataset.tone], ['ok', 'muted']);
+  assert.deepEqual([$('vitalPc').dataset.tone, $('vitalActivity').dataset.tone], ['muted', 'muted']);
 });
 
 test('Round 3 (HIGH 1, MEDIUM, LOW): panel footers never inherit page-footer rules; the compact sheet, map text and chrome text sizes', () => {
@@ -1349,10 +1337,12 @@ function webHarness({ reduced = false, forced = false, hiddenWeb = false } = {})
     setWebHidden: value => { media.hiddenWeb = value; },
     requestAnimationFrame: f => { const id = nextId++; frames.set(id, f); return id; }, cancelAnimationFrame: id => frames.delete(id) };
   const api = runInNewContext(`${definitions}
+// Legacy layout unit cases exercise the retained detail renderer; canonical fleet paths have dedicated shared-fixture checks.
+const canonicalRuntimeGraph=runtimeGraph;runtimeGraph=()=>snapshot?.fleetState?canonicalRuntimeGraph():legacyRuntimeGraph();
 ;({renderWeb,renderGlows,pokeWeb,syncWebPulse,build(){makeGraph();},
   get graph(){return graph;},get motion(){return webMotion;},get layout(){return webLayout;},get paths(){return webPathEls;},
   setFeed(value,isConnected=true){snapshot=value;connected=isConnected;},setPaused(value){paused=value;},setWebHidden(value){window.setWebHidden(value);}})`,
-  { ...layout, ...usage, ...onlineMode, ...modelControl, document: doc, window, performance: { now: () => clock },
+  { ...fleet, ...layout, ...usage, ...onlineMode, ...modelControl, document: doc, window, performance: { now: () => clock },
     setTimeout: (f, ms) => { const id = nextId++; timers.set(id, { f, at: clock + ms }); return id; }, clearTimeout: id => timers.delete(id) });
   const runFrames = (limit = 400) => { let n = 0; while (frames.size && n++ < limit) { clock += 1000 / 60; const [id, f] = frames.entries().next().value; frames.delete(id); f(clock); } return n; };
   return { api, doc, $: id => doc.getElementById(id), frames, timers, media, runFrames, advance(ms) { clock += ms; }, get clock() { return clock; } };
@@ -1589,14 +1579,14 @@ test('Mac inspector: unavailable or incomplete inventory keeps the loaded count 
   }
 });
 
-test('Mac inspector: a complete live inventory retains known zero and nonzero loaded counts', () => {
+test('Mac inspector: legacy inventory alone cannot establish canonical loaded counts', () => {
   for (const id of ['lmstudio-api', 'lms-ps']) {
     for (const models of [[], [{ id: 'local-model', host: 'mac', loaded: true, state: 'idle', ageSeconds: 0 }]]) {
       const { api, body } = drawerHarness();
       api.setFeed({ ...pcSnapshot(nowSeconds(), {}), sources: [{ id, state: 'live' }], models });
       api.select('runtime');
       api.renderInspector();
-      assert.equal(tiles(body).find(([label]) => label === 'Loaded')[1], String(models.length), id);
+      assert.equal(tiles(body).find(([label]) => label === 'Loaded')[1], 'Unknown', id);
     }
   }
 });
@@ -1613,15 +1603,15 @@ for (const host of ['mac', 'windows']) {
       assert.equal(body.querySelector('.panel-summary').querySelector('strong').textContent, 'Activity unknown');
     }
   });
-  test(`${host} inspector: complete live inventory permits Quiet and exact loaded counts`, () => {
+  test(`${host} inspector: legacy inventory cannot bypass canonical count evidence`, () => {
     for (const loaded of [false, true]) {
       const { api, body } = drawerHarness();
       api.setFeed({ ...pcSnapshot(nowSeconds(), {}), host, activityKnown: true,
         sources: [{ id: host === 'windows' ? 'lane-inventory' : 'lmstudio-api', state: 'live' }],
         models: [{ id: 'local-model', host, loaded, state: 'idle', ageSeconds: 0 }] });
       api.select('runtime'); api.renderInspector();
-      assert.equal(tiles(body).find(([label]) => label === 'Loaded')[1], String(Number(loaded)));
-      assert.equal(body.querySelector('.panel-summary').querySelector('strong').textContent, `Quiet · ${Number(loaded)} loaded`);
+      assert.equal(tiles(body).find(([label]) => label === 'Loaded')[1], 'Unknown');
+      assert.equal(body.querySelector('.panel-summary').querySelector('strong').textContent, 'Activity unknown');
     }
   });
 }
@@ -1651,7 +1641,7 @@ test('Mac runtime: incomplete residency stays unknown in summary, callers and ev
       models: [{ id: 'example-model', host: 'mac', loaded: null, state: 'unknown', ageSeconds: 0 }],
       macGpu: { utilizationPercent: 40, ageSeconds: 0 } });
     api.renderSummary(); api.select('runtime'); api.renderInspector();
-    assert.equal($('headline').querySelector('em').textContent, 'activity unknown.', state);
+    assert.equal($('headline').textContent, '? Endpoint coverage unknown', state);
     assert.equal($('activeCount').textContent, '—', state);
     assert.equal($('loadedCount').textContent, '—', state);
     assert.equal($('queuedCount').textContent, '—', state);
@@ -1664,18 +1654,18 @@ test('Mac runtime: incomplete residency stays unknown in summary, callers and ev
   }
 });
 
-test('Mac runtime: complete idle evidence permits idle caller wording', () => {
+test('Mac runtime: unjoined idle inventory keeps caller absence unknown', () => {
   for (const [state, detail] of SKIPPED_CALLER_SOURCES) {
     const { api, body } = drawerHarness();
     api.setFeed({ ...pcSnapshot(nowSeconds(), {}), activityKnown: true, localCallers: null,
       sources: [{ id: 'lms-ps', state: 'live' },
         { id: 'local-callers', state, detail }], models: [] });
     api.select('runtime'); api.renderInspector();
-    assert.ok(body.textContent.includes(`Local callers${detail}`), state);
+    assert.match(body.textContent, /Local callersUnknown/, state);
   }
 });
 
-test('Runtime inspector: a positive partial activity count is a lower bound in the headline and tiles', () => {
+test('Runtime inspector: partial model activity stays a detail lower bound without changing fleet totals', () => {
   const { api, $, body } = drawerHarness();
   api.setFeed({ ...pcSnapshot(nowSeconds(), {}), activityKnown: true,
     sources: [{ id: 'lmstudio-api', state: 'live' }, { id: 'lms-ps', state: 'live' }],
@@ -1685,7 +1675,7 @@ test('Runtime inspector: a positive partial activity count is a lower bound in t
   assert.equal(body.querySelector('.panel-summary').querySelector('strong').textContent, 'At least 1 model working');
   assert.equal(tiles(body).find(([label]) => label === 'Working')[1], 'at least 1');
   assert.match(body.textContent, /Working modelsat least 1/);
-  assert.equal($('activeCount').textContent, 'at least 1');
+  assert.equal($('activeCount').textContent, '—', 'partial model rows do not supply fleet endpoint totals');
   assert.equal($('queuedCount').textContent, '—');
 });
 
@@ -1696,12 +1686,12 @@ test('Runtime counts: catalog aggregates do not count alongside loaded alias ins
     models: [{ id: 'provider/model', host: 'mac', loaded: true, state: 'generating', queued: 5, representedByInstances: true, ageSeconds: 0 },
       { id: 'alias-1', host: 'mac', loaded: true, state: 'generating', queued: 2, ageSeconds: 0 }] });
   api.renderSummary(); api.select('runtime'); api.renderInspector();
-  assert.equal($('loadedCount').textContent, '1');
-  assert.equal($('activeCount').textContent, '1');
-  assert.equal($('queuedCount').textContent, '2');
-  assert.equal(tiles(body).find(([label]) => label === 'Loaded')[1], '1');
-  assert.equal(tiles(body).find(([label]) => label === 'Working')[1], '1');
-  assert.equal(body.querySelector('.panel-summary').querySelector('strong').textContent, '1 model working');
+  assert.equal($('loadedCount').textContent, '—');
+  assert.equal($('activeCount').textContent, '—');
+  assert.equal($('queuedCount').textContent, '—');
+  assert.equal(tiles(body).find(([label]) => label === 'Loaded')[1], 'Unknown');
+  assert.equal(tiles(body).find(([label]) => label === 'Working')[1], 'at least 1');
+  assert.equal(body.querySelector('.panel-summary').querySelector('strong').textContent, 'At least 1 model working');
 });
 
 for (const host of ['mac', 'windows']) {
@@ -2007,7 +1997,7 @@ test('Memory: the Mac hub inspector has a Memory tile and a Memory section with 
   assert.equal(fresh.body.querySelectorAll('details').some(box => box.dataset.key === 'runtime|memory'), false);
 });
 
-test('Memory: in a popover-narrow strip the Mac chip steps down to just the memory words; its label keeps the rest', () => {
+test('Memory: unjoined memory readings do not replace unknown fleet state', () => {
   const { api, $ } = harness({ width: 390 });
   const small = $('vitalMac').querySelector('small');
   let width = 100;
@@ -2015,17 +2005,17 @@ test('Memory: in a popover-narrow strip the Mac chip steps down to just the memo
   Object.defineProperty(small, 'scrollWidth', { get() { return this.textContent.length * 6.5; } });
   api.setFeed({ ...pcSnapshot(nowSeconds(), {}), memory: memoryBlock('critical') });
   api.renderVitals();
-  assert.equal(small.textContent, 'Memory critical');
-  assert.match($('vitalMac').getAttribute('aria-label'), /^This Mac: .* · Memory critical$/);
+  assert.equal(small.textContent, 'Machine evidence unknown');
+  assert.match($('vitalMac').getAttribute('aria-label'), /Machine evidence unknown/);
   // Without tight or critical memory the fourth form is the tiny one again.
   api.setFeed({ ...pcSnapshot(nowSeconds(), {}), memory: memoryBlock('watch') });
   api.renderVitals();
-  assert.equal(small.textContent, 'Activity unknown');
+  assert.equal(small.textContent, 'Machine evidence unknown');
   // Too narrow even for the memory words (390 px): the chip keeps its tiny form, since a cut "Me…" would say less.
   width = 60;
   api.setFeed({ ...pcSnapshot(nowSeconds(), {}), memory: memoryBlock('critical') });
   api.renderVitals();
-  assert.equal(small.textContent, 'Memory critical · Activity unknown');
+  assert.equal(small.textContent, 'Machine evidence unknown');
 });
 
 test('Memory: the map banner shows for tight and critical only, is dismissible until memory gets worse, and announces only a new level', () => {
@@ -2050,9 +2040,9 @@ test('Memory: the map banner shows for tight and critical only, is dismissible u
   assert.equal(heard.length, 1);
   // The Mac chip carries the word too (colour is never the only signal).
   api.renderVitals();
-  assert.match($('vitalMac').querySelector('small').textContent, /Memory tight/);
-  assert.equal($('vitalMac').dataset.tone, 'warn');
-  assert.match($('vitalMac').getAttribute('aria-label'), /Memory tight$/);
+  assert.match($('vitalMac').querySelector('small').textContent, /Machine evidence unknown/);
+  assert.equal($('vitalMac').dataset.tone, 'muted');
+  assert.match($('vitalMac').getAttribute('aria-label'), /Machine evidence unknown/);
   // Not dismissed, a Mac flapping on the threshold (tight, watch every 2 s): the banner follows the guard's level, but
   // nothing is announced again.
   flap(12);
@@ -2472,7 +2462,7 @@ test('machine summary overrides legacy idle and worker headline in the actual ch
       reasonCode: 'timeout', trust: 'unverified', ageSeconds: null, loadedCount: null, busyCount: null}))});
   api.renderVitals();
   for (const id of ['vitalMac', 'vitalPc']) {
-    assert.match($(id).querySelector('small').textContent, /Unknown/);
+    assert.match($(id).querySelector('small').textContent, /unknown/i);
     assert.doesNotMatch($(id).title, /idle|down|quiet|0 tok\/s/i);
   }
 });
@@ -2499,24 +2489,13 @@ test('partial local inventory stays unknown in the summary, inspector and vitals
   }
 });
 
-test('canonical local model counts agree across the summary, inspector and vitals despite aliases', () => {
-  for (const busyCount of [0, 1]) {
-    const {api, $, body} = drawerHarness();
-    api.setFeed({host: 'mac', sampledAt: nowSeconds(), activityKnown: true,
-      models: ['canonical', 'alias-one', 'alias-two'].map(id => ({id, host: 'mac', modelKey: 'canonical',
-        loaded: true, state: busyCount ? 'generating' : 'idle', ageSeconds: 0})),
-      sources: [{id: 'lms-ps', state: 'live', modelsComplete: true}],
-      machines: [{host: 'mac', platform: 'mac', state: 'up', trust: 'local', ageSeconds: 0,
-        modelsComplete: true, loadedCount: 1, busyCount}]});
-    api.renderSummary();
-    assert.equal($('loadedCount').textContent, '1');
-    assert.equal($('activeCount').textContent, String(busyCount));
-    assert.match($('subline').textContent, busyCount ? /1 local model is working/ : /1 loaded/);
-    assert.match(api.vitalsInput().vitals.mac.detail, busyCount ? /^1 working/ : /^1 loaded · idle/);
-    api.select('runtime');
-    api.renderInspector();
-    assert.deepEqual(tiles(body).slice(0, 2).map(row => row.slice(0, 2)), [['Working', String(busyCount)], ['Loaded', '1']]);
-  }
+test('fleet counts come from shared evidence and keep model totals unknown with incomplete coverage', () => {
+  const {api, $} = fleetHarness(); api.renderSummary();
+  assert.equal($('activeCount').textContent, '3');
+  assert.equal($('loadedCount').textContent, '4');
+  assert.equal($('queuedCount').textContent, '1');
+  assert.match($('headline').textContent, /3 of 4 lanes answering/);
+  assert.match($('attentionReasons').textContent, /Mac Pro.*deep/i);
 });
 
 test('a null or expired canonical count never falls back to an empty parsed model list', () => {
@@ -2536,34 +2515,18 @@ test('a null or expired canonical count never falls back to an empty parsed mode
   }
 });
 
-test('a complete empty legacy inventory still reports a known zero', () => {
+test('an empty legacy inventory cannot establish absent fleet evidence', () => {
   const {api, $, body} = drawerHarness();
   api.setFeed({host: 'mac', sampledAt: nowSeconds(), models: [], activityKnown: true,
     sources: [{id: 'lms-ps', state: 'live', modelsComplete: true}]});
   api.renderSummary();
-  assert.equal($('loadedCount').textContent, '0');
-  assert.equal($('activeCount').textContent, '0');
-  assert.match(api.vitalsInput().vitals.mac.detail, /^0 loaded · idle/);
-  api.select('runtime');
-  api.renderInspector();
-  assert.equal(tiles(body).find(row => row[0] === 'Loaded')[1], '0');
+  assert.equal($('loadedCount').textContent, '—');
+  assert.equal($('activeCount').textContent, '—');
+  api.select('runtime'); api.renderInspector();
+  assert.equal(tiles(body).find(row => row[0] === 'Loaded')[1], 'Unknown');
 });
 
-test('canonical activity remains working without matching per-instance phase counts', () => {
-  for (const [busyCount, state] of [[1, 'loaded'], [2, 'generating']]) {
-    const {api, $} = harness();
-    api.setFeed({host: 'mac', sampledAt: nowSeconds(), activityKnown: true,
-      models: [{id: 'canonical', host: 'mac', loaded: true, state, ageSeconds: 0}],
-      sources: [{id: 'lms-ps', state: 'live', modelsComplete: true}],
-      machines: [{host: 'mac', platform: 'mac', state: 'up', trust: 'local', ageSeconds: 0,
-        modelsComplete: true, loadedCount: busyCount, busyCount}]});
-    api.renderSummary();
-    assert.equal($('activeCount').textContent, String(busyCount));
-    assert.equal(api.vitalsInput().vitals.mac.detail, `${busyCount} working`);
-  }
-});
-
-test('the PC headline follows its usable share fallback without merging an uncorrelated peer', () => {
+test('the PC headline requires joined fleet evidence for a legacy share report', () => {
   for (const host of ['pc1', 'windows']) {
     const {api, $} = harness();
     api.setFeed({schemaVersion: 1, host: 'mac', sampledAt: nowSeconds(), models: [], sources: [],
@@ -2574,7 +2537,7 @@ test('the PC headline follows its usable share fallback without merging an uncor
         {id: host, host, platform: 'windows', state: 'up', reasonCode: 'observed', trust: 'share-reported',
           ageSeconds: 0, modelsComplete: true, loadedCount: 1, busyCount: 1}]});
     api.renderVitals();
-    assert.match($('vitalPc').title, /Up · 1 loaded · 1 busy/);
+    assert.match($('vitalPc').title, /Machine evidence unknown/);
   }
 });
 
@@ -2603,25 +2566,14 @@ test('hands off remains visible in every fresh machine headline form', () => {
   }
 });
 
-test('375px PC chip rendering keeps hands off through short and overflow forms', () => {
+test('375px PC chip cannot infer state from an unjoined legacy row', () => {
   const {api, $} = harness({width: 375});
   const row = {host: 'pc', platform: 'windows', state: 'up', trust: 'authenticated', ageSeconds: 0,
     modelsComplete: true, loadedCount: 1, busyCount: 0, handsOff: true};
   api.setFeed({schemaVersion: 1, host: 'mac', sampledAt: nowSeconds(), models: [], sources: [], machines: [row]});
-  const chip = $('vitalPc'), small = chip.querySelector('small');
-  let availableWidth = 200;
-  // Use the existing renderer's measured-overflow path; the harness does not supply browser font metrics.
-  Object.defineProperty(small, 'clientWidth', {get: () => availableWidth});
-  Object.defineProperty(small, 'scrollWidth', {get() { return this.textContent.length * 6.5; }});
   api.renderVitals();
-  assert.equal(chip.querySelector('strong').textContent, 'PC');
-  assert.equal(small.textContent, '● Up · hands off · 0 busy');
-  availableWidth = 115;
-  api.renderVitals();
-  assert.equal(small.textContent, '● Up · hands off');
-  assert.ok(small.scrollWidth <= small.clientWidth);
-  assert.match(chip.title, /1 loaded · 0 busy · hands off/);
-  assert.match(chip.getAttribute('aria-label'), /1 loaded · 0 busy · hands off/);
+  assert.equal($('vitalPc').querySelector('small').textContent, 'Machine evidence unknown');
+  assert.doesNotMatch($('vitalPc').title, /idle|busy|hands off/);
 });
 
 test('serving-aged machine headlines use original timestamps without adding snapshot age twice', () => {
@@ -2688,7 +2640,7 @@ test('pass 8: aged activity cannot leave the runtime headline or inspector quiet
     sources: [{ id: 'lane-inventory', state: 'live' }], pipeline: { status: 'idle' } });
   api.renderSummary();
   assert.equal($('activeCount').textContent, '—');
-  assert.match($('headline').textContent, /activity unknown/i);
+  assert.equal($('headline').textContent, '? Endpoint coverage unknown');
   $('drawer').append($('inspector'));
   $('drawer').hidden = false;
   api.select('runtime');

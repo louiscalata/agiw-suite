@@ -1,3 +1,4 @@
+import * as fleet from './web/fleet-state.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
@@ -41,7 +42,7 @@ test('the actual control panel displays the settlement explanation', () => {
   const elements = Object.fromEntries(['modelActionDock', 'modelActionTitle', 'modelActionStatus', 'modelAction']
     .map(id => [id, {dataset: {}, setAttribute() {}}]));
   vm.runInNewContext(lookup + '\n' + render + '\nrenderModelAction();', {
-    $: id => elements[id], graph: {nodes: [{id: 'qwen', kind: 'model', model: {id: 'qwen', host: 'mac'}}]},
+    $: id => elements[id], canonicalNodeId: id => id, graph: {nodes: [{id: 'qwen', kind: 'model', model: {id: 'qwen', host: 'mac'}}]},
     selected: 'qwen', view: 'runtime', snapshot: {host: 'mac'}, name: value => value,
     modelActionState: () => ({action: null, reason: 'Waiting for fresh inventory to confirm settlement.'}),
     modelControlError: '', modelControlPosting: false,

@@ -4,6 +4,7 @@ import {constellationLayout,fitGraph,prioritizeRuntimeModels,runtimeModelRoster,
 import {modelControlView,submitModelControl} from '/model-control-view.mjs';
 import {createMonitorDesk, nodeInMonitor, moveMonitorTab, initialMonitorId} from '/monitor-tabs.mjs';
 import {paintMonitorChrome} from '/monitor-board.mjs';
+import {fleetState,fleetMachines,fleetLanes,fleetSummary,fleetWord,fleetAge,fleetMachineCoverage} from '/fleet-state.mjs';
 const $=id=>document.getElementById(id), NS='http://www.w3.org/2000/svg';
 const ACTIVE=new Set(['generating','busy']);
 const INK='currentColor';
@@ -118,15 +119,11 @@ function modelFreshness(m,elapsed=snapshot?Math.max(0,Date.now()/1000-snapshot.s
 function models(){const elapsed=snapshot?Math.max(0,Date.now()/1000-snapshot.sampledAt):0;return(snapshot?.models||[]).filter(m=>!(snapshot?.host==='mac'&&registryPc()&&m.host==='windows')).map(m=>{const evidence=modelFreshness(m,elapsed);return evidence.expired?{...m,state:'stale',loaded:null,queued:null}:evidence.activityExpired&&['idle','busy','generating'].includes(m.state)?{...m,state:'loaded',source:'llama-models',metadata:{...m.metadata,slotsBusy:null,liveTokensPerSecond:null}}:m;});}
 function localActivityKnown(rows){return snapshot?.activityKnown===true&&rows.every(m=>typeof m.loaded==='boolean'&&(snapshot?.host!=='windows'||!m.loaded||modelFreshness(m).current&&!modelFreshness(m).activityExpired&&['idle','busy','generating'].includes(m.state)));}
 function localRuntimeCounts(){
-  const host=snapshot?.host||'mac',rows=models().filter(m=>m.host===host&&m.representedByInstances!==true),sources=(snapshot?.sources||[]).filter(s=>['lmstudio-api','lms-ps',...(host==='windows'?['lane-inventory']:[])].includes(s.id));
-  const live=sources.filter(s=>s.state==='live'),inventoryLive=live.length>0,complete=inventoryLive&&sources.every(s=>s.state!=='incomplete'&&s.modelsComplete!==false);
-  const canonical=host==='mac'&&Array.isArray(snapshot?.machines),valid=value=>Number.isSafeInteger(value)&&value>=0,machine=Array.isArray(snapshot?.machines)?snapshot.machines.find(m=>m.host===host&&m.platform===host):null;
-  const machineCurrent=machine&&machineStatusView(machine,{fresh:fresh(),snapshotAge:Math.max(0,sampleAge())}).tone==='ok';
-  // Machine counts correlate API inventory with CLI instances; partial lists cannot supply a fallback count.
-  const loadedCount=!fresh()||!complete?null:canonical?machineCurrent&&machine.modelsComplete===true&&valid(machine.loadedCount)?machine.loadedCount:null:rows.every(m=>typeof m.loaded==='boolean'&&m.inventoryComplete!==false)?rows.filter(m=>m.loaded).length:null;
-  const known=liveNow()&&localActivityKnown(rows)&&loadedCount!==null;
-  const busyCount=!known?null:canonical?valid(machine?.busyCount)?machine.busyCount:null:rows.filter(m=>modelActivity(m).active).length;
-  return{rows,inventoryLive,loadedCount,busyCount,observedBusy:liveNow()?rows.filter(m=>modelActivity(m).active).length:0};
+  const rows=models().filter(m=>m.host===(snapshot?.host||'mac')&&m.representedByInstances!==true),fact=fleetMachines(snapshot).find(item=>item.evidence?.trust==='local'||item.id===snapshot?.host),evidence=fact?.evidence;
+  const current=fact?.state==='reported'&&fact?.completeness==='complete'&&evidence?.state==='up',valid=value=>Number.isSafeInteger(value)&&value>=0;
+  const loadedCount=current&&evidence?.modelsComplete===true&&valid(evidence.loadedCount)?evidence.loadedCount:null;
+  const busyCount=liveNow()&&snapshot?.activityKnown===true&&loadedCount!==null&&valid(evidence?.busyCount)?evidence.busyCount:null;
+  return{rows,inventoryLive:current,loadedCount,busyCount,observedBusy:busyCount};
 }
 function displayedModels(){return runtimeModelRoster(models(),{scope:modelScope,observedRows:snapshot?.models});}
 function clientRows(){const input=Array.isArray(snapshot?.clients)?snapshot.clients:[];return CLIENTS.map(([id,label])=>{const entry=input.find(c=>c?.id===id)||{},seen=new Set();const raw=Array.isArray(entry.models)&&entry.models.length?entry.models:entry.model?[{id:entry.model,modelState:entry.modelState,observedAt:entry.observedAt,ageSeconds:entry.ageSeconds,source:entry.source}]:[];const recent=raw.filter(m=>{if(typeof m?.id!=='string'||!m.id.trim()||seen.has(m.id))return false;seen.add(m.id);return true;}).slice(0,3).map(m=>({...m,modelState:['observed','configured'].includes(m.modelState)?m.modelState:'unknown',activity:'unknown'}));return{id,label,model:typeof entry.model==='string'&&entry.model.trim()?entry.model:null,modelState:['observed','configured'].includes(entry.modelState)?entry.modelState:'unknown',observedAt:Number.isFinite(entry.observedAt)?entry.observedAt:null,ageSeconds:Number.isFinite(entry.ageSeconds)?entry.ageSeconds:null,activity:'unknown',source:typeof entry.source==='string'&&entry.source?entry.source:'Unavailable',detail:typeof entry.detail==='string'&&entry.detail?entry.detail:'No client model identity available.',models:recent,subagents:SUBAGENT_UNKNOWN};});}
@@ -136,37 +133,56 @@ function native(action){const bridge=window.webkit?.messageHandlers?.monitor;if(
 function addNode(id,label,x,y,options={}){const n={id,label,x,y,color:'currentColor',r:7,subtitle:'',...options};graph.nodes.push(n);return n;}
 function edge(a,b,color,dim=false,bend=0,flow=false){graph.edges.push({a,b,color,dim,bend,flow});}
 function addLabel(label){graph.labels.push(label);}
-function hasRegistry(){return Array.isArray(snapshot?.machines)&&snapshot.machines.some(row=>row?.observationSource==='registry');}
-function registryViews(){return registryMachineRows(snapshot).map(row=>({...registryMachineView(row,{fresh:liveNow(),snapshotAge:sampleAge()}),row}));}
-function registryPc(){return hasRegistry()?registryViews().find(machine=>machine.row.replaces==='legacy-pc'):null;}
+function hasRegistry(){return Boolean(snapshot?.fleetState);}
+function registryViews(){return registryOverviewMachines().filter(machine=>!machine.isLocal);}
+function registryPc(){return registryViews().find(machine=>machine.row.replaces==='legacy-pc')||null;}
 function registryOverviewMachines(){
-  const local=(snapshot?.machines||[]).find(row=>row?.host===snapshot.host),localStatus=machineStatusView(local,{fresh:liveNow(),snapshotAge:sampleAge()});
-  const lanes=(snapshot?.inference?.nodes||[]).filter(node=>node.machine==='mac'&&node.role!=='machine'&&node.role!=='client').map(node=>({...node,health:liveNow()&&node.health==='ok'?'ok':'unknown'}));
-  const replaced=registryMachineRows(snapshot).some(row=>row.replaces==='legacy-pc');
-  const legacy=(snapshot.machines||[]).filter(row=>row&&row!==local&&row.observationSource!=='registry'&&!(replaced&&(row.platform==='windows'||['pc','windows','legacy-pc'].includes(row.host)))).map(row=>{
-    const status=machineStatusView(row,{fresh:liveNow(),snapshotAge:sampleAge()}),machine=row.platform==='windows'?'pc':row.platform==='macos'?'mac':row.host;
-    return {label:row.label||(row.platform==='windows'?'PC':row.platform==='macos'?'Mac':row.host),word:status.tone==='ok'?'UP':status.tone==='warn'&&row.state==='down'?'DOWN':'UNKNOWN',glyph:status.tone==='ok'?'●':status.tone==='warn'?'×':'?',health:status.tone==='ok'?'ok':status.tone==='warn'?'down':'unknown',detail:status.detail,lanes:(snapshot.inference?.nodes||[]).filter(node=>node.machine===machine&&node.role!=='machine'&&node.role!=='client'),row};
+  const lanes=fleetLanes(snapshot),machines=fleetMachines(snapshot);
+  return machines.map(fact=>{
+    const children=lanes.filter(lane=>lane.parentId===fact.id),coverage=fleetMachineCoverage(fact,lanes);
+    const row={...fact.evidence?.configured,...fact.evidence,host:fact.id,id:fact.id};
+    return {label:fact.label||fact.id,isLocal:fact.evidence?.trust==='local'||fact.id===snapshot.host,word:coverage.text,glyph:coverage.glyph,health:coverage.state,tone:coverage.tone,detail:coverage.detail,lanes:children.map(lane=>({...lane.evidence,...lane,health:lane.state==='endpoint answering'?'ok':'unknown',modelId:lane.evidence?.modelId||null})),row,fact};
   });
-  return [{label:snapshot.host==='windows'?'This PC':'This Mac',isLocal:true,word:localStatus.tone==='ok'?'UP':'UNKNOWN',glyph:localStatus.tone==='ok'?'●':'?',health:localStatus.tone==='ok'?'ok':'unknown',detail:localStatus.detail,lanes,row:local||{host:snapshot.host}},...legacy,...registryViews()];
 }
 function registryGraph(){
   const groups=registryMapLayout(registryOverviewMachines());layoutMode='machines';
-  for(const group of groups){const machine=group.machine,id=machine.isLocal?'runtime':machine.row.host;
-    const root=addNode(id,trim(machine.label,24),group.x,group.y,{kind:machine.isLocal?'runtime':'registry-machine',hub:id==='runtime',r:10,captionSide:'right',subtitle:machine.isLocal?machine.word:machine.detail,unknown:machine.health!=='ok',registryMachine:machine});
-    for(const child of group.lanes){const lane=child.lane,model=registryModelName(lane.modelId),state=lane.health==='ok'?'UP':lane.health==='degraded'?'DEGRADED':'UNKNOWN';
+  for(const group of groups){const machine=group.machine,id=machine.row.host;
+    const root=addNode(id,trim(machine.label,24),group.x,group.y,{kind:machine.isLocal?'runtime':'registry-machine',hub:machine.isLocal,r:10,captionSide:'right',subtitle:machine.isLocal?machine.word:machine.detail,unknown:machine.health!=='ok',registryMachine:machine});
+    for(const child of group.lanes){const lane=child.lane,model=registryModelName(lane.modelId),state=fleetWord(lane);
       const node=addNode(lane.id,trim(lane.label,22)+' · '+state,child.x,child.y,{kind:'registry-lane',r:5,captionSide:'right',subtitle:trim(model.label,29),unknown:lane.health!=='ok',registryLane:lane,registryMachine:machine});
       edge(root.id,node.id,INK,lane.health!=='ok');
     }
   }
 }
 function renderRegistryTable(){
-  const root=$('machineLanes');if(!root)return;root.hidden=!hasRegistry();document.body.classList.toggle('registry-overview',hasRegistry());if(root.hidden){root.replaceChildren();return;}
-  const title=el('h2',null,'Machines and lanes'),table=el('table'),head=el('thead'),row=el('tr');
-  for(const label of ['Machine','Lane','Model','Health']){const cell=el('th',null,label);cell.setAttribute('scope','col');row.append(cell);}head.append(row);table.append(head);const body=el('tbody');
-  for(const machine of registryOverviewMachines())for(const lane of machine.lanes.length?machine.lanes:[{label:'No lane observation',health:'unknown'}]){const row=el('tr'),model=registryModelName(lane.modelId),name=el('th',null,machine.label);name.setAttribute('scope','row');const modelCell=el('td',null,model.label);if(model.title)modelCell.title=model.title;const state=lane.health==='ok'?'● Up':lane.health==='degraded'?'◐ Degraded':'? Unknown';row.append(name,el('td',null,lane.label),modelCell,el('td',null,state+(lane.health!=='ok'&&lane.reason?' · '+String(lane.reason).replaceAll('_',' '):'')));body.append(row);}
-  table.append(body);root.replaceChildren(title,table);positionRegistryTable();
+  const root=$('machineLanes');if(!root)return;const hadFocus=root.contains(document.activeElement),previousScroll=root.querySelector('.fleet-table-scroll')?.scrollLeft||0;root.hidden=!hasRegistry();document.body.classList.toggle('registry-overview',hasRegistry());if(root.hidden){root.replaceChildren();renderFleetAttention();renderFleetMap();return;}
+  const title=el('h2',null,'Machines and lanes'),table=el('table','fleet-table'),head=el('thead'),row=el('tr'),cols=el('colgroup');
+  title.id='machineLanesTitle';
+  table.append(el('caption','visually-hidden','Configured lanes grouped by machine. Endpoint evidence measures model identity only.'));
+  for(const name of ['machine','lane','model','endpoint','reason'])cols.append(el('col',name));table.append(cols);
+  for(const label of ['Machine / ID','Lane / ID','Reported model','Endpoint evidence / age','Why not answering']){const cell=el('th',null,label);cell.setAttribute('scope','col');row.append(cell);}head.append(row);table.append(head);
+  for(const machine of registryOverviewMachines()){
+    const body=el('tbody'),children=machine.lanes.length?machine.lanes:[null];
+    children.forEach((lane,index)=>{
+      const row=el('tr');if(lane)row.dataset.laneId=lane.id;
+      if(index===0){const name=el('th');name.setAttribute('scope','rowgroup');name.setAttribute('rowspan',String(children.length));name.append(el('strong',null,machine.label),el('small','fleet-id',machine.row.host),el('span','fleet-machine-coverage',`${machine.glyph} ${machine.word}`),el('small','fleet-host-detail',machine.detail));
+        const peers=fleetState({schemaVersion:1,facts:machine.fact.evidence?.peerReports||[]})?.facts||[];
+        for(const peer of peers)name.append(el('small','fleet-peer-source',`Extra source: ${peer.label||peer.id} (${peer.id}) · peer report · ${fleetWord(peer)} · ${fleetAge(peer)}`));
+        row.append(name);}
+      const laneCell=el('td');laneCell.append(el('span',null,lane?.label||'No configured lanes'));if(lane)laneCell.append(el('small','fleet-id',lane.id));
+      const model=registryModelName(lane?.modelId),modelCell=el('td',null,lane?model.label:'—');if(model.title)modelCell.title=model.title;
+      const answering=lane?.state==='endpoint answering',state=lane?`${answering?'■':lane.state==='endpoint unavailable'?'×':'?'} ${fleetWord(lane)}`:'Peer report only';
+      const endpoint=el('td');endpoint.append(el('span',null,state));if(lane){const age=el('time',null,` · ${fleetAge(lane)}`);if(lane.observedAt)age.setAttribute('datetime',lane.observedAt);const detail=el('small','fleet-evidence-age');detail.append(age);endpoint.append(detail);}
+      const reason=lane&&!answering?String(lane.reason||'observation_missing').replaceAll('_',' '):lane?'—':'No lane observations';
+      row.append(laneCell,modelCell,endpoint,el('td',null,reason));body.append(row);
+    });table.append(body);
+  }
+  const scroll=el('div','fleet-table-scroll');scroll.setAttribute('role','region');scroll.setAttribute('aria-label','Lane evidence');scroll.setAttribute('tabindex','0');scroll.append(table);root.replaceChildren(title,scroll);scroll.scrollLeft=previousScroll;if(hadFocus)scroll.focus({preventScroll:true});
+  renderFleetAttention();renderFleetMap();
 }
 function positionRegistryTable(){
+  // The ledger and memory warning now participate in document flow.
+  if(document.body.classList.contains('fleet-ledger'))return false;
   const table=$('machineLanes'),region=$('graphRegion'),heading=$('mapHeading'),banner=$('memoryBanner');if(!table||!region)return false;
   let moved=false;
   const restoreBanner=()=>{if(banner?.dataset.registryPositioned==='1'){banner.style.top=banner.dataset.registryTop||'';delete banner.dataset.registryPositioned;delete banner.dataset.registryTop;moved=true;}};
@@ -181,9 +197,33 @@ function positionRegistryTable(){
   if(table.style.top!==value){table.style.top=value;moved=true;}return moved;
 }
 
-function inspectorNodeFor(id){return graph.nodes.find(node=>node.id===id)||(graph.inspectorNodes||[]).find(node=>node.id===id);}
+function renderFleetAttention(){
+  const root=$('attentionReasons');if(!root)return;const rows=[];if(!hasRegistry())rows.push('Lane evidence unavailable; endpoint coverage cannot be determined.');
+  for(const lane of fleetLanes(snapshot))if(lane.state!=='endpoint answering')rows.push(`${fleetMachines(snapshot).find(machine=>machine.id===lane.parentId)?.label||lane.parentId} · ${lane.label||lane.id}: ${String(lane.reason||'observation_missing').replaceAll('_',' ')} · ${fleetAge(lane)}`);
+  const pipeline=snapshot?.pipeline;if(pipeline?.status==='blocked')rows.push(`Nisi Inference: ${String(pipeline.reason||pipeline.detail||'workflow blocked').replaceAll('_',' ')}`);
+  root.replaceChildren();if(rows.length){const list=el('ul');for(const text of rows)list.append(el('li',null,`× ${text}`));root.append(list);}else root.append(el('p',null,'No lane issues reported in the available observations.'));
+}
+
+function renderFleetMap(){
+  const root=$('fleetMapList');if(!root)return;const focused=root.contains(document.activeElement)?document.activeElement:null,key=focused?.dataset?.node,scrollLeft=root.scrollLeft||0;const list=el('ul','fleet-map-machines');
+  for(const machine of registryOverviewMachines()){
+    const item=el('li'),button=el('button','fleet-map-node',`${machine.glyph} ${machine.label} · ${machine.word}`);button.type='button';button.dataset.node=machine.row.host;button.addEventListener('click',()=>nodeSelect(machine.row.host));item.append(button);
+    const lanes=el('ul','fleet-map-lanes');for(const lane of machine.lanes){const node=el('li'),button=el('button','fleet-map-node',`${lane.state==='endpoint answering'?'■':lane.state==='endpoint unavailable'?'×':'?'} ${lane.label} · ${fleetWord(lane)} · ${registryModelName(lane.modelId).label}`);button.type='button';button.dataset.node=lane.id;button.addEventListener('click',()=>nodeSelect(lane.id));node.append(button);lanes.append(node);}item.append(lanes);list.append(item);
+  }root.replaceChildren(list);root.scrollLeft=scrollLeft;if(key){const next=[...root.querySelectorAll('button')].find(button=>button.dataset.node===key);(next||root).focus({preventScroll:true});}else if(focused)root.focus({preventScroll:true});
+}
+
+function canonicalNodeId(id){
+  if(!snapshot?.fleetState)return id;
+  const machines=registryOverviewMachines();
+  if(id==='runtime')return machines.find(machine=>machine.isLocal)?.row.host||id;
+  if(id==='windows-worker'||id==='mac-peer')return (registryPc()||machines.find(machine=>!machine.isLocal))?.row.host||id;
+  if(typeof id==='string'&&id.startsWith('windows-lane:')){const lane=id.slice('windows-lane:'.length),machine=registryPc();return machine?.lanes.find(item=>item.evidence?.lane===lane||item.id.endsWith(':'+lane))?.id||id;}
+  return id;
+}
+function inspectorNodeFor(id){const canonical=canonicalNodeId(id);return graph.nodes.find(node=>node.id===canonical)||(graph.inspectorNodes||[]).find(node=>node.id===canonical);}
+
 function runtimeGraph(){
-  if(!hasRegistry())return legacyRuntimeGraph();
+  if(!hasRegistry()){legacyRuntimeGraph();const details=graph.nodes;graph={nodes:[],edges:[],labels:[],inspectorNodes:details};return;}
   // Keep every existing inspector and model-control target while fitting the machine overview only.
   legacyRuntimeGraph();const replaced=Boolean(registryPc()),details=graph.nodes.filter(node=>!replaced||!['windows-worker','windows-lane'].includes(node.kind));graph={nodes:[],edges:[],labels:[],inspectorNodes:details};registryGraph();
 }
@@ -305,7 +345,7 @@ function closeDrawer(restoreFocus=true){const previous=selected;$('drawer').hidd
 // Below the dock breakpoint, Browse covers the map. A choice closes it and
 // returns focus to the chosen map node before the inspector replaces it.
 function closeCompactSidebar(){if(dockedSidebar()||!document.body.classList.contains('sidebar-open'))return false;const inside=$('runtimeSidebar').contains(document.activeElement);setSidebarOpen(false);return inside;}
-function nodeSelect(id){let refocus=false;if(compactEvidence()){hideOnlineCodeDetails();hideFixInferenceDetails();hideActivityDetails();refocus=closeCompactSidebar();}else if(!dockedSidebar())refocus=closeCompactSidebar();const fromDockedBrowser=dockedSidebar()&&$('runtimeSidebar').contains(document.activeElement),fitForDrawer=!userCamera&&$('drawer').hidden&&$('onlineCodeDetails').hidden&&$('fixInferenceDetails').hidden;if(selected!==id)modelControlError='';selected=id;inspectorNode=null;$('drawer').hidden=false;renderGraph();renderInspector();renderList();if(fitForDrawer)fitMap();else revealSelected();userCamera=true;if(fromDockedBrowser)$('drawer').focus({preventScroll:true});if(refocus&&!nodeElements.has(id))$('drawer').focus({preventScroll:true});if(refocus)nodeElements.get(id)?.focus({preventScroll:true});}
+function nodeSelect(id){id=canonicalNodeId(id);let refocus=false;if(compactEvidence()){hideOnlineCodeDetails();hideFixInferenceDetails();hideActivityDetails();refocus=closeCompactSidebar();}else if(!dockedSidebar())refocus=closeCompactSidebar();const fromDockedBrowser=dockedSidebar()&&$('runtimeSidebar').contains(document.activeElement),fitForDrawer=!userCamera&&$('drawer').hidden&&$('onlineCodeDetails').hidden&&$('fixInferenceDetails').hidden;if(selected!==id)modelControlError='';selected=id;inspectorNode=null;$('drawer').hidden=false;renderGraph();renderInspector();renderList();if(fitForDrawer)fitMap();else revealSelected();userCamera=true;if(fromDockedBrowser)$('drawer').focus({preventScroll:true});if(refocus&&!nodeElements.has(id))$('drawer').focus({preventScroll:true});if(refocus)nodeElements.get(id)?.focus({preventScroll:true});}
 // Orb web (spiderweb, 26-27 Sep): geometry only. It is rebuilt when a node moves or the topology changes, never on
 // hover or on a stream tick that only changes status (#web's data-builds counts rebuilds). The reduced-motion dew is a
 // separate overlay, cached the same way; a poke's highlight has its own path.
@@ -638,7 +678,7 @@ function jobLine(row,{who=true}={}){return[row.model?name(row.model):'default mo
 // A job's own timeout (the dispatcher's extra 30 s grace is its waiting margin, not the job's budget).
 const timeoutText=seconds=>seconds<120?`${seconds} s`:`${Math.round(seconds/60)} min`;
 // The drawer's body for one node; returns 'runs' when its footer should offer the call-trace view.
-function inspectorBody(n,body,{firstBuild=true}={}){if(n.registryLane||n.registryMachine&&!n.registryMachine.isLocal){const machine=n.registryMachine,lane=n.registryLane;panelSummary(body,machine.tone,lane?`${lane.label} · ${lane.health==='ok'?'Up':'Unknown'}`:`${machine.label} · ${machine.detail}`,'Machine observations identify model servers; generation and hardware activity remain unmeasured.');if(lane){const model=registryModelName(lane.modelId),facts=factTiles(body,[['Model',model.label],['Health',lane.health],['Last seen',lane.observedAt||'Unknown'],['Why',lane.reason||'Observed']]);if(model.title)facts.title=model.title;}else factTiles(body,[['Lanes',String(machine.lanes.length)],['Health',machine.word]]);return null;}
+function inspectorBody(n,body,{firstBuild=true}={}){if(n.registryLane||n.registryMachine&&!n.registryMachine.isLocal){const machine=n.registryMachine,lane=n.registryLane;panelSummary(body,machine.tone,lane?`${lane.label} · ${fleetWord(lane)}`:`${machine.label} · ${machine.detail}`,'Machine observations identify model servers; generation and hardware activity remain unmeasured.');if(lane){const model=registryModelName(lane.modelId),facts=factTiles(body,[['Reported model',model.label],['Endpoint evidence',fleetWord(lane)],['Configured endpoint',lane.evidence?.configuredEndpoint||lane.evidence?.endpoint||'Unknown'],['Configured context',Number.isSafeInteger(lane.evidence?.contextTokens)?lane.evidence.contextTokens+' tokens':'Unknown'],['Configured thinking',lane.evidence?.thinking||'Unknown'],['Configured probe timeout',Number.isFinite(lane.evidence?.probeTimeoutSeconds)?lane.evidence.probeTimeoutSeconds+' s':'Unknown'],['Probe state',lane.evidence?.probeState||'Unknown'],['Last probe',lane.observedAt||'Unknown'],['Probe age',fleetAge(lane)],['Last successful probe',lane.evidence?.lastSuccessAt||'Unknown'],['Why',lane.reason||'Not reported']]);if(model.title)facts.title=model.title;}else factTiles(body,[['Lanes',String(machine.lanes.length)],['Host evidence',machine.word]]);return null;}
   const tech=label=>disclosure(body,`${n.id}|tech`,label||'Technical details');
   if(n.kind==='jev'){
     const advisor=n.jev||jevView(null),last=advisor.lastJudgedAgeSeconds===null?'None archived':ageText(advisor.lastJudgedAgeSeconds);
@@ -729,9 +769,8 @@ function inspectorBody(n,body,{firstBuild=true}={}){if(n.registryLane||n.registr
   const box=tech();detailPairs(box,[['Source',snapshot.host==='windows'?'llama-server lanes (/health, /v1/models, /slots)':'LM Studio runtime + inventory'],['Working models',known?String(active):active?`at least ${active}`:'Unknown'],...gpu.rows,['Local callers',callerDetail],['Map lines','Observation groups'],['Updates','Live stream, polling as fallback']]);box.append(el('p','detail-note','A light on the map is evidence, not decoration. Missing telemetry stays unknown. Select any model to inspect its state.'));return null;
 }
 function runtimeCopy(isFresh,known,activeCount,inventoryLive,loadedCount,queued){if(!isFresh)return{lead:'Local runtime',em:'signal stale.',sub:'Reconnecting. Previous local observations have aged out.'};if(activeCount)return{lead:'Local runtime',em:'working now.',sub:`${activeCount} local model${activeCount===1?' is':'s are'} working, as reported by the runtime.`};if(known)return{lead:'Local runtime',em:'quiet now.',sub:`${loadedCount===null?'Loaded count unknown':loadedCount+' loaded'}. ${queued===null?'Queue unknown':queued+' queued'}. No current local generation reported.`};if(inventoryLive)return{lead:'Local runtime',em:'activity unknown.',sub:'Model inventory is available. Local generation could not be verified.'};return{lead:'Local runtime',em:'signal unavailable.',sub:'Local runtime sources are unavailable; local model activity is unknown.'};}
-function renderSummary(){renderRegistryTable();const counts=localRuntimeCounts(),rows=counts.rows,known=counts.busyCount!==null,loaded=rows.filter(m=>m.loaded===true),active=counts.busyCount,inventoryLive=counts.inventoryLive,loadedCount=counts.loadedCount;$('activeCount').textContent=active??(counts.observedBusy?`at least ${counts.observedBusy}`:'—');$('loadedCount').textContent=loadedCount??'—';const queueRows=loaded.filter(m=>!(m.source==='lmstudio-api'&&Array.isArray(m.loadedInstanceIds)&&m.loadedInstanceIds.length&&m.loadedInstanceIds.every(id=>loaded.some(c=>c.source==='lms-ps'&&(c.instanceId||c.id)===id&&(c.modelKey||c.id)===(m.modelKey||m.id))))),queued=known&&queueRows.every(m=>Number.isSafeInteger(m.queued))?queueRows.reduce((n,m)=>n+m.queued,0):null;// llama-server lanes report no queue; on the PC the third tile is slot occupancy across the lanes instead.
-if(snapshot.host==='windows'){const lanes=Object.values(snapshot.windowsWorker?.lanes||{}).filter(l=>l&&Number.isInteger(l.slotsTotal)&&Number.isInteger(l.slotsBusy)),slotText=known&&lanes.length?`${lanes.reduce((n,l)=>n+l.slotsBusy,0)}/${lanes.reduce((n,l)=>n+l.slotsTotal,0)}`:'—',label=$('queuedCount').nextElementSibling;$('queuedCount').textContent=slotText;if(label&&label.textContent!=='slots busy')label.textContent='slots busy';}else{$('queuedCount').textContent=queued??'—';const label=$('queuedCount').nextElementSibling;if(label&&label.textContent!=='local queued')label.textContent='local queued';}const copy=paused?{lead:'Local runtime',em:'view paused.',sub:'Resume to verify current activity; the displayed model states are from the last sample.'}:clockMismatch()?{lead:'Local runtime',em:'clock mismatch.',sub:snapshot.host==='windows'?'Observer timestamp is ahead of this PC clock; current activity cannot be verified.':'Observer timestamp is ahead of this Mac clock; current activity cannot be verified.'}:runtimeCopy(fresh(),known,active,inventoryLive,loadedCount,queued);$('headline').replaceChildren(document.createTextNode(copy.lead),el('br'),el('em',null,copy.em));$('subline').textContent=snapshot.host==='windows'?copy.sub.replace('Queue unknown.',$('queuedCount').textContent!=='—'?`${$('queuedCount').textContent.replace('/',' of ')} lane slots busy.`:'Lane slots unknown.'):copy.sub;if(!liveNow())$('subline').textContent+=` ${captureText()}.`;const identities=clientIdentityCounts();$('observedClientCount').textContent=`${identities.observed+identities.configured}/${identities.total}`;$('clientIdentityDetail').textContent=`${identities.observed} recorded · ${identities.configured} saved choices · ${identities.unknown} unknown`;
-  const sourcesLive=liveNow();$('sources').replaceChildren();snapshot.sources.forEach(s=>{const row=el('div','source'),stale=!sourcesLive&&!['error','unavailable'].includes(s.state),unknownIdle=['idle','not-checked'].includes(s.state)&&!known;row.append(el('strong',null,s.label),el('span',null,stale?'stale':unknownIdle?'unavailable':s.state),el('small',null,stale?`Current state unknown (${paused?'view paused':'feed stale'})`:unknownIdle?'Local model activity could not be verified':s.detail));$('sources').append(row);});const liveSources=snapshot.sources.filter(s=>s.state==='live').length,recordedSources=snapshot.sources.filter(s=>s.state==='recorded').length;$('sourceCount').textContent=`${sourcesLive?`${liveSources} live`:`live unknown (${paused?'paused':'stale'})`} · ${recordedSources} recorded`;
+function renderSummary(){renderRegistryTable();const known=localRuntimeCounts().busyCount!==null,identities=clientIdentityCounts();$('observedClientCount').textContent=`${identities.observed+identities.configured}/${identities.total}`;$('clientIdentityDetail').textContent=`${identities.observed} recorded · ${identities.configured} saved choices · ${identities.unknown} unknown`;
+  const sourcesLive=liveNow();$('sources').replaceChildren();snapshot.sources.forEach(s=>{const row=el('div','source'),stale=!sourcesLive&&!['error','unavailable'].includes(s.state),unknownIdle=['idle','not-checked'].includes(s.state)&&!known;row.append(el('strong',null,s.label),el('span',null,stale?'stale':unknownIdle?'unavailable':s.state),el('small',null,stale?`Current state unknown (${paused?'view paused':'feed stale'})`:unknownIdle?'Local model activity could not be verified':s.detail));$('sources').append(row);});const liveSources=snapshot.sources.filter(s=>s.state==='live').length,recordedSources=snapshot.sources.filter(s=>s.state==='recorded').length;$('sourceCount').textContent=`${sourcesLive?`${liveSources} live`:`live unknown (${paused?'paused':'stale'})`} · ${recordedSources} recorded`;const fleet=fleetSummary(snapshot),fc=fleet.counts;for(const [id,value,label] of [['activeCount',fleet.state==='unknown'||fc.answering===null?'—':fc.answering,'lanes answering'],['loadedCount',fleet.state==='unknown'?'—':fc.lanes,'configured / observed lanes'],['queuedCount',fleet.state==='unknown'?'—':fc.unknown+fc.stale,'unknown / stale lanes']]){const node=$(id);node.textContent=value;if(node.nextElementSibling)node.nextElementSibling.textContent=label;}$('headline').replaceChildren(document.createTextNode(`${fc.answering>0?'■':'?'} ${fleet.headline}`));$('feedFreshness').textContent=paused?'View paused · '+captureText():`${liveNow()?'Feed fresh':'Feed stale'} · ${Number.isFinite(sampleAge())?Math.round(Math.max(0,sampleAge()))+' s ago':'age unknown'}`;$('subline').textContent='Endpoint identity only; inference activity and hardware coverage are measured separately.';if(!liveNow())$('subline').textContent+=` ${captureText()}.`;
 }
 // Rebuilt or reparented paths restart CSS animations; a shared phase keeps the dash flow continuous.
 function fixScopeNote(action,state,steps){if(action==='fix-nisi')return['ready','needs-action','error'].includes(state)?' No model was called and nothing was sent to the PC.':'';const probe=steps.find(step=>step&&step.name==='windows-inference');if(probe)return probe.result==='deferred'||probe.result==='not-run'?' No Windows model request was sent.':'';if(action==='fix-local')return' Model generation was not probed.';return['ready','needs-action','error'].includes(state)?' No Windows model request was sent.':'';}
@@ -950,7 +989,7 @@ function renderMemoryBanner(){
 // Focus goes to the This Mac chip (it keeps the memory word), or to the map when the chips are out of the layout.
 function dismissMemoryBanner(){const memory=memoryNow();if(memory.alert)memoryDismissed=memoryHoldAt(memory.level,memoryClock());renderMemoryBanner();const chip=$('vitalMac');chip.focus({preventScroll:true});if(document.activeElement!==chip)$('map').focus({preventScroll:true});}
 // The banner's Details opens the Mac hub with its Memory section open and focused.
-function openMemoryDetails(){if(view!=='runtime')setView('runtime');if(!graph.nodes.some(n=>n.id==='runtime'))return;nodeSelect('runtime');const box=[...$('inspector').querySelectorAll('details')].find(d=>d.dataset.key==='runtime|memory');if(box){box.open=true;box.querySelector('summary')?.focus({preventScroll:true});
+function openMemoryDetails(){if(view!=='runtime')setView('runtime');const id=canonicalNodeId('runtime');if(!inspectorNodeFor(id))return;nodeSelect(id);const box=[...$('inspector').querySelectorAll('details')].find(d=>d.dataset.key===`${id}|memory`);if(box){box.open=true;box.querySelector('summary')?.focus({preventScroll:true});
   // The drawer (only it) scrolls the section up under its sticky header.
   const drawer=$('drawer'),head=drawer.querySelector('.panel-head')?.getBoundingClientRect().height||0;drawer.scrollTop+=box.getBoundingClientRect().top-drawer.getBoundingClientRect().top-head-6;}}
 function recordOnlineCodeAction(result,{submitted=false}={}){
@@ -1043,25 +1082,20 @@ function renderRegistryChips(){
   const host=$('mapHeading');if(!host)return;
   for(const node of host.querySelectorAll('[data-registry-chip]'))node.remove();
   if(!hasRegistry())return;
-  for(const machine of registryViews().filter(item=>item.row.replaces!=='legacy-pc')){const button=el('button','vital');button.type='button';button.dataset.registryChip=machine.row.host;button.dataset.node=machine.row.host;button.dataset.tone=machine.tone;button.setAttribute('aria-label',`${machine.label}: ${machine.detail}`);button.title=`${machine.label}: ${machine.detail}`;button.append(el('i'));const text=el('span');text.append(el('strong',null,machine.label),el('small',null,`${machine.glyph} ${machine.detail}`));button.append(text);button.addEventListener('click',()=>nodeSelect(machine.row.host));host.append(button);}
+  for(const machine of registryViews().filter(item=>item.row.replaces!=='legacy-pc')){const button=el('button','vital');button.type='button';button.dataset.registryChip=machine.row.host;button.dataset.node=machine.row.host;button.dataset.tone=machine.tone;button.setAttribute('aria-label',`${machine.label} · ${machine.word}. ${machine.detail}`);button.title=`${machine.label} · ${machine.word}. ${machine.detail}`;button.append(el('i'));const text=el('span');text.append(el('strong',null,`${machine.glyph} ${machine.label} · ${machine.word}`),el('small',null,machine.detail));button.append(text);button.addEventListener('click',()=>nodeSelect(machine.row.host));host.append(button);}
 }
 function renderVitals(){if(!snapshot)return;const {feed,vitals}=vitalsInput();
-  if(Array.isArray(snapshot.machines)){
-    const local=snapshot.host==='windows'?'windows':'mac',peer=local==='mac'?'windows':'mac';
-    for(const [key,platform] of [['mac',local],['pc',peer]]){
-      const candidates=snapshot.machines.filter(row=>row?.platform===platform);
-      const reportedHost=local==='mac'&&platform==='windows'?snapshot.windowsLive?.host:null;
-      const machine=key==='pc'&&local==='mac'&&hasRegistry()?registryMachineRows(snapshot).find(row=>row.replaces==='legacy-pc')||candidates.find(row=>row.host===reportedHost)||candidates[0]:candidates.find(row=>row.host===reportedHost)||candidates[0];
-      const item=machineStatusView(machine,{snapshotAge:sampleAge(),fresh:liveNow()});
-      vitals[key]=item;if(vitals.tiny)vitals.tiny[key]=item.tiny;if(vitals.micro)vitals.micro[key]=item.tiny;
-    }
+  const canonical=registryOverviewMachines();
+  for(const [key,machine] of [['mac',canonical.find(item=>item.isLocal)],['pc',canonical.find(item=>!item.isLocal)]]){
+    const detail=machine?`${machine.label} · ${machine.word}. ${machine.detail}`:'Machine evidence unknown',item={tone:machine?.tone||'muted',detail,short:detail,tiny:detail};
+    vitals[key]=item;if(vitals.tiny)vitals.tiny[key]=detail;if(vitals.micro)vitals.micro[key]=detail;
   }
   const narrow=window.matchMedia?.('(max-width: 1000px)').matches===true;
   const age=Number.isFinite(vitals.lastAgeSeconds)?ageText(vitals.lastAgeSeconds).replace(' ago',''):'';
-  $('vitalPc').hidden=!['mac','windows'].includes(snapshot.host);$('vitalPc').dataset.node=registryPc()?.row.host||(snapshot.host==='windows'?'mac-peer':'windows-worker');
+  $('vitalMac').dataset.node=canonicalNodeId('runtime');$('vitalPc').hidden=!['mac','windows'].includes(snapshot.host);$('vitalPc').dataset.node=canonicalNodeId(snapshot.host==='windows'?'mac-peer':'windows-worker');
   const chips=(snapshot.host==='windows'?CHIPS_WINDOWS:CHIPS).map(([id,key,label,full,short])=>({b:$(id),item:vitals[key],tiny:vitals.tiny?.[key],micro:vitals.micro?.[key],label,full,short,age:key==='activity'?age:'',form:narrow?1:0}));
   const registered=registryPc();if(registered){const chip=chips.find(c=>c.b===$('vitalPc'));if(chip){chip.label=registered.label;chip.full=registered.label;chip.short=registered.label;}}
-  for(const c of chips){c.b.dataset.tone=c.item.tone;c.b.title=`${c.label}: ${c.item.detail}`;c.b.setAttribute('aria-label',`${c.label}: ${c.item.detail}`);setChip(c.b,...chipForms(c)[c.form]);}
+  for(const c of chips){const machine=c.b===$('vitalMac')?canonical.find(item=>item.isLocal):c.b===$('vitalPc')?(registryPc()||canonical.find(item=>!item.isLocal)):null;if(machine){c.full=c.short=`${machine.glyph} ${machine.label} · ${machine.word}`;c.item={...c.item,detail:machine.detail,short:machine.detail};c.tiny=c.micro=machine.detail;}c.b.dataset.tone=c.item.tone;c.b.title=machine?`${machine.label} · ${machine.word}. ${machine.detail}`:`${c.label}: ${c.item.detail}`;c.b.setAttribute('aria-label',c.b.title);setChip(c.b,...chipForms(c)[c.form]);}
   renderRegistryChips();
   // Measured per chip: the chip with the largest overflow steps down one form, then the strip is measured again, so
   // one long chip no longer truncates all four and the rest keep their longer forms (the title keeps the long text).
@@ -1111,7 +1145,7 @@ function renderActivity(feed){const list=$('activityList'),key=JSON.stringify([a
   // The list itself is not a live region (it would re-read every row); only new rows are announced.
   if(added.length)$('activityAnnounce').textContent=`New activity: ${added.map(row=>`${activityWho(row)} → ${row.target}`).join('; ')}`;}
 function openActivityRow(row){if(row.kind==='route'){const run=runs().find(r=>`run:${r.source||'route'}:${r.runId}`===row.key);if(!run)return;if(view!=='runs'){view='runs';document.querySelectorAll('[data-view]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.view==='runs')));}selectRun(run);return;}
-  if(view!=='runtime')setView('runtime');const id=row.lane&&graph.nodes.some(n=>n.id===`windows-lane:${row.lane}`)?`windows-lane:${row.lane}`:'windows-worker';if(inspectorNodeFor(id))nodeSelect(id);}
+  if(view!=='runtime')setView('runtime');const laneId=row.lane?canonicalNodeId(`windows-lane:${row.lane}`):null,id=laneId&&inspectorNodeFor(laneId)?laneId:canonicalNodeId('windows-worker');if(inspectorNodeFor(id))nodeSelect(id);}
 // A click on empty map (or Escape on the map) closes every panel and shows the whole map again.
 function showWholeMap(){hideOnlineCodeDetails();hideFixInferenceDetails();hideActivityDetails();if(document.body.classList.contains('sidebar-open'))setSidebarOpen(false);$('aboutPanel').hidden=true;syncAboutButtons();hoveredNode=null;if(!$('drawer').hidden)closeDrawer(false);else{userCamera=false;renderGraph();fitMap();}}
 // Two About controls open one panel: the footer link, and a map-controls button for when the footer is hidden.

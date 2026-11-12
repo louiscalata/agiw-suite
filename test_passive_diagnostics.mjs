@@ -1,3 +1,4 @@
+import * as fleet from './web/fleet-state.mjs';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
@@ -65,7 +66,7 @@ function harness(html) {
     matchMedia: () => ({matches: false, addEventListener() {}, removeEventListener() {}}),
     addEventListener() {}, dispatchEvent() {}, requestAnimationFrame(callback) {callback();},
     webkit: {messageHandlers: {monitor: {postMessage: message => nativeMessages.push(message)}}}};
-  const context = vm.createContext({...layout, ...usage, ...onlineMode, ...modelControl, ...monitorTabs,
+  const context = vm.createContext({...layout, ...fleet, ...usage, ...onlineMode, ...modelControl, ...monitorTabs,
     ...theme, document, window, location: window.location, localStorage: storage,
     fetch: (url, options = {}) => { requests.push({url, method: options.method || 'GET', body: options.body}); return new Promise(() => {}); },
     EventSource: class { constructor(url) { streams.push(url);streamObjects.push(this);this.listeners={}; } addEventListener(type,callback) {this.listeners[type]=callback;} close() {} },

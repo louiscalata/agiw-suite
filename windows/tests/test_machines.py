@@ -12,6 +12,7 @@ from agiw_win.collect import Collector  # noqa: E402
 sys.path.append(str(Path(__file__).resolve().parents[2]))  # the shared root modules, as the installed layout has them
 import machine_state  # noqa: E402
 import remote_machines  # noqa: E402
+import fleet_state  # noqa: E402
 
 NOW = 2_000_000_000.0
 UP_LANES = [{"id": "fast", "status": "idle"}, {"id": "deep", "status": "busy"}]
@@ -35,7 +36,7 @@ def machine_state_time(text):
 
 
 class MachineRows(unittest.TestCase):
-    def test_shared_registry_projection_preserves_this_pc_and_replaces_only_remote_reports(self):
+    def test_shared_registry_projection_preserves_this_pc_and_unmatched_remote_reports(self):
         config = {"schemaVersion": 1, "machines": [{"id": "worker", "label": "Registry worker",
                   "replaces": "legacy-pc", "lanes": [{"id": "fast", "label": "Fast", "localPort": 21001}]}]}
         nodes = remote_machines.collect(config, now=NOW,
@@ -44,11 +45,18 @@ class MachineRows(unittest.TestCase):
         snapshot = {"machines": [local, {"host": "old-pc", "platform": "windows", "state": "down",
                                       "trust": "share-reported"}], "inference": {"nodes": nodes}}
         remote_machines.project_snapshot(snapshot)
-        self.assertEqual([row["host"] for row in snapshot["machines"]], ["test-pc", "registry:worker"])
+        self.assertEqual([row["host"] for row in snapshot["machines"]], ["test-pc", "old-pc", "registry:worker"])
         self.assertIs(snapshot["machines"][0], local)
-        registry = snapshot["machines"][1]
+        self.assertEqual(snapshot["machines"][1]["host"], "old-pc", "replacement metadata is not identity attribution")
+        registry = snapshot["machines"][2]
         self.assertEqual((registry["state"], registry["lanes"][0]["modelId"]), ("up", "vendor/model"))
         self.assertFalse(registry["modelsComplete"], "configured lane health is not whole-machine inventory")
+        canonical = fleet_state.build_fleet_state(snapshot, now=NOW)
+        self.assertEqual(next(fact for fact in canonical["facts"] if fact["id"] == "registry:worker")["state"], "unknown")
+        worker = next(fact for fact in canonical["facts"] if fact["id"] == "registry:worker")
+        self.assertEqual(worker["evidence"]["host"], "old-pc",
+                         "the owner's replaces declaration joins the one PC report to its registry machine and keeps it as evidence")
+        self.assertNotIn("old-pc", [fact["id"] for fact in canonical["facts"]], "a joined report is not listed twice")
         json.dumps(snapshot, allow_nan=False)
 
     def test_shared_registry_unknown_and_missing_registry_keep_their_evidence(self):
@@ -60,8 +68,9 @@ class MachineRows(unittest.TestCase):
                   "replaces": "legacy-pc", "lanes": [{"id": "fast", "label": "Fast", "localPort": 21001}]}]}
         snapshot["inference"] = {"nodes": remote_machines.unavailable_nodes(config, now=NOW)}
         remote_machines.project_snapshot(snapshot)
-        self.assertEqual(len(snapshot["machines"]), 1)
-        registry = snapshot["machines"][0]
+        self.assertEqual(len(snapshot["machines"]), 2)
+        self.assertEqual(snapshot["machines"][0], legacy, "unmatched report remains a distinct source")
+        registry = snapshot["machines"][1]
         self.assertEqual((registry["state"], registry["lanes"][0]["reason"]), ("unknown", "collector_failed"))
         self.assertIsNone(registry["lanes"][0]["modelId"])
 

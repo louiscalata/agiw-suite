@@ -66,6 +66,15 @@ def dimensions(healthy):
         if variation == 'more-model':
             extra = copy.deepcopy(data['models'][0])
             extra.update(id='third-model', name='Third model')
+            if host == 'windows':
+                # A third loaded model on Windows needs its own observed lane;
+                # cloning only the UI row leaves the native machine report at 2.
+                extra['metadata'].update(lane='third', port=1237, servedModel='third-model')
+                lane = copy.deepcopy(data['lanes'][0])
+                lane.update(id='third', port=1237, endpoint='http://127.0.0.1:1237',
+                            expectedModel='third-model', servedModel='third-model')
+                data['lanes'].append(lane)
+                data['windowsWorker']['lanes']['third'] = dict(data['windowsWorker']['lanes']['fast'], model='third-model')
             data['models'].append(extra)
         if variation == 'more-job':
             data['windowsJobs']['recent'].append(dict(data['windowsJobs']['recent'][0], id='done-2'))
@@ -76,7 +85,12 @@ def dimensions(healthy):
         if variation == 'idle-lane':
             data['models'][0].update(state='idle')
             data['models'][0]['metadata']['slotsBusy'] = 0
+            data['models'][0]['metadata']['laneStatus'] = 'idle'
             data['windowsWorker']['lanes']['fast']['slotsBusy'] = 0
+            if host == 'windows':
+                data['lanes'][0].update(status='idle', phase='idle', slotsBusy=0)
+                for slot in data['lanes'][0]['slots']:
+                    slot['isProcessing'] = False
         elapsed = 2.999 if variation == 'boundary' else 0
         working = sum(row['state'] in ('busy', 'generating') for row in data['models'])
         yield scenario(data, 'healthy-exact', dict(host=host, busy=busy, variation=variation),

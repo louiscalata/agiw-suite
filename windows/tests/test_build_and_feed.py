@@ -342,7 +342,7 @@ class InstallerOnWindows(unittest.TestCase):
                          "simple-view.mjs", "simple-view.css",
                          "online-code-mode.mjs", "monitor.html", "monitor.mjs", "monitor.css",
                          "monitor-tabs.mjs", "monitor-board.mjs", "monitor-map.mjs", "jaryo.css", "jaryo.mjs",
-                         "identity.html", "identity.mjs", "machines.html", "machines.mjs", "setup.html", "setup.mjs",
+                         "identity.html", "identity.mjs", "machines.html", "machines.mjs", "fleet-state.mjs", "setup.html", "setup.mjs",
                          "components.html", "components.js", "components.css",
                          "eci-tuning.html", "eci-tuning.mjs", "eci-tuning.css")]
             sources += [(REPO / "jaryo" / name, Path("jaryo") / name) for name in
@@ -353,7 +353,7 @@ class InstallerOnWindows(unittest.TestCase):
                          "marks/d5-signal.svg", "marks/favicon.svg")]
             sources += [(REPO / name, Path(name)) for name in
                         ("usage-format.mjs", "client_models.py", "peer_link.py", "peer_feed.py", "machine_state.py",
-                         "inference_stats.py", "inference_collect.py", "remote_machines.py", "eci_tuning.py", "eci_fast_check.py", "eci_fast_check.schema.json",
+                         "inference_stats.py", "inference_collect.py", "fleet_state.py", "remote_machines.py", "eci_tuning.py", "eci_fast_check.py", "eci_fast_check.schema.json",
                          "eci_tuning_catalog.json", "eci_tuning_routes.json", "eci_tuning.schema.json",
                          "LICENSE", "NOTICE")]
             sources += [(REPO / "brand" / "windows" / "agiw.ico", Path("agiw.ico"))]

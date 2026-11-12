@@ -1,5 +1,6 @@
 // The overview keeps style.css for layout. Its lilac wash and violet client
-// rules are gone, and the page paints one six-step scale, none under 12px.
+// rules are gone. The Fleet screen overrides the legacy display scale with the
+// redesign's five readable roles without changing other screens or Android.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -14,15 +15,18 @@ test('the overview stylesheet no longer paints the lilac wash or violet client r
   assert.match(style, /--violet:var\(--ink\)/);
 });
 
-test('the overview uses six type steps and none of them is under 12px', () => {
-  const marker = 'Six steps, none under 12px';
-  const block = jaryo.slice(jaryo.indexOf(marker));
-  assert.ok(block.length > marker.length);
-  for (const size of ['13px', '21px', '34px', '55px', '89px', '144px']) {
-    assert.match(block, new RegExp(`--j-size-\\d: ${size};`));
+test('Fleet uses 13/14/16/20/28px roles and caps every inherited display size at 28px', () => {
+  const overrides = [...jaryo.matchAll(/body\.jaryo-app\.fleet-ledger\s*\{([^{}]*)\}/g)]
+    .map(match => match[1]).join('\n');
+  const roles = [...overrides.matchAll(/--j-size-(\d):\s*(\d+)px\s*;/g)];
+  assert.equal(roles.length, 6, 'override all six legacy slots so inherited wordmarks and headings are bounded');
+  assert.deepEqual([...new Set(roles.map(match => Number(match[2])))].sort((a, b) => a - b), [13, 14, 16, 20, 28]);
+  assert.ok(roles.every(match => Number(match[2]) <= 28));
+  assert.match(jaryo, /font-family: "IBM Plex Sans", "Liberation Sans", "Noto Sans", sans-serif !important;/);
+  assert.match(jaryo, /font-family: "IBM Plex Mono"/);
+  const scopedRules = [...jaryo.matchAll(/([^{}]*\.fleet-ledger[^{}]*)\{([^{}]*)\}/g)]
+    .map(match => match[2]).join('\n');
+  for (const match of scopedRules.matchAll(/font-size:\s*(\d+)px/g)) {
+    assert.ok([13, 14, 16, 20, 28].includes(Number(match[1])), `unexpected Fleet type role ${match[1]}px`);
   }
-  assert.match(block, /font-size: var\(--j-size-2\) !important;/);
-  assert.match(block, /font-family: "IBM Plex Sans", "Liberation Sans", "Noto Sans", sans-serif !important;/);
-  assert.match(block, /font-family: "IBM Plex Mono"/);
-  assert.doesNotMatch(block, /font-size:\s*(?:[0-9]|1[01])px/);
 });

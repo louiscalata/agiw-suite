@@ -147,7 +147,10 @@ def windows_healthy(root, count, busy, lane_age, cache_age):
             s=collector.collect()
         finally:collector.close()
     store=WindowsStore();store.publish(s)
-    return store.read()
+    # The collector and renderer use NOW; the read boundary must use that same
+    # fixture clock rather than the machine running this offline test.
+    with mock.patch('windows.agiw_win.server.time.time', return_value=NOW):
+        return store.read()
 
 
 def generate():

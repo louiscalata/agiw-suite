@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
-import { harness } from './test_support/monitor-harness.mjs';
+import { harness, fleetTileExpectations } from './test_support/monitor-harness.mjs';
 import * as layout from './web/map-layout.mjs';
 import { checkFix11 } from './test_support/fix11_assertions.mjs';
 import { checkFix1 } from './test_support/fix1_assertions.mjs';
@@ -32,9 +32,11 @@ test('fix9 generative invariant: Python publishers -> JSON -> actual web rendere
     const before = failures.length;
     const check = (condition, field, output) => { if (!condition) failures.push({ host, property, dimension, changes, inputs: packet.inputs, field, output }); };
     rendererNow = scenario?.expected.rendererNow ?? now;
-    const { api, $ } = harness({ extra: { Date: ClockDate } });
+    const { api, $ } = harness({ extra: { Date: ClockDate }, legacyDetails: true });
     try {
       api.setFeed(snapshot); if (dimension === 'frozen-capture') api.setPaused(scenario.expected.paused); $('drawer').hidden = false; api.renderSummary(); api.select('runtime'); api.render();
+      for (const [id, expected] of Object.entries(fleetTileExpectations(snapshot, rendererNow)))
+        check($(id).textContent === expected, 'canonical endpoint tile '+id, {actual: $(id).textContent, expected});
       const input = api.vitalsInput(); api.renderActivity(input.feed); api.renderVitals(input);
       if(['hands-off-signals','route-inspector-clock','activity-ui-cap','history-helper-read','lan-observation-clock'].includes(dimension))checkFix1({packet,api,$,input,check});
       if (['healthy-exact','route-semantics','journal-semantics','frozen-capture','source-boundary','history-read','fast-overlay','journal-read'].includes(dimension)) checkFix11({packet, api, $, input, check});
@@ -61,7 +63,7 @@ test('fix9 generative invariant: Python publishers -> JSON -> actual web rendere
       if (dimension === 'lane-window') {
         const expected = scenario.expected;
         check(snapshot.history.at(-1).loaded === (expected.inventory ? 2 : null), 'lane history deadline', snapshot.history.at(-1));
-        check($('loadedCount').textContent === (expected.inventory ? '2' : '—'), 'lane UI inventory deadline', $('loadedCount').textContent);
+        check(api.localRuntimeCounts().loadedCount === (expected.inventory ? 2 : null), 'lane local inventory deadline', api.localRuntimeCounts());
         check(snapshot.activityKnown === expected.activity, 'lane activity deadline', snapshot.activityKnown);
         for (const lane of snapshot.lanes) {
           check((lane.slotsTotal != null) === expected.activity && (lane.slotsBusy != null) === expected.activity,
@@ -78,13 +80,13 @@ test('fix9 generative invariant: Python publishers -> JSON -> actual web rendere
       if (host === 'windows' && inventory) check(snapshot.machines?.find(m => m.role === 'this-machine')?.loadedCount == null, 'machine loaded total', snapshot.machines);
       if (inventory) {
         check(snapshot.history.at(-1).loaded === null, 'history loaded total', snapshot.history.at(-1));
-        check($('loadedCount').textContent === '—', 'loaded total', $('loadedCount').textContent);
+        check(api.localRuntimeCounts().loadedCount === null, 'local loaded total', api.localRuntimeCounts());
         const report = layout.pcReportView({ ...status, via: 'share', ageSeconds: 0 }, { feedFresh: true });
         check(!report.known || /unknown|at least/i.test(report.words), 'published residency', report.words);
       }
       if (activity) {
         check(snapshot.history.at(-1).active === null, 'history working total', snapshot.history.at(-1));
-        check($('activeCount').textContent === '—', 'working total', $('activeCount').textContent);
+        check(api.localRuntimeCounts().busyCount === null, 'local working total', api.localRuntimeCounts());
         check(!/quiet|idle|working now/i.test($('headline').textContent), 'runtime headline', $('headline').textContent);
         check(!status.models?.some(m => ['idle', 'busy', 'generating'].includes(m.activity)), 'published activity', status.models);
       }
@@ -135,8 +137,8 @@ test('fix9 generative invariant: Python publishers -> JSON -> actual web rendere
         }
       }
       if (!changes.length) {
-        check($('loadedCount').textContent === '2', 'healthy loaded control', $('loadedCount').textContent);
-        check($('activeCount').textContent === String(snapshot.fixtureExpectedWorking), 'healthy activity control', $('activeCount').textContent);
+        check(api.localRuntimeCounts().loadedCount === 2, 'healthy local loaded control', api.localRuntimeCounts());
+        check(api.localRuntimeCounts().busyCount === snapshot.fixtureExpectedWorking, 'healthy local activity control', api.localRuntimeCounts());
       }
     } catch (error) { failures.push({ host, dimension, changes, field: 'renderer exception', output: error.stack }); }
     counts[host] = (counts[host] || 0) + 1;

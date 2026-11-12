@@ -60,7 +60,7 @@ function layoutShows(layout, literal) {
 test('every screen uses the same Jaryo chrome', () => {
   for (const [name, path, href] of SCREENS) {
     const html = read(path);
-    assert.match(html, /class="jaryo-app"/, name);
+    assert.match(html, /class="jaryo-app(?:\s[^"]*)?"/, name);
     assert.match(html, /href="\/jaryo\.css"/, name);
     assert.match(html, /src="\/jaryo\.mjs"/, name);
     assert.match(html, /href="\/jaryo\/marks\/favicon\.svg"/, name);
