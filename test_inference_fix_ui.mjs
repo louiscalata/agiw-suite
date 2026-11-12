@@ -8,6 +8,7 @@ const app=readFileSync(new URL('./web/app.js',import.meta.url),'utf8');
 test('evaluation navigation and repair compatibility hooks expose separate reviewed scopes',()=>{
   assert.match(html,/<a[^>]*href="\/eci-tuning"[^>]*>Model evaluation<\/a>/);
   assert.match(html,/<button id="fixInference"[^>]*aria-expanded="false"[^>]*aria-controls="fixInferenceDetails"/);
+  assert.match(html,/<span class="fix-tab-long">Model tuning<\/span>/);
   assert.match(html,/<section id="fixInferenceDetails"[^>]*hidden[^>]*aria-labelledby="fixInferenceHeading"/);
   const select=html.match(/<select id="fixInferenceScope"[\s\S]*?<\/select>/);
   assert.ok(select,'repair target is selected before review');

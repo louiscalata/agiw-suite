@@ -1,16 +1,17 @@
 # Model fast check
 
 The fast check screens daily model candidates on a fixed sample before spending
-6–12+ hours on a full benchmark. It is a local, offline source feature with no
-model integration in this slice. All real fast checks and full runs are
+6–12+ hours on a full benchmark. The core remains offline; an explicit
+[loopback HTTP adapter](eci-model-tuning.md#run-a-fast-check-against-an-existing-server)
+can query an already running server. All real fast checks and full runs are
 **NOT_RUN**. No model is selected for live routing from a fast-check result.
 
 The owner's division of responsibility is preserved: pre decides whether a
 model fits the hardware and is worth checking; Nisi supplies the run-journal
 reference; post decides whether the measurements are admissible. Here pre and
 post are deterministic local functions. Optional advisory objects are data,
-never requests to Jev or another model. Lane execution belongs to the future
-harness adapter; no lane is inferred or started here.
+never requests to Jev or another model. The adapter requires an explicit endpoint,
+model and local sample files; no lane is inferred or started here.
 
 ## Freeze one plan for every candidate
 
@@ -352,89 +353,85 @@ unadjusted for multiplicity. Do not tune against these IDs or treat a tie as
 equivalence. Finalists need independent full runs and full admission before
 changing routing policy or claiming an ECI improvement.
 
-## Existing harness handoff: NOT_RUN
+## Loopback harness adapter
 
-Both inspected `run_mac_suite.py` versions use `--limit` for first-N smoke runs;
-the sharded draft adds BBH campaign scheduling, not fast-check sample selection.
-Neither accepts this plan. Running `--limit 200` would not execute a valid fast
-check. A real fast-check command does not exist in the current harness.
+From the source checkout, explicitly select an already running OpenAI-compatible
+HTTP server on **127.0.0.1**. The port must not be in
+`remote_machines.PROTECTED_PORTS`. Root and `/v1` base URLs are accepted; DNS,
+credentials, proxies and redirects are not used. The adapter only reads metadata
+and submits chat completions; it never starts, stops, loads or reconfigures a server.
 
-The next PR must add `mac_fast_check_adapter.py` in this source tree, exposing
-`bind_answer(model, settings, timeout_s)` and `score` using the existing harness's request, extraction,
-truncation and timeout rules, without starting a server implicitly. It must
-consume the frozen IDs and write to new task-owned outputs, never reuse the
-currently running benchmark's files. Before that, the execution owner must
-provide reviewed `fast-check-input/datasets.json`, `hardware.json`, shared
-`settings.json`, and `baseline.model.json`, `baseline.pre.json`,
-`candidate.model.json`, `candidate.pre.json`, then run the same plan for both
-models. Those files must carry observed identity/settings rather than copied
-defaults. Nisi journal custody and any model/server admission are separate gates.
+Supply one or more local JSON files in the fast-check descriptor format, for example:
 
-The adapter can reuse the formats and logic in `harness_core.load_dataset`,
-`run_benchmark.generation_settings`, `execute` and `collect_log`, but must not
-blindly call their job-wide setup: `configure_runtime` and the existing suite
-write to their own runtime/results directories. Adapting these routines to an
-item-level callable, isolated output custody and the new protocol is remaining
-work, not an existing supported harness mode.
-
-The exact later sequence below is **unrun**, conditional on that adapter and
-the owner's approved input files. Its explicit file check currently fails;
-the adapter is deliberately NOT_IMPLEMENTED in this slice. `bind_answer` returns
-the callable bound to the already admitted endpoint and exact supplied model,
-and raises TimeoutError at its request deadline. It must refuse identity or
-settings mismatches. Use fresh output filenames; no model is started implicitly.
-
-```sh
-cd <agiw-suite checkout>
-set -eu
-test -f mac_fast_check_adapter.py || exit 2
-python3 -B -m eci_fast_check plan fast-check-input/datasets.json --count 200 \
-  --version fast-check-plan-v1 --wall-budget-s 1800 --output fast-check-input/plan.json
-for fast_check_name in baseline candidate; do
-FAST_CHECK_NAME="$fast_check_name" python3 -B - <<'PY'
-import json
-import os
-from pathlib import Path
-from eci_fast_check import load, run_check
-from mac_fast_check_adapter import bind_answer, score  # next PR; absent today
-p = Path('fast-check-input')
-name = os.environ['FAST_CHECK_NAME']
-model = load(p / (name + '.model.json'))
-settings = load(p / 'settings.json')
-answer = bind_answer(model, settings, timeout_s=60)
-baseline = load(p / 'baseline.fast.json') if name == 'candidate' else None
-record = run_check(load(p / 'plan.json'), load(p / 'datasets.json'), answer,
-    score=score, model=model, hardware=load(p / 'hardware.json'),
-    runtime_settings=settings, pre=load(p / (name + '.pre.json')),
-    journal=None, baseline=baseline,
-    checkpoint=p / (name + '.checkpoint.jsonl'))
-with (p / (name + '.fast.json')).open('x', encoding='utf-8') as stream:
-    stream.write(json.dumps(record, indent=2, allow_nan=False) + '\n')
-PY
-done
-python3 -B -m eci_fast_check validate fast-check-input/baseline.fast.json
-python3 -B -m eci_fast_check validate fast-check-input/candidate.fast.json
-python3 -B - <<'PYCOLLECTION'
-import json
-from pathlib import Path
-p = Path('fast-check-input')
-data = dict(schema_version=1, runs=[], items=[], fast_checks=[
-    json.loads((p / (name + '.fast.json')).read_text())
-    for name in ('baseline', 'candidate')])
-with (p / 'fast-check-collection.json').open('x') as stream:
-    json.dump(data, stream, indent=2, allow_nan=False)
-PYCOLLECTION
-python3 -B -m eci_tuning ingest fast-check-input/fast-check-collection.json \
-  --output fast-check-input/tuning.fast.json
-python3 -B -m eci_tuning rank fast-check-input/tuning.fast.json
+```json
+{"arc":{"revision":"example-v1","items":[
+  {"id":"example-1","question":"Which number is even?",
+   "choices":["3","4","5","7"],"answer":"B"}
+]}}
 ```
 
-This uses the same seam and frozen plan for baseline and candidate. Reuse the
-plan without invoking plan creation again (creation is exclusive). Executing
-both iterations requires each model to have a separately approved endpoint;
-that admission is NOT_RUN. A missing baseline may produce a first record with
-`baseline=None`, but cannot produce a favorable paired verdict. No commands
-above were used to run real inference during this implementation.
+Each file maps benchmark names to descriptors with `items` and optional
+`revision`, `chance`, `answer_options` and `stratum_key`. Benchmark names must be
+distinct across files. Every item needs string `id`, `question` and canonical
+string `answer`. Choice lists contain text (labels A–Z) or `{ "label": "1",
+"text": "..." }` objects with unique single uppercase-letter/digit labels;
+the reference is a label. GSM8K references are numeric final answers, optionally
+after `####`. Other items use short exact string answers. No dataset download or
+official-harness/scorer equivalence is implied.
+
+```sh
+python3 -B -m eci_fast_check_adapter \
+  --base-url http://127.0.0.1:9000/v1 --model example-model \
+  --samples arc-sample.json gsm8k-sample.json --output-dir ../fast-check-output
+```
+
+The default is a deterministic sample of up to 200 items per benchmark,
+**16,384 completion tokens per item**, temperature 0, seed 42, and a 180-second
+per-request deadline. Use `--count`, `--max-tokens` (minimum 8,192), `--timeout`
+or an exact decimal `--wall-budget-s` to change them. A wall budget is checked
+between items; a request may finish after that budget. The completion budget
+includes reasoning on servers that account for it there. Empty/whitespace final
+content with `reasoning_content` is always `truncated_empty`, even with finish
+reason `stop`. Reasoning is never scored or stored. Choices require a bare label,
+balanced `(label)`, or `Answer: label`/`Final answer: label`; GSM8K requires a bare
+number or final `#### number`/`Final answer: number` line. Other prose is unparsed
+for these choice/numeric formats.
+
+Metadata GETs use `/props` and `/v1/models`; unsupported endpoints may return
+404/405. The selected model must be advertised. Recognized model facts are
+`sha256` (or `file_sha256`), `quantization`, `file_size_bytes` in `/props.model`
+or the selected `/v1/models.data[].meta`. Recognized `/props` facts include
+`hardware.cpu`, `hardware.gpu`, `hardware.memory_bytes`,
+`hardware.available_memory_bytes`, `build_info.version` and
+`default_generation_settings.n_ctx`; these may also be supplied in the selected
+model's `meta` when `/props` omits them. Missing hardware/build facts remain null;
+raw payloads, model paths and machine/device identifiers are omitted. These are
+server reports, not independently measured hardware or artifact attestation.
+
+The existing fit gate needs model size, quantization and sufficient available
+memory; resume needs the actual artifact SHA-256. If the server omits those,
+add `--file-size-bytes BYTES --quantization QUANT --available-memory-bytes BYTES
+--model-sha256 SHA256` using verified values. Explicit model facts that disagree
+with the server are refused. The adapter labels caller-supplied facts and refuses
+inference when the hash or fit evidence is missing; it never invents a hash from
+the model ID or probes the host to fill gaps.
+
+Output contains `plan.json`, `checkpoint.jsonl`, `adapter.lock` and `result.json`.
+Every item is checkpointed with flush/fsync before the next request. Repeat the
+same command to resume after interruption (exit 130) or a wall-budget stop.
+Resume skips **all recorded attempts**, including errors/timeouts, and rejects
+changed data, artifact, endpoint, settings, fit inputs, reported hardware or corrupt/torn
+checkpoints. Use a fresh output directory for retries or changed settings.
+Result publication is atomic. Exit 0 means a protocol result was written; read
+its separate post decision and outcome counts before judging the model. Input or
+metadata failures exit 2. Results use `agiw-fast-check-v1` and validate with:
+
+```sh
+python3 -B -m eci_fast_check validate ../fast-check-output/result.json
+```
+
+Real inference, server identity, native hardware and full ECI remain **NOT_RUN**
+for this implementation; verification uses only synthetic HTTP stubs.
 
 ## Verification
 
