@@ -1224,7 +1224,7 @@ test('Round 3: the Online Code panel hides the duplicate result for a finished c
   // The top-bar tabs wait for the feed too, instead of calling this Mac a non-owner.
   assert.equal($('onlineCodeLabel').textContent, 'Waiting for the live feed');
   assert.match($('onlineCodeMode').getAttribute('aria-label'), /Waiting for cached observations/);
-  assert.match($('fixInference').getAttribute('aria-label'), /Diagnostics\. Waiting for the live feed/);
+  assert.match($('fixInference').getAttribute('aria-label'), /Model tuning\. Waiting for the live feed/);
   api.setFeed({ ...pcSnapshot(nowSeconds(), {}), onlineCodeMode: { state: 'ready', active: false, taskState: 'idle', setupState: 'fresh', setupAgeSeconds: 42 } });
   api.setAction({ status: 'ready', operationId: 1, action: 'check-and-repair', message: 'No pending records; readiness verified.', steps: [{ name: 'readiness', result: 'verified' }] });
   api.updateOnlineCodeMode();
@@ -1901,6 +1901,20 @@ test('Fix Nisi + Jev: closing the Fix panel returns to the inspector it was open
   assert.match(appSource, /function hideFixInferenceDetails\(\)\{const panel=\$\('fixInferenceDetails'\);panel\.hidden=true;fixReturnTo=null;/);
   assert.match(appSource, /\$\('fixInferenceClose'\)\.addEventListener\('click',closeFixInference\);/);
   assert.match(appSource, /if\(event\.key==='Escape'\)\{\n    event\.preventDefault\(\);\n    closeFixInference\(\);/);
+});
+
+test('the full Model tuning accessible label survives feed and repair changes at both widths', () => {
+  for (const width of [375, 1280]) {
+    const { api, $ } = harness({ width });
+    for (const feed of [null, { host: 'windows' }, pendingFeed()]) {
+      api.setFeed(feed);
+      for (const status of ['idle', 'running', 'uncertain', 'needs-action', 'ready']) {
+        api.setAction({ status, action: 'fix-nisi' });
+        api.updateInferenceFix();
+        assert.match($('fixInference').getAttribute('aria-label'), /^Model tuning\./, `${width}: ${feed?.host ?? 'no feed'}, ${status}`);
+      }
+    }
+  }
 });
 
 test('Fix Nisi + Jev: a result lists its steps in plain words beside (not inside) the live summary; other scopes do not', () => {
