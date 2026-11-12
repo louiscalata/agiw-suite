@@ -1,0 +1,129 @@
+{
+  "artifact": "jaryo-adaptive-lab-choices",
+  "notice": "Choice preference ≠ validation or production change. Demo data fictional.",
+  "saved_at_local": "2026-11-06T17:52:56.877Z",
+  "copper_note": "F17.01 Copper is EXAMPLE only unless Louis explicitly selects it.",
+  "choices": {
+    "F02": "F02.04",
+    "F01": "F01.01",
+    "F03": "F03.03",
+    "F04": "F04.01",
+    "F05": "F05.02",
+    "F06": "F06.02",
+    "F07": "F07.01",
+    "F08": "F08.10",
+    "F09": "F09.01",
+    "F10": "F10.01",
+    "F11": "F11.01",
+    "F12": "F12.10",
+    "F13": "F13.02",
+    "F14": "F14.02",
+    "F15": "F15.01",
+    "F16": "F16.01",
+    "F17": "F17.01"
+  },
+  "by_family": [
+    {
+      "family": "F01",
+      "title": "Layout / composition",
+      "choice": "F01.01",
+      "name": "Main Bus Spine"
+    },
+    {
+      "family": "F02",
+      "title": "Typography / hierarchy",
+      "choice": "F02.04",
+      "name": "Human Label + Technical Subline"
+    },
+    {
+      "family": "F03",
+      "title": "Navigation / wayfinding",
+      "choice": "F03.03",
+      "name": "Step Pager"
+    },
+    {
+      "family": "F04",
+      "title": "Actions / selection",
+      "choice": "F04.01",
+      "name": "Step Focus + Neighbours"
+    },
+    {
+      "family": "F05",
+      "title": "Forms / inputs",
+      "choice": "F05.02",
+      "name": "Port Socket"
+    },
+    {
+      "family": "F06",
+      "title": "Content containers",
+      "choice": "F06.02",
+      "name": "Ported Box"
+    },
+    {
+      "family": "F07",
+      "title": "Tables / dense data",
+      "choice": "F07.01",
+      "name": "Mono Ledger Table"
+    },
+    {
+      "family": "F08",
+      "title": "Diagrams / data graphics",
+      "choice": "F08.10",
+      "name": "Unknown-aware Graph"
+    },
+    {
+      "family": "F09",
+      "title": "Status / feedback",
+      "choice": "F09.01",
+      "name": "Word+Glyph State"
+    },
+    {
+      "family": "F10",
+      "title": "Empty / loading / error",
+      "choice": "F10.01",
+      "name": "Honest Empty"
+    },
+    {
+      "family": "F11",
+      "title": "Overlays / progressive disclosure",
+      "choice": "F11.01",
+      "name": "Side Inspector"
+    },
+    {
+      "family": "F12",
+      "title": "Patterns / shapes / textures",
+      "choice": "F12.10",
+      "name": "Underground Dash"
+    },
+    {
+      "family": "F13",
+      "title": "Motion / loops / transitions",
+      "choice": "F13.02",
+      "name": "Event Tick"
+    },
+    {
+      "family": "F14",
+      "title": "Responsive / touch",
+      "choice": "F14.02",
+      "name": "Thumb Bar"
+    },
+    {
+      "family": "F15",
+      "title": "Website / editorial",
+      "choice": "F15.01",
+      "name": "Install Line Hero"
+    },
+    {
+      "family": "F16",
+      "title": "Search / filter / command",
+      "choice": "F16.01",
+      "name": "Command Palette"
+    },
+    {
+      "family": "F17",
+      "title": "Color systems",
+      "choice": "F17.01",
+      "name": "Copper Workshop"
+    }
+  ]
+}

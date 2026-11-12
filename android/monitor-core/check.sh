@@ -89,8 +89,16 @@ if (web.get("scope") != "full-observer-web"
         or web.get("accent") != "#C21A27"
         or web.get("typeScalePx") != [13, 21, 34, 55, 89, 144]):
     raise SystemExit("web typography/accent contract is missing or unscoped")
-if tokens.get("appliedChoiceFile") is not None or tokens.get("chosenFamilyIds") != {}:
-    raise SystemExit("platform variants must not invent a choice-file approval")
+# Owner approval applies to the kit/web only; Android still inherits the foundation above.
+import hashlib
+choice_bytes = (android_root.parent / "jaryo/choices.json").read_bytes()
+expected_sha = "6490e5b15b624b82703d2ce897054c2e9a40f6c8dcc5d389de45e86d7004be2d"
+if (hashlib.sha256(choice_bytes).hexdigest() != expected_sha
+        or tokens.get("appliedChoiceFile") != {"name": "jaryo-lab-choices.json", "sha256": expected_sha}
+        or tokens.get("chosenFamilyIds") != json.loads(choice_bytes)["choices"]
+        or tokens.get("choiceScope") != "jaryo-kit-and-full-observer-web"
+        or tokens.get("ownerOverrides", {}).get("F17", {}).get("reason") != "overridden by owner: booklet red"):
+    raise SystemExit("owner choices or their web-only scope drifted")
 for rel in ("app/build.gradle.kts", "monitor-core/build.gradle.kts"):
     gradle = (android_root / rel).read_text()
     if "UTF-8" not in gradle or "JavaCompile" not in gradle:

@@ -531,17 +531,19 @@ test('components names an unavailable observer instead of staying on Checking', 
   assert.doesNotMatch(block, /Checking/);
 });
 
-test('provisional identity is unlabeled as a choice and the board no longer covers the map', () => {
+test('owner choices retain unapproved artwork and the board does not cover the map', () => {
   const tokens = read('./jaryo/tokens.json');
-  assert.match(tokens, /"appliedChoiceFile": null/);
-  assert.match(tokens, /"chosenFamilyIds": \{\}/);
+  const decision = JSON.parse(tokens);
+  assert.equal(decision.appliedChoiceFile.sha256, '6490e5b15b624b82703d2ce897054c2e9a40f6c8dcc5d389de45e86d7004be2d');
+  assert.equal(Object.keys(decision.chosenFamilyIds).length, 17);
+  assert.equal(decision.ownerOverrides.F17.reason, 'overridden by owner: booklet red');
   assert.match(tokens, /"logoSelection": null/);
   assert.match(tokens, /"selectedDirection": null/);
   assert.match(tokens, /"rejectedDirection": "d4-split"/);
   assert.match(tokens, /"provisionalTypeface": "Inter"/);
   assert.match(tokens, /"artworkApproval": null/);
   assert.match(tokens, /"surface": "black-white"/);
-  assert.doesNotMatch(tokens, /Downloads|curated-85|F17\.01/);
+  assert.doesNotMatch(tokens, /Downloads|curated-85/);
   const page = read('./web/identity.html');
   assert.match(page, /TYPE ONLY/);
   assert.match(page, /D4 Split is rejected/);

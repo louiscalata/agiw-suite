@@ -8,6 +8,12 @@ const here = dirname(fileURLToPath(import.meta.url));
 
 export const KIT_FILES = [
   'tokens.json',
+  'choices.json',
+  'generate.mjs',
+  'contrast.mjs',
+  'patterns.css',
+  'interactions.mjs',
+  'decision.mjs',
   'theme.mjs',
   'primitives.css',
   'components.css',

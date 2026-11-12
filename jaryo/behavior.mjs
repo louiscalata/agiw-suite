@@ -1,5 +1,6 @@
 /** Kit behaviour: theme, pipeline stations, and tabs. No network except the pipeline file. */
 import { THEME_MODES, resolveTheme } from './theme.mjs';
+import { mountChoicePipeline, mountCommandPalette } from './interactions.mjs';
 
 export const THEME_KEY = 'jaryo-kit-theme';
 
@@ -65,7 +66,7 @@ export function pipelineMarkup(pipeline) {
       name,
       note,
       acceptance,
-      strip: '<div class="jk-empty"><p class="jk-empty-title">Empty</p><p>No stations on this lane.</p></div>',
+      strip: '<div class="jk-empty"><p class="jk-empty-title">Empty</p><p>No stations on this lane. Add a declared station to pipeline.json.</p></div>',
       detail: '',
     };
   }
@@ -113,28 +114,7 @@ export function mountPipeline(root, pipeline) {
   root.innerHTML = `${view.strip}${view.detail}`;
   const stations = pipeline && Array.isArray(pipeline.stations) ? pipeline.stations : [];
   if (stations.length === 0) return;
-  const toolbar = root.querySelector('.jk-stations');
-  const buttons = [...toolbar.querySelectorAll('.jk-station')];
-  const detail = root.querySelector('#jk-station-detail');
-  const select = (index, focus) => {
-    buttons.forEach((button, item) => {
-      const on = item === index;
-      button.setAttribute('aria-pressed', on ? 'true' : 'false');
-      button.tabIndex = on ? 0 : -1;
-    });
-    detail.innerHTML = stationDetail(stations[index]);
-    if (focus) buttons[index].focus();
-  };
-  toolbar.addEventListener('keydown', (event) => {
-    const index = buttons.indexOf(root.ownerDocument.activeElement);
-    const next = nextIndex(index, buttons.length, event.key);
-    if (next === null) return;
-    event.preventDefault();
-    select(next, true);
-  });
-  buttons.forEach((button, index) => {
-    button.addEventListener('click', () => select(index, true));
-  });
+  mountChoicePipeline(root, {steps: stations, selectedId: stations[0]?.id});
 }
 
 function hostDocument(root) {
@@ -221,10 +201,17 @@ export async function mount(doc, env) {
       const pipeline = await response.json();
       mountPipeline(slot, pipeline);
     } catch (_) {
-      slot.innerHTML = '<div class="jk-alert" role="alert"><p class="jk-alert-title">Error</p><p>The pipeline file did not load.</p></div>';
+      slot.innerHTML = '<div class="jk-alert" role="alert"><p class="jk-alert-title">Error</p><p>The pipeline file did not load. Check that pipeline.json is available.</p></div>';
     }
   }
   mountTabs(doc);
+  const commands = doc.querySelector('[data-jk-commands]');
+  if (commands) {
+    const palette = mountCommandPalette(doc, commands, [...doc.querySelectorAll('.jk-nav a')].map(link => ({label:link.textContent, run:() => { link.click(); }})));
+    doc.addEventListener('keydown', event => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k' && !doc.querySelector('dialog:modal')) { event.preventDefault(); palette.open(); }
+    });
+  }
 }
 
 if (typeof document !== 'undefined' && typeof document.querySelector === 'function' && document.querySelector('[data-jk-pipeline]')) {

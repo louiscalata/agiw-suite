@@ -133,7 +133,13 @@ async function proveFixtures(page) {
   await page.setContent(markedFixture);
   await requireMarked(page, '.j-tab[aria-selected="true"]', '.j-tab[aria-selected="false"]', 'marked tab');
   await requireMarked(page, 'nav a[aria-current="page"]', 'nav a:not([aria-current="page"])', 'marked nav');
-  console.log('ok fixture: transparent border rejected, Highlight accepted');
+  await page.setContent('<dialog><label>Find a command<input></label><button>Close</button></dialog>');
+  if ((await hiddenText(page)).length) throw new Error('closed dialog text was audited');
+  await page.evaluate(() => document.querySelector('dialog').showModal());
+  if ((await hiddenText(page)).length) throw new Error('visible open dialog text was rejected');
+  await page.evaluate(() => { document.querySelector('label').style.cssText = 'forced-color-adjust: none; color: transparent'; });
+  if (!(await hiddenText(page)).includes('Find a command')) throw new Error('unpainted open dialog text was missed');
+  console.log('ok fixture: transparent border rejected, Highlight accepted; closed/open dialog text checked');
 }
 
 async function hiddenText(page) {
@@ -147,7 +153,7 @@ async function hiddenText(page) {
       if (text) {
         const el = node.parentElement;
         const skip = !el
-          || el.closest('[hidden], [aria-hidden="true"], .visually-hidden, option, title')
+          || el.closest('[hidden], [aria-hidden="true"], .visually-hidden, option, title, dialog:not([open])')
           || el.namespaceURI === 'http://www.w3.org/2000/svg';
         if (!skip) {
           const style = getComputedStyle(el);

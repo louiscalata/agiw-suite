@@ -59,6 +59,12 @@ function paint(detail) {
   ledger.hidden = false;
   const nodes = Array.isArray(source?.nodes) ? source.nodes : [];
   const visible = active === 'all' ? nodes : nodes.filter(node => node.id === active || `machine:${node.machine}` === active);
+  const previous = ledger.querySelector('[data-jaryo-choices]');
+  const sameMonitor = ledger.dataset.monitor === active;
+  const resume = sameMonitor ? previous?.choiceViewState?.() : null;
+  previous?.choiceCleanup?.();
+  if (!sameMonitor) delete ledger.dataset.selectedStep;
+  ledger.dataset.monitor = active;
   ledger.replaceChildren(el('p', 'j-eyebrow', demo ? 'FICTIONAL MAP' : 'LIVE MAP'));
   ledger.append(el('h2', 'j-board-title', active === 'all' ? 'All inference' : (visible[0]?.label || active)));
   appendEvidence(ledger, mapEvidence(source, {feedUnavailable: demo ? false : detail?.feedUnavailable === true || !source, fictional: demo}));
@@ -75,7 +81,19 @@ function paint(detail) {
     if (face?.reason) row.append(el('p', 'j-step-reason', face.reason));
     list.append(row);
   }
-  ledger.append(list);
+  const presentation = el('div');
+  presentation.setAttribute('data-jaryo-choices', '');
+  presentation.jaryoChoices = {
+    steps: visible.map(node => {
+      const face = monitors.find(item => item.id === node.id);
+      return {id: node.id, name: node.label || node.id, word: face?.word || 'UNKNOWN', reason: face?.reason};
+    }),
+    selectedId: ledger.dataset.selectedStep, resume, openMonitor: true,
+    onSelect: id => { ledger.dataset.selectedStep = id; },
+  };
+  presentation.append(list);
+  ledger.append(presentation);
+  document.dispatchEvent(new CustomEvent('jaryo:pipeline', {detail: presentation}));
   ledger.append(el('p', 'j-footnote', 'Choosing a map monitor hides other nodes in the diagram. It does not pause, cancel, or restart inference.'));
 }
 
@@ -90,6 +108,10 @@ function bind() {
   const host = document.querySelector('#monitorTabs');
   if (!host || host.dataset.mapBound === '1') return;
   host.dataset.mapBound = '1';
+  document.querySelector('#mapLedger')?.addEventListener('click', event => {
+    const open = event.target.closest?.('[data-open-monitor]');
+    if (open) focusNode(open.dataset.openMonitor);
+  });
   host.addEventListener('click', event => {
     const tab = event.target.closest?.('[data-monitor]');
     if (!tab) return;

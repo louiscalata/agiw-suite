@@ -1,4 +1,5 @@
-/* Jaryo kit controls. Black and white only. Square corners. Text states, not colour. */
+@import url("./patterns.css");
+/* Jaryo kit controls. Square corners; state words always accompany color. */
 
 .jk-shell {
   min-width: 0;
@@ -243,7 +244,7 @@
 .jk-tab[aria-selected="true"]:focus-visible,
 .jk-station[aria-pressed="true"]:focus,
 .jk-station[aria-pressed="true"]:focus-visible {
-  outline-color: var(--j-invert-ink);
+  outline-color: var(--j-focus);
 }
 
 .jk-station {
@@ -461,3 +462,11 @@
     forced-color-adjust: none;
   }
 }
+
+.jk-shell .jp-step { display: flex; border: 1px solid var(--j-border); color: var(--j-muted); background: var(--j-surface); }
+.jk-shell .jp-step[aria-pressed="true"] { color: var(--j-invert-ink); background: var(--j-invert); }
+.jk-shell .jp-step:focus-visible { outline: var(--j-focus-width) dashed var(--j-focus); outline-offset: var(--j-focus-offset); }
+.jk-shell .jk-button-primary { color: var(--j-accent-ink); background: var(--j-accent); border-color: var(--j-text); }
+.jk-shell .jk-button-primary:active { color: var(--j-text); background: var(--j-bg); }
+.jk-shell .jk-button-primary:focus-visible { outline-color: var(--j-focus); }
+.jk-shell .jk-wordmark { color: var(--j-accent-ink); background: var(--j-accent); padding: 4px; }

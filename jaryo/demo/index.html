@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Jaryo pipeline</title>
 <link rel="stylesheet" href="../primitives.css">
 <link rel="stylesheet" href="../components.css">
@@ -17,6 +17,7 @@
     <a class="jk-skip" href="#pipeline">Skip to pipeline</a>
     <p class="jk-wordmark">AGIW</p>
     <p class="jk-meta">Jaryo kit</p>
+    <button type="button" class="jk-button" data-jk-commands>Commands ⌘K</button>
     <label class="jk-theme">Theme
       <select id="jk-theme" data-jk-theme>
         <option value="system">System</option>
@@ -97,7 +98,7 @@
             <h3>Empty</h3>
             <div class="jk-empty">
               <p class="jk-empty-title">Empty</p>
-              <p>No runs on this lane yet.</p>
+              <p>No runs on this lane yet. Select a station to inspect its declared state.</p>
             </div>
           </div>
           <div class="jk-specimen">
@@ -135,8 +136,8 @@
       <section id="motion" aria-labelledby="motion-title">
         <div class="jk-copy">
           <p class="jk-eyebrow">Motion</p>
-          <h2 class="jk-section-title" id="motion-title">Belt and arm</h2>
-          <p class="jk-note">The belt travels and the arm ticks. Reduced motion holds both still. This is structure, not a measurement.</p>
+          <h2 class="jk-section-title" id="motion-title">Event Tick</h2>
+          <p class="jk-note">No event stream is declared by this specimen. No activity tick is shown. A connected event stream advances once per event and resets for each run.</p>
         </div>
         <div class="jk-lane" aria-hidden="true">
           <span class="jk-arm"></span>
