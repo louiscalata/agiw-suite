@@ -30,6 +30,72 @@ class TuningTests(unittest.TestCase):
         p.write_text(json.dumps(value), encoding='utf-8')
         return p
 
+    def comparable_run(self):
+        row = copy.deepcopy(self.data['runs'][0])
+        row.update(hardware_profile_id='hardware-fixture', dataset_artifact_id='dataset-fixture', model_artifact_id='model-fixture',
+                   settings_id='settings-fixture', protocol_id='protocol-fixture')
+        row['settings'].update(temperature=0, max_tokens=1024, ctx=4096, n_gpu_layers=0,
+                               reasoning_budget=0, stop=[], system_message='fixture', n_epochs=1,
+                               prompt_template_id='template-fixture', scorer_id='strict_choice')
+        for component in row['components'].values():
+            component['prompt_template_id'] = 'template-fixture'
+        return e.normalize_run(row)
+
+    def test_explicit_comparison_requires_matching_complete_evidence(self):
+        left = self.comparable_run()
+        right = copy.deepcopy(left)
+        right.update(run_id='second', model='second', eci_posterior_mean=110,
+                     eci_p05=100, eci_p95=120)
+        report = e.compare_runs(left, right)
+        self.assertTrue(report['comparable'], report['reasons'])
+        changed = copy.deepcopy(right)
+        changed['model_artifact_id'] = None
+        self.assertFalse(e.compare_runs(left, changed)['comparable'])
+        changed.update(model=left['model'], model_artifact_id='different')
+        self.assertFalse(e.compare_runs(left, changed)['comparable'])
+        self.assertEqual((report['left_run_id'], report['right_run_id']),
+                         (left['run_id'], right['run_id']))
+        self.assertTrue(report['uncertainty'])
+        for field in ('hardware_profile_id', 'dataset_artifact_id', 'settings_id', 'protocol_id',
+                      'backend', 'backend_version'):
+            for replacement in (None, 'different'):
+                changed = copy.deepcopy(right)
+                changed[field] = replacement
+                with self.subTest(field=field, replacement=replacement):
+                    result = e.compare_runs(left, changed)
+                    self.assertFalse(result['comparable'])
+                    self.assertTrue(result['reasons'])
+        changed = copy.deepcopy(right)
+        changed['settings']['temperature'] = .5
+        self.assertFalse(e.compare_runs(left, changed)['comparable'])
+        changed = copy.deepcopy(right)
+        changed['components']['Winogrande']['scorer_id'] = 'lenient_v1'
+        self.assertFalse(e.compare_runs(left, changed)['comparable'])
+        changed = copy.deepcopy(right)
+        changed['components']['Winogrande']['prompt_template_id'] = None
+        self.assertFalse(e.compare_runs(left, changed)['comparable'])
+        changed = copy.deepcopy(right)
+        changed['components'].pop('Winogrande')
+        self.assertFalse(e.compare_runs(left, changed)['comparable'])
+        changed = copy.deepcopy(right)
+        changed['diagnostics']['status'] = 'FAIL'
+        self.assertFalse(e.compare_runs(left, changed)['comparable'])
+        for changes in (dict(eci_p05=None), dict(eci_p95=None),
+                        dict(eci_posterior_mean=None), dict(status='NOT_RUN')):
+            changed = dict(right, **changes)
+            with self.subTest(changes=changes):
+                result = e.compare_runs(left, changed)
+                self.assertFalse(result['comparable'])
+                self.assertTrue(result['reasons'])
+                self.assertNotIn('do not overlap', result['uncertainty'])
+
+    def test_comparison_evidence_survives_ingest_round_trip(self):
+        row = self.comparable_run()
+        data = e.ingest([self.file('comparison.json',
+                                   {'schema_version': 1, 'runs': [row], 'items': []})])
+        for field in ('hardware_profile_id', 'dataset_artifact_id', 'model_artifact_id', 'settings_id'):
+            self.assertEqual(data['runs'][0][field], row[field])
+
     def test_refit_and_manifest_preserve_eci_and_components(self):
         data = e.ingest([FIXTURES / 'results.json', FIXTURES / 'run_manifest.json'])
         row = data['runs'][0]
@@ -84,14 +150,14 @@ class TuningTests(unittest.TestCase):
         ranked = e.rank(self.data)
         self.assertAlmostEqual(ranked['baseline_protocol']['eci'][0]['eci_posterior_mean'], 105.37592661908786)
         self.assertAlmostEqual(ranked['pipeline_configured']['eci'][0]['eci_posterior_mean'], 108.58924763219414)
-        self.assertIn('90% CIs overlap; no clean improvement', e.status(self.data)['cross_class_note'])
+        self.assertIn('separate', e.status(self.data)['cross_class_note'])
         self.assertIn('Only one computed', ranked['baseline_protocol']['notes'][0])
 
     def test_overlap_wording_within_class_and_touching_bounds(self):
         row = copy.deepcopy(self.data['runs'][0])
         row.update(run_id='second', model='second', eci_posterior_mean=110, eci_p05=100, eci_p95=120)
         self.data['runs'].append(row)
-        self.assertTrue(any('no clean winner' in note for note in e.rank(self.data)['baseline_protocol']['notes']))
+        self.assertFalse(e.compare_runs(self.data['runs'][0], row)['comparable'])
         self.assertTrue(e.overlap(dict(eci_p05=1, eci_p95=2), dict(eci_p05=2, eci_p95=3)))
         self.assertFalse(e.overlap(dict(eci_p05=None, eci_p95=None), row))
 
@@ -101,12 +167,12 @@ class TuningTests(unittest.TestCase):
         with self.assertRaises(e.ValidationError):
             e.normalize_run(row, 'baseline_protocol')
 
-    def test_recommend_is_pc_only_and_excludes_failed_diagnostics(self):
+    def test_recommend_never_promotes_unmatched_catalog_evidence(self):
         policy = e.recommend(self.data)
-        self.assertIn('Llama', policy['routes']['coding']['model'])
-        self.assertEqual(policy['routes']['coding']['confidence'], 'low-to-moderate')
+        self.assertIsNone(policy['routes']['coding']['model'])
+        self.assertEqual(policy['routes']['coding']['status'], 'NOT_COMPUTED')
         self.assertIsNone(e.select_route('coding', 'mac', policy))
-        self.assertIsNotNone(e.select_route('coding', 'PC', policy))
+        self.assertIsNone(e.select_route('coding', 'PC', policy))
         self.assertIsNone(policy['nisi_mac']['author'])
         self.assertIsNone(policy['nisi_mac']['reviewer'])
         self.data['runs'][0]['diagnostics']['status'] = 'FAIL'
@@ -117,16 +183,23 @@ class TuningTests(unittest.TestCase):
         existing = dict(schema_version=1, note='retained', routes={'custom': {'model': 'other'}},
                         nisi_mac=dict(author='resident-a', reviewer='resident-b'))
         target.write_text(json.dumps(existing))
-        diff = e.apply_policy(self.data, target)
-        self.assertIn('+', diff)
-        self.assertEqual(json.loads(target.read_text()), existing)
-        e.apply_policy(self.data, target, write=True)
-        policy = json.loads(target.read_text())
-        self.assertEqual(policy['note'], 'retained')
-        self.assertEqual(policy['routes']['custom'], existing['routes']['custom'])
-        self.assertEqual(policy['nisi_mac'], existing['nisi_mac'])
-        self.assertEqual(policy['runtime_activation'], 'NOT_APPLIED')
-        self.assertEqual(e.apply_policy(self.data, target), '')
+        recommendation = e.recommend(self.data)
+        for route in recommendation['routes'].values():
+            route.update(model='fixture', run_id='source-run', status='PROVISIONAL',
+                         basis='Fixture comparison evidence')
+        with patch.object(e, 'recommend', return_value=recommendation):
+            diff = e.apply_policy(self.data, target)
+            self.assertIn('+', diff)
+            self.assertEqual(json.loads(target.read_text()), existing)
+            e.apply_policy(self.data, target, write=True)
+            policy = json.loads(target.read_text())
+            self.assertEqual(policy['note'], 'retained')
+            self.assertEqual(policy['routes']['custom'], existing['routes']['custom'])
+            self.assertEqual(policy['nisi_mac'], existing['nisi_mac'])
+            self.assertEqual(policy['runtime_activation'], 'NOT_APPLIED')
+            self.assertEqual(policy['routes']['general']['run_id'], 'source-run')
+            self.assertEqual(policy['routes']['general']['basis'], 'Fixture comparison evidence')
+            self.assertEqual(e.apply_policy(self.data, target), '')
 
     def test_no_candidate_apply_refuses_to_write_and_symlink_rejected(self):
         target = self.path / 'policy.json'
@@ -138,8 +211,14 @@ class TuningTests(unittest.TestCase):
             e.apply_policy(self.data, target, write=True)
 
     def test_override_path_and_honest_pending(self):
-        e.apply_policy(self.data, e.policy_path(), write=True)
-        self.assertEqual(e.read_policy()['routes']['general']['machine'], 'pc')
+        route = dict(model='fixture', machine='pc', run_id='source-run', status='PROVISIONAL',
+                     confidence='unknown', eci=None, basis='Recorded selection basis')
+        self.file('override.json', dict(schema_version=1, routes={'general': route},
+                                       runtime_activation='NOT_APPLIED'))
+        projected = e.status(self.data)['policy']
+        self.assertEqual(projected['routes']['general']['run_id'], 'source-run')
+        self.assertEqual(projected['routes']['general']['basis'], 'Recorded selection basis')
+        self.assertEqual(projected['runtime_activation'], 'NOT_APPLIED')
         pending = {r['run_id']: r for r in e.status(self.data)['pending']}
         self.assertEqual(pending['pc-lfm3']['status'], 'NOT_RUN')
         for key in ('pc-bonsai', 'mac-glimmer'):
@@ -259,10 +338,14 @@ class TuningTests(unittest.TestCase):
             ('recommend', e.recommend),
             ('policy apply', lambda data: e.apply_policy(data, target, write=True)),
         )
-        # Prove the clean control reaches both rankings and policy application.
-        for _, action in actions:
+        # Clean records reach the ranking and recommendation paths, but this
+        # incomplete catalog cannot authorize a policy change.
+        for _, action in actions[:-1]:
             target.write_bytes(before)
             self.assertTrue(action(e.ingest([self.file('clean.json', clean())])))
+        with self.assertRaises(e.ValidationError):
+            actions[-1][1](e.ingest([self.file('clean.json', clean())]))
+        self.assertEqual(target.read_bytes(), before)
 
         for alias in sorted(aliases):
             for marker in markers:

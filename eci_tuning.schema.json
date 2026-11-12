@@ -79,6 +79,10 @@
             "null"
           ]
         },
+        "hardware_profile_id": {"type": ["string", "null"], "minLength": 1},
+        "dataset_artifact_id": {"type": ["string", "null"], "minLength": 1},
+        "model_artifact_id": {"type": ["string", "null"], "minLength": 1},
+        "settings_id": {"type": ["string", "null"], "minLength": 1},
         "run_id": {
           "type": "string",
           "minLength": 1
