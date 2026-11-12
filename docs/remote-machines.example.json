@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "machines": [
+    {
+      "id": "local",
+      "label": "Local machine placeholder",
+      "lanes": [
+        {"id": "production", "label": "Local lane placeholder", "localPort": 21001,
+         "contextTokens": 32768, "thinking": "unknown"}
+      ]
+    },
+    {
+      "id": "worker-a",
+      "label": "Remote machine A placeholder",
+      "lanes": [
+        {"id": "deep", "label": "Deep lane placeholder", "localPort": 21002,
+         "timeoutSeconds": 6, "contextTokens": 65536, "thinking": "on"},
+        {"id": "fast", "label": "Fast lane placeholder", "localPort": 21003}
+      ]
+    },
+    {
+      "id": "worker-b",
+      "label": "Remote machine B placeholder",
+      "lanes": [
+        {"id": "small", "label": "Remote lane placeholder", "localPort": 21004}
+      ]
+    }
+  ]
+}

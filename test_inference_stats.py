@@ -1,6 +1,7 @@
 import unittest
+from unittest import mock
 
-from inference_stats import apply_rates, edges_for, make_node, machine_node, public_map, MAP_SCHEMA
+from inference_stats import apply_rates, edges_for, expire_map, make_node, machine_node, public_map, MAP_SCHEMA
 
 
 def lane(**extra):
@@ -89,6 +90,103 @@ class StatsModelTests(unittest.TestCase):
         copied = public_map({"schema": MAP_SCHEMA, "nodes": [node], "edges": []})
         self.assertEqual(copied["nodes"][0]["modelId"], "gpt-oss-20b")
         self.assertIsNone(public_map({"schema": MAP_SCHEMA, "nodes": [{"id": "x"}], "edges": []}))
+
+    def test_additional_machine_roots_and_lanes_keep_distinct_identities(self):
+        pc_lane = lane()
+        remote = lane(id="worker-b:deep", machine="worker-b", label="Deep", model_id="server/model")
+        roots = [machine_node("pc", "PC", [pc_lane]), machine_node("worker-b", "Worker B", [remote])]
+        document = public_map({"schema": MAP_SCHEMA, "nodes": [*roots, pc_lane, remote], "edges": []})
+        self.assertEqual([node["id"] for node in roots], ["pc", "worker-b"])
+        self.assertEqual(document["edges"], [
+            {"from": "pc", "to": "pc:gpt-oss-20b", "kind": "hosts"},
+            {"from": "worker-b", "to": "worker-b:deep", "kind": "hosts"},
+        ])
+        self.assertEqual(document["nodes"][-1]["modelId"], "server/model")
+
+    def test_expiring_one_remote_lane_cannot_leave_its_machine_ok(self):
+        fresh = lane(id="worker-b:fast", machine="worker-b", observed_at="1970-01-01T00:16:40Z")
+        old = lane(id="worker-b:deep", machine="worker-b", observed_at="1970-01-01T00:16:35Z")
+        root = machine_node("worker-b", "Worker B", [fresh, old], observed_at="1970-01-01T00:16:40Z")
+        document = {"schema": MAP_SCHEMA, "observedAt": "1970-01-01T00:16:40Z",
+                    "nodes": [root, fresh, old], "edges": edges_for([root, fresh, old])}
+        expire_map(document, 1000)
+        self.assertEqual(fresh["health"], "ok")
+        self.assertEqual(old["health"], "not_measured")
+        self.assertIsNone(old["modelId"])
+        self.assertEqual((root["health"], root["reason"]), ("not_measured", "lanes_unknown"))
+        self.assertEqual(len(document["edges"]), 2)  # Structural ownership remains visible.
+
+    def test_configured_lane_scope_stays_unknown_without_changing_legacy_pc_rollup(self):
+        fresh = lane(observed_at="1970-01-01T00:16:40Z")
+        failed = lane(id="pc:deep", health="not_measured", model_id=None,
+                      reason="timeout", observed_at="1970-01-01T00:16:40Z")
+        for marked in (False, True):
+            root = machine_node("pc", "PC", [fresh, failed], observed_at="1970-01-01T00:16:40Z")
+            if marked:
+                root["inventoryScope"] = "configured-lanes"
+            document = {"schema": MAP_SCHEMA, "nodes": [root, fresh, failed], "edges": []}
+            expire_map(document, 1000)
+            self.assertEqual(root["health"], "not_measured" if marked else "ok")
+            if marked:
+                self.assertEqual(root["reason"], "lane_unknown")
+
+
+class RegistryFreshnessTests(unittest.TestCase):
+    def registry_lane(self, **extra):
+        node = lane(id="registry:pc:deep", observed_at="1970-01-01T00:16:40Z")
+        node.update(observationSource="registry", probeIntervalSeconds=4, ageSeconds=0)
+        node.update(extra)
+        return node
+
+    def test_namespaced_machine_ids_allow_the_full_registry_token_length(self):
+        node = lane(id="registry:abcdefghijklmnop:deep", machine="registry:abcdefghijklmnop")
+        self.assertEqual(node["machine"], "registry:abcdefghijklmnop")
+
+    def test_registry_snapshot_boundary_uses_its_interval_even_for_pc_and_rerolls_root(self):
+        from server import SnapshotStore
+        node = self.registry_lane()
+        root = machine_node("pc", "Registry PC", [node], observed_at=node["observedAt"])
+        root.update(observationSource="registry", probeIntervalSeconds=4, inventoryScope="configured-lanes")
+        document = {"schema": MAP_SCHEMA, "observedAt": node["observedAt"],
+                    "nodes": [root, node], "edges": edges_for([root, node])}
+        store = SnapshotStore()
+        store.snapshot = {"sampledAt": 1000, "inference": document}
+        with mock.patch("server.time.time", return_value=1007.5):
+            fresh = store.read()["inference"]["nodes"]
+        self.assertEqual((fresh[1]["health"], fresh[1]["ageSeconds"]), ("ok", 7.5))
+        with mock.patch("server.time.time", return_value=1008.01):
+            stale = store.read()["inference"]["nodes"]
+        self.assertEqual((stale[1]["health"], stale[1]["reason"]), ("not_measured", "stale"))
+        self.assertIsNone(stale[1]["modelId"])
+        self.assertAlmostEqual(stale[1]["ageSeconds"], 8.01)
+        self.assertEqual((stale[0]["health"], stale[0]["reason"]), ("not_measured", "lane_unknown"))
+        self.assertEqual(document["nodes"][1]["modelId"], "gpt-oss-20b")  # Read ages a copy.
+        legacy = lane(observed_at="1970-01-01T00:16:40Z")
+        expire_map({"nodes": [legacy]}, 1008.01)
+        self.assertEqual(legacy["health"], "ok")
+
+    def test_registry_default_interval_and_missing_observation_never_borrow_snapshot_time(self):
+        old = self.registry_lane()
+        del old["probeIntervalSeconds"]  # Absent interval uses the registry default of 3 s.
+        pending = self.registry_lane(id="registry:pc:pending", observedAt=None, ageSeconds=None,
+                                     health="not_measured", modelId=None, reason="pending")
+        document = {"observedAt": "1970-01-01T00:16:47Z", "nodes": [old, pending]}
+        expire_map(document, 1007)
+        self.assertEqual((old["health"], old["reason"], old["ageSeconds"]), ("not_measured", "stale", 7))
+        self.assertIsNone(pending["ageSeconds"])
+        self.assertIsNone(pending["observedAt"])
+        self.assertEqual(pending["health"], "not_measured")
+
+    def test_public_map_keeps_registry_freshness_and_optional_capability_metadata(self):
+        node = self.registry_lane(contextTokens=8192, thinking="unknown")
+        copied = public_map({"schema": MAP_SCHEMA, "nodes": [node], "edges": []})["nodes"][0]
+        for key in ("observationSource", "probeIntervalSeconds", "ageSeconds", "contextTokens", "thinking"):
+            self.assertEqual(copied[key], node[key])
+        for field, bad in (("contextTokens", True), ("contextTokens", 1.5), ("thinking", "maybe"),
+                           ("probeIntervalSeconds", 0), ("ageSeconds", float("nan"))):
+            with self.subTest(field=field, bad=bad):
+                invalid = {**node, field: bad}
+                self.assertIsNone(public_map({"schema": MAP_SCHEMA, "nodes": [invalid], "edges": []}))
 
 
 if __name__ == "__main__":
