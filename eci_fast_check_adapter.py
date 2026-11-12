@@ -26,12 +26,25 @@ from remote_machines import PROTECTED_PORTS
 DEFAULT_MAX_TOKENS = 16384
 MIN_MAX_TOKENS = 8192
 MAX_RESPONSE_BYTES = 8 * 1024 * 1024
-SCORER_ID = "fast-check-strict-final-v1"
-PROMPT_ID = "fast-check-question-choices-v1"
+SCORER_ID = "fast-check-screening-final-v2"
+PARSE_VERSION = "fast-check-parse-v2"
+PROMPT_ID = "fast-check-question-choices-v2"
+TEMPLATE_VERSION = "fast-check-template-v2"
 SYSTEM_MESSAGE = (
     "Reason as needed, then give the final answer in the requested format. "
     "Do not put an explanation in the final answer."
 )
+PROMPT_TEMPLATE = {
+    "system_message": SYSTEM_MESSAGE,
+    "choice": "{question}\n\n{choices}\n\nEnd with a single final-answer line in this format:\n"
+              "Answer: <choice label>",
+    "gsm8k": "{question}\n\nEnd with a single final-answer line in this format:\n"
+             "#### <number>",
+    "short": "{question}\n\nEnd with a single final-answer line in this format:\n"
+             "Answer: <short answer>",
+    "demonstration": "Question: {question}\nAnswer:\n{answer}",
+    "few_shot": "Worked demonstrations (training examples):\n\n{demonstrations}\n\nTest question:\n{question}",
+}
 
 
 class ResponseError(Exception):
@@ -123,17 +136,70 @@ def choices_for(row):
     return result
 
 
-NUMBER = r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?"
+NUMBER = r"[+-]?(?:(?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(?:\.[0-9]+)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?"
+# Conservative screening suffixes, not arbitrary prose or unit conversion.
+UNITS = (
+    r"(?:dollars?|cents?|euros?|pounds?|yen|USD|EUR|GBP|percent|%|"
+    r"hours?|minutes?|seconds?|days?|weeks?|months?|years?|"
+    r"miles?|kilometers?|met(?:er|re)s?|centimet(?:er|re)s?|feet|foot|inches|inch|"
+    r"kilograms?|grams?|ounces?|lit(?:er|re)s?|gallons?|kg|km|cm|mm|mg|ml|m|g|l|"
+    r"people|persons?|items?|apples?|books?|tickets?|cookies?|marbles?|coins?)"
+)
+
+
+def numeric_final(text):
+    """Select only a whole answer or a terminal explicit/boxed answer line."""
+    if not isinstance(text, str):
+        return None, None
+    text = text.strip()
+    lines = text.splitlines()
+    if not lines:
+        return None, None
+    last = lines[-1].strip()
+    marked = re.fullmatch(r"(?:####|(?:Final answer|Answer):)\s*(.+)", last, re.I)
+    if marked:
+        return marked.group(1), "numeric_marked_final"
+    if re.fullmatch(r"(?:\$|\\\(|\\\[)?\s*\\boxed\{[^{}]+\}\s*(?:\$|\\\)|\\\])?\.?", last):
+        return last, "numeric_boxed_final"
+    return (text, "numeric_complete") if len(lines) == 1 else (None, None)
 
 
 def number_answer(text):
-    if not isinstance(text, str):
+    token, _ = numeric_final(text)
+    if token is None:
         return None
-    # Only a complete final answer, or the final explicitly marked line, counts.
-    text = text.strip()
-    marked = re.search(r"(?:^|\n)(?:####|Final answer:)\s*(" + NUMBER + r")\s*\Z", text, re.I)
-    token = marked.group(1) if marked else text
-    if not re.fullmatch(NUMBER, token) or len(token) > 128:
+    token = token.strip()
+    if token.endswith("."):
+        token = token[:-1].rstrip()
+    # Strip only balanced LaTeX math delimiters and one complete box.
+    for left, right in (("$", "$"), (r"\(", r"\)"), (r"\[", r"\]")):
+        if (
+            token.startswith(left) and token.endswith(right)
+            and len(token) > len(left) + len(right)
+        ):
+            token = token[len(left):-len(right)].strip()
+            break
+    boxed = re.fullmatch(r"\\boxed\{([^{}]+)\}", token)
+    if boxed:
+        token = boxed.group(1).strip()
+        if token.endswith("."):
+            token = token[:-1].rstrip()
+    if token.startswith(r"\$"):
+        token = token[1:]
+    matched = re.fullmatch(
+        r"(?P<prefix>[+-]?[$£€¥]\s*|[$£€¥]\s*[+-]?)?(?P<number>" + NUMBER
+        + r")(?:\s+(?:" + UNITS + r")|\s*[%$£€¥])?", token, re.I
+    )
+    if not matched:
+        return None
+    prefix = matched.group("prefix") or ""
+    token = matched.group("number")
+    if "+" in prefix or "-" in prefix:
+        if token.startswith(("+", "-")):
+            return None
+        token = ("-" if "-" in prefix else "+") + token
+    token = token.replace(",", "")
+    if len(token) > 128:
         return None
     try:
         value = Decimal(token)
@@ -168,32 +234,108 @@ def reference(row, benchmark):
     return answer
 
 
-def prompt_for(row, benchmark):
+def demonstrations_for(datasets):
+    result = {}
+    for benchmark, source in datasets.items():
+        demos = fast.demonstrations_for(benchmark, source)
+        rendered = []
+        for demo in demos:
+            answer = number_answer(demo["answer"])
+            if answer is None:
+                raise fast.ValidationError("GSM8K demonstration requires a numeric final answer")
+            # Keep worked reasoning supplied by the descriptor; never derive it
+            # from test references or fabricate demonstrations from test rows.
+            lines = demo["answer"].strip().splitlines()
+            reasoning = "\n".join(lines[:-1]) if len(lines) > 1 else ""
+            reasoning = "\n".join(v for v in (demo.get("rationale", ""), reasoning) if v)
+            rendered.append(dict(
+                question=demo["question"],
+                answer=(reasoning + "\n" if reasoning else "") + "#### " + answer,
+            ))
+        if rendered:
+            result[benchmark] = rendered
+    return result
+
+
+def template_manifest(demonstrations):
+    return dict(template=PROMPT_TEMPLATE, demonstrations=demonstrations)
+
+
+def prompt_for(row, benchmark, demonstrations=()):
     options = choices_for(row)
-    text = row["question"]
     if options:
-        text += "\n\n" + "\n".join(label + ". " + value for label, value in options)
-        text += "\n\nGive only the choice label as your final answer."
+        text = PROMPT_TEMPLATE["choice"].format(
+            question=row["question"],
+            choices="\n".join(label + ". " + value for label, value in options),
+        )
     elif benchmark == "gsm8k":
-        text += "\n\nEnd with 'Final answer: <number>'."
+        text = PROMPT_TEMPLATE["gsm8k"].format(question=row["question"])
+        if demonstrations:
+            block = "\n\n".join(
+                PROMPT_TEMPLATE["demonstration"].format(**demo) for demo in demonstrations
+            )
+            text = PROMPT_TEMPLATE["few_shot"].format(demonstrations=block, question=text)
     else:
-        text += "\n\nGive only the short answer as your final answer."
+        text = PROMPT_TEMPLATE["short"].format(question=row["question"])
     return text
 
 
-def extract_answer(content, row, benchmark):
+def parse_answer(content, row, benchmark):
+    """Return (normalized answer, screening rule); ambiguity is never scored."""
     options = choices_for(row)
     text = content.strip()
     if options:
-        labels = "".join(label for label, _ in options)
-        matched = re.fullmatch(
-            r"(?:(?:Final answer|Answer):\s*)?(?:([" + labels + r"])|\(([" + labels + r"])\))[.]?",
-            text, re.I
-        )
-        return (matched.group(1) or matched.group(2)).upper() if matched else None
+        lines = text.splitlines()
+        if not lines:
+            return None, None
+
+        def resolve(candidate):
+            label_match = re.fullmatch(r"(?:([A-Z0-9])|\(([A-Z0-9])\))[.]?", candidate, re.I)
+            label = (
+                (label_match.group(1) or label_match.group(2)).upper() if label_match else None
+            )
+            # The requested label format has priority over text fallback. ARC
+            # can contain e.g. choice A's text "C" while label C is correct.
+            if label in {key for key, _ in options}:
+                return label, "label"
+            matches = {
+                key for key, value in options if value.casefold() == candidate.casefold()
+            }
+            if len(matches) != 1:
+                return None, None
+            value = next(iter(matches))
+            return value, "choice_text"
+
+        explicit = []
+        for line in lines:
+            marked = re.fullmatch(r"(?:Final answer|Answer):\s*(.*)", line.strip(), re.I)
+            if marked:
+                explicit.append(resolve(marked.group(1).strip()))
+        last = lines[-1].strip()
+        marked = re.fullmatch(r"(?:Final answer|Answer):\s*(.*)", last, re.I)
+        if explicit:
+            if not marked or any(
+                value is None or value != explicit[-1][0] for value, _ in explicit
+            ):
+                return None, None
+            value, rule = explicit[-1]
+            return value, "mc_explicit_" + rule
+        value, rule = resolve(last)
+        if value is None:
+            return None, None
+        return value, "mc_last_standalone_label" if rule == "label" else "mc_exact_choice_text"
     if benchmark == "gsm8k":
-        return number_answer(text)
-    return text if text and len(text) <= 128 and not any(ord(c) < 32 for c in text) else None
+        value = number_answer(text)
+        return (value, numeric_final(text)[1]) if value is not None else (None, None)
+    marked = re.fullmatch(r"Answer:\s*(.+)", text.splitlines()[-1], re.I) if text else None
+    value = marked.group(1).strip() if marked else text
+    if not value or len(value) > 128 or any(ord(c) < 32 for c in value):
+        return None, None
+    return value, "short_explicit" if marked else "short_exact"
+
+
+def extract_answer(content, row, benchmark):
+    return parse_answer(content, row, benchmark)[0]
 
 
 class OpenAIAdapter:
@@ -207,6 +349,7 @@ class OpenAIAdapter:
         self.available_memory_bytes = None
         self.ctx = None
         self.backend_version = None
+        self.demonstrations = {}
 
     def request(self, method, path, payload=None, *, optional=False):
         # A direct numeric connection ignores proxy environment variables and
@@ -214,17 +357,30 @@ class OpenAIAdapter:
         connection = http.client.HTTPConnection(self.host, self.port, timeout=self.timeout)
         deadline = time.monotonic() + self.timeout
         expired = threading.Event()
+        expiry_lock = threading.Lock()
+        transport = None
         timer = None
+        timer_started = False
+
+        def expire():
+            # Both the timer and the request thread can notice the deadline.
+            # Serialize them so observing expiry also waits for shutdown.
+            with expiry_lock:
+                if expired.is_set():
+                    return
+                expired.set()
+                sock = transport if transport is not None else connection.sock
+                if sock is not None:
+                    try:
+                        sock.shutdown(socket.SHUT_RDWR)
+                    except OSError:
+                        pass
+
         try:
             connection.connect()
             transport = connection.sock
-
-            def expire():
-                expired.set()
-                try:
-                    transport.shutdown(socket.SHUT_RDWR)
-                except OSError:
-                    pass
+            if time.monotonic() >= deadline:
+                raise TimeoutError("HTTP deadline")
 
             # A socket inactivity timeout alone permits slow-drip headers/body
             # to run forever. Shutdown this request's socket at the total
@@ -232,13 +388,14 @@ class OpenAIAdapter:
             timer = threading.Timer(max(0, deadline - time.monotonic()), expire)
             timer.daemon = True
             timer.start()
+            timer_started = True
             body = None if payload is None else fast.canonical(payload).encode("utf-8")
             connection.request(method, path, body=body, headers={
                 "Content-Type": "application/json", "Accept": "application/json",
                 "Accept-Encoding": "identity",
             })
             response = connection.getresponse()
-            if expired.is_set():
+            if expired.is_set() or time.monotonic() >= deadline:
                 raise TimeoutError("HTTP deadline")
             if optional and response.status in (404, 405):
                 return None
@@ -252,7 +409,7 @@ class OpenAIAdapter:
                 if connection.sock is not None:
                     connection.sock.settimeout(remaining)
                 chunk = response.read1(min(65536, MAX_RESPONSE_BYTES + 1 - size))
-                if expired.is_set():
+                if expired.is_set() or time.monotonic() >= deadline:
                     raise TimeoutError("HTTP deadline")
                 size += len(chunk)
                 if size > MAX_RESPONSE_BYTES:
@@ -268,16 +425,21 @@ class OpenAIAdapter:
                 return value
             except (ValueError, UnicodeError, RecursionError):
                 raise ResponseError("invalid JSON response") from None
-        except socket.timeout:
+        except (socket.timeout, TimeoutError):
             # socket.timeout was not a TimeoutError alias until Python 3.10.
+            # A synchronous timeout can beat the timer, including during connect.
+            expire()
             raise TimeoutError("HTTP deadline") from None
         except (OSError, http.client.HTTPException):
             if expired.is_set():
+                expire()
                 raise TimeoutError("HTTP deadline") from None
             raise
         finally:
             if timer is not None:
                 timer.cancel()
+                if timer_started:
+                    timer.join()
             connection.close()
 
     def discover(self):
@@ -361,7 +523,7 @@ class OpenAIAdapter:
         reply = self.request("POST", (self.prefix or "/v1") + "/chat/completions", {
             "model": self.model_id, "messages": [
                 {"role": "system", "content": SYSTEM_MESSAGE},
-                {"role": "user", "content": prompt_for(row, benchmark)},
+                {"role": "user", "content": prompt_for(row, benchmark, self.demonstrations.get(benchmark, ()))},
             ], "temperature": 0, "seed": 42, "max_tokens": self.max_tokens,
             "stop": [], "stream": False,
         })
@@ -392,7 +554,7 @@ class OpenAIAdapter:
             or choice_sample.get("limit") is not None
             or (not content.strip() and bool(reasoning and reasoning.strip()))
         )
-        value = extract_answer(content, row, benchmark)
+        value, parse_rule = parse_answer(content, row, benchmark)
         outcome = ("truncated_empty" if cut_off else "unparsed") if value is None else (
             "correct" if value == expected else "wrong"
         )
@@ -409,7 +571,7 @@ class OpenAIAdapter:
             counts[key] = count
         return dict(
             outcome=outcome, parsed=value is not None, finish_reason=finish,
-            cut_off=bool(cut_off), answer_value=value, error=None,
+            cut_off=bool(cut_off), answer_value=value, parse_rule=parse_rule, error=None,
             seconds=max(0, time.monotonic() - start), **counts,
         )
 
@@ -459,6 +621,7 @@ def run(base_url, model_id, sample_files, output_dir, *, count=200,
             raise fast.ValidationError("sample files must have distinct benchmark descriptors")
         datasets.update(data)
     plan = fast.make_plan(datasets, count=count, wall_budget_s=wall_budget_s)
+    adapter.demonstrations = demonstrations_for(datasets)
     # Validate all scorer inputs before contacting the server, including items
     # outside the selected sample (they participate in the dataset identity).
     for benchmark, source in datasets.items():
@@ -481,7 +644,11 @@ def run(base_url, model_id, sample_files, output_dir, *, count=200,
     if pre["decision"] != "CHECK":
         raise fast.ValidationError("fit gate requires known model size, quantization and sufficient available memory")
     settings = dict(
-        scorer_id=SCORER_ID, prompt_template_id=PROMPT_ID, backend="openai-compatible",
+        scorer_id=SCORER_ID, parse_version=PARSE_VERSION,
+        prompt_template_id=PROMPT_ID, prompt_template_version=TEMPLATE_VERSION,
+        prompt_template=template_manifest(adapter.demonstrations),
+        prompt_template_sha256=fast.digest(template_manifest(adapter.demonstrations)),
+        evaluation_scope="screening; not an ECI score", backend="openai-compatible",
         backend_version=adapter.backend_version, temperature=0, max_tokens=max_tokens,
         ctx=adapter.ctx, seed=42, stop=[], system_message=SYSTEM_MESSAGE, n_epochs=1,
         server_facts=adapter.facts,
