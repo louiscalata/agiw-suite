@@ -114,6 +114,42 @@ The analysis source directory remains read-only. The tool accepts its current
 tables without depending on that job's Python environment. Small synthetic item
 fixtures and redacted numerical refit fixtures live in `test_support/eci_tuning/`.
 
+## Run a fast check against an existing server
+
+The opt-in adapter queries an already running OpenAI-compatible HTTP server on
+**127.0.0.1**, excluding `remote_machines.PROTECTED_PORTS`. It never starts, stops
+or reconfigures a server. Supply local JSON files mapping benchmark names to
+fast-check descriptors (`items`, optional `revision`/`chance`/strata). Items need
+string `id`, `question`, canonical `answer`, and `choices` for choice questions:
+
+```json
+{"arc":{"items":[{"id":"example-1","question":"Which number is even?",
+ "choices":["3","4","5","7"],"answer":"B"}]}}
+```
+
+```sh
+python3 -B -m eci_fast_check_adapter \
+  --base-url http://127.0.0.1:9000/v1 --model example-model \
+  --samples arc-sample.json gsm8k-sample.json --output-dir ../fast-check-output
+python3 -B -m eci_fast_check validate ../fast-check-output/result.json
+```
+
+Defaults are 200 items per benchmark, **16,384 completion tokens per item** and
+180 seconds per request. Empty final content with `reasoning_content` is recorded
+as `truncated_empty`, even with finish reason `stop`; reasoning is never scored.
+Use `--max-tokens` (minimum 8,192), `--timeout` and `--count` as needed.
+
+Server facts come from `/props` or `/v1/models`; unknown hardware stays null.
+If metadata omits the actual artifact hash or fit inputs, supply verified values
+with `--model-sha256`, `--file-size-bytes`, `--quantization` and
+`--available-memory-bytes`. Missing evidence refuses inference. Every attempt is
+checkpointed with flush/fsync. Repeat the same command to resume; use a fresh
+output directory to retry recorded errors or change settings. Exit 0 means a
+result was written; its post decision remains separate. Real inference and full
+ECI are NOT_RUN for this implementation. See the
+[adapter contract](eci-fast-check.md#loopback-harness-adapter) for formats,
+metadata, deadlines, resume restrictions and exit codes.
+
 ## Rankings and uncertainty
 
 The [fast check](eci-fast-check.md) adds a separate `fast_checks` collection to
