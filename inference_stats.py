@@ -9,6 +9,10 @@ import math
 import datetime as dt
 
 MAP_SCHEMA = "agiw.inference-map.v1"
+# Up to 32 configured remote roots + 64 lanes, with room for local nodes
+# and their caller observations. Keep the CLI export bounded as the map grows.
+MAX_MAP_NODES = 128
+MAX_MAP_EDGES = 256
 HEALTH = frozenset({"ok", "degraded", "down", "not_measured"})
 ROLES = frozenset({"machine", "lmstudio", "veritas", "router", "llama", "client"})
 _RATES = ("promptTokensPerSecond", "generationTokensPerSecond", "latencyMs")
@@ -31,13 +35,26 @@ def expire_map(document, now):
                               "detail": "PC tunnel observation stale."}
     expired = set()
     for node in document.get("nodes") or []:
-        stamp = node.get("observedAt") or document.get("observedAt")
+        registry = node.get("observationSource") == "registry"
+        stamp = node.get("observedAt") if registry else (node.get("observedAt") or document.get("observedAt"))
         try:
             observed = dt.datetime.fromisoformat(stamp.replace("Z", "+00:00"))
             age = now - observed.timestamp() if observed.tzinfo is not None else math.inf
         except (TypeError, ValueError, AttributeError, OverflowError):
             age = math.inf
-        if not -2 <= age <= (30 if node.get("machine") == "pc" else 3):
+        if registry:
+            node["ageSeconds"] = max(0.0, age) if math.isfinite(age) else None
+            interval = node.get("probeIntervalSeconds", 3)
+            interval = interval if _finite(interval) and interval > 0 else 3
+            max_age = 2 * interval
+            # Pending probes have no completion time. Keep their explicit unknown
+            # reason without borrowing a newer snapshot timestamp.
+            if (node.get("observedAt") is None and node.get("health") == "not_measured"
+                    and node.get("modelId") is None):
+                continue
+        else:
+            max_age = 30 if node.get("machine") == "pc" else 3
+        if not -2 <= age <= max_age:
             expired.add(node.get("id"))
             node.update(health="not_measured", reason="stale")
             for field in _RATES + _COUNTS + ("modelId", "upstream", "detail", "models", "callers"):
@@ -49,6 +66,8 @@ def expire_map(document, now):
                     if child.get("machine") == node.get("machine")
                     and child.get("role") not in ("machine", "client")]
         rollup = machine_node(node["machine"], node["label"], children)
+        if node.get("inventoryScope") == "configured-lanes" and any(child.get("health") != "ok" for child in children):
+            rollup.update(health="not_measured", reason="lane_unknown")
         for field in ("health", "reason", "promptTokensPerSecond", "generationTokensPerSecond"):
             node[field] = rollup[field]
     # Upstream and caller links are observations too; retain only structural links
@@ -79,7 +98,7 @@ def make_node(*, id, machine, role, label, health, endpoint=None, model_id=None,
     """One map node. ``model_id`` is the id the server reported, unchanged."""
     node = {
         "id": _text(id, 80),
-        "machine": _text(machine, 16),
+        "machine": _text(machine, 32),
         "role": role if role in ROLES else None,
         "label": _text(label, 80),
         "endpoint": _text(endpoint, 80) if endpoint is not None else None,
@@ -178,7 +197,7 @@ def edges_for(nodes):
             if owner in by_id:
                 edges.append({"from": owner, "to": node["id"], "kind": "caller"})
             continue
-        parent = "mac" if node["machine"] == "mac" else "pc"
+        parent = node["machine"]
         if parent in by_id:
             edges.append({"from": parent, "to": node["id"], "kind": "hosts"})
     router = by_id.get("pc:router")
@@ -210,7 +229,13 @@ def _sum(nodes, machine, key):
 
 def machine_node(machine, label, children, *, observed_at=None, vram=None, reason=None):
     healths = [node["health"] for node in children]
-    if any(item == "down" for item in healths):
+    # Additional machines describe only configured lanes. One answering lane
+    # cannot establish health for another lane whose probe failed.
+    if machine not in ("mac", "pc") and any(item == "not_measured" for item in healths):
+        health = "not_measured"
+        if reason is None:
+            reason = "lanes_unknown"
+    elif any(item == "down" for item in healths):
         health = "down"
     elif any(item == "degraded" for item in healths):
         health = "degraded"
@@ -225,7 +250,7 @@ def machine_node(machine, label, children, *, observed_at=None, vram=None, reaso
         used, total = vram.get("usedMiB"), vram.get("totalMiB")
         if type(used) is not int or type(total) is not int or used < 0 or total < used:
             used = total = None
-    return make_node(id=machine if machine == "mac" else "pc", machine=machine, role="machine",
+    return make_node(id=machine, machine=machine, role="machine",
                      label=label, health=health, reason=reason, observed_at=observed_at,
                      prompt_tokens_per_second=_sum(children, machine, "promptTokensPerSecond"),
                      generation_tokens_per_second=_sum(children, machine, "generationTokensPerSecond"),
@@ -266,7 +291,8 @@ def public_map(document):
         return None
     nodes = document.get("nodes")
     edges = document.get("edges")
-    if not isinstance(nodes, list) or len(nodes) > 32 or not isinstance(edges, list) or len(edges) > 64:
+    if (not isinstance(nodes, list) or len(nodes) > MAX_MAP_NODES
+            or not isinstance(edges, list) or len(edges) > MAX_MAP_EDGES):
         return None
     try:
         copied = [make_node(id=node["id"], machine=node["machine"], role=node["role"], label=node["label"],
@@ -281,6 +307,25 @@ def public_map(document):
                             vram_used_mib=node.get("vramUsedMiB"), vram_total_mib=node.get("vramTotalMiB"),
                             detail=node.get("detail"), models=node.get("models"), callers=node.get("callers"))
                   for node in nodes]
+        for source, node in zip(nodes, copied):
+            if source.get("observationSource") == "registry":
+                interval = source.get("probeIntervalSeconds", 3)
+                age = source.get("ageSeconds")
+                if not _finite(interval) or interval <= 0 or (age is not None and (not _finite(age) or age < 0)):
+                    raise ValueError("registry freshness")
+                node.update(observationSource="registry", probeIntervalSeconds=interval, ageSeconds=age)
+                if source.get("inventoryScope") == "configured-lanes":
+                    node["inventoryScope"] = "configured-lanes"
+            if "contextTokens" in source:
+                value = source["contextTokens"]
+                if type(value) is not int or value < 0:
+                    raise ValueError("contextTokens")
+                node["contextTokens"] = value
+            if "thinking" in source:
+                value = source["thinking"]
+                if value not in ("on", "off", "unknown"):
+                    raise ValueError("thinking")
+                node["thinking"] = value
     except (KeyError, TypeError, ValueError):
         return None
     return {"schema": MAP_SCHEMA, "nodes": copied, "edges": edges_for(copied)}
