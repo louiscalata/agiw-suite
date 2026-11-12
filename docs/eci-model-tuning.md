@@ -116,6 +116,19 @@ fixtures and redacted numerical refit fixtures live in `test_support/eci_tuning/
 
 ## Rankings and uncertainty
 
+The [fast check](eci-fast-check.md) adds a separate `fast_checks` collection to
+dataset version 1 and a `fast_check.hardware_views` entry to ranking output.
+Records use protocol `agiw-fast-check-v1` and the separate
+[`eci_fast_check.schema.json`](../eci_fast_check.schema.json) contract. They never
+enter `runs`, ECI/component rankings, policy recommendation or policy apply.
+Page integration is the next slice. Mac and Windows endpoints use the bundled catalog,
+which contains no real fast-check measurements; an ingested `tuning.fast.json`
+does not reach the page. This slice retains the pure view/ranking function and
+renderer tests with supplied fixture data. Ingest reads explicitly named records;
+it does not replace the catalog or start a check. A future page source needs an
+explicitly configured, validated, read-only local dataset and an end-to-end data
+path test before the page can claim to show ingested fast checks.
+
 ECI is sorted descending **within** `baseline_protocol`, `pipeline_configured`,
 `published_reference`, and `unclassified`. Overlapping or touching 90% posterior
 intervals produce “no clean winner”; disjoint intervals alone do not prove a

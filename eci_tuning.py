@@ -16,6 +16,8 @@ from pathlib import Path
 import sys
 import tempfile
 
+import eci_fast_check as fast
+
 ROOT = Path(__file__).resolve().parent
 CATALOG = ROOT / 'eci_tuning_catalog.json'
 DEFAULT_POLICY = ROOT / 'eci_tuning_routes.json'
@@ -26,6 +28,8 @@ SETTINGS = ('temperature', 'max_tokens', 'ctx', 'n_gpu_layers', 'reasoning_budge
             'stop', 'system_message', 'n_epochs', 'prompt_template_id', 'scorer_id')
 IDENTITY = ('quant', 'backend', 'backend_version', 'machine')
 METRICS = ('latency_s', 'tokens_per_s', 'cost_usd', 'memory_bytes', 'peak_memory_bytes', 'gpu_memory_bytes')
+PROTOCOL_ALIASES = ('protocol_id', 'protocol')
+PROTOCOL_FIELDS = (*PROTOCOL_ALIASES, 'kind')
 
 
 class ValidationError(ValueError):
@@ -73,10 +77,14 @@ def load(path):
     path = Path(path)
     if path.suffix == '.csv':
         with path.open(newline='', encoding='utf-8') as stream:
-            return [{key: decode_cell(value) for key, value in row.items()} for row in csv.DictReader(stream)]
+            reader = csv.DictReader(stream)
+            if reader.fieldnames is not None and len(set(reader.fieldnames)) != len(reader.fieldnames):
+                raise ValidationError('duplicate CSV column')
+            return [{key: decode_cell(value) for key, value in row.items()} for row in reader]
     if path.suffix == '.jsonl':
-        return [json.loads(line) for line in path.read_text(encoding='utf-8').splitlines() if line.strip()]
-    return json.loads(path.read_text(encoding='utf-8'))
+        return [json.loads(line, object_pairs_hook=fast.unique_object)
+                for line in path.read_text(encoding='utf-8').splitlines() if line.strip()]
+    return json.loads(path.read_text(encoding='utf-8'), object_pairs_hook=fast.unique_object)
 
 
 def validate_manifest(manifest):
@@ -107,14 +115,68 @@ def comparability(row, hint=None):
     return label
 
 
+def reject_fast_marker(value):
+    if isinstance(value, str) and any(marker in value.strip().lower()
+                                      for marker in (fast.PROTOCOL, 'agiw_fast_check')):
+        raise ValidationError('fast checks belong only in fast_checks, never ECI runs or items')
+
+
+def eci_protocol(row):
+    """Validate provenance before a row can lose aliases during normalization.
+
+    kind is an input record tag; protocol and protocol_id are aliases for the
+    same provenance. Check every supplied value even when another alias wins.
+    """
+    if not isinstance(row, dict):
+        raise ValidationError('ECI row must be an object')
+    for key in PROTOCOL_FIELDS:
+        reject_fast_marker(text(row.get(key), key))
+    protocols = [text(row.get(key), key) for key in PROTOCOL_ALIASES]
+    known = {value for value in protocols if value is not None}
+    if len(known) > 1:
+        raise ValidationError('conflicting protocol aliases')
+    return next(iter(known), None)
+
+
+def validate_eci_provenance(value, inherited_protocol=None, dedicated_fast_checks=False):
+    """Inspect every supplied level before any adapter can discard metadata.
+
+    Only the root normalized dataset's fast_checks collection is a separate
+    protocol domain. A nested field with that name does not create an escape.
+    Protocol aliases at a child must agree with a supplied ancestor protocol.
+    Marker strings in arbitrary values, list entries and mapping keys are also
+    rejected, including metadata that a normalization adapter would discard.
+    """
+    if isinstance(value, dict):
+        protocol = eci_protocol(value)
+        if inherited_protocol is not None and protocol is not None and protocol != inherited_protocol:
+            raise ValidationError('conflicting parent/child protocol fields')
+        inherited_protocol = protocol or inherited_protocol
+        for key, child in value.items():
+            reject_fast_marker(key)
+            if (dedicated_fast_checks and key == 'fast_checks'
+                    and value.get('schema_version') == 1 and 'runs' in value and 'items' in value):
+                if not isinstance(child, list):
+                    raise ValidationError('fast_checks must be a collection')
+                continue
+            validate_eci_provenance(child, inherited_protocol)
+    elif isinstance(value, list):
+        for child in value:
+            validate_eci_provenance(child, inherited_protocol)
+    else:
+        reject_fast_marker(value)
+
+
 def normalize_run(row, hint=None, run_id=None):
     if not isinstance(row, dict):
         raise ValidationError('run must be an object')
+    validate_eci_provenance(row)
+    protocol_id = eci_protocol(row)
     result = {'run_id': text(row.get('run_id') or run_id, 'run_id', True),
               'model': text(row.get('model') or row.get('model_id'), 'model', True),
               'status': {'OK': 'NOT_COMPUTED', 'PARTIAL': 'NOT_COMPUTED'}.get(row.get('status'), row.get('status')) or 'NOT_COMPUTED',
               'comparability_class': comparability(row, hint),
-              'protocol_id': text(row.get('protocol_id'), 'protocol_id'),
+              'protocol_id': protocol_id,
               'reason': text(row.get('reason'), 'reason')}
     result['source_status'] = text(row.get('source_status', row.get('status')), 'source_status')
     result['partial'] = row.get('partial', False)
@@ -230,7 +292,17 @@ def normalize_item(row):
 
 def ingest(paths, hint=None):
     """Normalize only named files. Never recurse into inspect logs or model files."""
-    runs, items = {}, []
+    runs, items, fast_checks = {}, [], {}
+
+    def add_fast(row):
+        try:
+            normalized = fast.validate_record(copy.deepcopy(row))
+        except (ValueError, TypeError, KeyError) as error:
+            raise ValidationError('invalid fast-check record') from error
+        key = normalized['record_id']
+        if key in fast_checks:
+            raise ValidationError('duplicate fast-check record')
+        fast_checks[key] = normalized
 
     def add_run(row, run_id=None):
         normalized = normalize_run(row, hint, run_id)
@@ -241,6 +313,7 @@ def ingest(paths, hint=None):
 
     for path in map(Path, paths):
         data = load(path)
+        validate_eci_provenance(data, dedicated_fast_checks=True)
         if path.name == 'run_manifest.json':
             # Attached via --manifest to a refit below; standalone validation only.
             validate_manifest(data)
@@ -248,9 +321,13 @@ def ingest(paths, hint=None):
         if isinstance(data, dict) and 'schema_version' in data:
             if data['schema_version'] != 1:
                 raise ValidationError('unsupported schema_version')
+            if not all(key in data for key in ('runs', 'items')):
+                raise ValidationError('normalized dataset requires runs and items')
             for row in data.get('runs', []):
                 add_run(row)
             items.extend(normalize_item(row) for row in data.get('items', []))
+            for row in data.get('fast_checks', []):
+                add_fast(row)
         elif isinstance(data, dict) and 'results' in data:
             for row in data['results']:
                 add_run(row, row.get('run_id') or f'{path.parent.name}::{row.get("model_id", "unknown")}')
@@ -263,9 +340,15 @@ def ingest(paths, hint=None):
                 if 'item_id' in row:
                     items.append(normalize_item(row))
                 elif 'raw_score' in row:
+                    # Validate every source component before aggregation can drop it.
+                    component_protocol = eci_protocol(row)
                     model = row.get('model_id') or row.get('model')
                     key = row.get('run_id') or f'{path.stem}::{model}'
                     target = extras.setdefault(key, dict(row, run_id=key, status='NOT_COMPUTED', components={}))
+                    target_protocol = eci_protocol(target)
+                    if target_protocol is not None and component_protocol is not None and target_protocol != component_protocol:
+                        raise ValidationError('extra-score protocol conflict')
+                    target['protocol_id'] = target_protocol or component_protocol
                     name = text(row.get('benchmark'), 'benchmark', True)
                     if name in target['components']:
                         raise ValidationError('duplicate extra score benchmark')
@@ -297,7 +380,8 @@ def ingest(paths, hint=None):
                 raise ValidationError(f'item/run {key} conflict; use distinct run IDs')
         if item['scorer_id'] == 'lenient_v1' and run['comparability_class'] == 'baseline_protocol':
             raise ValidationError('lenient item cannot join baseline run')
-    return {'schema_version': 1, 'runs': list(runs.values()), 'items': items}
+    return {'schema_version': 1, 'runs': list(runs.values()), 'items': items,
+            'fast_checks': list(fast_checks.values())}
 
 
 def overlap(a, b):
@@ -325,6 +409,9 @@ def performance(rows, items, metric):
 
 
 def rank(data):
+    # Pure callers may provide normalized data without going through ingest.
+    # Apply the provenance barrier here too; recommend/apply both use rank.
+    validate_eci_provenance(data, dedicated_fast_checks=True)
     result = {}
     for label in CLASSES:
         rows = [row for row in data['runs'] if row['comparability_class'] == label]
@@ -350,6 +437,8 @@ def rank(data):
                          'components': {key: sorted(values, key=lambda r: -r['score']) for key, values in component_ranks.items()},
                          'latency': latency, 'cost': cost,
                          'unknown_latency': unknown_latency, 'unknown_cost': unknown_cost}
+    # This key has no ECI/components lists and is intentionally outside CLASSES.
+    result['fast_check'] = {'label': 'fast check', 'hardware_views': fast.rank(data.get('fast_checks', []))}
     return result
 
 
@@ -484,7 +573,7 @@ def main(argv=None):
             print('Policy file written.' if args.write else 'Dry run; pass --write to apply.')
             print('External runtime activation NOT_APPLIED; Nisi Mac configuration unchanged.')
             return 0
-        result = {'ingest': lambda: data, 'validate': lambda: {'valid': True, 'runs': len(data['runs']), 'items': len(data['items'])},
+        result = {'ingest': lambda: data, 'validate': lambda: {'valid': True, 'runs': len(data['runs']), 'items': len(data['items']), 'fast_checks': len(data['fast_checks'])},
                   'rank': lambda: rank(data), 'recommend': lambda: recommend(data), 'status': lambda: status(data)}[args.command]()
         output = json.dumps(result, indent=2, allow_nan=False) + '\n'
         if getattr(args, 'output', None):

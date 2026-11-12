@@ -5,6 +5,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Add offline model fast checks: paired versioned samples, Wilson intervals, exact McNemar comparisons, deterministic fit/admission gates, strict records and separate hardware rankings in offline output and pure view functions. Ingested fast-check page integration is deferred to the next slice; both page endpoints still use the bundled catalog. The callable runner seam uses no model integration. Real fast checks and full ECI runs remain NOT_RUN; fast checks cannot update ECI routing policy.
+
 - #119 (`8230e60`) replaces Fix inference with the AGIW x ECI Model Tuning Tool after #117. The old name, control IDs and `/api/inference/fix` route are deprecated compatibility aliases; `/api/eci-tuning/repair` uses the same guarded repair. Opening the tool never starts repair; Run check confirms it. This is not a tagged release.
 
 - #117 (`eedb253`) adds the AGIW x ECI Model Tuning Tool: offline ingest, protocol-separated rankings, explicit policy apply, and a read-only model tuning page with provisional and pending scores.

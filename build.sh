@@ -18,7 +18,7 @@ if [[ ! -x "$python_path" ]]; then
     exit 1
 fi
 resources=(
-    eci_tuning.py eci_tuning_catalog.json eci_tuning_routes.json eci_tuning.schema.json
+    eci_tuning.py eci_fast_check.py eci_fast_check.schema.json eci_tuning_catalog.json eci_tuning_routes.json eci_tuning.schema.json
     web/eci-tuning.html web/eci-tuning.mjs web/eci-tuning.css
     web/fonts/ibm-plex-sans-400.woff2 web/fonts/ibm-plex-sans-700.woff2
     web/fonts/ibm-plex-mono-400.woff2 web/fonts/ibm-plex-mono-700.woff2 web/fonts/OFL-IBM-Plex.txt

@@ -353,7 +353,7 @@ class InstallerOnWindows(unittest.TestCase):
                          "marks/d5-signal.svg", "marks/favicon.svg")]
             sources += [(REPO / name, Path(name)) for name in
                         ("usage-format.mjs", "client_models.py", "peer_link.py", "peer_feed.py", "machine_state.py",
-                         "inference_stats.py", "inference_collect.py", "eci_tuning.py",
+                         "inference_stats.py", "inference_collect.py", "eci_tuning.py", "eci_fast_check.py", "eci_fast_check.schema.json",
                          "eci_tuning_catalog.json", "eci_tuning_routes.json", "eci_tuning.schema.json",
                          "LICENSE", "NOTICE")]
             sources += [(REPO / "brand" / "windows" / "agiw.ico", Path("agiw.ico"))]
