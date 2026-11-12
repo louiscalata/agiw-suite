@@ -1,5 +1,15 @@
 # AGIW Suite roadmap and release evidence
 
+## Monitor redesign stage 1 — passive actions — 12 November 2026
+
+- [x] Build on the locally available `origin/claude/registry-everywhere` at `ce3923db182a775f03c63b17e9d89f9832115237` (PR #137 base). Readiness and diagnostics opening use cached GETs only; evaluation navigation opens the recorded-evidence page separately from repair.
+- [x] Require an explicit consequence review showing target, effects and duration before a repair POST. Accept only individually reviewed `local`, `route` or `nisi` scopes on all repair aliases; refuse bundled scopes and retain native capability, origin, platform, L2, idle and uncertain-outcome guards. Share recovery stops for manual Finder recovery; the repair controller never unmounts or remounts SharedChami.
+- [x] Give model load/unload, automatic unloading, PC headless leases and component checks a consequence review with Cancel focused and focus returned. Keep duration unknown where it is not measured; bind confirmation to the reviewed target and effect.
+- [x] Add `test_passive_diagnostics.mjs` for mocked page startup and view opening with no POST or native action, plus resolved cached-readiness reads. Pin individual reviewed scopes, refusal paths, focus and duplicate confirmation in capability/repair tests.
+- [x] Record source checks with Python 3.9.6 and Node 24.22.2: final `node --test test_*.mjs` passed 852 tests, no skips, exit 0; the focused backend suite passed 79 tests and Windows cached-readiness tests passed 2, both exit 0 with no skips. Jaryo generation drift, app/components syntax and `git diff --check` also exited 0. Logs stay outside this checkout in the lane.
+- [x] Run the requested full Python discovery commands with the lane's fail-closed network guard refusing fixture bind/connect/DNS before network access. Mac: 1,669 tests, exit 1, 1 failure, 174 errors, 28 skips. Of the errors, 168 are direct refused binds, 2 are registry fixture cleanup cascades, 1 is an observer startup/JSON cascade with child stderr unavailable, and 3 are sandbox-denied `/bin/ps` calls. The router-holder PID attribution failure also depends on sandbox process visibility. Windows: 578 tests, exit 1, 54 errors (all refused binds), 72 platform skips. These remain failed checks. The later positive socket-free dispatch regression passed in the focused 79-test run; it did not change production Python code.
+- [ ] Browser rendering, native dialog/keyboard/screen-reader behavior, live readiness/repairs/model or share behavior, Windows-native execution and CI are NOT_RUN. No model server, network port, dependency installation, commit, tag, PR or push is part of this lane.
+
 ## Registry machine visibility — 12 November 2026
 
 - [x] Project registry machines and their lane observations into snapshot machine and liveness summaries. An explicit `replaces: legacy-pc` removes the superseded remote PC row; absent or invalid registry configuration preserves the legacy behavior. Collector failures and expired evidence remain unknown.

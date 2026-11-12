@@ -205,19 +205,21 @@ class RepairWorkerCharacterizationTests(LifecycleFixture):
 
     def test_http_aliases_codes_and_payload_bytes_without_sockets(self):
         controller = self.controller()
-        for path in ("/api/inference/fix", "/api/eci-tuning/repair"):
-            for scope in ("local", "route", "both", "nisi", "all"):
-                self.assertEqual(self.dispatch(controller, path, {"scope": scope}),
+        for path in ("/api/online-code-mode/repair", "/api/inference/fix", "/api/eci-tuning/repair"):
+            for scope in ("local", "route", "nisi"):
+                self.assertEqual(self.dispatch(controller, path, {"scope": scope, "reviewed": True}),
                                  (202, json.dumps(controller.read()).encode(), "application/json"))
             self.assertEqual(self.dispatch(controller, path),
                              (200, json.dumps(controller.read()).encode(), "application/json"))
-            self.assertEqual(self.dispatch(controller, path, {"scope": "ALL"})[0], 400)
-            self.assertEqual(self.dispatch(controller, path, {"scope": "all"}, capability="")[0], 403)
-            code, raw, mime = self.dispatch(controller, path, {"scope": "all"}, l2_open=False)
+            for invalid in ({"scope": "ALL", "reviewed": True}, {"scope": "local"},
+                            {"scope": "both", "reviewed": True}, {"scope": "all", "reviewed": True},
+                            {"scope": "local", "reviewed": False}, {"scope": "nisi", "reviewed": 1},
+                            {"action": "check-and-repair", "reviewed": True}):
+                self.assertEqual(self.dispatch(controller, path, invalid)[0], 400)
+            self.assertEqual(self.dispatch(controller, path, {"scope": "local", "reviewed": True}, capability="")[0], 403)
+            code, raw, mime = self.dispatch(controller, path, {"scope": "local", "reviewed": True}, l2_open=False)
             self.assertEqual((code, mime), (423, "application/json"))
             self.assertEqual(json.loads(raw)["reasonCode"], "l2_closed")
-        self.assertEqual(self.dispatch(controller, "/api/online-code-mode/repair",
-                                       {"action": "check-and-repair"})[0], 202)
 
     def test_start_exception_propagates_before_any_work(self):
         controller = self.controller()

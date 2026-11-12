@@ -24,7 +24,7 @@ def owner_actions():
     """Exercise every request shape accepted by the production dispatcher."""
     for path, (field, method, choices) in server.OWNER_ACTION_ROUTES.items():
         for value, action, arguments in choices:
-            yield path, {field: value}, action, method, arguments
+            yield path, {field: value, 'reviewed': True}, action, method, arguments
 
 
 def owner_methods():
@@ -130,7 +130,7 @@ class StaticGuardTests(unittest.TestCase):
     def test_owner_http_dispatch_has_no_unregistered_bypass(self):
         self.assert_owner_dispatch_is_guarded((ROOT / 'server.py').read_text())
         requests = {name for name in owner_methods() if name == 'request' or name.startswith('request_')}
-        self.assertEqual({method for _, _, _, method, _ in owner_actions()}, requests - {'request_entry'})
+        self.assertEqual({method for _, _, _, method, _ in owner_actions()}, requests - {'request_entry', 'request'})
         self.assertEqual(set(server.OWNER_ACTION_ROUTES), {'/api/online-code-mode/repair',
                          '/api/inference/fix', '/api/eci-tuning/repair', '/api/online-code-mode/headless'})
 
@@ -154,7 +154,7 @@ class StaticGuardTests(unittest.TestCase):
                 with self.subTest(method=name, sinks=used):
                     self.assertEqual(ast.unparse(first_statement(method)), 'self._require_l2()')
                     found.update(used)
-        self.assertEqual(found, sinks)
+        self.assertEqual(found, sinks - {'share.mount', 'share.force_unmount'})
 
     def assert_safe_text(self, source, relative='fixture.sh'):
         # JS/Swift + and adjacent shell literals can split a forbidden path.
@@ -343,7 +343,7 @@ class ClosedL2Tests(unittest.TestCase):
         runner.assert_not_called()
 
     def test_readiness_get_uses_only_cached_state_without_commands_threads_or_writes(self):
-        state = SimpleNamespace(control_capability='fixture-only', l2_open=False, online_code_repair=mock.Mock(),
+        state = SimpleNamespace(control_capability='fixture-only', l2_open=True, online_code_repair=mock.Mock(),
                                 server_address=('127.0.0.1', 8431), store=mock.Mock())
         state.store.read.return_value = {'sampledAt': 100, 'machines': [],
                                         'onlineCodeMode': {'setupState': 'invalid'}}
@@ -369,6 +369,66 @@ class ClosedL2Tests(unittest.TestCase):
         self.assertEqual(json.loads(raw)['setupState'], 'invalid')
         state.store.read.assert_called_once_with()
         self.assertEqual(state.online_code_repair.mock_calls, [])
+
+    def test_only_individual_reviewed_http_scopes_are_exposed(self):
+        self.assertEqual(repair.REVIEWED_FIX_SCOPES, ('local', 'route', 'nisi'))
+        for route in ('/api/online-code-mode/repair', '/api/eci-tuning/repair', '/api/inference/fix'):
+            self.assertEqual(server.OWNER_ACTION_ROUTES[route],
+                             ('scope', 'request_fix', tuple((scope, f'fix-{scope}', (scope,))
+                                                           for scope in ('local', 'route', 'nisi'))))
+        owner = mock.Mock()
+        state = SimpleNamespace(control_capability='fixture-only', l2_open=True, online_code_repair=owner,
+                                server_address=('127.0.0.1', 8431), store=server.SnapshotStore())
+        for route in ('/api/online-code-mode/repair', '/api/eci-tuning/repair', '/api/inference/fix'):
+            invalid = ({'scope': 'local'}, {'scope': 'local', 'reviewed': False},
+                       {'scope': 'local', 'reviewed': 1}, {'scope': 'nisi', 'reviewed': 'true'},
+                       {'scope': 'both', 'reviewed': True}, {'scope': 'all', 'reviewed': True},
+                       {'action': 'check-and-repair', 'reviewed': True},
+                       {'scope': 'route', 'reviewed': True, 'forceShareRecovery': True})
+            for body in invalid:
+                with self.subTest(route=route, body=body):
+                    raw = json.dumps(body).encode()
+                    handler = server.Handler.__new__(server.Handler)
+                    handler.server, handler.path, handler.rfile = state, route, io.BytesIO(raw)
+                    handler.headers = Message()
+                    for key, value in {'Host': '127.0.0.1:8431', 'Origin': 'http://127.0.0.1:8431',
+                                       'Content-Type': 'application/json', 'Content-Length': str(len(raw)),
+                                       'X-AGIW-Control': 'fixture-only'}.items():
+                        handler.headers[key] = value
+                    handler.reply = mock.Mock()
+                    with mock.patch.object(server, 'mac_online_code_controls_enabled', return_value=True):
+                        handler.do_POST()
+                    self.assertEqual(handler.reply.call_args.args[0], 400)
+        self.assertEqual(owner.mock_calls, [])
+
+    def test_each_reviewed_individual_scope_dispatches_only_its_selected_owner_method(self):
+        for route in ('/api/online-code-mode/repair', '/api/eci-tuning/repair', '/api/inference/fix'):
+            for scope in ('local', 'route', 'nisi'):
+                with self.subTest(route=route, scope=scope):
+                    owner = mock.Mock()
+                    owner.request_fix.return_value = {'status': 'running', 'action': f'fix-{scope}',
+                                                       'operationId': 1}
+                    state = SimpleNamespace(control_capability='fixture-only', l2_open=True,
+                                            online_code_repair=owner, action_diagnosis=None,
+                                            server_address=('127.0.0.1', 8431), store=mock.Mock())
+                    raw = json.dumps({'scope': scope, 'reviewed': True}).encode()
+                    handler = server.Handler.__new__(server.Handler)
+                    handler.server, handler.path, handler.rfile = state, route, io.BytesIO(raw)
+                    handler.headers = Message()
+                    for key, value in {'Host': '127.0.0.1:8431', 'Origin': 'http://127.0.0.1:8431',
+                                       'Content-Type': 'application/json', 'Content-Length': str(len(raw)),
+                                       'X-AGIW-Control': 'fixture-only'}.items():
+                        handler.headers[key] = value
+                    handler.reply = mock.Mock()
+                    with mock.patch.object(server, 'mac_online_code_controls_enabled', return_value=True), \
+                         mock.patch('threading.Thread', side_effect=AssertionError('worker started')), \
+                         mock.patch('subprocess.Popen', side_effect=AssertionError('process started')):
+                        handler.do_POST()
+                    status, payload, mime = handler.reply.call_args.args
+                    self.assertEqual((status, mime), (202, 'application/json'))
+                    self.assertEqual(json.loads(payload), owner.request_fix.return_value)
+                    self.assertEqual(owner.mock_calls, [mock.call.request_fix(scope)])
+                    state.store.read.assert_not_called()
 
     def test_cli_enables_l2_only_with_the_explicit_flag(self):
         for arguments, expected in (([], {}), (['--l2-open'], {'l2_open': True}),

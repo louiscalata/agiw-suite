@@ -166,104 +166,33 @@ class FixRouteShareAndProbeTests(unittest.TestCase):
         run.assert_not_called()
         connect.assert_not_called()
 
-    def test_wedged_share_is_force_unmounted_and_remounted_before_owner_calls(self):
-        share = FakeShare(stuck=3, dispatch="timeout")
-        probe, _ = success_probe()
-        script = [(repair.ROUTE_STATUS, idle()), (repair.NISI_STATUS, nisi())] + FULL_ROUTE[1:]
-        controller, runner = self.controller(script, share, probe)
-        state = self.finish(controller)
-        self.assertEqual(state["status"], "ready", state)
-        self.assertEqual([e for e in share.events if e in ("reach", "unmount") or e.startswith("mount:")],
-                         ["reach", "unmount", "mount:10.222.33.10"])
-        names = self.steps(state)
-        self.assertLess(names.index(("share-mount", "mounted")), names.index(("windows-status", "clear")))
-        self.assertIn(("share-verify", "healthy"), names)
-
-    def test_unmounted_share_is_mounted_without_force_unmount(self):
-        share = FakeShare(mounted=False, dispatch="trusted SharedChami mount unavailable")
-        probe, _ = success_probe()
-        script = [(repair.ROUTE_STATUS, idle()), (repair.NISI_STATUS, nisi())] + FULL_ROUTE[1:]
-        controller, _ = self.controller(script, share, probe)
-        state = self.finish(controller)
-        self.assertEqual(state["status"], "ready", state)
-        self.assertNotIn("unmount", share.events)
-        self.assertIn("mount:10.222.33.10", share.events)
-
-    def test_open_job_defers_recovery_without_touching_the_mount(self):
-        for kwargs in ({"open_jobs": 1}, {"open_jobs": None}, {"owner_idle": False}):
-            share = FakeShare(stuck=2, dispatch="timeout", **kwargs)
-            probe, calls = success_probe()
-            controller, _ = self.controller([(repair.ROUTE_STATUS, idle()), (repair.NISI_STATUS, nisi())],
-                                            share, probe)
-            state = self.finish(controller)
-            self.assertEqual(state["status"], "needs-action")
-            self.assertIn("Nothing was unmounted", state["message"])
-            self.assertNotIn("unmount", share.events)
-            self.assertFalse(any(e.startswith("mount:") for e in share.events))
-            self.assertEqual(calls, [])
-
-    def test_nisi_recovery_pending_blocks_share_recovery(self):
-        share = FakeShare(stuck=2, dispatch="timeout")
-        probe, _ = success_probe()
-        controller, _ = self.controller([(repair.ROUTE_STATUS, idle()), (repair.NISI_STATUS, nisi(True))],
-                                        share, probe)
-        state = self.finish(controller)
-        self.assertEqual(state["status"], "needs-action")
-        self.assertNotIn("unmount", share.events)
-
-    def test_unreachable_pc_leaves_share_untouched(self):
-        share = FakeShare(stuck=1, dispatch="timeout", host=None)
-        probe, _ = success_probe()
-        controller, _ = self.controller([(repair.ROUTE_STATUS, idle()), (repair.NISI_STATUS, nisi())],
-                                        share, probe)
-        state = self.finish(controller)
-        self.assertEqual(state["status"], "needs-action")
-        self.assertIn("does not answer on the LAN", state["message"])
-        self.assertNotIn("unmount", share.events)
-
-    def test_failed_unmount_never_attempts_mount(self):
-        share = FakeShare(stuck=1, dispatch="timeout", unmount_ok=False)
-        probe, _ = success_probe()
-        controller, _ = self.controller([(repair.ROUTE_STATUS, idle()), (repair.NISI_STATUS, nisi())],
-                                        share, probe)
-        state = self.finish(controller)
-        self.assertEqual(state["status"], "needs-action")
-        self.assertFalse(any(e.startswith("mount:") for e in share.events))
-
-    def test_unconfirmed_unmount_never_attempts_second_mount(self):
-        class UnconfirmedShare(FakeShare):
-            def __init__(self, after_unmount):
-                super().__init__(stuck=1, dispatch="timeout")
-                self.after_unmount = after_unmount
-
-            def force_unmount(self):
-                self.events.append("unmount")
-                self.state["mounted"] = self.after_unmount
-                return True
-
-        for after_unmount in (None, True):
-            with self.subTest(after_unmount=after_unmount):
-                share = UnconfirmedShare(after_unmount)
+    def test_every_unhealthy_share_requires_manual_recovery_without_mount_or_owner_calls(self):
+        cases = ({"stuck": 3, "dispatch": "timeout"},
+                 {"mounted": False, "dispatch": "trusted SharedChami mount unavailable"},
+                 {"stuck": 2, "dispatch": "timeout", "open_jobs": 1},
+                 {"stuck": 2, "dispatch": "timeout", "open_jobs": None},
+                 {"stuck": 2, "dispatch": "timeout", "owner_idle": False},
+                 {"stuck": 2, "dispatch": "timeout", "host": None},
+                 {"stuck": 2, "dispatch": "timeout", "router_free": False},
+                 {"dispatch": "other"})
+        for options in cases:
+            with self.subTest(options=options):
+                share = FakeShare(**options)
                 probe, calls = success_probe()
-                controller, _ = self.controller([(repair.ROUTE_STATUS, idle()),
-                                                  (repair.NISI_STATUS, nisi())], share, probe)
-                state = self.finish(controller)
-                self.assertEqual(state["status"], "needs-action")
-                self.assertIn("unmount could not be confirmed", state["message"])
-                self.assertIn(("share-unmount", "unverified"), self.steps(state))
-                self.assertFalse(any(event.startswith("mount:") for event in share.events))
+                controller, runner = self.controller([(repair.ROUTE_STATUS, idle())], share, probe)
+                with mock.patch.object(share, "force_unmount", side_effect=AssertionError("force unmount")), \
+                     mock.patch.object(share, "mount", side_effect=AssertionError("mount")), \
+                     mock.patch.object(share, "reachable_host", side_effect=AssertionError("network reachability")):
+                    state = self.finish(controller)
+                self.assertEqual(state["status"], "needs-action", state)
+                self.assertIn("manual recovery", state["message"])
+                self.assertIn("Finder", state["message"])
+                self.assertIn("Nothing was unmounted or remounted", state["message"])
+                self.assertIn(("share-recovery", "manual-only"), self.steps(state))
+                self.assertFalse(any(event in ("unmount", "router", "hold", "reach")
+                                     or event.startswith("mount:") for event in share.events))
                 self.assertEqual(calls, [])
-
-    def test_remount_that_still_cannot_read_queue_needs_action(self):
-        share = FakeShare(mounted=False, dispatch="trusted SharedChami mount unavailable",
-                          after_mount="queue I/O unavailable or timed out")
-        probe, calls = success_probe()
-        controller, _ = self.controller([(repair.ROUTE_STATUS, idle()), (repair.NISI_STATUS, nisi())],
-                                        share, probe)
-        state = self.finish(controller)
-        self.assertEqual(state["status"], "needs-action")
-        self.assertIn(("share-verify", "failed"), self.steps(state))
-        self.assertEqual(calls, [])
+                self.assertEqual(runner.script, [])
 
     def test_degraded_or_unknown_worker_state_is_not_a_share_fault(self):
         share = FakeShare(dispatch="pc-state")
@@ -397,27 +326,6 @@ class FixRouteShareAndProbeTests(unittest.TestCase):
         self.assertNotIn("unmount", share.events)
         self.assertIn({"name": "share", "result": "healthy", "evidence": "stuck-readers=4"}, state["steps"])
 
-    def test_gates_are_checked_while_the_owner_lock_is_held(self):
-        share = FakeShare(stuck=2, dispatch="timeout")
-        probe, _ = success_probe()
-        script = [(repair.ROUTE_STATUS, idle()), (repair.NISI_STATUS, nisi())] + FULL_ROUTE[1:]
-        controller, _ = self.controller(script, share, probe)
-        self.finish(controller)
-        order = [e for e in share.events if e in ("router", "hold", "unmount", "release", "router-release")
-                 or e.startswith("mount:")]
-        self.assertEqual(order[:6], ["router", "hold", "unmount", "mount:10.222.33.10", "release", "router-release"])
-
-    def test_remount_with_stopped_worker_counts_as_share_recovered(self):
-        share = FakeShare(mounted=False, dispatch="trusted SharedChami mount unavailable",
-                          after_mount="worker is not running")
-        probe, calls = success_probe()
-        script = [(repair.ROUTE_STATUS, idle()), (repair.NISI_STATUS, nisi()),
-                  (repair.WINDOWS_STATUS, windows(ready=False))]
-        controller, _ = self.controller(script, share, probe)
-        state = self.finish(controller)
-        self.assertIn(("share-verify", "healthy"), self.steps(state))
-        self.assertNotIn(("share-verify", "failed"), self.steps(state))
-
     def test_unexpected_probe_answer_is_not_verified(self):
         probe, _ = success_probe(answered=False)
         controller, _ = self.controller(list(FULL_ROUTE), FakeShare(), probe)
@@ -428,29 +336,14 @@ class FixRouteShareAndProbeTests(unittest.TestCase):
         self.assertIn(("windows-inference", "returned"), self.steps(state))
 
 
-    def test_busy_router_defers_recovery_and_probe(self):
-        share = FakeShare(stuck=2, dispatch="timeout", router_free=False)
-        probe, calls = success_probe()
-        controller, _ = self.controller([(repair.ROUTE_STATUS, idle()), (repair.NISI_STATUS, nisi())], share, probe)
-        state = self.finish(controller)
-        self.assertEqual(state["status"], "needs-action")
-        self.assertNotIn("unmount", share.events)
-        self.assertIn("router=busy", json.dumps(state["steps"]))
+    def test_busy_router_defers_inference_probe_on_a_healthy_share(self):
         share = FakeShare(router_free=False)
+        probe, calls = success_probe()
         controller, _ = self.controller(list(FULL_ROUTE), share, probe)
         state = self.finish(controller)
         self.assertEqual(state["status"], "needs-action")
         self.assertIn({"name": "windows-inference", "result": "deferred", "evidence": "router=busy"}, state["steps"])
         self.assertEqual(calls, [])
-
-    def test_errno_from_a_dead_session_is_a_share_fault(self):
-        share = FakeShare(dispatch="other")
-        probe, _ = success_probe()
-        script = [(repair.ROUTE_STATUS, idle()), (repair.NISI_STATUS, nisi())] + FULL_ROUTE[1:]
-        controller, _ = self.controller(script, share, probe)
-        state = self.finish(controller)
-        self.assertIn("unmount", share.events)
-        self.assertEqual(state["status"], "ready", state)
 
     def test_pre_existing_stuck_readers_are_tolerated_after_a_verified_read(self):
         import telemetry
@@ -462,15 +355,6 @@ class FixRouteShareAndProbeTests(unittest.TestCase):
         for count, blocked in ((3, False), (4, True), (None, True), (1, False), (2, True)):
             with mock.patch.object(telemetry, "_windows_worker_stuck_readers", return_value=count):
                 self.assertEqual(telemetry._windows_worker_reader_blocked(), blocked, count)
-
-    def test_router_busy_never_takes_the_windows_owner_lock(self):
-        share = FakeShare(stuck=2, dispatch="timeout", router_free=False)
-        probe, _ = success_probe()
-        controller, _ = self.controller([(repair.ROUTE_STATUS, idle()), (repair.NISI_STATUS, nisi())], share, probe)
-        self.finish(controller)
-        self.assertIn("router", share.events)
-        self.assertNotIn("hold", share.events)
-
 
     def test_degraded_worker_message_names_the_pc_side_fix(self):
         degraded = reply({"kind": "codemode.windows.status.v1", "pending": None, "readyForWork": False,

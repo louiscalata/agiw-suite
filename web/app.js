@@ -20,6 +20,50 @@ let onlineCodeActionStatus=null,onlineCodeActionPosting=false,onlineCodeActionPo
 let fixInferenceRenderKey='',fixReturnTo=null;
 const FIX_ACTIONS=new Map([['fix-local','Local runtime'],['fix-route','Route pipeline'],['fix-both','Local runtime and route'],['fix-nisi','Nisi Inference'],['fix-all','Inference']]);
 const HEADLESS_ACTIONS=new Map([['headless-on','on'],['headless-off','off']]);
+const REPAIR_SCOPES=new Set(['local','route','nisi']);
+let pendingActionReview=null;
+function openActionReview({title,target,effects,duration},confirm,opener=document.activeElement){
+  const dialog=$('actionReview');if(dialog.open)return;
+  $('actionReviewHeading').textContent=`◆ REVIEW · ${title}`;
+  $('actionReviewTarget').textContent=target;$('actionReviewEffects').textContent=effects;
+  $('actionReviewDuration').textContent=duration;
+  pendingActionReview={confirm,opener};dialog.showModal();$('actionReviewCancel').focus();
+}
+function closeActionReview(){
+  const pending=pendingActionReview;pendingActionReview=null;
+  if($('actionReview').open)$('actionReview').close();
+  if(pending?.opener?.isConnected!==false)pending?.opener?.focus({preventScroll:true});
+  return pending;
+}
+function confirmActionReview(){const pending=closeActionReview();if(pending)pending.confirm();}
+function reviewOnlineCodeAction(action){
+  if(snapshot?.host!=='mac'||onlineCodeActionPosting||['running','uncertain'].includes(onlineCodeActionStatus?.status))return;
+  const scopes={
+    local:{target:'This Mac · LM Studio loopback API',effects:'May start a stopped local model API. Preserves loaded models; no model generation is requested.'},
+    route:{target:'Shared router records and Windows model worker',effects:'May reconcile exact pending records, archive an eligible preflight refusal and write a readiness receipt. Sends one short Windows model request only after the owner and idle guards pass. SharedChami recovery remains manual.'},
+    nisi:{target:'This Mac · Nisi Inference pending call record',effects:'May recover an eligible stale call record through the launcher after proving it idle, and append the fix journal. Inspects pair and Jev evidence; no model inference is requested.'}
+  };
+  const scope=action.startsWith('fix-')?action.slice(4):null;
+  const detail=REPAIR_SCOPES.has(scope)?scopes[scope]:HEADLESS_ACTIONS.has(action)?{
+    target:'Windows PC · headless LLM lease',
+    effects:action==='headless-on'?'Requests a four-hour headless lease and one short Windows model probe after owner checks.':'Releases the headless lease through the Windows owner. A pending request may still need status reconciliation.'
+  }:null;
+  if(!detail)return;
+  openActionReview({title:onlineActionName(action),...detail,duration:'Completion time is not measured. The request may outlast this view; closing it does not cancel the operation.'},()=>requestOnlineCodeAction(action,{reviewed:true}));
+}
+let cachedReadinessPolling=false;
+function showCachedReadiness(message){for(const id of ['cachedReadinessStatus','diagnosticsReadinessStatus']){const node=$(id);if(node)node.textContent=message;}}
+async function readCachedReadiness(){
+  if(cachedReadinessPolling)return;cachedReadinessPolling=true;
+  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),3000);
+  try{
+    const response=await fetch('/api/online-code-mode/readiness',{method:'GET',cache:'no-store',credentials:'same-origin',signal:controller.signal});
+    if(!response.ok)throw new Error('Cached readiness unavailable');
+    const result=await response.json();if(result?.readOnly!==true||typeof result.message!=='string')throw new Error('Invalid cached readiness');
+    showCachedReadiness(`Cached readiness · ${result.status==='observed'?'observations available':'unknown'}. ${result.message}`);
+  }catch(_){showCachedReadiness('Cached readiness unknown; the cached status could not be read. No action was requested.');}
+  finally{clearTimeout(timer);cachedReadinessPolling=false;}
+}
 const LANE_COLORS={fast:'currentColor',deep:'currentColor'};
 let graph={nodes:[],edges:[],labels:[]},camera={x:0,y:0,z:1},userCamera=false,drag=null,justDragged=false,inspectorNode=null,inspectorShape='',paintCamera='',layoutMode='wide',hoveredNode=null;
 const nodeElements=new Map();
@@ -534,8 +578,10 @@ async function pollAutoUnload(force=false){
     if(revision===autoUnloadRevision&&!autoUnloadPosting){autoUnloadState=null;autoUnloadError=error.status===501?'Available only in the Monitor app.':'Could not verify the app setting.';}
   }finally{autoUnloadPolling=false;if(revision===autoUnloadRevision&&!autoUnloadPosting)renderAutoUnload();}
 }
-async function requestAutoUnload(){
+async function requestAutoUnload({reviewedEnabled}={}){
   if(autoUnloadPosting||autoUnloadPolling||!validAutoUnloadState(autoUnloadState)||autoUnloadState.configError)return;
+  if(typeof reviewedEnabled!=='boolean'){const desired=!autoUnloadState.enabled;return openActionReview({title:autoUnloadState.enabled?'Turn automatic unload off':'Turn automatic unload on',target:'This Mac · LM Studio automatic unloading',effects:autoUnloadState.enabled?'Stops automatic unloading of observed idle models.':'Allows the app to unload safely idle Mac models; the protected Nisi pair remains excluded.',duration:'This setting persists until changed. Individual unload completion times are not measured.'},()=>requestAutoUnload({reviewedEnabled:desired}));}
+  if(reviewedEnabled===autoUnloadState.enabled)return;
   const before=autoUnloadState.enabled,desired=!before,revision=++autoUnloadRevision;
   let refresh=true;
   autoUnloadPosting=true;autoUnloadError='';renderAutoUnload();
@@ -549,7 +595,7 @@ async function requestAutoUnload(){
   }catch(_){autoUnloadState=null;autoUnloadError='Could not confirm the setting. Reading it again; no retry was sent.';}
   finally{if(revision===autoUnloadRevision){autoUnloadPosting=false;renderAutoUnload();if(refresh)pollAutoUnload();}}
 }
-async function requestModelAction(){const n=inspectorNodeFor(selected);if(n?.kind!=='model')return;const state=modelActionState(n.model);if(!state.action||modelControlPosting)return;modelControlPosting=true;modelControlError='';renderModelAction();try{const response=await submitModelControl(fetch,state.action,n.model.id),result=response.result;if(!response.ok){modelControlError=result.message||`Request rejected (${response.statusCode}).`;modelControlStatus=result;}else if(result.status==='running'){modelControlStatus=result;}else{modelControlError=result.message||'The server did not confirm a running operation.';modelControlStatus=result;}}catch(_){modelControlError='Could not reach local model control.';}finally{modelControlPosting=false;}renderModelAction();pollModelControl();}
+async function requestModelAction({reviewedModelId,reviewedAction}={}){const n=inspectorNodeFor(selected);if(n?.kind!=='model')return;const state=modelActionState(n.model);if(!state.action||modelControlPosting)return;if(reviewedModelId===undefined){const modelId=n.model.id,action=state.action;return openActionReview({title:action==='unload'?'Unload model':'Load model',target:`This Mac · ${modelId}`,effects:action==='unload'?'Unloads this model from the local runtime, subject to the existing idle and ownership guards.':'Loads this model into local runtime memory, subject to the existing capacity and ownership guards.',duration:'Completion time is not measured. Closing this view does not cancel the request.'},()=>requestModelAction({reviewedModelId:modelId,reviewedAction:action}));}if(reviewedModelId!==n.model.id||reviewedAction!==state.action)return;modelControlPosting=true;modelControlError='';renderModelAction();try{const response=await submitModelControl(fetch,state.action,n.model.id),result=response.result;if(!response.ok){modelControlError=result.message||`Request rejected (${response.statusCode}).`;modelControlStatus=result;}else if(result.status==='running'){modelControlStatus=result;}else{modelControlError=result.message||'The server did not confirm a running operation.';modelControlStatus=result;}}catch(_){modelControlError='Could not reach local model control.';}finally{modelControlPosting=false;}renderModelAction();pollModelControl();}
 function headlessText(h,view){if(!view||view.headless.label==='Headless unknown')return'Unknown';return[view.headless.label,typeof h?.grantedBy==='string'?`granted by ${h.grantedBy}`:null,typeof h?.reason==='string'?h.reason:null].filter(Boolean).join(' · ');}
 const INSPECTOR_EYEBROW={model:'LOCAL MODEL',afm:'ON-DEVICE ADVISOR',jev:'ROUTE ADVISOR','model-overflow':'INSTALLED MODEL INVENTORY',call:'MODEL RECEIPT',run:'ROUTE RECORD',pipeline:'SHARED ROUTE','windows-worker':'PC WORKER','windows-lane':'PC MODEL LANE','mac-peer':'MAC PRESENCE','mac-model':'MODEL ON THE MAC',client:'CLIENT MODEL IDENTITY','client-model':'CLIENT MODEL IDENTITY',clients:'CLIENT MODEL IDENTITY'};
 // The drawer is built off-page on every render and compared with what is shown, never keyed on raw aged objects:
@@ -633,7 +679,7 @@ function inspectorBody(n,body,{firstBuild=true}={}){if(n.registryLane||n.registr
     // Every routed task the router lists, stacked: running, queued for a lane, or left unresolved.
     const routes=isFresh?routePipelines():[];if(routes.length){const list=el('div','route-runs');list.append(el('p','route-runs-head',`Routed tasks (${p.pipelinesComplete===false?'at least ':''}${routes.length})`),...routes.map(r=>el('p','step-line route-run',routeRunLine(r))));body.append(list);}
     const recoveryKnown=isFresh&&snapshot.host==='mac'&&(!snapshot.sources?.some(s=>s.id==='pipeline-router')||routeSourceCurrent('pipeline-router'));factTiles(body,[['Route',isFresh?(p.status==='recovery-required'?'Recovery required':capital(p.status||'Unknown')):'Unknown'],['Nisi',isFresh?compLabel(comp('nisi')):'Unknown'],['Jev',isFresh?compLabel(comp('jev')):'Unknown'],['Recovery',recoveryKnown?(recovery.needed&&recovery.age?`Pending ${recovery.age}`:p.recoveryRequired?'Marker present':'None'):'Unknown']]);
-    const box=tech();detailPairs(box,[['Shared route',p.status],['Unresolved run',recoveryKnown?p.runId||'None recorded':'Unknown'],['Checkpoint',p.stage],['Recovery marker',recoveryKnown?(p.recoveryRequired?'Present':'Not observed'):'Unknown'],...(recovery.needed?[['Pending record age',recovery.age||'Not reported'],['Pending record owner',recovery.owner||'Not reported']]:[]),['Nisi',comp('nisi')?`${comp('nisi').state} · ${comp('nisi').detail}`:'Unknown'],['Jev',comp('jev')?`${comp('jev').state} · ${comp('jev').detail}`:'Unknown']]);box.append(el('p','detail-note',recovery.needed&&snapshot.host==='mac'?'This observer reads their recorded evidence and does not invoke them. Model tuning opens the AGIW x ECI Model Tuning Tool; nothing runs until you press Run check.':'This observer reads their recorded evidence and does not invoke them.'));return'runs';}
+    const box=tech();detailPairs(box,[['Shared route',p.status],['Unresolved run',recoveryKnown?p.runId||'None recorded':'Unknown'],['Checkpoint',p.stage],['Recovery marker',recoveryKnown?(p.recoveryRequired?'Present':'Not observed'):'Unknown'],...(recovery.needed?[['Pending record age',recovery.age||'Not reported'],['Pending record owner',recovery.owner||'Not reported']]:[]),['Nisi',comp('nisi')?`${comp('nisi').state} · ${comp('nisi').detail}`:'Unknown'],['Jev',comp('jev')?`${comp('jev').state} · ${comp('jev').detail}`:'Unknown']]);box.append(el('p','detail-note',recovery.needed&&snapshot.host==='mac'?'This observer reads their recorded evidence and does not invoke them. Diagnostics opens cached observations; a repair needs a separate review and confirmation.':'This observer reads their recorded evidence and does not invoke them.'));return'runs';}
   if(snapshot?.host==='windows'&&(n.kind==='mac-peer'||n.kind==='mac-model')){const peer=macPeerView(snapshot?.macPeer,{feedFresh:fresh(),snapshotAge:Math.max(0,sampleAge())});
     const modelReportedLoaded=n.kind==='mac-model'&&peer.loaded.some(m=>m.id===n.macModel.id);
     panelSummary(body,peer.linked?'muted':peer.reachable?'ok':peer.state==='unreachable'?'warn':'muted',peer.linked?'Mac reported through SharedChami (unverified)':peer.reachable?'Mac answering on the LAN':peer.state==='unreachable'?peer.failureTitle:'Mac presence unknown',
@@ -725,7 +771,7 @@ function updateOnlineCodeMode(){
   const mode=onlineCodeModeView(snapshot?.onlineCodeMode,{feedFresh:fresh(),paused,reducedMotion:window.matchMedia?.('(prefers-reduced-motion: reduce)').matches===true});
   const button=$('onlineCodeMode');
   const macOwner=snapshot?.host==='mac';
-  // Readiness, Fix and the PC LLM switch are Mac-owner actions; the Windows edition is read-only.
+  // Repair and the PC LLM switch need the Mac owner; cached observations stay passive.
   const windowsHost=snapshot?.host==='windows';for(const id of ['onlineCodeMode','fixInference','pcSwitch'])if($(id).hidden!==windowsHost)$(id).hidden=windowsHost;
   // Mac-only panels: auto-unload (Mac LM Studio models) and the components page (not served on Windows yet).
   if(typeof document.querySelector==='function')for(const node of [document.querySelector('.auto-unload-control'),document.querySelector('a[href="/components"]')])if(node&&node.hidden!==windowsHost)node.hidden=windowsHost;
@@ -737,11 +783,11 @@ function updateOnlineCodeMode(){
   const actionLabel=actionActive?actionState==='uncertain'?'Checking request status…':FIX_ACTIONS.has(action)?'Inference check running…':HEADLESS_ACTIONS.has(action)?'PC headless switching…':action==='check-and-repair'?'Repair check running…':'Readiness check running…':actionState==='needs-action'?FIX_ACTIONS.has(action)?'Inference check needs action':HEADLESS_ACTIONS.has(action)?'PC headless needs action':action==='check-and-repair'?'Repair needs action':'Readiness needs action':actionState==='error'?'Check failed':mode.label;
   button.className=`mode-tab ${mode.state}${mode.blinking?' blinking':''}${actionIndicator}`;
   const tightTab=window.matchMedia?.('(max-width: 720px)').matches===true;$('onlineCodeLabel').textContent=!snapshot?(tightTab?'Connecting…':'Waiting for the live feed'):!macOwner?'Mac owner only':routePriority||actionLabel===mode.label?onlineCodeTabLabel(mode,tightTab):actionLabel;
-  const actionAria=actionActive?'Check in progress. Open progress; another request will not start.':actionState==='needs-action'?'Latest check needs action. Open details or run a new bounded recovery check.':actionState==='error'?'Latest check failed. Open details or run a new bounded recovery check.':'Check exact pending records, safely reconcile eligible ones, and verify readiness.';
+  const actionAria=actionActive?'An operation is pending. Opening its status starts no action.':actionState==='needs-action'?'Latest operation needs action. Read cached details, then review an individual repair.':actionState==='error'?'Latest operation failed. Read cached details before reviewing another repair.':'Read cached observations only. Opening readiness starts no command, repair or model request.';
   const routeAria=`Current route: ${mode.label}.`;
-  button.setAttribute('aria-label',!snapshot?'Check readiness. Waiting for the live feed; nothing can be checked yet.':!macOwner?'Online Code Mode evidence. Readiness and repair are available from the Mac owner only.':`Check readiness. ${routePriority?`${routeAria} ${actionAria}`:`${actionAria} ${routeAria}`}`);
+  button.setAttribute('aria-label',!snapshot?'Readiness. Waiting for cached observations.':!macOwner?'Online Code Mode evidence. Repairs require the Mac owner.':`Readiness. ${routePriority?`${routeAria} ${actionAria}`:`${actionAria} ${routeAria}`}`);
   button.setAttribute('aria-busy',String(actionActive));
-  button.title=!snapshot?'Waiting for the live feed.':!macOwner?'View evidence; this Windows observer cannot run the Mac owner check.':actionActive?'Open the current check; another request will not start.':'Check and safely repair exact pending records, then verify readiness. No task or model call.';
+  button.title=!snapshot?'Waiting for the live feed.':!macOwner?'View evidence; this Windows observer cannot run the Mac owner check.':actionActive?'Open the current check; another request will not start.':'Open cached readiness. No command, repair or model request starts.';
   // The panel's skeleton is static markup, so an open disclosure and keyboard focus survive each refresh.
   const priorScroll=$('onlineCodeDetails').scrollTop;
   const summary=onlineCodeSummary(mode,{macOwner,actionState,action,isFresh:fresh(),hasFeed:Boolean(snapshot),message:onlineCodeActionStatus?.message});
@@ -758,7 +804,7 @@ function updateOnlineCodeMode(){
   repairButton.hidden=!macOwner;
   repairButton.disabled=actionActive;
   repairButton.setAttribute('aria-busy',String(actionActive&&action==='check-and-repair'));
-  repairButton.title='Explicitly inspect and reconcile only exact, safe pending records. This may change router or Windows job state.';
+  repairButton.title='Open individual repair targets. Review target, effects and duration before confirming.';
   const headlessButton=$('pcHeadless'),headlessNext=headlessAction();
   headlessButton.hidden=!macOwner||headlessView().label==='Headless unknown';
   headlessButton.disabled=actionActive||!fresh();
@@ -828,15 +874,16 @@ function updateInferenceFix(){
   button.classList.toggle('fix-tab-needs-action',fixAction&&state==='needs-action');
   button.classList.toggle('fix-tab-error',fixAction&&state==='error');
   button.setAttribute('aria-busy',String(active&&fixAction));
-  button.setAttribute('aria-label',!snapshot?'Model Tuning Tool. Waiting for the live feed.':!macOwner?'Model Tuning Tool. Available only on the Mac owner.':active?'Model Tuning Tool repair is running. Open its progress; no second request can start.':'Model Tuning Tool. Check and repair inference and show its progress.');
+  button.setAttribute('aria-label',!snapshot?'Diagnostics. Waiting for the live feed.':!macOwner?'Diagnostics. Repair is available only on the Mac owner.':active?'Diagnostics. A repair is running. Open its status; no second request can start.':'Diagnostics. Read cached status and review a scoped repair.');
   const submit=$('fixInferenceSubmit');
   submit.disabled=!macOwner||active;
-  submit.textContent=active?'Check in progress…':'Run check';
+  submit.textContent=active?'Operation in progress…':'Review repair…';
+  $('fixInferenceScope').disabled=!macOwner||active;
   const renderKey=JSON.stringify([Boolean(snapshot),macOwner,action,state,onlineCodeActionPosting,onlineCodeActionStatus?.message,onlineCodeActionStatus?.steps]);
   if(renderKey!==fixInferenceRenderKey){fixInferenceRenderKey=renderKey;renderFixResult({macOwner,action,state,active,fixAction});}
   updateFixScopeNote();
 }
-// Idle, the summary explains the combined repair; once a check has run, it shows that check's result.
+// Idle, explain the review boundary; afterwards retain the scoped operation result.
 function renderFixResult({macOwner,action,state,active,fixAction}){
   // The result is the panel's summary: dot, one status line and its meaning; every step waits in a disclosure.
   const result=$('fixInferenceResult'),shown=fixAction?state:'idle';
@@ -844,7 +891,7 @@ function renderFixResult({macOwner,action,state,active,fixAction}){
   result.dataset.tone=({submitting:'busy',running:'busy',uncertain:'busy',ready:'ok','needs-action':'warn',error:'bad'})[shown]||(active?'busy':'muted');
   result.replaceChildren();
   const scopeSummary=Boolean(snapshot)&&macOwner&&!active&&(!fixAction||state==='idle');result.dataset.scopeSummary=String(scopeSummary);
-  const statusLabel=!snapshot?'Waiting for the live feed':!macOwner?'Mac owner only':scopeSummary?'Ready to check':fixAction?onlineActionStatusLabel(state,action):active?'Another check is in progress':'Ready to check';
+  const statusLabel=!snapshot?'Waiting for the live feed':!macOwner?'Mac owner only':scopeSummary?'Ready to review':fixAction?onlineActionStatusLabel(state,action):active?'Another operation is in progress':'Ready to review';
   const detail=!snapshot?'Nothing can be checked until the first snapshot arrives.':!macOwner?'This observer shows evidence only. Use the Mac owner to run a fix.':scopeSummary?fixScopeText():fixAction?(onlineCodeActionPosting?'Submitting one local request…':(action==='fix-nisi'?fixNisiMessage(onlineCodeActionStatus?.message,state,{scoped:true}):onlineCodeActionStatus?.message)||'The local monitor has not returned a result yet.'):'Wait for the current Online Code Mode check to finish. No new request has been sent.';
   const copy=el('div','panel-summary-copy');copy.append(el('strong',null,statusLabel),el('p',null,detail));
   const steps=fixAction&&Array.isArray(onlineCodeActionStatus?.steps)?onlineCodeActionStatus.steps:[];
@@ -857,12 +904,13 @@ function renderFixResult({macOwner,action,state,active,fixAction}){
   list.replaceChildren(...plain.map(step=>{const li=el('li','fix-step'),mark=el('span','fix-step-mark',step.mark),copy=el('span','fix-step-copy');li.dataset.tone=step.tone;mark.setAttribute('aria-hidden','true');copy.append(el('strong',null,step.label),document.createTextNode(' '),el('span',null,step.text));li.append(mark,copy);return li;}));
   $('fixInferenceSteps').hidden=!lines.length;$('fixInferenceStepsLabel').textContent=`Check steps (${lines.length})`;$('fixInferenceStepRows').replaceChildren(...lines.map(value=>el('p','step-line',value)));
 }
-const fixScopeText=()=> 'Checks and repairs the Mac runtime, Windows route and Nisi Inference in one guarded run.';
+const fixScopeText=()=> 'Choose one repair target. Review its effects and duration before confirming; SharedChami recovery stays manual.';
 function updateFixScopeNote(){const note=fixScopeText(),result=$('fixInferenceResult'),idle=result.dataset.scopeSummary==='true';$('fixScopeNote').textContent=note;$('fixScopeNote').hidden=idle;if(idle){const line=result.querySelector('p');if(line&&line.textContent!==note)line.textContent=note;}}
-// All compatibility entry points open the tuning tool without repair. Only Run check submits it.
+// Compatibility entry points open cached diagnostics. Repair needs a separate review and confirmation.
 // Keep the running action visible while the shared guard blocks another request.
 function openFixInference(scope){
   const fromInspector=scope==='nisi';
+  if(REPAIR_SCOPES.has(scope))$('fixInferenceScope').value=scope;
   // Where Escape or × returns to: the inspector this was opened from (closeFixInference).
   const from=fromInspector&&!$('drawer').hidden?selected:null;
   hideOnlineCodeDetails();
@@ -871,7 +919,7 @@ function openFixInference(scope){
   const panel=$('fixInferenceDetails');
   panel.hidden=false;lastEvidencePanel='fixInferenceDetails';fixReturnTo=from;
   $('fixInference').setAttribute('aria-expanded','true');
-  updateInferenceFix();pollOnlineCodeAction();
+  updateInferenceFix();readCachedReadiness();pollOnlineCodeAction();
   panel.focus({preventScroll:true});
   if(selected)revealSelected();else if(!userCamera)fitMap();
 }
@@ -940,15 +988,15 @@ async function pollOnlineCodeAction(){
     }
   }finally{clearTimeout(timer);onlineCodeActionPolling=false;}
 }
-async function requestOnlineCodeAction(action){
+async function requestOnlineCodeAction(action,{reviewed=false}={}){
   if(snapshot?.host!=='mac')return;
-  if(!['readiness','check-and-repair',...FIX_ACTIONS.keys(),...HEADLESS_ACTIONS.keys()].includes(action)||onlineCodeActionPosting||['running','uncertain'].includes(onlineCodeActionStatus?.status))return;
+  if(reviewed!==true||!(REPAIR_SCOPES.has(action?.slice(4))&&action.startsWith('fix-')||HEADLESS_ACTIONS.has(action))||onlineCodeActionPosting||['running','uncertain'].includes(onlineCodeActionStatus?.status))return;
   onlineCodeActionPosting=true;onlineCodeSubmittingAction=action;onlineCodeActionRevision++;updateOnlineCodeMode();
   const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),6000);
   try{
     const fixAction=FIX_ACTIONS.has(action),headless=HEADLESS_ACTIONS.has(action);
-    const path=fixAction?'/api/eci-tuning/repair':headless?'/api/online-code-mode/headless':action==='readiness'?'/api/online-code-mode/entry':'/api/online-code-mode/repair';
-    const body=fixAction?{scope:action.slice(4)}:{action};
+    const path=fixAction?'/api/eci-tuning/repair':'/api/online-code-mode/headless';
+    const body=fixAction?{scope:action.slice(4),reviewed:true}:{action,reviewed:true};
     if(headless)body.action=HEADLESS_ACTIONS.get(action);
     const response=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),cache:'no-store',credentials:'same-origin',signal:controller.signal});
     const result=await response.json();
@@ -1122,11 +1170,15 @@ $('onlineCodeMode').addEventListener('click',()=>{
   $('onlineCodeMode').setAttribute('aria-expanded','true');
   panel.focus({preventScroll:true});
   if(selected)revealSelected();else if(!userCamera)fitMap();
-  requestOnlineCodeAction('check-and-repair');
+  readCachedReadiness();pollOnlineCodeAction();
 });
-$('onlineCodeRepair').addEventListener('click',()=>requestOnlineCodeAction('check-and-repair'));
-$('pcHeadless').addEventListener('click',()=>requestOnlineCodeAction(headlessAction()));
-$('pcSwitch').addEventListener('click',()=>{if(!$('pcSwitch').disabled)requestOnlineCodeAction(headlessAction());});
+$('onlineCodeRepair').addEventListener('click',()=>openFixInference());
+$('pcHeadless').addEventListener('click',()=>reviewOnlineCodeAction(headlessAction()));
+$('pcSwitch').addEventListener('click',()=>{if(!$('pcSwitch').disabled)reviewOnlineCodeAction(headlessAction());});
+$('actionReviewCancel').addEventListener('click',()=>closeActionReview());
+$('actionReviewConfirm').addEventListener('click',confirmActionReview);
+$('actionReview').addEventListener('cancel',event=>{event.preventDefault();closeActionReview();});
+$('actionReview').addEventListener('close',()=>{if(pendingActionReview)closeActionReview();});
 function openTuningLink(){if(window.location?.hash==='#model-tuning')openFixInference();}
 window.addEventListener('hashchange',openTuningLink);
 openTuningLink();
@@ -1135,7 +1187,7 @@ $('fixInference').addEventListener('click',()=>{
 });
 $('fixInferenceForm').addEventListener('submit',event=>{
   event.preventDefault();
-  requestOnlineCodeAction('fix-all');
+  reviewOnlineCodeAction(`fix-${$('fixInferenceScope').value}`);
 });
 $('fixInferenceDetails').addEventListener('keydown',event=>{
   if(event.key==='Escape'){

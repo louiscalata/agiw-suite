@@ -62,6 +62,8 @@ class FakeElement {
   querySelectorAll(selector) { const out = []; const walk = n => n.children.forEach(c => { if (c.matches(selector)) out.push(c); walk(c); }); walk(this); return out; }
   querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
   focus() { this.doc.activeElement = this; }
+  showModal() { this.open = true; }
+  close() { this.open = false; for (const listener of this.listeners.close || []) listener({target:this}); }
   setAttribute(name, value) { this.attributes[name] = String(value); }
   getAttribute(name) { return this.attributes[name] ?? null; }
   addEventListener(type, listener) { (this.listeners[type] ||= []).push(listener); }
@@ -98,7 +100,7 @@ function harness({ width = 1150, extra = {}, monitorChrome = false } = {}) {
   renderActivity,renderVitals,renderSummary,vitalsInput,syncCompactUI,toggleActivity,toggleAbout,closeCompactSidebar,setSidebarOpen,
   rebuildPanel,disclosure,onlineCodeSummary,liveNow,renderInspector,modelControlPollWanted,onlineCodePollWanted,pollOnlineCodeAction,
   renderModelScope,renderList,setModelScope,
-  renderAutoUnload,pollAutoUnload,requestAutoUnload,get autoUnloadState(){return autoUnloadState;},
+  renderAutoUnload,pollAutoUnload,requestAutoUnload,requestModelAction,openActionReview,closeActionReview,confirmActionReview,get autoUnloadState(){return autoUnloadState;},
   requestOnlineCodeAction,updateOnlineCodeMode,updateInferenceFix,openFixInference,closeFixInference,renderMemoryBanner,dismissMemoryBanner,
   get memoryDismissed(){return memoryDismissed;},
   get graph(){return graph;},
@@ -869,10 +871,10 @@ test('B: panels share one structure; technical detail starts closed; one sticky 
   }
   for (const id of ['onlineCodeDetails', 'fixInferenceDetails', 'activityDetails'])
     assert.match(panels[id], /class="[^"]*\bpanel-summary\b[^"]*"[^>]*>(<i class="status-dot"><\/i>)?/, id);
-  assert.match(panels.onlineCodeDetails, /<footer id="onlineCodeActions" class="panel-actions"><button id="onlineCodeRepair" class="mode-repair-button panel-primary" type="button" hidden>Check and repair<\/button><button id="pcHeadless"/);
+  assert.match(panels.onlineCodeDetails, /<footer id="onlineCodeActions" class="panel-actions"><button id="onlineCodeRepair" class="mode-repair-button panel-primary" type="button" hidden>Review a repair…<\/button><button id="pcHeadless"/);
   // 27 Sep: the private Nisi v0.2 integration is labelled "Nisi Inference" (internal ids stay).
   assert.match(panels.onlineCodeDetails, /<summary>Nisi Inference runtime evidence<\/summary>/);
-  assert.match(panels.fixInferenceDetails, /<footer class="panel-actions"><button id="fixInferenceSubmit" class="fix-submit panel-primary" type="submit">Run check<\/button><\/footer><\/form>/);
+  assert.match(panels.fixInferenceDetails, /<footer class="panel-actions"><button id="fixInferenceSubmit" class="fix-submit panel-primary" type="submit">Review repair…<\/button><\/footer><\/form>/);
   assert.doesNotMatch(panels.fixInferenceDetails, /name="fixScope"|id="fixInferenceScopes"/);
   assert.match(panels.fixInferenceDetails, /<details class="panel-more"><summary>What this does<\/summary><p class="fix-intro">/);
   assert.match(panels.drawer, /<div id="modelActionDock" class="model-action-dock panel-actions" hidden aria-live="polite">[\s\S]*<button id="modelAction" class="panel-primary"/);
@@ -1221,8 +1223,8 @@ test('Round 3: the Online Code panel hides the duplicate result for a finished c
   assert.equal($('fixInferenceResult').querySelector('strong').textContent, 'Waiting for the live feed');
   // The top-bar tabs wait for the feed too, instead of calling this Mac a non-owner.
   assert.equal($('onlineCodeLabel').textContent, 'Waiting for the live feed');
-  assert.match($('onlineCodeMode').getAttribute('aria-label'), /Waiting for the live feed/);
-  assert.match($('fixInference').getAttribute('aria-label'), /Waiting for the live feed/);
+  assert.match($('onlineCodeMode').getAttribute('aria-label'), /Waiting for cached observations/);
+  assert.match($('fixInference').getAttribute('aria-label'), /Diagnostics\. Waiting for the live feed/);
   api.setFeed({ ...pcSnapshot(nowSeconds(), {}), onlineCodeMode: { state: 'ready', active: false, taskState: 'idle', setupState: 'fresh', setupAgeSeconds: 42 } });
   api.setAction({ status: 'ready', operationId: 1, action: 'check-and-repair', message: 'No pending records; readiness verified.', steps: [{ name: 'readiness', result: 'verified' }] });
   api.updateOnlineCodeMode();
@@ -1239,13 +1241,13 @@ test('Round 3: the Online Code panel hides the duplicate result for a finished c
   assert.equal($('onlineCodeResult').hidden, false);
 });
 
-test('Fix inference explains the combined action in its idle summary', () => {
+test('repair panel asks for one target and explicit consequence review in its idle summary', () => {
   const { api, $ } = harness();
   api.setFeed(pcSnapshot(nowSeconds(), {}));
   api.updateInferenceFix();
   const result = $('fixInferenceResult');
   assert.deepEqual([result.querySelector('strong').textContent, result.querySelector('p').textContent],
-    ['Ready to check', 'Checks and repairs the Mac runtime, Windows route and Nisi Inference in one guarded run.']);
+    ['Ready to review', 'Choose one repair target. Review its effects and duration before confirming; SharedChami recovery stays manual.']);
   assert.equal($('fixScopeNote').hidden, true);
   api.setAction({ status: 'ready', operationId: 3, action: 'fix-all', message: 'Inference verified.', steps: [] });
   api.updateInferenceFix();
@@ -1759,7 +1761,7 @@ test('Fix Nisi + Jev: a pending Nisi record leads the Nisi + Jev inspector with 
   // The sticky footer: Fix Nisi + Jev is the primary action; the call-trace jump steps back beside it.
   assert.deepEqual([$('drawerJump').hidden, $('drawerFixButton').hidden, $('drawerJumpButton').classList.contains('panel-primary'), $('drawerJumpButton').textContent],
     [false, false, false, 'Call traces →']);
-  assert.match(html, /<div id="drawerJump" class="panel-actions" hidden><button id="drawerFixButton" class="panel-primary drawer-fix" type="button" title="Opens Model Tuning Tool\. Nothing runs until you press Run check\." hidden>Model tuning<\/button><button id="drawerJumpButton" class="panel-primary" type="button">Explore call traces →<\/button><\/div>/);
+  assert.match(html, /<div id="drawerJump" class="panel-actions" hidden><button id="drawerFixButton" class="panel-primary drawer-fix" type="button" title="Opens cached diagnostics\. A repair needs a separate review\." hidden>Diagnostics<\/button><button id="drawerJumpButton" class="panel-primary" type="button">Explore call traces →<\/button><\/div>/);
   // Without the snapshot's marker fields: the same words, no numbers.
   api.setFeed(pendingFeed());
   api.render();
@@ -1777,7 +1779,7 @@ test('Fix Nisi + Jev: a pending Nisi record leads the Nisi + Jev inspector with 
   assert.doesNotMatch(note, /Fix Nisi Inference opens the Fix panel/);
   api.setFeed(pendingFeed());
   api.render();
-  assert.match([...body.querySelectorAll('.detail-note')].map(p => p.textContent).join(' '), /Model tuning opens the AGIW x ECI Model Tuning Tool; nothing runs until you press Run check\./);
+  assert.match([...body.querySelectorAll('.detail-note')].map(p => p.textContent).join(' '), /Diagnostics opens cached observations; a repair needs a separate review and confirmation\./);
   // An open router run with the router's own marker blocks the fix: the summary says so in the route chip's words, the fix
   // steps back to a secondary action and the call traces (where that run is) lead again.
   api.setFeed(pendingFeed({ runId: 'route-20260927-011504', stage: 'review', pendingMarkerAgeSeconds: 7260, pendingMarkerOwner: 'route-20260927-011504' }));
@@ -1860,7 +1862,7 @@ test('Fix Nisi + Jev: the footer styles its primary and secondary buttons; secon
   assert.match(css, /\.node\.windows-lane \.sub\{opacity:\.92\}/);
 });
 
-test('Nisi inspector opens combined Fix inference without submitting and focuses the panel', async () => {
+test('Nisi inspector opens selected-scope repair without submitting and focuses the panel', async () => {
   const { api, doc, $, fetches } = netHarness();
   api.setFeed(pendingFeed());
   api.openFixInference('nisi');
@@ -1868,13 +1870,13 @@ test('Nisi inspector opens combined Fix inference without submitting and focuses
   assert.equal($('fixInferenceDetails').hidden, false);
   assert.equal($('fixInference').getAttribute('aria-expanded'), 'true');
   assert.equal(doc.activeElement, $('fixInferenceDetails'));
-  assert.match($('fixInferenceResult').querySelector('p').textContent, /Mac runtime, Windows route and Nisi Inference/);
-  assert.ok(fetches.every(url => url === '/api/online-code-mode/entry'));
+  assert.match($('fixInferenceResult').querySelector('p').textContent, /Choose one repair target.*effects and duration.*manual/);
+  assert.ok(fetches.every(url => ['/api/online-code-mode/entry','/api/online-code-mode/readiness'].includes(url)));
   api.setAction({ status: 'running', operationId: 5, action: 'fix-all', message: 'Checking.', steps: [] });
   api.openFixInference('nisi');
   assert.equal($('fixInferenceSubmit').disabled, true);
   assert.equal($('fixInferenceResult').querySelector('p').textContent, 'Checking.');
-  assert.ok(fetches.every(url => url === '/api/online-code-mode/entry'));
+  assert.ok(fetches.every(url => ['/api/online-code-mode/entry','/api/online-code-mode/readiness'].includes(url)));
 });
 
 test('Fix Nisi + Jev: closing the Fix panel returns to the inspector it was opened from; the top-bar tab path returns to the tab', () => {
@@ -2286,7 +2288,7 @@ test('auto-unload control starts disabled, reads app state, and writes one exact
   assert.equal($('autoUnloadMode').textContent, 'Off');
   assert.equal($('autoUnloadToggle').disabled, false);
   assert.equal($('autoUnloadToggle').textContent, 'Turn on');
-  await api.requestAutoUnload();
+  await api.requestAutoUnload({reviewedEnabled:true});
   await settle();
   assert.equal($('autoUnloadMode').textContent, 'On');
   assert.equal($('autoUnloadToggle').textContent, 'Turn off');
@@ -2323,14 +2325,14 @@ test('auto-unload preflight refuses a stale toggle and an uncertain write is rea
   const on = { enabled: true, blocked: 'waiting for idle' };
   const changed = autoUnloadHarness([{ status: 200, body: off }, { status: 200, body: on }]);
   await changed.api.pollAutoUnload(true);
-  await changed.api.requestAutoUnload();
+  await changed.api.requestAutoUnload({reviewedEnabled:true});
   await settle();
   assert.ok(changed.calls.every(call => call.options.method === 'GET'));
   assert.equal(changed.$('autoUnloadMode').textContent, 'On');
   assert.match(changed.$('autoUnloadStatus').textContent, /Setting changed elsewhere/);
   const uncertain = autoUnloadHarness([{ status: 200, body: off }, { status: 200, body: off }, new Error('reply lost'), { status: 200, body: on }]);
   await uncertain.api.pollAutoUnload(true);
-  await uncertain.api.requestAutoUnload();
+  await uncertain.api.requestAutoUnload({reviewedEnabled:true});
   await settle();
   assert.deepEqual(uncertain.calls.map(call => call.options.method), ['GET', 'GET', 'POST', 'GET']);
   assert.equal(uncertain.$('autoUnloadMode').textContent, 'On');
@@ -2338,29 +2340,33 @@ test('auto-unload preflight refuses a stale toggle and an uncertain write is rea
 });
 
 
-test('unified repair posts scope all once and preserves owner and pending-operation guards', async () => {
+test('selected repair requires review and preserves owner and pending-operation guards', async () => {
   const calls=[];
   let release;
   const {api}=harness({extra:{fetch:(url,options)=>{
     calls.push({url,options});
-    if(options?.method==='POST')return new Promise(resolve=>{release=()=>resolve({ok:true,json:async()=>({status:'running',operationId:17,action:'fix-all',message:'Checking.',steps:[]})});});
-    return Promise.resolve({ok:true,json:async()=>({status:'running',operationId:17,action:'fix-all',message:'Checking.',steps:[]})});
+    if(options?.method==='POST')return new Promise(resolve=>{release=()=>resolve({ok:true,json:async()=>({status:'running',operationId:17,action:'fix-nisi',message:'Checking.',steps:[]})});});
+    return Promise.resolve({ok:true,json:async()=>({status:'running',operationId:17,action:'fix-nisi',message:'Checking.',steps:[]})});
   },setTimeout:()=>0,clearTimeout:()=>{},AbortController:class{constructor(){this.signal={};}abort(){}}}});
-  await api.requestOnlineCodeAction('fix-all');
+  await api.requestOnlineCodeAction('fix-nisi',{reviewed:true});
   assert.equal(calls.length,0,'no request without Mac owner snapshot');
   api.setFeed({...pendingFeed(),host:'windows'});
-  await api.requestOnlineCodeAction('fix-all');
+  await api.requestOnlineCodeAction('fix-nisi',{reviewed:true});
   assert.equal(calls.length,0,'observer cannot repair');
   api.setFeed(pendingFeed());
-  const first=api.requestOnlineCodeAction('fix-all');
-  await api.requestOnlineCodeAction('fix-all');
+  await api.requestOnlineCodeAction('fix-nisi');
+  assert.equal(calls.length,0,'unreviewed repair is refused');
+  for(const action of ['fix-all','fix-both','check-and-repair','readiness'])await api.requestOnlineCodeAction(action,{reviewed:true});
+  assert.equal(calls.length,0,'bundled and legacy active-readiness actions are refused');
+  const first=api.requestOnlineCodeAction('fix-nisi',{reviewed:true});
+  await api.requestOnlineCodeAction('fix-nisi',{reviewed:true});
   assert.equal(calls.length,1,'posting blocks duplicate');
   assert.equal(calls[0].url,'/api/eci-tuning/repair');
-  assert.equal(calls[0].options.body,JSON.stringify({scope:'all'}));
+  assert.equal(calls[0].options.body,JSON.stringify({scope:'nisi',reviewed:true}));
   release();await first;await settle();
-  await api.requestOnlineCodeAction('fix-all');
-  api.setAction({status:'uncertain',operationId:17,action:'fix-all'});
-  await api.requestOnlineCodeAction('fix-all');
+  await api.requestOnlineCodeAction('fix-nisi',{reviewed:true});
+  api.setAction({status:'uncertain',operationId:17,action:'fix-nisi'});
+  await api.requestOnlineCodeAction('fix-nisi',{reviewed:true});
   assert.equal(calls.filter(call=>call.options?.method==='POST').length,1,'running and uncertain block duplicate');
 });
 
@@ -2777,7 +2783,7 @@ test('closing Model Tuning Tool leaves the running repair and status polling int
   assert.equal($('fixInferenceDetails').hidden,true);
   assert.equal(api.onlineCodePollWanted(),true);
   await api.requestOnlineCodeAction('fix-all');
-  assert.ok(fetches.every(url=>url==='/api/online-code-mode/entry'),'close and duplicate attempt send no repair or cancellation');
+  assert.ok(fetches.every(url=>['/api/online-code-mode/entry','/api/online-code-mode/readiness'].includes(url)),'close and duplicate attempt send only retained status and cached readiness reads');
   api.openFixInference();
   assert.equal($('fixInferenceSubmit').disabled,true);
   assert.equal($('fixInferenceResult').querySelector('p').textContent,'Checking.');
@@ -2817,4 +2823,75 @@ test('actual startup paints fictional tabs before any live snapshot without inve
       assert.equal(api.monitorState.monitors[0].word, 'UNKNOWN');
     }
   }
+});
+
+test('automatic unload review binds the displayed intent and cancel sends no write', async () => {
+  const off={enabled:false,blocked:'off'},on={enabled:true,blocked:'on'};
+  const {api,doc,$,calls}=autoUnloadHarness([{status:200,body:off},{status:200,body:on}]);
+  await api.pollAutoUnload(true);
+  $('autoUnloadToggle').focus();
+  await api.requestAutoUnload();
+  assert.deepEqual(calls.map(call=>call.options.method),['GET']);
+  assert.equal($('actionReview').open,true);
+  assert.equal(doc.activeElement,$('actionReviewCancel'));
+  assert.match($('actionReviewEffects').textContent,/unload safely idle/);
+  api.closeActionReview();
+  assert.equal(doc.activeElement,$('autoUnloadToggle'));
+  assert.deepEqual(calls.map(call=>call.options.method),['GET'],'cancel sends no write');
+  await api.requestAutoUnload();
+  await api.pollAutoUnload(true);
+  assert.equal($('autoUnloadMode').textContent,'On','external state changed while review was open');
+  api.confirmActionReview();
+  await settle();
+  assert.deepEqual(calls.map(call=>call.options.method),['GET','GET'],'confirmation never reverses the reviewed direction');
+  assert.equal($('actionReview').open,false);
+});
+
+test('model review binds exact model and action and rechecks freshness before confirmation', async () => {
+  const calls=[];
+  const {api,doc,$}=harness({extra:{fetch:async(url,options)=>{
+    calls.push({url,options});
+    return {ok:true,status:200,json:async()=>options?.method==='POST'?{status:'running',action:'load',modelId:'fixture/a'}:{status:'idle'}};
+  }}});
+  const model=id=>({id,modelKey:id,host:'mac',source:'lmstudio-api',state:'unloaded',loaded:false,ageSeconds:0});
+  const feed=()=>({...pendingFeed(),modelControl:{supported:true},models:[model('fixture/a'),model('fixture/b')]});
+  api.setFeed(feed());
+  api.spyScope();api.setModelScope('all');
+  api.select('model:mac:fixture/a');
+  $('modelAction').focus();
+  await api.requestModelAction();
+  assert.equal($('actionReview').open,true);
+  assert.equal(doc.activeElement,$('actionReviewCancel'));
+  assert.match($('actionReviewTarget').textContent,/fixture\/a/);
+  assert.equal(calls.length,0,'opening model review sends no request');
+  api.closeActionReview();
+  assert.equal(doc.activeElement,$('modelAction'));
+  assert.equal(calls.length,0,'cancel sends no request');
+  await api.requestModelAction();
+  api.select('model:mac:fixture/b');
+  api.confirmActionReview();
+  await settle();
+  assert.equal(calls.length,0,'selection changed after review cannot change the submitted target');
+  api.select('model:mac:fixture/a');
+  await api.requestModelAction();
+  const loaded=feed();loaded.models[0]={...loaded.models[0],source:'lms-ps',state:'idle',loaded:true,queued:0,instanceId:'fixture/a',loadedInstanceIds:['fixture/a']};
+  api.setFeed(loaded);api.select('model:mac:fixture/a');
+  api.confirmActionReview();
+  await settle();
+  assert.equal(calls.length,0,'a load review cannot become an unload after inventory changes');
+  api.setFeed(feed());api.select('model:mac:fixture/a');
+  await api.requestModelAction();
+  const stale=feed();stale.sampledAt=nowSeconds()-60;
+  api.setFeed(stale);
+  api.confirmActionReview();
+  await settle();
+  assert.equal(calls.length,0,'stale evidence at confirmation prevents operation');
+  api.setFeed(feed());api.select('model:mac:fixture/a');
+  await api.requestModelAction();
+  api.confirmActionReview();
+  await settle();
+  const writes=calls.filter(call=>call.options?.method==='POST');
+  assert.equal(writes.length,1);
+  assert.equal(writes[0].url,'/api/models/control');
+  assert.deepEqual(JSON.parse(writes[0].options.body),{action:'load',modelId:'fixture/a'});
 });

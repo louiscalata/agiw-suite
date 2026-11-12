@@ -10,7 +10,7 @@ const SCREENS = [
   ['Map', './web/monitor.html', '/monitor'],
   ['Machines', './web/machines.html', '/machines'],
   ['Components', './web/components.html', '/components'],
-  ['Model tuning', './web/eci-tuning.html', '/eci-tuning'],
+  ['Model evaluation', './web/eci-tuning.html', '/eci-tuning'],
   ['Identity', './web/identity.html', '/identity'],
   ['Setup', './web/setup.html', '/setup'],
 ];
@@ -20,7 +20,7 @@ const NAV = [
   ['/monitor', 'Map'],
   ['/machines', 'Machines'],
   ['/components', 'Components'],
-  ['/eci-tuning', 'Model tuning'],
+  ['/eci-tuning', 'Model evaluation'],
   ['/identity', 'Identity'],
   ['/setup', 'Setup'],
 ];

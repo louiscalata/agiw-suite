@@ -28,9 +28,10 @@ test('page uses local font fallbacks, read-only fetch and safe text rendering', 
 
 test('tuning page exposes guarded repair through an open-only Overview link', () => {
   const html=readFileSync(new URL('./web/eci-tuning.html',import.meta.url),'utf8');
-  assert.match(html,/Check and repair inference/);
+  assert.match(html,/Diagnostics and repair/);
   assert.match(html,/href="\/#model-tuning"/);
-  assert.match(html,/press <strong>Run check<\/strong> to confirm/);
+  assert.match(html,/Confirm action/);
+  assert.match(html,/target[^<]*effects[^<]*duration/i);
   assert.match(html,/Opening the tool does not start repair/);
   assert.match(html,/Closing the panel does not cancel a running repair/);
   assert.match(html,/Windows remains read-only/);

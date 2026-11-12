@@ -6,13 +6,11 @@ next step from cached observations without invoking an owner. This module never
 submits a task, resends a Windows job, calls a model directly, or writes, moves
 or deletes an owner state file itself. The installed launcher and its owners
 perform every state transition. The public
-Fix inference action runs the existing guarded local, Nisi and route repairs
-once each.  Legacy scoped actions remain available to older clients.
+HTTP repair actions expose one individually reviewed local, Nisi or route scope.
+Legacy bundled actions remain internal controller interfaces.
 
-Only the explicit Fix Route control goes further: it recovers a wedged or
-missing SharedChami mount (bounded force unmount and registered-user remount with
-an empty password, only when
-no Windows job is being waited on) and proves the Windows route with one tiny
+Only the explicit Fix Route control goes further: it checks the SharedChami
+mount without changing it and proves the Windows route with one tiny
 inference request through the Windows transport owner, which records it as
 pending so it is never resent.
 
@@ -88,6 +86,8 @@ STAGES = ("preflight", "prepare", "intake", "backend", "macReturn", "finalValida
 LOCAL_API_HOST = "127.0.0.1"
 LOCAL_API_PORT = 1234
 FIX_SCOPES = ("local", "route", "both", "nisi", "all")
+# HTTP repairs are individually reviewed. Bundled legacy scopes stay internal.
+REVIEWED_FIX_SCOPES = ("local", "route", "nisi")
 NISI_V02_HOST_FILES = frozenset({"nisi_auto_preflight.mjs", "nisi_bridge.mjs",
                                 "nisi_local.ts", "nisi_validate.mjs", "pipeline_integrations.py"})
 WINDOWS_STATUS_CODES = frozenset({"WINDOWS_EXACT_LANES_UNAVAILABLE", "WINDOWS_UNRESOLVED_JOB"})
@@ -1720,7 +1720,7 @@ class OnlineCodeRepair:
         return terminal_error
 
     def _recover_share(self) -> None:
-        """Make SharedChami usable before any guarded Windows owner call."""
+        """Observe SharedChami before owner calls; recovery stays manual."""
         self._require_l2()
         share = self._share
         if share is None:
@@ -1753,65 +1753,11 @@ class OnlineCodeRepair:
             raise _Stop("needs-action", "The SharedChami mount table could not be read, or a different SMB account "
                                         "or host owns this mount. The share was not changed. Check the settings "
                                         "and eject an existing Guest mount in Finder before pressing Fix again.")
-        host = share.reachable_host()
-        if host is None:
-            self._step("pc-reachability", "unreachable")
-            raise _Stop("needs-action", "The Windows PC does not answer on the LAN (SMB port 445). Wake or power it on, "
-                                        "then press Fix again. The share was not changed.")
-        self._step("pc-reachability", "reachable", evidence=f"host={host}")
-        self._nisi_clear()
-        # Hold the router lock, then the Windows owner lock (the router's own
-        # order) across the gates and the whole remount, so no router run or
-        # probe can start between the check and the unmount.
-        with share.hold_router() as router_free:
-            if not router_free:
-                # Never take the Windows owner lock while a router run holds its
-                # own: the router would hit OWNER_BUSY mid-run and quarantine.
-                self._step("share-recovery", "deferred", evidence="router=busy")
-                raise _Stop("needs-action", "SharedChami needs recovery, but a route task is running. Nothing was "
-                                            "unmounted; press Fix again when it finishes.")
-            self._recover_share_locked(share, mounted, host)
-
-    def _recover_share_locked(self, share: ShareControl, mounted: bool, host: str) -> None:
-        self._require_l2()
-        with share.hold_owner() as held:
-            open_jobs = share.open_jobs()
-            if not held or open_jobs is None or open_jobs > 0:
-                self._step("share-recovery", "deferred",
-                           evidence=f"router=free; owner={'free' if held else 'busy'}; "
-                                    f"openJobs={open_jobs if open_jobs is not None else 'unknown'}")
-                raise _Stop("needs-action", "SharedChami needs recovery, but a route task or Windows job is still running. "
-                                            "Nothing was unmounted; press Fix again when it finishes. If the share stays stuck, eject "
-                                            "SharedChami in Finder and reconnect it (Go > Connect to Server).")
-            if mounted:
-                if not share.force_unmount():
-                    self._step("share-unmount", "failed")
-                    raise _Stop("needs-action", "The stuck SharedChami mount could not be force-unmounted. "
-                                                "Eject it in Finder, then press Fix again.")
-                self._step("share-unmount", "forced")
-                for _ in range(8):
-                    if share.mounted() is False:
-                        break
-                    share.settle(1.0)
-                else:
-                    self._step("share-unmount", "unverified")
-                    raise _Stop("needs-action", "The SharedChami unmount could not be confirmed. No new mount "
-                                                "was attempted; eject the existing volume in Finder and press Fix again.")
-            if not share.mount(host):
-                self._step("share-mount", "failed", evidence=f"host={host}")
-                raise _Stop("needs-action", "SharedChami could not be remounted as the configured registered user with an empty password. Check the PC share account, then connect in Finder (Go > Connect to Server). Nothing was reauthenticated by this check.")
-            self._step("share-mount", "mounted", evidence=f"host={host}")
-            for _ in range(3):
-                if share.mounted() and share.dispatch_status() not in SHARE_IO_FAULTS:
-                    stuck = share.stuck_readers()
-                    set_windows_worker_tolerance(stuck)
-                    self._step("share-verify", "healthy",
-                               evidence=f"stuck-readers={stuck if stuck is not None else 'unknown'}")
-                    return
-                share.settle(2.0)
-        self._step("share-verify", "failed")
-        raise _Stop("needs-action", "SharedChami was remounted, but the Windows queue still cannot be read. "
-                                    "Check the PC worker, then press Fix again.")
+        self._step("share-recovery", "manual-only")
+        raise _Stop("needs-action", "SharedChami needs manual recovery. Nothing was unmounted or remounted. "
+                                    "Review active route tasks and Windows jobs, then eject SharedChami in Finder "
+                                    "and reconnect it (Go > Connect to Server) before retrying. "
+                                    "This observation does not establish the physical cause.")
 
     def _prove_windows_inference(self) -> str | None:
         """Run the explicit end-to-end probe; returns a summary or raises _Stop."""

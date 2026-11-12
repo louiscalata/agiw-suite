@@ -469,11 +469,12 @@ test('app wires Windows lanes, the headless toggle and its endpoint through the 
   const html = readFileSync(new URL('./web/index.html', import.meta.url), 'utf8');
   assert.match(html, /<button id="pcHeadless" class="mode-repair-button" type="button" hidden>/);
   assert.match(app, /const HEADLESS_ACTIONS=new Map\(\[\['headless-on','on'\],\['headless-off','off'\]\]\)/);
-  assert.match(app, /headless\?'\/api\/online-code-mode\/headless'/);
+  assert.match(app, /const path=fixAction\?'\/api\/eci-tuning\/repair':'\/api\/online-code-mode\/headless'/);
+  assert.match(app, /reviewed:true/);
   assert.match(app, /if\(headless\)body\.action=HEADLESS_ACTIONS\.get\(action\)/);
   assert.match(app, /headlessButton\.hidden=!macOwner/);
   assert.match(app, /headlessButton\.disabled=actionActive\|\|!fresh\(\)/);
-  assert.match(app, /\$\('pcHeadless'\)\.addEventListener\('click',\(\)=>requestOnlineCodeAction\(headlessAction\(\)\)\)/);
+  assert.match(app, /\$\('pcHeadless'\)\.addEventListener\('click',\(\)=>reviewOnlineCodeAction\(headlessAction\(\)\)\)/);
   assert.match(app, /edge\(`client:\$\{e\.client\}`,`windows-lane:\$\{e\.lane\}`/);
 });
 

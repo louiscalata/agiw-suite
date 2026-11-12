@@ -70,3 +70,82 @@ test('closing an inspector-only target restores its sidebar button and opens com
   vm.runInNewContext(close + '\ncloseDrawer();', context);
   assert.deepEqual(focused, ['Browse']);
 });
+
+function reviewedRepairHarness() {
+  const app = readFileSync(new URL('./web/app.js', import.meta.url), 'utf8');
+  const definitions = app.replace(/^import .*;\r?\n/gm, '').split("$('pause').addEventListener")[0];
+  const sent = [], elements = new Map();
+  const document = {activeElement: null, getElementById(id) {
+    if (!elements.has(id)) elements.set(id, {dataset: {}, hidden: true, open: false,
+      setAttribute() {}, focus() {document.activeElement = this;},
+      showModal() {this.open = true;}, close() {this.open = false;}});
+    return elements.get(id);
+  }};
+  const api = vm.runInNewContext(definitions + `
+updateOnlineCodeMode=()=>{};recordOnlineCodeAction=()=>{};pollOnlineCodeAction=()=>{};
+snapshot={host:'mac'};
+({requestOnlineCodeAction,reviewOnlineCodeAction,openActionReview,closeActionReview,confirmActionReview,
+  scopes:[...REPAIR_SCOPES]})`, {
+    document, AbortController, setTimeout: () => 1, clearTimeout() {},
+    fetch: async (path, options) => {sent.push({path, ...options}); return {ok: true, json: async () => ({status: 'ready'})};},
+  });
+  return {api, sent, elements, document};
+}
+
+test('repair capability exposes exactly the separately reviewed local, route and Nisi scopes', () => {
+  const {api} = reviewedRepairHarness();
+  assert.deepEqual(Array.from(api.scopes).sort(), ['local', 'nisi', 'route']);
+});
+
+test('repair dispatch requires review and pins the scope in its POST', async () => {
+  for (const scope of ['local', 'route', 'nisi']) {
+    const {api, sent} = reviewedRepairHarness();
+    await api.requestOnlineCodeAction(`fix-${scope}`);
+    assert.deepEqual(sent, [], `unreviewed ${scope} must not dispatch`);
+    await api.requestOnlineCodeAction(`fix-${scope}`, {reviewed: true});
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].path, '/api/eci-tuning/repair');
+    assert.equal(sent[0].method, 'POST');
+    assert.deepEqual(JSON.parse(sent[0].body), {scope, reviewed: true});
+  }
+});
+
+test('bundled and readiness aliases cannot dispatch a repair even when marked reviewed', async () => {
+  for (const action of ['fix-all', 'fix-both', 'check-and-repair', 'readiness', 'fix-share', 'unknown']) {
+    const {api, sent} = reviewedRepairHarness();
+    await api.requestOnlineCodeAction(action, {reviewed: true});
+    assert.deepEqual(sent, [], action);
+  }
+});
+
+test('a consequence review shows target, effects and honest duration before any dispatch', () => {
+  const {api, sent, elements, document} = reviewedRepairHarness();
+  const opener = {focus() {document.activeElement = this;}};
+  document.activeElement = opener;
+  api.openActionReview({title: 'Review repair', target: 'This Mac', effects: 'May start the local API.',
+    duration: 'Completion time is unknown.'}, () => {throw new Error('opening must not confirm');});
+  assert.deepEqual(sent, []);
+  assert.equal(elements.get('actionReview').open, true);
+  assert.match(elements.get('actionReviewHeading').textContent, /review/i);
+  assert.equal(elements.get('actionReviewTarget').textContent, 'This Mac');
+  assert.equal(elements.get('actionReviewEffects').textContent, 'May start the local API.');
+  assert.equal(elements.get('actionReviewDuration').textContent, 'Completion time is unknown.');
+  assert.equal(document.activeElement, elements.get('actionReviewCancel'), 'Cancel is focused');
+  api.closeActionReview();
+  assert.equal(document.activeElement, opener, 'focus returns to the opener');
+  assert.deepEqual(sent, []);
+});
+
+
+test('an open review retains its scope and only the first confirmation dispatches', async () => {
+  const {api, sent, document} = reviewedRepairHarness();
+  document.activeElement = {focus() {}};
+  api.reviewOnlineCodeAction('fix-route');
+  api.reviewOnlineCodeAction('fix-local');
+  assert.deepEqual(sent, [], 'reviewing either control sends nothing');
+  api.confirmActionReview();
+  api.confirmActionReview();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(sent.length, 1, 'duplicate confirmation must not dispatch again');
+  assert.deepEqual(JSON.parse(sent[0].body), {scope: 'route', reviewed: true});
+});

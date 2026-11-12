@@ -31,7 +31,8 @@ test('Windows full web keeps tuning compatibility hooks and online code beside s
   }
   const index = read('./web/index.html');
   assert.match(index, /id="fixInference"/);
-  assert.match(index, /Model tuning/);
+  assert.match(index, /Model evaluation/);
+  assert.match(index, /Diagnostics and repair/);
   const app = read('./web/app.js');
   assert.match(app, /windows/);
   assert.ok(denylistHits(app, loadDenylist()).length > 0, 'the full observer is not the restricted edition');

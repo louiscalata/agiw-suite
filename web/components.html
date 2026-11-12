@@ -17,7 +17,7 @@
 <a href="/monitor">Map</a>
 <a href="/machines">Machines</a>
 <a href="/components" aria-current="page">Components</a>
-<a href="/eci-tuning">Model tuning</a>
+<a href="/eci-tuning">Model evaluation</a>
 <a href="/identity">Identity</a>
 <a href="/setup">Setup</a>
 <label class="j-theme">Theme
@@ -28,15 +28,15 @@
 </select>
 </label>
 </nav><main id="content" class="j-page" tabindex="-1">
-<header><strong class="j-type">AGIW</strong><div><p class="eyebrow">AGIW SUITE</p><h1>Your workflow components.</h1><p>Included tools, clear requirements, and optional connections. Package checks and the optional Jev connection are unchanged.</p></div></header>
+<header><strong class="j-type">AGIW</strong><div><p class="eyebrow">AGIW SUITE</p><h1>Your workflow components.</h1><p>Included tools, clear requirements, and optional connections. Opening this page reads cached status. Package and connection checks require a separate consequence review.</p></div></header>
 <section aria-labelledby="nisiHeading">
 <p class="eyebrow">INCLUDED BY DEFAULT</p><h2 id="nisiHeading">Nisi <span>v0.2.0</span></h2>
 <p>The public Apache-2.0 workflow engine, journal, and CLI are included with this edition of AGIW. Nisi coordinates work; it does not load an extra model into memory.</p>
 <dl><div><dt>Package integrity</dt><dd id="integrity">Checking…</dd></div><div><dt>Runtime</dt><dd id="runtime">Checking…</dd></div></dl>
 <p>Install <a href="https://nodejs.org/en/download" target="_blank" rel="noopener noreferrer">Node.js 22 or newer for Apple silicon</a> to use the CLI. Place Node at its standard Homebrew or installer location. The Node interpreter and model weights are separate installations.</p>
-<button id="check" type="button" disabled>Run Nisi self-check</button><p id="result" role="status" aria-live="polite">Checking package availability.</p>
+<button id="check" type="button" disabled>Review Nisi self-check…</button><p id="result" role="status" aria-live="polite">Checking package availability.</p>
 <details><summary>Use the bundled CLI</summary><p>Show the version, run the fixed model-free demo, or configure the fixed local-model example. This public CLI does not execute arbitrary repository tasks.</p><pre id="command"></pre><p><a href="https://github.com/louiscalata/nisi/tree/v0.2.0#command-line" target="_blank" rel="noopener noreferrer">Nisi CLI documentation ↗</a></p></details>
 </section>
-<section aria-labelledby="jevHeading"><p class="eyebrow">OPTIONAL CONNECTION · OFF UNTIL CONFIGURED</p><h2 id="jevHeading">Jev</h2><p>Connect to TypeSafe’s hosted Jev service alongside Nisi. This optional connector uses your own API key and does not load another local model.</p><p id="jevStatus" role="status" aria-live="polite">Checking the connection setting…</p><button id="jevConfigure" type="button">Set up Jev</button> <button id="jevCheck" type="button" disabled>Check Jev connection</button><p id="jevResult" role="status" aria-live="polite"></p><p class="fine">The key is stored in this Mac’s login Keychain. Saving it makes no network request. The explicit connection check sends the saved API key and one fixed synthetic classification test to TypeSafe over HTTPS. TypeSafe receives your IP address and standard request metadata; provider usage charges may apply. This check sends no files, task prompts, or model inventory. This connection check does not enable routing of coding tasks.</p><p><a href="https://docs.typesafe.ai/" target="_blank" rel="noopener noreferrer">TypeSafe service documentation ↗</a> · <a href="https://typesafe.ai/legal/privacy-policy" target="_blank" rel="noopener noreferrer">TypeSafe privacy policy ↗</a></p></section>
+<section aria-labelledby="jevHeading"><p class="eyebrow">OPTIONAL CONNECTION · OFF UNTIL CONFIGURED</p><h2 id="jevHeading">Jev</h2><p>Connect to TypeSafe’s hosted Jev service alongside Nisi. This optional connector uses your own API key and does not load another local model.</p><p id="jevStatus" role="status" aria-live="polite">Checking the connection setting…</p><button id="jevConfigure" type="button">Set up Jev</button> <button id="jevCheck" type="button" disabled>Review Jev connection check…</button><p id="jevResult" role="status" aria-live="polite"></p><p class="fine">The key is stored in this Mac’s login Keychain. Saving it makes no network request. The explicit connection check sends the saved API key and one fixed synthetic classification test to TypeSafe over HTTPS. TypeSafe receives your IP address and standard request metadata; provider usage charges may apply. This check sends no files, task prompts, or model inventory. This connection check does not enable routing of coding tasks.</p><p><a href="https://docs.typesafe.ai/" target="_blank" rel="noopener noreferrer">TypeSafe service documentation ↗</a> · <a href="https://typesafe.ai/legal/privacy-policy" target="_blank" rel="noopener noreferrer">TypeSafe privacy policy ↗</a></p></section>
 <footer>The installed private Nisi/Jev router, when present, remains a separate connection on the map. A passing package self-check does not establish model inference or router readiness.</footer>
-</main></body></html>
+</main><dialog id="actionReview" class="action-review" aria-labelledby="actionReviewHeading" aria-describedby="actionReviewTarget actionReviewEffects actionReviewDuration"><h2 id="actionReviewHeading">◆ REVIEW</h2><dl><dt>Target</dt><dd id="actionReviewTarget"></dd><dt>Effects</dt><dd id="actionReviewEffects"></dd><dt>Duration</dt><dd id="actionReviewDuration"></dd></dl><div class="panel-actions"><button id="actionReviewCancel" type="button" autofocus>Cancel</button><button id="actionReviewConfirm" class="panel-primary" type="button">Confirm action</button></div></dialog></body></html>

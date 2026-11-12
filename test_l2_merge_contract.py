@@ -10,10 +10,12 @@ from unittest.mock import Mock, patch
 from server import Handler
 
 REASON = 'Repair, Fix and Headless require the default-off A1 L2 gate'
-ROUTES = [('/api/online-code-mode/repair', {'action': 'check-and-repair'})]
-ROUTES += [(route, {'scope': scope}) for route in ('/api/inference/fix', '/api/eci-tuning/repair')
-           for scope in ('local', 'route', 'both', 'nisi', 'all')]
-ROUTES += [('/api/online-code-mode/headless', {'action': action}) for action in ('on', 'off')]
+ROUTES = [(route, {'scope': scope, 'reviewed': True})
+          for route in ('/api/online-code-mode/repair', '/api/inference/fix', '/api/eci-tuning/repair')
+          for scope in ('local', 'route', 'nisi')]
+ROUTES += [('/api/online-code-mode/headless', {'action': action, 'reviewed': True})
+           for action in ('on', 'off')]
+
 
 
 def dispatch(path, body, gate):
