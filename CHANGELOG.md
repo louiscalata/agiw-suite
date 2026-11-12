@@ -5,9 +5,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-- The AGIW x ECI Model Tuning Tool replaces Fix inference. The old name, control IDs and `/api/inference/fix` route are deprecated compatibility aliases; `/api/eci-tuning/repair` uses the same guarded repair. Opening the tool never starts repair; Run check confirms it. This is not a tagged release.
+- #119 (`8230e60`) replaces Fix inference with the AGIW x ECI Model Tuning Tool after #117. The old name, control IDs and `/api/inference/fix` route are deprecated compatibility aliases; `/api/eci-tuning/repair` uses the same guarded repair. Opening the tool never starts repair; Run check confirms it. This is not a tagged release.
 
-- Add the AGIW x ECI Model Tuning Tool: offline ingest, protocol-separated rankings, explicit policy apply, and a read-only model tuning page with provisional and pending scores.
+- #117 (`eedb253`) adds the AGIW x ECI Model Tuning Tool: offline ingest, protocol-separated rankings, explicit policy apply, and a read-only model tuning page with provisional and pending scores.
+
+- #114 (`66a660a`) reconciles the agent guide with current source and CI ownership.
+- #122 (`b80607b`) routes Linux CI jobs to hosted Ubuntu and uses Ubuntu 22.04 for the sandboxed kit smoke.
+- #123 (`3a5b4da`) integrates the Plex observer web variant and its font distribution checks.
+
+These entries record local merge history; CI outcomes and current-source native acceptance remain unverified here. See the [source verification addendum](docs/source-verification.md#local-merge-reconciliation--12-november-2026).
 
 Previously merged after the v1.1.0 tag:
 

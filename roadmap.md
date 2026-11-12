@@ -4,7 +4,8 @@
 
 - [x] Reconcile the competing agent guide with the existing canonical file, preserving source ownership, release and device gates, and the Mac browser prohibition.
 - [x] Describe current same-repository Mac/PC and hosted Linux runner mappings from the workflows, and separate source checks from installation and historical test receipts.
-- [ ] Verify the reviewed guide revision in native CI before merge. Product and typography changes remain separate.
+- [x] Record the guide's integration through PR #114 (`66a660a`).
+- [ ] Review CI receipts for the merged guide revision. Its CI outcome remains unverified in this local source check; integration does not prove CI passed. Product and typography changes remain separate.
 
 ## Linux CI availability — 10 November 2026
 
@@ -16,7 +17,7 @@ The manual Jaryo kit smoke uses the supported Ubuntu 22.04 image: the pinned Chr
 
 - [x] Replace the repair-only UI with the Model Tuning Tool, linking recorded rankings and an explicit Run check. Preserve guarded repair, scoped API aliases, read-only GET and Windows refusal.
 - [x] Keep legacy control IDs as compatibility hooks and `/api/inference/fix` as a deprecated alias of `/api/eci-tuning/repair`. Opening any entry point does not repair; closing does not cancel. This supersedes the historical immediate-click behavior below.
-- [ ] Merge PR 117 first; review this stacked PR against `feature/eci-model-tuning-tool`. No runtime activation, local LLM drafting, browser acceptance or tagged release is claimed.
+- [x] Record the stacked merges: PR #117 (`eedb253`) landed before this replacement in PR #119 (`8230e60`). The merge prerequisite is complete; runtime activation, local LLM drafting, browser acceptance and tagged release remain separate.
 
 ## AGIW x ECI Model Tuning Tool · PR 1 · 2026-11-10
 
@@ -24,7 +25,7 @@ The manual Jaryo kit smoke uses the supported Ubuntu 22.04 image: the pinned Chr
 - [x] Set the repo's provisional PC-eligible policy to Llama-3.1-8B-Instruct Q4_K_M, local ECI 105.38 [94.31, 115.14], low-to-moderate confidence; retain lenient 108.59 as a separate scoring view with overlapping CI.
 - [ ] Admit Bonsai, LFM3 and Glimmer scores when independently computed; do not infer them from partial or withheld inspect accuracy.
 - [ ] Have the external AGIW routing owner integrate and test the config hook. Runtime activation remains NOT_APPLIED; Nisi Mac requires two distinct resident Mac LLMs and remains NOT_APPLIED.
-- [x] PR 2 replacement is implemented above for separate review; PR 1 preserves its original behavior until PR 2 merges.
+- [x] PR 2 replacement is integrated through PR #119 (`8230e60`), superseding PR #117's original Fix inference entry point.
 
 ## Current source and artifact status · 2026-11-03
 
@@ -152,8 +153,8 @@ At publication, rc.2 and rc.1 were available; their release downloads were withd
 - [ ] Complete the successor's native menu-bar/dashboard rendering and animation checks and quarantined first-install acceptance on a clean supported Mac as release-validation follow-up. Build 6's native window now opens and basic rendering was inspected; that evidence does not transfer automatically to the successor.
 - [ ] Review the Mac App Store successor's sandbox, runtime and optional-service privacy design. The Mac App Store edition has its own source, package, privacy and native acceptance binding; GitHub results do not close its gates.
 
-The current GitHub download is the regular v1.0.0 release of notarized Build 7. Build 6 remains held after its observed native Jev setup failure. Build 7 passed the narrow process-survival regression, native model-free Nisi self-check and one existing-key fixed hosted probe. These results do not complete Jev UI/credential lifecycle, task routing, provider model identity, animation or clean-Mac acceptance. Public v1.0.0 publication is verified above; native validation remains open and Build 5 rc.1 is retained.
-The first 6-GiB heavy-build admission was refused (exit 75, macOS memory pressure warning). After the owner authorized unloading the two resident models, memory returned to normal and a signed Build 6 candidate was produced from `efab5c1`. Publication review caught an outdated NOTICE claiming Nisi runtime source was excluded and clarified Jev's API-key/request-metadata transmission. The corrected signed candidate from `cbd623d` supersedes that earlier candidate and has completed notarization and the exact export audit. The published Build 5 application is preserved.
+The current GitHub download is the regular v1.0.0 release of notarized Build 7. Build 6 remains held after its observed native Jev setup failure. Build 7 passed the narrow process-survival regression, native model-free Nisi self-check and one existing-key fixed hosted probe. These results do not complete Jev UI/credential lifecycle, task routing, provider model identity, animation or clean-Mac acceptance. Public v1.0.0 publication is verified above; native validation remains open. Build 5 rc.1 was retained for rollback at this September checkpoint; its release download was withdrawn on 18 October as recorded above.
+The first 6-GiB heavy-build admission was refused (exit 75, macOS memory pressure warning). After the owner authorized unloading the two resident models, memory returned to normal and a signed Build 6 candidate was produced from `efab5c1`. Publication review caught an outdated NOTICE claiming Nisi runtime source was excluded and clarified Jev's API-key/request-metadata transmission. The corrected signed candidate from `cbd623d` supersedes that earlier candidate and has completed notarization and the exact export audit. Build 5 preservation here describes that September checkpoint; it does not establish current rollback availability.
 
 This is the canonical roadmap for this repository and its GitHub distribution candidates. The Monitor's active engineering roadmap remains in its original checkout until an owner accepts a cutover. Source publication, verified local installation and binary distribution acceptance are recorded separately.
 
