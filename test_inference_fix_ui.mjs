@@ -5,27 +5,29 @@ import test from 'node:test';
 const html=readFileSync(new URL('./web/index.html',import.meta.url),'utf8');
 const app=readFileSync(new URL('./web/app.js',import.meta.url),'utf8');
 
-test('Model Tuning Tool retains accessible compatibility hooks without scope choices',()=>{
+test('evaluation navigation and repair compatibility hooks expose separate reviewed scopes',()=>{
+  assert.match(html,/<a[^>]*href="\/eci-tuning"[^>]*>Model evaluation<\/a>/);
   assert.match(html,/<button id="fixInference"[^>]*aria-expanded="false"[^>]*aria-controls="fixInferenceDetails"/);
+  assert.match(html,/<span class="fix-tab-long">Model tuning<\/span>/);
   assert.match(html,/<section id="fixInferenceDetails"[^>]*hidden[^>]*aria-labelledby="fixInferenceHeading"/);
-  assert.doesNotMatch(html,/name="fixScope"|id="fixInferenceScopes"/);
-  assert.match(html,/<button id="fixInferenceSubmit"[^>]*type="submit">Run check<\/button>/);
-  assert.match(html,/Mac runtime, Windows route and Nisi Inference in one guarded run/);
-  assert.match(html,/<h2 id="fixInferenceHeading">AGIW x ECI Model Tuning Tool<\/h2>/);
+  const select=html.match(/<select id="fixInferenceScope"[\s\S]*?<\/select>/);
+  assert.ok(select,'repair target is selected before review');
+  assert.deepEqual([...select[0].matchAll(/<option value="([^"]+)"/g)].map(match=>match[1]),['local','route','nisi']);
+  assert.match(html,/<button id="fixInferenceSubmit"[^>]*type="submit">Review repair[^<]*<\/button>/);
   assert.match(html,/href="\/eci-tuning">recorded ECI rankings/);
-  assert.match(html,/Check and repair inference/);
+  assert.match(html,/SharedChami[^<]*manual|manual[^<]*SharedChami/i);
 });
 
-test('toolbar opens without repair and only explicit Run check submits',()=>{
+test('repair toolbar opens passively and form opens a selected-scope review without submitting',()=>{
   for(const [id,event] of [['fixInference','click'],['fixInferenceForm','submit']]){
     const source=app.match(new RegExp(`\\$\\('${id}'\\)\\.addEventListener\\('${event}',[\\s\\S]*?\\n\\}\\);`));
     assert.ok(source,id);
     let listener,prevented=false;
     const sent=[];
-    const $=()=>({addEventListener:(_,callback)=>{listener=callback;}});
-    new Function('$','openFixInference','requestOnlineCodeAction',source[0])($,()=>sent.push('opened'),action=>sent.push(action));
+    const $=key=>key==='fixInferenceScope'?{value:'nisi'}:{addEventListener:(_,callback)=>{listener=callback;}};
+    new Function('$','openFixInference','reviewOnlineCodeAction','requestOnlineCodeAction',source[0])($,()=>sent.push('opened'),action=>sent.push(action),()=>assert.fail('form must not submit a repair'));
     listener({preventDefault(){prevented=true;}});
-    assert.deepEqual(sent,event==='click'?['opened']:['fix-all']);
+    assert.deepEqual(sent,event==='click'?['opened']:['fix-nisi']);
     assert.equal(prevented,event==='submit');
   }
 });
@@ -35,16 +37,16 @@ test('inspector opening is read-only and focuses the panel',()=>{
   assert.ok(opener);
   assert.doesNotMatch(opener[0],/\bfetch\s*\(|\brequestOnlineCodeAction\s*\(|requestSubmit|\.submit\s*\(|\.click\s*\(/);
   assert.match(opener[0],/panel\.focus\(\{preventScroll:true\}\)/);
-  assert.match(html,/Opening this panel from the toolbar, inspector or tuning page makes no repair request/);
+  assert.match(html,/Opening this panel[^<]*no repair request/);
 });
 
-test('unified fix uses the same guarded endpoint and preserves legacy actions',()=>{
-  for(const action of ['fix-local','fix-route','fix-both','fix-nisi','fix-all'])assert.ok(app.includes(`['${action}',`));
+test('repair submission requires review and preserves pending-operation guards',()=>{
+  assert.match(app,/async function requestOnlineCodeAction\(action,\{reviewed=false\}=\{\}\)/);
   assert.match(app,/onlineCodeActionPosting\|\|\['running','uncertain'\]\.includes\(onlineCodeActionStatus\?\.status\)/);
   assert.match(app,/const path=fixAction\?'\/api\/eci-tuning\/repair'/);
-  assert.match(app,/const body=fixAction\?\{scope:action\.slice\(4\)\}:\{action\}/);
+  assert.match(app,/scope:action\.slice\(4\),reviewed:true/);
   assert.match(app,/submit\.disabled=!macOwner\|\|active/);
-  assert.match(html,/force-unmount and remount a stuck or missing SharedChami share/);
+  assert.doesNotMatch(html,/force-unmount and remount/);
 });
 
 test('Fix panel renders every step and states when no Windows request was sent',()=>{
@@ -60,10 +62,10 @@ test('Fix panel renders every step and states when no Windows request was sent',
   assert.doesNotMatch(app,/steps\.slice\(0,(8|16)\)/);
 });
 
-test('rankings page opens the same check panel through a read-only deep link',()=>{
+test('rankings page opens the repair panel through a read-only deep link',()=>{
   const page=readFileSync(new URL('./web/eci-tuning.html',import.meta.url),'utf8');
   assert.match(page,/href="\/#model-tuning"/);
-  assert.match(page,/Run check/);
+  assert.match(page,/Confirm action/);
   const helper=app.match(/function openTuningLink\(\)\{[^\n]+/)[0];
   for(const hash of ['', '#other', '#model-tuning']){
     const opened=[];

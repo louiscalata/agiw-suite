@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import copy
 import json
+import math
 import os
 from pathlib import Path
 import signal
@@ -38,6 +39,28 @@ import eci_tuning
 
 AGED_REASONS = {"stale": "stale", "clock_skew": "clock-ahead", "schema_invalid": "report-refused"}
 FULL_SAMPLE_MAX_AGE = 3.0  # same as the Mac server and the UI: a sample older than this is not live activity
+
+
+def cached_readiness(snapshot, now):
+    """Read Windows cached evidence only; never dispatch a Mac owner action."""
+    snapshot = snapshot if isinstance(snapshot, dict) else {}
+    sampled = snapshot.get("fullSampledAt", snapshot.get("sampledAt"))
+    def valid(value):
+        try:
+            return type(value) in (int, float) and math.isfinite(value)
+        except OverflowError:
+            return False
+    sampled = sampled if valid(sampled) else None
+    age = now - sampled if sampled is not None else None
+    fresh = valid(age) and 0 <= age <= FULL_SAMPLE_MAX_AGE
+    return {"action": "readiness-status", "readOnly": True,
+            "status": "observed" if fresh else "unknown",
+            "reasonCode": ("cached_observations" if fresh else "not_observed" if age is None
+                           else "clock_skew" if age < 0 else "stale"),
+            "sampledAt": sampled, "ageSeconds": age,
+            "setupState": "unknown", "inferenceReadiness": "unknown",
+            "machines": [],
+            "message": "Cached Windows status only. Mac owner readiness is unknown; no action was run."}
 
 DEFAULT_PORT = 8767
 ACTIVE = {"generating", "busy"}
@@ -342,6 +365,8 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/snapshot":
             data = self.server.store.read()
             return self.json_reply(200, data) if data is not None else self.json_reply(503, {"status": "starting"})
+        if path == "/api/online-code-mode/readiness":
+            return self.json_reply(200, cached_readiness(self.server.store.read(), time.time()))
         if path == "/api/stream":
             return self.stream()
         if path == "/api/eci-tuning":

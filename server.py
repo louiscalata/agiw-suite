@@ -26,7 +26,7 @@ from activity import collect_activity
 from client_models import collect_clients
 from model_control import ControlError, ModelControl, capability as model_control_capability
 from auto_unload import AutoUnloader, router_problem
-from online_code_repair import OnlineCodeRepair, read_only_diagnosis, FIX_SCOPES, HEADLESS_COMMANDS
+from online_code_repair import OnlineCodeRepair, read_only_diagnosis, REVIEWED_FIX_SCOPES, HEADLESS_COMMANDS
 from live_feed import LiveFeed
 from gpu_probe import mac_gpu
 from local_callers import LocalCallers
@@ -109,10 +109,9 @@ MODEL_JOURNAL_PATH = Path.home() / '.local/state/inference-monitor/model-operati
 # Each choice is (request value, diagnosis action, controller method arguments).
 # Canonical tuning repair and the deprecated Fix inference alias share every guard and scope.
 INFERENCE_REPAIR_ROUTE = ('scope', 'request_fix', tuple(
-    (scope, f'fix-{scope}', (scope,)) for scope in FIX_SCOPES))
+    (scope, f'fix-{scope}', (scope,)) for scope in REVIEWED_FIX_SCOPES))
 OWNER_ACTION_ROUTES = {
-    '/api/online-code-mode/repair': ('action', 'request', (
-        ('check-and-repair', 'check-and-repair', ()),)),
+    '/api/online-code-mode/repair': INFERENCE_REPAIR_ROUTE,
     '/api/eci-tuning/repair': INFERENCE_REPAIR_ROUTE,
     '/api/inference/fix': INFERENCE_REPAIR_ROUTE,
     '/api/online-code-mode/headless': ('action', 'request_headless', tuple(
@@ -689,9 +688,11 @@ class Handler(BaseHTTPRequestHandler):
                 accepted = self.server.bundled_components.request_check()
             elif self.path in OWNER_ACTION_ROUTES:
                 field, method, choices = OWNER_ACTION_ROUTES[self.path]
-                choice = next((choice for choice in choices if data == {field: choice[0]}), None)
+                choice = next((choice for choice in choices
+                               if data == {field: choice[0], 'reviewed': True}
+                               and type(data.get('reviewed')) is bool), None)
                 if choice is None:
-                    return self.control_error(400, f'Body must contain only {field}: ' +
+                    return self.control_error(400, f'Body must contain only reviewed: true and {field}: ' +
                                               ', '.join(choice[0] for choice in choices) + '.')
                 _, action, arguments = choice
                 accepted = self.owner_action(action, lambda: getattr(self.server.online_code_repair, method)(*arguments))
