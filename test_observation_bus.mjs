@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 const source = readFileSync(new URL('./web/simple-view.mjs', import.meta.url), 'utf8')
-  .replace("'/model-control-view.mjs'", JSON.stringify(new URL('./web/model-control-view.mjs', import.meta.url).href));
+  .replace("'/model-control-view.mjs'", JSON.stringify(new URL('./web/model-control-view.mjs', import.meta.url).href))
+  .replace("'/monitor-store.mjs'", JSON.stringify(new URL('./web/monitor-store.mjs', import.meta.url).href));
 const { observationBus } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
 
 const live = { models: [{ id: 'a', loaded: true }, { id: 'b', loaded: false }] };
@@ -77,5 +78,16 @@ test('the label reads the same facts as the text', () => {
 test('the bus is plain ASCII', () => {
   for (const args of [{ snapshot: null }, { snapshot: live, fresh: true, studioLive: true }, { snapshot: live, fresh: false, studioLive: false }]) {
     assert.match(observationBus(args).text, /^[\x20-\x7e\n]+$/);
+  }
+});
+
+
+test('expired source evidence is stale whether its last state was answering or unavailable', () => {
+  for (const studioLive of [true, false]) {
+    const view = observationBus({snapshot: live, fresh: false, studioLive});
+    assert.equal(line(view, 1), 'source    STALE');
+    assert.equal(view.moving, false);
+    assert.doesNotMatch(view.text, /source    LIVE|source    NOT ANSWERING/);
+    assert.match(view.label, /Source stale/);
   }
 });

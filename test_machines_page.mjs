@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 const board = new URL('./web/monitor-board.mjs', import.meta.url);
 const boardSource = readFileSync(board, 'utf8').replace("'/monitor-tabs.mjs'", JSON.stringify(new URL('./web/monitor-tabs.mjs', import.meta.url).href));
 const boardURL = `data:text/javascript;base64,${Buffer.from(boardSource).toString('base64')}`;
-const source = readFileSync(new URL('./web/machines.mjs', import.meta.url), 'utf8').replace("'/monitor-board.mjs'", JSON.stringify(boardURL)).replace("'/fleet-state.mjs'", JSON.stringify(new URL('./web/fleet-state.mjs', import.meta.url).href));
+const source = readFileSync(new URL('./web/machines.mjs', import.meta.url), 'utf8').replace("'/monitor-board.mjs'", JSON.stringify(boardURL)).replace("'/fleet-state.mjs'", JSON.stringify(new URL('./web/fleet-state.mjs', import.meta.url).href)).replace("'/monitor-store.mjs'", JSON.stringify(new URL('./web/monitor-store.mjs', import.meta.url).href));
 const { machineFacts, machineTiles, mountMachines, paintMachines, laneFacts } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
 const read = path => readFileSync(new URL(path, import.meta.url), 'utf8');
 
@@ -112,21 +112,25 @@ test('a PC-sent row set reads as tiles, with the Mac named even when it says mac
   assert.equal(machineTiles([pcSuperset], 'worker-pc')[0].title, 'This PC');
 });
 
-test('the page judges freshness by fullSampledAt within 3 seconds', async () => {
-  const run = async (body, now = 1000) => {
-    const els = {};
-    const make = () => ({ children: [], className: '', attrs: {}, setAttribute(k, v) { this.attrs[k] = v; }, append(...c) { this.children.push(...c); },
-      replaceChildren(...c) { this.children = c; }, textContent: '' });
-    const document = { getElementById: id => (els[id] ||= make()), createElement: () => make() };
-    const handle = mountMachines({ document, fetch: async () => ({ ok: true, json: async () => body }), setTimeout: () => 1, now: () => now });
-    for (let i = 0; i < 6; i++) await new Promise(r => setImmediate(r));
-    handle.destroy();
-    return els.machinesStatus.textContent;
-  };
-  assert.equal(await run({ host: 'mac', sampledAt: 999, fullSampledAt: 999 }), 'Live sample.');
-  assert.equal(await run({ host: 'mac', sampledAt: 999 }), 'Live sample.');
-  assert.equal(await run({ host: 'mac', sampledAt: 999, fullSampledAt: 990 }), 'Last sample, not live.');
-  assert.equal(await run({ host: 'mac', sampledAt: 996 }), 'Last sample, not live.');
+test('Machines subscribes to the shared snapshot and follows its freshness on every emission', () => {
+  const els = {};
+  const make = () => ({children: [], className: '', attrs: {}, setAttribute(k, v) { this.attrs[k] = v; },
+    append(...c) { this.children.push(...c); }, replaceChildren(...c) { this.children = c; }, textContent: ''});
+  const document = {getElementById: id => (els[id] ||= make()), createElement: () => make()};
+  let listener, stopped = false;
+  const starts = [];
+  const store = {subscribe(callback) {listener = callback; callback({snapshot: null}); return () => {stopped = true;};},
+    start(options) {starts.push(options);}};
+  const handle = mountMachines({document, store, now: () => 1000});
+  assert.equal(els.machinesStatus.textContent, 'Snapshot unavailable. Machines are unknown.');
+  const snapshot = {host: 'mac', sampledAt: 999};
+  listener({snapshot, snapshotStatus: {fresh: true}});
+  assert.equal(els.machinesStatus.textContent, 'Live sample.');
+  listener({snapshot, snapshotStatus: {fresh: false}});
+  assert.equal(els.machinesStatus.textContent, 'Last sample, not live.');
+  assert.deepEqual(starts, [{snapshot: true}]);
+  handle.destroy();
+  assert.equal(stopped, true);
 });
 
 test('a machine that is up but degraded is a DEGRADED tile, whichever reason words say so', () => {
@@ -153,25 +157,6 @@ test('names and states come from the tables by own key only', () => {
     assert.equal(tile.glyph, '?', word);
     assert.equal(Object.fromEntries(machineFacts({ state: word })).State, 'Unknown', word);
   }
-});
-
-test('a timestamp that is not a number never makes the page live', async () => {
-  const run = async stamp => {
-    const els = {};
-    const make = () => ({ children: [], className: '', attrs: {}, setAttribute(k, v) { this.attrs[k] = v; }, append(...c) { this.children.push(...c); },
-      replaceChildren(...c) { this.children = c; }, textContent: '' });
-    const document = { getElementById: id => (els[id] ||= make()), createElement: () => make() };
-    const handle = mountMachines({ document, fetch: async () => ({ ok: true, json: async () => ({ host: 'mac', ...stamp }) }), setTimeout: () => 1, now: () => 1000 });
-    for (let i = 0; i < 6; i++) await new Promise(r => setImmediate(r));
-    handle.destroy();
-    return els.machinesStatus.textContent;
-  };
-  for (const stamp of ['999', [999], true, null, {}, '', NaN, Infinity]) {
-    assert.equal(await run({ sampledAt: stamp }), 'Last sample, not live.', JSON.stringify(stamp));
-    if (stamp !== null) assert.equal(await run({ fullSampledAt: stamp, sampledAt: 999 }), 'Last sample, not live.', `full ${JSON.stringify(stamp)}`);
-  }
-  assert.equal(await run({ sampledAt: 999 }), 'Live sample.');
-  assert.equal(await run({ fullSampledAt: null, sampledAt: 999 }), 'Live sample.', 'a null full sample time is absent, so sampledAt is read');
 });
 
 const registryRow = (id, label, count = 1) => ({host: `registry:${id}`, id: `registry:${id}`, label,

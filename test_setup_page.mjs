@@ -2,8 +2,30 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-const source = readFileSync(new URL('./web/setup.mjs', import.meta.url), 'utf8');
-const { setupSteps, setupProgress, setupNote, paintSetup, mountSetup } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
+const source = readFileSync(new URL('./web/setup.mjs', import.meta.url), 'utf8')
+  .replace("'/monitor-store.mjs'", JSON.stringify(new URL('./web/monitor-store.mjs', import.meta.url).href));
+const { setupSteps, setupProgress, setupNote, paintSetup, mountSetup: mountStoredSetup } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
+// The transport itself is exercised in test_live_stream; these fixtures drive the consumer's store boundary.
+function setupStore({fetch, setTimeout, now = () => Date.now() / 1000}) {
+  let state = {snapshot: null, snapshotStatus: {fresh: false, available: false}}, listener, stopped = false;
+  const tick = async () => {
+    try {
+      const reply = await fetch('/api/snapshot', {cache: 'no-store'});
+      const snapshot = reply.ok ? await reply.json() : null;
+      const stamp = snapshot?.fullSampledAt ?? snapshot?.sampledAt, age = now() - stamp;
+      state = {snapshot, snapshotStatus: {available: Boolean(snapshot), fresh: Number.isFinite(stamp) && age >= -1 && age <= 3}};
+    } catch (_) { state = {...state, snapshotStatus: {fresh: false, available: false}}; }
+    if (!stopped) { listener?.(state); setTimeout(tick, 1000); }
+  };
+  return {getState: () => state, subscribe(fn) { listener = fn; fn(state); return () => { listener = null; }; },
+    start: tick, destroy() { stopped = true; }};
+}
+function mountSetup(options) {
+  const store = options.store || setupStore(options);
+  const mounted = mountStoredSetup({...options, store});
+  return {destroy() { mounted.destroy(); store.destroy?.(); }};
+}
+
 const read = path => readFileSync(new URL(path, import.meta.url), 'utf8');
 const byId = steps => Object.fromEntries(steps.map(s => [s.id, s]));
 
@@ -258,4 +280,60 @@ test('a timestamp that is not a number never makes the setup page live', async (
     assert.match(await run({ sampledAt: stamp }), /j-setup-not-yet/, JSON.stringify(stamp));
     if (stamp !== null) assert.match(await run({ fullSampledAt: stamp, sampledAt: 999 }), /j-setup-not-yet/, `full ${JSON.stringify(stamp)}`);
   }
+});
+
+
+test('a pending component read cannot stop store ageing and its deadline permits a later read', async () => {
+  const els = {}, timers = [];
+  const make = () => ({children: [], className: '', setAttribute() {}, append(...items) { this.children.push(...items); },
+    replaceChildren(...items) { this.children = items; }, textContent: '', hidden: false});
+  const document = {getElementById: id => (els[id] ||= make()), createElement: make};
+  let now = 1000, listener, reads = 0;
+  let state = {snapshot: {...snapshot, sampledAt: 1000}, snapshotStatus: {available: true, fresh: true}};
+  const store = {getState: () => state, subscribe(fn) { listener = fn; fn(state); return () => {}; }, start() {}};
+  const handle = mountStoredSetup({document, store, now: () => now,
+    fetch: () => { reads++; return reads <= 2 ? new Promise(() => {}) : Promise.resolve({ok: true, json: async () => ({})}); },
+    setTimeout(fn, ms) { timers.push({fn, ms}); return timers.length; }, clearTimeout() {}});
+  assert.match(els.setupSteps.children[0].className, /j-setup-done/);
+  now += 4;
+  state = {...state, snapshotStatus: {available: true, fresh: false}};
+  listener(state);
+  assert.match(els.setupSteps.children[0].className, /j-setup-not-yet/, 'ageing does not wait for components');
+  assert.equal(reads, 2, 'component refreshes are serialized');
+  for (const timer of timers) { assert.equal(timer.ms, 3000); timer.fn(); }
+  for (let i = 0; i < 4; i++) await new Promise(resolve => setImmediate(resolve));
+  now += 6;
+  listener(state);
+  for (let i = 0; i < 4; i++) await new Promise(resolve => setImmediate(resolve));
+  assert.equal(reads, 4, 'a deadline releases stalled reads even when fetch ignores abort');
+  handle.destroy();
+});
+
+
+test('expired legacy machine states cannot claim up or absence', () => {
+  for (const state of ['up', 'down', 'unknown']) {
+    const machine = byId(setupSteps({snapshot: {...snapshot, machines: [{host: 'mac', state: 'up'}, {host: 'pc', state}]}, fresh: false})).machines;
+    assert.equal(machine.status, 'UNKNOWN');
+    assert.match(machine.evidence, /stale or unavailable/);
+    assert.doesNotMatch(machine.evidence, /are up|is up|none up/);
+  }
+});
+
+test('setup uses independently aged canonical endpoint facts rather than an enclosing sample clock', async () => {
+  const {projectEvidence} = await import('./web/monitor-store.mjs');
+  const at = second => new Date(second * 1000).toISOString();
+  const facts = [
+    {id: 'mac', scope: 'machine', state: 'reported', observedAt: at(100), expiresAt: at(103), evidence: {trust: 'local'}},
+    {id: 'pc', scope: 'machine', state: 'unknown', observedAt: null, expiresAt: null},
+    {id: 'pc:fast', parentId: 'pc', scope: 'lane', state: 'endpoint answering', observedAt: at(100), expiresAt: at(102)},
+    {id: 'pc:slow', parentId: 'pc', scope: 'lane', state: 'endpoint answering', observedAt: at(100), expiresAt: at(106)},
+  ];
+  const input = {host: 'mac', sampledAt: 100, machines: [{host: 'pc', state: 'up'}], fleetState: {schemaVersion: 1, facts}};
+  const partial = byId(setupSteps({snapshot: projectEvidence(input, 104), fresh: false})).machines;
+  assert.equal(partial.status, 'DONE');
+  assert.match(partial.evidence, /1 of 2 configured identity endpoints answering/);
+  assert.match(partial.evidence, /Host health is not measured/);
+  const expired = byId(setupSteps({snapshot: projectEvidence(input, 107), fresh: false})).machines;
+  assert.equal(expired.status, 'UNKNOWN');
+  assert.match(expired.evidence, /stale/);
 });

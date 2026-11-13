@@ -32,7 +32,7 @@ _INFERENCE_ROOT = _inference_root()
 if _INFERENCE_ROOT is not None and str(_INFERENCE_ROOT) not in sys.path:
     # Append. Putting the repo root first shadows windows/tests with the root test_*.py modules.
     sys.path.append(str(_INFERENCE_ROOT))
-from inference_collect import RateMemory, attach, vram_from_gpus
+from inference_collect import RateMemory, attach, vram_from_gpus, collector_diagnostic
 from inference_stats import expire_map
 from fleet_state import build_fleet_state
 from machine_state import expire_machines
@@ -76,6 +76,7 @@ ASSETS = {"/": ("index.html", "text/html; charset=utf-8"),
           "/style.css": ("style.css", "text/css; charset=utf-8"),
           "/monitor": ("monitor.html", "text/html; charset=utf-8"),
           "/monitor.mjs": ("monitor.mjs", "text/javascript; charset=utf-8"),
+          "/monitor-store.mjs": ("monitor-store.mjs", "text/javascript; charset=utf-8"),
           "/monitor.css": ("monitor.css", "text/css; charset=utf-8"),
           "/monitor-tabs.mjs": ("monitor-tabs.mjs", "text/javascript; charset=utf-8"),
           "/monitor-board.mjs": ("monitor-board.mjs", "text/javascript; charset=utf-8"),
@@ -158,6 +159,25 @@ class SnapshotStore:
         self.events: list[dict] = []
         self.previous: dict[str, dict] = {}
         self.sequence = 0
+        self.collector_diagnostics = []
+
+    def diagnostics(self):
+        with self.lock:
+            return copy.deepcopy(self.collector_diagnostics)
+
+    def publish_error(self, stage, error):
+        """Publish bounded failure context on the original evidence clock."""
+        with self.changed:
+            previous = self.snapshot or {}
+            last_success = previous.get("fullSampledAt", previous.get("sampledAt"))
+            diagnostic = collector_diagnostic(stage, error, last_success=last_success)
+            self.collector_diagnostics = [row for row in self.collector_diagnostics if row["stage"] != stage][-7:]
+            self.collector_diagnostics.append(diagnostic)
+            self.sequence += 1
+            if self.snapshot is not None:
+                self.snapshot = copy.deepcopy(self.snapshot)
+                self.snapshot.update(sequence=self.sequence, collectorDiagnostics=copy.deepcopy(self.collector_diagnostics))
+            self.changed.notify_all()
 
     def publish(self, data: dict) -> None:
         data = probes.enforce_snapshot_evidence(data)
@@ -176,6 +196,7 @@ class SnapshotStore:
         data["activityKnown"] = known
         with self.lock:
             self.sequence += 1
+            self.collector_diagnostics = copy.deepcopy(data.get("collectorDiagnostics", []))
             states = {}
             for row in rows:
                 key = f"{row['host']}:{row['id']}"
@@ -204,7 +225,8 @@ class SnapshotStore:
                                             and all(type(r.get("loaded")) is bool for r in live) else None)})
             self.history = self.history[-90:]
             data.update(sequence=self.sequence, history=copy.deepcopy(self.history),
-                        events=copy.deepcopy(self.events), intervalSeconds=1, fullSampledAt=now)
+                        events=copy.deepcopy(self.events), intervalSeconds=1, fullSampledAt=now,
+                        collectorDiagnostics=copy.deepcopy(self.collector_diagnostics))
             self.snapshot = data
             self.changed.notify_all()
 
@@ -227,6 +249,7 @@ class SnapshotStore:
         data["fleetState"] = fleet
         if isinstance(data.get("inference"), dict):
             data["inference"]["fleetState"] = fleet
+            data["inference"]["collectorDiagnostics"] = copy.deepcopy(data.get("collectorDiagnostics", []))
         return data
 
     def read(self):
@@ -243,10 +266,12 @@ class SnapshotStore:
             # A stopped sampler still needs to publish expiry to stream readers.
             inference = data.get("inference")
             if isinstance(inference, dict):
-                inference = {key: value for key, value in inference.items() if key != "fleetState"}
+                inference = {key: value for key, value in inference.items()
+                             if key not in ("fleetState", "collectorDiagnostics")}
             original = self.snapshot.get("inference")
             if isinstance(original, dict):
-                original = {key: value for key, value in original.items() if key != "fleetState"}
+                original = {key: value for key, value in original.items()
+                            if key not in ("fleetState", "collectorDiagnostics")}
             if (not changed and inference == original
                     and data.get("machines") == self.snapshot.get("machines")
                     and data.get("activityKnown") == self.snapshot.get("activityKnown")):
@@ -372,11 +397,11 @@ class Handler(BaseHTTPRequestHandler):
             data = self.server.store.read()
             inference = data.get("inference") if isinstance(data, dict) else None
             if not isinstance(inference, dict):
-                return self.json_reply(503, {"status": "starting"})
+                return self.json_reply(503, {"status": "starting", "collectorDiagnostics": self.server.store.diagnostics()})
             return self.json_reply(200, inference)
         if path == "/api/snapshot":
             data = self.server.store.read()
-            return self.json_reply(200, data) if data is not None else self.json_reply(503, {"status": "starting"})
+            return self.json_reply(200, data) if data is not None else self.json_reply(503, {"status": "starting", "collectorDiagnostics": self.server.store.diagnostics()})
         if path == "/api/online-code-mode/readiness":
             return self.json_reply(200, cached_readiness(self.server.store.read(), time.time()))
         if path == "/api/stream":
@@ -527,10 +552,14 @@ def sample(store: SnapshotStore, collector: Collector, stop: threading.Event, in
     feed: dict[str, Any] = {"ok": None, "error": None}
     while not stop.is_set():
         started = time.monotonic()
+        stage = "collect_snapshot"
         try:
             data = collector.collect()
             data["dashboardPort"] = dashboard_port
-            attach(data, "pc", rates=_INFERENCE_RATES, vram=vram_from_gpus(data.get("pcGpus")))
+            stage = "inference"
+            attach(data, "pc", rates=_INFERENCE_RATES, vram=vram_from_gpus(data.get("pcGpus")),
+                   previous=(store.read() or {}).get("inference"))
+            stage = "snapshot_publish"
             if publish_to is not None or presence_to is not None:
                 targets = tuple(name for name, target in (("status", publish_to), ("presence", presence_to)) if target)
                 data["sources"] = [*data.get("sources", []), publish_source(outcome, started, targets)]
@@ -564,6 +593,7 @@ def sample(store: SnapshotStore, collector: Collector, stop: threading.Event, in
                 else:
                     outcome["ok"], outcome["error"] = time.monotonic(), None
         except Exception as error:  # noqa: BLE001 - a failed sample ages out; it is never re-stamped
+            store.publish_error(stage, error)
             print(f"{time.strftime('%Y-%m-%dT%H:%M:%S')} sample failed: {error!r}", file=sys.stderr)
         stop.wait(max(0.05, interval - (time.monotonic() - started)))
 

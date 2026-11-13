@@ -357,11 +357,11 @@ test('check-web-edition.sh expects exactly the files the edition ships', () => {
   assert.deepEqual(expected, [...ship].sort());
 });
 
-test('current upstream builds exactly the eight shipped files', { skip: !process.env.AGIW_WEB_UPSTREAM }, () => {
+test('current upstream builds exactly the declared shipped files', { skip: !process.env.AGIW_WEB_UPSTREAM }, () => {
   const sourceDir = process.env.AGIW_WEB_UPSTREAM;
   const upstream = new Map(readdirSync(sourceDir).map(name => [name, readFileSync(join(sourceDir, name), 'utf8')]));
   const { files } = buildEdition(upstream);
-  assert.equal(files.size, 8);
+  assert.equal(files.size, ship.length);
   assert.deepEqual([...files.keys()], ship);
   for (const [name, text] of files) assert.equal(text, readFileSync(join(webDir, name), 'utf8'), name);
 });

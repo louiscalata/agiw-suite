@@ -69,7 +69,12 @@ class SnapshotExportTest(unittest.TestCase):
                         break
                 except urllib.error.HTTPError as error:
                     self.assertEqual(error.code, 503)
-                    self.assertEqual(json.loads(error.read().decode()), {"status": "starting"})
+                    starting = json.loads(error.read().decode())
+                    self.assertEqual(starting.get("status"), "starting")
+                    # Collector failures before the first sample are published
+                    # with the starting reply; nothing else may ride along.
+                    self.assertLessEqual(set(starting), {"status", "collectorDiagnostics"})
+                    self.assertIsInstance(starting.get("collectorDiagnostics", []), list)
                     time.sleep(0.2)
             self.assertIsInstance(body, dict, "observer did not publish a snapshot")
             self.assertEqual(body["schemaVersion"], 1)

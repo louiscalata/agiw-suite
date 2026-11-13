@@ -1,12 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, symlinkSync } from 'node:fs';
-import { request } from 'node:http';
+import { EventEmitter } from 'node:events';
+import * as fs from 'node:fs';
+import { existsSync, readFileSync, realpathSync, symlinkSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import * as path from 'node:path';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { runInNewContext } from 'node:vm';
 import { applyTheme, escapeHtml, nextIndex, pipelineMarkup, readThemeChoice } from './jaryo/behavior.mjs';
 import { checkKit, contrastRatio } from './jaryo/contract.mjs';
 import { parseArgs, run } from './jaryo/cli.mjs';
@@ -94,56 +97,68 @@ test('a fresh install serves the pipeline page', async () => {
     assert.match(installed.stdout, /Installed Jaryo kit/);
     linkDir = await mkdtemp(join(tmpdir(), 'jaryo-link-'));
     symlinkSync(dest, join(linkDir, 'kit'));
-    const child = spawn(process.execPath, [join(linkDir, 'kit', 'cli.mjs'), 'demo', '--port', '0'], {
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-    let stdout = '';
-    let stderr = '';
-    const port = await new Promise((resolve, reject) => {
-      let settled = false;
-      const finish = (fn, value) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        fn(value);
-      };
-      const timer = setTimeout(() => finish(reject, new Error(`demo did not start: ${stdout} ${stderr}`)), 8000);
-      child.stdout.on('data', (chunk) => {
-        stdout += chunk;
-        const match = /http:\/\/127\.0\.0\.1:(\d+)\//.exec(stdout);
-        if (match) finish(resolve, Number(match[1]));
-      });
-      child.stderr.on('data', (chunk) => { stderr += chunk; });
-      child.once('exit', (code) => finish(reject, new Error(`demo exited ${code}: ${stderr || stdout}`)));
-    });
+    // Execute the installed CLI and request handler, replacing only node:http's
+    // socket boundary. This covers serving contracts without opening a port;
+    // it does not establish TCP or browser integration.
+    const entry = join(linkDir, 'kit', 'cli.mjs');
+    const localProcess = new EventEmitter();
+    localProcess.argv = [process.execPath, entry, 'demo', '--port', '0'];
+    const lines = [], errors = [], listeners = [];
+    const server = new EventEmitter();
+    let handler, closed = false;
+    server.listen = (port, host, ready) => { listeners.push({ port, host }); ready(); };
+    server.address = () => ({ port: 0 });
+    server.close = done => { closed = true; done(); };
+    const executable = file => readFileSync(file, 'utf8')
+      .replace(/^#![^\n]*\n/, '').replace(/^import .*;\r?\n/gm, '').replace(/^export /gm, '')
+      .replaceAll('import.meta.url', JSON.stringify(pathToFileURL(realpathSync(file)).href));
+    const context = {
+      ...fs, ...path, fileURLToPath, pathToFileURL, URL, process: localProcess,
+      createServer: callback => { assert.equal(handler, undefined); handler = callback; return server; },
+      console: { log: line => lines.push(line), error: line => errors.push(line) },
+    };
+    runInNewContext(`${executable(join(linkDir, 'kit', 'install.mjs'))}\n${executable(entry)}`, context);
+    await new Promise(resolve => setImmediate(resolve));
     try {
-      const page = await fetch(`http://127.0.0.1:${port}/`);
-      const html = await page.text();
+      assert.deepEqual(errors, []);
+      assert.deepEqual(listeners, [{ port: 0, host: '127.0.0.1' }]);
+      assert.match(lines.join('\n'), /Jaryo demo at http:\/\/127\.0\.0\.1:0\//);
+      assert.equal(localProcess.listenerCount('SIGTERM'), 1, 'symlink entry runs the installed demo');
+      const request = url => {
+        const response = {};
+        handler({ url }, {
+          writeHead(status, headers = {}) { Object.assign(response, { status, headers }); },
+          end(body = '') { response.body = Buffer.from(body).toString('utf8'); response.ended = true; },
+        });
+        assert.equal(response.ended, true, `response ended for ${url}`);
+        return response;
+      };
+      const redirect = request('/');
+      assert.equal(redirect.status, 302);
+      assert.equal(redirect.headers.Location, '/demo/index.html');
+      const page = { url: redirect.headers.Location, ...request(redirect.headers.Location) };
+      const html = page.body;
       assert.equal(page.status, 200);
       assert.match(page.url, /\/demo\/index\.html$/);
       assert.match(html, /data-jk-pipeline/);
       assert.match(html, /AGIW/);
       assert.match(html, /Sample lane/);
-      const pipeline = await (await fetch(`http://127.0.0.1:${port}/demo/pipeline.json`)).json();
+      const pipelineResponse = request('/demo/pipeline.json');
+      assert.equal(pipelineResponse.status, 200);
+      const pipeline = JSON.parse(pipelineResponse.body);
       assert.equal(pipeline.stations.length, 4);
-      const css = await fetch(`http://127.0.0.1:${port}/components.css`);
+      const css = request('/components.css');
       assert.equal(css.status, 200);
-      assert.match(await css.text(), /\.jk-station/);
+      assert.match(css.body, /\.jk-station/);
       const installed = await import(pathToFileURL(join(dest, 'behavior.mjs')).href);
       const view = installed.pipelineMarkup(pipeline);
       for (const name of ['Ingress', 'Check', 'Run', 'Evidence']) assert.match(view.strip, new RegExp(name));
-      const blocked = await new Promise((resolve, reject) => {
-        const req = request({ hostname: '127.0.0.1', port, path: '/demo/%2e%2e/%2e%2e/package.json' }, (res) => {
-          res.resume();
-          resolve(res.statusCode);
-        });
-        req.on('error', reject);
-        req.end();
-      });
-      assert.equal(blocked, 404);
+      assert.equal(request('/demo/%2e%2e/%2e%2e/package.json').status, 404);
     } finally {
-      child.kill('SIGTERM');
-      await new Promise((resolve) => child.once('exit', () => resolve()));
+      localProcess.emit('SIGTERM');
+      await new Promise(resolve => setImmediate(resolve));
+      assert.equal(closed, true);
+      assert.equal(localProcess.exitCode, undefined);
     }
   } finally {
     if (linkDir) await rm(linkDir, { recursive: true, force: true });

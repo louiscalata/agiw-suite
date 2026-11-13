@@ -1,159 +1,266 @@
-import * as fleet from './web/fleet-state.mjs';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { runInNewContext } from 'node:vm';
+import {readFileSync} from 'node:fs';
+import {runInNewContext} from 'node:vm';
 import test from 'node:test';
+import {createMonitorStore, feedAge, validSnapshot, streamBackoff} from './web/monitor-store.mjs';
 
-// Spec A (26 Sep 2026): the page follows /api/stream and polls only while the stream is down. The
-// dashboard's own feed functions run here against a fake EventSource, fetch and timers.
-const appSource = readFileSync(new URL('./web/app.js', import.meta.url), 'utf8');
-const definitions = appSource.replace(/^import .*;\r?\n/gm, '').split("$('pause').addEventListener")[0];
+const flush = async () => { for (let i = 0; i < 8; i++) await Promise.resolve(); };
+const iso = at => new Date(at * 1000).toISOString();
+const fact = (id, at, life) => ({id, label: id, scope: 'lane', parentId: 'pc',
+  observedAt: iso(at), expiresAt: iso(at + life), state: 'endpoint answering',
+  completeness: 'complete', source: 'registry', evidence: {modelId: id}});
+const snap = (at, extra = {}) => ({schemaVersion: 1, sampledAt: at, models: [], sources: [], ...extra});
+const map = (at, extra = {}) => ({observedAt: iso(at), nodes: [], edges: [], ...extra});
+const reply = (body, status = 200) => ({ok: status === 200, status, json: async () => body});
 
-function harness({ eventSource = true } = {}) {
-  const timers = [], frames = [], fetches = [], sources = [];
-  class FakeEventSource {
+function harness({eventSource = true, ...options} = {}) {
+  let time = 100, id = 0;
+  const timers = new Map(), sources = [], requests = [], updates = [];
+  class Source {
     constructor(url) { this.url = url; this.listeners = {}; this.closed = false; sources.push(this); }
-    addEventListener(type, listener) { (this.listeners[type] ||= []).push(listener); }
-    emit(type, event = {}) { for (const listener of this.listeners[type] || []) listener(event); }
+    addEventListener(type, listener) { this.listeners[type] = listener; }
+    emit(type, data) { this.listeners[type]?.(type === 'snapshot' ? {data: typeof data === 'string' ? data : JSON.stringify(data)} : {}); }
     close() { this.closed = true; }
   }
-  const context = {
-    ...(eventSource ? { EventSource: FakeEventSource } : {}),
-    fetch: url => new Promise(resolve => fetches.push({ url, resolve })),
-    setTimeout: (fn, ms) => { timers.push({ fn, ms, id: timers.length + 1, cleared: false }); return timers.length; },
-    clearTimeout: id => { const timer = timers.find(t => t.id === id); if (timer) timer.cleared = true; },
-    AbortController: class { constructor() { this.signal = {}; } abort() {} },
-    performance: { now: () => 0 }, window: { requestAnimationFrame: fn => frames.push(fn) }, document: {}, Date, JSON,
+  const store = createMonitorStore({now: () => time, EventSource: eventSource ? Source : undefined,
+    fetch: (url, init) => new Promise((resolve, reject) => requests.push({url, ...init, resolve, reject})),
+    setTimeout: (fn, ms) => { const next = ++id; timers.set(next, {fn, at: time + ms / 1000}); return next; },
+    clearTimeout: key => timers.delete(key), ...options});
+  store.subscribe(state => updates.push(state));
+  const advance = async ms => {
+    const until = time + ms / 1000;
+    for (;;) {
+      const next = [...timers].filter(([, value]) => value.at <= until + 1e-10).sort((a, b) => a[1].at - b[1].at)[0];
+      if (!next) break;
+      time = next[1].at; timers.delete(next[0]); next[1].fn(); await flush();
+    }
+    time = until; await flush();
   };
-  const api = runInNewContext(`${definitions}
-let rendered=0,freshnessUpdates=0;render=()=>{rendered++;};updateFreshness=()=>{freshnessUpdates++;};
-({openStream,validSnapshot,streamBackoff,feedAge,
-  get state(){return{streaming:Boolean(feedStream),polling:pollActive,attempt:streamAttempt,connected,snapshot,rendered,freshnessUpdates};},
-  setPaused(value){paused=value;}})`, context);
-  const pending = () => timers.filter(t => !t.cleared && !t.ran);
-  const run = timer => { timer.ran = true; timer.fn(); };
-  return { api, timers, frames, fetches, sources, pending, run };
+  return {store, sources, requests, updates, timers, advance, now: () => time};
 }
 
-const snap = (sampledAt, extra = {}) => ({ schemaVersion: 1, models: [], sources: [], sampledAt, ...extra });
-const message = data => ({ data: JSON.stringify(data) });
-const tick = () => new Promise(resolve => setImmediate(resolve));
-
-test('A: feedAge follows the last full sample; row ages keep using sampledAt', () => {
-  const { api } = harness();
-  assert.equal(api.feedAge({ sampledAt: 100, fullSampledAt: 97 }, 101), 4, 'an overlay re-stamps sampledAt, not fullSampledAt');
-  assert.equal(api.feedAge({ sampledAt: 100 }, 101), 1, 'older servers without fullSampledAt');
-  assert.equal(api.feedAge({ sampledAt: 100, fullSampledAt: null }, 101), 1);
-  assert.ok(Number.isNaN(api.feedAge({ sampledAt: 100, fullSampledAt: 'soon' }, 101)), 'a malformed full-sample time is never fresh');
-  assert.ok(Number.isNaN(api.feedAge(null, 101)));
-  assert.match(appSource, /const fresh=\(\)=>\{const age=feedAge\(snapshot,Date\.now\(\)\/1000\);return connected&&age>=-1&&age<=3;\};/);
-  assert.match(appSource, /const clockMismatch=\(\)=>connected&&feedAge\(snapshot,Date\.now\(\)\/1000\) < -1;/);
-  assert.match(appSource, /const sampleAge=\(\)=>snapshot&&Number\.isFinite\(snapshot\.sampledAt\)\?Date\.now\(\)\/1000-snapshot\.sampledAt:NaN;/);
+test('sample clocks and schema validation never infer freshness from delivery', () => {
+  assert.equal(feedAge({sampledAt: 100, fullSampledAt: 97}, 101), 4);
+  assert.equal(feedAge({sampledAt: 100, fullSampledAt: null}, 101), 1);
+  assert.ok(Number.isNaN(feedAge({sampledAt: 100, fullSampledAt: 'soon'}, 101)));
+  assert.ok(Number.isNaN(feedAge(null, 101)));
+  for (const data of [null, snap(NaN), snap(100, {schemaVersion: 2}), snap(100, {models: {}})]) assert.equal(validSnapshot(data), false);
+  assert.deepEqual([0, 1, 2, 3, 9, -1, 'x'].map(streamBackoff), [5000, 10000, 20000, 30000, 30000, 5000, 5000]);
 });
 
-test('A: stream retry backs off 5 s, doubling to at most 30 s', () => {
-  const { api } = harness();
-  assert.deepEqual([0, 1, 2, 3, 4, 9, -1, 'x'].map(api.streamBackoff), [5000, 10000, 20000, 30000, 30000, 30000, 5000, 5000]);
+test('a silent stream closes, starts bounded polling and recovers through retry', async () => {
+  const h = harness(); h.store.start({snapshot: true});
+  assert.equal(h.sources[0].url, '/api/stream');
+  assert.equal(h.requests.length, 1, 'bootstrap polling continues until a valid stream message');
+  h.requests[0].resolve(reply(snap(100))); await flush();
+  await h.advance(4000);
+  assert.equal(h.sources[0].closed, true);
+  assert.equal(h.store.getState().snapshotStatus.error.code, 'silent');
+  assert.equal(h.requests[0].url, '/api/snapshot');
+  h.requests.at(-1).resolve(reply(snap(h.now()))); await flush();
+  assert.equal(h.store.getState().snapshotStatus.fresh, true);
+  assert.equal(h.store.getState().snapshotStatus.error, null);
+  await h.advance(5000);
+  assert.equal(h.sources.length, 2);
+  assert.equal(h.store.getState().transport.polling, true, 'fallback survives reconnect handshake');
+  assert.equal(h.store.getState().transport.connecting, true);
+  const pending = h.requests.at(-1); assert.equal(pending.signal.aborted, false);
+  h.sources[1].emit('snapshot', snap(h.now()));
+  assert.equal(h.store.getState().transport.polling, false);
+  assert.equal(pending.signal.aborted, true);
+  pending.resolve(reply(snap(999))); await flush();
+  assert.equal(h.store.getState().snapshot.sampledAt, h.now(), 'late poll cannot overwrite the stream');
+  h.sources[0].emit('snapshot', snap(1000));
+  assert.equal(h.store.getState().snapshot.sampledAt, h.now(), 'replaced stream is ignored');
+  h.store.destroy(); assert.equal(h.timers.size, 0);
 });
 
-test('A: stream messages are validated like a poll and bursts coalesce into one render per frame', () => {
-  const { api, sources, frames, fetches } = harness();
-  api.openStream();
-  assert.equal(sources.length, 1);
-  assert.equal(sources[0].url, '/api/stream');
-  assert.equal(fetches.length, 0, 'no polling while the stream is open');
-  const now = Date.now() / 1000;
-  for (let i = 0; i < 3; i++) sources[0].emit('snapshot', message(snap(now + i / 10)));
-  assert.equal(frames.length, 1, 'one frame for three messages');
-  assert.equal(api.state.connected, true);
-  frames.shift()();
-  assert.equal(api.state.rendered, 1);
-  assert.equal(api.state.snapshot.sampledAt, now + .2, 'the newest message is the one rendered');
-  const kept = api.state.snapshot;
-  for (const bad of ['{not json', JSON.stringify({ schemaVersion: 2, models: [], sources: [], sampledAt: now }),
-    JSON.stringify({ schemaVersion: 1, models: {}, sources: [], sampledAt: now }), JSON.stringify(snap(Infinity))]) {
-    sources[0].emit('snapshot', { data: bad });
-    assert.equal(api.state.connected, false);
-    assert.equal(api.state.snapshot, kept);
+for (const invalid of ['{broken', JSON.stringify(snap(100, {models: {}})), JSON.stringify(snap(100, {schemaVersion: 2}))]) {
+  test(`malformed stream falls back and retains evidence: ${invalid}`, async () => {
+    const h = harness(); h.store.start({snapshot: true});
+    h.sources[0].emit('snapshot', snap(100));
+    h.sources[0].emit('snapshot', invalid);
+    assert.equal(h.sources[0].closed, true);
+    assert.equal(h.store.getState().snapshot.sampledAt, 100);
+    assert.equal(h.store.getState().snapshotStatus.error.code, 'malformed');
+    assert.equal(h.requests.length, 2);
+    h.requests[1].resolve(reply(snap(101))); await flush();
+    assert.equal(h.store.getState().snapshot.sampledAt, 101);
+    assert.equal(h.store.getState().snapshotStatus.error, null);
+    h.store.destroy();
+  });
+}
+
+test('hung fetch and hung JSON obey deadlines even when abort is ignored; refreshes serialize', async () => {
+  const h = harness({eventSource: false}); h.store.start({snapshot: true});
+  const first = h.store.refresh('snapshot');
+  assert.equal(first, h.store.refresh('snapshot'));
+  assert.equal(h.requests.length, 1);
+  await h.advance(1800); await first;
+  assert.equal(h.requests[0].signal.aborted, true);
+  assert.equal(h.store.getState().snapshotStatus.error.code, 'deadline');
+  await h.advance(1000);
+  let releaseJSON;
+  h.requests[1].resolve({ok: true, json: () => new Promise(resolve => { releaseJSON = resolve; })}); await flush();
+  await h.advance(1800);
+  assert.equal(h.requests[1].signal.aborted, true);
+  const recovery = h.store.refresh('snapshot');
+  h.requests[2].resolve(reply(snap(h.now()))); await recovery;
+  const kept = h.store.getState().snapshot.sampledAt;
+  releaseJSON(snap(999)); h.requests[0].resolve(reply(snap(1000))); await flush();
+  assert.equal(h.store.getState().snapshot.sampledAt, kept);
+  assert.equal(h.store.getState().snapshotStatus.error, null);
+  h.store.destroy();
+});
+
+test('a hung inference request cannot block snapshot recovery or the ageing clock', async () => {
+  const h = harness({eventSource: false}); h.store.start({snapshot: true, inference: true});
+  assert.deepEqual(h.requests.map(row => row.url), ['/api/snapshot', '/api/inference']);
+  h.requests[0].resolve(reply(snap(100))); await flush();
+  const before = h.updates.length;
+  await h.advance(5000);
+  assert.ok(h.updates.length > before + 3);
+  assert.equal(h.store.getState().snapshotStatus.fresh, false);
+  assert.equal(h.store.getState().snapshotStatus.ageSeconds, 5);
+  assert.ok(h.requests.filter(row => row.url === '/api/inference').length >= 2);
+  assert.ok(h.requests.filter(row => row.url === '/api/snapshot').length >= 2);
+  h.store.destroy();
+});
+
+test('fresh envelopes, diagnostic publications and one recovered lane never renew another fact', async () => {
+  const h = harness(); h.store.start({snapshot: true, inference: true});
+  const facts = [fact('fast', 100, 2), fact('slow', 100, 20)];
+  h.sources[0].emit('snapshot', snap(100, {fleetState: {schemaVersion: 1, facts}}));
+  h.requests[1].resolve(reply(map(100, {fleetState: {schemaVersion: 1, facts}}))); await flush();
+  await h.advance(3000);
+  for (const kind of ['snapshot', 'inference']) {
+    const rows = h.store.getState()[kind].fleetState.facts;
+    assert.equal(rows[0].state, 'stale'); assert.equal(rows[0].ageSeconds, 3);
+    assert.equal(rows[1].state, 'endpoint answering');
+    assert.equal(rows[0].observedAt, iso(100));
   }
-  // Round 3 review: invalid messages refresh freshness at most once per frame, never render.
-  assert.equal(frames.length, 1, 'four invalid messages, one frame');
-  assert.equal(api.state.freshnessUpdates, 0, 'nothing runs before the frame');
-  frames.shift()();
-  assert.deepEqual([api.state.freshnessUpdates, api.state.rendered], [1, 1]);
-  // Paused: the connection is known, the picture is not replaced, and a burst is one freshness update.
-  api.setPaused(true);
-  for (let i = 0; i < 3; i++) sources[0].emit('snapshot', message(snap(now + 1 + i)));
-  assert.equal(api.state.connected, true);
-  assert.equal(api.state.snapshot, kept);
-  assert.equal(frames.length, 1, 'three paused messages, one frame');
-  frames.shift()();
-  assert.deepEqual([api.state.freshnessUpdates, api.state.rendered], [2, 1]);
-  // A queued render already refreshes freshness, so a paused message behind it queues nothing more.
-  api.setPaused(false);
-  sources[0].emit('snapshot', message(snap(now + 5)));
-  api.setPaused(true);
-  sources[0].emit('snapshot', message(snap(now + 6)));
-  sources[0].emit('snapshot', { data: '{bad' });
-  assert.equal(frames.length, 1);
-  frames.shift()();
-  assert.deepEqual([api.state.freshnessUpdates, api.state.rendered], [2, 2]);
-  assert.match(appSource, /if\(!validSnapshot\(data\)\)\{connected=false;scheduleFreshness\(\);return;\}connected=true;streamAttempt=0;if\(!paused\)\{snapshot=data;scheduleRender\(\);\}else scheduleFreshness\(\);/);
+  const diagnostic = {stage: 'collect_snapshot', code: 'io_error', failedAt: 103};
+  h.sources[0].emit('snapshot', snap(103, {fullSampledAt: 100, fleetState: {schemaVersion: 1, facts}, collectorDiagnostics: [diagnostic]}));
+  assert.deepEqual(h.store.getState().diagnostics, [diagnostic]);
+  assert.equal(h.store.getState().snapshot.fleetState.facts[0].ageSeconds, 3);
+  h.sources[0].emit('snapshot', snap(103, {fleetState: {schemaVersion: 1, facts: [fact('fast', 103, 2), facts[1]]}}));
+  const rows = h.store.getState().snapshot.fleetState.facts;
+  assert.equal(rows[0].ageSeconds, 0); assert.equal(rows[1].ageSeconds, 3);
+  assert.equal(facts[0].state, 'endpoint answering', 'raw source is not mutated');
+  await h.advance(4000);
+  assert.equal(h.store.getState().snapshotStatus.fresh, false);
+  assert.equal(h.store.getState().snapshot.fleetState.facts[0].state, 'stale');
+  h.store.destroy();
 });
 
-test('A: an error or a 503 falls back to polling; the stream retries later and the two never overlap', async () => {
-  const { api, sources, fetches, pending, run } = harness();
-  api.openStream();
-  const now = Date.now() / 1000;
-  sources[0].emit('error');
-  assert.equal(sources[0].closed, true);
-  assert.deepEqual([api.state.streaming, api.state.polling], [false, true]);
-  assert.equal(fetches.length, 1);
-  assert.equal(fetches[0].url, '/api/snapshot');
-  const retry = () => pending().find(t => t.ms >= 5000);
-  assert.equal(retry().ms, 5000);
-  // The poll answers and schedules the next one about a second later.
-  fetches[0].resolve({ ok: true, json: async () => snap(now) });
-  await tick(); await tick();
-  assert.equal(api.state.connected, true);
-  const nextPoll = pending().find(t => t.ms <= 1000);
-  assert.ok(nextPoll, 'polling continues');
-  // The retry reopens the stream and stops polling: the queued poll is cancelled.
-  run(retry());
-  assert.equal(sources.length, 2);
-  assert.deepEqual([api.state.streaming, api.state.polling], [true, false]);
-  assert.equal(nextPoll.cleared, true);
-  // A poll still in flight when the stream reopened is discarded, and schedules nothing.
-  sources[1].emit('error');
-  const inFlight = fetches.at(-1);
-  run(retry());
-  inFlight.resolve({ ok: true, json: async () => snap(now + 50) });
-  await tick(); await tick();
-  assert.notEqual(api.state.snapshot?.sampledAt, now + 50);
-  assert.equal(pending().filter(t => t.ms <= 1000).length, 0, 'no poll loop beside the open stream');
-  // Each consecutive failure doubles the wait, up to 30 s; a good message resets it.
-  const waits = [];
-  for (let i = 0; i < 4; i++) { sources.at(-1).emit('error'); waits.push(retry().ms); run(retry()); }
-  assert.deepEqual(waits, [20000, 30000, 30000, 30000]);
-  sources.at(-1).emit('snapshot', message(snap(now)));
-  sources.at(-1).emit('error');
-  assert.equal(retry().ms, 5000);
-  // Events from a stream that was already replaced are ignored.
-  const count = sources.length;
-  sources[0].emit('error');
-  assert.equal(sources.length, count);
+test('errors and malformed inference retain original data and diagnostics; recovery clears errors', async () => {
+  const h = harness();
+  let p = h.store.refresh('inference'); h.requests[0].resolve(reply(map(100))); await p;
+  p = h.store.refresh('inference'); h.requests[1].resolve(reply({nodes: [], error: 'collector_failed',
+    observedAt: iso(101), collectorDiagnostics: [{stage: 'inference', code: 'collector_failed', failedAt: 101}]})); await p;
+  assert.equal(h.store.getState().inference.observedAt, iso(100));
+  assert.equal(h.store.getState().inferenceStatus.error.code, 'malformed');
+  assert.equal(h.store.getState().diagnostics[0].failedAt, 101);
+  p = h.store.refresh('inference'); h.requests[2].resolve(reply(map(102))); await p;
+  assert.equal(h.store.getState().inferenceStatus.error, null);
+  assert.deepEqual(h.store.getState().diagnostics, []);
+  p = h.store.refresh('inference'); h.requests[3].resolve(reply(map(99))); await p;
+  assert.equal(h.store.getState().inference.observedAt, iso(102), 'older response discarded');
+  h.store.destroy();
 });
 
-test('A: without EventSource the page polls, and the app opens the stream at start instead of polling', () => {
-  const { api, fetches, sources } = harness({ eventSource: false });
+test('missing clocks are unknown; a frozen sample delivered repeatedly still goes stale', async () => {
+  const h = harness(); h.store.start({snapshot: true});
+  for (let i = 0; i < 5; i++) { h.sources[0].emit('snapshot', snap(100)); await h.advance(1000); }
+  assert.equal(h.store.getState().snapshotStatus.fresh, false);
+  assert.equal(h.store.getState().snapshotStatus.ageSeconds, 5);
+  const p = h.store.refresh('inference'); h.requests.at(-1).resolve(reply({nodes: []})); await p;
+  assert.equal(h.store.getState().inferenceStatus.ageSeconds, null);
+  assert.equal(h.store.getState().inferenceStatus.fresh, false);
+  h.store.destroy();
+});
+
+test('overview subscribes once, coalesces bursts and keeps a paused capture', () => {
+  const source = readFileSync(new URL('./web/app.js', import.meta.url), 'utf8');
+  const definitions = source.replace(/^import .*;\r?\n/gm, '').split("$('pause').addEventListener")[0];
+  let listener, started = 0, subscriptions = 0;
+  const frames = [];
+  const api = runInNewContext(`${definitions}\nlet rendered=0;render=()=>{rendered++;};updateFreshness=()=>{};
+    ({openStream,pause(value){paused=value;},get state(){return {snapshot,rendered};}})`, {
+    document: {}, window: {requestAnimationFrame: callback => frames.push(callback)},
+    getMonitorStore: () => ({subscribe(fn) { subscriptions++; listener = fn; return () => {}; }, start() { started++; }}),
+  });
+  api.openStream(); api.openStream(); assert.equal(subscriptions, 1); assert.equal(started, 1);
+  const emit = at => listener({snapshot: snap(at), snapshotStatus: {available: true}, transport: {streaming: true}, diagnostics: []});
+  emit(100); emit(101); emit(102); assert.equal(frames.length, 1); frames.shift()();
+  assert.equal(api.state.rendered, 1); assert.equal(api.state.snapshot.sampledAt, 102);
+  api.pause(true); emit(103); frames.shift()(); assert.equal(api.state.snapshot.sampledAt, 102);
+});
+
+test('subscriber exceptions cannot strand initial startup, polling, ageing or healthy consumers', async () => {
+  const h = harness({eventSource: false});
+  const unsubscribe = h.store.subscribe(() => { throw new Error('view failed'); });
+  h.store.start({snapshot: true});
+  const pending = h.store.refresh('snapshot');
+  h.requests[0].resolve(reply(snap(100))); await pending;
+  assert.equal(h.store.getState().snapshot.sampledAt, 100);
+  assert.ok(h.store.getState().diagnostics.some(row => row.code === 'render_failed'));
+  const before = h.updates.length;
+  await h.advance(5000);
+  assert.ok(h.updates.length > before);
+  assert.equal(h.store.getState().snapshotStatus.fresh, false);
+  assert.ok(h.requests.length > 1);
+  unsubscribe(); h.store.destroy(); assert.equal(h.timers.size, 0);
+});
+
+test('invalid diagnostic timestamps cannot poison a valid stream or the overview renderer', () => {
+  const h = harness(); h.store.start({snapshot: true});
+  h.sources[0].emit('snapshot', snap(100, {collectorDiagnostics: [
+    {stage: 'inference', code: 'timeout', failedAt: 1e300},
+    {stage: 'inference', code: 'timeout', failedAt: '100'},
+    {stage: '/private/path', code: 'timeout', failedAt: 100}]}));
+  assert.equal(h.store.getState().snapshotStatus.fresh, true);
+  assert.deepEqual(h.store.getState().diagnostics, []);
+  h.store.destroy();
+});
+
+test('repeated stream failures back off, valid recovery resets retry and start is idempotent', async () => {
+  const h = harness(); h.store.start({snapshot: true}); h.store.start({snapshot: true});
+  assert.equal(h.sources.length, 1);
+  for (const wait of [5000, 10000, 20000, 30000]) {
+    h.sources.at(-1).emit('error');
+    const before = h.sources.length;
+    // Avoid opening the next silent watchdog until the next deliberate failure.
+    await h.advance(wait - 1); assert.equal(h.sources.length, before);
+    await h.advance(1); assert.equal(h.sources.length, before + 1);
+  }
+  h.sources.at(-1).emit('snapshot', snap(h.now())); h.sources.at(-1).emit('error');
+  const before = h.sources.length;
+  await h.advance(5000); assert.equal(h.sources.length, before + 1);
+  h.store.destroy();
+});
+
+test('overview paints initial collector stage, code and time without inventing a snapshot', () => {
+  const source = readFileSync(new URL('./web/app.js', import.meta.url), 'utf8');
+  const definitions = source.replace(/^import .*;\r?\n/gm, '').split("$('pause').addEventListener")[0];
+  const elements = new Map(), frames = [];
+  const element = () => ({children: [], textContent: '', classList: {toggle() {}},
+    append(...items) { this.children.push(...items); }, replaceChildren(...items) { this.children = items; }});
+  const document = {getElementById(id) { if (!elements.has(id)) elements.set(id, element()); return elements.get(id); },
+    createElement: element, body: element()};
+  let listener;
+  const api = runInNewContext(`${definitions}\nrenderVitals=renderMemoryBanner=syncWebPulse=updateOnlineCodeMode=()=>{};\n({openStream,get snapshot(){return snapshot;}})`, {
+    document, window: {requestAnimationFrame: fn => frames.push(fn)},
+    fleetLanes: () => [],
+    getMonitorStore: () => ({subscribe(fn) { listener = fn; return () => {}; }, start() {}}),
+  });
   api.openStream();
-  assert.deepEqual([sources.length, fetches.length, api.state.polling], [0, 1, true]);
-  assert.match(appSource, /source=new EventSource\('\/api\/stream'\)/);
-  assert.match(appSource, /source\.addEventListener\('snapshot',/);
-  assert.match(appSource, /source\.addEventListener\('error',\(\)=>\{if\(feedStream===source\)streamFailed\(\);\}\);/);
-  assert.match(appSource, /function streamFailed\(\)\{[^\n]*startPolling\(\);[^\n]*streamRetry=setTimeout\(openStream,streamBackoff\(streamAttempt\+\+\)\);\}/);
-  assert.match(appSource, /function startPolling\(\)\{if\(pollActive\)return;pollActive=true;poll\(\+\+pollGeneration\);\}/);
-  assert.match(appSource, /setInterval\(updateFreshness,1000\);/);
-  assert.ok(appSource.trimEnd().endsWith('pollOnlineCodeAction();openStream();'));
-  assert.doesNotMatch(appSource, /pollOnlineCodeAction\(\);poll\(\);/);
+  listener({snapshot: null, snapshotStatus: {available: false}, transport: {streaming: false},
+    diagnostics: [{stage: 'collect_snapshot', code: 'timeout', failedAt: 100}]});
+  frames.shift()();
+  const text = node => node.textContent + node.children.map(text).join(' ');
+  const attention = text(elements.get('attentionReasons'));
+  assert.match(attention, /Collector collect_snapshot: timeout/);
+  assert.match(attention, /1970-01-01T00:01:40.000Z/);
+  assert.equal(api.snapshot, null);
 });

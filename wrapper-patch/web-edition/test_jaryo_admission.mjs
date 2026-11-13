@@ -13,7 +13,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const upstreamDir = process.env.AGIW_WEB_UPSTREAM;
 const webDir = process.env.AGIW_WEB_DIR;
 const readDir = dir => {
-  const names = ['index.html', 'style.css', 'app.js', 'usage-format.mjs', 'online-code-mode.mjs', 'map-layout.mjs', 'model-control-view.mjs', 'simple-view.mjs', 'simple-view.css'];
+  const names = ['index.html', 'style.css', 'app.js', 'usage-format.mjs', 'online-code-mode.mjs', 'map-layout.mjs', 'model-control-view.mjs', 'simple-view.mjs', 'simple-view.css', 'monitor-store.mjs', 'fleet-state.mjs'];
   return new Map(names.filter(name => existsSync(join(dir, name))).map(name => [name, readFileSync(join(dir, name), 'utf8')]));
 };
 
@@ -52,7 +52,7 @@ test('dropping the pipeline denylist pattern would hide that word', () => {
 test('current Jaryo web builds a denylist-clean edition', { skip: !upstreamDir }, () => {
   const upstream = readDir(upstreamDir);
   const { files } = buildEdition(upstream);
-  assert.deepEqual([...files.keys()], ['index.html', 'style.css', 'app.js', 'usage-format.mjs', 'map-layout.mjs', 'model-control-view.mjs', 'simple-view.mjs', 'simple-view.css']);
+  assert.deepEqual([...files.keys()], ['index.html', 'style.css', 'app.js', 'usage-format.mjs', 'map-layout.mjs', 'model-control-view.mjs', 'simple-view.mjs', 'simple-view.css', 'monitor-store.mjs', 'fleet-state.mjs']);
   const denylist = loadDenylist();
   for (const [name, text] of files) {
     assert.deepEqual(denylistHits(text, denylist).map(hit => `${name}:${hit.line}`), []);
