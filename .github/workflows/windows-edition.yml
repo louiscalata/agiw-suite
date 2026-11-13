@@ -6,11 +6,17 @@ on:
   push:
     branches: [main]
     paths: ['windows/**', 'peer_link.py', 'peer_feed.py', 'machine_state.py', 'inference_collect.py',
+            'fleet_state.py', 'remote_machines.py', 'eci_tuning.py', 'eci_fast_check.py',
+            'eci_fast_check.schema.json', 'eci_tuning_catalog.json', 'eci_tuning_routes.json',
+            'eci_tuning.schema.json', 'online_code_repair.py',
             'inference_stats.py', 'client_models.py', 'usage-format.mjs', 'web/**', 'jaryo/**',
             'test_*.mjs', 'android/**', 'wrapper-patch/**', '.gitattributes',
             '.github/workflows/windows-edition.yml']
   pull_request:
     paths: ['windows/**', 'peer_link.py', 'peer_feed.py', 'machine_state.py', 'inference_collect.py',
+            'fleet_state.py', 'remote_machines.py', 'eci_tuning.py', 'eci_fast_check.py',
+            'eci_fast_check.schema.json', 'eci_tuning_catalog.json', 'eci_tuning_routes.json',
+            'eci_tuning.schema.json', 'online_code_repair.py',
             'inference_stats.py', 'client_models.py', 'usage-format.mjs', 'web/**', 'jaryo/**',
             'test_*.mjs', 'android/**', 'wrapper-patch/**', '.gitattributes',
             '.github/workflows/windows-edition.yml']
