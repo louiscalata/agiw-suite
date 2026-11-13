@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 import peer_link
+from machine_state import PEER_FUTURE_SKEW
 
 SHARE_STATUS = Path("/Volumes/SharedChami/llm-lab/status")
 FRESH_SECONDS = 30.0
@@ -131,7 +132,7 @@ def _summary(doc: dict, via: str, now: float, platform: str = "windows") -> dict
     doc = peer_link.validate_status({**doc, "models": valid_models}, platform, now)
     observed = peer_link._parse_iso(doc["observedAt"])
     age = now - observed
-    if not math.isfinite(age) or age < -2.0:
+    if not math.isfinite(age) or age < -PEER_FUTURE_SKEW:
         # A clock mismatch is never turned into freshness.
         raise ValueError("PC observation is dated in the future (clock mismatch)")
     models = []
@@ -249,7 +250,7 @@ def summarize_document(doc: Any, via: str, now: float, *, platform: str | None =
         age = now - observed
         if not math.isfinite(age):
             raise FeedUnavailable("schema_invalid")
-        if age < -2:
+        if age < -PEER_FUTURE_SKEW:
             raise FeedUnavailable("clock_skew")
         if age > FRESH_SECONDS:
             result = _feed_failure(actual, identity, "stale", round(age, 1))
@@ -1064,7 +1065,7 @@ def pc_reader_accepts(doc: Any, host: str, now: float) -> bool:
     observed = doc.get("observedUnix")
     if (doc.get("host") != host or not isinstance(host, str) or not PEER_HOST.match(host)
             or isinstance(observed, bool) or not isinstance(observed, (int, float)) or not math.isfinite(observed)
-            or observed > now + 5 or now - observed > FRESH_SECONDS or doc.get("platform") != SHARE_PLATFORM
+            or observed > now + PEER_FUTURE_SKEW or now - observed > FRESH_SECONDS or doc.get("platform") != SHARE_PLATFORM
             or not isinstance(doc.get("models"), list)):
         return False
     return all(isinstance(m, dict) and isinstance(m.get("id"), str) and m["id"].strip()
