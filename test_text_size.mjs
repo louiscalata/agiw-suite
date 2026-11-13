@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 const source = readFileSync(new URL('./web/simple-view.mjs', import.meta.url), 'utf8')
-  .replace("'/model-control-view.mjs'", JSON.stringify(new URL('./web/model-control-view.mjs', import.meta.url).href));
+  .replace("'/model-control-view.mjs'", JSON.stringify(new URL('./web/model-control-view.mjs', import.meta.url).href))
+  .replace("'/monitor-store.mjs'", JSON.stringify(new URL('./web/monitor-store.mjs', import.meta.url).href));
 const { textSizeChoice, mountTextSize, TEXT_SIZES } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
 
 function fakeDom() {

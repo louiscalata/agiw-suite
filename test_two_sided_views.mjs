@@ -81,7 +81,8 @@ test('Two-sided jobs and frozen-view generator: exact healthy values, independen
       const api = runInNewContext(`${app}\n;renderVitals=renderMemoryBanner=syncWebPulse=updateOnlineCodeMode=()=>{};
         ({check(data){snapshot=data;connected=true;paused=true;updateFreshness();}})`, {...layout, document, Date: Clock});
       api.check({sampledAt: capturedAt, fullSampledAt: capturedAt});
-      equal('app capture time', document.getElementById('sampleAge').textContent, `Captured ${stamp}`);
+      const ageLabel = elapsed === 0 ? 'Just sampled' : elapsed === 20 ? '20s ago' : '1h ago';
+      equal('app capture time and age', document.getElementById('sampleAge').textContent, `${ageLabel} · Captured ${stamp}`);
       equal('app paused state', document.getElementById('connection').textContent, 'VIEW PAUSED');
     }
   equal('case count', cases, 107);

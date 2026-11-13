@@ -48,7 +48,7 @@ NODE="$(command -v node || true)"
 
 # Source path (relative to SOURCE_TREE) and bundled name, in load order.
 SOURCES=(web/index.html web/style.css web/app.js usage-format.mjs web/online-code-mode.mjs web/map-layout.mjs
-         web/model-control-view.mjs web/simple-view.mjs web/simple-view.css)
+         web/model-control-view.mjs web/simple-view.mjs web/simple-view.css web/monitor-store.mjs web/fleet-state.mjs)
 
 DEST="$ROOT/App/Resources/web"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ).$$"

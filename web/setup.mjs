@@ -5,6 +5,8 @@
  * or OPTIONAL, from evidence the monitor already reads. No path or free text from a reply is shown.
  */
 
+import {getMonitorStore} from '/monitor-store.mjs';
+
 const text = (value, max = 160) => (typeof value === 'string' && /^[\x20-\x7e]+$/.test(value) ? value.slice(0, max) : null);
 const source = (snapshot, id) => (Array.isArray(snapshot?.sources) ? snapshot.sources.find(row => row?.id === id) : undefined);
 
@@ -12,7 +14,24 @@ function step(id, title, status, evidence, next = null, link = null) {
   return {id, title, status, evidence, next, link};
 }
 
-function machinesStep(snapshot) {
+function machinesStep(snapshot, fresh) {
+  const contract = snapshot?.fleetState;
+  if (contract?.schemaVersion === 1 && Array.isArray(contract.facts)) {
+    // The shared store has aged each canonical fact against its own producer expiry.
+    const machines = contract.facts.filter(fact => fact.scope === 'machine' && fact.id !== snapshot.host && fact.evidence?.trust !== 'local');
+    const ids = new Set(machines.map(fact => fact.id));
+    const lanes = contract.facts.filter(fact => fact.scope === 'lane' && ids.has(fact.parentId));
+    const answering = lanes.filter(fact => fact.state === 'endpoint answering').length;
+    const stale = [...machines, ...lanes].filter(fact => fact.state === 'stale').length;
+    return !machines.length
+      ? step('machines', 'Other machines (optional)', 'OPTIONAL', 'No other machine declared in this sample.', null, '/machines')
+      : answering
+        ? step('machines', 'Other machines (optional)', 'DONE', `${answering} of ${lanes.length} configured identity endpoints answering. Host health is not measured.`, null, '/machines')
+        : step('machines', 'Other machines (optional)', 'UNKNOWN', stale
+          ? 'Other-machine evidence is stale; current endpoint coverage is unknown.'
+          : 'No answering identity endpoint observed; host health is unknown.', null, '/machines');
+  }
+  if (snapshot && !fresh) return step('machines', 'Other machines (optional)', 'UNKNOWN', 'Other-machine evidence is stale or unavailable; current state is unknown.', null, '/machines');
   // This machine is the first row that names the snapshot's host (as the Machines page and the peer map read it); a
   // second PC or a second Mac is another machine and counts.
   const rows = Array.isArray(snapshot?.machines) ? snapshot.machines.filter(row => row && typeof row === 'object') : [];
@@ -67,7 +86,7 @@ function windowsSteps({snapshot, fresh}) {
   } else {
     steps.push(step('lanes', 'A model lane is serving', 'UNKNOWN', 'The lane state of this PC is not known.', LANE_REMEDY[code] || null));
   }
-  steps.push(machinesStep(snapshot));
+  steps.push(machinesStep(snapshot, fresh));
   return steps;
 }
 
@@ -153,7 +172,7 @@ export function setupSteps({snapshot, fresh, components, jev}) {
       ? step('jev', 'Hosted Jev (optional)', 'DONE', 'A Jev key is saved in the Keychain.')
       : step('jev', 'Hosted Jev (optional)', 'OPTIONAL', text(jev.message) || 'No Jev key is saved.', 'Only if you want it: set it up from Components inside the installed app.', '/components'));
 
-  steps.push(machinesStep(snapshot));
+  steps.push(machinesStep(snapshot, fresh));
   return steps;
 }
 
@@ -206,35 +225,47 @@ export function paintSetup(document, state) {
   list.replaceChildren(...items);
 }
 
-/** Reads the snapshot every second and the component status every ten; only GET requests. */
-export function mountSetup({document, fetch, setTimeout, now = () => Date.now() / 1000}) {
-  let stopped = false, timer = null, ticks = 0, nextComponentsAt = 0, components = null, jev = null;
+/** Shares snapshot transport; component GETs cannot stop local evidence ageing. */
+export function mountSetup({document, fetch, now = () => Date.now() / 1000, store = getMonitorStore(),
+  setTimeout: schedule = globalThis.setTimeout, clearTimeout: cancel = globalThis.clearTimeout}) {
+  let stopped = false, inFlight = false, nextComponentsAt = -Infinity, components = null, jev = null;
+  const requests = new Set();
   const read = async path => {
+    const controller = new AbortController();
+    let timer;
+    const deadline = new Promise((_, reject) => {
+      timer = schedule(() => { reject(new Error('Component deadline')); controller.abort(); }, 3000);
+    });
+    requests.add(controller);
     try {
-      const reply = await fetch(path, {cache: 'no-store'});
-      if (!reply.ok) return null;
-      const body = await reply.json();
-      return body && typeof body === 'object' && !Array.isArray(body) ? body : null;
+      return await Promise.race([deadline, (async () => {
+        const reply = await fetch(path, {cache: 'no-store', signal: controller.signal});
+        if (!reply.ok) return null;
+        const body = await reply.json();
+        return body && typeof body === 'object' && !Array.isArray(body) ? body : null;
+      })()]);
     } catch (_) {
       return null;
-    }
+    } finally { cancel(timer); requests.delete(controller); }
   };
-  const tick = async () => {
-    const snapshot = await read('/api/snapshot');
-    // The component routes are the Mac app's; the Windows edition answers 501 to them, so it is not asked.
-    if (snapshot?.host === 'mac' && ticks >= nextComponentsAt) {
-      nextComponentsAt = ticks + 10;
-      [components, jev] = await Promise.all([read('/api/components'), read('/api/components/jev')]);
-    }
-    ticks += 1;
-    if (stopped) return;
-    const stamp = snapshot?.fullSampledAt ?? snapshot?.sampledAt;
-    const age = typeof stamp === 'number' ? now() - stamp : NaN;
-    paintSetup(document, {snapshot, fresh: Number.isFinite(age) && age >= -1 && age <= 3, components, jev});
-    timer = setTimeout(tick, 1000);
+  const paint = state => {
+    if (!stopped) paintSetup(document, {snapshot: state.snapshot, fresh: state.snapshotStatus.fresh,
+      components, jev});
   };
-  tick();
-  return {destroy() { stopped = true; if (timer !== null) clearTimeout(timer); }};
+  const unsubscribe = store.subscribe(state => {
+    paint(state);
+    // These routes belong to the Mac app; a pending component request never blocks snapshot updates.
+    if (stopped || inFlight || state.snapshot?.host !== 'mac' || now() < nextComponentsAt) return;
+    inFlight = true;
+    nextComponentsAt = now() + 10;
+    Promise.all([read('/api/components'), read('/api/components/jev')]).then(values => {
+      if (stopped) return;
+      [components, jev] = values;
+      paint(store.getState());
+    }).finally(() => { inFlight = false; });
+  });
+  store.start({snapshot: true});
+  return {destroy() { stopped = true; unsubscribe(); for (const request of requests) request.abort(); }};
 }
 
 if (typeof document !== 'undefined' && document.getElementById?.('setupSteps')) {

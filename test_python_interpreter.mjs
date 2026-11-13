@@ -39,7 +39,7 @@ test('Python resolver skips explicitly only after every platform candidate fails
   }
 });
 
-test('POSIX publisher generators skip on win32 before launching Python', () => {
+test('Mac server and POSIX publisher tests skip on win32 before launching Python', () => {
   const expected = [
     ['fix9 generative invariant: Python publishers -> JSON -> actual web renderer, two-sided exact/degraded/frozen properties and every single/pair degradation',
       'Requires POSIX fcntl through the Mac telemetry publisher'],
@@ -51,19 +51,22 @@ test('POSIX publisher generators skip on win32 before launching Python', () => {
       'Requires POSIX fcntl imported by telemetry.py in the Mac publisher'],
     ['Python publisher → JSON → web renderer: single/pair degradations, healthy exact values and frozen capture times',
       'Requires POSIX fcntl imported by server.py in the Mac publisher'],
+    ['ingested full ECI and fast check reach the DOM through the real Mac endpoint; invalid input stays unknown',
+      'Requires POSIX fcntl imported by the Mac server'],
   ];
   const env = {...process.env, PATH: '', PYTHON: 'no-python-in-this-fixture'};
   delete env.NODE_TEST_CONTEXT;
   const child = spawnSync(process.execPath, ['--test-reporter=tap', '--input-type=module', '--eval',
     "Object.defineProperty(process, 'platform', {value: 'win32'}); " +
     "await import('./test_fix9_invariant.mjs'); " +
-    "await import('./test_pipeline_invariant.mjs'); await import('./test_pipeline_invariants.mjs');"],
+    "await import('./test_pipeline_invariant.mjs'); await import('./test_pipeline_invariants.mjs'); " +
+    "await import('./test_eci_tuning_ui.mjs');"],
   {cwd: new URL('.', import.meta.url), env, encoding: 'utf8', timeout: 10000});
   assert.equal(child.status, 0, child.stderr || child.stdout);
-  assert.match(child.stdout, /# tests 5\b/);
-  assert.match(child.stdout, /# skipped 5\b/);
-  assert.match(child.stdout, /# pass 0\b/);
-  const results = child.stdout.split('\n').filter(line => /^ok \d+ - /.test(line))
+  assert.match(child.stdout, /# tests 12\b/);
+  assert.match(child.stdout, /# skipped 6\b/);
+  assert.match(child.stdout, /# pass 6\b/);
+  const results = child.stdout.split('\n').filter(line => /^ok \d+ - .* # SKIP /.test(line))
     .map(line => line.replace(/^ok \d+ - /, ''));
   assert.deepEqual(results.sort(), expected.map(([name, reason]) => `${name} # SKIP ${reason}`).sort());
 });

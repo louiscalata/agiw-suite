@@ -27,6 +27,7 @@ export function viewModel(data) {
     policy: routeRows(data.policy?.routes),
     policyOrigin: text(data.policy?.origin),
     activation: [text(activation.status), text(activation.source_run_id)],
+    dataset: data.dataset,
     sections: Object.entries(data.rankings || {}).filter(([key]) => key !== 'fast_check').map(([key, group]) => ({
       title: labels[key] || key,
       rows: (group.eci || []).map(row => [text(row.run_id), text(row.model), ci(row), text(row.machine), metric(row.latency_s), metric(row.cost_usd), text(row.reason)]),
@@ -68,7 +69,14 @@ function table(headers, rows, caption) {
   table.append(body); wrapper.append(table); return wrapper;
 }
 export function render(data, root) {
-  const model = viewModel(data); root.replaceChildren();
+  const model = viewModel(data);
+  const dataset = model.dataset;
+  if (dataset?.status === 'unknown') {
+    root.replaceChildren(element('p', `Dataset unknown: ${dataset.reason || 'No reason supplied.'}`));
+    return;
+  }
+  root.replaceChildren();
+  if (dataset) root.append(element('p', dataset.status === 'configured' ? 'Source: configured dataset.' : dataset.status === 'bundled' ? 'Source: bundled catalog; no dataset configured.' : 'Dataset source unknown.'));
   const policy = element('section'); policy.append(element('h2', 'Recommendation, saved policy and activation'));
   policy.append(model.recommendation.length ? table(['Route', 'Model', 'Source run', 'Basis', 'Status'], model.recommendation, 'Recommendation') : element('p', 'Recommendation NOT_COMPUTED.'));
   policy.append(element('p', `Policy origin: ${model.policyOrigin}.`));
@@ -105,6 +113,6 @@ if (typeof document !== 'undefined') {
   fetch('/api/eci-tuning', {cache: 'no-store'}).then(response => {
     if (!response.ok) throw new Error('unavailable');
     return response.json();
-  }).then(data => {render(data, document.getElementById('tuningEvidence')); status.textContent = 'Recorded scores loaded. No live inference tested.';})
+  }).then(data => {render(data, document.getElementById('tuningEvidence')); status.textContent = data.dataset?.status === 'unknown' ? 'Recorded scores unknown; see dataset reason below.' : 'Recorded scores loaded. No live inference tested.';})
     .catch(() => {status.textContent = 'Recorded scores unavailable. Status unknown; no model selection changed.';});
 }

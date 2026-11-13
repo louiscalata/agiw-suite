@@ -4,6 +4,7 @@
  */
 import {own, reasonWords, rowDegraded, registryMachineView, registryModelName} from '/monitor-board.mjs';
 import {fleetState, fleetMachines, fleetLanes, fleetSummary, fleetWord, fleetAge} from '/fleet-state.mjs';
+import {getMonitorStore} from '/monitor-store.mjs';
 
 const NAMES = {mac: 'Mac', macos: 'Mac', windows: 'PC', linux: 'Linux'};
 const STATE_WORDS = {up: 'Up', down: 'Down', unknown: 'Unknown'};
@@ -189,31 +190,15 @@ export function paintMachines(document, snapshot, {fresh, now = Date.now() / 100
   root.replaceChildren(map, grid);
 }
 
-/** Polls the snapshot once a second while the page is open. */
-export function mountMachines({document, fetch, setTimeout, now = () => Date.now() / 1000}) {
-  let stopped = false;
-  let timer = null;
-  const tick = async () => {
-    let snapshot = null;
-    try {
-      const reply = await fetch('/api/snapshot', {cache: 'no-store'});
-      if (reply.ok) {
-        const body = await reply.json();
-        snapshot = body && typeof body === 'object' && !Array.isArray(body) ? body : null;
-      }
-    } catch (_) {
-      snapshot = null;
-    }
-    if (stopped) return;
-    const stamp = snapshot?.fullSampledAt ?? snapshot?.sampledAt;
-    const age = typeof stamp === 'number' ? now() - stamp : NaN;
-    paintMachines(document, snapshot, {fresh: number(age) && age >= -1 && age <= 3, now: now()});
-    timer = setTimeout(tick, 1000);
-  };
-  tick();
-  return {destroy() { stopped = true; if (timer !== null) clearTimeout(timer); }};
+/** Subscribe once; the store owns refresh deadlines and local ageing. */
+export function mountMachines({document, store = getMonitorStore(), now = () => Date.now() / 1000}) {
+  const unsubscribe = store.subscribe(state => {
+    paintMachines(document, state.snapshot, {fresh: state.snapshotStatus?.fresh === true, now: now()});
+  });
+  store.start({snapshot: true});
+  return {destroy() { unsubscribe(); }};
 }
 
 if (typeof document !== 'undefined' && document.getElementById?.('machinesBody')) {
-  mountMachines({document, fetch: (...args) => fetch(...args), setTimeout: (...args) => setTimeout(...args)});
+  mountMachines({document});
 }

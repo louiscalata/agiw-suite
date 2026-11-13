@@ -5,6 +5,7 @@ import {modelControlView,submitModelControl} from '/model-control-view.mjs';
 import {createMonitorDesk, nodeInMonitor, moveMonitorTab, initialMonitorId} from '/monitor-tabs.mjs';
 import {paintMonitorChrome} from '/monitor-board.mjs';
 import {fleetState,fleetMachines,fleetLanes,fleetSummary,fleetWord,fleetAge,fleetMachineCoverage} from '/fleet-state.mjs';
+import {getMonitorStore} from '/monitor-store.mjs';
 const $=id=>document.getElementById(id), NS='http://www.w3.org/2000/svg';
 const ACTIVE=new Set(['generating','busy']);
 const INK='currentColor';
@@ -15,6 +16,7 @@ const CLIENTS=[['codex','Codex'],['claude','Claude'],['opencode','OpenCode'],['c
 // The name identifies the app. Ink is the only colour. A hollow node still means activity is unknown.
 const CLIENT_COLORS={codex:INK,claude:INK,opencode:INK,cursor:INK,grok:INK};
 const CLIENT_STATE={observed:'Recorded model',configured:'Saved session choice',unknown:'Model unknown'};
+let collectorIssues=[];
 let snapshot=null,connected=false,paused=false,view='runtime',modelScope='core',query='',selected=null,runId=null,modelControlStatus=null,modelControlError='',modelControlPosting=false;
 let autoUnloadState=null,autoUnloadError='',autoUnloadPosting=false,autoUnloadPolling=false,autoUnloadRevision=0;
 let onlineCodeActionStatus=null,onlineCodeActionPosting=false,onlineCodeActionPolling=false,onlineCodeActionRevision=0,onlineCodeSubmittingAction=null;
@@ -200,6 +202,7 @@ function positionRegistryTable(){
 function renderFleetAttention(){
   const root=$('attentionReasons');if(!root)return;const rows=[];if(!hasRegistry())rows.push('Lane evidence unavailable; endpoint coverage cannot be determined.');
   for(const lane of fleetLanes(snapshot))if(lane.state!=='endpoint answering')rows.push(`${fleetMachines(snapshot).find(machine=>machine.id===lane.parentId)?.label||lane.parentId} · ${lane.label||lane.id}: ${String(lane.reason||'observation_missing').replaceAll('_',' ')} · ${fleetAge(lane)}`);
+  for(const issue of collectorIssues)rows.push(`Collector ${issue.stage}: ${issue.code} · ${new Date(issue.failedAt*1000).toISOString()} · ${ageText(Date.now()/1000-issue.failedAt)}`);
   const pipeline=snapshot?.pipeline;if(pipeline?.status==='blocked')rows.push(`Nisi Inference: ${String(pipeline.reason||pipeline.detail||'workflow blocked').replaceAll('_',' ')}`);
   root.replaceChildren();if(rows.length){const list=el('ul');for(const text of rows)list.append(el('li',null,`× ${text}`));root.append(list);}else root.append(el('p',null,'No lane issues reported in the available observations.'));
 }
@@ -1160,7 +1163,7 @@ let lastEvidencePanel=null;
 function keepOneCompactPanel(){const panels=[['onlineCodeDetails',hideOnlineCodeDetails],['fixInferenceDetails',hideFixInferenceDetails],['activityDetails',hideActivityDetails]],open=panels.filter(([id])=>!$(id).hidden).map(([id])=>id);
   const keep=!$('drawer').hidden?null:open.includes(lastEvidencePanel)?lastEvidencePanel:open[0];for(const [id,hide] of panels)if(id!==keep&&!$(id).hidden)hide();}
 function setLegend(open,remember=true){$('mapLegend').hidden=!open;$('legendToggle').setAttribute('aria-expanded',String(open));$('legendToggle').title=open?'Hide the map key':'Show the map key';if(remember){try{localStorage.setItem('inference-monitor.legend',open?'1':'0');}catch(_){}}}
-function updateFreshness(){renderVitals();renderMemoryBanner();$('connection').textContent=paused?'VIEW PAUSED':clockMismatch()?'CLOCK MISMATCH':fresh()?(feedStream?'LIVE · STREAM':'LIVE · 1s'):snapshot?'STALE FEED':'CONNECTING';$('connection').className='connection '+(!paused&&fresh()?'live':'');document.body.classList.toggle('paused',paused);document.body.classList.toggle('disconnected',!fresh());syncWebPulse();$('sampleAge').textContent=snapshot?(paused||!fresh()?`Captured ${captureTime()}`:ageText(feedAge(snapshot,Date.now()/1000))):'—';updateOnlineCodeMode();if(!fresh()&&!paused&&snapshot){renderSummary();makeGraph();renderGraph();renderList();renderInspector();}}
+function updateFreshness(){renderVitals();renderMemoryBanner();if(!snapshot)renderFleetAttention();$('connection').textContent=paused?'VIEW PAUSED':clockMismatch()?'CLOCK MISMATCH':fresh()?(feedStream?'LIVE · STREAM':'LIVE · 1s'):snapshot?'STALE FEED':'CONNECTING';$('connection').className='connection '+(!paused&&fresh()?'live':'');document.body.classList.toggle('paused',paused);document.body.classList.toggle('disconnected',!fresh());syncWebPulse();$('sampleAge').textContent=snapshot?(paused||!fresh()?`${ageText(feedAge(snapshot,Date.now()/1000))} · Captured ${captureTime()}`:ageText(feedAge(snapshot,Date.now()/1000))):'—';updateOnlineCodeMode();if(!fresh()&&!paused&&snapshot){renderSummary();makeGraph();renderGraph();renderList();renderInspector();}}
 function dockedSidebar(){return document.body.classList.contains('fleet-ledger')||window.matchMedia?.('(max-width: 979px)').matches===false;}
 function setSidebarOpen(open,focusSearch=false){const sidebar=$('runtimeSidebar'),toggle=$('sidebarToggle'),docked=dockedSidebar();if(!open&&!docked&&sidebar.contains(document.activeElement))toggle.focus({preventScroll:true});document.body.classList.toggle('sidebar-open',open);sidebar.inert=!open&&!docked;toggle.setAttribute('aria-expanded',String(open));toggle.setAttribute('aria-label',open?'Close runtime and client browser':'Open runtime and client browser');toggle.lastElementChild.textContent=open?'Close':'Browse';if(open&&focusSearch)$('search').focus({preventScroll:true});}
 function syncCompactUI(){const compact=compactEvidence();document.body.classList.toggle('compact-ui',compact);if(compact)keepOneCompactPanel();const docked=dockedSidebar();document.body.classList.toggle('portfolio-docked',docked);$('sidebarToggle').hidden=docked;setSidebarOpen(docked?false:document.body.classList.contains('sidebar-open'));const region=$('graphRegion'),wanted=region.clientWidth<600||region.clientHeight>region.clientWidth*1.2?'portrait':'wide';if(snapshot&&view==='runtime'&&layoutMode!==wanted){userCamera=false;render();}else if(snapshot&&!userCamera)fitMap();}
@@ -1174,25 +1177,19 @@ function paintMonitorScope(){if(typeof nodeInMonitor!=='function'||!desk())retur
 function selectMonitor(id){monitorQueryApplied=true;const book=desk();if(!book||!id)return;const filter=document.getElementById('monitorFilter');book.patch(book.active,{listView:view,modelScope,mapSelected:selected,search:query,boardQuery:filter?filter.value:book.view(book.active).boardQuery});if(!book.select(id))return;const next=book.view(id);view=next.listView||'runtime';modelScope=next.modelScope||'core';selected=Object.prototype.hasOwnProperty.call(next,'mapSelected')?next.mapSelected:null;query=typeof next.search==='string'?next.search:'';const box=$('search');if(box)box.value=query;document.querySelectorAll('[data-view]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.view===view)));document.querySelectorAll('[data-model-scope]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.modelScope===modelScope)));userCamera=false;render();}
 function bindMonitorTabs(){const host=document.getElementById('monitorTabs'),board=document.getElementById('monitorBoard');if(host&&host.dataset.bound!=='1'){host.dataset.bound='1';host.addEventListener('click',event=>{const tab=event.target.closest?.('[data-monitor]');if(tab)selectMonitor(tab.dataset.monitor);});host.addEventListener('keydown',event=>{if(typeof moveMonitorTab!=='function')return;const tabs=[...host.querySelectorAll('[role="tab"]')];const next=moveMonitorTab(tabs.map(tab=>tab.dataset.monitor),desk()?.active,event.key);if(!next)return;event.preventDefault();selectMonitor(next);tabs.find(tab=>tab.dataset.monitor===next)?.focus();});}if(board&&board.dataset.bound!=='1'){board.dataset.bound='1';board.addEventListener('click',event=>{const open=event.target.closest?.('[data-open-monitor]');if(open)selectMonitor(open.dataset.openMonitor);const dismiss=event.target.closest?.('[data-dismiss-monitor]');if(dismiss){desk()?.dismiss(dismiss.dataset.dismissMonitor);render();}});}}
 function render(){renderModelScope();if(!snapshot){renderMonitorTabs();return;}$('runsTab').hidden=snapshot.host==='windows';if(view==='runs'&&snapshot.host==='windows')view='runtime';renderSummary();makeGraph();renderGraph();renderList();renderInspector();if(!userCamera)fitMap();updateFreshness();renderMonitorTabs();paintMonitorScope();}
-// Live feed: one Server-Sent Events stream (/api/stream, named event "snapshot") pushes each snapshot as it is
-// published. While the stream is down the page polls /api/snapshot once a second and retries the stream after
-// 5 s, doubling to 30 s. The two never run together; bursts of stream messages coalesce into one render per frame.
-const validSnapshot=data=>Boolean(data)&&data.schemaVersion===1&&Array.isArray(data.models)&&Array.isArray(data.sources)&&Number.isFinite(data.sampledAt);
-const streamBackoff=attempt=>Math.min(30000,5000*2**Math.min(3,Math.max(0,Math.floor(Number(attempt))||0)));
-let feedStream=null,streamAttempt=0,streamRetry=null,pollGeneration=0,pollTimer=null,pollActive=false,renderQueued=false,freshnessQueued=false;
+// The store owns the stream, bounded fallback and local ageing for every consumer.
+let feedStream=false,renderQueued=false,freshnessQueued=false,feedSubscription=null;
 function scheduleRender(){if(renderQueued)return;renderQueued=true;(window.requestAnimationFrame||(frame=>setTimeout(frame,16)))(()=>{renderQueued=false;render();});}
-// Paused and invalid messages only refresh freshness, also at most once per frame (a queued render does it too).
 function scheduleFreshness(){if(freshnessQueued||renderQueued)return;freshnessQueued=true;(window.requestAnimationFrame||(frame=>setTimeout(frame,16)))(()=>{freshnessQueued=false;updateFreshness();});}
-function openStream(){clearTimeout(streamRetry);streamRetry=null;if(typeof EventSource!=='function'){startPolling();return;}
-  stopPolling();let source;try{source=new EventSource('/api/stream');}catch(_){streamFailed();return;}feedStream=source;
-  source.addEventListener('snapshot',event=>{if(feedStream!==source)return;let data=null;try{data=JSON.parse(event.data);}catch(_){}
-    if(!validSnapshot(data)){connected=false;scheduleFreshness();return;}connected=true;streamAttempt=0;if(!paused){snapshot=data;scheduleRender();}else scheduleFreshness();});
-  // A dropped stream, or the server's 503 once three streams are open, falls back to polling.
-  source.addEventListener('error',()=>{if(feedStream===source)streamFailed();});}
-function streamFailed(){const source=feedStream;feedStream=null;source?.close();startPolling();clearTimeout(streamRetry);streamRetry=setTimeout(openStream,streamBackoff(streamAttempt++));}
-function startPolling(){if(pollActive)return;pollActive=true;poll(++pollGeneration);}
-function stopPolling(){pollActive=false;pollGeneration++;clearTimeout(pollTimer);pollTimer=null;}
-async function poll(generation=pollGeneration){const started=performance.now(),c=new AbortController(),timer=setTimeout(()=>c.abort(),1800);try{const r=await fetch('/api/snapshot',{cache:'no-store',signal:c.signal});if(!r.ok)throw new Error('Unavailable');const data=await r.json();if(generation!==pollGeneration)return;if(!validSnapshot(data))throw new Error('Invalid snapshot');connected=true;if(!paused){snapshot=data;render();}}catch(_){if(generation===pollGeneration)connected=false;}finally{clearTimeout(timer);if(generation===pollGeneration&&pollActive){updateFreshness();pollTimer=setTimeout(()=>poll(generation),Math.max(100,1000-(performance.now()-started)));}}}
+function openStream(){
+  if(feedSubscription)return;
+  const store=getMonitorStore();
+  feedSubscription=store.subscribe(state=>{
+    connected=state.snapshotStatus.available&&!state.snapshotStatus.error;feedStream=state.transport.streaming;collectorIssues=state.diagnostics;
+    if(!paused&&state.snapshot){snapshot=state.snapshot;scheduleRender();}else scheduleFreshness();
+  });
+  store.start({snapshot:true});
+}
 $('pause').addEventListener('click',()=>{paused=!paused;$('pause').textContent=paused?'Resume':'Pause';$('pause').setAttribute('aria-pressed',String(paused));if(snapshot)render();else updateFreshness();});$('expand').addEventListener('click',()=>native('expand'));$('quit').addEventListener('click',()=>native('quit'));if(!window.webkit?.messageHandlers?.monitor)$('quit').hidden=true;
 $('sidebarToggle').addEventListener('click',()=>{const opening=!document.body.classList.contains('sidebar-open');setSidebarOpen(opening,true);if(opening)pollAutoUnload(true);});window.addEventListener('resize',syncCompactUI);syncCompactUI();
 $('onlineCodeMode').addEventListener('click',()=>{

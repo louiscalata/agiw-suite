@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 const read = path => readFileSync(new URL(path, import.meta.url), 'utf8');
-const source = read('./web/simple-view.mjs').replace("'/model-control-view.mjs'", JSON.stringify(new URL('./web/model-control-view.mjs', import.meta.url).href));
+const source = read('./web/simple-view.mjs').replace("'/model-control-view.mjs'", JSON.stringify(new URL('./web/model-control-view.mjs', import.meta.url).href))
+  .replace("'/monitor-store.mjs'", JSON.stringify(new URL('./web/monitor-store.mjs', import.meta.url).href));
 const { zoomSwap, mountSimpleView } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
 
 const classList = () => { const set = new Set(); return { set, add: c => set.add(c), remove: c => set.delete(c), contains: c => set.has(c) }; };
@@ -76,7 +77,7 @@ test('the Overview/Simple switch animates, a second click before the swap flips 
   const sw = node('button'); sw.id = 'advancedSwitch';
   const posts = [];
   const window = { ...r.window, addEventListener() {}, agiwPrefs: { view: 'advanced' }, webkit: { messageHandlers: { monitor: { postMessage: m => posts.push(m.action) } } } };
-  const view = mountSimpleView({ window, document, fetch: async () => ({ ok: false }), setInterval: () => 0, clearInterval() {}, now: () => 0 });
+  const view = mountSimpleView({ window, document, store: {subscribe(fn) { fn({snapshot: null, snapshotStatus: {fresh: false, available: false}}); return () => {}; }, start() {}}, fetch: async () => ({ ok: false }), setInterval: () => 0, clearInterval() {}, now: () => 0 });
   assert.equal(document.documentElement.dataset.view, 'advanced');
   assert.deepEqual(r.log, [], 'the first paint is not a transition');
   sw.listeners.click[0]({ target: sw, currentTarget: sw });

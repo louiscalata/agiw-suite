@@ -96,6 +96,69 @@ class TuningTests(unittest.TestCase):
         for field in ('hardware_profile_id', 'dataset_artifact_id', 'model_artifact_id', 'settings_id'):
             self.assertEqual(data['runs'][0][field], row[field])
 
+    def test_dataset_ingest_to_mac_endpoint_keeps_screening_separate(self):
+        from server import Handler
+        from test_eci_fast_check import run
+
+        fast_input = self.file('fast.json', {'schema_version': 1, 'runs': [], 'items': [],
+                                             'fast_checks': [run()]})
+        normalized = e.ingest([FIXTURES / 'results.json', fast_input])
+        self.file('dataset.json', normalized)
+
+        class Request:
+            path = '/api/eci-tuning'
+            def same_origin(self):
+                return True
+            def reply(self, code, body, content_type):
+                return code, json.loads(body), content_type
+
+        with patch.dict(os.environ, {'AGIW_ECI_TUNING_DATASET_DIR': str(self.path)}):
+            code, response, content_type = Handler.do_GET(Request())
+        self.assertEqual((code, content_type), (200, 'application/json'))
+        self.assertEqual(response['dataset']['status'], 'configured')
+        self.assertTrue(response['rankings']['baseline_protocol']['eci'])
+        self.assertTrue(response['rankings']['fast_check']['hardware_views'])
+        self.assertNotIn('eci_posterior_mean', json.dumps(response['rankings']['fast_check']))
+
+    def test_configured_dataset_failure_is_unknown_without_catalog_fallback(self):
+        from server import Handler
+
+        class Request:
+            path = '/api/eci-tuning'
+            def same_origin(self):
+                return True
+            def reply(self, code, body, content_type):
+                return code, json.loads(body), content_type
+
+        with patch.dict(os.environ, {'AGIW_ECI_TUNING_DATASET_DIR': str(self.path)}):
+            for payload in (None, '{', json.dumps({'schema_version': 1, 'runs': 'bad', 'items': []}),
+                            json.dumps({'schema_version': 1, 'runs': [None], 'items': []})):
+                source = self.path / 'dataset.json'
+                if payload is None:
+                    source.unlink(missing_ok=True)
+                else:
+                    source.write_text(payload, encoding='utf-8')
+                code, response, _ = Handler.do_GET(Request())
+                self.assertEqual(code, 200)
+                self.assertEqual(response['dataset']['status'], 'unknown')
+                self.assertTrue(response['dataset']['reason'])
+                self.assertNotIn('rankings', response)
+                self.assertNotIn(str(self.path), json.dumps(response))
+            source.unlink()
+            if hasattr(os, 'mkfifo'):
+                os.mkfifo(str(source))
+                code, response, _ = Handler.do_GET(Request())
+                self.assertEqual(code, 200)
+                self.assertEqual(response['dataset']['status'], 'unknown')
+                self.assertTrue(response['dataset']['reason'])
+
+    def test_unconfigured_dataset_uses_bundled_catalog(self):
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop('AGIW_ECI_TUNING_DATASET_DIR', None)
+            response = e.status()
+        self.assertEqual(response['dataset']['status'], 'bundled')
+        self.assertTrue(response['rankings']['baseline_protocol']['eci'])
+
     def test_refit_and_manifest_preserve_eci_and_components(self):
         data = e.ingest([FIXTURES / 'results.json', FIXTURES / 'run_manifest.json'])
         row = data['runs'][0]

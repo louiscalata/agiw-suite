@@ -11,7 +11,7 @@
 import { overrides, feedRecovery } from './appstore-overrides.mjs';
 
 /** Files the edition ships, in load order. online-code-mode.mjs is not shipped at all. */
-export const ship = ['index.html', 'style.css', 'app.js', 'usage-format.mjs', 'map-layout.mjs', 'model-control-view.mjs', 'simple-view.mjs', 'simple-view.css'];
+export const ship = ['index.html', 'style.css', 'app.js', 'usage-format.mjs', 'map-layout.mjs', 'model-control-view.mjs', 'simple-view.mjs', 'simple-view.css', 'monitor-store.mjs', 'fleet-state.mjs'];
 
 const ABOUT = '<h2>A map of evidence.</h2>'
   + '<p>The Mac hub shows what LM Studio\'s local server on this Mac reports: every installed model, and which ones are '

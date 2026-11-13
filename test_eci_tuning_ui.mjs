@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
+import {mkdtempSync, rmSync} from 'node:fs';
+import {join} from 'node:path';
+import {fileURLToPath} from 'node:url';
+import {spawnSync} from 'node:child_process';
 import test from 'node:test';
+import {resolvePython} from './test_support/python-interpreter.mjs';
 import {ci, metric, render, viewModel} from './web/eci-tuning.mjs';
 
 test('CI formatting leaves missing values unknown', () => {
@@ -48,6 +53,7 @@ test('screening preserves denominators, deviations, pairs and uncertainty', () =
     comparisons:[{record_id:'b',verdict:'INCONCLUSIVE',benchmarks:{arc:{verdict:'INCONCLUSIVE',verification:'VERIFIED',reason:'incomplete pairs',n_expected:10,n_candidate:9,n_baseline:10,n_shared:8,both_correct:5,both_wrong:1,model_only:1,baseline_only:1,n_discordant:2,p_value:1,alpha:.05}}}]};
   const group = {title:'Best model for this hardware',hardware:{id:'fixture',cpu:'cpu-fixture'}, plan_id:'plan', runtime_settings:{temperature:0}, alpha:'0.05', admission_policy:{min_coverage:'1'}, note:'Full ECI NOT_RUN.', rows:[row], pending:[{model:'unknown', pre:'UNKNOWN', post:'REJECT', reason:'Missing evidence.'}],not_comparable:[{record_id:'a',other_record_id:'c',reasons:['settings differ']}]};
   const view = viewModel({rankings:{fast_check:{hardware_views:[group]}}});
+  assert.equal(view.fastChecks.length, 1);
   const screen = view.fastChecks[0];
   assert.deepEqual(screen.conditions, [['Hardware profile','{"id":"fixture","cpu":"cpu-fixture"}'],['Frozen plan','plan'],['Runtime settings','{"temperature":0}'],['Alpha','0.05'],['Admission policy','{"min_coverage":"1"}']]);
   assert.doesNotMatch(screen.title, /Best model/);
@@ -101,12 +107,64 @@ test('renderer labels policy, screening, pair outcomes and absent evidence', () 
   }
 });
 
-test('docs and canonical roadmap defer ingested fast-check page integration to the next slice', () => {
-  const docs = readFileSync(new URL('./docs/eci-model-tuning.md',import.meta.url),'utf8');
-  const roadmap = readFileSync(new URL('./roadmap.md',import.meta.url),'utf8');
-  const changelog = readFileSync(new URL('./CHANGELOG.md',import.meta.url),'utf8');
-  assert.match(docs, /Page integration is the next slice/);
-  assert.match(docs, /Mac and Windows endpoints use the bundled catalog/);
-  assert.match(roadmap, /\[ \] Page integration is the next slice/);
-  assert.doesNotMatch(changelog, /separate hardware rankings in the read-only tuning page/);
+test('ingested full ECI and fast check reach the DOM through the real Mac endpoint; invalid input stays unknown',
+  {skip: process.platform === 'win32' ? 'Requires POSIX fcntl imported by the Mac server' : false}, t => {
+  const python = resolvePython(t);
+  if (!python) return;
+  const directory = mkdtempSync(join(fileURLToPath(new URL('../', import.meta.url)), 'agiw-eci-ui-'));
+  const program = `
+import json, os, sys
+from pathlib import Path
+import eci_tuning as e
+import server
+from test_eci_fast_check import run
+
+directory = Path(sys.argv[1])
+os.environ['AGIW_ECI_TUNING_DATASET_DIR'] = str(directory)
+os.environ['AGIW_ECI_TUNING_CONFIG'] = str(directory / 'policy.json')
+data = e.ingest([e.ROOT / 'test_support/eci_tuning/results.json'])
+data['fast_checks'] = [run()]
+(directory / 'dataset.json').write_text(json.dumps(data), encoding='utf-8')
+def request():
+    handler = object.__new__(server.Handler)
+    handler.path = '/api/eci-tuning'
+    handler.same_origin = lambda: True
+    handler.reply = lambda code, body, mime: (code, json.loads(body))
+    return handler.do_GET()
+valid = request()
+(directory / 'dataset.json').write_text('{invalid json', encoding='utf-8')
+invalid = request()
+print(json.dumps([valid, invalid]))
+`;
+  try {
+    const process = spawnSync(python.command, [...python.args, '-B', '-c', program, directory], {cwd: new URL('.', import.meta.url), encoding: 'utf8', timeout: 30000});
+    assert.equal(process.status, 0, process.stderr);
+    const [[validCode, valid], [invalidCode, invalid]] = JSON.parse(process.stdout);
+    assert.equal(validCode, 200);
+    assert.equal(invalidCode, 200);
+    assert.equal(valid.dataset.status, 'configured');
+    assert.equal(invalid.dataset.status, 'unknown');
+    assert.ok(invalid.dataset.reason);
+    const previous = globalThis.document;
+    globalThis.document = fixtureDocument();
+    try {
+      const root = document.createElement('main');
+      render(valid, root);
+      assert.match(root.textContent, /configured dataset/);
+      const full = root.children.find(node => node.tag === 'section' && /Baseline local protocol/.test(node.children[0].textContent));
+      const screen = root.children.find(node => node.tag === 'section' && /Screening results.*fixture-machine-a/.test(node.children[0].textContent));
+      assert.ok(full); assert.ok(screen);
+      assert.match(full.textContent, /llama-3\.1-8b-instruct-q4km-epoch-eci.*105\.38/);
+      assert.match(screen.textContent, /synthetic candidate/);
+      assert.match(screen.textContent, /separate from ECI/);
+      assert.doesNotMatch(full.textContent, /synthetic candidate/);
+      render(invalid, root);
+      assert.match(root.textContent, /Dataset unknown/);
+      assert.ok(root.textContent.includes(invalid.dataset.reason));
+      assert.doesNotMatch(root.textContent, /105\.38|synthetic candidate|ECI NOT_COMPUTED/);
+    } finally {
+      if (previous === undefined) delete globalThis.document;
+      else globalThis.document = previous;
+    }
+  } finally { rmSync(directory, {recursive:true, force:true}); }
 });

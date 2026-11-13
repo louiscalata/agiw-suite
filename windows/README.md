@@ -55,6 +55,10 @@ python agiw_observer.py --port 8767      # observer only; open the URL it prints
 - Optional: `C:\SharedChami\llm-lab\mac-reach\hosts.json` names the Mac whose presence is attributed;
   `nvidia-smi` for NVIDIA load.
 
+## Model tuning dataset (optional)
+
+Set the local `AGIW_ECI_TUNING_DATASET_DIR` environment variable before starting the observer to an absolute local directory containing `dataset.json` (the file itself must not be a symlink). Create that normalized file with `python -m eci_tuning ingest <input files> --output <directory>/dataset.json`. The observer reads and validates the file; it does not write to the dataset directory. Without the variable, the page uses the bundled catalog. A missing, unreadable or invalid configured dataset is reported as unknown with a reason instead of silently displaying the bundled catalog. Fast screening remains separate from full ECI results.
+
 ## Options (`config.json` beside the observer)
 
 The separate `lane-processes.json` records processes the local operator has already identified as AGIW lanes:

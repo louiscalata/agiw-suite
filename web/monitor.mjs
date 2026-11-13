@@ -1,4 +1,5 @@
 import {fleetFacts} from './fleet-state.mjs';
+import {getMonitorStore} from './monitor-store.mjs';
 const NS = 'http://www.w3.org/2000/svg';
 const LANES = {
   mac: {x: 120, y: 48},
@@ -234,7 +235,6 @@ function show(node) {
 
 let current = null;
 let selected = null;
-let inFlight = false;
 let feedUnavailable = false;
 
 /** Project membership and words exclusively from fleet facts; source nodes only supply scoped readings. */
@@ -292,28 +292,11 @@ function render() {
   }
 }
 
-async function tick() {
-  current = ageMap(current);
+/** Rendering follows the shared store, including its independent ageing ticks. */
+function followStore(state) {
+  feedUnavailable = Boolean(state.inferenceStatus?.error) || !state.inference;
+  current = ageMap(state.inference, feedUnavailable);
   render();
-  if (inFlight) return;
-  inFlight = true;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 2000);
-  try {
-    const response = await fetch('/api/inference', {headers: {Accept: 'application/json'}, cache: 'no-store', signal: controller.signal});
-    if (!response.ok) throw new Error(String(response.status));
-    const map = await response.json();
-    if (!map || !Array.isArray(map.nodes)) throw new Error('Invalid map');
-    current = ageMap(fleetMap(map));
-    feedUnavailable = false;
-  } catch (_) {
-    current = ageMap(current, true);
-    feedUnavailable = true;
-  } finally {
-    clearTimeout(timeout);
-    inFlight = false;
-    render();
-  }
 }
 
 function publishMap() {
@@ -339,6 +322,7 @@ if (typeof document !== 'undefined' && document.querySelector('#map')) {
     if (node) show(node);
   });
   if (typeof window !== 'undefined') window.__jaryoRerenderMap = () => render();
-  tick();
-  setInterval(tick, 2000);
+  const store = getMonitorStore();
+  store.subscribe(followStore);
+  store.start({inference: true});
 }
