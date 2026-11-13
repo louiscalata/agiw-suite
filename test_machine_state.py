@@ -1,6 +1,10 @@
 import copy
 import datetime as dt
+from pathlib import Path
 import unittest
+from unittest import mock
+
+import machine_state
 
 from machine_state import expire_machines, finite_number, machine_summary, machines_summary
 
@@ -346,3 +350,19 @@ class MachineStateTests(unittest.TestCase):
                                (report(handsOff=1), None), (report(gaming=True), None)):
             row = machine_summary("pc", "windows", data, now=NOW, trust="share-reported")
             self.assertIs(row["handsOff"], expected)
+
+    def test_clock_lead_checks_follow_the_shared_constant(self):
+        ahead = report(observedAt=_iso(NOW + 5))
+        row = machine_summary("pc", "windows", ahead, now=NOW, trust="authenticated")
+        self.assertEqual(row["reasonCode"], "clock_skew")
+        aged = {"host": "pc", "platform": "windows", "state": "up", "freshForSeconds": 30.0,
+                "observedAt": _iso(NOW + 5)}
+        self.assertEqual(expire_machines([dict(aged)], NOW)[0]["reasonCode"], "clock_skew")
+        with mock.patch.object(machine_state, "PEER_FUTURE_SKEW", 10.0):
+            row = machine_summary("pc", "windows", ahead, now=NOW, trust="authenticated")
+            self.assertNotEqual(row.get("reasonCode"), "clock_skew")
+            self.assertNotEqual(expire_machines([dict(aged)], NOW)[0].get("reasonCode"), "clock_skew")
+        # The feed's presence checks use the same name; no literal copy of the limit remains.
+        root = Path(machine_state.__file__).resolve().parent
+        for name in ("machine_state.py", "peer_feed.py"):
+            self.assertNotRegex((root / name).read_text(encoding="utf-8"), r"age < -2\b", name)
