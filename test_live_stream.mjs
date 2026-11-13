@@ -48,6 +48,156 @@ test('sample clocks and schema validation never infer freshness from delivery', 
   assert.deepEqual([0, 1, 2, 3, 9, -1, 'x'].map(streamBackoff), [5000, 10000, 20000, 30000, 30000, 5000, 5000]);
 });
 
+for (const kind of ['snapshot', 'inference']) {
+  test(`a future ${kind} poll is rejected with clock_skew and cannot freeze recovery`, async () => {
+    const h = harness({eventSource: false});
+    const data = kind === 'snapshot' ? snap : map;
+    const send = async at => {
+      const pending = h.store.refresh(kind);
+      h.requests.at(-1).resolve(reply(data(at))); await pending;
+    };
+    await send(100);
+    await send(3700);
+    assert.deepEqual(h.store.getState()[kind], data(100));
+    assert.deepEqual(h.store.getState()[`${kind}Status`].error, {stage: `${kind}_clock`,
+      code: 'clock_skew', failedAt: 100, secondsAhead: 3600});
+    assert.ok(h.store.getState().diagnostics.some(row => row.code === 'clock_skew'));
+    await send(101);
+    assert.deepEqual(h.store.getState()[kind], data(101));
+    assert.equal(h.store.getState()[`${kind}Status`].error, null);
+    await send(99);
+    assert.deepEqual(h.store.getState()[kind], data(101), 'ordinary older replies remain rejected');
+    h.store.destroy();
+  });
+}
+
+test('a future first stream sample preserves polling until a current sample recovers', async () => {
+  const h = harness(); h.store.start({snapshot: true});
+  h.sources[0].emit('snapshot', snap(3700));
+  assert.equal(h.store.getState().snapshot, null);
+  assert.deepEqual(h.store.getState().snapshotStatus.error, {stage: 'snapshot_clock',
+    code: 'clock_skew', failedAt: 100, secondsAhead: 3600});
+  assert.equal(h.store.getState().transport.streaming, false);
+  assert.equal(h.store.getState().transport.polling, true);
+  assert.equal(h.requests[0].signal.aborted, false, 'invalid stream must not cancel the bootstrap poll');
+  h.requests[0].resolve(reply(snap(100))); await flush();
+  assert.equal(h.store.getState().snapshot.sampledAt, 100);
+  assert.equal(h.store.getState().snapshotStatus.error, null);
+  await h.advance(5000);
+  h.sources[1].emit('snapshot', snap(h.now()));
+  assert.equal(h.store.getState().transport.streaming, true);
+  assert.equal(h.store.getState().snapshot.sampledAt, h.now());
+  assert.equal(h.store.getState().snapshotStatus.error, null);
+  h.store.destroy();
+});
+
+test('stream permits at most two seconds of future clock tolerance', () => {
+  const h = harness(); h.store.start({snapshot: true});
+  h.sources[0].emit('snapshot', snap(102));
+  assert.equal(h.store.getState().snapshot.sampledAt, 102);
+  assert.equal(h.store.getState().snapshotStatus.ageSeconds, -2);
+  assert.equal(h.store.getState().snapshotStatus.fresh, true);
+  h.sources[0].emit('snapshot', snap(102.001));
+  assert.equal(h.store.getState().snapshot.sampledAt, 102);
+  assert.equal(h.store.getState().snapshotStatus.error.code, 'clock_skew');
+  h.store.destroy();
+});
+
+for (const kind of ['snapshot', 'inference']) {
+  test(`${kind} accepts and marks fresh the same two-second future boundary`, async () => {
+    const h = harness({eventSource: false});
+    const data = kind === 'snapshot' ? snap : map;
+    const send = async at => {
+      const pending = h.store.refresh(kind);
+      h.requests.at(-1).resolve(reply(data(at))); await pending;
+    };
+    await send(101.5);
+    assert.equal(h.store.getState()[`${kind}Status`].fresh, true);
+    await send(102);
+    assert.equal(h.store.getState()[`${kind}Status`].ageSeconds, -2);
+    assert.equal(h.store.getState()[`${kind}Status`].fresh, true);
+    await send(102.001);
+    assert.deepEqual(h.store.getState()[kind], data(102));
+    const error = h.store.getState()[`${kind}Status`].error;
+    assert.equal(error.stage, `${kind}_clock`);
+    assert.equal(error.code, 'clock_skew');
+    assert.ok(Math.abs(error.secondsAhead - 2.001) < 1e-9);
+    h.store.destroy();
+  });
+
+  test(`rejected ${kind} documents cannot replace accepted collector diagnostics`, async () => {
+    const h = harness({eventSource: false});
+    const data = kind === 'snapshot' ? snap : map;
+    const kept = {stage: 'collect_snapshot', code: 'timeout', failedAt: 100};
+    const rejected = {stage: 'inference', code: 'rejected', failedAt: 101};
+    const send = async (body, status = 200) => {
+      const pending = h.store.refresh(kind);
+      h.requests.at(-1).resolve(reply(body, status)); await pending;
+    };
+    await send(data(100, {collectorDiagnostics: [kept]}));
+    for (const [body, status] of [
+      [data(99, {collectorDiagnostics: [rejected]}), 200],
+      [data(3700, {collectorDiagnostics: [rejected]}), 200],
+      [data(99), 200],
+      [{collectorDiagnostics: [rejected]}, 200],
+      [data(101, {collectorDiagnostics: [rejected]}), 503],
+    ]) {
+      await send(body, status);
+      assert.deepEqual(h.store.getState()[kind], data(100, {collectorDiagnostics: [kept]}));
+      assert.deepEqual(h.store.getState().diagnostics.filter(row => row.stage === kept.stage), [kept]);
+      assert.equal(h.store.getState().diagnostics.some(row => row.code === 'rejected'), false);
+    }
+    await send(data(101, {collectorDiagnostics: [rejected]}));
+    assert.deepEqual(h.store.getState().diagnostics, [rejected]);
+    await send(data(102));
+    assert.deepEqual(h.store.getState().diagnostics, []);
+    h.store.destroy();
+  });
+}
+
+for (const kind of ['snapshot', 'inference']) {
+  test(`a refused first ${kind} reply still reports startup collector diagnostics`, async () => {
+    const h = harness({eventSource: false});
+    const data = kind === 'snapshot' ? snap : map;
+    const started = {stage: kind === 'snapshot' ? 'collect_snapshot' : 'inference',
+      code: kind === 'snapshot' ? 'timeout' : 'collector_failed', failedAt: 99};
+    const send = async (body, status = 200) => {
+      const pending = h.store.refresh(kind);
+      h.requests.at(-1).resolve(reply(body, status)); await pending;
+    };
+    // Before the first sample the servers answer 503 (snapshot) or an error
+    // document (inference); that reply is the only carrier of the collector row.
+    if (kind === 'snapshot') await send({status: 'starting', collectorDiagnostics: [started]}, 503);
+    else await send({nodes: [], error: 'collector_failed', collectorDiagnostics: [started]});
+    assert.equal(h.store.getState()[kind], null, 'no sample is invented');
+    assert.deepEqual(h.store.getState().diagnostics, [started,
+      {stage: `${kind}_request`, code: kind === 'snapshot' ? 'http_503' : 'malformed', failedAt: 100}]);
+    await send(data(100));
+    assert.deepEqual(h.store.getState()[kind], data(100));
+    assert.deepEqual(h.store.getState().diagnostics, [], 'an accepted document without diagnostics clears them');
+    await send({status: 'starting', collectorDiagnostics: [started]}, 503);
+    assert.deepEqual(h.store.getState().diagnostics.map(row => row.stage), [`${kind}_request`],
+      'after acceptance a refused reply no longer supplies collector rows');
+    h.store.destroy();
+  });
+}
+
+test('stream clock skew is bounded and retains accepted collector diagnostics', () => {
+  const h = harness(); h.store.start({snapshot: true});
+  const kept = {stage: 'collect_snapshot', code: 'timeout', failedAt: 100};
+  h.sources[0].emit('snapshot', snap(100, {collectorDiagnostics: [kept]}));
+  h.sources[0].emit('snapshot', snap(99, {collectorDiagnostics: []}));
+  assert.deepEqual(h.store.getState().diagnostics, [kept]);
+  h.sources[0].emit('snapshot', snap(Number.MAX_VALUE, {collectorDiagnostics: []}));
+  const error = {stage: 'snapshot_clock', code: 'clock_skew', failedAt: 100, secondsAhead: 86400};
+  assert.deepEqual(h.store.getState().snapshotStatus.error, error);
+  assert.deepEqual(h.store.getState().diagnostics, [kept, error]);
+  assert.equal(h.sources[0].closed, true);
+  assert.equal(h.store.getState().transport.polling, true);
+  assert.equal(h.store.getState().snapshot.sampledAt, 100);
+  h.store.destroy();
+});
+
 test('a silent stream closes, starts bounded polling and recovers through retry', async () => {
   const h = harness(); h.store.start({snapshot: true});
   assert.equal(h.sources[0].url, '/api/stream');
@@ -155,12 +305,14 @@ test('fresh envelopes, diagnostic publications and one recovered lane never rene
 
 test('errors and malformed inference retain original data and diagnostics; recovery clears errors', async () => {
   const h = harness();
-  let p = h.store.refresh('inference'); h.requests[0].resolve(reply(map(100))); await p;
+  const kept = {stage: 'inference', code: 'timeout', failedAt: 99};
+  let p = h.store.refresh('inference');
+  h.requests[0].resolve(reply(map(100, {collectorDiagnostics: [kept]}))); await p;
   p = h.store.refresh('inference'); h.requests[1].resolve(reply({nodes: [], error: 'collector_failed',
     observedAt: iso(101), collectorDiagnostics: [{stage: 'inference', code: 'collector_failed', failedAt: 101}]})); await p;
   assert.equal(h.store.getState().inference.observedAt, iso(100));
   assert.equal(h.store.getState().inferenceStatus.error.code, 'malformed');
-  assert.equal(h.store.getState().diagnostics[0].failedAt, 101);
+  assert.deepEqual(h.store.getState().diagnostics[0], kept);
   p = h.store.refresh('inference'); h.requests[2].resolve(reply(map(102))); await p;
   assert.equal(h.store.getState().inferenceStatus.error, null);
   assert.deepEqual(h.store.getState().diagnostics, []);
