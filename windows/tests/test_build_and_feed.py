@@ -1,5 +1,6 @@
 """VERSION 1.1.0 with build.json from install.ps1, the shipped peer link and its local status feed, and
 test discovery from the repository root."""
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -281,6 +282,20 @@ class Installer(unittest.TestCase):
         package = INSTALLER[INSTALLER.index("$files = New-Object"):INSTALLER.index("function Test-InstalledInventory(")]
         self.assertNotIn("lane-processes.json", package)
 
+    def test_bytecode_caches_are_tolerated_only_by_the_pre_update_check(self):
+        inventory = INSTALLER[INSTALLER.index("function Test-InstalledInventory("):INSTALLER.index("function Test-StagedProvenance(")]
+        self.assertIn("$AllowBytecode = $false", inventory.splitlines()[0])
+        # Both cache exemptions depend on the switch, and a kept cache must be timestamp-validated.
+        self.assertEqual(inventory.count("$bytecodeDirs.Contains("), 2)
+        self.assertEqual(inventory.count("$AllowBytecode -and $bytecodeDirs.Contains("), 2)
+        self.assertIn("Test-TimestampBytecode $item.FullName", inventory)
+        calls = re.findall(r"Test-InstalledInventory \$[^\n]*", INSTALLER)
+        self.assertEqual(len(calls), 2)
+        provenance = next(call for call in calls if "$Stage" in call)
+        update = next(call for call in calls if "$Stage" not in call)
+        self.assertRegex(provenance, r"Test-InstalledInventory \$Files \$Destination \$Stage \$Guard\)")
+        self.assertRegex(update, r"Test-InstalledInventory \$files \$Destination '' \$guard \$true \$true\)")
+
 
 @unittest.skipUnless(shutil.which("git"), "git is needed to exercise installer source status")
 class InstallerSourceStatus(unittest.TestCase):
@@ -378,7 +393,8 @@ class InstallerOnWindows(unittest.TestCase):
                 self.assertIn(".unverified", buildinfo.producer(build))
 
     def staged_provenance(self, payload=b"VALUE = 1\n", dirty="$false", signature=True,
-                          missing_module=False, unexpected=None, custom_filter=False):
+                          missing_module=False, unexpected=None, custom_filter=False,
+                          unexpected_bytes=b"stale executable"):
         # Exercise the actual verifier against a real signed temporary repo, with no host trust.
         helper = INSTALLER[INSTALLER.index("Add-Type -TypeDefinition @'"):INSTALLER.index("$Destination = $full")]
         function = INSTALLER[INSTALLER.index("function Test-InstalledInventory("):INSTALLER.index("# A commit identifies")]
@@ -392,7 +408,7 @@ class InstallerOnWindows(unittest.TestCase):
             if unexpected:
                 stale = root / "install" / unexpected
                 stale.parent.mkdir(parents=True, exist_ok=True)
-                stale.write_bytes(b"stale executable")
+                stale.write_bytes(unexpected_bytes)
             quoted = str(root).replace("'", "''")
             repo_quoted = str(repo).replace("'", "''")
             command = helper + function + f"""
@@ -453,6 +469,14 @@ try {{
                 build = self.staged_provenance(unexpected=relative)
                 self.assertIs(build["filesMatchHead"], False)
                 self.assertEqual(build["provenance"], "unverified")
+
+    def test_bytecode_cache_beside_a_module_makes_the_build_unverified(self):
+        # Even an ordinary timestamp-validated cache is code the signed commit does not cover.
+        cache = importlib.util.MAGIC_NUMBER + bytes(12) + b"fixture"
+        build = self.staged_provenance(unexpected="agiw_win/__pycache__/source.cpython-313.pyc",
+                                       unexpected_bytes=cache)
+        self.assertIs(build["filesMatchHead"], False)
+        self.assertEqual(build["provenance"], "unverified")
 
     def test_private_enrollment_does_not_invalidate_a_signed_package(self):
         build = self.staged_provenance(unexpected="lane-processes.json")
