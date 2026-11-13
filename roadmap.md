@@ -164,6 +164,14 @@ The manual Jaryo kit smoke uses the supported Ubuntu 22.04 image: the pinned Chr
 - [ ] Have the external AGIW routing owner integrate and test the config hook. Runtime activation remains NOT_APPLIED; Nisi Mac requires two distinct resident Mac LLMs and remains NOT_APPLIED.
 - [x] PR 2 replacement is integrated through PR #119 (`8230e60`), superseding PR #117's original Fix inference entry point.
 
+## Cached diagnosis read-time freshness correction — 13 November 2026
+
+- [x] Recompute closed-L2 diagnosis on each controller read and HTTP status GET from the stored action, current snapshot and current clock. A sample at 100, POST at 101 and GET at 3700 now reports `mac: unknown (stale)` with age 3600.
+- [x] Preserve `lastState` and `lastReasonCode` when store expiry or diagnosis projection withholds stale/skewed claims; visible state remains unknown. Same-host observer clocks intentionally use zero future tolerance; the browser transport's cross-host tolerance is separate.
+- [x] Assert returned content for fresh, stale, missing and future evidence, full-sample overlay expiry, repeated reads, real-store HTTP ageing and fresh-sample recovery without owner actions or evidence mutation.
+- [x] The full Node and Python source suites and the focused diagnosis, gate and lifecycle tests pass on the rebased tree; exact counts and skip reasons are in the pull request. Skipped cases remain unverified coverage.
+- [ ] Native/rendered app, hosted CI and model execution remain NOT_RUN.
+
 ## Current source and artifact status · 2026-11-03
 
 The canonical roadmap remains this file. The downloadable application is **1.0.0 (7)**. `Info.plist` in this checkout is **1.1.0 (14)**, tagged `v1.1.0` on 9 November 2026 as a source release with no app attached. The earlier label 1.2.0 (13) was not shipped. The repository's release record lists only v1.0.0 as a binary download: rc.1, rc.2 and source-preview release pages were withdrawn on 18 October, while their tags remain. Historical release evidence below describes those earlier checkpoints, not current rollback availability.
