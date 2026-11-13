@@ -162,6 +162,17 @@ final class BadgeHarness {
         self.assertIn('Lane coverage unknown', state['tooltip'])
         self.assertNotIn('0 observed', state['tooltip'])
 
+    def test_invalid_registry_cannot_show_complete_zero_in_native_badge(self):
+        fleet = self.fixture()['fleetState']
+        for fact in fleet['facts']:
+            if fact['scope'] == 'lane':
+                fact.update(state='endpoint unavailable', observedAt='2026-11-12T11:59:59Z',
+                            expiresAt='2026-11-12T12:00:05Z')
+        fleet['registry'] = {'state': 'unknown', 'reason': 'registry_invalid', 'completeness': 'unknown'}
+        state = self.badge(fleet)
+        self.assertEqual(state['title'].strip(), '?/4')
+        self.assertIn('Partial coverage; registry invalid', state['tooltip'])
+
 
 if __name__ == '__main__':
     unittest.main()

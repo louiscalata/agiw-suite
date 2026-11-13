@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import {fleetMachineCoverage, fleetMachines, fleetLanes} from './web/fleet-state.mjs';
 
 const board = new URL('./web/monitor-board.mjs', import.meta.url);
 const boardSource = readFileSync(board, 'utf8').replace("'/monitor-tabs.mjs'", JSON.stringify(new URL('./web/monitor-tabs.mjs', import.meta.url).href));
@@ -233,4 +234,66 @@ test('Machines expires each fact independently while keeping membership and unkn
   assert.equal(Object.fromEntries(pc.facts)['Models loaded'], 'Unknown');
   assert.equal(Object.fromEntries(tiles.find(tile => tile.key === 'peer:spare').facts)['Models busy'], 'Unknown');
   assert.deepEqual(machineTiles({machines: shared.snapshot.machines}, 'mac'), [], 'no alternate inventory when the contract is unavailable');
+});
+
+test('canonical Machines tiles require both a reported up host and answering lanes for an up glyph', () => {
+  const base = structuredClone(shared.fleetState);
+  const local = base.facts.find(fact => fact.id === 'mac');
+  const lane = base.facts.find(fact => fact.parentId === local.id);
+  for (const state of ['unknown', 'endpoint unavailable', 'stale']) {
+    lane.state = state;
+    assert.notEqual(machineTiles(base, 'mac', {now: shared.now})[0].glyph, '■');
+  }
+  lane.state = 'endpoint answering';
+  assert.equal(machineTiles(base, 'mac', {now: shared.now})[0].glyph, '■');
+  const pc = machineTiles(base, 'mac', {now: shared.now}).find(tile => tile.key === 'registry:pc');
+  assert.equal(pc.lanes.filter(lane => lane.state === 'endpoint answering').length, 2);
+  assert.equal(pc.word, 'unknown');
+  assert.equal(pc.glyph, '?', 'answering endpoints do not report the host up');
+  local.evidence.state = 'down';
+  assert.equal(machineTiles(base, 'mac', {now: shared.now})[0].glyph, '?');
+});
+
+test('Machines and the fleet ledger agree on completely unavailable lanes when the host is not reported up', () => {
+  const base = structuredClone(shared.fleetState);
+  for (const lane of base.facts.filter(fact => fact.parentId === 'registry:pc')) {
+    lane.state = 'endpoint unavailable';
+    lane.reason = 'refused';
+  }
+  const machine = fleetMachines(base, {now: shared.now}).find(fact => fact.id === 'registry:pc');
+  const ledger = fleetMachineCoverage(machine, fleetLanes(base, {now: shared.now}));
+  const tile = machineTiles(base, 'mac', {now: shared.now}).find(tile => tile.key === machine.id);
+  assert.deepEqual([tile.glyph, tile.word], [ledger.glyph, ledger.text]);
+  assert.deepEqual([tile.glyph, tile.word], ['×', '0 of 2 lanes answering']);
+  assert.equal(Object.fromEntries(tile.facts).State, 'unknown', 'endpoint failure does not report host failure');
+});
+
+test('a reported up host and incomplete or stale lane coverage do not acquire an unavailable tile', () => {
+  const base = structuredClone(shared.fleetState);
+  const machine = base.facts.find(fact => fact.id === 'registry:pc');
+  const children = base.facts.filter(fact => fact.parentId === machine.id);
+  children.forEach(lane => {lane.state = 'endpoint unavailable'; lane.reason = 'refused';});
+  machine.state = 'reported';
+  machine.evidence.state = 'up';
+  machine.observedAt = children[0].observedAt;
+  machine.expiresAt = children[0].expiresAt;
+  let tile = machineTiles(base, 'mac', {now: shared.now}).find(tile => tile.key === machine.id);
+  assert.deepEqual([tile.glyph, tile.word], ['?', 'reported']);
+  machine.state = 'unknown';
+  for (const change of [{state: 'unknown'}, {state: 'stale'}, {observedAt: null}]) {
+    Object.assign(children[0], {state: 'endpoint unavailable', observedAt: children[1].observedAt}, change);
+    tile = machineTiles(base, 'mac', {now: shared.now}).find(tile => tile.key === machine.id);
+    assert.deepEqual([tile.glyph, tile.word], ['?', 'unknown']);
+  }
+});
+
+test('Machines visibly renders invalid registry coverage, beyond the accessible label', () => {
+  const els = {};
+  const make = () => ({children: [], textContent: '', setAttribute() {},
+    append(...children) { this.children.push(...children); }, replaceChildren(...children) { this.children = children; }});
+  const document = {createElement: make, getElementById: id => (els[id] ||= make())};
+  const fleetState = {...shared.fleetState, registry: {state: 'unknown', reason: 'registry_invalid'}};
+  paintMachines(document, {fleetState}, {fresh: true, now: shared.now});
+  const text = node => [node.textContent, ...node.children.map(text)].join(' ');
+  assert.match(text(els.machinesBody), /Partial coverage; registry invalid/);
 });

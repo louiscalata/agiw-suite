@@ -3,7 +3,7 @@
  * Read only. Every value is the row's own; a missing one is "Not measured" or "Unknown", never 0.
  */
 import {own, reasonWords, rowDegraded, registryMachineView, registryModelName} from '/monitor-board.mjs';
-import {fleetState, fleetMachines, fleetLanes, fleetSummary, fleetWord, fleetAge} from '/fleet-state.mjs';
+import {fleetState, fleetMachines, fleetLanes, fleetSummary, fleetWord, fleetAge, fleetMachineCoverage} from '/fleet-state.mjs';
 import {getMonitorStore} from '/monitor-store.mjs';
 
 const NAMES = {mac: 'Mac', macos: 'Mac', windows: 'PC', linux: 'Linux'};
@@ -67,6 +67,9 @@ export function machineTiles(machines, self, {fresh = true, now} = {}) {
     return fleetMachines(machines, {now}).map(fact => {
       const children = lanes.filter(lane => lane.parentId === fact.id);
       const coverage = fleetSummary({schemaVersion: 1, facts: children}, {now});
+      const laneCoverage = fleetMachineCoverage(fact, children);
+      const unavailable = children.length > 0 && laneCoverage.counts.unavailable === children.length &&
+        !(fact.state === 'reported' && fact.evidence.state === 'up');
       const evidence = fact.evidence, current = fact.state === 'reported' && fact.completeness === 'complete' && evidence.state === 'up' && evidence.modelsComplete === true;
       const facts = [['State', fleetWord(fact)], ['Source', fact.source || 'Unknown'],
         ['Observed', fact.observedAt || 'Unknown'], ['Age', fleetAge(fact)], ['Expires', fact.expiresAt || 'Unknown'],
@@ -75,7 +78,8 @@ export function machineTiles(machines, self, {fresh = true, now} = {}) {
       for (const [label, field] of [['Models loaded', 'loadedCount'], ['Models busy', 'busyCount']])
         facts.push([label, current && Number.isSafeInteger(evidence[field]) && evidence[field] >= 0 ? String(evidence[field]) : 'Unknown']);
       return {key: fact.id, title: fact.label || fact.id, host: fact.id,
-        glyph: fact.state === 'reported' ? '■' : '?', word: fleetWord(fact), facts, lanes: children};
+        glyph: unavailable ? laneCoverage.glyph : fact.state === 'reported' && fact.evidence.state === 'up' && coverage.counts.answering > 0 ? '■' : '?',
+        word: unavailable ? laneCoverage.text : fleetWord(fact), facts, lanes: children};
     });
   }
   if (!Array.isArray(machines)) return [];
@@ -163,7 +167,7 @@ export function paintMachines(document, snapshot, {fresh, now = Date.now() / 100
   const view = {label: summary.text, text: fleetMachines(snapshot, {now}).map(fact => `${fact.label} (${fact.id}) · ${fleetWord(fact)}`).join('\n') || summary.text};
   map.setAttribute('role', 'img');
   map.setAttribute('aria-label', view.label);
-  map.textContent = view.text;
+  map.textContent = `${summary.text}\n${view.text}`;
   const grid = el(document, 'div', 'j-machine-grid');
   const tiles = machineTiles(snapshot, snapshot?.host, {fresh, now});
   if (!tiles.length) {

@@ -11,6 +11,14 @@ import datetime as dt
 import math
 import time
 
+# Only explicit probe failures establish unavailable endpoint evidence. New or
+# unrecognised producer reasons fail closed to unknown.
+ENDPOINT_FAILURES = frozenset({"refused", "timeout", "unavailable", "upstream_error", "tunnel_down"})
+ANSWERED_WITHOUT_IDENTITY = frozenset({
+    "load_state_unreported", "identity_unknown", "multiple_loaded", "model_unreported",
+    "model_id_too_long", "models_unreadable", "model_not_loaded", "no_models",
+})
+
 
 def _number(value):
     try:
@@ -184,6 +192,8 @@ def build_fleet_state(snapshot, inference=None, now=None):
     for node in nodes:
         if node.get("role") in ("machine", "client") or not isinstance(node.get("id"), str):
             continue
+        if node.get("reason") == "not_configured":
+            continue  # An optional, unconfigured service is not a fleet lane.
         identity, parent = node["id"], node.get("machine")
         if any(item["id"] == identity for item in lanes):
             continue
@@ -200,10 +210,12 @@ def build_fleet_state(snapshot, inference=None, now=None):
             fact.update(state="endpoint answering", completeness="complete", reason=node.get("reason"))
         elif node.get("reason") == "stale":
             fact.update(state="stale", reason="stale")
-        elif node.get("reason") not in (None, "pending", "not_measured", "not_observed"):
+        elif node.get("reason") in ENDPOINT_FAILURES:
             fact.update(state="endpoint unavailable", completeness="complete")
         else:
             fact.update(reason=node.get("reason") or "identity_not_measured")
+            if node.get("reason") in ANSWERED_WITHOUT_IDENTITY:
+                fact["evidence"]["endpointAnswered"] = True
         fact["evidence"]["healthScope"] = "endpoint identity only; host, hardware and inference activity unknown"
         lanes.append(fact)
     for identity, root in roots.items():
@@ -254,6 +266,20 @@ def build_fleet_state(snapshot, inference=None, now=None):
         facts.append(fact)
     facts.extend(lanes)
     counts = _coverage(lanes)
+    registry = None
+    status = document.get("remoteMachines")
+    if isinstance(status, dict):
+        registry, freshness = _fact("remote-machines", "registry", "Remote machine registry",
+                                    "registry configuration", {**status, "observedAt": document.get("observedAt")},
+                                    now, 3.0)
+        registry.update(reason="registry_invalid" if status.get("state") == "invalid" else
+                        "registry_configured" if status.get("state") == "configured" and freshness == "fresh" else
+                        "registry_unknown")
+        if registry["reason"] == "registry_configured":
+            registry.update(state="reported", completeness="complete")
+    registry_partial = registry is not None and registry["completeness"] != "complete"
+    if registry_partial and not counts["answering"]:
+        counts["answering"] = None
     counts["machines"] = len(roots)
     machine_facts = [fact for fact in facts if fact["scope"] == "machine"]
     for output, field in (("loaded", "loadedCount"), ("busy", "busyCount")):
@@ -261,7 +287,7 @@ def build_fleet_state(snapshot, inference=None, now=None):
                        and fact["evidence"].get("state") == "up"
                        and type(fact["evidence"].get(field)) is int and fact["evidence"][field] >= 0
                        for fact in machine_facts)
-        counts[output] = sum(fact["evidence"][field] for fact in machine_facts) if measured else None
+        counts[output] = sum(fact["evidence"][field] for fact in machine_facts) if measured and not registry_partial else None
     summary = ("Answering count unknown; {} lanes configured".format(counts["lanes"])
                if lanes and counts["answering"] is None else
                "{} of {} lanes answering".format(counts["answering"], counts["lanes"])
@@ -269,12 +295,17 @@ def build_fleet_state(snapshot, inference=None, now=None):
     for state, key in (("endpoint unavailable", "unavailable"), ("stale", "stale"), ("unknown", "unknown")):
         affected = [fact for fact in lanes if fact["state"] == state]
         if affected:
-            names = ", ".join("{} ({}){}".format(fact["label"], fact["id"],
+            names = ", ".join("{} ({}){}{}".format(fact["label"], fact["id"],
                               ", {} s ago".format(math.floor(fact["ageSeconds"] + .5))
-                              if state == "stale" and fact["ageSeconds"] is not None else "")
+                              if state == "stale" and fact["ageSeconds"] is not None else "",
+                              ", answered, identity unknown" if state == "unknown"
+                              and fact["evidence"].get("endpointAnswered") is True else "")
                               for fact in affected)
             summary += "; {} {}: {}".format(len(affected), key, names)
-    complete = bool(lanes) and not counts["unknown"] and not counts["stale"]
+    if registry_partial:
+        summary = "Partial coverage; {}; ".format(registry["reason"].replace("_", " ")) + summary
+    complete = bool(lanes) and not counts["unknown"] and not counts["stale"] and not registry_partial
     return {"schemaVersion": 1, "observedAt": _iso(now), "facts": facts, "counts": counts,
+            **({"registry": registry} if registry is not None else {}),
             "completeness": "complete" if complete else "partial",
             "state": "coverage" if lanes else "unknown", "summary": summary}

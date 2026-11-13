@@ -260,14 +260,15 @@ def _probe(target, fetch):
         else:
             status, body, elapsed = fetch(target["base"] + "/v1/models")
         if type(status) is int and status == 200:
-            model = _identity(body)
-            reason = None
+            try:
+                model = _identity(body)
+                reason = None
+            except (ValueError, TypeError, KeyError, RecursionError):
+                reason = "identity_unknown"
             if _number(elapsed) and elapsed >= 0:
                 latency = elapsed
         else:
             reason = "upstream_error"
-    except (ValueError, TypeError, KeyError, RecursionError):
-        reason = "identity_unknown"
     except Exception as error:
         # Only public reason codes may cross the boundary; never exception text.
         from inference_collect import ProbeError

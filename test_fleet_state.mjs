@@ -88,3 +88,65 @@ test('machine headlines use scoped lane coverage even when host health is unmeas
   assert.equal(fleetMachineCoverage(pc, [lane(pc.id, 'stale')]).text, '1 lane · evidence stale');
   assert.equal(fleetMachineCoverage({id: 'peer:report', state: 'reported'}, []).text, 'peer report observed');
 });
+
+test('zero answering lanes never earn an up glyph from a host report or partial probes', () => {
+  const machine = {id: 'example', state: 'reported'};
+  const lane = state => ({parentId: machine.id, state});
+  for (const lanes of [[], [lane('unknown')], [lane('endpoint unavailable'), lane('unknown')]])
+    assert.equal(fleetMachineCoverage(machine, lanes).glyph, '?');
+  assert.equal(fleetMachineCoverage(machine, [lane('endpoint answering'), lane('unknown')]).glyph, '■');
+});
+
+test('an invalid registry stays visible with partial coverage and unknown zero', () => {
+  const lane = {...fixture.fleetState.facts.find(fact => fact.scope === 'lane'), state: 'endpoint unavailable'};
+  const registry = {id: 'remote-machines', scope: 'registry', state: 'unknown', reason: 'registry_invalid',
+    observedAt: lane.observedAt, expiresAt: lane.expiresAt, evidence: {state: 'invalid'}};
+  for (const facts of [[lane], []]) {
+    const summary = fleetSummary({schemaVersion: 1, facts, registry}, {now: fixture.now});
+    assert.match(summary.text, /registry invalid/);
+    assert.match(summary.headline, /partial/i);
+    assert.equal(summary.counts.answering, null);
+    assert.equal(summary.completeness, 'partial');
+  }
+});
+
+test('an answered endpoint with ambiguous identity stays unknown and says what answered', () => {
+  const lane = {...fixture.fleetState.facts.find(fact => fact.scope === 'lane'), state: 'unknown',
+    reason: 'multiple_loaded', evidence: {endpointAnswered: true}};
+  assert.equal(fleetWord(lane), 'unknown · answered, identity unknown');
+  assert.match(fleetSummary({schemaVersion: 1, facts: [lane]}, {now: fixture.now}).text, /answered, identity unknown/);
+  assert.equal(fleetWord({...lane, state: 'stale'}).includes('answered'), false);
+});
+
+test('machine coverage distinguishes answered identity-unknown lanes from pending evidence', () => {
+  const machine = {id: 'example', state: 'unknown'};
+  const answered = {parentId: machine.id, state: 'unknown', evidence: {endpointAnswered: true}};
+  const pending = {parentId: machine.id, state: 'unknown', ageSeconds: 1};
+  assert.equal(fleetMachineCoverage(machine, [answered]).text, '1 lane answered · identity unknown');
+  assert.equal(fleetMachineCoverage(machine, [answered, {...answered}]).text, '2 lanes answered · identity unknown');
+  assert.equal(fleetMachineCoverage(machine, [answered, pending]).text, '1 of 2 lanes answered · identity unknown');
+  assert.equal(fleetMachineCoverage(machine, [pending]).text, '1 lane · endpoint evidence pending');
+  assert.equal(fleetMachineCoverage(machine, [{...answered, state: 'stale'}]).text, '1 lane · evidence stale');
+  assert.equal(fleetMachineCoverage(machine, [answered]).glyph, '?');
+});
+
+test('answered-identity evidence expires and cannot survive a missing or future clock', () => {
+  const base = fixture.fleetState.facts.find(fact => fact.scope === 'lane');
+  for (const change of [{observedAt: null}, {observedAt: '2099-01-01T00:00:00Z'}, {expiresAt: base.observedAt}]) {
+    const lane = {...base, state: 'unknown', reason: 'identity_unknown', evidence: {endpointAnswered: true}, ...change};
+    const contract = {schemaVersion: 1, facts: [lane]};
+    assert.doesNotMatch(fleetWord(fleetLanes(contract, {now: fixture.now})[0]), /answered/);
+    assert.doesNotMatch(fleetSummary(contract, {now: fixture.now}).text, /answered/);
+  }
+});
+
+test('registry completeness follows its original valid clock', () => {
+  const base = fixture.fleetState.facts.find(fact => fact.scope === 'lane');
+  const registry = {...base, scope: 'registry', state: 'reported', reason: 'registry_configured', completeness: 'complete'};
+  const contract = {schemaVersion: 1, facts: [{...base, state: 'endpoint unavailable'}], registry};
+  assert.equal(fleetSummary(contract, {now: fixture.now}).completeness, 'complete');
+  for (const now of [fixture.now + 10, NaN])
+    assert.equal(fleetSummary(contract, {now}).completeness, 'partial');
+  registry.expiresAt = '2026-11-12T11:59:58Z';
+  assert.equal(fleetSummary(contract, {now: fixture.now - 2}).completeness, 'partial');
+});
