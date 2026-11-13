@@ -18,6 +18,7 @@ import time
 from pathlib import Path
 
 from inference_stats import public_map
+from fleet_state import build_fleet_state
 from machine_state import FRESH_SECONDS, TRUST_LEVELS, expire_machines, machine_summary, observation_age
 
 ENDPOINT_PATH = Path.home() / '.local/state/inference-monitor/endpoint.json'
@@ -30,6 +31,7 @@ TIMEOUT = 2.0
 PLATFORMS = {'mac': 'mac', 'windows': 'windows', 'linux': 'linux'}
 REQUIRED_PLATFORMS = {'mac': 'mac', 'windows': 'windows'}
 HOST_NAME = re.compile(r'[A-Za-z0-9][A-Za-z0-9._-]{0,62}\Z')
+REGISTRY_ID = re.compile(r'registry:[a-z][a-z0-9_-]{0,15}\Z')
 
 
 class StatusUnavailable(ValueError):
@@ -208,9 +210,30 @@ def _summary(data, now):
         raise StatusUnavailable('schema_invalid')
     seen = set()
     result = []
+    registry_ids = set()
+    replaces_windows = False
     for row in machines:
         if not isinstance(row, dict):
             raise StatusUnavailable('schema_invalid')
+        if row.get('observationSource') == 'registry':
+            identity = row.get('id')
+            if (not isinstance(identity, str) or not REGISTRY_ID.fullmatch(identity)
+                    or row.get('host') != identity or row.get('platform') != 'remote'
+                    or row.get('trust') != 'registry' or identity in registry_ids
+                    or row.get('state') not in ('up', 'down', 'unknown')
+                    or row.get('replaces') not in (None, 'legacy-pc')):
+                raise StatusUnavailable('schema_invalid')
+            registry_ids.add(identity)
+            replaces_windows |= row.get('replaces') == 'legacy-pc'
+            # Keep only membership metadata; raw probe health and lane evidence
+            # are not host-health claims or part of this compact CLI summary.
+            membership = {key: row[key] for key in ('id', 'host', 'platform', 'label',
+                          'observationSource', 'replaces', 'observedAt') if key in row}
+            result.append({**membership, 'state': 'unknown', 'reasonCode': 'host_not_measured',
+                           'modelsComplete': False, 'loadedCount': None, 'busyCount': None,
+                           'promptTokensPerSecond': None, 'generationTokensPerSecond': None,
+                           'handsOff': None})
+            continue
         host = row.get('host')
         platform = row.get('platform')
         if platform == 'macos':
@@ -251,12 +274,25 @@ def _summary(data, now):
         if row['state'] == 'unknown':
             projected.update(handsOff=None)
         result.extend(expire_machines([projected], now))
-    if ('mac', 'mac') not in seen or not set(REQUIRED_PLATFORMS) <= {platform for platform, host in seen}:
+    platforms = {platform for platform, host in seen}
+    if replaces_windows:
+        platforms.add('windows')
+    if ('mac', 'mac') not in seen or not set(REQUIRED_PLATFORMS) <= platforms:
         raise StatusUnavailable('schema_invalid')
     summary_doc = {'schemaVersion': 1, 'sampledAt': data['sampledAt'], 'machines': result}
     inference = public_map(data.get('inference'))
     if inference is not None:
         summary_doc['inference'] = inference
+    if ('fleetState' in data or registry_ids
+            or isinstance(data.get('inference'), dict) and 'remoteMachines' in data['inference']):
+        # The server ages facts before legacy expiry clears retained readings.
+        # Rebuilding from that projected snapshot can lose those decisions.
+        fleet = data['fleetState'] if 'fleetState' in data else build_fleet_state(data, now=now)
+        if not isinstance(fleet, dict):
+            raise StatusUnavailable('schema_invalid')
+        summary_doc['fleetState'] = {key: fleet.get(key) for key in ('summary', 'counts', 'completeness')}
+        if isinstance(fleet.get('registry'), dict):
+            summary_doc['fleetState']['registry'] = {'reason': fleet['registry'].get('reason')}
     return summary_doc
 
 
@@ -279,6 +315,8 @@ def main(argv=None):
     if args.json:
         print(json.dumps(data, allow_nan=False, separators=(',', ':')))
     else:
+        if 'fleetState' in data:
+            print(data['fleetState']['summary'])
         for row in data['machines']:
             suffix = ''
             generation = row.get('generationTokensPerSecond')

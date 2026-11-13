@@ -712,6 +712,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         var answering = 0
         var incomplete = false
         var lines: [String] = []
+        var registryNote = ""
+        if let registry = fleet["registry"] as? [String: Any] {
+            let observed = date(registry["observedAt"])
+            let expiry = date(registry["expiresAt"])
+            let current = observed != nil && expiry != nil && expiry! >= observed!
+                && now >= observed! - 2 && now <= expiry!
+            if registry["completeness"] as? String != "complete"
+                || registry["reason"] as? String != "registry_configured" || !current {
+                incomplete = true
+                registryNote = registry["reason"] as? String == "registry_invalid"
+                    ? "Partial coverage; registry invalid; " : "Partial coverage; registry unknown; "
+            }
+        }
         var identities = Set<String>()
         for fact in facts {
             guard let id = fact["id"] as? String, !id.isEmpty, !identities.contains(id),
@@ -754,7 +767,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         applyMemoryTint(memory?.level)
         statusItem.button?.title = " " + (lanes > 0 ? (countUnknown ? "?/\(lanes)" : "\(answering)/\(lanes)") : "?")
             + (memory?.level == "critical" ? " !" : "")
-        let detail = summary + "; host health and fleet activity unknown\n" + lines.joined(separator: "\n")
+        let detail = registryNote + summary + "; host health and fleet activity unknown\n" + lines.joined(separator: "\n")
         statusItem.button?.toolTip = "Inference Monitor · " + detail
         statusItem.button?.setAccessibilityValue(detail + (memory.map { ". Memory \($0.level)" } ?? ""))
     }
