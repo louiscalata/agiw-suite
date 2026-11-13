@@ -208,20 +208,18 @@ It requires **two distinct LLMs already resident in Mac LM Studio**, as document
 in [advanced configuration](advanced-configuration.md#resident-model-budget).
 The PC Llama artifact is never assigned to those roles.
 
-The Model Tuning Tool replaces the repair-only Fix inference panel. The toolbar
-and inspector **Model tuning** controls open the tool without repair; `/eci-tuning`
-links back to its **Check and repair inference** panel. Press **Run check** to
-confirm the guarded repair. Closing the panel does not cancel it. Local runtime
-may start the Mac loopback server; Nisi recovery keeps its idle preconditions;
-route recovery may remount SharedChami and send one short Windows probe only
-after the existing guards pass. No repair runs on open or GET.
+Recorded evaluation at `/eci-tuning` is separate from Diagnostics and repair.
+Opening diagnostics reads cached observations and starts no repair. Choose one
+target, review its effects and duration, then confirm. Local runtime recovery may
+start the Mac loopback server; Nisi recovery retains its idle-state checks;
+route recovery may send one short Windows probe after its guards pass. Share
+recovery remains manual.
 
-`POST /api/eci-tuning/repair` and the deprecated `/api/inference/fix` alias share
-the same handler, native capability, L2 gate and scopes (`all`, `local`, `route`,
-`both`, `nisi`). Legacy control IDs `fixInference` and `drawerFixButton` open the
-new tool. Windows stays read-only and denies repair through both routes. There
-is no `agiw` CLI repair subcommand to alias. This is unreleased source work, not
-a tagged release; PR 117 must merge before the replacement PR.
+`POST /api/eci-tuning/repair` and the deprecated `/api/inference/fix` alias accept
+exactly `{"scope":"local","reviewed":true}`, with `local` replaceable by `route`
+or `nisi`. They reject bundled scopes. Both retain native authorization and the
+L2 gate. Windows denies repair through either route. Closing the panel does not
+cancel an operation.
 
 ## Verification
 

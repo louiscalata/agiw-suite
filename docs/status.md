@@ -15,9 +15,9 @@ Version identifiers in this checkout are **1.1.0 (build 14)**. The source tag [v
 
 - The native window opens `/monitor` and polls `/api/snapshot` on a one-second timer without overlapping requests (`Monitor.swift`, `consumeStartup` and `pollSnapshot`).
 - Old readings expire, and measurements clear when a refresh fails.
-- **Full dashboard** links to `/` for the existing controls and Components view.
+- **Overview** links to the Fleet ledger at `/`; **Components** has its own navigation link.
 - The Mac map reuses telemetry's verified LM Studio inventory and configured endpoint.
-- The source badge expects both Mac and Windows observations. An unconfigured PC keeps the combined count uncertain.
+- The native badge reports answering lanes against the configured lane count from `fleetState`. Missing or stale lane evidence remains unknown; endpoint coverage does not establish host health or active inference.
 - Native control POSTs (requests that change state, such as loading a model) require the per-launch capability described in [SECURITY.md](../SECURITY.md).
 
 To preview the source read-only with Python 3.9+, run `python3 -B server.py --port 8765` and open `http://127.0.0.1:8765/monitor`. A standalone launch cannot dispatch control POSTs. Tests and build boundaries: [development](development.md).

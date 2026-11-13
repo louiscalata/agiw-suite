@@ -1,6 +1,6 @@
 # Activate AGIW Suite
 
-The installation steps describe the 1.0.0 (7) download, which has the [known local-control authentication issue](../SECURITY.md#known-issue-in-v100-build-7-local-control-authentication). The v1.1.0 source requires a per-launch capability on those control routes. That check is not in the download. In a native app built from that source, open **Full dashboard** from `/monitor` to reach Browse, Components and controls. A standalone browser preview has observation access only.
+The installation steps describe the 1.0.0 (7) download, which has the [known local-control authentication issue](../SECURITY.md#known-issue-in-v100-build-7-local-control-authentication). The v1.1.0 source requires a per-launch capability on those control routes. That check is not in the download. In a native app built from this checkout, use **Overview** from `/monitor` to open the Fleet ledger and its controls, or **Components** to open the component checks. A standalone browser preview has observation access only.
 
 Start with the **GitHub 1.0.0 (7) Apple-silicon application**. This guide explains how to launch the monitor, connect local models and run the included Nisi tools. The Mac App Store edition has separate menus, runtime packaging and acceptance requirements.
 
