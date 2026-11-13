@@ -5,6 +5,7 @@ import datetime as dt
 import math
 
 
+CLOCK_SKEW_SECONDS = 1.0  # matches the browser run-evidence views; never extends the expiry window
 FRESH_SECONDS = {"mac": 3.0, "windows": 30.0, "linux": 30.0}
 TRUST_LEVELS = {"local", "authenticated", "share-reported", "unverified"}
 UNKNOWN_REASONS = frozenset({

@@ -1,3 +1,4 @@
+import {hasFreshRunInventory,checkUnknownActivity} from './fix11_assertions.mjs';
 import {layout,onlineMode} from './production.mjs';
 import {fleetTileExpectations} from './monitor-harness.mjs';
 const {onlineCodeModeView}=onlineMode;
@@ -6,6 +7,7 @@ const tiles=body=>Object.fromEntries(body.querySelectorAll('.tile').map(t=>[t.qu
 const doubtful=/unknown|unavailable|at least|stale|not current|incomplete|—/i;
 export function checkTwoSided(item,api,$,fail){
   const d=item.snapshot,e=item.expect||{};
+  if(!hasFreshRunInventory(d,1800000000+(item.clockOffset||0)))checkUnknownActivity({$,check:(condition,field,output)=>{if(!condition)fail(item,field,output);}});
   const eq=(field,actual,want)=>{if(actual!==want)fail(item,field,{actual,want});};
   const exact=(field,value)=>{if(value==null||doubtful.test(String(value)))fail(item,field,value);};
   const age=Math.max(0,1800000000+(item.clockOffset||0)-d.sampledAt);

@@ -993,7 +993,11 @@ class MemoryGuardSampleTest(unittest.TestCase):
         self.assertEqual(unloader.calls[-1]['sampledAt'], published['sampledAt'])
         self.assertEqual(unloader.calls[-1]['models'], published['models'])
         self.assertEqual(unloader.calls[-1]['memory'], published['memory'])
-        self.assertEqual(unloader.calls[-1]['activity'], published['activity'])
+        # Reads age the run inventory on its own clock, so compare the runs the decision uses.
+        self.assertEqual(unloader.calls[-1]['activity'],
+                         {key: value for key, value in published['activity'].items()
+                          if key not in ('currentEvidence', 'complete')})
+        self.assertFalse(published['activity']['complete'], 'missing producer timestamp stays incomplete')
         unloader = FakeUnloader()
         self.run_sampler(self.FakeGuard(), rounds=3, full_interval=60.0, auto_unloader=unloader)
         self.assertEqual(len(unloader.calls), 1, 'fast overlays must not make unload decisions')

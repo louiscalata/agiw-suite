@@ -4,6 +4,7 @@ import {layout,onlineMode,appDefinitions} from './production.mjs';
 import * as usage from '../usage-format.mjs';
 import * as modelControl from '../web/model-control-view.mjs';
 import * as fleet from '../web/fleet-state.mjs';
+import * as monitorTabs from '../web/monitor-tabs.mjs';
 const definitions=appDefinitions
   .replace(/^import .*;\r?\n/gm,'').split("$('pause').addEventListener")[0];
 class FakeClassList {
@@ -118,7 +119,7 @@ export function harness({ width = 1150, extra = {}, legacyDetails = false } = {}
   graphState(){return graph;},
   modelRows(){return models();},
   spyOpen(){const opened=[];openActivityRow=row=>opened.push(row.key);return opened;}})`,
-  { ...layout, ...usage, ...onlineMode, ...modelControl, ...fleet, ...selectors, document: doc, window, performance: { now: () => 0 }, ...extra });
+  { ...layout, ...usage, ...onlineMode, ...modelControl, ...fleet, ...monitorTabs, ...selectors, document: doc, window, performance: { now: () => 0 }, ...extra });
   return { api, doc, $: id => doc.getElementById(id), view };
 }
 

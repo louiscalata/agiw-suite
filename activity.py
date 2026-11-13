@@ -18,6 +18,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from machine_state import CLOCK_SKEW_SECONDS
+
 import telemetry
 from telemetry import _finite, _json_object
 
@@ -38,6 +40,7 @@ _READ_RETRIES = 3
 _READ_RETRY_S = 0.02
 _MAX_RUNS = 12
 _MAX_AGE = 300.0
+RUN_EVIDENCE_MAX_AGE = 3.0
 _RUN_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}\Z")
 _STAGE = re.compile(r"[A-Za-z][A-Za-z0-9_.:-]{0,63}\Z")
 _SAFE_MODEL = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/+-]{0,159}\Z")
@@ -198,13 +201,16 @@ def _read_actives() -> tuple[list[dict[str, Any]], bool, str]:
     return records, problem, listing
 
 
-def _live_rows() -> dict[tuple[str, str], dict[str, Any]]:
+def _live_rows(now: float) -> dict[tuple[str, str], dict[str, Any]]:
     """(runId, layout) -> the telemetry observation's row, when this sample observed this
     journal.  Keyed by layout too: one run ID may have a row in each layout (a collision)."""
     observation = telemetry.last_router_observation()
-    if not observation or observation.get("root") != str(_ACTIVE.parent):
+    observed = observation.get("observedAt") if observation else None
+    if (not observation or observation.get("root") != str(_ACTIVE.parent)
+            or not _finite(observed) or not -CLOCK_SKEW_SECONDS <= now - observed <= RUN_EVIDENCE_MAX_AGE):
         return {}
-    return {(row["runId"], row.get("layout")): row for row in observation.get("rows", []) if row.get("runId")}
+    return {(row["runId"], row.get("layout")): dict(row, _observedAt=observed)
+            for row in observation.get("rows", []) if row.get("runId")}
 
 
 def _age(timestamp: Any, now: float) -> float | None:
@@ -345,6 +351,73 @@ def _read_archive(path: Path) -> dict[str, Any]:
 
 def _hex64(value: Any) -> bool:
     return isinstance(value, str) and re.fullmatch(r"[a-f0-9]{64}", value) is not None
+
+
+def _attempt_id(run_id: str, digest: Any) -> str | None:
+    """A run name alone cannot distinguish retries with different requests."""
+    return run_id + ":" + digest if _hex64(digest) else None
+
+
+def _binding_conflict(value: Any, run_id: str, digest: Any) -> bool:
+    if not isinstance(value, dict):
+        return False
+    expected = {"parentRunId": run_id, "routerRequestSha256": digest,
+                "attemptId": _attempt_id(run_id, digest)}
+    return any(isinstance(binding, dict) and any(key in binding and binding[key] != match
+               for key, match in expected.items())
+               for binding in (value, value.get("bindings"), value.get("binding")))
+
+
+def _run_evidence(row: dict[str, Any], digest: Any) -> dict[str, Any]:
+    """Attach only the enclosing, request-bound attempt; missing producers stay missing."""
+    attempt = _attempt_id(row["runId"], digest)
+    row["attemptId"] = attempt
+    for call in row.get("calls", []):
+        call.update(parentRunId=row["runId"], attemptId=attempt)
+        if attempt is None:
+            call["usage"] = {"inputTokens": None, "outputTokens": None, "totalTokens": None}
+            call["state"] = "unknown"
+    calls = row.get("calls", [])
+    row["usageCoverage"] = {
+        "scope": "reported-calls-only", "reportedCallCount": len(calls),
+        "measuredCallCount": sum(call.get("usage", {}).get("totalTokens") is not None for call in calls),
+        "expectedCallCount": None, "complete": False,
+        "detail": ("Attempt binding unavailable; whole-run totals unknown" if attempt is None else
+                   "No independent expected-call manifest; whole-run totals unknown"),
+    }
+    row["analysisSlots"] = [
+        {"tool": tool, "phase": phase, "runId": row["runId"], "attemptId": attempt,
+         "state": "unavailable", "evidenced": False,
+         "detail": "NOT AVAILABLE YET: " + label + " producer is not connected"}
+        for tool, phase, label in (("jev", "pre", "Complete Jev pre-analysis"),
+                                   ("nisi", "journal", "Nisi journal"),
+                                   ("jev", "post", "Complete Jev post-analysis"))
+    ]
+    return row
+
+
+def current_run_evidence(evidence: Any, now: float) -> dict[str, Any]:
+    """Validate the existing telemetry inventory, never count a bounded history list."""
+    evidence = evidence if isinstance(evidence, dict) else {}
+    observed = evidence.get("observedAt")
+    fresh = _finite(observed) and -CLOCK_SKEW_SECONDS <= now - observed <= RUN_EVIDENCE_MAX_AGE
+    counts = evidence.get("counts")
+    valid = (isinstance(counts, dict)
+             and all(_nonnegative_int(counts.get(key)) is not None
+                     for key in ("running", "queued", "unresolved"))
+             and counts['running'] + counts['queued'] <= _MAX_SAFE_INT)
+    complete = fresh and evidence.get("complete") is True and valid and counts["unresolved"] == 0
+    reason = ("Fresh complete router inventory" if complete else
+              "Run inventory timestamp unavailable" if not _finite(observed) else
+              "Run inventory stale or clock ahead" if not fresh else
+              "Run inventory incomplete or unresolved")
+    return {"scope": "router-current-work", "complete": bool(complete),
+            "count": counts["running"] + counts["queued"] if complete else None,
+            "running": counts["running"] if complete else None,
+            "queued": counts["queued"] if complete else None,
+            "observedAt": observed if _finite(observed) else None,
+            "expiresAt": observed + RUN_EVIDENCE_MAX_AGE if _finite(observed) else None,
+            "reason": reason}
 
 
 def _role_identity_only(backend: dict[str, Any], role: str, parent_run_id: str) -> dict[str, Any] | None:
@@ -509,12 +582,27 @@ def _project_archive(record: dict[str, Any], now: float) -> dict[str, Any] | Non
     status = result.get("status")
     if not isinstance(status, str) or not _SAFE_STATUS.fullmatch(status):
         status = "unknown"
+    digest = record.get("inputSha256")
+    # Preserve a dated legacy status, but never attach contradictory returned
+    # evidence to the request named by its enclosing archive.
+    contradictory = ("requestSha256" in result and result["requestSha256"] != digest
+                     or "attemptId" in result and result["attemptId"] != _attempt_id(run_id, digest))
     age = _age(finished, now)
     calls = []
     stages = result.get("stages")
     backend = stages.get("backend") if isinstance(stages, dict) else None
     if isinstance(backend, dict):
         for role in ("author", "reviewer"):
+            retained = backend.get("roleEvidence")
+            retained = retained.get(role) if isinstance(retained, dict) else None
+            nested = backend.get("stages")
+            nested = nested.get("draft" if role == "author" else "review") if isinstance(nested, dict) else None
+            nested = nested.get("result") if isinstance(nested, dict) else None
+            receipts = nested.get("receipts") if isinstance(nested, dict) else None
+            if (_binding_conflict(retained, run_id, digest) or _binding_conflict(nested, run_id, digest)
+                    or isinstance(receipts, list) and any(_binding_conflict(receipt, run_id, digest)
+                                                         for receipt in receipts)):
+                continue
             call = _verified_stage_call(backend, role, run_id, backend.get("candidateFingerprint"))
             if call is None:
                 call = _role_identity_only(backend, role, run_id)
@@ -536,7 +624,7 @@ def _project_archive(record: dict[str, Any], now: float) -> dict[str, Any] | Non
         route_state = _label(decision.get("route_state"))
     usage = intake.get("usage") if isinstance(intake, dict) else None
     usage_out = {"inputTokens": None, "outputTokens": None, "totalTokens": None}
-    if isinstance(usage, dict):
+    if isinstance(intake, dict) and not _binding_conflict(intake, run_id, digest):
         jev_usage = _intake_usage(usage)
         jev_model, jev_status = intake.get("model"), intake.get("status")
         if (isinstance(jev_model, str) and _SAFE_MODEL.fullmatch(jev_model)
@@ -554,7 +642,9 @@ def _project_archive(record: dict[str, Any], now: float) -> dict[str, Any] | Non
     stage = record.get("stage")
     completion_bound = _completion_owner_bound(record, result, run_id, status)
     completion = _completion_evidence(result.get("completionEvidence")) if completion_bound else None
-    return {"runId": run_id, "stage": stage if isinstance(stage, str) and _STAGE.fullmatch(stage) else None,
+    if contradictory:
+        calls, digest = [], None
+    return _run_evidence({"runId": run_id, "stage": stage if isinstance(stage, str) and _STAGE.fullmatch(stage) else None,
             "status": status, "activity": "completed", "recordedAt": finished if _finite(finished) else None,
             "ageSeconds": age, "routeChoice": choice, "routeState": route_state, "hostAcceptance": None,
             "reviewConsistency": _review_consistency(stages),
@@ -564,11 +654,8 @@ def _project_archive(record: dict[str, Any], now: float) -> dict[str, Any] | Non
             "client": result.get("client") if result.get("client") in ("codex", "claude", "opencode") else None,
             "host": result.get("selectedHost") if result.get("selectedHost") in ("mac", "windows") else None,
             "calls": calls, "usage": usage_out,
-            "usageCoverage": {"scope": "reported-calls-only", "reportedCallCount": len(calls),
-                              "expectedCallCount": None, "complete": False,
-                              "detail": "No independent expected-call manifest; whole-run totals unknown"},
             "source": "router-archive",
-            "_routerRequestSha256": record.get("inputSha256") if isinstance(record.get("inputSha256"), str) and re.fullmatch(r"[a-f0-9]{64}", record.get("inputSha256")) else None}
+            "_routerRequestSha256": digest if _hex64(digest) else None}, digest)
 
 
 def _receipt_files() -> list[Path]:
@@ -614,6 +701,8 @@ def _project_monitor_receipt(receipt: dict[str, Any], now: float) -> dict[str, A
     run_id = receipt.get("runId")
     if not isinstance(run_id, str) or not _RUN_ID.fullmatch(run_id):
         return None
+    parent_binding = receipt.get("bindings")
+    digest = parent_binding.get("routerRequestSha256") if isinstance(parent_binding, dict) else None
     route = receipt.get("route")
     owner = receipt.get("ownerDecision")
     intake = receipt.get("intakeDecision")
@@ -627,8 +716,11 @@ def _project_monitor_receipt(receipt: dict[str, Any], now: float) -> dict[str, A
             if not isinstance(row, dict):
                 continue
             role, model = row.get("role"), row.get("reportedModel")
+            requested = row.get("requestedModel")
+            model = model if isinstance(model, str) and _SAFE_MODEL.fullmatch(model) else None
+            requested = requested if isinstance(requested, str) and _SAFE_MODEL.fullmatch(requested) else None
             if (not isinstance(role, str) or not re.fullmatch(r"[A-Za-z0-9_.:-]{1,32}", role)
-                    or not isinstance(model, str) or not _SAFE_MODEL.fullmatch(model)):
+                    or model is None and requested is None):
                 continue
             usage = row.get("usage") if isinstance(row.get("usage"), dict) else {}
             binding = row.get("bindings") if isinstance(row.get("bindings"), dict) else {}
@@ -637,33 +729,36 @@ def _project_monitor_receipt(receipt: dict[str, Any], now: float) -> dict[str, A
                 call_id = None
             if role in ("author", "reviewer") and call_id != "opencode.advisory:" + run_id + (".draft" if role == "author" else ".review"):
                 continue
-            requested = row.get("requestedModel")
-            requested = requested if isinstance(requested, str) and _SAFE_MODEL.fullmatch(requested) else None
+            # A receipt explicitly naming another parent/request/attempt cannot
+            # borrow this container's identity, even when the run name matches.
+            if (_binding_conflict(row, run_id, digest)
+                    or role not in ("author", "reviewer") and call_id not in
+                    (None, run_id, "jev.intake:" + run_id, "opencode.advisory:" + run_id + ".intake")):
+                continue
             status = row.get("status")
             status = status if isinstance(status, str) and _SAFE_STATUS.fullmatch(status) else "unknown"
             inputs, outputs, total = (_nonnegative_int(usage.get(k)) for k in ("inputTokens", "outputTokens", "totalTokens"))
-            if not (usage.get("complete") is True and inputs is not None and outputs is not None
+            if not (model is not None and usage.get("complete") is True and inputs is not None and outputs is not None
                     and total is not None and inputs + outputs == total):
                 inputs = outputs = total = None
             calls.append({"id": call_id, "parentRunId": run_id, "role": role,
                           "model": model, "servedModel": model, "requestedModel": requested,
-                          "state": "complete" if status not in ("NOT_RUN", "ERROR", "unknown") else "unknown",
+                          "state": "complete" if model is not None and status not in ("NOT_RUN", "ERROR", "unknown") else "unknown",
                           "status": status, "elapsedMs": _nonnegative_int(row.get("elapsedMs")),
                           "startedAt": None, "finishedAt": None,
                           "usage": {"inputTokens": inputs, "outputTokens": outputs, "totalTokens": total}})
-    totals = receipt.get("usageTotals") if isinstance(receipt.get("usageTotals"), dict) else {}
-    started_at, finished_at = receipt.get("startedAt"), receipt.get("finishedAt")
+    finished_at = receipt.get("finishedAt")
     finished_unix = None
     if isinstance(finished_at, str):
         try:
             import datetime
-            finished_unix = datetime.datetime.fromisoformat(finished_at.replace("Z", "+00:00")).timestamp()
+            dated = datetime.datetime.fromisoformat(finished_at.replace("Z", "+00:00"))
+            if dated.tzinfo is not None and dated.utcoffset() is not None:
+                finished_unix = dated.timestamp()
         except (ValueError, OverflowError):
             pass
     route_status = route.get("status") if isinstance(route.get("status"), str) and _SAFE_STATUS.fullmatch(route.get("status")) else "unknown"
     owner_status = owner.get("status") if isinstance(owner.get("status"), str) and _SAFE_STATUS.fullmatch(owner.get("status")) else "unknown"
-    for call in calls:
-        call["parentRunId"] = run_id
     # A self-reported logicalCallCount is not an independent manifest of every
     # inference attempt; keep whole-run totals unknown even when included rows sum.
     reported_usage = {"inputTokens": None, "outputTokens": None, "totalTokens": None}
@@ -674,7 +769,9 @@ def _project_monitor_receipt(receipt: dict[str, Any], now: float) -> dict[str, A
     for call in calls:
         if call["role"] == "intake":
             call["decision"] = decision
-    return {"runId": run_id, "stage": "completed", "status": route_status,
+    if _binding_conflict(receipt, run_id, digest):
+        calls, digest = [], None
+    return _run_evidence({"runId": run_id, "stage": "completed", "status": route_status,
             "hostAcceptance": owner_status, "activity": "completed",
             "client": route.get("client") if route.get("client") in ("codex", "claude", "opencode") else None,
             "recordedAt": finished_unix, "ageSeconds": _age(finished_unix, now),
@@ -684,11 +781,8 @@ def _project_monitor_receipt(receipt: dict[str, Any], now: float) -> dict[str, A
             "reviewSummaryContradiction": review.get("summaryContradictsEmptyFindings") if type(review.get("summaryContradictsEmptyFindings")) is bool else None,
             "note": "Owner decision is separate from router status",
             "calls": calls, "usage": reported_usage,
-            "usageCoverage": {"scope": "reported-calls-only", "reportedCallCount": len(calls),
-                              "expectedCallCount": None, "complete": False,
-                              "detail": "No independent expected-call manifest; whole-run totals unknown"},
             "source": "monitor-receipt",
-            "_routerRequestSha256": receipt.get("bindings", {}).get("routerRequestSha256") if isinstance(receipt.get("bindings"), dict) and isinstance(receipt.get("bindings", {}).get("routerRequestSha256"), str) and re.fullmatch(r"[a-f0-9]{64}", receipt.get("bindings", {}).get("routerRequestSha256")) else None}
+            "_routerRequestSha256": digest if _hex64(digest) else None}, digest)
 
 
 def _receipt_runs(now: float, paths: list[Path] | None = None) -> list[dict[str, Any]]:
@@ -783,6 +877,8 @@ def _history_bound(listings: tuple[list[Path], ...], dropped: list[dict[str, Any
             truncated = True
             floors.append(max(0.0, sampled - cut))
     floors += [row["ageSeconds"] for row in dropped if _finite(row.get("ageSeconds"))]
+    if any(not _finite(row.get("ageSeconds")) for row in dropped):
+        floors.append(0.0)  # An undated omitted record can fall in any time window.
     return {"truncated": truncated, "missingFromAgeSeconds": round(min(floors), 3) if floors else None}
 
 
@@ -805,7 +901,7 @@ def _active_rows(sampled: float) -> tuple[list[dict[str, Any]], bool, str]:
     input the observation verified: the observation may be up to 5 s old, and an unreadable
     record is never promoted to running."""
     records, problem, listing = _read_actives()
-    live = _live_rows()
+    live = _live_rows(sampled)
     rows: list[dict[str, Any]] = []
     for record in records:
         run_id = record.get("runId")
@@ -834,12 +930,13 @@ def _active_rows(sampled: float) -> tuple[list[dict[str, Any]], bool, str]:
             activity = "running" if status == "running" else "queued"
             if age is None:
                 age = _age(recorded if recorded is not None else bound.get("startedUnix"), sampled)
-        rows.append({"runId": run_id, "stage": stage, "status": status,
+        rows.append(_run_evidence({"runId": run_id, "stage": stage, "status": status,
                      "recordedAt": recorded if _finite(recorded) else None,
                      "ageSeconds": age, "activity": activity, "layout": record["_layout"],
+                     "livenessObservedAt": bound.get("_observedAt") if _observed_live(bound) else None,
                      "client": bound.get("client") if bound and bound.get("client") in ("codex", "claude", "opencode") else None,
                      "host": bound.get("host") if bound and bound.get("host") in ("mac", "windows") else None,
-                     "calls": [], "usage": {"inputTokens": None, "outputTokens": None, "totalTokens": None}})
+                     "calls": [], "usage": {"inputTokens": None, "outputTokens": None, "totalTokens": None}}, record.get("inputSha256")))
     listed = {(row["runId"], row["layout"]) for row in rows}
     for (run_id, layout), observed in live.items():
         if (run_id, layout) in listed or not isinstance(run_id, str) or not _RUN_ID.fullmatch(run_id) \
@@ -856,20 +953,21 @@ def _active_rows(sampled: float) -> tuple[list[dict[str, Any]], bool, str]:
             if not _finite(recorded):
                 recorded = observed.get("startedUnix")
         state = observed["state"]
-        rows.append({"runId": run_id, "stage": stage, "status": state,
+        rows.append(_run_evidence({"runId": run_id, "stage": stage, "status": state,
                      "recordedAt": recorded if _finite(recorded) else None,
                      "ageSeconds": _age(recorded, sampled),
                      "activity": "running" if state == "running" else "queued", "layout": layout,
+                     "livenessObservedAt": observed.get("_observedAt"),
                      "client": observed.get("client") if observed.get("client") in ("codex", "claude", "opencode") else None,
                      "host": observed.get("host") if observed.get("host") in ("mac", "windows") else None,
-                     "calls": [], "usage": {"inputTokens": None, "outputTokens": None, "totalTokens": None}})
+                     "calls": [], "usage": {"inputTokens": None, "outputTokens": None, "totalTokens": None}}, observed.get("inputSha256")))
     rows.sort(key=lambda row: (row["activity"] != "unknown", row["recordedAt"] or 0.0), reverse=True)
     # The collector owns the display cap, so it can include omitted active rows
     # in the same history bound as omitted archives and receipts.
     return rows, problem, listing
 
 
-def collect_activity(now: float | None = None) -> dict[str, Any]:
+def collect_activity(now: float | None = None, *, current_evidence: Any = None) -> dict[str, Any]:
     """Return bounded sanitized route/call receipts; never reads raw call ledgers.
 
     Order: the router's active records lead (``_active_rows`` puts lock-verified running and
@@ -885,14 +983,14 @@ def collect_activity(now: float | None = None) -> dict[str, Any]:
     runs = _receipt_runs(sampled, receipt_paths)
     reads_complete = len(runs) == len(receipt_paths)
     receipt_source = _history_source('monitor-receipts', 'Sanitized call receipts', receipt_paths, runs)
-    receipt_by_id = {row["runId"]: row for row in runs}
+    receipt_by_id = {row["attemptId"]: row for row in runs if row.get("attemptId") is not None}
     for path in archive_paths:
         try:
             item = _project_archive(_read_archive(path), sampled)
             if item is None:
                 reads_complete = False
             if item is not None:
-                receipt = receipt_by_id.get(item["runId"])
+                receipt = receipt_by_id.get(item.get("attemptId"))
                 same_trace = (receipt is not None
                               and receipt.get("_routerRequestSha256") is not None
                               and receipt.get("_routerRequestSha256") == item.get("_routerRequestSha256")
@@ -929,7 +1027,7 @@ def collect_activity(now: float | None = None) -> dict[str, Any]:
         active_rows, problem, listing = [], True, "ok"
     cut = "; the active/ listing was cut at 4096 entries" if listing == "truncated" else ""
     if active_rows:
-        active_ids = {row["runId"] for row in active_rows}
+        active_ids = {row["attemptId"] for row in active_rows if row.get("attemptId") is not None}
         active_dropped = active_rows[_MAX_RUNS:]
         active_rows = active_rows[:_MAX_RUNS]
         ages = [row["ageSeconds"] for row in active_rows if row.get("ageSeconds") is not None]
@@ -938,7 +1036,8 @@ def collect_activity(now: float | None = None) -> dict[str, Any]:
         live_count = sum(1 for row in active_rows if row["activity"] in ("running", "queued"))
         source.update(state="error" if problem else "live" if fresh else "stale",
                       ageSeconds=min(ages, default=None),
-                      observationAgeSeconds=0.0,
+                      observationAgeSeconds=max((sampled - r['livenessObservedAt'] for r in active_rows
+                                                 if _finite(r.get('livenessObservedAt'))), default=0.0),
                       detail=(f"{'at least ' if active_dropped else ''}{len(active_rows)} router run record(s) sampled; "
                               f"{'at least ' if active_dropped else ''}{live_count} verified live by their "
                               "layout's liveness checks" if live_count else
@@ -949,7 +1048,7 @@ def collect_activity(now: float | None = None) -> dict[str, Any]:
         # layout (a collision), and the two must stay distinct.
         for item in active_rows:
             item["traceKey"] = "router-active:" + item["runId"] + ":" + item["layout"]
-        history, dropped = _bounded_history([r for r in runs if r["runId"] not in active_ids], _MAX_RUNS - len(active_rows))
+        history, dropped = _bounded_history([r for r in runs if r.get("attemptId") not in active_ids], _MAX_RUNS - len(active_rows))
         all_runs = active_rows + history
         for item in all_runs:
             if "traceKey" not in item:
@@ -959,8 +1058,18 @@ def collect_activity(now: float | None = None) -> dict[str, Any]:
             bound.update(truncated=True, missingFromAgeSeconds=0.0)
         # Fresh lock-verified liveness and saved terminal results do not expire
         # with checkpoint/event age. Unknown open records still require recency.
-        return {"runs": all_runs, "historyBound": bound, "sampledAt": sampled,
-                "complete": (not problem and listing != 'truncated' and not bound['truncated']
+        current = current_run_evidence(current_evidence, sampled)
+        if (problem or listing == 'truncated' or active_dropped
+                or any(r.get('activity') == 'unknown' for r in active_rows)
+                or current['complete'] and current['count'] != len(active_rows)):
+            current.update(complete=False, count=None, running=None, queued=None,
+                           reason="Current run records incomplete or liveness unverified")
+        return {"schemaVersion": 1, "runs": all_runs, "currentKeys": [r["traceKey"] for r in active_rows], "historyKeys": [r["traceKey"] for r in history],
+                "currentEvidence": current, "maxAgeSeconds": RUN_EVIDENCE_MAX_AGE,
+                "historyBound": bound, "sampledAt": sampled,
+                "complete": (current['complete'] and receipt_source.get('complete') is True
+                             and archive_source.get('complete') is True
+                             and not problem and listing != 'truncated' and not bound['truncated']
                              and all(r.get('activity') in ('running', 'queued') or _finite(r.get('ageSeconds')) and (r.get('activity') == 'completed' or r['ageSeconds'] <= _MAX_AGE) for r in all_runs)),
                 "sources": [source, receipt_source, archive_source]}
     if problem:
@@ -975,11 +1084,21 @@ def collect_activity(now: float | None = None) -> dict[str, Any]:
     runs, dropped = _bounded_history(runs, _MAX_RUNS)
     for item in runs:
         item["traceKey"] = item.get("source", "router-active") + ":" + item["runId"] + ":" + (item.pop("_routerRequestSha256", None) or "unknown")
-    archive_exists = any(r.get("source") == "router-archive" for r in runs)
     bound = _history_bound((receipt_paths, archive_paths), dropped, sampled, active_incomplete=listing == "truncated")
     if not reads_complete:
         bound.update(truncated=True, missingFromAgeSeconds=0.0)
-    return {"runs": runs, "historyBound": bound, "sampledAt": sampled,
-            "complete": (not problem and listing != 'truncated' and not bound['truncated']
+    current = current_run_evidence(current_evidence, sampled)
+    if problem or listing == 'truncated':
+        current.update(complete=False, count=None, running=None, queued=None,
+                       reason="Current run records incomplete or unreadable")
+    elif current['complete'] and current['count'] != 0:
+        current.update(complete=False, count=None, running=None, queued=None,
+                       reason="Current inventory and sampled run records disagree")
+    return {"schemaVersion": 1, "runs": runs, "currentKeys": [], "historyKeys": [r["traceKey"] for r in runs],
+            "currentEvidence": current, "maxAgeSeconds": RUN_EVIDENCE_MAX_AGE,
+            "historyBound": bound, "sampledAt": sampled,
+            "complete": (current['complete'] and receipt_source.get('complete') is True
+                         and archive_source.get('complete') is True
+                         and not problem and listing != 'truncated' and not bound['truncated']
                          and all(_finite(r.get('ageSeconds')) for r in runs)),
             "sources": [source, receipt_source, archive_source]}

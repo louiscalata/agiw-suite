@@ -1,3 +1,4 @@
+export const CLOCK_SKEW_SECONDS = 1; // shared with the run-evidence views
 /** Read the server's fleet contract. Never reconstruct membership from legacy feeds. */
 const STATES = new Set(['endpoint answering', 'endpoint unavailable', 'unknown', 'stale', 'reported']);
 const numeric = value => typeof value === 'number' && Number.isFinite(value);

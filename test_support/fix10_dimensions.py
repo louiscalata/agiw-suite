@@ -36,14 +36,20 @@ def clock_cases(healthy):
                 else:
                     source['ageSeconds'] = age
         data['windowsJobs']['liveAvailable'] = jobs
+        lock_age = (0 if 'router-active' not in selected else
+                    age if type(age) in (int, float) and age >= 0 else None)
+        data['activity']['currentEvidence']['count'] = 1
         data['activity']['runs'] = [dict(runId='route', source='router-active',
-            activity='running' if running else 'unknown', status='unresolved', ageSeconds=1)]
+            activity='running' if running else 'unknown', status='unresolved', ageSeconds=1,
+            livenessObservedAt=NOW-lock_age if lock_age is not None else None)]
         valid_age = age == 'missing' or type(age) in (int, float) and 0 <= age <= 30
         aged_current = valid_age and (0 if age == 'missing' else age) + max(0, elapsed) <= 30
         feed_current = -1 <= elapsed <= 3
         yield scenario(data, 'route-clock', dict(sources=selected, age=age, elapsed=elapsed,
             running=running, jobs=jobs), routesAvailable=feed_current and aged_current,
-            routeRunning=running and feed_current and ('router-active' not in selected or aged_current),
+            # Source liveness and inventory retain their own observation clocks.
+            routeRunning=running and feed_current and lock_age is not None and lock_age+max(0, elapsed) <= 3
+                and ('router-active' not in selected or aged_current),
             rendererNow=NOW + elapsed)
 
 
@@ -58,7 +64,7 @@ def cap_cases(healthy):
         for i in range(count):
             kind = 'per-run' if layout == 'per-run' or layout == 'mixed' and i % 2 else 'note'
             rid = f'route-{i}'
-            live[rid, kind] = dict(live=True, state='running', inputSha256='a' * 64,
+            live[rid, kind] = dict(live=True, state='running', inputSha256='a' * 64, _observedAt=NOW,
                 note=dict(sinceUnix=NOW-i/100), recordedUnix=NOW-i/100)
             if kind == 'per-run':
                 records.append(dict(runId=rid, _layout=kind, stage='backend_draft', inputSha256='a' * 64,
@@ -67,10 +73,10 @@ def cap_cases(healthy):
                          ageSeconds=i+1, status='RESPONSE_VALIDATED') for i in range(history)]
         with mock.patch.object(activity, '_read_actives', return_value=(records, False, listing)), \
                 mock.patch.object(activity, '_live_rows', return_value=live), \
-                mock.patch.object(activity, '_receipt_files', return_value=[Path(f'done-{i}.json') for i in range(history)]), \
-                mock.patch.object(activity, '_archive_files', return_value=[]), \
+                mock.patch.object(activity, '_receipt_files', return_value=activity._Listing(Path(f'done-{i}.json') for i in range(history))), \
+                mock.patch.object(activity, '_archive_files', return_value=activity._Listing()), \
                 mock.patch.object(activity, '_receipt_runs', return_value=receipts):
-            data['activity'] = activity.collect_activity(NOW)
+            data['activity'] = activity.collect_activity(NOW, current_evidence={'observedAt': NOW, 'complete': True, 'counts': {'running': count, 'queued': 0, 'unresolved': 0}})
         # Source ages are a separate axis above. Keep all readers available here
         # so a dropped row cannot hide behind an unavailable-reader label.
         data['windowsJobs'].update(liveAvailable=jobs, recent=[])

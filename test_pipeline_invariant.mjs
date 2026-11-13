@@ -6,6 +6,7 @@ import {writeFileSync} from 'node:fs';
 import {createInterface} from 'node:readline';
 import * as layout from './web/map-layout.mjs';
 import * as onlineMode from './web/online-code-mode.mjs';
+import {hasFreshRunInventory,checkUnknownActivity} from './test_support/fix11_assertions.mjs';
 import {harness, fleetTileExpectations} from './test_support/monitor-harness.mjs';
 
 // The shared fake DOM keeps endpoint summaries canonical while generated
@@ -87,6 +88,7 @@ function verify(row, ui) {
   const {feed} = ui.api.vitalsInput();
   ui.api.renderActivity(feed);
   if (mutations.jobs || mutations.router || mutations.activity) {
+    if(!hasFreshRunInventory(s,row.now ?? 1_800_000_000)) checkUnknownActivity({$:ui.$,check:(condition,field,output)=>check(field,condition,output)});
     const activityText = ui.$('activityStatus').textContent + ' ' + ui.$('activityTiles').textContent;
     check('activity-total', !/Nothing running|Nothing recorded|In flight0|Answered0|Failed0|Routes0/.test(activityText), activityText);
   }
@@ -167,6 +169,7 @@ function verifyDimension(row, ui) {
   endpointTiles(ui, s, row.now ?? 1_800_000_000, check);
   const inspect = id => {ui.api.select(id); ui.$('drawer').hidden = false; ui.api.renderInspector(); return ui.$('inspector').textContent;};
   const {feed} = ui.api.vitalsInput(); ui.api.renderActivity(feed);
+  if(!hasFreshRunInventory(s,row.now ?? 1_800_000_000)) checkUnknownActivity({$:ui.$,check:(condition,field,output)=>check(field,condition,output)});
   const activityText = ui.$('activityStatus').textContent + ' ' + ui.$('activityTiles').textContent + ' ' + ui.$('activityList').textContent;
   if (d === 'capture-range') {
     const text=ui.$('subline').textContent;
@@ -268,6 +271,7 @@ function verifyTwoSided(row, ui) {
   ui.api.renderSummary(); ui.api.renderVitals(); ui.api.renderModelScope();
   endpointTiles(ui, s, now, check);
   const {feed}=ui.api.vitalsInput(); ui.api.renderActivity(feed);
+  if(!hasFreshRunInventory(s,now)) checkUnknownActivity({$:ui.$,check:(condition,field,output)=>check(field,condition,output)});
   const tiles=ui.$('activityTiles').textContent, activityText=ui.$('activityStatus').textContent+' '+tiles;
   const inspect=id=>{ui.api.select(id);ui.$('drawer').hidden=false;ui.api.renderInspector();return ui.$('inspector').textContent;};
   const pairs=()=>Object.fromEntries(ui.$('inspector').querySelectorAll('dt').map(dt=>[dt.textContent,dt.parentNode.children[dt.parentNode.children.indexOf(dt)+1].textContent]));
@@ -307,7 +311,8 @@ function verifyTwoSided(row, ui) {
   }
   if(d==='active-event-age') {
     check('P2-active-observation',s.activity.complete===e.complete,s.activity);
-    check('P2-active-render',e.complete?tiles===`In flight${input.state==='running'?input.count:0}Answered0Failed0Routes${input.count}`:/At least 12/.test(tiles),tiles);
+    if(e.complete) check('P2-active-render',tiles===`In flight${input.state==='running'?input.count:0}Answered0Failed0Routes${input.count}`,tiles);
+    else { check('P2-active-render',/At least 12/.test(tiles),tiles); checkUnknownActivity({$:ui.$,check:(condition,field,output)=>check(field,condition,output)}); }
   }
   if(d==='windows-healthy') {
     check('P2-windows-counts',ui.api.localRuntimeCounts().loadedCount===input.count&&ui.api.localRuntimeCounts().busyCount===(input.busy?input.count:0),ui.api.localRuntimeCounts());

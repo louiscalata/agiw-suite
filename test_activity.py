@@ -245,6 +245,7 @@ class ActivityTests(unittest.TestCase):
             "kind": "codemode.monitor.run-receipt.v1", "schemaVersion": 1,
             "runId": "receipt-1", "startedAt": "2026-09-23T17:20:00+00:00",
             "finishedAt": "2026-09-23T17:21:00+00:00",
+            "bindings": {"routerRequestSha256": "a" * 64},
             "route": {"status": "RESPONSE_VALIDATED", "elapsedMs": 60000},
             "ownerDecision": {"status": "REJECTED"},
             "intakeDecision": {"route": "edit", "routeState": "low_confidence", "confidence": 0.2},
@@ -465,19 +466,19 @@ class DualReadActivityTests(unittest.TestCase):
         self.assertEqual(rows["run-live"]["activity"], "unknown")
         # The same rows from this journal are used: the observation binds by run, layout and input.
         with telemetry._LAST_ROUTER_OBSERVATION_LOCK:
-            telemetry._LAST_ROUTER_OBSERVATION.update(sampledAt=time.time(), value={"root": str(self.root), "rows": observed})
+            telemetry._LAST_ROUTER_OBSERVATION.update(sampledAt=time.time(), value={"root": str(self.root), "observedAt": time.time(), "rows": observed})
         rows = {row["runId"]: row for row in activity.collect_activity()["runs"]}
         self.assertEqual({key: (row["status"], row["activity"]) for key, row in rows.items()},
                          {"run-live": ("running", "running"), "run-other": ("waiting", "queued")})
         # A row that says running but is not live (never written by telemetry; defensive) is not promoted.
         with telemetry._LAST_ROUTER_OBSERVATION_LOCK:
-            telemetry._LAST_ROUTER_OBSERVATION.update(sampledAt=time.time(), value={"root": str(self.root), "rows": [
+            telemetry._LAST_ROUTER_OBSERVATION.update(sampledAt=time.time(), value={"root": str(self.root), "observedAt": time.time(), "rows": [
                 dict(observed[0], live=False), dict(observed[1], live=False)]})
         rows = {row["runId"]: row for row in activity.collect_activity()["runs"]}
         self.assertEqual({key: row["activity"] for key, row in rows.items()}, {"run-live": "unknown"})
 
     def test_p2conv_an_unreadable_record_is_never_promoted_by_an_observation(self):
-        """Sol N2: the observation may be up to 5 s old; a record read here that is not whole is
+        """Sol N2: the observation may be up to 3 s old; a record read here that is not whole is
         never promoted to running, even by an observation row that names no input (defensive:
         telemetry never marks such a row live)."""
         from test_telemetry import _private_write
@@ -485,7 +486,7 @@ class DualReadActivityTests(unittest.TestCase):
         os.unlink(self.root / "active" / "run-bad.json")
         _private_write(self.root / "active" / "run-bad.json", "{not json")
         with telemetry._LAST_ROUTER_OBSERVATION_LOCK:
-            telemetry._LAST_ROUTER_OBSERVATION.update(sampledAt=time.time(), value={"root": str(self.root), "rows": [
+            telemetry._LAST_ROUTER_OBSERVATION.update(sampledAt=time.time(), value={"root": str(self.root), "observedAt": time.time(), "rows": [
                 {"runId": "run-bad", "layout": "per-run", "inputSha256": None, "live": True, "state": "running"}]})
         rows = [(row["runId"], row["status"], row["activity"]) for row in activity.collect_activity()["runs"]]
         self.assertEqual(rows, [("run-bad", "unreadable", "unknown")])
@@ -567,7 +568,7 @@ class RouteOrderActivityTests(unittest.TestCase):
         live_id, digest = "route-live-old", "a" * 64
         record = ActivityTests._route(live_id, "backend_draft", self.now - 31 * day, self.now - 30 * day, {})
         self._private(self.root / "active.json", record, self.now - 30 * day)
-        self.observation.return_value = {"root": str(self.root), "rows": [
+        self.observation.return_value = {"root": str(self.root), "observedAt": self.now, "rows": [
             {"runId": live_id, "layout": "legacy", "inputSha256": digest, "live": True, "state": "running"}]}
         runs = activity.collect_activity(self.now)["runs"]
         self.assertEqual(len(runs), 12)
@@ -603,7 +604,7 @@ class RouteOrderActivityTests(unittest.TestCase):
         live_id, digest = "route-live", "a" * 64
         record = ActivityTests._route(live_id, "backend_draft", self.now - 2 * day, self.now - day, {})
         self._private(self.root / "active.json", record, self.now - day)
-        self.observation.return_value = {"root": str(self.root), "rows": [
+        self.observation.return_value = {"root": str(self.root), "observedAt": self.now, "rows": [
             {"runId": live_id, "layout": "legacy", "inputSha256": digest, "live": True, "state": "running"}]}
         result = activity.collect_activity(self.now)
         self.assertEqual([row["runId"] for row in result["runs"]],
@@ -643,24 +644,25 @@ class RouteOrderActivityTests(unittest.TestCase):
             self.archived(f"route-{hours:02d}h", self.now - hours * hour, self.now - hours * hour)
         self.assertEqual(activity.collect_activity(self.now)["historyBound"], {"truncated": False, "missingFromAgeSeconds": None})
         # Exactly 12 archive files: none is left unread, and with the receipt the 12-row cut drops only an
-        # undated archive, which no time window can count.
+        # undated archive, which might belong to any time window.
         self.archived("route-11h", self.now - 11 * hour, self.now - 11 * hour)
         self.archived("route-undated", None, self.now - 30)
         result = activity.collect_activity(self.now)
         self.assertEqual(len(activity._archive_files()), 12)
         self.assertIsNone(activity._archive_files().cut_mtime)
         self.assertNotIn("route-undated", [row["runId"] for row in result["runs"]])
-        self.assertEqual(result["historyBound"], {"truncated": True, "missingFromAgeSeconds": None})
+        self.assertEqual(result["historyBound"], {"truncated": True, "missingFromAgeSeconds": 0.0})
         # A name scan cut short can miss a route of any age.
         with mock.patch.object(activity, "_MAX_ARCHIVE_SCAN", 3):
             self.assertTrue(activity._archive_files().scan_cut)
             self.assertEqual(activity.collect_activity(self.now)["historyBound"], {"truncated": True, "missingFromAgeSeconds": 0.0})
         with mock.patch.object(activity, "_MAX_ARCHIVE_ENTRIES", 0):
             self.assertEqual(activity.collect_activity(self.now)["historyBound"]["missingFromAgeSeconds"], 0.0)
-        # A 13th archive file: the oldest by mtime (route-11h) is never read, so a route 11 h old may be missing.
+        # A 13th archive file also omits route-11h; the undated omitted row still
+        # prevents establishing complete coverage of any dated time window.
         self.archived("route-new", self.now - 60, self.now - 60)
         self.assertEqual(activity._archive_files().cut_mtime, self.now - 11 * hour)
-        self.assertEqual(activity.collect_activity(self.now)["historyBound"], {"truncated": True, "missingFromAgeSeconds": 11 * hour})
+        self.assertEqual(activity.collect_activity(self.now)["historyBound"], {"truncated": True, "missingFromAgeSeconds": 0.0})
 
     def test_a_row_without_a_recorded_time_sorts_last_and_equal_times_keep_read_order(self):
         hour, day = 3600, 86400

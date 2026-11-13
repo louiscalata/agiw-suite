@@ -27,7 +27,7 @@ def base():
     s = collect()
     s['sources'] = [source for source in s['sources'] if source['id'] not in ('windows-jobs','pipeline-router')] + [
         {'id': sid, 'state': 'live', 'ageSeconds': 0, 'observationAgeSeconds': 0} for sid in ('windows-jobs','pipeline-router','router-active','monitor-receipts','router-archive')]
-    s['activity'] = {'runs': [], 'complete': True, 'historyBound': {'truncated': False}}
+    s['activity'] = {'runs': [], 'sampledAt': NOW, 'currentEvidence': {'complete': True, 'count': 0, 'observedAt': NOW, 'expiresAt': NOW+3}, 'complete': True, 'historyBound': {'truncated': False}}
     s['windowsJobs'] = {'schemaVersion': 1, 'journal': 'recorded', 'complete': True, 'unsettled': 0,
                         'inFlight': [], 'recent': [], 'lastSuccess': None}
     s['pipeline'] = {'status': 'idle', 'pipelines': [], 'pipelinesComplete': True}
@@ -62,7 +62,8 @@ def active_projection(root, count, state, history, *, age=1):
     folder = root / f'active-{count}-{state}-{history}-{age}'
     folder.mkdir(mode=0o700); (folder/'archive').mkdir(mode=0o700); (folder/'receipts').mkdir(mode=0o700)
     live = {(f'live-{i}', 'note'): {'runId': f'live-{i}', 'layout': 'note', 'live': True,
-             'state': state, 'note': {'sinceUnix': NOW-age}, 'client': 'claude', 'host': 'mac'}
+             'state': state, 'note': {'sinceUnix': NOW-age}, 'client': 'claude', 'host': 'mac',
+             '_observedAt': NOW}
             for i in range(count)}
     if history:
         file = folder/'archive'/'done.json'
@@ -73,7 +74,10 @@ def active_projection(root, count, state, history, *, age=1):
          mock.patch.object(activity, '_RECEIPTS', folder/'receipts'), \
          mock.patch.object(activity, '_read_actives', return_value=([], False, 'ok')), \
          mock.patch.object(activity, '_live_rows', return_value=live):
-        return activity.collect_activity(NOW)
+        return activity.collect_activity(NOW, current_evidence={
+            'observedAt': NOW, 'complete': True,
+            'counts': {'running': count if state == 'running' else 0,
+                       'queued': count if state != 'running' else 0, 'unresolved': 0}})
 
 
 def windows_snapshot(root, mode, queue_mode):

@@ -2,7 +2,7 @@ import {formatTokens,summarizeReportedCalls} from '/usage-format.mjs';
 import {onlineCodeModeView,routeQueueRows,nisiV02View,fixNisiStepsView,nisiRecoveryView,fixNisiEvidence,fixNisiMessage} from '/online-code-mode.mjs';
 import {constellationLayout,fitGraph,prioritizeRuntimeModels,runtimeModelRoster,CORE_MODEL_IDS,hasAdvertisedWindowsWorker,afmView,jevView,modelStarSize,windowsJobsView,windowsJobsEvidence,windowsLaneView,windowsLaneActivitySummary,resolveLabelCollisions,clampCamera,nextNodeInDirection,reviewConsistencyView,headlessSwitchView,activityFeed,vitalsView,windowsLaneRows,nodeCaptionLayout,windowsMacCaptionShift,macGpuView,localCallersView,laneSpeeds,speedsText,jobFlags,activitySummary,pcGpuView,orbWebKey,orbWebLayout,orbWebActivity,orbWebPluck,orbWebPathsAt,orbWebFlashPath,pluckOffsets,createWebMotion,edgeCurvePath,webGlows,glowRadius,memoryView,memoryBannerView,memoryDismissal,memoryHoldAt,memoryAnnouncement,routeQueuedWords,macPeerView,macReportView,windowsMacListEntries,windowsMapListEntries,friendlyModelName,agiwPeersRows,windowsSharePublishRow,pcAdaptersView,newestRunsFirst,routeReviewCounts,pcReportView,machineStatusView,registryMachineRows,registryMachineView,registryModelName,registryMapLayout} from '/map-layout.mjs';
 import {modelControlView,submitModelControl} from '/model-control-view.mjs';
-import {createMonitorDesk, nodeInMonitor, moveMonitorTab, initialMonitorId} from '/monitor-tabs.mjs';
+import {createMonitorDesk, nodeInMonitor, moveMonitorTab, initialMonitorId, activityEvidence, runEvidence, historicalAcceptance} from '/monitor-tabs.mjs';
 import {paintMonitorChrome} from '/monitor-board.mjs';
 import {fleetState,fleetMachines,fleetLanes,fleetSummary,fleetWord,fleetAge,fleetMachineCoverage} from '/fleet-state.mjs';
 import {getMonitorStore} from '/monitor-store.mjs';
@@ -1062,7 +1062,10 @@ function vitalsInput(){const worker=snapshot?.windowsWorker||null,age=Math.max(0
   // The Mac's PC chip leads with the PC's own fresh report (the inspector's PC report gate); the Windows host keeps macPeerView.
   const pcReport=snapshot?.host==='mac'?pcReportView(snapshot?.windowsLive,{feedFresh:liveNow(),snapshotAge:age}):null;
   const vitals=vitalsView({fresh:fresh(),pcFresh,models:rows,activityKnown:counts.busyCount!==null,loadedKnown:counts.loadedCount!==null,loadedCount:counts.loadedCount,busyCount:counts.busyCount,lanes,worker,jobs,pipeline:currentPipeline(),nisi,feed,gpu:windowsHost?pcAdaptersView(snapshot?.pcGpus,{feedFresh:fresh()}):macGpuView(snapshot?.macGpu,{feedFresh:fresh(),snapshotAge:age}),pcGpu:pcGpuView(worker,{feedFresh:pcFresh,snapshotAge:age}),memory:memoryView(snapshot?.memory,{feedFresh:fresh(),host:snapshot?.host,snapshotAge:age}),activityLive:liveNow(),activityAvailable:Boolean(feed.length)||(windowsHost?jobs.feedAvailable:jobs.feedAvailable&&routesAvailable()),routeReviews:snapshot?.host==='mac'?routeReviewCounts(runs(),snapshot?.activity?.historyBound):null,pcReport});
-  if(!feed.length&&!activityComplete(feed))vitals.activity={tone:'muted',detail:'Activity unknown (feed unavailable or stale)',short:'Unknown'};
+  if(!activityComplete(feed)){
+    vitals.activity={tone:'muted',detail:feed.length?'Activity reported; count unknown':'Activity unknown (feed unavailable or stale)',short:'Count unknown'};
+    if(vitals.tiny)vitals.tiny.activity='Count unknown';if(vitals.micro)vitals.micro.activity='Count unknown';
+  }
   // Windows edition: the first chip is this PC (its lanes, GPU and memory); the second is the Mac as a LAN peer.
   if(windowsHost){const peer=macPeerView(snapshot?.macPeer,{feedFresh:fresh(),snapshotAge:age}),chip=peer.chip,report=macReportView(snapshot?.peers,{feedFresh:liveNow(),snapshotAge:age,name:peer.configuredName});
   // The Mac's report supplies the count; the PC's own LAN check of LM Studio is shown beside it only when it disagrees (a share link's count is the same report).
@@ -1117,37 +1120,109 @@ const activityStatus=row=>row.state==='in-flight'?'Running now':row.state==='in-
 const activityMeta=row=>[activityStatus(row),row.cancelRequested?'cancel requested':null,Number.isFinite(row.elapsed)?`${row.elapsed.toFixed(1)} s`:null,row.review==='block'?'review defect':row.review==='warn'?'review warning':null,ageText(row.ageSeconds)].filter(Boolean).join(' · ');
 function activityHistoryComplete(){const evidence=jobEvidence();return liveNow()&&snapshot?.activity?.historyBound?.truncated===false&&evidence.inFlightComplete&&evidence.recentComplete;}
 function activityComplete(feed){
-  const sampled=snapshot?.activity?.sampledAt,age=sampled===undefined?0:Date.now()/1000-sampled;
+  if(!fresh()||snapshot?.activity?.complete!==true)return false;
+  const routerComplete=snapshot?.host==='windows'||activityEvidence(snapshot?.activity,{feedFresh:liveNow(),paused,now:Date.now()/1000}).complete===true;
   const jobs=windowsJobsCurrent();
   // A full twelve-row display is exact when there is no thirteenth row. Source
   // caps remain independent: neither a short display nor this lookahead repairs them.
   const windowComplete=feed.length<12||activityFeed(jobs,snapshot?.host==='mac'?runs():[],{limit:13,feedFresh:liveNow()}).length<=12;
-  return fresh()&&Number.isFinite(age)&&age>=-1&&age<=3&&snapshot?.activity?.complete===true&&jobs.complete===true&&(windowsJobsSource()?.id==='codemode-runs'||jobEvidence().inFlightComplete)&&jobs.observationCurrent===true&&(!Array.isArray(snapshot?.pipeline?.pipelines)||snapshot?.pipeline?.pipelinesComplete===true)&&windowComplete&&jobs.feedAvailable&&snapshot?.windowsJobs?.truncated!==true&&snapshot?.windowsJobs?.projectionComplete!==false;
+  return routerComplete&&jobs.complete===true&&(windowsJobsSource()?.id==='codemode-runs'||jobEvidence().inFlightComplete)&&jobs.observationCurrent===true&&(!Array.isArray(snapshot?.pipeline?.pipelines)||snapshot?.pipeline?.pipelinesComplete===true)&&windowComplete&&jobs.feedAvailable&&snapshot?.windowsJobs?.truncated!==true&&snapshot?.windowsJobs?.projectionComplete!==false;
 }
-function renderActivitySummary(feed){const jobs=windowsJobsCurrent(),s=activitySummary(feed,{live:liveNow(),captureTime:captureTime(),complete:activityComplete(feed),routesIncluded:snapshot?.host==='mac',jobsAvailable:jobs.feedAvailable,liveJobsAvailable:jobs.liveAvailable&&jobEvidence().inFlightComplete,routesAvailable:snapshot?.host==='windows'||routesAvailable(),countsComplete:feed.length===jobs.inFlight.length+jobs.recent.length+runs().length&&snapshot?.windowsJobs?.truncated!==true&&snapshot?.activity?.historyBound?.truncated!==true}),box=$('activitySummary'),key=JSON.stringify(s);if(box.dataset.key===key)return;box.dataset.key=key;box.dataset.tone=s.tone;$('activityStatus').textContent=s.line;$('activityMeaning').textContent=s.meaning;fillTiles($('activityTiles'),s.tiles);}
+function renderActivitySummary(feed){const jobs=windowsJobsCurrent(),s=activitySummary(feed,{live:liveNow(),captureTime:captureTime(),complete:activityComplete(feed),routesIncluded:snapshot?.host==='mac',jobsAvailable:jobs.feedAvailable,liveJobsAvailable:jobs.liveAvailable&&jobEvidence().inFlightComplete,routesAvailable:snapshot?.host==='windows'||routesAvailable(),countsComplete:feed.length===jobs.inFlight.length+jobs.recent.length+runs().length&&snapshot?.windowsJobs?.truncated!==true&&snapshot?.activity?.historyBound?.truncated!==true}),box=$('activitySummary');if(!activityComplete(feed)){
+    // Established lower bounds stay visible; exact values and zeros do not. The stated cause is the first
+    // missing evidence: the router inventory (Mac only), else the history bound, else PC job coverage.
+    const ev=activityEvidence(snapshot?.activity,{feedFresh:liveNow(),paused,now:Date.now()/1000}),routerKnown=snapshot?.host==='windows'||ev.complete===true;
+    const jobsKnown=jobs.complete===true&&jobs.observationCurrent===true&&jobs.feedAvailable&&snapshot?.windowsJobs?.truncated!==true&&snapshot?.windowsJobs?.projectionComplete!==false;
+    const cause=!routerKnown?ev.reason:snapshot?.activity?.historyBound?.truncated!==false?'Recorded history is truncated or incomplete; older records are not counted.':!jobsKnown?'PC job coverage is incomplete or not current.':'The sample, pipeline list or visible window is incomplete or not current.';
+    if(!/unknown|at least|incomplete|last sample/i.test(s.line))s.line='Activity unknown';
+    s.meaning+=` Counts and absence are unknown: ${cause}`;if(!/^at least /i.test(s.line))s.tone='muted';
+    s.tiles=s.tiles.map(([label,value])=>[label,/^at least \d+$/i.test(String(value))?value:'Unknown']);}const key=JSON.stringify(s);if(box.dataset.key===key)return;box.dataset.key=key;box.dataset.tone=s.tone;$('activityStatus').textContent=s.line;$('activityMeaning').textContent=s.meaning;fillTiles($('activityTiles'),s.tiles);}
+// Receipt detail is projected separately from the compact Activity chip. No route
+// call or model identity is borrowed from another attempt with the same run ID.
+function activityPanelRows(feed){
+  const rawRecords=Array.isArray(snapshot?.activity?.runs)?snapshot.activity.runs:[];
+  const current=activityEvidence(snapshot?.activity,{feedFresh:liveNow(),paused,now:Date.now()/1000}).current;
+  const currentKey=run=>run.traceKey||`${run.source}:${run.runId}:${run.attemptId||''}:${run.layout||''}`;
+  const currentKeys=new Set(current.map(currentKey));
+  const records=rawRecords.map(run=>current.find(row=>currentKey(row)===currentKey(run))||run);
+  const used=new Set();
+  const rows=(Array.isArray(feed)?feed:[]).flatMap(row=>{
+    if(row.kind!=='route'){
+      const raw=[...(snapshot?.windowsJobs?.inFlight||[]),...(snapshot?.windowsJobs?.recent||[])].find(job=>`job:${job.id}`===row.key);
+      const evidence=runEvidence({runId:raw?.id||row.key,attemptId:raw?.attemptId,calls:[]});
+      evidence.coverage='PC job attempt and usage receipt coverage NOT AVAILABLE YET; whole-job totals unknown.';
+      if(raw){const safeModel=value=>typeof value==='string'&&value.trim()&&value.length<=200?value.trim():null;
+        evidence.calls=[{role:'PC job recorded identity',requestedModel:safeModel(raw.requestedModel),recordedModel:safeModel(raw.model),servedModel:safeModel(raw.servedModel),bound:false,totalTokens:null}];}
+      return[{...row,runEvidence:evidence}];
+    }
+    const candidates=records.filter(run=>`run:${run.source||'route'}:${run.runId}`===row.key);
+    if(!candidates.length)return[{...row,runEvidence:runEvidence({runId:row.runId})}];
+    return candidates.filter(run=>!used.has(run)&&used.add(run)).map(run=>{
+      const projected=activityFeed({},[run],{limit:1,feedFresh:liveNow(),routesFresh:liveNow()&&routeSourceCurrent('router-active')})[0];
+      const state=projected||{...row,state:'unknown',client:null,review:null};
+      return{...state,key:`${row.key}:${run.attemptId||run.traceKey||'unattached'}`,current:currentKeys.has(currentKey(run)),
+        runRecord:run,runEvidence:runEvidence(run)};
+    });
+  });
+  // The compact chip can omit an unreadable active row without an event age.
+  // Its current-work record must still be inspectable with unknown status.
+  for(const run of records.filter(run=>!used.has(run))){
+    const projected=activityFeed({},[run],{limit:1,feedFresh:liveNow(),routesFresh:liveNow()&&routeSourceCurrent('router-active')})[0];
+    rows.push({...projected,key:`run:${run.source||'route'}:${run.runId}:${run.attemptId||run.traceKey||'unattached'}`,kind:'route',runId:run.runId,
+      state:projected?.state||'unknown',target:projected?.target||'Nisi Inference route',current:currentKeys.has(currentKey(run)),runRecord:run,runEvidence:runEvidence(run)});
+  }
+  return rows.sort((a,b)=>Number(b.current===true||['in-flight','queued'].includes(b.state))-Number(a.current===true||['in-flight','queued'].includes(a.state)));
+}
+function appendRunEvidence(body,evidence){
+  if(!evidence)return;
+  body.style.overflowWrap='anywhere';
+  body.append(el('small',null,`Run ${evidence.runId||'unknown'} · attempt ${evidence.attemptId||'unknown'}`));
+  body.append(el('small',null,`Recorded ${evidence.recordedAt||'time unknown'} · whole-run usage ${evidence.usage}`));
+  if(evidence.reason)body.append(el('small',null,evidence.reason));
+  body.append(el('small',null,evidence.coverage));
+  if(!evidence.calls.length)body.append(el('small',null,'Receipts NOT AVAILABLE YET · requested and served model identity unknown.'));
+  for(const call of evidence.calls)body.append(el('small',null,`${call.role||'Call'} · ${call.requestedModel?'requested '+call.requestedModel:call.recordedModel?'recorded model '+call.recordedModel:'requested unknown'} · served ${call.servedModel||'unknown'} · ${call.bound?'attempt-bound':'unattached'} · tokens ${call.totalTokens===null?'unknown':call.totalTokens}`));
+  for(const phase of evidence.phases)body.append(el('small',null,`${phase.tool} ${phase.phase} · ${phase.word}${phase.detail?' · '+phase.detail:''}`));
+}
+function appendActivityHistory(panel){
+  let history=panel.querySelector('.activity-acceptance-history');
+  if(!history){
+    history=el('details','panel-more activity-acceptance-history');history.style.overflowWrap='anywhere';
+    history.append(el('summary',null,'Recorded historical note · 2026-11-06'));
+    history.append(el('p','detail-note','This static note is recorded in the application source, not read from run files by this monitor. It does not establish current acceptance or block the selected run. Current acceptance is unknown without a matching receipt.'));
+    for(const record of historicalAcceptance().ledger)history.append(el('p','detail-note',`${record.time} · ${record.gate} · ${record.env} · ${record.verdict} · receipt ${record.receipt} · ${record.next}`));
+    panel.append(history);
+  }
+  let coverage=panel.querySelector('.activity-history-coverage');
+  if(!coverage){coverage=el('p','detail-note activity-history-coverage');panel.append(coverage);}
+  const evidence=activityEvidence(snapshot?.activity,{feedFresh:liveNow(),paused,now:Date.now()/1000});
+  coverage.textContent=`${snapshot?.host==='windows'?snapshot?.activity?.currentEvidence?.reason||'NOT AVAILABLE YET: router journal producer is not connected':evidence.reason} ${evidence.historyReason}`;
+}
 // Keys shown by the open list; null right after opening, so only rows that arrive later are announced.
 let activityKeys=null;
 // Rows are rebuilt only when one enters, leaves or changes state; ages update in place, so keyboard
 // focus, a press in progress and the scroll position survive the once-a-second refresh.
-function renderActivity(feed){const list=$('activityList'),key=JSON.stringify([activityHistoryComplete(),activityComplete(feed),windowsJobsCurrent().liveAvailable,routesAvailable(),feed.map(r=>[r.key,r.state,Boolean(r.limitHit),Boolean(r.cancelRequested)])]);renderActivitySummary(feed);
-  if(list.dataset.key===key){const rows=new Map([...list.children].map(li=>[li.dataset.key,li]));for(const row of feed){const small=rows.get(row.key)?.querySelector('small'),text=activityMeta(row);if(small&&small.textContent!==text)small.textContent=text;}return;}
+function renderActivity(compactFeed){const feed=activityPanelRows(compactFeed);const list=$('activityList'),key=JSON.stringify([activityHistoryComplete(),activityComplete(compactFeed),windowsJobsCurrent().liveAvailable,routesAvailable(),feed.map(r=>[r.key,r.state,Boolean(r.limitHit),Boolean(r.cancelRequested),r.runEvidence||null])]);renderActivitySummary(compactFeed);
+  if(list.dataset.key===key){appendActivityHistory($('activityDetails'));const rows=new Map([...list.children].map(li=>[li.dataset.key,li]));for(const row of feed){const small=rows.get(row.key)?.querySelector('small'),text=activityMeta(row);if(small&&small.textContent!==text)small.textContent=text;}return;}
   // The panel section is the scroller (the list grows inside it), so its scroll position is the one kept.
   const scroller=$('activityDetails'),focused=document.activeElement,focusedKey=list.contains(focused)?focused?.closest('button')?.dataset.key:null,scroll=scroller.scrollTop;
   const added=activityKeys?feed.filter(row=>!activityKeys.has(row.key)):[];activityKeys=new Set(feed.map(row=>row.key));
   list.dataset.key=key;list.replaceChildren();
-  if(!feed.length)list.append(el('li','activity-empty',!windowsJobsCurrent().liveAvailable?'PC job activity is unknown; the live job feed is unavailable.'+(snapshot?.host==='mac'&&!routesAvailable()?' Route activity is unknown; the route readers are unavailable.':''):snapshot?.host==='mac'&&!routesAvailable()?'Route activity is unknown; the route readers are unavailable.':!activityComplete(feed)?'Activity unknown; the feed is incomplete or unavailable.':'Nothing recorded yet. Ask the PC from any agent (pc_ask) or run a task through online code mode.'));
-  for(const row of feed){const li=el('li',['activity-row',row.state==='in-flight'?'in-flight':row.state==='in-flight-stale'?'in-flight-stale':/error|timeout|fail|reject|invalid/i.test(row.state)?'failed':row.state==='cancelled'?'cancelled':null,row.limitHit?'limit':null].filter(Boolean).join(' ')),button=el('button','activity-open'),dot=el('i','activity-dot'),body=el('span');button.type='button';li.dataset.key=row.key;button.dataset.key=row.key;
+  if(!feed.length)list.append(el('li','activity-empty',!windowsJobsCurrent().liveAvailable?'PC job activity is unknown; the live job feed is unavailable.'+(snapshot?.host==='mac'&&!routesAvailable()?' Route activity is unknown; the route readers are unavailable.':''):snapshot?.host==='mac'&&!routesAvailable()?'Route activity is unknown; the route readers are unavailable.':!activityComplete(compactFeed)?'Activity unknown; the feed is incomplete or unavailable.':'Nothing recorded yet. Ask the PC from any agent (pc_ask) or run a task through online code mode.'));
+  let previousSection=null;
+  for(const row of feed){const section=row.current===true&&!['in-flight','queued','in-flight-stale','queued-stale'].includes(row.state)?'Current work · status unknown':['in-flight','queued'].includes(row.state)?'Current work':['in-flight-stale','queued-stale'].includes(row.state)?'Current work · last observation':'Dated history and outcomes';const li=el('li',['activity-row',row.state==='in-flight'?'in-flight':row.state==='in-flight-stale'?'in-flight-stale':/error|timeout|fail|reject|invalid/i.test(row.state)?'failed':row.state==='cancelled'?'cancelled':null,row.limitHit?'limit':null].filter(Boolean).join(' ')),button=el('button','activity-open'),dot=el('i','activity-dot'),body=el('span');button.type='button';li.dataset.key=row.key;button.dataset.key=row.key;li.dataset.section=section;if(section!==previousSection){li.append(el('h3','list-section',section));previousSection=section;}
     // A token-limit hit gets the warning dot (orange, from the stylesheet); every other row keeps its client's colour.
     if(!row.limitHit&&!li.classList.contains('failed'))dot.style.background=Object.hasOwn(CLIENT_COLORS,row.client)?CLIENT_COLORS[row.client]:'currentColor';
     // The token-limit badge rides on the title line, so it stays visible without a third line in the narrow rail.
     const title=el('span','activity-title');title.append(el('strong',null,`${activityWho(row)} → ${row.target}`));if(row.limitHit)title.append(el('span','flag-badge','hit token limit'));
-    body.append(title,el('small',null,activityMeta(row)));const speeds=row.speeds||row.rate;if(speeds)body.append(el('small','activity-speeds',speeds));
+    body.append(title,el('small',null,activityMeta(row)));appendRunEvidence(body,row.runEvidence);const speeds=row.speeds||row.rate;if(speeds)body.append(el('small','activity-speeds',speeds));
     button.append(dot,body);button.addEventListener('click',()=>openActivityRow(row));li.append(button);list.append(li);}
   if(focusedKey)([...list.querySelectorAll('button')].find(b=>b.dataset.key===focusedKey)||$('activityDetails')).focus({preventScroll:true});
+  appendActivityHistory(scroller);
   scroller.scrollTop=scroll;
   // The list itself is not a live region (it would re-read every row); only new rows are announced.
   if(added.length)$('activityAnnounce').textContent=`New activity: ${added.map(row=>`${activityWho(row)} → ${row.target}`).join('; ')}`;}
-function openActivityRow(row){if(row.kind==='route'){const run=runs().find(r=>`run:${r.source||'route'}:${r.runId}`===row.key);if(!run)return;if(view!=='runs'){view='runs';document.querySelectorAll('[data-view]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.view==='runs')));}selectRun(run);return;}
+function openActivityRow(row){if(row.kind==='route'){const run=row.runRecord||runs().find(r=>`run:${r.source||'route'}:${r.runId}`===row.key);if(!run)return;if(view!=='runs'){view='runs';document.querySelectorAll('[data-view]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.view==='runs')));}selectRun(run);return;}
   if(view!=='runtime')setView('runtime');const laneId=row.lane?canonicalNodeId(`windows-lane:${row.lane}`):null,id=laneId&&inspectorNodeFor(laneId)?laneId:canonicalNodeId('windows-worker');if(inspectorNodeFor(id))nodeSelect(id);}
 // A click on empty map (or Escape on the map) closes every panel and shows the whole map again.
 function showWholeMap(){hideOnlineCodeDetails();hideFixInferenceDetails();hideActivityDetails();if(document.body.classList.contains('sidebar-open'))setSidebarOpen(false);$('aboutPanel').hidden=true;syncAboutButtons();hoveredNode=null;if(!$('drawer').hidden)closeDrawer(false);else{userCamera=false;renderGraph();fitMap();}}

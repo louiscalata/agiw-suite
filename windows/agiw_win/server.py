@@ -35,7 +35,7 @@ if _INFERENCE_ROOT is not None and str(_INFERENCE_ROOT) not in sys.path:
 from inference_collect import RateMemory, attach, vram_from_gpus, collector_diagnostic
 from inference_stats import expire_map
 from fleet_state import build_fleet_state
-from machine_state import expire_machines
+from machine_state import CLOCK_SKEW_SECONDS, expire_machines
 import eci_tuning
 
 AGED_REASONS = {"stale": "stale", "clock_skew": "clock-ahead", "schema_invalid": "report-refused"}
@@ -148,6 +148,34 @@ def activity_is_known(rows: list[dict], source_status: dict[str, str]) -> bool:
                                 for row in loaded)
 
 
+def expire_run_evidence(data, now):
+    """Age the run inventory on its producer clock, retaining dated outcomes."""
+    activity = data.get('activity')
+    if not isinstance(activity, dict):
+        return
+    current = activity.get('currentEvidence')
+    current = current if isinstance(current, dict) else {}
+    observed = current.get('observedAt')
+    if current.get('scope') != 'not-applicable' and not (type(observed) in (int, float) and math.isfinite(observed)
+            and -CLOCK_SKEW_SECONDS <= now - observed <= FULL_SAMPLE_MAX_AGE):
+        reason = current.get('reason') if observed is None and current.get('complete') is False else None
+        current.update(complete=False, count=None, running=None, queued=None,
+                       reason=reason or 'Run inventory stale or timestamp unavailable')
+    activity['currentEvidence'] = current
+    sampled = activity.get('sampledAt')
+    if current.get('scope') != 'not-applicable' and not (type(sampled) in (int, float) and math.isfinite(sampled)
+            and -CLOCK_SKEW_SECONDS <= now - sampled <= FULL_SAMPLE_MAX_AGE):
+        activity['complete'] = False
+    for row in [*activity.get('runs', []), *activity.get('current', [])]:
+        if isinstance(row, dict) and row.get('activity') in ('running', 'queued'):
+            observed = row.get('livenessObservedAt')
+            if not (type(observed) in (int, float) and math.isfinite(observed)
+                    and -CLOCK_SKEW_SECONDS <= now - observed <= FULL_SAMPLE_MAX_AGE):
+                row.update(activity='unknown', status='stale')
+                current.update(complete=False, count=None, running=None, queued=None,
+                               reason='Current run liveness expired or its original timestamp is unavailable')
+
+
 class SnapshotStore:
     """Atomic snapshot publication with history and observed transitions (mirrors the Mac store)."""
 
@@ -233,6 +261,20 @@ class SnapshotStore:
     def _aged(self, data):
         """A copy aged to now: machine rows past their window turn unknown, and a stale sample is not activity."""
         now = time.time()
+        # This edition has no router journal producer. Absence is not zero work.
+        data.setdefault("activity", {"schemaVersion": 1, "runs": [], "current": [], "history": [],
+                        "sampledAt": None, "maxAgeSeconds": FULL_SAMPLE_MAX_AGE, "complete": False,
+                        "historyBound": {"truncated": True, "missingFromAgeSeconds": 0.0},
+                        "currentEvidence": {"scope": "router-current-work", "complete": False,
+                                            "count": None, "running": None, "queued": None,
+                                            "observedAt": None, "expiresAt": None,
+                                            "reason": "NOT AVAILABLE YET: router journal producer is not connected"}})
+        # Merge the scope explanation even when an older collector supplied activity.
+        data['activity'].setdefault('currentEvidence', {
+            'scope': 'not-applicable', 'complete': False, 'count': None,
+            'running': None, 'queued': None, 'observedAt': None, 'expiresAt': None,
+            'reason': 'NOT AVAILABLE YET: router journal producer is not connected; PC job evidence is separate'})
+        expire_run_evidence(data, now)
         fleet = build_fleet_state(data, now=now)
         expire_map(data.get("inference"), now)
         if isinstance(data.get("machines"), list):

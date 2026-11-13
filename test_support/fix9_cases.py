@@ -66,7 +66,7 @@ def healthy(host, active=False):
                 windowsJobs=dict(schemaVersion=1, journal='recorded', complete=True, unsettled=0, inFlight=[], recent=[dict(id='done', client='codex', lane='fast',
                     model='model-fast', state='success', ageSeconds=1, elapsedSeconds=1)],
                     availability=dict(state='available'), liveAvailable=host=='mac'),
-                activity=dict(runs=[], complete=True, historyBound=dict(truncated=False)),
+                activity=dict(runs=[], sampledAt=NOW, currentEvidence=dict(complete=True, count=0, observedAt=NOW, expiresAt=NOW+3), complete=True, historyBound=dict(truncated=False)),
                 pipeline=dict(status='idle', pipelinesComplete=True, pipelines=[], queue=dict(pending=0, claimed=0, completed=0, staleClaimed=0)),
                 components=[probes.pair_component({'ok': True, 'processes': [], 'listeners': [], 'uninspected': 0})], handsOff=dict(state='clear', active=False))
     result['machines'] = probes.machine_rows(host='fixture-pc', sampled_at=NOW, lanes=lanes, hands=result['handsOff'],
@@ -123,7 +123,7 @@ def edge_cases():
     data = healthy('mac')
     data['windowsJobs']['liveAvailable'] = False
     data['windowsJobs']['recent'] = []
-    data['activity']['runs'] = [dict(runId=f'route-{i}', source='router-active', activity='running', ageSeconds=i) for i in range(13)]
+    data['activity']['runs'] = [dict(runId=f'route-{i}', source='router-active', activity='running', ageSeconds=i, livenessObservedAt=NOW) for i in range(13)]
     yield data, (('activity-live-counts', 'capped'),), (('displayed-running-routes', 'capped'),)
     for mode in ('residency', 'activity'):
         data = healthy('mac')

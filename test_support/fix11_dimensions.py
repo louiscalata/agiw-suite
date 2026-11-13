@@ -37,11 +37,12 @@ def route_projection(state, event_age):
     if state == 'running':
         telemetry._mark_live_route(pipeline, source, dict(state='processing', routeId='route'))
     run = dict(runId='route', source='router-active', activity=state, status='unresolved',
-               ageSeconds=event_age, host='mac', client='codex', layout='per-run')
+               ageSeconds=event_age, host='mac', client='codex', layout='per-run',
+               livenessObservedAt=NOW)
     with mock.patch.object(activity, '_active_rows', return_value=([run], False, 'ok')), \
-            mock.patch.object(activity, '_receipt_files', return_value=[]), \
-            mock.patch.object(activity, '_archive_files', return_value=[]):
-        projected = activity.collect_activity(NOW)
+            mock.patch.object(activity, '_receipt_files', return_value=activity._Listing()), \
+            mock.patch.object(activity, '_archive_files', return_value=activity._Listing()):
+        projected = activity.collect_activity(NOW, current_evidence={'observedAt': NOW, 'complete': True, 'counts': {'running': int(state == 'running'), 'queued': int(state == 'queued'), 'unresolved': 0}})
     return pipeline, source, projected
 
 
@@ -110,13 +111,17 @@ def dimensions(healthy):
         if observation != 0:
             source['observationAgeSeconds'] = observation
             projected['sources'][0]['observationAgeSeconds'] = observation
+        for run in projected['runs']:
+            run['livenessObservedAt'] = NOW-observation if observation is not None and observation >= 0 else None
         data['pipeline'], data['activity'] = pipeline, projected
         replace_source(data, source)
         replace_source(data, projected['sources'][0])
         current = observation is not None and 0 <= observation and observation+elapsed <= 30
         yield scenario(data, 'route-semantics', dict(state=state, eventAge=event_age,
             observation=observation, elapsed=elapsed), current=current,
-            state=state, eventAge=event_age, rendererNow=NOW+elapsed)
+            state=state, eventAge=event_age,
+            rowCurrent=observation is not None and 0 <= observation and observation+elapsed <= 3,
+            rendererNow=NOW+elapsed)
 
     for running, event_age, observation, elapsed in itertools.product(
             (False, True), (1, 60, 599), (0, 29.999, 30.001, -.001, None), (0, .002, 2.5)):
@@ -162,7 +167,7 @@ def dimensions(healthy):
                 mock.patch.object(activity, '_project_monitor_receipt', side_effect=lambda row, at: row), \
                 mock.patch.object(activity, '_project_archive', side_effect=lambda row, at: row), \
                 mock.patch.object(activity, '_active_rows', return_value=([], False, 'ok')):
-            projected = activity.collect_activity(NOW)
+            projected = activity.collect_activity(NOW, current_evidence={'observedAt': NOW, 'complete': True, 'counts': {'running': 0, 'queued': 0, 'unresolved': 0}})
         data['activity'] = projected
         for source in projected['sources']:
             replace_source(data, source)
@@ -197,12 +202,16 @@ def dimensions(healthy):
         data['windowsJobs'] = jobs
         replace_source(data, source)
         next(s for s in data['sources'] if s['id'] == sid)['observationAgeSeconds'] = observed_age
+        if sid == 'router-active':
+            for run in data['activity']['runs']:
+                run['livenessObservedAt'] = NOW-observed_age
         # The sampler publishes activity without its nested source list; source
         # envelopes live once at snapshot.sources (avoid fixture-only aliases).
         data['activity'].pop('sources', None)
         data = LiveFeed(lambda: {}).overlay(data, [], now=NOW+elapsed)
         yield scenario(data, 'fast-overlay', dict(source=sid, age=observed_age, elapsed=elapsed),
-            current=observed_age+elapsed <= 30, age=observed_age+elapsed, rendererNow=NOW+elapsed)
+            current=observed_age+elapsed <= 30, rowCurrent=observed_age+elapsed <= 3,
+            age=observed_age+elapsed, rendererNow=NOW+elapsed)
 
     jid = 'mac-20260925-080000-' + 'b' * 32
     valid = json.dumps(dict(v=1, event='result', id=jid, unix=NOW-60,

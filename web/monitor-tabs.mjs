@@ -6,7 +6,7 @@
  * client, route, job, and machine records — missing records stay absent.
  */
 import {registryMachineRows, registryMachineView, registryModelName} from './map-layout.mjs';
-import {fleetFacts, fleetMachines, fleetLanes, fleetSummary, fleetMachineCoverage} from './fleet-state.mjs';
+import {CLOCK_SKEW_SECONDS, fleetFacts, fleetMachines, fleetLanes, fleetSummary, fleetMachineCoverage} from './fleet-state.mjs';
 export {registryMachineRows, registryMachineView, registryModelName};
 
 const ROUTE_ID = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}$/;
@@ -119,7 +119,7 @@ const ANALYSIS_PAIRS = [['nisi', 'pre'], ['jev', 'pre'], ['nisi', 'post'], ['jev
 function attemptToken(row) {
   const value = row?.attemptId ?? row?.attempt;
   if (typeof value === 'number' && Number.isInteger(value) && value >= 0 && value < 1000000) return String(value);
-  if (typeof value === 'string' && /^[A-Za-z0-9_.:-]{1,40}$/.test(value)) return value;
+  if (typeof value === 'string' && /^[A-Za-z0-9_.:-]{1,200}$/.test(value)) return value;
   return null;
 }
 
@@ -137,17 +137,18 @@ export function analysisSlots(records, {runId = null, attemptId = null} = {}) {
   const list = Array.isArray(records) ? records : [];
   return ANALYSIS_PAIRS.map(([tool, phase]) => {
     const found = list.find(row => row && row.tool === tool && row.phase === phase
-      && attemptId != null && row.attemptId != null && String(row.attemptId) === String(attemptId));
+      && attemptId != null && row.attemptId != null && String(row.attemptId) === String(attemptId)
+      && (row.runId == null || row.runId === runId));
     if (!found || !ANALYSIS_STATES.has(found.state) || (found.state === 'passed' && !text(found.provenance, 240))) {
       return {
-        tool, phase, state: 'unavailable', runId, attemptId, evidenced: Boolean(found), provenance: null,
+        tool, phase, state: 'unavailable', word: 'NOT AVAILABLE YET', runId, attemptId, evidenced: false, provenance: null,
         detail: attemptId == null
           ? 'Attempt was not reported, so this record stays unattached.'
           : found && found.state === 'passed'
             ? 'A passed analysis without provenance is not accepted.'
             : found
               ? 'Analysis record state was not pending, failed, skipped, unavailable, blocked, recorded, or passed.'
-              : 'No analysis record for this run, attempt, and phase.',
+              : 'NOT AVAILABLE YET: no analysis producer receipt for this run, attempt, and phase.',
       };
     }
     return {
@@ -182,7 +183,14 @@ function jobRows(snapshot) {
 function jobsClaimable(jobs, options) {
   if (!liveView(options) || !jobs || typeof jobs !== 'object') return false;
   if (jobs.liveAvailable !== true) return false;
-  if (jobs.complete === false) return false;
+  if (jobs.complete !== true || jobs.truncated === true || jobs.projectionComplete === false || jobs.inFlightTruncated === true) return false;
+  if (options.fictional !== true) {
+    if (Number.isFinite(options.snapshotAge) && options.snapshotAge < 0) return false;
+    const elapsed = Number.isFinite(options.snapshotAge) ? Math.max(0, options.snapshotAge) : null;
+    const age = Number.isFinite(jobs.sampledAt) ? (Number.isFinite(options.now) ? options.now : Date.now()/1000) - jobs.sampledAt
+      : Number.isFinite(jobs.observationAgeSeconds) && elapsed !== null ? jobs.observationAgeSeconds + elapsed : null;
+    if (age === null || age < 0 || age > 3) return false;
+  }
   if (jobs.availability && jobs.availability.state === 'unknown') return false;
   return true;
 }
@@ -203,13 +211,31 @@ function macModels(snapshot) {
   return Array.isArray(snapshot?.models) ? snapshot.models.filter(row => row && row.host === 'mac') : [];
 }
 
+function localInventoryComplete(snapshot, options) {
+  const source = (Array.isArray(snapshot?.sources) ? snapshot.sources : []).find(row => row?.id === 'lmstudio-api');
+  return liveView(options) && source?.state === 'live' && source.modelsComplete === true
+    && Number.isFinite(source.ageSeconds) && source.ageSeconds >= 0
+    && source.ageSeconds + (Number.isFinite(options.snapshotAge) ? Math.max(0, options.snapshotAge) : 0) <= 3;
+}
+
+function localActivityComplete(snapshot, options) {
+  return localInventoryComplete(snapshot, options) && snapshot.activityKnown === true && macModels(snapshot).every(row =>
+    typeof row.loaded === 'boolean' && Number.isFinite(row.ageSeconds) && row.ageSeconds >= 0
+    && row.ageSeconds + (Number.isFinite(options.snapshotAge) ? Math.max(0, options.snapshotAge) : 0) <= 3
+    && (!row.loaded || ['idle', 'busy', 'generating'].includes(row.state)));
+}
+
 function macFace(snapshot, options) {
   const models = macModels(snapshot);
   if (!liveView(options)) return cap(presentation('live', 'Mac model activity.'), options);
   const active = models.filter(row => row.loaded === true && (row.state === 'generating' || row.state === 'busy')
-    && finiteAge(row.ageSeconds) != null && row.ageSeconds >= 0 && row.ageSeconds <= 3);
-  if (active.length) return presentation('live', `${active.length} Mac model${active.length === 1 ? '' : 's'} reported generating or busy.`);
+    && finiteAge(row.ageSeconds) != null && row.ageSeconds >= 0
+    && row.ageSeconds + (Number.isFinite(options.snapshotAge) ? Math.max(0, options.snapshotAge) : 0) <= 3);
+  if (active.length) return presentation('live', localActivityComplete(snapshot, options)
+    ? `${active.length} Mac model${active.length === 1 ? '' : 's'} reported generating or busy.`
+    : 'Mac activity reported; total unknown because fresh, complete activity evidence is unavailable.');
   if (!models.length) return presentation('unknown', 'No Mac model rows in this sample.');
+  if (!localActivityComplete(snapshot, options)) return presentation('unknown', 'Mac activity count unknown: fresh, complete activity evidence is unavailable.');
   if (models.every(row => row.loaded === false)) return presentation('idle', 'No Mac model is loaded in this sample.');
   if (models.some(row => row.loaded === true)) return presentation('idle', 'Mac models are loaded. None reported generating or busy.');
   return presentation('unknown', 'Mac residency was not boolean in this sample.');
@@ -224,7 +250,7 @@ function workerFace(worker, jobs, options) {
   }
   if (state === 'stopped') return presentation('stopped', text(worker.detail) || 'The worker reports it has stopped.');
   if (state === 'degraded') return presentation('degraded', text(worker.detail) || 'Heartbeat is fresh and no lane answers.');
-  if (state === 'advertised') return presentation('idle', 'Worker heartbeat is advertised. No in-flight job is claimable in this sample.');
+  if (state === 'advertised') return presentation(jobsClaimable(jobs, options) ? 'idle' : 'unknown', jobsClaimable(jobs, options) ? 'Worker heartbeat is advertised; the fresh, complete job sample lists no in-flight job.' : 'Worker heartbeat is advertised; job activity is unknown without fresh, complete job evidence.');
   if (state === 'unknown' || state == null) return presentation('unknown', text(worker.detail) || 'PC worker state is unknown.');
   return presentation('unknown', 'PC worker state was not a known value.');
 }
@@ -279,7 +305,7 @@ function pipelineListNote(snapshot) {
   const pipeline = snapshot?.pipeline;
   if (!pipeline || typeof pipeline !== 'object') return {incomplete: true, note: 'No route pipeline object in this sample.'};
   if (!Array.isArray(pipeline.pipelines)) return {incomplete: true, note: 'Route list is missing from this sample.'};
-  if (pipeline.pipelinesComplete === false || pipeline.runsTruncated === true) {
+  if (pipeline.pipelinesComplete !== true || pipeline.runsTruncated === true) {
     return {incomplete: true, note: 'Route list is incomplete. Only rows present in this sample are shown.'};
   }
   return {incomplete: false, note: 'Route rows are the ones present in this sample.'};
@@ -320,8 +346,7 @@ function declaredSteps(snapshot, options) {
 function macMonitor(snapshot, options) {
   const models = macModels(snapshot);
   const face = cap(macFace(snapshot, options), options);
-  const inventoryKnown = registryMachineRows(snapshot).length === 0 || models.length > 0
-    || (Array.isArray(snapshot.sources) && snapshot.sources.some(source => source?.id === 'lmstudio-api' && source.state === 'live' && source.modelsComplete === true));
+  const inventoryKnown = localInventoryComplete(snapshot, options);
   const loaded = inventoryKnown && models.every(row => typeof row.loaded === 'boolean') ? models.filter(row => row.loaded === true).length : null;
   return monitor({
     id: 'machine:mac',
@@ -340,9 +365,9 @@ function macMonitor(snapshot, options) {
     }),
     pipeline: blankPipeline('Local model residency is not a Nisi route pipeline. Per-model state is the reading.'),
     metrics: [
-      metric('Mac models in sample', inventoryKnown ? models.length : null),
+      metric('Mac models in sample', inventoryKnown ? models.length : 'Unknown · fresh, complete inventory unavailable'),
       metric('Loaded', loaded == null || !liveView(options) ? null : loaded),
-      metric('Generating or busy', inventoryKnown && liveView(options) ? models.filter(row => row.loaded === true && (row.state === 'generating' || row.state === 'busy')).length : null),
+      metric('Generating or busy', localActivityComplete(snapshot, options) ? models.filter(row => row.loaded === true && (row.state === 'generating' || row.state === 'busy')).length : 'Unknown · complete activity evidence unavailable'),
     ],
   });
 }
@@ -390,13 +415,13 @@ function pcMonitor(snapshot, options) {
     pipeline: {
       declared: rows.length > 0,
       incomplete: jobs?.complete === false,
-      note: rows.length ? 'In-flight PC jobs in this sample. Settled history stays on the activity panel.' : 'No in-flight PC job in this sample.',
+      note: rows.length ? 'In-flight PC job records in this sample. Settled history stays on Activity.' : jobsClaimable(jobs, options) ? 'No in-flight PC job in this fresh, complete sample.' : 'PC job count unknown: fresh, complete job evidence is unavailable.',
       steps: rows.map(row => jobStep(row, jobsClaimable(jobs, options))),
     },
     metrics: [
       metric('Worker', text(worker?.state) || 'unknown'),
       metric('Lanes', laneMetric(worker)),
-      metric('In-flight jobs', rows.length),
+      metric('In-flight jobs', jobsClaimable(jobs, options) ? rows.length : 'Unknown · fresh, complete job evidence unavailable'),
       metric('Route list', list.incomplete ? 'incomplete' : 'present'),
       ...laneModelMetrics(worker),
     ],
@@ -456,7 +481,7 @@ function nisiMonitor(snapshot, options) {
       metric('Route status', text(snapshot.pipeline?.status) || 'unknown'),
       metric('Nisi', text(component(snapshot, 'nisi')?.state) || 'not in sample'),
       metric('Jev', text(jev?.state) || 'not in sample'),
-      metric('Listed routes', routes.length),
+      metric('Listed routes', liveView(options) && !list.incomplete ? routes.length : 'Unknown · route coverage incomplete or stale'),
     ],
   });
 }
@@ -782,26 +807,29 @@ function laneReading(snapshot, options = {}, selected = null) {
   return {word: 'UNKNOWN', matrix: 'Untested', detail: 'Lane readiness was not measured in this sample.'};
 }
 
-function attachmentReading(snapshot, monitor) {
+function attachmentReading(snapshot, monitor, options) {
   const workload = monitor.workload;
   const slots = Array.isArray(monitor.analyses) ? monitor.analyses : [];
   const matched = slots.filter(slot => slot && slot.evidenced === true && workload?.attemptId
     && slot.attemptId != null && String(slot.attemptId) === String(workload.attemptId));
   if (monitor.kind === 'session') {
     if (!workload?.attemptId) {
-      return {word: 'UNATTACHED', matrix: 'Blocked', detail: 'Attempt was not reported, so records stay unattached.'};
+      return {word: 'UNATTACHED', matrix: 'Untested', detail: 'Attempt was not reported, so records stay unattached.'};
     }
     if (!matched.length) {
-      return {word: 'UNATTACHED', matrix: 'Blocked', detail: 'No analysis record matches this run and attempt.'};
+      return {word: 'NOT AVAILABLE YET', matrix: 'Untested', detail: 'No analysis producer receipt matches this run and attempt.'};
     }
     return {word: 'ATTACHED', matrix: 'Observed', detail: 'Analysis matches this attempt. Attachment is not a Jev pass.'};
   }
   const routes = snapshot ? routeRows(snapshot) : [];
   const jobs = snapshot ? jobRows(snapshot) : [];
   if (!routes.length && !jobs.length) {
-    return {word: 'NO RUN', matrix: 'Untested', detail: 'No run or in-flight job is in this sample.'};
+    const evidence = activityEvidence(snapshot?.activity, options);
+    return evidence.complete && evidence.count === 0 && jobsClaimable(snapshot?.windowsJobs, options)
+      ? {word: 'NO RUN', matrix: 'Observed', detail: 'Fresh, complete router and job evidence lists no current work.'}
+      : {word: 'UNKNOWN', matrix: 'Untested', detail: 'Run absence is unknown: fresh, complete router and job evidence is unavailable.'};
   }
-  return {word: 'UNATTACHED', matrix: 'Blocked', detail: 'Runs are listed. This monitor is not an attempt-attached session.'};
+  return {word: 'UNATTACHED', matrix: 'Untested', detail: 'Runs are listed. This monitor is not an attempt-attached session.'};
 }
 
 function nisiReading(snapshot) {
@@ -829,8 +857,8 @@ function jevReading(monitor) {
   const pre = slots.find(slot => slot.tool === 'jev' && slot.phase === 'pre');
   const post = slots.find(slot => slot.tool === 'jev' && slot.phase === 'post');
   const evidence = `pre attempt ${pre?.attemptId || 'not reported'} · post attempt ${post?.attemptId || 'not reported'}`;
-  if (!slots.length) {
-    return {id: 'jev', label: 'Jev correlation', matrix: 'Untested', word: 'NO ATTEMPT', detail: 'No run or attempt to attach.', evidence};
+  if (!slots.length || !gate.available) {
+    return {id: 'jev', label: 'Jev correlation', matrix: 'Untested', word: 'NOT AVAILABLE YET', detail: 'No attempt-bound Jev pre/post producer receipts are available.', evidence};
   }
   if (gate.open) {
     return {id: 'jev', label: 'Jev correlation', matrix: 'Observed', word: 'GATE OPEN', detail: 'Both phases are passed with provenance and verdict PASS.', evidence};
@@ -847,19 +875,18 @@ const ACCEPTANCE_LEDGER = [
   {gate: 'Web sync', env: 'Mac Astra', state: 'recorded', verdict: 'not acceptance', time: '2026-11-06 11:49 file stamp', receipt: 'astra1103-mac-SYNC-20261106-114919', next: 'Local App Resources web is present. Fresh archive is unproven.'},
   {gate: 'Android contract', env: 'PC Astra', state: 'recorded', verdict: 'not acceptance', time: '2026-11-06 11:41 file stamp', receipt: 'astra1103-pc-AND-20261106-114125', next: 'Compose proposal. This client stays Java.'},
   {gate: 'Windows MSI', env: 'PC Astra', state: 'recorded', verdict: 'not acceptance', time: '2026-11-06 11:49 file stamp', receipt: 'astra1103-pc-WIN-20261106-114930', next: 'Visual Studio 18, MSBuild, and the dotnet SDK were present. WiX and the PC checkout were missing. The Windows review is not a pass.'},
-  {gate: 'Mac unsigned Debug', env: 'Mac', state: 'recorded', verdict: '0/4', time: '2026-11-06 11:54 file stamp', receipt: 'mac-unsigned-build-20261106-115509', next: 'Exit 0 on web HEAD 317aad2. That tree is not this head. Not PASS.'},
+  {gate: 'Mac unsigned Debug', env: 'Mac', state: 'recorded', verdict: '0/4', time: '2026-11-06 11:54 file stamp', receipt: 'mac-unsigned-build-20261106-115509', next: 'Exit 0 on recorded web revision 317aad2; current acceptance is unknown.'},
   {gate: 'Windows node tests', env: 'PC', state: 'recorded', verdict: 'not acceptance', time: '2026-11-06 11:58 file stamp', receipt: 'pc-win-node-20261106', next: '123 tests passed, excluding pipe-host. pipe-host failed with listen EACCES. The Windows review is not a pass.'},
   {gate: 'Android parser', env: 'Mac Astra', state: 'recorded', verdict: '0/4', time: '2026-11-06 11:56 file stamp', receipt: 'astra1103-mac-ANDJAVA-20261106-115608', next: 'Not PASS. Missing payload data stays UNKNOWN.'},
   {gate: 'Mac sync', env: 'Mac', state: 'recorded', verdict: '0/4', time: '2026-11-06 12:09 file stamp', receipt: 'mac-jaryo-sync-52e902d-20261106-120956', next: 'sync-web exit 1. simple-view.mjs is absent. Wrapper rules were not changed. Not PASS.'},
   {gate: 'Windows installer', env: 'PC', state: 'recorded', verdict: 'not acceptance', time: '2026-11-06 12:16 file stamp', receipt: 'pc-52e902d-windows-tests', next: '532 tests, 14 failed before the jaryo directory allowlist fix. The Windows review is not a pass.'},
-  {gate: 'Fixture tests', env: 'this checkout', state: 'reported', verdict: 'not acceptance', time: 'this head', receipt: 'node test files', next: 'Receipt verification pending'},
 ];
 
 const ACCEPTANCE_ROW = {
   id: 'acceptance',
-  label: 'Acceptance',
-  matrix: 'Blocked',
-  word: 'BLOCKED',
+  label: 'Acceptance history · 2026-11-06',
+  matrix: 'Observed',
+  word: 'RECORDED',
   detail: 'The Windows review is not a pass. The Mac Jev check on 6 Nov 2026 at 09:17 had no passing flags. The Astra Mac check had one flag of four. The unsigned Debug build also had no passing flags, and that web tree is not this checkout. A PC analysis marked OK is not app acceptance. Exit 0, STATUS OK, and COMPLETED are not a pass.',
   evidence: 'jaryo-codex0917-mac-20261106-092057; astra1103-pc-A2-20261106-111209',
   ledger: ACCEPTANCE_LEDGER,
@@ -868,7 +895,7 @@ const ACCEPTANCE_ROW = {
 export function evidenceFor(snapshot, monitor, options = {}) {
   const process = processReading(snapshot, monitor, options);
   const lane = laneReading(snapshot, options, monitor);
-  const attachment = attachmentReading(snapshot, monitor);
+  const attachment = attachmentReading(snapshot, monitor, options);
   return {
     badges: {process: process.word, lane: lane.word, attachment: attachment.word},
     rows: [
@@ -877,9 +904,82 @@ export function evidenceFor(snapshot, monitor, options = {}) {
       {id: 'attach', label: 'Run attached', word: attachment.word, matrix: attachment.matrix, detail: attachment.detail, evidence: monitor.workload?.id || monitor.id},
       nisiReading(snapshot),
       jevReading(monitor),
-      {...ACCEPTANCE_ROW},
     ],
   };
+}
+
+/** Dated source records belong to history; they never block a current run. */
+export function historicalAcceptance() {
+  return {...ACCEPTANCE_ROW, ledger: ACCEPTANCE_LEDGER.map(row => ({...row}))};
+}
+
+const RUN_PHASES = [['jev', 'pre'], ['nisi', 'journal'], ['jev', 'post']];
+const tokenCount = value => Number.isSafeInteger(value) && value >= 0 ? value : null;
+
+/** Receipt facts stay within one producer-bound run attempt. */
+export function runEvidence(run) {
+  const runId = text(run?.runId, 100), attemptId = attemptToken(run);
+  const calls = (Array.isArray(run?.calls) ? run.calls : []).map(call => {
+    const bound = Boolean(runId && attemptId && call?.parentRunId === runId && attemptToken(call) === attemptId);
+    const pair = modelPair(call);
+    const usage = bound && call?.usage && typeof call.usage === 'object' ? call.usage : {};
+    const inputTokens = tokenCount(usage.inputTokens), outputTokens = tokenCount(usage.outputTokens), totalTokens = tokenCount(usage.totalTokens);
+    const measured = inputTokens !== null && outputTokens !== null && totalTokens !== null && Number.isSafeInteger(inputTokens + outputTokens) && totalTokens === inputTokens + outputTokens;
+    return {...call, ...pair, bound, servedModel: bound ? pair.servedModel : null,
+      inputTokens: measured ? inputTokens : null, outputTokens: measured ? outputTokens : null,
+      totalTokens: measured ? totalTokens : null};
+  });
+  const metered = calls.filter(call => call.bound && call.inputTokens !== null && call.outputTokens !== null
+    && call.totalTokens === call.inputTokens + call.outputTokens).length;
+  const expected = tokenCount(run?.usageCoverage?.expectedCallCount);
+  const complete = Boolean(attemptId && run?.usageCoverage?.complete === true && expected !== null
+    && expected === calls.length && metered === expected);
+  const phases = RUN_PHASES.map(([tool, phase]) => {
+    const record = (Array.isArray(run?.analysisSlots) ? run.analysisSlots : []).find(slot => slot?.tool === tool
+      && slot.phase === phase && slot.runId === runId && attemptId !== null && attemptToken(slot) === attemptId);
+    if (!record || record.evidenced !== true || record.state === 'unavailable') return {
+      tool, phase, word: 'NOT AVAILABLE YET', detail: text(record?.detail, 300) || 'No attempt-bound producer receipt is available.',
+    };
+    return {tool, phase, word: String(record.state || 'unknown').toUpperCase(), detail: text(record.detail, 300)};
+  });
+  const recordedAt = Number.isFinite(run?.recordedAt) ? new Date(run.recordedAt * 1000) : null;
+  return {runId, attemptId, calls, phases, complete,
+    recordedAt: recordedAt && Number.isFinite(recordedAt.getTime()) ? recordedAt.toISOString() : null,
+    usage: complete ? `${calls.reduce((sum, call) => sum + call.totalTokens, 0)} tokens` : 'Unknown',
+    coverage: `${metered} of ${calls.length} reported calls have measured usage; expected calls ${expected === null ? 'unknown' : expected}. ${complete ? 'Complete attempt coverage.' : text(run?.usageCoverage?.detail, 300) || 'Whole-run usage is unknown.'}`,
+    reason: [attemptId ? null : 'Attempt identity unavailable; receipts remain unattached.',text(run?.livenessReason,240)].filter(Boolean).join(' ') || null};
+}
+
+/** Freshness is producer time, independently of a fresh transport connection. */
+export function activityEvidence(activity, options = {}) {
+  const now = Number.isFinite(options.now) ? options.now : Date.now() / 1000;
+  const age = Number.isFinite(activity?.sampledAt) ? now - activity.sampledAt : null;
+  const maxAge = Number.isFinite(activity?.maxAgeSeconds) && activity.maxAgeSeconds > 0 ? Math.min(3, activity.maxAgeSeconds) : 3;
+  const fresh = liveView(options) && age !== null && age >= -CLOCK_SKEW_SECONDS && age <= maxAge;
+  const current = activity?.currentEvidence;
+  const currentFresh = Number.isFinite(current?.observedAt) && Number.isFinite(current?.expiresAt)
+    && current.expiresAt >= current.observedAt && now-current.observedAt >= -CLOCK_SKEW_SECONDS && now <= current.expiresAt && now-current.observedAt <= 3;
+  let complete = fresh && currentFresh && current?.complete === true && tokenCount(current.count) !== null;
+  const runs = (Array.isArray(activity?.runs) ? activity.runs : []).filter(run => run && typeof run.runId === 'string');
+  const rawCurrent = (Array.isArray(activity?.currentKeys) ? runs.filter(run => activity.currentKeys.includes(run.traceKey)) : Array.isArray(activity?.current) ? activity.current : runs.filter(run => ['running', 'queued'].includes(run.activity) || run.source === 'router-active'));
+  const currentRuns = rawCurrent.map(run => {
+    if (!['running','queued'].includes(run.activity)) return run;
+    const at=run.livenessObservedAt;
+    return fresh && Number.isFinite(at) && now-at >= -CLOCK_SKEW_SECONDS && now-at <= 3 ? run
+      : {...run,activity:'unknown',status:'unknown',livenessReason:'Current liveness unknown: original lock observation is missing, paused, or older than 3 seconds.'};
+  });
+  const history = Array.isArray(activity?.historyKeys) ? runs.filter(run => activity.historyKeys.includes(run.traceKey)) : Array.isArray(activity?.history) ? activity.history : runs.filter(run => !rawCurrent.includes(run));
+  const consistent = current?.count === currentRuns.length && currentRuns.every(run => ['running', 'queued'].includes(run.activity));
+  complete = complete && consistent;
+  const reason = !fresh ? 'Activity observation is missing, paused, or stale.' : !complete
+    ? !consistent && currentFresh && current?.complete === true ? 'Current run inventory contradicts the displayed records; totals and absence are unknown.'
+      // A producer's own "complete" text is no longer true once its inventory has expired on this clock.
+      : !currentFresh && current?.complete === true ? 'Run inventory is stale, ahead of this clock, or has no timestamp.' : text(activity?.currentEvidence?.reason, 300) || 'Activity sources are incomplete; absence and totals are unknown.' : 'Fresh, complete evidence for the observed run scope.';
+  const bound = activity?.historyBound;
+  const historyReason = bound?.truncated === false ? 'Bounded history; only retained source records are shown.'
+    : 'History coverage is unknown or truncated; missing records are not zero outcomes.';
+  return {fresh, complete, current: currentRuns, history, count: complete ? current.count : null, reason,
+    historyReason, sampledAt: Number.isFinite(activity?.sampledAt) ? activity.sampledAt : null};
 }
 
 function withEvidence(snapshot, monitors, options) {
@@ -906,12 +1006,16 @@ export function mapEvidence(source, {feedUnavailable = false, fictional = false,
       {id: 'process', label: 'Process liveness', ...process, evidence: 'inference map sample'},
       {id: 'lane', label: 'Lane readiness', ...lane, evidence: 'node model id'},
       {id: 'attach', label: 'Run attached', ...attachment, evidence: 'map has no attempt id'},
-      {...ACCEPTANCE_ROW},
     ],
   };
 }
 
 export function deriveMonitors(snapshot, options = {}) {
+  if (options.fictional === true && !Number.isFinite(options.snapshotAge)) options={...options,snapshotAge:0};
+  if (!Number.isFinite(options.snapshotAge) && Number.isFinite(snapshot?.sampledAt)) {
+    const now=Number.isFinite(options.now)?options.now:Date.now()/1000;
+    options={...options,snapshotAge:now-snapshot.sampledAt};
+  }
   if (!snapshot || snapshot.schemaVersion !== 1) {
     const only = overview([], null, options);
     return withEvidence(null, [only], options);
@@ -960,14 +1064,18 @@ export function jevGate(analyses) {
   const pre = slots.find(slot => slot.tool === 'jev' && slot.phase === 'pre');
   const post = slots.find(slot => slot.tool === 'jev' && slot.phase === 'post');
   const accepted = slot => Boolean(slot && slot.state === 'passed' && slot.verdict === 'PASS' && slot.evidenced === true && text(slot.provenance, 240));
-  const open = accepted(pre) && accepted(post);
+  const bound = pre && post && pre.runId != null && pre.runId === post.runId
+    && pre.attemptId != null && String(pre.attemptId) === String(post.attemptId);
+  const open = Boolean(bound && accepted(pre) && accepted(post));
+  const available = slots.some(slot => slot.tool === 'jev' && slot.evidenced === true && slot.state !== 'unavailable');
   return {
-    open,
+    open, available,
+    word: open ? 'JEV GATE OPEN' : available ? 'JEV GATE BLOCKED' : 'NOT AVAILABLE YET',
     pre: pre?.state || 'unavailable',
     post: post?.state || 'unavailable',
     preVerdict: pre?.verdict || null,
     postVerdict: post?.verdict || null,
-    blocker: open ? null : 'Jev pre and post need verdict PASS. Exit 0, STATUS OK, COMPLETED, and PROCEED-WITH-CHANGES are not a pass. A review that is not a pass does not open this gate.',
+    blocker: open ? null : !available ? 'No attempt-bound Jev pre/post producer receipts are available.' : 'Jev pre and post need verdict PASS. Exit 0, STATUS OK, COMPLETED, and PROCEED-WITH-CHANGES are not a pass. A review that is not a pass does not open this gate.',
   };
 }
 
@@ -1051,7 +1159,8 @@ export function createMonitorDesk() {
       if (record.tool !== 'nisi' && record.tool !== 'jev') return false;
       if (record.phase !== 'pre' && record.phase !== 'post') return false;
       const attemptId = item.workload?.attemptId ?? null;
-      if (record.attemptId != null && record.attemptId !== attemptId) return false;
+      if (attemptId == null || record.attemptId == null || String(record.attemptId) !== String(attemptId)) return false;
+      if (record.runId != null && record.runId !== item.workload?.runId) return false;
       if (record.state === 'passed' && !text(record.provenance, 240)) return false;
       const slot = {
         tool: record.tool, phase: record.phase, state: record.state,
