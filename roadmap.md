@@ -1,5 +1,13 @@
 # AGIW Suite roadmap and release evidence
 
+## Monitor redesign stage 5 — local evaluation dataset — 12 November 2026
+
+- [x] Both observers use the shared read-only dataset loader: `AGIW_ECI_TUNING_DATASET_DIR` selects an absolute directory containing normalized `dataset.json`. Unset configuration uses the bundled catalog; missing, unreadable or invalid configured data reports unknown with a reason. The operator is responsible for selecting local storage.
+- [x] Validate ingested full ECI and fast-check records before serving. Keep screening in its own view and out of ECI scores and recommendations. Socket-free tests exercise ingestion through each endpoint and into the page renderer.
+- [x] Focused Python 3.9.6 tuning/fast-check tests passed 127 cases; the Windows dataset tests passed 2 cases and the Node page tests passed 7, all exit 0. The final guarded full Mac run exited 1 (1,673 tests; 1 failure, 174 errors, 28 skips): 168 errors were direct port-guard refusals, 3 were sandbox-denied `/bin/ps`, 2 were registry fixture cleanup cascades and 1 was an observer startup/JSON cascade. The router-holder PID attribution failure depends on process visibility. The guarded Windows run exited 1 (580 tests; 54 port-guard errors, 72 skips). These full suites remain failed, not acceptance.
+- [x] The guarded full Node 24.22.2 run exited 1: 851 passed and one demo test failed when its local listener was refused by the no-port guard. No browser was run.
+- [ ] Native Windows execution, browser rendering, live dataset use and CI are NOT_RUN. No checks, model servers, deployment or routing activation are started by this feature.
+
 ## Fleet ledger CI repair — PR #139 — 12 November 2026
 
 - [x] Retrieve failed job `131437297570` from run `43291052450`. `gh pr checks` identified the failure; `gh run view --log-failed` still withheld logs while other jobs ran, including after a minute. The job-log API returned the completed job's log: light and dark Overview both reported the intentionally collapsed map's vital and zoom/key text as hidden. Map passed; the two subsequent overview steps were not reached.
@@ -84,6 +92,9 @@
 - [x] Extend offline tuning ingest and pure view/ranking functions with hardware/plan/settings-separated fast-check rankings, explicit INCONCLUSIVE ties and full-run finalists. Fast checks never become ECI scores or routing policy evidence.
 - [x] Address the fix-round review with protocol-alias isolation, adapter-owned outcome/parse/finish evidence, all-planned accuracy, exact decimal quality gates, full baseline/hash binding, complete pairs, fsynced checkpoint resume and free-form hardware identity. Synthetic regressions pin each fix.
 - [x] Address round-two source findings with recursive protocol isolation, explicit cutoff/answer evidence, parseability and exact binomial chance gates, ranking policy safety, exclusive checkpoint locks, resume artifact hashes and chained integrity, and benchmark-aware callbacks. Failing-before regressions pin each fix; native checks remain open.
+- [x] Page integration is addressed by the stage 5 local dataset slice above.
+- [ ] Implement and review the existing harness adapter: exact sample IDs, pinned scorers/prompts/settings, per-call deadlines, measured artifact/hardware identity and Nisi journal custody. Real model checks, served identity, device/browser acceptance and full ECI runs are NOT_RUN.
+
 - [ ] Page integration is the next slice: configure and validate an explicit read-only local dataset source for both endpoints, then prove ingest-to-page behavior. The current Mac and Windows endpoints use the bundled catalog; ingested fast checks do not reach the page.
 - [x] Add the opt-in stdlib loopback HTTP harness adapter and CLI: explicit unprotected endpoint/model/sample files, pinned scorer/prompts/settings, thinking-sized completion budget, reasoning-only truncation handling, per-request deadlines and locked/fsynced resume. Allowlisted server reports and caller-supplied artifact/fit inputs retain their evidence source; missing hardware remains unknown. Synthetic HTTP fixtures cover this source implementation.
 - [ ] Verify real model checks, measured artifact/hardware identity, served identity and Nisi journal custody. Journals remain null; device/browser acceptance and full ECI runs are NOT_RUN.

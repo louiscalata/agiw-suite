@@ -5,6 +5,7 @@ export const ci = row => `${metric(row.eci_posterior_mean)} [${metric(row.eci_p0
 export function viewModel(data) {
   const route = data.policy?.routes?.general;
   return {
+    dataset: data.dataset,
     defaultNote: route?.model ? `Provisional PC policy: ${route.model} · confidence ${route.confidence}. External runtime activation NOT_APPLIED.` : 'PC policy NOT_COMPUTED.',
     sections: Object.entries(data.rankings || {}).filter(([key]) => key !== 'fast_check').map(([key, group]) => ({
       title: labels[key] || key,
@@ -15,7 +16,7 @@ export function viewModel(data) {
     })),
     pending: (data.pending || []).map(row => `${row.model}: ${row.status}. ${row.reason || ''}`),
     fastChecks: (data.rankings?.fast_check?.hardware_views || []).map(group => ({
-      title: `${group.title} · ${group.hardware.machine_label || group.hardware.id || 'unknown hardware'} · fast check`,
+      title: `Fast screening · ${group.hardware.machine_label || group.hardware.id || 'unknown hardware'}`,
       note: `${group.note} Plan ${group.plan_id}. Score bounds are means of component Wilson endpoints, not a joint 95% interval.`,
       rows: group.rows.map(row => [row.label, row.model, `${metric(row.normalized_score)} [${row.interval.map(metric).join(', ')}]`, row.tie_with.length ? `Tie · INCONCLUSIVE with ${row.tie_with.length} run(s)` : row.verdict, row.finalist ? 'Finalist · full run NOT_RUN' : 'Screened']),
       pending: group.pending.map(row => `${row.model}: fast check · pre ${row.pre}, post ${row.post}. ${row.reason}`)
@@ -39,7 +40,15 @@ function table(headers, rows, caption) {
   table.append(body); wrapper.append(table); return wrapper;
 }
 export function render(data, root) {
-  const model = viewModel(data); root.replaceChildren(element('p', model.defaultNote));
+  const model = viewModel(data);
+  const dataset = model.dataset;
+  if (dataset?.status === 'unknown') {
+    root.replaceChildren(element('p', `Dataset unknown: ${dataset.reason || 'No reason supplied.'}`));
+    return;
+  }
+  root.replaceChildren();
+  if (dataset) root.append(element('p', dataset.status === 'configured' ? 'Source: configured dataset.' : dataset.status === 'bundled' ? 'Source: bundled catalog; no dataset configured.' : 'Dataset source unknown.'));
+  root.append(element('p', model.defaultNote));
   root.append(element('p', 'Recommendations for general, reasoning and coding PC-eligible work use baseline ECI provisionally. Task-specific routing outcomes NOT_MEASURED. Nisi Mac NOT_APPLIED; two distinct resident Mac LLMs are required.'));
   root.append(element('p', data.cross_class_note));
   for (const group of model.sections) {
@@ -53,7 +62,7 @@ export function render(data, root) {
   for (const group of model.fastChecks) {
     const section = element('section'); section.append(element('h2', group.title));
     section.append(element('p', group.note));
-    section.append(group.rows.length ? table(['Protocol', 'Model', 'Normalized screen [bounds]', 'Paired verdict', 'Next gate'], group.rows, 'Fast-check ranking for this hardware and frozen plan; separate from ECI') : element('p', 'No admissible fast check. Best model unknown.'));
+    section.append(group.rows.length ? table(['Protocol', 'Model', 'Normalized screen [bounds]', 'Paired verdict', 'Next gate'], group.rows, 'Fast-check ranking for this hardware and frozen plan; separate from ECI') : element('p', 'No admissible fast check.'));
     group.pending.forEach(note => section.append(element('p', note))); root.append(section);
   }
   const pending = element('section'); pending.append(element('h2', 'Pending scores'));
@@ -64,6 +73,6 @@ if (typeof document !== 'undefined') {
   fetch('/api/eci-tuning', {cache: 'no-store'}).then(response => {
     if (!response.ok) throw new Error('unavailable');
     return response.json();
-  }).then(data => {render(data, document.getElementById('tuningEvidence')); status.textContent = 'Recorded scores loaded. No live inference tested.';})
+  }).then(data => {render(data, document.getElementById('tuningEvidence')); status.textContent = data.dataset?.status === 'unknown' ? 'Recorded scores unknown; see dataset reason below.' : 'Recorded scores loaded. No live inference tested.';})
     .catch(() => {status.textContent = 'Recorded scores unavailable. Status unknown; no model selection changed.';});
 }

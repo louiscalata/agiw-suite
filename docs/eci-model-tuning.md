@@ -157,13 +157,17 @@ dataset version 1 and a `fast_check.hardware_views` entry to ranking output.
 Records use protocol `agiw-fast-check-v1` and the separate
 [`eci_fast_check.schema.json`](../eci_fast_check.schema.json) contract. They never
 enter `runs`, ECI/component rankings, policy recommendation or policy apply.
-Page integration is the next slice. Mac and Windows endpoints use the bundled catalog,
-which contains no real fast-check measurements; an ingested `tuning.fast.json`
-does not reach the page. This slice retains the pure view/ranking function and
-renderer tests with supplied fixture data. Ingest reads explicitly named records;
-it does not replace the catalog or start a check. A future page source needs an
-explicitly configured, validated, read-only local dataset and an end-to-end data
-path test before the page can claim to show ingested fast checks.
+Set `AGIW_ECI_TUNING_DATASET_DIR` to an absolute local directory before starting
+either observer. It reads only that directory's `dataset.json`, a normalized v1
+dataset produced by `python3 -B -m eci_tuning ingest <input files> --output
+<directory>/dataset.json`. Include full ECI inputs and fast-check collections in
+the same ingest when both should appear. The observer reads and revalidates the
+file on each request; it does not write to the directory, scan it, or start a
+check. Do not use a symlink for `dataset.json`. The operator must choose local
+storage; the observer does not verify whether a volume is network-backed.
+Without configuration the bundled catalog is used. If configured input is
+missing, unreadable or invalid, the page reports unknown with a reason and does
+not substitute the catalog. Screening is shown separately from full ECI.
 
 ECI is sorted descending **within** `baseline_protocol`, `pipeline_configured`,
 `published_reference`, and `unclassified`. Overlapping or touching 90% posterior

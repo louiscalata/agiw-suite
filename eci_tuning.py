@@ -290,7 +290,7 @@ def normalize_item(row):
     return item
 
 
-def ingest(paths, hint=None):
+def ingest(paths, hint=None, require_normalized=False):
     """Normalize only named files. Never recurse into inspect logs or model files."""
     runs, items, fast_checks = {}, [], {}
 
@@ -313,6 +313,12 @@ def ingest(paths, hint=None):
 
     for path in map(Path, paths):
         data = load(path)
+        if require_normalized:
+            if (not isinstance(data, dict) or type(data.get('schema_version')) is not int
+                    or data['schema_version'] != 1
+                    or not all(isinstance(data.get(key), list) for key in ('runs', 'items'))
+                    or not isinstance(data.get('fast_checks', []), list)):
+                raise ValidationError('expected normalized dataset version 1 with collections')
         validate_eci_provenance(data, dedicated_fast_checks=True)
         if path.name == 'run_manifest.json':
             # Attached via --manifest to a refit below; standalone validation only.
@@ -514,7 +520,32 @@ def apply_policy(data, target, write=False):
 
 
 def status(data=None):
-    data = data if data is not None else ingest([CATALOG])
+    dataset = {'status': 'supplied', 'reason': None}
+    if data is None:
+        configured = os.environ.get('AGIW_ECI_TUNING_DATASET_DIR')
+        if configured is None:
+            data = ingest([CATALOG])
+            dataset['status'] = 'bundled'
+        else:
+            dataset['status'] = 'configured'
+            try:
+                directory = Path(configured).expanduser()
+                if not configured.strip() or not directory.is_absolute():
+                    raise ValidationError('dataset directory must be an absolute path')
+                source = directory / 'dataset.json'
+                if source.is_symlink():
+                    raise ValidationError('dataset file must not be a symlink')
+                if not source.exists():
+                    raise FileNotFoundError
+                if not source.is_file():
+                    raise ValidationError('dataset file must be a regular file')
+                data = ingest([source], require_normalized=True)
+            except FileNotFoundError:
+                return {'status': 'unknown', 'dataset': {'status': 'unknown', 'reason': 'Configured dataset.json was not found.'}}
+            except (OSError, UnicodeError):
+                return {'status': 'unknown', 'dataset': {'status': 'unknown', 'reason': 'Configured dataset could not be read.'}}
+            except (ValueError, TypeError, KeyError, AttributeError, IndexError):
+                return {'status': 'unknown', 'dataset': {'status': 'unknown', 'reason': 'Configured dataset is invalid; check normalized dataset schema and records.'}}
     overlaps = [f'{a["run_id"]} / {b["run_id"]}: 90% CIs overlap; no clean improvement.'
                 for a in data['runs'] for b in data['runs']
                 if a['comparability_class'] == 'baseline_protocol' and b['comparability_class'] == 'pipeline_configured'
@@ -523,7 +554,7 @@ def status(data=None):
     public_policy = {'routes': {task: {key: route.get(key) for key in ('model', 'machine', 'status', 'confidence', 'eci')}
                                for task, route in policy['routes'].items() if task in ('general', 'reasoning', 'coding') and isinstance(route, dict)},
                      'runtime_activation': 'NOT_APPLIED', 'nisi_mac': {'status': 'NOT_APPLIED'}}
-    return {'name': 'AGIW x ECI Model Tuning Tool', 'schema_version': 1,
+    return {'name': 'AGIW x ECI Model Tuning Tool', 'schema_version': 1, 'dataset': dataset,
             'rankings': rank(data), 'recommendation': recommend(data),
             'policy': public_policy, 'pending': [r for r in data['runs'] if r['status'] != 'COMPUTED' or r['eci_posterior_mean'] is None],
             'cross_class_note': 'Comparability classes are separate. Published Epoch scores belong to different artifacts. ' + ' '.join(overlaps)}
