@@ -17,6 +17,14 @@
 - [x] Verify with Node 24.22.2: `node --test test_*.mjs` exit 0, 883 passed, zero failed/skipped; focused production regressions exit 0, 152 passed; browser-free check audits exit 0, 42 passed. All six check-script syntax checks, app/tab-painter syntax, `node jaryo/cli.mjs check`, `node jaryo/generate.mjs --check` (zero drift) and `git diff --check` exited 0. Logs and model-advice receipts remain outside `work`, inside this lane. Independent final source review found no concrete blocker.
 - [ ] Hosted CI must still prove actual painted colours and forced-colors selection/focus/text on Overview and Map, full heading/Model tuning/status-tab geometry at 1280 and 375 in both themes, and the expanded fleet map's flat styling/full labels. Browser/Playwright execution on this Mac, native accessibility, Windows High Contrast hardware, live model behavior, deployment and publication remain NOT_RUN. No commit, push, PR or tag was made.
 
+## Monitor redesign stage 6 — comparison — 12 November 2026
+
+- [x] Preserve explicit profile, evaluation dataset artifact and settings identifiers for full ECI. Show pairwise comparability reasons and 90% posterior uncertainty; unrecorded conditions remain unknown. Class membership and score order do not establish a winner.
+- [x] Expose screening coverage, missing answers, cutoffs, component Wilson intervals, pair identities and outcomes, and bound baseline evidence. Keep finalists in screening and preserve INCONCLUSIVE; distinct candidate model artifacts must be identified, while the frozen evaluation artifact and protocol must match.
+- [x] Separate the unavailable recommendation, saved or bundled policy with its original source run and basis, and activation by this tool. The external router remains unverified. Policy writing refuses to invent a recommendation without a selected profile and validated decision rule.
+- [x] Source checks: Node 24.22.2 `node --test test_*.mjs` exit 0, 871 passed, no skips; Python 3.9.6 focused `test_eci_tuning`, `test_eci_fast_check`, `test_eci_fast_check_round2`, and `test_eci_fast_check_runtime_round2` exit 0, 132 passed. `git diff --check`, JavaScript syntax and schema JSON checks exit 0. These are fixture/source checks, not native or browser acceptance.
+- [ ] Dataset-to-page integration, real model checks and full ECI execution remain separate stages. Browser rendering, the overview ink browser check, live router activation, native/device behavior and CI are NOT_RUN in this lane.
+
 ## Monitor redesign stage 4 — transport and collector diagnostics — 12 November 2026
 
 - [x] Keep the selected Jaryo choices and the existing fleet contract. Add `web/monitor-store.mjs` as the single browser owner of snapshot, inference and SSE transport; Overview, Map, Machines, Setup and Simple view subscribe to it. Opening a page remains passive.

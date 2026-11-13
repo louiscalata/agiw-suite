@@ -245,6 +245,14 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(result["verdict"], "BETTER")
         self.assertEqual(result["p_exact"][0], "1")
 
+    def test_equal_counts_do_not_substitute_for_matching_item_ids(self):
+        result = f.mcnemar({"a": True, "b": True}, {"a": False, "c": False},
+                           expected_ids=["a", "b", "c"])
+        self.assertEqual((result["n_candidate"], result["n_baseline"], result["n_shared"],
+                          result["n_expected"]), (2, 2, 1, 3))
+        self.assertEqual(result["verdict"], "INCONCLUSIVE")
+        self.assertEqual(result["reason"], "incomplete pairs")
+
 
 class DecisionTests(unittest.TestCase):
     def test_pre_fit_boundary_unknown_and_no_advisory_relaxation(self):
@@ -531,7 +539,7 @@ class IntegrationTests(unittest.TestCase):
             [r["normalized_score"] for r in view["rows"]],
             [1, 1, f.normalized(0.6, 0.25)],
         )
-        self.assertEqual(len(view["best_record_ids"]), 2)
+        self.assertEqual(len(view["finalist_record_ids"]), 2)
         for row in view["rows"][:2]:
             self.assertEqual(row["verdict"], "INCONCLUSIVE")
             self.assertEqual(len(row["tie_with"]), 1)
@@ -564,7 +572,94 @@ class IntegrationTests(unittest.TestCase):
         for group in f.rank(records):
             self.assertEqual(group["rows"], [])
             self.assertEqual(len(group["pending"]), 1)
-            self.assertEqual(group["best_record_ids"], [])
+            self.assertEqual(group["finalist_record_ids"], [])
+
+    def test_screening_reports_pair_ids_intervals_and_mismatch_reasons(self):
+        first = run(model=dict(MODEL, name="first"))
+        second = run(model=dict(MODEL, name="second"), baseline=first)
+        different_hardware = run(model=dict(MODEL, name="other"),
+                                 hardware=dict(HARDWARE, machine_label="other"))
+        groups = f.rank([first, second, different_hardware])
+        group = next(g for g in groups if len(g["rows"]) == 2)
+        self.assertIn("Screening", group["title"])
+        self.assertNotIn("Best model", group["title"])
+        candidate = next(r for r in group["rows"] if r["model"] == "second")
+        self.assertEqual(candidate["baseline_id"], first["record_id"])
+        self.assertEqual(candidate["comparisons"][0]["record_id"], first["record_id"])
+        pair = candidate["comparisons"][0]["benchmarks"]["arc"]
+        self.assertEqual((pair["n_expected"], pair["n_shared"], pair["both_correct"]), (200, 200, 200))
+        self.assertEqual(pair["verdict"], "INCONCLUSIVE")
+        self.assertEqual(len(candidate["benchmarks"][0]["normalized_interval95"]), 2)
+        self.assertEqual(candidate["benchmarks"][0]["accuracy"], 1)
+        self.assertEqual(candidate["benchmarks"][0]["interval95"], second["benchmarks"][0]["interval95"])
+        self.assertEqual(candidate["created_at"], second["created_at"])
+        mismatch = next(p for p in group["not_comparable"] if p["record_id"] == first["record_id"])
+        self.assertEqual(mismatch["other_record_id"], different_hardware["record_id"])
+        self.assertIn("hardware profile differs", mismatch["reasons"])
+
+    def test_pending_screening_exposes_measured_denominators_and_cutoffs(self):
+        def answer(item):
+            if item["id"] == "0":
+                return observation("truncated_empty")
+            if item["id"] == "1":
+                return observation("correct", cut_off=True, finish_reason="length")
+            return observation("unparsed")
+        data = datasets(5)
+        baseline = run(data, model=dict(MODEL, name="baseline"))
+        record = run(data, answer=answer, baseline=baseline)
+        pending = f.rank([record])[0]["pending"][0]
+        b = pending["benchmarks"][0]
+        self.assertEqual((b["planned"], b["attempted"], b["parsed"], b["unparsed"]), (5, 5, 1, 4))
+        self.assertEqual((b["cut_off"], b["truncations"]), (2, 1))
+        self.assertEqual(b["wrong"], 0)
+        self.assertEqual(b["stop_reason"], "complete")
+        self.assertTrue(pending["reasons"])
+        self.assertEqual(pending["created_at"], record["created_at"])
+        self.assertEqual(pending["baseline_id"], baseline["record_id"])
+        self.assertEqual(pending["baseline_comparison"], record["comparison"])
+        self.assertEqual(pending["baseline_comparison"]["arc"]["verdict"], "INCONCLUSIVE")
+        self.assertEqual(pending["baseline_comparison"]["arc"]["reason"], "incomplete pairs")
+
+    def test_bound_comparison_survives_missing_baseline_in_current_cohort(self):
+        baseline = run(model=dict(MODEL, name="baseline"))
+        candidate = run(model=dict(MODEL, name="candidate"), baseline=baseline)
+        row = f.rank([candidate])[0]["rows"][0]
+        self.assertEqual(row["baseline_id"], baseline["record_id"])
+        self.assertEqual(row["baseline_comparison"], candidate["comparison"])
+        self.assertEqual(row["baseline_comparison"]["arc"]["verification"], "VERIFIED")
+        self.assertEqual(row["baseline_comparison"]["arc"]["verdict"], "INCONCLUSIVE")
+        self.assertFalse(row["comparisons"])
+
+    def test_unknown_model_artifact_is_not_a_verified_pair(self):
+        first = run(model=dict(MODEL, name="first", file_sha256=None))
+        second = run(model=dict(MODEL, name="second"))
+        verdict, tests = f.pair_verdict(first, second)
+        self.assertEqual(verdict, "INCONCLUSIVE")
+        self.assertEqual(tests["arc"]["verification"], "UNVERIFIED")
+        self.assertIsNone(tests["arc"]["p_value"])
+        group = f.rank([first, second])[0]
+        self.assertEqual([r["model"] for r in group["rows"]], ["second"])
+        self.assertIn("candidate model artifact identity unknown", group["not_comparable"][0]["reasons"])
+
+    def test_same_model_name_with_changed_artifact_is_not_comparable(self):
+        baseline = run(answer=lambda item: ("A" if int(item["id"]) < 120 else "B", 1, 1))
+        candidate = run(model=dict(MODEL, file_sha256="b" * 64), baseline=baseline)
+        # The previously captured pair calculation must not become a claim after
+        # projection if the model name masks a changed model artifact.
+        self.assertEqual(candidate["comparison"]["arc"]["verdict"], "BETTER")
+        verdict, tests = f.pair_verdict(candidate, baseline)
+        self.assertEqual(verdict, "INCONCLUSIVE")
+        self.assertEqual(tests["arc"]["verification"], "UNVERIFIED")
+        self.assertIsNone(tests["arc"]["p_value"])
+        group = f.rank([candidate, baseline])[0]
+        self.assertTrue(all(row["verdict"] == "INCONCLUSIVE" for row in group["rows"]))
+        self.assertTrue(all(not row["comparisons"] for row in group["rows"]))
+        row = next(row for row in group["rows"] if row["record_id"] == candidate["record_id"])
+        self.assertEqual(row["baseline_comparison"]["arc"]["verdict"], "INCONCLUSIVE")
+        self.assertEqual(row["baseline_comparison"]["arc"]["verification"], "UNVERIFIED")
+        self.assertIn("same model name, different model artifact", group["not_comparable"][0]["reasons"])
+        baseline_row = next(row for row in group["rows"] if row["record_id"] == baseline["record_id"])
+        self.assertEqual(baseline_row["benchmarks"][0]["wrong"], 80)
 
     def test_incomplete_settings_cannot_support_a_paired_claim(self):
         baseline = run(runtime_settings={"seed": 42})
@@ -793,6 +888,10 @@ class FixRoundRegressions(unittest.TestCase):
         f.validate_record(rehash(unresolved))
         self.assertEqual(unresolved["comparison"]["arc"]["verification"], "UNVERIFIED")
         self.assertEqual(unresolved["comparison"]["arc"]["verdict"], "INCONCLUSIVE")
+        row = f.rank([unresolved])[0]["rows"][0]
+        self.assertEqual(row["baseline_id"], binding["record_id"])
+        self.assertEqual(row["baseline_comparison"]["arc"]["verification"], "UNVERIFIED")
+        self.assertEqual(row["baseline_comparison"]["arc"]["verdict"], "INCONCLUSIVE")
 
     def test_incomplete_pairs_report_counts(self):
         data = datasets(20)
