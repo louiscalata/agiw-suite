@@ -24,16 +24,16 @@ For setup or recovery of nearby headless machines, an [Openterface Mini-KVM](htt
 
 ## Share recovery settings
 
-The source contains no address or login name for the owner's actual PC. To configure the explicit Fix Route remount on a Mac, set both environment variables in the observer process environment before launch:
+The source contains no address or login name for the owner's actual PC. To let route diagnostics recognize the configured SMB hosts and account, set both environment variables in the observer process environment before launch:
 
 ```sh
-AGIW_SHARE_HOSTS='10.222.33.10,10.222.33.20,pc.example.invalid'
-AGIW_SHARE_USERNAME='registered-user'
+AGIW_SHARE_HOSTS='<primary-private-ipv4>,<secondary-private-ipv4>,<trusted-dns-name>'
+AGIW_SHARE_USERNAME='<smb-account>'
 ```
 
-Those addresses and the name are examples; replace them with the owner's actual LAN values. `AGIW_SHARE_HOSTS` accepts one or two numeric IPv4 addresses in the `10/8`, `172.16/12`, or `192.168/16` private ranges and optionally a third trusted DNS name or address for matching the mounted share. `AGIW_SHARE_USERNAME` is the registered SMB account; this repository stores no password. Guest and Anonymous are refused. If `login-agent.sh install` runs with both variables exported, it stores only these non-password settings in the private per-user LaunchAgent. A partial pair is refused. A share already mounted as Guest or from an unconfigured host is not treated as healthy; Fix Route stops without remounting it.
+These are placeholders, not valid configuration values; replace them with the configured SMB hosts and account. `AGIW_SHARE_HOSTS` accepts one or two numeric IPv4 addresses in the `10/8`, `172.16/12`, or `192.168/16` private ranges and optionally a third trusted DNS name or address for matching the mounted share. `AGIW_SHARE_USERNAME` is the registered SMB account; this repository stores no password. Guest and Anonymous are refused. If `login-agent.sh install` runs with both variables exported, it stores only these non-password settings in the private per-user LaunchAgent. A partial pair is refused. A share already mounted as Guest or from an unconfigured host is not treated as healthy; route recovery stops without remounting it.
 
-Remounting also requires `--l2-open` after verified L2 handover; the native launcher does not pass this flag.
+Route recovery requires `--l2-open` after verified L2 handover; the native launcher does not pass this flag. An unhealthy share requires manual recovery in Finder. The monitor never unmounts or remounts it.
 
 ## Memory readings for sandboxed callers
 

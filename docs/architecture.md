@@ -1,6 +1,6 @@
 # AGIW Suite architecture
 
-AGIW Suite's public application is **Inference Monitor**: a Swift menu-bar shell, a local Python observer and bundled web views. The native window opens `/monitor`, a map/details page that polls `/api/inference` every two seconds. The earlier dashboard remains served at `/`, with Browse, Core 6, Components, model controls and recovery controls. Public **Nisi 0.2.0** is included; the hosted **Jev connection check** is optional.
+AGIW Suite's public application is **Inference Monitor**: a Swift menu-bar shell, a local Python observer and bundled web views. The native window opens `/monitor`, a map/details page that polls `/api/inference` every two seconds. The Overview at `/` leads with the Fleet ledger, followed by attention reasons, controls and an optional collapsed map. Public **Nisi 0.2.0** is included; the hosted **Jev connection check** is optional.
 
 This guide describes the public repository. The downloadable **1.0.0 (7)** application was compiled from `caaa7d4`; later source and documentation commits do not change that binary. The Mac App Store application, external coding router and worker programs have separate implementation and acceptance boundaries.
 
@@ -64,7 +64,7 @@ Opening the application starts observation. It does not start a coding task, loa
 | HTTP and snapshot store | Loopback routes, atomic snapshot publication, event stream, action dispatch and shutdown | [server.py](../server.py) |
 | System and model observations | LM Studio inventory/activity, Mac resources, router and worker observations, and separate inference-map probes | [telemetry.py](../telemetry.py), [gpu_probe.py](../gpu_probe.py), [inference_collect.py](../inference_collect.py) |
 | Evidence readers | Change-driven overlays, sanitized run receipts, recorded client choices and local caller observations | [live_feed.py](../live_feed.py), [activity.py](../activity.py), [client_models.py](../client_models.py), [local_callers.py](../local_callers.py), [nisi_v02.py](../nisi_v02.py) |
-| Presentation | Native map/details page; earlier dashboard with evidence, activity and explicit action controls | [web/monitor.html](../web/monitor.html), [web/monitor.mjs](../web/monitor.mjs), [web/app.js](../web/app.js), [web/map-layout.mjs](../web/map-layout.mjs), [web/model-control-view.mjs](../web/model-control-view.mjs), [web/components.js](../web/components.js) |
+| Presentation | Native map/details page and Overview Fleet ledger with evidence, activity and explicit action controls | [web/monitor.html](../web/monitor.html), [web/monitor.mjs](../web/monitor.mjs), [web/app.js](../web/app.js), [web/map-layout.mjs](../web/map-layout.mjs), [web/model-control-view.mjs](../web/model-control-view.mjs), [web/components.js](../web/components.js) |
 | Resource management | Memory admission, registered-process pause/resume and optional idle-model unloading | [mem_guard.py](../mem_guard.py), [auto_unload.py](../auto_unload.py) |
 | Model operations | Exact model/instance selection, bounded CLI jobs and observed settlement | [model_control.py](../model_control.py), [durable_model_journal.py](../durable_model_journal.py) |
 | Recovery adapters | Bounded local-runtime, router, share and worker recovery; fixed worker probe | [online_code_repair.py](../online_code_repair.py), [windows_probe.py](../windows_probe.py) |
@@ -229,10 +229,10 @@ The GitHub edition's explicit check and the separate MAS edition's consent flow 
 
 ## 7. Recovery, workers and parallel work
 
-The **AGIW x ECI Model Tuning Tool** replaces Fix inference. The top-bar and inspector **Model tuning** buttons open the tool without dispatch; its **Run check** confirms and submits scope `all`: local runtime, Nisi and route checks. Recorded rankings at `/eci-tuning` link back to the check panel. The old names and control IDs remain deprecated compatibility hooks. Closing the panel does not cancel a running repair. Legacy scoped API callers remain supported. When L2 is open, the adapter records bounded steps and can report `ready`, `needs-action` or `error`; an action's name does not guarantee recovery.
+Recorded evaluation at `/eci-tuning` and repair are separate. Diagnostics reads cached observations when opened. To request a repair, choose Local runtime, Shared router and Windows route, or Nisi Inference, then review that target's effects and duration before confirming. HTTP repair routes accept only `local`, `route`, or `nisi`, with `reviewed: true`; bundled `all` and `both` scopes are rejected. Closing the panel does not cancel an operation. Native authorization, platform, L2, ownership and idle-state checks still apply. The old control IDs remain compatibility hooks. When L2 is open, the adapter records bounded steps and can report `ready`, `needs-action` or `error`; an action's name does not guarantee recovery.
 
 - **Local runtime:** start a stopped LM Studio server only after owner status and the fixed loopback port are checked and rechecked. A running-but-unreachable server is not replaced, and loaded models are preserved. Fresh inventory and activity are required to report readiness.
-- **Route/share:** use trusted owner commands and explicitly configured SMB host/account settings. Guest/Anonymous and ambiguous mounts are refused. Running or unresolved work blocks disruptive recovery. An exact retained Windows job can be reconciled; a timeout is not permission to resend it.
+- **Route/share:** use trusted owner commands and explicitly configured SMB host/account settings. Guest/Anonymous and ambiguous mounts are refused. Share recovery stays manual; the monitor never unmounts or remounts the share. Running or unresolved work blocks disruptive recovery. An exact retained Windows job can be reconciled; a timeout is not permission to resend it.
 - **Nisi:** check route/Nisi ownership, marker identity/age, idle model state, resident pair and optional external Jev configuration. Recovery acknowledgement must match fresh retained evidence. The bundled public demo and the private router recovery marker are separate state.
 - **Windows:** a configured recovery path can make one short fixed inference probe. Heartbeat/capability reads alone make no inference request. The returned job, response and timing establish only that probe.
 
@@ -265,7 +265,7 @@ The native app chooses its port. For source exploration, `python3 -B server.py -
 | Method | Route | Body / result |
 | --- | --- | --- |
 | GET | `/monitor` | Native window's map/details page |
-| GET | `/` | Earlier dashboard with Browse, Core 6, Components and action controls |
+| GET | `/` | Fleet ledger with machine/lane coverage, attention reasons, controls and an optional collapsed map |
 | GET | `/api/inference` | Inference map; 503 `status: starting` before it is available |
 | GET | `/api/snapshot` | Read-only export of the latest snapshot. See [below](#read-only-snapshot-export). |
 | GET | `/api/stream` | SSE snapshots, sequence IDs and heartbeat comments |
@@ -276,10 +276,10 @@ The native app chooses its port. For source exploration, `python3 -B server.py -
 | POST | `/api/components/nisi/check` | `{"action":"self-check"}` |
 | POST | `/api/components/jev/check` | `{"action":"connection-check"}` |
 | GET | `/api/online-code-mode/readiness` | Cached, read-only readiness observations from the current snapshot; POST is not routed (404) |
-| GET / POST | `/api/online-code-mode/repair` | Read recovery / `{"action":"check-and-repair"}` |
+| GET / POST | `/api/online-code-mode/repair` | Read recovery / `{"scope":"local","reviewed":true}`; scope may be `local`, `route`, or `nisi` |
 | GET | `/api/online-code-mode/entry` | Read retained recovery/diagnosis state in the Mac-owner context; POST is not routed |
-| GET / POST | `/api/online-code-mode/headless` | Read state / `{"action":"on"}` or `{"action":"off"}` |
-| GET / POST | `/api/eci-tuning/repair` | Read recovery without mutation / `{"scope":"all"}`; legacy `local`, `route`, `both`, `nisi` also accepted |
+| GET / POST | `/api/online-code-mode/headless` | Read state / `{"action":"on","reviewed":true}` or `{"action":"off","reviewed":true}` |
+| GET / POST | `/api/eci-tuning/repair` | Read recovery without mutation / `{"scope":"local","reviewed":true}`; scope may be `local`, `route`, or `nisi` |
 | GET / POST | `/api/inference/fix` | Deprecated alias to the same guarded tuning repair handler and scopes; Windows denies both repair routes |
 
 ### Read-only snapshot export

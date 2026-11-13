@@ -29,14 +29,14 @@ The app to install is **1.0.0 (7)** for Apple silicon, macOS 13 or later. It is 
 Requirements (Apple silicon, macOS 13 or later):
 
 - Python 3.9+ at `/opt/homebrew/bin/python3`, `/usr/local/bin/python3` or `/usr/bin/python3`. The last needs the Xcode Command Line Tools.
-- Optional: Node.js 22+ at `/opt/homebrew/bin/node` or `/usr/local/bin/node`, for the Nisi self-check. Nisi is the public workflow engine bundled with the app.
+- Optional: Apple-silicon (arm64) Node.js 22+ at `/opt/homebrew/bin/node` or `/usr/local/bin/node`, for the Nisi self-check. Nisi is the public workflow engine bundled with the app.
 - Model weights and services such as LM Studio are separate.
 
 1. Put the ZIP and `SHA256SUMS.txt` in one folder and run `shasum -a 256 -c SHA256SUMS.txt`. Expect `OK`.
 2. Extract the ZIP, quit any running copy of the app, and copy `Inference Monitor.app` into Applications.
 3. Open it (read the security warning above first). Click the chip icon in the menu bar for the compact monitor, or right-click it and choose **Open Dashboard Window**.
 4. Expect your LM Studio models and Mac memory readings. A reading that is missing or stale shows as unknown.
-5. Optional: **Browse → Nisi & optional components** runs Nisi's fixed offline self-check.
+5. Optional: open **Browse → Nisi & optional components**, then click **Run Nisi self-check** to run the fixed offline check.
 
 Next: [docs/activation.md](docs/activation.md) connects LM Studio, Nisi and Jev and sets up start at login.
 

@@ -66,8 +66,8 @@ print(json.dumps([valid, invalid]))
       const root = document.createElement('main');
       render(valid, root);
       assert.match(root.textContent, /configured dataset/);
-      const full = root.children.find(node => node.tag === 'section' && /baseline local protocol/.test(node.children[0].textContent));
-      const screen = root.children.find(node => node.tag === 'section' && /Fast screening.*fixture-machine-a/.test(node.children[0].textContent));
+      const full = root.children.find(node => node.tag === 'section' && /Baseline local protocol/.test(node.children[0].textContent));
+      const screen = root.children.find(node => node.tag === 'section' && /Screening results.*fixture-machine-a/.test(node.children[0].textContent));
       assert.ok(full); assert.ok(screen);
       assert.match(full.textContent, /llama-3\.1-8b-instruct-q4km-epoch-eci.*105\.38/);
       assert.match(screen.textContent, /synthetic candidate/);

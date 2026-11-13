@@ -2,12 +2,12 @@
   "schema": "agiw.jaryo.jev-phase-receipts.v1",
   "generated_pst": "2026-11-06 02:22 America/Los_Angeles",
   "integratedBy": "PR21 cloud writer copied this receipt. The machines were not probed again from this checkout.",
+  "publicationRedaction": "Per-machine machineId values were removed on 2026-11-13 before publication. No observation or result changed.",
   "cloud_note": "PR21 tests may pass monitor-tab unit tests; these are NOT Jev phase PASSes. unavailable/blocked ≠ pass.",
   "pass_claimed": false,
   "parallel": true,
   "machines": {
     "mac": {
-      "machineId": "96551fcd-ec3b-46ae-8687-cdf6bfda3e7e",
       "task_id": "jaryo-liveval-20261106-022202",
       "pre": {
         "result": "BLOCKED_NOT_RUN",
@@ -37,7 +37,6 @@
       }
     },
     "pc": {
-      "machineId": "cab24b61-79b1-4dae-8097-006acf68585f",
       "task_id": "jaryo-liveval-20261106-022221",
       "pre": {
         "result": "UNAVAILABLE_NOT_RUN",

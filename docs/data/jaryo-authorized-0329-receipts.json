@@ -6,12 +6,12 @@
   "quota_payment_topup": false,
   "repo_writes": false,
   "integratedBy": "PR21 cloud writer recorded this receipt. No new machine action, hosted probe, or rollback was performed here.",
+  "publicationRedaction": "Per-machine machineId values were removed on 2026-11-13 before publication. No observation or result changed.",
   "pass_claimed": false,
   "gate_open": false,
   "acceptance_observed": false,
   "mac_model_text": "OpenCode lfm3 analysis is advisory and contains stale runtime claims. Contemporaneous jev-task stdout and the PC verdict files are the phase evidence.",
   "mac": {
-    "machineId": "96551fcd-ec3b-46ae-8687-cdf6bfda3e7e",
     "task_id": "jaryo-auth0329-mac-20261106-033030",
     "phases": {
       "pre": {
@@ -58,7 +58,6 @@
     }
   },
   "pc": {
-    "machineId": "cab24b61-79b1-4dae-8097-006acf68585f",
     "task_id": "jaryo-auth0329-pc-20261106-033057",
     "watcher_started": {"pid": 25108, "health_pid": 30224, "via": "start-watcher.ps1 once"},
     "fresh_watcher_health_verified": false,

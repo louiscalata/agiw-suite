@@ -1,8 +1,8 @@
 # Two active machines, specialized roles
 
-**Scope change · 2026-10-25.** AGIW now runs on two machines only: the Apple-silicon MacBook Pro and the Windows PC. The Linux Mac Pro 5,1 is retired from AGIW (it is not an inference, review or coordinator node), and the Linux-specific rollout below is shelved. This change reports no new run and adds no readiness claim. Linux material on this page is kept as dated history. The file keeps its original name so existing links still work.
+**Scope change · 2026-10-25.** The AGIW two-machine plan covers the Apple-silicon Mac and the Windows PC. The Linux Mac Pro 5,1 is retired from AGIW (it is not an inference, review or coordinator node), and the Linux-specific rollout below is shelved. This change reports no new run and adds no readiness claim. Linux material on this page is kept as dated history. The file keeps its original name so existing links still work.
 
-**Current layout · 2026-10-26.** Do not install the Linux observer, the Linux coordinator, or PAIR. The live machines are the MacBook Pro and the Windows PC:
+**Recorded layout · 2026-10-26.** The two-machine plan excludes the Linux observer, the Linux coordinator and PAIR. The following ports describe that dated configuration; they do not establish which services or models are running today:
 
 | Service on the PC | Port |
 | --- | --- |
@@ -10,7 +10,7 @@
 | qwen3.8-27b | 1236 |
 | gpt-oss-20b | 1245 |
 
-The Mac's LM Studio serves gpt-oss-20b on 127.0.0.1:1234. The Mac reads the PC lanes through the SSH forwards in [inference-monitor.md](inference-monitor.md), not by opening those ports on the LAN.
+In that configuration, the Mac used LM Studio on loopback and read the PC lanes through the SSH forwards in [inference-monitor.md](inference-monitor.md). Current source observes the configured local endpoint and worker lanes. Opening the observer starts no model service and loads no model. See [configured machine lanes](three-machine-pipeline.md) for the optional registry.
 
 AGIW Suite is being developed to coordinate useful AI work across an Apple-silicon Mac and a Windows PC. Earlier plans also included a Linux Mac Pro. Each worker can use an appropriate local model; the workflow retains task results, quality checks and model-lifecycle evidence.
 
@@ -51,7 +51,7 @@ Arrows mean "depends on"; dashed arrows mark optional dependencies.
 
 Nisi v0.2 and Jev provide the workflow and task-analysis layer. In this withdrawn plan, NVIDIA PAIR could transport independent requests to eligible engines; it did not combine the computers' RAM or VRAM into one model. PAIR is uninstalled. The PC's two GPUs offer distinct placement options. Native admission and a measured workload must establish whether both can be used together for a given configuration.
 
-| Machine | Resources and intended role | Current connection and acceptance state |
+| Machine | Resources and intended role in the historical plan | Recorded connection and acceptance state · 16 October 2026 |
 | --- | --- | --- |
 | **Windows PC · two GPUs** | NVIDIA RTX 3080 Ti 12 GiB for CUDA; AMD RX 5700 XT 8 GiB for Vulkan. Specialized coding and fast advisory lanes. | One native Author sample and its owned cleanup passed. Central enrollment is **off**; complete four-role and dual-GPU routed acceptance remain open. |
 | **Linux Mac Pro 5,1 · retired 2026-10-25** | Dual Xeon X5675 CPUs; 12 physical / 24 logical cores; 128 GB installed RAM; RX 580 8 GiB. Samsung system SSD, separate NVMe workspace/cache and two HDD backup volumes. | Pinned SSH works after reboot without a desktop login. A transient background user service successfully opened the GPU render device, exited 0 and was collected, with zero inference calls. The old coordinator is disabled/inactive; the new service is **not installed**, with its source staged. Production inference before login remains unverified. |
@@ -85,7 +85,7 @@ The in-scope measurement is now a shared two-machine run on the Mac and the PC. 
 | Validated task rate and failure rate | **NOT MEASURED** |
 | Speedup against a defined baseline | **NOT MEASURED** |
 
-A shared benchmark follows service activation and role admission. It will use one controller's monotonic clock for dispatch and completion, prove overlapping generation intervals, and retain exact serving-machine/model attribution. Each node's output-token counts and generation time will be recorded beside task pass/fail results and verified model release.
+A shared benchmark would require service activation and role admission. It must use one controller's monotonic clock for dispatch and completion, prove overlapping generation intervals, and retain exact serving-machine/model attribution. Each node's output-token counts and generation time will be recorded beside task pass/fail results and verified model release.
 
 The cluster rate will be **total completed output tokens divided by the batch wall time**, reported separately from engine generation rates. Cold starts, queue time and retries must remain visible. No aggregate is published until that common run exists; unavailable values are `null` in the data.
 

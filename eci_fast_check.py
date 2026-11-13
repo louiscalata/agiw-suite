@@ -1478,6 +1478,17 @@ def pair_verdict(candidate, baseline, alpha="0.05"):
     validate_record(candidate)
     validate_record(baseline)
     tests = comparisons(candidate, baseline_snapshot(baseline), alpha)
+    if not candidate["model"]["file_sha256"] or not baseline["model"]["file_sha256"]:
+        for test in tests.values():
+            test.update(verdict="INCONCLUSIVE", verification="UNVERIFIED",
+                        reason="candidate model artifact identity unknown", p_value=None, p_exact=None)
+        return "INCONCLUSIVE", tests
+    if (candidate["model"]["name"] == baseline["model"]["name"] and
+            candidate["model"]["file_sha256"] != baseline["model"]["file_sha256"]):
+        for test in tests.values():
+            test.update(verdict="INCONCLUSIVE", verification="UNVERIFIED",
+                        reason="same model name, different model artifact", p_value=None, p_exact=None)
+        return "INCONCLUSIVE", tests
     # Every benchmark must have complete verified pairs, even where another wins.
     if any(
         t["verification"] != "VERIFIED" or t["reason"] == "incomplete pairs"
@@ -1486,6 +1497,62 @@ def pair_verdict(candidate, baseline, alpha="0.05"):
         return "INCONCLUSIVE", tests
     directions = {t["verdict"] for t in tests.values()} - {"INCONCLUSIVE"}
     return (next(iter(directions)) if len(directions) == 1 else "INCONCLUSIVE"), tests
+
+
+def screening_evidence(record):
+    """Project counts from validated observations, including incomplete runs."""
+    return [dict(
+        **{k: b[k] for k in ("benchmark", "planned", "attempted", "completed",
+                              "correct", "parsed", "truncations", "errors", "timeouts",
+                              "unknown_finish", "stop_reason", "normalized_score",
+                              "normalized_interval95", "accuracy", "interval95")},
+        unparsed=b["attempted"] - b["parsed"],
+        wrong=b["outcome_counts"]["wrong"],
+        cut_off=sum(o["cut_off"] for o in b["observations"]),
+    ) for b in record["benchmarks"]]
+
+
+def screening_baseline_evidence(record):
+    """Preserve bound results while withholding claims with unknown artifact identity."""
+    result = copy.deepcopy(record["comparison"])
+    binding = record["baseline"]
+    baseline = binding["record"] if binding else None
+    if (not record["model"]["file_sha256"] or
+            baseline is not None and not baseline["model"]["file_sha256"]):
+        for test in result.values():
+            test.update(verdict="INCONCLUSIVE", verification="UNVERIFIED",
+                        reason="candidate model artifact identity unknown", p_value=None, p_exact=None)
+    elif (baseline is not None and record["model"]["name"] == baseline["model"]["name"] and
+          record["model"]["file_sha256"] != baseline["model"]["file_sha256"]):
+        for test in result.values():
+            test.update(verdict="INCONCLUSIVE", verification="UNVERIFIED",
+                        reason="same model name, different model artifact", p_value=None, p_exact=None)
+    return result
+
+
+def screening_mismatches(first, second):
+    """Explain barriers between two validated screening records."""
+    reasons = []
+    if not hardware_known(first["hardware"]) or not hardware_known(second["hardware"]):
+        reasons.append("hardware profile unknown")
+    elif canonical(first["hardware"]) != canonical(second["hardware"]):
+        reasons.append("hardware profile differs")
+    if first["plan"]["plan_id"] != second["plan"]["plan_id"]:
+        reasons.append("frozen plan or dataset artifact differs")
+    if not settings_known(first["runtime_settings"]) or not settings_known(second["runtime_settings"]):
+        reasons.append("runtime settings unknown")
+    elif canonical(first["runtime_settings"]) != canonical(second["runtime_settings"]):
+        reasons.append("runtime settings differ")
+    if not first["model"]["file_sha256"] or not second["model"]["file_sha256"]:
+        reasons.append("candidate model artifact identity unknown")
+    elif (first["model"]["name"] == second["model"]["name"] and
+          first["model"]["file_sha256"] != second["model"]["file_sha256"]):
+        reasons.append("same model name, different model artifact")
+    if first["alpha"] != second["alpha"]:
+        reasons.append("alpha differs")
+    if any(first["post"]["inputs"][k] != second["post"]["inputs"][k] for k in STANDARD_POST):
+        reasons.append("admission policy differs")
+    return reasons
 
 
 def rank(records):
@@ -1522,10 +1589,18 @@ def rank(records):
     result = []
     for key, group in sorted(groups.items()):
         rows, pending, eligible = [], [], []
-        for record in group.pop("records"):
+        group_records = group.pop("records")
+        group["not_comparable"] = [
+            dict(record_id=record["record_id"], other_record_id=other["record_id"], reasons=reasons)
+            for record in group_records for other in records
+            if record["record_id"] != other["record_id"]
+            for reasons in [screening_mismatches(record, other)] if reasons
+        ]
+        for record in group_records:
             known = (
                 hardware_known(record["hardware"])
                 and settings_known(record["runtime_settings"])
+                and record["model"]["file_sha256"] is not None
                 and all(
                     b["normalized_score"] is not None and b["attempted"] == b["planned"]
                     for b in record["benchmarks"]
@@ -1543,7 +1618,12 @@ def rank(records):
                         label="fast check",
                         pre=record["pre"]["decision"],
                         post=record["post"]["decision"],
-                        reason="Not eligible: fit, admissibility, hardware, settings, complete coverage or normalized score is unknown or refused.",
+                        reason="Not eligible: fit, admissibility, hardware, model artifact, settings, complete coverage or normalized score is unknown or refused.",
+                        reasons=record["pre"]["reasons"] + record["post"]["reasons"],
+                        baseline_id=record["baseline"]["record_id"] if record["baseline"] else None,
+                        baseline_comparison=screening_baseline_evidence(record),
+                        created_at=record["created_at"],
+                        benchmarks=screening_evidence(record),
                     )
                 )
             else:
@@ -1553,6 +1633,7 @@ def rank(records):
                 (other, *pair_verdict(record, other, group["alpha"]))
                 for other in eligible
                 if other["record_id"] != record["record_id"]
+                and not screening_mismatches(record, other)
             ]
             ties = [
                 o["record_id"] for o, verdict, _ in tests if verdict == "INCONCLUSIVE"
@@ -1563,6 +1644,11 @@ def rank(records):
                 dict(
                     record_id=record["record_id"],
                     model=record["model"]["name"],
+                    artifact_sha256=record["model"]["file_sha256"],
+                    baseline_id=record["baseline"]["record_id"] if record["baseline"] else None,
+                    baseline_comparison=screening_baseline_evidence(record),
+                    created_at=record["created_at"],
+                    reasons=record["pre"]["reasons"] + record["post"]["reasons"],
                     quantization=record["model"]["quantization"],
                     label="fast check",
                     normalized_score=math.fsum(
@@ -1577,19 +1663,7 @@ def rank(records):
                         for i in (0, 1)
                     ],
                     interval_basis="mean of component Wilson 95% endpoints; not a joint 95% interval",
-                    benchmarks=[
-                        {
-                            k: b[k]
-                            for k in (
-                                "benchmark",
-                                "normalized_score",
-                                "normalized_interval95",
-                                "completed",
-                                "planned",
-                            )
-                        }
-                        for b in record["benchmarks"]
-                    ],
+                    benchmarks=screening_evidence(record),
                     tie_with=ties,
                     verdict="INCONCLUSIVE"
                     if ties or not tests
@@ -1600,7 +1674,7 @@ def rank(records):
                     full_run="NOT_RUN",
                     comparisons=[
                         dict(
-                            record_id=o["record_id"], verdict=verdict, benchmarks=detail
+                            record_id=o["record_id"], model=o["model"]["name"], verdict=verdict, benchmarks=detail
                         )
                         for o, verdict, detail in tests
                     ],
@@ -1626,12 +1700,12 @@ def rank(records):
             dict(
                 **group,
                 as_of=as_of,
-                title=f"Best model for this hardware as of {as_of}",
+                title=f"Screening results as of {as_of}",
                 label="fast check",
                 rows=rows,
                 pending=pending,
-                best_record_ids=[r["record_id"] for r in rows if r["finalist"]],
-                note="Provisional screening only. INCONCLUSIVE pairs are ties, not evidence of equivalence. Full ECI NOT_RUN.",
+                finalist_record_ids=[r["record_id"] for r in rows if r["finalist"]],
+                note="Provisional screening only. INCONCLUSIVE does not establish equivalence. Full ECI NOT_RUN.",
             )
         )
     return result

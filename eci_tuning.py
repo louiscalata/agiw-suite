@@ -27,6 +27,7 @@ SCORERS = ('strict_choice', 'lenient_v1', 'gsm_numeric_em')
 SETTINGS = ('temperature', 'max_tokens', 'ctx', 'n_gpu_layers', 'reasoning_budget',
             'stop', 'system_message', 'n_epochs', 'prompt_template_id', 'scorer_id')
 IDENTITY = ('quant', 'backend', 'backend_version', 'machine')
+COMPARISON_IDS = ('hardware_profile_id', 'dataset_artifact_id', 'model_artifact_id', 'settings_id')
 METRICS = ('latency_s', 'tokens_per_s', 'cost_usd', 'memory_bytes', 'peak_memory_bytes', 'gpu_memory_bytes')
 PROTOCOL_ALIASES = ('protocol_id', 'protocol')
 PROTOCOL_FIELDS = (*PROTOCOL_ALIASES, 'kind')
@@ -187,6 +188,8 @@ def normalize_run(row, hint=None, run_id=None):
         raise ValidationError('unknown run status')
     for key in IDENTITY:
         result[key] = text(row.get(key, row.get('host') if key == 'machine' else None), key)
+    for key in COMPARISON_IDS:
+        result[key] = text(row.get(key), key)
     if result['machine'] is not None:
         result['machine'] = result['machine'].lower()
     source_settings = row.get('settings') or {}
@@ -394,6 +397,56 @@ def overlap(a, b):
     return all(row.get(key) is not None for row in (a, b) for key in ('eci_p05', 'eci_p95')) and max(a['eci_p05'], b['eci_p05']) <= min(a['eci_p95'], b['eci_p95'])
 
 
+def compare_runs(a, b):
+    """Compare only recorded, explicitly identified evaluation conditions."""
+    reasons = []
+    for row in (a, b):
+        if row.get('status') != 'COMPUTED':
+            reasons.append(f'{row.get("run_id", "run")} ECI not computed')
+        if any(row.get(key) is None for key in ('eci_p05', 'eci_posterior_mean', 'eci_p95')):
+            reasons.append(f'{row.get("run_id", "run")} ECI interval unknown')
+    for field in ('comparability_class', 'hardware_profile_id', 'dataset_artifact_id',
+                  'protocol_id', 'settings_id', 'backend', 'backend_version'):
+        left, right = a.get(field), b.get(field)
+        if not left or not right:
+            reasons.append(f'{field} unknown')
+        elif left != right:
+            reasons.append(f'{field} differs')
+    if not a.get('model_artifact_id') or not b.get('model_artifact_id'):
+        reasons.append('model artifact identity unknown')
+    elif a.get('model') == b.get('model') and a['model_artifact_id'] != b['model_artifact_id']:
+        reasons.append('model artifact differs for the same model')
+    if a.get('settings') != b.get('settings'):
+        reasons.append('settings differ')
+    for key in SETTINGS:
+        if (a.get('settings') or {}).get(key) is None or (b.get('settings') or {}).get(key) is None:
+            reasons.append(f'settings.{key} unknown')
+    ac, bc = a.get('components') or {}, b.get('components') or {}
+    if not ac or not bc:
+        reasons.append('component set unknown')
+    elif set(ac) != set(bc):
+        reasons.append('component set differs')
+    for name in sorted(set(ac) & set(bc)):
+        for field in ('scorer_id', 'prompt_template_id'):
+            left, right = ac[name].get(field), bc[name].get(field)
+            if not left or not right:
+                reasons.append(f'{name} {field} unknown')
+            elif left != right:
+                reasons.append(f'{name} {field} differs')
+        if not ac[name].get('admitted') or not bc[name].get('admitted'):
+            reasons.append(f'{name} not admitted')
+    if any((row.get('diagnostics') or {}).get('status') != 'PASS' for row in (a, b)):
+        reasons.append('diagnostics not PASS')
+    if reasons:
+        uncertainty = 'Not comparable; no winner established.'
+    elif overlap(a, b):
+        uncertainty = '90% posterior intervals overlap; no clean winner.'
+    else:
+        uncertainty = '90% posterior intervals do not overlap; causal superiority is not established.'
+    return {'left_run_id': a['run_id'], 'right_run_id': b['run_id'],
+            'comparable': not reasons, 'reasons': reasons, 'uncertainty': uncertainty}
+
+
 def performance(rows, items, metric):
     """Measured run metric or item mean, with its denominator; no imputed values."""
     measured, unknown = [], []
@@ -411,7 +464,7 @@ def performance(rows, items, metric):
             measured.append({'run_id': row['run_id'], 'model': row['model'], metric: value,
                              'measurement': {'basis': basis, 'n_measured': count, 'n_items': len(observed) or None},
                              'status': row['status']})
-    return sorted(measured, key=lambda row: row[metric]), unknown
+    return measured, unknown
 
 
 def rank(data):
@@ -419,12 +472,22 @@ def rank(data):
     # Apply the provenance barrier here too; recommend/apply both use rank.
     validate_eci_provenance(data, dedicated_fast_checks=True)
     result = {}
+    computed_all = [row for row in data['runs'] if row['status'] == 'COMPUTED' and row['eci_posterior_mean'] is not None]
+    comparisons = [compare_runs(a, b) for index, a in enumerate(computed_all) for b in computed_all[index + 1:]]
     for label in CLASSES:
         rows = [row for row in data['runs'] if row['comparability_class'] == label]
-        computed = sorted((row for row in rows if row['status'] == 'COMPUTED' and row['eci_posterior_mean'] is not None),
-                          key=lambda row: -row['eci_posterior_mean'])
-        notes = [f'{a["run_id"]} / {b["run_id"]}: 90% CIs overlap; no clean winner.' for index, a in enumerate(computed)
-                 for b in computed[index + 1:] if overlap(a, b)]
+        computed = []
+        for row in rows:
+            if row['status'] != 'COMPUTED' or row['eci_posterior_mean'] is None:
+                continue
+            row = copy.deepcopy(row)
+            observed = [item for item in data.get('items', []) if item['run_id'] == row['run_id']]
+            row['item_evidence'] = {'observed': len(observed) if observed else None,
+                                    'truncated': sum(item['truncated'] is True for item in observed) if observed else None,
+                                    'truncation_unknown': sum(item['truncated'] is None for item in observed) if observed else None,
+                                    'missing_parsed_answer': sum(item['parsed_answer'] in (None, '') for item in observed) if observed else None}
+            computed.append(row)
+        notes = ['Recorded evidence only; class membership alone does not establish comparability.']
         if len(computed) == 1:
             notes.append('Only one computed ECI in this class; no overall winner established.')
         for row in computed:
@@ -440,7 +503,8 @@ def rank(data):
         latency, unknown_latency = performance(rows, data.get('items', []), 'latency_s')
         cost, unknown_cost = performance(rows, data.get('items', []), 'cost_usd')
         result[label] = {'eci': computed, 'notes': sorted(set(notes)),
-                         'components': {key: sorted(values, key=lambda r: -r['score']) for key, values in component_ranks.items()},
+                         'comparisons': [pair for pair in comparisons if pair['left_run_id'] in {row['run_id'] for row in rows}],
+                         'components': component_ranks,
                          'latency': latency, 'cost': cost,
                          'unknown_latency': unknown_latency, 'unknown_cost': unknown_cost}
     # This key has no ECI/components lists and is intentionally outside CLASSES.
@@ -449,15 +513,11 @@ def rank(data):
 
 
 def recommend(data):
-    eligible = [row for row in rank(data)['baseline_protocol']['eci']
-                if (row['machine'] or '').lower() == 'pc' and row['diagnostics']['status'] == 'PASS']
-    chosen = eligible[0] if eligible else None
-    route = {'model': chosen['model'] if chosen else None, 'machine': 'pc',
-             'run_id': chosen['run_id'] if chosen else None,
-             'status': 'PROVISIONAL' if chosen else 'NOT_COMPUTED',
-             'confidence': 'low-to-moderate' if chosen else 'unknown',
-             'eci': [chosen[k] for k in ('eci_posterior_mean', 'eci_p05', 'eci_p95')] if chosen else None,
-             'basis': 'Highest available baseline local ECI; task-specific routing outcomes NOT_MEASURED. CI overlap is not a clean win.'}
+    validate_eci_provenance(data, dedicated_fast_checks=True)
+    # There is no selected target/profile or validated decision rule in this API.
+    route = {'model': None, 'machine': None, 'run_id': None,
+             'status': 'NOT_COMPUTED', 'confidence': 'unknown', 'eci': None,
+             'basis': 'No target profile and validated selection rule supplied; task-specific routing outcomes NOT_MEASURED.'}
     return {'schema_version': 1, 'routes': {task: copy.deepcopy(route) for task in ('general', 'reasoning', 'coding')},
             'nisi_mac': {'status': 'NOT_APPLIED', 'author': None, 'reviewer': None,
                          'requires': 'Two distinct LLMs already resident in Mac LM Studio; no PC artifact.'},
@@ -496,7 +556,7 @@ def apply_policy(data, target, write=False):
         raise ValidationError('policy must be an object')
     proposed = recommend(data)
     if not proposed['routes']['general']['model']:
-        raise ValidationError('no computed baseline PC model with passing diagnostics; policy unchanged')
+        raise ValidationError('no evidence-backed recommendation; policy unchanged')
     existing_routes = policy.get('routes', {})
     if not isinstance(existing_routes, dict):
         raise ValidationError('routes must be an object')
@@ -546,18 +606,16 @@ def status(data=None):
                 return {'status': 'unknown', 'dataset': {'status': 'unknown', 'reason': 'Configured dataset could not be read.'}}
             except (ValueError, TypeError, KeyError, AttributeError, IndexError):
                 return {'status': 'unknown', 'dataset': {'status': 'unknown', 'reason': 'Configured dataset is invalid; check normalized dataset schema and records.'}}
-    overlaps = [f'{a["run_id"]} / {b["run_id"]}: 90% CIs overlap; no clean improvement.'
-                for a in data['runs'] for b in data['runs']
-                if a['comparability_class'] == 'baseline_protocol' and b['comparability_class'] == 'pipeline_configured'
-                and a['model'] == b['model'] and overlap(a, b)]
     policy = read_policy()
-    public_policy = {'routes': {task: {key: route.get(key) for key in ('model', 'machine', 'status', 'confidence', 'eci')}
+    public_policy = {'origin': 'saved' if policy_path().exists() else 'bundled reference',
+                     'routes': {task: {key: route.get(key) for key in ('model', 'machine', 'status', 'confidence', 'eci', 'run_id', 'basis')}
                                for task, route in policy['routes'].items() if task in ('general', 'reasoning', 'coding') and isinstance(route, dict)},
                      'runtime_activation': 'NOT_APPLIED', 'nisi_mac': {'status': 'NOT_APPLIED'}}
     return {'name': 'AGIW x ECI Model Tuning Tool', 'schema_version': 1, 'dataset': dataset,
             'rankings': rank(data), 'recommendation': recommend(data),
-            'policy': public_policy, 'pending': [r for r in data['runs'] if r['status'] != 'COMPUTED' or r['eci_posterior_mean'] is None],
-            'cross_class_note': 'Comparability classes are separate. Published Epoch scores belong to different artifacts. ' + ' '.join(overlaps)}
+            'policy': public_policy, 'runtime_activation': {'status': 'NOT_APPLIED', 'source_run_id': None},
+            'pending': [r for r in data['runs'] if r['status'] != 'COMPUTED' or r['eci_posterior_mean'] is None],
+            'cross_class_note': 'Comparability classes are separate. Published Epoch scores belong to different artifacts.'}
 
 
 def main(argv=None):
