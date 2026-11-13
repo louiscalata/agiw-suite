@@ -1,4 +1,5 @@
 import * as fleet from './web/fleet-state.mjs';
+import {harness} from './test_support/monitor-harness.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
@@ -52,24 +53,21 @@ test('the actual control panel displays the settlement explanation', () => {
 });
 
 test('closing an inspector-only target restores its sidebar button and opens compact Browse', () => {
-  const app = readFileSync(new URL('./web/app.js', import.meta.url), 'utf8');
-  const close = app.split('\n').find(line => line.startsWith('function closeDrawer('));
-  const key = 'model:mac:vendor/path["quoted"]', focused = [], opened = [];
-  const button = {dataset: {key}, focus: () => focused.push('sidebar item')};
-  const toggle = {focus: () => focused.push('Browse')}, drawer = {};
-  const context = {selected: key, inspectorNode: key, userCamera: true, nodeElements: new Map(),
-    $: id => id === 'drawer' ? drawer : id === 'list' ? {querySelectorAll: () => [button]} : toggle,
-    renderGraph() {}, renderList() {}, fitMap() {}, dockedSidebar: () => false,
-    setSidebarOpen: value => opened.push(value)};
-  vm.runInNewContext(close + '\ncloseDrawer();', context);
-  assert.deepEqual(focused, ['sidebar item']);
-  assert.deepEqual(opened, [true]);
-  assert.equal(drawer.hidden, true);
-  assert.equal(context.selected, null);
-  focused.length = 0;
-  context.selected = 'filtered-away';
-  vm.runInNewContext(close + '\ncloseDrawer();', context);
-  assert.deepEqual(focused, ['Browse']);
+  const h = harness({width: 375});
+  const key = 'model:mac:vendor/path["quoted"]';
+  const button = h.doc.createElement('button'); button.dataset.key = key;
+  h.$('runtimeSidebar').append(h.$('list'));
+  h.$('list').append(button);
+  h.api.stubMapFocus(key, null);
+  h.$('drawer').focus();
+  h.api.closeDrawer();
+  assert.equal(h.doc.activeElement, button);
+  assert.equal(h.doc.body.classList.contains('sidebar-open'), true);
+  assert.equal(h.$('drawer').hidden, true);
+  assert.equal(h.api.selected, null);
+  h.api.stubMapFocus('filtered-away', null);
+  h.api.closeDrawer();
+  assert.equal(h.doc.activeElement, h.$('sidebarToggle'));
 });
 
 function reviewedRepairHarness() {

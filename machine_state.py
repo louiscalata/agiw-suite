@@ -7,6 +7,8 @@ import math
 
 CLOCK_SKEW_SECONDS = 1.0  # matches the browser run-evidence views; never extends the expiry window
 FRESH_SECONDS = {"mac": 3.0, "windows": 30.0, "linux": 30.0}
+# Shared presence readers tolerate at most this much clock lead, in seconds.
+PEER_FUTURE_SKEW = 2.0
 TRUST_LEVELS = {"local", "authenticated", "share-reported", "unverified"}
 UNKNOWN_REASONS = frozenset({
     "not_observed", "unavailable", "timeout", "refused", "non_json", "oversize",
@@ -64,7 +66,7 @@ def machine_summary(host, platform, report=None, *, now, trust="unverified", rea
         row["reasonCode"] = reason if reason in UNKNOWN_REASONS else "unavailable"
     elif platform is None or age is None or not finite_number(now):
         row["reasonCode"] = "schema_invalid"
-    elif age < -2:
+    elif age < -PEER_FUTURE_SKEW:
         row["reasonCode"] = "clock_skew"
     elif age > row["freshForSeconds"]:
         row["reasonCode"] = "stale"
@@ -195,7 +197,7 @@ def expire_machines(rows, now):
         # A row built with its own window (a remote report) is aged by that window, not the platform's.
         own = row.get("freshForSeconds")
         limit = own if finite_number(own) and own > 0 else FRESH_SECONDS.get(platform_name(row.get("platform")))
-        reason = ("schema_invalid" if age is None or limit is None else "clock_skew" if age < -2
+        reason = ("schema_invalid" if age is None or limit is None else "clock_skew" if age < -PEER_FUTURE_SKEW
                   else "stale" if age > limit else None)
         if row.get("state") != "unknown" and reason:
             row.update(state="unknown", reasonCode=reason, modelsComplete=False, loadedCount=None,

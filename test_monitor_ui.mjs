@@ -58,6 +58,9 @@ class FakeElement {
     let scroller = this; while (scroller && !scroller.scroller) scroller = scroller.parentNode;
     (scroller || this).scrollTop = 0; this.append(...nodes);
   }
+  get parentElement() { return this.parentNode; }
+  get isConnected() { return this.doc.body.contains(this); }
+  getClientRects() { return [this.getBoundingClientRect()]; }
   get lastElementChild() { return this.children.at(-1) || null; }
   contains(node) { for (let n = node; n; n = n.parentNode) if (n === this) return true; return false; }
   matches(selector) { return selector.startsWith('.') ? this.classList.contains(selector.slice(1)) : this.tagName === selector.toUpperCase(); }
@@ -70,7 +73,7 @@ class FakeElement {
   setAttribute(name, value) { this.attributes[name] = String(value); }
   getAttribute(name) { return this.attributes[name] ?? null; }
   addEventListener(type, listener) { (this.listeners[type] ||= []).push(listener); }
-  click() { for (const listener of this.listeners.click || []) listener({ target: this }); }
+  click() { for (const listener of this.listeners.click || []) listener({ target: this, currentTarget: this }); }
   getBoundingClientRect() { return { left: 0, top: 0, right: 820, bottom: 604, width: 820, height: 604 }; }
 }
 
@@ -1441,8 +1444,8 @@ test('Orb web: nothing travels along a thread; reduced motion, pause and a stale
 });
 
 test('Orb web: click, tap, Enter and Space on a star select it and poke the web exactly once', () => {
-  assert.match(appSource, /g\.addEventListener\('click',\(\)=>\{if\(!justDragged\)\{nodeSelect\(n\.id\);pokeWeb\(n\.id\);\}\}\);/);
-  assert.match(appSource, /if\(e\.key==='Enter'\|\|e\.key===' '\)\{e\.preventDefault\(\);nodeSelect\(n\.id\);pokeWeb\(n\.id\);\}/);
+  assert.match(appSource, /g\.addEventListener\('click',event=>\{if\(!justDragged\)\{nodeSelect\(n\.id,event\.currentTarget\);pokeWeb\(n\.id\);\}\}\);/);
+  assert.match(appSource, /if\(e\.key==='Enter'\|\|e\.key===' '\)\{e\.preventDefault\(\);nodeSelect\(n\.id,e\.currentTarget\);pokeWeb\(n\.id\);\}/);
   assert.equal((appSource.match(/pokeWeb\(n\.id\)/g) || []).length, 2);
 });
 
@@ -2089,7 +2092,8 @@ test('Memory: the map banner shows for tight and critical only, is dismissible u
   tick('tight');
   // Dismissed: hidden for tight, focus moves to the This Mac chip; a flap at the threshold never brings it back.
   api.dismissMemoryBanner();
-  assert.deepEqual([banner.hidden, api.memoryDismissed.level, doc.activeElement], [true, 'tight', $('vitalMac')]);
+  assert.deepEqual([banner.hidden, api.memoryDismissed.level], [true, 'tight']);
+  assert.ok(doc.activeElement === $('vitalMac'), 'memory dismissal restores the visible Mac chip');
   flap(12);
   assert.equal(banner.hidden, true);
   tick('tight');
@@ -2144,7 +2148,6 @@ test('Memory: the map banner shows for tight and critical only, is dismissible u
   // Compact: the banner leaves the layout with the status chips while the bottom sheet is open.
   assert.match(css, /body:has\(\.evidence-rail>:not\(\[hidden\]\)\) #mapHeading\{display:none\}/);
   assert.ok(rules.some(([media, head, body]) => /max-width:\s*820px/.test(media) && head === 'body:has(.evidence-rail>:not([hidden])) #memoryBanner' && /display:none/.test(body)));
-  assert.match(appSource, /chip\.focus\(\{preventScroll:true\}\);if\(document\.activeElement!==chip\)\$\('map'\)\.focus\(\{preventScroll:true\}\);/);
 });
 
 // Router concurrency P2 (spec 6.13), 27 Sep 2026: several routed tasks at once, run against the fake DOM.

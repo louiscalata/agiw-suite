@@ -75,6 +75,190 @@ test('the Fleet ledger precedes attention, controls and the initially collapsed 
   assert.doesNotMatch(html, /LOCAL RUNTIME|id="headline"[^>]*>Fleet/);
 });
 
+for (const width of [375, 1280]) {
+  for (const open of [false, true]) {
+    // Model native disclosure focus rules, which the small DOM harness does not
+    // otherwise simulate. Both targets really live inside fleetMap in index.html.
+    const focusFixture = () => {
+      const h = harness({width});
+      const map = h.$('fleetMap'); map.open = open;
+      const node = h.doc.createElement('button');
+      map.append(node, h.$('vitalMac'), h.$('map'), h.$('sidebarToggle'));
+      for (const target of map.children) target.focus = () => {if (map.open) h.doc.activeElement = target;};
+      return {...h, node};
+    };
+    test(`closing the inspector restores visible focus with map open=${open} at ${width}px`, () => {
+      const h = focusFixture();
+      h.api.stubMapFocus('sample-node', h.node);
+      h.$('drawer').hidden = false;
+      h.$('drawer').focus();
+      h.api.closeDrawer();
+      assert.equal(h.$('drawer').hidden, true);
+      assert.equal(h.doc.activeElement, open ? h.node : h.$('fleetOverview'));
+      assert.equal(h.$('fleetMap').open, open, 'restoring focus does not open the map');
+    });
+    test(`dismissing memory restores visible focus with map open=${open} at ${width}px`, () => {
+      const h = focusFixture();
+      h.$('memoryBannerDismiss').focus();
+      h.api.dismissMemoryBanner();
+      assert.equal(h.doc.activeElement, open ? h.$('vitalMac') : h.$('fleetOverview'));
+      assert.equal(h.$('fleetMap').open, open);
+    });
+    test(`closing a removed selection restores visible focus with map open=${open} at ${width}px`, () => {
+      const h = focusFixture();
+      h.api.stubMapFocus('removed-node', null);
+      h.$('drawer').focus();
+      h.api.closeDrawer();
+      assert.equal(h.doc.activeElement, open ? h.$('sidebarToggle') : h.$('fleetOverview'));
+    });
+  }
+}
+
+for (const width of [375, 1280]) {
+  const drawerFixture = () => {
+    class Clock extends Date {static now() {return fixture.now * 1000;}}
+    const h = harness({width, extra: {Date: Clock}, legacyDetails: true});
+    h.doc.body.classList.add('fleet-ledger');
+    h.$('runtimeSidebar').append(h.$('list'));
+    h.$('memoryBanner').append(h.$('memoryBannerDetails'));
+    h.$('memoryBanner').hidden = false;
+    h.$('fleetMap').open = false;
+    h.api.setFeed({...sample(), models: [{id: 'qwen3', host: 'mac', source: 'lmstudio-api', state: 'idle', loaded: true}]});
+    h.api.stubDrawerGeometry();
+    h.api.select('runtime');
+    h.api.renderList();
+    return h;
+  };
+  test(`closed-map drawer returns to the visible list opener after its DOM is rebuilt at ${width}px`, () => {
+    const h = drawerFixture();
+    const opener = h.$('list').querySelector('button[data-key]');
+    assert.ok(opener, 'a real rendered sidebar button exists');
+    const key = opener.dataset.key;
+    const hiddenNode = h.doc.createElement('button'); h.$('fleetMap').append(hiddenNode);
+    h.api.mountMapNode(key, hiddenNode);
+    opener.click();
+    h.$('drawer').focus();
+    h.api.closeDrawer();
+    const restored = h.$('list').querySelectorAll('button[data-key]').find(button => button.dataset.key === key);
+    assert.equal(opener.isConnected, false, 'renderList replaced the original opener');
+    assert.ok(h.doc.activeElement === restored, 'focus returns to the current list button');
+    assert.ok(h.doc.activeElement !== hiddenNode, 'collapsed SVG never receives focus');
+    assert.equal(h.$('fleetMap').open, false);
+  });
+  test(`drawer fallback uses the run-list invoker key instead of its prefixed graph ID at ${width}px`, () => {
+    const h = drawerFixture();
+    h.api.setFeed({...sample(), activity: {runs: [{runId: 'focus-run', source: 'router-archive', status: 'completed', ageSeconds: 1, calls: []}]}});
+    h.api.setTraceView(); h.api.renderList();
+    const opener = h.$('list').querySelector('button[data-key]');
+    opener.click();
+    assert.equal(h.api.selected, 'run:' + opener.dataset.key);
+    assert.equal(opener.isConnected, false);
+    h.$('drawer').focus(); h.api.closeDrawer();
+    const restored = h.$('list').querySelectorAll('button[data-key]').find(button => button.dataset.key === opener.dataset.key);
+    assert.ok(h.doc.activeElement === restored, 'list focus follows the original run invoker key');
+  });
+  for (const invokerKind of ['none', 'map node']) {
+    test(`closed-map run drawer finds its list button with ${invokerKind} as invoker at ${width}px`, () => {
+      const h = drawerFixture();
+      const run = {runId: 'map-run', source: 'router-archive', status: 'completed', ageSeconds: 1, calls: []};
+      h.api.setFeed({...sample(), activity: {runs: [run]}});
+      h.api.setTraceView(); h.api.renderList();
+      const key = h.$('list').querySelector('button[data-key]').dataset.key;
+      const mapNode = h.doc.createElement('button'); h.$('fleetMap').append(mapNode);
+      h.api.mountMapNode('run:' + key, mapNode);
+      h.$('fleetMap').open = true;
+      h.api.selectRun(run, invokerKind === 'none' ? null : mapNode);
+      assert.equal(h.api.selected, 'run:' + key);
+      h.$('fleetMap').open = false;
+      h.$('drawer').focus(); h.api.closeDrawer();
+      const restored = h.$('list').querySelectorAll('button[data-key]').find(button => button.dataset.key === key);
+      assert.ok(h.doc.activeElement === restored, 'a run without an invoker key still returns to its list button');
+      assert.equal(h.$('fleetMap').open, false);
+    });
+  }
+  test(`closed-map drawer returns to the memory banner Details invoker at ${width}px`, () => {
+    const h = drawerFixture();
+    const details = h.$('memoryBannerDetails');
+    const hiddenNode = h.doc.createElement('button'); h.$('fleetMap').append(hiddenNode);
+    h.api.mountMapNode('runtime', hiddenNode);
+    // Simulate a mouse click that does not focus its button (as on macOS).
+    h.api.openMemoryDetails({currentTarget: details});
+    h.$('drawer').focus();
+    h.api.closeDrawer();
+    assert.ok(h.doc.activeElement === details, 'focus returns to the visible memory Details button');
+    assert.equal(h.$('fleetMap').open, false);
+  });
+  test(`drawer retains a connected visible chip invoker and skips a subsequently hidden invoker at ${width}px`, () => {
+    const h = drawerFixture();
+    const chip = h.doc.createElement('button'); h.doc.body.append(chip);
+    h.api.nodeSelect('runtime', chip);
+    h.$('drawer').focus(); h.api.closeDrawer();
+    assert.ok(h.doc.activeElement === chip, 'focus returns to the visible chip');
+    h.api.nodeSelect('runtime', chip);
+    chip.hidden = true;
+    h.$('sidebarToggle').hidden = true;
+    h.$('drawer').focus(); h.api.closeDrawer();
+    assert.ok(h.doc.activeElement === h.$('fleetOverview'), 'focus falls back to the ledger after hidden candidates');
+  });
+}
+
+for (const width of [375, 1280]) {
+  // Registry mode: the fleet-map list is the visible map opener, and every
+  // snapshot replaces its buttons.
+  const fleetMapFixture = () => {
+    class Clock extends Date {static now() {return fixture.now * 1000;}}
+    const h = harness({width, extra: {Date: Clock}});
+    h.doc.body.classList.add('fleet-ledger');
+    const map = h.$('fleetMap');
+    map.append(h.$('fleetMapList'), h.$('sidebarToggle'));
+    map.open = true;
+    h.api.setFeed(sample());
+    h.api.stubDrawerGeometry();
+    h.api.renderRegistryTable();
+    const buttons = () => h.$('fleetMapList').querySelectorAll('button');
+    return {...h, map, buttons, current: key => buttons().find(button => button.dataset.node === key)};
+  };
+  for (const kind of ['machine', 'lane']) {
+    const pick = h => h.buttons().find(button => button.dataset.node.includes(':layout-') === (kind === 'lane'));
+    test(`expanded-map drawer returns to the re-rendered fleet-map ${kind} button at ${width}px`, () => {
+      const h = fleetMapFixture();
+      const opener = pick(h), key = opener.dataset.node;
+      opener.focus(); opener.click();
+      h.$('drawer').focus();
+      h.api.renderRegistryTable();
+      assert.equal(opener.isConnected, false, 'the background refresh replaced the opener');
+      assert.ok(h.doc.activeElement === h.$('drawer'), 'a background refresh does not take focus from the drawer');
+      h.api.closeDrawer();
+      assert.ok(h.doc.activeElement === h.current(key), 'focus returns to the current button for the same node');
+      assert.equal(h.map.open, true);
+    });
+    test(`closing by mouse keeps focus on the re-rendered fleet-map ${kind} button at ${width}px`, () => {
+      const h = fleetMapFixture();
+      const opener = pick(h), key = opener.dataset.node;
+      opener.focus(); opener.click();
+      h.api.renderRegistryTable();
+      assert.ok(h.doc.activeElement === h.current(key), 'the refresh keeps focus on the same node');
+      h.api.closeDrawer();
+      assert.ok(h.doc.activeElement === h.current(key), 'closing does not pull focus away');
+    });
+    test(`collapsed-map drawer opened from a fleet-map ${kind} button returns to the ledger at ${width}px`, () => {
+      const h = fleetMapFixture();
+      const opener = pick(h);
+      opener.focus(); opener.click();
+      h.$('drawer').focus();
+      h.api.renderRegistryTable();
+      h.map.open = false;
+      h.api.closeDrawer();
+      assert.ok(h.doc.activeElement === h.$('fleetOverview'), 'no control inside the collapsed map receives focus');
+      assert.equal(h.map.open, false, 'restoring focus does not open the map');
+    });
+  }
+}
+
+test('the ledger can receive programmatic return focus without adding a tab stop', () => {
+  assert.match(html, /<section\b[^>]*id="fleetOverview"[^>]*tabindex="-1"/);
+});
+
 test('every configured lane has its own semantic row, grouped under a machine with endpoint age and reasons', () => {
   class Clock extends Date {static now() {return fixture.now * 1000;}}
   const h = harness({extra: {Date: Clock}});

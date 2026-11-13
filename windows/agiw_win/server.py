@@ -766,6 +766,29 @@ def observer_options(config: Any, *, publish_status: bool = False, peer_link: bo
             "peerLinkStatus": config.get("peerLinkStatus") is True}
 
 
+def reload_sources(here: Path) -> list[Path]:
+    """Watch installed Python sources and the checkout's shared runtime modules."""
+    sources = set(here.glob("*.py"))
+    entry_point = here.parent / "agiw_observer.py"
+    if entry_point.is_file():
+        sources.add(entry_point)
+    if _INFERENCE_ROOT is not None:
+        if _INFERENCE_ROOT == here.parent:
+            sources.update(_INFERENCE_ROOT.glob("*.py"))
+        else:
+            # The checkout root also holds the Mac server and tests; watch only imported shared code.
+            for module in tuple(sys.modules.values()):
+                filename = getattr(module, "__file__", None)
+                if filename:
+                    path = Path(filename).resolve()
+                    if path.parent == _INFERENCE_ROOT and path.suffix == ".py":
+                        sources.add(path)
+            # These modules are imported only when a peer-link operation needs them.
+            sources.update(path for name in ("peer_link.py", "peer_feed.py")
+                           if (path := _INFERENCE_ROOT / name).is_file())
+    return sorted(sources)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="AGIW Inference Monitor · Windows observer")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
@@ -861,10 +884,10 @@ def main(argv: list[str] | None = None) -> int:
     # restart; the tray starts the new code within its backoff (exit code 3 marks it as an update).
     reload_code = {"value": 0}
     if args.parent_pid:
-        sources = sorted(here.glob("*.py"))
+        sources = reload_sources(here)
         def fingerprint():
             try:
-                return tuple((p.name, p.stat().st_mtime_ns, p.stat().st_size) for p in sources)
+                return tuple((str(p), p.stat().st_mtime_ns, p.stat().st_size) for p in sources)
             except OSError:
                 return None
         baseline = fingerprint()

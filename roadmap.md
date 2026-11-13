@@ -1,5 +1,19 @@
 # AGIW Suite roadmap and release evidence
 
+## Drawer focus restoration — 13 November 2026
+
+- [x] Preserve the actual drawer invoker from sidebar, map, registry/vital chip and memory Details actions. Restore a connected visible invoker; when Show map is closed, skip its SVG targets and use the current matching sidebar button before the Fleet ledger fallback. Hidden, inert, disabled and detached candidates are excluded.
+- [x] Keep the Fleet ledger programmatically focusable without adding a tab stop. Cover collapsed and expanded maps, removed selections, memory dismissal, real list-button replacement, fleet-map buttons replaced by a background refresh, run selections opened without a list invoker key, Details clicks that do not focus the button, and hidden chip invokers at 375 and 1280 px.
+- [x] The full Node and Python root suites and the focused production-DOM tests pass on the rebased tree; Python skips are limited to absent legacy-router fixtures, native Windows cases and an unset wrapper archive. Exact counts are in the pull request. App syntax and whitespace checks passed. Browser rendering and native keyboard/accessibility review remain NOT_RUN.
+
+## Windows edition accuracy — 13 November 2026
+
+- [x] Confirm the five assigned audit findings against the current source. Watch installed root Python modules and the observer entry point as well as package sources; keep checkout watches limited to runtime dependencies. Copied-install regressions reproduce the missing reloads before the fix and verify exit code 3 afterward.
+- [x] Document bytecode-free Python commands and execution-policy bypass. The installer's pre-update check tolerates timestamp-validated `.pyc` files in `__pycache__` beside shipped Python modules while retaining path, link and permission checks and refusing unexpected code or directories. It refuses hash-based caches, which Python can load without checking the source, and the provenance check stays strict, so an install that holds any cache is recorded as `unverified`. Correct the Overview label, dashboard instructions, Linux diagnostic behavior and version heading.
+- [x] Use `machine_state.PEER_FUTURE_SKEW` for the Mac-side PC-reader mirror, the Windows reader, and the Mac-side row ageing and feed clock-lead checks. The boundary regression failed at 2.1, 3.0 and 5.0 seconds ahead before the fix; both readers now accept 2.0 seconds and reject larger leads.
+- [x] Run the full suites on macOS with bytecode disabled: the Node, root Python, Windows-edition and CLI suites pass on the rebased tree, with only the existing router-fixture and Windows-native skips. Exact counts and commands are in the pull request. Python used `MONITOR_ALLOW_ROUTER_FIXTURE_SKIP=1`. An earlier pass ran the same suites under an external fixture socket guard; its first root run exited 1 with four errors because the guard rejected an existing temporary shell fixture. After the guard allowed only that fixture's exact script contents, the focused fixture test and the full rerun passed. Logs and the guard remain outside the checkout.
+- [ ] Native Windows installer, tray and Windows API acceptance remain NOT_RUN. The installer cache tests need Windows and were skipped on macOS, so native failing-before and passing-after evidence remains unavailable. Workflow changes belong to another lane. No model workload, model server, browser or device action is part of this change.
+
 ## Monitor redesign stage 5 — local evaluation dataset — 12 November 2026
 
 - [x] Both observers use the shared read-only dataset loader: `AGIW_ECI_TUNING_DATASET_DIR` selects an absolute directory containing normalized `dataset.json`. Unset configuration uses the bundled catalog; missing, unreadable or invalid configured data reports unknown with a reason. The operator is responsible for selecting local storage.
@@ -167,6 +181,14 @@ The manual Jaryo kit smoke uses the supported Ubuntu 22.04 image: the pinned Chr
 - [ ] Admit Bonsai, LFM3 and Glimmer scores when independently computed; do not infer them from partial or withheld inspect accuracy.
 - [ ] Have the external AGIW routing owner integrate and test the config hook. Runtime activation remains NOT_APPLIED; Nisi Mac requires two distinct resident Mac LLMs and remains NOT_APPLIED.
 - [x] PR 2 replacement is integrated through PR #119 (`8230e60`), superseding PR #117's original Fix inference entry point.
+
+## Cached diagnosis read-time freshness correction — 13 November 2026
+
+- [x] Recompute closed-L2 diagnosis on each controller read and HTTP status GET from the stored action, current snapshot and current clock. A sample at 100, POST at 101 and GET at 3700 now reports `mac: unknown (stale)` with age 3600.
+- [x] Preserve `lastState` and `lastReasonCode` when store expiry or diagnosis projection withholds stale/skewed claims; visible state remains unknown. Same-host observer clocks intentionally use zero future tolerance; the browser transport's cross-host tolerance is separate.
+- [x] Assert returned content for fresh, stale, missing and future evidence, full-sample overlay expiry, repeated reads, real-store HTTP ageing and fresh-sample recovery without owner actions or evidence mutation.
+- [x] The full Node and Python source suites and the focused diagnosis, gate and lifecycle tests pass on the rebased tree; exact counts and skip reasons are in the pull request. Skipped cases remain unverified coverage.
+- [ ] Native/rendered app, hosted CI and model execution remain NOT_RUN.
 
 ## Current source and artifact status · 2026-11-03
 

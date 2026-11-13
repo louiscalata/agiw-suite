@@ -27,7 +27,8 @@ from activity import collect_activity
 from client_models import collect_clients
 from model_control import ControlError, ModelControl, capability as model_control_capability
 from auto_unload import AutoUnloader, router_problem
-from online_code_repair import OnlineCodeRepair, read_only_diagnosis, REVIEWED_FIX_SCOPES, HEADLESS_COMMANDS
+from online_code_repair import (OnlineCodeRepair, read_only_diagnosis, REVIEWED_FIX_SCOPES,
+                                HEADLESS_COMMANDS, FULL_SAMPLE_MAX_AGE)
 from live_feed import LiveFeed
 from gpu_probe import mac_gpu
 from local_callers import LocalCallers
@@ -102,8 +103,6 @@ def jaryo_root():
             return candidate
     return here / 'jaryo'
 ACTIVE = {'generating', 'busy'}
-# The fast path may overlay a full sample only while that sample is this recent (seconds).
-FULL_SAMPLE_MAX_AGE = 3.0
 _INFERENCE_RATES = RateMemory()
 KNOWN_ACTIVITY = ACTIVE | {'idle'}
 ROUTER_OWNER_LOCK = Path.home() / '.local/state/codemode-router/owner.lock'
@@ -127,8 +126,8 @@ def cached_readiness(snapshot, now):
     """Project already sampled observations; never invoke an owner or renew a receipt."""
     snapshot = snapshot if isinstance(snapshot, dict) else {}
     # Fast model overlays advance sampledAt without re-reading setup evidence.
-    sampled = snapshot.get('fullSampledAt', snapshot.get('sampledAt'))
-    age = now - sampled if finite_number(sampled) else None
+    diagnosis = read_only_diagnosis(None, snapshot, now=now)
+    sampled, age = diagnosis['sampledAt'], diagnosis['ageSeconds']
     fresh = finite_number(age) and 0 <= age <= FULL_SAMPLE_MAX_AGE
     mode = snapshot.get('onlineCodeMode', {})
     setup = mode.get('setupState') if isinstance(mode, dict) else None
@@ -139,7 +138,7 @@ def cached_readiness(snapshot, now):
                            else 'clock_skew' if age < 0 else 'stale'),
             'sampledAt': sampled, 'ageSeconds': age, 'setupState': setup,
             'inferenceReadiness': 'unknown',
-            'machines': read_only_diagnosis(None, snapshot)['machines'],
+            'machines': diagnosis['machines'],
             'message': 'Cached status only. No readiness command or model inference was run; no receipt was written.'}
 
 
@@ -512,7 +511,13 @@ class SnapshotStore:
         remote_machines.project_snapshot(data)
         elapsed = max(0.0, now - data['sampledAt'])
         if isinstance(data.get('machines'), list):
+            prior = [(row.get('state'), row.get('reasonCode')) for row in data['machines']]
             expire_machines(data['machines'], now)
+            for row, (state, reason) in zip(data['machines'], prior):
+                if (row.get('reasonCode') in {'stale', 'clock_skew'}
+                        and (row.get('state'), row.get('reasonCode')) != (state, reason)):
+                    row.setdefault('lastState', state)
+                    row.setdefault('lastReasonCode', reason)
             data['liveness'] = host_liveness(data['machines'])
         if elapsed > FULL_SAMPLE_MAX_AGE:
             data['activityKnown'] = False
@@ -690,8 +695,10 @@ class Handler(BaseHTTPRequestHandler):
         if path in OWNER_ACTION_ROUTES or path == '/api/online-code-mode/entry':
             if not mac_online_code_controls_enabled() or self.server.online_code_repair is None:
                 return self.control_error(501, 'Online Code Mode controls belong to the Mac owner.')
-            return self.reply(200, json.dumps(self.server.action_diagnosis or self.server.online_code_repair.read()).encode(),
-                              'application/json')
+            stored = self.server.action_diagnosis
+            diagnosis = (read_only_diagnosis(stored['action'], self.server.store.read(), now=time.time())
+                         if stored is not None else self.server.online_code_repair.read())
+            return self.reply(200, json.dumps(diagnosis).encode(), 'application/json')
         asset = ASSETS.get(path)
         shared = JARYO_FILES.get(path)
         if shared is not None:
@@ -796,7 +803,7 @@ class Handler(BaseHTTPRequestHandler):
         # load/unload and auto-unload are normal monitor controls outside this gate.
         if getattr(self.server, 'l2_open', False) is not True:
             store = getattr(self.server, 'store', None)
-            diagnosis = read_only_diagnosis(action, store.read() if store is not None else None)
+            diagnosis = read_only_diagnosis(action, store.read() if store is not None else None, now=time.time())
             self.server.action_diagnosis = diagnosis
             return diagnosis
         self.server.action_diagnosis = None
