@@ -122,7 +122,8 @@ class RepairWorkerCharacterizationTests(LifecycleFixture):
             "message": "Owner actions are locked while L2 is closed. No cached machine observations are available; readiness is unknown. Complete and verify the L2 handover, then explicitly start the monitor with --l2-open before requesting this action again.",
             "diagnosis": "Owner actions are locked while L2 is closed. No cached machine observations are available; readiness is unknown.",
             "nextStep": "Complete and verify the L2 handover, then explicitly start the monitor with --l2-open before requesting this action again.",
-            "machines": [], "steps": [], "operationId": 0, "action": "fix-all"}
+            "machines": [], "sampledAt": None, "ageSeconds": None,
+            "steps": [], "operationId": 0, "action": "fix-all"}
         self.assertEqual(json.dumps(controller.request_fix("all")), json.dumps(expected))
         self.assertEqual(controller.read(), expected)
         self.thread.assert_not_called()
