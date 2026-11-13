@@ -25,6 +25,15 @@
 - [x] Source checks: Node 24.22.2 `node --test test_*.mjs` exit 0, 871 passed, no skips; Python 3.9.6 focused `test_eci_tuning`, `test_eci_fast_check`, `test_eci_fast_check_round2`, and `test_eci_fast_check_runtime_round2` exit 0, 132 passed. `git diff --check`, JavaScript syntax and schema JSON checks exit 0. These are fixture/source checks, not native or browser acceptance.
 - [ ] Dataset-to-page integration, real model checks and full ECI execution remain separate stages. Browser rendering, the overview ink browser check, live router activation, native/device behavior and CI are NOT_RUN in this lane.
 
+## Monitor store clock skew correction — 13 November 2026
+
+- [x] Reject a snapshot or inference document stamped more than a named two seconds ahead of the browser clock, on polling and on the stream, without replacing the last accepted sample. Later correct samples are accepted again; an older sample still never replaces a newer one. Channel freshness uses the same two-second bound.
+- [x] Report the rejection as `clock_skew` at the producer stage (`snapshot_clock` or `inference_clock`) with `secondsAhead`, capped at 86,400 seconds. A stream rejection keeps that stage and amount while polling resumes.
+- [x] Only an accepted document updates or clears collector diagnostics once a channel has a sample; older, skewed, malformed and HTTP-error replies cannot replace them. Before the first accepted document a refused reply still supplies the startup collector diagnostics, as stage 4 requires.
+- [x] Add deterministic regressions in `test_live_stream.mjs` for both channels: the tolerance boundary, future, older, malformed and HTTP-error replies, diagnostic retention and clearing, the capped amount, stream stage preservation, recovery, and startup diagnostics from a refused first reply.
+- [x] Node v24.22.2 `node --test test_*.mjs`: 920 passed, zero failed or skipped. Python 3.9.6 `python3 -m unittest discover -p 'test_*.py'` with `MONITOR_ALLOW_ROUTER_FIXTURE_SKIP=1`: 1,770 tests, `OK (skipped=28)`. `node --test test_live_stream.mjs`: 26 passed; against the base store the same cases had 12 assertion failures. Syntax and whitespace checks passed.
+- [ ] Browser rendering, native device behaviour, live endpoints and hosted CI were not run.
+
 ## Monitor redesign stage 4 — transport and collector diagnostics — 12 November 2026
 
 - [x] Keep the selected Jaryo choices and the existing fleet contract. Add `web/monitor-store.mjs` as the single browser owner of snapshot, inference and SSE transport; Overview, Map, Machines, Setup and Simple view subscribe to it. Opening a page remains passive.

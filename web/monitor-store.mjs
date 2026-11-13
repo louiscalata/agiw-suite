@@ -3,6 +3,9 @@ import {fleetState} from './fleet-state.mjs';
 // The only transport owner for snapshot, inference and SSE. Browser receive time
 // diagnoses transport; only producer timestamps can renew an observation.
 const finite = Number.isFinite;
+const FUTURE_CLOCK_TOLERANCE_SECONDS = 2;
+// Saturate diagnostic magnitude at one day; untrusted producer clocks can be huge.
+const MAX_DIAGNOSTIC_SECONDS_AHEAD = 86400;
 const stamp = value => typeof value === 'string' && /(?:Z|[+-]\d{2}:?\d{2})$/i.test(value)
   && finite(Date.parse(value)) ? Date.parse(value) / 1000 : finite(value) ? value : null;
 export const feedAge = (data, now) => {
@@ -52,7 +55,7 @@ export function createMonitorStore(options = {}) {
         : at !== null ? time - at : NaN;
       return {available: channel.data !== null, receivedAt: channel.receivedAt,
         ageSeconds: finite(ageSeconds) ? ageSeconds : null,
-        fresh: finite(ageSeconds) && ageSeconds >= -1 && ageSeconds <= (kind === 'snapshot' ? 3 : 30),
+        fresh: finite(ageSeconds) && ageSeconds >= -FUTURE_CLOCK_TOLERANCE_SECONDS && ageSeconds <= (kind === 'snapshot' ? 3 : 30),
         error: channel.error};
     };
     return {snapshot: projectEvidence(channels.snapshot.data, time), inference: projectEvidence(channels.inference.data, time),
@@ -77,13 +80,20 @@ export function createMonitorStore(options = {}) {
   }
   function accept(kind, data) {
     const channel = channels[kind];
-    channel.collector = diagnostics(data);
     const at = documentTime(kind, data), before = documentTime(kind, channel.data);
+    const time = now();
+    if (at !== null && at > time + FUTURE_CLOCK_TOLERANCE_SECONDS) {
+      channel.error = {stage: `${kind}_clock`, code: 'clock_skew', failedAt: time,
+        secondsAhead: Math.min(MAX_DIAGNOSTIC_SECONDS_AHEAD, at - time)};
+      return false;
+    }
     // A late/older response cannot roll back the accepted evidence clock.
-    if (channel.data && at !== null && before !== null && at < before) return;
+    if (channel.data && at !== null && before !== null && at < before) return true;
+    channel.collector = diagnostics(data);
     channel.data = data;
-    channel.receivedAt = now();
+    channel.receivedAt = time;
     channel.error = null;
+    return true;
   }
   function clearRequest(kind) {
     const request = channels[kind].request;
@@ -126,7 +136,9 @@ export function createMonitorStore(options = {}) {
         if (channel.request !== request) return;
         const data = await response.json();
         if (channel.request !== request) return;
-        if (diagnostics(data).length) channel.collector = diagnostics(data);
+        // Until a document is accepted, a refused reply is the only carrier of
+        // startup collector failures. Afterwards only accepted documents own them.
+        if (channel.data === null && diagnostics(data).length) channel.collector = diagnostics(data);
         if (!response.ok) { complete(null, `http_${Number.isInteger(response.status) ? response.status : 'error'}`); return; }
         if (!(kind === 'snapshot' ? validSnapshot(data) : validInference(data))) { complete(null, 'malformed'); return; }
         complete(data);
@@ -147,7 +159,9 @@ export function createMonitorStore(options = {}) {
   }
   function streamFailed(code) {
     closeStream();
-    fail('snapshot', 'stream', code);
+    // accept() already supplied the producer-clock stage and bounded amount.
+    if (code === 'clock_skew') emit();
+    else fail('snapshot', 'stream', code);
     startPolling();
     cancel(retry);
     if (typeof Source === 'function' && !stopped)
@@ -171,13 +185,13 @@ export function createMonitorStore(options = {}) {
       let data;
       try { data = JSON.parse(event.data); } catch (_) { streamFailed('malformed'); return; }
       if (!validSnapshot(data)) { streamFailed('malformed'); return; }
+      if (!accept('snapshot', data)) { streamFailed('clock_skew'); return; }
       // Keep fallback through the handshake. Only a valid message may take
       // ownership; an open TCP connection alone is not a working snapshot feed.
       streamReady = true;
       polling = false;
       cancel(channels.snapshot.timer); channels.snapshot.timer = null;
       clearRequest('snapshot');
-      accept('snapshot', data);
       attempt = 0;
       armWatchdog();
       emit();
