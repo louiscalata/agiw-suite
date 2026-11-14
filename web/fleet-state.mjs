@@ -24,6 +24,13 @@ export function fleetState(input, {now = Date.now() / 1000} = {}) {
   });
   return {...contract, facts};
 }
+/** A host is up only on an actual host report. Registry rows carry endpoint reachability and identity only,
+ *  so a "reported up" fact whose evidence is such a row (for example from an older producer) is not host liveness. */
+export function fleetHostUp(fact) {
+  const evidence = fact?.evidence;
+  return fact?.state === 'reported' && evidence?.state === 'up' &&
+    evidence.observationSource !== 'registry' && evidence.inventoryScope !== 'configured-lanes';
+}
 export function fleetFacts(input, options) { return fleetState(input, options)?.facts || []; }
 export function fleetMachines(input, options) { return fleetFacts(input, options).filter(fact => fact.scope === 'machine'); }
 export function fleetLanes(input, options) { return fleetFacts(input, options).filter(fact => fact.scope === 'lane'); }
@@ -46,7 +53,7 @@ export function fleetSummary(input, options) {
     unavailable: lanes.filter(fact => fact.state === 'endpoint unavailable').length,
     stale: lanes.filter(fact => fact.state === 'stale').length,
     unknown: lanes.filter(fact => fact.state === 'unknown').length, loaded: null, busy: null};
-  if (state && !registryPartial && machines.length && machines.every(fact => fact.state === 'reported' && fact.completeness === 'complete' && fact.evidence.state === 'up' && fact.evidence.modelsComplete === true)) {
+  if (state && !registryPartial && machines.length && machines.every(fact => fleetHostUp(fact) && fact.completeness === 'complete' && fact.evidence.modelsComplete === true)) {
     for (const [key, field] of [['loaded', 'loadedCount'], ['busy', 'busyCount']]) {
       if (machines.every(fact => Number.isSafeInteger(fact.evidence[field]) && fact.evidence[field] >= 0))
         {const total = machines.reduce((sum, fact) => sum + fact.evidence[field], 0); counts[key] = Number.isSafeInteger(total) ? total : null;}

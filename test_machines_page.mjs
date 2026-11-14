@@ -161,7 +161,8 @@ test('names and states come from the tables by own key only', () => {
 });
 
 const registryRow = (id, label, count = 1) => ({host: `registry:${id}`, id: `registry:${id}`, label,
-  platform: 'remote', observationSource: 'registry', state: 'up', health: 'ok', freshForSeconds: 6,
+  platform: 'remote', observationSource: 'registry', inventoryScope: 'configured-lanes', state: 'unknown', health: 'not_measured',
+  reasonCode: 'host_not_measured', laneIdentity: 'answering', lanesAnswering: count, laneCount: count, freshForSeconds: 6,
   lanes: Array.from({length: count}, (_, i) => ({id: `registry:${id}:lane${i}`, label: `Lane ${i}`, health: 'ok',
     modelId: i ? 'ornith-ai/ornith-1.5-9b' : 'C:\\models\\glimmer.gguf', ageSeconds: 1,
     observedAt: new Date(Date.now() - 1000).toISOString()}))});
@@ -284,6 +285,24 @@ test('a reported up host and incomplete or stale lane coverage do not acquire an
     Object.assign(children[0], {state: 'endpoint unavailable', observedAt: children[1].observedAt}, change);
     tile = machineTiles(base, 'mac', {now: shared.now}).find(tile => tile.key === machine.id);
     assert.deepEqual([tile.glyph, tile.word], ['?', 'unknown']);
+  }
+});
+
+test('a reported-up fact whose evidence is a registry identity row earns no up glyph or model counts', () => {
+  for (const scope of [{observationSource: 'registry'}, {inventoryScope: 'configured-lanes'}]) {
+    const base = structuredClone(shared.fleetState);
+    const machine = base.facts.find(fact => fact.id === 'registry:pc');
+    const children = base.facts.filter(fact => fact.parentId === machine.id);
+    children.forEach(lane => {lane.state = 'endpoint unavailable'; lane.reason = 'refused';});
+    Object.assign(machine, {state: 'reported', completeness: 'complete', observedAt: children[0].observedAt, expiresAt: children[0].expiresAt});
+    machine.evidence = {...machine.evidence, ...scope, state: 'up', modelsComplete: true, loadedCount: 3, busyCount: 1};
+    let tile = machineTiles(base, 'mac', {now: shared.now}).find(tile => tile.key === machine.id);
+    assert.deepEqual([tile.glyph, tile.word], ['×', '0 of 2 lanes answering'], 'identity scope does not suppress lane coverage');
+    children.forEach(lane => {lane.state = 'endpoint answering'; lane.reason = null;});
+    tile = machineTiles(base, 'mac', {now: shared.now}).find(tile => tile.key === machine.id);
+    const facts = Object.fromEntries(tile.facts);
+    assert.equal(tile.glyph, '?', JSON.stringify(scope));
+    assert.deepEqual([facts['Models loaded'], facts['Models busy']], ['Unknown', 'Unknown'], JSON.stringify(scope));
   }
 });
 

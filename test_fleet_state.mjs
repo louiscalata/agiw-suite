@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {fleetState,fleetFacts,fleetMachines,fleetLanes,fleetSummary,fleetWord,fleetMachineCoverage} from './web/fleet-state.mjs';
+import {fleetState,fleetFacts,fleetMachines,fleetLanes,fleetSummary,fleetWord,fleetMachineCoverage,fleetHostUp} from './web/fleet-state.mjs';
 const fixture = JSON.parse(readFileSync(new URL('./test_support/fleet-state.json', import.meta.url), 'utf8'));
 const sample = {...fixture.snapshot, fleetState: fixture.fleetState};
 
@@ -66,6 +66,21 @@ test('a down or partial report cannot publish zero loaded or busy models', () =>
   }
 });
 
+
+test('a registry identity row reported as up is not host evidence and publishes no model totals', () => {
+  const base = fixture.fleetState.facts.find(fact => fact.id === 'mac');
+  const complete = {...base.evidence, state: 'up', modelsComplete: true, loadedCount: 2, busyCount: 1};
+  assert.equal(fleetSummary({schemaVersion: 1, facts: [{...base, evidence: complete}]}, {now: fixture.now}).counts.loaded, 2,
+    'a real host report still totals');
+  for (const scope of [{observationSource: 'registry'}, {inventoryScope: 'configured-lanes'}]) {
+    const fact = {...base, id: 'registry:pc', evidence: {...complete, ...scope}};
+    const summary = fleetSummary({schemaVersion: 1, facts: [fact]}, {now: fixture.now});
+    assert.deepEqual([summary.counts.loaded, summary.counts.busy], [null, null], JSON.stringify(scope));
+    assert.equal(fleetHostUp(fact), false, JSON.stringify(scope));
+  }
+  assert.equal(fleetHostUp({...base, evidence: complete}), true);
+  assert.equal(fleetHostUp({...base, state: 'unknown', evidence: complete}), false);
+});
 
 test('zero answering is known only for fresh complete unavailable coverage',()=>{
   const lane=fixture.fleetState.facts.find(fact=>fact.scope==='lane');
