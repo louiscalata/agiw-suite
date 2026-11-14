@@ -13,6 +13,7 @@ import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest import mock
 
+import inference_collect
 from inference_collect import ProbeError, attach, collect_map
 from inference_stats import MAP_SCHEMA, expire_map, public_map
 import remote_machines as remote
@@ -201,7 +202,11 @@ class RegistryTests(unittest.TestCase):
             self.assertIsNone(lane["modelId"])
             self.assertEqual(lane["reason"], failure.reason)
 
+    @mock.patch.multiple(inference_collect, **{
+        "PC_LANES": ({"id": "pc:router", "role": "router", "label": "Router", "port": 1234},),
+        "_BY_ID": {"pc:router": {"id": "pc:router", "role": "router", "label": "Router", "port": 1234}}})
     def test_namespace_keeps_legacy_rows_unless_explicit_replacement(self):
+        # The collector has no built-in PC lanes; this isolated fixture stands in for a legacy lane.
         from inference_collect import closed_targets
         local = {"id": "mac:lmstudio", "machine": "mac", "role": "lmstudio", "label": "Local",
                  "health": "not_measured", "reason": "not_observed"}
@@ -226,6 +231,9 @@ class RegistryTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 remote.validate_config(value)
 
+    @mock.patch.multiple(inference_collect, **{
+        "PC_LANES": ({"id": "pc:router", "role": "router", "label": "Router", "port": 1234},),
+        "_BY_ID": {"pc:router": {"id": "pc:router", "role": "router", "label": "Router", "port": 1234}}})
     def test_invalid_config_is_off_and_preserves_legacy_rows(self):
         from inference_collect import closed_targets
         doc = collect_map("mac", remote_config={"error": "config_invalid"}, fetch=fetch,

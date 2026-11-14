@@ -25,13 +25,12 @@ import http.client
 from inference_stats import MAP_SCHEMA, apply_rates, client_nodes, edges_for, machine_node, make_node
 import remote_machines
 
-PC_LANES = (
-    {"id": "pc:router", "role": "router", "label": "Router", "port": 1234},
-    {"id": "pc:gpt-oss-20b", "role": "llama", "label": "gpt-oss-20b", "port": 1245,
-     "expectedModel": "gpt-oss-20b"},
-    {"id": "pc:qwen3.8-27b", "role": "llama", "label": "qwen3.8-27b", "port": 1236,
-     "expectedModel": "qwen3.8-27b"},
-)
+# No built-in PC lane layout. Lane membership comes from the machine registry
+# (remote_machines.py; a machine with "replaces": "legacy-pc" takes the PC's place).
+# The earlier router and llama-server lanes are retired, so nothing here probes
+# them or reports them as down. A target whose id is not listed stays
+# not_measured with reason unknown_lane and is not probed.
+PC_LANES = ()
 _BY_ID = {lane["id"]: lane for lane in PC_LANES}
 _METRIC = re.compile(r"^([a-zA-Z_:][a-zA-Z0-9_:]*)(?:\{[^}]*\})?\s+(\S+)")
 _COUNTERS = ("prompt_tokens_total", "tokens_predicted_total", "prompt_seconds_total", "tokens_predicted_seconds_total")
@@ -565,8 +564,8 @@ def collect_map(host, *, fetch=None, rates=None, now=None, targets=None, veritas
                      else remote_machines.background_snapshot(remote_config, now=now))
                     if host == "mac" else None)
     # Each lane keeps its serial parsing/fallbacks, but independent lanes share
-    # the deadline concurrently so a slow successful lane cannot starve Qwen.
-    with ThreadPoolExecutor(max_workers=len(PC_LANES) + 2) as pool:
+    # the deadline concurrently so a slow successful lane cannot starve another.
+    with ThreadPoolExecutor(max_workers=len(pc_targets) + 2) as pool:
         if host == "mac":
             studio = pool.submit(_read_lmstudio, fetch, observed) if lmstudio is None else None
             veritas = pool.submit(_read_veritas, fetch, observed,

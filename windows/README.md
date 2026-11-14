@@ -47,8 +47,9 @@ Use `-B` (or set `PYTHONDONTWRITEBYTECODE=1`) to avoid writing bytecode caches i
   The tray checks this minimum; `install.ps1` copies source without choosing or installing an interpreter.
   The recorded PC environment uses Python 3.13. Python 3.14 test results on the Mac are not native PC validation.
 - Lanes declared in `C:\SharedChami\windows-llm-pipeline\config.json` → `runtime.lanes`. There is no built-in
-  layout: a lane that is not declared there is shown as "not configured" and never probed (fail closed). The live
-  PC serves the router on `:1234`, qwen3.8-27b on `:1236` and gpt-oss-20b on `:1245`.
+  layout: a lane that is not declared there is shown as "not configured" and never probed (fail closed). The
+  separate inference map (`inference_collect.py`) has no built-in PC lanes either. The earlier router (`:1234`) and
+  the `:1236` and `:1245` lanes are retired and are not probed.
   An unreadable config never makes the observer guess a port. Slot activity needs llama-server's `/slots`.
   Native polling also requires explicit local enrollment in `lane-processes.json` beside the observer. Normal tray
   startup reads that fixed file and passes its PID, creation-time and exact executable-image pins to `LaneProcesses`.

@@ -7,7 +7,9 @@ The map nodes are stable ids:
 | Id | What it is |
 | --- | --- |
 | `mac`, `mac:lmstudio`, `mac:veritas` | This Mac, LM Studio, the optional Veritas reviewer |
-| `pc`, `pc:router`, `pc:gpt-oss-20b`, `pc:qwen3.8-27b` | The PC, its router on :1234, and the llama-server lanes on :1245 and :1236 |
+| `pc` | The PC machine row of the legacy PC collector |
+
+The legacy PC collector (`inference_collect.py`) and tunnel (`pc_tunnel.py`) have no built-in lane layout. Lanes are declared in the machine registry (see [configured machine lanes](three-machine-pipeline.md)); a registry machine with `"replaces": "legacy-pc"` takes the place of the `pc` row. The earlier router (:1234) and llama-server lanes (:1245 and :1236) are retired and are not built in, so they are never probed or shown as `down`. A target whose lane id is not built in stays `not_measured` with reason `unknown_lane` and is not probed.
 
 The Mac sampler uses the verified telemetry endpoint for `mac:lmstudio`. The Windows observer reports the absent Mac row as `not_observed` at `127.0.0.1:1234`.
 
@@ -23,19 +25,22 @@ Run `python3 -B server.py --port 8765` from the repository root and open `http:/
 
 ## PC tunnel
 
-The PC lanes bind to 127.0.0.1. On the Mac, `python3 pc_tunnel.py` runs `ssh -N -L` when user, host and an identity file are configured. Set them in the environment or in `~/.config/agiw/pc-tunnel.json`:
+The PC lanes bind to 127.0.0.1. On the Mac, `python3 pc_tunnel.py` runs `ssh -N -L` when user, host, an identity file and at least one forward are configured. Set them in the environment or in `~/.config/agiw/pc-tunnel.json`:
 
 ```json
 {
   "user": "pc-user",
   "host": "pc.example",
-  "identityFile": "/path/to/restricted-key"
+  "identityFile": "/path/to/restricted-key",
+  "forwards": [
+    {"name": "example-lane", "localPort": 2001, "remotePort": 3001}
+  ]
 }
 ```
 
-`AGIW_PC_SSH_CONFIG` selects the configuration file path. Defaults are applied first, then a valid file; `AGIW_PC_SSH_USER`, `AGIW_PC_SSH_HOST` and `AGIW_PC_SSH_IDENTITY` override its fields. An invalid file returns `config_invalid` before those field overrides are applied. The key file is not read by this program. The default forwards are local 1334, 1345 and 1336 to the PC's 1234, 1245 and 1236, so they do not collide with LM Studio on the Mac. A PC node's Endpoint displays the local URL actually fetched. For a forwarded llama lane, Upstream retains the remote service URL so router edges still resolve. While those local ports are closed, the PC nodes stay `not_measured` with reason `tunnel_down`.
+`AGIW_PC_SSH_CONFIG` selects the configuration file path. Defaults are applied first, then a valid file; `AGIW_PC_SSH_USER`, `AGIW_PC_SSH_HOST` and `AGIW_PC_SSH_IDENTITY` override its fields. An invalid file returns `config_invalid` before those field overrides are applied. The key file is not read by this program. There are no default forwards. A configuration file lists them as `"forwards": [{"name": ..., "localPort": ..., "remotePort": ...}]` (1 to 8 rows; the ports in the example above are documentation placeholders, replace them with your own); choose local ports that do not collide with LM Studio or other Mac loopback bindings. Without forwards the tunnel reports `forwards_unconfigured` and does not start `ssh`. The tunnel only forwards ports. Because the collector has no built-in lanes, a forwarded lane appears on the map as `unknown_lane` and is not probed; declare the lane in the machine registry, using the forward's local port as its `localPort`, to observe it.
 
-Admin step, not performed by this repo: if the PC key is restricted, its `authorized_keys` entry needs `permitopen="127.0.0.1:1234"`, `permitopen="127.0.0.1:1245"` and `permitopen="127.0.0.1:1236"`. Do not assume that change is already in place.
+Admin step, not performed by this repo: if the PC key is restricted, its `authorized_keys` entry needs one `permitopen="127.0.0.1:<remotePort>"` for each configured forward. Do not assume that change is already in place.
 
 ## Veritas
 
@@ -43,6 +48,6 @@ Admin step, not performed by this repo: if the PC key is restricted, its `author
 
 ## Later
 
-Alerts, history, spend and the live activity panel are not in this page. The activity panel will key off the node ids above. The PC router lives outside this repo; a tap there is a separate change and is not deployed by this tree.
+Alerts, history, spend and the live activity panel are not in this page. The activity panel will key off the node ids above. There is no PC router node in this tree, and nothing here taps one; any such tap would be a separate change.
 
 The full observer web pages use the `variants.web` contract in `jaryo/tokens.json`: IBM Plex Sans for text, Plex Mono for code and figures, and booklet red for display accents. The shared foundation and Android keep their existing Inter and black-and-white contract. This source change is not a device or packaged-app acceptance result.
