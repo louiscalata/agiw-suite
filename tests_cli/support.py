@@ -26,14 +26,18 @@ def temp_dir(case: unittest.TestCase, prefix: str = "agiw-") -> Path:
 
 class FakeRunner:
     """Records service commands instead of running them. results maps a word in the command (such as
-    'print' or 'is-active') to (returncode, stdout)."""
+    'print' or 'is-active') to (returncode, stdout). With idle_until_run, Task Scheduler State queries read Ready
+    until a schtasks /Run is recorded, like a stopped task that a fresh install starts."""
 
-    def __init__(self, results=None, default=(0, "")):
+    def __init__(self, results=None, default=(0, ""), idle_until_run=False):
         self.calls, self.results, self.default = [], dict(results or {}), default
+        self.idle_until_run = idle_until_run
 
     def __call__(self, argv):
         argv = list(argv)
         self.calls.append(argv)
+        if self.idle_until_run and "-Command" in argv and not any("/Run" in call for call in self.calls):
+            return subprocess.CompletedProcess(argv, 0, "Ready\n", "")
         code, stdout = next((v for k, v in self.results.items() if k in argv), self.default)
         return subprocess.CompletedProcess(argv, code, stdout, "")
 

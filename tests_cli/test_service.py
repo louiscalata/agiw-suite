@@ -86,7 +86,7 @@ class Launchd(Base):
 
 class TaskScheduler(Base):
     def test_install_registers_a_least_privilege_logon_task_for_this_user(self):
-        runner = FakeRunner({"/user": WHOAMI, "-Command": (0, "Running\n")})
+        runner = FakeRunner({"/user": WHOAMI, "-Command": (0, "Running\n")}, idle_until_run=True)
         manager = self.manager("windows", runner, ["--state-dir", "C:\\Users\\tester\\My State"],
                                ["--status-file", "C:\\AGIW\\state\\peer-link-status.json"])
         manager.install()
@@ -105,12 +105,13 @@ class TaskScheduler(Base):
         schtasks = "C:\\Windows\\System32\\schtasks.exe"
         self.assertEqual(runner.calls, [["C:\\Windows\\System32\\whoami.exe", "/user", "/fo", "csv", "/nh"],
                                         [schtasks, "/Create", "/TN", TEST_TASK, "/XML", str(path), "/F"],
+                                        manager._windows_state_command(),
                                         [schtasks, "/Run", "/TN", TEST_TASK],
                                         manager._windows_state_command()])
         self.assert_user_level(runner)
 
     def test_status_and_uninstall(self):
-        runner = FakeRunner({"/user": WHOAMI, "-Command": (0, "Running\n")})
+        runner = FakeRunner({"/user": WHOAMI, "-Command": (0, "Running\n")}, idle_until_run=True)
         manager = self.manager("windows", runner)
         manager.install()
         state = manager.status()
@@ -142,7 +143,7 @@ class ThroughTheCli(Base):
     def test_service_install_status_uninstall_on_each_kind(self):
         for kind in ("mac", "windows"):
             runner = FakeRunner({"/user": WHOAMI, "is-active": (0, "active\n"), "print": (113, ""),
-                                 "-Command": (0, "Running\n")})
+                                 "-Command": (0, "Running\n")}, idle_until_run=True)
             extra = ["--status-file", str(self.home / "status.json")] if kind == "windows" else []
             code, lines = self.run_cli(kind, "service", "install", *extra, runner=runner)
             self.assertEqual(code, 0, (kind, lines))
