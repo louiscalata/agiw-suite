@@ -17,13 +17,30 @@ export function modelControlView(model, { host, feedFresh, supported, reason, st
   return { action: null, reason: 'Current source and state do not permit a safe load or unload.' };
 }
 
-/** Submit one user-triggered operation through an injectable fetch boundary. */
+// Same rule as `agiw` control(): a write that got no readable answer may still have been applied, so it is
+// reported as unknown, never as a request that was not sent.
+export const MODEL_CONTROL_UNKNOWN = 'Model control outcome unknown: the request may or may not have taken effect. Reading its status again; no retry was sent.';
+
+/**
+ * Submit one user-triggered operation through an injectable fetch boundary.
+ * outcome: 'accepted' (readable 2xx answer), 'refused' (the server answered with an error status, so nothing
+ * started) or 'unknown' (no answer, or an unreadable 2xx answer: the operation may have started).
+ */
 export async function submitModelControl(fetcher, action, modelId) {
-  const response = await fetcher('/api/models/control', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action, modelId }),
-  });
-  const result = await response.json().catch(() => ({}));
-  return { ok: response.ok, statusCode: response.status, result };
+  let response;
+  try {
+    response = await fetcher('/api/models/control', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, modelId }),
+    });
+  } catch {
+    return { ok: false, statusCode: null, outcome: 'unknown', result: { message: MODEL_CONTROL_UNKNOWN } };
+  }
+  let result;
+  try { result = await response.json(); } catch { result = undefined; }
+  const readable = result !== null && typeof result === 'object' && !Array.isArray(result);
+  if (!response.ok) return { ok: false, statusCode: response.status, outcome: 'refused', result: readable ? result : {} };
+  if (!readable) return { ok: false, statusCode: response.status, outcome: 'unknown', result: { message: MODEL_CONTROL_UNKNOWN } };
+  return { ok: true, statusCode: response.status, outcome: 'accepted', result };
 }
