@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { resolvePython } from './test_support/python-interpreter.mjs';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import test from 'node:test';
@@ -103,7 +105,7 @@ function harness({ width = 1150, extra = {}, monitorChrome = false } = {}) {
 const canonicalRuntimeGraph=runtimeGraph;runtimeGraph=()=>snapshot?.fleetState?canonicalRuntimeGraph():legacyRuntimeGraph();
 ;({startMonitorTabs(){${monitorChrome ? startupTabs : ''}},
   get monitorState(){return {snapshot, connected, paused, graph, monitors: desk()?.monitors};},
-  renderActivity,renderVitals,renderSummary,vitalsInput,syncCompactUI,toggleActivity,toggleAbout,closeCompactSidebar,setSidebarOpen,
+  renderActivity,renderActivitySummary,renderVitals,renderSummary,vitalsInput,syncCompactUI,toggleActivity,toggleAbout,closeCompactSidebar,setSidebarOpen,
   rebuildPanel,disclosure,onlineCodeSummary,liveNow,renderInspector,modelControlPollWanted,onlineCodePollWanted,pollOnlineCodeAction,
   renderModelScope,renderList,setModelScope,
   renderAutoUnload,pollAutoUnload,requestAutoUnload,requestModelAction,openActionReview,closeActionReview,confirmActionReview,get autoUnloadState(){return autoUnloadState;},
@@ -123,7 +125,7 @@ const canonicalRuntimeGraph=runtimeGraph;runtimeGraph=()=>snapshot?.fleetState?c
   setFeed(value,isConnected=true){snapshot=value;connected=isConnected;},
   get lastPanel(){return lastEvidencePanel;},set lastPanel(value){lastEvidencePanel=value;},
   spyOpen(){const opened=[];openActivityRow=row=>opened.push(row.key);return opened;}})`,
-  { ...fleet, ...layout, ...usage, ...onlineMode, ...modelControl, ...(monitorChrome ? monitorTabs : {}), document: doc, window, performance: { now: () => 0 }, ...extra });
+  { ...fleet, ...layout, ...usage, ...onlineMode, ...modelControl, ...monitorTabs, document: doc, window, performance: { now: () => 0 }, ...extra });
   return { api, doc, $: id => doc.getElementById(id), view };
 }
 
@@ -504,7 +506,7 @@ test('client inspector separates model IDs from unavailable live subagent eviden
 });
 
 const pcSnapshot = (sampledAt, jobs) => ({ schemaVersion: 1, host: 'mac', sampledAt, models: [], sources: [{id:'windows-jobs',state:'recorded',ageSeconds:0}], clients: [],
-  activity: {runs: [], complete: true, historyBound:{truncated:false}},
+  activity: {runs: [], sampledAt, complete: true, currentEvidence:{complete:true,count:0,observedAt:sampledAt,expiresAt:sampledAt+3}, historyBound:{truncated:false}},
   pipeline: { status: 'idle', pipelinesComplete: true }, windowsWorker: { state: 'advertised', ageSeconds: 4, modelsAdvertised: ['Qwen3.8-27B'], detail: 'x' },
   windowsJobs: { schemaVersion: 1, journal: 'recorded', complete: true, unsettled: jobs?.inFlight?.length||0, inFlight: [], recent: [], lastSuccess: null, ...jobs } });
 const deepJob = { id: 'mac-20260926-181500-aaaaaaaaaaaa', model: 'Qwen3.8-27B', client: 'claude', lane: 'deep', ageSeconds: 20, timeoutSeconds: 600 };
@@ -517,7 +519,7 @@ test('F1: after Pause or a stopped server the Activity chip and list stop saying
   api.renderVitals();
   const chip = $('vitalActivity');
   assert.equal(chip.dataset.tone, 'muted');
-  assert.equal(chip.querySelector('small').textContent, 'claude → PC deep in flight at last sample');
+  assert.equal(chip.querySelector('small').textContent, 'Activity reported; count unknown');
   assert.doesNotMatch(chip.getAttribute('aria-label'), /running/);
   assert.equal(vitals.pc.detail, 'Signal stale');
   $('activityDetails').hidden = false;
@@ -705,14 +707,15 @@ test('Follow-up 2: a paused view never says a PC job is running, even on a 0 s o
   assert.equal(api.liveNow(), false);
   const { feed, vitals } = api.vitalsInput();
   assert.equal(feed[0].state, 'in-flight-stale');
-  assert.deepEqual([vitals.activity.tone, vitals.activity.detail], ['muted', 'claude → PC deep in flight at last sample']);
+  assert.deepEqual([vitals.activity.tone, vitals.activity.detail], ['muted', 'Activity reported; count unknown']);
   assert.notEqual(vitals.pc.detail, 'Signal stale', 'the rest of the strip still reads the fresh snapshot');
   $('activityDetails').hidden = false;
   api.renderVitals();
   assert.equal($('vitalActivity').dataset.tone, 'muted');
   assert.doesNotMatch($('vitalActivity').getAttribute('aria-label'), /running/);
   assert.match($('activityList').querySelector('small').textContent, /^In flight at last sample · /);
-  assert.equal($('activityStatus').textContent, '1 job in flight at the last sample');
+  assert.equal($('activityStatus').textContent, 'At least 1 job in flight at the last sample');
+  assert.match($('activityMeaning').textContent, /Counts and absence are unknown: Activity observation is missing, paused, or stale\./);
   api.setPaused(false);
   api.renderVitals();
   assert.equal($('vitalActivity').dataset.tone, 'live');
@@ -2244,12 +2247,12 @@ test('Mac empty activity stays unknown unless both job and route feeds are reada
   api.setFeed(base);
   const empty = api.vitalsInput();
   assert.deepEqual([empty.feed.length, empty.vitals.activity.detail, empty.vitals.activity.short],
-    [0, 'Activity unknown (feed unavailable or stale)', 'Unknown']);
+    [0, 'Activity unknown (feed unavailable or stale)', 'Count unknown']);
   api.setFeed({ ...base, activity: { runs: [{ runId: 'route-live', source: 'router-active', status: 'running',
     activity: 'running', host: 'mac', client: 'codex', ageSeconds: 2 }] } });
   const withKnownRow = api.vitalsInput();
   assert.equal(withKnownRow.feed[0].runId, 'route-live');
-  assert.match(withKnownRow.vitals.activity.detail, /codex →/);
+  assert.equal(withKnownRow.vitals.activity.detail, 'Activity reported; count unknown');
 });
 
 test('Router concurrency: live and queued routes show in Live activity as running and queued', () => {
@@ -2653,7 +2656,7 @@ test('pass 8: activity age expires before the lane probe deadline', () => {
 test('pass 8: unavailable routes stay unknown beside a live PC job and in an empty panel', () => {
   const { api, $ } = harness();
   const jobs = { schemaVersion: 1, journal:'recorded', complete:true, unsettled:0, availability: { state: 'available' }, inFlight: [], recent: [], lastSuccess: null };
-  const base = { ...pcSnapshot(nowSeconds(), jobs), host: 'mac', activity: { runs: [], complete:true, historyBound:{truncated:false} }, sources: [
+  const base = { ...pcSnapshot(nowSeconds(), jobs), host: 'mac', activity: { runs: [], sampledAt:nowSeconds(), complete:true, currentEvidence:{complete:true,count:0,observedAt:nowSeconds(),expiresAt:nowSeconds()+3}, historyBound:{truncated:false} }, sources: [
     { id: 'windows-jobs', state: 'live', ageSeconds:0 }, ...['router-active', 'monitor-receipts', 'router-archive'].map(id => ({ id, state: 'unavailable' }))] };
   api.setFeed(base);
   api.renderActivity([pcRow('live', 1, { state: 'in-flight' })]);
@@ -2885,4 +2888,152 @@ test('model review binds exact model and action and rechecks freshness before co
   assert.equal(writes.length,1);
   assert.equal(writes[0].url,'/api/models/control');
   assert.deepEqual(JSON.parse(writes[0].options.body),{action:'load',modelId:'fixture/a'});
+});
+
+
+test('Activity displays receipt-bound attempts, models and phase gaps separately from dated acceptance history', () => {
+  const {api,$}=harness();
+  const at=nowSeconds(),attemptId='run-evidence:'+ 'a'.repeat(64);
+  const run={runId:'run-evidence',attemptId,source:'monitor-receipt',activity:'completed',status:'RESPONSE_VALIDATED',recordedAt:at-60,ageSeconds:60,
+    calls:[{parentRunId:'run-evidence',attemptId,role:'author',requestedModel:'requested-model',servedModel:'served-model',usage:{inputTokens:4,outputTokens:2,totalTokens:6}}],
+    usageCoverage:{scope:'reported-calls-only',complete:false,expectedCallCount:null,detail:'Whole-run totals unknown: expected call manifest unavailable'}};
+  const snapshot=pcSnapshot(at,{recent:[]});
+  snapshot.activity={...snapshot.activity,runs:[run]};
+  api.setFeed(snapshot);
+  api.renderActivity(layout.activityFeed(snapshot.windowsJobs,[run]));
+  const text=$('activityList').textContent;
+  assert.match(text,/Dated history and outcomes/);
+  assert.match(text,/attempt run-evidence:/);
+  assert.match(text,/requested requested-model · served served-model/);
+  assert.match(text,/1 of 1 reported calls have measured usage; expected calls unknown/);
+  assert.match(text,/whole-run usage Unknown/);
+  for(const phase of ['jev pre','nisi journal','jev post'])assert.ok(text.includes(`${phase} · NOT AVAILABLE YET`));
+  assert.doesNotMatch(text,/Windows review is not a pass|astra1103/);
+  assert.match($('activityDetails').querySelector('.activity-acceptance-history').textContent,/2026-11-06/);
+});
+
+test('Activity cannot show exact zero when producer inventory expired or sampledAt is missing', () => {
+  const {api,$}=harness(),at=nowSeconds();
+  const snapshot=pcSnapshot(at,{});
+  snapshot.sources.push(...['router-active','monitor-receipts','router-archive'].map(id=>({id,state:'live',ageSeconds:0})));
+  snapshot.activity.currentEvidence={complete:true,count:0,observedAt:at-20,expiresAt:at-17};
+  api.setFeed(snapshot);api.renderActivity([]);
+  assert.match($('activityTiles').textContent,/In flightUnknown/);
+  assert.match($('activityList').textContent,/Activity unknown/);
+  snapshot.activity.currentEvidence={complete:true,count:0,observedAt:at,expiresAt:at+3};
+  delete snapshot.activity.sampledAt;
+  api.setFeed(snapshot);api.renderActivity([]);
+  assert.match($('activityTiles').textContent,/In flightUnknown/);
+});
+
+
+test('Activity preserves different outcomes and identities for attempts sharing a run ID',()=>{
+  const {api,$}=harness(),at=nowSeconds();
+  const records=[{runId:'repeat',source:'monitor-receipt',attemptId:'new',activity:'completed',status:'RESPONSE_VALIDATED',recordedAt:at-5,ageSeconds:5,client:'codex'},
+    {runId:'repeat',source:'monitor-receipt',attemptId:'old',activity:'completed',status:'CHECKS_FAILED',recordedAt:at-100,ageSeconds:100,client:'claude'}];
+  const snapshot=pcSnapshot(at,{});snapshot.activity={...snapshot.activity,runs:records,current:[],history:records};api.setFeed(snapshot);
+  api.renderActivity(layout.activityFeed(snapshot.windowsJobs,records));
+  const rows=$('activityList').children;
+  assert.equal(rows.length,2);assert.match(rows[0].textContent,/Codex.*Validated.*attempt new/);assert.match(rows[1].textContent,/Claude.*Checks failed.*attempt old/);
+});
+
+test('Activity retains unknown active records even when no event timestamp can enter the compact feed',()=>{
+  const {api,$}=harness(),at=nowSeconds();
+  const unknown={runId:'open-unknown',source:'router-active',activity:'unknown',status:'unreadable',ageSeconds:null,traceKey:'router-active:open-unknown:active'};
+  const snapshot=pcSnapshot(at,{});snapshot.activity={...snapshot.activity,runs:[unknown],current:[unknown],history:[],currentEvidence:{complete:false,count:null,observedAt:at,expiresAt:at+3,reason:'Current liveness unverified'}};
+  api.setFeed(snapshot);api.renderActivity([]);
+  assert.match($('activityList').textContent,/Current work · status unknown/);assert.match($('activityList').textContent,/open-unknown/);
+  assert.doesNotMatch($('activityList').textContent,/Dated history and outcomes/);assert.match($('activityTiles').textContent,/In flightUnknown/);
+});
+
+
+test('Activity keeps exact PC job recorded requested and served identity while attempt and usage remain unattached',()=>{
+  const {api,$}=harness(),at=nowSeconds();
+  const job={id:'pc-identity',client:'codex',state:'success',lane:'fast',model:'configured-model',requestedModel:'requested-pc',servedModel:'served-pc',ageSeconds:10};
+  const snapshot=pcSnapshot(at,{recent:[job]});api.setFeed(snapshot);
+  api.renderActivity(layout.activityFeed(snapshot.windowsJobs,[]));
+  const text=$('activityList').textContent;
+  assert.match(text,/PC job recorded identity · requested requested-pc · served served-pc · unattached · tokens unknown/);
+  assert.match(text,/PC job attempt and usage receipt coverage NOT AVAILABLE YET/);
+  assert.match(text,/attempt unknown/);
+});
+
+test('Activity chip with rows and incomplete evidence withholds exact count in every form',()=>{
+  const {api,$}=harness(),at=nowSeconds();
+  const snapshot=pcSnapshot(at,{inFlight:[deepJob]});snapshot.activity.currentEvidence.complete=false;
+  api.setFeed(snapshot);const {vitals}=api.vitalsInput();
+  assert.equal(vitals.activity.detail,'Activity reported; count unknown');assert.equal(vitals.activity.short,'Count unknown');
+  assert.equal(vitals.tiny.activity,'Count unknown');assert.equal(vitals.micro.activity,'Count unknown');
+  api.renderVitals();assert.match($('vitalActivity').textContent,/count unknown/i);
+  assert.doesNotMatch($('vitalActivity').getAttribute('aria-label'),/\b\d+ (?:jobs?|routes?)/);
+});
+
+
+test('Windows real collector and store render exact PC history with router scope explained', t => {
+  const python = resolvePython(t); if (!python) return;
+  const result = spawnSync(python.command, [...python.args, '-B', 'windows/tests/test_run_evidence.py', '--snapshot'], {encoding:'utf8'});
+  assert.equal(result.status, 0, result.stderr);
+  const snapshot = JSON.parse(result.stdout);
+  class Clock extends Date { static now() { return snapshot.sampledAt * 1000; } }
+  const {api,$} = harness({extra:{Date:Clock}});
+  api.setFeed(snapshot); api.renderActivity(api.vitalsInput().feed);
+  assert.equal($('activityTiles').textContent, 'In flightUnknownAnswered1Failed0Routes0');
+  assert.match($('activityDetails').textContent, /router journal producer is not connected/);
+  assert.doesNotMatch($('activityDetails').textContent, /Activity observation is missing, paused, or stale/);
+});
+
+test('PC model fallback is recorded identity rather than requested identity', () => {
+  const {api,$}=harness();
+  const snapshot=pcSnapshot(nowSeconds(),{recent:[{id:'identity',model:'configured-model',state:'success',ageSeconds:1}]});
+  api.setFeed(snapshot);api.renderActivity(api.vitalsInput().feed);
+  assert.match($('activityList').textContent,/recorded model configured-model/);
+  assert.doesNotMatch($('activityList').textContent,/requested configured-model/);
+});
+
+test('Activity summary uses compact rows when separate attempts expand the panel', () => {
+  const {api,$}=harness(),at=nowSeconds();
+  const runs=Array.from({length:2},(_,i)=>({runId:'reused',source:'router-archive',attemptId:String(i),
+    traceKey:'receipt:'+i,activity:'completed',status:'RESPONSE_VALIDATED',ageSeconds:1,recordedAt:at-1}));
+  const snapshot=pcSnapshot(at,{});snapshot.activity.runs=runs;
+  snapshot.sources.push(...['router-active','monitor-receipts','router-archive'].map(id=>({id,state:'live',ageSeconds:0,complete:true})));
+  api.setFeed(snapshot);const feed=api.vitalsInput().feed;
+  api.renderActivitySummary(feed);const before=$('activityTiles').textContent;
+  api.renderActivity(feed);
+  assert.equal($('activityTiles').textContent,before);
+  assert.equal($('activityList').children.length,2);
+});
+
+test('Activity acceptance note declares its recorded date and static provenance', () => {
+  const {api,$}=harness();api.setFeed(pcSnapshot(nowSeconds(),{}));api.renderActivity([]);
+  assert.match($('activityDetails').textContent,/Recorded historical note · 2026-11-06/);
+  assert.match($('activityDetails').textContent,/not read from run files by this monitor/);
+  assert.match(html,/id="activityHeading">Activity</);
+  assert.match(html,/aria-label="Close activity"/);
+});
+
+test('Activity keeps established lower bounds and names truncated history as the cause', () => {
+  const {api,$}=harness(),at=nowSeconds();
+  const route={runId:'route-live',source:'router-active',traceKey:'router-active:route-live:active',status:'running',activity:'running',
+    host:'mac',client:'codex',ageSeconds:2,livenessObservedAt:at};
+  const done={id:'answered',model:'configured-model',client:'codex',lane:'fast',state:'success',ageSeconds:9};
+  const snapshot=pcSnapshot(at,{recent:[done]});
+  snapshot.sources.push(...['router-active','monitor-receipts','router-archive'].map(id=>({id,state:'live',ageSeconds:0,complete:true})));
+  snapshot.activity={...snapshot.activity,complete:false,historyBound:{truncated:true},runs:[route],currentKeys:[route.traceKey],historyKeys:[],
+    currentEvidence:{complete:true,count:1,observedAt:at,expiresAt:at+3,reason:'Fresh complete router inventory'}};
+  api.setFeed(snapshot);api.renderActivitySummary(api.vitalsInput().feed);
+  assert.equal($('activityStatus').textContent,'At least 1 route running now');
+  assert.equal($('activityTiles').textContent,'In flightAt least 1AnsweredAt least 1FailedUnknownRoutesAt least 1');
+  assert.match($('activityMeaning').textContent,/Counts and absence are unknown: Recorded history is truncated or incomplete; older records are not counted\./);
+  assert.doesNotMatch($('activityMeaning').textContent,/Fresh, complete evidence|may also be incomplete/);
+  // Untruncated history with an incomplete PC job journal names job coverage instead.
+  snapshot.activity={...snapshot.activity,historyBound:{truncated:false}};snapshot.windowsJobs={...snapshot.windowsJobs,complete:false};
+  api.setFeed(snapshot);api.renderActivitySummary(api.vitalsInput().feed);
+  assert.match($('activityMeaning').textContent,/Counts and absence are unknown: PC job coverage is incomplete or not current\./);
+  // A stale router inventory keeps its own reason and never yields a zero.
+  snapshot.activity={...snapshot.activity,runs:[],currentKeys:[],currentEvidence:{complete:true,count:0,observedAt:at-20,expiresAt:at-17,reason:'Fresh complete router inventory'}};
+  snapshot.windowsJobs={...snapshot.windowsJobs,complete:true,recent:[]};
+  api.setFeed(snapshot);api.renderActivitySummary(api.vitalsInput().feed);
+  assert.equal($('activityTiles').textContent,'In flightUnknownAnsweredUnknownFailedUnknownRoutesUnknown');
+  assert.match($('activityMeaning').textContent,/Run inventory is stale, ahead of this clock, or has no timestamp\./);
+  assert.doesNotMatch($('activityStatus').textContent+$('activityMeaning').textContent,/Nothing running now|Fresh complete router inventory/);
 });

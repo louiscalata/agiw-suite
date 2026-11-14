@@ -251,7 +251,7 @@ def activity_fixture(root, mode=None):
     with mock.patch.object(activity, '_ROOT', path), mock.patch.object(activity, '_RECEIPTS', receipts), \
          mock.patch.object(activity, '_active_rows', return_value=([], False, 'ok')), \
          mock.patch.object(activity, '_MAX_ARCHIVE_SCAN', 0 if mode == 'capped' else 4096):
-        result = activity.collect_activity(NOW)
+        result = activity.collect_activity(NOW, current_evidence={'observedAt': NOW, 'complete': True, 'counts': {'running': 0, 'queued': 0, 'unresolved': 0}})
         # Preserve the degraded-observation dimension; old terminal events
         # in a current scan are separately tested by the positive generator.
         if mode == 'stale': result['sampledAt'] = NOW - 600
@@ -317,7 +317,7 @@ def generate():
             snap['localCallers'], callers_source = callers(mutations.get('callers'), snap['models'])
             snap['windowsJobs'], jobs_source = copy.deepcopy(cached['jobs'][mutations.get('jobs')])
             act = copy.deepcopy(cached['activity'][mutations.get('activity')])
-            snap['activity'] = {key: act[key] for key in ('runs', 'historyBound', 'sampledAt')}
+            snap['activity'] = {key: act[key] for key in ('runs', 'historyBound', 'sampledAt', 'currentEvidence')}
             if 'complete' in act: snap['activity']['complete'] = act['complete']
             replacements = [router_source, worker_source, callers_source, jobs_source, *act['sources']]
             snap['sources'] = [s for s in snap['sources'] if s['id'] not in {r['id'] for r in replacements}] + replacements

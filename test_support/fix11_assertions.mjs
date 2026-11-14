@@ -1,6 +1,28 @@
 import * as layout from '../web/map-layout.mjs';
 import {fleetTileExpectations} from './monitor-harness.mjs';
 
+export function hasFreshRunInventory(snapshot, now) {
+  const activity = snapshot.activity, current = activity?.currentEvidence;
+  if (snapshot.host === 'windows') return activity?.complete === true && Number.isFinite(snapshot.sampledAt) && now-snapshot.sampledAt >= -1 && now-snapshot.sampledAt <= 3;
+  const runs = activity?.runs || [];
+  const active = runs.filter(row => row.source === 'router-active' || ['running','queued'].includes(row.activity));
+  return Number.isFinite(activity?.sampledAt) && now-activity.sampledAt >= -1 && now-activity.sampledAt <= 3
+    && activity.complete === true && current?.complete === true && current.count === active.length
+    && active.every(row => ['running','queued'].includes(row.activity) && Number.isFinite(row.livenessObservedAt) && now-row.livenessObservedAt >= -1 && now-row.livenessObservedAt <= 3)
+    && Number.isFinite(current.observedAt) && now-current.observedAt >= -1 && now-current.observedAt <= 3
+    && Number.isFinite(current.expiresAt) && now <= current.expiresAt;
+}
+
+export function checkUnknownActivity({$, check}) {
+  const tiles = $('activityTiles').textContent;
+  for (const label of ['In flight', 'Answered', 'Failed', 'Routes'])
+    check(new RegExp(`${label}(?: at last sample)?(?:Unknown|At least [1-9]\\d*)(?=[A-Z]|$)`).test(tiles), 'unmeasured activity total '+label, tiles);
+  check(!/Nothing running now|Nothing recorded|^\d+ (?:jobs?|routes?) (?:running now|in flight)/.test($('activityStatus').textContent),
+    'unmeasured activity never claims a total or absence', $('activityStatus').textContent);
+  check(/unknown|incomplete|unavailable|missing|paused|stale/i.test($('activityMeaning').textContent),
+    'unmeasured activity explains missing evidence', $('activityMeaning').textContent);
+}
+
 // Exact observations supplied by the healthy fixture: totals, per-model identity,
 // activity and slots, GPU, memory, callers, lane health, peer residency, route and
 // job counts. Features without evidence (client sessions, AFM, Jev) are outside
@@ -42,9 +64,10 @@ export function checkFix11({packet, api, $, input, check}) {
     if (e.current) {
       check(snapshot.pipeline.status === e.state && snapshot.pipeline.runId === 'route', 'exact pipeline state/identity', snapshot.pipeline);
       check(e.state === 'running' ? /^Running/.test(input.vitals.route.detail) : /^Queued/.test(input.vitals.route.detail), 'exact route chip', input.vitals.route);
-      check(input.feed.some(r => r.kind === 'route' && r.state === (e.state === 'running' ? 'in-flight' : 'queued')), 'exact route feed state', input.feed);
-      check(!/last sample|unknown|at least/i.test($('activityStatus').textContent), 'exact current route summary', $('activityStatus').textContent);
-      if (e.state === 'running' && e.eventAge === null) check(/duration unknown/.test($('activityMeaning').textContent) && !/\(0 s\)/.test($('activityMeaning').textContent), 'unknown route duration never zero', $('activityMeaning').textContent);
+      check(input.feed.some(r => r.kind === 'route' && r.state === (e.state === 'running' ? 'in-flight' : 'queued')) === e.rowCurrent, 'exact route feed state', input.feed);
+      if (e.rowCurrent) check(!/last sample|unknown|at least/i.test($('activityStatus').textContent), 'exact current route summary', $('activityStatus').textContent);
+      else checkUnknownActivity({$, check});
+      if (e.state === 'running' && e.eventAge === null && e.rowCurrent) check(/duration unknown/.test($('activityMeaning').textContent) && !/\(0 s\)/.test($('activityMeaning').textContent), 'unknown route duration never zero', $('activityMeaning').textContent);
     } else {
       check(!/^Running|^Queued|^Idle/.test(input.vitals.route.detail), 'expired route chip', input.vitals.route);
       check(!input.feed.some(r => r.kind === 'route' && ['in-flight','queued'].includes(r.state)), 'expired route feed', input.feed);
@@ -99,7 +122,7 @@ export function checkFix11({packet, api, $, input, check}) {
     const sid = snapshot.fixtureScenario.inputs.source, source = snapshot.sources.find(s => s.id === sid);
     check(Math.abs(source.observationAgeSeconds-e.age) < .000001, 'overlay observation clock', source);
     if (sid === 'pipeline-router') check(/^Running/.test(input.vitals.route.detail) === e.current, 'overlay route chip', input.vitals.route);
-    if (sid === 'router-active') check(input.feed.some(r => r.kind === 'route' && r.state === 'in-flight') === e.current, 'overlay route liveness', input.feed);
+    if (sid === 'router-active') check(input.feed.some(r => r.kind === 'route' && r.state === 'in-flight') === e.rowCurrent, 'overlay route liveness', input.feed);
     if (sid === 'windows-jobs') check(input.feed.some(r => r.kind === 'pc-job' && r.state === 'in-flight') === e.current, 'overlay job liveness', input.feed);
   }
   if (dimension === 'journal-read') {

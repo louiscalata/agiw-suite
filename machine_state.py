@@ -5,6 +5,7 @@ import datetime as dt
 import math
 
 
+CLOCK_SKEW_SECONDS = 1.0  # matches the browser run-evidence views; never extends the expiry window
 FRESH_SECONDS = {"mac": 3.0, "windows": 30.0, "linux": 30.0}
 # Shared presence readers tolerate at most this much clock lead, in seconds.
 PEER_FUTURE_SKEW = 2.0

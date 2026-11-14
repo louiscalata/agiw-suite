@@ -22,6 +22,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
 from telemetry import (collect_snapshot, cancel_windows_worker_probe,
                        stop_windows_worker_probe)
+import telemetry
 from activity import collect_activity
 from client_models import collect_clients
 from model_control import ControlError, ModelControl, capability as model_control_capability
@@ -34,7 +35,7 @@ from local_callers import LocalCallers
 from mem_guard import Guard, LevelFile, unknown_block
 from bundled_components import BundledComponents
 from jev_connection import JevConnection
-from machine_state import FRESH_SECONDS, expire_machines, finite_number, platform_name
+from machine_state import CLOCK_SKEW_SECONDS, FRESH_SECONDS, expire_machines, finite_number, platform_name
 from inference_collect import RateMemory, attach, vram_from_reading, collector_diagnostic
 from inference_stats import expire_map
 from fleet_state import build_fleet_state
@@ -289,6 +290,47 @@ def enforce_snapshot_evidence(data):
     return data
 
 
+def router_run_inventory(data):
+    """Use the router observation clock, independently of full-sample latency."""
+    pipeline = data.get('pipeline') or {}
+    pipeline_rows = pipeline.get('pipelines') or []
+    router_source = next((s for s in data.get('sources', []) if s.get('id') == 'pipeline-router'), None)
+    inventory = {'observedAt': (telemetry.last_router_observation() or {}).get('observedAt'),
+                 'complete': pipeline.get('pipelinesComplete') is True and source_current(router_source),
+                 'counts': {'running': sum(r.get('live') is True and r.get('status') == 'running' for r in pipeline_rows),
+                            'queued': sum(r.get('live') is True and r.get('status') in ('waiting', 'admitting') for r in pipeline_rows),
+                            'unresolved': sum(r.get('live') is not True for r in pipeline_rows)}}
+    return inventory
+
+
+def expire_run_evidence(data, now):
+    """Age the run inventory on its producer clock, retaining dated outcomes."""
+    activity = data.get('activity')
+    if not isinstance(activity, dict):
+        return
+    current = activity.get('currentEvidence')
+    current = current if isinstance(current, dict) else {}
+    observed = current.get('observedAt')
+    if not (type(observed) in (int, float) and math.isfinite(observed)
+            and -CLOCK_SKEW_SECONDS <= now - observed <= FULL_SAMPLE_MAX_AGE):
+        reason = current.get('reason') if observed is None and current.get('complete') is False else None
+        current.update(complete=False, count=None, running=None, queued=None,
+                       reason=reason or 'Run inventory stale or timestamp unavailable')
+    activity['currentEvidence'] = current
+    sampled = activity.get('sampledAt')
+    if not (type(sampled) in (int, float) and math.isfinite(sampled)
+            and -CLOCK_SKEW_SECONDS <= now - sampled <= FULL_SAMPLE_MAX_AGE):
+        activity['complete'] = False
+    for row in [*activity.get('runs', []), *activity.get('current', [])]:
+        if isinstance(row, dict) and row.get('activity') in ('running', 'queued'):
+            observed = row.get('livenessObservedAt')
+            if not (type(observed) in (int, float) and math.isfinite(observed)
+                    and -CLOCK_SKEW_SECONDS <= now - observed <= FULL_SAMPLE_MAX_AGE):
+                row.update(activity='unknown', status='stale')
+                current.update(complete=False, count=None, running=None, queued=None,
+                               reason='Current run liveness expired or its original timestamp is unavailable')
+
+
 class SnapshotStore:
     def __init__(self):
         self.lock = threading.Lock()
@@ -461,6 +503,7 @@ class SnapshotStore:
         if data is None:
             return None
         now = time.time()
+        expire_run_evidence(data, now)
         # Build before legacy expiry clears historical identities and counts.
         # Each fact is aged against its own original observation, not this read.
         fleet = build_fleet_state(data, now=now)
@@ -1079,9 +1122,9 @@ def sample(store, stop, feed=None, tick=0.15, full_interval=1.0, guard=None, aut
             attach(data, 'mac', rates=_INFERENCE_RATES, targets=rows, tunnel=status, vram=vram,
                    remote_config=remote_config, previous=(store.read() or {}).get('inference'))
             stage = 'activity'
-            activity = collect_activity()
-            data['activity'] = {'runs': activity['runs'], 'sampledAt': activity.get('sampledAt'), 'historyBound': activity.get('historyBound'),
-                                'complete': activity.get('complete', False)}
+            inventory = router_run_inventory(data)
+            activity = collect_activity(current_evidence=inventory)
+            data['activity'] = {key: value for key, value in activity.items() if key != 'sources'}
             data['sources'].extend(activity['sources'])
             try:
                 clients, client_sources = collect_clients()

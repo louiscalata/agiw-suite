@@ -276,7 +276,7 @@ function paintBoard(board, monitor, desk) {
   const gate = jevGate(monitor.analyses || []);
   analysis.append(el('p', 'j-eyebrow', 'NISI AND JEV ANALYSIS'));
   const gateLine = el('p', gate.open ? 'j-status' : 'j-unavailable j-callout');
-  gateLine.append(el('span', 'j-glyph', gate.open ? '●' : '○'), el('span', 'j-word', gate.open ? 'JEV GATE OPEN' : 'JEV GATE BLOCKED'));
+  gateLine.append(el('span', 'j-glyph', gate.open ? '●' : '○'), el('span', 'j-word', gate.word));
   gateLine.append(el('span', 'j-reason', gate.blocker || 'Jev pre and post records are both passed. That is not this workload\'s run result.'));
   analysis.append(gateLine);
   analysis.append(el('p', 'j-note', 'Analysis state is not run success. Unavailable, skipped, pending, and failed Jev phases do not open the gate.'));
@@ -285,11 +285,11 @@ function paintBoard(board, monitor, desk) {
     const negativeVerdict = slot.verdict === 'ROLLBACK' || slot.verdict === 'NOT_PASS';
     const row = el('li', `j-step ${negativeVerdict ? 'j-blocked' : statusClass(slot.state === 'passed' ? 'ok' : slot.state === 'failed' ? 'blocked' : slot.state === 'pending' ? 'unknown' : slot.state === 'skipped' ? 'idle' : slot.state)}`);
     row.append(el('p', 'j-step-hit', `${slot.tool} ${slot.phase}`));
-    row.append(el('p', 'j-word', negativeVerdict ? slot.verdict : slot.state.toUpperCase()));
+    row.append(el('p', 'j-word', negativeVerdict ? slot.verdict : slot.word || (slot.state === 'unavailable' ? 'NOT AVAILABLE YET' : slot.state.toUpperCase())));
     row.append(el('p', 'j-step-reason', [slot.verdict ? `Verdict ${slot.verdict}` : null, slot.detail, `Run ${slot.runId || 'not reported'}`, `attempt ${slot.attemptId || 'not reported'}`].filter(Boolean).join(' · ') + '.'));
     analysisList.append(row);
   }
-  if (!(monitor.analyses || []).length) analysis.append(el('p', 'j-unavailable j-callout', '○ UNAVAILABLE · this monitor has no run or attempt to attach'));
+  if (!(monitor.analyses || []).length) analysis.append(el('p', 'j-unavailable j-callout', '○ NOT AVAILABLE YET · this monitor has no run or attempt to attach'));
   analysis.append(analysisList);
   board.append(analysis);
   appendMetrics(board, monitor.metrics);
@@ -343,6 +343,8 @@ export function paintMonitorChrome({host, board, desk, snapshot, feedFresh, paus
     feedFresh: demo ? true : feedFresh === true,
     paused: demo ? false : paused === true,
     fictional: demo === true,
+    now: Date.now()/1000,
+    snapshotAge: Number.isFinite(source?.sampledAt) ? Math.max(0,Date.now()/1000-source.sampledAt) : undefined,
   });
   const applied = preferredId ? desk.select(preferredId) === true : false;
   const active = monitors.find(item => item.id === desk.active) || monitors[0];

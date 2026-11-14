@@ -156,7 +156,7 @@ def fixture(changes):
             'pipeline': {'status': 'idle', 'pipelines': [], 'pipelinesComplete': True, 'ageSeconds': 0},
             'onlineCodeMode': {'state': 'inactive', 'active': False, 'taskState': 'idle',
                                'runCounts': {'running': 0, 'queued': 0, 'unresolved': 0}},
-            'activity': {'runs': [], 'complete': True, 'historyBound': {'truncated': False}},
+            'activity': {'runs': [], 'sampledAt': NOW, 'currentEvidence': {'complete': True, 'count': 0, 'observedAt': NOW, 'expiresAt': NOW+3}, 'complete': True, 'historyBound': {'truncated': False}},
             'windowsJobs': {'schemaVersion': 1, 'journal': 'recorded', 'complete': True, 'inFlight': [], 'recent': [], 'lastSuccess': None},
             'components': [],
             'macGpu': {'ageSeconds': 0, 'utilizationPercent': 40, 'allocatedBytes': 1 << 30},

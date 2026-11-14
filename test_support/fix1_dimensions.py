@@ -39,7 +39,8 @@ def dimensions(healthy):
 
     for state, checkpoint, jobs, history in itertools.product(('running','queued'), (None,0,60), (0,2), (0,10,12,14)):
         data=healthy('mac')
-        data['activity']['runs']=[dict(runId='current-route',source='router-active',activity=state,status='unresolved',host='mac',ageSeconds=checkpoint)]
+        data['activity']['currentEvidence']['count']=1
+        data['activity']['runs']=[dict(runId='current-route',source='router-active',activity=state,status='unresolved',host='mac',ageSeconds=checkpoint,livenessObservedAt=NOW)]
         data['windowsJobs']['inFlight']=[dict(id=f'open-{i}',ageSeconds=1,timeoutSeconds=600,client='codex',lane='fast',model='model-fast') for i in range(jobs)]
         data['windowsJobs']['unsettled']=jobs
         data['windowsJobs']['recent']=[dict(id=f'done-{i}',ageSeconds=i+1,state='success',client='codex',lane='fast',model='model-fast') for i in range(history)]

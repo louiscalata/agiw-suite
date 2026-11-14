@@ -42,7 +42,7 @@ def archive(root, age=1):
 def read_activity(root):
     with mock.patch.object(activity, '_ROOT', root), mock.patch.object(activity, '_RECEIPTS', root/'receipts'), \
          mock.patch.object(activity, '_active_rows', return_value=([], False, 'ok')):
-        return activity.collect_activity(NOW)
+        return activity.collect_activity(NOW, current_evidence={'observedAt': NOW, 'complete': True, 'counts': {'running': 0, 'queued': 0, 'unresolved': 0}})
 
 
 METRIC = {'kind': 'local', 'stage': 'draft', 'endpoint': 'http://127.0.0.1:1234',
@@ -85,7 +85,7 @@ def healthy(root, variation='baseline', value=0):
     s['sources'] = [r for r in s['sources'] if r['id'] not in ('pipeline-router','windows-worker','router-active','monitor-receipts','router-archive')] + [
         {'id':sid, 'state':'live', 'ageSeconds':0, 'observationAgeSeconds':0} for sid in ('pipeline-router','windows-worker','router-active','monitor-receipts','router-archive')]
     s['pipeline'] = {'status': 'idle', 'pipelines': [], 'pipelinesComplete': True}
-    s['activity'] = {'runs': [], 'complete': True, 'historyBound': {'truncated': False}}
+    s['activity'] = {'runs': [], 'sampledAt': NOW, 'currentEvidence': {'complete': True, 'count': 0, 'observedAt': NOW, 'expiresAt': NOW+3}, 'complete': True, 'historyBound': {'truncated': False}}
     success = variation in ('recent-success', 'success-boundary')
     job_age = value if success or variation == 'job-boundary' else 1
     count = 2 if variation == 'one-more-job' else 0 if variation == 'idle-lane' else 1

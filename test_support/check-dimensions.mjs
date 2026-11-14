@@ -1,7 +1,9 @@
+import {hasFreshRunInventory,checkUnknownActivity} from './fix11_assertions.mjs';
 import {layout,onlineMode} from './production.mjs';
 const pairs=body=>Object.fromEntries(body.querySelectorAll('dt').map(dt=>[dt.textContent,dt.parentNode.children[dt.parentNode.children.indexOf(dt)+1].textContent]));
 export function checkDimensions(item,api,$,fail){
   const d=item.snapshot,e=item.expect||{};
+  if(!hasFreshRunInventory(d,1800000000+(item.clockOffset||0)))checkUnknownActivity({$,check:(condition,field,output)=>{if(!condition)fail(item,field,output);}});
   if('idleScan' in e && (d.pipeline.status==='idle')!==e.idleScan)fail(item,'idle scan observation clock',d.pipeline);
   if('primaryState' in e){
     if(d.pipeline.status!==e.primaryState)fail(item,'verified primary survives cap',d.pipeline);

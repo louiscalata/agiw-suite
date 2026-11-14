@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { harness, fleetTileExpectations } from './test_support/monitor-harness.mjs';
 import * as layout from './web/map-layout.mjs';
-import { checkFix11 } from './test_support/fix11_assertions.mjs';
+import { checkFix11, checkUnknownActivity, hasFreshRunInventory } from './test_support/fix11_assertions.mjs';
 import { checkFix1 } from './test_support/fix1_assertions.mjs';
 
 const now = 1_800_000_000;
@@ -18,7 +18,7 @@ test('fix9 generative invariant: Python publishers -> JSON -> actual web rendere
     cwd: fileURLToPath(new URL('.', import.meta.url)), encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
   assert.equal(child.status, 0, child.stderr);
   const cases = child.stdout.trim().split('\n').map(line => JSON.parse(line));
-  const failures = [], counts = {}, dimensions = {}, properties = {};
+  const failures = [], counts = {}, dimensions = {}, properties = {}, exactHealthy = {mac:0,windows:0};
   for (const packet of cases) {
     const { host, changes, snapshot, status } = packet;
     const bad = new Set(changes.map(([sid]) => sid));
@@ -38,11 +38,16 @@ test('fix9 generative invariant: Python publishers -> JSON -> actual web rendere
       for (const [id, expected] of Object.entries(fleetTileExpectations(snapshot, rendererNow)))
         check($(id).textContent === expected, 'canonical endpoint tile '+id, {actual: $(id).textContent, expected});
       const input = api.vitalsInput(); api.renderActivity(input.feed); api.renderVitals(input);
+      const exactActivity = hasFreshRunInventory(snapshot, rendererNow);
+      if (!exactActivity) checkUnknownActivity({$, check});
+      if (dimension === 'healthy-exact') { check(exactActivity, 'healthy inventory must be fresh', snapshot.activity); exactHealthy[host] += Number(exactActivity); }
       if(['hands-off-signals','route-inspector-clock','activity-ui-cap','history-helper-read','lan-observation-clock'].includes(dimension))checkFix1({packet,api,$,input,check});
       if (['healthy-exact','route-semantics','journal-semantics','frozen-capture','source-boundary','history-read','fast-overlay','journal-read'].includes(dimension)) checkFix11({packet, api, $, input, check});
       if (dimension === 'route-clock') {
         const expected = scenario.expected, tiles = $('activityTiles').textContent;
-        check(/RoutesUnknown/.test(tiles) === !expected.routesAvailable, 'route coverage clock', tiles);
+        const routeTile = tiles.match(/Routes(.*)$/)?.[1] ?? '';
+        // Unreadable routes are unknown; a fresh inventory is exact; otherwise only a lower bound may remain.
+        check(!expected.routesAvailable ? routeTile === 'Unknown' : exactActivity ? /^\d+$/.test(routeTile) : /^(?:Unknown|At least [1-9]\d*)$/.test(routeTile), 'route coverage clock', tiles);
         if (!expected.routesAvailable) check(!/Nothing running now|In flight0/.test($('activityStatus').textContent + tiles), 'expired inactivity', $('activityStatus').textContent + tiles);
         check(input.feed.some(row => row.kind === 'route' && row.state === 'in-flight') === expected.routeRunning,
           'route liveness clock', input.feed);
@@ -150,7 +155,8 @@ test('fix9 generative invariant: Python publishers -> JSON -> actual web rendere
     properties[property].failedCases += Number(failures.length>before);
   }
   const examples = [...new Map(failures.map(f => [`${f.host}:${f.changes.map(c=>c[0]).join('+')}:${f.field}`, f])).values()];
-  const report = { cases: cases.length, counts, dimensions, properties, violations: failures.length, failures };
+  assert.equal(exactHealthy.mac, 14); assert.equal(exactHealthy.windows, 14);
+  const report = { exactHealthy, cases: cases.length, counts, dimensions, properties, violations: failures.length, failures };
   if (process.env.FIX10_REPORT) writeFileSync(process.env.FIX10_REPORT, JSON.stringify(report, null, 2) + '\n');
   console.log(JSON.stringify({ ...report, failures: undefined, examples: examples.slice(0, 30) }));
   assert.equal(dimensions.fix9.cases, 16881); // original coverage is retained verbatim

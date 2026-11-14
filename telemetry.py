@@ -31,6 +31,8 @@ try:
 except ImportError:  # likewise: without it NVIDIA PAIR is simply unknown
     pair_status = None
 from typing import Any, Iterator
+from machine_state import CLOCK_SKEW_SECONDS
+
 
 from nisi_v02 import collect_nisi_v02
 from machine_state import machines_summary
@@ -460,7 +462,7 @@ def last_router_observation(max_age: float = 5.0) -> dict[str, Any] | None:
     """The observation the last snapshot computed, while it is at most ``max_age`` old."""
     with _LAST_ROUTER_OBSERVATION_LOCK:
         sampled, value = _LAST_ROUTER_OBSERVATION["sampledAt"], _LAST_ROUTER_OBSERVATION["value"]
-    if sampled is None or value is None or not 0 <= time.time() - sampled <= max_age:
+    if sampled is None or value is None or not -CLOCK_SKEW_SECONDS <= time.time() - sampled <= max_age:
         return None
     return value
 
@@ -1155,7 +1157,7 @@ def _router_observation(now: float) -> dict[str, Any]:
     """
     root = _router_root()
     install = _router_install_state(root)
-    observation: dict[str, Any] = {"root": str(root), "install": install, "admission": None, "rows": [],
+    observation: dict[str, Any] = {"root": str(root), "observedAt": now, "install": install, "admission": None, "rows": [],
                                    "primary": None, "truncated": False, "error": None,
                                    "legacyPresent": False, "layout": "absent", "collisions": []}
     rows: list[dict[str, Any]] = []
@@ -3227,8 +3229,9 @@ def collect_snapshot() -> dict[str, Any]:
 
     # One observation of both router journal layouts feeds the pipeline, Online Code Mode
     # and (through last_router_observation) the activity rows of this sample.
-    router = observe_router(sampled)
-    pipeline, router_source = _pipeline(sampled, router)
+    router_at = time.time()
+    router = observe_router(router_at)
+    pipeline, router_source = _pipeline(router_at, router)
     sources.append(router_source)
     online_code_mode = _online_code_mode(sampled, observed, router)
     _mark_live_route(pipeline, router_source, online_code_mode)
