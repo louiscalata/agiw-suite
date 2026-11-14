@@ -681,6 +681,10 @@ def _unknown_dataset(reason, pending=False):
 
 
 def _fingerprint(info):
+    if os.name == 'nt':
+        # Windows reports st_dev/st_ino/st_ctime_ns differently for a path lstat and a handle fstat
+        # (and a scanner can touch them), so only the size and modification time identify the file.
+        return (info.st_size, info.st_mtime_ns)
     return (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
 
 

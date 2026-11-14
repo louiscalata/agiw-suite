@@ -276,5 +276,25 @@ class FastCheckRejectionTests(unittest.TestCase):
             self.ingest(folder, dict(schema_version=1, runs=[], items=[], fast_checks=[clean, clean]))
 
 
+class FingerprintTests(unittest.TestCase):
+    class Info:
+        st_dev, st_ino, st_size, st_mtime_ns, st_ctime_ns = 1, 2, 3, 4, 5
+
+    def test_windows_fingerprint_ignores_handle_and_creation_identity(self):
+        other = self.Info()
+        other.st_dev, other.st_ino, other.st_ctime_ns = 9, 8, 7
+        with patch.object(e.os, 'name', 'nt'):
+            self.assertEqual(e._fingerprint(self.Info()), e._fingerprint(other))
+            changed = self.Info()
+            changed.st_size = 99
+            self.assertNotEqual(e._fingerprint(self.Info()), e._fingerprint(changed))
+
+    def test_posix_fingerprint_still_includes_inode_and_ctime(self):
+        other = self.Info()
+        other.st_ino = 8
+        with patch.object(e.os, 'name', 'posix'):
+            self.assertNotEqual(e._fingerprint(self.Info()), e._fingerprint(other))
+
+
 if __name__=='__main__':
     unittest.main()
