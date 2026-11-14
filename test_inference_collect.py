@@ -3,6 +3,7 @@ import unittest
 from unittest.mock import patch
 
 import inference_collect
+import pc_tunnel
 from inference_collect import ProbeError, RateMemory, collect_map, direct_targets, parse_metrics, parse_slots
 from inference_stats import MAP_SCHEMA
 
@@ -199,11 +200,18 @@ class CollectorTests(unittest.TestCase):
                    for lane in ({"id": "pc:router", "port": 1234},
                                 {"id": "pc:gpt-oss-20b", "port": 1245},
                                 {"id": "pc:qwen3.8-27b", "port": 1236})]
-        tunnel = {"state": "down", "reason": "tunnel_down", "detail": "SSH tunnel is down."}
+        tunnel = pc_tunnel.describe({"user": "pc-user", "host": "pc.example", "identityFile": "/keys/k",
+                                     "forwards": [{"name": "router", "id": "pc:router",
+                                                   "localPort": 1334, "remotePort": 1234}]},
+                                    lambda _port: False)
         document = collect_map("mac", fetch=fetch, now=1000, targets=targets, tunnel=tunnel,
                                veritas_url="http://127.0.0.1:9/health",
                                vram={"usedMiB": 1024, "totalMiB": 8192})
         self.assertEqual(document["schema"], MAP_SCHEMA)
+        # The map carries the listener reading as observed; it does not say SSH or the PC is down.
+        self.assertEqual((document["tunnel"]["state"], document["tunnel"]["reason"]), ("down", "tunnel_down"))
+        self.assertIn("not SSH or PC reachability", document["tunnel"]["detail"])
+        self.assertNotIn("SSH tunnel is down", json.dumps(document))
         studio = next(item for item in document["nodes"] if item["id"] == "mac:lmstudio")
         self.assertEqual((studio["health"], studio["modelId"], studio["contextLimit"]), ("ok", "gpt-oss-20b", 131072))
         self.assertNotIn("SECRET-NOTE", json.dumps(studio))
