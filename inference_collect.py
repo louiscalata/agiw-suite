@@ -461,7 +461,8 @@ def _read_pc(target, fetch, rates, now, observed, *, unconfigured=False):
         return _blank(str(target.get("id") or "pc:unknown"), "pc", "llama", "Unknown lane", observed,
                       health="not_measured", reason="unknown_lane", endpoint=endpoint)
     if not target.get("base"):
-        # No SSH user/host set up at all is "not configured"; a set-up tunnel that is closed stays "tunnel_down".
+        # No SSH user/host set up at all is "not configured"; a configured local forward listener
+        # that is not accepting stays "tunnel_down" (listener state, not SSH or PC reachability).
         return _blank(spec["id"], "pc", spec["role"], spec["label"], observed, health="not_measured",
                       reason="not_configured" if unconfigured else "tunnel_down", endpoint=endpoint)
     if spec["role"] == "router":

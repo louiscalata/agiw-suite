@@ -162,7 +162,13 @@ def port_accepts(port, timeout=0.2):
 
 
 def describe(config, accepts):
-    """Closed forwards are tunnel_down. That is not a claim that a model server is down."""
+    """Report the Mac's local forward listeners on 127.0.0.1.
+
+    ``accepts`` is a TCP connect to each ``localPort``. Any process can own that
+    listener, so the result is not a reading of SSH or of the PC: closed
+    listeners are ``tunnel_down`` (not a claim that a model server is down) and
+    open listeners are ``forwarded`` (not a claim that SSH or the PC answers).
+    """
     if config.get("error"):
         return {"state": "down", "reason": "config_invalid", "detail": "PC tunnel config is invalid.", "forwards": []}
     if not config.get("user") or not config.get("host"):
@@ -183,10 +189,12 @@ def describe(config, accepts):
         identity = " An identity file is not configured." if not config.get("identityFile") else ""
         ports = ", ".join(str(port) for port in closed)
         return {"state": "down", "reason": "tunnel_down",
-                "detail": f"SSH tunnel is down. Local forwards not accepting: {ports}.{identity}",
+                "detail": (f"Local forward listeners not accepting on 127.0.0.1: {ports}. "
+                           f"This is listener state on this Mac, not SSH or PC reachability.{identity}"),
                 "host": config["host"], "user": config["user"], "forwards": forwards}
     return {"state": "up", "reason": "forwarded",
-            "detail": "SSH local forwards are accepting connections.",
+            "detail": ("Local forward listeners on 127.0.0.1 are accepting connections. "
+                       "This is listener state on this Mac, not SSH or PC reachability."),
             "host": config["host"], "user": config["user"], "forwards": forwards}
 
 

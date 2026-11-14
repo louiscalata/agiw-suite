@@ -28,7 +28,9 @@ test('a node shows health, the reported model and tok/s', () => {
 
 test('tunnel status is the collector detail', () => {
   assert.equal(tunnelLine(null), '');
-  assert.equal(tunnelLine({state: 'down', detail: 'SSH tunnel is down.'}), 'SSH tunnel is down.');
+  const detail = 'Local forward listeners not accepting on 127.0.0.1: 1334. '
+    + 'This is listener state on this Mac, not SSH or PC reachability.';
+  assert.equal(tunnelLine({state: 'down', detail}), detail);
 });
 
 test('registry machines and their lanes share compact columns without label rows colliding', () => {

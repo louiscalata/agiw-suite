@@ -90,7 +90,8 @@ test('store ageing clears the accepting tunnel while a request has no response',
   let now = Date.now();
   class Clock extends Date { static now() { return now; } }
   const map = documentAt(now);
-  map.tunnel.detail = 'SSH local forwards are accepting connections.';
+  map.tunnel.detail = 'Local forward listeners on 127.0.0.1 are accepting connections. '
+    + 'This is listener state on this Mac, not SSH or PC reachability.';
   const h = harness(map, Clock);
   assert.match(h.elements.tunnel.textContent, /accepting/);
   now += 31000;
