@@ -66,7 +66,7 @@ print(json.dumps([valid, invalid]))
     const [[validCode, valid], [invalidCode, invalid]] = JSON.parse(result.stdout);
     assert.equal(validCode, 200);
     assert.equal(invalidCode, 200);
-    assert.equal(valid.dataset.status, 'configured');
+    assert.equal(valid.dataset.status, 'configured', JSON.stringify(valid.dataset));
     assert.equal(invalid.dataset.status, 'unknown');
     assert.ok(invalid.dataset.reason);
     const previous = globalThis.document;
