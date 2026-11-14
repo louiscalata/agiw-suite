@@ -319,6 +319,44 @@ class ServiceManager:
                 time.sleep(min(1.0, remaining))
         raise ServiceError(f"task {task} is installed but not confirmed running: {reason}")
 
+    def _end_previous_windows_instance(self, task: str) -> bool:
+        """Stop an instance that a re-install would otherwise leave running; True when one was stopped.
+
+        The task's MultipleInstancesPolicy is IgnoreNew, so /Run on a running (or queued) task starts nothing
+        and the old process keeps the code it loaded. Unknown state is never treated as stopped."""
+        command = self._windows_state_command()
+        guidance = f"stop it with `schtasks /End /TN {task}` and retry"
+        try:
+            state = self._windows_state(command)
+        except ServiceError as exc:
+            raise ServiceError(f"task {task} is installed but agiw cannot tell whether a previous instance "
+                               f"is running, so it was not started; {guidance}: {exc}") from exc
+        if state == "Unknown":
+            raise ServiceError(f"task {task} is installed but agiw cannot tell whether a previous instance "
+                               f"is running (task State is Unknown), so it was not started; {guidance}")
+        if state not in ("Running", "Queued"):
+            return False
+        try:
+            self._run([self._schtasks(), "/End", "/TN", task], check=False)
+        except (OSError, subprocess.SubprocessError):
+            pass  # the state queries below decide whether the previous instance stopped
+        deadline = time.monotonic() + 5.0
+        reason = f"task State is {state}"
+        for attempt in range(6):
+            try:
+                state = self._windows_state(command)
+                if state in ("Ready", "Disabled", "missing"):
+                    return True
+                reason = f"task State is {state}"
+            except ServiceError as exc:
+                reason = str(exc)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0 or attempt == 5:
+                break
+            time.sleep(min(1.0, remaining))
+        raise ServiceError(f"task {task} is installed with the new definition but the previous instance "
+                           f"did not stop, so it is still running the old code; {guidance}: {reason}")
+
     def _bootstrap_with_retry(self, bootstrap: Sequence[str], stopped):
         if self._run(bootstrap, check=False).returncode != 0:
             if stopped.returncode == 0:
@@ -362,6 +400,8 @@ class ServiceManager:
             path = self._write_definition()
             steps.append("wrote " + str(path))
             self._run([self._schtasks(), "/Create", "/TN", task, "/XML", str(path), "/F"])
+            if self._end_previous_windows_instance(task):
+                steps.append(f"stopped the running task {task} so it restarted with the new definition")
             try:
                 self._run([self._schtasks(), "/Run", "/TN", task])
             except (ServiceError, OSError, subprocess.SubprocessError) as exc:
