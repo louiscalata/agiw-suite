@@ -1,4 +1,4 @@
-/** Owner decision, 2026-11-11. Change only with a new recorded owner decision. */
+/** Owner decision, 2026-11-12. Change only with a new recorded owner decision. */
 export const CHOICE_FILE = {
   "name": "jaryo-lab-choices.json",
   "sha256": "6490e5b15b624b82703d2ce897054c2e9a40f6c8dcc5d389de45e86d7004be2d"
@@ -25,13 +25,13 @@ export const CHOSEN = {
 export const OVERRIDES = {
   "F17": {
     "choice": "F17.01",
-    "date": "2026-11-11",
-    "reason": "overridden by owner: booklet red",
-    "light": "#C21A27",
-    "dark": "#C21A27",
+    "date": "2026-11-12",
+    "reason": "owner selected Copper, superseding booklet red",
+    "light": "#C47A3A",
+    "dark": "#C47A3A",
     "forcedColors": "system colors (unchanged)",
-    "accentInk": "#FFFFFF",
-    "scope": "accent only; preserve the remaining F17 color tokens"
+    "accentInk": "#000000",
+    "scope": "accent and focus only; preserve remaining F17 color tokens"
   }
 };
 export const IMPLEMENTATION = {
@@ -42,11 +42,11 @@ export const IMPLEMENTATION = {
       "text": "#F4F1EA",
       "muted": "#9AA3A8",
       "border": "#5A676C",
-      "focus_ring": "#E8D7A8",
+      "focus_ring": "#C47A3A",
       "selected_bg": "#F4F1EA",
       "selected_fg": "#0B1012",
-      "accent_identity": "#C21A27",
-      "accent_ink": "#FFFFFF",
+      "accent_identity": "#C47A3A",
+      "accent_ink": "#000000",
       "status_ok": "#8FC4A0",
       "status_run": "#8FB4D6",
       "status_blocked": "#FFD2C8",
@@ -62,11 +62,11 @@ export const IMPLEMENTATION = {
       "text": "#000000",
       "muted": "#000000",
       "border": "#000000",
-      "focus_ring": "#000000",
+      "focus_ring": "#C47A3A",
       "selected_bg": "#000000",
       "selected_fg": "#FFFFFF",
-      "accent_identity": "#C21A27",
-      "accent_ink": "#FFFFFF",
+      "accent_identity": "#C47A3A",
+      "accent_ink": "#000000",
       "status_ok": "#000000",
       "status_run": "#000000",
       "status_blocked": "#000000",

@@ -309,6 +309,12 @@ function publishMap() {
 }
 
 if (typeof document !== 'undefined' && document.querySelector('#map')) {
+  document.querySelector('#detailClose')?.addEventListener('click', () => {
+    selected = null;
+    document.querySelector('#detail').hidden = true;
+    if (current) draw(current, null);
+    document.querySelector('#content')?.focus();
+  });
   document.querySelector('#map').addEventListener('click', event => {
     const group = event.target.closest('g');
     const id = group?.dataset.id;

@@ -100,6 +100,6 @@ Python tests are unittest. JavaScript tests are `node --test`. Use `python3 -B` 
 
 ## Jaryo
 
-Ink on paper. The accent is red `#C21A27`. Text is Plex Sans. Code and figures are Plex Mono.
+Ink on paper. The accent is Copper `#C47A3A`, used for fills and focus with black labels on it, never as text. Text is Plex Sans. Code and figures are Plex Mono.
 
 `node jaryo/cli.mjs tokens` prints `jaryo/tokens.json`. Its retained foundation records provisional Inter and surface `black-white`; `appliedChoiceFile` records the applied choice file and SHA-256, and `chosenFamilyIds` records all 17 choices. The Android color check allows `#000000` and `#FFFFFF` only. When web typography or accents diverge from the foundation, record and verify an explicit platform variant; do not silently change Android's fonts or palette. Keep token contracts, CSS, distribution assets and affected checks in agreement. D4 Split is rejected. Files in `jaryo/marks/` are studies, not the wordmark.

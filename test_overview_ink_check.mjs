@@ -144,22 +144,25 @@ test('geometry failures fail every case and Chromium remains isolated', async ()
 
 
 test('only the exact opaque web accent passes the accent parser', () => {
-  for (const value of ['rgb(194, 26, 39)', 'rgb(194 26 39)', 'rgba(194, 26, 39, 1)', 'rgb(194 26 39 / 100%)']) {
+  for (const value of ['rgb(196, 122, 58)', 'rgb(196 122 58)', 'rgba(196, 122, 58, 1)', 'rgb(196 122 58 / 100%)']) {
     assert.equal(isWebAccent(value), true, value);
   }
-  for (const value of ['rgb(195, 26, 39)', 'rgba(194, 26, 39, 0.5)', 'rgb(194 26 39 / invalid)',
-    'rgb(194 26)', 'rgb(194,26,39,1,0)', 'red', 'color(srgb 0.76 0.1 0.15)']) {
+  for (const value of ['rgb(197, 122, 58)', 'rgba(196, 122, 58, 0.5)', 'rgb(196 122 58 / invalid)',
+    'rgb(196 122)', 'rgb(196,122,58,1,0)', 'red', 'color(srgb 0.76 0.1 0.15)']) {
     assert.equal(isWebAccent(value), false, value);
   }
 });
 
 test('the actual ink check permits display accent but rejects colored readings and unknown colors', async () => {
   const rejected = [
-    { value: 'rgb(194, 26, 39)', accentAllowed: false },
-    { value: 'rgb(195, 26, 39)', accentAllowed: true },
+    { value: 'rgb(196, 122, 58)', prop: 'backgroundColor', accentAllowed: false },
+    // Copper is a fill: as text on white it is 3.39:1, so the display elements may not paint it as ink.
+    { value: 'rgb(196, 122, 58)', prop: 'color', accentAllowed: true },
+    { value: 'rgb(196, 122, 58)', prop: 'borderTopColor', accentAllowed: true },
+    { value: 'rgb(197, 122, 58)', accentAllowed: true },
     { value: 'color(srgb 1 0 0)', accentAllowed: true },
   ];
-  const h = harness({ paints: [{ value: 'rgb(194, 26, 39)', accentAllowed: true }, ...rejected] });
+  const h = harness({ paints: [{ value: 'rgb(196, 122, 58)', prop: 'backgroundColor', accentAllowed: true }, ...rejected] });
   assert.deepEqual((await h.result).map(item => item.colored), Array(4).fill(rejected));
   assert.equal(h.calls.kill, 1);
 });
@@ -210,7 +213,6 @@ test('choice ink is limited to its intended property, role and theme',async()=>{
   const allowed=[
     {value:'rgb(143, 196, 160)',prop:'color',role:'ok'},
     {value:'rgb(143, 180, 214)',prop:'color',role:'running'},
-    {value:'rgb(232, 215, 168)',prop:'outlineColor',role:'focus'},
     {value:'rgb(255, 210, 200)',prop:'color',role:'blocked'},
     {value:'rgb(58, 32, 32)',prop:'backgroundColor',role:'blocked'},
   ];
@@ -218,6 +220,7 @@ test('choice ink is limited to its intended property, role and theme',async()=>{
     assert.equal(isChoiceInk(paint.value,{...paint,scheme:'dark'}),true);
     assert.equal(isChoiceInk(paint.value,{...paint,scheme:'light'}),false);
   }
+  for (const scheme of ['dark', 'light']) assert.equal(isChoiceInk('rgb(196, 122, 58)', {prop:'outlineColor',role:'focus',scheme}), true);
   const result=await harness({paints:allowed}).result;
   assert.deepEqual(result.map(item=>item.scheme),['light','light']);
   assert.deepEqual(result.map(item=>item.colored),[allowed,allowed]);
@@ -228,9 +231,9 @@ test('approved-token misuse cannot pass the actual overview ink check',async()=>
     {value:'rgb(58, 32, 32)',prop:'color',role:'text'}, // blocked fill as low-contrast text
     {value:'rgb(143, 196, 160)',prop:'backgroundColor',role:'text'},
     {value:'rgb(143, 180, 214)',prop:'color',role:'text'},
-    {value:'rgb(232, 215, 168)',prop:'fill',role:'focus'},
+    {value:'rgb(196, 122, 58)',prop:'fill',role:'focus'}, // the focus token is an outline colour only
     {value:'rgb(255, 210, 200)',prop:'color',role:'selected'},
-    {value:'rgb(196, 122, 58)',prop:'color',role:'text',accentAllowed:true},
+    {value:'rgb(196, 122, 58)',prop:'color',role:'text',accentAllowed:true}, // accent as text
     {value:'rgba(143, 196, 160, 0.5)',prop:'color',role:'ok'},
   ];
   for(const paint of rejected)assert.equal(isChoiceInk(paint.value,{...paint,scheme:'dark'}),false);

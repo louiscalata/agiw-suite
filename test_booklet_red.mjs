@@ -1,4 +1,4 @@
-// F17 keeps booklet red for brand/primary fills, separate from status tints.
+// F17 uses Copper for accent/focus, separate from state.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -7,15 +7,17 @@ import { contrastRatio } from './jaryo/contract.mjs';
 
 const css = readFileSync(new URL('./web/jaryo.css', import.meta.url), 'utf8');
 const tokens = JSON.parse(readFileSync(new URL('./jaryo/tokens.json', import.meta.url), 'utf8'));
-const accent = '#C21A27';
+const accent = '#C47A3A';
 
-test('booklet red clears AA on paper and as a chip', () => {
-  assert.match(css, /--j-accent:\s*#C21A27;/);
-  assert.match(css, /--j-accent-ink:\s*#FFFFFF;/);
-  assert.ok(contrastRatio(accent, '#ffffff') >= 4.5, 'red on white is normal text');
-  assert.ok(contrastRatio('#ffffff', accent) >= 4.5, 'white on red is the primary label');
-  assert.ok(contrastRatio(accent, tokens.palette.dark.surface) < 3, 'red cannot be used alone on the dark surface');
-  assert.ok(contrastRatio(accent, '#000000') < 4.5, 'red on black is not a body colour');
+test('Copper fill has AA text contrast and is not normal text on paper', () => {
+  assert.match(css, /--j-accent:\s*#C47A3A;/);
+  assert.match(css, /--j-accent-ink:\s*#000000;/);
+  assert.ok(contrastRatio('#000000', accent) >= 4.5, 'black on Copper is the primary label');
+  assert.ok(contrastRatio(accent, tokens.palette.light.surface) < 4.5, 'Copper on white is not normal text');
+  for (const palette of Object.values(tokens.palette)) {
+    assert.ok(contrastRatio(palette.focus_ring, palette.bg) >= 3, 'focus boundary is visible');
+    assert.ok(contrastRatio(palette.accent_ink, palette.accent_identity) >= 4.5, 'accent label is readable');
+  }
 });
 
 test('the accent is a brand or primary fill; headlines and selected tabs use ink', () => {

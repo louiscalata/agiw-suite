@@ -86,8 +86,8 @@ if variants.get("android") != {"inherits": "foundation"}:
 web = variants.get("web", {})
 if (web.get("scope") != "full-observer-web"
         or web.get("fonts") != {"text": "IBM Plex Sans", "figures": "IBM Plex Mono"}
-        or web.get("accent") != "#C21A27"
-        or web.get("typeScalePx") != [13, 21, 34, 55, 89, 144]):
+        or web.get("accent") != "#C47A3A"
+        or web.get("typeScalePx") != [13, 14, 16, 20, 28, 28]):
     raise SystemExit("web typography/accent contract is missing or unscoped")
 # Owner approval applies to the kit/web only; Android still inherits the foundation above.
 import hashlib
@@ -97,7 +97,7 @@ if (hashlib.sha256(choice_bytes).hexdigest() != expected_sha
         or tokens.get("appliedChoiceFile") != {"name": "jaryo-lab-choices.json", "sha256": expected_sha}
         or tokens.get("chosenFamilyIds") != json.loads(choice_bytes)["choices"]
         or tokens.get("choiceScope") != "jaryo-kit-and-full-observer-web"
-        or tokens.get("ownerOverrides", {}).get("F17", {}).get("reason") != "overridden by owner: booklet red"):
+        or tokens.get("ownerOverrides", {}).get("F17", {}).get("reason") != "owner selected Copper, superseding booklet red"):
     raise SystemExit("owner choices or their web-only scope drifted")
 for rel in ("app/build.gradle.kts", "monitor-core/build.gradle.kts"):
     gradle = (android_root / rel).read_text()

@@ -21,13 +21,13 @@ test('all 17 source choices and the separate dated F17 override are exact',()=>{
   assert.equal(Object.keys(CHOSEN).length,17);
   assert.deepEqual(tokens.ownerOverrides,OVERRIDES);
   assert.equal(tokens.chosenFamilyIds.F17,'F17.01');
-  assert.equal(tokens.ownerOverrides.F17.date,'2026-11-11');
-  assert.equal(tokens.ownerOverrides.F17.reason,'overridden by owner: booklet red');
+  assert.equal(tokens.ownerOverrides.F17.date,'2026-11-12');
+  assert.equal(tokens.ownerOverrides.F17.reason,'owner selected Copper, superseding booklet red');
 });
 for (const [name,mutate] of [
   ['choice ID',t=>t.chosenFamilyIds.F08='F08.01'],
-  ['override date',t=>t.ownerOverrides.F17.date='2026-11-10'],
-  ['copper accent',t=>t.palette.dark.accent_identity='#C47A3A'],
+  ['override date',t=>t.ownerOverrides.F17.date='2026-11-11'],
+  ['accent drift',t=>t.palette.dark.accent_identity='#C21A27'],
   ['surface',t=>t.palette.dark.surface='#181E20'],
   ['thumb bar',t=>t.interaction.thumbBar='40px'],
   ['pattern',t=>t.patterns.inputs='ordinary-field'],
@@ -39,15 +39,15 @@ test('all semantic text and UI pairs meet their AA minimum',()=>{
   assert.equal(contrastRatio('#000000','#FFFFFF'),21);
   assert.throws(()=>contrastRatio('transparent','#FFFFFF'),/opaque/);
 });
-test('contrast audit fails real color regressions and documents the prohibited red text pair',()=>{
+test('contrast audit fails real color regressions and documents the prohibited Copper text pair',()=>{
   const changed=structuredClone(tokens); changed.palette.dark.muted=changed.palette.dark.surface;
   assert.ok(checkContrast(changed).some(message=>message.includes('muted/surface')));
-  assert.ok(contrastRatio(tokens.palette.dark.accent_identity,tokens.palette.dark.surface)<3);
+  assert.ok(contrastRatio(tokens.palette.light.accent_identity,tokens.palette.light.surface)<4.5);
   assert.ok(contrastRatio(tokens.palette.dark.accent_ink,tokens.palette.dark.accent_identity)>4.5);
 });
 for (const [file,from,to] of [
   ['jaryo/primitives.css','--j-surface: #141A1C','--j-surface: #222222'],
-  ['web/jaryo.css','--j-accent: #C21A27','--j-accent: #C47A3A'],
+  ['web/jaryo.css','--j-accent: #C47A3A','--j-accent: #C21A27'],
   ['web/jaryo.css','height: calc(var(--j-thumb-bar)','height: calc(40px'],
   ['web/jaryo.mjs','Dependencies not declared','Dependencies guessed'],
 ]) test(`file contract catches ${file} export drift (${from})`,()=>{
