@@ -294,17 +294,17 @@ class DecisionTests(unittest.TestCase):
         self.assertEqual(f.post_check([evidence])["decision"], "ADMIT")
         self.assertEqual(
             f.post_check([dict(evidence, attempted=199, parsed=199)])["decision"],
-            "REJECT",
+            "UNKNOWN",
         )
         self.assertEqual(
             f.post_check([evidence], max_interval_width="0.001")["decision"], "REJECT"
         )
-        self.assertEqual(f.post_check([dict(evidence, errors=3)])["decision"], "REJECT")
+        self.assertEqual(f.post_check([dict(evidence, errors=3, parsed=197)])["decision"], "UNKNOWN")
         self.assertEqual(f.post_check([])["decision"], "UNKNOWN")
-        for errors, local in ((0, "ADMIT"), (3, "REJECT")):
+        for errors, local in ((0, "ADMIT"), (3, "UNKNOWN")):
             for advice in ("ADMIT", "UNKNOWN", "REJECT"):
                 result = f.post_check(
-                    [dict(evidence, errors=errors)],
+                    [dict(evidence, errors=errors, parsed=200-errors)],
                     advisory=dict(decision=advice, reasons=[]),
                 )
                 self.assertGreaterEqual(
@@ -348,12 +348,12 @@ class RunnerTests(unittest.TestCase):
         bench = record["benchmarks"][0]
         self.assertEqual(
             (bench["completed"], bench["errors"], bench["timeouts"], bench["correct"]),
-            (197, 3, 1, 0),
+            (0, 3, 1, 0),
         )
         self.assertIsNone(bench["tokens_per_s"])
         self.assertIsNone(bench["tokens"])
-        self.assertIsNone(bench["answer_seconds"])
-        self.assertEqual(record["post"]["decision"], "REJECT")
+        self.assertEqual(bench["answer_seconds"], 0)
+        self.assertEqual(record["post"]["decision"], "UNKNOWN")
         self.assertNotIn("PRIVATE SENTINEL", json.dumps(record))
 
     def test_cooperative_budget_stops_before_next_call_across_benchmarks(self):
@@ -372,7 +372,7 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(first["stop_reason"], "budget")
         self.assertEqual(second["stop_reason"], "budget")
         self.assertEqual(record["wall_time_s"], 4)
-        self.assertEqual(record["post"]["decision"], "REJECT")
+        self.assertEqual(record["post"]["decision"], "UNKNOWN")
         self.assertEqual(second["accuracy"], 0)
 
     def test_unknown_or_skip_pre_never_calls_answer(self):
@@ -618,7 +618,7 @@ class IntegrationTests(unittest.TestCase):
         self.assertEqual(pending["baseline_id"], baseline["record_id"])
         self.assertEqual(pending["baseline_comparison"], record["comparison"])
         self.assertEqual(pending["baseline_comparison"]["arc"]["verdict"], "INCONCLUSIVE")
-        self.assertEqual(pending["baseline_comparison"]["arc"]["reason"], "incomplete pairs")
+        self.assertEqual(pending["baseline_comparison"]["arc"]["reason"], "complete pairs")
 
     def test_bound_comparison_survives_missing_baseline_in_current_cohort(self):
         baseline = run(model=dict(MODEL, name="baseline"))
@@ -769,9 +769,8 @@ class IntegrationTests(unittest.TestCase):
         }
         for definition, value in cases.items():
             with self.subTest(definition=definition):
-                self.assertEqual(
-                    set(schema["$defs"][definition]["required"]), set(value)
-                )
+                self.assertLessEqual(set(schema["$defs"][definition]["required"]), set(value))
+                self.assertLessEqual(set(value), set(schema["$defs"][definition]["properties"]))
         for name in ("pre", "post"):
             self.assertEqual(
                 set(schema["$defs"][name]["properties"]["inputs"]["required"]),
@@ -830,7 +829,7 @@ class FixRoundRegressions(unittest.TestCase):
         self.assertEqual(b["accuracy_over_parsed_items"], 0.5)
         self.assertEqual(b["outcome_counts"], dict.fromkeys(values, 1))
         self.assertEqual(b["outcome_rates"], dict.fromkeys(values, 0.2))
-        self.assertEqual(record["post"]["decision"], "REJECT")
+        self.assertEqual(record["post"]["decision"], "UNKNOWN")
         self.assertIn(
             "answers cut off at the token limit: raise the limit and re-run",
             record["post"]["reasons"],
@@ -1040,12 +1039,12 @@ class FixRoundRegressions(unittest.TestCase):
         self.assertEqual(f.post_check([b])["decision"], "ADMIT")
         self.assertEqual(
             f.post_check([b], max_error_rate="0.009999999999999999")["decision"],
-            "REJECT",
+            "UNKNOWN",
         )
         b.update(attempted=199, correct=199, parsed=199, errors=0)
         self.assertEqual(f.post_check([b], min_coverage="0.995")["decision"], "UNKNOWN")
         self.assertEqual(
-            f.post_check([b], min_coverage="0.995000000000000001")["decision"], "REJECT"
+            f.post_check([b], min_coverage="0.995000000000000001")["decision"], "UNKNOWN"
         )
         self.assertEqual(
             f.pre_check(75, "Q4", 100, safety_margin="0.25")["decision"], "CHECK"
@@ -1102,7 +1101,7 @@ class FixRoundRegressions(unittest.TestCase):
             f.post_check([evidence], max_interval_width=upper)["decision"], "ADMIT"
         )
 
-    def test_unscored_items_cannot_support_an_otherwise_significant_pair(self):
+    def test_unparsed_answers_count_as_wrong_but_errors_are_missing_pairs(self):
         baseline = run(
             answer=lambda item: ("A" if int(item["id"]) < 130 else "B", 1, 1)
         )
@@ -1115,8 +1114,8 @@ class FixRoundRegressions(unittest.TestCase):
 
             result = run(answer=answer, baseline=baseline)
             test = result["comparison"]["arc"]
-            self.assertEqual(test["reason"], "incomplete pairs")
-            self.assertEqual(test["verdict"], "INCONCLUSIVE")
+            self.assertEqual(test["reason"], "incomplete pairs" if quality == "error" else "complete pairs")
+            self.assertEqual(test["verdict"], "INCONCLUSIVE" if quality == "error" else "BETTER")
             self.assertEqual(
                 (
                     test["n_expected"],
@@ -1124,7 +1123,7 @@ class FixRoundRegressions(unittest.TestCase):
                     test["n_baseline"],
                     test["n_shared"],
                 ),
-                (200, 199, 200, 199),
+                (200, 199, 200, 199) if quality == "error" else (200, 200, 200, 200),
             )
 
     def test_budget_is_an_exact_decimal_threshold(self):
@@ -1274,6 +1273,97 @@ def observation(outcome="correct", **updates):
 # Include round-two regression modules in the explicit user-requested suite.
 from test_eci_fast_check_round2 import RoundTwoTests
 from test_eci_fast_check_runtime_round2 import RuntimeRound2Tests
+
+class AuditCorrectnessTests(unittest.TestCase):
+    def test_single_error_uses_error_gate_not_unknown_finish(self):
+        first = f.make_plan(datasets())["benchmarks"][0]["item_ids"][0]
+
+        def answer(item):
+            if item["id"] == first:
+                raise TimeoutError("fixture")
+            return observation()
+
+        record = run(answer=answer)
+        self.assertEqual(record["benchmarks"][0]["errors"], 1)
+        self.assertEqual(record["benchmarks"][0]["unknown_finish"], 0)
+        self.assertEqual(record["post"]["decision"], "ADMIT")
+
+    def test_incomplete_budget_and_pre_stay_unknown(self):
+        data = datasets()
+        clock = FakeClock()
+        def answer(item):
+            clock.now += 1
+            return observation()
+        stopped = run(data=data, plan=f.make_plan(data, wall_budget_s="1"),
+                      answer=answer, clock=clock)
+        skipped = run(pre=f.pre_check(100, "Q4_K_M", None))
+        for record in (stopped, skipped):
+            with self.subTest(stop=record["benchmarks"][0]["stop_reason"]):
+                self.assertEqual(record["post"]["decision"], "UNKNOWN")
+                self.assertIn("incomplete", " ".join(record["post"]["reasons"]).lower())
+                self.assertNotIn("incompatibility", " ".join(record["post"]["reasons"]))
+                self.assertNotIn("chance", " ".join(record["post"]["reasons"]))
+
+    def test_only_answer_failures_are_paired_as_wrong(self):
+        baseline = run(answer=lambda item: observation("correct" if int(item["id"]) < 130 else "wrong"))
+        first = baseline["plan"]["benchmarks"][0]["item_ids"][0]
+        for outcome in ("unparsed", "error", "truncated_empty"):
+            with self.subTest(outcome=outcome):
+                candidate = run(answer=lambda item: observation(outcome if item["id"] == first else "correct"))
+                verdict, tests = f.pair_verdict(candidate, baseline)
+                self.assertEqual(verdict, "INCONCLUSIVE" if outcome == "error" else "BETTER")
+                self.assertEqual(tests["arc"]["n_shared"], 199 if outcome == "error" else 200)
+                self.assertEqual(tests["arc"]["reason"], "incomplete pairs" if outcome == "error" else "complete pairs")
+
+    def test_relaxed_alpha_cannot_admit_or_rank(self):
+        record = run(alpha="0.5")
+        self.assertEqual(record["post"]["decision"], "UNKNOWN")
+        self.assertEqual(f.rank([record])[0]["rows"], [])
+        for operation in (lambda: run(alpha="1"), lambda: f.mcnemar({}, {}, "1")):
+            with self.assertRaises(f.ValidationError):
+                operation()
+
+    def test_completed_check_cannot_claim_pre_or_budget_stop(self):
+        for reason in ("pre", "budget"):
+            record = run(plan=f.make_plan(datasets(), wall_budget_s="10"))
+            bench = record["benchmarks"][0]
+            record["benchmarks"][0] = f.summarize(record["plan"]["benchmarks"][0], bench["observations"], bench["wall_time_s"], reason)
+            rehash(record)
+            with self.subTest(reason=reason), self.assertRaises(f.ValidationError):
+                f.validate_record(record)
+
+    def test_ranking_validates_each_record_only_once(self):
+        a = run()
+        b = run(model=dict(MODEL, name="candidate-b"))
+        with patch.object(f, "validate_record", wraps=f.validate_record) as validate:
+            groups = f.rank([a, b])
+        self.assertEqual(len(groups[0]["rows"]), 2)
+        self.assertEqual(validate.call_count, 2)
+
+    def test_three_consecutive_errors_stop_remaining_benchmarks(self):
+        data = datasets(10)
+        data["winogrande"] = copy.deepcopy(data["arc"])
+        calls = []
+        def answer(item):
+            calls.append(item["id"])
+            raise TimeoutError("fixture")
+        record = run(data=data, answer=answer)
+        self.assertEqual(len(calls), 3)
+        self.assertEqual([b["attempted"] for b in record["benchmarks"]], [3, 0])
+        self.assertEqual([b["stop_reason"] for b in record["benchmarks"]], ["errors", "errors"])
+        self.assertEqual(record["post"]["decision"], "UNKNOWN")
+
+    def test_provenance_and_parsed_unit_are_hashed_but_not_comparison_settings(self):
+        record = run(provenance={"origin": "caller supplied"},
+                     answer=lambda item: dict(observation(), parsed_unit=None))
+        self.assertEqual(record["provenance"], {"origin": "caller supplied"})
+        self.assertIsNone(record["benchmarks"][0]["observations"][0]["parsed_unit"])
+        other = run(provenance={"origin": "server reported"})
+        self.assertEqual(len(f.rank([record, other])), 1)
+        record["provenance"]["origin"] = "changed"
+        with self.assertRaises(f.ValidationError):
+            f.validate_record(record)
+
 
 if __name__ == "__main__":
     unittest.main()
