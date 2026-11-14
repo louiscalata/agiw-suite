@@ -23,7 +23,7 @@ test('ingested full ECI and fast check reach the DOM through the Windows endpoin
   if (!python) return;
   const directory = mkdtempSync(join(fileURLToPath(new URL('.', import.meta.url)), 'agiw-eci-win-ui-'));
   const program = `
-import json, os, sys
+import json, os, sys, time
 from pathlib import Path
 sys.path.insert(0, str(Path.cwd() / 'windows'))
 from agiw_win import server
@@ -40,12 +40,20 @@ raw.write_text(json.dumps(dict(data, fast_checks=[run()])), encoding='utf-8')
 data = e.ingest([raw])
 (directory / 'dataset.json').write_text(json.dumps(data), encoding='utf-8')
 def request():
-    handler = object.__new__(server.Handler)
-    handler.path = '/api/eci-tuning'
-    handler.same_origin = lambda: True
-    handler.reply = lambda code, body, mime: setattr(handler, 'response', (code, json.loads(body)))
-    handler.do_GET()
-    return handler.response
+    # The endpoint answers "pending" or "changed during validation; retry" by design while its
+    # background validation runs or a scanner touches the file; ask again (bounded) like a client.
+    deadline = time.monotonic() + 30
+    while True:
+        handler = object.__new__(server.Handler)
+        handler.path = '/api/eci-tuning'
+        handler.same_origin = lambda: True
+        handler.reply = lambda code, body, mime: setattr(handler, 'response', (code, json.loads(body)))
+        handler.do_GET()
+        dataset = handler.response[1].get('dataset') or {}
+        again = dataset.get('pending') or 'retry' in str(dataset.get('reason') or '')
+        if not again or time.monotonic() > deadline:
+            return handler.response
+        time.sleep(0.05)
 valid = request()
 (directory / 'dataset.json').write_text('{invalid json', encoding='utf-8')
 invalid = request()

@@ -36,7 +36,8 @@ def get_endpoint():
     while True:
         code, body = server.Handler.do_GET(Endpoint())
         dataset = body.get('dataset') if isinstance(body, dict) else None
-        if not (isinstance(dataset, dict) and dataset.get('pending')) or time.monotonic() > deadline:
+        again = isinstance(dataset, dict) and (dataset.get('pending') or 'retry' in str(dataset.get('reason') or ''))
+        if not again or time.monotonic() > deadline:
             return code, body
         time.sleep(0.05)
 
