@@ -33,6 +33,23 @@ class FleetStateTests(unittest.TestCase):
         self.assertEqual(machines["registry:pro"]["state"], "unknown")
         self.assertEqual(machines["registry:pc"]["state"], "unknown", "answering endpoints are not host health")
 
+    def test_relayed_registry_identity_row_with_up_is_not_a_host_report(self):
+        # A row of configured-lane scope carries endpoint identity only, even
+        # when an older producer or relay marked it "up" and complete.
+        relayed = {"id": "registry:pc", "host": "registry:pc", "platform": "remote",
+                   "inventoryScope": "configured-lanes", "trust": "registry", "state": "up",
+                   "reasonCode": "observed", "observedAt": "2026-11-12T11:59:59Z", "freshForSeconds": 6,
+                   "modelsComplete": True, "loadedCount": 2, "busyCount": 0}
+        for row in (relayed, {**relayed, "inventoryScope": None, "observationSource": "registry", "id": "peer:relay",
+                              "host": "relay"}):
+            with self.subTest(row=row["id"]):
+                self.snapshot["machines"] = [copy.deepcopy(item) for item in self.snapshot["machines"]
+                                             if item["id"] == "mac"] + [copy.deepcopy(row)]
+                fleet = self.fleet()
+                fact = next(item for item in fleet["facts"] if item["id"] == row["id"])
+                self.assertEqual((fact["state"], fact["reason"]), ("unknown", "host_not_measured"))
+                self.assertIsNone(fleet["counts"]["loaded"])
+
     def test_required_provenance_is_present_on_every_fact(self):
         fields = {"id", "scope", "source", "observedAt", "expiresAt", "completeness", "reason", "state", "ageSeconds"}
         for fact in self.fleet()["facts"]:

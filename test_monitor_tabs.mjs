@@ -16,7 +16,8 @@ function byId(monitors, id) {
 }
 
 const registryMachine = (id, label, health = 'ok') => ({id: `registry:${id}`, host: `registry:${id}`, platform: 'remote', label,
-  observationSource: 'registry', health, state: health === 'ok' ? 'up' : 'unknown',
+  observationSource: 'registry', inventoryScope: 'configured-lanes', health: 'not_measured', state: 'unknown', reasonCode: 'host_not_measured',
+  laneIdentity: health === 'ok' ? 'answering' : 'unknown', lanesAnswering: health === 'ok' ? 1 : 0, laneCount: 1,
   lanes: [{id: `registry:${id}:fast`, label: 'Fast', health, reason: health === 'ok' ? null : 'timeout',
     modelId: health === 'ok' ? '/models/author.gguf' : null, ageSeconds: 1, observedAt: new Date(999000).toISOString(), probeIntervalSeconds: 3}]});
 

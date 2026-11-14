@@ -84,6 +84,21 @@ class RegistryTransportTests(unittest.TestCase):
         self.assertEqual(node["modelId"], "server/model")
         self.assertEqual(requests, [b"GET /v1/models HTTP/1.1"])
 
+    def test_strict_identity_answer_projects_reachability_not_machine_state(self):
+        for wire, identity in ((response(), "answering"),
+                               (response(headers=[("Content-Length", str(len(BODY) + 19))]), "unknown")):
+            with self.subTest(identity=identity), http_server(wire) as (url, requests):
+                nodes = remote_machines.collect(registry_for(url), now=1000,
+                            fetch=lambda target: loopback_get(target, timeout=.5, strict=True))
+                snapshot = {"machines": [], "inference": {"nodes": nodes}}
+                remote_machines.project_snapshot(snapshot)
+                [row] = snapshot["machines"]
+                self.assertEqual((row["state"], row["health"], row["reasonCode"]),
+                                 ("unknown", "not_measured", "host_not_measured"))
+                self.assertEqual(row["laneIdentity"], identity)
+                self.assertEqual(row["lanesAnswering"], 1 if identity == "answering" else 0)
+                self.assertEqual(requests, [b"GET /v1/models HTTP/1.1"])
+
     def test_valid_json_prefix_with_incomplete_content_length_is_unknown(self):
         self.assert_unknown(response(headers=[("Content-Length", str(len(BODY) + 19))]), "incomplete_body")
 

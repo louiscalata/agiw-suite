@@ -68,9 +68,15 @@ def _fact(identity, scope, label, source, row, now, default, parent=None):
 
 
 
+def _identity_only(row):
+    return row.get("observationSource") == "registry" or row.get("inventoryScope") == "configured-lanes"
+
+
 def _machine_state(fact, row, freshness):
     """Apply the same producer-clock rules to host and extra-source facts."""
-    if not row:
+    if not row or _identity_only(row):
+        # Registry rows carry endpoint reachability and identity only; even a
+        # legacy producer's "up" on such a row is not a host report.
         fact.update(reason="host_not_measured")
     elif freshness == "invalid_expiry":
         fact.update(reason="invalid_expiry")

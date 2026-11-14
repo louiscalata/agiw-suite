@@ -49,7 +49,9 @@ class MachineRows(unittest.TestCase):
         self.assertIs(snapshot["machines"][0], local)
         self.assertEqual(snapshot["machines"][1]["host"], "old-pc", "replacement metadata is not identity attribution")
         registry = snapshot["machines"][2]
-        self.assertEqual((registry["state"], registry["lanes"][0]["modelId"]), ("up", "vendor/model"))
+        self.assertEqual((registry["state"], registry["lanes"][0]["modelId"]), ("unknown", "vendor/model"),
+                         "an answering identity endpoint is not machine liveness")
+        self.assertEqual((registry["reasonCode"], registry["laneIdentity"]), ("host_not_measured", "answering"))
         self.assertFalse(registry["modelsComplete"], "configured lane health is not whole-machine inventory")
         canonical = fleet_state.build_fleet_state(snapshot, now=NOW)
         self.assertEqual(next(fact for fact in canonical["facts"] if fact["id"] == "registry:worker")["state"], "unknown")
