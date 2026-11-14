@@ -36,6 +36,8 @@ CI runs the Python suites on both 3.9 (the supported minimum) and 3.14. The CI a
 
 Forty-five router integration cases need writers from a separate project. The explicit allowance permits a skip only when those writers are absent; without it, missing writers fail the test. Report the actual skips alongside passes. The tests use fixtures and mocked model calls, so a passing source suite does not establish a live route.
 
+The same forty-five cases (39 in `test_telemetry.py`, 6 in `test_activity.py`) also run without the router, in `test_router_contract.py`, against the public fixture writers in `test_support/router_contract/`. The `test_telemetry.py` ones need macOS `lsof` and are skipped elsewhere. A pass there shows that the Monitor reads a journal shaped as the [router state contract](router-state-contract.md) describes. It is not router acceptance, and it does not change the skip count above.
+
 The native app supports Apple silicon only. `build.sh` requires a native arm64 macOS terminal; Intel Macs and Rosetta shells are refused before creating installation paths. It compiles and signs the app, then replaces `$HOME/Applications/Inference Monitor.app` when its owner lock permits. Do not run it as a read-only build check. The installer intentionally writes into the local Applications directory and does not publish content elsewhere.
 
 ### Build a distribution candidate
