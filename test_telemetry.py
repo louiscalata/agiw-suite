@@ -1062,46 +1062,101 @@ class TelemetryParsingTests(unittest.TestCase):
             self.assertGreater(cache["retryAfterMonotonic"], time.monotonic())
 
     def test_windows_probe_shutdown_cancels_nested_reader_promptly(self):
+        # The first run of a newly written script can take seconds on macOS, so nothing here
+        # waits a fixed short time for the stand-in to start.  The dispatcher and the probe's
+        # own deadline both outlast every wait below: only cancellation can end the probe.
+        command_timeout, generous = 120.0, 30.0
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             marker = root / "child-progress"
             command = root / "chami-dispatch"
             child = (
                 "from pathlib import Path\n"
-                "import time\n"
-                f"p=Path({str(marker)!r}); n=0\n"
-                "while True:\n"
-                " p.write_text(str(n)); n+=1; time.sleep(.02)\n"
+                "import os, time\n"
+                f"p=Path({str(marker)!r}); t=Path({str(marker) + '.part'!r})\n"
+                "t.write_text(str(os.getpid())); os.replace(t, p)\n"
+                "time.sleep(600)\n"
             )
             command.write_text(
                 "#!/usr/bin/env python3\n"
                 "import subprocess, sys, time\n"
                 f"subprocess.Popen([sys.executable, '-c', {child!r}])\n"
-                "time.sleep(10)\n"
+                "time.sleep(600)\n"
             )
             command.chmod(0o700)
             cache = {"checkedMonotonic": float("-inf"), "heartbeatUnix": None,
                      "modelsAdvertised": [], "modelCount": 0, "probeRunning": False}
+            reader = None
             try:
                 telemetry._WINDOWS_WORKER_CANCEL.clear()
                 with mock.patch.object(telemetry, "_WINDOWS_WORKER_CMD", command), \
+                     mock.patch.object(telemetry, "_WINDOWS_WORKER_COMMAND_TIMEOUT", command_timeout), \
                      mock.patch.object(telemetry, "_windows_worker_reader_blocked", return_value=False), \
                      mock.patch.object(telemetry, "_WINDOWS_WORKER_CACHE", cache):
                     telemetry._windows_worker(time.time())
-                    deadline = time.monotonic() + 2.0
+                    deadline = time.monotonic() + generous
                     while not marker.exists() and time.monotonic() < deadline:
                         time.sleep(.01)
-                    self.assertTrue(marker.exists())
+                    self.assertTrue(marker.exists(), "the nested reader never started")
+                    reader = int(marker.read_text())
+                    os.kill(reader, 0)                       # the nested reader is running
+                    self.assertTrue(cache["probeRunning"])   # and the probe is still reading
                     start = time.monotonic()
-                    self.assertTrue(telemetry.stop_windows_worker_probe(timeout=.8))
-                    self.assertLess(time.monotonic() - start, .8)
-                    before = marker.read_text()
-                    time.sleep(.12)
-                    self.assertEqual(marker.read_text(), before)
+                    # The default wait is what the server's exit path uses; a loaded machine may
+                    # need longer, so a slow first answer is retried against the generous bound.
+                    stopped = (telemetry.stop_windows_worker_probe()
+                               or telemetry.stop_windows_worker_probe(timeout=generous))
+                    self.assertTrue(stopped)
+                    # Far inside the command deadline: cancellation ended it, not the timeout.
+                    self.assertLess(time.monotonic() - start, command_timeout / 2)
                     self.assertFalse(cache["probeRunning"])
+                    # The whole process group was killed, the nested reader included.
+                    deadline = time.monotonic() + generous
+                    while self._process_exists(reader) and time.monotonic() < deadline:
+                        time.sleep(.01)
+                    self.assertFalse(self._process_exists(reader), "the nested reader outlived the probe")
             finally:
-                telemetry.stop_windows_worker_probe(timeout=.8)
+                telemetry.stop_windows_worker_probe(timeout=generous)
                 telemetry._WINDOWS_WORKER_CANCEL.clear()
+                if reader is not None and self._process_exists(reader):
+                    os.kill(reader, signal.SIGKILL)
+
+    def test_bounded_command_checks_cancellation_at_least_every_50ms(self):
+        # Promptness without a stopwatch: while it waits for output, the reader never sleeps
+        # longer than 50 ms between two looks at the cancel flag, then kills the process group.
+        waits = []
+
+        class Selector:
+            def register(self, *args):
+                pass
+
+            def select(self, timeout=None):
+                waits.append(timeout)
+                if len(waits) == 3:
+                    cancel.set()
+                return []
+
+            def close(self):
+                pass
+        cancel = threading.Event()
+        command = [sys.executable, "-B", "-c", "import time;time.sleep(600)"]
+        with mock.patch.object(telemetry.selectors, "DefaultSelector", Selector), \
+                mock.patch.object(telemetry.os, "killpg", wraps=os.killpg) as killpg, \
+                self.assertRaisesRegex(TimeoutError, "cancelled"):
+            telemetry._bounded_command(command, timeout=300.0, cancel=cancel)
+        self.assertEqual(len(waits), 3)                  # noticed on the very next look
+        self.assertTrue(all(0 < wait <= 0.05 for wait in waits), waits)
+        killpg.assert_called_once_with(mock.ANY, signal.SIGKILL)
+
+    @staticmethod
+    def _process_exists(pid):
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        return True
 
     def test_unexpected_windows_probe_error_is_generic_and_observable(self):
         now = time.time()
@@ -3603,25 +3658,137 @@ class LmStudioPortAndPairAttributionTests(unittest.TestCase):
             runner.return_value = {"running": True, "port": 1240}
             self.assertEqual(_REAL_LMS_SERVER_STATUS()["port"], 1240)
 
+    def _lms_stand_in(self, temp, body):
+        script = Path(temp) / "lms"
+        script.write_text("#!/bin/sh\n" + body + "\n")
+        script.chmod(0o700)
+        return mock.patch.object(telemetry, "_find_lms", return_value=str(script))
+
+    @contextlib.contextmanager
+    def _recorded_lms_process(self):
+        started = []
+        real = subprocess.Popen
+
+        def popen(*args, **kwargs):
+            started.append(real(*args, **kwargs))
+            return started[-1]
+        with mock.patch.object(telemetry.subprocess, "Popen", popen):
+            yield started
+
     def test_bounded_lms_json_runs_lms_with_a_cap_and_deadline(self):
+        # The first run of a newly written script can take seconds on macOS (measured here:
+        # median 0.17 s, worst 3.0 s), so the outcomes that do not depend on the deadline get a
+        # generous one.  Each returns as soon as the stand-in answers.
+        generous = 60.0
         with tempfile.TemporaryDirectory() as temp:
-            script = Path(temp) / "lms"
             for body, expected in (('printf \'{"running":true,"port":1235}\'', {"running": True, "port": 1235}),
                                    ("head -c 5000 /dev/zero | tr '\\0' 'x'", ValueError),
-                                   ("exec sleep 5", TimeoutError),
                                    ("printf 'not json'", ValueError),
                                    ("exit 3", OSError)):
-                with self.subTest(body=body):
-                    script.write_text("#!/bin/sh\n" + body + "\n")
-                    script.chmod(0o700)
-                    with mock.patch.object(telemetry, "_find_lms", return_value=str(script)):
-                        if isinstance(expected, dict):
-                            self.assertEqual(telemetry._bounded_lms_json(["server", "status", "--json"], 4096), expected)
-                        else:
-                            started = time.monotonic()
-                            with self.assertRaises(expected):
-                                telemetry._bounded_lms_json(["server", "status", "--json"], 4096)
-                            self.assertLess(time.monotonic() - started, 3.0)
+                with self.subTest(body=body), self._lms_stand_in(temp, body):
+                    arguments = (["server", "status", "--json"], 4096)
+                    if isinstance(expected, dict):
+                        self.assertEqual(telemetry._bounded_lms_json(*arguments, timeout=generous), expected)
+                    else:
+                        with self.assertRaises(expected) as raised:
+                            telemetry._bounded_lms_json(*arguments, timeout=generous)
+                        self.assertNotIsInstance(raised.exception, TimeoutError)
+
+    def test_bounded_lms_json_default_deadline_is_one_second(self):
+        self.assertEqual(telemetry._LMS_COMMAND_TIMEOUT, 1.0)
+        waits = []
+
+        class Selector:
+            def register(self, *args):
+                pass
+
+            def select(self, timeout=None):
+                waits.append(timeout)
+                clock[0] += timeout or 0.0
+                return []
+
+            def close(self):
+                pass
+        clock = [1000.0]
+        with tempfile.TemporaryDirectory() as temp, self._lms_stand_in(temp, "exec sleep 600"), \
+                self._recorded_lms_process() as started, \
+                mock.patch.object(telemetry.selectors, "DefaultSelector", Selector), \
+                mock.patch.object(telemetry.time, "monotonic", lambda: clock[0]), \
+                self.assertRaisesRegex(TimeoutError, "lms status timed out"):
+            telemetry._bounded_lms_json(["server", "status", "--json"], 4096)
+        # On an injected clock the looks add up to exactly the one-second deadline, none longer
+        # than 0.1 s (an eleventh, if any, is only the rounding remainder of the first ten).
+        self.assertIn(len(waits), (10, 11), waits)
+        self.assertTrue(all(0 < wait <= 0.1 for wait in waits), waits)
+        self.assertAlmostEqual(sum(waits), 1.0, places=6)
+        self.assertEqual(started[0].returncode, -signal.SIGKILL)
+
+    def test_bounded_lms_json_kills_and_reaps_a_run_that_outlives_its_deadline(self):
+        with tempfile.TemporaryDirectory() as temp, self._lms_stand_in(temp, "exec sleep 600"), \
+                self._recorded_lms_process() as started:
+            before = time.monotonic()
+            with self.assertRaisesRegex(TimeoutError, "lms status timed out"):
+                telemetry._bounded_lms_json(["server", "status", "--json"], 4096, timeout=0.2)
+            elapsed = time.monotonic() - before
+        self.assertEqual(len(started), 1)
+        # Killed by the deadline and already reaped when the call returns; the stand-in would
+        # otherwise run for ten minutes, so the bound only has to be far below that.
+        self.assertEqual(started[0].returncode, -signal.SIGKILL)
+        self.assertTrue(started[0].stdout.closed)
+        self.assertLess(elapsed, 300.0)
+
+    def test_bounded_lms_json_reports_a_run_that_closes_its_output_and_stays_as_timed_out(self):
+        # A stand-in process whose output is already at end of file but which never exits: no
+        # real clock is involved, the wait for its exit simply runs out.
+        read_end, write_end = os.pipe()
+        os.close(write_end)
+        calls = []
+
+        class Lingering:
+            stdout = os.fdopen(read_end, "rb")
+            returncode = None
+
+            def poll(self):
+                return self.returncode
+
+            def wait(self, timeout=None):
+                calls.append(("wait", timeout is not None))
+                if timeout is not None:
+                    raise subprocess.TimeoutExpired("lms", timeout)
+                return self.returncode
+
+            def kill(self):
+                calls.append(("kill",))
+                self.returncode = -signal.SIGKILL
+        with mock.patch.object(telemetry, "_find_lms", return_value="/nonexistent/lms"), \
+                mock.patch.object(telemetry.subprocess, "Popen", return_value=Lingering()), \
+                self.assertRaises(TimeoutError) as raised:
+            telemetry._bounded_lms_json(["server", "status", "--json"], 4096, timeout=60.0)
+        self.assertEqual(str(raised.exception), "lms status timed out")
+        self.assertEqual(calls, [("wait", True), ("kill",), ("wait", False)])
+        self.assertTrue(Lingering.stdout.closed)
+
+    def test_bounded_lms_json_does_not_wait_for_a_descendant_that_keeps_the_pipe_open(self):
+        # `lms` can wake a service that inherits its output.  The answer is complete once the
+        # command itself has exited; the reader must not block until that service closes the pipe.
+        with tempfile.TemporaryDirectory() as temp:
+            holder_file = Path(temp) / "holder"
+            body = (f"sleep 600 &\necho $! > '{holder_file}.part'\nmv '{holder_file}.part' '{holder_file}'\n"
+                    'printf \'{"running":true,"port":1235}\'')
+            holder = None
+            try:
+                with self._lms_stand_in(temp, body):
+                    value = telemetry._bounded_lms_json(["server", "status", "--json"], 4096, timeout=60.0)
+                holder = int(holder_file.read_text())
+                self.assertEqual(value, {"running": True, "port": 1235})
+                # Ordering, not elapsed time: the call returned while the pipe was still held.
+                os.kill(holder, 0)
+            finally:
+                if holder is None and holder_file.exists():
+                    holder = int(holder_file.read_text())
+                if holder is not None:
+                    with contextlib.suppress(ProcessLookupError):
+                        os.kill(holder, signal.SIGKILL)
 
     def test_bounded_lms_still_requires_a_list(self):
         with mock.patch.object(telemetry, "_bounded_lms_json", return_value={"models": []}):
