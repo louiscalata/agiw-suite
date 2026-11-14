@@ -3,7 +3,7 @@
  * Read only. Every value is the row's own; a missing one is "Not measured" or "Unknown", never 0.
  */
 import {own, reasonWords, rowDegraded, registryMachineView, registryModelName} from '/monitor-board.mjs';
-import {fleetState, fleetMachines, fleetLanes, fleetSummary, fleetWord, fleetAge, fleetMachineCoverage} from '/fleet-state.mjs';
+import {fleetState, fleetMachines, fleetLanes, fleetSummary, fleetWord, fleetAge, fleetMachineCoverage, fleetHostUp} from '/fleet-state.mjs';
 import {getMonitorStore} from '/monitor-store.mjs';
 
 const NAMES = {mac: 'Mac', macos: 'Mac', windows: 'PC', linux: 'Linux'};
@@ -69,8 +69,8 @@ export function machineTiles(machines, self, {fresh = true, now} = {}) {
       const coverage = fleetSummary({schemaVersion: 1, facts: children}, {now});
       const laneCoverage = fleetMachineCoverage(fact, children);
       const unavailable = children.length > 0 && laneCoverage.counts.unavailable === children.length &&
-        !(fact.state === 'reported' && fact.evidence.state === 'up');
-      const evidence = fact.evidence, current = fact.state === 'reported' && fact.completeness === 'complete' && evidence.state === 'up' && evidence.modelsComplete === true;
+        !fleetHostUp(fact);
+      const evidence = fact.evidence, current = fleetHostUp(fact) && fact.completeness === 'complete' && evidence.modelsComplete === true;
       const facts = [['State', fleetWord(fact)], ['Source', fact.source || 'Unknown'],
         ['Observed', fact.observedAt || 'Unknown'], ['Age', fleetAge(fact)], ['Expires', fact.expiresAt || 'Unknown'],
         ['Completeness', fact.completeness || 'unknown'], ['Reason', fact.reason || 'Not reported'],
@@ -78,7 +78,7 @@ export function machineTiles(machines, self, {fresh = true, now} = {}) {
       for (const [label, field] of [['Models loaded', 'loadedCount'], ['Models busy', 'busyCount']])
         facts.push([label, current && Number.isSafeInteger(evidence[field]) && evidence[field] >= 0 ? String(evidence[field]) : 'Unknown']);
       return {key: fact.id, title: fact.label || fact.id, host: fact.id,
-        glyph: unavailable ? laneCoverage.glyph : fact.state === 'reported' && fact.evidence.state === 'up' && coverage.counts.answering > 0 ? '■' : '?',
+        glyph: unavailable ? laneCoverage.glyph : fleetHostUp(fact) && coverage.counts.answering > 0 ? '■' : '?',
         word: unavailable ? laneCoverage.text : fleetWord(fact), facts, lanes: children};
     });
   }

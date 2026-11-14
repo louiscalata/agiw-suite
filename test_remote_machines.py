@@ -278,7 +278,10 @@ class SnapshotProjectionTests(unittest.TestCase):
         self.assertEqual(snapshot["machines"][0], self.local)
         self.assertEqual(snapshot["machines"][1], self.legacy, "replacement does not attribute an unmatched peer")
         pc, macpro = snapshot["machines"][2:]
-        self.assertEqual((pc["state"], pc["health"], pc["replaces"]), ("up", "ok", "legacy-pc"))
+        self.assertEqual((pc["state"], pc["health"], pc["reasonCode"], pc["replaces"]),
+                         ("unknown", "not_measured", "host_not_measured", "legacy-pc"),
+                         "an answering identity endpoint is not machine liveness")
+        self.assertEqual((pc["laneIdentity"], pc["lanesAnswering"], pc["laneCount"]), ("answering", 1, 1))
         self.assertEqual(macpro["label"], "Mac Pro")
         self.assertEqual(pc["lanes"][0]["modelId"], "server/current-model")
         self.assertEqual((pc["lanes"][0]["observedAt"], pc["lanes"][0]["ageSeconds"]),
@@ -306,7 +309,10 @@ class SnapshotProjectionTests(unittest.TestCase):
         snapshot = {"machines": [self.local, self.legacy], "inference": self.document(fetcher=mixed)}
         remote.project_snapshot(snapshot)
         pc, macpro = snapshot["machines"][2:]
-        self.assertEqual((pc["state"], pc["health"], pc["reasonCode"]), ("unknown", "not_measured", "lane_unknown"))
+        self.assertEqual((pc["state"], pc["health"], pc["reasonCode"], pc["reason"]),
+                         ("unknown", "not_measured", "host_not_measured", "lane_unknown"))
+        self.assertEqual((pc["laneIdentity"], pc["lanesAnswering"], pc["laneCount"]), ("unknown", 0, 1))
+        self.assertEqual((macpro["state"], macpro["laneIdentity"]), ("unknown", "answering"))
         self.assertEqual(pc["lanes"][0]["reason"], "timeout")
         self.assertIsNone(pc["lanes"][0]["modelId"])
         self.assertEqual(macpro["lanes"][0]["modelId"], "/models/reviewer.gguf", "API retains full model identity")
@@ -363,13 +369,55 @@ class SnapshotProjectionTests(unittest.TestCase):
         remote.project_snapshot(snapshot)
         table = host_liveness(snapshot["machines"])
         for key in ("registry:pc", "remote:registry:pc", "windows", "pc", "registry:macpro"):
-            self.assertEqual((table[key]["state"], table[key]["freshForSeconds"]), ("up", 6))
+            self.assertEqual((table[key]["state"], table[key]["freshForSeconds"]), ("unknown", 6),
+                             "registry identity probes never mark a host up")
+            self.assertEqual(table[key]["reasonCode"], "host_not_measured")
             self.assertEqual(table[key]["inventoryScope"], "configured-lanes")
         for host in ("registry:pc", "windows", "pc", "share-pc"):
             self.assertFalse(row_is_live({"host": host, "ageSeconds": 0}, table), host)
         legacy_table = host_liveness([self.legacy])
         self.assertEqual(legacy_table["share-pc"]["state"], "down")
         self.assertNotIn("state", legacy_table["windows"], "legacy defaults are unchanged")
+
+    def test_registry_machine_state_never_comes_from_endpoint_identity_health(self):
+        # Every lane answering with an exact identity still establishes no
+        # machine liveness; nor does any combination of failed lanes.
+        def failing(url):
+            raise ProbeError("refused")
+        for fetcher, identity, answering in ((fetch, "answering", 1), (failing, "unknown", 0)):
+            with self.subTest(identity=identity):
+                snapshot = {"machines": [self.local], "inference": self.document(fetcher=fetcher)}
+                remote.project_snapshot(snapshot)
+                for row in snapshot["machines"][1:]:
+                    self.assertEqual((row["state"], row["health"], row["reasonCode"]),
+                                     ("unknown", "not_measured", "host_not_measured"))
+                    self.assertNotIn(row["state"], ("up", "down"))
+                    self.assertEqual((row["laneIdentity"], row["lanesAnswering"], row["laneCount"]),
+                                     (identity, answering, 1))
+                    self.assertFalse(row["modelsComplete"])
+
+    def test_registry_row_never_becomes_reported_host_fact(self):
+        import fleet_state
+        snapshot = {"machines": [self.local], "inference": self.document()}
+        remote.project_snapshot(snapshot)
+        fleet = fleet_state.build_fleet_state(snapshot, now=1000)
+        for identity in ("registry:pc", "registry:macpro"):
+            fact = next(item for item in fleet["facts"] if item["id"] == identity)
+            self.assertEqual((fact["state"], fact["reason"]), ("unknown", "host_not_measured"))
+            self.assertNotEqual(fact["evidence"].get("state"), "up")
+
+    def test_aged_registry_row_stays_unknown_and_loses_lane_identity(self):
+        import server
+        store = server.SnapshotStore()
+        store.snapshot = {"sampledAt": 1000, "machines": [self.local], "inference": self.document()}
+        with mock.patch.object(server.time, "time", return_value=1001):
+            fresh = store.read()
+        with mock.patch.object(server.time, "time", return_value=1007):
+            aged = store.read()
+        for row in fresh["machines"][1:]:
+            self.assertEqual((row["state"], row["laneIdentity"], row["lanesAnswering"]), ("unknown", "answering", 1))
+        for row in aged["machines"][1:]:
+            self.assertEqual((row["state"], row["laneIdentity"], row["lanesAnswering"]), ("unknown", "unknown", 0))
 
     def test_public_map_keeps_explicit_replacement_and_rejects_other_markers(self):
         document = self.document()

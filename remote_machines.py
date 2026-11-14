@@ -473,17 +473,24 @@ def project_snapshot(snapshot):
     for root in roots:
         identity = root["id"]
         interval = root.get("probeIntervalSeconds", PROBE_INTERVAL)
+        lanes = [copy.deepcopy(node) for node in nodes if node.get("machine") == identity
+                 and node.get("role") not in ("machine", "client")]
+        answering = sum(lane.get("health") == "ok" and isinstance(lane.get("modelId"), str)
+                        and bool(lane["modelId"]) for lane in lanes)
+        # A /v1/models answer is endpoint reachability and identity only. It is
+        # not machine liveness, so the host state and health stay unknown here;
+        # only an actual host report (local or peer) can establish them.
         row = {"id": identity, "host": identity, "platform": "remote", "label": root["label"],
                "observationSource": "registry", "inventoryScope": "configured-lanes",
-               "state": "up" if root.get("health") == "ok" else "unknown",
-               "health": root.get("health", "not_measured"), "reason": root.get("reason"),
-               "reasonCode": root.get("reason") or "observed", "trust": "registry",
+               "state": "unknown", "health": "not_measured", "reasonCode": "host_not_measured",
+               "reason": root.get("reason"), "trust": "registry",
+               "laneIdentity": "answering" if lanes and answering == len(lanes) else "unknown",
+               "lanesAnswering": answering, "laneCount": len(lanes),
                "observedAt": root.get("observedAt"), "ageSeconds": root.get("ageSeconds"),
                "freshForSeconds": 2 * interval, "modelsComplete": False,
                "loadedCount": None, "busyCount": None, "promptTokensPerSecond": None,
                "generationTokensPerSecond": None, "handsOff": None,
-               "lanes": [copy.deepcopy(node) for node in nodes if node.get("machine") == identity
-                         and node.get("role") not in ("machine", "client")]}
+               "lanes": lanes}
         if root.get("replaces") == "legacy-pc":
             row["replaces"] = "legacy-pc"
         rows.append(row)
