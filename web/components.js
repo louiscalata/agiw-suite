@@ -19,6 +19,13 @@ $('actionReviewCancel').addEventListener('click',()=>closeComponentReview());
 $('actionReviewConfirm').addEventListener('click',confirmComponentReview);
 $('actionReview').addEventListener('cancel',event=>{event.preventDefault();closeComponentReview();});
 $('actionReview').addEventListener('close',()=>{if(pendingReview)closeComponentReview();});
+// A check POST that got no answer (network error or deadline) may still have started on the observer, so its
+// outcome is unknown, as in `agiw` control(). Only an answer that refuses it means it did not start.
+function checkOutcomeMessage(subject,label,response){
+  if(response==null)return label+' outcome unknown: the request may or may not have started. Reload this page to see its current status before retrying.';
+  if(!response.ok)return subject+' did not start: the observer refused it (HTTP '+response.status+'). Reload this page to try again.';
+  return null;
+}
 const quote=value=>"'"+String(value).replaceAll("'","'\\''")+"'";
 async function refresh(){
   clearTimeout(timer);nisiAvailable=false;
@@ -48,9 +55,9 @@ async function requestNisiCheck(identity){
   try{
     await refresh();
     if(!nisiAvailable||identity===null||identity!==nisiIdentity){message='The package state changed. Review its current status before retrying.';return;}
-    const response=await fetch('/api/components/nisi/check',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'self-check'}),signal:AbortSignal.timeout(4000)});
-    if(!response.ok)throw new Error('unavailable');
-  }catch{message='The self-check could not start. Reload this page to try again.';}
+    const response=await fetch('/api/components/nisi/check',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'self-check'}),signal:AbortSignal.timeout(4000)}).catch(()=>null);
+    message=checkOutcomeMessage('The self-check','Self-check',response);
+  }catch{message=checkOutcomeMessage('The self-check','Self-check',null);}
   finally{nisiPosting=false;await refresh();if(message)$('result').textContent=message;}
 }
 $('check').addEventListener('click',()=>{
@@ -86,9 +93,9 @@ async function requestJevCheck(){
   try{
     await refreshJev();
     if(!jevAvailable){message='The connection state changed. Review its current status before retrying.';return;}
-    const response=await fetch('/api/components/jev/check',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'connection-check'}),signal:AbortSignal.timeout(6000)});
-    if(!response.ok)throw new Error('unavailable');
-  }catch{message='The connection check could not start. Reload this page to try again.';}
+    const response=await fetch('/api/components/jev/check',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'connection-check'}),signal:AbortSignal.timeout(6000)}).catch(()=>null);
+    message=checkOutcomeMessage('The connection check','Connection check',response);
+  }catch{message=checkOutcomeMessage('The connection check','Connection check',null);}
   finally{jevPosting=false;await refreshJev();if(message)$('jevResult').textContent=message;}
 }
 $('jevCheck').addEventListener('click',()=>{
