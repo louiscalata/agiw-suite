@@ -10,6 +10,7 @@ Start with the [project README](../README.md). Each line says what the page cove
 - [Model fast check](eci-fast-check.md): freeze paired samples, interpret uncertainty, ingest separate screening records and hand off the unrun harness adapter.
 - [Advanced configuration](advanced-configuration.md): to set resident-model policy, LM Studio port, share recovery, memory readings for sandboxed callers and the Windows edition link.
 - [Inference Monitor map](inference-monitor.md): to learn what the `/monitor` map nodes, tabs and health states mean.
+- [Monitor display preferences](monitor-preferences.md): Theme and Text size on every page, their storage keys, the native seed and the change message.
 - [agiw command-line tool](cli.md): to pair a Mac and a Windows PC with a PIN, add the firewall rules yourself, run the login service or uninstall.
 
 ## Status and evidence
