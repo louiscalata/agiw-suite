@@ -5,6 +5,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -29,8 +30,15 @@ class Endpoint:
 
 
 def get_endpoint():
-    endpoint = Endpoint()
-    return server.Handler.do_GET(endpoint)
+    # The dataset is validated by a background worker and the first answers may say "pending"
+    # (the wait is 0.1 s by design); a loaded runner needs a few more polls, so ask again.
+    deadline = time.monotonic() + 30
+    while True:
+        code, body = server.Handler.do_GET(Endpoint())
+        dataset = body.get('dataset') if isinstance(body, dict) else None
+        if not (isinstance(dataset, dict) and dataset.get('pending')) or time.monotonic() > deadline:
+            return code, body
+        time.sleep(0.05)
 
 
 class DatasetEndpointTests(unittest.TestCase):
