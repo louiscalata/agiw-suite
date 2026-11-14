@@ -63,6 +63,26 @@ class TunnelTests(unittest.TestCase):
         self.assertEqual(argv[-1], "pc-user@pc.example")
         self.assertTrue(all("@" not in arg for arg in argv[:-1]))
 
+    def test_forward_detail_reports_local_listeners_not_ssh_or_pc_reachability(self):
+        # The probe is a TCP connect to 127.0.0.1:<localPort>. Any process can own that
+        # listener, so neither state is a reading of SSH or of the PC.
+        config = {"user": "pc-user", "host": "pc.example", "identityFile": "/keys/restricted",
+                  "forwards": [dict(item) for item in FIXTURE_FORWARDS]}
+        closed = pc_tunnel.describe(config, lambda port: port == 1345)
+        opened = pc_tunnel.describe(config, lambda _port: True)
+        self.assertEqual((closed["state"], closed["reason"]), ("down", "tunnel_down"))
+        self.assertEqual((opened["state"], opened["reason"]), ("up", "forwarded"))
+        self.assertIn("1334, 1336", closed["detail"])
+        self.assertNotIn("1345", closed["detail"])
+        for status in (closed, opened):
+            detail = status["detail"]
+            self.assertIn("listener", detail)
+            self.assertIn("not SSH or PC reachability", detail)
+            self.assertNotRegex(detail, r"SSH (tunnel|local forwards?) (is|are)")
+            self.assertNotIn("tunnel is down", detail)
+        no_identity = pc_tunnel.describe({**config, "identityFile": None}, lambda _port: False)
+        self.assertTrue(no_identity["detail"].endswith(" An identity file is not configured."))
+
     def test_invalid_file_and_relative_identity_are_rejected(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "pc-tunnel.json"

@@ -172,6 +172,25 @@ class ReviewRegressions(unittest.TestCase):
             helper.run_sampler(guard)
         self.assertEqual(observed, [1])
 
+    def test_sampler_reports_closed_forward_listeners_without_claiming_ssh_state(self):
+        # S06: the sampler's tunnel reading is a connect to the Mac's own 127.0.0.1 listeners.
+        from test_server import MemoryGuardSampleTest
+        helper = MemoryGuardSampleTest()
+        configured = {'user': 'pc-user', 'host': 'pc.example', 'identityFile': '/keys/k',
+                      'forwards': [{'name': 'fixture', 'id': 'pc:fixture', 'localPort': 1334, 'remotePort': 1234}]}
+        probed, tunnels = [], []
+        with patch('server.attach', side_effect=lambda *a, **k: tunnels.append(k.get('tunnel'))), \
+             patch('server.remote_machines.load_config', return_value=None), \
+             patch('server.load_config', return_value=configured), \
+             patch('server.port_accepts', side_effect=lambda port: probed.append(port) or False):
+            helper.run_sampler(helper.FakeGuard())
+        self.assertEqual(probed, [1334])
+        self.assertEqual(len(tunnels), 1)
+        self.assertEqual((tunnels[0]['state'], tunnels[0]['reason']), ('down', 'tunnel_down'))
+        self.assertIn('listeners not accepting', tunnels[0]['detail'])
+        self.assertIn('not SSH or PC reachability', tunnels[0]['detail'])
+        self.assertNotIn('SSH tunnel is down', tunnels[0]['detail'])
+
     def test_swift_poll_url_is_served(self):
         source = Path('Monitor.swift').read_text()
         page = re.search(r'URL\(string: "(http://127.0.0.1:.*?/monitor)"\)', source).group(1)
@@ -279,8 +298,11 @@ class ReviewRegressions(unittest.TestCase):
 
     def test_stale_tunnel_observation_is_not_still_up(self):
         from inference_stats import expire_map
-        document = {'observedAt': '1970-01-01T00:01:40Z', 'nodes': [],
-                    'tunnel': {'state': 'up', 'detail': 'SSH local forwards are accepting connections.'}}
+        configured = {'user': 'pc-user', 'host': 'pc.example', 'identityFile': '/keys/k',
+                      'forwards': [{'name': 'fixture', 'id': 'pc:fixture', 'localPort': 1334, 'remotePort': 1234}]}
+        up = pc_tunnel.describe(configured, lambda _port: True)
+        self.assertNotIn('SSH local forwards are accepting', up['detail'])
+        document = {'observedAt': '1970-01-01T00:01:40Z', 'nodes': [], 'tunnel': up}
         expire_map(document, 131)
         self.assertEqual(document['tunnel']['state'], 'not_measured')
         self.assertNotIn('accepting', document['tunnel']['detail'])
