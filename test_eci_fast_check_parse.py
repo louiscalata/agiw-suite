@@ -37,7 +37,7 @@ class NumericScreeningTests(unittest.TestCase):
             with self.subTest(text=text):
                 self.assertEqual(adapter.number_answer(text), expected)
                 self.assertEqual(adapter.reference(dict(row, answer=text), "gsm8k"), expected)
-                self.assertEqual(adapter.extract_answer(text, row, "gsm8k"), expected)
+                self.assertEqual(adapter.extract_answer(text, dict(row, answer=text), "gsm8k"), expected)
 
     def test_numeric_substrings_malformed_groups_and_ambiguous_prose_are_unparsed(self):
         for text in (
@@ -86,6 +86,8 @@ class ChoiceScreeningTests(unittest.TestCase):
             "A and C are wrong.\nBLUE": ("B", "mc_exact_choice_text"),
             "Reasoning.\nAnswer: blue": ("B", "mc_explicit_choice_text"),
             "Answer: B\nFinal answer: b": ("B", "mc_explicit_label"),
+            "Answer: blue.": ("B", "mc_explicit_choice_text"),
+            "B. blue": ("B", "mc_last_label_choice_text"),
         }
         for text, expected in cases.items():
             with self.subTest(text=text):
@@ -96,7 +98,7 @@ class ChoiceScreeningTests(unittest.TestCase):
             "A or B", "The answer might be B", "Answer: A or B", "(B", "B)",
             "Answer: B) ", "Answer: A\nAnswer: B", "Answer: unknown\nAnswer: B",
             "Answer: B\nC", "Answer: B\nMore prose", "A, B, C and D", "B2",
-            "blue or green", "Answer: blue and green", "Answer: blue.", "B. blue",
+            "blue or green", "Answer: blue and green", "B. green",
         ):
             with self.subTest(text=text):
                 self.assertEqual(adapter.parse_answer(text, self.row, "arc"), (None, None))

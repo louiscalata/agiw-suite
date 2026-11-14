@@ -22,6 +22,11 @@ import sys
 import time
 
 PROTOCOL = "agiw-fast-check-v1"
+# Record schema 2 excludes transport errors from unknown_finish and parsed
+# counts and pairs unparsed answers as wrong. Schema 1 records keep validating
+# under the rules they were written with (see the _v1 functions below).
+SCHEMA_VERSION = 2
+SCHEMA_VERSIONS = (1, 2)
 PLAN_VERSION = "fast-check-plan-v1"
 # Matched to mac-pipecfg-v2/admit.py:28,47-49. Other benchmarks must declare chance.
 CHANCE = {"arc": "0.25", "gsm8k": "0", "winogrande": "0.5"}
@@ -34,6 +39,7 @@ TOKEN_LIMIT_REASONS = (
     "sample.limit",
     "sample_limit",
 )
+MAX_CONSECUTIVE_ERRORS = 3
 STANDARD_POST = dict(
     min_coverage="1",
     max_interval_width="0.2",
@@ -117,6 +123,13 @@ def decimal(value, low="0", high="1", *, positive=False):
         or (positive and result == 0)
     ):
         raise ValidationError("decimal outside allowed range")
+    return result
+
+
+def significance(value):
+    result = decimal(value, positive=True)
+    if result >= 1:
+        raise ValidationError("alpha must be below one")
     return result
 
 
@@ -465,7 +478,7 @@ def statistics(correct, n, chance):
 
 def mcnemar(candidate, baseline, alpha="0.05", expected_ids=None):
     """Two-sided exact conditional binomial test; equality is not significant."""
-    exact_alpha = decimal(alpha, positive=True)
+    exact_alpha = significance(alpha)
     for values in (candidate, baseline):
         if not isinstance(values, dict) or any(
             type(v) is not bool and v is not None for v in values.values()
@@ -638,17 +651,24 @@ def post_check(
     limits = {
         k: decimal(v, positive=k == "min_coverage") for k, v in thresholds.items()
     }
-    significance = decimal(alpha, positive=True)
+    exact_alpha = significance(alpha)
     if not isinstance(evidence, list):
         raise ValidationError("post evidence must be an array")
     reasons, unknown = [], []
+    transport_unknown = False
 
     def refuse(reason):
         if reason not in reasons:
             reasons.append(reason)
 
-    if limits["min_coverage"] < Fraction(STANDARD_POST["min_coverage"]) or any(
-        limits[k] > Fraction(v) for k, v in STANDARD_POST.items() if k != "min_coverage"
+    if (
+        exact_alpha > Fraction("0.05")
+        or limits["min_coverage"] < Fraction(STANDARD_POST["min_coverage"])
+        or any(
+            limits[k] > Fraction(v)
+            for k, v in STANDARD_POST.items()
+            if k != "min_coverage"
+        )
     ):
         unknown.append("Admission policy exceeds standard ranking safety bounds.")
     for b in evidence:
@@ -671,7 +691,7 @@ def post_check(
         numeric(b["answer_options"], 2, nullable=True, integer=True)
         if (
             not b["correct"] <= b["parsed"] <= b["attempted"]
-            or b["errors"] > b["attempted"]
+            or b["errors"] > b["attempted"] - b["parsed"]
             or b["truncations"] > b["attempted"] - b["parsed"]
             or b["unknown_finish"] > b["attempted"]
             or b["top_answer_count"] > b["parsed"]
@@ -681,17 +701,25 @@ def post_check(
         chance = None if b["chance"] is None else decimal(b["chance"])
         if chance == 1:
             raise ValidationError("chance must be below one")
-        if Fraction(b["attempted"], n) < limits["min_coverage"]:
-            refuse("Coverage is below the declared minimum.")
+        excessive_errors = Fraction(b["errors"], n) > limits["max_error_rate"]
+        if excessive_errors:
+            unknown.append("Errors exceed the declared maximum rate; model quality is unknown.")
+            transport_unknown = True
+        if b["attempted"] < n:
+            unknown.append(
+                "Incomplete sample: check stopped before all planned items were attempted."
+            )
+            continue
+        if Fraction(b["truncations"], n) > limits["max_truncation_rate"]:
+            refuse("answers cut off at the token limit: raise the limit and re-run")
+        if excessive_errors:
+            continue
         _, half2 = wilson_exact(b["correct"], n)
         if 4 * half2 >= limits["max_interval_width"] ** 2:
             refuse("A Wilson interval meets or exceeds the declared maximum width.")
-        if Fraction(b["errors"], n) > limits["max_error_rate"]:
-            refuse("Errors exceed the declared maximum rate.")
-        if Fraction(b["truncations"], n) > limits["max_truncation_rate"]:
-            refuse("answers cut off at the token limit: raise the limit and re-run")
-        unparsed = (
-            Fraction(b["attempted"] - b["parsed"], n) > limits["max_unparsed_rate"]
+        answered = b["attempted"] - b["errors"]
+        unparsed = answered > 0 and (
+            Fraction(answered - b["parsed"], answered) > limits["max_unparsed_rate"]
         )
         if unparsed:
             refuse(
@@ -710,7 +738,7 @@ def post_check(
         elif chance == 0:
             if degenerate:
                 refuse("runtime/model incompatibility suspected")
-        elif binomial_upper_tail(b["correct"], n, chance) > significance:
+        elif binomial_upper_tail(b["correct"], n, chance) > exact_alpha:
             if unparsed or degenerate:
                 refuse("runtime/model incompatibility suspected")
             else:
@@ -719,7 +747,7 @@ def post_check(
                 )
         if b["unknown_finish"]:
             unknown.append("Cutoff/finish evidence is unknown.")
-    base = "REJECT" if reasons else "UNKNOWN" if unknown or not evidence else "ADMIT"
+    base = "UNKNOWN" if transport_unknown else "REJECT" if reasons else "UNKNOWN" if unknown or not evidence else "ADMIT"
     reasons = list(dict.fromkeys(reasons + unknown)) or (
         ["Required evidence is unknown."]
         if not evidence
@@ -806,7 +834,8 @@ def settings_known(settings):
 
 def validate_observation(o):
     fields(
-        {k: v for k, v in o.items() if k != "parse_rule"} if isinstance(o, dict) else o,
+        {k: v for k, v in o.items() if k not in ("parse_rule", "parsed_unit", "attempts")}
+        if isinstance(o, dict) else o,
         "item_id outcome parsed finish_reason cut_off answer_value correct prompt_tokens completion_tokens seconds error",
     )
     string(o["item_id"])
@@ -847,15 +876,82 @@ def validate_observation(o):
         string(o["parse_rule"], nullable=True)
         if o["parsed"] != (o["parse_rule"] is not None):
             raise ValidationError("parse rule disagrees with parsed state")
+    if "parsed_unit" in o:
+        string(o["parsed_unit"], nullable=True)
     string(o["error"], nullable=True)
     if (o["outcome"] == "error") != (o["error"] is not None):
         raise ValidationError("error outcome requires an error type")
     for key in ("prompt_tokens", "completion_tokens"):
         numeric(o[key], nullable=True, integer=True)
     numeric(o["seconds"], nullable=True)
+    if "attempts" in o:
+        numeric(o["attempts"], 1, integer=True)
 
 
 def summarize(spec, observations, wall_time_s, stop_reason):
+    counts = {
+        name: sum(o["outcome"] == name for o in observations) for name in OUTCOMES
+    }
+    parsed = sum(o["parsed"] and o["outcome"] != "error" for o in observations)
+    answer_counts = {}
+    for o in observations:
+        if o["parsed"] and o["outcome"] != "error":
+            answer_counts[o["answer_value"]] = (
+                answer_counts.get(o["answer_value"], 0) + 1
+            )
+    top_answer_count = max(answer_counts.values(), default=0)
+
+    def total(key):
+        return (
+            None
+            if not observations or any(o[key] is None for o in observations)
+            else sum(o[key] for o in observations)
+        )
+
+    tokens, seconds = total("completion_tokens"), total("seconds")
+    n = len(spec["item_ids"])
+    return dict(
+        benchmark=spec["benchmark"],
+        planned=n,
+        attempted=len(observations),
+        completed=counts["correct"] + counts["wrong"],
+        correct=counts["correct"],
+        parsed=parsed,
+        errors=counts["error"],
+        retried=sum(o.get("attempts", 1) > 1 for o in observations),
+        timeouts=sum(o["error"] == "TimeoutError" for o in observations),
+        truncations=sum(o["cut_off"] and not o["parsed"] for o in observations),
+        unknown_finish=sum(
+            o["finish_reason"] is None and o["outcome"] != "error"
+            for o in observations
+        ),
+        answer_counts=answer_counts,
+        top_answer_count=top_answer_count,
+        top_answer_share=top_answer_count / parsed if parsed else None,
+        outcome_counts=counts,
+        outcome_rates={k: v / n for k, v in counts.items()},
+        accuracy_over_parsed_items=counts["correct"] / parsed if parsed else None,
+        observations=observations,
+        wall_time_s=wall_time_s,
+        tokens=tokens,
+        prompt_tokens=total("prompt_tokens"),
+        answer_seconds=seconds,
+        tokens_per_s=tokens / seconds if tokens is not None and seconds else None,
+        stop_reason=stop_reason,
+        **statistics(counts["correct"], n, spec["chance"]),
+    )
+
+
+def outcomes(bench):
+    # A transport failure supplies no model answer and cannot be a wrong pair.
+    return {o["item_id"]: None if o["outcome"] == "error" else o["correct"]
+            for o in bench["observations"]}
+
+
+# Schema version 1 rules, frozen at agiw-suite 46ebf83 (PR #141). They exist
+# only to validate records written before schema version 2; never use them to
+# write a new record.
+def _summarize_v1(spec, observations, wall_time_s, stop_reason):
     counts = {
         name: sum(o["outcome"] == name for o in observations) for name in OUTCOMES
     }
@@ -905,11 +1001,132 @@ def summarize(spec, observations, wall_time_s, stop_reason):
     )
 
 
-def outcomes(bench):
+def _outcomes_v1(bench):
     return {
         o["item_id"]: o["correct"] if o["outcome"] in ("correct", "wrong") else None
         for o in bench["observations"]
     }
+
+
+def _post_check_v1(
+    evidence,
+    min_coverage="1",
+    max_interval_width="0.2",
+    max_error_rate="0.01",
+    max_truncation_rate="0.05",
+    max_unparsed_rate="0.10",
+    alpha="0.05",
+    advisory=None,
+):
+    thresholds = dict(
+        min_coverage=min_coverage,
+        max_interval_width=max_interval_width,
+        max_error_rate=max_error_rate,
+        max_truncation_rate=max_truncation_rate,
+        max_unparsed_rate=max_unparsed_rate,
+    )
+    limits = {
+        k: decimal(v, positive=k == "min_coverage") for k, v in thresholds.items()
+    }
+    exact_alpha = decimal(alpha, positive=True)
+    if not isinstance(evidence, list):
+        raise ValidationError("post evidence must be an array")
+    reasons, unknown = [], []
+
+    def refuse(reason):
+        if reason not in reasons:
+            reasons.append(reason)
+
+    if limits["min_coverage"] < Fraction(STANDARD_POST["min_coverage"]) or any(
+        limits[k] > Fraction(v) for k, v in STANDARD_POST.items() if k != "min_coverage"
+    ):
+        unknown.append("Admission policy exceeds standard ranking safety bounds.")
+    for b in evidence:
+        fields(
+            b,
+            "planned attempted correct parsed errors truncations chance answer_options top_answer_count unknown_finish",
+        )
+        n = b["planned"]
+        numeric(n, 1, integer=True)
+        for name in (
+            "attempted",
+            "correct",
+            "parsed",
+            "errors",
+            "truncations",
+            "top_answer_count",
+            "unknown_finish",
+        ):
+            numeric(b[name], 0, n, integer=True)
+        numeric(b["answer_options"], 2, nullable=True, integer=True)
+        if (
+            not b["correct"] <= b["parsed"] <= b["attempted"]
+            or b["errors"] > b["attempted"]
+            or b["truncations"] > b["attempted"] - b["parsed"]
+            or b["unknown_finish"] > b["attempted"]
+            or b["top_answer_count"] > b["parsed"]
+            or bool(b["top_answer_count"]) != bool(b["parsed"])
+        ):
+            raise ValidationError("post counts disagree")
+        chance = None if b["chance"] is None else decimal(b["chance"])
+        if chance == 1:
+            raise ValidationError("chance must be below one")
+        if Fraction(b["attempted"], n) < limits["min_coverage"]:
+            refuse("Coverage is below the declared minimum.")
+        _, half2 = wilson_exact(b["correct"], n)
+        if 4 * half2 >= limits["max_interval_width"] ** 2:
+            refuse("A Wilson interval meets or exceeds the declared maximum width.")
+        if Fraction(b["errors"], n) > limits["max_error_rate"]:
+            refuse("Errors exceed the declared maximum rate.")
+        if Fraction(b["truncations"], n) > limits["max_truncation_rate"]:
+            refuse("answers cut off at the token limit: raise the limit and re-run")
+        unparsed = (
+            Fraction(b["attempted"] - b["parsed"], n) > limits["max_unparsed_rate"]
+        )
+        if unparsed:
+            refuse(
+                "runtime/model incompatibility suspected: answers could not be parsed"
+            )
+        if b["parsed"] == 0:
+            refuse("runtime/model incompatibility suspected")
+        degenerate = (
+            b["answer_options"] is not None
+            and b["answer_options"] >= 2
+            and b["parsed"] > 0
+            and Fraction(b["top_answer_count"], b["parsed"]) >= Fraction("0.90")
+        )
+        if chance is None:
+            unknown.append("Chance baseline is unknown.")
+        elif chance == 0:
+            if degenerate:
+                refuse("runtime/model incompatibility suspected")
+        elif binomial_upper_tail(b["correct"], n, chance) > exact_alpha:
+            if unparsed or degenerate:
+                refuse("runtime/model incompatibility suspected")
+            else:
+                unknown.append(
+                    "not distinguishable from chance on this sample: weak model or incompatible runtime; re-run with a larger sample or check the runtime"
+                )
+        if b["unknown_finish"]:
+            unknown.append("Cutoff/finish evidence is unknown.")
+    base = "REJECT" if reasons else "UNKNOWN" if unknown or not evidence else "ADMIT"
+    reasons = list(dict.fromkeys(reasons + unknown)) or (
+        ["Required evidence is unknown."]
+        if not evidence
+        else ["All local admissibility thresholds are met."]
+    )
+    return decision(
+        base,
+        reasons,
+        dict(evidence=copy.deepcopy(evidence), alpha=alpha, **thresholds),
+        advisory,
+        ["ADMIT", "UNKNOWN", "REJECT"],
+    )
+
+
+def legacy_record(record):
+    """True for a schema version 1 record, validated under its original rules."""
+    return record.get("schema_version") == 1
 
 
 def baseline_outcomes(record):
@@ -958,8 +1175,13 @@ def verified_baseline(binding, seen=()):
 
 
 def comparisons(record, binding, alpha, _seen=()):
-    decimal(alpha, positive=True)
+    significance(alpha)
     baseline = verified_baseline(binding, _seen)
+    return _comparisons_validated(record, baseline, alpha)
+
+
+def _comparisons_validated(record, baseline, alpha):
+    """Internal path used after checking the inputs or validating both records."""
     if baseline is not None and (
         baseline["plan"]["plan_id"] != record["plan"]["plan_id"]
         or canonical(baseline["hardware"]) != canonical(record["hardware"])
@@ -973,9 +1195,12 @@ def comparisons(record, binding, alpha, _seen=()):
     known = hardware_known(record["hardware"]) and settings_known(
         record["runtime_settings"]
     )
+    # Pairs are formed under the rules of the record being compared; a schema
+    # 1 record was written with schema 1 rules for both sides.
+    pair_outcomes = _outcomes_v1 if legacy_record(record) else outcomes
     result = {}
     for spec, bench in zip(record["plan"]["benchmarks"], record["benchmarks"]):
-        a = outcomes(bench)
+        a = pair_outcomes(bench)
         if baseline is None or not known:
             result[bench["benchmark"]] = dict(
                 verdict="INCONCLUSIVE",
@@ -1003,7 +1228,7 @@ def comparisons(record, binding, alpha, _seen=()):
                 if b["benchmark"] == bench["benchmark"]
             )
             result[bench["benchmark"]] = mcnemar(
-                a, outcomes(peer), alpha, spec["item_ids"]
+                a, pair_outcomes(peer), alpha, spec["item_ids"]
             )
     return result
 
@@ -1038,7 +1263,7 @@ def checkpoint_open(path, binding, plan):
         ]
         observations = []
         previous = digest(binding)
-        for index, line in enumerate(stream):
+        for line in stream:
             if binding["model"]["file_sha256"] is None:
                 raise ValidationError(
                     "checkpoint resume requires a stable artifact file_sha256 hash"
@@ -1052,7 +1277,8 @@ def checkpoint_open(path, binding, plan):
             except ValueError as exc:
                 raise ValidationError("invalid checkpoint JSON") from exc
             json_value(entry)
-            fields(entry, "binding benchmark observation previous_sha256 entry_sha256")
+            fields({k: v for k, v in entry.items() if k != "supersedes_sha256"},
+                   "binding benchmark observation previous_sha256 entry_sha256")
             if canonical(entry["binding"]) != canonical(binding):
                 raise ValidationError(
                     "checkpoint plan/model/hardware/settings mismatch"
@@ -1062,15 +1288,32 @@ def checkpoint_open(path, binding, plan):
             ):
                 raise ValidationError("checkpoint checksum chain integrity mismatch")
             validate_observation(entry["observation"])
-            if (
-                index >= len(expected)
-                or (entry["benchmark"], entry["observation"]["item_id"])
-                != expected[index]
-            ):
-                raise ValidationError("checkpoint is not the frozen item prefix")
-            observations.append(entry)
+            key = (entry["benchmark"], entry["observation"]["item_id"])
+            if "supersedes_sha256" in entry:
+                # Only an error in the current trailing suffix may be replaced.
+                # The exact old entry hash binds each replacement to its history.
+                position = next((i for i, old in enumerate(observations)
+                                 if old["entry_sha256"] == entry["supersedes_sha256"]), None)
+                if (position is None or key != expected[position]
+                        or any(old["observation"]["outcome"] != "error"
+                               for old in observations[position:])):
+                    raise ValidationError("checkpoint supersession must replace a trailing error")
+                observations[position] = entry
+            else:
+                position = len(observations)
+                if position >= len(expected) or key != expected[position]:
+                    raise ValidationError("checkpoint is not the frozen item prefix")
+                if (len(observations) >= MAX_CONSECUTIVE_ERRORS
+                        and all(old["observation"]["outcome"] == "error"
+                                for old in observations[-MAX_CONSECUTIVE_ERRORS:])):
+                    raise ValidationError("checkpoint continued after consecutive error stop")
+                observations.append(entry)
             previous = entry["entry_sha256"]
         stream._eci_previous_sha256 = previous
+        stream._eci_supersedes = {}
+        while observations and observations[-1]["observation"]["outcome"] == "error":
+            old = observations.pop()
+            stream._eci_supersedes[(old["benchmark"], old["observation"]["item_id"])] = old["entry_sha256"]
         return stream, observations
     except BaseException:
         stream.close()
@@ -1084,6 +1327,9 @@ def checkpoint_append(stream, binding, benchmark, observation):
         observation=observation,
         previous_sha256=stream._eci_previous_sha256,
     )
+    supersedes = stream._eci_supersedes.pop((benchmark, observation["item_id"]), None)
+    if supersedes is not None:
+        entry["supersedes_sha256"] = supersedes
     entry["entry_sha256"] = digest(entry)
     stream.write(canonical(entry) + "\n")
     stream.flush()
@@ -1135,6 +1381,7 @@ def run_check(
     created_at=None,
     score=None,
     checkpoint=None,
+    provenance=None,
 ):
     """answer(item) returns adapter-classified evidence, never an untyped tuple.
 
@@ -1148,7 +1395,11 @@ def run_check(
     validate_plan(plan)
     identity(model, hardware, runtime_settings)
     string(journal, nullable=True)
-    decimal(alpha, positive=True)
+    significance(alpha)
+    if provenance is not None:
+        if not isinstance(provenance, dict):
+            raise ValidationError("provenance must be an object")
+        json_value(provenance)
     if post_options and "alpha" in post_options:
         raise ValidationError("post alpha is bound to the record alpha")
     post_check([], alpha=alpha, **(post_options or {}))
@@ -1182,7 +1433,7 @@ def run_check(
     timestamp(stamp)
     record = dict(
         kind="agiw_fast_check",
-        schema_version=1,
+        schema_version=SCHEMA_VERSION,
         protocol_id=PROTOCOL,
         model=copy.deepcopy(model),
         hardware=copy.deepcopy(hardware),
@@ -1201,13 +1452,17 @@ def run_check(
         hardware=hardware,
         runtime_settings=runtime_settings,
     )
+    if provenance is not None:
+        record["provenance"] = copy.deepcopy(provenance)
+        binding["provenance"] = copy.deepcopy(provenance)
     stream, prior = (
         (None, []) if checkpoint is None else checkpoint_open(checkpoint, binding, plan)
     )
-    if prior and pre["decision"] != "CHECK":
+    if (prior or stream is not None and stream._eci_supersedes) and pre["decision"] != "CHECK":
         stream.close()
         raise ValidationError("checkpoint observations conflict with pre gate")
     start = clock()
+    consecutive_errors = 0
     try:
         for spec in plan["benchmarks"]:
             begin = clock()
@@ -1221,6 +1476,9 @@ def run_check(
             for item_id in spec["item_ids"][len(observations) :]:
                 if pre["decision"] != "CHECK":
                     stop = "pre"
+                    break
+                if consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
+                    stop = "errors"
                     break
                 if plan["wall_budget_s"] is not None and Fraction(
                     str(clock())
@@ -1242,6 +1500,7 @@ def run_check(
                     completion_tokens=None,
                     seconds=None,
                     error=None,
+                    attempts=1,
                 )
                 call_start = clock()
                 try:
@@ -1279,7 +1538,8 @@ def run_check(
                     }
                     if (
                         not required <= set(supplied)
-                        or set(supplied) - required - {"prediction", "parse_rule"}
+                        or set(supplied) - required
+                        - {"prediction", "parse_rule", "parsed_unit", "attempts"}
                         or bad_measurement
                     ):
                         raise ValidationError(
@@ -1294,8 +1554,9 @@ def run_check(
                         cut_off=supplied["cut_off"],
                         answer_value=supplied["answer_value"],
                     )
-                    if "parse_rule" in supplied:
-                        observation["parse_rule"] = supplied["parse_rule"]
+                    for optional in ("parse_rule", "parsed_unit", "attempts"):
+                        if optional in supplied:
+                            observation[optional] = supplied[optional]
                     if (
                         observation["cut_off"] is True
                         and observation["parsed"] is False
@@ -1324,6 +1585,9 @@ def run_check(
                     observation.update(
                         outcome="error", correct=False, error=type(exc).__name__
                     )
+                    attempts = getattr(exc, "attempts", 1)
+                    numeric(attempts, 1, integer=True)
+                    observation["attempts"] = attempts
                     for key in ("prompt_tokens", "completion_tokens", "seconds"):
                         value = getattr(exc, key, None)
                         try:
@@ -1342,6 +1606,9 @@ def run_check(
                 if stream is not None:
                     checkpoint_append(stream, binding, spec["benchmark"], observation)
                 observations.append(observation)
+                consecutive_errors = (
+                    consecutive_errors + 1 if observation["outcome"] == "error" else 0
+                )
             record["benchmarks"].append(
                 summarize(spec, observations, max(0, clock() - begin), stop)
             )
@@ -1379,18 +1646,24 @@ def post_inputs(record):
 def validate_record(record, _seen=()):
     """Recompute derived claims and recursively verify the full bound baseline."""
     fields(
-        record,
+        {k: v for k, v in record.items() if k != "provenance"}
+        if isinstance(record, dict) else record,
         "kind schema_version protocol_id record_id created_at model hardware runtime_settings plan pre journal post baseline alpha benchmarks wall_time_s comparison",
     )
+    if "provenance" in record and not isinstance(record["provenance"], dict):
+        raise ValidationError("provenance must be an object")
     if len(_seen) >= 32 or record["record_id"] in _seen:
         raise ValidationError("cyclic or excessively deep baseline chain")
     if (
         record["kind"] != "agiw_fast_check"
         or type(record["schema_version"]) is not int
-        or record["schema_version"] != 1
+        or record["schema_version"] not in SCHEMA_VERSIONS
         or record["protocol_id"] != PROTOCOL
     ):
         raise ValidationError("unsupported fast-check record")
+    legacy = legacy_record(record)
+    if legacy and "provenance" in record:
+        raise ValidationError("schema version 1 records predate provenance")
     json_value(record)
     sha(record["record_id"])
     if (
@@ -1402,7 +1675,7 @@ def validate_record(record, _seen=()):
     identity(record["model"], record["hardware"], record["runtime_settings"])
     validate_plan(record["plan"])
     string(record["journal"], nullable=True)
-    decimal(record["alpha"], positive=True)
+    significance(record["alpha"])
     numeric(record["wall_time_s"])
     pre = record["pre"]
     fields(pre, "decision local_decision reasons inputs advisory")
@@ -1427,27 +1700,44 @@ def validate_record(record, _seen=()):
     benches, specs = record["benchmarks"], record["plan"]["benchmarks"]
     if not isinstance(benches, list) or len(benches) != len(specs):
         raise ValidationError("benchmark coverage mismatch")
+    consecutive_errors = 0
+    stop_reasons = ("complete", "pre", "budget") if legacy else ("complete", "pre", "budget", "errors")
     for spec, b in zip(specs, benches):
         if not isinstance(b, dict) or not isinstance(b.get("observations"), list):
             raise ValidationError("benchmark observations must be an array")
         numeric(b.get("wall_time_s"))
-        if b.get("stop_reason") not in ("complete", "pre", "budget"):
+        if b.get("stop_reason") not in stop_reasons:
             raise ValidationError("invalid stop reason")
         ids = []
         for o in b["observations"]:
+            if not legacy and consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
+                raise ValidationError("record continued after three consecutive errors")
+            if legacy and isinstance(o, dict) and ({"parsed_unit", "attempts"} & set(o)):
+                raise ValidationError("schema version 1 observations predate unit and retry evidence")
             validate_observation(o)
             ids.append(o["item_id"])
+            consecutive_errors = (
+                consecutive_errors + 1 if o["outcome"] == "error" else 0
+            )
+        if b["stop_reason"] == "errors" and consecutive_errors < MAX_CONSECUTIVE_ERRORS:
+            raise ValidationError("error stop requires consecutive error evidence")
         if ids != spec["item_ids"][: len(ids)] or len(ids) > len(spec["item_ids"]):
             raise ValidationError("observations must follow frozen sample prefix")
         if pre["decision"] != "CHECK" and (ids or b["stop_reason"] != "pre"):
             raise ValidationError("pre did not authorize check")
-        if b["stop_reason"] == "complete" and len(ids) != len(spec["item_ids"]):
-            raise ValidationError("incomplete sample cannot claim completion")
+        if legacy:
+            if b["stop_reason"] == "complete" and len(ids) != len(spec["item_ids"]):
+                raise ValidationError("incomplete sample cannot claim completion")
+        else:
+            if (b["stop_reason"] == "pre") != (pre["decision"] != "CHECK"):
+                raise ValidationError("pre stop must match the pre decision")
+            if (b["stop_reason"] == "complete") != (len(ids) == len(spec["item_ids"])):
+                raise ValidationError("completion stop must match complete sample coverage")
         if b["stop_reason"] == "budget" and record["plan"]["wall_budget_s"] is None:
             raise ValidationError("budget stop without a budget")
-        if canonical(b) != canonical(
-            summarize(spec, b["observations"], b["wall_time_s"], b["stop_reason"])
-        ):
+        summary_rule = _summarize_v1 if legacy else summarize
+        expected_summary = summary_rule(spec, b["observations"], b["wall_time_s"], b["stop_reason"])
+        if canonical(b) != canonical(expected_summary):
             raise ValidationError("summary disagrees with observations")
     if sum(Fraction(str(b["wall_time_s"])) for b in benches) > Fraction(
         str(record["wall_time_s"])
@@ -1467,8 +1757,9 @@ def validate_record(record, _seen=()):
     )
     if post["inputs"]["alpha"] != record["alpha"]:
         raise ValidationError("post alpha must match record alpha")
+    post_rule = _post_check_v1 if legacy else post_check
     if canonical(post) != canonical(
-        post_check(**post["inputs"], advisory=post["advisory"])
+        post_rule(**post["inputs"], advisory=post["advisory"])
     ) or canonical(post_inputs(record)) != canonical(post["inputs"]["evidence"]):
         raise ValidationError("post decision disagrees with evidence")
     return record
@@ -1477,7 +1768,12 @@ def validate_record(record, _seen=()):
 def pair_verdict(candidate, baseline, alpha="0.05"):
     validate_record(candidate)
     validate_record(baseline)
-    tests = comparisons(candidate, baseline_snapshot(baseline), alpha)
+    significance(alpha)
+    return _pair_verdict_validated(candidate, baseline, alpha)
+
+
+def _pair_verdict_validated(candidate, baseline, alpha):
+    tests = _comparisons_validated(candidate, baseline, alpha)
     if not candidate["model"]["file_sha256"] or not baseline["model"]["file_sha256"]:
         for test in tests.values():
             test.update(verdict="INCONCLUSIVE", verification="UNVERIFIED",
@@ -1506,7 +1802,8 @@ def screening_evidence(record):
                               "correct", "parsed", "truncations", "errors", "timeouts",
                               "unknown_finish", "stop_reason", "normalized_score",
                               "normalized_interval95", "accuracy", "interval95")},
-        unparsed=b["attempted"] - b["parsed"],
+        unparsed=b["attempted"] - b["parsed"] - b["errors"],
+        retried=b.get("retried"),
         wrong=b["outcome_counts"]["wrong"],
         cut_off=sum(o["cut_off"] for o in b["observations"]),
     ) for b in record["benchmarks"]]
@@ -1630,7 +1927,7 @@ def rank(records):
                 eligible.append(record)
         for record in eligible:
             tests = [
-                (other, *pair_verdict(record, other, group["alpha"]))
+                (other, *_pair_verdict_validated(record, other, group["alpha"]))
                 for other in eligible
                 if other["record_id"] != record["record_id"]
                 and not screening_mismatches(record, other)

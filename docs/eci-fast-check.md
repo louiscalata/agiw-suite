@@ -97,12 +97,16 @@ two-sided exact McNemar probability is:
 p = min(1, 2 * sum(comb(b+c, k), k=0..min(b,c)) / 2**(b+c))
 ```
 
-A conclusive verdict requires both sides to contain the complete expected scored
+A conclusive verdict requires both sides to contain the complete expected attempted
 item set from the same frozen plan. Otherwise the verdict is INCONCLUSIVE with
 reason `incomplete pairs` and the expected, candidate, baseline and shared counts.
 A complete comparison is BETTER when `b > c` and `p < alpha`, WORSE for the
 reverse, and INCONCLUSIVE otherwise. Equality to alpha is not significant. Default
-alpha is the exact decimal string `"0.05"`. With no discordant pairs p is 1.
+alpha is the exact decimal string `"0.05"`. Values above `"0.05"` are relaxed
+policy and remain UNKNOWN/unranked; alpha must be strictly below 1. With no
+discordant pairs p is 1. Attempted non-correct outcomes count as false in the
+paired table for unparsed and truncated answers. Transport-error rows are missing
+pairs, so they cannot add a wrong answer or establish a directional verdict.
 The exact reduced numerator and denominator are retained as decimal strings;
 verdicts compare rational numbers, so floating underflow in the display p value
 does not change the decision.
@@ -134,13 +138,15 @@ Post records configurable thresholds and alpha as exact decimal strings and
 compares counts with rational arithmetic. Defaults require complete planned
 coverage, a raw Wilson interval width strictly below `"0.20"`, error rate at most
 `"0.01"`, cutoff-without-answer rate at most `"0.05"`, and unparsed rate at most
-`"0.10"`. Unparsed rate is (attempted - parsed) / planned, including errors and
-cutoffs without an extracted answer. The separate complete-coverage gate accounts
+`"0.10"`. Unparsed rate is (attempted - errors - parsed) / (attempted - errors),
+including cutoffs without an extracted answer but excluding transport failures.
+An error rate above its bound makes model quality UNKNOWN, even if other
+quality gates would reject; transport failures do not diagnose parser incompatibility. The separate complete-coverage gate accounts
 for unattempted items. Rate equality passes; Wilson width equality rejects.
 
 Above the unparsed bound, post REJECTs with
 `runtime/model incompatibility suspected: answers could not be parsed`.
-Zero parsed answers also independently REJECTs with
+With adequate transport evidence, zero parsed answers independently REJECTs with
 `runtime/model incompatibility suspected`, including on chance-zero benchmarks.
 Excessive cutoff-without-answer rate REJECTs with
 `answers cut off at the token limit: raise the limit and re-run`.
@@ -162,7 +168,10 @@ Chance-zero benchmarks skip the chance test and use parseability, degeneracy and
 the other gates. Degeneracy rejects independently there when at least two answer
 options are declared. On a nonzero-chance benchmark, degeneracy only corroborates
 a not-above-chance result: 200/200 correct at chance 0.9 is admitted when the other
-gates pass. Unknown finish evidence stays UNKNOWN until resolved.
+gates pass. Unknown finish evidence on a returned response stays UNKNOWN until resolved.
+An exhausted request error has no response finish reason; it is governed by the
+error-rate gate instead. Incomplete benchmarks remain UNKNOWN with their stop
+reason and do not assert model incompatibility or chance-level performance.
 
 At n=200, chance 0.5 and alpha 0.05, the smallest significant correct count is
 113; 112 or fewer is not distinguishable from chance. Assuming independent items,
@@ -243,8 +252,10 @@ thread or subprocess. It cannot interrupt an arbitrary hung Python callable.
 The optional checkpoint is an append-only JSONL file with fsynced per-item
 observations. Its identity binds the plan, model, hardware and runtime settings;
 resume validates every observation against the frozen execution prefix before
-calling the adapter. A restarted run reuses persisted items instead of repeating
-them. A different plan or identity refuses to reuse the checkpoint. An incomplete
+calling the adapter. A restarted run reuses the persisted prefix except for its
+trailing error rows. It re-asks that trailing suffix and appends replacements with
+`supersedes_sha256` bound to each old entry; earlier evidence and the hash chain
+remain intact. Only errors in this invocation count toward the three-error stop. A different plan or identity refuses to reuse the checkpoint. An incomplete
 or corrupt checkpoint cannot silently mix observations. Cancellation of an
 in-flight arbitrary callable remains adapter-owned. Supply `checkpoint=Path(...)`
 to enable persistence; absent that argument the seam writes no checkpoint. An exclusive nonblocking OS lock owns the read/append lifetime; a second writer
@@ -259,9 +270,21 @@ and the seam refuses that torn file instead of silently dropping evidence.
 
 One JSON record contains a single model/hardware/plan check and all its benchmark
 summaries and item outcomes. It records attempted, parsed and planned counts,
-outcome counts/rates, errors/timeouts, raw and normalized intervals, per-item
-prompt/completion tokens and seconds, aggregate completion tokens, answer seconds,
-token throughput, current-invocation wall time and stop reason.
+outcome counts/rates, errors/timeouts, the number of retried items (`retried`),
+raw and normalized intervals, per-item transport `attempts`, prompt/completion tokens and seconds, aggregate completion tokens, answer seconds,
+token throughput, current-invocation wall time and stop reason. For a successful
+retry, `seconds` measures only the successful attempt; total wall time includes
+the failed attempt.
+
+New records carry `schema_version` 2. Schema version 2 changed two derived
+claims: a transport error no longer counts in `unknown_finish` or `parsed`, and
+an unparsed answer is paired as wrong in comparisons (an error stays unpaired).
+Records written before that change carry `schema_version` 1 and remain valid:
+the validator recomputes their summaries, comparisons and post decisions with
+the original version 1 rules (`_summarize_v1`, `_outcomes_v1`, `_post_check_v1`).
+A version 1 record cannot carry version 2 evidence (`provenance`, per-item
+`attempts` or `parsed_unit`, or an `errors` stop). The protocol stays
+`agiw-fast-check-v1`.
 `wall_time_s` measures only the adapter-execution phase of the current invocation;
 it does not invent prior adapter overhead or elapsed downtime on resume. Per-item
 answer seconds and their aggregate retain measured values from checkpointed calls. Missing measurements remain
@@ -331,7 +354,7 @@ rank.
 Relaxed policies and incomplete samples stay pending; competitive ranking requires
 the entire plan and a policy within the standard safety bounds.
 
-The view says “best model for this hardware as of” the latest supplied record
+The view says “Screening results as of” the latest supplied record
 timestamp in its group. It describes only those supplied records. Rows are
 labelled **fast check**, ordered by equal-weight mean normalized component
 score, and carry per-component intervals. Displayed aggregate bounds are means
@@ -382,37 +405,49 @@ official-harness/scorer equivalence is implied.
 ```sh
 python3 -B -m eci_fast_check_adapter \
   --base-url http://127.0.0.1:9000/v1 --model example-model \
-  --samples arc-sample.json gsm8k-sample.json --output-dir ../fast-check-output
+  --samples arc-sample.json gsm8k-sample.json --output-dir ../fast-check-output \
+  --file-size-bytes ACTUAL_GGUF_BYTES
 ```
 
 The default is a deterministic sample of up to 200 items per benchmark,
 **16,384 completion tokens per item**, temperature 0, seed 42, and a 180-second
-per-request deadline. Use `--count`, `--max-tokens` (minimum 8,192), `--timeout`
+per-request deadline. Use `--count`, `--max-tokens` (integer at least 8192), `--timeout`
 or an exact decimal `--wall-budget-s` to change them. A wall budget is checked
 between items; a request may finish after that budget. The completion budget
-includes reasoning on servers that account for it there. Empty/whitespace final
+includes reasoning on servers that account for it there. Each request is capped
+below reported context minus a conservative UTF-8 byte estimate of both prompts
+and fixed chat framing; one further token stays reserved. A prompt with no room
+for generation is refused before a completion request. This is an estimate, not
+a measurement from the server tokenizer. Empty/whitespace final
 content with `reasoning_content` is always `truncated_empty`, even with finish
 reason `stop`. The separate `reasoning_content` field is never scored or stored.
 Only the final content is passed to the screening parser; raw replies are not
 retained. The following versioned screening rules apply, with no ECI-score or
 official-harness equivalence claim.
 
-### Screening answers and explicit templates, version 2
+### Screening answers, version 3; explicit templates, version 2
 
-`scorer_id=fast-check-screening-final-v2` and
-`parse_version=fast-check-parse-v2` identify these rules. Every returned item
+`scorer_id=fast-check-screening-final-v3` and
+`parse_version=fast-check-parse-v3` identify these rules. Every returned item
 records `parse_rule` (null when unparsed), which survives checkpoint/resume.
 Legacy generic callable records may omit it. A failed parse stays unparsed;
 it is never rescued by looking at a question's numbers or reference answer.
 
 - GSM8K normalizes **both** reference and reply to an exact finite `Decimal`
   representation. Valid comma thousands groups, `$`/`£`/`€`/`¥`, trailing units
-  and a terminal period are removed: `2,125` becomes `2125`, `1,000.50` becomes
+  and a terminal period are normalized: `2,125` becomes `2125`, `1,000.50` becomes
   `1000.5`, and `$12` / `12 dollars` become `12`. Signs, fractional digits and
   scientific notation preserve their exact value; there is no tolerance or
   rounding. No unit conversion is performed. Units use the conservative
   `UNITS` allowlist in the adapter (currencies, time, length, mass, volume,
-  percentages and common count nouns); arbitrary prose is refused.
+  and common count nouns); arbitrary prose is refused. Word units and
+  multi-letter abbreviations match in any case (`72 Dollars`, `5 usd`, `12 KM`)
+  and are recorded casefolded. The litre symbol accepts `l` and `L` (`5 L`).
+  The one-letter units `m` and `g` are case-sensitive, so `12 M` and `12 G`
+  (scale words) stay unparsed.
+  Percent signs and the `percent` suffix are evidence only: `12%` scores as `12`,
+  with no division by 100. Cents still require a matching reference suffix. The parsed
+  unit is retained as `parsed_unit` for review; no conversion is inferred.
   A whole answer, a terminal `####` / `Answer:` / `Final answer:` line, or a
   terminal balanced `\boxed{...}` answer is accepted, including `$...$`,
   `\(...\)` and `\[...\]` wrappers. Rules are `numeric_complete`,
@@ -424,12 +459,16 @@ it is never rescued by looking at a question's numbers or reference answer.
   and one optional period. Labels take priority over choice-text fallback:
   ARC can contain text `C` at choice A while C is the correct **label**.
   Otherwise the terminal candidate must match exactly one choice text after
-  trimming the reply and case folding (no substring or punctuation guessing).
+  trimming the reply and case folding (no substring matching; one terminal period is accepted).
   Rationale mentioning several labels is ignored when followed by a final
   answer. Conflicting explicit answer lines, duplicate matching choice texts,
-  `A or B`, malformed labels and prose after a final answer remain unparsed.
+  `A or B` and malformed labels remain unparsed. Balanced Markdown emphasis and
+  a final `B. choice text` or `B) choice text` are accepted only when the suffix matches the selected
+  choice exactly; conflicting or unrelated suffix text stays unparsed.
   Rules are `mc_explicit_label`, `mc_last_standalone_label`,
-  `mc_explicit_choice_text` and `mc_exact_choice_text`.
+  `mc_explicit_choice_text`, `mc_exact_choice_text`,
+  `mc_explicit_label_choice_text` and `mc_last_label_choice_text`. Balanced quotes
+  and backticks are presentation wrappers; numeric boxes may use double-dollar delimiters.
 
 Prompts request one final line: choices use `Answer: <choice label>`, GSM8K uses
 `#### <number>`, and other short answers use `Answer: <short answer>`.
@@ -441,7 +480,9 @@ question/choice, demonstration and few-shot templates plus the actual rendered
 demonstrations. Changing a parse/template ID, version, hash or any other runtime
 setting refuses paired comparison, separates ranking groups and refuses checkpoint
 reuse. Historical records can still validate in their original settings cohort;
-missing version/hash fields cannot match a new adapter result. This is a screening
+missing version/hash fields cannot match a new adapter result. Records whose old
+derived summaries disagree with corrected error, coverage or stop-reason semantics
+fail validation; ingestion does not silently promote or rewrite that evidence. This is a screening
 protocol; changing these rules can change results.
 
 GSM8K descriptors may supply a `demonstrations` list, separate from `items`:
@@ -478,22 +519,51 @@ raw payloads, model paths and machine/device identifiers are omitted. These are
 server reports, not independently measured hardware or artifact attestation.
 
 The existing fit gate needs model size, quantization and sufficient available
-memory; resume needs the actual artifact SHA-256. If the server omits those,
-add `--file-size-bytes BYTES --quantization QUANT --available-memory-bytes BYTES
---model-sha256 SHA256` using verified values. Explicit model facts that disagree
-with the server are refused. The adapter labels caller-supplied facts and refuses
+memory; resume needs the actual artifact SHA-256. Always supply the actual GGUF
+file size with `--file-size-bytes`; a server size may describe tensor storage.
+For other missing facts add `--file-size-bytes BYTES --quantization QUANT --available-memory-bytes BYTES
+--model-sha256 SHA256` using verified values. Conflicting hash or quantization facts are refused. File-size provenance records
+`declared_file_size_bytes` and `server_reported_size_bytes` separately, with
+`size_match` set to `equal` only when they agree and `unverified` otherwise. A
+size mismatch does not refuse the run, and a server value never populates
+`model.file_size_bytes`. The selected model's `meta.size` and normalized
+`meta.ftype` remain server-reported size/quantization evidence. A caller-supplied
+hash is explicitly marked unverified. The adapter labels caller-supplied facts and refuses
 inference when the hash or fit evidence is missing; it never invents a hash from
 the model ID or probes the host to fill gaps.
 
+Supply a public, non-identifying hardware description with `--machine-label`,
+`--cpu`, `--gpu`, `--memory-bytes` and `--runtime-build-id` when those facts are
+known. The local hostname and its short form (case-insensitive), `.local`, `.lan`,
+`.home`, dotted IPv4 and any `::` value are refused as labels. Server-supplied
+machine labels remain ignored. Missing facts remain null.
+`--model-label` allows a safe display identity when the selected server model ID
+is path-shaped; the raw path is used only for the request, never the record.
+Model/fit provenance and an opaque endpoint digest are retained separately from `runtime_settings`,
+so different artifacts can share a comparison group while settings must still
+match. Provenance remains bound to the checkpoint and record identity.
+
+For a lane whose default includes thinking, set `--disable-thinking` in that
+lane's invocation. It sends `chat_template_kwargs` with `enable_thinking: false`.
+The flag defaults off and is part of comparison settings; it is not inferred from
+a model name. The effective token cap is limited by the reported context.
+
+A transient request failure gets one retry, with the same bounded request
+deadline. HTTP 408, 429, 500, 502, 503 and 504, timeouts and transport errors are
+retryable; malformed responses are not. After three consecutive exhausted item
+errors, the core stops with `stop_reason=errors`. No unattempted answer is invented.
+
 Output contains `plan.json`, `checkpoint.jsonl`, `adapter.lock` and `result.json`.
 Every item is checkpointed with flush/fsync before the next request. Repeat the
-same command to resume after interruption (exit 130) or a wall-budget stop.
-Resume skips **all recorded attempts**, including errors/timeouts, and rejects
-changed data, artifact, endpoint, settings, fit inputs, reported hardware or corrupt/torn
-checkpoints. Use a fresh output directory for retries or changed settings.
-Result publication is atomic. Exit 0 means a protocol result was written; read
-its separate post decision and outcome counts before judging the model. Input or
-metadata failures exit 2. Results use `agiw-fast-check-v1` and validate with:
+same command to resume after interruption (exit 130), a wall-budget stop or an
+error stop. Resume re-asks trailing error/timeout rows as superseding checkpoint
+entries and starts a fresh consecutive-error count; earlier rows are reused.
+Changed data, artifact, endpoint, settings, fit inputs, reported hardware or
+corrupt/torn checkpoints are refused. Use a fresh output directory to change settings.
+Result publication is atomic. Exit 0 means a complete protocol result was written;
+read its separate post decision and outcome counts before judging the model. An
+incomplete result prints its benchmark stop reasons, explains how to resume, and exits 3. Input or metadata
+failures exit 2. Results use `agiw-fast-check-v1` and validate with:
 
 ```sh
 python3 -B -m eci_fast_check validate ../fast-check-output/result.json

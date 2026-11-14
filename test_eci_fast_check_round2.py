@@ -200,10 +200,10 @@ class RoundTwoTests(unittest.TestCase):
 
         def answer(item):
             calls.append(item)
-            return self.obs("error" if len(calls) <= 190 else "correct")
+            return self.obs("error" if len(calls) % 3 != 0 else "correct")
 
         for options, expected in (
-            ({"max_error_rate": "1"}, "REJECT"),
+            ({"max_error_rate": "1"}, "UNKNOWN"),
             ({"max_error_rate": "1", "max_unparsed_rate": "1"}, "UNKNOWN"),
         ):
             calls.clear()
