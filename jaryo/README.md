@@ -1,14 +1,14 @@
 # Jaryo kit
 
-Shared tokens, theme, controls, and a pipeline page. The kit and the Suite's full observer web now apply Louis's 17 lab choices, with the accent exception recorded on 2026-11-11. This checkout does not publish the kit to a registry.
+Shared tokens, theme, controls, and a pipeline page. The kit and the Suite's full observer web now apply Louis's 17 lab choices, with the Copper accent selected on 2026-11-12. This checkout does not publish the kit to a registry.
 
-The dark palette uses the composed spec's graphite surfaces, light text, and cool status tints. The light palette uses the existing black-and-white fallback. Both use booklet red `#C21A27` for the brand and primary action, with white labels. Forced colors use the operating system's colors. System light/dark remains the default; Light and Dark remain explicit overrides.
+The dark palette uses the composed spec's graphite surfaces, light text, and cool status tints. The light palette uses the existing black-and-white fallback. Both use Copper `#C47A3A` for accent fills and focus, with black labels on Copper fills. Copper text on white does not meet normal-text contrast and is not used. Forced colors use the operating system's colors. System light/dark remains the default; Light and Dark remain explicit overrides.
 
 ## Decision and provenance
 
 `choices.json` is a byte-for-byte copy of the owner's `jaryo-lab-choices.json`, saved at `2026-11-06T17:52:56.877Z`. Its SHA-256 is `6490e5b15b624b82703d2ce897054c2e9a40f6c8dcc5d389de45e86d7004be2d`. `tokens.json.appliedChoiceFile` records that original name and hash. `chosenFamilyIds` contains all 17 choices, including F17.01.
 
-F17.01 is **Copper Workshop**, the color family. `ownerOverrides.F17` records `overridden by owner: booklet red`, date `2026-11-11`, light and existing web dark accent `#C21A27`, white accent ink, and unchanged system forced colors. Copper is not applied. The remaining dark F17 tokens come from the composed interface spec v0.5c. `decision.mjs` pins the accepted record independently of the editable tokens.
+F17.01 is **Copper Workshop**, the color family. The owner selected Copper on 2026-11-12, superseding the 2026-11-11 booklet-red override. `ownerOverrides.F17` records the Copper accent and focus, black accent ink, and unchanged system forced colors. The remaining dark F17 tokens come from the composed interface spec v0.5c. `decision.mjs` pins the accepted record independently of the editable tokens.
 
 | Family | Choice | Applied pattern |
 | --- | --- | --- |
@@ -28,7 +28,7 @@ F17.01 is **Copper Workshop**, the color family. `ownerOverrides.F17` records `o
 | F14 | F14.02 | 56px phone thumb bar with safe-area padding |
 | F15 | F15.01 | Install line with honest copy feedback and GUI setup path |
 | F16 | F16.01 | Visible Commands button, Cmd/Ctrl-K and capability-gated combobox |
-| F17 | F17.01 | Spec palette with the separately recorded booklet-red override |
+| F17 | F17.01 | Copper accent and focus with the remaining spec palette |
 
 The chrome word remains AGIW. D4 Split is rejected; `marks/` contains studies, not a newly approved wordmark. The web uses bundled IBM Plex Sans and Mono. The standalone kit names the same fonts and uses Sans/Mono fallbacks when they are not installed; it does not bundle font binaries. Android retains its original Inter, black-and-white foundation and dimensional scale. The top-level provisional font and `surface` fields describe that retained foundation, not the applied web palette.
 
@@ -70,7 +70,7 @@ node jaryo/cli.mjs mcp
 
 `check` requires the exact choice record and override, verifies the choice file hash, compares generated exports, computes contrast, and retains the artwork, state, motion and pipeline checks. `tokens` prints the token record. The stdio tools remain `jaryo_tokens`, `jaryo_install`, and `jaryo_check`.
 
-The Node-only contrast audit covers all 44 semantic text and UI pairings used by these tokens in light/dark, selected, blocked, primary, focus and border states. Text must reach 4.5:1; UI boundaries must reach 3:1. The limiting accepted pair is the dark border on surface at 3.007:1. Booklet red on the dark surface is only 2.906:1, so it is not used as text or as the sole control boundary there. White labels on red reach 6.050:1, and primary controls have a contrasting page-ink border. No token color was silently adjusted to pass.
+The Node-only contrast audit covers all 44 semantic text and UI pairings used by these tokens in light/dark, selected, blocked, primary, focus and border states. Text must reach 4.5:1; UI boundaries must reach 3:1. The limiting accepted pair is the dark border on surface at 3.007:1. Copper on white is only 3.391:1, so Copper is not used as normal text on white. Black labels on Copper reach 6.192:1, and primary controls have a contrasting page-ink border.
 
 ## Use the components
 

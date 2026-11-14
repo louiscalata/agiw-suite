@@ -432,3 +432,7 @@ These historical checks establish reviewed source revisions and a signed local i
 - [x] Publish `v1.0.0-macos-rc.1` ([surviving source tag](../../tree/v1.0.0-macos-rc.1)) as a prerelease after independent distribution review and three copy/packaging passes. The ZIP contains the notarized app, INSTALL, LICENSE and NOTICE. Its SHA-256 is `8a6bd3943c89677b0b5184f29027d83c08a335276efc148a51080282b7699b1d`; the release also provides `SHA256SUMS.txt`. Round-trip extraction passed ticket, signature and Gatekeeper checks.
 - [ ] Complete native menu-bar/dashboard rendering and animation checks, and quarantined first-install acceptance on a clean supported Mac, before stable release. Build 5 accessory-app automation timed out during that review. Build 7 has the narrower native results recorded above; complete rendering/animation and clean-Mac acceptance remain open. Historical pending binary-publication items above apply to stable acceptance or the separate unsubmitted DMGs.
 - [ ] Complete the Mac App Store edition's separate exact-build native acceptance, screenshots and App Review process. Its package is not part of the GitHub download.
+
+## Monitor visual alignment — 2026-11-12
+
+- [ ] Verify the Copper, Plex, ledger and responsive inspector presentation in hosted browser checks at narrow and desktop sizes, then separately on devices. Source changes do not establish rendered or native acceptance.

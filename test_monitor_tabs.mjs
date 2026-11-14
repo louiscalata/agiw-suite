@@ -472,7 +472,7 @@ test('the demo fixture is labeled fictional and the painter does not inject mark
   const css = read('./web/jaryo.css');
   assert.match(css, /outline: 3px dashed var\(--j-focus\)/);
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)/);
-  assert.doesNotMatch(css, /#C47A3A/i);
+  assert.match(css, /--j-accent: #C47A3A/i);
   const html = read('./web/index.html');
   assert.match(html, /id="monitorTabs"[^>]*role="tablist"/);
   assert.match(html, /data-jaryo-tabs="1"/);
@@ -566,7 +566,7 @@ test('owner choices retain unapproved artwork and the board does not cover the m
   const decision = JSON.parse(tokens);
   assert.equal(decision.appliedChoiceFile.sha256, '6490e5b15b624b82703d2ce897054c2e9a40f6c8dcc5d389de45e86d7004be2d');
   assert.equal(Object.keys(decision.chosenFamilyIds).length, 17);
-  assert.equal(decision.ownerOverrides.F17.reason, 'overridden by owner: booklet red');
+  assert.equal(decision.ownerOverrides.F17.reason, 'owner selected Copper, superseding booklet red');
   assert.match(tokens, /"logoSelection": null/);
   assert.match(tokens, /"selectedDirection": null/);
   assert.match(tokens, /"rejectedDirection": "d4-split"/);

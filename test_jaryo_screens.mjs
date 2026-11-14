@@ -68,7 +68,7 @@ test('every screen uses the same Jaryo chrome', () => {
     assert.match(html, /id="content"/, name);
     assert.match(html, /id="jaryoTheme"/, name);
     assert.match(html, /<option value="system">System<\/option>/, name);
-    assert.doesNotMatch(html, /hermes|Hermes|graphite|copper/i, name);
+    assert.doesNotMatch(html, /hermes|Hermes|graphite/i, name);
     assert.doesNotMatch(html, /<img[^>]+agiw|brand-monogram|>AS</, name);
     const links = navLinks(html);
     assert.deepEqual(links, NAV, name);

@@ -31,6 +31,7 @@ ${dark}
   --j-grid: transparent;
   --j-font: "IBM Plex Sans", "Liberation Sans", "Noto Sans", sans-serif;
   --j-mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace;
+${tokens.variants.web.typeScalePx.map((size, i) => `  --j-web-size-${i + 1}: ${size}px;`).join('\n')}
   --j-motion: ${tokens.interaction.motion};
   --j-thumb-bar: ${tokens.interaction.thumbBar};
   --j-inspector-min: ${tokens.interaction.inspectorMin};
