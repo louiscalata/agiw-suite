@@ -1,6 +1,6 @@
 # AGIW Suite architecture
 
-AGIW Suite's public application is **Inference Monitor**: a Swift menu-bar shell, a local Python observer and bundled web views. The native window opens `/monitor`, a map/details page that polls `/api/inference` every two seconds. The Overview at `/` leads with the Fleet ledger, followed by attention reasons, controls and an optional collapsed map. Public **Nisi 0.2.0** is included; the hosted **Jev connection check** is optional.
+AGIW Suite's public application is **Inference Monitor**: a Swift menu-bar shell, a local Python observer and bundled web views. In this source the dashboard window opens the Overview at `/`, which leads with the Fleet ledger, followed by attention reasons, controls and an optional collapsed map. The compact menu-bar popover opens `/monitor`, a map/details page that polls `/api/inference` every two seconds. At tag `v1.0.0` (build 7) the shell loads the observer root `/` and the observer has no `/monitor` page; the downloaded binary itself was not inspected for this guide. The landing pages are source-checked only; rendering in the native window is NOT_RUN. Public **Nisi 0.2.0** is included; the hosted **Jev connection check** is optional.
 
 This guide describes the public repository. The downloadable **1.0.0 (7)** application was compiled from `caaa7d4`; later source and documentation commits do not change that binary. The Mac App Store application, external coding router and worker programs have separate implementation and acceptance boundaries.
 
@@ -60,7 +60,7 @@ Opening the application starts observation. It does not start a coding task, loa
 
 | Layer | Responsibility | Implementation |
 | --- | --- | --- |
-| Native application | Menu bar, compact/dashboard windows, badge, child supervision, WebKit navigation and native setup dispatch | [Monitor.swift](../Monitor.swift) |
+| Native application | Menu bar, compact/dashboard windows, badge, child supervision, WebKit navigation, kept theme/text size and window frame, page recovery and native setup dispatch | [Monitor.swift](../Monitor.swift) |
 | HTTP and snapshot store | Loopback routes, atomic snapshot publication, event stream, action dispatch and shutdown | [server.py](../server.py) |
 | System and model observations | LM Studio inventory/activity, Mac resources, router and worker observations, and separate inference-map probes | [telemetry.py](../telemetry.py), [gpu_probe.py](../gpu_probe.py), [inference_collect.py](../inference_collect.py) |
 | Evidence readers | Change-driven overlays, sanitized run receipts, recorded client choices and local caller observations | [live_feed.py](../live_feed.py), [activity.py](../activity.py), [client_models.py](../client_models.py), [local_callers.py](../local_callers.py), [nisi_v02.py](../nisi_v02.py) |
@@ -325,7 +325,7 @@ The release packager freezes its source/resource inputs, checks hashes and compi
 | --- | --- |
 | Snapshot/readers | Telemetry, live-feed, activity, client-model and HTTP fixtures |
 | Controls/recovery | Model-control, durable-journal, auto-unload, memory-guard and online-repair suites; actual service evidence for live acceptance |
-| Native shell/helper | Extracted Swift policy/helper harnesses, full Swift typechecks, signed-app UI and credential lifecycle checks |
+| Native shell/helper | Extracted Swift policy/helper harnesses, full Swift typechecks, signed-app UI and credential lifecycle checks. `test_native_preferences.mjs` executes the preference script against stand-ins and reads the landing, frame and recovery rules as source text; it does not run them in a window |
 | Dashboard | Node tests for map/evidence/action behavior; native WebKit rendering and motion remain separate |
 | Nisi payload | `bundle_nisi.py --verify`, component fixtures and actual fixed demonstration result; a model-backed run needs its own receipt |
 | Distribution | Frozen-input/resource manifest, architecture/signature/ticket checks, extraction parity and clean supported-Mac first installation |

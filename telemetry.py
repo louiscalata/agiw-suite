@@ -1739,6 +1739,9 @@ def _find_lms() -> str | None:
     return executable
 
 
+_LMS_COMMAND_TIMEOUT = 1.0   # seconds one `lms` status or inventory run may take
+
+
 def _bounded_lms() -> dict[str, Any]:
     value = _bounded_lms_json(["ps", "--json"], _MAX_CLI)
     if not isinstance(value, list):
@@ -1746,8 +1749,8 @@ def _bounded_lms() -> dict[str, Any]:
     return {"models": value}
 
 
-def _bounded_lms_json(arguments: list[str], limit: int) -> Any:
-    """One `lms <arguments>` run with a one-second deadline and an output cap; its stdout as JSON."""
+def _bounded_lms_json(arguments: list[str], limit: int, *, timeout: float = _LMS_COMMAND_TIMEOUT) -> Any:
+    """One `lms <arguments>` run with a deadline (one second by default) and an output cap; its stdout as JSON."""
     executable = _find_lms()
     if not executable:
         raise FileNotFoundError("lms unavailable")
@@ -1758,29 +1761,32 @@ def _bounded_lms_json(arguments: list[str], limit: int) -> Any:
     output = bytearray()
     selector = selectors.DefaultSelector()
     selector.register(process.stdout, selectors.EVENT_READ)
-    deadline = time.monotonic() + 1.0
+    deadline = time.monotonic() + timeout
     try:
         while True:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise TimeoutError("lms status timed out")
-            events = selector.select(min(remaining, 0.1))
-            if events:
-                part = os.read(process.stdout.fileno(), min(65536, limit + 1 - len(output)))
-                if not part:
+            if not selector.select(min(remaining, 0.1)):
+                if process.poll() is None:
+                    continue
+                # The command has exited, so everything it wrote is already buffered.  A
+                # descendant that still holds the pipe open (a service the CLI woke) may
+                # never write or close it: read only what is ready, never block on it.
+                if not selector.select(0):
                     break
-                output.extend(part)
-                if len(output) > limit:
-                    raise ValueError("lms output too large")
-            elif process.poll() is not None:
-                # Drain remaining bytes after process exit.
-                part = os.read(process.stdout.fileno(), min(65536, limit + 1 - len(output)))
-                if not part:
-                    break
-                output.extend(part)
-                if len(output) > limit:
-                    raise ValueError("lms output too large")
-        if process.wait(timeout=max(0.01, deadline - time.monotonic())) != 0:
+            part = os.read(process.stdout.fileno(), min(65536, limit + 1 - len(output)))
+            if not part:
+                break
+            output.extend(part)
+            if len(output) > limit:
+                raise ValueError("lms output too large")
+        try:
+            exit_code = process.wait(timeout=max(0.01, deadline - time.monotonic()))
+        except subprocess.TimeoutExpired:
+            # Closed its output but kept running: the same deadline, the same error.
+            raise TimeoutError("lms status timed out") from None
+        if exit_code != 0:
             raise OSError("lms status failed")
         return json.loads(output.decode("utf-8"))
     finally:
