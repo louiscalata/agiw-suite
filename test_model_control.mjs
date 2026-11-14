@@ -48,7 +48,7 @@ test('selected-model POST is mocked and carries only the exact requested action 
   assert.equal(seen.options.method,'POST');
   assert.equal(seen.options.headers['Content-Type'],'application/json');
   assert.deepEqual(JSON.parse(seen.options.body),{action:'load',modelId:base.id});
-  assert.deepEqual(result,{ok:true,statusCode:202,result:{status:'running',action:'load',modelId:base.id,operationId:'op-1'}});
+  assert.deepEqual(result,{ok:true,statusCode:202,outcome:'accepted',result:{status:'running',action:'load',modelId:base.id,operationId:'op-1'}});
 });
 
 test('mocked rejected POST preserves server feedback for the caller',async()=>{
@@ -56,4 +56,36 @@ test('mocked rejected POST preserves server feedback for the caller',async()=>{
   assert.equal(result.ok,false);
   assert.equal(result.statusCode,503);
   assert.equal(result.result.message,'Model inventory changed');
+});
+
+test('a model-control POST with no answer is reported as an unknown outcome, never as unsent',async()=>{
+  for(const lost of [async()=>{throw new TypeError('Load failed');},async()=>{throw new DOMException('The operation timed out.','TimeoutError');}]){
+    let calls=0;
+    const result=await submitModelControl(async(...args)=>{calls++;return lost(...args);},'load',base.id);
+    assert.equal(calls,1,'one POST, no retry');
+    assert.equal(result.ok,false);
+    assert.equal(result.outcome,'unknown');
+    assert.equal(result.statusCode,null);
+    assert.match(result.result.message,/outcome unknown/);
+    assert.match(result.result.message,/may or may not have taken effect/);
+    assert.doesNotMatch(result.result.message,/could not|rejected|did not/i);
+  }
+});
+
+test('an accepted POST with an unreadable answer stays unknown; an answered refusal is a refusal',async()=>{
+  const unreadable=await submitModelControl(async()=>({ok:true,status:202,json:async()=>{throw new SyntaxError('bad json');}}),'load',base.id);
+  assert.equal(unreadable.outcome,'unknown');
+  assert.match(unreadable.result.message,/outcome unknown/);
+  const refused=await submitModelControl(async()=>({ok:false,status:423,json:async()=>({status:'refused',message:'L2 is closed'})}),'load',base.id);
+  assert.equal(refused.outcome,'refused');
+  assert.equal(refused.result.message,'L2 is closed');
+  const silent=await submitModelControl(async()=>({ok:false,status:503,json:async()=>{throw new SyntaxError('empty');}}),'load',base.id);
+  assert.equal(silent.outcome,'refused');
+  assert.equal(silent.statusCode,503);
+});
+
+test('the Monitor does not describe a lost model-control answer as unreachable',async()=>{
+  const {readFileSync}=await import('node:fs');
+  const app=readFileSync(new URL('./web/app.js',import.meta.url),'utf8');
+  assert.doesNotMatch(app,/Could not reach local model control/);
 });
