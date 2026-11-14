@@ -24,6 +24,7 @@ Start with the [project README](../README.md). Each line says what the page cove
 
 - [Architecture](architecture.md): process boundaries, the evidence model, the local HTTP interface and state ownership.
 - [Development](development.md): to run the local view, source checks, the Nisi CLI and a distribution candidate build.
+- [Router state contract](router-state-contract.md): the versioned list of router files, fields, limits and failure results the Monitor reads, with the fixtures that test it.
 - [Visual identity (Jaryo)](jaryo-identity.md): the logo, icon and theme decisions. Jaryo is the name of the visual-identity work.
 
 ## Data and assets

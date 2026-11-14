@@ -1,0 +1,118 @@
+{
+  "schema": "agiw.router-state-contract.v1",
+  "version": "1.0.0",
+  "readerContract": "codemode.router.readers.v2",
+  "document": "docs/router-state-contract.md",
+  "paths": {
+    "routerRoot": ".local/state/codemode-router",
+    "routerScript": ".codex/skills/local-llm-orchestrator/scripts/pipeline_router.py",
+    "nisiPendingMarker": ".local/state/codemode-nisi/pending.json",
+    "launcherReadiness": ".local/state/codemode-launcher/readiness.json"
+  },
+  "installBarrierName": "owner.lock.install-barrier",
+  "layouts": {
+    "legacy": {"directories": ["archive", "checkpoints"]},
+    "per-run": {"directories": ["archive", "checkpoints", "active", "notes", "locks"]}
+  },
+  "limits": {
+    "recordBytes": 3145728,
+    "noteBytes": 4096,
+    "policyBytes": 1024,
+    "fenceBytes": 1024,
+    "markerBytes": 4096,
+    "readinessBytes": 4096,
+    "archiveBytes": 3145728,
+    "directoryEntriesScanned": 4096,
+    "namesListed": 64,
+    "fullRecordReads": 4,
+    "extraLiveRecordReads": 8,
+    "rowsProjected": 8,
+    "readAttempts": 3,
+    "readRetrySeconds": 0.02,
+    "checkpointFreshSeconds": 300,
+    "readinessFreshSeconds": 600,
+    "processStartWindowSeconds": 660,
+    "markerFutureSeconds": 5,
+    "largestExactInteger": 9007199254740991,
+    "archiveNamesScanned": 4096,
+    "archiveRunsShown": 12,
+    "judgmentArchivesRead": 12
+  },
+  "files": {
+    "record": {
+      "startedKeys": ["schemaVersion", "runId", "inputSha256", "stage", "checkpoint", "startedUnix"],
+      "checkpointedKeys": ["schemaVersion", "runId", "inputSha256", "stage", "checkpoint", "startedUnix", "sequence"],
+      "checkpointKeys": ["schemaVersion", "runId", "inputSha256", "sequence", "stage", "evidence", "recordedUnix"],
+      "perRunExtraKey": "runLock",
+      "runLockKeys": ["dev", "ino"],
+      "runIdPattern": "[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}\\Z",
+      "stagePattern": "[A-Za-z][A-Za-z0-9_.:-]{0,63}\\Z",
+      "sha256Pattern": "[0-9a-f]{64}\\Z",
+      "stageHosts": {
+        "intake_intent": "mac",
+        "intake_response": "mac",
+        "mac_return_intent": "mac",
+        "mac_return_response": "mac",
+        "final_validation_intent": "mac"
+      }
+    },
+    "note": {
+      "kind": "codemode.router.note.v1",
+      "keys": ["schemaVersion", "kind", "runId", "inputSha256", "operation", "client", "host", "admission",
+               "phase", "resource", "step", "sinceUnix", "untilUnix", "pid"],
+      "phases": ["admitting", "waiting", "running"],
+      "resources": [null, "mac-pair", "pc-route", "pc-lane-deep", "pc-lane-fast"],
+      "admissions": ["shared", "exclusive"],
+      "enums": {
+        "operation": [null, "work", "feedback"],
+        "client": [null, "codex", "claude", "opencode"],
+        "host": [null, "mac", "windows", "auto"],
+        "step": [null, "pre-begin", "backend", "mac-return", "draft", "review"]
+      },
+      "lanes": {
+        "mac-pair": ["mac-pair", 1],
+        "pc-route": ["pc-route", 1],
+        "pc-lane-deep": ["pc-deep", 1],
+        "pc-lane-fast": ["pc-fast", 2]
+      }
+    },
+    "policy": {
+      "kind": "codemode.router.policy.v1",
+      "keys": ["schemaVersion", "kind", "concurrency"],
+      "concurrency": ["single", "multi"]
+    },
+    "fence": {
+      "kind": "codemode.router.install-fence.v1",
+      "keys": ["schemaVersion", "kind", "state", "generation", "stamp", "sinceUnix", "ownerLock"],
+      "states": ["installing", "installed", "rolling-back", "rolled-back"],
+      "stampPattern": "[0-9]{8}T[0-9]{6}Z\\Z",
+      "ownerLockKeys": ["dev", "ino"]
+    },
+    "marker": {
+      "kind": "codemode.nisi.pending.v1",
+      "anonymousKeys": ["kind", "started_unix", "input_sha256"],
+      "routerKeys": ["kind", "started_unix", "input_sha256", "runId", "operation"],
+      "operations": ["draft", "review", "answer"],
+      "runIdSuffixes": [".draft", ".review", ".mac-return", ".answer"],
+      "runIdPattern": "[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}\\Z"
+    },
+    "readiness": {
+      "keys": ["schemaVersion", "status", "observedAtUnix", "source", "client", "chatId"],
+      "status": "PREFLIGHT_COMPLETED",
+      "source": "online-code-mode"
+    },
+    "archive": {
+      "keys": ["schemaVersion", "runId", "inputSha256", "result", "exitCode", "stage", "checkpoint", "finishedUnix"],
+      "resultKind": "codemode.router.v1"
+    }
+  },
+  "workProcess": {
+    "interpreterNames": ["python3", "python3.14", "python3.13", "python3.12", "python3.11", "python3.10"],
+    "frameworkInterpreterSuffix": "/Python.app/Contents/MacOS/Python",
+    "frameworkDirectories": ["Python.framework", "Python3.framework"],
+    "flags": ["-I", "-B"],
+    "operations": ["work", "feedback"]
+  },
+  "rowStates": ["running", "waiting", "admitting", "unresolved", "archived-uncleared", "unverified",
+                "unreadable", "changing"]
+}

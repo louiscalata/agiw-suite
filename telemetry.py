@@ -3056,26 +3056,34 @@ def _last_jev_judgment(now: float) -> tuple[float | None, str | None]:
 
 
 def _scan_jev_judgment(archive: Path) -> tuple[float | None, str | None]:
+    candidates = []
     try:
-        entries = sorted(((entry.stat(follow_symlinks=False).st_mtime, Path(entry.path))
-                          for entry in os.scandir(archive)
-                          if entry.name.endswith(".json") and entry.is_file(follow_symlinks=False)),
-                         reverse=True)[:12]
+        for entry in os.scandir(archive):
+            # A file removed between the listing and its stat is one dropped entry, not the sample.
+            try:
+                if entry.name.endswith(".json") and entry.is_file(follow_symlinks=False):
+                    candidates.append((entry.stat(follow_symlinks=False).st_mtime, Path(entry.path)))
+            except OSError:
+                continue
     except OSError:
         return None, None
+    entries = sorted(candidates, reverse=True)[:12]
     for _, path in entries:
+        # One archive that cannot be used is skipped, whatever the reason: a deeply nested
+        # file under the size limit makes the parser raise RecursionError, and a file can be
+        # removed between its read and the mtime fallback.  Neither may fail the sample.
         try:
             record = _safe_file(path, _MAX_STATE)
-        except (OSError, ValueError):
+            result = record.get("result") if isinstance(record.get("result"), dict) else record
+            stages = result.get("stages") if isinstance(result, dict) else None
+            intake = stages.get("intake") if isinstance(stages, dict) else None
+            if (isinstance(intake, dict) and intake.get("status") == "JUDGED"
+                    and intake.get("kind") == "chami.intake.typesafe.v1"):
+                finished = record.get("finishedUnix") or record.get("recordedUnix")
+                when = finished if _finite(finished) else path.stat().st_mtime
+                return when, _metadata_label(intake.get("model"))
+        except Exception:
             continue
-        result = record.get("result") if isinstance(record.get("result"), dict) else record
-        stages = result.get("stages") if isinstance(result, dict) else None
-        intake = stages.get("intake") if isinstance(stages, dict) else None
-        if (isinstance(intake, dict) and intake.get("status") == "JUDGED"
-                and intake.get("kind") == "chami.intake.typesafe.v1"):
-            finished = record.get("finishedUnix") or record.get("recordedUnix")
-            when = finished if _finite(finished) else path.stat().st_mtime
-            return when, _metadata_label(intake.get("model"))
     return None, None
 
 
