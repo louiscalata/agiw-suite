@@ -26,7 +26,7 @@ The R2.9 dual-read integration cases require state writers from the separate rou
 MONITOR_ALLOW_ROUTER_FIXTURE_SKIP=1 PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest discover -p 'test_*.py' -q
 ```
 
-This flag permits a skip only when a required writer cannot be found; it does not disable cases whose writers are present. The current clean-runner workflow records 45 such skips. Report the actual skipped count alongside passes and failures. Skipped integration cases do not establish router acceptance.
+This flag permits a skip only when a required writer cannot be found; it does not disable cases whose writers are present. The current clean-runner workflow records 45 such skips. Report the actual skipped count alongside passes and failures. Skipped integration cases do not establish router acceptance. `test_router_contract.py` runs the same cases against public fixture writers, with no router installed; see the [router state contract](docs/router-state-contract.md). A pass there is contract coverage for the Monitor, not router acceptance.
 
 Use existing focused tests appropriate to the change. The source suites use fixtures and mocked model calls; they do not establish live inference, native Windows behavior or clean-Mac distribution acceptance.
 

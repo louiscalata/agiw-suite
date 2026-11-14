@@ -109,6 +109,135 @@ final class MonitorInstanceCoordinator {
 }
 // END MONITOR INSTANCE COORDINATOR
 
+// BEGIN MONITOR SHELL POLICY
+/// The two native surfaces. The compact popover keeps the map; the dashboard window opens Overview.
+enum MonitorSurface { case compact, window }
+
+/// Theme and text size as the pages store them. Both are closed sets; any other value is refused.
+struct MonitorPreferences: Equatable {
+    static let themeKey = "agiw-theme"
+    static let textSizeKey = "agiw-text-size"
+    static let themes = ["system", "light", "dark"]
+    static let textSizes = ["100", "125", "150", "200"]
+
+    let theme: String
+    let textSize: String
+
+    /// Saved values. A missing or unoffered value falls back to the page default for that field only.
+    init(savedTheme: Any?, savedTextSize: Any?) {
+        let theme = savedTheme as? String
+        let textSize = savedTextSize as? String
+        self.theme = theme.flatMap { Self.themes.contains($0) ? $0 : nil } ?? "system"
+        self.textSize = textSize.flatMap { Self.textSizes.contains($0) ? $0 : nil } ?? "100"
+    }
+
+    /// A pair reported by a page. Nil unless both values are offered, so a malformed report changes nothing.
+    static func reported(theme: Any?, textSize: Any?) -> MonitorPreferences? {
+        guard let theme = theme as? String, themes.contains(theme),
+              let textSize = textSize as? String, textSizes.contains(textSize) else { return nil }
+        return MonitorPreferences(savedTheme: theme, savedTextSize: textSize)
+    }
+
+    /// True only when the page held a different pair before its write; a same-value rewrite is no choice.
+    static func isChange(_ reported: MonitorPreferences, previousTheme: Any?, previousTextSize: Any?) -> Bool {
+        let theme = previousTheme as? String
+        let textSize = previousTextSize as? String
+        return theme != reported.theme || textSize != reported.textSize
+    }
+}
+
+enum MonitorShellPolicy {
+    static func landingPath(_ surface: MonitorSurface) -> String {
+        switch surface {
+        case .compact: return "/monitor"
+        case .window: return "/"
+        }
+    }
+
+    /// The page a surface opens, on the observer's own origin.
+    static func landingURL(_ surface: MonitorSurface, origin: URL) -> URL? {
+        URL(string: landingPath(surface), relativeTo: origin)?.absoluteURL
+    }
+
+    /// A saved window frame moved and shrunk to fit the visible screen it overlaps most.
+    /// Nil when nothing usable was saved or the frame overlaps no screen; the caller then centres.
+    static func restoredFrame(saved: CGRect?, screens: [CGRect], minimum: CGSize) -> CGRect? {
+        func usable(_ rect: CGRect) -> Bool {
+            [rect.origin.x, rect.origin.y, rect.width, rect.height].allSatisfy { $0.isFinite }
+                && rect.width >= 1 && rect.height >= 1
+        }
+        guard let saved = saved, usable(saved) else { return nil }
+        var best: CGRect?
+        var bestArea: CGFloat = 0
+        for screen in screens where usable(screen) {
+            let overlap = screen.intersection(saved)
+            let area = overlap.isNull ? 0 : overlap.width * overlap.height
+            if area > bestArea {
+                best = screen
+                bestArea = area
+            }
+        }
+        guard let screen = best else { return nil }
+        let width = min(max(saved.width, minimum.width), screen.width)
+        let height = min(max(saved.height, minimum.height), screen.height)
+        let x = min(max(saved.minX, screen.minX), screen.maxX - width)
+        let y = min(max(saved.minY, screen.minY), screen.maxY - height)
+        return CGRect(x: x, y: y, width: width, height: height)
+    }
+
+    /// A cancelled load, or one the navigation policy stopped (an external documentation link),
+    /// leaves the current page in place. Any other failure leaves no usable page.
+    static func recoversFromNavigationFailure(domain: String, code: Int) -> Bool {
+        if code == NSURLErrorCancelled { return false }
+        if domain == "WebKitErrorDomain" && code == 102 { return false }
+        return true
+    }
+
+    /// Document-start script: writes the kept pair into the page's own storage keys, then reports
+    /// later writes to those two keys. The web store stays nonpersistent; the shell keeps the pair.
+    static func preferenceScript(_ preferences: MonitorPreferences, origin: String) -> String? {
+        guard let data = try? JSONSerialization.data(withJSONObject: [
+                  "origin": origin, "themeKey": MonitorPreferences.themeKey,
+                  "textSizeKey": MonitorPreferences.textSizeKey,
+                  "theme": preferences.theme, "textSize": preferences.textSize]),
+              let settings = String(data: data, encoding: .utf8) else { return nil }
+        let seed = """
+        (() => {
+          const settings = \(settings);
+          if (location.origin !== settings.origin) return;
+          let store = null;
+          try { store = window.localStorage; } catch (_) { return; }
+          if (!store) return;
+          try {
+            store.setItem(settings.themeKey, settings.theme);
+            store.setItem(settings.textSizeKey, settings.textSize);
+          } catch (_) { return; }
+          const write = Storage.prototype.setItem;
+          const pair = () => {
+            try { return [store.getItem(settings.themeKey), store.getItem(settings.textSizeKey)]; }
+            catch (_) { return null; }
+          };
+          Storage.prototype.setItem = function (key) {
+            const watched = this === store &&
+              (String(key) === settings.themeKey || String(key) === settings.textSizeKey);
+            const before = watched ? pair() : null;
+            write.apply(this, arguments);
+            if (!watched || !before) return;
+            const after = pair();
+            // A rewrite of the value the page already held (a stale page repainting 'system') is not a choice.
+            if (!after || (after[0] === before[0] && after[1] === before[1])) return;
+            try {
+              window.webkit.messageHandlers.monitor.postMessage({action: 'preferences',
+                theme: after[0], textSize: after[1], previousTheme: before[0], previousTextSize: before[1]});
+            } catch (_) { /* no native bridge: the page keeps its own value */ }
+          };
+        })();
+        """
+        return seed
+    }
+}
+// END MONITOR SHELL POLICY
+
 // This lock belongs only to the observer app. Pipeline and model locks are never touched.
 final class InstanceLock {
     private var descriptor: Int32 = -1
@@ -149,8 +278,13 @@ private final class AppearanceView: NSView {
 
 final class DashboardController: NSViewController {
     let webView: WKWebView
-    private(set) var expectedURL: URL?
+    let surface: MonitorSurface
+    /// The observer origin this surface was last asked to show.
+    private(set) var expectedOrigin: URL?
     private(set) var activeNavigation: WKNavigation?
+    private var preferences: MonitorPreferences
+    private var scriptOrigin: String?
+    private var capabilityScript: String?
     private var needsRetry = false
     private var retryCount = 0
     private var retryTimer: Timer?
@@ -159,8 +293,12 @@ final class DashboardController: NSViewController {
     private let detailLabel = NSTextField(wrappingLabelWithString: "Connecting to the local observation service…")
     private let spinner = NSProgressIndicator()
 
-    init(owner: AppDelegate) {
+    init(owner: AppDelegate, surface: MonitorSurface, preferences: MonitorPreferences) {
+        self.surface = surface
+        self.preferences = preferences
         let configuration = WKWebViewConfiguration()
+        // Each surface keeps its own nonpersistent store. Theme and text size are kept by the
+        // shell and written back at document start, so no other site data outlives the process.
         configuration.websiteDataStore = .nonPersistent()
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
         configuration.userContentController.add(owner, name: "monitor")
@@ -228,17 +366,19 @@ final class DashboardController: NSViewController {
         paintChrome()
     }
 
-    func loadDashboard(_ url: URL) {
+    func loadDashboard(_ origin: URL) {
         _ = view
-        expectedURL = url
+        guard let url = MonitorShellPolicy.landingURL(surface, origin: origin) else { return }
+        expectedOrigin = origin
         needsRetry = false
         showMessage("Connecting to the dashboard", detail: "Reading live, observed model activity…", isError: false)
         activeNavigation = webView.load(URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10))
     }
 
     func setControlCapability(_ capability: String?, origin: URL) {
-        let scripts = webView.configuration.userContentController
-        scripts.removeAllUserScripts()
+        capabilityScript = nil
+        scriptOrigin = origin.port.map { "http://127.0.0.1:\($0)" }
+        defer { installUserScripts() }
         guard let capability = capability,
               let data = try? JSONSerialization.data(withJSONObject: ["capability": capability,
                   "origin": "http://127.0.0.1:\(origin.port!)"]),
@@ -258,7 +398,24 @@ final class DashboardController: NSViewController {
           };
         })();
         """
-        scripts.addUserScript(WKUserScript(source: source, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        capabilityScript = source
+    }
+
+    /// Takes effect at the next document start in this surface; a page already shown is not repainted.
+    func setPreferences(_ updated: MonitorPreferences) {
+        guard updated != preferences else { return }
+        preferences = updated
+        installUserScripts()
+    }
+
+    private func installUserScripts() {
+        let scripts = webView.configuration.userContentController
+        scripts.removeAllUserScripts()
+        let seed = scriptOrigin.flatMap { MonitorShellPolicy.preferenceScript(preferences, origin: $0) }
+        // Preferences first: the page reads its storage keys as soon as its own scripts run.
+        for source in [seed, capabilityScript].compactMap({ $0 }) {
+            scripts.addUserScript(WKUserScript(source: source, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        }
     }
 
     func navigationFailed() {
@@ -267,7 +424,7 @@ final class DashboardController: NSViewController {
     }
 
     func retryIfNeeded(_ url: URL) {
-        guard needsRetry, expectedURL == url, retryTimer == nil else { return }
+        guard needsRetry, expectedOrigin == url, retryTimer == nil else { return }
         guard retryCount < 5 else {
             showMessage("Dashboard unavailable", detail: "The local dashboard could not load after several attempts. Quit and reopen Inference Monitor to retry.", isError: true)
             return
@@ -277,7 +434,7 @@ final class DashboardController: NSViewController {
         retryTimer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
             guard let self = self else { return }
             self.retryTimer = nil
-            guard self.needsRetry, self.expectedURL == url else { return }
+            guard self.needsRetry, self.expectedOrigin == url else { return }
             self.loadDashboard(url)
         }
         if let timer = retryTimer { RunLoop.main.add(timer, forMode: .common) }
@@ -288,7 +445,7 @@ final class DashboardController: NSViewController {
         retryTimer = nil
         retryCount = 0
         needsRetry = false
-        expectedURL = nil
+        expectedOrigin = nil
         activeNavigation = nil
         webView.stopLoading()
     }
@@ -346,6 +503,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     private var observerHealthy = false
     private var terminating = false
     private var serviceError: String?
+    private let defaults = UserDefaults.standard
+    private static let themeDefault = "preferenceTheme"
+    private static let textSizeDefault = "preferenceTextSize"
+    private static let windowFrameDefault = "dashboardWindowFrame"
+    private lazy var preferences = MonitorPreferences(
+        savedTheme: defaults.string(forKey: Self.themeDefault),
+        savedTextSize: defaults.string(forKey: Self.textSizeDefault))
     private let session: URLSession = {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 1
@@ -387,7 +551,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
             button.setAccessibilityLabel("Inference Monitor")
         }
-        popoverDashboard = DashboardController(owner: self)
+        popoverDashboard = DashboardController(owner: self, surface: .compact, preferences: preferences)
         popover = NSPopover()
         popover.behavior = .transient
         popover.animates = true
@@ -460,7 +624,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     @objc func openDashboardWindow(_ sender: Any?) {
         popover.performClose(nil)
         if dashboardWindow == nil {
-            let controller = DashboardController(owner: self)
+            let controller = DashboardController(owner: self, surface: .window, preferences: preferences)
             let screen = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
             let frame = NSRect(x: 0, y: 0, width: min(1150, screen.width - 48), height: min(800, screen.height - 64))
             let window = NSWindow(contentRect: frame,
@@ -470,11 +634,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             window.contentViewController = controller
             window.minSize = NSSize(width: 640, height: 460)
             window.isReleasedWhenClosed = false
-            window.delegate = self
             // AppKit adopts the controller's initial 820×660 view when attached.
             // Restore the requested full-window content size after attachment.
             window.setContentSize(frame.size)
             window.center()
+            // Reopen where the window was left, kept inside a screen that is attached now.
+            let saved = defaults.string(forKey: Self.windowFrameDefault).map { NSRectFromString($0) }
+            if let restored = MonitorShellPolicy.restoredFrame(
+                saved: saved, screens: NSScreen.screens.map { $0.visibleFrame }, minimum: window.minSize) {
+                window.setFrame(restored, display: false)
+            }
+            // Attached after placement, so the placement above is never recorded as a move.
+            window.delegate = self
             dashboardWindow = window
             windowDashboard = controller
             if let error = serviceError {
@@ -487,6 +658,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         NSApp.activate(ignoringOtherApps: true)
         dashboardWindow?.makeKeyAndOrderFront(nil)
     }
+
+    private func rememberWindowFrame(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow, window === dashboardWindow,
+              !window.styleMask.contains(.fullScreen), !window.isMiniaturized else { return }
+        defaults.set(NSStringFromRect(window.frame), forKey: Self.windowFrameDefault)
+    }
+
+    func windowDidMove(_ notification: Notification) { rememberWindowFrame(notification) }
+
+    func windowDidResize(_ notification: Notification) { rememberWindowFrame(notification) }
 
     @objc func quitMonitor(_ sender: Any?) { NSApp.terminate(nil) }
 
@@ -846,7 +1027,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         guard let controller = controller(for: webView), controller.activeNavigation === navigation,
-              controller.expectedURL == origin, allowedOrigin(webView.url), serviceError == nil else { return }
+              controller.expectedOrigin == origin, allowedOrigin(webView.url), serviceError == nil else { return }
         controller.showDashboard()
     }
 
@@ -859,9 +1040,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     }
 
     private func navigationFailed(_ webView: WKWebView, navigation: WKNavigation, error: Error) {
-        guard (error as NSError).code != NSURLErrorCancelled,
-              let controller = controller(for: webView), controller.activeNavigation === navigation,
-              controller.expectedURL == origin, serviceError == nil, !terminating else { return }
+        let failure = error as NSError
+        guard MonitorShellPolicy.recoversFromNavigationFailure(domain: failure.domain, code: failure.code) else { return }
+        // The first load and every later navigation in the page recover the same way.
+        recoverPage(webView)
+    }
+
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) { recoverPage(webView) }
+
+    /// Replace a page that can no longer be shown with the waiting view, then reload the
+    /// surface's landing page once the observer answers. The retry limit still applies.
+    private func recoverPage(_ webView: WKWebView) {
+        guard let controller = controller(for: webView), controller.expectedOrigin == origin,
+              origin != nil, serviceError == nil, !terminating else { return }
         controller.navigationFailed()
         if observerHealthy, let origin = origin { controller.retryIfNeeded(origin) }
     }
@@ -878,8 +1069,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
               let origin = origin else { return }
         let sender = message.frameInfo.securityOrigin
         guard sender.protocol == "http", sender.host == "127.0.0.1", sender.port == origin.port,
-              let body = message.body as? [String: Any], body.count == 1,
+              let body = message.body as? [String: Any],
               let action = body["action"] as? String else { return }
+        if action == "preferences" {
+            // Reported by the document-start script only when a page's write changed its own pair.
+            // A report that does not carry a different previous pair is not a new choice and is ignored.
+            guard body.count == 5, let reported = MonitorPreferences.reported(
+                theme: body["theme"], textSize: body["textSize"]),
+                  MonitorPreferences.isChange(reported, previousTheme: body["previousTheme"],
+                                              previousTextSize: body["previousTextSize"]),
+                  reported != preferences else { return }
+            preferences = reported
+            defaults.set(reported.theme, forKey: Self.themeDefault)
+            defaults.set(reported.textSize, forKey: Self.textSizeDefault)
+            popoverDashboard?.setPreferences(reported)
+            windowDashboard?.setPreferences(reported)
+            return
+        }
+        guard body.count == 1 else { return }
         switch action {
         case "expand": openDashboardWindow(nil)
         case "quit": quitMonitor(nil)
