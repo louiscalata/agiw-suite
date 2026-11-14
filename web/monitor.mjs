@@ -6,9 +6,6 @@ const LANES = {
   'mac:lmstudio': {x: 120, y: 160},
   'mac:veritas': {x: 120, y: 272},
   pc: {x: 460, y: 48},
-  'pc:router': {x: 460, y: 160},
-  'pc:gpt-oss-20b': {x: 360, y: 300},
-  'pc:qwen3.8-27b': {x: 560, y: 300},
 };
 
 export function place(nodes) {

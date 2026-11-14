@@ -1,6 +1,8 @@
 import json
 import unittest
+from unittest.mock import patch
 
+import inference_collect
 from inference_collect import ProbeError, RateMemory, collect_map, direct_targets, parse_metrics, parse_slots
 from inference_stats import MAP_SCHEMA
 
@@ -31,6 +33,18 @@ SLOTS = json.dumps([
 
 PROPS = json.dumps({"model_alias": "gpt-oss-20b", "model_path": "/models/secret.gguf",
                     "default_generation_settings": {"n_ctx": 65536}})
+
+
+# The collector has no built-in PC lanes. These isolated probe fixtures keep the
+# retired router and llama-server layout only to exercise the lane readers.
+LEGACY_FIXTURE_LANES = (
+    {"id": "pc:router", "role": "router", "label": "Router", "port": 1234},
+    {"id": "pc:gpt-oss-20b", "role": "llama", "label": "gpt-oss-20b", "port": 1245,
+     "expectedModel": "gpt-oss-20b"},
+    {"id": "pc:qwen3.8-27b", "role": "llama", "label": "qwen3.8-27b", "port": 1236,
+     "expectedModel": "qwen3.8-27b"},
+)
+
 
 
 def route(table):
@@ -71,6 +85,8 @@ class RateMemoryTests(unittest.TestCase):
                          (None, None))
 
 
+@patch.multiple(inference_collect, PC_LANES=LEGACY_FIXTURE_LANES,
+                _BY_ID={lane["id"]: lane for lane in LEGACY_FIXTURE_LANES})
 class CollectorTests(unittest.TestCase):
     def test_llama_metrics_slots_and_a_second_sample_rate(self):
         rates = RateMemory()

@@ -234,7 +234,7 @@ Compare with `git rev-parse <commit>^{tree}`. The release pages of rc.1, rc.2 an
 
 ## Scope change — 25 October 2026
 
-- [x] Narrow AGIW to two machines: the Apple-silicon MacBook Pro and the Windows PC. The Linux Mac Pro is retired from AGIW, and the Linux coordinator/system-service work below is shelved. Linux items are kept as dated history and will not be completed. PAIR is uninstalled. The PC serves the router on port 1234, qwen3.8-27b on port 1236 and gpt-oss-20b on port 1245.
+- [x] Narrow AGIW to two machines: the Apple-silicon MacBook Pro and the Windows PC. The Linux Mac Pro is retired from AGIW, and the Linux coordinator/system-service work below is shelved. Linux items are kept as dated history and will not be completed. PAIR is uninstalled. As of 25 October 2026 (dated record, since retired) the PC served a router on port 1234, qwen3.8-27b on port 1236 and gpt-oss-20b on port 1245; those lanes are no longer built into the monitor, and lane membership now comes from the machine registry.
 
 ## Development status — 18 October 2026
 

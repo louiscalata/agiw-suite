@@ -147,12 +147,19 @@ class ReviewRegressions(unittest.TestCase):
 
     def test_collection_has_one_total_budget(self):
         clock = [0.0]
+        calls = []
         def fetch(url, timeout=.4, **_):
+            calls.append(url)
             clock[0] += timeout
             raise inference_collect.ProbeError('timeout')
-        with patch('inference_collect.time.monotonic', side_effect=lambda: clock[0]), \
+        # No built-in lanes exist, so an isolated fixture supplies registry-style lane specs.
+        lanes = tuple({'id': f'pc:fixture-{n}', 'role': 'llama', 'label': f'Fixture {n}', 'port': 2000 + n}
+                      for n in range(3))
+        with patch.multiple(inference_collect, PC_LANES=lanes, _BY_ID={lane['id']: lane for lane in lanes}), \
+             patch('inference_collect.time.monotonic', side_effect=lambda: clock[0]), \
              patch('inference_collect.loopback_get', side_effect=fetch):
             inference_collect.collect_map('pc', now=100)
+        self.assertGreaterEqual(len(calls), 1)
         self.assertLessEqual(clock[0], .8)
 
     def test_memory_watchdog_runs_before_optional_map_probes(self):
@@ -238,10 +245,19 @@ class ReviewRegressions(unittest.TestCase):
         self.assertEqual(node['health'], 'not_measured')
 
     def test_pc_endpoint_is_the_fetched_forward(self):
-        target = {'id': 'pc:router', 'service': '127.0.0.1:1234', 'base': 'http://127.0.0.1:1334'}
-        node = inference_collect._read_pc(target, lambda url: (200, '{"data":[{"id":"qwen"}]}', 1),
-                                         inference_collect.RateMemory(), 100, '1970-01-01T00:01:40Z')
+        target = {'id': 'pc:fixture', 'service': '127.0.0.1:2001', 'base': 'http://127.0.0.1:2101'}
+        lane = {'id': 'pc:fixture', 'role': 'llama', 'label': 'Fixture', 'port': 2001}
+        fetched = []
+        def fetch(url):
+            fetched.append(url)
+            return 200, '{"data":[{"id":"qwen"}]}', 1
+        with patch.multiple(inference_collect, PC_LANES=(lane,), _BY_ID={lane['id']: lane}):
+            node = inference_collect._read_pc(target, fetch, inference_collect.RateMemory(), 100,
+                                              '1970-01-01T00:01:40Z')
+        self.assertTrue(fetched)
+        self.assertTrue(all(url.startswith(target['base']) for url in fetched))
         self.assertEqual(node['endpoint'], target['base'])
+        self.assertNotEqual(node['reason'], 'unknown_lane')
 
     def test_forwarded_endpoints_preserve_router_upstream_edges(self):
         def fetch(url):
@@ -252,7 +268,12 @@ class ReviewRegressions(unittest.TestCase):
             return 404, '', 1
         targets = [{'id': 'pc:router', 'service': '127.0.0.1:1234', 'base': 'http://127.0.0.1:1334'},
                    {'id': 'pc:gpt-oss-20b', 'service': '127.0.0.1:1245', 'base': 'http://127.0.0.1:1345'}]
-        document = inference_collect.collect_map('mac', fetch=fetch, targets=targets, veritas_url='')
+        # The collector has no built-in PC lanes; this isolated fixture supplies the two lane specs.
+        lanes = ({'id': 'pc:router', 'role': 'router', 'label': 'Router', 'port': 1234},
+                 {'id': 'pc:gpt-oss-20b', 'role': 'llama', 'label': 'gpt-oss-20b', 'port': 1245,
+                  'expectedModel': 'gpt-oss-20b'})
+        with patch.multiple(inference_collect, PC_LANES=lanes, _BY_ID={lane['id']: lane for lane in lanes}):
+            document = inference_collect.collect_map('mac', fetch=fetch, targets=targets, veritas_url='')
         self.assertTrue(any(edge['from'] == 'pc:router' and edge['to'] == 'pc:gpt-oss-20b'
                             and edge['kind'] == 'upstream' for edge in document['edges']))
 
