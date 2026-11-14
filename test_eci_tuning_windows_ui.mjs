@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {mkdtempSync, rmSync} from 'node:fs';
-import {join} from 'node:path';
+import {dirname, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {spawnSync} from 'node:child_process';
 import test from 'node:test';
@@ -21,7 +21,7 @@ function fixtureDocument() {
 test('ingested full ECI and fast check reach the DOM through the Windows endpoint; invalid input stays unknown', t => {
   const python = resolvePython(t);
   if (!python) return;
-  const directory = mkdtempSync(join(fileURLToPath(new URL('../', import.meta.url)), 'agiw-eci-win-ui-'));
+  const directory = mkdtempSync(join(fileURLToPath(new URL('.', import.meta.url)), 'agiw-eci-win-ui-'));
   const program = `
 import json, os, sys
 from pathlib import Path
@@ -52,6 +52,7 @@ invalid = request()
 print(json.dumps([valid, invalid]))
 `;
   try {
+    assert.equal(dirname(directory), fileURLToPath(new URL('.', import.meta.url)).replace(/[\\/]$/, ''), 'fixture directory stays inside checkout');
     const result = spawnSync(python.command, [...python.args, '-B', '-c', program, directory], {cwd: new URL('.', import.meta.url), encoding: 'utf8', timeout: 30000});
     assert.equal(result.status, 0, result.stderr);
     const [[validCode, valid], [invalidCode, invalid]] = JSON.parse(result.stdout);

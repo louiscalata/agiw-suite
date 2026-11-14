@@ -1,19 +1,17 @@
 # AGIW x ECI Model Tuning Tool
 
-Use recorded ECI evidence to compare models and write a provisional, machine-aware
-routing policy. The tool runs offline from a source checkout with Python 3.9+ and
+Use recorded ECI evidence to inspect model results and explicit comparison barriers.
+Recommendations remain NOT_COMPUTED without a target profile and validated selection rule. The tool runs offline from a source checkout with Python 3.9+ and
 the standard library. The Overview's **Model tuning** link opens a read-only page
 at `/eci-tuning`. This source feature is not in the signed 1.0.0 download.
 
-## Current decision · 10 November 2026
+## Recorded evidence · 10 November 2026
 
-The repo policy selects **PC Llama-3.1-8B-Instruct Q4_K_M**
-(`Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf`) for PC-eligible general, reasoning and
-coding work: independent local ECI **105.38**, **90% CI 94.31–115.14**.
-Confidence is **provisional / low-to-moderate**: it is the only computed
-Epoch-comparable local ECI in this snapshot. There is no evidence of an overall
-winner or task-specific coding superiority. Task-specific routing outcomes are
-NOT_MEASURED; benchmark scoring is not a deployed routing test.
+The bundled catalog records one computed baseline local ECI of **105.38**, with
+**90% CI 94.31–115.14**. This dated observation does not establish an overall
+winner or a route for a target machine. The bundled policy has null models and
+status NOT_COMPUTED for general, reasoning and coding. Task-specific routing
+outcomes are NOT_MEASURED; benchmark scoring is not a deployed routing test.
 
 The baseline is a local partial four-component scoring protocol. ARC and
 Winogrande use generated choices; Winogrande uses labeled XL validation because
@@ -24,7 +22,7 @@ claim exact official harness parity or completely untuned generation.
 
 The same completions with pipeline-configured lenient extraction have ECI
 **108.59 [98.29, 118.43]**. This is a separate, non-comparable scoring view and
-cannot replace the baseline default. Its 90% CI overlaps the baseline; no clean
+cannot establish a default route. Its 90% CI overlaps the baseline; no clean
 improvement is established. Published Epoch **111.24 [105.25, 116.30]** belongs to
 a different artifact and component set. That figure is reference context only;
 it is not imported as this local artifact's score.
@@ -51,9 +49,8 @@ python3 -B -m eci_tuning ingest results.json --manifest run_manifest.json \
 python3 -B -m eci_tuning validate items.jsonl runs.csv
 python3 -B -m eci_tuning rank normalized.json
 
-# Preview, then explicitly write. Omit --config for the user override path.
+# With no validated recommendation, this reports policy unchanged and exits 2.
 python3 -B -m eci_tuning apply --config /tmp/eci-policy.json
-python3 -B -m eci_tuning apply --config /tmp/eci-policy.json --write
 ```
 
 The named inputs default to the small reviewed `eci_tuning_catalog.json` snapshot.
@@ -137,15 +134,25 @@ python3 -B -m eci_fast_check validate ../fast-check-output/result.json
 Defaults are 200 items per benchmark, **16,384 completion tokens per item** and
 180 seconds per request. Empty final content with `reasoning_content` is recorded
 as `truncated_empty`, even with finish reason `stop`; reasoning is never scored.
-Use `--max-tokens` (minimum 8,192), `--timeout` and `--count` as needed.
+Use `--max-tokens` (at least 8192, internally capped below context minus the prompt estimate), `--timeout` and `--count`
+as needed. Set `--disable-thinking` per lane when its default includes thinking;
+the adapter then sends `chat_template_kwargs` with `enable_thinking: false`.
 
 Server facts come from `/props` or `/v1/models`; unknown hardware stays null.
-If metadata omits the actual artifact hash or fit inputs, supply verified values
+Caller-supplied public hardware facts use `--machine-label`, `--cpu`, `--gpu`,
+`--memory-bytes` and `--runtime-build-id`; server machine labels are ignored.
+A path-shaped served model ID requires a safe `--model-label` for records.
+Always declare the actual GGUF file size; reported tensor sizes remain separate
+and a mismatch is unverified. If other artifact or fit inputs are missing, supply verified values
 with `--model-sha256`, `--file-size-bytes`, `--quantization` and
-`--available-memory-bytes`. Missing evidence refuses inference. Every attempt is
-checkpointed with flush/fsync. Repeat the same command to resume; use a fresh
-output directory to retry recorded errors or change settings. Exit 0 means a
-result was written; its post decision remains separate. Real inference and full
+`--available-memory-bytes`. Missing evidence refuses inference. One transient request retry is allowed; three consecutive exhausted item errors
+stop the check. Every final item outcome is checkpointed with flush/fsync. Repeat the same command to resume; use a fresh
+output directory to change settings. Resume re-asks trailing error rows as
+append-only superseding entries and resets the consecutive-error count. Attempts
+and retried-item counts stay visible; successful-attempt timing excludes failed retries. Exit 0 means a complete result was written; its post decision remains separate.
+Incomplete results print their stop reasons and exit 3. Incomplete coverage stays
+UNKNOWN. An excessive transport-error rate keeps overall quality UNKNOWN,
+even when another completed benchmark has a quality rejection. Real inference and full
 ECI are NOT_RUN for this implementation. See the
 [adapter contract](eci-fast-check.md#loopback-harness-adapter) for formats,
 metadata, deadlines, resume restrictions and exit codes.
@@ -157,47 +164,85 @@ dataset version 1 and a `fast_check.hardware_views` entry to ranking output.
 Records use protocol `agiw-fast-check-v1` and the separate
 [`eci_fast_check.schema.json`](../eci_fast_check.schema.json) contract. They never
 enter `runs`, ECI/component rankings, policy recommendation or policy apply.
+Ingest validates each fast-check record on its own. A record that fails
+validation is left out and listed in `rejected_fast_checks` with its
+`record_id` (null when it has no SHA-256 id) and the validator's reason; the
+other records and the rest of the dataset stay usable. `validate` prints the
+same list. A duplicate valid record still fails the whole ingest.
 Set `AGIW_ECI_TUNING_DATASET_DIR` to an absolute local directory before starting
 either observer. It reads only that directory's `dataset.json`, a normalized v1
 dataset produced by `python3 -B -m eci_tuning ingest <input files> --output
 <directory>/dataset.json`. Include full ECI inputs and fast-check collections in
-the same ingest when both should appear. The observer reads and revalidates the
-file on each request; it does not write to the directory, scan it, or start a
-check. Do not use a symlink for `dataset.json`. The operator must choose local
+the same ingest when both should appear. The observer caches validated data and computed views by file identity, size and
+modification time. Transient `OSError` read failures are returned but not cached;
+the next request retries even when the file fingerprint is unchanged. On a slow first read it returns unknown with a validation-in-progress
+reason before the request deadline; the page retries a bounded number of reads and
+then asks for a reload. Loading data never starts a model check. Oversized, linked
+or non-regular dataset files are refused with a specific reason. The loader opens
+and validates the same descriptor rather than reopening a previously checked path.
+Directory aliases are allowed and resolved once; parent segments are refused.
+Serving limits are 16 MiB input, 128 combined runs/checks, 2,048 unordered
+comparison pairs, 64 KiB per full-run record, and 2 MiB for the derived view.
+An exceeded limit reports unknown with a reason. The operator must choose local
 storage; the observer does not verify whether a volume is network-backed.
 Without configuration the bundled catalog is used. If configured input is
 missing, unreadable or invalid, the page reports unknown with a reason and does
 not substitute the catalog. Screening is shown separately from full ECI.
 
-ECI is sorted descending **within** `baseline_protocol`, `pipeline_configured`,
-`published_reference`, and `unclassified`. Overlapping or touching 90% posterior
-intervals produce “no clean winner”; disjoint intervals alone do not prove a
-causal improvement. A single computed ECI establishes no overall winner.
-Diagnostics other than PASS exclude a fit from recommendation.
+Recorded ECI and component rows retain input order; their placement is not a
+ranking or winner claim. Every computed run pair has explicit comparability
+reasons. The same pair appears in each class containing either run. Overlapping
+or touching 90% posterior intervals are described as overlapping even when the
+runs are not comparable; disjoint intervals alone do not prove a causal improvement.
 
-Components are ranked separately by benchmark, scorer, prompt template and
-protocol ID. Unknown grouping metadata is shown as unknown and does not prove
-matched protocols. Raw and normalized scores remain distinct. Cost and latency
-lists appear separately when measured, with explicit unknown lists otherwise.
-When no run metric is supplied, the tool uses the mean of measured item values
-and exposes measured/observed counts. No first-item value becomes a run metric.
-These are recorded observations, not matched workload comparisons. No rates or
-costs are summed across strict/lenient views of the same inference.
+To support a comparison, record `hardware_profile_id`, `dataset_artifact_id`,
+`model_artifact_id` and `settings_id` alongside machine, backend/build, protocol,
+quantization and complete settings. These are caller-supplied evidence identifiers,
+not proof of runtime attestation. Hardware, dataset, protocol, backend and settings
+must be known and match; model artifacts may differ, but the same model artifact
+cannot claim different quantization. Shared components need admitted scores,
+matching denominators, scorer and prompt template. Observed item evidence must
+exist without truncation, unknown truncation or missing parsed answers, and both
+runs must have equal sets of `(benchmark, item_id)`. Mismatches say Not comparable
+with an explicit reason. `compare_runs(a, b)` retains its two-argument public
+signature; ranking attaches item evidence derived from the normalized dataset.
+Direct callers can attach `item_evidence` using the same `item_evidence(items)`
+helper; missing item identity keeps the comparison unknown. Unknown
+metadata never matches merely because both sides are null.
+
+Cost and latency rows retain their run IDs. When no run metric is supplied, the
+tool uses the mean of measured item values and exposes measured/observed counts.
+Unknown measurements remain unknown. These are recorded observations, not matched
+workload comparisons. No rates or costs are summed across strict/lenient views of
+the same inference.
+
+The source label keeps the evidence `as_of` date separate from `ingested_at`.
+An ingestion timestamp cannot establish when a result was measured. Missing
+snapshot dates are shown as unknown. Set the dataset environment variable in
+the environment of the observer process. For a login-agent-started app, place
+`AGIW_ECI_TUNING_DATASET_DIR` in that LaunchAgent's `EnvironmentVariables` and
+restart it through the normal owner-managed procedure; setting it in an unrelated
+terminal does not change an already running app. This feature does not edit or
+reload the LaunchAgent.
 
 ## Policy application and integration boundary
 
 `eci_tuning_routes.json` is the checked-in default. The user override is
 `~/.config/agiw/eci-tuning.json`; `AGIW_ECI_TUNING_CONFIG` changes that path.
-`apply --config PATH` selects an explicit write target. Apply previews a diff by
-default, requires `--write`, writes atomically, refuses symlink targets, and
-preserves unrelated top-level keys, custom task routes, and any existing Nisi Mac
-pair. With no eligible baseline PC score it refuses to write. Keep this dedicated
-policy file free of secrets; its diff is displayed locally. To undo, retain and
-restore the previous file, or remove the override to use the repo default.
+`apply --config PATH` selects an explicit target, but recommendation and apply
+are currently withheld: no target profile and validated selection rule are
+available. The CLI reports “No recommendation is available; policy unchanged”
+and exits 2. It never derives a route solely by sorting recorded ECI means.
+
+The page labels the bundled policy **Policy reference** and an override **Saved
+policy**. A corrupt policy is shown as unreadable while valid dataset evidence
+remains visible. A route whose source run is absent from the loaded dataset is
+marked unknown with a reason. A saved policy is recorded configuration, not
+proof that a runtime selected or served that model.
 
 An AGIW integration can call `eci_tuning.select_route(task_type, machine, policy)`
-for `general`, `reasoning`, or `coding`. It returns a config-selected PC route or
-null for an ineligible machine/task. No model ID is hardcoded in server/UI code.
+for `general`, `reasoning`, or `coding`. It returns a valid saved PC route or null; the bundled policy never supplies a
+route. An ineligible machine/task or unknown route status also returns null. No model ID is hardcoded in server/UI code.
 The current execution router is separately installed and outside this repo;
 **policy file applied** does not mean **external runtime activated**.
 `runtime_activation` remains NOT_APPLIED until that owner integrates and tests the

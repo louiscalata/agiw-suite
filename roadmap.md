@@ -16,11 +16,14 @@
 
 ## Fast-check correctness round 2 — 13 November 2026
 
+- [x] Move the staged correctness lane onto the merged PR #141 comparison view, preserving the public `compare_runs(a, b)` entry point and main's evaluation/policy presentation.
 - [x] Repair error-stop resume with append-only superseding entries, expose retries and successful-attempt timing, separate transport failures from model quality, and reject continuation after three consecutive errors.
 - [x] Harden public machine labels, distinguish declared GGUF size from server-reported size, score GSM8K percent numbers, and restore the 8192 CLI floor with per-request context headroom.
+- [x] Require matching benchmark/item sets and retry transient dataset read failures without a file change; retain bounded asynchronous dataset loading and explicit policy provenance.
 - [x] New fast-check records carry `schema_version` 2 (transport errors leave `unknown_finish` and `parsed`; unparsed answers pair as wrong). Version 1 records stay valid and are checked with the original version 1 rules; a version 1 record cannot carry version 2 evidence.
 - [x] Screening units: word units and multi-letter abbreviations match in any case, the litre symbol accepts `l` and `L` (`Answer: 5 L` scores against `#### 5`), and `m`/`g` stay case-sensitive so `12 M` and `12 G` stay unparsed.
-- [ ] Land the reviewed staged revision. Real inference, fast checks, full ECI, benchmarks, browser/device acceptance and CI are NOT_RUN in this lane; no commit or push is authorized here.
+- [x] Ingest validates each fast-check record on its own: an invalid record is left out and listed in `rejected_fast_checks` with its SHA-256 `record_id` (or null) and a reason. Only fixed-text validator messages are reported; any other exception gives a generic reason that names only its type. A duplicate valid record still fails the whole ingest.
+- [ ] Land the reviewed staged revision. This lane contains the fast-check runner lane (`claude/fast-check-runner-fixes`) and requires that lane merged first. Real inference, fast checks, full ECI, benchmarks, browser/device acceptance and CI are NOT_RUN in this lane; no commit or push is authorized here.
 
 ## Monitor redesign stage 5 — local evaluation dataset — 12 November 2026
 

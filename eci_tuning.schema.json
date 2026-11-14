@@ -26,7 +26,48 @@
     },
     "fast_checks": {
       "type": "array",
-      "items": {"$ref": "eci_fast_check.schema.json#/$defs/record"}
+      "items": {
+        "$ref": "eci_fast_check.schema.json#/$defs/record"
+      }
+    },
+    "rejected_fast_checks": {
+      "type": "array",
+      "description": "Fast-check records that failed validation at ingest; the rest of the dataset stays usable.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "record_id",
+          "reason"
+        ],
+        "properties": {
+          "record_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[0-9a-f]{64}$",
+            "description": "Null when the rejected record has no SHA-256 record_id."
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        }
+      }
+    },
+    "as_of": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "ingested_at": {
+      "type": [
+        "string",
+        "null"
+      ]
     }
   },
   "$defs": {
@@ -79,10 +120,34 @@
             "null"
           ]
         },
-        "hardware_profile_id": {"type": ["string", "null"], "minLength": 1},
-        "dataset_artifact_id": {"type": ["string", "null"], "minLength": 1},
-        "model_artifact_id": {"type": ["string", "null"], "minLength": 1},
-        "settings_id": {"type": ["string", "null"], "minLength": 1},
+        "hardware_profile_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "dataset_artifact_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "model_artifact_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "settings_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
         "run_id": {
           "type": "string",
           "minLength": 1

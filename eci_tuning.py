@@ -9,9 +9,13 @@ import argparse
 import copy
 import csv
 import difflib
+from datetime import datetime, timezone
 import json
 import math
 import os
+import re
+import stat
+import threading
 from pathlib import Path
 import sys
 import tempfile
@@ -28,12 +32,24 @@ SETTINGS = ('temperature', 'max_tokens', 'ctx', 'n_gpu_layers', 'reasoning_budge
             'stop', 'system_message', 'n_epochs', 'prompt_template_id', 'scorer_id')
 IDENTITY = ('quant', 'backend', 'backend_version', 'machine')
 COMPARISON_IDS = ('hardware_profile_id', 'dataset_artifact_id', 'model_artifact_id', 'settings_id')
+MAX_DATASET_BYTES = 16 * 1024 * 1024
+MAX_DATASET_VIEW_BYTES = 2 * 1024 * 1024
+MAX_DATASET_COMPARISON_PAIRS = 2048
+MAX_DATASET_RUNS = 128
+DATASET_WAIT_SECONDS = .1
+_DATASET_LOCK = threading.Lock()
+_DATASET_CACHE = {}
+_DATASET_JOB = None
 METRICS = ('latency_s', 'tokens_per_s', 'cost_usd', 'memory_bytes', 'peak_memory_bytes', 'gpu_memory_bytes')
 PROTOCOL_ALIASES = ('protocol_id', 'protocol')
 PROTOCOL_FIELDS = (*PROTOCOL_ALIASES, 'kind')
 
 
 class ValidationError(ValueError):
+    pass
+
+
+class NoRecommendation(ValidationError):
     pass
 
 
@@ -44,7 +60,7 @@ def number(value, field, minimum=None, maximum=None):
         raise ValidationError(f'{field} must be a finite number or null')
     try:
         value = float(value)
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
         raise ValidationError(f'{field} must be a finite number or null') from None
     if not math.isfinite(value) or (minimum is not None and value < minimum) or (maximum is not None and value > maximum):
         raise ValidationError(f'{field} outside allowed range')
@@ -186,10 +202,8 @@ def normalize_run(row, hint=None, run_id=None):
     result['admitted_score'] = number(row.get('admitted_score'), 'admitted_score', 0, 1)
     if result['status'] not in STATUSES:
         raise ValidationError('unknown run status')
-    for key in IDENTITY:
+    for key in (*IDENTITY, *COMPARISON_IDS):
         result[key] = text(row.get(key, row.get('host') if key == 'machine' else None), key)
-    for key in COMPARISON_IDS:
-        result[key] = text(row.get(key), key)
     if result['machine'] is not None:
         result['machine'] = result['machine'].lower()
     source_settings = row.get('settings') or {}
@@ -293,15 +307,46 @@ def normalize_item(row):
     return item
 
 
-def ingest(paths, hint=None, require_normalized=False):
+def fast_record_id(row):
+    """A rejected record's id, only when it has the digest shape; never other text."""
+    value = row.get('record_id') if isinstance(row, dict) else None
+    return value if isinstance(value, str) and re.fullmatch(r'[0-9a-f]{64}', value) else None
+
+
+def rejection_reason(error):
+    # Validator messages are fixed text; other exception messages may quote input.
+    message = str(error) if isinstance(error, fast.ValidationError) else ''
+    if not message or len(message) > 200 or any(ord(c) < 32 for c in message):
+        return f'invalid fast-check record ({type(error).__name__})'
+    return message
+
+
+def rejected_entry(entry):
+    if not isinstance(entry, dict) or set(entry) != {'record_id', 'reason'}:
+        raise ValidationError('rejected fast-check entry must have record_id and reason')
+    record_id, reason = entry['record_id'], entry['reason']
+    if record_id is not None and (not isinstance(record_id, str) or not re.fullmatch(r'[0-9a-f]{64}', record_id)):
+        raise ValidationError('rejected fast-check record_id must be a SHA-256 digest or null')
+    if not isinstance(reason, str) or not reason or len(reason) > 200 or any(ord(c) < 32 for c in reason):
+        raise ValidationError('rejected fast-check reason must be short text')
+    return {'record_id': record_id, 'reason': reason}
+
+
+def ingest(paths, hint=None, require_normalized=False, _documents=None):
     """Normalize only named files. Never recurse into inspect logs or model files."""
     runs, items, fast_checks = {}, [], {}
+    rejected_fast_checks = []
+    source_dates = []
+    source_ingested = []
 
     def add_fast(row):
+        # One invalid fast-check record is reported by record_id and reason;
+        # it does not make the rest of the dataset invalid.
         try:
             normalized = fast.validate_record(copy.deepcopy(row))
-        except (ValueError, TypeError, KeyError) as error:
-            raise ValidationError('invalid fast-check record') from error
+        except (ValueError, TypeError, KeyError, AttributeError) as error:
+            rejected_fast_checks.append({'record_id': fast_record_id(row), 'reason': rejection_reason(error)})
+            return
         key = normalized['record_id']
         if key in fast_checks:
             raise ValidationError('duplicate fast-check record')
@@ -315,7 +360,9 @@ def ingest(paths, hint=None, require_normalized=False):
         runs[key] = normalized
 
     for path in map(Path, paths):
-        data = load(path)
+        data = load(path) if _documents is None else _documents[path]
+        source_dates.append(text(data.get('as_of'), 'as_of') if isinstance(data, dict) else None)
+        source_ingested.append(text(data.get('ingested_at'), 'ingested_at') if isinstance(data, dict) else None)
         if require_normalized:
             if (not isinstance(data, dict) or type(data.get('schema_version')) is not int
                     or data['schema_version'] != 1
@@ -337,6 +384,10 @@ def ingest(paths, hint=None, require_normalized=False):
             items.extend(normalize_item(row) for row in data.get('items', []))
             for row in data.get('fast_checks', []):
                 add_fast(row)
+            prior = data.get('rejected_fast_checks', [])
+            if not isinstance(prior, list):
+                raise ValidationError('rejected_fast_checks must be a collection')
+            rejected_fast_checks.extend(rejected_entry(entry) for entry in prior)
         elif isinstance(data, dict) and 'results' in data:
             for row in data['results']:
                 add_run(row, row.get('run_id') or f'{path.parent.name}::{row.get("model_id", "unknown")}')
@@ -390,61 +441,102 @@ def ingest(paths, hint=None, require_normalized=False):
         if item['scorer_id'] == 'lenient_v1' and run['comparability_class'] == 'baseline_protocol':
             raise ValidationError('lenient item cannot join baseline run')
     return {'schema_version': 1, 'runs': list(runs.values()), 'items': items,
-            'fast_checks': list(fast_checks.values())}
+            'fast_checks': list(fast_checks.values()),
+            'rejected_fast_checks': rejected_fast_checks,
+            'as_of': source_dates[0] if source_dates and len(set(source_dates)) == 1 else None,
+            'ingested_at': (source_ingested[0] if len(source_ingested) == 1 and (require_normalized or source_ingested[0] is not None)
+                            else datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'))}
 
 
 def overlap(a, b):
     return all(row.get(key) is not None for row in (a, b) for key in ('eci_p05', 'eci_p95')) and max(a['eci_p05'], b['eci_p05']) <= min(a['eci_p95'], b['eci_p95'])
 
 
+def item_evidence(items):
+    counts = {}
+    for item in items:
+        benchmark = item.get('benchmark')
+        counts[benchmark] = counts.get(benchmark, 0) + 1
+    return {'observed': len(items) if items else None, 'by_benchmark': counts,
+            'item_keys': sorted({(item.get('benchmark'), item.get('item_id')) for item in items}),
+            'truncated': sum(item.get('truncated') is True for item in items),
+            'truncation_unknown': sum(item.get('truncated') is None for item in items),
+            'parsed_missing': sum(item.get('parsed_answer') in (None, '') for item in items),
+            'missing_parsed_answer': sum(item.get('parsed_answer') in (None, '') for item in items)}
+
+
 def compare_runs(a, b):
-    """Compare only recorded, explicitly identified evaluation conditions."""
+    """Compare recorded conditions and attached item evidence; never select a winner."""
+    left, right = a, b
     reasons = []
-    for row in (a, b):
-        if row.get('status') != 'COMPUTED':
-            reasons.append(f'{row.get("run_id", "run")} ECI not computed')
-        if any(row.get(key) is None for key in ('eci_p05', 'eci_posterior_mean', 'eci_p95')):
-            reasons.append(f'{row.get("run_id", "run")} ECI interval unknown')
-    for field in ('comparability_class', 'hardware_profile_id', 'dataset_artifact_id',
-                  'protocol_id', 'settings_id', 'backend', 'backend_version'):
-        left, right = a.get(field), b.get(field)
-        if not left or not right:
-            reasons.append(f'{field} unknown')
-        elif left != right:
-            reasons.append(f'{field} differs')
-    if not a.get('model_artifact_id') or not b.get('model_artifact_id'):
-        reasons.append('model artifact identity unknown')
-    elif a.get('model') == b.get('model') and a['model_artifact_id'] != b['model_artifact_id']:
-        reasons.append('model artifact differs for the same model')
-    if a.get('settings') != b.get('settings'):
-        reasons.append('settings differ')
+    for key in ('comparability_class', 'hardware_profile_id', 'dataset_artifact_id',
+                'protocol_id', 'settings_id', 'machine', 'backend', 'backend_version'):
+        if not left.get(key) or not right.get(key):
+            reasons.append(f'{key} unknown')
+        elif left[key] != right[key]:
+            reasons.append(f'{key} differs')
+    for row in (left, right):
+        if not row.get('model_artifact_id'):
+            reasons.append('model_artifact_id unknown')
+        if row.get('status') != 'COMPUTED' or row.get('partial') or (row.get('diagnostics') or {}).get('status') != 'PASS':
+            reasons.append('complete computed result with passing diagnostics required')
+    if left.get('model_artifact_id') == right.get('model_artifact_id'):
+        if left.get('quant') is None or right.get('quant') is None:
+            reasons.append('quant unknown')
+        elif left['quant'] != right['quant']:
+            reasons.append('quant differs for the same model artifact')
     for key in SETTINGS:
-        if (a.get('settings') or {}).get(key) is None or (b.get('settings') or {}).get(key) is None:
+        values = [(row.get('settings') or {}).get(key) for row in (left, right)]
+        if None in values:
             reasons.append(f'settings.{key} unknown')
-    ac, bc = a.get('components') or {}, b.get('components') or {}
-    if not ac or not bc:
-        reasons.append('component set unknown')
-    elif set(ac) != set(bc):
-        reasons.append('component set differs')
-    for name in sorted(set(ac) & set(bc)):
-        for field in ('scorer_id', 'prompt_template_id'):
-            left, right = ac[name].get(field), bc[name].get(field)
-            if not left or not right:
-                reasons.append(f'{name} {field} unknown')
-            elif left != right:
-                reasons.append(f'{name} {field} differs')
-        if not ac[name].get('admitted') or not bc[name].get('admitted'):
+        elif values[0] != values[1]:
+            reasons.append(f'settings.{key} differs')
+    components = [row.get('components') or {} for row in (left, right)]
+    if not components[0] or set(components[0]) != set(components[1]):
+        reasons.append('component coverage differs or is unknown')
+    for name in sorted(set(components[0]) & set(components[1])):
+        a, b = components[0][name], components[1][name]
+        for key in ('score', 'normalized_score', 'n', 'scorer_id', 'prompt_template_id'):
+            if a.get(key) is None or b.get(key) is None:
+                reasons.append(f'{name}.{key} unknown')
+        if not a.get('admitted') or not b.get('admitted'):
             reasons.append(f'{name} not admitted')
-    if any((row.get('diagnostics') or {}).get('status') != 'PASS' for row in (a, b)):
-        reasons.append('diagnostics not PASS')
+        for key in ('n', 'scorer_id', 'prompt_template_id'):
+            if a.get(key) != b.get(key):
+                reasons.append(f'{name}.{key} differs')
+        if any(type(row.get('n')) not in (int, float) or row['n'] <= 0 or row['n'] != int(row['n']) for row in (a, b)):
+            reasons.append(f'{name}.n must be a positive integer')
+    item_sets = [set(map(tuple, (row.get('item_evidence') or {}).get('item_keys', []))) for row in (left, right)]
+    if not all(item_sets):
+        reasons.append('item set unknown')
+    elif item_sets[0] != item_sets[1]:
+        reasons.append('item set differs')
+    for row in (left, right):
+        evidence = row.get('item_evidence') or item_evidence([])
+        if evidence.get('observed') is None:
+            reasons.append('observed item count unknown')
+        for name, component in (row.get('components') or {}).items():
+            if evidence.get('by_benchmark', {}).get(name) != component.get('n'):
+                reasons.append(f'{name} observed item count differs from denominator')
+        for key in ('truncated', 'truncation_unknown', 'parsed_missing'):
+            if evidence.get(key) is None or evidence[key]:
+                reasons.append(f'item evidence: {key}')
+    if (left.get('model') == right.get('model') and left.get('model_artifact_id')
+            and right.get('model_artifact_id') and left['model_artifact_id'] != right['model_artifact_id']):
+        reasons.append('model artifact differs for the same model')
+    known_intervals = all(row.get(key) is not None for row in (left, right) for key in ('eci_p05', 'eci_posterior_mean', 'eci_p95'))
+    relation = ('overlap' if overlap(left, right) else 'disjoint') if known_intervals else 'unknown'
+    if not known_intervals:
+        reasons.append('ECI interval unknown')
     if reasons:
         uncertainty = 'Not comparable; no winner established.'
-    elif overlap(a, b):
+    elif relation == 'overlap':
         uncertainty = '90% posterior intervals overlap; no clean winner.'
     else:
         uncertainty = '90% posterior intervals do not overlap; causal superiority is not established.'
-    return {'left_run_id': a['run_id'], 'right_run_id': b['run_id'],
-            'comparable': not reasons, 'reasons': reasons, 'uncertainty': uncertainty}
+    return {'left_run_id': left['run_id'], 'right_run_id': right['run_id'],
+            'comparable': not reasons, 'reasons': sorted(set(reasons)),
+            'interval_relation': relation, 'uncertainty': uncertainty}
 
 
 def performance(rows, items, metric):
@@ -472,22 +564,19 @@ def rank(data):
     # Apply the provenance barrier here too; recommend/apply both use rank.
     validate_eci_provenance(data, dedicated_fast_checks=True)
     result = {}
-    computed_all = [row for row in data['runs'] if row['status'] == 'COMPUTED' and row['eci_posterior_mean'] is not None]
-    comparisons = [compare_runs(a, b) for index, a in enumerate(computed_all) for b in computed_all[index + 1:]]
+    observed = {}
+    for item in data.get('items', []):
+        observed.setdefault(item['run_id'], []).append(item)
+    evidence = {row['run_id']: item_evidence(observed.get(row['run_id'], [])) for row in data['runs']}
+    computed_all = [dict(row, item_evidence=evidence[row['run_id']]) for row in data['runs']
+                    if row['status'] == 'COMPUTED' and row['eci_posterior_mean'] is not None]
+    pairs = [compare_runs(left, right)
+             for index, left in enumerate(computed_all) for right in computed_all[index + 1:]]
     for label in CLASSES:
         rows = [row for row in data['runs'] if row['comparability_class'] == label]
-        computed = []
-        for row in rows:
-            if row['status'] != 'COMPUTED' or row['eci_posterior_mean'] is None:
-                continue
-            row = copy.deepcopy(row)
-            observed = [item for item in data.get('items', []) if item['run_id'] == row['run_id']]
-            row['item_evidence'] = {'observed': len(observed) if observed else None,
-                                    'truncated': sum(item['truncated'] is True for item in observed) if observed else None,
-                                    'truncation_unknown': sum(item['truncated'] is None for item in observed) if observed else None,
-                                    'missing_parsed_answer': sum(item['parsed_answer'] in (None, '') for item in observed) if observed else None}
-            computed.append(row)
-        notes = ['Recorded evidence only; class membership alone does not establish comparability.']
+        computed = [row for row in computed_all if row['comparability_class'] == label]
+        notes = [f'{a["run_id"]} / {b["run_id"]}: 90% CIs overlap; no clean winner.' for index, a in enumerate(computed)
+                 for b in computed[index + 1:] if overlap(a, b)]
         if len(computed) == 1:
             notes.append('Only one computed ECI in this class; no overall winner established.')
         for row in computed:
@@ -502,8 +591,9 @@ def rank(data):
                 component_ranks.setdefault(key, []).append({'run_id': row['run_id'], 'model': row['model'], **component})
         latency, unknown_latency = performance(rows, data.get('items', []), 'latency_s')
         cost, unknown_cost = performance(rows, data.get('items', []), 'cost_usd')
+        ids = {row['run_id'] for row in rows}
         result[label] = {'eci': computed, 'notes': sorted(set(notes)),
-                         'comparisons': [pair for pair in comparisons if pair['left_run_id'] in {row['run_id'] for row in rows}],
+                         'comparisons': [pair for pair in pairs if pair['left_run_id'] in ids or pair['right_run_id'] in ids],
                          'components': component_ranks,
                          'latency': latency, 'cost': cost,
                          'unknown_latency': unknown_latency, 'unknown_cost': unknown_cost}
@@ -513,8 +603,8 @@ def rank(data):
 
 
 def recommend(data):
+    # Score order alone is not a target-specific selection rule.
     validate_eci_provenance(data, dedicated_fast_checks=True)
-    # There is no selected target/profile or validated decision rule in this API.
     route = {'model': None, 'machine': None, 'run_id': None,
              'status': 'NOT_COMPUTED', 'confidence': 'unknown', 'eci': None,
              'basis': 'No target profile and validated selection rule supplied; task-specific routing outcomes NOT_MEASURED.'}
@@ -530,9 +620,15 @@ def policy_path():
 
 def read_policy(path=None):
     target = Path(path) if path is not None else policy_path()
-    policy = load(target if target.exists() else DEFAULT_POLICY)
+    saved = target.exists()
+    policy = load(target if saved else DEFAULT_POLICY)
     if not isinstance(policy, dict) or policy.get('schema_version') != 1 or not isinstance(policy.get('routes'), dict):
         raise ValidationError('invalid routing policy')
+    policy['origin'] = 'saved' if saved else 'bundled reference'
+    for task in ('general', 'reasoning', 'coding'):
+        route = policy['routes'].get(task)
+        if route is not None and (not isinstance(route, dict) or route.get('status') not in ('PROVISIONAL', 'NOT_COMPUTED', 'NOT_RUN', 'UNKNOWN')):
+            raise ValidationError('invalid route status')
     return policy
 
 
@@ -540,7 +636,7 @@ def select_route(task_type, machine, policy=None):
     """Config hook for an external AGIW router; never dispatches or starts a model."""
     policy = policy if policy is not None else read_policy()
     route = policy.get('routes', {}).get(task_type)
-    if not isinstance(route, dict) or str(machine).lower() != 'pc' or route.get('machine') != 'pc' or route.get('status') != 'PROVISIONAL':
+    if policy.get('origin') == 'bundled reference' or not isinstance(route, dict) or str(machine).lower() != 'pc' or route.get('machine') != 'pc' or route.get('status') != 'PROVISIONAL':
         return None
     return copy.deepcopy(route)
 
@@ -556,7 +652,7 @@ def apply_policy(data, target, write=False):
         raise ValidationError('policy must be an object')
     proposed = recommend(data)
     if not proposed['routes']['general']['model']:
-        raise ValidationError('no evidence-backed recommendation; policy unchanged')
+        raise NoRecommendation('No recommendation is available; policy unchanged.')
     existing_routes = policy.get('routes', {})
     if not isinstance(existing_routes, dict):
         raise ValidationError('routes must be an object')
@@ -579,43 +675,193 @@ def apply_policy(data, target, write=False):
     return diff
 
 
-def status(data=None):
-    dataset = {'status': 'supplied', 'reason': None}
-    if data is None:
-        configured = os.environ.get('AGIW_ECI_TUNING_DATASET_DIR')
-        if configured is None:
-            data = ingest([CATALOG])
-            dataset['status'] = 'bundled'
+def _unknown_dataset(reason, pending=False):
+    return {'status': 'unknown', 'dataset': {'status': 'unknown', 'reason': reason,
+            'pending': pending, 'as_of': None, 'ingested_at': None}}
+
+
+def _fingerprint(info):
+    return (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+
+
+def _dataset_source(configured):
+    directory = Path(configured).expanduser()
+    if not configured.strip() or not directory.is_absolute() or '..' in directory.parts:
+        raise ValidationError('Dataset directory must be an absolute path without parent segments.')
+    # Directory aliases are allowed, but resolve them once. The descriptor open
+    # below refuses replacement links in that resolved chain.
+    directory = directory.resolve(strict=True)
+    source = directory / 'dataset.json'
+    info = source.lstat()
+    if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+        raise ValidationError('dataset.json must be a regular file, not a link.')
+    if info.st_size > MAX_DATASET_BYTES:
+        raise ValidationError('Configured dataset exceeds the size limit.')
+    return source, _fingerprint(info)
+
+
+def _read_dataset(source, expected):
+    """Read one regular descriptor; never reopen the validated file by name."""
+    flags = os.O_RDONLY | getattr(os, 'O_NONBLOCK', 0) | getattr(os, 'O_NOFOLLOW', 0)
+    parent_fd = None
+    fd = None
+    try:
+        if os.open in os.supports_dir_fd and hasattr(os, 'O_NOFOLLOW'):
+            parent_fd = os.open(source.anchor, flags | os.O_DIRECTORY)
+            for part in source.parent.parts[1:]:
+                next_fd = os.open(part, flags | os.O_DIRECTORY, dir_fd=parent_fd)
+                os.close(parent_fd)
+                parent_fd = next_fd
+            fd = os.open(source.name, flags, dir_fd=parent_fd)
         else:
-            dataset['status'] = 'configured'
-            try:
-                directory = Path(configured).expanduser()
-                if not configured.strip() or not directory.is_absolute():
-                    raise ValidationError('dataset directory must be an absolute path')
-                source = directory / 'dataset.json'
-                if source.is_symlink():
-                    raise ValidationError('dataset file must not be a symlink')
-                if not source.exists():
-                    raise FileNotFoundError
-                if not source.is_file():
-                    raise ValidationError('dataset file must be a regular file')
-                data = ingest([source], require_normalized=True)
-            except FileNotFoundError:
-                return {'status': 'unknown', 'dataset': {'status': 'unknown', 'reason': 'Configured dataset.json was not found.'}}
-            except (OSError, UnicodeError):
-                return {'status': 'unknown', 'dataset': {'status': 'unknown', 'reason': 'Configured dataset could not be read.'}}
-            except (ValueError, TypeError, KeyError, AttributeError, IndexError):
-                return {'status': 'unknown', 'dataset': {'status': 'unknown', 'reason': 'Configured dataset is invalid; check normalized dataset schema and records.'}}
-    policy = read_policy()
-    public_policy = {'origin': 'saved' if policy_path().exists() else 'bundled reference',
-                     'routes': {task: {key: route.get(key) for key in ('model', 'machine', 'status', 'confidence', 'eci', 'run_id', 'basis')}
-                               for task, route in policy['routes'].items() if task in ('general', 'reasoning', 'coding') and isinstance(route, dict)},
-                     'runtime_activation': 'NOT_APPLIED', 'nisi_mac': {'status': 'NOT_APPLIED'}}
+            # Platforms without descriptor-relative traversal still compare the
+            # opened object to the regular-file identity observed before open.
+            fd = os.open(source, flags)
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or _fingerprint(info) != expected:
+            raise ValidationError('dataset.json changed during validation or is not a regular file, not a link.')
+        if info.st_size > MAX_DATASET_BYTES:
+            raise ValidationError('Configured dataset exceeds the size limit.')
+        with os.fdopen(fd, 'rb') as stream:
+            fd = None
+            payload = stream.read(MAX_DATASET_BYTES + 1)
+            if len(payload) > MAX_DATASET_BYTES:
+                raise ValidationError('Configured dataset exceeds the size limit.')
+            if _fingerprint(os.fstat(stream.fileno())) != expected:
+                raise ValidationError('Configured dataset changed during validation; retry.')
+        data = json.loads(payload.decode('utf-8'), object_pairs_hook=fast.unique_object)
+        if isinstance(data, dict):
+            runs, checks = data.get('runs'), data.get('fast_checks', [])
+            if isinstance(runs, list) and isinstance(checks, list):
+                computed = sum(isinstance(row, dict) and row.get('status') == 'COMPUTED' for row in runs)
+                pairs = computed * (computed - 1) // 2 + len(checks) * (len(checks) - 1) // 2
+                if len(runs) + len(checks) > MAX_DATASET_RUNS or pairs > MAX_DATASET_COMPARISON_PAIRS:
+                    raise ValidationError('Configured dataset exceeds the comparison limit; select fewer runs.')
+                # Bound repeated labels/metadata before pairs duplicate them.
+                for row in runs:
+                    if len(json.dumps(row, ensure_ascii=True)) > 65536:
+                        raise ValidationError('Configured dataset exceeds the per-run size limit.')
+        return ingest([source], require_normalized=True, _documents={source: data})
+    finally:
+        if fd is not None:
+            os.close(fd)
+        if parent_fd is not None:
+            os.close(parent_fd)
+
+
+def _data_view(data, origin):
+    dataset = {'status': origin, 'reason': None, 'pending': False,
+               'as_of': data.get('as_of'), 'ingested_at': data.get('ingested_at') if origin != 'bundled' else None}
+    overlaps = [f'{a["run_id"]} / {b["run_id"]}: 90% CIs overlap; no clean improvement.'
+                for a in data['runs'] for b in data['runs']
+                if a['comparability_class'] == 'baseline_protocol' and b['comparability_class'] == 'pipeline_configured'
+                and a['model'] == b['model'] and overlap(a, b)]
     return {'name': 'AGIW x ECI Model Tuning Tool', 'schema_version': 1, 'dataset': dataset,
             'rankings': rank(data), 'recommendation': recommend(data),
-            'policy': public_policy, 'runtime_activation': {'status': 'NOT_APPLIED', 'source_run_id': None},
             'pending': [r for r in data['runs'] if r['status'] != 'COMPUTED' or r['eci_posterior_mean'] is None],
-            'cross_class_note': 'Comparability classes are separate. Published Epoch scores belong to different artifacts.'}
+            'cross_class_note': 'Comparability classes are separate. Published Epoch scores belong to different artifacts. ' + ' '.join(overlaps)}
+
+
+def _dataset_failure(error):
+    if isinstance(error, FileNotFoundError):
+        reason = 'Configured dataset.json was not found.'
+    elif isinstance(error, ValidationError) and str(error) in (
+            'Dataset directory must be an absolute path without parent segments.',
+            'dataset.json must be a regular file, not a link.',
+            'dataset.json changed during validation or is not a regular file, not a link.',
+            'Configured dataset exceeds the size limit.',
+            'Configured dataset exceeds the comparison limit; select fewer runs.',
+            'Configured dataset exceeds the per-run size limit.',
+            'Configured dataset exceeds the response size limit; select fewer runs.',
+            'Configured dataset changed during validation; retry.'):
+        reason = str(error)
+    elif isinstance(error, (OSError, UnicodeError)):
+        reason = 'Configured dataset could not be read.'
+    else:
+        reason = 'Configured dataset is invalid; check normalized dataset schema and records.'
+    return _unknown_dataset(reason)
+
+
+def _configured_view(configured):
+    global _DATASET_JOB
+    try:
+        source, identity = _dataset_source(configured)
+    except Exception as error:
+        return _dataset_failure(error), set()
+    key = (str(source), identity, MAX_DATASET_BYTES, MAX_DATASET_VIEW_BYTES, MAX_DATASET_COMPARISON_PAIRS, MAX_DATASET_RUNS)
+    with _DATASET_LOCK:
+        if key in _DATASET_CACHE:
+            return copy.deepcopy(_DATASET_CACHE[key])
+        if _DATASET_JOB is None:
+            ready = threading.Event()
+            completed = []
+            _DATASET_JOB = (key, ready, completed)
+
+            def validate():
+                global _DATASET_JOB
+                cacheable = True
+                try:
+                    data = _read_dataset(source, identity)
+                    view = _data_view(data, 'configured')
+                    if len(json.dumps(view, ensure_ascii=True, allow_nan=False).encode('utf-8')) > MAX_DATASET_VIEW_BYTES:
+                        raise ValidationError('Configured dataset exceeds the response size limit; select fewer runs.')
+                    result = (view, {row['run_id'] for row in data['runs']})
+                except Exception as error:
+                    cacheable = not isinstance(error, OSError)
+                    result = (_dataset_failure(error), set())
+                with _DATASET_LOCK:
+                    completed.append(result)
+                    _DATASET_CACHE.clear()
+                    if cacheable:
+                        _DATASET_CACHE[key] = result
+                    _DATASET_JOB = None
+                    ready.set()
+
+            threading.Thread(target=validate, name='eci-dataset-validation', daemon=True).start()
+        else:
+            job_key, ready, completed = _DATASET_JOB
+            if job_key != key:
+                completed = []
+    # A slow first read/validation/ranking never consumes the request deadline.
+    # One background worker also bounds work when files change during validation.
+    ready.wait(DATASET_WAIT_SECONDS)
+    with _DATASET_LOCK:
+        if completed:
+            return copy.deepcopy(completed[0])
+        if key in _DATASET_CACHE:
+            return copy.deepcopy(_DATASET_CACHE[key])
+    return _unknown_dataset('Dataset validation is in progress; retry shortly.', pending=True), set()
+
+
+def status(data=None):
+    if data is None and os.environ.get('AGIW_ECI_TUNING_DATASET_DIR') is not None:
+        result, run_ids = _configured_view(os.environ['AGIW_ECI_TUNING_DATASET_DIR'])
+        if result['dataset']['status'] == 'unknown':
+            return result
+    else:
+        origin = 'supplied' if data is not None else 'bundled'
+        data = data if data is not None else ingest([CATALOG])
+        result = _data_view(data, origin)
+        run_ids = {row['run_id'] for row in data['runs']}
+    try:
+        policy = read_policy()
+        public_policy = {'origin': policy['origin'], 'reason': None, 'routes': {},
+                         'runtime_activation': 'NOT_APPLIED', 'nisi_mac': {'status': 'NOT_APPLIED'}}
+        for task, route in policy['routes'].items():
+            if task not in ('general', 'reasoning', 'coding') or not isinstance(route, dict):
+                continue
+            public = {key: route.get(key) for key in ('model', 'machine', 'run_id', 'status', 'confidence', 'eci', 'basis')}
+            if route.get('run_id') is not None and route['run_id'] not in run_ids:
+                public.update(status='UNKNOWN', reason='Policy source run not in the loaded dataset.')
+            elif route.get('status') == 'PROVISIONAL' and route.get('run_id') is None:
+                public.update(status='UNKNOWN', reason='Policy source run unknown.')
+            public_policy['routes'][task] = public
+    except Exception:
+        public_policy = {'origin': 'unreadable', 'reason': 'Saved policy could not be read or validated.',
+                         'routes': {}, 'runtime_activation': 'NOT_APPLIED', 'nisi_mac': {'status': 'NOT_APPLIED'}}
+    result['policy'] = public_policy
+    result['runtime_activation'] = {'status': 'NOT_APPLIED', 'source_run_id': None}
+    return result
 
 
 def main(argv=None):
@@ -662,7 +908,8 @@ def main(argv=None):
             print('Policy file written.' if args.write else 'Dry run; pass --write to apply.')
             print('External runtime activation NOT_APPLIED; Nisi Mac configuration unchanged.')
             return 0
-        result = {'ingest': lambda: data, 'validate': lambda: {'valid': True, 'runs': len(data['runs']), 'items': len(data['items']), 'fast_checks': len(data['fast_checks'])},
+        result = {'ingest': lambda: data, 'validate': lambda: {'valid': True, 'runs': len(data['runs']), 'items': len(data['items']), 'fast_checks': len(data['fast_checks']),
+                                       'rejected_fast_checks': data['rejected_fast_checks']},
                   'rank': lambda: rank(data), 'recommend': lambda: recommend(data), 'status': lambda: status(data)}[args.command]()
         output = json.dumps(result, indent=2, allow_nan=False) + '\n'
         if getattr(args, 'output', None):
@@ -670,7 +917,10 @@ def main(argv=None):
         else:
             print(output, end='')
         return 0
-    except (ValidationError, OSError, ValueError, TypeError, KeyError) as error:
+    except NoRecommendation as error:
+        print(str(error), file=sys.stderr)
+        return 2
+    except (ValidationError, OSError, ValueError, TypeError, KeyError, RuntimeError, ArithmeticError) as error:
         # Input payloads/paths can be private; do not echo them on validation failure.
         print(f'ECI operation failed ({type(error).__name__}); check inputs against eci_tuning.schema.json.', file=sys.stderr)
         return 2
