@@ -218,7 +218,11 @@ the task in Task Scheduler (state, Last Run Result and task history when enabled
 or stderr log file for the task. The macOS LaunchAgent writes both streams to the log in the table.
 
 On Windows, agiw reads your SID with `whoami /user /fo csv /nh` and uses that same account-specific task
-name for install, status and uninstall. Installation refuses if the SID cannot be read. After `/Run`,
+name for install, status and uninstall. Installation refuses if the SID cannot be read. The task ignores a
+second start while one is running, so re-running install after an update first checks the State: a Running
+or Queued instance is ended with `schtasks /End` and must reach Ready within about five seconds before
+`/Run` starts the new code. An instance that does not stop, or a State that cannot be read or is Unknown,
+leaves the new definition registered, starts nothing, and exits 1 with the `/End` command to run. After `/Run`,
 installation checks the locale-independent ScheduledTasks State enum through PowerShell for up to about
 five seconds. It reports running only after observing `Running`; otherwise it reports the installed task
 as not confirmed running, gives the last state or query failure, and exits 1. Status and uninstall use the

@@ -27,13 +27,13 @@ class ServiceReview(unittest.TestCase):
         path.write_bytes(b"previous definition\n")
         return path
 
-    def windows_runner(self, results=None):
+    def windows_runner(self, results=None, idle_until_run=False):
         output = io.StringIO()
         csv.writer(output).writerow(['Doma,in\\Élise "Test"', SID])
-        return FakeRunner({"/user": (0, output.getvalue()), **(results or {})})
+        return FakeRunner({"/user": (0, output.getvalue()), **(results or {})}, idle_until_run=idle_until_run)
 
     def test_windows_sid_with_csv_quoted_unicode_name_scopes_every_operation(self):
-        runner = self.windows_runner({"-Command": (0, "Running\n")})
+        runner = self.windows_runner({"-Command": (0, "Running\n")}, idle_until_run=True)
         manager = self.manager("windows", runner)
         manager.install()
         manager.status()
@@ -249,7 +249,7 @@ class ServiceReview(unittest.TestCase):
         self.assertNotIn(b"previous definition\n", bootstraps)
 
     def test_windows_run_failure_reports_installed_task_and_reason(self):
-        runner = self.windows_runner({"/Run": (5, "Access denied by scheduler")})
+        runner = self.windows_runner({"/Run": (5, "Access denied by scheduler")}, idle_until_run=True)
         manager = self.manager("windows", runner)
         with self.assertRaisesRegex(ServiceError, "installed but did not start.*Access denied"):
             manager.install()

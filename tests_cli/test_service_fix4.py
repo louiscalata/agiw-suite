@@ -54,11 +54,13 @@ class ServiceFix4(unittest.TestCase):
         self.assertEqual(arguments, "-m agiw serve --service")
 
     def test_windows_install_waits_for_locale_independent_running_state(self):
-        runner = self.windows_runner([(0, "Ready\n", ""), (0, "Queued\n", ""), (0, "Running\n", "")])
+        # The first query is the pre-run check for a previous instance; the rest confirm the new run.
+        runner = self.windows_runner([(0, "Ready\n", ""), (0, "Ready\n", ""), (0, "Queued\n", ""),
+                                      (0, "Running\n", "")])
         with mock.patch("agiw.service.time.sleep") as sleep:
             steps = self.manager("windows", runner).install()
         queries = [argv for argv in runner.calls if "-Command" in argv]
-        self.assertEqual(len(queries), 3)
+        self.assertEqual(len(queries), 4)
         self.assertEqual(sleep.call_args_list, [mock.call(1.0), mock.call(1.0)])
         self.assertTrue(all("Get-ScheduledTask" in argv[-1] and ".State" in argv[-1] for argv in queries))
         self.assertFalse(any("/Query" in argv for argv in runner.calls))
@@ -67,7 +69,7 @@ class ServiceFix4(unittest.TestCase):
     def test_windows_install_unconfirmed_states_exit_one_and_keep_definition(self):
         for state in ("Ready", "Queued", "Unknown"):
             with self.subTest(state=state):
-                runner = self.windows_runner([(0, state + "\n", "")])
+                runner = self.windows_runner([(0, "Ready\n", ""), (0, state + "\n", "")])
                 output, error = [], io.StringIO()
                 with mock.patch("agiw.service.time.sleep") as sleep, mock.patch("sys.stderr", error):
                     code = cli.main(["service", "install", "--status-file", str(self.home / "status.json")],
@@ -77,14 +79,14 @@ class ServiceFix4(unittest.TestCase):
                 self.assertIn("State is " + state, error.getvalue())
                 self.assertNotIn("and started it", "\n".join(output))
                 self.assertTrue(self.manager("windows").definition_path().is_file())
-                self.assertEqual(len([argv for argv in runner.calls if "-Command" in argv]), 6)
+                self.assertEqual(len([argv for argv in runner.calls if "-Command" in argv]), 7)
                 self.assertEqual(sleep.call_args_list, [mock.call(1.0)] * 5)
 
     def test_windows_install_query_failure_explains_reason_and_exits_one(self):
         for response, reason in (((1, "", "access denied"), "access denied"),
                                  (OSError("query unavailable"), "query unavailable")):
             with self.subTest(reason=reason):
-                runner = self.windows_runner([response])
+                runner = self.windows_runner([(0, "Ready\n", ""), response])
                 error = io.StringIO()
                 with mock.patch("agiw.service.time.sleep"), mock.patch("sys.stderr", error):
                     code = cli.main(["service", "install", "--status-file", str(self.home / "status.json")],
@@ -96,10 +98,10 @@ class ServiceFix4(unittest.TestCase):
                 self.assertNotIn("Traceback", error.getvalue())
 
     def test_windows_install_retries_a_query_failure_before_running(self):
-        runner = self.windows_runner([(1, "", "temporary query failure"), (0, "Running\n", "")])
+        runner = self.windows_runner([(0, "Ready\n", ""), (1, "", "temporary query failure"), (0, "Running\n", "")])
         with mock.patch("agiw.service.time.sleep") as sleep:
             steps = self.manager("windows", runner).install()
-        self.assertEqual(len([argv for argv in runner.calls if "-Command" in argv]), 2)
+        self.assertEqual(len([argv for argv in runner.calls if "-Command" in argv]), 3)
         sleep.assert_called_once_with(1.0)
         self.assertIn("running", steps[-1])
 
@@ -121,7 +123,7 @@ class ServiceFix4(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("installed but not confirmed running", error.getvalue())
         self.assertIn("State is Ready", error.getvalue())
-        self.assertEqual(len([argv for argv in state_runner.calls if "-Command" in argv]), 1)
+        self.assertEqual(len([argv for argv in state_runner.calls if "-Command" in argv]), 2)  # pre-run check + one
         sleep.assert_not_called()
 
     def test_mac_rollback_bootstrap_waits_and_retries_like_forward_bootstrap(self):
