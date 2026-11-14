@@ -655,6 +655,14 @@
         "parse_rule": {
           "$ref": "#/$defs/nullableText",
           "description": "Screening parse rule, null for unparsed content. Absent only in legacy/generic callable evidence."
+        },
+        "parsed_unit": {
+          "$ref": "#/$defs/nullableText"
+        },
+        "attempts": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Transport attempts for this observation; absent in legacy records."
         }
       },
       "allOf": [
@@ -871,7 +879,8 @@
           "enum": [
             "complete",
             "pre",
-            "budget"
+            "budget",
+            "errors"
           ]
         },
         "accuracy": {
@@ -973,6 +982,10 @@
         },
         "top_answer_share": {
           "$ref": "#/$defs/score"
+        },
+        "retried": {
+          "$ref": "#/$defs/count",
+          "description": "Observations with more than one transport attempt."
         }
       }
     },
@@ -1145,7 +1158,11 @@
           "const": "agiw_fast_check"
         },
         "schema_version": {
-          "const": 1
+          "enum": [
+            1,
+            2
+          ],
+          "description": "2 for new records. 1 for records written before transport errors were excluded from unknown_finish and unparsed answers were paired as wrong; they validate under those original rules and carry no provenance, retry or unit evidence."
         },
         "protocol_id": {
           "const": "agiw-fast-check-v1"
@@ -1200,6 +1217,9 @@
           "additionalProperties": {
             "$ref": "#/$defs/comparison"
           }
+        },
+        "provenance": {
+          "type": "object"
         }
       }
     },

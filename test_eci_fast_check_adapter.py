@@ -286,7 +286,7 @@ class AdapterTests(unittest.TestCase):
         with self.tempdir() as directory, Stub(properties={}, get_status=404,
                                                model_meta=metadata) as stub:
             result = adapter.run(stub.url, MODEL_ID, [self.sample(directory)],
-                                 Path(directory) / "out")
+                                 Path(directory) / "out", file_size_bytes=100)
             fast.validate_record(result)
             self.assertEqual(result["model"]["file_sha256"], MODEL_SHA)
             self.assertEqual(result["hardware"]["cpu"], "fixture-cpu")
@@ -302,7 +302,7 @@ class AdapterTests(unittest.TestCase):
             observations = result["benchmarks"][0]["observations"]
             self.assertEqual([o["outcome"] for o in observations], ["error", "error"])
             self.assertTrue(all(o["error"] for o in observations))
-            self.assertEqual(len(stub.posts), 2)
+            self.assertEqual(len(stub.posts), 3)  # Only the transient HTTP failure is retried.
 
     def test_mismatched_model_is_never_scored(self):
         reply = completion("A")
@@ -312,7 +312,7 @@ class AdapterTests(unittest.TestCase):
             self.assertTrue(all(o["outcome"] == "error"
                                 for o in result["benchmarks"][0]["observations"]))
 
-    def test_timeout_is_checkpointed_and_resume_does_not_repeat_it(self):
+    def test_timeout_is_checkpointed_and_resume_retries_it(self):
         def delayed_reply():
             threading.Event().wait(0.1)
             return completion()
@@ -327,10 +327,10 @@ class AdapterTests(unittest.TestCase):
             self.assertEqual(observation["outcome"], "error")
             self.assertEqual(observation["error"], "TimeoutError")
             self.assertGreaterEqual(observation["seconds"], 0)
+            stub.replies = [completion()]
             second = self.run_fixture(stub, [sample], output, timeout=0.02)
-            self.assertEqual(len(stub.posts), 1)
-            self.assertEqual(first["benchmarks"][0]["observations"],
-                             second["benchmarks"][0]["observations"])
+            self.assertEqual(len(stub.posts), 3)  # Resume replaces the old failure after recovery.
+            self.assertEqual(second["benchmarks"][0]["observations"][0]["outcome"], "correct")
 
     def test_redirect_is_not_followed(self):
         with self.tempdir() as directory, Stub() as destination:
@@ -435,7 +435,6 @@ class AdapterTests(unittest.TestCase):
     def test_conflicting_explicit_model_facts_refuse_before_inference(self):
         variants = [
             {"model_sha256": "b" * 64},
-            {"file_size_bytes": 101},
             {"quantization": "Q8_0"},
         ]
         for supplied in variants:

@@ -14,6 +14,14 @@
 - [x] Run the full suites on macOS with bytecode disabled: the Node, root Python, Windows-edition and CLI suites pass on the rebased tree, with only the existing router-fixture and Windows-native skips. Exact counts and commands are in the pull request. Python used `MONITOR_ALLOW_ROUTER_FIXTURE_SKIP=1`. An earlier pass ran the same suites under an external fixture socket guard; its first root run exited 1 with four errors because the guard rejected an existing temporary shell fixture. After the guard allowed only that fixture's exact script contents, the focused fixture test and the full rerun passed. Logs and the guard remain outside the checkout.
 - [ ] Native Windows installer, tray and Windows API acceptance remain NOT_RUN. The installer cache tests need Windows and were skipped on macOS, so native failing-before and passing-after evidence remains unavailable. Workflow changes belong to another lane. No model workload, model server, browser or device action is part of this change.
 
+## Fast-check correctness round 2 — 13 November 2026
+
+- [x] Repair error-stop resume with append-only superseding entries, expose retries and successful-attempt timing, separate transport failures from model quality, and reject continuation after three consecutive errors.
+- [x] Harden public machine labels, distinguish declared GGUF size from server-reported size, score GSM8K percent numbers, and restore the 8192 CLI floor with per-request context headroom.
+- [x] New fast-check records carry `schema_version` 2 (transport errors leave `unknown_finish` and `parsed`; unparsed answers pair as wrong). Version 1 records stay valid and are checked with the original version 1 rules; a version 1 record cannot carry version 2 evidence.
+- [x] Screening units: word units and multi-letter abbreviations match in any case, the litre symbol accepts `l` and `L` (`Answer: 5 L` scores against `#### 5`), and `m`/`g` stay case-sensitive so `12 M` and `12 G` stay unparsed.
+- [ ] Land the reviewed staged revision. Real inference, fast checks, full ECI, benchmarks, browser/device acceptance and CI are NOT_RUN in this lane; no commit or push is authorized here.
+
 ## Monitor redesign stage 5 — local evaluation dataset — 12 November 2026
 
 - [x] Both observers use the shared read-only dataset loader: `AGIW_ECI_TUNING_DATASET_DIR` selects an absolute directory containing normalized `dataset.json`. Unset configuration uses the bundled catalog; missing, unreadable or invalid configured data reports unknown with a reason. The operator is responsible for selecting local storage.
