@@ -84,7 +84,7 @@ assert callable(server.Handler.do_GET)
             with mock.patch.dict(os.environ, env):
                 code, body = get_endpoint()
                 self.assertEqual(code, 200)
-                self.assertEqual(body['dataset']['status'], 'configured')
+                self.assertEqual(body['dataset']['status'], 'configured', body['dataset'])
                 rows = body['rankings']['baseline_protocol']['eci']
                 self.assertEqual([row['run_id'] for row in rows], ['pc-llama31-baseline-max1024'])
                 self.assertAlmostEqual(rows[0]['eci_posterior_mean'], 105.37592661908786)
