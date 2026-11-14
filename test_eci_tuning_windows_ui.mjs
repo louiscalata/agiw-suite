@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {mkdtempSync, rmSync} from 'node:fs';
-import {join} from 'node:path';
+import {dirname, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {spawnSync} from 'node:child_process';
 import test from 'node:test';
@@ -21,9 +21,9 @@ function fixtureDocument() {
 test('ingested full ECI and fast check reach the DOM through the Windows endpoint; invalid input stays unknown', t => {
   const python = resolvePython(t);
   if (!python) return;
-  const directory = mkdtempSync(join(fileURLToPath(new URL('../', import.meta.url)), 'agiw-eci-win-ui-'));
+  const directory = mkdtempSync(join(fileURLToPath(new URL('.', import.meta.url)), 'agiw-eci-win-ui-'));
   const program = `
-import json, os, sys
+import json, os, sys, time
 from pathlib import Path
 sys.path.insert(0, str(Path.cwd() / 'windows'))
 from agiw_win import server
@@ -40,24 +40,33 @@ raw.write_text(json.dumps(dict(data, fast_checks=[run()])), encoding='utf-8')
 data = e.ingest([raw])
 (directory / 'dataset.json').write_text(json.dumps(data), encoding='utf-8')
 def request():
-    handler = object.__new__(server.Handler)
-    handler.path = '/api/eci-tuning'
-    handler.same_origin = lambda: True
-    handler.reply = lambda code, body, mime: setattr(handler, 'response', (code, json.loads(body)))
-    handler.do_GET()
-    return handler.response
+    # The endpoint answers "pending" or "changed during validation; retry" by design while its
+    # background validation runs or a scanner touches the file; ask again (bounded) like a client.
+    deadline = time.monotonic() + 30
+    while True:
+        handler = object.__new__(server.Handler)
+        handler.path = '/api/eci-tuning'
+        handler.same_origin = lambda: True
+        handler.reply = lambda code, body, mime: setattr(handler, 'response', (code, json.loads(body)))
+        handler.do_GET()
+        dataset = handler.response[1].get('dataset') or {}
+        again = dataset.get('pending') or 'retry' in str(dataset.get('reason') or '')
+        if not again or time.monotonic() > deadline:
+            return handler.response
+        time.sleep(0.05)
 valid = request()
 (directory / 'dataset.json').write_text('{invalid json', encoding='utf-8')
 invalid = request()
 print(json.dumps([valid, invalid]))
 `;
   try {
+    assert.equal(dirname(directory), fileURLToPath(new URL('.', import.meta.url)).replace(/[\\/]$/, ''), 'fixture directory stays inside checkout');
     const result = spawnSync(python.command, [...python.args, '-B', '-c', program, directory], {cwd: new URL('.', import.meta.url), encoding: 'utf8', timeout: 30000});
     assert.equal(result.status, 0, result.stderr);
     const [[validCode, valid], [invalidCode, invalid]] = JSON.parse(result.stdout);
     assert.equal(validCode, 200);
     assert.equal(invalidCode, 200);
-    assert.equal(valid.dataset.status, 'configured');
+    assert.equal(valid.dataset.status, 'configured', JSON.stringify(valid.dataset));
     assert.equal(invalid.dataset.status, 'unknown');
     assert.ok(invalid.dataset.reason);
     const previous = globalThis.document;

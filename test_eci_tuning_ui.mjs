@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {mkdtempSync, rmSync} from 'node:fs';
-import {join} from 'node:path';
+import {dirname, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {spawnSync} from 'node:child_process';
 import test from 'node:test';
@@ -20,7 +20,7 @@ test('comparison and policy provenance remain separate, with unknowns explicit',
   assert.match(view.sections[1].title, /separate protocol/);
   assert.deepEqual(view.sections[0].evidence[0], ['a','12','2','1','3']);
   assert.equal(view.sections[0].rows[0][6], 'partial details');
-  assert.deepEqual(view.sections[0].comparisons[0], ['a','b','Not comparable','hardware profile differs','INCONCLUSIVE']);
+  assert.deepEqual(view.sections[0].comparisons[0], ['a','b','Not comparable','hardware profile differs','interval relation unknown','INCONCLUSIVE']);
   assert.match(view.pending[0], /NOT_COMPUTED/);
   assert.deepEqual(view.recommendation[0], ['general','rec','r1','test','PROVISIONAL']);
   assert.deepEqual(view.policy[0], ['general','saved','r2','selected','unknown']);
@@ -111,7 +111,7 @@ test('ingested full ECI and fast check reach the DOM through the real Mac endpoi
   {skip: process.platform === 'win32' ? 'Requires POSIX fcntl imported by the Mac server' : false}, t => {
   const python = resolvePython(t);
   if (!python) return;
-  const directory = mkdtempSync(join(fileURLToPath(new URL('../', import.meta.url)), 'agiw-eci-ui-'));
+  const directory = mkdtempSync(join(fileURLToPath(new URL('.', import.meta.url)), 'agiw-eci-ui-'));
   const program = `
 import json, os, sys
 from pathlib import Path
@@ -137,6 +137,7 @@ invalid = request()
 print(json.dumps([valid, invalid]))
 `;
   try {
+    assert.equal(dirname(directory), fileURLToPath(new URL('.', import.meta.url)).replace(/[\\/]$/, ''), 'fixture directory stays inside checkout');
     const process = spawnSync(python.command, [...python.args, '-B', '-c', program, directory], {cwd: new URL('.', import.meta.url), encoding: 'utf8', timeout: 30000});
     assert.equal(process.status, 0, process.stderr);
     const [[validCode, valid], [invalidCode, invalid]] = JSON.parse(process.stdout);

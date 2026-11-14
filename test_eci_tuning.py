@@ -39,7 +39,11 @@ class TuningTests(unittest.TestCase):
                                prompt_template_id='template-fixture', scorer_id='strict_choice')
         for component in row['components'].values():
             component['prompt_template_id'] = 'template-fixture'
-        return e.normalize_run(row)
+        row = e.normalize_run(row)
+        items = [dict(benchmark=name, item_id=str(i), truncated=False, parsed_answer='A')
+                 for name, component in row['components'].items() for i in range(int(component['n']))]
+        row['item_evidence'] = e.item_evidence(items)
+        return row
 
     def test_explicit_comparison_requires_matching_complete_evidence(self):
         left = self.comparable_run()
@@ -543,8 +547,10 @@ class TuningTests(unittest.TestCase):
         forged = copy.deepcopy(candidate)
         forged['baseline']['outcomes_sha256'] = '0' * 64
         rehash(forged)
-        with self.assertRaises(e.ValidationError):
-            e.ingest([self.file('forged-baseline.json', dict(schema_version=1, runs=[], items=[], fast_checks=[forged]))])
+        rejected = e.ingest([self.file('forged-baseline.json', dict(schema_version=1, runs=[], items=[], fast_checks=[forged]))])
+        self.assertEqual(rejected['fast_checks'], [])
+        self.assertEqual(rejected['rejected_fast_checks'], [
+            {'record_id': forged['record_id'], 'reason': 'baseline record or per-item outcome hash mismatch'}])
 
     def test_ingest_unresolved_baseline_requires_unverified_inconclusive(self):
         from test_eci_fast_check import run, rehash
@@ -552,8 +558,10 @@ class TuningTests(unittest.TestCase):
         candidate = run(baseline=baseline)
         candidate['baseline']['record'] = None
         rehash(candidate)
-        with self.assertRaises(e.ValidationError):
-            e.ingest([self.file('unverified-conclusive.json', dict(schema_version=1, runs=[], items=[], fast_checks=[candidate]))])
+        rejected = e.ingest([self.file('unverified-conclusive.json', dict(schema_version=1, runs=[], items=[], fast_checks=[candidate]))])
+        self.assertEqual(rejected['fast_checks'], [])
+        self.assertEqual(rejected['rejected_fast_checks'], [
+            {'record_id': candidate['record_id'], 'reason': 'paired comparison disagrees with verified evidence'}])
         candidate['comparison'] = e.fast.comparisons(candidate, candidate['baseline'], candidate['alpha'])
         rehash(candidate)
         ingested = e.ingest([self.file('unverified-baseline.json', dict(schema_version=1, runs=[], items=[], fast_checks=[candidate]))])

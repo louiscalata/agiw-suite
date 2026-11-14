@@ -5,6 +5,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -29,8 +30,16 @@ class Endpoint:
 
 
 def get_endpoint():
-    endpoint = Endpoint()
-    return server.Handler.do_GET(endpoint)
+    # The dataset is validated by a background worker and the first answers may say "pending"
+    # (the wait is 0.1 s by design); a loaded runner needs a few more polls, so ask again.
+    deadline = time.monotonic() + 30
+    while True:
+        code, body = server.Handler.do_GET(Endpoint())
+        dataset = body.get('dataset') if isinstance(body, dict) else None
+        again = isinstance(dataset, dict) and (dataset.get('pending') or 'retry' in str(dataset.get('reason') or ''))
+        if not again or time.monotonic() > deadline:
+            return code, body
+        time.sleep(0.05)
 
 
 class DatasetEndpointTests(unittest.TestCase):
@@ -76,7 +85,7 @@ assert callable(server.Handler.do_GET)
             with mock.patch.dict(os.environ, env):
                 code, body = get_endpoint()
                 self.assertEqual(code, 200)
-                self.assertEqual(body['dataset']['status'], 'configured')
+                self.assertEqual(body['dataset']['status'], 'configured', body['dataset'])
                 rows = body['rankings']['baseline_protocol']['eci']
                 self.assertEqual([row['run_id'] for row in rows], ['pc-llama31-baseline-max1024'])
                 self.assertAlmostEqual(rows[0]['eci_posterior_mean'], 105.37592661908786)
