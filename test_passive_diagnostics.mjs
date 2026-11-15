@@ -136,6 +136,28 @@ snapshot={host:'mac',sampledAt:Date.now()/1000};connected=true;
   assert.ok(h.requests.some(row => row.url === '/api/online-code-mode/readiness'), 'readiness must read the cached GET endpoint');
 });
 
+test('opening Diagnostics lists issues from the snapshot with GET requests only', () => {
+  const html = read('./web/index.html'), h = harness(html);
+  const source = executable(read('./web/app.js'));
+  const split = source.indexOf("$('pause').addEventListener");
+  // updateInferenceFix and its diagnostics list run for real; only map painting is replaced.
+  h.run(source.slice(0, split) + `
+render=()=>{};renderModelAction=()=>{};renderAutoUnload=()=>{};
+updateOnlineCodeMode=()=>{};renderActivity=()=>{};
+updateFreshness=()=>{};vitalsInput=()=>({feed:[]});syncCompactUI=()=>{};bindMonitorTabs=()=>{};
+renderMonitorTabs=()=>{};fitMap=()=>{};revealSelected=()=>{};
+snapshot={host:'mac',sampledAt:Date.now()/1000,sources:[{id:'pipeline-router',label:'Pipeline',state:'unavailable',detail:'fixture'}],
+  windowsJobs:{schemaVersion:1,complete:true,inFlight:[],recent:[{id:'mac-job-error-00002',state:'error',ageSeconds:4}]},
+  inference:{observedAt:new Date().toISOString(),nodes:[],tunnel:{state:'down',forwards:[{name:'deep',localPort:21002,remotePort:21102,open:false}]}}};connected=true;
+` + source.slice(split));
+  for (const id of ['fixInference', 'drawerFixButton']) h.elements.get(id).dispatch('click');
+  for (const hash of ['#diagnostics', '#model-tuning']) { h.context.window.location.hash = hash; h.run('openTuningLink();'); }
+  h.assertPassive();
+  const groups = h.elements.get('diagnosticsIssueRows').children;
+  assert.deepEqual(groups.map(group => group.dataset.diagnostics), ['sources', 'lanes', 'jobs', 'listeners', 'unavailable']);
+  assert.ok(h.requests.some(row => row.url === '/api/online-code-mode/readiness'), 'readiness is still the cached GET');
+});
+
 test('a completed cached readiness read never chains into an action', async () => {
   for (const body of [
     {readOnly: true, status: 'observed', message: 'Cached status only.'},

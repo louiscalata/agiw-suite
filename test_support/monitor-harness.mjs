@@ -107,6 +107,7 @@ export function harness({ width = 1150, extra = {}, legacyDetails = false } = {}
   stubMapFocus(id,node){selected=id;nodeElements.set(id,node);renderGraph=renderList=fitMap=()=>{};},
   renderAutoUnload,pollAutoUnload,requestAutoUnload,get autoUnloadState(){return autoUnloadState;},
   requestOnlineCodeAction,updateOnlineCodeMode,updateInferenceFix,openFixInference,closeFixInference,renderMemoryBanner,dismissMemoryBanner,
+  diagnosticsView,renderDiagnostics,setCollector(value){collectorIssues=value;},
   get memoryDismissed(){return memoryDismissed;},
   get graph(){return graph;},
   // The rail without the map: selecting a node or closing the drawer only moves panels (the map's SVG is not faked here).
