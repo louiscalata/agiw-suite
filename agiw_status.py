@@ -20,6 +20,7 @@ from pathlib import Path
 from inference_stats import public_map
 from fleet_state import build_fleet_state
 from machine_state import FRESH_SECONDS, TRUST_LEVELS, expire_machines, machine_summary, observation_age
+from machine_state import finite_number as _number
 
 ENDPOINT_PATH = Path.home() / '.local/state/inference-monitor/endpoint.json'
 MAX_ENDPOINT = 4096
@@ -36,13 +37,6 @@ REGISTRY_ID = re.compile(r'registry:[a-z][a-z0-9_-]{0,15}\Z')
 
 class StatusUnavailable(ValueError):
     """A fixed reason code, never response text or a local path."""
-
-
-def _number(value):
-    try:
-        return type(value) in (int, float) and math.isfinite(value)
-    except OverflowError:
-        return False
 
 
 def _json(raw):
