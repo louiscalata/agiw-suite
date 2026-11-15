@@ -856,6 +856,8 @@ class SamplerWiring(unittest.TestCase):
 
     def run_sampler(self, publisher):
         import server
+        from contextlib import ExitStack
+        from test_server import isolate_sampler_configs
         store = server.SnapshotStore()
         row = {"id": "model-a", "name": "Model A", "host": "mac", "state": "idle", "loaded": True, "ageSeconds": 0,
                "source": "lms-ps"}
@@ -864,9 +866,25 @@ class SamplerWiring(unittest.TestCase):
                 mock.patch("server.collect_activity", return_value={"runs": [], "sources": []}), \
                 mock.patch("server.collect_clients", return_value=([], [])), \
                 mock.patch("server.mac_gpu", return_value=(None, {"id": "mac-gpu", "state": "unavailable"})), \
-                mock.patch("server.LocalCallers", return_value=self.Callers()):
+                mock.patch("server.LocalCallers", return_value=self.Callers()), \
+                ExitStack() as stack:
+            isolate_sampler_configs(stack)
             server.sample(store, self.Stop(1), feed=self.Feed(), guard=self.Guard(), publisher=publisher)
         return store.read()
+
+    def test_the_sampler_never_hands_a_real_registry_lane_to_the_prober(self):
+        # A lane in the default registry config would start the process-wide prober for the rest of the run.
+        registry = []
+        with tempfile.TemporaryDirectory() as temp:
+            remote = Path(temp) / "remote-machines.json"
+            remote.write_text(json.dumps({"schemaVersion": 1, "machines": [{"id": "pc", "label": "Worker placeholder",
+                                          "lanes": [{"id": "deep", "label": "Deep", "localPort": 21001}]}]}))
+            remote.chmod(0o600)
+            with mock.patch.dict(os.environ, {"AGIW_REMOTE_MACHINES_CONFIG": str(remote)}), \
+                    mock.patch("server.remote_machines.background_snapshot",
+                               side_effect=lambda config, **_: registry.append(config) or []):
+                self.run_sampler(None)
+        self.assertEqual([config for config in registry if config is not None], [])
 
     def test_rows_are_published_and_the_offer_reads_the_published_snapshot(self):
         offered = []

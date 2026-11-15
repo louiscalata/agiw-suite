@@ -366,3 +366,38 @@ class MachineStateTests(unittest.TestCase):
         root = Path(machine_state.__file__).resolve().parent
         for name in ("machine_state.py", "peer_feed.py"):
             self.assertNotRegex((root / name).read_text(encoding="utf-8"), r"age < -2\b", name)
+
+
+class SharedHelperTests(unittest.TestCase):
+    def test_utc_iso_formats_seconds_as_utc_with_z(self):
+        for seconds, expected in ((0, "1970-01-01T00:00:00Z"),
+                                  (1800000000, "2027-01-15T08:00:00Z"),
+                                  (1800000000.25, "2027-01-15T08:00:00.250000Z"),
+                                  (0.5, "1970-01-01T00:00:00.500000Z")):
+            with self.subTest(seconds=seconds):
+                self.assertEqual(machine_state.utc_iso(seconds), expected)
+
+    def test_finite_number_edges(self):
+        for value in (0, -0.0, 1.5, -3, 10 ** 300):
+            with self.subTest(value=value):
+                self.assertTrue(finite_number(value))
+        for value in (True, False, float("nan"), float("inf"), -float("inf"), 10 ** 400, None, "1"):
+            with self.subTest(value=value):
+                self.assertFalse(finite_number(value))
+
+    def test_copies_now_reference_the_shared_helpers(self):
+        import sys
+        import agiw_status
+        import fleet_state
+        import remote_machines
+        windows = str(Path(machine_state.__file__).resolve().parent / "windows")
+        if windows not in sys.path:
+            sys.path.insert(0, windows)
+        from agiw_win import server as win_server
+        self.assertIs(agiw_status._number, machine_state.finite_number)
+        self.assertIs(fleet_state._number, machine_state.finite_number)
+        self.assertIs(win_server.finite_number, machine_state.finite_number)
+        self.assertIs(fleet_state._iso, machine_state.utc_iso)
+        self.assertIs(remote_machines._iso, machine_state.utc_iso)
+        source = Path(win_server.__file__).read_text(encoding="utf-8")
+        self.assertNotIn("def valid(", source)

@@ -192,7 +192,8 @@ def normalize_run(row, hint=None, run_id=None):
     protocol_id = eci_protocol(row)
     result = {'run_id': text(row.get('run_id') or run_id, 'run_id', True),
               'model': text(row.get('model') or row.get('model_id'), 'model', True),
-              'status': {'OK': 'NOT_COMPUTED', 'PARTIAL': 'NOT_COMPUTED'}.get(row.get('status'), row.get('status')) or 'NOT_COMPUTED',
+              # The local fitter writes ECI_NOT_COMPUTED; source_status keeps it.
+              'status': {'OK': 'NOT_COMPUTED', 'PARTIAL': 'NOT_COMPUTED', 'ECI_NOT_COMPUTED': 'NOT_COMPUTED'}.get(row.get('status'), row.get('status')) or 'NOT_COMPUTED',
               'comparability_class': comparability(row, hint),
               'protocol_id': protocol_id,
               'reason': text(row.get('reason'), 'reason')}
@@ -402,6 +403,7 @@ def ingest(paths, hint=None, require_normalized=False, _documents=None):
                     items.append(normalize_item(row))
                 elif 'raw_score' in row:
                     # Validate every source component before aggregation can drop it.
+                    comparability(row, hint)
                     component_protocol = eci_protocol(row)
                     model = row.get('model_id') or row.get('model')
                     key = row.get('run_id') or f'{path.stem}::{model}'
@@ -413,6 +415,11 @@ def ingest(paths, hint=None, require_normalized=False, _documents=None):
                     name = text(row.get('benchmark'), 'benchmark', True)
                     if name in target['components']:
                         raise ValidationError('duplicate extra score benchmark')
+                    if target['components']:
+                        # The run was copied from its first row; these belong to components only.
+                        # scorer_id stays: comparability() reads it to keep lenient runs out of baseline.
+                        for field in ('benchmark', 'raw_score', 'n', 'n_items', 'n_scored', 'stderr'):
+                            target.pop(field, None)
                     target['components'][name] = {'score': row.get('raw_score'), 'status': row.get('status'), 'n': row.get('n_scored', row.get('n_items')),
                                                    'stderr': row.get('stderr'), 'scorer_id': row.get('scorer_id')}
                 else:

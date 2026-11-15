@@ -11,6 +11,8 @@ import datetime as dt
 import math
 import time
 
+from machine_state import finite_number as _number, utc_iso as _iso
+
 # Only explicit probe failures establish unavailable endpoint evidence. New or
 # unrecognised producer reasons fail closed to unknown.
 ENDPOINT_FAILURES = frozenset({"refused", "timeout", "unavailable", "upstream_error", "tunnel_down"})
@@ -18,13 +20,6 @@ ANSWERED_WITHOUT_IDENTITY = frozenset({
     "load_state_unreported", "identity_unknown", "multiple_loaded", "model_unreported",
     "model_id_too_long", "models_unreadable", "model_not_loaded", "no_models",
 })
-
-
-def _number(value):
-    try:
-        return type(value) in (int, float) and math.isfinite(value)
-    except OverflowError:
-        return False
 
 
 def _stamp(value):
@@ -35,10 +30,6 @@ def _stamp(value):
         return parsed.timestamp() if parsed.tzinfo is not None else None
     except (ValueError, OverflowError, OSError):
         return None
-
-
-def _iso(value):
-    return dt.datetime.fromtimestamp(value, dt.timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def _clock(row, now, default):
