@@ -55,6 +55,8 @@ try:
 except ImportError:  # no flock (not macOS/Linux): this unloader never owns the lock, never unloads
     fcntl = None
 
+from machine_state import finite_number as _finite
+
 ROUTE_DEFAULT_AUTHOR = "google/gemma-4-26b-a4b-qat"
 DEFAULT_CONFIG_PATH = Path.home() / ".config/agiw/auto-unload.json"
 DEFAULT_JOURNAL_PATH = Path.home() / ".local/state/inference-monitor/auto-unload.jsonl"
@@ -109,10 +111,6 @@ STATE_KEYS = ("enabled", "idleMinutes", "tightIdleMinutes", "maxPerHour", "prote
               "thresholdSeconds", "memoryLevel", "blocked", "candidates", "recent",
               "unloadsLastHour", "configError", "journalError", "tickedAt")
 CANDIDATE_KEYS = ("model", "instanceId", "idleSeconds", "eta", "blocked")
-
-
-def _finite(value: Any) -> bool:
-    return type(value) in (int, float) and math.isfinite(value)
 
 
 def _clip(value: Any, limit: int = MESSAGE_MAX) -> Optional[str]:

@@ -1,5 +1,4 @@
 """Offline replays of the expressly excluded Sol findings; never contact a service."""
-import copy
 import json
 import os
 from pathlib import Path

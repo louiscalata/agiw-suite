@@ -17,7 +17,7 @@ class StatsModelTests(unittest.TestCase):
         self.assertIsNone(node["promptTokensPerSecond"])
         self.assertIsNone(node["generationTokensPerSecond"])
         self.assertIsNone(node["vramUsedMiB"])
-        for bad in (-1, float("nan"), float("inf"), True):
+        for bad in (-1, float("nan"), float("inf"), True, 10**400):
             with self.subTest(bad=bad):
                 with self.assertRaises(ValueError):
                     lane(generation_tokens_per_second=bad)

@@ -7,7 +7,6 @@ invalidate them, rather than relying on every producer to remove its old payload
 """
 import copy
 import itertools
-import json
 from pathlib import Path
 import sys
 import tempfile

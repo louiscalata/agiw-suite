@@ -5,6 +5,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Merged on 14 November 2026:
+
+- #160 (`0315afb`) re-running `agiw service install` on Windows ends a Running or Queued peer-link task with `schtasks /End` before `/Run`, so the new code starts. A task that does not stop, or a State that is Unknown or cannot be read, starts nothing and exits 1 with the `/End` command to run.
+- #161 (`553db72`) stops two telemetry tests racing first-run script latency, and the `lms` reader no longer blocks on a pipe that a child process keeps open after the command exits.
+- #162 (`24ad90b`) keeps Overview map captions at full contrast when a node is selected or faded; only the halo, ring and core dim.
+- #163 (`04f9cb8`) adds the screening check-job engine (`eci_jobs.py`, `docs/eci-check-jobs.md`). Its gate ships closed and it starts no model, server or lane.
+- #164 (`34f1b89`) opens the Overview at `/` in the Mac dashboard window; the compact popover keeps `/monitor`. The shell keeps theme, text size and the window frame in its own preferences and returns a failed page to its landing page. The app was not built or opened: native rendering is NOT_RUN.
+- #165 (`23edba4`) publishes the router state contract (`docs/router-state-contract.md`) and runs the router dual-read cases against test writers in `test_support/router_contract/`. A fixture pass is not router acceptance.
+- #166 (`caa4d9e`) makes Text size reachable beside Theme on every page that has the Theme control, keeps both choices in the documented `agiw-theme` and `agiw-text-size` keys, and documents the preference contract (`docs/monitor-preferences.md`).
+- #167 (`95995df`) adds the lane-context pre-check (`context_exceeded`) and three read-only check-job GET routes. `MonitorServer` serves them only when handed a route object; the default is none, and no caller passes one.
+- #168 (`cc4c5c7`) lists what is not live, and why, in the Diagnostics panel.
+
 - Add model fast-check planning, statistics and admission gates, an opt-in HTTP harness adapter, and read-only dataset integration for both observers. `AGIW_ECI_TUNING_DATASET_DIR` selects a normalized local `dataset.json`; unset configuration uses the bundled catalog, and invalid configured data reports unknown. Screening results remain separate from full ECI scores and cannot update routing policy. Real model checks, native rendering and independent full ECI runs remain NOT_RUN.
 
 - #138 (`607b302`) makes Diagnostics read-only: opening it reads cached observations and starts no repair. Repair requests choose one target (`local`, `route` or `nisi`) with `reviewed: true`; bundled `all` and `both` scopes are rejected.
