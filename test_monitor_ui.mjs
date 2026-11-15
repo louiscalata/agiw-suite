@@ -2841,6 +2841,22 @@ test('automatic unload review binds the displayed intent and cancel sends no wri
   assert.equal($('actionReview').open,false);
 });
 
+test('the model review names the host the POST acts on, for both hosts', async () => {
+  for (const [host, word] of [['mac', 'This Mac'], ['windows', 'This PC']]) {
+    const calls=[];
+    const {api,$}=harness({extra:{fetch:async(url,options)=>{calls.push({url,options});return {ok:true,status:200,json:async()=>({status:'idle'})};}}});
+    const model={id:'fixture/a',modelKey:'fixture/a',host,source:'lmstudio-api',state:'unloaded',loaded:false,ageSeconds:0};
+    api.setFeed({...pendingFeed(),host,modelControl:{supported:true},models:[model]});
+    api.spyScope();api.setModelScope('all');
+    api.select(`model:${host}:fixture/a`);
+    await api.requestModelAction();
+    assert.equal($('actionReview').open,true,host);
+    assert.equal($('actionReviewTarget').textContent,`${word} · fixture/a`);
+    assert.equal(calls.length,0,'opening the review sends nothing');
+    api.closeActionReview();
+  }
+});
+
 test('model review binds exact model and action and rechecks freshness before confirmation', async () => {
   const calls=[];
   const {api,doc,$}=harness({extra:{fetch:async(url,options)=>{
