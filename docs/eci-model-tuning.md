@@ -33,6 +33,42 @@ an unsupported architecture; a newer-backend run was pending. These labels are
 dated score evidence, not current process or installed-model observations.
 Glimmer's informal/withheld inspect accuracy is not admitted as a component score.
 
+## Measured evidence folder · 15 November 2026
+
+`eci_tuning_data/` is a normalized v1 dataset folder. It holds every run in the
+bundled catalog, unchanged, plus measured Mac results for Muse Glimmer 30B
+Q4_K_M. It was built with the suite's own ingest:
+`python3 -B -m eci_tuning ingest eci_tuning_catalog.json <measured input> --output eci_tuning_data/dataset.json`.
+The bundled catalog keeps its 10 November snapshot. To show the folder on
+`/eci-tuning`, set `AGIW_ECI_TUNING_DATASET_DIR` to the folder's absolute path in
+the observer's environment. The configured folder replaces the bundled view
+rather than adding to it. That is why it includes the catalog runs: with the
+variable set, the computed catalog ECIs (PC Llama 3.1 8B: 105.38 baseline,
+108.59 pipeline-configured) and the pending catalog runs still show. Its `as_of`
+is null because its two sources carry different dates (10 and 15 November).
+
+- `mac-glimmer-pipecfg2`: three full pipeline-configured components on the Mac
+  (Winogrande 0.852, ARC 0.957, GSM8K 0.960; N 1267, 1172 and 1319). These use
+  predeclared local protocol deviations and are not Epoch-official. ECI is
+  NOT_COMPUTED: only Winogrande is inside the 0.1–0.9 normalized band, and the
+  fit needs at least four informative components.
+- One fast check (20 ARC and 20 GSM8K items, 40/40 correct). This is screening,
+  not ECI. With no verified baseline, the comparison is INCONCLUSIVE.
+
+`eci_tuning_data/receipts.json` records each measurement: command, machine,
+requested and served model, model file and SHA-256, dataset id and SHA-256, N,
+seed, wall time and tokens/s. Labels that no receipt records carry a `*_basis`
+field: the machine name is as stated by the operator, quant and backend version
+come from the file and binary names, and scorer ids are mapped to the suite's
+scorer vocabulary. Binding works at three levels. Each number in a measured run
+is bound field by field to a receipt value. Each catalog run is bound as a whole
+record to `eci_tuning_catalog.json` at a recorded SHA-256. The fast-check record
+is bound as a whole by `record_id`; its main counts and identity fields are also
+compared with the receipt. `test_eci_measured_data.py` fails when a measured
+number has no matching receipt, a catalog run differs from the catalog, the
+catalog file changes (rebuild the folder then), or the folder no longer
+validates against the schema. None of this is an improvement or release claim.
+
 ## Source checkout commands
 
 Run these from the repository root. None calls a model, starts a server, contacts
