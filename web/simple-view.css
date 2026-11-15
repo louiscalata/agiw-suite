@@ -7,9 +7,6 @@
 #svBody .sv-confirm{margin:8px 0 0;font-weight:400}
 @media(max-width:22.5rem){#svBody{margin:12px}#svBody .sv-row{overflow-wrap:anywhere}}
 .j-bus{margin:14px 0 4px;padding:10px 0;border-top:1px solid currentColor;font:11px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.04em;white-space:pre;overflow-x:auto;color:inherit;background:transparent}
-html[data-text-size="125"] body{zoom:1.25}
-html[data-text-size="150"] body{zoom:1.5}
-html[data-text-size="200"] body{zoom:2}
 html[data-text-size] .j-nav{overflow-y:auto}
 html:is([data-text-size="150"],[data-text-size="200"]) body{grid-template-columns:1fr;grid-template-rows:auto auto minmax(0,1fr) auto;overflow-x:hidden}
 html:is([data-text-size="150"],[data-text-size="200"]) body>.j-nav{grid-column:1;grid-row:2;flex-direction:row;flex-wrap:wrap;align-items:stretch;overflow:visible;border-right:0;border-bottom:1px solid currentColor}

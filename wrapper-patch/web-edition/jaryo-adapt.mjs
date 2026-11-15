@@ -74,6 +74,88 @@ const SCREENS = [
   '</details></section>',
 ].join('');
 
+// The edition does not ship web/jaryo.mjs, so it carries the same display preference contract
+// (docs/monitor-preferences.md): Theme and Text size, read from this page's storage, then from
+// window.agiwPreferenceSeed, then the default; saved only when a person changes one; and one
+// agiw:preferences event with both keys after each change. The zoom rules are in the style.css append.
+export const PREFERENCE_RUNTIME = `
+const EDITION_THEMES=['system','light','dark'],EDITION_TEXT_SIZES=['100','125','150','200'];
+function editionPreferenceValid(key,value){
+  if(typeof value!=='string')return null;
+  if(key==='agiw-theme')return EDITION_THEMES.includes(value)?value:null;
+  if(key==='agiw-text-size')return EDITION_TEXT_SIZES.includes(value)?value:null;
+  return null;
+}
+function editionPreference(key){
+  let stored=null;
+  try{stored=window.localStorage?.getItem(key)??null;}catch(_){stored=null;}
+  const saved=editionPreferenceValid(key,stored);
+  if(saved)return saved;
+  try{
+    const seed=window.agiwPreferenceSeed;
+    if(!seed||typeof seed!=='object'||Array.isArray(seed)||!Object.prototype.hasOwnProperty.call(seed,key))return null;
+    return editionPreferenceValid(key,seed[key]);
+  }catch(_){return null;}
+}
+function editionPublish(){
+  const data=document.documentElement.dataset;
+  const detail=Object.freeze({'agiw-theme':editionPreferenceValid('agiw-theme',data.themeChoice)||'system','agiw-text-size':editionPreferenceValid('agiw-text-size',data.textSize)||'100'});
+  try{window.dispatchEvent(new window.CustomEvent('agiw:preferences',{detail}));}catch(_){}
+  return detail;
+}
+function editionTheme(choice,{save=true}={}){
+  const mode=EDITION_THEMES.includes(choice)?choice:'system';
+  const light=window.matchMedia('(prefers-color-scheme: light)').matches===true;
+  document.documentElement.dataset.theme=mode==='system'?(light?'light':'dark'):mode;
+  document.documentElement.dataset.themeChoice=mode;
+  if(save){try{window.localStorage?.setItem('agiw-theme',mode);}catch(_){}}
+  const select=document.getElementById('jaryoTheme');
+  if(select)select.value=mode;
+  return mode;
+}
+function editionTextSize(value,{save=true}={}){
+  const size=editionPreferenceValid('agiw-text-size',String(value))||'100';
+  document.documentElement.dataset.textSize=size;
+  if(save){try{window.localStorage?.setItem('agiw-text-size',size);}catch(_){}}
+  return size;
+}
+function mountEditionTextSize(){
+  const existing=document.getElementById('jaryoTextSize');
+  if(existing)return existing;
+  const theme=document.getElementById('jaryoTheme')?.closest?.('.j-theme');
+  if(!theme?.after)return null;
+  const label=document.createElement('label');
+  label.className='j-theme j-text-size';
+  label.append(document.createTextNode('Text size'));
+  const select=document.createElement('select');
+  select.id='jaryoTextSize';
+  select.setAttribute('aria-label','Text size');
+  for(const size of EDITION_TEXT_SIZES){const option=document.createElement('option');option.value=size;option.textContent=size+'%';select.append(option);}
+  select.value=document.documentElement.dataset.textSize||'100';
+  select.addEventListener('change',()=>{select.value=editionTextSize(select.value);editionPublish();});
+  label.append(select);
+  theme.after(label);
+  return select;
+}
+{
+  editionTextSize(editionPreference('agiw-text-size'),{save:false});
+  editionTheme(editionPreference('agiw-theme')||'system',{save:false});
+  const select=document.getElementById('jaryoTheme');
+  select?.addEventListener('change',()=>{editionTheme(select.value);editionPublish();});
+  const media=window.matchMedia('(prefers-color-scheme: light)');
+  const onScheme=()=>{if(document.documentElement.dataset.themeChoice==='system')editionTheme('system',{save:false});};
+  if(typeof media.addEventListener==='function')media.addEventListener('change',onScheme);
+  mountEditionTextSize();
+}
+`.trim();
+
+/** Zoom for the edition's Text size; simple-view.css keeps the overview layouts for 150 and 200 percent. */
+export const TEXT_ZOOM = [
+  'html[data-text-size="125"] body{zoom:1.25}',
+  'html[data-text-size="150"] body{zoom:1.5}',
+  'html[data-text-size="200"] body{zoom:2}',
+].join('\n');
+
 const SCREEN_RUNTIME = `
 function editionScreenButtons(nav){
   const out=[];
@@ -107,15 +189,6 @@ function paintEditionComponents(){
   const rows=Array.isArray(snap.models)?snap.models.filter(item=>item&&item.host!=='linux'):[];
   models.textContent=\`\${rows.length} models in this snapshot · \${rows.filter(item=>item.loaded===true).length} loaded.\`;
 }
-function editionTheme(choice){
-  const mode=['system','light','dark'].includes(choice)?choice:'system';
-  const light=window.matchMedia('(prefers-color-scheme: light)').matches===true;
-  document.documentElement.dataset.theme=mode==='system'?(light?'light':'dark'):mode;
-  document.documentElement.dataset.themeChoice=mode;
-  try{localStorage.setItem('agiw-theme',mode);}catch(_){}
-  const select=document.getElementById('jaryoTheme');
-  if(select)select.value=mode;
-}
 {
   const nav=document.querySelector('.j-nav');
   nav?.addEventListener('click',event=>{
@@ -133,14 +206,6 @@ function editionTheme(choice){
     next.focus();
     showEditionScreen(next.dataset.screen);
   });
-  const select=document.getElementById('jaryoTheme');
-  let saved='system';
-  try{saved=localStorage.getItem('agiw-theme')||'system';}catch(_){}
-  editionTheme(saved);
-  select?.addEventListener('change',()=>editionTheme(select.value));
-  const media=window.matchMedia('(prefers-color-scheme: light)');
-  const onScheme=()=>{if(document.documentElement.dataset.themeChoice==='system')editionTheme('system');};
-  if(typeof media.addEventListener==='function')media.addEventListener('change',onScheme);
   showEditionScreen(document.documentElement.dataset.screen||'overview');
   setInterval(()=>{if(document.documentElement.dataset.screen==='components')paintEditionComponents();},1000);
 }
@@ -308,8 +373,15 @@ export function adaptEdition(rules, upstream) {
   for (const edit of screenEdits) {
     if (occurrences(index, edit[0]) === 1 && !html.edit.some(item => item[0] === edit[0])) html.edit.push(edit);
   }
+  if (!(app.append || []).some(line => String(line).includes('function mountEditionTextSize'))) {
+    app.append = [...(app.append || []), PREFERENCE_RUNTIME];
+  }
   if (!(app.append || []).some(line => String(line).includes('function showEditionScreen'))) {
     app.append = [...(app.append || []), SCREEN_RUNTIME];
+  }
+  const style = rules.css?.['style.css'];
+  if (style && !String(style.append || '').includes('html[data-text-size="200"] body{zoom:2}')) {
+    style.append = [style.append, '/* Text size (edition preference runtime in app.js) */', TEXT_ZOOM].filter(Boolean).join('\n');
   }
   const about = html.replaceContent?.aboutPanel;
   if (about?.includes('Jeview')) {
