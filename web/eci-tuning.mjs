@@ -20,6 +20,24 @@ function screeningPairs(row) {
   ];
 }
 
+// Per-record facts the screening tables do not show. A field the API does not send stays unknown.
+export const recordFacts = row => [text(row.record_id), metric(row.wall_time_s), typeof row.quantization === 'string' ? text(row.quantization) : 'unknown',
+  row.provenance && typeof row.provenance === 'object' ? text(row.provenance.size_match) : 'unknown', typeof row.journal === 'string' ? text(row.journal) : 'unknown'];
+// null means the API did not report rejected fast checks; an empty list means none were recorded.
+export const rejectedView = data => Array.isArray(data?.rejected_fast_checks) ? data.rejected_fast_checks.map(row => [text(row?.record_id), text(row?.reason)]) : null;
+// answer is {http, data} from GET /api/eci-jobs. Only a 200 with an object is a status.
+export function jobsView(answer) {
+  const unknown = message => ({message, facts: [['Status', 'unknown'], ['Gate', 'unknown'], ['Engine owner', 'unknown'], ['Reason', 'unknown'], ['Active job', 'unknown']], rows: []});
+  if (answer?.http === 404) return unknown('Check jobs are not available on this observer.');
+  const data = answer?.http === 200 ? answer.data : null;
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return unknown('Check jobs unavailable. Status unknown.');
+  const owner = data.owner === true ? 'yes' : data.owner === false ? 'no' : 'unknown';
+  const facts = [['Status', text(data.status)], ['Gate', text(data.gate)], ['Engine owner', owner], ['Reason', text(data.reason)], ['Active job', data.active === null ? 'none recorded' : text(data.active)]];
+  if (!Array.isArray(data.jobs)) return {message: 'Job list unknown.', facts, rows: []};
+  const rows = data.jobs.map(job => [text(job?.job_id), text(job?.request?.target), text(job?.request?.model_id), text(job?.request?.sample_set), text(job?.state), text(job?.attempt), text(job?.result?.record_id), text(job?.reason)]);
+  return {message: data.status === 'ok' ? null : text(data.reason), facts, rows};
+}
+
 export function viewModel(data) {
   const activation = data.runtime_activation || {};
   const route = data.policy?.routes?.general;
@@ -49,6 +67,7 @@ export function viewModel(data) {
       rows: (group.rows || []).map(row => [text(row.record_id), text(row.created_at), text(row.baseline_id), text(row.model), text(row.artifact_sha256), metric(row.normalized_score), interval(row.interval), text(row.verdict), row.finalist === true ? `Screening finalist · full run ${text(row.full_run)}` : row.finalist === false ? 'Screened' : 'unknown', reasons(row.reasons)]),
       benchmarks: [...(group.rows || []), ...(group.pending || [])].flatMap(screeningBenchmarks),
       pairs: [...(group.rows || []), ...(group.pending || [])].flatMap(screeningPairs),
+      records: [...(group.rows || []), ...(group.pending || [])].map(recordFacts),
       notComparable: (group.not_comparable || []).map(row => [text(row.record_id), text(row.other_record_id), reasons(row.reasons)]),
       pending: (group.pending || []).map(row => `${text(row.record_id)} · ${text(row.created_at)} · ${text(row.model)}: fast check · pre ${text(row.pre)}, post ${text(row.post)}. ${text(row.reason)} ${Array.isArray(row.reasons) && row.reasons.length ? reasons(row.reasons) : ''}`)
     }))
@@ -70,11 +89,29 @@ function table(headers, rows, caption) {
   rows.forEach(row => {const tr = element('tr'); row.forEach(value => tr.append(element('td', value))); body.append(tr);});
   table.append(body); wrapper.append(table); return wrapper;
 }
-export function render(data, root) {
+function jobsSection(answer) {
+  const view = jobsView(answer);
+  const section = element('section'); section.append(element('h2', 'Check jobs'));
+  section.append(element('p', 'This list is read-only. Opening it queues, starts and cancels nothing, and sends no model request.'));
+  if (view.message) section.append(element('p', view.message));
+  section.append(table(['Field', 'Reported value'], view.facts, 'Check-job status'));
+  if (view.rows.length) section.append(table(['Job', 'Target', 'Model', 'Sample set', 'State', 'Attempt', 'Record', 'Reason'], view.rows, 'Check jobs as the engine reports them'));
+  return section;
+}
+function rejectedSection(data) {
+  const rows = rejectedView(data);
+  const section = element('section'); section.append(element('h2', 'Rejected fast checks'));
+  section.append(rows === null ? element('p', 'Rejected fast checks unknown; this observer does not report them.') : rows.length ? table(['Record', 'Reason'], rows, 'Fast-check records refused at ingest') : element('p', 'No rejected fast checks recorded.'));
+  // The server caps the list; its note carries the full count.
+  if (typeof data.rejected_fast_checks_note === 'string') section.append(element('p', data.rejected_fast_checks_note));
+  return section;
+}
+export function render(data, root, jobs) {
   const model = viewModel(data);
   const dataset = model.dataset;
   if (dataset?.status === 'unknown') {
     root.replaceChildren(element('p', `Dataset unknown: ${dataset.reason || 'No reason supplied.'}`));
+    if (jobs !== undefined) root.append(jobsSection(jobs));
     return;
   }
   root.replaceChildren();
@@ -109,20 +146,32 @@ export function render(data, root) {
     section.append(group.rows.length ? table(['Run', 'Recorded at', 'Bound baseline', 'Model', 'Model artifact SHA-256', 'Normalized screen', 'Bounds', 'Paired verdict', 'Next gate', 'Reasons'], group.rows, 'Screening results; separate from ECI') : element('p', 'No admissible screening result.'));
     if (group.benchmarks.length) section.append(table(['Run', 'Model', 'Benchmark', 'Planned', 'Attempted', 'Completed', 'Correct', 'Wrong', 'Parsed', 'Unparsed', 'Cut off', 'Truncations', 'Errors', 'Timeouts', 'Unknown finish', 'Stop reason', 'Accuracy', 'Wilson 95% interval', 'Normalized score', 'Normalized 95% interval', 'Retried'], group.benchmarks, 'Screening coverage, deviations and component intervals'));
     if (group.pairs.length) section.append(table(['Comparison source', 'Run', 'Other run', 'Benchmark', 'Overall verdict', 'Component verdict', 'Verification', 'Reason', 'Expected', 'Candidate', 'Baseline', 'Shared', 'Both correct', 'Both wrong', 'Candidate only', 'Baseline only', 'Discordant', 'p value', 'Alpha'], group.pairs, 'Paired screening outcomes'));
+    if (group.records.length) section.append(table(['Run', 'Wall time (s)', 'Quantization', 'File size match', 'Journal'], group.records, 'Recorded run facts'));
     if (group.notComparable.length) section.append(table(['Run', 'Other run', 'Why not comparable'], group.notComparable, 'Not comparable'));
     group.pending.forEach(note => section.append(element('p', note))); root.append(section);
   }
+  root.append(rejectedSection(data));
   const pending = element('section'); pending.append(element('h2', 'Pending scores'));
   model.pending.forEach(note => pending.append(element('p', note))); root.append(pending);
+  if (jobs !== undefined) root.append(jobsSection(jobs));
 }
 if (typeof document !== 'undefined') {
   const status = document.getElementById('tuningStatus');
   let attempts = 0;
+  const root = document.getElementById('tuningEvidence');
+  // Read once. The scores never wait for it: the section is appended when the answer arrives,
+  // and a failed answer, or none within 10 s, reads unknown.
+  let jobs, rendered = false;
+  const jobsWait = new Promise(resolve => setTimeout(() => resolve({http: null, data: null}), 10000));
+  Promise.race([fetch('/api/eci-jobs', {cache: 'no-store'}).then(response => response.status === 200
+    ? response.json().then(data => ({http: 200, data}), () => ({http: 200, data: null}))
+    : {http: typeof response.status === 'number' ? response.status : null, data: null}).catch(() => ({http: null, data: null})), jobsWait])
+    .then(answer => {jobs = answer; if (rendered) root.append(jobsSection(answer));});
   const refresh = () => fetch('/api/eci-tuning', {cache: 'no-store'}).then(response => {
     if (!response.ok) throw new Error('unavailable');
     return response.json();
   }).then(data => {
-    render(data, document.getElementById('tuningEvidence'));
+    render(data, root, jobs); rendered = true;
     status.textContent = data.dataset?.status === 'unknown' ? 'Recorded scores unknown; see dataset reason below.' : 'Recorded scores loaded. No live inference tested.';
     if (data.dataset?.pending && ++attempts < 10) setTimeout(refresh, 1000);
     else if (data.dataset?.pending) status.textContent = 'Dataset validation continues. Reload this page to read the result; scores remain unknown.';
