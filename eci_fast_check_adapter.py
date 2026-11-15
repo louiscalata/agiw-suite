@@ -113,7 +113,16 @@ def positive_int(value):
 def quantization_name(value):
     """Normalize only descriptive quantization labels, never guess a numeric enum."""
     value = safe_text(value)
-    return value.upper().replace("-", "_") if value else None
+    if not value:
+        return None
+    # llama.cpp ftype labels, e.g. "Q4_K - Medium" and "IQ4_XS - 4.25 bpw".
+    match = re.fullmatch(r"(Q\d_K) - (Small|Medium|Large)", value, re.IGNORECASE)
+    if match:
+        return f"{match[1]}_{match[2][0]}".upper()
+    match = re.fullmatch(r"([A-Z0-9_]+) - \d+(?:\.\d+)? bpw(?: ternary)?", value, re.IGNORECASE)
+    if match:
+        return match[1].upper()
+    return value.upper().replace("-", "_")
 
 
 def model_name(value):
