@@ -15,7 +15,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 from http.client import HTTPConnection
-from contextlib import redirect_stdout
+from contextlib import ExitStack, redirect_stdout
 # LIVE_ENDPOINT is the installed monitor's endpoint.json (agiw-status reads it); no test may write it.
 from server import (ENDPOINT_PATH as LIVE_ENDPOINT, MonitorServer, SnapshotStore,
                     enforce_snapshot_evidence, sample)
@@ -67,6 +67,20 @@ def tearDownModule():
         _endpoint_temp = None
     if LIVE_CONFIG in CONFIG_READS or LINK_STARTS:
         raise AssertionError(f'a server.main() test read the live {LIVE_CONFIG} or started the LAN link')
+
+def isolate_sampler_configs(stack):
+    """Keep sample() off the real ~/.config/agiw files unless the caller already patched a reader.
+
+    An unpatched remote_machines.load_config() hands the real lanes to background_snapshot(), which starts the
+    process-wide registry prober; its threads then call socket.create_connection for the rest of the run.
+    """
+    import pc_tunnel
+    import server
+    if not isinstance(server.remote_machines.load_config, unittest.mock.Mock):
+        stack.enter_context(patch('server.remote_machines.load_config', return_value=None))
+    if not isinstance(server.load_config, unittest.mock.Mock):
+        stack.enter_context(patch('server.load_config', return_value=pc_tunnel.load_config(environ={})))
+
 
 def snapshot(state='idle', sampled=None):
     return {'schemaVersion':1,'sampledAt':sampled or time.time(), 'models':[
@@ -918,10 +932,33 @@ class MemoryGuardSampleTest(unittest.TestCase):
              patch('server.collect_activity', return_value={'runs': [], 'sources': []}), \
              patch('server.collect_clients', return_value=([], [])), \
              patch('server.mac_gpu', return_value=(gpu, {'id': 'mac-gpu', 'state': 'live'})), \
-             patch('server.LocalCallers', return_value=caller_probe or self.Callers()):
+             patch('server.LocalCallers', return_value=caller_probe or self.Callers()), \
+             ExitStack() as stack:
+            isolate_sampler_configs(stack)
             sample(store, self.Stop(rounds), feed=self.Feed(), full_interval=full_interval,
                    guard=guard, auto_unloader=auto_unloader)
         return store.read()
+
+    def test_sampler_reads_no_real_remote_or_tunnel_config(self):
+        # A real lane in the default registry config must never reach the process-wide prober from a test.
+        probed, registry = [], []
+        with tempfile.TemporaryDirectory() as temp:
+            remote = Path(temp) / 'remote-machines.json'
+            remote.write_text(json.dumps({'schemaVersion': 1, 'machines': [{'id': 'pc', 'label': 'Worker placeholder',
+                                          'lanes': [{'id': 'deep', 'label': 'Deep', 'localPort': 21001}]}]}))
+            remote.chmod(0o600)
+            tunnel = Path(temp) / 'pc-tunnel.json'
+            tunnel.write_text(json.dumps({'user': 'pc-user', 'host': 'pc.example', 'identityFile': '/keys/k',
+                                          'forwards': [{'name': 'fixture', 'id': 'pc:fixture', 'localPort': 1334,
+                                                        'remotePort': 1234}]}))
+            with patch.dict(os.environ, {'AGIW_REMOTE_MACHINES_CONFIG': str(remote),
+                                         'AGIW_PC_SSH_CONFIG': str(tunnel)}), \
+                 patch('server.remote_machines.background_snapshot',
+                       side_effect=lambda config, **_: registry.append(config) or []), \
+                 patch('server.port_accepts', side_effect=lambda port: probed.append(port) or False):
+                self.run_sampler(self.FakeGuard())
+        self.assertEqual([config for config in registry if config is not None], [])
+        self.assertEqual(probed, [])
 
     def test_caller_sampler_receives_only_a_live_verified_direct_port(self):
         class RecordingCallers:
