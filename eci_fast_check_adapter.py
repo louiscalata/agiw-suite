@@ -111,6 +111,21 @@ def positive_int(value):
     return value if type(value) is int and value > 0 else None
 
 
+def reported_memory(hardware, key, low):
+    """Keep a server-reported memory figure exactly as reported.
+
+    Absent or null is unknown. Any other value is a known reading, zero
+    included, and must be an integer of at least ``low``; anything else is
+    refused, so a known reading is never turned into an unknown one.
+    """
+    value = hardware.get(key)
+    if value is None:
+        return None
+    if type(value) is not int or value < low:
+        raise ResponseError("invalid server-reported memory")
+    return value
+
+
 def quantization_name(value):
     """Normalize only descriptive quantization labels, never guess a numeric enum."""
     value = safe_text(value)
@@ -604,14 +619,14 @@ class OpenAIAdapter:
             self.ctx = positive_int(facts.get("n_ctx"))
         if self.ctx is not None:
             self.max_tokens = min(self.max_tokens, self.ctx)
-        memory = positive_int(hardware.get("memory_bytes"))
+        memory = reported_memory(hardware, "memory_bytes", 1)
         result = dict(
             machine_label=None, cpu=safe_text(hardware.get("cpu")),
             gpu=safe_text(hardware.get("gpu")),
             memory={"bytes": memory} if memory else None,
             memory_bytes=memory, runtime_build_id=self.backend_version,
         )
-        self.available_memory_bytes = positive_int(hardware.get("available_memory_bytes"))
+        self.available_memory_bytes = reported_memory(hardware, "available_memory_bytes", 0)
         # Kept only for an operator-stated already-loaded check; never recorded raw.
         props_generation = (props or {}).get("default_generation_settings")
         self.served = dict(
@@ -803,6 +818,8 @@ def run(base_url, model_id, sample_files, output_dir, *, count=200,
     """
     if type(already_loaded) is not bool:
         raise fast.ValidationError("already_loaded must be a boolean")
+    # A stated available memory is a known reading, zero included.
+    fast.numeric(available_memory_bytes, nullable=True, integer=True)
     adapter = OpenAIAdapter(base_url, model_id, max_tokens=max_tokens, timeout=timeout,
                             model_label=model_label, disable_thinking=disable_thinking)
     datasets = {}

@@ -187,7 +187,10 @@ A lane that already serves its model can say so with `--already-loaded`
 (`already_loaded=True` in `run()`). This is an operator statement, not a
 memory measurement, and it is accepted only when available memory is unknown:
 with `--available-memory-bytes` or a server-reported value the normal fit gate
-decides instead. Before any prompt the adapter checks that `/props` names the
+decides instead. Only an absent or null server value is unknown: a reported
+`0` is a known reading that the fit gate turns into `SKIP`, and a negative,
+boolean, text or fractional memory value, from the server or the argument,
+refuses. Before any prompt the adapter checks that `/props` names the
 requested model (`model_alias`, or `model.id`), that `/props.is_sleeping` is
 absent or exactly `false` (a sleeping lane has unloaded its weights), that
 `/v1/models` advertises exactly that one model, that `/props`

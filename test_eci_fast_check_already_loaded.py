@@ -287,6 +287,94 @@ class AlreadyLoadedTests(unittest.TestCase):
     def test_flag_must_be_a_boolean(self):
         self.assert_refused(LoadedLane(), "boolean", already_loaded="yes")
 
+    # A known memory reading, zero included, is never treated as unknown.
+
+    def fresh_output(self):
+        """Give each subtest its own output directory so one cannot mask another."""
+        self.path = Path(tempfile.mkdtemp(dir=self.directory.name))
+
+    def run_capturing_pre(self, lane, **kwargs):
+        decisions, original = [], fast.pre_check
+
+        def capture(*args, **kw):
+            decisions.append(original(*args, **kw))
+            return decisions[-1]
+
+        with patch.object(adapter.fast, "pre_check", side_effect=capture):
+            with lane, self.assertRaisesRegex(fast.ValidationError, "fit gate"):
+                self.run_lane(lane, **kwargs)
+            self.assertEqual(lane.posts, [])
+        return decisions
+
+    def test_server_reported_zero_memory_refuses_already_loaded(self):
+        lane = LoadedLane(props=served_props(hardware={"available_memory_bytes": 0}))
+        self.assert_refused(lane, "available memory is known")
+        self.assertNotIn(("GET", "/slots"), lane.requests)
+
+    def test_server_reported_zero_memory_is_a_skip_on_the_default_path(self):
+        self.assertEqual(fast.pre_check(100, "Q4_0", 0)["local_decision"], "SKIP")
+        lane = LoadedLane(props=served_props(hardware={"available_memory_bytes": 0}))
+        [pre] = self.run_capturing_pre(lane)
+        self.assertEqual((pre["decision"], pre["inputs"]["available_memory_bytes"]), ("SKIP", 0))
+
+    def test_absent_or_null_server_memory_stays_unknown(self):
+        for hardware in ({}, {"available_memory_bytes": None, "memory_bytes": None}):
+            with self.subTest(hardware=hardware):
+                output = "absent" if not hardware else "null"
+                with LoadedLane(props=served_props(hardware=hardware)) as lane:
+                    record = self.run_lane(lane, output, already_loaded=True)
+                    self.assertEqual(len(lane.posts), 2)
+                self.assertEqual(record["pre"]["decision"], "UNKNOWN")
+                self.assertIsNone(record["pre"]["inputs"]["available_memory_bytes"])
+                self.assertEqual(fast.validate_record(record), record)
+                [pre] = self.run_capturing_pre(LoadedLane(props=served_props(hardware=hardware)))
+                self.assertEqual(pre["decision"], "UNKNOWN")
+
+    def test_invalid_server_reported_memory_refuses_on_both_paths(self):
+        invalid = [("available_memory_bytes", value) for value in
+                   (-1, True, False, "0", "8000", 8000.0, 0.0, float("nan"), float("inf"), [], {})]
+        invalid += [("memory_bytes", value) for value in (0, -1, True, "8000", 8000.0, float("nan"))]
+        for key, value in invalid:
+            for loaded in (True, False):
+                with self.subTest(key=key, value=value, already_loaded=loaded):
+                    self.fresh_output()
+                    lane = LoadedLane(props=served_props(hardware={key: value}))
+                    self.assert_refused(lane, "invalid server-reported memory|invalid JSON", already_loaded=loaded)
+                    self.assertNotIn(("GET", "/slots"), lane.requests)
+
+    def test_huge_server_reported_memory_is_known_and_refuses_already_loaded(self):
+        for value in (2**64, 10**300, 10**400):
+            with self.subTest(value=value):
+                self.fresh_output()
+                lane = LoadedLane(props=served_props(hardware={"available_memory_bytes": value}))
+                self.assert_refused(lane, "available memory is known|invalid JSON")
+                self.assertNotIn(("GET", "/slots"), lane.requests)
+
+    def test_explicit_zero_memory_refuses_already_loaded_and_skips_by_default(self):
+        self.assert_refused(LoadedLane(), "available memory is known", available_memory_bytes=0)
+        [pre] = self.run_capturing_pre(LoadedLane(), available_memory_bytes=0)
+        self.assertEqual((pre["decision"], pre["inputs"]["available_memory_bytes"]), ("SKIP", 0))
+
+    def test_invalid_explicit_memory_refuses_before_any_request(self):
+        for value in (-1, True, False, "0", "8000", 0.0, 8000.0, float("nan"), float("inf")):
+            for loaded in (True, False):
+                with self.subTest(value=value, already_loaded=loaded):
+                    self.fresh_output()
+                    lane = LoadedLane()
+                    self.assert_refused(lane, "expected a number|number outside", already_loaded=loaded,
+                                        available_memory_bytes=value)
+                    self.assertEqual(lane.requests, [])
+
+    def test_cli_explicit_zero_memory_with_the_flag_refuses(self):
+        with LoadedLane() as lane, contextlib.redirect_stderr(io.StringIO()) as stderr:
+            status = adapter.main(["--base-url", lane.url, "--model", MODEL_ID,
+                                   "--samples", str(self.samples[0]), "--output-dir", str(self.path / "out"),
+                                   "--model-sha256", MODEL_SHA, "--file-size-bytes", "100",
+                                   "--available-memory-bytes", "0", "--already-loaded"])
+            self.assertEqual(lane.posts, [])
+        self.assertEqual(status, 2)
+        self.assertIn("available memory is known", stderr.getvalue())
+
     # Validation: the mode is bound and cannot be forged or dropped.
 
     def test_record_without_the_mode_cannot_carry_observations(self):
@@ -332,6 +420,20 @@ class AlreadyLoadedTests(unittest.TestCase):
         forged = copy.deepcopy(record)
         forged["pre"] = fast.pre_check(100, "Q4_0", 8000)
         with self.assertRaises(fast.ValidationError):
+            fast.validate_record(redigest(forged))
+
+    def test_mode_is_refused_when_memory_was_known_as_zero(self):
+        record = self.loaded_record()
+        skip = fast.pre_check(100, "Q4_0", 0)
+        self.assertEqual(skip["decision"], "SKIP")
+        forged = copy.deepcopy(record)
+        forged["pre"] = skip
+        with self.assertRaisesRegex(fast.ValidationError, "available memory is unknown"):
+            fast.validate_record(redigest(forged))
+        # Relabelling a known zero as UNKNOWN fails the recomputation of pre.
+        forged = copy.deepcopy(record)
+        forged["pre"]["inputs"]["available_memory_bytes"] = 0
+        with self.assertRaisesRegex(fast.ValidationError, "pre decision"):
             fast.validate_record(redigest(forged))
 
     def test_run_check_refuses_a_stated_gate_beside_a_check(self):
