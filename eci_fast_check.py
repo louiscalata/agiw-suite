@@ -673,6 +673,8 @@ def fit_gate(model, pre, provenance):
         or inputs["available_memory_bytes"] is not None
         or inputs["file_size_bytes"] is None
         or inputs["quantization"] is None
+        # The receipt may not name a memory source the gate says it lacked.
+        or provenance.get("available_memory_source", "unknown") != "unknown"
     ):
         raise ValidationError("already-loaded gate applies only when available memory is unknown")
     return "already_loaded"

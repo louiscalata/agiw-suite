@@ -54,7 +54,8 @@ def served_models(*ids, meta=None):
 class LoadedLane:
     """A fake loaded lane. Records every request; never opens a socket."""
 
-    def __init__(self, *, props=None, models=None, slots=None, slots_status=200):
+    def __init__(self, *, props=None, models=None, slots=None, slots_status=200, missing=()):
+        self.missing = missing  # Endpoints that answer 404.
         self.props = served_props() if props is None else props
         self.models = served_models() if models is None else models
         self.slots = [{"id": 0, "n_ctx": 32768, "is_processing": False}] if slots is None else slots
@@ -83,7 +84,9 @@ class LoadedLane:
             def request(self, method, path, body=None, headers=None):
                 lane.requests.append((method, path))
                 self.status = 200
-                if method == "GET" and path == "/props":
+                if path in lane.missing:
+                    self.status, reply = 404, {"error": "fixture missing route"}
+                elif method == "GET" and path == "/props":
                     reply = lane.props
                 elif method == "GET" and path == "/v1/models":
                     reply = lane.models
@@ -524,6 +527,385 @@ class AlreadyLoadedTests(unittest.TestCase):
                 self.assertNotEqual(schema_errors(forged, schema["$defs"]["record"], schema), [])
         record["provenance"]["already_loaded"]["is_sleeping"] = None
         self.assertEqual(schema_errors(record, schema["$defs"]["record"], schema), [])
+
+
+ABSENT = object()  # The source carries no hardware object at all.
+NAN, INF = float("nan"), float("inf")
+INVALID_AVAILABLE = (-1, True, False, "0", "8000", 8000.0, 0.0, NAN, INF, [], {}, [8000], {"bytes": 8000})
+INVALID_TOTAL = INVALID_AVAILABLE + (0,)
+BAD_HARDWARE = (None, [], [{"available_memory_bytes": 0}], "8000", 8000, 0, True)
+REFUSALS = {
+    "conflict": "conflicting server-reported memory",
+    "invalid": "invalid server-reported memory|invalid JSON",
+    "hardware": "invalid hardware metadata",
+}
+
+
+def source_cases(key, invalid):
+    """Every /props.hardware and metadata hardware combination for one memory key.
+
+    Each row is (name, props hardware, metadata hardware, expected): None for
+    unknown, an integer for a known reading, or a REFUSALS name.
+    """
+    rows = [
+        ("neither source has hardware", ABSENT, ABSENT, None),
+        ("both hardware objects are empty", {}, {}, None),
+        ("both report null", {key: None}, {key: None}, None),
+        ("props only", {key: 8000}, ABSENT, 8000),
+        ("metadata only", ABSENT, {key: 8000}, 8000),
+        ("props empty, metadata reports", {}, {key: 8000}, 8000),
+        ("props has another key, metadata reports", {"cpu": "fixture-cpu"}, {key: 8000}, 8000),
+        ("props null, metadata reports", {key: None}, {key: 8000}, 8000),
+        ("props reports, metadata null", {key: 8000}, {key: None}, 8000),
+        ("both agree", {key: 8000}, {key: 8000}, 8000),
+        ("both disagree", {key: 8000}, {key: 4000}, "conflict"),
+    ]
+    if key == "available_memory_bytes":
+        rows += [
+            ("props zero only", {key: 0}, ABSENT, 0),
+            ("props absent, metadata zero", ABSENT, {key: 0}, 0),
+            ("props empty, metadata zero", {}, {key: 0}, 0),
+            ("props has another key, metadata zero", {"cpu": "fixture-cpu"}, {key: 0}, 0),
+            ("both zero", {key: 0}, {key: 0}, 0),
+            ("props zero, metadata positive", {key: 0}, {key: 8000}, "conflict"),
+            ("props positive, metadata zero", {key: 8000}, {key: 0}, "conflict"),
+        ]
+    for value in invalid:
+        rows += [
+            (f"props invalid {value!r}, metadata valid", {key: value}, {key: 8000}, "invalid"),
+            (f"props valid, metadata invalid {value!r}", {key: 8000}, {key: value}, "invalid"),
+            (f"props invalid {value!r} only", {key: value}, ABSENT, "invalid"),
+            (f"metadata invalid {value!r} only", ABSENT, {key: value}, "invalid"),
+            (f"props empty, metadata invalid {value!r}", {}, {key: value}, "invalid"),
+        ]
+    for value in BAD_HARDWARE:
+        rows += [
+            (f"props hardware {value!r}, metadata valid", value, {key: 8000}, "hardware"),
+            (f"props valid, metadata hardware {value!r}", {key: 8000}, value, "hardware"),
+            (f"props hardware {value!r} only", value, ABSENT, "hardware"),
+            (f"props empty, metadata hardware {value!r}", {}, value, "hardware"),
+        ]
+    return rows
+
+
+def source_lane(props_hardware=ABSENT, meta_hardware=ABSENT, **kwargs):
+    props = served_props()
+    meta = {"n_ctx": 32768, "size": 90, "ftype": "Q4_0"}
+    if props_hardware is not ABSENT:
+        props["hardware"] = props_hardware
+    if meta_hardware is not ABSENT:
+        meta["hardware"] = meta_hardware
+    return LoadedLane(props=props, models=served_models(meta=meta), **kwargs)
+
+
+class MemorySourceTests(unittest.TestCase):
+    """Each memory source is read on its own: one fixture per source combination."""
+
+    setUp = AlreadyLoadedTests.setUp
+    run_lane = AlreadyLoadedTests.run_lane
+    fresh_output = AlreadyLoadedTests.fresh_output
+    run_capturing_pre = AlreadyLoadedTests.run_capturing_pre
+
+    def refused(self, lane, pattern, *, slots=False, **kwargs):
+        """Refused with no prompt and no result; /slots is read only where designed."""
+        self.fresh_output()
+        with lane:
+            with self.assertRaisesRegex((fast.ValidationError, adapter.ResponseError), pattern):
+                self.run_lane(lane, **kwargs)
+            self.assertEqual(lane.posts, [])
+            self.assertEqual(("GET", "/slots") in lane.requests, slots)
+        self.assertFalse((self.path / "out" / "result.json").exists())
+
+    def accepted(self, lane, **kwargs):
+        self.fresh_output()
+        with lane:
+            record = self.run_lane(lane, **kwargs)
+            self.assertEqual(len(lane.posts), 2)
+        self.assertEqual(fast.validate_record(record), record)
+        return record
+
+    # available_memory_bytes: every source combination, both paths.
+
+    def test_available_memory_with_the_flag_for_every_source_combination(self):
+        for name, props_hardware, meta_hardware, expected in source_cases(
+                "available_memory_bytes", INVALID_AVAILABLE):
+            with self.subTest(name):
+                lane = source_lane(props_hardware, meta_hardware)
+                if expected is None:
+                    record = self.accepted(lane, already_loaded=True)
+                    self.assertEqual(record["pre"]["decision"], "UNKNOWN")
+                    self.assertIsNone(record["pre"]["inputs"]["available_memory_bytes"])
+                    self.assertEqual(record["provenance"]["available_memory_source"], "unknown")
+                else:
+                    self.refused(lane, REFUSALS.get(expected, "available memory is known"), already_loaded=True)
+
+    def test_available_memory_by_default_for_every_source_combination(self):
+        for name, props_hardware, meta_hardware, expected in source_cases(
+                "available_memory_bytes", INVALID_AVAILABLE):
+            with self.subTest(name):
+                lane = source_lane(props_hardware, meta_hardware)
+                if expected == 8000:
+                    record = self.accepted(lane)
+                    self.assertEqual(record["pre"]["decision"], "CHECK")
+                    self.assertEqual(record["pre"]["inputs"]["available_memory_bytes"], 8000)
+                    self.assertEqual(record["provenance"]["available_memory_source"], "server-reported")
+                    self.assertNotIn("fit_gate", record["provenance"])
+                    self.assertNotIn(("GET", "/slots"), lane.requests)
+                elif expected in REFUSALS:
+                    self.refused(lane, REFUSALS[expected])
+                else:
+                    self.fresh_output()
+                    [pre] = self.run_capturing_pre(lane)
+                    self.assertEqual((pre["decision"], pre["inputs"]["available_memory_bytes"]),
+                                     ("UNKNOWN" if expected is None else "SKIP", expected))
+                    self.assertNotIn(("GET", "/slots"), lane.requests)
+
+    def test_codex_round_58_metadata_zero_is_not_hidden_by_props_hardware(self):
+        for props_hardware in ({}, {"cpu": "fixture-cpu"}):
+            with self.subTest(props_hardware=props_hardware):
+                self.refused(source_lane(props_hardware, {"available_memory_bytes": 0}),
+                             "available memory is known", already_loaded=True)
+                self.fresh_output()
+                [pre] = self.run_capturing_pre(source_lane(props_hardware, {"available_memory_bytes": 0}))
+                self.assertEqual((pre["decision"], pre["inputs"]["available_memory_bytes"]), ("SKIP", 0))
+
+    # memory_bytes (total): the same combinations, both paths.
+
+    def test_total_memory_for_every_source_combination_on_both_paths(self):
+        for name, props_hardware, meta_hardware, expected in source_cases("memory_bytes", INVALID_TOTAL):
+            for kwargs in (dict(already_loaded=True), dict(available_memory_bytes=8000)):
+                with self.subTest(name, **kwargs):
+                    lane = source_lane(props_hardware, meta_hardware)
+                    if expected in REFUSALS:
+                        self.refused(lane, REFUSALS[expected], **kwargs)
+                        continue
+                    record = self.accepted(lane, **kwargs)
+                    self.assertEqual(record["hardware"]["memory_bytes"], expected)
+                    self.assertEqual(record["hardware"]["memory"], expected and {"bytes": expected})
+
+    # Each fact falls back per key, never per hardware object.
+
+    def test_each_hardware_fact_falls_back_per_key(self):
+        record = self.accepted(source_lane(
+            {"cpu": "fixture-cpu"},
+            {"cpu": "other-cpu", "gpu": "fixture-gpu", "memory_bytes": 16000, "available_memory_bytes": 8000}))
+        self.assertEqual(
+            [record["hardware"][key] for key in ("cpu", "gpu", "memory_bytes")],
+            ["fixture-cpu", "fixture-gpu", 16000])
+        self.assertEqual(record["pre"]["inputs"]["available_memory_bytes"], 8000)
+        # A /props descriptor the allowlist drops stays unknown; metadata never replaces it.
+        record = self.accepted(source_lane(
+            {"cpu": "/private/fixture", "gpu": None, "available_memory_bytes": 8000},
+            {"cpu": "other-cpu", "gpu": "fixture-gpu"}))
+        self.assertEqual((record["hardware"]["cpu"], record["hardware"]["gpu"]), (None, "fixture-gpu"))
+
+    def test_one_endpoint_alone_supplies_the_facts(self):
+        hardware = {"memory_bytes": 16000, "available_memory_bytes": 8000}
+        lane = source_lane(ABSENT, hardware, missing=("/props",))
+        record = self.accepted(lane)
+        self.assertEqual(record["pre"]["inputs"]["available_memory_bytes"], 8000)
+        props = served_props(model={"id": MODEL_ID, "ftype": "Q4_0"}, hardware=hardware)
+        record = self.accepted(LoadedLane(props=props, missing=("/v1/models",)))
+        self.assertEqual(record["hardware"]["memory_bytes"], 16000)
+        for missing, zero in ((("/props",), source_lane(ABSENT, {"available_memory_bytes": 0})),
+                              (("/v1/models",), LoadedLane(props=served_props(
+                                  model={"id": MODEL_ID, "ftype": "Q4_0"},
+                                  hardware={"available_memory_bytes": 0})))):
+            with self.subTest(missing=missing):
+                zero.missing = missing
+                self.refused(zero, "available memory is known", already_loaded=True)
+
+    # Memory outside the recognized hardware facts is never used and never unlocks the mode.
+
+    def stray_lanes(self, value):
+        """A figure only where the adapter does not read memory facts."""
+        figure = {"available_memory_bytes": value}
+        nested = {"hardware": figure}
+        meta = {"n_ctx": 32768, "size": 90, "ftype": "Q4_0"}
+        entry = dict(id=MODEL_ID, meta=meta)
+        other = dict(id="other-model", meta=dict(meta, **nested))
+        return {
+            "props top level": LoadedLane(props=served_props(**figure)),
+            "props hardware, nested deeper": LoadedLane(props=served_props(hardware={"memory": figure})),
+            "props hardware list entry": LoadedLane(props=served_props(hardware={"devices": [figure]})),
+            "props model object": LoadedLane(props=served_props(model=dict(nested, id=MODEL_ID))),
+            "props generation settings": LoadedLane(props=served_props(
+                default_generation_settings=dict(figure, n_ctx=32768))),
+            "metadata top level": LoadedLane(models=served_models(meta=dict(meta, **figure))),
+            "selected entry outside meta": LoadedLane(models={"data": [dict(entry, **nested)]}),
+            "models document top level": LoadedLane(models=dict(nested, data=[entry])),
+            "only a non-selected entry": LoadedLane(models={"data": [entry, other]}),
+            "only a non-selected entry, listed first": LoadedLane(models={"data": [other, entry]}),
+        }
+
+    def test_memory_outside_the_recognized_facts_refuses_already_loaded(self):
+        for value in (0, 8000, -1, "8000", True, 8000.5, [], {}):
+            for name, lane in self.stray_lanes(value).items():
+                with self.subTest(name, value=value):
+                    self.refused(lane, "outside the recognized hardware facts", already_loaded=True)
+
+    def test_memory_outside_the_recognized_facts_is_never_used_by_default(self):
+        for value in (0, 8000, "8000"):
+            for name, lane in self.stray_lanes(value).items():
+                with self.subTest(name, value=value):
+                    self.fresh_output()
+                    [pre] = self.run_capturing_pre(lane)
+                    self.assertEqual((pre["decision"], pre["inputs"]["available_memory_bytes"]), ("UNKNOWN", None))
+                    self.assertNotIn(("GET", "/slots"), lane.requests)
+        # The operator's own figure still decides, and is recorded as explicit.
+        lane = self.stray_lanes(0)["only a non-selected entry"]
+        record = self.accepted(lane, available_memory_bytes=8000)
+        self.assertEqual(record["provenance"]["available_memory_source"], "explicit")
+
+    def test_null_memory_outside_the_recognized_facts_is_still_unknown(self):
+        for name, lane in self.stray_lanes(None).items():
+            if "non-selected" not in name:
+                with self.subTest(name):
+                    self.accepted(lane, already_loaded=True)
+
+    def test_slots_reporting_available_memory_refuse_after_the_slot_read(self):
+        for value in (0, 8000, "8000"):
+            for slot in ({"available_memory_bytes": value}, {"hardware": {"available_memory_bytes": value}}):
+                with self.subTest(slot=slot):
+                    slots = [dict(slot, id=0, n_ctx=32768, is_processing=False)]
+                    self.refused(LoadedLane(slots=slots), "outside the recognized hardware facts",
+                                 slots=True, already_loaded=True)
+        slots = [{"id": 0, "n_ctx": 32768, "is_processing": False, "available_memory_bytes": None}]
+        self.accepted(LoadedLane(slots=slots), already_loaded=True)
+
+    # Explicit arguments beside each server source.
+
+    def test_explicit_memory_is_validated_before_any_request(self):
+        invalid = [("available_memory_bytes", value) for value in
+                   (-1, True, False, "0", "8000", 0.0, 8000.0, NAN, INF, [], {}, 10**400)]
+        invalid += [("memory_bytes", value) for value in
+                    (0, -1, True, False, "8000", 8000.0, NAN, INF, [], {}, 10**400)]
+        for key, value in invalid:
+            for loaded in (True, False):
+                with self.subTest(key=key, value=value, already_loaded=loaded):
+                    lane = LoadedLane()
+                    self.refused(lane, "expected a number|number outside", already_loaded=loaded, **{key: value})
+                    self.assertEqual(lane.requests, [])
+
+    def test_cli_refuses_invalid_memory_arguments_with_no_request(self):
+        for flag in ("--available-memory-bytes", "--memory-bytes"):
+            for value in ("-1", "8000.0", "nan", "true", ""):
+                with self.subTest(flag=flag, value=value), LoadedLane() as lane, \
+                        contextlib.redirect_stderr(io.StringIO()):
+                    try:
+                        status = adapter.main([
+                            "--base-url", lane.url, "--model", MODEL_ID, "--samples", str(self.samples[0]),
+                            "--output-dir", str(self.path / "out"), "--model-sha256", MODEL_SHA,
+                            "--file-size-bytes", "100", "--already-loaded", flag + "=" + value])
+                    except SystemExit as stop:  # argparse refuses a non-integer.
+                        status = stop.code
+                    self.assertEqual(status, 2)
+                    self.assertEqual(lane.requests, [])
+
+    def test_explicit_memory_beside_each_server_source(self):
+        for source in ("props", "metadata"):
+            def lane(hardware):
+                return source_lane(hardware, ABSENT) if source == "props" else source_lane(ABSENT, hardware)
+            with self.subTest(source=source):
+                # Known from either argument or either source: the mode is refused.
+                self.refused(lane({"available_memory_bytes": 0}), "available memory is known",
+                             already_loaded=True, available_memory_bytes=8000)
+                self.refused(lane({}), "available memory is known", already_loaded=True, available_memory_bytes=0)
+                # An invalid server value refuses even beside a valid argument.
+                self.refused(lane({"available_memory_bytes": -1}), "invalid server-reported memory",
+                             available_memory_bytes=8000)
+                # The stated total must match a server total and bound available memory.
+                self.refused(lane({"memory_bytes": 16000}), "disagrees with server", memory_bytes=32000,
+                             available_memory_bytes=8000)
+                self.refused(lane({"memory_bytes": 4000}), "exceeds hardware memory", available_memory_bytes=8000)
+                self.refused(lane({"available_memory_bytes": 8000}), "exceeds hardware memory", memory_bytes=4000)
+                record = self.accepted(lane({"memory_bytes": 16000}), memory_bytes=16000, already_loaded=True)
+                self.assertEqual(record["hardware"]["memory_bytes"], 16000)
+                # Documented and unchanged: a stated available memory decides the default path.
+                record = self.accepted(lane({"available_memory_bytes": 4000}), available_memory_bytes=8000)
+                self.assertEqual(record["pre"]["inputs"]["available_memory_bytes"], 8000)
+                self.assertEqual(record["provenance"]["available_memory_source"], "explicit")
+
+    # Saved records and the schema.
+
+    def test_record_naming_a_memory_source_beside_the_gate_is_refused(self):
+        record = self.accepted(LoadedLane(), already_loaded=True)
+        schema = fast.load(ROOT / "eci_fast_check.schema.json")
+        from test_eci_measured_data import schema_errors
+        for source in ("server-reported", "explicit", None, 0):
+            with self.subTest(source=source):
+                forged = copy.deepcopy(record)
+                forged["provenance"]["available_memory_source"] = source
+                with self.assertRaisesRegex(fast.ValidationError, "available memory is unknown"):
+                    fast.validate_record(redigest(forged))
+                self.assertNotEqual(schema_errors(forged, schema["$defs"]["record"], schema), [])
+        # A receipt without the field keeps validating, as do memory-estimate records.
+        kept = copy.deepcopy(record)
+        del kept["provenance"]["available_memory_source"]
+        kept = redigest(kept)
+        self.assertEqual(fast.validate_record(kept), kept)
+        self.assertEqual(schema_errors(kept, schema["$defs"]["record"], schema), [])
+        gated = self.accepted(LoadedLane(), available_memory_bytes=8000)
+        self.assertEqual(schema_errors(gated, schema["$defs"]["record"], schema), [])
+
+    def test_saved_record_memory_fields_keep_zero_apart_from_unknown(self):
+        record = self.accepted(source_lane({"memory_bytes": 16000, "available_memory_bytes": 8000}))
+        for path, value in ((("pre", "inputs", "available_memory_bytes"), 0),
+                            (("pre", "inputs", "available_memory_bytes"), None),
+                            (("pre", "inputs", "available_memory_bytes"), -1),
+                            (("pre", "inputs", "available_memory_bytes"), True),
+                            (("pre", "inputs", "available_memory_bytes"), "8000"),
+                            (("pre", "inputs", "available_memory_bytes"), 8000.0),
+                            (("pre", "inputs", "available_memory_bytes"), 16001),
+                            (("hardware", "memory_bytes"), 0), (("hardware", "memory_bytes"), -1),
+                            (("hardware", "memory_bytes"), True), (("hardware", "memory_bytes"), "16000"),
+                            (("hardware", "memory_bytes"), 16000.0), (("hardware", "memory_bytes"), 4000)):
+            with self.subTest(path=path, value=value):
+                forged = copy.deepcopy(record)
+                target = forged
+                for key in path[:-1]:
+                    target = target[key]
+                target[path[-1]] = value
+                with self.assertRaises(fast.ValidationError):
+                    fast.validate_record(redigest(forged))
+        for available, decision in ((None, "UNKNOWN"), (0, "SKIP"), (8000, "CHECK")):
+            self.assertEqual(fast.pre_check(100, "Q4_0", available)["decision"], decision)
+        for value in (-1, True, False, "8000", 8000.0, 0.0, NAN, INF, [], {}, 10**400):
+            with self.subTest(pre_check=value), self.assertRaises(fast.ValidationError):
+                fast.pre_check(100, "Q4_0", value)
+
+    def test_ingest_rejects_a_forged_gate_and_keeps_the_valid_records(self):
+        loaded = self.accepted(LoadedLane(), already_loaded=True)
+        gated = self.accepted(source_lane(ABSENT, {"available_memory_bytes": 8000}))
+        forged = copy.deepcopy(loaded)
+        forged["pre"]["inputs"]["available_memory_bytes"] = 0
+        forged = redigest(forged)
+        path = self.path / "dataset.json"
+        path.write_text(json.dumps({"schema_version": 1, "runs": [], "items": [],
+                                    "fast_checks": [loaded, gated, forged]}), encoding="utf-8")
+        data = eci_tuning.ingest([path])
+        self.assertEqual(data["fast_checks"], [loaded, gated])
+        self.assertEqual([entry["record_id"] for entry in data["rejected_fast_checks"]], [forged["record_id"]])
+
+
+class JobMemoryFactTests(unittest.TestCase):
+    """A reviewed job states memory facts only as positive integers and cannot state the mode."""
+
+    def test_job_facts_refuse_zero_and_invalid_memory_and_drop_null(self):
+        import eci_jobs
+        from test_eci_jobs import request
+        policy = eci_jobs.Policy(gate=lambda: True, allowed_targets={request()["target"]},
+                                 default_wall_budget_s="60", max_wall_budget_s="600")
+        for key in ("available_memory_bytes", "memory_bytes"):
+            for value in (0, -1, True, False, "8000", 8000.0, NAN, [], {}):
+                with self.subTest(key=key, value=value), self.assertRaises(eci_jobs.Refused) as caught:
+                    eci_jobs.normalize_request(request(facts={key: value}), policy)
+                self.assertEqual(caught.exception.code, "invalid_request")
+            self.assertEqual(eci_jobs.normalize_request(request(facts={key: None}), policy)["facts"], {})
+            self.assertEqual(eci_jobs.normalize_request(request(facts={key: 8000}), policy)["facts"], {key: 8000})
+        for forged in (request(already_loaded=True), request(facts={"already_loaded": True})):
+            with self.assertRaises(eci_jobs.Refused):
+                eci_jobs.normalize_request(forged, policy)
 
 
 # The fields the adapter reads from the saved 2026-11-15 R5 Ornith captures

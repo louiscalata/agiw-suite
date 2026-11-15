@@ -190,7 +190,12 @@ with `--available-memory-bytes` or a server-reported value the normal fit gate
 decides instead. Only an absent or null server value is unknown: a reported
 `0` is a known reading that the fit gate turns into `SKIP`, and a negative,
 boolean, text or fractional memory value, from the server or the argument,
-refuses. Before any prompt the adapter checks that `/props` names the
+refuses. The server value is read separately from `/props.hardware` and from
+the selected model's `meta.hardware`: a reading in either one is known, an
+invalid value in either one refuses, and two different readings refuse
+([source rules](eci-fast-check.md#loopback-harness-adapter)). A non-null
+`available_memory_bytes` anywhere else in the `/props`, `/v1/models` or
+`/slots` responses also refuses the mode. Before any prompt the adapter checks that `/props` names the
 requested model (`model_alias`, or `model.id`), that `/props.is_sleeping` is
 absent or exactly `false` (a sleeping lane has unloaded its weights), that
 `/v1/models` advertises exactly that one model, that `/props`
@@ -208,7 +213,8 @@ model and its source, `advertised_models`, `n_ctx`, `total_slots`,
 `slots_idle`, `is_sleeping` (`false`, or `null` when `/props` did not report
 it), the three endpoints,
 the stated file size and where the hash and quantization came from.
-`available_memory_source` reads `unknown`. Idle is observed once, before the
+`available_memory_source` reads `unknown`, and a record with the gate that
+names any other source is refused by the validator and the schema. Idle is observed once, before the
 first item; the adapter does not watch the lane during the run. Without the
 flag nothing changes: unknown memory still refuses.
 

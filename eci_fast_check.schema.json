@@ -1241,7 +1241,12 @@
               "then": {
                 "required": [
                   "already_loaded"
-                ]
+                ],
+                "properties": {
+                  "available_memory_source": {
+                    "const": "unknown"
+                  }
+                }
               }
             },
             {

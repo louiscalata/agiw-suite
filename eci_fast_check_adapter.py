@@ -126,6 +126,50 @@ def reported_memory(hardware, key, low):
     return value
 
 
+def source_hardware(source):
+    """One source's own hardware object. Absent is empty; a non-object is refused."""
+    if not isinstance(source, dict) or "hardware" not in source:
+        return {}
+    if not isinstance(source["hardware"], dict):
+        raise ResponseError("invalid hardware metadata")
+    return source["hardware"]
+
+
+def agreed_memory(sources, key, low):
+    """Read ``key`` from every source on its own, then combine the readings.
+
+    Every source is validated, so an invalid value refuses even beside a valid
+    one. A source that omits the key (or reports null) adds nothing, a reading
+    from any source is known, and two different readings refuse.
+    """
+    readings = {reported_memory(hardware, key, low) for hardware in sources} - {None}
+    if len(readings) > 1:
+        raise ResponseError("conflicting server-reported memory")
+    return readings.pop() if readings else None
+
+
+def first_reported(sources, key):
+    """The first source that reports ``key`` decides, usable or not."""
+    for hardware in sources:
+        if hardware.get(key) is not None:
+            return hardware[key]
+    return None
+
+
+def reports_available_memory(*documents):
+    """True when any object in the documents carries a non-null available_memory_bytes."""
+    pending = list(documents)
+    while pending:
+        value = pending.pop()
+        if isinstance(value, dict):
+            if value.get("available_memory_bytes") is not None:
+                return True
+            pending.extend(value.values())
+        elif isinstance(value, list):
+            pending.extend(value)
+    return False
+
+
 def quantization_name(value):
     """Normalize only descriptive quantization labels, never guess a numeric enum."""
     value = safe_text(value)
@@ -452,6 +496,7 @@ class OpenAIAdapter:
         self.facts = {}
         self.server_reported_size_bytes = None
         self.available_memory_bytes = None
+        self.unrecognized_available_memory = False
         self.ctx = None
         self.backend_version = None
         self.demonstrations = {}
@@ -604,9 +649,9 @@ class OpenAIAdapter:
         # Never retain the raw object.
         facts = dict(selected_meta)
         facts.update(props or {})
-        hardware = facts.get("hardware", {})
-        if not isinstance(hardware, dict):
-            raise ResponseError("invalid hardware metadata")
+        # Hardware is read per source and per key, /props first: one source's
+        # object never hides a key that only the other source reports.
+        hardware = [source_hardware(props), source_hardware(selected_meta)]
         build = facts.get("build_info", {})
         if isinstance(build, str):
             self.backend_version = safe_text(build)
@@ -619,14 +664,17 @@ class OpenAIAdapter:
             self.ctx = positive_int(facts.get("n_ctx"))
         if self.ctx is not None:
             self.max_tokens = min(self.max_tokens, self.ctx)
-        memory = reported_memory(hardware, "memory_bytes", 1)
+        memory = agreed_memory(hardware, "memory_bytes", 1)
         result = dict(
-            machine_label=None, cpu=safe_text(hardware.get("cpu")),
-            gpu=safe_text(hardware.get("gpu")),
+            machine_label=None, cpu=safe_text(first_reported(hardware, "cpu")),
+            gpu=safe_text(first_reported(hardware, "gpu")),
             memory={"bytes": memory} if memory else None,
             memory_bytes=memory, runtime_build_id=self.backend_version,
         )
-        self.available_memory_bytes = reported_memory(hardware, "available_memory_bytes", 0)
+        self.available_memory_bytes = agreed_memory(hardware, "available_memory_bytes", 0)
+        # A figure anywhere else is not a recognized fact; only its presence is kept.
+        self.unrecognized_available_memory = (
+            self.available_memory_bytes is None and reports_available_memory(props, models))
         # Kept only for an operator-stated already-loaded check; never recorded raw.
         props_generation = (props or {}).get("default_generation_settings")
         self.served = dict(
@@ -681,6 +729,8 @@ class OpenAIAdapter:
             raise ResponseError("slot count is missing from /props or disagrees with /slots")
         if any(slot["is_processing"] for slot in slots):
             raise ResponseError("lane is busy: a slot is processing")
+        if reports_available_memory(slots):
+            raise ResponseError("server reports available memory outside the recognized hardware facts")
         return dict(
             statement=fast.ALREADY_LOADED_STATEMENT,
             served_model=self.model_label, served_model_source=source, advertised_models=1,
@@ -820,6 +870,7 @@ def run(base_url, model_id, sample_files, output_dir, *, count=200,
         raise fast.ValidationError("already_loaded must be a boolean")
     # A stated available memory is a known reading, zero included.
     fast.numeric(available_memory_bytes, nullable=True, integer=True)
+    fast.numeric(memory_bytes, 1, nullable=True, integer=True)
     adapter = OpenAIAdapter(base_url, model_id, max_tokens=max_tokens, timeout=timeout,
                             model_label=model_label, disable_thinking=disable_thinking)
     datasets = {}
@@ -873,6 +924,9 @@ def run(base_url, model_id, sample_files, output_dir, *, count=200,
     if already_loaded:
         if available is not None:
             raise fast.ValidationError("available memory is known; use the fit gate, not already loaded")
+        if adapter.unrecognized_available_memory:
+            raise fast.ValidationError(
+                "server reports available memory outside the recognized hardware facts; already loaded is refused")
         if file_size_bytes is None:
             raise fast.ValidationError("already loaded needs the operator-stated file size")
         if model["quantization"] is None:
