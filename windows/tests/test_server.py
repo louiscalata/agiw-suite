@@ -589,33 +589,11 @@ class EndToEnd(unittest.TestCase):
             fields.update(host="mac", observedAt=dt.datetime.fromtimestamp(observed, dt.timezone.utc).isoformat())
         probes.write_json_atomic(target, fields, probes.PEER_MAX_BYTES, stop_at=share)
 
-    def configure_mac(self, **fields):
-        target = Path(self.tmp.name) / "llm-lab" / "mac-reach" / "hosts.json"
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(json.dumps({"mac": fields}), encoding="utf-8")
-
-    def write_mac_presence(self, host, observed, models, **fields):
-        share = Path(self.tmp.name)
-        target = probes.peer_dir(share) / f"{host}.json"
-        probes.write_json_atomic(target, {"schemaVersion": 1, "kind": "agiw-peer", "host": host,
-            "platform": "macos", "observedUnix": observed, "models": models, **fields},
-            probes.PEER_MAX_BYTES, stop_at=share)
-
     def clear_mac_reports(self):
         share = Path(self.tmp.name)
         for target in probes.peer_dir(share).glob("*.json"):
             target.unlink()
         (probes.peer_dir(share).parent / "mac-status.json").unlink(missing_ok=True)
-
-    def assert_local_readings_preserved(self, snapshot):
-        self.assertEqual(snapshot["host"], "windows")
-        self.assertEqual({m["id"]: m["state"] for m in snapshot["models"]},
-                         {"openai/gpt-oss-20b": "idle", "qwen3.8-27b": "idle"})
-        self.assertEqual((snapshot["memory"]["level"], snapshot["share"]["state"]), ("ok", "ready"))
-        sources = {s["id"]: s["state"] for s in snapshot["sources"]}
-        self.assertEqual((sources["llama-slots"], sources["lane-inventory"]), ("live", "live"))
-        for lane in snapshot["windowsWorker"]["lanes"].values():
-            self.assertEqual((lane["up"], lane["slotsBusy"], lane["slotsTotal"]), (True, 0, 2))
 
     def test_share_links_only_the_current_configured_mac(self):
         now = 2_000_000_000.0

@@ -22,6 +22,7 @@ import time
 from urllib.parse import urlsplit
 import http.client
 
+from machine_state import finite_number as _finite
 from inference_stats import MAP_SCHEMA, apply_rates, client_nodes, edges_for, machine_node, make_node
 import remote_machines
 
@@ -92,10 +93,6 @@ def _speed(prev, counters, elapsed, tokens, seconds):
     else:
         rate = (after - before) / elapsed
     return rate if _finite(rate) and rate >= 0 else None
-
-
-def _finite(value):
-    return type(value) in (int, float) and math.isfinite(value)
 
 
 def _whole(value):
