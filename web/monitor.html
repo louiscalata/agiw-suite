@@ -29,19 +29,31 @@
     </select>
   </label>
 </nav>
+<main id="mapMain" class="j-map-main">
+<h1 id="mapTitle">Inference map</h1>
 <p id="jaryoDemo" class="j-demo" hidden></p>
 <p id="tunnel" role="status">Reading the monitor feed.</p>
+<div class="j-map-controls" role="group" aria-label="Display updates and announcements">
+  <button id="mapPause" type="button" aria-pressed="false">Pause display updates</button>
+  <button id="mapMute" type="button" aria-pressed="false">Mute announcements</button>
+</div>
+<p id="mapCaptured" class="j-map-note" hidden></p>
+<p id="mapAnnounce" class="j-map-note" role="status" aria-live="polite" aria-atomic="true"></p>
 <p class="j-hint" id="mapTabHint">Arrow keys switch map monitors. Switching does not pause, cancel, or restart inference. Route sessions are on the overview.</p>
 <div id="monitorTabs" class="j-tabs" role="tablist" aria-label="Inference map monitors" aria-describedby="mapTabHint" data-jaryo-tabs="1"></div>
-<div class="j-map" id="content" role="region" aria-label="Machine and model map" tabindex="0">
-  <svg id="map" role="img" aria-label="Machines and model servers"></svg>
-  <section id="detail" aria-labelledby="detailTitle" hidden>
-    <button id="detailClose" type="button">Close details</button>
-    <h2 id="detailTitle"></h2>
-    <dl id="detailFacts"></dl>
-  </section>
+<div id="mapPanel" role="tabpanel" aria-label="Map monitor: All inference">
+  <div class="j-map" id="content" role="region" aria-label="Machine and model map" tabindex="0">
+    <svg id="map" role="img" aria-label="Machines and model servers"></svg>
+    <section id="detail" aria-labelledby="detailTitle" hidden>
+      <button id="detailClose" type="button">Close details</button>
+      <h2 id="detailTitle"></h2>
+      <dl id="detailFacts"></dl>
+    </section>
+  </div>
+  <ul id="mapKey" class="j-map-key" aria-label="Line key" hidden></ul>
+  <section id="mapLedger" class="j-board" data-jaryo-board="1" hidden></section>
 </div>
-<section id="mapLedger" class="j-board" data-jaryo-board="1" hidden></section>
+</main>
 <script src="/jaryo.mjs" type="module"></script>
 <script src="/monitor.mjs" type="module"></script>
 <script src="/monitor-map.mjs" type="module"></script>
