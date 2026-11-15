@@ -547,7 +547,7 @@ class BackgroundTests(unittest.TestCase):
             probes = stack.enter_context(remote.BackgroundProbes(interval=1))
             started = time.monotonic()
             for _ in range(10):
-                nodes = probes.snapshot(value)
+                probes.snapshot(value)
             self.assertLess(time.monotonic() - started, .2)
             wait_for(lambda: any(n["id"] == "registry:w8:lane" and n["health"] == "ok"
                                  for n in probes.snapshot(value)))
@@ -601,10 +601,6 @@ class SamplerTests(unittest.TestCase):
                 self.assertIsInstance(helper.run_sampler(helper.FakeGuard()), dict)
             self.assertEqual(tunnel.call_count, 0 if replacement else 1)
             self.assertEqual(attach.call_args.kwargs["targets"], [] if replacement else ["legacy"])
-
-
-from test_registry_transport import RegistryTransportTests
-from test_feature_documentation import FeatureDocumentationTests
 
 
 if __name__ == "__main__":

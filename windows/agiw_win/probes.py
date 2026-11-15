@@ -27,7 +27,7 @@ from urllib.parse import urlsplit
 
 from . import buildinfo
 from . import winsys
-from .jsonutil import JSON_MAX_DEPTH, loads_strict
+from .jsonutil import loads_strict
 
 # Shared modules sit beside agiw_win in an install and above windows in a checkout.
 # Append so the shared root does not shadow the Windows test package.

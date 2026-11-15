@@ -8,6 +8,8 @@ from __future__ import annotations
 import math
 import datetime as dt
 
+from machine_state import finite_number as _finite
+
 MAP_SCHEMA = "agiw.inference-map.v1"
 # Up to 32 configured remote roots + 64 lanes, with room for local nodes
 # and their caller observations. Keep the CLI export bounded as the map grows.
@@ -76,10 +78,6 @@ def expire_map(document, now):
         document["edges"] = [edge for edge in document["edges"]
                              if edge.get("kind") not in ("upstream", "caller")
                              or not expired.intersection((edge.get("from"), edge.get("to")))]
-
-
-def _finite(value):
-    return type(value) in (int, float) and math.isfinite(value)
 
 
 def _text(value, limit):

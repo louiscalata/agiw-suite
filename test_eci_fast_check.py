@@ -1270,10 +1270,6 @@ def observation(outcome="correct", **updates):
     return value
 
 
-# Include round-two regression modules in the explicit user-requested suite.
-from test_eci_fast_check_round2 import RoundTwoTests
-from test_eci_fast_check_runtime_round2 import RuntimeRound2Tests
-
 class AuditCorrectnessTests(unittest.TestCase):
     def test_single_error_uses_error_gate_not_unknown_finish(self):
         first = f.make_plan(datasets())["benchmarks"][0]["item_ids"][0]

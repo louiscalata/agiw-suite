@@ -1669,7 +1669,6 @@ class WindowsJobsJournalTests(unittest.TestCase):
             self.assertNotIn(port, worker["detail"])
         self.assertEqual(source["state"], "error")
         payload["reason"] = "queue I/O unavailable or timed out"
-        cache2 = dict(cache, workerCondition=None, heartbeatUnix=None)
         with mock.patch.object(telemetry, "_windows_worker_reader_blocked", return_value=False), \
              mock.patch.object(telemetry, "_WINDOWS_WORKER_CMD", Path("/nonexistent")):
             self.assertIsNone(telemetry._windows_worker_probe_locked())
