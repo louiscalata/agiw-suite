@@ -10,7 +10,7 @@ import json
 import unittest
 from unittest import mock
 
-from support import ROOT, forbid_real_commands
+from support import forbid_real_commands
 
 import peer_link as pl
 from agiw import cli, contract

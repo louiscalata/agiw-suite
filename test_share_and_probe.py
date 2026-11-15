@@ -698,7 +698,7 @@ class WindowsProbeScriptTests(unittest.TestCase):
                     raise OSError("archive write failed")
 
                 def pending(self):
-                    return {"id": PROBE_JOB, "model": model if False else "gpt-oss-20b"}
+                    return {"id": PROBE_JOB, "model": "gpt-oss-20b"}
             return Owner
         code, value = self.run_probe(factory)
         self.assertEqual(value, {"status": "unresolved", "code": "PROBE_FAILED", "jobId": PROBE_JOB})

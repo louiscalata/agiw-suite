@@ -1,5 +1,4 @@
 """Crash/restart safety checks using fake runners and synthetic inventory only."""
-import json
 import os
 from pathlib import Path
 import subprocess
@@ -353,7 +352,7 @@ class DurableJournalTests(unittest.TestCase):
         fake_cli.chmod(0o700)
         control = ModelControl(store, journal_path=self.path)
         with patch("model_control._find_lms", return_value=str(fake_cli)):
-            op = control.request("unload", MODEL)["operationId"]
+            control.request("unload", MODEL)
             deadline = time.monotonic() + 1
             while "waiting for fresh inventory" not in control.read()["message"] and time.monotonic() < deadline:
                 time.sleep(.005)

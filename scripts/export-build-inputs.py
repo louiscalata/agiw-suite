@@ -16,7 +16,6 @@ and the Windows tests. The archive contains no .git directory.
 from __future__ import annotations
 
 import hashlib
-import os
 import re
 import stat
 import subprocess

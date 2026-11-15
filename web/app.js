@@ -4,7 +4,7 @@ import {constellationLayout,fitGraph,prioritizeRuntimeModels,runtimeModelRoster,
 import {modelControlView,submitModelControl,MODEL_CONTROL_UNKNOWN} from '/model-control-view.mjs';
 import {createMonitorDesk, nodeInMonitor, moveMonitorTab, initialMonitorId, activityEvidence, runEvidence, historicalAcceptance} from '/monitor-tabs.mjs';
 import {paintMonitorChrome} from '/monitor-board.mjs';
-import {fleetState,fleetMachines,fleetLanes,fleetSummary,fleetWord,fleetAge,fleetMachineCoverage} from '/fleet-state.mjs';
+import {fleetState,fleetMachines,fleetLanes,fleetSummary,fleetWord,fleetAge,fleetMachineCoverage,recordedCheckSummary} from '/fleet-state.mjs';
 import {getMonitorStore} from '/monitor-store.mjs';
 const $=id=>document.getElementById(id), NS='http://www.w3.org/2000/svg';
 const ACTIVE=new Set(['generating','busy']);
@@ -25,6 +25,10 @@ const FIX_ACTIONS=new Map([['fix-local','Local runtime'],['fix-route','Route pip
 const HEADLESS_ACTIONS=new Map([['headless-on','on'],['headless-off','off']]);
 const REPAIR_SCOPES=new Set(['local','route','nisi']);
 let pendingActionReview=null;
+// Fleet recorded checks: GET /api/eci-tuning only. A failed or unreadable read replaces the last reading with NOT AVAILABLE.
+function renderRecordedChecks(data){const box=$('recordedCheckRows'),view=recordedCheckSummary(data);box.replaceChildren();for(const [label,text] of view.rows)box.append(el('dt',null,label),el('dd',null,text));$('recordedCheckNote').textContent=view.note;}
+let recordedChecksRead=0;
+async function loadRecordedChecks(){const read=++recordedChecksRead;let data=null;try{const response=await fetch('/api/eci-tuning',{cache:'no-store'});data=response.ok?await response.json():null;}catch(_){data=null;}if(read===recordedChecksRead)renderRecordedChecks(data);}
 function openActionReview({title,target,effects,duration},confirm,opener=document.activeElement){
   const dialog=$('actionReview');if(dialog.open)return;
   $('actionReviewHeading').textContent=`◆ REVIEW · ${title}`;
@@ -643,7 +647,7 @@ async function requestAutoUnload({reviewedEnabled}={}){
   }catch(_){autoUnloadState=null;autoUnloadError='Could not confirm the setting. Reading it again; no retry was sent.';}
   finally{if(revision===autoUnloadRevision){autoUnloadPosting=false;renderAutoUnload();if(refresh)pollAutoUnload();}}
 }
-async function requestModelAction({reviewedModelId,reviewedAction}={}){const n=inspectorNodeFor(selected);if(n?.kind!=='model')return;const state=modelActionState(n.model);if(!state.action||modelControlPosting)return;if(reviewedModelId===undefined){const modelId=n.model.id,action=state.action;return openActionReview({title:action==='unload'?'Unload model':'Load model',target:`This Mac · ${modelId}`,effects:action==='unload'?'Unloads this model from the local runtime, subject to the existing idle and ownership guards.':'Loads this model into local runtime memory, subject to the existing capacity and ownership guards.',duration:'Completion time is not measured. Closing this view does not cancel the request.'},()=>requestModelAction({reviewedModelId:modelId,reviewedAction:action}));}if(reviewedModelId!==n.model.id||reviewedAction!==state.action)return;modelControlPosting=true;modelControlError='';renderModelAction();try{const response=await submitModelControl(fetch,state.action,n.model.id),result=response.result;if(!response.ok){modelControlError=result.message||`Request rejected (${response.statusCode}).`;modelControlStatus=result;}else if(result.status==='running'){modelControlStatus=result;}else{modelControlError=result.message||'The server did not confirm a running operation.';modelControlStatus=result;}}catch(_){modelControlError=MODEL_CONTROL_UNKNOWN;}finally{modelControlPosting=false;}renderModelAction();pollModelControl();}
+async function requestModelAction({reviewedModelId,reviewedAction}={}){const n=inspectorNodeFor(selected);if(n?.kind!=='model')return;const state=modelActionState(n.model);if(!state.action||modelControlPosting)return;if(reviewedModelId===undefined){const modelId=n.model.id,action=state.action;return openActionReview({title:action==='unload'?'Unload model':'Load model',target:`${snapshot?.host==='windows'?'This PC':'This Mac'} · ${modelId}`,effects:action==='unload'?'Unloads this model from the local runtime, subject to the existing idle and ownership guards.':'Loads this model into local runtime memory, subject to the existing capacity and ownership guards.',duration:'Completion time is not measured. Closing this view does not cancel the request.'},()=>requestModelAction({reviewedModelId:modelId,reviewedAction:action}));}if(reviewedModelId!==n.model.id||reviewedAction!==state.action)return;modelControlPosting=true;modelControlError='';renderModelAction();try{const response=await submitModelControl(fetch,state.action,n.model.id),result=response.result;if(!response.ok){modelControlError=result.message||`Request rejected (${response.statusCode}).`;modelControlStatus=result;}else if(result.status==='running'){modelControlStatus=result;}else{modelControlError=result.message||'The server did not confirm a running operation.';modelControlStatus=result;}}catch(_){modelControlError=MODEL_CONTROL_UNKNOWN;}finally{modelControlPosting=false;}renderModelAction();pollModelControl();}
 function headlessText(h,view){if(!view||view.headless.label==='Headless unknown')return'Unknown';return[view.headless.label,typeof h?.grantedBy==='string'?`granted by ${h.grantedBy}`:null,typeof h?.reason==='string'?h.reason:null].filter(Boolean).join(' · ');}
 const INSPECTOR_EYEBROW={model:'LOCAL MODEL',afm:'ON-DEVICE ADVISOR',jev:'ROUTE ADVISOR','model-overflow':'INSTALLED MODEL INVENTORY',call:'MODEL RECEIPT',run:'ROUTE RECORD',pipeline:'SHARED ROUTE','windows-worker':'PC WORKER','windows-lane':'PC MODEL LANE','mac-peer':'MAC PRESENCE','mac-model':'MODEL ON THE MAC',client:'CLIENT MODEL IDENTITY','client-model':'CLIENT MODEL IDENTITY',clients:'CLIENT MODEL IDENTITY'};
 // The drawer is built off-page on every render and compared with what is shown, never keyed on raw aged objects:
@@ -1374,6 +1378,7 @@ $('drawerFixButton').addEventListener('click',()=>openFixInference('nisi'));
 $('memoryBannerDismiss').addEventListener('click',dismissMemoryBanner);$('memoryBannerDetails').addEventListener('click',openMemoryDetails);
 $('legendToggle').addEventListener('click',()=>setLegend($('mapLegend').hidden));
 {let legend=null;try{legend=localStorage.getItem('inference-monitor.legend');}catch(_){}setLegend(legend==='1',false);}
+loadRecordedChecks();setInterval(loadRecordedChecks,300000);
 $('modelAction').addEventListener('click',requestModelAction);setInterval(()=>{if(modelControlPollWanted())pollModelControl();},1000);
 $('autoUnloadToggle').addEventListener('click',requestAutoUnload);setInterval(()=>{if(document.body.classList.contains('sidebar-open')||dockedSidebar())pollAutoUnload();},5000);
 $('closeDrawer').addEventListener('click',()=>closeDrawer());$('about').addEventListener('click',toggleAbout);$('aboutCompact').addEventListener('click',toggleAbout);document.querySelectorAll('[data-view]').forEach(b=>b.addEventListener('click',()=>setView(b.dataset.view)));

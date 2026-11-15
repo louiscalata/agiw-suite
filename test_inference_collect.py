@@ -86,6 +86,16 @@ class RateMemoryTests(unittest.TestCase):
                          (None, None))
 
 
+class CollectorDiagnosticTests(unittest.TestCase):
+    def test_an_oversized_integer_clock_is_not_a_time(self):
+        # math.isfinite(10**400) raises OverflowError; the diagnostic must not.
+        with patch.object(inference_collect.time, "time", return_value=120.0):
+            diagnostic = inference_collect.collector_diagnostic("collect_snapshot", ValueError(),
+                                                                now=10**400, last_success=10**400)
+        self.assertEqual(diagnostic, {"stage": "collect_snapshot", "code": "invalid_value",
+                                      "failedAt": 120.0, "lastSuccessfulSampleAt": None})
+
+
 @patch.multiple(inference_collect, PC_LANES=LEGACY_FIXTURE_LANES,
                 _BY_ID={lane["id"]: lane for lane in LEGACY_FIXTURE_LANES})
 class CollectorTests(unittest.TestCase):

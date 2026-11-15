@@ -15,7 +15,6 @@ from unittest import mock
 import activity
 import agiw_status
 import machine_state
-import peer_feed
 import server
 import telemetry
 from invariant_pipeline import NOW, API, CLI, collect, peer, callers, iso
