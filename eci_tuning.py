@@ -36,6 +36,7 @@ MAX_DATASET_BYTES = 16 * 1024 * 1024
 MAX_DATASET_VIEW_BYTES = 2 * 1024 * 1024
 MAX_DATASET_COMPARISON_PAIRS = 2048
 MAX_DATASET_RUNS = 128
+MAX_REJECTED_FAST_CHECKS_VIEW = 32
 DATASET_WAIT_SECONDS = .1
 _DATASET_LOCK = threading.Lock()
 _DATASET_CACHE = {}
@@ -760,9 +761,21 @@ def _data_view(data, origin):
                 for a in data['runs'] for b in data['runs']
                 if a['comparability_class'] == 'baseline_protocol' and b['comparability_class'] == 'pipeline_configured'
                 and a['model'] == b['model'] and overlap(a, b)]
+    # A fast check that failed validation is listed, not silently dropped.
+    rejected = data.get('rejected_fast_checks', [])
+    shown = [rejected_entry(entry) for entry in rejected[:MAX_REJECTED_FAST_CHECKS_VIEW]]
+    if not rejected:
+        rejected_note = 'No fast-check record failed validation.'
+    elif len(rejected) == 1:
+        rejected_note = '1 fast-check record failed validation and is not ranked.'
+    else:
+        rejected_note = f'{len(rejected)} fast-check records failed validation and are not ranked.'
+        if len(rejected) > len(shown):
+            rejected_note += f' Showing the first {len(shown)}.'
     return {'name': 'AGIW x ECI Model Tuning Tool', 'schema_version': 1, 'dataset': dataset,
             'rankings': rank(data), 'recommendation': recommend(data),
             'pending': [r for r in data['runs'] if r['status'] != 'COMPUTED' or r['eci_posterior_mean'] is None],
+            'rejected_fast_checks': shown, 'rejected_fast_checks_note': rejected_note,
             'cross_class_note': 'Comparability classes are separate. Published Epoch scores belong to different artifacts. ' + ' '.join(overlaps)}
 
 
