@@ -5,6 +5,7 @@ import json
 import os
 import sys
 import tempfile
+import threading
 import time
 import types
 import unittest
@@ -96,6 +97,24 @@ def success_probe(**extra):
     return probe, calls
 
 
+@contextmanager
+def blocked_network():
+    """Patch the process-wide create_connection; yield each call made by anything but the registry prober.
+
+    The prober's threads (registry-scheduler, registry-probe_N) belong to remote_machines, not to the repair
+    path. If another test leaves them running, their loopback reads must not count against these guards.
+    """
+    calls = []
+
+    def record(*args, **kwargs):
+        name = threading.current_thread().name
+        if not name.startswith("registry-"):
+            calls.append((name, args, kwargs))
+        return mock.DEFAULT
+    with mock.patch.object(repair.socket, "create_connection", side_effect=record):
+        yield calls
+
+
 FULL_ROUTE = [
     (repair.ROUTE_STATUS, idle()), (repair.WINDOWS_STATUS, windows()),
     (repair.NISI_STATUS, nisi()), (repair.READINESS, reply(None)),
@@ -154,7 +173,7 @@ class FixRouteShareAndProbeTests(unittest.TestCase):
         controller, runner = self.controller([(repair.ROUTE_STATUS, idle())], share, probe)
         with mock.patch.object(repair, "_bounded_command") as bounded, \
              mock.patch.object(repair, "_run_bounded") as run, \
-             mock.patch.object(repair.socket, "create_connection") as connect:
+             blocked_network() as connects:
             state = self.finish(controller)
         self.assertEqual(state["status"], "needs-action")
         self.assertIn("AGIW_SHARE_HOSTS", state["message"])
@@ -164,7 +183,7 @@ class FixRouteShareAndProbeTests(unittest.TestCase):
         self.assertEqual(runner.script, [])
         bounded.assert_not_called()
         run.assert_not_called()
-        connect.assert_not_called()
+        self.assertEqual(connects, [])
 
     def test_every_unhealthy_share_requires_manual_recovery_without_mount_or_owner_calls(self):
         cases = ({"stuck": 3, "dispatch": "timeout"},
@@ -408,7 +427,8 @@ class ShareControlTests(unittest.TestCase):
             with mock.patch.object(repair, "_bounded_command", return_value=listing), \
                  mock.patch.object(repair, "_windows_worker_stuck_readers", return_value=0), \
                  mock.patch.object(repair, "_run_bounded") as run, \
-                 mock.patch.object(repair.socket, "create_connection") as connect:
+                 mock.patch.object(share, "reachable_host", wraps=share.reachable_host) as reach, \
+                 blocked_network() as connects:
                 self.assertEqual(controller.request_fix("route")["status"], "running")
                 deadline = time.monotonic() + 2
                 while time.monotonic() < deadline:
@@ -422,7 +442,8 @@ class ShareControlTests(unittest.TestCase):
         self.assertIn("different SMB account", state["message"])
         self.assertEqual(calls, [])
         run.assert_not_called()
-        connect.assert_not_called()
+        reach.assert_not_called()
+        self.assertEqual(connects, [])
 
     def test_mount_refuses_untrusted_host_and_uses_fixed_commands(self):
         with mock.patch.dict(os.environ, SHARE_ENV):
@@ -453,7 +474,7 @@ class ShareControlTests(unittest.TestCase):
                 control = repair.ShareControl()
             with mock.patch.object(repair, "_bounded_command") as bounded, \
                  mock.patch.object(repair, "_run_bounded") as run, \
-                 mock.patch.object(repair.socket, "create_connection") as connect:
+                 blocked_network() as connects:
                 self.assertIsNone(control.mounted())
                 self.assertIsNone(control.reachable_host())
                 self.assertFalse(control.force_unmount())
@@ -461,7 +482,7 @@ class ShareControlTests(unittest.TestCase):
                     control.mount("10.222.33.10")
                 bounded.assert_not_called()
                 run.assert_not_called()
-                connect.assert_not_called()
+                self.assertEqual(connects, [])
 
     def test_hold_owner_ignores_retained_pending_but_respects_a_live_owner(self):
         import fcntl
