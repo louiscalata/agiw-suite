@@ -99,7 +99,7 @@ export function harness({ width = 1150, extra = {}, legacyDetails = false } = {}
     .map(name => [name, (input, options) => fleet[name](input, {...options, now: options?.now ?? selectorClock.now()/1000})]));
   const api = runInNewContext(`${definitions}
 ;${graphSeam}
-;({renderActivity,renderVitals,renderSummary,renderRegistryTable,localRuntimeCounts,vitalsInput,syncCompactUI,toggleActivity,toggleAbout,closeCompactSidebar,setSidebarOpen,
+;({renderActivity,renderVitals,renderSummary,renderRegistryTable,renderRecordedChecks,loadRecordedChecks,localRuntimeCounts,vitalsInput,syncCompactUI,toggleActivity,toggleAbout,closeCompactSidebar,setSidebarOpen,
   rebuildPanel,disclosure,onlineCodeSummary,liveNow,renderInspector,modelControlPollWanted,onlineCodePollWanted,pollOnlineCodeAction,
   renderModelScope,renderList,setModelScope,closeDrawer,nodeSelect,selectRun,openMemoryDetails,renderRegistryChips,
   mountMapNode(id,node){nodeElements.set(id,node);},
