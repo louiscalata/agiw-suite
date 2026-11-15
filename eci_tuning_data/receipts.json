@@ -1,0 +1,381 @@
+{
+  "schema_version": 1,
+  "dataset": "dataset.json",
+  "claims": "Measured records only. Unknown values stay null. No ECI, no improvement claim and no release claim. Fast checks are screening, not ECI.",
+  "evidence_roots": {
+    "bundled_catalog": "agiw-suite repository root",
+    "component_suite": "eci-improve-20261110/mac-pipecfg-v2/results",
+    "eci_fit_gate": "eci-runs-20261115/eci-run-r2-fitter-copy (results.json) and eci-runs-20261115",
+    "fast_check_screening": "eci-runs-20261115 (result.json in eci-run-fc-mac-glimmer)"
+  },
+  "receipts": {
+    "bundled-catalog-20261110": {
+      "kind": "bundled_catalog",
+      "file": "eci_tuning_catalog.json",
+      "sha256": "409c325b4f93c0829d62855d0c8d514af6fff46fbf77c2991fb4ec1dae3ac574",
+      "repo": "agiw-suite",
+      "commit": "9a5b1bda19d2b2848d34b39066a12fcc14ce615e",
+      "as_of": "2026-11-10",
+      "run_ids": [
+        "pc-llama31-baseline-max1024",
+        "pc-llama31-pipeline-lenient",
+        "pc-bonsai",
+        "pc-lfm3",
+        "mac-glimmer"
+      ],
+      "note": "Runs copied unchanged through the suite ingest. Their numbers are bound to this catalog file as whole records, not to new measurements; the catalog keeps its own evidence statements."
+    },
+    "mac-glimmer-pipecfg2-suite": {
+      "kind": "component_suite",
+      "status": "COMPLETE",
+      "exit_code": 0,
+      "machine": "Darwin 27.2.0 arm64",
+      "machine_basis": "suite receipt runtime.host",
+      "machine_stated_by_operator": "MacBook Pro M5 Pro, 64 GB",
+      "requested_model": "mac-muse-glimmer-30b-q4km-pipecfg2",
+      "served_model": "mac-muse-glimmer-30b-q4km-pipecfg2",
+      "identity_scope": "local hash + owned argv + server-reported identity; no independent weight attestation",
+      "model_file": "Muse-Glimmer-30B-KQuant-17GB-Q4_K_M.gguf",
+      "model_sha256": "4cc57c0f51040a226e5a72cc47b7613f7772950e460a665f7083de89f183f60e",
+      "model_bytes": 16756683904,
+      "backend": "llama-server, LM Studio llama.cpp mac-arm64 apple-metal-advsimd 2.72.0",
+      "backend_basis": "read from the backend binary directory name llama.cpp-mac-arm64-apple-metal-advsimd-2.72.0",
+      "backend_sha256": "c852bee5d16f13d88ec58c471b5af57b1f9acd05bca4e893c621461a69715abc",
+      "quant": "Q4_K_M",
+      "quant_basis": "model file name Muse-Glimmer-30B-KQuant-17GB-Q4_K_M.gguf",
+      "command": {
+        "suite_runner": "run_mac_suite.py",
+        "suite_runner_sha256": "de83d10d77b09869aa548e7a019b041e71f58c555f3e008acd04f218dce8b34f",
+        "suite_argv": null,
+        "suite_argv_note": "not recorded in the suite receipt; unknown",
+        "server_argv": [
+          "llama-server",
+          "-m",
+          "Muse-Glimmer-30B-KQuant-17GB-Q4_K_M.gguf",
+          "--host",
+          "127.0.0.1",
+          "--port",
+          "18082",
+          "-c",
+          "8192",
+          "-ngl",
+          "999",
+          "--jinja",
+          "--seed",
+          "42",
+          "--temp",
+          "0",
+          "--parallel",
+          "1",
+          "--alias",
+          "mac-muse-glimmer-30b-q4km-pipecfg2"
+        ]
+      },
+      "seed": 42,
+      "temperature": 0,
+      "ctx": 8192,
+      "n_gpu_layers": 999,
+      "parallel": 1,
+      "start_utc": "2026-11-11T08:04:23.254727+00:00",
+      "end_utc": "2026-11-12T23:14:12.664614+00:00",
+      "wall_time_s": 140988.925127875,
+      "protocol_scope": "Predeclared local protocol deviations; not Epoch-official settings or an Epoch-official reproduction.",
+      "evidence": [
+        {
+          "file": "SUITE-20261111T080423254328Z.json",
+          "sha256": "6f5d93c0f44390164f588de287fffa58918222867683ebb53a17e64996d471d7"
+        },
+        {
+          "file": "mac-muse-glimmer-30b-q4km-pipecfg2-winogrande-e1-20261111-r2.receipt.json",
+          "sha256": "6f4386396c9fef3a3dddbbe5bafc3505e8bc579e5233016a1cf1b0a3476b40e3"
+        },
+        {
+          "file": "mac-muse-glimmer-30b-q4km-pipecfg2-arc-e1-20261111-r2.receipt.json",
+          "sha256": "1746af8883725baed3b30cd9489af6d661c68949e7e7c5fe171f114d38f08b73"
+        },
+        {
+          "file": "mac-muse-glimmer-30b-q4km-pipecfg2-gsm8k-e1-20261111-r2.receipt.json",
+          "sha256": "6175fb11b56e1eeb3fb069b66c09aae2fa607d844bebf4a734c3bbc3050bb0d1"
+        }
+      ],
+      "components": {
+        "Winogrande": {
+          "score": 0.8524072612470402,
+          "stderr": 0.009968715765479665,
+          "n": 1267.0,
+          "normalized_score": 0.7048145224940804,
+          "inside_informative_band": true,
+          "admitted": true,
+          "scorer_id": "strict_choice",
+          "scorer_id_basis": "mapped to the suite's scorer vocabulary from the harness scorer (Inspect choice() or gsm_numeric_em()); not recorded in the receipt",
+          "scoring": "Inspect choice() or strict numeric EM after answer-only client cut; truncations wrong",
+          "max_tokens": 1024,
+          "protocol": "Winogrande XL (winogrande_xl) validation, 0-shot generation, tested MCQ format system reminder, temperature=0; seed=42; DEVIATION: official test labels are not public, so the labeled validation split is used; not an Epoch-official reproduction; https://huggingface.co/datasets/allenai/winogrande; Predeclared local protocol deviations; not Epoch-official settings or an Epoch-official reproduction.; max_tokens=1024; truncated items scored wrong",
+          "dataset": {
+            "id": "winogrande_validation (winogrande_1.1)",
+            "split": "validation",
+            "sha256": "07601b0e846a8aca073e64fbe3a1d90d39d29d8a3807f0482fa90bb4e0f31f5a",
+            "n": 1267,
+            "url": "https://storage.googleapis.com/ai2-mosaic/public/winogrande/winogrande_1.1.zip"
+          },
+          "start_utc": "2026-11-11T08:04:30.485521+00:00",
+          "end_utc": "2026-11-11T18:43:10.889354+00:00",
+          "wall_time_s": 38320.268554583,
+          "output_tokens": 617293,
+          "tokens_per_s": 16.108785853646463,
+          "tokens_per_s_basis": "output tokens / component wall time",
+          "n_truncated_max_tokens": 138,
+          "n_parse_failures": 138
+        },
+        "ARC AI2": {
+          "score": 0.9573378839590444,
+          "stderr": 0.0059057542533816395,
+          "n": 1172.0,
+          "normalized_score": 0.9431171786120592,
+          "inside_informative_band": false,
+          "admitted": true,
+          "scorer_id": "strict_choice",
+          "scorer_id_basis": "mapped to the suite's scorer vocabulary from the harness scorer (Inspect choice() or gsm_numeric_em()); not recorded in the receipt",
+          "scoring": "Inspect choice() or strict numeric EM after answer-only client cut; truncations wrong",
+          "max_tokens": 1024,
+          "protocol": "ARC-Challenge test, zero-shot generation, tested MCQ format system reminder, temperature=0; seed=42; https://allenai.org/data/arc; Predeclared local protocol deviations; not Epoch-official settings or an Epoch-official reproduction.; max_tokens=1024; truncated items scored wrong",
+          "dataset": {
+            "id": "arc_challenge_test (ARC-V1-Feb2018)",
+            "split": "test",
+            "sha256": "9ed1f20727dd3630fea3db31aec96b5da55fcd5e0b657fddf012b50575b74e2f",
+            "n": 1172,
+            "url": "https://s3-us-west-2.amazonaws.com/ai2-website/data/ARC-V1-Feb2018.zip"
+          },
+          "start_utc": "2026-11-11T18:43:11.075425+00:00",
+          "end_utc": "2026-11-12T00:29:35.753553+00:00",
+          "wall_time_s": 20784.604079458004,
+          "output_tokens": 321440,
+          "tokens_per_s": 15.46529338596774,
+          "tokens_per_s_basis": "output tokens / component wall time",
+          "n_truncated_max_tokens": 17,
+          "n_parse_failures": 17
+        },
+        "GSM8K": {
+          "score": 0.9598180439727066,
+          "stderr": 0.005409439736970603,
+          "n": 1319.0,
+          "normalized_score": 0.9598180439727066,
+          "inside_informative_band": false,
+          "admitted": true,
+          "scorer_id": "gsm_numeric_em",
+          "scorer_id_basis": "mapped to the suite's scorer vocabulary from the harness scorer (Inspect choice() or gsm_numeric_em()); not recorded in the receipt",
+          "scoring": "Inspect choice() or strict numeric EM after answer-only client cut; truncations wrong",
+          "max_tokens": 2048,
+          "protocol": "GSM8K main test, fixed first five training examples with rationales; empty system prompt; temperature=0; seed=42; https://github.com/openai/grade-school-math; Predeclared local protocol deviations; not Epoch-official settings or an Epoch-official reproduction.; max_tokens=2048; truncated items scored wrong; Predeclared local protocol deviation: GSM8K sends no server-side stop sequence; only the answer text is cut client-side at the first \"\\nQuestion:\" before strict numeric scoring; reasoning is never cut. The 2048-token budget covers reasoning plus answer; reasoning and the chat template are unchanged.",
+          "dataset": {
+            "id": "gsm8k_test (test)",
+            "split": "test",
+            "sha256": "f4f9f0db6633cc7cb71872b7c1c4793772b7385badb2c64ea5a463409a6b6872",
+            "n": 1319,
+            "url": "https://raw.githubusercontent.com/openai/grade-school-math/3101c7d5072418e28b9008a6636bde82a006892c/grade_school_math/data/test.jsonl"
+          },
+          "start_utc": "2026-11-12T00:29:35.980715+00:00",
+          "end_utc": "2026-11-12T23:14:12.178382+00:00",
+          "wall_time_s": 81875.918413083,
+          "output_tokens": 1275274,
+          "tokens_per_s": 15.575690932295219,
+          "tokens_per_s_basis": "output tokens / component wall time",
+          "n_truncated_max_tokens": 24,
+          "n_parse_failures": 23
+        }
+      }
+    },
+    "mac-glimmer-pipecfg2-fit-gate": {
+      "kind": "eci_fit_gate",
+      "result": "ECI_NOT_COMPUTED",
+      "reason": "Only 1 distinct informative normalized scores in inclusive [0.1, 0.9]; at least 4 required",
+      "n_components": 3,
+      "n_informative_components": 1,
+      "informative_band_inclusive": [
+        0.1,
+        0.9
+      ],
+      "model": "mac-muse-glimmer-30b-q4km-pipecfg2",
+      "machine": "Mac (MacBook Pro M5 Pro 64 GB), no model loaded, no server started",
+      "machine_basis": "as written in eci-run-r2-receipt.json by the run operator",
+      "fitter": "fit_local_eci.py",
+      "fitter_sha256": "eb078400d7145edeba2ccc9217ea5b7db398afd7e7488932407e27db6b95647a",
+      "upstream_commit": "e04929ab751531e558b1a61e86f436487c710ef8",
+      "reference_sha256": {
+        "eci_scores.csv": "4b248fda3bb68ab83caf8eb77ac8854bdfb76fe11fd76e6a7d6990a6a088c207",
+        "edi_scores.csv": "38368fea32be6d0896a1f2c9aa217cb5ae95656cd831dbd83640b858397beb52",
+        "processed_data_for_eci.csv": "e31546ebae1751c37aae257cdda946f67b54b045d78b9d87bbc4e9c56f3394a9",
+        "benchmark_data.zip": "0e4da97211703ecbb60f7521654c81634b6d240ab11648f398f4435181801532"
+      },
+      "reference_retrieval_vintage": "NOT_VERIFIED (no retrieval sidecars; local copy dated 2026-11-10)",
+      "start_utc": "2026-11-15T05:18:13Z",
+      "end_utc": "2026-11-15T05:18:13Z",
+      "wall_time_s": 0.12,
+      "bayesian_sampling": "NOT_RUN",
+      "evidence": [
+        {
+          "file": "results.json",
+          "sha256": "3cfb43f15a5875128aadd571b81390d2bb0eeeb8260094e575a19f3b5160f7ef"
+        },
+        {
+          "file": "eci-run-r2-receipt.json",
+          "sha256": "ca8f32bb53dc489549c1e739e28578cf7ad4d11c378f5ceb7f4930d561a7dafc"
+        }
+      ]
+    },
+    "mac-glimmer-fastcheck-20261115": {
+      "kind": "fast_check_screening",
+      "record_id": "27c8da381d477153d3194d52dc958ed0c175c13882ebb5ad7719695b9fb38157",
+      "scope": "screening; not an ECI score",
+      "machine": "apple-m5pro-64gb",
+      "machine_basis": "record hardware.machine_label, passed to the adapter as --machine-label by the operator",
+      "machine_stated_by_operator": "MacBook Pro M5 Pro, 64 GB",
+      "requested_model": "mac-muse-glimmer-30b-q4km-fastcheck",
+      "served_model": "mac-muse-glimmer-30b-q4km-fastcheck",
+      "model_file": "Muse-Glimmer-30B-KQuant-17GB-Q4_K_M.gguf",
+      "model_sha256": "4cc57c0f51040a226e5a72cc47b7613f7772950e460a665f7083de89f183f60e",
+      "model_bytes": 16756683904,
+      "backend": "llama-server, LM Studio llama.cpp metal 2.72.0; server build_info b1-a4d4f2f",
+      "backend_sha256": "c852bee5d16f13d88ec58c471b5af57b1f9acd05bca4e893c621461a69715abc",
+      "command": {
+        "adapter": "python3 -B -m eci_fast_check_adapter --base-url http://127.0.0.1:18093/v1 --model mac-muse-glimmer-30b-q4km-fastcheck --samples eci-run-fc-arc.json eci-run-fc-gsm8k.json --count 20 --wall-budget-s 2700 --file-size-bytes 16756683904 --model-sha256 <model_sha256> --available-memory-bytes <measured before load> --machine-label apple-m5pro-64gb --memory-bytes 68719476736",
+        "adapter_code": "agiw-suite d096aab (git archive)",
+        "server_argv": [
+          "llama-server",
+          "-m",
+          "Muse-Glimmer-30B-KQuant-17GB-Q4_K_M.gguf",
+          "--host",
+          "127.0.0.1",
+          "--port",
+          "18093",
+          "-c",
+          "16384",
+          "-ngl",
+          "999",
+          "--jinja",
+          "--seed",
+          "42",
+          "--temp",
+          "0",
+          "--parallel",
+          "1",
+          "--alias",
+          "mac-muse-glimmer-30b-q4km-fastcheck"
+        ],
+        "basis": "transcribed from eci-run-fc-run.sh; flag substrings checked by the builder; paths, the model SHA-256 and the available-memory value are redacted"
+      },
+      "seed": 42,
+      "temperature": 0,
+      "ctx": 16384,
+      "max_tokens": 16384,
+      "plan_id": "d2ef6d72f7e7ebb107a6fd76f338fdfb03e04e1c5ae099dbe3f31226fcba1304",
+      "start_utc": "2026-11-15T05:20:04.286773+00:00",
+      "end_utc": "2026-11-15T05:35:09Z",
+      "end_utc_basis": "server stop time in the run log",
+      "wall_time_s": 905.2423381670014,
+      "benchmarks": {
+        "arc": {
+          "dataset": {
+            "id": "arc (harness-data-manifest)",
+            "sha256": "a51e92384b08d8a015ae8f98358c7bf70d6e0508f2df32a3c66abcf599d80571",
+            "population": 1172,
+            "n": 20
+          },
+          "n": 20,
+          "correct": 20,
+          "parsed": 20,
+          "accuracy": 1.0,
+          "wall_time_s": 313.50288575000013,
+          "tokens_per_s": 12.137521640315063,
+          "tokens_per_s_basis": "completion tokens / answer seconds, including prompt time",
+          "completion_tokens": 3805,
+          "prompt_tokens": 2538
+        },
+        "gsm8k": {
+          "dataset": {
+            "id": "gsm8k (harness-data-manifest)",
+            "sha256": "a43654b839a70bf6399f9696aa28820be294473ec0e654a27b7555ff9ea4ec1d",
+            "population": 1319,
+            "n": 20
+          },
+          "n": 20,
+          "correct": 20,
+          "parsed": 20,
+          "accuracy": 1.0,
+          "wall_time_s": 591.7391472090021,
+          "tokens_per_s": 14.063932389428198,
+          "tokens_per_s_basis": "completion tokens / answer seconds, including prompt time",
+          "completion_tokens": 8322,
+          "prompt_tokens": 2461
+        }
+      },
+      "evidence": [
+        {
+          "file": "result.json",
+          "sha256": "004d5920622f4466bfc24f08a3bc348f73a6bbef2096761a4612cede8d7d9a9f"
+        },
+        {
+          "file": "eci-run-fc-receipt.log",
+          "sha256": "e559edb9ad87f6a5d7481d21e42f7a8682dfe5d0906e75b16f398378d4f84e1a"
+        },
+        {
+          "file": "eci-run-fc-model.sha256",
+          "sha256": "2035d54a9deb55180fc4a7190c343e4dc8ce2eddec7db73d70e95486813ac5d0"
+        }
+      ]
+    }
+  },
+  "run_receipts": {
+    "mac-glimmer-pipecfg2": [
+      "mac-glimmer-pipecfg2-suite",
+      "mac-glimmer-pipecfg2-fit-gate"
+    ],
+    "pc-llama31-baseline-max1024": [
+      "bundled-catalog-20261110"
+    ],
+    "pc-llama31-pipeline-lenient": [
+      "bundled-catalog-20261110"
+    ],
+    "pc-bonsai": [
+      "bundled-catalog-20261110"
+    ],
+    "pc-lfm3": [
+      "bundled-catalog-20261110"
+    ],
+    "mac-glimmer": [
+      "bundled-catalog-20261110"
+    ]
+  },
+  "binding_scope": "runs: per field, every number in the run record. catalog_runs: whole record equal to the catalog record. fast_checks: whole record by record_id; correct, parsed, accuracy, wall time, tokens/s, dataset SHA-256, population, N, plan_id, seed and model SHA-256 are also checked against the receipt; the other numbers are covered by the record digest and validation.",
+  "bindings": {
+    "runs": {
+      "mac-glimmer-pipecfg2": {
+        "/settings/temperature": "mac-glimmer-pipecfg2-suite#/temperature",
+        "/settings/ctx": "mac-glimmer-pipecfg2-suite#/ctx",
+        "/settings/n_gpu_layers": "mac-glimmer-pipecfg2-suite#/n_gpu_layers",
+        "/components/Winogrande/score": "mac-glimmer-pipecfg2-suite#/components/Winogrande/score",
+        "/components/Winogrande/normalized_score": "mac-glimmer-pipecfg2-suite#/components/Winogrande/normalized_score",
+        "/components/Winogrande/n": "mac-glimmer-pipecfg2-suite#/components/Winogrande/n",
+        "/components/Winogrande/stderr": "mac-glimmer-pipecfg2-suite#/components/Winogrande/stderr",
+        "/components/ARC AI2/score": "mac-glimmer-pipecfg2-suite#/components/ARC AI2/score",
+        "/components/ARC AI2/normalized_score": "mac-glimmer-pipecfg2-suite#/components/ARC AI2/normalized_score",
+        "/components/ARC AI2/n": "mac-glimmer-pipecfg2-suite#/components/ARC AI2/n",
+        "/components/ARC AI2/stderr": "mac-glimmer-pipecfg2-suite#/components/ARC AI2/stderr",
+        "/components/GSM8K/score": "mac-glimmer-pipecfg2-suite#/components/GSM8K/score",
+        "/components/GSM8K/normalized_score": "mac-glimmer-pipecfg2-suite#/components/GSM8K/normalized_score",
+        "/components/GSM8K/n": "mac-glimmer-pipecfg2-suite#/components/GSM8K/n",
+        "/components/GSM8K/stderr": "mac-glimmer-pipecfg2-suite#/components/GSM8K/stderr"
+      }
+    },
+    "catalog_runs": {
+      "pc-llama31-baseline-max1024": "bundled-catalog-20261110",
+      "pc-llama31-pipeline-lenient": "bundled-catalog-20261110",
+      "pc-bonsai": "bundled-catalog-20261110",
+      "pc-lfm3": "bundled-catalog-20261110",
+      "mac-glimmer": "bundled-catalog-20261110"
+    },
+    "fast_checks": {
+      "27c8da381d477153d3194d52dc958ed0c175c13882ebb5ad7719695b9fb38157": "mac-glimmer-fastcheck-20261115"
+    }
+  }
+}
