@@ -1,39 +1,130 @@
 /** AGIW adapter for the shared Jaryo theme. The product opens on Overview. */
 import {THEME_MODES, resolveTheme} from '/jaryo/theme.mjs';
 
-const KEY = 'agiw-theme';
+/** The preference contract shared by every page and the native shell (docs/monitor-preferences.md). */
+export const PREFERENCE_KEYS = Object.freeze({theme: 'agiw-theme', textSize: 'agiw-text-size'});
+/** A window property a native document-start script may set: an object with the keys above. */
+export const PREFERENCE_SEED = 'agiwPreferenceSeed';
+/** Dispatched on window after a person changes a preference; detail holds both keys. */
+export const PREFERENCE_EVENT = 'agiw:preferences';
+export const TEXT_SIZES = Object.freeze(['100', '125', '150', '200']);
+
+const KEY = PREFERENCE_KEYS.theme;
+const own = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
+
+/** A saved text size, or 100 when the value is missing or not one of the offered sizes. */
+export function textSizeChoice(saved) {
+  return TEXT_SIZES.includes(String(saved)) ? String(saved) : '100';
+}
+
+function validPreference(key, value) {
+  if (typeof value !== 'string') return null;
+  if (key === PREFERENCE_KEYS.theme) return THEME_MODES.includes(value) ? value : null;
+  if (key === PREFERENCE_KEYS.textSize) return TEXT_SIZES.includes(value) ? value : null;
+  return null;
+}
+
+/** This page's saved choice, else the native seed's, else null. Invalid or unreadable values are skipped. */
+export function readPreference(win, key) {
+  let stored = null;
+  try { stored = win?.localStorage?.getItem(key) ?? null; } catch (_) { stored = null; }
+  const saved = validPreference(key, stored);
+  if (saved) return saved;
+  try {
+    const seed = win?.[PREFERENCE_SEED];
+    if (!seed || typeof seed !== 'object' || Array.isArray(seed) || !own(seed, key)) return null;
+    return validPreference(key, seed[key]);
+  } catch (_) { return null; }
+}
+
+/** The applied choices under the documented keys. */
+export function currentPreferences(doc) {
+  const data = doc?.documentElement?.dataset || {};
+  return Object.freeze({
+    [PREFERENCE_KEYS.theme]: validPreference(PREFERENCE_KEYS.theme, data.themeChoice) || 'system',
+    [PREFERENCE_KEYS.textSize]: textSizeChoice(data.textSize),
+  });
+}
+
+function publishPreferences(win, doc) {
+  const detail = currentPreferences(doc);
+  try { win?.dispatchEvent?.(new win.CustomEvent(PREFERENCE_EVENT, {detail})); }
+  catch (_) { /* no observer: the choice still applies */ }
+  return detail;
+}
 
 function systemPrefersLight() {
   return window.matchMedia('(prefers-color-scheme: light)').matches === true;
 }
 
-export function applyTheme(choice) {
+/** Applies a theme. Only a person's change is saved ({save: false} restores without writing storage). */
+export function applyTheme(choice, {save = true} = {}) {
   const theme = resolveTheme(choice, systemPrefersLight());
   document.documentElement.dataset.theme = theme.resolved;
   document.documentElement.dataset.themeChoice = theme.mode;
-  try { localStorage.setItem(KEY, theme.mode); }
-  catch (_) { /* private mode */ }
+  if (save) {
+    try { localStorage.setItem(KEY, theme.mode); }
+    catch (_) { /* private mode */ }
+  }
   return theme.mode;
 }
 
 export function initTheme(select) {
-  let saved = 'system';
-  try { saved = localStorage.getItem(KEY) || 'system'; }
-  catch (_) { saved = 'system'; }
-  if (!THEME_MODES.includes(saved)) saved = 'system';
-  const mode = applyTheme(saved);
+  const saved = readPreference(window, KEY) || 'system';
+  const mode = applyTheme(saved, {save: false});
   const media = window.matchMedia('(prefers-color-scheme: light)');
   const onChange = () => {
-    if (document.documentElement.dataset.themeChoice === 'system') applyTheme('system');
+    if (document.documentElement.dataset.themeChoice === 'system') applyTheme('system', {save: false});
   };
   if (typeof media.addEventListener === 'function') media.addEventListener('change', onChange);
   if (!select) return mode;
   select.value = mode;
-  select.addEventListener('change', () => applyTheme(select.value));
+  select.addEventListener('change', () => { applyTheme(select.value); publishPreferences(window, document); });
   return mode;
 }
 
+/** Sets the page scale. A person's change is kept in this browser's storage when it is available;
+ * restoring at load ({save: false}) writes nothing, so an unchanged seed is not copied into storage. */
+export function applyTextSize({window, document}, value, {save = true} = {}) {
+  const size = textSizeChoice(value);
+  document.documentElement.dataset.textSize = size;
+  if (save) {
+    try { window?.localStorage?.setItem(PREFERENCE_KEYS.textSize, size); } catch (_) { /* private mode: still applies */ }
+  }
+  return size;
+}
+
+/** Adds Text size beside Theme on any page that has the Theme control. */
+export function mountTextSize({window, document}) {
+  const existing = document.getElementById?.('jaryoTextSize');
+  if (existing) return existing.closest?.('.j-text-size') || null;
+  const theme = document.getElementById?.('jaryoTheme')?.closest?.('.j-theme');
+  if (!theme?.after) return null;
+  const label = document.createElement('label');
+  label.className = 'j-theme j-text-size';
+  label.append(document.createTextNode('Text size'));
+  const select = document.createElement('select');
+  select.id = 'jaryoTextSize';
+  select.setAttribute('aria-label', 'Text size');
+  for (const size of TEXT_SIZES) {
+    const option = document.createElement('option');
+    option.value = size;
+    option.textContent = `${size}%`;
+    select.append(option);
+  }
+  select.value = applyTextSize({window, document}, readPreference(window, PREFERENCE_KEYS.textSize), {save: false});
+  select.addEventListener('change', () => {
+    select.value = applyTextSize({window, document}, select.value);
+    publishPreferences(window, document);
+  });
+  label.append(select);
+  theme.after(label);
+  return label;
+}
+
 if (typeof document !== 'undefined' && typeof document.querySelector === 'function') {
+  // Scale first, while the module evaluates, so later work lays out at the chosen size.
+  if (typeof window !== 'undefined') applyTextSize({window, document}, readPreference(window, PREFERENCE_KEYS.textSize), {save: false});
   document.documentElement.dataset.tokenSource = 'owner-choices-20261112';
   document.documentElement.dataset.chromeMark = 'type-agiw';
   document.documentElement.dataset.selectedDirection = '';
@@ -41,7 +132,10 @@ if (typeof document !== 'undefined' && typeof document.querySelector === 'functi
   document.documentElement.dataset.provisionalTypeface = 'IBM Plex Sans';
   document.documentElement.dataset.artworkApproval = 'none';
   const themeSelect = document.querySelector('#jaryoTheme');
-  if (themeSelect) initTheme(themeSelect);
+  if (themeSelect) {
+    initTheme(themeSelect);
+    mountTextSize({window, document});
+  }
 }
 
 
