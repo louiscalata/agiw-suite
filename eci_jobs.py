@@ -648,6 +648,7 @@ class Engine:
         for check in (self._usable, self._require_gate,
                       lambda: normalize_request(request, self._policy),
                       lambda: self._target(request),
+                      lambda: self._context(request),
                       lambda: self._samples(request), self._require_parts):
             try:
                 check()
@@ -672,6 +673,8 @@ class Engine:
                 # The adapter retries one transient failure per item.
                 "max_requests": None if planned is None else planned * 2,
                 "wall_budget_s": request["wall_budget_s"], "starts_model": False,
+                # What the registry says, not a measurement; ``None`` is unknown.
+                "lane_context_tokens": self._advertised_context(request),
                 "writes": ["job journal", "job output directory",
                            "dataset, only for a valid complete record"],
             },
@@ -699,15 +702,10 @@ class Engine:
 
     def _target(self, request):
         """Base URL of an allowed registry lane, re-read from the registry each time."""
-        try:
-            listed = list(self._targets()) if callable(self._targets) else []
-        except Exception:
-            listed = []
-        matches = [item for item in listed
-                   if isinstance(item, dict) and item.get("id") == request["target"]]
-        if len(matches) != 1 or not isinstance(matches[0].get("base"), str):
+        lane = self._lane(request)
+        if lane is None or not isinstance(lane.get("base"), str):
             raise Refused("unknown_target", "The target lane is not in the registry.")
-        base = matches[0]["base"]
+        base = lane["base"]
         try:
             port = urlsplit(base).port
         except ValueError:
@@ -721,6 +719,42 @@ class Engine:
         if request["target"] not in self._policy.allowed_targets:
             raise Refused("target_not_allowed", "The target lane is not an allowed check target.")
         return base
+
+    def _lane(self, request):
+        """The one registry entry for the target, or ``None``. Reads the registry only."""
+        try:
+            listed = list(self._targets()) if callable(self._targets) else []
+        except Exception:
+            listed = []
+        matches = [item for item in listed
+                   if isinstance(item, dict) and item.get("id") == request["target"]]
+        return matches[0] if len(matches) == 1 else None
+
+    def _advertised_context(self, request):
+        """The lane's ``contextTokens`` when it is a nonnegative integer, else ``None``."""
+        lane = self._lane(request)
+        value = lane.get("contextTokens") if lane is not None else None
+        return value if type(value) is int and value >= 0 else None
+
+    def _context(self, request):
+        """Refuse a ``max_tokens`` above the context the registry advertises for the lane.
+
+        The adapter lowers ``max_tokens`` to the lane's context, and the record
+        then fails the exact binding after the whole check has run. This check
+        uses the registry entry only and contacts nothing. A lane that
+        advertises no context is unknown and passes here; the exact binding at
+        ingestion still applies. A lane that is not in the registry is refused
+        by ``_target``.
+        """
+        lane = self._lane(request)
+        if lane is None or "contextTokens" not in lane:
+            return
+        advertised = lane["contextTokens"]
+        # A negative value is below every allowed max_tokens, so it refuses as well.
+        if type(advertised) is not int or request["max_tokens"] > advertised:
+            raise Refused("context_exceeded",
+                          "The reviewed max_tokens exceeds the lane's advertised context, "
+                          "or that context is not a valid number.")
 
     def _samples(self, request):
         if request["sample_set"] not in self._sets:
@@ -737,6 +771,7 @@ class Engine:
     def _admit(self, request):
         self._require_gate()
         self._target(request)
+        self._context(request)
         self._samples(request)
         self._require_parts()
         if sum(job["state"] == "queued" for job in self._jobs.values()) >= MAX_QUEUED:
@@ -813,6 +848,7 @@ class Engine:
                 try:
                     normalize_request(job["request"], self._policy)
                     base = self._target(job["request"])
+                    self._context(job["request"])
                     files = self._samples(job["request"])
                 except Refused as refusal:
                     return _view(self._append(job, "failed", {

@@ -1,8 +1,10 @@
 # Check jobs
 
 `eci_jobs.py` queues, tracks, cancels and ingests screening checks, one at a
-time. It is an engine only. It has no page, no server route and no thread, and
-nothing in the monitor imports it yet. All real checks are **NOT_RUN**.
+time. It is an engine only. It has no page and no thread. `eci_job_routes.py`
+adds three [read-only routes](#read-only-routes) that the observer serves only
+when it is handed an engine. The observer ships with none, and nothing in the
+monitor creates one yet. All real checks are **NOT_RUN**.
 
 A screening check is a [model fast check](eci-fast-check.md) run by the
 [loopback adapter](eci-model-tuning.md#run-a-fast-check-against-an-existing-server)
@@ -117,6 +119,8 @@ default explicit, so the review covers the values that will run.
 - `target` is a registry lane id such as `registry:machine:lane`. The lane must
   be in the registry when the job is submitted and again when it starts. Its
   address must be a loopback lane address. The eight protected ports refuse.
+- `max_tokens` must be at most the context the registry advertises for the
+  lane. See [Lane context](#lane-context).
 - `model_id` is a public model identifier, never a path or an address.
 - `sample_set` names a configured set. A request cannot name a file path.
 - `wall_budget_s` is an exact positive decimal string of at most 32
@@ -137,11 +141,15 @@ request or for a later attempt.
 `preview` lists every reason a submission would be refused now, and the
 effects a reviewer must see: the target lane, the sample set, the planned
 number of requests, the upper bound with one retry per item, the wall budget,
-`starts_model: false` and what is written.
+`starts_model: false`, `lane_context_tokens` and what is written.
+`lane_context_tokens` is the lane's `contextTokens` from the registry, or
+`null` when the lane advertises none or the value is not a nonnegative
+integer. It is what the registry says, not a measurement.
 
 Refusal codes: `invalid_request`, `budget_required`, `budget_refused`,
 `not_reviewed`, `review_mismatch`, `gate_closed`, `unknown_target`,
-`protected_port`, `invalid_target`, `target_not_allowed`, `unknown_sample_set`,
+`protected_port`, `invalid_target`, `target_not_allowed`, `context_exceeded`,
+`unknown_sample_set`,
 `not_configured`, `samples_unreadable`, `queue_full`, `journal_full`,
 `journal_unavailable`, `not_owner`, `unknown_job`, `not_resumable`,
 `not_cancellable`, `busy`.
@@ -151,13 +159,85 @@ configured sample files cannot be read or planned. Submit does not read the
 sample files; a job whose files cannot be read fails when the runner loads
 them.
 
+### Lane context
+
+A registry lane may carry `contextTokens`
+([lane registry](three-machine-pipeline.md)). The engine compares the reviewed
+`max_tokens` with it on preview, submit, resume and again at start, and
+refuses with `context_exceeded` when `max_tokens` is larger. It reads the
+registry entry only. It contacts no lane and no model.
+
+| Registry entry | Result |
+| --- | --- |
+| No `contextTokens` | Unknown. Not refused here; `lane_context_tokens` is `null`. |
+| A nonnegative integer, `max_tokens` at most that value | Passes. |
+| A nonnegative integer, `max_tokens` above it | `context_exceeded`. |
+| `0` | `context_exceeded` for every request, because the smallest `max_tokens` is 8192. |
+| Any other value | `context_exceeded`. |
+
+A job whose lane advertises too little at start fails with
+"Refused at start: context_exceeded" and the runner is not called.
+
+This check saves a whole run that could not be ingested. It does not replace
+the exact comparison in [Record binding](#record-binding). `contextTokens` is
+written by the operator and is not verified against the server. If the server's
+real context is smaller than the registry says, the adapter still lowers
+`max_tokens` and the record is still refused after the run.
+
+## Read-only routes
+
+`eci_job_routes.ReadOnlyRoutes(engine)` maps three GET paths to the three
+engine reads. It calls `status()`, `job()` and `preview()` and nothing else.
+
+| GET path | Engine call | Answer |
+| --- | --- | --- |
+| `/api/eci-jobs` | `status()` | 200 with the status object, also when `status` is `unknown` |
+| `/api/eci-jobs/jobs/<job_id>` | `job(job_id)` | 200 with one job view; 404 `unknown_job` |
+| `/api/eci-jobs/preview?<request>` | `preview(request)` | 200 with the preview, including its `refusals` |
+
+The preview query names each request field at most once: `submission_id`,
+`target`, `model_id`, `sample_set`, `wall_budget_s`, `count`, `max_tokens`,
+`request_timeout_s`, `disable_thinking` and `facts.<name>` for a fact. Integers
+are plain decimal digits. `disable_thinking` is `true` or `false`. A query that
+is empty, longer than 4096 characters, repeats a field or names an unknown
+field answers 400 `invalid_request` with fixed text. The query on the other
+two paths is ignored.
+
+A refusal answers `{"status": "refused", "code": ..., "message": ...}` with the
+engine's code and text. `invalid_request` is 400. `unknown_job` and an unknown
+path are 404. `not_owner` and `journal_unavailable` are 503. Every other
+refusal is 409.
+
+The observer (`server.py`) serves these paths under the same Host and Origin
+rule as its other reads. A request from another host or origin gets 403 before
+the engine is read. Answers are JSON and are not cached.
+
+- `MonitorServer(..., check_jobs=None)` is the default. There is no engine, no
+  state directory and no file opened at startup. `/api/eci-jobs` then answers
+  200 with `status: unknown`, `gate: closed`, no jobs and the reason "Check
+  jobs are not configured." The other two paths answer 503 with the same
+  reason.
+- `server.py` does not import `eci_jobs.py` or `eci_job_routes.py`, and the
+  packagers do not bundle them. A caller that wants the routes passes
+  `check_jobs=eci_job_routes.ReadOnlyRoutes(engine)`. No caller does yet.
+- There is no POST route. A POST, PUT, PATCH or DELETE to these paths reaches
+  no engine. Submit, resume, cancel and start stay Python calls.
+- An engine opened with no policy shows `gate: closed`, and every preview
+  refuses with `budget_required` or `budget_refused`.
+- A preview reads the configured sample files to plan the request count. The
+  observer closes a connection after two seconds, so a very large sample set
+  can time out a preview. Nothing is written when that happens.
+- If the route object raises or returns something that is not a status and a
+  JSON object, the answer is 503 `{"status": "unknown"}`.
+
 ## Running a job
 
 `run_next()` runs the oldest queued job to its end in the calling thread. The
 caller decides when to call it. A second call while a job runs refuses with
 `busy`. The gate, the policy, the registry and the sample set are checked again
 at start. A closed gate leaves the job queued. A lane that left the registry or
-the policy fails the job without calling the runner.
+the policy fails the job without calling the runner. So does a lane whose
+advertised context is now below the reviewed `max_tokens`.
 
 The gate is checked on submit, on resume and at start only. Closing it while a
 job runs does not stop the runner and does not block ingestion of that job's
@@ -209,7 +289,9 @@ request." and the dataset is untouched. The rule is exact on purpose:
   is smaller. That record ran with a setting the reviewer did not approve, so
   it is refused. Submit a new request whose `max_tokens` is at most the lane's
   context. The smallest allowed value is 8192, so a lane with a smaller
-  context cannot produce an ingestible record through this engine.
+  context cannot produce an ingestible record through this engine. When the
+  registry advertises the lane's context, [Lane context](#lane-context)
+  refuses such a request before the run.
 - A record with no runtime settings or no `max_tokens` is refused.
 - Without a declared hash the model file is identified only by the name the
   lane advertises. Declare `facts.model_sha256` to bind the file itself.
@@ -286,14 +368,22 @@ the normalized dataset the Model evaluation page reads.
 
 ## Not in this module
 
-- Server routes for status, reviewed submit, resume and cancel, with the native
-  capability header, and a read-only or 501 Windows mirror.
+- Server routes for reviewed submit, resume and cancel, with the native
+  capability header. Only the three reads above exist.
+- A route for `preview_resume`.
+- A read-only or 501 Windows mirror. The Windows observer answers 404 on the
+  check-job paths.
+- Code that builds an engine and hands its routes to the observer. That needs
+  the owner decisions below and a state directory.
 - Bundling `eci_jobs.py` and the adapter in `build.sh`, `package-release.sh`
   and the Windows installer.
 - The check queue, check detail and reviewed submission on the Model
   evaluation page.
 - A stop and progress hook in the adapter, so that a cancel is honoured between
-  items with the real adapter.
+  items with the real adapter. A cancel route is not useful before this hook
+  exists: with `adapter_runner` a running check stops only at its wall budget.
+- A context reading from the lane itself. The pre-check trusts the registry
+  entry.
 - A worker thread that calls `run_next()` after a reviewed submit.
 - The three owner decisions above, the dataset folder and the sample files.
 - Journal rotation.
@@ -302,9 +392,12 @@ the normalized dataset the Model evaluation page reads.
 
 ## Tests
 
-`test_eci_jobs.py` uses a fake runner, fake clocks and temporary folders. It
-opens no socket and calls no model.
+`test_eci_jobs.py` and `test_eci_jobs_context.py` use a fake runner, fake
+clocks and temporary folders. They open no socket and call no model.
+`test_eci_job_routes.py` uses the same fakes. It also starts the observer in
+the test process on a loopback port chosen by the system and requests the
+routes from it. It contacts no lane and no model.
 
 ```sh
-PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest test_eci_jobs -q
+PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest test_eci_jobs test_eci_jobs_context test_eci_job_routes -q
 ```

@@ -122,6 +122,19 @@ OWNER_ACTION_ROUTES = {
 }
 
 
+# Read-only check-job routes. The observer imports no engine and ships with none:
+# these answer from a route object only when one is handed to MonitorServer.
+CHECK_JOBS_PATH = '/api/eci-jobs'
+CHECK_JOBS_PREVIEW_PATH = '/api/eci-jobs/preview'
+CHECK_JOBS_JOB_PREFIX = '/api/eci-jobs/jobs/'
+CHECK_JOBS_NOT_CONFIGURED = 'Check jobs are not configured.'
+
+
+def check_jobs_path(path):
+    return (path in (CHECK_JOBS_PATH, CHECK_JOBS_PREVIEW_PATH)
+            or path.startswith(CHECK_JOBS_JOB_PREFIX) and len(path) > len(CHECK_JOBS_JOB_PREFIX))
+
+
 def cached_readiness(snapshot, now):
     """Project already sampled observations; never invoke an owner or renew a receipt."""
     snapshot = snapshot if isinstance(snapshot, dict) else {}
@@ -548,16 +561,21 @@ class MonitorServer(ThreadingHTTPServer):
     max_streams = 3
     stream_write_timeout_seconds = 5.0
 
-    def __init__(self, address, store, *, durable_model_control=False, l2_open=False, control_capability=None):
+    def __init__(self, address, store, *, durable_model_control=False, l2_open=False, control_capability=None,
+                 check_jobs=None):
         if address[0] != '127.0.0.1':
             raise ValueError('Monitor must bind to IPv4 loopback')
         if type(durable_model_control) is not bool:
             raise ValueError('Durable model control flag must be boolean')
         if type(l2_open) is not bool:
             raise ValueError('L2-open flag must be boolean')
+        if check_jobs is not None and not callable(check_jobs):
+            raise ValueError('Check-job routes must be callable')
         self.store = store
         self.control_capability = control_capability
         self.l2_open = l2_open
+        # None by default: no engine, no state directory, nothing opened at startup.
+        self.check_jobs = check_jobs
         self.action_diagnosis = None
         # Explicit opt-in only. ModelControl reads an existing journal and
         # blocks actions on missing/corrupt state; startup never provisions it.
@@ -666,6 +684,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(200, json.dumps(data, allow_nan=False).encode(), 'application/json')
             except (OSError, ValueError, TypeError, KeyError):
                 return self.reply(503, b'{"status":"unknown"}', 'application/json')
+        if check_jobs_path(path):
+            return self.check_jobs(path)
         if path == '/api/components':
             return self.reply(200, json.dumps(self.server.bundled_components.status()).encode(), 'application/json')
         if path == '/api/components/jev':
@@ -808,6 +828,25 @@ class Handler(BaseHTTPRequestHandler):
             return diagnosis
         self.server.action_diagnosis = None
         return request()
+
+    def check_jobs(self, path):
+        """GET only: status, one job or a preview. Nothing is queued, started or cancelled here."""
+        routes = self.server.check_jobs
+        if routes is None:
+            if path != CHECK_JOBS_PATH:
+                return self.reply(503, json.dumps({
+                    'status': 'unknown', 'reason': CHECK_JOBS_NOT_CONFIGURED}).encode(), 'application/json')
+            return self.reply(200, json.dumps({
+                'status': 'unknown', 'reason': CHECK_JOBS_NOT_CONFIGURED, 'owner': False,
+                'gate': 'closed', 'jobs': [], 'active': None}).encode(), 'application/json')
+        try:
+            status, data = routes(path, urlsplit(self.path).query)
+            if type(status) is not int or not 200 <= status <= 599 or not isinstance(data, dict):
+                raise ValueError('check-job route answer')
+            payload = json.dumps(data, allow_nan=False).encode()
+        except Exception:
+            return self.reply(503, b'{"status":"unknown"}', 'application/json')
+        return self.reply(status, payload, 'application/json')
 
     def control_error(self, status, message):
         return self.reply(status, json.dumps({'status': 'error', 'message': message}).encode(),
