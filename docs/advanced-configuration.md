@@ -35,6 +35,16 @@ These are placeholders, not valid configuration values; replace them with the co
 
 Route recovery requires `--l2-open` after verified L2 handover; the native launcher does not pass this flag. An unhealthy share requires manual recovery in Finder. The monitor never unmounts or remounts it.
 
+## ECI tuning dataset for a login-started app
+
+A login-started Inference Monitor reads only the environment in its LaunchAgent. To have it load a configured ECI tuning dataset, export `AGIW_ECI_TUNING_DATASET_DIR` with an absolute path before running `login-agent.sh install`:
+
+```sh
+AGIW_ECI_TUNING_DATASET_DIR='<absolute-dataset-directory>' ./login-agent.sh install
+```
+
+The installer stores the path in the private per-user LaunchAgent's `EnvironmentVariables`. An empty or relative value is refused before the LaunchAgent is written. When the variable is unset, no key is stored. It can be combined with the share recovery settings above. The value is read only at install time. Install refuses while the login agent is loaded or the app is running, so this setting never reloads or restarts a running app. Changing the value later needs `login-agent.sh uninstall`, a normal Quit of the app, and a new install, because an existing LaunchAgent with different contents is refused.
+
 ## Memory readings for sandboxed callers
 
 When the Mac Monitor can read the kernel memory counters, its sampler writes a short-lived `level.json` under `~/.local/state/agiw/mem-guard/`. The directory is owner-only and the file is mode `0600`. A sandboxed memory-guard caller can use this file for up to three seconds when it cannot read the counters directly. The sampler never renews the file from an older file reading or fallback.
