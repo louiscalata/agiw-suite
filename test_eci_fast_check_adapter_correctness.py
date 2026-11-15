@@ -99,6 +99,25 @@ class AdapterCorrectnessTests(unittest.TestCase):
             self.assertIsNone(model["file_size_bytes"])
             self.assertEqual(model["quantization"], "Q4_K_M")
 
+    def test_llama_ftype_labels_map_to_canonical_quantization_names(self):
+        for label, name in (("Q4_K - Medium", "Q4_K_M"), ("Q3_K - Small", "Q3_K_S"), ("Q3_K - Large", "Q3_K_L"),
+                            ("IQ4_XS - 4.25 bpw", "IQ4_XS"), ("Q8_0", "Q8_0"), ("q4_k_m", "Q4_K_M")):
+            self.assertEqual(adapter.quantization_name(label), name)
+        with fixtures.Stub(properties={}, get_status=404, model_meta={"ftype": "Q4_K - Medium"}) as stub:
+            model, _ = adapter.OpenAIAdapter(stub.url, fixtures.MODEL_ID).discover()
+            self.assertEqual(model["quantization"], "Q4_K_M")
+        properties = fixtures.props()
+        properties["model"]["quantization"] = "Q4_K - Medium"
+        with self.fixture.tempdir() as directory, fixtures.Stub(properties=properties) as stub:
+            record = self.fixture.run_fixture(stub, [self.fixture.sample(directory)], Path(directory) / "out")
+            self.assertEqual(record["model"]["quantization"], "Q4_K_M")
+        with self.fixture.tempdir() as directory, fixtures.Stub(
+                properties={}, get_status=404, model_meta={"ftype": "Q5_K - Medium"}) as stub:
+            with self.assertRaisesRegex(fast.ValidationError, "disagrees"):
+                adapter.run(stub.url, fixtures.MODEL_ID, [self.fixture.sample(directory)], Path(directory) / "out",
+                            model_sha256=fixtures.MODEL_SHA, file_size_bytes=100, quantization="Q4_K_M",
+                            available_memory_bytes=8000)
+
     def test_path_model_uses_explicit_public_label_and_context_caps_output(self):
         private_model = str(Path("/models") / "fixture.gguf")
         with patch.object(fixtures, "MODEL_ID", private_model):

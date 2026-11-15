@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 import copy
-import datetime as dt
 import json
 import logging
 import math
@@ -15,6 +14,7 @@ import threading
 import time
 
 from inference_stats import edges_for, expire_map, machine_node, make_node
+from machine_state import utc_iso as _iso
 
 _ID = re.compile(r"[a-z][a-z0-9_-]{0,15}\Z")
 _LABEL = re.compile(r"[A-Za-z0-9 ._-]{1,80}\Z")
@@ -223,10 +223,6 @@ def _identity(body):
             or not identity.isprintable()):
         raise ValueError("identity")
     return identity
-
-
-def _iso(now):
-    return dt.datetime.fromtimestamp(now, dt.timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def _lane_node(target, result, now, interval, success=None, started=None, running=False):

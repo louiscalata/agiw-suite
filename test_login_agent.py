@@ -18,7 +18,7 @@ def plist_writer():
 
 
 class LoginAgentConfigTests(unittest.TestCase):
-    def run_writer(self, *, hosts=None, username=None, existing_mode=None):
+    def run_writer(self, *, hosts=None, username=None, dataset_dir=None, existing_mode=None):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             binary = root / "InferenceMonitor"
@@ -29,6 +29,9 @@ class LoginAgentConfigTests(unittest.TestCase):
             env = dict(os.environ)
             env.pop("AGIW_SHARE_HOSTS", None)
             env.pop("AGIW_SHARE_USERNAME", None)
+            env.pop("AGIW_ECI_TUNING_DATASET_DIR", None)
+            if dataset_dir is not None:
+                env["AGIW_ECI_TUNING_DATASET_DIR"] = dataset_dir
             if hosts is not None:
                 env["AGIW_SHARE_HOSTS"] = hosts
             if username is not None:
@@ -108,6 +111,58 @@ class LoginAgentConfigTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIsNone(payload)
             self.assertIsNone(mode)
+
+    def test_exported_dataset_dir_survives_in_private_plist(self):
+        result, payload, mode = self.run_writer(dataset_dir="/Users/owner/eci-dataset")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(payload["EnvironmentVariables"],
+                         {"AGIW_ECI_TUNING_DATASET_DIR": "/Users/owner/eci-dataset"})
+        self.assertEqual(mode, 0o600)
+
+    def test_unset_dataset_dir_adds_no_environment_key(self):
+        result, payload, _ = self.run_writer(hosts="10.222.33.10", username="suiteuser")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("AGIW_ECI_TUNING_DATASET_DIR", payload["EnvironmentVariables"])
+
+    def test_relative_or_empty_dataset_dir_refuses_before_writing_plist(self):
+        for value in ("", "eci-dataset", "./eci-dataset", "~/eci-dataset"):
+            result, payload, mode = self.run_writer(dataset_dir=value)
+            self.assertNotEqual(result.returncode, 0, value)
+            self.assertIn("AGIW_ECI_TUNING_DATASET_DIR", result.stderr)
+            self.assertIsNone(payload)
+            self.assertIsNone(mode)
+
+    def test_dataset_dir_and_share_settings_are_both_stored(self):
+        result, payload, mode = self.run_writer(hosts="10.222.33.10", username="suiteuser",
+                                                dataset_dir="/Users/owner/eci-dataset")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(payload["EnvironmentVariables"], {
+            "AGIW_ECI_TUNING_DATASET_DIR": "/Users/owner/eci-dataset",
+            "AGIW_SHARE_HOSTS": "10.222.33.10",
+            "AGIW_SHARE_USERNAME": "suiteuser",
+        })
+        self.assertEqual(mode, 0o600)
+
+    def test_existing_plist_without_dataset_dir_is_not_replaced(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            binary = root / "InferenceMonitor"
+            binary.write_bytes(b"fake binary")
+            destination = root / "agent.plist"
+            state = root / "state"
+            state.mkdir()
+            args = [sys.executable, "-c", plist_writer(), str(binary), str(destination), str(state)]
+            env = {key: value for key, value in os.environ.items()
+                   if key not in ("AGIW_SHARE_HOSTS", "AGIW_SHARE_USERNAME",
+                                  "AGIW_ECI_TUNING_DATASET_DIR")}
+            first = subprocess.run(args, env=env, capture_output=True, text=True, timeout=5)
+            self.assertEqual(first.returncode, 0, first.stderr)
+            before = destination.read_bytes()
+            env["AGIW_ECI_TUNING_DATASET_DIR"] = "/Users/owner/eci-dataset"
+            second = subprocess.run(args, env=env, capture_output=True, text=True, timeout=5)
+            self.assertNotEqual(second.returncode, 0)
+            self.assertIn("different login agent", second.stderr)
+            self.assertEqual(destination.read_bytes(), before)
 
 
 if __name__ == "__main__":

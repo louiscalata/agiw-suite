@@ -36,6 +36,7 @@ MAX_DATASET_BYTES = 16 * 1024 * 1024
 MAX_DATASET_VIEW_BYTES = 2 * 1024 * 1024
 MAX_DATASET_COMPARISON_PAIRS = 2048
 MAX_DATASET_RUNS = 128
+MAX_REJECTED_FAST_CHECKS_VIEW = 32
 DATASET_WAIT_SECONDS = .1
 _DATASET_LOCK = threading.Lock()
 _DATASET_CACHE = {}
@@ -191,7 +192,8 @@ def normalize_run(row, hint=None, run_id=None):
     protocol_id = eci_protocol(row)
     result = {'run_id': text(row.get('run_id') or run_id, 'run_id', True),
               'model': text(row.get('model') or row.get('model_id'), 'model', True),
-              'status': {'OK': 'NOT_COMPUTED', 'PARTIAL': 'NOT_COMPUTED'}.get(row.get('status'), row.get('status')) or 'NOT_COMPUTED',
+              # The local fitter writes ECI_NOT_COMPUTED; source_status keeps it.
+              'status': {'OK': 'NOT_COMPUTED', 'PARTIAL': 'NOT_COMPUTED', 'ECI_NOT_COMPUTED': 'NOT_COMPUTED'}.get(row.get('status'), row.get('status')) or 'NOT_COMPUTED',
               'comparability_class': comparability(row, hint),
               'protocol_id': protocol_id,
               'reason': text(row.get('reason'), 'reason')}
@@ -401,6 +403,7 @@ def ingest(paths, hint=None, require_normalized=False, _documents=None):
                     items.append(normalize_item(row))
                 elif 'raw_score' in row:
                     # Validate every source component before aggregation can drop it.
+                    comparability(row, hint)
                     component_protocol = eci_protocol(row)
                     model = row.get('model_id') or row.get('model')
                     key = row.get('run_id') or f'{path.stem}::{model}'
@@ -412,6 +415,11 @@ def ingest(paths, hint=None, require_normalized=False, _documents=None):
                     name = text(row.get('benchmark'), 'benchmark', True)
                     if name in target['components']:
                         raise ValidationError('duplicate extra score benchmark')
+                    if target['components']:
+                        # The run was copied from its first row; these belong to components only.
+                        # scorer_id stays: comparability() reads it to keep lenient runs out of baseline.
+                        for field in ('benchmark', 'raw_score', 'n', 'n_items', 'n_scored', 'stderr'):
+                            target.pop(field, None)
                     target['components'][name] = {'score': row.get('raw_score'), 'status': row.get('status'), 'n': row.get('n_scored', row.get('n_items')),
                                                    'stderr': row.get('stderr'), 'scorer_id': row.get('scorer_id')}
                 else:
@@ -760,9 +768,21 @@ def _data_view(data, origin):
                 for a in data['runs'] for b in data['runs']
                 if a['comparability_class'] == 'baseline_protocol' and b['comparability_class'] == 'pipeline_configured'
                 and a['model'] == b['model'] and overlap(a, b)]
+    # A fast check that failed validation is listed, not silently dropped.
+    rejected = data.get('rejected_fast_checks', [])
+    shown = [rejected_entry(entry) for entry in rejected[:MAX_REJECTED_FAST_CHECKS_VIEW]]
+    if not rejected:
+        rejected_note = 'No fast-check record failed validation.'
+    elif len(rejected) == 1:
+        rejected_note = '1 fast-check record failed validation and is not ranked.'
+    else:
+        rejected_note = f'{len(rejected)} fast-check records failed validation and are not ranked.'
+        if len(rejected) > len(shown):
+            rejected_note += f' Showing the first {len(shown)}.'
     return {'name': 'AGIW x ECI Model Tuning Tool', 'schema_version': 1, 'dataset': dataset,
             'rankings': rank(data), 'recommendation': recommend(data),
             'pending': [r for r in data['runs'] if r['status'] != 'COMPUTED' or r['eci_posterior_mean'] is None],
+            'rejected_fast_checks': shown, 'rejected_fast_checks_note': rejected_note,
             'cross_class_note': 'Comparability classes are separate. Published Epoch scores belong to different artifacts. ' + ' '.join(overlaps)}
 
 

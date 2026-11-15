@@ -122,8 +122,8 @@ OWNER_ACTION_ROUTES = {
 }
 
 
-# Read-only check-job routes. The observer imports no engine and ships with none:
-# these answer from a route object only when one is handed to MonitorServer.
+# Read-only check-job routes. They answer from a route object only when one is
+# handed to MonitorServer; main() builds one only with --check-jobs-config.
 CHECK_JOBS_PATH = '/api/eci-jobs'
 CHECK_JOBS_PREVIEW_PATH = '/api/eci-jobs/preview'
 CHECK_JOBS_JOB_PREFIX = '/api/eci-jobs/jobs/'
@@ -133,6 +133,18 @@ CHECK_JOBS_NOT_CONFIGURED = 'Check jobs are not configured.'
 def check_jobs_path(path):
     return (path in (CHECK_JOBS_PATH, CHECK_JOBS_PREVIEW_PATH)
             or path.startswith(CHECK_JOBS_JOB_PREFIX) and len(path) > len(CHECK_JOBS_JOB_PREFIX))
+
+
+def open_check_jobs(path):
+    """The check-job host named by ``--check-jobs-config``, or None without the flag.
+
+    The engine is imported here and only here, so the observer loads none of it
+    unless a config is named. The host keeps the submission gate closed.
+    """
+    if path is None:
+        return None
+    import eci_job_host
+    return eci_job_host.open_host(path)
 
 
 def cached_readiness(snapshot, now):
@@ -1312,6 +1324,10 @@ def main():
     parser.add_argument('--config', type=Path,
                         help='JSON with publishStatus / peerLink booleans '
                              '(default: ~/Library/Application Support/AGIW/config.json)')
+    parser.add_argument('--check-jobs-config', type=Path,
+                        help='absolute JSON path that names the check-job state, dataset, sample sets, '
+                             'lanes and budget; serves the read-only check-job routes with the '
+                             'submission gate closed (default: none)')
     args = parser.parse_args()
     store = SnapshotStore()
     owner_options = {'l2_open': True} if args.l2_open else {}
@@ -1320,6 +1336,11 @@ def main():
         owner_options['control_capability'] = capability
     if args.durable_model_control:
         owner_options['durable_model_control'] = True
+    check_jobs = open_check_jobs(args.check_jobs_config)
+    if check_jobs is not None:
+        owner_options['check_jobs'] = check_jobs.routes
+        print(json.dumps({'checkJobs': 'ok' if check_jobs.engine is not None else 'error'}),
+              file=sys.stderr, flush=True)
     server = MonitorServer(('127.0.0.1', args.port), store, **owner_options)
     options, publisher = peer_options(args.publish_status, args.peer_link, args.config, server.server_address[1])
     print(json.dumps({'host': getattr(publisher, 'host', None), 'publishStatus': options['publishStatus'],
@@ -1409,6 +1430,8 @@ def main():
         if getattr(server, 'model_control', None) is not None:
             server.model_control.join(timeout=.45)
         server.server_close()
+        if check_jobs is not None:
+            check_jobs.close()
 
 
 if __name__ == '__main__':

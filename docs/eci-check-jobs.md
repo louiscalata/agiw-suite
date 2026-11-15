@@ -3,8 +3,10 @@
 `eci_jobs.py` queues, tracks, cancels and ingests screening checks, one at a
 time. It is an engine only. It has no page and no thread. `eci_job_routes.py`
 adds three [read-only routes](#read-only-routes) that the observer serves only
-when it is handed an engine. The observer ships with none, and nothing in the
-monitor creates one yet. All real checks are **NOT_RUN**.
+when it is handed an engine. `eci_job_host.py` builds one from an explicit
+config when the observer is started with `--check-jobs-config PATH`
+([Host](#host)). Its gate is closed, so no check can be submitted or started.
+All real checks are **NOT_RUN**.
 
 A screening check is a [model fast check](eci-fast-check.md) run by the
 [loopback adapter](eci-model-tuning.md#run-a-fast-check-against-an-existing-server)
@@ -217,9 +219,11 @@ the engine is read. Answers are JSON and are not cached.
   200 with `status: unknown`, `gate: closed`, no jobs and the reason "Check
   jobs are not configured." The other two paths answer 503 with the same
   reason.
-- `server.py` does not import `eci_jobs.py` or `eci_job_routes.py`, and the
-  packagers do not bundle them. A caller that wants the routes passes
-  `check_jobs=eci_job_routes.ReadOnlyRoutes(engine)`. No caller does yet.
+- `server.py` imports no part of the engine at startup. Only
+  `open_check_jobs()` imports `eci_job_host`, and `main()` calls it only when
+  `--check-jobs-config` is given. `build.sh` and `package-release.sh` bundle
+  `eci_jobs.py`, `eci_job_routes.py`, `eci_job_host.py` and
+  `eci_fast_check_adapter.py`.
 - There is no POST route. A POST, PUT, PATCH or DELETE to these paths reaches
   no engine. Submit, resume, cancel and start stay Python calls.
 - An engine opened with no policy shows `gate: closed`, and every preview
@@ -229,6 +233,77 @@ the engine is read. Answers are JSON and are not cached.
   can time out a preview. Nothing is written when that happens.
 - If the route object raises or returns something that is not a status and a
   JSON object, the answer is 503 `{"status": "unknown"}`.
+
+## Host
+
+`server.py --check-jobs-config PATH` builds one engine at startup and serves
+its read-only routes. Without the flag nothing changes: no engine, no state
+directory, and the status path answers "Check jobs are not configured."
+
+`PATH` is an absolute JSON file. It must be a regular file owned by the user,
+not a link, not writable by group or others, and at most 64 KiB. Keys are
+unique and every field below is required. Any other field refuses, including
+any field that names a gate.
+
+| Field | Value |
+| --- | --- |
+| `state_dir` | Absolute folder for `jobs.jsonl`, `engine.lock` and `runs/`. Use a local folder, not a network share: it is opened before the observer listens. |
+| `dataset_dir` | Absolute folder for `DatasetSink`. Not the state folder. |
+| `sample_sets` | Up to 8 set ids, each with 1 to 16 distinct absolute sample file paths. |
+| `allowed_targets` | Registry lane ids such as `registry:pc:fast`. Up to 64, no repeats. |
+| `max_wall_budget_s` | Exact positive decimal string, the cap. |
+| `default_wall_budget_s` | Exact positive decimal string, at most the cap. |
+
+The host builds `Engine(state_dir, policy=Policy(gate=lambda: False, ...),
+targets=..., sample_sets=..., runner=eci_jobs.adapter_runner,
+sink=DatasetSink(dataset_dir))`. The targets are
+`remote_machines.lane_targets(remote_machines.load_config())`, read again on
+every check, so a preview follows the registry as it is now. The host opens no
+socket, starts no thread and contacts no lane.
+
+The gate is not configurable. Submit, resume and start refuse with
+`gate_closed`, and every preview lists `gate_closed` first. It stays closed
+until owner decision D1 says what opens it.
+
+If the file cannot be read safely, or is not valid, no engine is built and no
+folder is created. The status path answers 200 with `status: unknown`, a
+closed gate and one fixed reason: "The check-job configuration cannot be read
+safely." or "The check-job configuration is not valid." The other two paths
+answer 503 with the same reason. An engine that cannot be built answers
+"The check-job engine cannot be opened." The observer still starts, and prints
+`{"checkJobs": "ok"}` or `{"checkJobs": "error"}` on standard error. The
+engine releases its lock when the observer stops.
+
+### Lanes and budget chosen for this host
+
+Decided under delegation on 15 Nov 2026, from the lane registry on this Mac:
+
+| Lane | Port | `contextTokens` | Allowed | Why |
+| --- | --- | --- | --- | --- |
+| `registry:pc:fast` | 11247 | 32768 | yes | |
+| `registry:pc:review` | 11237 | 16384 | yes | |
+| `registry:pc:glimmer` | 11236 | none | no | Labelled retiring; advertises no context. |
+| `registry:macpro:glimmer` | 11280 | 4096 | no | Below the 8192 minimum `max_tokens`, so no record could be ingested. |
+
+Wall budget cap and default: `"1500"` seconds. The gate stays closed.
+
+```json
+{
+  "state_dir": "/Users/<you>/Library/Application Support/AGIW/check-jobs/state",
+  "dataset_dir": "/Users/<you>/Library/Application Support/AGIW/check-jobs/dataset",
+  "sample_sets": {"screening": ["/absolute/path/to/samples.json"]},
+  "allowed_targets": ["registry:pc:fast", "registry:pc:review"],
+  "max_wall_budget_s": "1500",
+  "default_wall_budget_s": "1500"
+}
+```
+
+With this config a preview for `pc:fast` or `pc:review` refuses only with
+`gate_closed`. `pc:glimmer` adds `target_not_allowed`. `macpro:glimmer` adds
+`target_not_allowed` and `context_exceeded`. `pc:review` with `max_tokens`
+32768 adds `context_exceeded`. A budget above 1500 refuses with
+`budget_refused`. The sample sets are not chosen yet; the path above is a
+placeholder.
 
 ## Running a job
 
@@ -373,10 +448,10 @@ the normalized dataset the Model evaluation page reads.
 - A route for `preview_resume`.
 - A read-only or 501 Windows mirror. The Windows observer answers 404 on the
   check-job paths.
-- Code that builds an engine and hands its routes to the observer. That needs
-  the owner decisions below and a state directory.
-- Bundling `eci_jobs.py` and the adapter in `build.sh`, `package-release.sh`
-  and the Windows installer.
+- Opening the gate (owner decision D1).
+- Passing `--check-jobs-config` from `login-agent.sh` and the app. Today the
+  flag is used only when the observer is started by hand.
+- Bundling `eci_jobs.py` and the adapter in the Windows installer.
 - The check queue, check detail and reviewed submission on the Model
   evaluation page.
 - A stop and progress hook in the adapter, so that a cancel is honoured between
@@ -385,7 +460,9 @@ the normalized dataset the Model evaluation page reads.
 - A context reading from the lane itself. The pre-check trusts the registry
   entry.
 - A worker thread that calls `run_next()` after a reviewed submit.
-- The three owner decisions above, the dataset folder and the sample files.
+- The gate decision, the dataset folder and the sample files. The lanes and
+  the budget are chosen for the host ([Host](#host)); the engine defaults
+  still refuse.
 - Journal rotation.
 - A way for `read_status()` to report whether an engine holds the lock.
 - A link from `docs/README.md` and a roadmap entry.
@@ -396,8 +473,10 @@ the normalized dataset the Model evaluation page reads.
 clocks and temporary folders. They open no socket and call no model.
 `test_eci_job_routes.py` uses the same fakes. It also starts the observer in
 the test process on a loopback port chosen by the system and requests the
-routes from it. It contacts no lane and no model.
+routes from it. `test_eci_job_host.py` builds the real engine from a temporary
+config and a temporary copy of the lane registry, and requests its routes the
+same way. They contact no lane and no model.
 
 ```sh
-PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest test_eci_jobs test_eci_jobs_context test_eci_job_routes -q
+PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest test_eci_jobs test_eci_jobs_context test_eci_job_routes test_eci_job_host -q
 ```

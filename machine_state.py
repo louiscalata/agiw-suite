@@ -24,6 +24,10 @@ def finite_number(value):
         return False
 
 
+def utc_iso(seconds):
+    return dt.datetime.fromtimestamp(seconds, dt.timezone.utc).isoformat().replace("+00:00", "Z")
+
+
 def platform_name(value):
     return "mac" if value in ("mac", "macos") else value if isinstance(value, str) and value in FRESH_SECONDS else None
 

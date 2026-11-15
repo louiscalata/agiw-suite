@@ -308,12 +308,20 @@ class SourceTests(unittest.TestCase):
             "subprocess", "socket", "http", "threading", "asyncio", "server", "model_control",
             "eci_fast_check_adapter", "remote_machines", "multiprocessing"})
 
-    def test_the_observer_does_not_import_the_engine_it_does_not_bundle(self):
-        self.assertFalse(self.imported("server.py") & {"eci_jobs", "eci_job_routes", "eci_fast_check_adapter"})
+    def test_the_observer_imports_the_engine_lazily_and_bundles_it(self):
+        engine = {"eci_job_host", "eci_jobs", "eci_job_routes", "eci_fast_check_adapter"}
+        top = set()
+        for node in self.tree("server.py").body:
+            if isinstance(node, ast.Import):
+                top.update(alias.name.split(".")[0] for alias in node.names)
+            elif isinstance(node, ast.ImportFrom):
+                top.add((node.module or "").split(".")[0])
+        self.assertFalse(top & engine)
+        self.assertEqual(self.imported("server.py") & engine, {"eci_job_host"})
         for script in ("build.sh", "package-release.sh"):
             text = (ROOT / script).read_text(encoding="utf-8")
-            for name in ("eci_jobs.py", "eci_job_routes.py", "eci_fast_check_adapter.py"):
-                self.assertNotIn(name, text)
+            for name in sorted(engine):
+                self.assertIn(name + ".py", text)
 
     def test_the_observer_adds_no_check_job_post_route(self):
         source = (ROOT / "server.py").read_text(encoding="utf-8")
