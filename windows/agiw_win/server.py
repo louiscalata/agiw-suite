@@ -35,7 +35,7 @@ if _INFERENCE_ROOT is not None and str(_INFERENCE_ROOT) not in sys.path:
 from inference_collect import RateMemory, attach, vram_from_gpus, collector_diagnostic
 from inference_stats import expire_map
 from fleet_state import build_fleet_state
-from machine_state import CLOCK_SKEW_SECONDS, expire_machines
+from machine_state import CLOCK_SKEW_SECONDS, expire_machines, finite_number
 import eci_tuning
 
 AGED_REASONS = {"stale": "stale", "clock_skew": "clock-ahead", "schema_invalid": "report-refused"}
@@ -46,14 +46,9 @@ def cached_readiness(snapshot, now):
     """Read Windows cached evidence only; never dispatch a Mac owner action."""
     snapshot = snapshot if isinstance(snapshot, dict) else {}
     sampled = snapshot.get("fullSampledAt", snapshot.get("sampledAt"))
-    def valid(value):
-        try:
-            return type(value) in (int, float) and math.isfinite(value)
-        except OverflowError:
-            return False
-    sampled = sampled if valid(sampled) else None
+    sampled = sampled if finite_number(sampled) else None
     age = now - sampled if sampled is not None else None
-    fresh = valid(age) and 0 <= age <= FULL_SAMPLE_MAX_AGE
+    fresh = finite_number(age) and 0 <= age <= FULL_SAMPLE_MAX_AGE
     return {"action": "readiness-status", "readOnly": True,
             "status": "observed" if fresh else "unknown",
             "reasonCode": ("cached_observations" if fresh else "not_observed" if age is None
