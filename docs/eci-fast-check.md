@@ -519,7 +519,12 @@ raw payloads, model paths and machine/device identifiers are omitted. These are
 server reports, not independently measured hardware or artifact attestation.
 
 The existing fit gate needs model size, quantization and sufficient available
-memory; resume needs the actual artifact SHA-256. Always supply the actual GGUF
+memory; resume needs the actual artifact SHA-256. When available memory is
+unknown and the lane already serves the model, `--already-loaded` records an
+operator statement instead (see
+[the adapter section](eci-model-tuning.md#run-a-fast-check-against-an-existing-server)):
+`pre` stays `UNKNOWN`, `provenance.fit_gate` is `already_loaded`, and the
+record is screening only. Always supply the actual GGUF
 file size with `--file-size-bytes`; a server size may describe tensor storage.
 For other missing facts add `--file-size-bytes BYTES --quantization QUANT --available-memory-bytes BYTES
 --model-sha256 SHA256` using verified values. Conflicting hash or quantization facts are refused. File-size provenance records

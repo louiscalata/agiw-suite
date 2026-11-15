@@ -26,6 +26,7 @@ from remote_machines import PROTECTED_PORTS
 DEFAULT_MAX_TOKENS = 16384
 MIN_MAX_TOKENS = 8192
 MAX_RESPONSE_BYTES = 8 * 1024 * 1024
+NOT_REPORTED = object()  # /props carried no is_sleeping field.
 SCORER_ID = "fast-check-screening-final-v3"
 PARSE_VERSION = "fast-check-parse-v3"
 PROMPT_ID = "fast-check-question-choices-v2"
@@ -439,8 +440,9 @@ class OpenAIAdapter:
         self.ctx = None
         self.backend_version = None
         self.demonstrations = {}
+        self.served = {}
 
-    def request(self, method, path, payload=None, *, optional=False):
+    def request(self, method, path, payload=None, *, optional=False, array=False):
         # A direct numeric connection ignores proxy environment variables and
         # http.client never follows redirects. No other host is ever resolved.
         connection = http.client.HTTPConnection(self.host, self.port, timeout=self.timeout)
@@ -510,7 +512,7 @@ class OpenAIAdapter:
             try:
                 value = json.loads(b"".join(chunks).decode("utf-8"), object_pairs_hook=fast.unique_object)
                 fast.json_value(value)
-                if not isinstance(value, dict):
+                if not isinstance(value, list if array else dict):
                     raise ValueError("response must be an object")
                 return value
             except (ValueError, UnicodeError, RecursionError):
@@ -610,10 +612,67 @@ class OpenAIAdapter:
             memory_bytes=memory, runtime_build_id=self.backend_version,
         )
         self.available_memory_bytes = positive_int(hardware.get("available_memory_bytes"))
+        # Kept only for an operator-stated already-loaded check; never recorded raw.
+        props_generation = (props or {}).get("default_generation_settings")
+        self.served = dict(
+            alias=(props or {}).get("model_alias"),
+            props_model=(props or {}).get("model"),
+            advertised=None if models is None else len(models["data"]),
+            total_slots=(props or {}).get("total_slots"),
+            props_ctx=props_generation.get("n_ctx") if isinstance(props_generation, dict) else None,
+            meta_ctx=selected_meta.get("n_ctx") if isinstance(selected_meta, dict) else None,
+            sleeping=(props or {}).get("is_sleeping", NOT_REPORTED),
+            sources=sources,
+        )
         self.facts = dict(metadata_sources=sources, model_id=self.model_label,
                          interface="openai-compatible",
                          server_reported_size_bytes=self.server_reported_size_bytes)
         return model, result
+
+    def loaded_evidence(self):
+        """Confirm the server serves exactly this model, idle, before any prompt.
+
+        Each check refuses rather than guesses: the loaded model must be named
+        by /props and be the only advertised model, the context must be known
+        and agree, and every slot listed by /slots must report it is idle. A lane
+        that reports is_sleeping has unloaded its weights, so it is refused.
+        """
+        served = self.served
+        sleeping = served.get("sleeping", NOT_REPORTED)
+        if sleeping is not NOT_REPORTED and sleeping is not False:
+            raise ResponseError("lane is sleeping or reports an unknown sleep state")
+        if served.get("alias") is not None:
+            if served["alias"] != self.model_id:
+                raise ResponseError("served model differs from the requested model")
+            source = "/props model_alias"
+        elif isinstance(served.get("props_model"), dict) and served["props_model"].get("id") == self.model_id:
+            source = "/props model.id"
+        else:
+            raise ResponseError("server does not name the served model in /props")
+        if served.get("advertised") != 1:
+            raise ResponseError("already loaded needs exactly one advertised model in /v1/models")
+        contexts = (served.get("props_ctx"), served.get("meta_ctx"), self.ctx)
+        if any(type(ctx) is not int or ctx < 1 for ctx in contexts):
+            raise ResponseError("already loaded needs the context size from /props and the model metadata")
+        if len(set(contexts)) != 1:
+            raise ResponseError("server context sizes disagree")
+        slots = self.request("GET", "/slots", optional=True, array=True)
+        if not slots:
+            raise ResponseError("already loaded needs slot state from /slots")
+        if any(not isinstance(slot, dict) or type(slot.get("is_processing")) is not bool for slot in slots):
+            raise ResponseError("slot state is unknown")
+        total = served.get("total_slots")
+        if type(total) is not int or total != len(slots):
+            raise ResponseError("slot count is missing from /props or disagrees with /slots")
+        if any(slot["is_processing"] for slot in slots):
+            raise ResponseError("lane is busy: a slot is processing")
+        return dict(
+            statement=fast.ALREADY_LOADED_STATEMENT,
+            served_model=self.model_label, served_model_source=source, advertised_models=1,
+            n_ctx=self.ctx, total_slots=len(slots), slots_idle=True,
+            is_sleeping=None if sleeping is NOT_REPORTED else False,
+            evidence_sources=sorted(set(served["sources"]) | {"/slots"}),
+        )
 
     def answer(self, row, *, benchmark, spec):
         expected = reference(row, benchmark)
@@ -735,7 +794,15 @@ def run(base_url, model_id, sample_files, output_dir, *, count=200,
         max_tokens=DEFAULT_MAX_TOKENS, timeout=180, model_sha256=None,
         file_size_bytes=None, quantization=None, available_memory_bytes=None,
         wall_budget_s=None, model_label=None, machine_label=None, cpu=None,
-        gpu=None, memory_bytes=None, runtime_build_id=None, disable_thinking=False):
+        gpu=None, memory_bytes=None, runtime_build_id=None, disable_thinking=False,
+        already_loaded=False):
+    """``already_loaded=True`` is the operator statement that the lane already
+    serves this model. It replaces the memory estimate only when available
+    memory is unknown and the server confirms the model and idle slots; the
+    record then says so and stays out of rankings. The default fails closed.
+    """
+    if type(already_loaded) is not bool:
+        raise fast.ValidationError("already_loaded must be a boolean")
     adapter = OpenAIAdapter(base_url, model_id, max_tokens=max_tokens, timeout=timeout,
                             model_label=model_label, disable_thinking=disable_thinking)
     datasets = {}
@@ -753,6 +820,7 @@ def run(base_url, model_id, sample_files, output_dir, *, count=200,
             reference(row, benchmark)
     model, hardware = adapter.discover()
     server_hash = model["file_sha256"]
+    server_quantization = model["quantization"]
     if quantization is not None:
         normalized_quantization = quantization_name(quantization)
         if normalized_quantization is None:
@@ -784,8 +852,22 @@ def run(base_url, model_id, sample_files, output_dir, *, count=200,
     if model["quantization"] is not None and safe_text(model["quantization"]) != model["quantization"]:
         raise fast.ValidationError("quantization must be a short public descriptor")
     available = adapter.available_memory_bytes if available_memory_bytes is None else available_memory_bytes
+    loaded = None
+    if already_loaded:
+        if available is not None:
+            raise fast.ValidationError("available memory is known; use the fit gate, not already loaded")
+        if file_size_bytes is None:
+            raise fast.ValidationError("already loaded needs the operator-stated file size")
+        if model["quantization"] is None:
+            raise fast.ValidationError("already loaded needs a known quantization")
+        loaded = dict(
+            **adapter.loaded_evidence(),
+            file_size_bytes=file_size_bytes, file_size_source="operator-stated",
+            file_sha256_source="server-reported" if server_hash is not None else "operator-stated",
+            quantization_source="server-reported" if server_quantization is not None else "operator-stated",
+        )
     pre = fast.pre_check(model["file_size_bytes"], model["quantization"], available)
-    if pre["decision"] != "CHECK":
+    if pre["decision"] != "CHECK" and loaded is None:
         raise fast.ValidationError("fit gate requires known model size, quantization and sufficient available memory")
     settings = dict(
         scorer_id=SCORER_ID, parse_version=PARSE_VERSION,
@@ -807,11 +889,14 @@ def run(base_url, model_id, sample_files, output_dir, *, count=200,
         endpoint_sha256=fast.digest(dict(port=adapter.port, prefix=adapter.prefix or "/v1")),
         explicit_model_facts=sorted(k for k, v in supplied.items() if v is not None),
         explicit_hardware_facts=sorted(k for k, v in supplied_hardware.items() if v is not None),
-        available_memory_source="explicit" if available_memory_bytes is not None else "server-reported",
+        available_memory_source="unknown" if loaded is not None else
+        "explicit" if available_memory_bytes is not None else "server-reported",
         hardware_attestation="server-reported or caller-supplied; not independently attested",
         hash_attestation="server-reported; unverified" if server_hash is not None else "caller-supplied; unverified",
         pre_inputs=pre["inputs"],
     )
+    if loaded is not None:
+        provenance.update(fit_gate="already_loaded", already_loaded=loaded)
     fast.identity(model, hardware, settings)
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=True)
@@ -845,6 +930,9 @@ def main(argv=None):
     parser.add_argument("--file-size-bytes", type=int)
     parser.add_argument("--quantization")
     parser.add_argument("--available-memory-bytes", type=int)
+    parser.add_argument("--already-loaded", action="store_true",
+                        help="operator statement: the lane already serves this model; accepted only when "
+                             "available memory is unknown and the server shows this model with idle slots")
     parser.add_argument("--machine-label", help="public hardware profile label, never a device name")
     parser.add_argument("--cpu")
     parser.add_argument("--gpu")
@@ -862,7 +950,7 @@ def main(argv=None):
             quantization=args.quantization, available_memory_bytes=args.available_memory_bytes,
             model_label=args.model_label, machine_label=args.machine_label, cpu=args.cpu, gpu=args.gpu,
             memory_bytes=args.memory_bytes, runtime_build_id=args.runtime_build_id,
-            disable_thinking=args.disable_thinking,
+            disable_thinking=args.disable_thinking, already_loaded=args.already_loaded,
         )
         print("Fast-check result written; full ECI NOT_RUN. Post: " + record["post"]["decision"])
         incomplete = [b for b in record["benchmarks"] if b["attempted"] < b["planned"]]

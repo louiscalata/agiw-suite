@@ -1219,7 +1219,128 @@
           }
         },
         "provenance": {
-          "type": "object"
+          "type": "object",
+          "description": "Receipt fields. Absent fit_gate means the memory-estimate fit gate decided. fit_gate already_loaded, always paired with already_loaded evidence, is an operator statement that the server already served this model with idle slots; pre stays UNKNOWN with null available memory, and ranking lists the record as screening only.",
+          "properties": {
+            "fit_gate": {
+              "enum": [
+                "already_loaded"
+              ]
+            },
+            "already_loaded": {
+              "$ref": "#/$defs/alreadyLoaded"
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "required": [
+                  "fit_gate"
+                ]
+              },
+              "then": {
+                "required": [
+                  "already_loaded"
+                ]
+              }
+            },
+            {
+              "if": {
+                "required": [
+                  "already_loaded"
+                ]
+              },
+              "then": {
+                "required": [
+                  "fit_gate"
+                ]
+              }
+            }
+          ]
+        }
+      }
+    },
+    "alreadyLoaded": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "statement",
+        "served_model",
+        "served_model_source",
+        "advertised_models",
+        "n_ctx",
+        "total_slots",
+        "slots_idle",
+        "is_sleeping",
+        "evidence_sources",
+        "file_size_bytes",
+        "file_size_source",
+        "file_sha256_source",
+        "quantization_source"
+      ],
+      "properties": {
+        "statement": {
+          "const": "operator-stated: the requested model is already loaded and serving; available memory was not measured"
+        },
+        "served_model": {
+          "$ref": "#/$defs/text"
+        },
+        "served_model_source": {
+          "enum": [
+            "/props model_alias",
+            "/props model.id"
+          ]
+        },
+        "advertised_models": {
+          "const": 1
+        },
+        "n_ctx": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "total_slots": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "slots_idle": {
+          "const": true
+        },
+        "is_sleeping": {
+          "description": "The /props is_sleeping value: false, or null when the server did not report it. A sleeping lane has unloaded its weights and is refused.",
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "enum": [
+            false,
+            null
+          ]
+        },
+        "evidence_sources": {
+          "const": [
+            "/props",
+            "/slots",
+            "/v1/models"
+          ]
+        },
+        "file_size_bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "file_size_source": {
+          "const": "operator-stated"
+        },
+        "file_sha256_source": {
+          "enum": [
+            "server-reported",
+            "operator-stated"
+          ]
+        },
+        "quantization_source": {
+          "enum": [
+            "server-reported",
+            "operator-stated"
+          ]
         }
       }
     },
