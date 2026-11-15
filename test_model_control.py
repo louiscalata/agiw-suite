@@ -1,6 +1,5 @@
 import json
 from contextlib import contextmanager
-import os
 from pathlib import Path
 import tempfile
 import threading

@@ -1,7 +1,6 @@
 """Owned model operations; every runner and process here is a fake."""
 import io
 import json
-import os
 from pathlib import Path
 import subprocess
 import sys
