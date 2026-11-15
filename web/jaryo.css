@@ -2035,3 +2035,8 @@ body.jaryo-app .j-map:not(:has(#detail:not([hidden]))) { grid-template-columns:m
   body.jaryo-app.fleet-ledger table.fleet-table td:nth-of-type(3)::before { content:'Endpoint evidence / age'; }
   body.jaryo-app.fleet-ledger table.fleet-table td:nth-of-type(4)::before { content:'Why not answering'; }
 }
+
+/* Text size (web/jaryo.mjs) scales every page that loads this sheet. The page layouts for 150 and 200 percent stay with each page. */
+html[data-text-size="125"] body{zoom:1.25}
+html[data-text-size="150"] body{zoom:1.5}
+html[data-text-size="200"] body{zoom:2}

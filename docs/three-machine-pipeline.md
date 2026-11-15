@@ -18,7 +18,7 @@ The collector reads `~/.config/agiw/remote-machines.json`, or the file selected 
 | Lane `label` | Display text with the same rules as machine labels. |
 | Lane `localPort` | Unique numeric integer from 1024 through 65535, excluding the protected ports below. Booleans and numeric strings are invalid. |
 | Lane `timeoutSeconds` | Optional finite positive number, at most 6 seconds; defaults to 1.5 seconds. Set a longer timeout explicitly for a known slow endpoint. |
-| Lane `contextTokens` | Optional nonnegative integer. Preserved unchanged in the lane record; no behavior consumes it yet. |
+| Lane `contextTokens` | Optional nonnegative integer. Preserved unchanged in the lane record. The monitor does not act on it. The [check-job engine](eci-check-jobs.md#lane-context), which the monitor does not run yet, refuses a check whose `max_tokens` is larger. |
 | Lane `thinking` | Optional `"on"`, `"off"`, or `"unknown"`. Preserved unchanged in the lane record; no behavior consumes it yet. |
 
 Unknown fields are rejected. Credentials, addresses, commands, configured model aliases, and remote port mappings are not registry fields. Every request uses exactly `http://127.0.0.1:<localPort>/v1/models`. A logical ID is a stable display identity, never a claim about a particular computer or model.
@@ -57,7 +57,7 @@ Each completed lane record carries its observation timestamp and age. A result o
 
 ## Optional metadata and future integrations
 
-`contextTokens` and `thinking` are optional operator-supplied metadata. Validation and pass-through do not verify that an endpoint actually supports those settings. Neither field changes probe behavior, context allocation, token budgets, or model requests. Omitted values remain absent. Future capability work needs separately sourced observations bound to the current model and runtime.
+`contextTokens` and `thinking` are optional operator-supplied metadata. Validation and pass-through do not verify that an endpoint actually supports those settings. Neither field changes probe behavior, context allocation, token budgets, or model requests. The check-job engine uses `contextTokens` only to refuse a check before it runs; it never treats the value as a measured context. Omitted values remain absent. Future capability work needs separately sourced observations bound to the current model and runtime.
 
 The registry's pure configuration and target helpers can support later lane selection, but adding an entry starts no task and grants no execution permission. Hardware inventory, authenticated transport ownership, routing migration, effective context measurement, and reasoning-budget support remain separate integrations. The general Machines and Overview projections do not become whole-machine inventory through this feature.
 
