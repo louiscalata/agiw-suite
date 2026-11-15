@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {detailRows, displayModelId, fleetMap, place, rateText, tunnelLine} from './web/monitor.mjs';
+import {EDGE_KEY, detailRows, displayModelId, edgeKind, fleetMap, healthClass, place, rateText, tunnelLine} from './web/monitor.mjs';
 
 const nodes = [
   {id: 'mac', label: 'Mac', health: 'ok', generationTokensPerSecond: 3},
@@ -31,6 +31,21 @@ test('tunnel status is the collector detail', () => {
   const detail = 'Local forward listeners not accepting on 127.0.0.1: 1334. '
     + 'This is listener state on this Mac, not SSH or PC reachability.';
   assert.equal(tunnelLine({state: 'down', detail}), detail);
+});
+
+test('a tunnel row without a collector detail is listener state, and an unread state is not measured', () => {
+  assert.match(tunnelLine({state: 'up'}), /^Local forward listeners are accepting connections\. .*not SSH or PC reachability\.$/);
+  assert.match(tunnelLine({state: 'down'}), /^Local forward listeners are not accepting connections\. /);
+  assert.equal(tunnelLine({state: 'not_measured'}), 'Local forward listener state was not measured.');
+  assert.equal(tunnelLine({}), 'Local forward listener state was not measured.');
+});
+
+test('state marks and line kinds fail closed to not measured and other', () => {
+  for (const health of ['ok', 'degraded', 'down', 'not_measured']) assert.equal(healthClass(health), health);
+  for (const health of [undefined, null, '', 'up', 'OK', 'ok down', 7]) assert.equal(healthClass(health), 'not_measured');
+  for (const kind of ['hosts', 'upstream', 'caller']) assert.equal(edgeKind(kind), kind);
+  for (const kind of [undefined, 'other', 'route', 'hosts upstream']) assert.equal(edgeKind(kind), 'other');
+  assert.deepEqual(EDGE_KEY.map(item => item.className), ['edge-hosts', 'edge-upstream', 'edge-caller', 'edge-other']);
 });
 
 test('registry machines and their lanes share compact columns without label rows colliding', () => {

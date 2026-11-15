@@ -933,6 +933,7 @@ function updateInferenceFix(){
   const renderKey=JSON.stringify([Boolean(snapshot),macOwner,action,state,onlineCodeActionPosting,onlineCodeActionStatus?.message,onlineCodeActionStatus?.steps]);
   if(renderKey!==fixInferenceRenderKey){fixInferenceRenderKey=renderKey;renderFixResult({macOwner,action,state,active,fixAction});}
   updateFixScopeNote();
+  if(!$('fixInferenceDetails').hidden)renderDiagnostics();
 }
 // Idle, explain the review boundary; afterwards retain the scoped operation result.
 function renderFixResult({macOwner,action,state,active,fixAction}){
@@ -957,6 +958,52 @@ function renderFixResult({macOwner,action,state,active,fixAction}){
 }
 const fixScopeText=()=> 'Choose one repair target. Review its effects and duration before confirming; SharedChami recovery stays manual.';
 function updateFixScopeNote(){const note=fixScopeText(),result=$('fixInferenceResult'),idle=result.dataset.scopeSummary==='true';$('fixScopeNote').textContent=note;$('fixScopeNote').hidden=idle;if(idle){const line=result.querySelector('p');if(line&&line.textContent!==note)line.textContent=note;}}
+// Diagnostics: what is not live, and why. Each row names its scope, a bounded code and the time of the evidence
+// it comes from. It reads only the current snapshot and the collector diagnostics already in hand: no request is made.
+// A listener row is a TCP accept on this Mac only; who owns it and why it is closed are not observed.
+const DIAG_UNAVAILABLE='NOT AVAILABLE YET',DIAG_JOB_FAILURES=new Set(['error','invalid','unresolved','uncertain']);
+const diagTime=seconds=>{const date=Number.isFinite(seconds)?new Date(seconds*1000):null;return date&&Number.isFinite(date.getTime())?date.toISOString():'time unknown';};
+const diagCode=value=>typeof value==='string'&&value.trim()?value.trim().slice(0,80):'unknown';
+function diagnosticsView(input,{feedFresh=false,paused=false,now=Date.now()/1000,collector=[]}={}){
+  const data=input&&typeof input==='object'?input:{},at=Number.isFinite(data.sampledAt)?data.sampledAt:null,live=feedFresh&&!paused;
+  const since=age=>at!==null&&Number.isFinite(age)&&age>=0?diagTime(at-age):'time unknown';
+  const sources=(Array.isArray(data.sources)?data.sources:[]).filter(s=>s&&typeof s==='object'&&(!live||s.state!=='live')).map(s=>{
+    const stale=!live&&!['error','unavailable'].includes(s.state);
+    return {scope:`Source ${s.label||s.id||'unnamed'} (${s.id||'id unknown'})`,code:stale?'stale':diagCode(s.reasonCode||s.state),time:since(sourceObservationAge(s)),
+      detail:stale?`Current state unknown (${paused?'view paused':'feed stale'}); last sample said ${diagCode(s.state)}.`:String(s.detail||'No detail recorded.')};});
+  const contract=fleetState(data,{now});
+  const lanes=!contract?[{scope:'Lanes',code:DIAG_UNAVAILABLE,time:'time unknown',detail:'No fleet contract in this sample; lane reasons are unknown.'}]
+    :fleetLanes(data,{now}).filter(fact=>fact.state!=='endpoint answering').map(fact=>({scope:`Lane ${fact.label||fact.id} (${fact.id})`,code:diagCode(fact.reason||fact.state),
+      time:typeof fact.observedAt==='string'&&fact.observedAt?fact.observedAt:'time unknown',detail:`${fleetWord(fact)} · ${fact.source||'source unknown'}`}));
+  const journal=data.windowsJobs,journalKnown=journal?.schemaVersion===1&&Array.isArray(journal.recent);
+  const jobs=journalKnown?journal.recent.filter(job=>job&&DIAG_JOB_FAILURES.has(job.state)).map(job=>({
+    scope:[`Windows job ${diagCode(job.id)}`,job.lane?`lane ${diagCode(job.lane)}`:'lane unknown',job.model?diagCode(job.model):'model unknown'].join(' · '),
+    code:job.state,time:since(job.ageSeconds),detail:job.state==='unresolved'||job.state==='uncertain'?'No terminal result was recorded; the outcome is not known.':'Recorded result of the job; the cause is not recorded.'}))
+    :[{scope:'Windows jobs',code:DIAG_UNAVAILABLE,time:'time unknown',detail:'No job journal in this sample; job outcomes are unknown.'}];
+  if(journalKnown&&(journal.complete!==true||journal.truncated===true))jobs.push({scope:'Windows jobs',code:'partial',time:'time unknown',detail:'The job journal is incomplete; other failures may be missing.'});
+  for(const issue of Array.isArray(collector)?collector:[])if(issue&&typeof issue==='object')jobs.push({scope:`Collector stage ${diagCode(issue.stage)}`,code:diagCode(issue.code),time:diagTime(issue.failedAt),detail:'The collector stage failed; the sample kept its earlier observations.'});
+  const tunnel=data.inference?.tunnel,forwards=Array.isArray(tunnel?.forwards)?tunnel.forwards.filter(row=>row&&typeof row==='object'):[];
+  const when=live?'':' at last sample';
+  const listeners=forwards.length?forwards.map(row=>{const port=Number.isInteger(row.localPort)&&row.localPort>0&&row.localPort<=65535?`127.0.0.1:${row.localPort}`:'port unknown';
+    return {scope:`Listener ${diagCode(row.name||row.id)} · ${port}`,code:row.open===true?'accepting':row.open===false?'not accepting':'unknown',time:typeof data.inference?.observedAt==='string'?data.inference.observedAt:'time unknown',
+      detail:`${row.open===true?'Accepting connections':row.open===false?'Not accepting connections':'Accept state unknown'}${when}; cause unknown. This is listener state on this Mac, not SSH or PC reachability.`};})
+    :[{scope:'Local listeners',code:DIAG_UNAVAILABLE,time:'time unknown',detail:tunnel?.reason?`No forward listener in this sample (${diagCode(tunnel.reason)}).`:'No forward listener in this sample.'}];
+  const unavailable=['Tunnel ownership','Physical cause','Incident history'].map(scope=>({scope,code:DIAG_UNAVAILABLE,time:'time unknown',detail:'No producer records this yet.'}));
+  return {sources,lanes,jobs,listeners,unavailable};
+}
+let diagnosticsRenderKey='';
+function renderDiagnostics(){
+  const host=$('diagnosticsIssueRows');if(!host)return;
+  const groups=diagnosticsView(snapshot,{feedFresh:fresh(),paused,now:Date.now()/1000,collector:collectorIssues});
+  const key=JSON.stringify([Boolean(snapshot),groups]);if(key===diagnosticsRenderKey)return;diagnosticsRenderKey=key;
+  if(!snapshot){host.replaceChildren(el('p','panel-line','Waiting for the first snapshot. Nothing is listed until one arrives.'));return;}
+  const titles=[['sources','Sources not live','Every source is live.'],['lanes','Lanes with a reason','Every lane is answering.'],['jobs','Failed jobs and collector stages','No failed job or collector stage in this sample.'],['listeners','Local listeners',''],['unavailable','Not observed','']];
+  host.replaceChildren(...titles.map(([id,title,empty])=>{const box=el('div','diagnostics-group'),rows=groups[id];box.dataset.diagnostics=id;
+    box.append(el('h4',null,`${title} (${rows.length})`));
+    if(!rows.length){box.append(el('p','panel-line',empty));return box;}
+    const list=el('ul','diagnostics-rows');for(const row of rows){const item=el('li');item.append(el('strong',null,row.scope),document.createTextNode(' · '),el('span',null,row.code),document.createTextNode(' · '),el('span',null,row.time),el('small',null,` ${row.detail}`));list.append(item);}
+    box.append(list);return box;}));
+}
 // Compatibility entry points open cached diagnostics. Repair needs a separate review and confirmation.
 // Keep the running action visible while the shared guard blocks another request.
 function openFixInference(scope){

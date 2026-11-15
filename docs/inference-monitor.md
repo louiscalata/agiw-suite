@@ -23,6 +23,20 @@ This checkout is the AGIW inference monitor. Its visual language is Jaryo: ink a
 
 Run `python3 -B server.py --port 8765` from the repository root and open `http://127.0.0.1:8765/`. The same process serves `/monitor` and `/components`. `/?demo=1` is a labeled fictional tab sample; the map and vitals stay on the observer. A standalone launch cannot dispatch control POSTs. Live cross-machine acceptance is not established by these pages or by the fixture tests. A minimal reversible check on a real Mac is a loopback read of `GET /api/snapshot`, `GET /api/inference`, and `GET /api/components/jev` without `POST /api/components/jev/check`. On a real PC the existing observer default is port 8767 and `GET /api/health` plus `GET /api/snapshot`. Do not start a watcher or a hosted Jev call for that read.
 
+## Map page
+
+`/monitor` has one `main` landmark and one heading, "Inference map". Its tab strip lists "All inference" and one tab per fleet fact. A tab id is the fact id. A machine tab shows that machine and the lanes whose parent it is; a lane tab shows that lane only. The diagram and the list under it use the same rule, and lines to hidden nodes are hidden with them. A tab id that is no longer on the map filters nothing. The tabs name the panel they filter (`aria-controls="mapPanel"`), and the panel's label names the selected monitor. A tab that stays on the map keeps its element across repaints. On each observation the tabs that left the map are removed first, and the remaining tabs are then placed around the focused one, so the focused tab is never detached or moved and keyboard focus stays on it without a blur, including when another tab leaves, arrives or changes place. If the focused monitor itself leaves the map, focus moves to the selected tab.
+
+Each node's state is a class on its group: `ok` is a filled mark, `down` an open mark, `not_measured` a dashed open mark and `degraded` an open mark with a heavier outline. A missing or unrecognised reading is drawn as `not_measured`. The state word stays in the text beside the mark. Lines carry their kind: solid for a machine and an endpoint configured on it (`hosts`), dashed for a router and an endpoint it lists as upstream (`upstream`), dotted for an endpoint and a client reported as its caller (`caller`), and dash-dot for any other reported kind. A text key under the graph lists the kinds that are drawn.
+
+The line above the tabs is the collector's detail for the legacy PC forward listeners. Without a detail it says the local forward listeners are, or are not, accepting connections, and that this is local listener state, not SSH or PC reachability. Any state other than `up` or `down`, and an observation older than 30 seconds, reads as not measured.
+
+**Pause display updates** freezes the drawing, the tabs and the listener line. While it is pressed the page shows the local time the display was paused and says newer observations are not shown; the monitor store keeps receiving them, and pressing the button again draws the newest one. Pausing does not pause, cancel or restart inference or the observer. State changes between two drawn samples are written once per update to a visible polite live region: a changed state word, a node that arrived and a node that left, at most four per update and then a count. The first sample, ages and rates are not announced. **Mute announcements** stops those messages, says so in the same region, and leaves the drawing live.
+
+The graph is drawn at one unit per CSS pixel and is not scaled to the window. When it is wider than the page, the named region around it ("Machine and model map") scrolls and can be focused with the keyboard.
+
+These behaviours are covered by `test_map_interaction.mjs` on a DOM double. Layout at narrow widths, 200 percent text and forced colors is not established by that test.
+
 ## PC tunnel
 
 The PC lanes bind to 127.0.0.1. On the Mac, `python3 pc_tunnel.py` runs `ssh -N -L` when user, host, an identity file and at least one forward are configured. Set them in the environment or in `~/.config/agiw/pc-tunnel.json`:

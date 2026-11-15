@@ -8,19 +8,52 @@ body.jaryo-app { height: auto; min-height: 100%; overflow: auto; }
 #tunnel { margin: 0; padding: 8px 16px; color: var(--j-muted); }
 .j-map #detail[hidden] { display: none; }
 
-/* Preserve readable graph labels; the named map region scrolls when necessary. */
-.j-map { overflow-x:auto; }
-.j-map #map { min-width:720px; }
-/* With the detail column open the map track keeps that minimum, so the region scrolls instead of the graph running under the detail text. */
+/* Preserve readable graph labels; the named map region scrolls when necessary.
+   The graph is drawn one unit per CSS pixel and is never scaled to the column. Its grid track takes the
+   graph's own width in every layout, so a graph wider than the page scrolls the region instead of running under the detail text. */
+.j-map { overflow-x:auto; grid-template-columns:max-content; }
+.j-map #map { min-width:720px; max-width:none; flex:none; }
 @media (min-width:1200px) {
-  body.jaryo-app .j-map:has(#detail:not([hidden])) { grid-template-columns:minmax(720px,1.4fr) minmax(260px,.8fr); }
+  body.jaryo-app .j-map:has(#detail:not([hidden])) { grid-template-columns:max-content minmax(260px,1fr); }
 }
 
 @media (max-width:1199px) {
-  .j-map { grid-template-columns:minmax(0,1fr); }
+  .j-map { grid-template-columns:max-content; }
   .j-map #detail:not([hidden]) { position:fixed; z-index:12; inset:auto 0 0; max-height:70dvh;
     overflow:auto; border:1px solid var(--j-border); background:var(--j-surface); }
 }
 @media (max-width:700px) {
   .j-map #detail:not([hidden]) { bottom:var(--j-nav-clear,0px); }
 }
+
+/* One main landmark holds the page. It flows as the body's children did before it. */
+body.jaryo-app > main.j-map-main { display:block; min-width:0; overflow:visible; }
+.j-map-main > h1 { margin:0; padding:12px 16px 0; font-family:var(--j-font); }
+.j-map-controls { display:flex; flex-wrap:wrap; gap:8px; padding:8px 16px 0; }
+body.jaryo-app .j-map-controls button { min-height:44px; padding:0 12px; border:1px solid var(--j-border); border-radius:0;
+  background:var(--j-bg); color:var(--j-text); font:inherit; cursor:pointer; }
+/* A pressed toggle is inverted, like the Overview pause control; under forced colors it takes the system selection pair. */
+body.jaryo-app .j-map-controls button[aria-pressed="true"] { background:var(--j-invert); color:var(--j-invert-ink); }
+@media (forced-colors: active) {
+  body.jaryo-app .j-map-controls button[aria-pressed="true"] { forced-color-adjust:none; background:Highlight; color:HighlightText; }
+}
+/* Visible notes, not the clipped .j-hint: the captured time and the latest announced changes are read on the page.
+   The live region stays rendered while empty so a later change is announced. */
+.j-map-note { margin:0; padding:4px 16px 0; color:var(--j-muted); font-size:13px; line-height:1.45; overflow-wrap:anywhere; }
+.j-map-note[hidden] { display:none; }
+#mapAnnounce { min-height:1.45em; }
+
+/* State is on the node group. Selection is a heavier label as well as a larger mark. */
+.j-map .node.ok circle { fill:var(--j-text); stroke:none; }
+.j-map .node.selected > text:not(.sub) { font-weight:700; }
+
+/* Line kinds differ by pattern, not by colour. The key under the graph uses the same rules. */
+.j-map .edge-hosts, .j-map-key .edge-hosts { stroke-dasharray:none; }
+.j-map .edge-upstream, .j-map-key .edge-upstream { stroke-dasharray:8 4; }
+.j-map .edge-caller, .j-map-key .edge-caller { stroke-dasharray:2 4; }
+.j-map .edge-other, .j-map-key .edge-other { stroke-dasharray:8 3 2 3; }
+.j-map .edge.is-outside-monitor { display:none; }
+.j-map-key { display:flex; flex-wrap:wrap; gap:4px 24px; margin:0; padding:8px 16px; list-style:none; color:var(--j-muted); font-size:13px; }
+.j-map-key[hidden] { display:none; }
+.j-map-key svg { width:40px; height:10px; margin-right:8px; vertical-align:middle; }
+.j-map-key .edge { fill:none; stroke:var(--j-text); stroke-width:1.5; }

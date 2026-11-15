@@ -53,15 +53,42 @@ function page({theme = 'dark', textSize = '125', origin = ORIGIN, failing = fals
   return {window, posted, hooked: Storage.prototype.setItem !== original, settings};
 }
 
+/** The shipped page module (web/jaryo.mjs, which every page loads), evaluated with the given globals. */
+function pageModule(globals = {}) {
+  const strip = source => source.replace(/^import .*;\n/gm, '').replace(/^export /gm, '');
+  const source = `${strip(read('./jaryo/theme.mjs'))}\n${strip(read('./web/jaryo.mjs'))}\n({PREFERENCE_KEYS, TEXT_SIZES, applyTheme, applyTextSize})`;
+  return vm.runInNewContext(source, globals);
+}
+
 test('the shell keeps the same two keys and offered values as the pages', () => {
+  // The pages' keys and sizes are the exports of web/jaryo.mjs; they are read from the evaluated
+  // module, not from where the source happens to write each literal.
+  const pages = pageModule();
+  assert.deepEqual({...pages.PREFERENCE_KEYS}, {theme: literal('themeKey'), textSize: literal('textSizeKey')});
   assert.equal(literal('themeKey'), 'agiw-theme');
   assert.equal(literal('textSizeKey'), 'agiw-text-size');
-  assert.match(read('./web/jaryo.mjs'), /const KEY = 'agiw-theme';/);
-  assert.match(read('./web/simple-view.mjs'), /localStorage\?\.setItem\('agiw-text-size', size\)/);
   assert.deepEqual(list('themes'), THEME_MODES);
-  const sizes = read('./web/simple-view.mjs').match(/export const TEXT_SIZES = \[([^\]]*)\];/);
-  assert.ok(sizes, 'the pages must declare their offered text sizes');
-  assert.deepEqual(list('textSizes'), [...sizes[1].matchAll(/'([^']*)'/g)].map(entry => entry[1]));
+  assert.deepEqual(list('textSizes'), [...pages.TEXT_SIZES]);
+  assert.doesNotMatch(read('./web/simple-view.mjs'), /agiw-text-size|TEXT_SIZES/, 'the overview keeps no second copy');
+});
+
+test('a choice made through the page module reaches the shell; restoring at load does not', () => {
+  // The shell learns of a change only through a localStorage write to one of its two keys.
+  const {window, posted} = page({theme: 'system', textSize: '100'});
+  const document = {documentElement: {dataset: {}}};
+  window.matchMedia = () => ({matches: false});
+  const pages = pageModule({window, document, localStorage: window.localStorage});
+  pages.applyTheme('dark', {save: false});
+  pages.applyTextSize({window, document}, '150', {save: false});
+  assert.deepEqual(posted, [], 'restoring a value reports nothing');
+  assert.equal(window.localStorage.getItem('agiw-theme'), 'system');
+  pages.applyTheme('dark');
+  pages.applyTextSize({window, document}, '150');
+  assert.deepEqual(JSON.parse(JSON.stringify(posted)), [
+    {action: 'preferences', theme: 'dark', textSize: '100', previousTheme: 'system', previousTextSize: '100'},
+    {action: 'preferences', theme: 'dark', textSize: '150', previousTheme: 'dark', previousTextSize: '100'},
+  ]);
+  assert.equal(document.documentElement.dataset.textSize, '150');
 });
 
 test('the script writes the kept pair before the page reads it and reports nothing for that', () => {

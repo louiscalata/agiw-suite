@@ -83,7 +83,8 @@ test('canonical map retains membership while unsupported dynamic edges stay abse
 test('a stale map cannot advertise an up tunnel', () => {
   const h = harness(documentAt(Date.now() - 31000));
   assert.equal(vm.runInContext('current.tunnel.state', h.context), 'not_measured');
-  assert.doesNotMatch(h.elements.tunnel.textContent, /tunnel up/);
+  assert.doesNotMatch(h.elements.tunnel.textContent, /tunnel up|accepting/);
+  assert.match(h.elements.tunnel.textContent, /not measured/);
 });
 
 test('store ageing clears the accepting tunnel while a request has no response', () => {
@@ -98,7 +99,7 @@ test('store ageing clears the accepting tunnel while a request has no response',
   h.publish(map);
   assert.equal(vm.runInContext('current.tunnel.state', h.context), 'not_measured');
   assert.doesNotMatch(h.elements.tunnel.textContent, /accepting/);
-  assert.equal(h.elements.tunnel.textContent, 'PC tunnel observation stale.');
+  assert.equal(h.elements.tunnel.textContent, 'Local forward listener observation is stale. Listener state not measured.');
 });
 
 test('failure stays visible on ageing emissions and clears on recovery', () => {
@@ -109,7 +110,8 @@ test('failure stays visible on ageing emissions and clears on recovery', () => {
     h.publish(hadMap ? map : null, {code: 'deadline'});
     assert.equal(h.elements.tunnel.textContent, 'Monitor feed unavailable');
     h.publish(map);
-    assert.equal(h.elements.tunnel.textContent, 'PC tunnel up');
+    assert.equal(h.elements.tunnel.textContent, 'Local forward listeners are accepting connections. '
+      + 'This is local listener state, not SSH or PC reachability.');
   }
 });
 
