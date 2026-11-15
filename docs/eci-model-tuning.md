@@ -169,6 +169,11 @@ validation is left out and listed in `rejected_fast_checks` with its
 `record_id` (null when it has no SHA-256 id) and the validator's reason; the
 other records and the rest of the dataset stay usable. `validate` prints the
 same list. A duplicate valid record still fails the whole ingest.
+A bare fast-check `result.json` cannot be ingested as its own input file:
+ingest refuses a fast-check record anywhere except the root `fast_checks` list
+of a normalized v1 dataset. Wrap the record first, for example
+`{"schema_version": 1, "runs": [], "items": [], "fast_checks": [<record>]}`,
+and ingest that file.
 Set `AGIW_ECI_TUNING_DATASET_DIR` to an absolute local directory before starting
 either observer. It reads only that directory's `dataset.json`, a normalized v1
 dataset produced by `python3 -B -m eci_tuning ingest <input files> --output

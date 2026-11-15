@@ -596,6 +596,42 @@ class TuningTests(unittest.TestCase):
             e.ingest([self.file('extra-conflict.json',
                                [dict(first, protocol_id='different'), second])])
 
+    def test_multi_component_extra_scores_keep_component_fields_off_the_run(self):
+        first = dict(model_id='fixture', benchmark='first', raw_score=.9, stderr=.01, n_items=10, status='OK')
+        second = dict(first, benchmark='second', raw_score=.8, stderr=.02, n_items=20)
+        run = e.ingest([self.file('extra-multi.json', [first, second])])['runs'][0]
+        self.assertEqual((run['benchmark'], run['n'], run['stderr']), (None, None, None))
+        self.assertEqual({name: (c['n'], c['stderr']) for name, c in run['components'].items()},
+                         {'first': (10, .01), 'second': (20, .02)})
+        single = e.ingest([self.file('extra-single.json', [first])])['runs'][0]
+        self.assertEqual((single['benchmark'], single['n'], single['stderr']), ('first', 10, .01))
+
+    def test_multi_component_lenient_extra_scores_stay_out_of_baseline(self):
+        first = dict(model_id='fixture', benchmark='first', raw_score=.9, scorer_id='lenient_v1')
+        second = dict(first, benchmark='second', raw_score=.8)
+        for rows in ([first], [first, second]):
+            with self.subTest(components=len(rows)):
+                with self.assertRaises(e.ValidationError):
+                    e.ingest([self.file('extra-lenient-baseline.json',
+                                        [dict(row, comparability_class='baseline_protocol') for row in rows])])
+                run = e.ingest([self.file('extra-lenient.json', rows)])['runs'][0]
+                self.assertEqual(run['comparability_class'], 'pipeline_configured')
+        with self.assertRaises(e.ValidationError):
+            e.ingest([self.file('extra-lenient-second.json',
+                                [dict(row, comparability_class='baseline_protocol')
+                                 for row in (dict(first, scorer_id=None), second)])])
+
+    def test_fitter_eci_not_computed_status_maps_to_not_computed(self):
+        row = dict(model_id='fixture', status='ECI_NOT_COMPUTED', reason='too few informative components',
+                   component_raw_scores={'first': .9}, eci_posterior_mean=None, eci_p05=None, eci_p95=None)
+        run = e.ingest([self.file('results.json', dict(status='NOT_RUN', results=[row]))])['runs'][0]
+        self.assertEqual((run['status'], run['source_status']), ('NOT_COMPUTED', 'ECI_NOT_COMPUTED'))
+        self.assertIsNone(run['eci_posterior_mean'])
+        self.assertFalse(run['components']['first']['admitted'])
+        with self.assertRaises(e.ValidationError):
+            e.ingest([self.file('results-eci.json', dict(results=[dict(row, eci_posterior_mean=100,
+                                                                       eci_p05=90, eci_p95=110)]))])
+
     def test_normalized_round_trip_preserves_component_admission(self):
         row = dict(run_id='a',model='fixture',status='OK',benchmark='fixture',aggregate_score=.5,admitted_score=.5)
         data = e.ingest([self.file('admitted.json',[row])])
