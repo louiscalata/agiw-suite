@@ -662,6 +662,12 @@ class FeedTests(Base):
                 self.assertEqual(state["candidates"], [])
                 self.tearDown()
 
+    def test_an_oversized_integer_sample_time_is_not_a_time(self):
+        # math.isfinite(10**400) raises OverflowError; the feed check must answer instead.
+        huge = {"sampledAt": 10**400}
+        self.assertEqual(au.feed_problem(huge, self.clock.wall), "snapshot has no valid sample time")
+        self.assertEqual(au._memory_level(huge, self.clock.wall), "unknown")
+
     def test_stale_row_counts_as_unobserved(self):
         unloader = self.make()
         state = self.drive(unloader, 40 * MINUTE,

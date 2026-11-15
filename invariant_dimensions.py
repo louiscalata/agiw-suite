@@ -19,7 +19,7 @@ from unittest import mock
 import activity
 import local_callers
 import telemetry
-from invariant_pipeline import NOW, collect, iso, jobs
+from invariant_pipeline import NOW, collect
 from windows.agiw_win import collect as win_collect, probes as win
 
 

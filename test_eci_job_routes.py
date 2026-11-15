@@ -15,7 +15,7 @@ from urllib.parse import urlencode
 import eci_job_routes as routes
 import eci_jobs as jobs
 from server import MonitorServer, SnapshotStore
-from test_eci_jobs import LANE, EngineCase, request, targets
+from test_eci_jobs import EngineCase, request, targets
 
 ROOT = Path(__file__).resolve().parent
 UNCONFIGURED = {"status": "unknown", "reason": "Check jobs are not configured.", "owner": False,

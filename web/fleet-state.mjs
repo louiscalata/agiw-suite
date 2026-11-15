@@ -102,3 +102,48 @@ export function fleetMachineCoverage(fact, lanes = []) {
     if (counts[key]) details.push(`${counts[key]} ${counts[key] === 1 ? 'lane' : 'lanes'} ${label}.`);
   return {text, word: text, state, glyph, tone, detail: details.join(' '), counts};
 }
+
+/** The Fleet recorded-check block, from GET /api/eci-tuning only. It reports what was recorded: the dataset source,
+ *  the latest screening check time and the screening finalists per hardware cohort. A finalist is a model no other
+ *  model in its cohort beat; it is never presented as one model to use now. Anything missing reads NOT AVAILABLE. */
+const NOT_AVAILABLE = 'NOT AVAILABLE';
+const word = (value, max = 120) => typeof value === 'string' && value.trim() && !/[\x00-\x1f\x7f]/.test(value) ? value.trim().slice(0, max) : null;
+const plural = (count, noun) => `${count} ${noun}${count === 1 ? '' : 's'}`;
+export function recordedCheckSummary(data) {
+  const note = 'Screening finalists are the models no other model in the same cohort beat; this is not a ranking into one model, and no runtime change is applied.';
+  const readable = data && typeof data === 'object' && !Array.isArray(data) && data.dataset && typeof data.dataset === 'object';
+  if (!readable) {
+    const why = `${NOT_AVAILABLE} · recorded checks could not be read`;
+    return {available: false, note, rows: [['Dataset source', why], ['Last recorded check', why], ['Screening finalists', why]]};
+  }
+  const dataset = data.dataset, asOf = word(dataset.as_of, 40), ingested = word(dataset.ingested_at, 40);
+  const sourceText = dataset.status === 'bundled' ? `Bundled catalog${asOf ? ` · as of ${asOf}` : ''}`
+    : dataset.status === 'configured' ? `Configured dataset folder${asOf ? ` · as of ${asOf}` : ''}${ingested ? ` · ingested ${ingested}` : ''}`
+    : dataset.status === 'supplied' ? `Supplied data${asOf ? ` · as of ${asOf}` : ''}`
+    : `${NOT_AVAILABLE} · ${dataset.status === 'unknown' ? word(dataset.reason, 200) || 'dataset unknown' : 'dataset source not reported'}`;
+  if (sourceText.startsWith(NOT_AVAILABLE)) {
+    const why = `${NOT_AVAILABLE} · the dataset could not be read`;
+    return {available: false, note, rows: [['Dataset source', sourceText], ['Last recorded check', why], ['Screening finalists', why]]};
+  }
+  const views = list(data.rankings?.fast_check?.hardware_views).filter(item => item && typeof item === 'object');
+  let latest = null, latestAt = -Infinity;
+  const hardware = views.map(item => {
+    const screenedRows = list(item.rows).filter(row => row && typeof row === 'object');
+    const pending = list(item.pending).filter(row => row && typeof row === 'object');
+    for (const row of [...screenedRows, ...pending]) {
+      const at = stamp(row.created_at);
+      if (at !== null && at > latestAt) {latestAt = at; latest = row.created_at;}
+    }
+    const label = word(item.hardware?.machine_label, 64) || word(item.hardware?.id, 64) || 'hardware unknown';
+    const plan = word(item.plan_id, 64);
+    const finalists = screenedRows.filter(row => row.finalist === true).map(row => word(row.model, 80) || 'model unknown');
+    const notEligible = pending.length ? ` · ${plural(pending.length, 'check')} not eligible` : '';
+    const text = screenedRows.length
+      ? `${finalists.length ? finalists.join(', ') : 'No finalist'} · ${plural(finalists.length, 'screening finalist')} of ${screenedRows.length} screened · full run ${word(screenedRows.find(row => row.finalist === true)?.full_run, 20) || 'NOT_RUN'}${notEligible}`
+      : `${NOT_AVAILABLE} · ${pending.length ? `${plural(pending.length, 'check')} not eligible` : 'no screened model'}`;
+    return [`Screening finalists · ${label}${plan ? ` · plan ${plan}` : ''}`, text];
+  });
+  return {available: true, note, rows: [['Dataset source', sourceText],
+    ['Last recorded check', latest ?? `${NOT_AVAILABLE} · no screening check recorded`],
+    ...(hardware.length ? hardware : [['Screening finalists', `${NOT_AVAILABLE} · no screening results recorded`]])]};
+}
