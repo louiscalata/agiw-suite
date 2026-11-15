@@ -10,7 +10,8 @@ on:
             'eci_fast_check.schema.json', 'eci_tuning_catalog.json', 'eci_tuning_routes.json',
             'eci_tuning.schema.json', 'online_code_repair.py',
             'inference_stats.py', 'client_models.py', 'usage-format.mjs', 'web/**', 'jaryo/**',
-            'test_*.mjs', 'android/**', 'wrapper-patch/**', '.gitattributes',
+            'test_*.mjs', 'test_eci_fast_check*.py', 'test_support/eci_tuning/**', 'android/**', 'wrapper-patch/**',
+            '.gitattributes',
             '.github/workflows/windows-edition.yml']
   pull_request:
     paths: ['windows/**', 'peer_link.py', 'peer_feed.py', 'machine_state.py', 'inference_collect.py',
@@ -18,7 +19,8 @@ on:
             'eci_fast_check.schema.json', 'eci_tuning_catalog.json', 'eci_tuning_routes.json',
             'eci_tuning.schema.json', 'online_code_repair.py',
             'inference_stats.py', 'client_models.py', 'usage-format.mjs', 'web/**', 'jaryo/**',
-            'test_*.mjs', 'android/**', 'wrapper-patch/**', '.gitattributes',
+            'test_*.mjs', 'test_eci_fast_check*.py', 'test_support/eci_tuning/**', 'android/**', 'wrapper-patch/**',
+            '.gitattributes',
             '.github/workflows/windows-edition.yml']
 
 permissions:
