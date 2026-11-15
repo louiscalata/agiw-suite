@@ -58,13 +58,20 @@ share_hosts = os.environ.get('AGIW_SHARE_HOSTS', '')
 share_username = os.environ.get('AGIW_SHARE_USERNAME', '')
 if bool(share_hosts) != bool(share_username):
     raise SystemExit('Set both AGIW_SHARE_HOSTS and AGIW_SHARE_USERNAME, or neither.')
+environment = {}
 if share_hosts:
     # Local account and LAN settings persist for launchd restarts; no password
     # is stored. The app validates them again before any share recovery action.
-    config['EnvironmentVariables'] = {
-        'AGIW_SHARE_HOSTS': share_hosts,
-        'AGIW_SHARE_USERNAME': share_username,
-    }
+    environment['AGIW_SHARE_HOSTS'] = share_hosts
+    environment['AGIW_SHARE_USERNAME'] = share_username
+if 'AGIW_ECI_TUNING_DATASET_DIR' in os.environ:
+    # launchd does not expand ~ or resolve a relative path against a shell cwd.
+    dataset_dir = os.environ['AGIW_ECI_TUNING_DATASET_DIR']
+    if not os.path.isabs(dataset_dir):
+        raise SystemExit('AGIW_ECI_TUNING_DATASET_DIR must be an absolute path when exported.')
+    environment['AGIW_ECI_TUNING_DATASET_DIR'] = dataset_dir
+if environment:
+    config['EnvironmentVariables'] = environment
 raw = plistlib.dumps(config, sort_keys=True)
 if destination.exists() or destination.is_symlink():
     try:
