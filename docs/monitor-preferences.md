@@ -21,7 +21,7 @@ When a page opens, each preference is read in this order:
 2. The native seed: `window.agiwPreferenceSeed`, an object with the same keys. Only its own, valid string entries count.
 3. The default.
 
-A saved value wins over the seed, so a change made during a session carries to the next page in that session. Restoring a value at page load does not save it: only a person's change writes `localStorage`. Until a person changes a preference, each page reads the seed again, so a seed that a shell updates between pages still applies. The seed covers a store that starts empty, such as the native app's non-persistent web data store (`Monitor.swift` uses `.nonPersistent()`), which discards `localStorage` when the app quits.
+A saved value wins over the seed, so a change made during a session carries to the next page in that session. Restoring a value at page load does not save it: only a person's change writes `localStorage`. Until a person changes a preference, each page reads the seed again, so a seed that a shell updates between pages still applies. The seed covers a store that starts empty and that a shell does not fill. The macOS app's web data store is non-persistent (`Monitor.swift` uses `.nonPersistent()`) and loses `localStorage` when the app quits; the shell refills it at document start, as described below.
 
 ## The change message
 
@@ -32,14 +32,23 @@ After a person changes Theme or Text size, the page saves the value to `localSto
 
 Restoring a saved or seeded value at page load sends no message and writes nothing. A blocked storage still applies the change and still sends the message.
 
-## What a native shell does
+## What the macOS shell does
 
-The detail has the same shape as the seed, so a shell can store the detail it observes and inject it back unchanged:
+The macOS shell (`Monitor.swift`, `MonitorPreferences` and `MonitorShellPolicy.preferenceScript`) keeps the pair in its own preferences under the same two keys and the same offered values. It uses `localStorage`, the first source in the read order above, and neither the seed nor the event:
+
+1. At document start, on the observer's own origin, it writes the kept pair into `localStorage` under `agiw-theme` and `agiw-text-size`. The page then reads them as saved values.
+2. It watches `localStorage` writes to those two keys. A person's change is such a write, so the shell stores the new pair. A write that leaves the pair as it was is not reported, and restoring at page load writes nothing, so it is not reported either.
+
+`test_native_preferences.mjs` checks that the shell's keys and offered values equal this module's exports, and runs the shell's script together with this module's `applyTheme` and `applyTextSize` against stand-ins. The app was not built or opened; kept preferences across a relaunch are NOT_RUN.
+
+## What another shell can do
+
+The seed and the event are for a shell that does not write `localStorage`. The detail has the same shape as the seed, so a shell can store the detail it observes and inject it back unchanged:
 
 1. At document start, set `window.agiwPreferenceSeed` to the stored object. To apply the size before the first paint, the same script can also set `document.documentElement.dataset.textSize` and `dataset.theme`.
 2. Forward `agiw:preferences` events to the shell through its own message handler, and store the latest detail.
 
-The macOS shell does not do either yet; that is separate native work. This page describes the web side, which is in place.
+No shell in this repository uses the seed or the event yet.
 
 ## App Store edition
 
