@@ -1,4 +1,5 @@
 """Process-held exclusion for a state folder, without putting files inside it."""
+
 from __future__ import annotations
 
 import errno
@@ -23,8 +24,15 @@ def _open_lock(path: Path) -> int:
 
     kernel = ctypes.WinDLL("kernel32", use_last_error=True)
     create = kernel.CreateFileW
-    create.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, ctypes.c_void_p,
-                       wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
+    create.argtypes = [
+        wintypes.LPCWSTR,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        ctypes.c_void_p,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.HANDLE,
+    ]
     create.restype = wintypes.HANDLE
     close = kernel.CloseHandle
     close.argtypes = [wintypes.HANDLE]
@@ -58,12 +66,14 @@ class StateLock:
                 raise OSError("the state lock is not a regular file")
             if os.name == "nt":
                 import msvcrt
+
                 if os.fstat(fd).st_size == 0:
                     os.write(fd, b"\0")
                 os.lseek(fd, 0, os.SEEK_SET)
                 msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
             else:
                 import fcntl
+
                 fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
             # Purge may have unlinked a previously opened inode. Never admit a
             # process with a lock that no longer protects the named lock file.
@@ -100,10 +110,12 @@ class StateLock:
         try:
             if os.name == "nt":
                 import msvcrt
+
                 os.lseek(fd, 0, os.SEEK_SET)
                 msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
             else:
                 import fcntl
+
                 fcntl.flock(fd, fcntl.LOCK_UN)
         finally:
             os.close(fd)

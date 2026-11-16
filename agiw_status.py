@@ -3,6 +3,7 @@
 Linux is retired. A snapshot may still carry an optional Linux row, but a
 summary of the Mac and the Windows PC is complete without one.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -22,17 +23,17 @@ from fleet_state import build_fleet_state
 from machine_state import FRESH_SECONDS, TRUST_LEVELS, expire_machines, machine_summary, observation_age
 from machine_state import finite_number as _number
 
-ENDPOINT_PATH = Path.home() / '.local/state/inference-monitor/endpoint.json'
+ENDPOINT_PATH = Path.home() / ".local/state/inference-monitor/endpoint.json"
 MAX_ENDPOINT = 4096
 MAX_SNAPSHOT = 1024 * 1024
 MAX_MACHINES = 65
 TIMEOUT = 2.0
 # Accepted machine platforms. Linux remains readable when a retired node still
 # publishes a row; it is not required for a complete summary.
-PLATFORMS = {'mac': 'mac', 'windows': 'windows', 'linux': 'linux'}
-REQUIRED_PLATFORMS = {'mac': 'mac', 'windows': 'windows'}
-HOST_NAME = re.compile(r'[A-Za-z0-9][A-Za-z0-9._-]{0,62}\Z')
-REGISTRY_ID = re.compile(r'registry:[a-z][a-z0-9_-]{0,15}\Z')
+PLATFORMS = {"mac": "mac", "windows": "windows", "linux": "linux"}
+REQUIRED_PLATFORMS = {"mac": "mac", "windows": "windows"}
+HOST_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,62}\Z")
+REGISTRY_ID = re.compile(r"registry:[a-z][a-z0-9_-]{0,15}\Z")
 
 
 class StatusUnavailable(ValueError):
@@ -43,21 +44,21 @@ def _json(raw):
     def finite(value):
         result = float(value)
         if not math.isfinite(result):
-            raise ValueError('non-finite number')
+            raise ValueError("non-finite number")
         return result
 
     def invalid_constant(value):
-        raise ValueError('non-finite number')
+        raise ValueError("non-finite number")
 
     try:
         data = json.loads(raw, parse_float=finite, parse_constant=invalid_constant)
     except (ValueError, UnicodeError, RecursionError):
-        raise StatusUnavailable('non_json') from None
+        raise StatusUnavailable("non_json") from None
     pending = [(data, 0)]
     while pending:
         value, depth = pending.pop()
         if depth > 32:
-            raise StatusUnavailable('schema_invalid')
+            raise StatusUnavailable("schema_invalid")
         if isinstance(value, dict):
             pending.extend((item, depth + 1) for item in value.values())
         elif isinstance(value, list):
@@ -66,37 +67,40 @@ def _json(raw):
 
 
 def _endpoint_port(path):
-    flags = os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0) | getattr(os, 'O_NONBLOCK', 0)
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
     try:
         fd = os.open(path, flags)
         try:
             info = os.fstat(fd)
-            if (not stat.S_ISREG(info.st_mode) or info.st_mode & 0o022
-                    or (hasattr(os, 'getuid') and info.st_uid != os.getuid())):
-                raise StatusUnavailable('untrusted')
+            if (
+                not stat.S_ISREG(info.st_mode)
+                or info.st_mode & 0o022
+                or (hasattr(os, "getuid") and info.st_uid != os.getuid())
+            ):
+                raise StatusUnavailable("untrusted")
             if info.st_size > MAX_ENDPOINT:
-                raise StatusUnavailable('oversize')
+                raise StatusUnavailable("oversize")
             raw = os.read(fd, MAX_ENDPOINT + 1)
             if len(raw) > MAX_ENDPOINT:
-                raise StatusUnavailable('oversize')
+                raise StatusUnavailable("oversize")
         finally:
             os.close(fd)
     except OSError as exc:
         if exc.errno == errno.ELOOP:
-            raise StatusUnavailable('untrusted') from None
-        raise StatusUnavailable('unavailable') from None
+            raise StatusUnavailable("untrusted") from None
+        raise StatusUnavailable("unavailable") from None
     data = _json(raw)
     if not isinstance(data, dict):
-        raise StatusUnavailable('schema_invalid')
-    port = data.get('port')
+        raise StatusUnavailable("schema_invalid")
+    port = data.get("port")
     if type(port) is not int or not 1 <= port <= 65535:
-        raise StatusUnavailable('schema_invalid')
-    if data.get('host', '127.0.0.1') != '127.0.0.1':
-        raise StatusUnavailable('untrusted')
-    if 'pid' in data and (type(data['pid']) is not int or data['pid'] <= 0):
-        raise StatusUnavailable('schema_invalid')
-    if 'startedUnix' in data and (not _number(data['startedUnix']) or data['startedUnix'] < 0):
-        raise StatusUnavailable('schema_invalid')
+        raise StatusUnavailable("schema_invalid")
+    if data.get("host", "127.0.0.1") != "127.0.0.1":
+        raise StatusUnavailable("untrusted")
+    if "pid" in data and (type(data["pid"]) is not int or data["pid"] <= 0):
+        raise StatusUnavailable("schema_invalid")
+    if "startedUnix" in data and (not _number(data["startedUnix"]) or data["startedUnix"] < 0):
+        raise StatusUnavailable("schema_invalid")
     return port
 
 
@@ -143,43 +147,44 @@ class _DeadlineSocket:
 def _snapshot(port, timeout):
     deadline = time.monotonic() + timeout
     # HTTPConnection ignores proxy settings and cannot follow a redirect to a remote host.
-    connection = http.client.HTTPConnection('127.0.0.1', port, timeout=timeout)
+    connection = http.client.HTTPConnection("127.0.0.1", port, timeout=timeout)
     connection.response_class = lambda sock, **kwargs: http.client.HTTPResponse(
-        _DeadlineSocket(sock, deadline), **kwargs)
+        _DeadlineSocket(sock, deadline), **kwargs
+    )
     response = None
     try:
         connection.timeout = _remaining(deadline)
         connection.connect()
         connection.sock.settimeout(_remaining(deadline))
-        connection.request('GET', '/api/snapshot', headers={'Accept': 'application/json'})
+        connection.request("GET", "/api/snapshot", headers={"Accept": "application/json"})
         _remaining(deadline)
         response = connection.getresponse()
         _remaining(deadline)
         if response.status != 200:
-            raise StatusUnavailable('unavailable')
-        if response.getheader('Content-Encoding', 'identity') != 'identity':
-            raise StatusUnavailable('non_json')
-        length = response.getheader('Content-Length')
+            raise StatusUnavailable("unavailable")
+        if response.getheader("Content-Encoding", "identity") != "identity":
+            raise StatusUnavailable("non_json")
+        length = response.getheader("Content-Length")
         if length is not None:
             try:
                 size = int(length)
             except ValueError:
-                raise StatusUnavailable('schema_invalid') from None
+                raise StatusUnavailable("schema_invalid") from None
             if size < 0:
-                raise StatusUnavailable('schema_invalid')
+                raise StatusUnavailable("schema_invalid")
             if size > MAX_SNAPSHOT:
-                raise StatusUnavailable('oversize')
+                raise StatusUnavailable("oversize")
         raw = response.read(MAX_SNAPSHOT + 1)
         _remaining(deadline)
         if len(raw) > MAX_SNAPSHOT:
-            raise StatusUnavailable('oversize')
+            raise StatusUnavailable("oversize")
         return _json(raw)
     except TimeoutError:
-        raise StatusUnavailable('timeout') from None
+        raise StatusUnavailable("timeout") from None
     except ConnectionRefusedError:
-        raise StatusUnavailable('refused') from None
+        raise StatusUnavailable("refused") from None
     except (OSError, http.client.HTTPException):
-        raise StatusUnavailable('unavailable') from None
+        raise StatusUnavailable("unavailable") from None
     finally:
         if response is not None:
             response.close()
@@ -187,106 +192,148 @@ def _snapshot(port, timeout):
 
 
 def _unknown(reason, now):
-    return {'schemaVersion': 1, 'sampledAt': None, 'machines': [
-        machine_summary(host, platform, now=now, reason=reason)
-        for host, platform in REQUIRED_PLATFORMS.items()]}
+    return {
+        "schemaVersion": 1,
+        "sampledAt": None,
+        "machines": [
+            machine_summary(host, platform, now=now, reason=reason) for host, platform in REQUIRED_PLATFORMS.items()
+        ],
+    }
 
 
 def _summary(data, now):
-    if (not isinstance(data, dict) or type(data.get('schemaVersion')) is not int
-            or data['schemaVersion'] != 1 or not _number(data.get('sampledAt'))):
-        raise StatusUnavailable('schema_invalid')
-    age = now - data['sampledAt']
+    if (
+        not isinstance(data, dict)
+        or type(data.get("schemaVersion")) is not int
+        or data["schemaVersion"] != 1
+        or not _number(data.get("sampledAt"))
+    ):
+        raise StatusUnavailable("schema_invalid")
+    age = now - data["sampledAt"]
     if age < -2:
-        raise StatusUnavailable('clock_skew')
-    machines = data.get('machines')
+        raise StatusUnavailable("clock_skew")
+    machines = data.get("machines")
     if not isinstance(machines, list) or not len(REQUIRED_PLATFORMS) <= len(machines) <= MAX_MACHINES:
-        raise StatusUnavailable('schema_invalid')
+        raise StatusUnavailable("schema_invalid")
     seen = set()
     result = []
     registry_ids = set()
     replaces_windows = False
     for row in machines:
         if not isinstance(row, dict):
-            raise StatusUnavailable('schema_invalid')
-        if row.get('observationSource') == 'registry':
-            identity = row.get('id')
-            if (not isinstance(identity, str) or not REGISTRY_ID.fullmatch(identity)
-                    or row.get('host') != identity or row.get('platform') != 'remote'
-                    or row.get('trust') != 'registry' or identity in registry_ids
-                    or row.get('state') not in ('up', 'down', 'unknown')
-                    or row.get('replaces') not in (None, 'legacy-pc')):
-                raise StatusUnavailable('schema_invalid')
+            raise StatusUnavailable("schema_invalid")
+        if row.get("observationSource") == "registry":
+            identity = row.get("id")
+            if (
+                not isinstance(identity, str)
+                or not REGISTRY_ID.fullmatch(identity)
+                or row.get("host") != identity
+                or row.get("platform") != "remote"
+                or row.get("trust") != "registry"
+                or identity in registry_ids
+                or row.get("state") not in ("up", "down", "unknown")
+                or row.get("replaces") not in (None, "legacy-pc")
+            ):
+                raise StatusUnavailable("schema_invalid")
             registry_ids.add(identity)
-            replaces_windows |= row.get('replaces') == 'legacy-pc'
+            replaces_windows |= row.get("replaces") == "legacy-pc"
             # Keep only membership metadata; raw probe health and lane evidence
             # are not host-health claims or part of this compact CLI summary.
-            membership = {key: row[key] for key in ('id', 'host', 'platform', 'label',
-                          'observationSource', 'replaces', 'observedAt') if key in row}
-            result.append({**membership, 'state': 'unknown', 'reasonCode': 'host_not_measured',
-                           'modelsComplete': False, 'loadedCount': None, 'busyCount': None,
-                           'promptTokensPerSecond': None, 'generationTokensPerSecond': None,
-                           'handsOff': None})
+            membership = {
+                key: row[key]
+                for key in ("id", "host", "platform", "label", "observationSource", "replaces", "observedAt")
+                if key in row
+            }
+            result.append(
+                {
+                    **membership,
+                    "state": "unknown",
+                    "reasonCode": "host_not_measured",
+                    "modelsComplete": False,
+                    "loadedCount": None,
+                    "busyCount": None,
+                    "promptTokensPerSecond": None,
+                    "generationTokensPerSecond": None,
+                    "handsOff": None,
+                }
+            )
             continue
-        host = row.get('host')
-        platform = row.get('platform')
-        if platform == 'macos':
-            platform = 'mac'
-        if (not isinstance(host, str) or not HOST_NAME.fullmatch(host)
-                or not isinstance(platform, str) or platform not in FRESH_SECONDS
-                or (platform, host) in seen):
-            raise StatusUnavailable('schema_invalid')
+        host = row.get("host")
+        platform = row.get("platform")
+        if platform == "macos":
+            platform = "mac"
+        if (
+            not isinstance(host, str)
+            or not HOST_NAME.fullmatch(host)
+            or not isinstance(platform, str)
+            or platform not in FRESH_SECONDS
+            or (platform, host) in seen
+        ):
+            raise StatusUnavailable("schema_invalid")
         seen.add((platform, host))
-        if (row.get('state') not in ('up', 'down', 'unknown')
-                or not isinstance(row.get('reasonCode'), str) or not row['reasonCode']):
-            raise StatusUnavailable('schema_invalid')
-        trust = row.get('trust')
+        if (
+            row.get("state") not in ("up", "down", "unknown")
+            or not isinstance(row.get("reasonCode"), str)
+            or not row["reasonCode"]
+        ):
+            raise StatusUnavailable("schema_invalid")
+        trust = row.get("trust")
         if not isinstance(trust, str) or trust not in TRUST_LEVELS:
-            raise StatusUnavailable('schema_invalid')
-        if row['state'] != 'unknown' and trust == 'unverified':
-            raise StatusUnavailable('untrusted')
-        row_age = row.get('ageSeconds')
+            raise StatusUnavailable("schema_invalid")
+        if row["state"] != "unknown" and trust == "unverified":
+            raise StatusUnavailable("untrusted")
+        row_age = row.get("ageSeconds")
         if row_age is not None and (not _number(row_age) or row_age < 0):
-            raise StatusUnavailable('schema_invalid')
-        if row['state'] != 'unknown' and row_age is None:
-            raise StatusUnavailable('schema_invalid')
-        for key in ('loadedCount', 'busyCount', 'promptTokensPerSecond', 'generationTokensPerSecond'):
+            raise StatusUnavailable("schema_invalid")
+        if row["state"] != "unknown" and row_age is None:
+            raise StatusUnavailable("schema_invalid")
+        for key in ("loadedCount", "busyCount", "promptTokensPerSecond", "generationTokensPerSecond"):
             value = row.get(key)
-            if value is not None and (not _number(value) or value < 0
-                                      or (key.endswith('Count') and type(value) is not int)):
-                raise StatusUnavailable('schema_invalid')
-            if row['state'] == 'unknown' and value is not None:
-                raise StatusUnavailable('schema_invalid')
-        current_age = (observation_age(row, now) if row.get('observedAt') is not None
-                       else row_age + max(0, age) if row_age is not None else None)
-        if row['state'] != 'unknown' and current_age is None:
-            raise StatusUnavailable('schema_invalid')
+            if value is not None and (
+                not _number(value) or value < 0 or (key.endswith("Count") and type(value) is not int)
+            ):
+                raise StatusUnavailable("schema_invalid")
+            if row["state"] == "unknown" and value is not None:
+                raise StatusUnavailable("schema_invalid")
+        current_age = (
+            observation_age(row, now)
+            if row.get("observedAt") is not None
+            else row_age + max(0, age)
+            if row_age is not None
+            else None
+        )
+        if row["state"] != "unknown" and current_age is None:
+            raise StatusUnavailable("schema_invalid")
         # Legacy rows carry age at sample time; current rows retain their original timestamp.
-        projected = {**row, 'ageSeconds': current_age}
-        if row.get('modelsComplete') is not True:
+        projected = {**row, "ageSeconds": current_age}
+        if row.get("modelsComplete") is not True:
             projected.update(modelsComplete=False, loadedCount=None, busyCount=None)
-        if row['state'] == 'unknown':
+        if row["state"] == "unknown":
             projected.update(handsOff=None)
         result.extend(expire_machines([projected], now))
     platforms = {platform for platform, host in seen}
     if replaces_windows:
-        platforms.add('windows')
-    if ('mac', 'mac') not in seen or not set(REQUIRED_PLATFORMS) <= platforms:
-        raise StatusUnavailable('schema_invalid')
-    summary_doc = {'schemaVersion': 1, 'sampledAt': data['sampledAt'], 'machines': result}
-    inference = public_map(data.get('inference'))
+        platforms.add("windows")
+    if ("mac", "mac") not in seen or not set(REQUIRED_PLATFORMS) <= platforms:
+        raise StatusUnavailable("schema_invalid")
+    summary_doc = {"schemaVersion": 1, "sampledAt": data["sampledAt"], "machines": result}
+    inference = public_map(data.get("inference"))
     if inference is not None:
-        summary_doc['inference'] = inference
-    if ('fleetState' in data or registry_ids
-            or isinstance(data.get('inference'), dict) and 'remoteMachines' in data['inference']):
+        summary_doc["inference"] = inference
+    if (
+        "fleetState" in data
+        or registry_ids
+        or isinstance(data.get("inference"), dict)
+        and "remoteMachines" in data["inference"]
+    ):
         # The server ages facts before legacy expiry clears retained readings.
         # Rebuilding from that projected snapshot can lose those decisions.
-        fleet = data['fleetState'] if 'fleetState' in data else build_fleet_state(data, now=now)
+        fleet = data["fleetState"] if "fleetState" in data else build_fleet_state(data, now=now)
         if not isinstance(fleet, dict):
-            raise StatusUnavailable('schema_invalid')
-        summary_doc['fleetState'] = {key: fleet.get(key) for key in ('summary', 'counts', 'completeness')}
-        if isinstance(fleet.get('registry'), dict):
-            summary_doc['fleetState']['registry'] = {'reason': fleet['registry'].get('reason')}
+            raise StatusUnavailable("schema_invalid")
+        summary_doc["fleetState"] = {key: fleet.get(key) for key in ("summary", "counts", "completeness")}
+        if isinstance(fleet.get("registry"), dict):
+            summary_doc["fleetState"]["registry"] = {"reason": fleet["registry"].get("reason")}
     return summary_doc
 
 
@@ -302,26 +349,26 @@ def summary(endpoint_path=None, timeout=TIMEOUT, now=None):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--json', action='store_true', help='print the Mac and PC summary as JSON')
-    parser.add_argument('--endpoint', type=Path, help='read a different local endpoint.json')
+    parser.add_argument("--json", action="store_true", help="print the Mac and PC summary as JSON")
+    parser.add_argument("--endpoint", type=Path, help="read a different local endpoint.json")
     args = parser.parse_args(argv)
     data = summary(args.endpoint)
     if args.json:
-        print(json.dumps(data, allow_nan=False, separators=(',', ':')))
+        print(json.dumps(data, allow_nan=False, separators=(",", ":")))
     else:
-        if 'fleetState' in data:
-            print(data['fleetState']['summary'])
-        for row in data['machines']:
-            suffix = ''
-            generation = row.get('generationTokensPerSecond')
-            prompt = row.get('promptTokensPerSecond')
+        if "fleetState" in data:
+            print(data["fleetState"]["summary"])
+        for row in data["machines"]:
+            suffix = ""
+            generation = row.get("generationTokensPerSecond")
+            prompt = row.get("promptTokensPerSecond")
             if _number(generation):
-                suffix += f' {generation:g} gen tok/s'
+                suffix += f" {generation:g} gen tok/s"
             if _number(prompt):
-                suffix += f' {prompt:g} prompt tok/s'
+                suffix += f" {prompt:g} prompt tok/s"
             print(f"{row['host']}: {row['state']} ({row['reasonCode']}){suffix}")
     return 0
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     raise SystemExit(main())

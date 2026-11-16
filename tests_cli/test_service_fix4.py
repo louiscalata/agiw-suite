@@ -1,4 +1,5 @@
 """Fourth-round service regressions: all manager commands use injected runners."""
+
 import io
 import subprocess
 import unittest
@@ -21,8 +22,15 @@ class ServiceFix4(unittest.TestCase):
         self.home = temp_dir(self, "agiw-service-fix4-")
 
     def manager(self, kind, runner=None):
-        return ServiceManager(kind, home=self.home, python="python", runner=runner or FakeRunner(),
-                              env={}, uid=501, system_dir="C:\\Windows\\System32")
+        return ServiceManager(
+            kind,
+            home=self.home,
+            python="python",
+            runner=runner or FakeRunner(),
+            env={},
+            uid=501,
+            system_dir="C:\\Windows\\System32",
+        )
 
     def windows_runner(self, states):
         calls = []
@@ -55,8 +63,9 @@ class ServiceFix4(unittest.TestCase):
 
     def test_windows_install_waits_for_locale_independent_running_state(self):
         # The first query is the pre-run check for a previous instance; the rest confirm the new run.
-        runner = self.windows_runner([(0, "Ready\n", ""), (0, "Ready\n", ""), (0, "Queued\n", ""),
-                                      (0, "Running\n", "")])
+        runner = self.windows_runner(
+            [(0, "Ready\n", ""), (0, "Ready\n", ""), (0, "Queued\n", ""), (0, "Running\n", "")]
+        )
         with mock.patch("agiw.service.time.sleep") as sleep:
             steps = self.manager("windows", runner).install()
         queries = [argv for argv in runner.calls if "-Command" in argv]
@@ -72,8 +81,14 @@ class ServiceFix4(unittest.TestCase):
                 runner = self.windows_runner([(0, "Ready\n", ""), (0, state + "\n", "")])
                 output, error = [], io.StringIO()
                 with mock.patch("agiw.service.time.sleep") as sleep, mock.patch("sys.stderr", error):
-                    code = cli.main(["service", "install", "--status-file", str(self.home / "status.json")],
-                                    kind="windows", home=self.home, env={}, runner=runner, out=output.append)
+                    code = cli.main(
+                        ["service", "install", "--status-file", str(self.home / "status.json")],
+                        kind="windows",
+                        home=self.home,
+                        env={},
+                        runner=runner,
+                        out=output.append,
+                    )
                 self.assertEqual(code, 1, output)
                 self.assertIn("installed but not confirmed running", error.getvalue())
                 self.assertIn("State is " + state, error.getvalue())
@@ -83,14 +98,22 @@ class ServiceFix4(unittest.TestCase):
                 self.assertEqual(sleep.call_args_list, [mock.call(1.0)] * 5)
 
     def test_windows_install_query_failure_explains_reason_and_exits_one(self):
-        for response, reason in (((1, "", "access denied"), "access denied"),
-                                 (OSError("query unavailable"), "query unavailable")):
+        for response, reason in (
+            ((1, "", "access denied"), "access denied"),
+            (OSError("query unavailable"), "query unavailable"),
+        ):
             with self.subTest(reason=reason):
                 runner = self.windows_runner([(0, "Ready\n", ""), response])
                 error = io.StringIO()
                 with mock.patch("agiw.service.time.sleep"), mock.patch("sys.stderr", error):
-                    code = cli.main(["service", "install", "--status-file", str(self.home / "status.json")],
-                                    kind="windows", home=self.home, env={}, runner=runner, out=lambda line: None)
+                    code = cli.main(
+                        ["service", "install", "--status-file", str(self.home / "status.json")],
+                        kind="windows",
+                        home=self.home,
+                        env={},
+                        runner=runner,
+                        out=lambda line: None,
+                    )
                 self.assertEqual(code, 1)
                 self.assertIn("installed but not confirmed running", error.getvalue())
                 self.assertIn("state query failed", error.getvalue())
@@ -116,10 +139,19 @@ class ServiceFix4(unittest.TestCase):
             return result
 
         error = io.StringIO()
-        with mock.patch("agiw.service.time.monotonic", side_effect=lambda: clock[0]), \
-                mock.patch("agiw.service.time.sleep") as sleep, mock.patch("sys.stderr", error):
-            code = cli.main(["service", "install", "--status-file", str(self.home / "status.json")],
-                            kind="windows", home=self.home, env={}, runner=slow_runner, out=lambda line: None)
+        with (
+            mock.patch("agiw.service.time.monotonic", side_effect=lambda: clock[0]),
+            mock.patch("agiw.service.time.sleep") as sleep,
+            mock.patch("sys.stderr", error),
+        ):
+            code = cli.main(
+                ["service", "install", "--status-file", str(self.home / "status.json")],
+                kind="windows",
+                home=self.home,
+                env={},
+                runner=slow_runner,
+                out=lambda line: None,
+            )
         self.assertEqual(code, 1)
         self.assertIn("installed but not confirmed running", error.getvalue())
         self.assertIn("State is Ready", error.getvalue())
@@ -155,8 +187,10 @@ class ServiceFix4(unittest.TestCase):
 
     def test_real_runner_replaces_undecodable_subprocess_bytes(self):
         raw = subprocess.CompletedProcess(["fake-tool"], 1, b"output \xff", b"localized \xfe")
-        with mock.patch("agiw.service.subprocess.run", return_value=raw) as run, \
-                mock.patch("locale.getpreferredencoding", return_value="ascii"):
+        with (
+            mock.patch("agiw.service.subprocess.run", return_value=raw) as run,
+            mock.patch("locale.getpreferredencoding", return_value="ascii"),
+        ):
             result = REAL_RUNNER(["fake-tool"])
         self.assertEqual(result.stdout, "output \ufffd")
         self.assertEqual(result.stderr, "localized \ufffd")

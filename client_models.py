@@ -3,6 +3,7 @@
 Only model IDs and record timestamps leave this module. A recorded model does
 not establish that the client is currently generating.
 """
+
 from __future__ import annotations
 
 import datetime as dt
@@ -43,30 +44,55 @@ def normalize_claude_subagent_hook(payload: dict[str, Any], observed_at: dt.date
     """
     event = {"SubagentStart": "start", "SubagentStop": "terminal"}.get(payload.get("hook_event_name"))
     owner, agent, agent_type = payload.get("session_id"), payload.get("agent_id"), payload.get("agent_type", "")
-    if (event is None or not isinstance(owner, str) or not _SUBAGENT_ID.fullmatch(owner)
-            or not isinstance(agent, str) or not _SUBAGENT_ID.fullmatch(agent)
-            or not isinstance(agent_type, str) or len(agent_type) > 80
-            or observed_at.tzinfo is None):
+    if (
+        event is None
+        or not isinstance(owner, str)
+        or not _SUBAGENT_ID.fullmatch(owner)
+        or not isinstance(agent, str)
+        or not _SUBAGENT_ID.fullmatch(agent)
+        or not isinstance(agent_type, str)
+        or len(agent_type) > 80
+        or observed_at.tzinfo is None
+    ):
         raise ValueError("invalid Claude subagent hook identity or event")
-    return {"schemaVersion": 1, "client": "claude-code", "event": event,
-            "observedAt": observed_at.astimezone(dt.timezone.utc).isoformat().replace("+00:00", "Z"),
-            "ownerSessionId": owner, "agentId": agent, "agentType": agent_type}
+    return {
+        "schemaVersion": 1,
+        "client": "claude-code",
+        "event": event,
+        "observedAt": observed_at.astimezone(dt.timezone.utc).isoformat().replace("+00:00", "Z"),
+        "ownerSessionId": owner,
+        "agentId": agent,
+        "agentType": agent_type,
+    }
 
 
-def _subagent_unknown(reason: str, *, age: float | None = None,
-                      complete: bool = False, owner: str | None = None) -> dict[str, Any]:
-    return {"state": "unknown", "active": None, "observedOpenCount": None,
-            "ownerSessionId": owner, "sampledAt": None, "ageSeconds": age,
-            "source": "claude-code-hooks-v1", "complete": complete, "reason": reason}
+def _subagent_unknown(
+    reason: str, *, age: float | None = None, complete: bool = False, owner: str | None = None
+) -> dict[str, Any]:
+    return {
+        "state": "unknown",
+        "active": None,
+        "observedOpenCount": None,
+        "ownerSessionId": owner,
+        "sampledAt": None,
+        "ageSeconds": age,
+        "source": "claude-code-hooks-v1",
+        "complete": complete,
+        "reason": reason,
+    }
 
 
 def _read_subagent_feed(path: Path) -> list[dict[str, Any]]:
     """Read a complete, private, bounded normalized JSONL feed; reject races."""
     before = path.lstat()
-    if (not stat.S_ISREG(before.st_mode) or before.st_nlink != 1
-            or before.st_size > _SUBAGENT_FEED_MAX or before.st_mode & 0o077
-            or (os.name != "nt" and before.st_uid != os.getuid())
-            or _is_windows_reparse_point(path)):
+    if (
+        not stat.S_ISREG(before.st_mode)
+        or before.st_nlink != 1
+        or before.st_size > _SUBAGENT_FEED_MAX
+        or before.st_mode & 0o077
+        or (os.name != "nt" and before.st_uid != os.getuid())
+        or _is_windows_reparse_point(path)
+    ):
         raise ValueError("untrusted subagent feed")
     fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0))
     try:
@@ -84,6 +110,7 @@ def _read_subagent_feed(path: Path) -> list[dict[str, Any]]:
     lines = raw.splitlines()
     if len(lines) > _SUBAGENT_EVENTS_MAX:
         raise ValueError("too many subagent events")
+
     def unique_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
         result: dict[str, Any] = {}
         for key, value in pairs:
@@ -91,15 +118,16 @@ def _read_subagent_feed(path: Path) -> list[dict[str, Any]]:
                 raise ValueError("duplicate event field")
             result[key] = value
         return result
+
     records = [json.loads(line, object_pairs_hook=unique_pairs) for line in lines]
     if any(not isinstance(row, dict) for row in records):
         raise ValueError("invalid subagent event")
     return records
 
 
-def collect_claude_subagents(now: float, *, feed_path: Path | None = None,
-                             owner_session_id: str | None = None,
-                             source_complete: bool = False) -> dict[str, Any]:
+def collect_claude_subagents(
+    now: float, *, feed_path: Path | None = None, owner_session_id: str | None = None, source_complete: bool = False
+) -> dict[str, Any]:
     """Summarize exact hook events for one owner; never infer life from recency.
 
     Completeness is an explicit external attestation, not inferred from a file.
@@ -118,17 +146,19 @@ def collect_claude_subagents(now: float, *, feed_path: Path | None = None,
         return _subagent_unknown("unavailable-or-invalid-feed", owner=owner_session_id)
     relevant = []
     for record in records:
-        if (set(record) != {"schemaVersion", "client", "event", "observedAt",
-                            "ownerSessionId", "agentId", "agentType"}
-                or record.get("schemaVersion") != 1 or record.get("client") != "claude-code"
-                or record.get("event") not in ("start", "terminal")
-                or not isinstance(record.get("ownerSessionId"), str)
-                or not _SUBAGENT_ID.fullmatch(record["ownerSessionId"])
-                or not isinstance(record.get("agentId"), str)
-                or not _SUBAGENT_ID.fullmatch(record["agentId"])
-                or not isinstance(record.get("agentType"), str)
-                or len(record["agentType"]) > 80
-                or not isinstance(record.get("observedAt"), str)):
+        if (
+            set(record) != {"schemaVersion", "client", "event", "observedAt", "ownerSessionId", "agentId", "agentType"}
+            or record.get("schemaVersion") != 1
+            or record.get("client") != "claude-code"
+            or record.get("event") not in ("start", "terminal")
+            or not isinstance(record.get("ownerSessionId"), str)
+            or not _SUBAGENT_ID.fullmatch(record["ownerSessionId"])
+            or not isinstance(record.get("agentId"), str)
+            or not _SUBAGENT_ID.fullmatch(record["agentId"])
+            or not isinstance(record.get("agentType"), str)
+            or len(record["agentType"]) > 80
+            or not isinstance(record.get("observedAt"), str)
+        ):
             return _subagent_unknown("malformed-event", owner=owner_session_id)
         try:
             clock = dt.datetime.fromisoformat(record["observedAt"].replace("Z", "+00:00"))
@@ -151,19 +181,23 @@ def collect_claude_subagents(now: float, *, feed_path: Path | None = None,
     for _, record in sorted(relevant, key=lambda item: item[0]):
         if record["event"] == "start":
             if record["agentId"] in open_agents:
-                return _subagent_unknown("inconsistent-events", age=age,
-                                         complete=True, owner=owner_session_id)
+                return _subagent_unknown("inconsistent-events", age=age, complete=True, owner=owner_session_id)
             open_agents.add(record["agentId"])
         else:
             if record["agentId"] not in open_agents:
-                return _subagent_unknown("inconsistent-events", age=age,
-                                         complete=True, owner=owner_session_id)
+                return _subagent_unknown("inconsistent-events", age=age, complete=True, owner=owner_session_id)
             open_agents.discard(record["agentId"])
-    return {"state": "unknown" if open_agents else "known",
-            "active": None if open_agents else 0, "observedOpenCount": len(open_agents),
-            "ownerSessionId": owner_session_id, "sampledAt": now, "ageSeconds": age,
-            "source": "claude-code-hooks-v1", "complete": True,
-            "reason": "unmatched-start-no-child-process-witness" if open_agents else None}
+    return {
+        "state": "unknown" if open_agents else "known",
+        "active": None if open_agents else 0,
+        "observedOpenCount": len(open_agents),
+        "ownerSessionId": owner_session_id,
+        "sampledAt": now,
+        "ageSeconds": age,
+        "source": "claude-code-hooks-v1",
+        "complete": True,
+        "reason": "unmatched-start-no-child-process-witness" if open_agents else None,
+    }
 
 
 def _is_windows_reparse_point(path: Path) -> bool:
@@ -196,9 +230,11 @@ def _roots() -> dict[str, Path]:
     # stores conversation/agent data in opaque blobs and does not expose a
     # supported model-identity record. Keep the client visible as unknown
     # until a bounded, identity-only source is available.
-    roots["cursor"] = (home / "Library/Application Support/Cursor/User/globalStorage/state.vscdb"
-                       if sys.platform == "darwin"
-                       else config / "Cursor/User/globalStorage/state.vscdb")
+    roots["cursor"] = (
+        home / "Library/Application Support/Cursor/User/globalStorage/state.vscdb"
+        if sys.platform == "darwin"
+        else config / "Cursor/User/globalStorage/state.vscdb"
+    )
     return roots
 
 
@@ -293,8 +329,11 @@ def _tail_records(path: Path, root: Path, limit: int = _MAX_TAIL) -> list[dict[s
     fd = os.open(path, flags)
     try:
         info = os.fstat(fd)
-        if ((info.st_dev, info.st_ino) != (before.st_dev, before.st_ino)
-                or not stat.S_ISREG(info.st_mode) or info.st_nlink != 1):
+        if (
+            (info.st_dev, info.st_ino) != (before.st_dev, before.st_ino)
+            or not stat.S_ISREG(info.st_mode)
+            or info.st_nlink != 1
+        ):
             return []
         if os.name != "nt" and (info.st_uid != os.getuid() or info.st_mode & 0o022):
             return []
@@ -404,6 +443,7 @@ def _opencode_observations(path: Path, deadline: float) -> list[tuple[str, float
         connection.execute("PRAGMA query_only=ON")
         connection.execute("PRAGMA busy_timeout=100")
         connection.set_progress_handler(lambda: 1 if time.monotonic() >= deadline else 0, 1000)
+
         def observed_message(raw: Any, created: Any) -> tuple[str, float, str, str] | None:
             if not isinstance(raw, str) or len(raw) > _MAX_LINE:
                 return None
@@ -423,7 +463,8 @@ def _opencode_observations(path: Path, deadline: float) -> list[tuple[str, float
         # Recent messages can belong to an old session resumed today. A short
         # rowid walk catches them without scanning the full unindexed store.
         for raw, created in connection.execute(
-                "SELECT data, time_created FROM message ORDER BY rowid DESC LIMIT 64").fetchall():
+            "SELECT data, time_created FROM message ORDER BY rowid DESC LIMIT 64"
+        ).fetchall():
             if time.monotonic() >= deadline:
                 break
             item = observed_message(raw, created)
@@ -439,8 +480,8 @@ def _opencode_observations(path: Path, deadline: float) -> list[tuple[str, float
             if time.monotonic() >= deadline:
                 break
             rows = connection.execute(
-                "SELECT data, time_created FROM message WHERE session_id=? "
-                "ORDER BY time_created DESC LIMIT 12", (session_id,)
+                "SELECT data, time_created FROM message WHERE session_id=? ORDER BY time_created DESC LIMIT 12",
+                (session_id,),
             ).fetchall()
             for raw, created in rows:
                 item = observed_message(raw, created)
@@ -463,8 +504,7 @@ def _opencode_observations(path: Path, deadline: float) -> list[tuple[str, float
 
 
 def _project(client: str, observations: list[tuple], now: float) -> tuple[dict, dict]:
-    labels = {"codex": "Codex", "claude": "Claude", "opencode": "OpenCode",
-              "cursor": "Cursor", "grok": "Grok"}
+    labels = {"codex": "Codex", "claude": "Claude", "opencode": "OpenCode", "cursor": "Cursor", "grok": "Grok"}
     eligible = [item for item in observations if item[1] <= now]
     observed = [item for item in eligible if len(item) == 3 or item[3] == "observed"]
     selected = observed if observed else eligible
@@ -477,31 +517,57 @@ def _project(client: str, observations: list[tuple], now: float) -> tuple[dict, 
         if model in seen or when > now:
             continue
         seen.add(model)
-        models.append({"id": model, "modelState": "observed" if item in observed else "configured",
-                       "observedAt": when,
-                       "ageSeconds": round(max(0, now - when), 3), "activity": "unknown", "source": source})
+        models.append(
+            {
+                "id": model,
+                "modelState": "observed" if item in observed else "configured",
+                "observedAt": when,
+                "ageSeconds": round(max(0, now - when), 3),
+                "activity": "unknown",
+                "source": source,
+            }
+        )
         if len(models) == 3:
             break
     top = models[0] if models else None
     state = top["modelState"] if top else "unknown"
-    detail = ("Recorded model identity; current activity unknown" if state == "observed" else
-              "Saved session choice; current activity unknown" if state == "configured" else
-              "No bounded model metadata available")
-    row = {"id": client, "label": labels[client], "model": top["id"] if top else None,
-           "modelState": state, "observedAt": top["observedAt"] if top else None,
-           "ageSeconds": top["ageSeconds"] if top else None, "activity": "unknown",
-           "source": top["source"] if top else None, "detail": detail, "models": models}
-    source = {"id": f"{client}-metadata", "label": f"{labels[client]} metadata",
-              "state": "recorded" if top else "unavailable",
-              "ageSeconds": top["ageSeconds"] if top else None,
-              "detail": detail}
+    detail = (
+        "Recorded model identity; current activity unknown"
+        if state == "observed"
+        else "Saved session choice; current activity unknown"
+        if state == "configured"
+        else "No bounded model metadata available"
+    )
+    row = {
+        "id": client,
+        "label": labels[client],
+        "model": top["id"] if top else None,
+        "modelState": state,
+        "observedAt": top["observedAt"] if top else None,
+        "ageSeconds": top["ageSeconds"] if top else None,
+        "activity": "unknown",
+        "source": top["source"] if top else None,
+        "detail": detail,
+        "models": models,
+    }
+    source = {
+        "id": f"{client}-metadata",
+        "label": f"{labels[client]} metadata",
+        "state": "recorded" if top else "unavailable",
+        "ageSeconds": top["ageSeconds"] if top else None,
+        "detail": detail,
+    }
     return row, source
 
 
-def collect_clients(now: float | None = None, *, roots: dict[str, Path] | None = None,
-                    subagent_feed_path: Path | None = None,
-                    subagent_owner_session_id: str | None = None,
-                    subagent_source_complete: bool = False) -> tuple[list[dict], list[dict]]:
+def collect_clients(
+    now: float | None = None,
+    *,
+    roots: dict[str, Path] | None = None,
+    subagent_feed_path: Path | None = None,
+    subagent_owner_session_id: str | None = None,
+    subagent_source_complete: bool = False,
+) -> tuple[list[dict], list[dict]]:
     """Return client rows and source rows; never infer live activity.
 
     ``roots`` supports isolated fixtures. Default roots are cached briefly so
@@ -509,8 +575,7 @@ def collect_clients(now: float | None = None, *, roots: dict[str, Path] | None =
     """
     global _cache
     sampled = time.time() if now is None else now
-    if (roots is None and subagent_feed_path is None and _cache
-            and time.monotonic() - _cache[0] < _CACHE_SECONDS):
+    if roots is None and subagent_feed_path is None and _cache and time.monotonic() - _cache[0] < _CACHE_SECONDS:
         clients, sources = copy.deepcopy(_cache[1])
         if not any(model["observedAt"] > sampled for row in clients for model in row["models"]):
             for row, source in zip(clients, sources):
@@ -541,7 +606,9 @@ def collect_clients(now: float | None = None, *, roots: dict[str, Path] | None =
                 cursor_path = paths.get(client)
                 root = cursor_path.parent if cursor_path else None
                 if cursor_path and root and _safe(root, root, directory=True) and _safe(cursor_path, root):
-                    source["detail"] = "Cursor local database found; no supported model identity field. Current activity unknown"
+                    source["detail"] = (
+                        "Cursor local database found; no supported model identity field. Current activity unknown"
+                    )
                 else:
                     source["detail"] = "No supported bounded Cursor model metadata available; activity unknown"
                 row["detail"] = source["detail"]
@@ -553,11 +620,16 @@ def collect_clients(now: float | None = None, *, roots: dict[str, Path] | None =
             row, source = _project(client, [], sampled)
             source["state"] = "error"
             source["detail"] = "Local metadata unavailable or invalid"
-        row["subagents"] = (collect_claude_subagents(
-            sampled, feed_path=subagent_feed_path,
-            owner_session_id=subagent_owner_session_id,
-            source_complete=subagent_source_complete)
-            if client == "claude" else _subagent_unknown("unsupported-client"))
+        row["subagents"] = (
+            collect_claude_subagents(
+                sampled,
+                feed_path=subagent_feed_path,
+                owner_session_id=subagent_owner_session_id,
+                source_complete=subagent_source_complete,
+            )
+            if client == "claude"
+            else _subagent_unknown("unsupported-client")
+        )
         results.append(row)
         sources.append(source)
     if roots is None and subagent_feed_path is None:

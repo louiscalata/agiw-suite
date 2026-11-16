@@ -1,4 +1,5 @@
 """`agiw uninstall --purge-keys` is a dry run unless --yes; `agiw status` maps peer rows to up/down/unknown."""
+
 import os
 import unittest
 from unittest import mock
@@ -18,8 +19,13 @@ class Purge(unittest.TestCase):
         self.home = temp_dir(self, "agiw-purge-home-")
         self.state = self.home / "state"
         (self.state / "trusted").mkdir(parents=True)
-        self.ours = [self.state / "identity.json", self.state / "control-token", self.state / "peers.json",
-                     self.state / "trusted" / f"{NODE}.json", self.state / "trusted" / f"{NODE}.json.quarantined-17"]
+        self.ours = [
+            self.state / "identity.json",
+            self.state / "control-token",
+            self.state / "peers.json",
+            self.state / "trusted" / f"{NODE}.json",
+            self.state / "trusted" / f"{NODE}.json.quarantined-17",
+        ]
         for path in self.ours:
             path.write_text("{}")
         running = mock.patch.object(cli, "peer_link_answers", return_value=False)
@@ -28,9 +34,14 @@ class Purge(unittest.TestCase):
 
     def run_cli(self, *argv):
         lines = []
-        code = cli.main(["--state-dir", str(self.state), "uninstall", *argv], out=lines.append,
-                        runner=FakeRunner({"bootout": (113, ""), "print": (113, "")}),
-                        kind="mac", home=self.home, env={})
+        code = cli.main(
+            ["--state-dir", str(self.state), "uninstall", *argv],
+            out=lines.append,
+            runner=FakeRunner({"bootout": (113, ""), "print": (113, "")}),
+            kind="mac",
+            home=self.home,
+            env={},
+        )
         return code, "\n".join(lines)
 
     def test_without_purge_keys_nothing_is_listed_or_deleted(self):
@@ -80,35 +91,51 @@ class Purge(unittest.TestCase):
             self.skipTest("symbolic links are not available")
         lines = []
         with mock.patch("sys.stderr"):
-            code = cli.main(["--state-dir", str(link), "uninstall", "--purge-keys", "--yes"], out=lines.append,
-                            runner=FakeRunner({"bootout": (113, ""), "print": (113, "")}),
-                            kind="mac", home=self.home, env={})
+            code = cli.main(
+                ["--state-dir", str(link), "uninstall", "--purge-keys", "--yes"],
+                out=lines.append,
+                runner=FakeRunner({"bootout": (113, ""), "print": (113, "")}),
+                kind="mac",
+                home=self.home,
+                env={},
+            )
         self.assertEqual(code, 1)
         self.assertTrue(all(p.exists() for p in self.ours))
 
 
 class StatusRows(unittest.TestCase):
     def test_up_down_unknown(self):
-        status = {"schemaVersion": 1, "kind": "agiw-peer", "host": "up", "platform": "windows",
-                  "observedAt": "2023-11-14T22:13:19+00:00", "health": "ok",
-                  "models": [{"id": "a", "loadedState": "loaded"}, {"id": "b", "loadedState": "inactive"}]}
+        status = {
+            "schemaVersion": 1,
+            "kind": "agiw-peer",
+            "host": "up",
+            "platform": "windows",
+            "observedAt": "2023-11-14T22:13:19+00:00",
+            "health": "ok",
+            "models": [{"id": "a", "loadedState": "loaded"}, {"id": "b", "loadedState": "inactive"}],
+        }
         peers = [
             {"paired": True, "name": "up", "state": "connected", "status": status, "lastHello": 1.0},
             {"paired": True, "name": "down", "state": "offline", "lastHello": 1.0, "error": "TimeoutError"},
             {"paired": True, "name": "never", "state": "offline", "lastHello": None, "error": "no known endpoint"},
-            {"paired": True, "name": "stale", "state": "stale", "lastHello": 2.0,
-             "error": "ConnectionError: peer answered 503"},
+            {
+                "paired": True,
+                "name": "stale",
+                "state": "stale",
+                "lastHello": 2.0,
+                "error": "ConnectionError: peer answered 503",
+            },
             {"paired": True, "name": "connecting", "state": "connecting", "lastHello": 2.0, "error": None},
-            {"paired": False, "name": "guest", "state": "available"}]
+            {"paired": False, "name": "guest", "state": "available"},
+        ]
         for peer in peers:
             peer.update(node=peer["name"], host="windows")
-        rows = cli.machine_rows({"self": {"node": "local", "host": "mac"}, "peers": peers},
-                                now=1700000000.0)
+        rows = cli.machine_rows({"self": {"node": "local", "host": "mac"}, "peers": peers}, now=1700000000.0)
         states = {r.get("label", r["id"]): (r["state"], r["reasonCode"]) for r in rows}
         self.assertEqual(states["up"], ("up", "observed"))
         # The same words the monitor shows (peer_feed): the error text does not choose them.
-        self.assertEqual(states["down"], ("unknown", "not_connected"))      # heard before, now silent
-        self.assertEqual(states["never"], ("unknown", "not_observed"))      # never heard
+        self.assertEqual(states["down"], ("unknown", "not_connected"))  # heard before, now silent
+        self.assertEqual(states["never"], ("unknown", "not_observed"))  # never heard
         self.assertEqual(states["stale"], ("unknown", "not_connected"))
         self.assertEqual(states["connecting"], ("unknown", "not_observed"))
         self.assertNotIn("guest", states)
@@ -117,8 +144,10 @@ class StatusRows(unittest.TestCase):
 
     def test_commands_report_a_stopped_peer_link_clearly(self):
         lines = []
-        with mock.patch.object(cli.pl, "control_request", side_effect=ConnectionRefusedError()), \
-                mock.patch("sys.stderr") as err:
+        with (
+            mock.patch.object(cli.pl, "control_request", side_effect=ConnectionRefusedError()),
+            mock.patch("sys.stderr") as err,
+        ):
             code = cli.main(["--state-dir", "unused", "status"], out=lines.append)
         self.assertEqual(code, cli.EXIT_NOT_RUNNING)
         self.assertIn("not running", "".join(str(c) for c in err.write.call_args_list))

@@ -1,4 +1,5 @@
 """PUBCLI round 5 regressions; no listeners, native services or real account data."""
+
 import ctypes
 import json
 import os
@@ -17,8 +18,10 @@ import test_loopback_pairing as pairing
 class Fix5(unittest.TestCase):
     def cli_status(self, source):
         lines = []
-        with mock.patch.object(cli, "control", return_value=source), \
-                mock.patch.object(contract.time, "time", return_value=NOW):
+        with (
+            mock.patch.object(cli, "control", return_value=source),
+            mock.patch.object(contract.time, "time", return_value=NOW),
+        ):
             code = cli.main(["--state-dir", "unused", "status", "--json"], out=lines.append)
         self.assertEqual(code, 0)
         return json.loads("\n".join(lines))
@@ -112,8 +115,9 @@ class Fix5(unittest.TestCase):
                 worker.join(1)
         for provider in (mock.Mock(side_effect=RuntimeError("private fake path")), lambda: {}):
             link.status_provider = provider
-            self.assertEqual(link._bounded_self_status(),
-                             {"error": "local status unavailable or invalid", "code": "unavailable"})
+            self.assertEqual(
+                link._bounded_self_status(), {"error": "local status unavailable or invalid", "code": "unavailable"}
+            )
 
     def test_c7_pairing_owner_patch_is_only_active_on_elevated_windows(self):
         for os_name, elevated in (("posix", True), ("nt", False), ("nt", True)):
@@ -123,10 +127,12 @@ class Fix5(unittest.TestCase):
                 native = mock.Mock(return_value=(pl._ADMINS_SID, ["test-account", pl._SYSTEM_SID]))
                 shell = mock.Mock()
                 shell.IsUserAnAdmin.return_value = elevated
-                with mock.patch.object(pairing, "os", SimpleNamespace(name=os_name)), \
-                        mock.patch.object(ctypes, "windll", SimpleNamespace(shell32=shell), create=True), \
-                        mock.patch.object(pl, "_win_current_sid", return_value="test-account"), \
-                        mock.patch.object(pl, "_win_owner_and_allow_sids", native):
+                with (
+                    mock.patch.object(pairing, "os", SimpleNamespace(name=os_name)),
+                    mock.patch.object(ctypes, "windll", SimpleNamespace(shell32=shell), create=True),
+                    mock.patch.object(pl, "_win_current_sid", return_value="test-account"),
+                    mock.patch.object(pl, "_win_owner_and_allow_sids", native),
+                ):
                     try:
                         try:
                             case.setUp()
@@ -152,19 +158,24 @@ class Fix5(unittest.TestCase):
         for value in (None, "", "relative/appdata", str(home / "custom")):
             env = {} if value is None else {"LOCALAPPDATA": value}
             expected = home / "custom" if value and Path(value).is_absolute() else home / "AppData" / "Local"
-            with self.subTest(value=value), mock.patch.dict(os.environ, env, clear=True), \
-                    mock.patch.object(pl.os, "name", "nt"), \
-                    mock.patch.object(pl, "Path", type(home)), \
-                    mock.patch.object(type(home), "home", return_value=home):
+            with (
+                self.subTest(value=value),
+                mock.patch.dict(os.environ, env, clear=True),
+                mock.patch.object(pl.os, "name", "nt"),
+                mock.patch.object(pl, "Path", type(home)),
+                mock.patch.object(type(home), "home", return_value=home),
+            ):
                 state = pl.default_state_dir()
             manager = service.ServiceManager("windows", home=home, python="fake-python", env=env)
             self.assertEqual(state, expected / "AGIW" / "peer-link")
             self.assertEqual(manager.definition_path(), expected / "AGIW" / "service" / "agiw-peer-link.xml")
 
     def test_c8_strict_json_rejects_duplicate_keys_at_every_depth(self):
-        for raw in ('{"health":"down","health":"ok"}',
-                    '{"components":[{"health":"down","health":"ok"}]}',
-                    '{"health":"down","healt\\u0068":"ok"}'):
+        for raw in (
+            '{"health":"down","health":"ok"}',
+            '{"components":[{"health":"down","health":"ok"}]}',
+            '{"health":"down","healt\\u0068":"ok"}',
+        ):
             for value in (raw, raw.encode()):
                 with self.subTest(raw=value), self.assertRaises(ValueError):
                     pl.strict_json(value)
@@ -174,16 +185,21 @@ class Fix5(unittest.TestCase):
         # peer fetch uses it, so a correctly signed body that says "down" then "ok" is never read as healthy.
         import hashlib
         import hmac
+
         link_key, me, peer_node = b"k" * 32, "client-node", "server-node"
-        fields = ('"schemaVersion":1,"kind":"agiw-peer","host":"pc","platform":"windows",'
-                  '"edition":"peer-link","observedAt":"%s","producer":"fake","models":[]' % pl._iso(NOW))
+        fields = (
+            '"schemaVersion":1,"kind":"agiw-peer","host":"pc","platform":"windows",'
+            '"edition":"peer-link","observedAt":"%s","producer":"fake","models":[]' % pl._iso(NOW)
+        )
 
         def fetch(body):
             def fake_http(address, port, method, path, headers, payload, limit, **kwargs):
                 nonce = headers["X-Agiw-Nonce"]
-                sig = hmac.new(pl.Subkeys(link_key).reply, pl._reply_header(nonce, peer_node, me) + body,
-                               hashlib.sha256).hexdigest()
+                sig = hmac.new(
+                    pl.Subkeys(link_key).reply, pl._reply_header(nonce, peer_node, me) + body, hashlib.sha256
+                ).hexdigest()
                 return 200, {"x-agiw-node": peer_node, "x-agiw-sig": sig}, body
+
             with mock.patch.object(pl, "_http", fake_http), mock.patch.object(pl.time, "time", return_value=NOW):
                 return pl.fetch_status(link_key, me, "127.0.0.1", 8768, peer_node, "windows", NOW)
 
@@ -198,14 +214,21 @@ class Fix5(unittest.TestCase):
         self.assertEqual(pl.strict_json(pl.canonical(doc)), doc)
         for word in ("NaN", "Infinity", "-Infinity"):
             with self.subTest(word=word), self.assertRaises(ValueError):
-                pl.strict_json('{"value":' + word + '}')
+                pl.strict_json('{"value":' + word + "}")
 
     def test_10_windows_hint_has_distinct_complete_tcp_and_udp_rules(self):
         hint = "\n".join(text for _, text in doctor.firewall_hints("windows", 9000, 9001))
         for proto, port in (("TCP", 9000), ("UDP", 9001)):
-            self.assertIn("New-NetFirewallRule -DisplayName 'AGIW peer link " + proto +
-                          "' -Direction Inbound -Protocol " + proto + " -LocalPort " + str(port) +
-                          " -Profile Private -Action Allow", hint)
+            self.assertIn(
+                "New-NetFirewallRule -DisplayName 'AGIW peer link "
+                + proto
+                + "' -Direction Inbound -Protocol "
+                + proto
+                + " -LocalPort "
+                + str(port)
+                + " -Profile Private -Action Allow",
+                hint,
+            )
 
 
 class Fix5Docs(unittest.TestCase):
@@ -220,10 +243,20 @@ class Fix5Docs(unittest.TestCase):
 
     def test_11_cli_guide_records_current_sources_tests_and_service_limits(self):
         text = (ROOT / "docs" / "cli.md").read_text(encoding="utf-8")
-        for phrase in ("machine-state/1", "duplicate", "schemaVersion", "3 s", "detail",
-                       "python -B -m unittest discover -s tests_cli -v",
-                       "python -B -m unittest test_peer_link", "elevated", "unredacted",
-                       "peer-link.log", "Task Scheduler", "Linux is not"):
+        for phrase in (
+            "machine-state/1",
+            "duplicate",
+            "schemaVersion",
+            "3 s",
+            "detail",
+            "python -B -m unittest discover -s tests_cli -v",
+            "python -B -m unittest test_peer_link",
+            "elevated",
+            "unredacted",
+            "peer-link.log",
+            "Task Scheduler",
+            "Linux is not",
+        ):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, text)
 

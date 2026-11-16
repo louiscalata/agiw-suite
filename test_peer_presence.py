@@ -2,6 +2,7 @@
 
 Every share here is a temp directory; nothing writes to /Volumes/SharedChami or reads the real AGIW config.
 """
+
 import errno
 import io
 import json
@@ -40,15 +41,36 @@ def pc_probes():
 
 def snapshot(age=1.0, **over):
     sampled = time.time() - age
-    base = {"schemaVersion": 1, "host": "mac", "sampledAt": sampled, "activityKnown": True,
-            "sources": [{"id": "lmstudio-api", "state": "live", "route": "direct"}, {"id": "lms-ps", "state": "live"}],
-            "models": [{"id": "qwen/qwen3.8-27b", "host": "mac", "loaded": True, "state": "generating",
-                        "parallel": 4, "modelKey": "qwen3.8-27b", "metadata": {"path": "/Users/x/models"}},
-                       {"id": "google/gemma-4", "host": "mac", "loaded": False, "state": "unloaded", "parallel": 4},
-                       {"id": "gpt-oss-20b", "host": "windows", "loaded": True, "state": "idle"}],
-            "macGpu": {"model": "Apple M5 Pro", "cores": 20, "utilizationPercent": 37, "rendererPercent": 30,
-                       "allocatedBytes": 9 << 30, "inUseBytes": 3 << 30, "ageSeconds": 0.0},
-            "memory": {"level": "watch", "availablePercent": 41, "reasons": ["swap"], "swapUsedBytes": 5}}
+    base = {
+        "schemaVersion": 1,
+        "host": "mac",
+        "sampledAt": sampled,
+        "activityKnown": True,
+        "sources": [{"id": "lmstudio-api", "state": "live", "route": "direct"}, {"id": "lms-ps", "state": "live"}],
+        "models": [
+            {
+                "id": "qwen/qwen3.8-27b",
+                "host": "mac",
+                "loaded": True,
+                "state": "generating",
+                "parallel": 4,
+                "modelKey": "qwen3.8-27b",
+                "metadata": {"path": "/Users/x/models"},
+            },
+            {"id": "google/gemma-4", "host": "mac", "loaded": False, "state": "unloaded", "parallel": 4},
+            {"id": "gpt-oss-20b", "host": "windows", "loaded": True, "state": "idle"},
+        ],
+        "macGpu": {
+            "model": "Apple M5 Pro",
+            "cores": 20,
+            "utilizationPercent": 37,
+            "rendererPercent": 30,
+            "allocatedBytes": 9 << 30,
+            "inUseBytes": 3 << 30,
+            "ageSeconds": 0.0,
+        },
+        "memory": {"level": "watch", "availablePercent": 41, "reasons": ["swap"], "swapUsedBytes": 5},
+    }
     base.update(over)
     return base
 
@@ -72,17 +94,48 @@ class FakeClock:
 class MacPresenceShape(unittest.TestCase):
     def test_carries_every_field_the_pc_presence_carries(self):
         doc = peer_feed.mac_presence(snapshot(), HOST, version="1.0.0", dashboard_port=51234)
-        self.assertEqual((doc["platform"], doc["edition"], doc["version"], doc["health"]), ("mac", "mac", "1.0.0", "ok"))
+        self.assertEqual(
+            (doc["platform"], doc["edition"], doc["version"], doc["health"]), ("mac", "mac", "1.0.0", "ok")
+        )
         self.assertEqual(doc["dashboard"], {"bind": "loopback", "port": 51234})
         self.assertEqual(doc["reads"], ["agiw-peers", "windows-status.json"])
         self.assertEqual(doc["memory"], {"level": "watch", "availablePercent": 41.0})
-        self.assertEqual(doc["gpus"], [{"index": 0, "name": "Apple M5 Pro", "utilizationPercent": 37.0,
-                                        "memoryUsedMiB": 3072, "memoryTotalMiB": None, "temperatureC": None}])
-        self.assertEqual(doc["models"], [
-            {"id": "qwen/qwen3.8-27b", "aliases": ["qwen3.8-27b"], "host": "mac", "loadedState": "loaded",
-             "activity": "generating", "slotsBusy": None, "slotsTotal": 4},
-            {"id": "google/gemma-4", "aliases": [], "host": "mac", "loadedState": "inactive",
-             "activity": "unknown", "slotsBusy": None, "slotsTotal": None}])
+        self.assertEqual(
+            doc["gpus"],
+            [
+                {
+                    "index": 0,
+                    "name": "Apple M5 Pro",
+                    "utilizationPercent": 37.0,
+                    "memoryUsedMiB": 3072,
+                    "memoryTotalMiB": None,
+                    "temperatureC": None,
+                }
+            ],
+        )
+        self.assertEqual(
+            doc["models"],
+            [
+                {
+                    "id": "qwen/qwen3.8-27b",
+                    "aliases": ["qwen3.8-27b"],
+                    "host": "mac",
+                    "loadedState": "loaded",
+                    "activity": "generating",
+                    "slotsBusy": None,
+                    "slotsTotal": 4,
+                },
+                {
+                    "id": "google/gemma-4",
+                    "aliases": [],
+                    "host": "mac",
+                    "loadedState": "inactive",
+                    "activity": "unknown",
+                    "slotsBusy": None,
+                    "slotsTotal": None,
+                },
+            ],
+        )
         self.assertEqual(doc["modelsTotal"], 2)
         self.assertAlmostEqual(doc["observedUnix"], peer_link._parse_iso(doc["observedAt"]), delta=0.002)
         json.dumps(doc, allow_nan=False)
@@ -91,14 +144,38 @@ class MacPresenceShape(unittest.TestCase):
     def test_key_sets_match_the_pc_editions_own_presence(self):
         probes = pc_probes()
         now = time.time()
-        pc = probes.peer_presence({"lanes": [{"id": "fast", "status": "idle", "phase": "idle", "port": 1235,
-                                              "expectedModel": "openai/gpt-oss-20b", "servedModel": "gpt-oss-20b",
-                                              "slotsBusy": 0, "slotsTotal": 2}],
-                                   "pcGpus": [{"index": 0, "name": "RTX", "utilizationPercent": 1.0, "memoryUsedMiB": 1,
-                                               "memoryTotalMiB": 2, "temperatureC": 30.0}],
-                                   "memory": {"level": "ok", "availablePercent": 50}, "observerVersion": "0.1.0",
-                                   "observedAt": peer_feed._iso(now), "sampledAt": now, "dashboardPort": 8767},
-                                  "winpc01")
+        pc = probes.peer_presence(
+            {
+                "lanes": [
+                    {
+                        "id": "fast",
+                        "status": "idle",
+                        "phase": "idle",
+                        "port": 1235,
+                        "expectedModel": "openai/gpt-oss-20b",
+                        "servedModel": "gpt-oss-20b",
+                        "slotsBusy": 0,
+                        "slotsTotal": 2,
+                    }
+                ],
+                "pcGpus": [
+                    {
+                        "index": 0,
+                        "name": "RTX",
+                        "utilizationPercent": 1.0,
+                        "memoryUsedMiB": 1,
+                        "memoryTotalMiB": 2,
+                        "temperatureC": 30.0,
+                    }
+                ],
+                "memory": {"level": "ok", "availablePercent": 50},
+                "observerVersion": "0.1.0",
+                "observedAt": peer_feed._iso(now),
+                "sampledAt": now,
+                "dashboardPort": 8767,
+            },
+            "winpc01",
+        )
         mac = peer_feed.mac_presence(snapshot(), HOST, version="1.0.0", dashboard_port=1)
         # Everything the PC publishes, plus this Mac's Nisi and Jev states (the PC's reader ignores unknown keys).
         # PC edition 0.2.0 (PLAN A3) adds its build identity, the D5 hands-off flag and the PAIR row; the Mac edition
@@ -108,7 +185,9 @@ class MacPresenceShape(unittest.TestCase):
         self.assertEqual(set(mac) - {"components", "loadedListComplete"}, set(pc) - pc_only)
         self.assertIn("components", mac)
         # The PC also names each model's lane (lane, servedModel, liveTokensPerSecond); the Mac has no lanes.
-        self.assertLessEqual(set(pc["models"][0]) - {"lane", "servedModel", "liveTokensPerSecond"}, set(mac["models"][0]))
+        self.assertLessEqual(
+            set(pc["models"][0]) - {"lane", "servedModel", "liveTokensPerSecond"}, set(mac["models"][0])
+        )
         self.assertEqual(set(mac["gpus"][0]), set(pc["gpus"][0]))
         self.assertEqual((set(mac["memory"]), set(mac["dashboard"])), (set(pc["memory"]), set(pc["dashboard"])))
 
@@ -118,13 +197,30 @@ class MacPresenceShape(unittest.TestCase):
         now = time.time()
 
         def presence(lanes):
-            return probes.peer_presence({"lanes": lanes, "pcGpus": [], "memory": {"level": "ok", "availablePercent": 50},
-                                         "observerVersion": "0.1.0", "observedAt": peer_feed._iso(now),
-                                         "sampledAt": now, "dashboardPort": 8767}, "winpc01")
+            return probes.peer_presence(
+                {
+                    "lanes": lanes,
+                    "pcGpus": [],
+                    "memory": {"level": "ok", "availablePercent": 50},
+                    "observerVersion": "0.1.0",
+                    "observedAt": peer_feed._iso(now),
+                    "sampledAt": now,
+                    "dashboardPort": 8767,
+                },
+                "winpc01",
+            )
 
         def lane(index, status="idle"):
-            return {"id": f"lane{index}", "status": status, "phase": "idle", "port": 1235 + index,
-                    "expectedModel": f"model-{index}", "servedModel": f"model-{index}", "slotsBusy": 0, "slotsTotal": 2}
+            return {
+                "id": f"lane{index}",
+                "status": status,
+                "phase": "idle",
+                "port": 1235 + index,
+                "expectedModel": f"model-{index}",
+                "servedModel": f"model-{index}",
+                "slotsBusy": 0,
+                "slotsTotal": 2,
+            }
 
         complete = presence([lane(0), lane(1)])
         self.assertIs(complete["loadedListComplete"], True)
@@ -163,25 +259,55 @@ class MacPresenceShape(unittest.TestCase):
 
     def test_path_shaped_model_ids_never_leak_folders(self):
         # Review finding D4: a relative path reported as a model id publishes only its bare final name.
-        for value, published in (("Users/alice/private/models/secret.gguf", "secret"),
-                                 ("lmstudio-community/Qwen3-8B-GGUF/Qwen3-8B-Q4_K_M.gguf", "Qwen3-8B-Q4_K_M"),
-                                 ("publisher/model.safetensors", "model"), ("models/weights.bin", "weights"),
-                                 ("mlx-community/thing.mlx", "thing"), ("../../alice/x", "x"), ("~/models/m", "m"),
-                                 ("/Users/alice/m.gguf", "m"), ("C:\\Users\\alice\\Q.gguf", "Q"),
-                                 ("file:///Users/alice/q", "q"), ("a b/c", "c"), ("secret.GGUF", "secret"),
-                                 (".gguf", None), ("..", None), ("/", None), ("", None), ("  ", None), (7, None),
-                                 # Registry-style ids, one name or publisher/model, are published as they are.
-                                 ("qwen/qwen3.8-27b", "qwen/qwen3.8-27b"), ("google/gemma-4", "google/gemma-4"),
-                                 ("qwen/qwen3-8b:2", "qwen/qwen3-8b:2"), ("gpt-oss-20b", "gpt-oss-20b"),
-                                 ("Qwen3.8-27B Q4_K_M", "Qwen3.8-27B Q4_K_M"), ("qwen3:8b", "qwen3:8b")):
+        for value, published in (
+            ("Users/alice/private/models/secret.gguf", "secret"),
+            ("lmstudio-community/Qwen3-8B-GGUF/Qwen3-8B-Q4_K_M.gguf", "Qwen3-8B-Q4_K_M"),
+            ("publisher/model.safetensors", "model"),
+            ("models/weights.bin", "weights"),
+            ("mlx-community/thing.mlx", "thing"),
+            ("../../alice/x", "x"),
+            ("~/models/m", "m"),
+            ("/Users/alice/m.gguf", "m"),
+            ("C:\\Users\\alice\\Q.gguf", "Q"),
+            ("file:///Users/alice/q", "q"),
+            ("a b/c", "c"),
+            ("secret.GGUF", "secret"),
+            (".gguf", None),
+            ("..", None),
+            ("/", None),
+            ("", None),
+            ("  ", None),
+            (7, None),
+            # Registry-style ids, one name or publisher/model, are published as they are.
+            ("qwen/qwen3.8-27b", "qwen/qwen3.8-27b"),
+            ("google/gemma-4", "google/gemma-4"),
+            ("qwen/qwen3-8b:2", "qwen/qwen3-8b:2"),
+            ("gpt-oss-20b", "gpt-oss-20b"),
+            ("Qwen3.8-27B Q4_K_M", "Qwen3.8-27B Q4_K_M"),
+            ("qwen3:8b", "qwen3:8b"),
+        ):
             self.assertEqual(peer_feed.public_id(value), published, value)
-        rows = [{"id": "Users/alice/private/models/secret.gguf", "host": "mac", "loaded": True, "state": "idle",
-                 "modelKey": "Users/alice/private/models/secret-key.gguf"},
-                {"id": "qwen/qwen3.8-27b", "host": "mac", "loaded": False, "state": "unloaded",
-                 "modelKey": "work/clients/acme/qwen.safetensors"}]
+        rows = [
+            {
+                "id": "Users/alice/private/models/secret.gguf",
+                "host": "mac",
+                "loaded": True,
+                "state": "idle",
+                "modelKey": "Users/alice/private/models/secret-key.gguf",
+            },
+            {
+                "id": "qwen/qwen3.8-27b",
+                "host": "mac",
+                "loaded": False,
+                "state": "unloaded",
+                "modelKey": "work/clients/acme/qwen.safetensors",
+            },
+        ]
         doc = peer_feed.share_presence(snapshot(models=rows), HOST)
-        self.assertEqual([(m["id"], m["aliases"]) for m in doc["models"]],
-                         [("secret", ["secret-key"]), ("qwen/qwen3.8-27b", ["qwen"])])
+        self.assertEqual(
+            [(m["id"], m["aliases"]) for m in doc["models"]],
+            [("secret", ["secret-key"]), ("qwen/qwen3.8-27b", ["qwen"])],
+        )
         text = json.dumps(doc)
         for leak in ("Users", "alice", "private", "models/", ".gguf", ".safetensors", "clients", "acme"):
             self.assertNotIn(leak, text)
@@ -190,21 +316,41 @@ class MacPresenceShape(unittest.TestCase):
         # Review follow-up to D4: two-part relative paths under a home or system folder, and model-file extensions
         # anywhere in a name (a .part download), are path-shaped too. The name right after a home folder is an
         # account name, so such a value is dropped rather than published as its final name.
-        for value, published in (("Users/alice", None), ("home/alice", None), ("HOME/alice", None),
-                                 ("Users/alice/", None), ("/Users/alice", None), ("/home/alice/", None),
-                                 ("C:\\Users\\alice", None), ("~alice", None), ("~", None),
-                                 ("private/models", "models"), ("var/weights", "weights"), ("tmp/q", "q"),
-                                 ("alice/secret.gguf.part", "secret"), ("secret.gguf.part", "secret"),
-                                 ("models/q.safetensors.download", "q"), ("Users/alice/q.gguf.part", "q"),
-                                 # Extensions count only as whole dot-separated pieces.
-                                 ("mlx-community/Qwen3-8B-4bit", "mlx-community/Qwen3-8B-4bit"),
-                                 ("acme/model.bin-v2", "acme/model.bin-v2"), ("qwen/qwen3.8-27b", "qwen/qwen3.8-27b"),
-                                 # The documented limit: a two-part relative path shaped like publisher/model.
-                                 ("alice/private-models", "alice/private-models")):
+        for value, published in (
+            ("Users/alice", None),
+            ("home/alice", None),
+            ("HOME/alice", None),
+            ("Users/alice/", None),
+            ("/Users/alice", None),
+            ("/home/alice/", None),
+            ("C:\\Users\\alice", None),
+            ("~alice", None),
+            ("~", None),
+            ("private/models", "models"),
+            ("var/weights", "weights"),
+            ("tmp/q", "q"),
+            ("alice/secret.gguf.part", "secret"),
+            ("secret.gguf.part", "secret"),
+            ("models/q.safetensors.download", "q"),
+            ("Users/alice/q.gguf.part", "q"),
+            # Extensions count only as whole dot-separated pieces.
+            ("mlx-community/Qwen3-8B-4bit", "mlx-community/Qwen3-8B-4bit"),
+            ("acme/model.bin-v2", "acme/model.bin-v2"),
+            ("qwen/qwen3.8-27b", "qwen/qwen3.8-27b"),
+            # The documented limit: a two-part relative path shaped like publisher/model.
+            ("alice/private-models", "alice/private-models"),
+        ):
             self.assertEqual(peer_feed.public_id(value), published, value)
-        rows = [{"id": "Users/alice", "host": "mac", "loaded": True, "state": "idle", "modelKey": "home/alice"},
-                {"id": "qwen/qwen3.8-27b", "host": "mac", "loaded": True, "state": "idle",
-                 "modelKey": "alice/qwen.gguf.part"}]
+        rows = [
+            {"id": "Users/alice", "host": "mac", "loaded": True, "state": "idle", "modelKey": "home/alice"},
+            {
+                "id": "qwen/qwen3.8-27b",
+                "host": "mac",
+                "loaded": True,
+                "state": "idle",
+                "modelKey": "alice/qwen.gguf.part",
+            },
+        ]
         with self.assertRaises(peer_feed.InventoryUnknown):
             peer_feed.share_presence(snapshot(models=rows), HOST)
         doc = peer_feed.share_presence(snapshot(models=rows[1:]), HOST)
@@ -215,14 +361,22 @@ class MacPresenceShape(unittest.TestCase):
         doc = peer_feed.mac_presence(snapshot(activityKnown=False), HOST)
         self.assertEqual([m["activity"] for m in doc["models"]], ["unknown", "unknown"])
         self.assertEqual(doc["health"], "degraded")
-        one = peer_feed.mac_presence(snapshot(activityKnown=False, sources=[{"id": "lmstudio-api", "state": "live"},
-                                                                             {"id": "lms-ps", "state": "error"}]), HOST)
+        one = peer_feed.mac_presence(
+            snapshot(
+                activityKnown=False,
+                sources=[{"id": "lmstudio-api", "state": "live"}, {"id": "lms-ps", "state": "error"}],
+            ),
+            HOST,
+        )
         self.assertEqual((one["health"], len(one["models"])), ("degraded", 2))
 
     def test_unknown_inventory_is_refused_not_published_as_zero_models(self):
         # Both LM Studio probes timed out while models are loaded: the PC would count 0 loaded from models: [].
-        for sources in ([{"id": "lmstudio-api", "state": "unavailable"}, {"id": "lms-ps", "state": "unavailable"}],
-                        [{"id": "lms-ps", "state": "error"}], []):
+        for sources in (
+            [{"id": "lmstudio-api", "state": "unavailable"}, {"id": "lms-ps", "state": "unavailable"}],
+            [{"id": "lms-ps", "state": "error"}],
+            [],
+        ):
             snap = snapshot(activityKnown=False, sources=sources, models=[])
             with self.assertRaises(peer_feed.InventoryUnknown, msg=sources):
                 peer_feed.mac_presence(snap, HOST)
@@ -230,16 +384,41 @@ class MacPresenceShape(unittest.TestCase):
                 peer_feed.share_presence(snap, HOST)
 
     def test_nisi_and_jev_states_are_published_in_fixed_words(self):
-        components = [{"id": "nisi", "label": "Nisi route adapter", "state": "ready",
-                       "detail": "v0.2 pins verified; edit pair /Users/x/secret (author)", "authorModel": "/Users/x"},
-                      {"id": "jev", "label": "Jev", "state": "configured", "lastJudgedAgeSeconds": 754.4,
-                       "detail": "Opted in (key file present, not read)"}]
+        components = [
+            {
+                "id": "nisi",
+                "label": "Nisi route adapter",
+                "state": "ready",
+                "detail": "v0.2 pins verified; edit pair /Users/x/secret (author)",
+                "authorModel": "/Users/x",
+            },
+            {
+                "id": "jev",
+                "label": "Jev",
+                "state": "configured",
+                "lastJudgedAgeSeconds": 754.4,
+                "detail": "Opted in (key file present, not read)",
+            },
+        ]
         doc = peer_feed.mac_presence(snapshot(components=components), HOST)
-        self.assertEqual(doc["components"], [
-            {"id": "nisi", "label": "Nisi route adapter", "state": "ready",
-             "detail": "Nisi Inference route ready on this Mac (pins verified, edit pair loaded)"},
-            {"id": "jev", "label": "Jev", "state": "configured",
-             "detail": "Jev opted in on this Mac (key never read or shared)", "lastJudgedAgeSeconds": 754}])
+        self.assertEqual(
+            doc["components"],
+            [
+                {
+                    "id": "nisi",
+                    "label": "Nisi route adapter",
+                    "state": "ready",
+                    "detail": "Nisi Inference route ready on this Mac (pins verified, edit pair loaded)",
+                },
+                {
+                    "id": "jev",
+                    "label": "Jev",
+                    "state": "configured",
+                    "detail": "Jev opted in on this Mac (key never read or shared)",
+                    "lastJudgedAgeSeconds": 754,
+                },
+            ],
+        )
         self.assertNotIn("/Users", json.dumps(doc))
         self.assertNotIn("key file", json.dumps(doc))
         for _, _, details in peer_feed.COMPONENTS:
@@ -247,14 +426,21 @@ class MacPresenceShape(unittest.TestCase):
                 self.assertTrue(detail.isprintable() and len(detail) <= 120, (state, detail))
 
     def test_missing_or_odd_component_states_are_unknown_never_omitted(self):
-        for components in (None, [], "junk", [{"id": "nisi", "state": "exploded"}, {"id": "jev", "state": 7,
-                                                                                   "lastJudgedAgeSeconds": float("inf")}]):
+        for components in (
+            None,
+            [],
+            "junk",
+            [{"id": "nisi", "state": "exploded"}, {"id": "jev", "state": 7, "lastJudgedAgeSeconds": float("inf")}],
+        ):
             doc = peer_feed.mac_presence(snapshot(components=components), HOST)
-            self.assertEqual([(c["id"], c["state"]) for c in doc["components"]], [("nisi", "unknown"), ("jev", "unknown")])
+            self.assertEqual(
+                [(c["id"], c["state"]) for c in doc["components"]], [("nisi", "unknown"), ("jev", "unknown")]
+            )
             self.assertIsNone(doc["components"][1]["lastJudgedAgeSeconds"])
             json.dumps(doc, allow_nan=False)
-        drift = peer_feed.mac_presence(snapshot(components=[{"id": "nisi", "state": "needs-action"},
-                                                            {"id": "jev", "state": "unavailable"}]), HOST)
+        drift = peer_feed.mac_presence(
+            snapshot(components=[{"id": "nisi", "state": "needs-action"}, {"id": "jev", "state": "unavailable"}]), HOST
+        )
         self.assertEqual([c["state"] for c in drift["components"]], ["needs-action", "unavailable"])
 
     def test_components_reach_the_share_file_and_the_pc_reader_still_accepts_it(self):
@@ -263,14 +449,22 @@ class MacPresenceShape(unittest.TestCase):
         self.assertTrue(peer_feed.pc_reader_accepts(doc, HOST, time.time()))
         # The LAN link's allowlist carries them too, word for word, so both transports agree.
         # (a null age is simply left out: absent and unknown mean the same thing)
-        self.assertEqual(peer_link.project_status(doc)["components"],
-                         [{k: v for k, v in c.items() if v is not None} for c in doc["components"]])
+        self.assertEqual(
+            peer_link.project_status(doc)["components"],
+            [{k: v for k, v in c.items() if v is not None} for c in doc["components"]],
+        )
 
     def test_odd_inputs_stay_null_or_are_dropped(self):
-        snap = snapshot(macGpu=None, memory={"level": "melting", "availablePercent": float("inf")},
-                        models=[{"id": "/Users/x/models/secret.gguf", "host": "mac", "loaded": True, "state": "idle",
-                                 "parallel": True},
-                                {"id": "", "host": "mac", "loaded": True}, {"id": 7, "host": "mac"}, "junk"])
+        snap = snapshot(
+            macGpu=None,
+            memory={"level": "melting", "availablePercent": float("inf")},
+            models=[
+                {"id": "/Users/x/models/secret.gguf", "host": "mac", "loaded": True, "state": "idle", "parallel": True},
+                {"id": "", "host": "mac", "loaded": True},
+                {"id": 7, "host": "mac"},
+                "junk",
+            ],
+        )
         with self.assertRaises(peer_feed.InventoryUnknown):
             peer_feed.mac_presence(snap, HOST, dashboard_port=True)
         snap["models"] = snap["models"][:1]
@@ -293,17 +487,20 @@ class MacPresenceShape(unittest.TestCase):
         many.append({"id": "loaded-last", "host": "mac", "loaded": True, "state": "generating"})
         doc = peer_feed.share_presence(snapshot(models=many), HOST)
         self.assertEqual(doc["modelsTotal"], 35)
-        self.assertEqual([m["id"] for m in doc["models"]],
-                         ["loaded-first", "loaded-last", *[f"m{i}" for i in range(30)]])
+        self.assertEqual(
+            [m["id"] for m in doc["models"]], ["loaded-first", "loaded-last", *[f"m{i}" for i in range(30)]]
+        )
         self.assertEqual([m["loadedState"] for m in doc["models"][:2]], ["loaded", "loaded"])
         report = pc_probes()._validate_peer(doc, time.time())
         self.assertIs(report["modelsComplete"], False)
         self.assertEqual(sum(m["loadedState"] == "loaded" for m in report["models"]), 2)
 
     def test_published_model_count_excludes_other_hosts_but_refuses_unpublishable_local_ids(self):
-        rows = [{"id": "m", "host": "mac", "loaded": False},
-                {"id": "pc", "host": "windows", "loaded": True},
-                {"id": "", "host": "mac", "loaded": True}]
+        rows = [
+            {"id": "m", "host": "mac", "loaded": False},
+            {"id": "pc", "host": "windows", "loaded": True},
+            {"id": "", "host": "mac", "loaded": True},
+        ]
         with self.assertRaises(peer_feed.InventoryUnknown):
             peer_feed.mac_presence(snapshot(models=rows), HOST)
         doc = peer_feed.mac_presence(snapshot(models=rows[:2]), HOST)
@@ -320,8 +517,16 @@ class SharePresence(unittest.TestCase):
         self.assertTrue(peer_feed.pc_reader_accepts(doc, HOST, time.time()))
 
     def test_stale_missing_or_misnamed_input_is_refused(self):
-        for snap, host in ((snapshot(age=40), HOST), (snapshot(age=90), HOST), (None, HOST), ({}, HOST),
-                           (snapshot(age=-30), HOST), (snapshot(), "bad host"), (snapshot(), "../x"), (snapshot(), "")):
+        for snap, host in (
+            (snapshot(age=40), HOST),
+            (snapshot(age=90), HOST),
+            (None, HOST),
+            ({}, HOST),
+            (snapshot(age=-30), HOST),
+            (snapshot(), "bad host"),
+            (snapshot(), "../x"),
+            (snapshot(), ""),
+        ):
             with self.assertRaises(ValueError, msg=f"{host} {snap and snap.get('sampledAt')}"):
                 peer_feed.share_presence(snap, host)
 
@@ -355,10 +560,19 @@ class SharePresence(unittest.TestCase):
         now = time.time()
         good = peer_feed.share_presence(snapshot(), HOST)
         self.assertTrue(peer_feed.pc_reader_accepts(good, HOST, now))
-        for change in ({"platform": "mac"}, {"host": "other"}, {"observedUnix": now + 30}, {"observedUnix": True},
-                       {"observedUnix": now - 31}, {"kind": "status"}, {"models": [{"id": " ", "loadedState": "loaded"}]},
-                       {"models": [{"id": "a", "loadedState": "resident"}]},
-                       {"schemaVersion": True}, {"schemaVersion": 1.0}, {"schemaVersion": "1"}):
+        for change in (
+            {"platform": "mac"},
+            {"host": "other"},
+            {"observedUnix": now + 30},
+            {"observedUnix": True},
+            {"observedUnix": now - 31},
+            {"kind": "status"},
+            {"models": [{"id": " ", "loadedState": "loaded"}]},
+            {"models": [{"id": "a", "loadedState": "resident"}]},
+            {"schemaVersion": True},
+            {"schemaVersion": 1.0},
+            {"schemaVersion": "1"},
+        ):
             self.assertFalse(peer_feed.pc_reader_accepts({**good, **change}, HOST, now), change)
 
 
@@ -440,8 +654,10 @@ class WritePresence(unittest.TestCase):
         self.assertEqual(len(calls), 3)
         self.assertEqual(json.loads(self.target.read_text())["observedUnix"], newer["observedUnix"])
         good = self.target.read_bytes()
-        with mock.patch.object(peer_feed.os, "rename", side_effect=OSError(errno.EACCES, "denied")), \
-                mock.patch.object(peer_feed.time, "sleep"):
+        with (
+            mock.patch.object(peer_feed.os, "rename", side_effect=OSError(errno.EACCES, "denied")),
+            mock.patch.object(peer_feed.time, "sleep"),
+        ):
             with self.assertRaises(PermissionError):
                 peer_feed.write_presence(self.doc, self.root)
         self.assertEqual(self.target.read_bytes(), good)
@@ -464,12 +680,14 @@ class WritePresence(unittest.TestCase):
             return path
 
         stale = [plant(f".{HOST}.json.{i:016x}.tmp") for i in range(3)]
-        keep = [plant(f".{HOST}.json.{'a' * 16}.tmp", age=time.time()),        # a write in progress elsewhere
-                plant(f".other-mac.json.{'b' * 16}.tmp"),                       # another host's leftover
-                plant(f".{HOST}.json.tmp-123"),                                 # not this writer's name pattern
-                plant(f".{HOST}.json.{'c' * 16}.tmp.json"),
-                plant(f".{HOST}.json.{'d' * 16}.tmp", kind="dir"),
-                plant(f".{HOST}.json.{'e' * 16}.tmp", kind="link")]
+        keep = [
+            plant(f".{HOST}.json.{'a' * 16}.tmp", age=time.time()),  # a write in progress elsewhere
+            plant(f".other-mac.json.{'b' * 16}.tmp"),  # another host's leftover
+            plant(f".{HOST}.json.tmp-123"),  # not this writer's name pattern
+            plant(f".{HOST}.json.{'c' * 16}.tmp.json"),
+            plant(f".{HOST}.json.{'d' * 16}.tmp", kind="dir"),
+            plant(f".{HOST}.json.{'e' * 16}.tmp", kind="link"),
+        ]
         peer_feed.write_presence(self.doc, self.root)
         self.assertEqual(json.loads(self.target.read_text()), self.doc)
         self.assertFalse(any(p.exists() for p in stale))
@@ -497,8 +715,11 @@ class WritePresence(unittest.TestCase):
         self.assertGreaterEqual(len(self.leftovers()), 7)
 
     def test_unfit_documents_never_touch_the_share(self):
-        for doc in ({**self.doc, "host": "../../etc"}, {**self.doc, "observedUnix": float("nan")},
-                    {**self.doc, "models": [{"id": "x" * 70000, "loadedState": "loaded"}]}):
+        for doc in (
+            {**self.doc, "host": "../../etc"},
+            {**self.doc, "observedUnix": float("nan")},
+            {**self.doc, "models": [{"id": "x" * 70000, "loadedState": "loaded"}]},
+        ):
             with self.assertRaises(ValueError):
                 peer_feed.write_presence(doc, self.root)
         self.assertFalse(self.target.parent.exists())
@@ -511,8 +732,14 @@ class Publisher(unittest.TestCase):
         self.target = self.root / "llm-lab" / "status" / "agiw-peers" / f"{HOST}.json"
 
     def publisher(self, **kw):
-        options = {"share_root": self.root, "version": "1.0.0", "dashboard_port": 8000, "clock": self.clock,
-                   "enabled_by": "--publish-status", **kw}
+        options = {
+            "share_root": self.root,
+            "version": "1.0.0",
+            "dashboard_port": 8000,
+            "clock": self.clock,
+            "enabled_by": "--publish-status",
+            **kw,
+        }
         pub = peer_feed.PresencePublisher(HOST, **options)
         self.addCleanup(pub.close)
         return pub
@@ -530,7 +757,9 @@ class Publisher(unittest.TestCase):
         self.assertTrue(pub.offer(lambda: snapshot()))
         self.assertTrue(pub.wait_idle(5))
         written = json.loads(self.target.read_text())
-        self.assertEqual((written["platform"], written["version"], written["dashboard"]["port"]), ("macos", "1.0.0", 8000))
+        self.assertEqual(
+            (written["platform"], written["version"], written["dashboard"]["port"]), ("macos", "1.0.0", 8000)
+        )
         row = pub.sources()[0]
         self.assertEqual((row["id"], row["state"], row["ageSeconds"]), ("agiw-presence", "live", 0.0))
         self.assertIn("agiw-peers/example-mbp.json", row["detail"])
@@ -612,8 +841,11 @@ class Publisher(unittest.TestCase):
         self.assertTrue(pub.wait_idle(5))
         good = self.target.read_bytes()
         self.clock.now += 10
-        blind = snapshot(activityKnown=False, models=[], sources=[{"id": "lmstudio-api", "state": "unavailable"},
-                                                                  {"id": "lms-ps", "state": "unavailable"}])
+        blind = snapshot(
+            activityKnown=False,
+            models=[],
+            sources=[{"id": "lmstudio-api", "state": "unavailable"}, {"id": "lms-ps", "state": "unavailable"}],
+        )
         self.assertTrue(pub.offer(lambda: blind))
         self.assertTrue(pub.wait_idle(5))
         self.assertEqual(self.target.read_bytes(), good, "no models: [] is written over the last known list")
@@ -655,9 +887,13 @@ class PcReadsTheMac(unittest.TestCase):
             peers, source = probes.read_peers(root, "winpc01", time.time())
         mac = next((p for p in peers if p["platform"] == "macos" and p["fresh"]), None)  # collect.py's Mac link rule
         self.assertIsNotNone(mac, peers)
-        self.assertEqual((mac["host"], mac["edition"], mac["version"], mac["source"]), (HOST, "mac", "1.0.0", "agiw-peers"))
-        self.assertEqual([(m["id"], m["loadedState"]) for m in mac["models"]],
-                         [("qwen/qwen3.8-27b", "loaded"), ("google/gemma-4", "inactive")])
+        self.assertEqual(
+            (mac["host"], mac["edition"], mac["version"], mac["source"]), (HOST, "mac", "1.0.0", "agiw-peers")
+        )
+        self.assertEqual(
+            [(m["id"], m["loadedState"]) for m in mac["models"]],
+            [("qwen/qwen3.8-27b", "loaded"), ("google/gemma-4", "inactive")],
+        )
         self.assertEqual(source["state"], "live")
 
     def test_the_mac_never_reads_its_own_presence_as_the_pc(self):
@@ -679,12 +915,15 @@ class Config(unittest.TestCase):
         self.path.write_text('{"publishStatus": true, "peerLink": false, "futureKey": 3}')
         self.assertEqual(peer_feed.load_config(self.path), ({"publishStatus": True, "peerLink": False}, None))
         options = peer_feed.link_options(config_path=self.path)
-        self.assertEqual((options["presence"], options["lanLink"], options["enabledBy"]),
-                         (True, False, "config.json publishStatus"))
+        self.assertEqual(
+            (options["presence"], options["lanLink"], options["enabledBy"]), (True, False, "config.json publishStatus")
+        )
         self.path.write_text('{"peerLink": true}')
         options = peer_feed.link_options(config_path=self.path)
-        self.assertEqual((options["publishStatus"], options["peerLink"], options["presence"], options["lanLink"]),
-                         (False, True, True, True))
+        self.assertEqual(
+            (options["publishStatus"], options["peerLink"], options["presence"], options["lanLink"]),
+            (False, True, True, True),
+        )
         # A UTF-8 BOM (PowerShell 5.1 Set-Content -Encoding UTF8, or a file copied from the PC) reads as the PC reads it.
         self.path.write_bytes(b'\xef\xbb\xbf{"publishStatus": true, "peerLink": true}')
         self.assertEqual(peer_feed.load_config(self.path), ({"publishStatus": True, "peerLink": True}, None))
@@ -692,10 +931,18 @@ class Config(unittest.TestCase):
         self.assertEqual(peer_feed.load_config(self.path)[1]["state"], "error")
 
     def test_bad_files_mean_off_plus_a_visible_error_never_a_crash(self):
-        cases = {"not json": "{publishStatus: true}", "nan": '{"publishStatus": NaN}', "dup": '{"peerLink": false, "peerLink": true}',
-                 "list": "[true]", "null": "null", "string bool": '{"publishStatus": "true"}', "number": '{"peerLink": 1}',
-                 "huge": '{"publishStatus": true, "pad": "' + "x" * 20000 + '"}', "bom-less binary": b"\xff\xfe{}",
-                 "empty": ""}
+        cases = {
+            "not json": "{publishStatus: true}",
+            "nan": '{"publishStatus": NaN}',
+            "dup": '{"peerLink": false, "peerLink": true}',
+            "list": "[true]",
+            "null": "null",
+            "string bool": '{"publishStatus": "true"}',
+            "number": '{"peerLink": 1}',
+            "huge": '{"publishStatus": true, "pad": "' + "x" * 20000 + '"}',
+            "bom-less binary": b"\xff\xfe{}",
+            "empty": "",
+        }
         for name, text in cases.items():
             self.path.write_bytes(text if isinstance(text, bytes) else text.encode())
             options, row = peer_feed.load_config(self.path)
@@ -734,8 +981,20 @@ class Config(unittest.TestCase):
             info = real_fstat(fd)
             if info.st_ino != target:
                 return info
-            return os.stat_result((info.st_mode, info.st_ino, info.st_dev, info.st_nlink, info.st_uid + 1, info.st_gid,
-                                   info.st_size, int(info.st_atime), int(info.st_mtime), int(info.st_ctime)))
+            return os.stat_result(
+                (
+                    info.st_mode,
+                    info.st_ino,
+                    info.st_dev,
+                    info.st_nlink,
+                    info.st_uid + 1,
+                    info.st_gid,
+                    info.st_size,
+                    int(info.st_atime),
+                    int(info.st_mtime),
+                    int(info.st_ctime),
+                )
+            )
 
         with mock.patch.object(peer_feed.os, "fstat", side_effect=fstat):
             options, row = peer_feed.load_config(self.path)
@@ -744,8 +1003,10 @@ class Config(unittest.TestCase):
         self.assertEqual((row["id"], row["state"]), ("agiw-config", "error"))
         self.assertIn("not owned by you", row["detail"])
         self.assertNotIn(str(self.dir), row["detail"])
-        self.assertEqual((linked["publishStatus"], linked["peerLink"], linked["lanLink"], linked["enabledBy"]),
-                         (False, True, True, "--peer-link"))
+        self.assertEqual(
+            (linked["publishStatus"], linked["peerLink"], linked["lanLink"], linked["enabledBy"]),
+            (False, True, True, "--peer-link"),
+        )
         self.assertIn("not owned by you", linked["configSource"]["detail"])
         # The same file, owned by this user, turns both on.
         self.assertEqual(peer_feed.load_config(self.path), ({"publishStatus": True, "peerLink": True}, None))
@@ -759,11 +1020,16 @@ class Config(unittest.TestCase):
             self.assertEqual(row["state"], "error", oct(mode))
             self.assertIn("writable by other users", row["detail"], oct(mode))
             options = peer_feed.link_options(publish_status=True, config_path=self.path)
-            self.assertEqual((options["publishStatus"], options["peerLink"], options["enabledBy"]),
-                             (True, False, "--publish-status"), oct(mode))
+            self.assertEqual(
+                (options["publishStatus"], options["peerLink"], options["enabledBy"]),
+                (True, False, "--publish-status"),
+                oct(mode),
+            )
         for mode in (0o600, 0o644, 0o400):  # readable by others is fine; only writing could change the opt-ins
             os.chmod(self.path, mode)
-            self.assertEqual(peer_feed.load_config(self.path), ({"publishStatus": True, "peerLink": True}, None), oct(mode))
+            self.assertEqual(
+                peer_feed.load_config(self.path), ({"publishStatus": True, "peerLink": True}, None), oct(mode)
+            )
 
     @unittest.skipUnless(sys.platform == "darwin", "macOS extended ACLs")
     def test_extended_acl_on_the_config_is_ignored(self):
@@ -787,9 +1053,11 @@ class Config(unittest.TestCase):
             seen.append(fd)
             raise OSError(13, "denied")
 
-        with mock.patch.object(peer_feed.sys, "platform", "darwin"), \
-                mock.patch.object(peer_feed, "_fd_has_extended_acl", by_fd), \
-                mock.patch.object(peer_feed.subprocess, "run", side_effect=AssertionError("no pathname tool")):
+        with (
+            mock.patch.object(peer_feed.sys, "platform", "darwin"),
+            mock.patch.object(peer_feed, "_fd_has_extended_acl", by_fd),
+            mock.patch.object(peer_feed.subprocess, "run", side_effect=AssertionError("no pathname tool")),
+        ):
             options, row = peer_feed.load_config(self.path)
         self.assertEqual(options, {"publishStatus": False, "peerLink": False})
         self.assertIn("access list unreadable", row["detail"])
@@ -858,16 +1126,33 @@ class SamplerWiring(unittest.TestCase):
         import server
         from contextlib import ExitStack
         from test_server import isolate_sampler_configs
+
         store = server.SnapshotStore()
-        row = {"id": "model-a", "name": "Model A", "host": "mac", "state": "idle", "loaded": True, "ageSeconds": 0,
-               "source": "lms-ps"}
-        with mock.patch("server.collect_snapshot", side_effect=lambda: {"schemaVersion": 1, "sampledAt": time.time(),
-                                                                         "models": [dict(row)], "sources": [{"id": "lms-ps", "state": "live"}]}), \
-                mock.patch("server.collect_activity", return_value={"runs": [], "sources": []}), \
-                mock.patch("server.collect_clients", return_value=([], [])), \
-                mock.patch("server.mac_gpu", return_value=(None, {"id": "mac-gpu", "state": "unavailable"})), \
-                mock.patch("server.LocalCallers", return_value=self.Callers()), \
-                ExitStack() as stack:
+        row = {
+            "id": "model-a",
+            "name": "Model A",
+            "host": "mac",
+            "state": "idle",
+            "loaded": True,
+            "ageSeconds": 0,
+            "source": "lms-ps",
+        }
+        with (
+            mock.patch(
+                "server.collect_snapshot",
+                side_effect=lambda: {
+                    "schemaVersion": 1,
+                    "sampledAt": time.time(),
+                    "models": [dict(row)],
+                    "sources": [{"id": "lms-ps", "state": "live"}],
+                },
+            ),
+            mock.patch("server.collect_activity", return_value={"runs": [], "sources": []}),
+            mock.patch("server.collect_clients", return_value=([], [])),
+            mock.patch("server.mac_gpu", return_value=(None, {"id": "mac-gpu", "state": "unavailable"})),
+            mock.patch("server.LocalCallers", return_value=self.Callers()),
+            ExitStack() as stack,
+        ):
             isolate_sampler_configs(stack)
             server.sample(store, self.Stop(1), feed=self.Feed(), guard=self.Guard(), publisher=publisher)
         return store.read()
@@ -877,12 +1162,28 @@ class SamplerWiring(unittest.TestCase):
         registry = []
         with tempfile.TemporaryDirectory() as temp:
             remote = Path(temp) / "remote-machines.json"
-            remote.write_text(json.dumps({"schemaVersion": 1, "machines": [{"id": "pc", "label": "Worker placeholder",
-                                          "lanes": [{"id": "deep", "label": "Deep", "localPort": 21001}]}]}))
+            remote.write_text(
+                json.dumps(
+                    {
+                        "schemaVersion": 1,
+                        "machines": [
+                            {
+                                "id": "pc",
+                                "label": "Worker placeholder",
+                                "lanes": [{"id": "deep", "label": "Deep", "localPort": 21001}],
+                            }
+                        ],
+                    }
+                )
+            )
             remote.chmod(0o600)
-            with mock.patch.dict(os.environ, {"AGIW_REMOTE_MACHINES_CONFIG": str(remote)}), \
-                    mock.patch("server.remote_machines.background_snapshot",
-                               side_effect=lambda config, **_: registry.append(config) or []):
+            with (
+                mock.patch.dict(os.environ, {"AGIW_REMOTE_MACHINES_CONFIG": str(remote)}),
+                mock.patch(
+                    "server.remote_machines.background_snapshot",
+                    side_effect=lambda config, **_: registry.append(config) or [],
+                ),
+            ):
                 self.run_sampler(None)
         self.assertEqual([config for config in registry if config is not None], [])
 
@@ -926,17 +1227,22 @@ class SamplerWiring(unittest.TestCase):
 
     def test_peer_options_follow_config_and_flags_without_writing(self):
         import server
+
         directory = Path(tempfile.mkdtemp())
         self.addCleanup(lambda: __import__("shutil").rmtree(directory, ignore_errors=True))
         config = directory / "config.json"
         options, pub = server.peer_options(config=config, port=8000)
         self.addCleanup(pub.close)
-        self.assertEqual((options["presence"], options["lanLink"], pub.enabled, pub.sources()), (False, False, False, []))
+        self.assertEqual(
+            (options["presence"], options["lanLink"], pub.enabled, pub.sources()), (False, False, False, [])
+        )
         config.write_text('{"peerLink": true}')
         options, pub = server.peer_options(config=config, port=8000)
         self.addCleanup(pub.close)
-        self.assertEqual((options["lanLink"], pub.enabled, pub.dashboard_port, pub.share_root),
-                         (True, True, 8000, Path("/Volumes/SharedChami")))
+        self.assertEqual(
+            (options["lanLink"], pub.enabled, pub.dashboard_port, pub.share_root),
+            (True, True, 8000, Path("/Volumes/SharedChami")),
+        )
         self.assertIsNone(pub._thread, "nothing is written until the sampler offers a snapshot")
         config.write_text("{bad")
         options, pub = server.peer_options(publish_status=True, config=config, port=8000)
@@ -958,15 +1264,18 @@ class StartPeerLink(unittest.TestCase):
             self.binds.append(link)
             raise AssertionError("the test link must never bind")
 
-        patches =[mock.patch.object(peer_link, "default_state_dir", return_value=self.state),
-                   mock.patch.object(peer_link, "directed_broadcasts", return_value=("127.255.255.255",)),
-                   mock.patch.object(peer_link.PeerLink, "start", no_bind)]
+        patches = [
+            mock.patch.object(peer_link, "default_state_dir", return_value=self.state),
+            mock.patch.object(peer_link, "directed_broadcasts", return_value=("127.255.255.255",)),
+            mock.patch.object(peer_link.PeerLink, "start", no_bind),
+        ]
         for item in patches:
             item.start()
             self.addCleanup(item.stop)
 
     def start(self):
         import server
+
         reported = []
         store = server.SnapshotStore()
         with redirect_stderr(io.StringIO()) as err:
@@ -1003,8 +1312,10 @@ class StartPeerLink(unittest.TestCase):
         def boom(_exc):
             raise RuntimeError("reporter broke")
 
-        with mock.patch.object(peer_link, "PeerLink", side_effect=OSError(errno.EADDRINUSE, "in use")), \
-                redirect_stderr(io.StringIO()):
+        with (
+            mock.patch.object(peer_link, "PeerLink", side_effect=OSError(errno.EADDRINUSE, "in use")),
+            redirect_stderr(io.StringIO()),
+        ):
             self.assertIsNone(server.start_peer_link(server.SnapshotStore(), report=boom))
             self.assertIsNone(server.start_peer_link(server.SnapshotStore()))
 
@@ -1014,6 +1325,7 @@ class StartPeerLink(unittest.TestCase):
         with os.fdopen(fd, "wb") as handle:
             handle.write(b"\x80" * 64)
         import server
+
         root = share(self)
         pub = peer_feed.PresencePublisher(HOST, share_root=root)
         self.addCleanup(pub.close)
@@ -1050,6 +1362,7 @@ class MainWiring(unittest.TestCase):
     def run_main(self, argv, default_config=None, defer_link=False, after=None):
         """after(seen) runs once main() has returned, still inside every patch (so nothing real can start)."""
         import server
+
         directory = Path(tempfile.mkdtemp())
         self.addCleanup(lambda: __import__("shutil").rmtree(directory, ignore_errors=True))
         config_path = directory / "default" / "config.json"
@@ -1082,21 +1395,24 @@ class MainWiring(unittest.TestCase):
             self.addCleanup(publisher.close)
             return options, publisher
 
-        with mock.patch.object(peer_feed, "CONFIG_PATH", config_path), \
-                mock.patch.object(server, "MonitorServer", return_value=self.FakeServer()), \
-                mock.patch.object(server, "memory_guard", return_value=None), \
-                mock.patch.object(server.threading, "Thread", FakeThread), \
-                mock.patch.object(server, "start_peer_link", side_effect=fake_start), \
-                mock.patch.object(server, "peer_options", side_effect=recording_options), \
-                mock.patch.object(server, "write_endpoint"), \
-                mock.patch.object(server, "stop_windows_worker_probe"), \
-                mock.patch.object(server.signal, "signal"), \
-                mock.patch.object(sys, "argv", ["server.py", *argv]), \
-                redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+        with (
+            mock.patch.object(peer_feed, "CONFIG_PATH", config_path),
+            mock.patch.object(server, "MonitorServer", return_value=self.FakeServer()),
+            mock.patch.object(server, "memory_guard", return_value=None),
+            mock.patch.object(server.threading, "Thread", FakeThread),
+            mock.patch.object(server, "start_peer_link", side_effect=fake_start),
+            mock.patch.object(server, "peer_options", side_effect=recording_options),
+            mock.patch.object(server, "write_endpoint"),
+            mock.patch.object(server, "stop_windows_worker_probe"),
+            mock.patch.object(server.signal, "signal"),
+            mock.patch.object(sys, "argv", ["server.py", *argv]),
+            redirect_stdout(io.StringIO()),
+            redirect_stderr(io.StringIO()),
+        ):
             server.main()
             if after is not None:
                 after(seen)
-        samplers =[t for t in seen["threads"] if t.target is server.sample]
+        samplers = [t for t in seen["threads"] if t.target is server.sample]
         self.assertEqual(len(samplers), 1)
         seen["sampler"] = samplers[0]
         self.assertEqual(len(seen["published"]), 1)

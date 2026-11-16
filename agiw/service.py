@@ -5,6 +5,7 @@ the Windows PC).
 Definitions are rendered as text first, written under the user's own folders, and every system command goes
 through an injectable runner, so tests render into a temporary folder and never start a real service.
 """
+
 from __future__ import annotations
 
 import csv
@@ -31,9 +32,12 @@ def real_runner(argv: Sequence[str]) -> "subprocess.CompletedProcess":
     """The only place a service command is executed."""
     result = subprocess.run(list(argv), capture_output=True, timeout=60)
     encoding = locale.getpreferredencoding(False)
-    return subprocess.CompletedProcess(result.args, result.returncode,
-                                       result.stdout.decode(encoding, errors="replace"),
-                                       result.stderr.decode(encoding, errors="replace"))
+    return subprocess.CompletedProcess(
+        result.args,
+        result.returncode,
+        result.stdout.decode(encoding, errors="replace"),
+        result.stderr.decode(encoding, errors="replace"),
+    )
 
 
 class ServiceError(RuntimeError):
@@ -52,18 +56,24 @@ def _derive_service_observation(kind: str, result) -> ServiceObservation:
     """Normalize a launchctl result or validated scheduler state, independently of definition presence."""
     if kind == "mac":
         if result.returncode == 0:
-            return (ServiceObservation.RUNNING if re.search(r"^\s*state = running\s*$", result.stdout or "", re.M)
-                    else ServiceObservation.LOADED_NOT_RUNNING)
+            return (
+                ServiceObservation.RUNNING
+                if re.search(r"^\s*state = running\s*$", result.stdout or "", re.M)
+                else ServiceObservation.LOADED_NOT_RUNNING
+            )
         if result.returncode == 113 or re.search(
-                r"Could not find service", (result.stderr or "") + (result.stdout or ""), re.I):
+            r"Could not find service", (result.stderr or "") + (result.stdout or ""), re.I
+        ):
             return ServiceObservation.MISSING
         return ServiceObservation.UNKNOWN
-    return {"missing": ServiceObservation.MISSING,
-            "Unknown": ServiceObservation.LOADED_UNKNOWN,
-            "Disabled": ServiceObservation.LOADED_NOT_RUNNING,
-            "Queued": ServiceObservation.LOADED_NOT_RUNNING,
-            "Ready": ServiceObservation.LOADED_NOT_RUNNING,
-            "Running": ServiceObservation.RUNNING}.get(result, ServiceObservation.UNKNOWN)
+    return {
+        "missing": ServiceObservation.MISSING,
+        "Unknown": ServiceObservation.LOADED_UNKNOWN,
+        "Disabled": ServiceObservation.LOADED_NOT_RUNNING,
+        "Queued": ServiceObservation.LOADED_NOT_RUNNING,
+        "Ready": ServiceObservation.LOADED_NOT_RUNNING,
+        "Running": ServiceObservation.RUNNING,
+    }.get(result, ServiceObservation.UNKNOWN)
 
 
 def _transition_service_observation(out: dict, state: ServiceObservation) -> dict:
@@ -92,14 +102,23 @@ def _windows_quote(arg: str) -> str:
 class ServiceManager:
     """kind is mac or windows. home, python, runner and the environment are injectable."""
 
-    def __init__(self, kind: str, serve_args: Sequence[str] = (), serve_options: Sequence[str] = (), *,
-                 home: Optional[Path] = None,
-                 python: Optional[str] = None, runner: Optional[Runner] = None, env: Optional[dict] = None,
-                 uid: Optional[int] = None, system_dir: Optional[str] = None):
+    def __init__(
+        self,
+        kind: str,
+        serve_args: Sequence[str] = (),
+        serve_options: Sequence[str] = (),
+        *,
+        home: Optional[Path] = None,
+        python: Optional[str] = None,
+        runner: Optional[Runner] = None,
+        env: Optional[dict] = None,
+        uid: Optional[int] = None,
+        system_dir: Optional[str] = None,
+    ):
         if kind not in ("mac", "windows"):
             raise ValueError("kind must be mac or windows")
         self.kind = kind
-        self.serve_args = list(serve_args)        # global options, before `serve`
+        self.serve_args = list(serve_args)  # global options, before `serve`
         self.serve_options = list(serve_options)  # `serve` options
         self.home = Path.home() if home is None else Path(home)
         self.env = dict(os.environ) if env is None else dict(env)
@@ -145,17 +164,19 @@ class ServiceManager:
 
     def _render_launchd(self) -> bytes:
         log = str(self.log_path())
-        return plistlib.dumps({
-            "Label": LAUNCHD_LABEL,
-            "ProgramArguments": self.command(),
-            "RunAtLoad": True,
-            "KeepAlive": {"SuccessfulExit": False},  # restarted after a crash, not after a clean stop
-            "ThrottleInterval": 60,
-            "ProcessType": "Background",
-            "EnvironmentVariables": {"PYTHONDONTWRITEBYTECODE": "1"},
-            "StandardOutPath": log,
-            "StandardErrorPath": log,
-        })
+        return plistlib.dumps(
+            {
+                "Label": LAUNCHD_LABEL,
+                "ProgramArguments": self.command(),
+                "RunAtLoad": True,
+                "KeepAlive": {"SuccessfulExit": False},  # restarted after a crash, not after a clean stop
+                "ThrottleInterval": 60,
+                "ProcessType": "Background",
+                "EnvironmentVariables": {"PYTHONDONTWRITEBYTECODE": "1"},
+                "StandardOutPath": log,
+                "StandardErrorPath": log,
+            }
+        )
 
     def windows_user(self) -> str:
         user = self.env.get("USERNAME") or "user"
@@ -217,6 +238,7 @@ class ServiceManager:
         if self._system_dir is None:
             if os.name == "nt":
                 import peer_link  # System32 as Windows reports it, never found through PATH
+
                 self._system_dir = peer_link._win_system_dir()
             else:
                 self._system_dir = "C:\\Windows\\System32"
@@ -228,8 +250,15 @@ class ServiceManager:
             whoami = self._schtasks().rsplit("\\", 1)[0] + "\\whoami.exe"
             try:
                 result = self._run([whoami, "/user", "/fo", "csv", "/nh"], check=False)
-                sid = next((field for row in csv.reader(io.StringIO(result.stdout or ""), strict=True)
-                            for field in row if re.fullmatch(r"S-1-[0-9]+(-[0-9]+)+", field)), None)
+                sid = next(
+                    (
+                        field
+                        for row in csv.reader(io.StringIO(result.stdout or ""), strict=True)
+                        for field in row
+                        if re.fullmatch(r"S-1-[0-9]+(-[0-9]+)+", field)
+                    ),
+                    None,
+                )
             except (OSError, subprocess.SubprocessError, csv.Error) as exc:
                 raise ServiceError("cannot read this account's Windows SID; no task was changed") from exc
             if result.returncode != 0 or sid is None:
@@ -242,8 +271,9 @@ class ServiceManager:
         if check and result.returncode != 0:
             tool = re.split(r"[\\/]", argv[0])[-1]
             reason = (result.stderr or result.stdout or "").strip()
-            raise ServiceError(f"{tool} {argv[1]} failed (exit {result.returncode})" +
-                               (f": {reason}" if reason else ""))
+            raise ServiceError(
+                f"{tool} {argv[1]} failed (exit {result.returncode})" + (f": {reason}" if reason else "")
+            )
         return result
 
     def _write_definition(self) -> Path:
@@ -269,7 +299,7 @@ class ServiceManager:
     def _windows_state_command(self) -> List[str]:
         task = self.windows_task()
         prefix = "\\AGIW\\"
-        name = task[len(prefix):] if task.startswith(prefix) else ""
+        name = task[len(prefix) :] if task.startswith(prefix) else ""
         if not re.fullmatch(r"[A-Za-z0-9-]+", name):
             raise ServiceError("invalid Windows task name; no task was changed")
         # State is the ScheduledTasks enum, independent of the display language.
@@ -329,11 +359,15 @@ class ServiceManager:
         try:
             state = self._windows_state(command)
         except ServiceError as exc:
-            raise ServiceError(f"task {task} is installed but agiw cannot tell whether a previous instance "
-                               f"is running, so it was not started; {guidance}: {exc}") from exc
+            raise ServiceError(
+                f"task {task} is installed but agiw cannot tell whether a previous instance "
+                f"is running, so it was not started; {guidance}: {exc}"
+            ) from exc
         if state == "Unknown":
-            raise ServiceError(f"task {task} is installed but agiw cannot tell whether a previous instance "
-                               f"is running (task State is Unknown), so it was not started; {guidance}")
+            raise ServiceError(
+                f"task {task} is installed but agiw cannot tell whether a previous instance "
+                f"is running (task State is Unknown), so it was not started; {guidance}"
+            )
         if state not in ("Running", "Queued"):
             return False
         try:
@@ -354,8 +388,10 @@ class ServiceManager:
             if remaining <= 0 or attempt == 5:
                 break
             time.sleep(min(1.0, remaining))
-        raise ServiceError(f"task {task} is installed with the new definition but the previous instance "
-                           f"did not stop, so it is still running the old code; {guidance}: {reason}")
+        raise ServiceError(
+            f"task {task} is installed with the new definition but the previous instance "
+            f"did not stop, so it is still running the old code; {guidance}: {reason}"
+        )
 
     def _bootstrap_with_retry(self, bootstrap: Sequence[str], stopped):
         if self._run(bootstrap, check=False).returncode != 0:
@@ -390,10 +426,17 @@ class ServiceManager:
                     if loaded.returncode != 0:
                         raise ServiceError("the restored LaunchAgent is not loaded")
                 except (ServiceError, OSError, subprocess.SubprocessError) as rollback:
-                    state = ("previous definition restored; loading is unconfirmed" if restored else
-                             "definition restoration incomplete; current definition could not be verified")
-                    raise ServiceError(f"LaunchAgent replacement failed: {exc}; rollback failed: {rollback}; {state}") from exc
-                raise ServiceError(f"LaunchAgent replacement failed: {exc}; rolled back to the previous loaded definition") from exc
+                    state = (
+                        "previous definition restored; loading is unconfirmed"
+                        if restored
+                        else "definition restoration incomplete; current definition could not be verified"
+                    )
+                    raise ServiceError(
+                        f"LaunchAgent replacement failed: {exc}; rollback failed: {rollback}; {state}"
+                    ) from exc
+                raise ServiceError(
+                    f"LaunchAgent replacement failed: {exc}; rolled back to the previous loaded definition"
+                ) from exc
             steps.append(f"loaded {LAUNCHD_LABEL} for this user (launchctl bootstrap {domain})")
         else:
             task = self.windows_task()  # establish the account identity before writing anything
@@ -416,8 +459,9 @@ class ServiceManager:
         if self.kind == "mac":
             target = f"gui/{self._uid_value()}/{LAUNCHD_LABEL}"
             guidance = f"stop it with `launchctl bootout {target}` and retry"
-            result, query = self._stop_and_query([self._launchctl(), "bootout", target],
-                                                  [self._launchctl(), "print", target], guidance)
+            result, query = self._stop_and_query(
+                [self._launchctl(), "bootout", target], [self._launchctl(), "print", target], guidance
+            )
             if _derive_service_observation("mac", query) is not ServiceObservation.MISSING:
                 raise ServiceError(f"service definition was kept; {guidance}")
             if result is not None and result.returncode == 0:

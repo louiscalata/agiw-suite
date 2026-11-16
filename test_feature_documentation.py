@@ -1,4 +1,5 @@
 """Keep the public feature guide and example independent of operator evidence."""
+
 import json
 import subprocess
 from pathlib import Path
@@ -13,8 +14,13 @@ class FeatureDocumentationTests(unittest.TestCase):
         # Assemble prohibited audit tokens so the regression test itself is safe
         # to publish and can participate in the same repository privacy scan.
         private_tokens = (
-            "lo" + "uis", "11" + "236", "11" + "237", "18" + "080",
-            "bi" + "onic", "sshd" + "-sess", "meta/muse" + "-glimmer-30b",
+            "lo" + "uis",
+            "11" + "236",
+            "11" + "237",
+            "18" + "080",
+            "bi" + "onic",
+            "sshd" + "-sess",
+            "meta/muse" + "-glimmer-30b",
         )
         for name in ("three-machine-pipeline.md", "remote-machines.example.json"):
             text = (REPO / "docs" / name).read_text(encoding="utf-8").casefold()
@@ -33,18 +39,21 @@ class FeatureDocumentationTests(unittest.TestCase):
                 # Existing public app bundle identifiers must remain stable.
                 # Reject new private tokens without treating an unrelated edit
                 # as introducing every pre-existing identifier in that file.
-                baseline = subprocess.run(["git", "show", "HEAD:" + raw.decode()], cwd=REPO,
-                                          capture_output=True).stdout.lower()
+                baseline = subprocess.run(
+                    ["git", "show", "HEAD:" + raw.decode()], cwd=REPO, capture_output=True
+                ).stdout.lower()
                 for token in tokens:
                     with self.subTest(file=raw.decode(), token=token):
-                        self.assertLessEqual(body.count(token.encode()), baseline.count(token.encode()),
-                                             f"New private owner string in {raw.decode()}")
+                        self.assertLessEqual(
+                            body.count(token.encode()),
+                            baseline.count(token.encode()),
+                            f"New private owner string in {raw.decode()}",
+                        )
 
     def test_example_is_a_placeholder_and_demonstrates_optional_lane_metadata(self):
         example = json.loads((REPO / "docs" / "remote-machines.example.json").read_text())
         lanes = [lane for machine in example["machines"] for lane in machine["lanes"]]
-        self.assertTrue(all("placeholder" in machine["label"].lower()
-                            for machine in example["machines"]))
+        self.assertTrue(all("placeholder" in machine["label"].lower() for machine in example["machines"]))
         self.assertTrue(any(lane.get("timeoutSeconds") == 6 for lane in lanes))
         self.assertTrue(any(type(lane.get("contextTokens")) is int for lane in lanes))
         self.assertTrue(any(lane.get("thinking") in ("on", "off", "unknown") for lane in lanes))

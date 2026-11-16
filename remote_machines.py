@@ -1,4 +1,5 @@
 """Opt-in loopback lane identity observations; never owns transport or inference."""
+
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
@@ -85,8 +86,14 @@ def validate_config(document):
         seen_lanes = set()
         for lane in lanes:
             lane_id = lane.get("id", "<missing>") if isinstance(lane, dict) else "<unavailable>"
-            _fields(lane, {"id", "label", "localPort"}, {"timeoutSeconds", "contextTokens", "thinking"},
-                    identity, "lane", lane_id)
+            _fields(
+                lane,
+                {"id", "label", "localPort"},
+                {"timeoutSeconds", "contextTokens", "thinking"},
+                identity,
+                "lane",
+                lane_id,
+            )
             port = lane["localPort"]
             if type(port) is not int or not 1024 <= port <= 65535:
                 _invalid(identity, "localPort", port, "must be an integer from 1024 to 65535", lane_id)
@@ -102,7 +109,9 @@ def validate_config(document):
                 _invalid(identity, "localPort", port, "port must be unique across the registry", lane_id)
             timeout = lane.get("timeoutSeconds", 1.5)
             if not _number(timeout) or not 0 < timeout <= 6:
-                _invalid(identity, "timeoutSeconds", timeout, "must be a finite number greater than 0 and at most 6", lane_id)
+                _invalid(
+                    identity, "timeoutSeconds", timeout, "must be a finite number greater than 0 and at most 6", lane_id
+                )
             if "contextTokens" in lane and (type(lane["contextTokens"]) is not int or lane["contextTokens"] < 0):
                 _invalid(identity, "contextTokens", lane["contextTokens"], "must be a nonnegative integer", lane_id)
             if "thinking" in lane and lane["thinking"] not in ("on", "off", "unknown"):
@@ -204,10 +213,14 @@ def lane_targets(config):
     for machine in config["machines"]:
         machine_id = f"registry:{machine['id']}"
         for lane in machine["lanes"]:
-            target = {"id": f"{machine_id}:{lane['id']}", "machine": machine_id,
-                      "lane": lane["id"], "label": lane["label"],
-                      "base": f"http://127.0.0.1:{lane['localPort']}",
-                      "timeoutSeconds": lane.get("timeoutSeconds", 1.5)}
+            target = {
+                "id": f"{machine_id}:{lane['id']}",
+                "machine": machine_id,
+                "lane": lane["id"],
+                "label": lane["label"],
+                "base": f"http://127.0.0.1:{lane['localPort']}",
+                "timeoutSeconds": lane.get("timeoutSeconds", 1.5),
+            }
             target.update({key: lane[key] for key in ("contextTokens", "thinking") if key in lane})
             targets.append(target)
     return targets
@@ -219,30 +232,43 @@ def _identity(body):
     if not isinstance(data, list) or len(data) != 1 or not isinstance(data[0], dict):
         raise ValueError("identity")
     identity = data[0].get("id")
-    if (not isinstance(identity, str) or not identity.strip() or len(identity) > 1024
-            or not identity.isprintable()):
+    if not isinstance(identity, str) or not identity.strip() or len(identity) > 1024 or not identity.isprintable():
         raise ValueError("identity")
     return identity
 
 
 def _lane_node(target, result, now, interval, success=None, started=None, running=False):
     model, latency, reason, completed = result or (None, None, "pending", None)
-    node = make_node(id=target["id"], machine=target["machine"], role="llama", label=target["label"],
-                     health="ok" if model is not None else "not_measured", endpoint=target["base"],
-                     model_id=model, reason=reason, observed_at=_iso(completed) if completed is not None else None,
-                     latency_ms=latency,
-                     detail="Server-reported identity only. Inference and hardware are not measured.")
-    node.update(observationSource="registry", probeIntervalSeconds=interval,
-                ageSeconds=max(0, now - completed) if completed is not None else None)
+    node = make_node(
+        id=target["id"],
+        machine=target["machine"],
+        role="llama",
+        label=target["label"],
+        health="ok" if model is not None else "not_measured",
+        endpoint=target["base"],
+        model_id=model,
+        reason=reason,
+        observed_at=_iso(completed) if completed is not None else None,
+        latency_ms=latency,
+        detail="Server-reported identity only. Inference and hardware are not measured.",
+    )
+    node.update(
+        observationSource="registry",
+        probeIntervalSeconds=interval,
+        ageSeconds=max(0, now - completed) if completed is not None else None,
+    )
     node.update({key: target[key] for key in ("contextTokens", "thinking") if key in target})
     if success is None and model is not None and completed is not None:
         success = (model, completed)
-    node.update(configuredEndpoint=target["base"], probeTimeoutSeconds=target["timeoutSeconds"],
-                probeState="running" if running else "completed" if completed is not None else "pending",
-                probeStartedAt=_iso(started) if started is not None else None,
-                lastProbeAt=_iso(completed) if completed is not None else None,
-                lastSuccessAt=_iso(success[1]) if success is not None else None,
-                lastSuccessModelId=success[0] if success is not None else None)
+    node.update(
+        configuredEndpoint=target["base"],
+        probeTimeoutSeconds=target["timeoutSeconds"],
+        probeState="running" if running else "completed" if completed is not None else "pending",
+        probeStartedAt=_iso(started) if started is not None else None,
+        lastProbeAt=_iso(completed) if completed is not None else None,
+        lastSuccessAt=_iso(success[1]) if success is not None else None,
+        lastSuccessModelId=success[0] if success is not None else None,
+    )
     return node
 
 
@@ -251,8 +277,10 @@ def _probe(target, fetch):
     try:
         if fetch is None:
             from inference_collect import loopback_get
-            status, body, elapsed = loopback_get(target["base"] + "/v1/models",
-                                                  timeout=target["timeoutSeconds"], strict=True)
+
+            status, body, elapsed = loopback_get(
+                target["base"] + "/v1/models", timeout=target["timeoutSeconds"], strict=True
+            )
         else:
             status, body, elapsed = fetch(target["base"] + "/v1/models")
         if type(status) is int and status == 200:
@@ -268,15 +296,25 @@ def _probe(target, fetch):
     except Exception as error:
         # Only public reason codes may cross the boundary; never exception text.
         from inference_collect import ProbeError
+
         reason = error.reason if isinstance(error, ProbeError) else "probe_failed"
     return model, latency, reason
 
 
 def _nodes(config, targets, results, now, interval, successes=None, starts=None, active=None):
     successes, starts, active = successes or {}, starts or {}, active or set()
-    lanes = [_lane_node(target, results.get(target["id"]), now, interval,
-                        successes.get(target["id"]), starts.get(target["id"]), target["id"] in active)
-             for target in targets]
+    lanes = [
+        _lane_node(
+            target,
+            results.get(target["id"]),
+            now,
+            interval,
+            successes.get(target["id"]),
+            starts.get(target["id"]),
+            target["id"] in active,
+        )
+        for target in targets
+    ]
     nodes = []
     for machine in config["machines"]:
         machine_id = f"registry:{machine['id']}"
@@ -288,9 +326,15 @@ def _nodes(config, targets, results, now, interval, successes=None, starts=None,
         root = machine_node(machine_id, machine["label"], children, observed_at=observed)
         if any(child["health"] != "ok" for child in children):
             root.update(health="not_measured", reason="lane_unknown")
-        root.update(detail="Configured lane identities only. Whole-machine health and inventory are unknown.",
-                    inventoryScope="configured-lanes", observationSource="registry", probeIntervalSeconds=interval,
-                    ageSeconds=max((child["ageSeconds"] for child in children if child["ageSeconds"] is not None), default=None))
+        root.update(
+            detail="Configured lane identities only. Whole-machine health and inventory are unknown.",
+            inventoryScope="configured-lanes",
+            observationSource="registry",
+            probeIntervalSeconds=interval,
+            ageSeconds=max(
+                (child["ageSeconds"] for child in children if child["ageSeconds"] is not None), default=None
+            ),
+        )
         if machine.get("replaces") == "legacy-pc":
             root["replaces"] = "legacy-pc"
         nodes.extend([root, *children])
@@ -324,6 +368,7 @@ class BackgroundProbes:
     Due lanes are ordered by last start, so queued lanes precede repeat probes.
     A configuration change invalidates every old result and in-flight generation.
     """
+
     def __init__(self, *, interval=PROBE_INTERVAL):
         if not _number(interval) or interval <= 0:
             raise ValueError("probe_interval")
@@ -374,18 +419,24 @@ class BackgroundProbes:
             with self.lock:
                 now = time.monotonic()
                 active = {identity for generation, identity in self.running.values() if generation == self.generation}
-                due = [target for target in self.targets if target["id"] not in active
-                       and now - self.started.get(target["id"], -math.inf) >= self.interval]
+                due = [
+                    target
+                    for target in self.targets
+                    if target["id"] not in active and now - self.started.get(target["id"], -math.inf) >= self.interval
+                ]
                 due.sort(key=lambda target: self.started.get(target["id"], -math.inf))
-                for target in due[:max(0, 8 - len(self.running))]:
+                for target in due[: max(0, 8 - len(self.running))]:
                     identity, generation = target["id"], self.generation
                     self.started[identity] = now
                     self.probe_started[identity] = time.time()
                     future = self.pool.submit(_probe, target, None)
                     self.running[future] = (generation, identity)
-                    future.add_done_callback(lambda done, generation=generation, identity=identity:
-                                             self._complete(done, generation, identity))
-            self.wake.wait(.02)
+                    future.add_done_callback(
+                        lambda done, generation=generation, identity=identity: self._complete(
+                            done, generation, identity
+                        )
+                    )
+            self.wake.wait(0.02)
             self.wake.clear()
 
     def snapshot(self, config, *, now=None):
@@ -410,8 +461,9 @@ class BackgroundProbes:
             starts = dict(self.probe_started)
             active = {identity for generation, identity in self.running.values() if generation == self.generation}
         self.wake.set()
-        return _nodes(config, targets, results, time.time() if now is None else now, self.interval,
-                      successes, starts, active)
+        return _nodes(
+            config, targets, results, time.time() if now is None else now, self.interval, successes, starts, active
+        )
 
 
 _DEFAULT_PROBES = None
@@ -435,8 +487,11 @@ def extend_map(document, config, nodes):
         document["tunnel"] = None
     document["nodes"].extend(nodes)
     document["edges"] = edges_for(document["nodes"])
-    document["remoteMachines"] = {"schemaVersion": 1, "state": "invalid" if config.get("error") else "configured",
-                                  "replacesLegacyPc": replaces_legacy_pc(config)}
+    document["remoteMachines"] = {
+        "schemaVersion": 1,
+        "state": "invalid" if config.get("error") else "configured",
+        "replacesLegacyPc": replaces_legacy_pc(config),
+    }
     return document
 
 
@@ -452,41 +507,66 @@ def project_snapshot(snapshot):
     if not isinstance(document, dict):
         return
     nodes = document.get("nodes") or []
-    roots = [node for node in nodes if node.get("role") == "machine"
-             and node.get("observationSource") == "registry"]
+    roots = [node for node in nodes if node.get("role") == "machine" and node.get("observationSource") == "registry"]
     if not roots:
         return
     replaces = any(root.get("replaces") == "legacy-pc" for root in roots)
-    def placeholder(row):
-        return (row.get("observedAt") is None and row.get("trust", "unverified") == "unverified"
-                and row.get("reasonCode", "not_observed") == "not_observed"
-                and (row.get("id") or row.get("host")) in ("pc", "windows"))
 
-    rows = [row for row in snapshot.get("machines", [])
-            if row.get("observationSource") != "registry"
-            and not (replaces and row.get("platform") == "windows"
-                     and placeholder(row))]
+    def placeholder(row):
+        return (
+            row.get("observedAt") is None
+            and row.get("trust", "unverified") == "unverified"
+            and row.get("reasonCode", "not_observed") == "not_observed"
+            and (row.get("id") or row.get("host")) in ("pc", "windows")
+        )
+
+    rows = [
+        row
+        for row in snapshot.get("machines", [])
+        if row.get("observationSource") != "registry"
+        and not (replaces and row.get("platform") == "windows" and placeholder(row))
+    ]
     for root in roots:
         identity = root["id"]
         interval = root.get("probeIntervalSeconds", PROBE_INTERVAL)
-        lanes = [copy.deepcopy(node) for node in nodes if node.get("machine") == identity
-                 and node.get("role") not in ("machine", "client")]
-        answering = sum(lane.get("health") == "ok" and isinstance(lane.get("modelId"), str)
-                        and bool(lane["modelId"]) for lane in lanes)
+        lanes = [
+            copy.deepcopy(node)
+            for node in nodes
+            if node.get("machine") == identity and node.get("role") not in ("machine", "client")
+        ]
+        answering = sum(
+            lane.get("health") == "ok" and isinstance(lane.get("modelId"), str) and bool(lane["modelId"])
+            for lane in lanes
+        )
         # A /v1/models answer is endpoint reachability and identity only. It is
         # not machine liveness, so the host state and health stay unknown here;
         # only an actual host report (local or peer) can establish them.
-        row = {"id": identity, "host": identity, "platform": "remote", "label": root["label"],
-               "observationSource": "registry", "inventoryScope": "configured-lanes",
-               "state": "unknown", "health": "not_measured", "reasonCode": "host_not_measured",
-               "reason": root.get("reason"), "trust": "registry",
-               "laneIdentity": "answering" if lanes and answering == len(lanes) else "unknown",
-               "lanesAnswering": answering, "laneCount": len(lanes),
-               "observedAt": root.get("observedAt"), "ageSeconds": root.get("ageSeconds"),
-               "freshForSeconds": 2 * interval, "modelsComplete": False,
-               "loadedCount": None, "busyCount": None, "promptTokensPerSecond": None,
-               "generationTokensPerSecond": None, "handsOff": None,
-               "lanes": lanes}
+        row = {
+            "id": identity,
+            "host": identity,
+            "platform": "remote",
+            "label": root["label"],
+            "observationSource": "registry",
+            "inventoryScope": "configured-lanes",
+            "state": "unknown",
+            "health": "not_measured",
+            "reasonCode": "host_not_measured",
+            "reason": root.get("reason"),
+            "trust": "registry",
+            "laneIdentity": "answering" if lanes and answering == len(lanes) else "unknown",
+            "lanesAnswering": answering,
+            "laneCount": len(lanes),
+            "observedAt": root.get("observedAt"),
+            "ageSeconds": root.get("ageSeconds"),
+            "freshForSeconds": 2 * interval,
+            "modelsComplete": False,
+            "loadedCount": None,
+            "busyCount": None,
+            "promptTokensPerSecond": None,
+            "generationTokensPerSecond": None,
+            "handsOff": None,
+            "lanes": lanes,
+        }
         if root.get("replaces") == "legacy-pc":
             row["replaces"] = "legacy-pc"
         rows.append(row)

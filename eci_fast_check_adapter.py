@@ -37,12 +37,9 @@ SYSTEM_MESSAGE = (
 )
 PROMPT_TEMPLATE = {
     "system_message": SYSTEM_MESSAGE,
-    "choice": "{question}\n\n{choices}\n\nEnd with a single final-answer line in this format:\n"
-              "Answer: <choice label>",
-    "gsm8k": "{question}\n\nEnd with a single final-answer line in this format:\n"
-             "#### <number>",
-    "short": "{question}\n\nEnd with a single final-answer line in this format:\n"
-             "Answer: <short answer>",
+    "choice": "{question}\n\n{choices}\n\nEnd with a single final-answer line in this format:\nAnswer: <choice label>",
+    "gsm8k": "{question}\n\nEnd with a single final-answer line in this format:\n#### <number>",
+    "short": "{question}\n\nEnd with a single final-answer line in this format:\nAnswer: <short answer>",
     "demonstration": "Question: {question}\nAnswer:\n{answer}",
     "few_shot": "Worked demonstrations (training examples):\n\n{demonstrations}\n\nTest question:\n{question}",
 }
@@ -75,9 +72,7 @@ def validate_base_url(url):
         or "#" in url
         or any(c.isspace() or ord(c) < 32 for c in url)
     ):
-        raise fast.ValidationError(
-            "base URL must be http://127.0.0.1:PORT with optional /v1"
-        )
+        raise fast.ValidationError("base URL must be http://127.0.0.1:PORT with optional /v1")
     if port in PROTECTED_PORTS:
         raise fast.ValidationError("protected server port")
     return "127.0.0.1", port, parsed.path.rstrip("/")
@@ -94,9 +89,11 @@ def safe_text(value):
     value = value.strip()
     local_name = socket.gethostname().rstrip(".").casefold()
     normalized_name = value.rstrip(".").casefold()
-    if (normalized_name in (local_name, local_name.split(".")[0])
-            or normalized_name.endswith((".local", ".lan", ".home"))
-            or "::" in value):
+    if (
+        normalized_name in (local_name, local_name.split(".")[0])
+        or normalized_name.endswith((".local", ".lan", ".home"))
+        or "::" in value
+    ):
         return None
     if (
         re.search(r"[\\/@\x00-\x1f]|\d+\.\d+\.\d+\.\d+|[0-9a-f]{12,}", value, re.I)
@@ -243,7 +240,7 @@ def unwrap_formatting(text):
     while True:
         for wrapper in ("**", "__", "`", '"', "'", "*", "_"):
             if text.startswith(wrapper) and text.endswith(wrapper) and len(text) > 2 * len(wrapper):
-                text = text[len(wrapper):-len(wrapper)].strip()
+                text = text[len(wrapper) : -len(wrapper)].strip()
                 break
         else:
             return text
@@ -283,11 +280,8 @@ def number_parts(text):
         token = token[:-1].rstrip()
     # Strip only balanced LaTeX math delimiters and one complete box.
     for left, right in (("$$", "$$"), ("$", "$"), (r"\(", r"\)"), (r"\[", r"\]")):
-        if (
-            token.startswith(left) and token.endswith(right)
-            and len(token) > len(left) + len(right)
-        ):
-            token = token[len(left):-len(right)].strip()
+        if token.startswith(left) and token.endswith(right) and len(token) > len(left) + len(right):
+            token = token[len(left) : -len(right)].strip()
             break
     boxed = re.fullmatch(r"\\boxed\{([^{}]+)\}", token)
     if boxed:
@@ -297,8 +291,12 @@ def number_parts(text):
     if token.startswith(r"\$"):
         token = token[1:]
     matched = re.fullmatch(
-        r"(?P<prefix>[+-]?[$£€¥]\s*|[$£€¥]\s*[+-]?)?(?P<number>" + NUMBER
-        + r")(?:\s+(?P<unit>" + UNITS + r")|\s*(?P<symbol>[%$£€¥]))?", token
+        r"(?P<prefix>[+-]?[$£€¥]\s*|[$£€¥]\s*[+-]?)?(?P<number>"
+        + NUMBER
+        + r")(?:\s+(?P<unit>"
+        + UNITS
+        + r")|\s*(?P<symbol>[%$£€¥]))?",
+        token,
     )
     if not matched:
         return None, None
@@ -368,10 +366,12 @@ def demonstrations_for(datasets):
             lines = demo["answer"].strip().splitlines()
             reasoning = "\n".join(lines[:-1]) if len(lines) > 1 else ""
             reasoning = "\n".join(v for v in (demo.get("rationale", ""), reasoning) if v)
-            rendered.append(dict(
-                question=demo["question"],
-                answer=(reasoning + "\n" if reasoning else "") + "#### " + answer,
-            ))
+            rendered.append(
+                dict(
+                    question=demo["question"],
+                    answer=(reasoning + "\n" if reasoning else "") + "#### " + answer,
+                )
+            )
         if rendered:
             result[benchmark] = rendered
     return result
@@ -391,9 +391,7 @@ def prompt_for(row, benchmark, demonstrations=()):
     elif benchmark == "gsm8k":
         text = PROMPT_TEMPLATE["gsm8k"].format(question=row["question"])
         if demonstrations:
-            block = "\n\n".join(
-                PROMPT_TEMPLATE["demonstration"].format(**demo) for demo in demonstrations
-            )
+            block = "\n\n".join(PROMPT_TEMPLATE["demonstration"].format(**demo) for demo in demonstrations)
             text = PROMPT_TEMPLATE["few_shot"].format(demonstrations=block, question=text)
     else:
         text = PROMPT_TEMPLATE["short"].format(question=row["question"])
@@ -412,9 +410,7 @@ def parse_answer(content, row, benchmark):
         def resolve(candidate):
             candidate = unwrap_formatting(candidate)
             label_match = re.fullmatch(r"(?:([A-Z0-9])|\(([A-Z0-9])\))[.]?", candidate, re.I)
-            label = (
-                (label_match.group(1) or label_match.group(2)).upper() if label_match else None
-            )
+            label = (label_match.group(1) or label_match.group(2)).upper() if label_match else None
             # The requested label format has priority over text fallback. ARC
             # can contain e.g. choice A's text "C" while label C is correct.
             if label in {key for key, _ in options}:
@@ -423,16 +419,15 @@ def parse_answer(content, row, benchmark):
             if labeled_text:
                 label = labeled_text.group(1).upper()
                 value = unwrap_formatting(labeled_text.group(2))
-                if any(key == label and text.casefold() in (value.casefold(), value.removesuffix(".").casefold())
-                       for key, text in options):
+                if any(
+                    key == label and text.casefold() in (value.casefold(), value.removesuffix(".").casefold())
+                    for key, text in options
+                ):
                     return label, "label_choice_text"
                 return None, None
-            matches = {
-                key for key, value in options if value.casefold() == candidate.casefold()
-            }
+            matches = {key for key, value in options if value.casefold() == candidate.casefold()}
             if not matches:
-                matches = {key for key, value in options
-                           if value.casefold() == candidate.removesuffix(".").casefold()}
+                matches = {key for key, value in options if value.casefold() == candidate.removesuffix(".").casefold()}
             if len(matches) != 1:
                 return None, None
             value = next(iter(matches))
@@ -446,17 +441,18 @@ def parse_answer(content, row, benchmark):
         last = lines[-1].strip()
         marked = final_marker(last)
         if explicit:
-            if marked is None or any(
-                value is None or value != explicit[-1][0] for value, _ in explicit
-            ):
+            if marked is None or any(value is None or value != explicit[-1][0] for value, _ in explicit):
                 return None, None
             value, rule = explicit[-1]
             return value, "mc_explicit_" + rule
         value, rule = resolve(last)
         if value is None:
             return None, None
-        return value, {"label": "mc_last_standalone_label", "label_choice_text": "mc_last_label_choice_text",
-                       "choice_text": "mc_exact_choice_text"}[rule]
+        return value, {
+            "label": "mc_last_standalone_label",
+            "label_choice_text": "mc_last_label_choice_text",
+            "choice_text": "mc_exact_choice_text",
+        }[rule]
     if benchmark == "gsm8k":
         value, unit = number_parts(text)
         _, reference_unit = number_parts(row.get("answer"))
@@ -481,8 +477,16 @@ def prompt_size_estimate(messages):
 
 
 class OpenAIAdapter:
-    def __init__(self, base_url, model_id, *, max_tokens=DEFAULT_MAX_TOKENS, timeout=180,
-                 model_label=None, disable_thinking=False):
+    def __init__(
+        self,
+        base_url,
+        model_id,
+        *,
+        max_tokens=DEFAULT_MAX_TOKENS,
+        timeout=180,
+        model_label=None,
+        disable_thinking=False,
+    ):
         self.host, self.port, self.prefix = validate_base_url(base_url)
         fast.string(model_id)
         self.model_label = model_name(model_id if model_label is None else model_label)
@@ -541,10 +545,16 @@ class OpenAIAdapter:
             timer.start()
             timer_started = True
             body = None if payload is None else fast.canonical(payload).encode("utf-8")
-            connection.request(method, path, body=body, headers={
-                "Content-Type": "application/json", "Accept": "application/json",
-                "Accept-Encoding": "identity",
-            })
+            connection.request(
+                method,
+                path,
+                body=body,
+                headers={
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                    "Accept-Encoding": "identity",
+                },
+            )
             response = connection.getresponse()
             if expired.is_set() or time.monotonic() >= deadline:
                 raise TimeoutError("HTTP deadline")
@@ -618,9 +628,9 @@ class OpenAIAdapter:
                     raise ResponseError("props model disagrees with requested model")
                 reported.append(declared)
             sources.append("/props")
-        if not sources or (models is None and not (
-            isinstance(props.get("model"), dict) and props["model"].get("id") == self.model_id
-        )):
+        if not sources or (
+            models is None and not (isinstance(props.get("model"), dict) and props["model"].get("id") == self.model_id)
+        ):
             raise ResponseError("server did not advertise the requested model")
         model = dict(name=self.model_label, file_sha256=None, quantization=None, file_size_bytes=None)
         for item in reported:
@@ -666,15 +676,18 @@ class OpenAIAdapter:
             self.max_tokens = min(self.max_tokens, self.ctx)
         memory = agreed_memory(hardware, "memory_bytes", 1)
         result = dict(
-            machine_label=None, cpu=safe_text(first_reported(hardware, "cpu")),
+            machine_label=None,
+            cpu=safe_text(first_reported(hardware, "cpu")),
             gpu=safe_text(first_reported(hardware, "gpu")),
             memory={"bytes": memory} if memory else None,
-            memory_bytes=memory, runtime_build_id=self.backend_version,
+            memory_bytes=memory,
+            runtime_build_id=self.backend_version,
         )
         self.available_memory_bytes = agreed_memory(hardware, "available_memory_bytes", 0)
         # A figure anywhere else is not a recognized fact; only its presence is kept.
-        self.unrecognized_available_memory = (
-            self.available_memory_bytes is None and reports_available_memory(props, models))
+        self.unrecognized_available_memory = self.available_memory_bytes is None and reports_available_memory(
+            props, models
+        )
         # Kept only for an operator-stated already-loaded check; never recorded raw.
         props_generation = (props or {}).get("default_generation_settings")
         self.served = dict(
@@ -687,9 +700,12 @@ class OpenAIAdapter:
             sleeping=(props or {}).get("is_sleeping", NOT_REPORTED),
             sources=sources,
         )
-        self.facts = dict(metadata_sources=sources, model_id=self.model_label,
-                         interface="openai-compatible",
-                         server_reported_size_bytes=self.server_reported_size_bytes)
+        self.facts = dict(
+            metadata_sources=sources,
+            model_id=self.model_label,
+            interface="openai-compatible",
+            server_reported_size_bytes=self.server_reported_size_bytes,
+        )
         return model, result
 
     def loaded_evidence(self):
@@ -733,8 +749,12 @@ class OpenAIAdapter:
             raise ResponseError("server reports available memory outside the recognized hardware facts")
         return dict(
             statement=fast.ALREADY_LOADED_STATEMENT,
-            served_model=self.model_label, served_model_source=source, advertised_models=1,
-            n_ctx=self.ctx, total_slots=len(slots), slots_idle=True,
+            served_model=self.model_label,
+            served_model_source=source,
+            advertised_models=1,
+            n_ctx=self.ctx,
+            total_slots=len(slots),
+            slots_idle=True,
             is_sleeping=None if sleeping is NOT_REPORTED else False,
             evidence_sources=sorted(set(served["sources"]) | {"/slots"}),
         )
@@ -742,11 +762,16 @@ class OpenAIAdapter:
     def answer(self, row, *, benchmark, spec):
         expected = reference(row, benchmark)
         payload = {
-            "model": self.model_id, "messages": [
+            "model": self.model_id,
+            "messages": [
                 {"role": "system", "content": SYSTEM_MESSAGE},
                 {"role": "user", "content": prompt_for(row, benchmark, self.demonstrations.get(benchmark, ()))},
-            ], "temperature": 0, "seed": 42, "max_tokens": self.max_tokens,
-            "stop": [], "stream": False,
+            ],
+            "temperature": 0,
+            "seed": 42,
+            "max_tokens": self.max_tokens,
+            "stop": [],
+            "stream": False,
         }
         if self.ctx is not None:
             # Conservative UTF-8 byte estimate plus chat framing; it is not a
@@ -797,8 +822,10 @@ class OpenAIAdapter:
                 or (not content.strip() and bool(reasoning and reasoning.strip()))
             )
             value, parse_rule = parse_answer(content, row, benchmark)
-            outcome = ("truncated_empty" if cut_off else "unparsed") if value is None else (
-                "correct" if value == expected else "wrong"
+            outcome = (
+                ("truncated_empty" if cut_off else "unparsed")
+                if value is None
+                else ("correct" if value == expected else "wrong")
             )
             usage = reply.get("usage")
             if usage is None:
@@ -812,10 +839,17 @@ class OpenAIAdapter:
                     raise ResponseError("invalid token measurement")
                 counts[key] = count
             return dict(
-                outcome=outcome, parsed=value is not None, finish_reason=finish,
-                cut_off=bool(cut_off), answer_value=value, parse_rule=parse_rule, error=None,
+                outcome=outcome,
+                parsed=value is not None,
+                finish_reason=finish,
+                cut_off=bool(cut_off),
+                answer_value=value,
+                parse_rule=parse_rule,
+                error=None,
                 parsed_unit=number_parts(content)[1] if benchmark == "gsm8k" else None,
-                seconds=seconds, attempts=attempts, **counts,
+                seconds=seconds,
+                attempts=attempts,
+                **counts,
             )
         except Exception as error:
             error.attempts = attempts
@@ -826,8 +860,9 @@ def atomic_json(path, value):
     """Atomic final/plan publication; the item ledger is separately fsynced."""
     temporary = None
     try:
-        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent,
-                                         prefix="." + path.name + "-", delete=False) as stream:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=path.parent, prefix="." + path.name + "-", delete=False
+        ) as stream:
             temporary = Path(stream.name)
             stream.write(json.dumps(value, indent=2, allow_nan=False) + "\n")
             stream.flush()
@@ -845,22 +880,41 @@ def output_lock(output):
         try:
             if os.name == "nt":
                 import msvcrt
+
                 stream.seek(0)
                 msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
             else:
                 import fcntl
+
                 fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError:
             raise fast.ValidationError("output directory already locked by another writer") from None
         yield
 
 
-def run(base_url, model_id, sample_files, output_dir, *, count=200,
-        max_tokens=DEFAULT_MAX_TOKENS, timeout=180, model_sha256=None,
-        file_size_bytes=None, quantization=None, available_memory_bytes=None,
-        wall_budget_s=None, model_label=None, machine_label=None, cpu=None,
-        gpu=None, memory_bytes=None, runtime_build_id=None, disable_thinking=False,
-        already_loaded=False):
+def run(
+    base_url,
+    model_id,
+    sample_files,
+    output_dir,
+    *,
+    count=200,
+    max_tokens=DEFAULT_MAX_TOKENS,
+    timeout=180,
+    model_sha256=None,
+    file_size_bytes=None,
+    quantization=None,
+    available_memory_bytes=None,
+    wall_budget_s=None,
+    model_label=None,
+    machine_label=None,
+    cpu=None,
+    gpu=None,
+    memory_bytes=None,
+    runtime_build_id=None,
+    disable_thinking=False,
+    already_loaded=False,
+):
     """``already_loaded=True`` is the operator statement that the lane already
     serves this model. It replaces the memory estimate only when available
     memory is unknown and the server confirms the model and idle slots; the
@@ -871,8 +925,14 @@ def run(base_url, model_id, sample_files, output_dir, *, count=200,
     # A stated available memory is a known reading, zero included.
     fast.numeric(available_memory_bytes, nullable=True, integer=True)
     fast.numeric(memory_bytes, 1, nullable=True, integer=True)
-    adapter = OpenAIAdapter(base_url, model_id, max_tokens=max_tokens, timeout=timeout,
-                            model_label=model_label, disable_thinking=disable_thinking)
+    adapter = OpenAIAdapter(
+        base_url,
+        model_id,
+        max_tokens=max_tokens,
+        timeout=timeout,
+        model_label=model_label,
+        disable_thinking=disable_thinking,
+    )
     datasets = {}
     for path in sample_files:
         data = fast.load(path)
@@ -900,9 +960,13 @@ def run(base_url, model_id, sample_files, output_dir, *, count=200,
             if model[key] not in (None, value):
                 raise fast.ValidationError("explicit model fact disagrees with server")
             model[key] = value
-    supplied_hardware = dict(machine_label=machine_label, cpu=cpu, gpu=gpu,
-                             memory={"bytes": memory_bytes} if memory_bytes is not None else None,
-                             runtime_build_id=runtime_build_id)
+    supplied_hardware = dict(
+        machine_label=machine_label,
+        cpu=cpu,
+        gpu=gpu,
+        memory={"bytes": memory_bytes} if memory_bytes is not None else None,
+        runtime_build_id=runtime_build_id,
+    )
     for key, value in supplied_hardware.items():
         if value is not None:
             if key == "memory":
@@ -926,14 +990,16 @@ def run(base_url, model_id, sample_files, output_dir, *, count=200,
             raise fast.ValidationError("available memory is known; use the fit gate, not already loaded")
         if adapter.unrecognized_available_memory:
             raise fast.ValidationError(
-                "server reports available memory outside the recognized hardware facts; already loaded is refused")
+                "server reports available memory outside the recognized hardware facts; already loaded is refused"
+            )
         if file_size_bytes is None:
             raise fast.ValidationError("already loaded needs the operator-stated file size")
         if model["quantization"] is None:
             raise fast.ValidationError("already loaded needs a known quantization")
         loaded = dict(
             **adapter.loaded_evidence(),
-            file_size_bytes=file_size_bytes, file_size_source="operator-stated",
+            file_size_bytes=file_size_bytes,
+            file_size_source="operator-stated",
             file_sha256_source="server-reported" if server_hash is not None else "operator-stated",
             quantization_source="server-reported" if server_quantization is not None else "operator-stated",
         )
@@ -941,27 +1007,42 @@ def run(base_url, model_id, sample_files, output_dir, *, count=200,
     if pre["decision"] != "CHECK" and loaded is None:
         raise fast.ValidationError("fit gate requires known model size, quantization and sufficient available memory")
     settings = dict(
-        scorer_id=SCORER_ID, parse_version=PARSE_VERSION,
-        prompt_template_id=PROMPT_ID, prompt_template_version=TEMPLATE_VERSION,
+        scorer_id=SCORER_ID,
+        parse_version=PARSE_VERSION,
+        prompt_template_id=PROMPT_ID,
+        prompt_template_version=TEMPLATE_VERSION,
         prompt_template=template_manifest(adapter.demonstrations),
         prompt_template_sha256=fast.digest(template_manifest(adapter.demonstrations)),
-        evaluation_scope="screening; not an ECI score", backend="openai-compatible",
-        backend_version=adapter.backend_version or runtime_build_id, temperature=0, max_tokens=adapter.max_tokens,
-        ctx=adapter.ctx, seed=42, stop=[], system_message=SYSTEM_MESSAGE, n_epochs=1,
-        request_timeout_s=timeout, request_retry_limit=1,
+        evaluation_scope="screening; not an ECI score",
+        backend="openai-compatible",
+        backend_version=adapter.backend_version or runtime_build_id,
+        temperature=0,
+        max_tokens=adapter.max_tokens,
+        ctx=adapter.ctx,
+        seed=42,
+        stop=[],
+        system_message=SYSTEM_MESSAGE,
+        n_epochs=1,
+        request_timeout_s=timeout,
+        request_retry_limit=1,
         context_cap_policy="utf8-bytes-plus-chat-framing-v1",
         chat_template_kwargs={"enable_thinking": False} if disable_thinking else None,
     )
     provenance = dict(
         declared_file_size_bytes=file_size_bytes,
         server_reported_size_bytes=adapter.server_reported_size_bytes,
-        size_match="equal" if file_size_bytes is not None and file_size_bytes == adapter.server_reported_size_bytes else "unverified",
+        size_match="equal"
+        if file_size_bytes is not None and file_size_bytes == adapter.server_reported_size_bytes
+        else "unverified",
         server_facts=adapter.facts,
         endpoint_sha256=fast.digest(dict(port=adapter.port, prefix=adapter.prefix or "/v1")),
         explicit_model_facts=sorted(k for k, v in supplied.items() if v is not None),
         explicit_hardware_facts=sorted(k for k, v in supplied_hardware.items() if v is not None),
-        available_memory_source="unknown" if loaded is not None else
-        "explicit" if available_memory_bytes is not None else "server-reported",
+        available_memory_source="unknown"
+        if loaded is not None
+        else "explicit"
+        if available_memory_bytes is not None
+        else "server-reported",
         hardware_attestation="server-reported or caller-supplied; not independently attested",
         hash_attestation="server-reported; unverified" if server_hash is not None else "caller-supplied; unverified",
         pre_inputs=pre["inputs"],
@@ -979,8 +1060,15 @@ def run(base_url, model_id, sample_files, output_dir, *, count=200,
         else:
             atomic_json(plan_path, plan)
         record = fast.run_check(
-            plan, datasets, adapter.answer, model=model, hardware=hardware,
-            runtime_settings=settings, pre=pre, checkpoint=output / "checkpoint.jsonl", provenance=provenance,
+            plan,
+            datasets,
+            adapter.answer,
+            model=model,
+            hardware=hardware,
+            runtime_settings=settings,
+            pre=pre,
+            checkpoint=output / "checkpoint.jsonl",
+            provenance=provenance,
         )
         atomic_json(output / "result.json", record)
     return record
@@ -1001,27 +1089,46 @@ def main(argv=None):
     parser.add_argument("--file-size-bytes", type=int)
     parser.add_argument("--quantization")
     parser.add_argument("--available-memory-bytes", type=int)
-    parser.add_argument("--already-loaded", action="store_true",
-                        help="operator statement: the lane already serves this model; accepted only when "
-                             "available memory is unknown and the server shows this model with idle slots")
+    parser.add_argument(
+        "--already-loaded",
+        action="store_true",
+        help="operator statement: the lane already serves this model; accepted only when "
+        "available memory is unknown and the server shows this model with idle slots",
+    )
     parser.add_argument("--machine-label", help="public hardware profile label, never a device name")
     parser.add_argument("--cpu")
     parser.add_argument("--gpu")
     parser.add_argument("--memory-bytes", type=int)
     parser.add_argument("--runtime-build-id")
-    parser.add_argument("--disable-thinking", action="store_true",
-                        help="per-lane setting: send chat_template_kwargs enable_thinking=false")
+    parser.add_argument(
+        "--disable-thinking",
+        action="store_true",
+        help="per-lane setting: send chat_template_kwargs enable_thinking=false",
+    )
     args = parser.parse_args(argv)
     try:
         fast.numeric(args.max_tokens, MIN_MAX_TOKENS, integer=True)
         record = run(
-            args.base_url, args.model, args.samples, args.output_dir, count=args.count,
-            max_tokens=args.max_tokens, timeout=args.timeout, wall_budget_s=args.wall_budget_s,
-            model_sha256=args.model_sha256, file_size_bytes=args.file_size_bytes,
-            quantization=args.quantization, available_memory_bytes=args.available_memory_bytes,
-            model_label=args.model_label, machine_label=args.machine_label, cpu=args.cpu, gpu=args.gpu,
-            memory_bytes=args.memory_bytes, runtime_build_id=args.runtime_build_id,
-            disable_thinking=args.disable_thinking, already_loaded=args.already_loaded,
+            args.base_url,
+            args.model,
+            args.samples,
+            args.output_dir,
+            count=args.count,
+            max_tokens=args.max_tokens,
+            timeout=args.timeout,
+            wall_budget_s=args.wall_budget_s,
+            model_sha256=args.model_sha256,
+            file_size_bytes=args.file_size_bytes,
+            quantization=args.quantization,
+            available_memory_bytes=args.available_memory_bytes,
+            model_label=args.model_label,
+            machine_label=args.machine_label,
+            cpu=args.cpu,
+            gpu=args.gpu,
+            memory_bytes=args.memory_bytes,
+            runtime_build_id=args.runtime_build_id,
+            disable_thinking=args.disable_thinking,
+            already_loaded=args.already_loaded,
         )
         print("Fast-check result written; full ECI NOT_RUN. Post: " + record["post"]["decision"])
         incomplete = [b for b in record["benchmarks"] if b["attempted"] < b["planned"]]

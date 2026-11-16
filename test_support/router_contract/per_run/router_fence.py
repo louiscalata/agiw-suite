@@ -5,6 +5,7 @@ reader (telemetry._router_install_state) and docs/router-state-contract.md.  Sta
 library only.  Its presence beside pipeline_router_state.py is also what marks this
 directory as a per-run generation for the tests.
 """
+
 import json
 import os
 import re
@@ -28,9 +29,19 @@ def write(root, state, generation, stamp):
         bound = {"dev": lock.st_dev, "ino": lock.st_ino}
     except FileNotFoundError:
         bound = None
-    raw = json.dumps({"schemaVersion": 1, "kind": FENCE_KIND, "state": state, "generation": generation,
-                      "stamp": stamp, "sinceUnix": time.time(), "ownerLock": bound},
-                     sort_keys=True, separators=(",", ":")).encode("utf-8")
+    raw = json.dumps(
+        {
+            "schemaVersion": 1,
+            "kind": FENCE_KIND,
+            "state": state,
+            "generation": generation,
+            "stamp": stamp,
+            "sinceUnix": time.time(),
+            "ownerLock": bound,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
     path = root / "install-fence.json"
     staged = root / (".install-fence.json.staged-%d" % os.getpid())
     fd = os.open(str(staged), os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)

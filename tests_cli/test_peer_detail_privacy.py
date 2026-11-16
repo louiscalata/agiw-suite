@@ -32,18 +32,21 @@ class ComponentDetailStaysLocal(unittest.TestCase):
         label, details = dict((cid, (lab, det)) for cid, lab, det in pl.COMPONENTS)["nisi"]
         ready, partial = details["ready"], details["partial"]
         cases = (
-            (ready, "ready", True),                       # exactly the fixed sentence for its state
-            (ready + " " + SECRET, "ready", False),       # the fixed sentence with extra text appended
-            (partial, "ready", False),                    # another state's fixed sentence
-            (ready, "no-such-state", False),              # a state this table does not know
+            (ready, "ready", True),  # exactly the fixed sentence for its state
+            (ready + " " + SECRET, "ready", False),  # the fixed sentence with extra text appended
+            (partial, "ready", False),  # another state's fixed sentence
+            (ready, "no-such-state", False),  # a state this table does not know
             (SECRET, "ready", False),
             (None, "ready", False),
             (5, "ready", False),
         )
         for detail, state, crosses in cases:
             with self.subTest(detail=str(detail)[:40], state=state):
-                out = pl.project_status(pl.validate_status(
-                    status_file([{"id": "nisi", "label": "x", "state": state, "detail": detail}]), "windows"))
+                out = pl.project_status(
+                    pl.validate_status(
+                        status_file([{"id": "nisi", "label": "x", "state": state, "detail": detail}]), "windows"
+                    )
+                )
                 row = out["components"][0]
                 self.assertEqual(row.get("detail"), detail if crosses else None)
                 self.assertEqual(row["label"], label)  # the label is the table's, never the peer's
@@ -51,12 +54,13 @@ class ComponentDetailStaysLocal(unittest.TestCase):
 
     def test_status_file_and_windows_detail_do_not_cross_the_link(self):
         # Windows pc_status keeps this detail (lanes.py:492-495); file_status serves it.
-        doc = status_file([
-            {"id": "nisi", "label": "Nisi route adapter", "state": "ready", "detail": SECRET},
-            {"id": "jev", "label": "Jev", "state": "configured", "detail": ACCOUNT,
-             "lastJudgedAgeSeconds": 12},
-            {"id": "pair", "detail": SECRET},
-        ])
+        doc = status_file(
+            [
+                {"id": "nisi", "label": "Nisi route adapter", "state": "ready", "detail": SECRET},
+                {"id": "jev", "label": "Jev", "state": "configured", "detail": ACCOUNT, "lastJudgedAgeSeconds": 12},
+                {"id": "pair", "detail": SECRET},
+            ]
+        )
         out = pl.project_status(pl.validate_status(doc, "windows"))
         blob = json.dumps(out)
         self.assertNotIn(SECRET, blob)
@@ -66,23 +70,33 @@ class ComponentDetailStaysLocal(unittest.TestCase):
         self.assertEqual(out["components"][1]["lastJudgedAgeSeconds"], 12)
 
     def test_signed_lan_answer_omits_detail_and_keeps_a_valid_signature(self):
-        doc = status_file([
-            {"id": "nisi", "label": "Nisi", "state": "ready", "detail": SECRET},
-            {"id": "jev", "label": "Jev", "state": "configured", "detail": ACCOUNT},
-        ])
+        doc = status_file(
+            [
+                {"id": "nisi", "label": "Nisi", "state": "ready", "detail": SECRET},
+                {"id": "jev", "label": "Jev", "state": "configured", "detail": ACCOUNT},
+            ]
+        )
         now = time.time()
         doc["observedAt"] = pl._iso(now)
         node, requester, key, nonce, ts = "server-node", "peer-node", b"k" * 32, "d" * 32, str(now)
         keys = pl.Subkeys(key)
         path = pl.PREFIX + "/status"
         request = "\n".join(("GET", path, requester, node, ts, nonce)).encode()
-        link = SimpleNamespace(node=node, host="windows", status_provider=lambda: doc,
-                               trusted=lambda: {requester: {"key": key}},
-                               nonces_for=lambda peer: pl.NonceCache())
+        link = SimpleNamespace(
+            node=node,
+            host="windows",
+            status_provider=lambda: doc,
+            trusted=lambda: {requester: {"key": key}},
+            nonces_for=lambda peer: pl.NonceCache(),
+        )
         handler = pl.LinkHandler.__new__(pl.LinkHandler)
         handler.server = SimpleNamespace(link=link)
-        handler.headers = {"X-Agiw-Node": requester, "X-Agiw-Ts": ts, "X-Agiw-Nonce": nonce,
-                           "X-Agiw-Sig": hmac.new(keys.request, request, hashlib.sha256).hexdigest()}
+        handler.headers = {
+            "X-Agiw-Node": requester,
+            "X-Agiw-Ts": ts,
+            "X-Agiw-Nonce": nonce,
+            "X-Agiw-Sig": hmac.new(keys.request, request, hashlib.sha256).hexdigest(),
+        }
         handler._send = mock.Mock()
         handler._status()  # real request authentication, projection and reply signing; no socket
         code, body, headers = handler._send.call_args[0]
@@ -95,12 +109,26 @@ class ComponentDetailStaysLocal(unittest.TestCase):
 
     def test_lmstudio_and_minimal_documents_have_no_component_detail(self):
         for doc in (
-            {"schemaVersion": 1, "kind": "agiw-peer", "host": "mac", "platform": "mac",
-             "observedAt": "2026-01-01T00:00:00.000Z", "health": "ok",
-             "producer": "agiw-peer-link lmstudio", "models": []},
-            {"schemaVersion": 1, "kind": "agiw-peer", "host": "linux", "platform": "linux",
-             "observedAt": "2026-01-01T00:00:00.000Z", "health": "unknown",
-             "producer": "agiw-peer-link minimal", "models": []},
+            {
+                "schemaVersion": 1,
+                "kind": "agiw-peer",
+                "host": "mac",
+                "platform": "mac",
+                "observedAt": "2026-01-01T00:00:00.000Z",
+                "health": "ok",
+                "producer": "agiw-peer-link lmstudio",
+                "models": [],
+            },
+            {
+                "schemaVersion": 1,
+                "kind": "agiw-peer",
+                "host": "linux",
+                "platform": "linux",
+                "observedAt": "2026-01-01T00:00:00.000Z",
+                "health": "unknown",
+                "producer": "agiw-peer-link minimal",
+                "models": [],
+            },
         ):
             out = pl.project_status(pl.validate_status(doc, doc["platform"]))
             self.assertNotIn("components", out)

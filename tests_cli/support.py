@@ -1,5 +1,6 @@
 """Shared test helpers. The repository root goes first on sys.path, so these tests exercise the checkout
 (agiw/ and peer_link.py) whether or not the package is installed."""
+
 import os
 import shutil
 import subprocess
@@ -48,12 +49,19 @@ def forbid_real_commands(case: unittest.TestCase):
     def refuse(*args, **kwargs):
         raise AssertionError(f"a real command was started: {args[:1]}")
 
-    for target in ("subprocess.run", "subprocess.Popen", "subprocess.call", "subprocess.check_call",
-                   "subprocess.check_output", "os.system"):
+    for target in (
+        "subprocess.run",
+        "subprocess.Popen",
+        "subprocess.call",
+        "subprocess.check_call",
+        "subprocess.check_output",
+        "os.system",
+    ):
         patcher = mock.patch(target, side_effect=refuse)
         patcher.start()
         case.addCleanup(patcher.stop)
     import agiw.service
+
     real = mock.patch.object(agiw.service, "real_runner", side_effect=refuse)
     started = real.start()
     case.addCleanup(real.stop)
@@ -63,8 +71,12 @@ def forbid_real_commands(case: unittest.TestCase):
 def isolate_windows_registry(case: unittest.TestCase) -> dict:
     """Pairing generations live in HKCU on Windows; tests keep them in memory and never touch the real key."""
     store: dict = {}
-    for name, fake in (("_gen_get", store.get), ("_gen_set", store.__setitem__),
-                       ("_gen_delete", lambda node: store.pop(node, None)), ("_gen_revoke_all", store.clear)):
+    for name, fake in (
+        ("_gen_get", store.get),
+        ("_gen_set", store.__setitem__),
+        ("_gen_delete", lambda node: store.pop(node, None)),
+        ("_gen_revoke_all", store.clear),
+    ):
         patcher = mock.patch.object(pl, name, fake)
         patcher.start()
         case.addCleanup(patcher.stop)
@@ -76,9 +88,17 @@ def isolate_windows_registry(case: unittest.TestCase) -> dict:
 
 def status_doc(host: str, name: str, health: str = "ok") -> dict:
     now = time.time()
-    return {"schemaVersion": 1, "kind": "agiw-peer", "host": name, "platform": host, "edition": "test",
-            "observedAt": pl._iso(now), "observedUnix": round(now, 3), "health": health,
-            "models": [{"id": "test-model", "loadedState": "loaded"}]}
+    return {
+        "schemaVersion": 1,
+        "kind": "agiw-peer",
+        "host": name,
+        "platform": host,
+        "edition": "test",
+        "observedAt": pl._iso(now),
+        "observedUnix": round(now, 3),
+        "health": health,
+        "models": [{"id": "test-model", "loadedState": "loaded"}],
+    }
 
 
 def env_without(*names: str) -> dict:
@@ -107,6 +127,7 @@ cli.main = _main_kind_stub
 def validate_row(row):
     """A status --json row is a machine_state.machine_summary row (plus an optional display label)."""
     import machine_state
+
     base = set(machine_state.machine_summary("x", "mac", now=0.0))
     assert base <= set(row) <= base | {"label"}, sorted(set(row) ^ base)
     assert row["state"] in ("up", "down", "unknown"), row["state"]

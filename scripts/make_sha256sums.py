@@ -4,6 +4,7 @@ The 1.0.0 download uses one line per file: 64 lowercase hex digits, two spaces,
 then the file name. SHA256SUMS.txt itself is not listed. Only regular files in
 the folder are included. Subdirectories are not walked.
 """
+
 import argparse
 import hashlib
 import sys

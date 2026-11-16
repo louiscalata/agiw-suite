@@ -80,8 +80,9 @@ def main() -> None:
         raise SystemExit("build.sh and package-release.sh resource lists differ")
     # wrapper-patch/sync-web.sh reads usage-format.mjs from the tree root beside web/ (web/app.js imports it), so it
     # travels with the web inputs.
-    mac_inputs = [name for name in build
-                  if name.startswith("web/") or name.startswith("jaryo/") or name == "usage-format.mjs"]
+    mac_inputs = [
+        name for name in build if name.startswith("web/") or name.startswith("jaryo/") or name == "usage-format.mjs"
+    ]
     if not mac_inputs:
         raise SystemExit("No web or jaryo inputs in the resource list")
     install = ROOT / "windows" / "install.ps1"
@@ -141,26 +142,28 @@ def main() -> None:
     manifest.write_text("\n".join(manifest_lines) + "\n")
     provenance = destination / "PROVENANCE.txt"
     provenance.write_text(
-        "\n".join([
-            "AGIW build-input bundle",
-            f"head: {head or 'not a git checkout'}",
-            f"dirty: {'yes' if dirty else 'no'}",
-            "mac-sync: candidate web and jaryo files from build.sh resources.",
-            "sync-web.sh: not in this repository. Mac receipt path is ~/agiw-suite-appstore/scripts/sync-web.sh.",
-            "Do not copy this bundle onto the dirty App Store tree at HEAD 317aad2.",
-            "That unsigned Debug build is not this head and is not Jaryo acceptance.",
-            "appstore-distribution.sh: not in this repository. Its 27A266a pin was not changed and must not be skipped.",
-            "This bundle is the Jaryo web and Windows edition inputs. It is not the Mac wrapper archive.",
-            "A wrapper archive must pass scripts/check-wrapper-archive.py, including DemoGolden/demo-idle.json.",
-            "The Mac restricted edition may omit online-code-mode.mjs. The Windows web retains Model Tuning Tool compatibility hooks; Windows repair stays denied.",
-            "Xcode 27B52 was the only measured install. Compatibility of that pin was not verified here.",
-            "windows-edition: files named by windows/install.ps1, that script, and windows/tests. No .git directory.",
-            "pipe-host tests and installer/wxs-reader.test.mjs are not in this checkout.",
-            "The PC listen EACCES result on %TEMP%\\*.sock stays a blocked test in that other tree. It was not skipped here.",
-            "WiX is not installed by this export. A parent may install the free official toolchain. That is not MSI acceptance.",
-            "The Windows review is not a pass. The Mac checks had no passing flags.",
-            "",
-        ])
+        "\n".join(
+            [
+                "AGIW build-input bundle",
+                f"head: {head or 'not a git checkout'}",
+                f"dirty: {'yes' if dirty else 'no'}",
+                "mac-sync: candidate web and jaryo files from build.sh resources.",
+                "sync-web.sh: not in this repository. Mac receipt path is ~/agiw-suite-appstore/scripts/sync-web.sh.",
+                "Do not copy this bundle onto the dirty App Store tree at HEAD 317aad2.",
+                "That unsigned Debug build is not this head and is not Jaryo acceptance.",
+                "appstore-distribution.sh: not in this repository. Its 27A266a pin was not changed and must not be skipped.",
+                "This bundle is the Jaryo web and Windows edition inputs. It is not the Mac wrapper archive.",
+                "A wrapper archive must pass scripts/check-wrapper-archive.py, including DemoGolden/demo-idle.json.",
+                "The Mac restricted edition may omit online-code-mode.mjs. The Windows web retains Model Tuning Tool compatibility hooks; Windows repair stays denied.",
+                "Xcode 27B52 was the only measured install. Compatibility of that pin was not verified here.",
+                "windows-edition: files named by windows/install.ps1, that script, and windows/tests. No .git directory.",
+                "pipe-host tests and installer/wxs-reader.test.mjs are not in this checkout.",
+                "The PC listen EACCES result on %TEMP%\\*.sock stays a blocked test in that other tree. It was not skipped here.",
+                "WiX is not installed by this export. A parent may install the free official toolchain. That is not MSI acceptance.",
+                "The Windows review is not a pass. The Mac checks had no passing flags.",
+                "",
+            ]
+        )
     )
     if dirty:
         (destination / "GIT-STATUS.txt").write_text(status + "\n")

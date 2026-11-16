@@ -1,4 +1,5 @@
 """Bounded, passive status sampling for the real-time inference visualizer."""
+
 from __future__ import annotations
 
 import datetime as _dt
@@ -88,11 +89,17 @@ _WINDOWS_WORKER_FAILURE_BACKOFF_SECONDS = 60.0
 _WINDOWS_WORKER_COMMAND_TIMEOUT = 4.5
 # -inf, not 0.0: Python 3.9 on macOS starts time.monotonic() near zero per
 # process, which delayed the first heartbeat probe by a full poll interval.
-_WINDOWS_WORKER_CACHE: dict[str, Any] = {"checkedMonotonic": float("-inf"), "heartbeatUnix": None,
-                                         "modelsAdvertised": [], "modelCount": 0,
-                                         "probeRunning": False, "probeError": False,
-                                         "probePaused": False, "probeBusy": False,
-                                         "retryAfterMonotonic": 0.0}
+_WINDOWS_WORKER_CACHE: dict[str, Any] = {
+    "checkedMonotonic": float("-inf"),
+    "heartbeatUnix": None,
+    "modelsAdvertised": [],
+    "modelCount": 0,
+    "probeRunning": False,
+    "probeError": False,
+    "probePaused": False,
+    "probeBusy": False,
+    "retryAfterMonotonic": 0.0,
+}
 _WINDOWS_WORKER_LOCK = threading.Lock()
 # Serialize every in-process SharedChami owner read. The process-state guard
 # below detects a reader only after it has entered macOS U state; this gate
@@ -117,14 +124,22 @@ _WINDOWS_WORKER_TOLERANCE_LOCK = threading.Lock()
 _WINDOWS_JOBS_PATH = _HOME / ".local/state/chami-dispatch/jobs.jsonl"
 _WINDOWS_JOBS_MAX = 256 * 1024
 _WINDOWS_JOBS_RECENT_SECONDS = 1800.0
-_WINDOWS_JOBS_EVENTS = frozenset({"enqueued", "result", "unresolved",
-                                  "publish-uncertain", "invalid-result", "cancel-requested"})
+_WINDOWS_JOBS_EVENTS = frozenset(
+    {"enqueued", "result", "unresolved", "publish-uncertain", "invalid-result", "cancel-requested"}
+)
 # Result statuses that settle a job. 'cancelled' (worker 1.2) means the worker stopped, or never
 # started, the job on a cancel request; the dispatcher relays nothing else from such a result.
 _WINDOWS_JOB_RESULTS = ("success", "error", "cancelled")
 _WINDOWS_JOB_ID = re.compile(r"mac-[A-Za-z0-9-]{12,80}\Z")
-_WINDOWS_JOB_EVIDENCE = ("client", "lane", "predictedPerSecond", "completionTokens",
-                         "promptPerSecond", "promptTokens", "flags")
+_WINDOWS_JOB_EVIDENCE = (
+    "client",
+    "lane",
+    "predictedPerSecond",
+    "completionTokens",
+    "promptPerSecond",
+    "promptTokens",
+    "flags",
+)
 # Result flags the dispatcher journals (reply_flags); anything else is dropped.
 _WINDOWS_JOB_FLAGS = ("hit-token-limit",)
 # Published as windowsWorker.lanesError when a fresh heartbeat's lane detail is rejected.
@@ -135,11 +150,20 @@ _WINDOWS_LANES_MALFORMED = "malformed lane detail"
 _WINDOWS_WORKER_VERSION = re.compile(r"[0-9A-Za-z._+-]{1,16}\Z")
 _WINDOWS_GPU_MAX = 4
 _WINDOWS_GPU_NAME = re.compile(r"[\x20-\x7e]{1,64}\Z")
-_WINDOWS_GPU_LIMITS = (("utilizationPercent", 0, 100), ("memoryUsedMiB", 0, 1048576),
-                       ("memoryTotalMiB", 1, 1048576), ("temperatureC", 0, 150), ("powerW", 0, 2000))
+_WINDOWS_GPU_LIMITS = (
+    ("utilizationPercent", 0, 100),
+    ("memoryUsedMiB", 0, 1048576),
+    ("memoryTotalMiB", 1, 1048576),
+    ("temperatureC", 0, 150),
+    ("powerW", 0, 2000),
+)
 # Fallback for journals written before the dispatcher recorded the lane at enqueue.
-_WINDOWS_MODEL_LANES = {"gpt-oss-20b": "fast", "openai/gpt-oss-20b": "fast",
-                        "Qwen3.8-27B Q4_K_M": "deep", "qwen3.8-27b": "deep"}
+_WINDOWS_MODEL_LANES = {
+    "gpt-oss-20b": "fast",
+    "openai/gpt-oss-20b": "fast",
+    "Qwen3.8-27B Q4_K_M": "deep",
+    "qwen3.8-27b": "deep",
+}
 # The dispatcher's worker lanes under the monitor's names, and the calling
 # agent's label as the dispatcher validates it (never trusted, checked again).
 _WINDOWS_LANE_NAMES = {"amd": "fast", "bionic": "deep"}
@@ -155,10 +179,14 @@ _STAGE = re.compile(r"[A-Za-z][A-Za-z0-9_.:-]{0,63}\Z")
 _MODEL_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/+-]{0,159}\Z")
 _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 _STEPS = (
-    ("intake", "Intake"), ("preflight", "Preflight"),
-    ("backend_draft", "Author"), ("backend_answer", "Author"),
-    ("backend_review", "Review"), ("validation", "Validation"),
-    ("checks", "Checks"), ("mac_return", "Return"),
+    ("intake", "Intake"),
+    ("preflight", "Preflight"),
+    ("backend_draft", "Author"),
+    ("backend_answer", "Author"),
+    ("backend_review", "Review"),
+    ("validation", "Validation"),
+    ("checks", "Checks"),
+    ("mac_return", "Return"),
     ("final_validation", "Final validation"),
 )
 
@@ -168,9 +196,15 @@ _MAX_EXACT_INT = (1 << 53) - 1
 
 def _afm_status(path: Path = _AFM_EXECUTABLE) -> dict[str, Any]:
     """Observe this Mac's AFM adapter file; never execute or infer from it."""
-    result = {"schemaVersion": 1, "host": "mac", "state": "unknown",
-              "callability": "unknown", "inference": "NOT_TESTED",
-              "role": "optional-advisory-intake", "source": "local-executable-metadata"}
+    result = {
+        "schemaVersion": 1,
+        "host": "mac",
+        "state": "unknown",
+        "callability": "unknown",
+        "inference": "NOT_TESTED",
+        "role": "optional-advisory-intake",
+        "source": "local-executable-metadata",
+    }
     try:
         info = path.lstat()
     except FileNotFoundError:
@@ -216,8 +250,11 @@ def _json_object(raw: bytes, limit: int) -> dict[str, Any]:
             result[key] = value
         return result
 
-    value = json.loads(raw.decode("utf-8"), object_pairs_hook=pairs,
-                       parse_constant=lambda _: (_ for _ in ()).throw(ValueError("bad number")))
+    value = json.loads(
+        raw.decode("utf-8"),
+        object_pairs_hook=pairs,
+        parse_constant=lambda _: (_ for _ in ()).throw(ValueError("bad number")),
+    )
     if not isinstance(value, dict):
         raise ValueError("expected object")
     return value
@@ -246,8 +283,12 @@ def _safe_file(path: Path, limit: int) -> dict[str, Any]:
         info = os.fstat(fd)
         if (info.st_dev, info.st_ino) != (before.st_dev, before.st_ino) or info.st_nlink in (0, 2):
             raise _RecordChanged("file changed")
-        if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
-                or stat.S_IMODE(info.st_mode) & 0o077 or info.st_nlink != 1):
+        if (
+            not stat.S_ISREG(info.st_mode)
+            or info.st_uid != os.getuid()
+            or stat.S_IMODE(info.st_mode) & 0o077
+            or info.st_nlink != 1
+        ):
             raise ValueError("not a regular file")
         chunks: list[bytes] = []
         size = 0
@@ -274,29 +315,45 @@ def _router_namespace_initialized() -> bool:
     try:
         for directory in (_ROUTER_ROOT, _ROUTER_ROOT / "archive", _ROUTER_ROOT / "checkpoints"):
             info = directory.lstat()
-            if (directory.is_symlink() or not stat.S_ISDIR(info.st_mode)
-                    or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) & 0o077):
+            if (
+                directory.is_symlink()
+                or not stat.S_ISDIR(info.st_mode)
+                or info.st_uid != os.getuid()
+                or stat.S_IMODE(info.st_mode) & 0o077
+            ):
                 return False
         lock_info = (_ROUTER_ROOT / "owner.lock").lstat()
-        return (stat.S_ISREG(lock_info.st_mode) and lock_info.st_uid == os.getuid()
-                and not stat.S_IMODE(lock_info.st_mode) & 0o077 and lock_info.st_nlink == 1
-                and not (_ROUTER_ROOT / "owner.lock").is_symlink())
+        return (
+            stat.S_ISREG(lock_info.st_mode)
+            and lock_info.st_uid == os.getuid()
+            and not stat.S_IMODE(lock_info.st_mode) & 0o077
+            and lock_info.st_nlink == 1
+            and not (_ROUTER_ROOT / "owner.lock").is_symlink()
+        )
     except OSError:
         return False
 
 
-def _bounded_command(arguments: list[str], *, limit: int = 8192,
-                     timeout: float = 0.5,
-                     cancel: threading.Event | None = None,
-                     ok_codes: tuple[int, ...] = (0,),
-                     merge_stderr: bool = False) -> str:
+def _bounded_command(
+    arguments: list[str],
+    *,
+    limit: int = 8192,
+    timeout: float = 0.5,
+    cancel: threading.Event | None = None,
+    ok_codes: tuple[int, ...] = (0,),
+    merge_stderr: bool = False,
+) -> str:
     """Read only bounded process metadata; never invoke a shell or router command."""
     if cancel is not None and cancel.is_set():
         raise TimeoutError("process metadata cancelled")
-    process = subprocess.Popen(arguments, stdin=subprocess.DEVNULL,
-                               stdout=subprocess.PIPE,
-                               stderr=subprocess.STDOUT if merge_stderr else subprocess.DEVNULL,
-                               close_fds=True, start_new_session=True)
+    process = subprocess.Popen(
+        arguments,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT if merge_stderr else subprocess.DEVNULL,
+        close_fds=True,
+        start_new_session=True,
+    )
     output = bytearray()
     selector = None
     deadline = time.monotonic() + timeout
@@ -371,42 +428,70 @@ def _bounded_command(arguments: list[str], *, limit: int = 8192,
 # router's one EX|NB claim can collide only with the owner.lock probe, which runs only while a
 # valid legacy active.json exists, and that record already refuses any new run
 # (ROUTER_UNRESOLVED_RUN).
-_ROUTER_LISTED = 64          # names kept per directory (active/, notes/), newest first
-_ROUTER_SCAN = 4096          # directory entries examined at most
+_ROUTER_LISTED = 64  # names kept per directory (active/, notes/), newest first
+_ROUTER_SCAN = 4096  # directory entries examined at most
 # Full per-run records read per sample (newest by mtime; cached by identity).  A held run
 # lock past this budget has its record read too, up to _ROUTER_ATTRIBUTED more, so its
 # runLock inode is still checked.
 _ROUTER_FULL_READS = 4
-_ROUTER_PROJECTED = 8        # rows in activeRuns / queuedRuns / pipelines
-_ROUTER_ATTRIBUTED = 8       # live per-run lock files attributed to a process per sample
+_ROUTER_PROJECTED = 8  # rows in activeRuns / queuedRuns / pipelines
+_ROUTER_ATTRIBUTED = 8  # live per-run lock files attributed to a process per sample
 _ROUTER_START_WINDOW = 660.0  # a run's record starts at most this long after its process
 _ROUTER_READ_RETRIES = 3
 _ROUTER_READ_RETRY_S = 0.02
 _ROUTER_NOTE_MAX = 4096
-_ROUTER_SMALL_MAX = 1024     # policy.json and install-fence.json
+_ROUTER_SMALL_MAX = 1024  # policy.json and install-fence.json
 _ROUTER_LSOF_MAX = 65536
 _ROUTER_FENCE_KIND = "codemode.router.install-fence.v1"
 _ROUTER_FENCE_KEYS = frozenset({"schemaVersion", "kind", "state", "generation", "stamp", "sinceUnix", "ownerLock"})
 _ROUTER_FENCE_STATES = ("installing", "installed", "rolling-back", "rolled-back")
 _ROUTER_BARRIER = "owner.lock.install-barrier"
-_ROUTER_STAMP = re.compile(r"[0-9]{8}T[0-9]{6}Z\Z")     # router_fence.STAMP
+_ROUTER_STAMP = re.compile(r"[0-9]{8}T[0-9]{6}Z\Z")  # router_fence.STAMP
 _ROUTER_POLICY_KIND = "codemode.router.policy.v1"
 _ROUTER_NOTE_KIND = "codemode.router.note.v1"
-_ROUTER_NOTE_KEYS = frozenset({"schemaVersion", "kind", "runId", "inputSha256", "operation", "client", "host",
-                               "admission", "phase", "resource", "step", "sinceUnix", "untilUnix", "pid"})
+_ROUTER_NOTE_KEYS = frozenset(
+    {
+        "schemaVersion",
+        "kind",
+        "runId",
+        "inputSha256",
+        "operation",
+        "client",
+        "host",
+        "admission",
+        "phase",
+        "resource",
+        "step",
+        "sinceUnix",
+        "untilUnix",
+        "pid",
+    }
+)
 _ROUTER_NOTE_PHASES = ("admitting", "waiting", "running")
 _ROUTER_NOTE_RESOURCES = (None, "mac-pair", "pc-route", "pc-lane-deep", "pc-lane-fast")
 # The note's other fields, as spec 2.1 enumerates them (None = not recorded).  ``host`` also
 # takes 'auto': the router records the request's host, and a request may say auto.
-_ROUTER_NOTE_ENUMS = {"operation": (None, "work", "feedback"), "client": (None, "codex", "claude", "opencode"),
-                      "host": (None, "mac", "windows", "auto"),
-                      "step": (None, "pre-begin", "backend", "mac-return", "draft", "review")}
+_ROUTER_NOTE_ENUMS = {
+    "operation": (None, "work", "feedback"),
+    "client": (None, "codex", "claude", "opencode"),
+    "host": (None, "mac", "windows", "auto"),
+    "step": (None, "pre-begin", "backend", "mac-return", "draft", "review"),
+}
 # note resource -> (lane name in runs.v1 / the UI, Mac-wide capacity)
-_ROUTER_LANES = {"mac-pair": ("mac-pair", 1), "pc-route": ("pc-route", 1),
-                 "pc-lane-deep": ("pc-deep", 1), "pc-lane-fast": ("pc-fast", 2)}
+_ROUTER_LANES = {
+    "mac-pair": ("mac-pair", 1),
+    "pc-route": ("pc-route", 1),
+    "pc-lane-deep": ("pc-deep", 1),
+    "pc-lane-fast": ("pc-fast", 2),
+}
 _ROUTER_MARKER_SUFFIXES = (".draft", ".review", ".mac-return", ".answer")
-_ROUTER_STAGE_HOST = {"intake_intent": "mac", "intake_response": "mac", "mac_return_intent": "mac",
-                      "mac_return_response": "mac", "final_validation_intent": "mac"}
+_ROUTER_STAGE_HOST = {
+    "intake_intent": "mac",
+    "intake_response": "mac",
+    "mac_return_intent": "mac",
+    "mac_return_response": "mac",
+    "final_validation_intent": "mac",
+}
 _ROUTER_RECORD_CACHE: dict[str, tuple[tuple[int, ...], dict[str, Any] | None]] = {}
 _ROUTER_RECORD_CACHE_LOCK = threading.Lock()
 # Set while this Monitor process itself may hold router owner.lock (Fix's hold_router and the
@@ -498,8 +583,12 @@ def _router_listing(directory: Path, suffix: str) -> tuple[list[str], bool, str]
         return [], False, "absent"
     except OSError:
         return [], False, "unsafe"
-    if (stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode)
-            or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) & 0o077):
+    if (
+        stat.S_ISLNK(info.st_mode)
+        or not stat.S_ISDIR(info.st_mode)
+        or info.st_uid != os.getuid()
+        or stat.S_IMODE(info.st_mode) & 0o077
+    ):
         return [], False, "unsafe"
     names: list[str] = []
     truncated = False
@@ -510,8 +599,8 @@ def _router_listing(directory: Path, suffix: str) -> tuple[list[str], bool, str]
                     truncated = True
                     break
                 name = entry.name
-                if name.endswith(suffix) and _RUN_ID.fullmatch(name[:-len(suffix)]):
-                    names.append(name[:-len(suffix)])
+                if name.endswith(suffix) and _RUN_ID.fullmatch(name[: -len(suffix)]):
+                    names.append(name[: -len(suffix)])
     except FileNotFoundError:
         return [], False, "absent"
     except OSError:
@@ -527,8 +616,12 @@ def _private_dir(directory: Path) -> str:
         return "absent"
     except OSError:
         return "unsafe"
-    if (stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode)
-            or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) & 0o077):
+    if (
+        stat.S_ISLNK(info.st_mode)
+        or not stat.S_ISDIR(info.st_mode)
+        or info.st_uid != os.getuid()
+        or stat.S_IMODE(info.st_mode) & 0o077
+    ):
         return "unsafe"
     return "ok"
 
@@ -551,8 +644,12 @@ def _probe_lock(path: Path, *, bound_ino: int | None = None, links: int = 1) -> 
         return "unsafe" if exc.errno == errno.ELOOP else "unknown"
     try:
         info = os.fstat(fd)
-        if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
-                or stat.S_IMODE(info.st_mode) & 0o077 or info.st_nlink != links):
+        if (
+            not stat.S_ISREG(info.st_mode)
+            or info.st_uid != os.getuid()
+            or stat.S_IMODE(info.st_mode) & 0o077
+            or info.st_nlink != links
+        ):
             return "unsafe"
         if bound_ino is not None and info.st_ino != bound_ino:
             return "replaced"
@@ -587,8 +684,12 @@ def _any_run_lock_live(lock_dir: Path) -> bool:
         return False
     except OSError:
         return True
-    if (stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode)
-            or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) & 0o077):
+    if (
+        stat.S_ISLNK(info.st_mode)
+        or not stat.S_ISDIR(info.st_mode)
+        or info.st_uid != os.getuid()
+        or stat.S_IMODE(info.st_mode) & 0o077
+    ):
         return True
     try:
         with os.scandir(lock_dir) as entries:
@@ -621,8 +722,13 @@ def _router_install_state(root: Path) -> dict[str, Any]:
     ``ownerLockBound`` is False when the fence binds another owner.lock inode than the file
     at that path (an owner repair; R2.4.5).
     """
-    install: dict[str, Any] = {"state": "absent", "generation": None, "barrier": False,
-                               "inProgress": False, "ownerLockBound": None}
+    install: dict[str, Any] = {
+        "state": "absent",
+        "generation": None,
+        "barrier": False,
+        "inProgress": False,
+        "ownerLockBound": None,
+    }
     barrier = os.path.lexists(str(root / _ROUTER_BARRIER))
     try:
         lock: os.stat_result | None = (root / "owner.lock").lstat()
@@ -630,19 +736,30 @@ def _router_install_state(root: Path) -> dict[str, Any]:
         lock = None
     # The installer's second link: owner.lock at nlink 2 AND the barrier name.  A second
     # link without the barrier name stays an unsafe journal (never "install in progress").
-    install["barrier"] = bool(barrier and lock is not None and stat.S_ISREG(lock.st_mode)
-                              and lock.st_nlink == 2)
+    install["barrier"] = bool(barrier and lock is not None and stat.S_ISREG(lock.st_mode) and lock.st_nlink == 2)
     status, fence = _observe_retry(root / "install-fence.json", _ROUTER_SMALL_MAX)
     if status == "ok":
         bound = fence.get("ownerLock") if isinstance(fence, dict) else None
-        if (set(fence) != _ROUTER_FENCE_KEYS or type(fence.get("schemaVersion")) is not int
-                or fence["schemaVersion"] != 1 or fence.get("kind") != _ROUTER_FENCE_KIND
-                or fence.get("state") not in _ROUTER_FENCE_STATES
-                or not isinstance(fence.get("generation"), str) or not _SHA256.fullmatch(fence["generation"])
-                or not isinstance(fence.get("stamp"), str) or not _ROUTER_STAMP.fullmatch(fence["stamp"])
-                or not _finite(fence.get("sinceUnix"))
-                or not (bound is None or (isinstance(bound, dict) and set(bound) == {"dev", "ino"}
-                                          and all(type(bound[k]) is int and bound[k] >= 0 for k in ("dev", "ino"))))):
+        if (
+            set(fence) != _ROUTER_FENCE_KEYS
+            or type(fence.get("schemaVersion")) is not int
+            or fence["schemaVersion"] != 1
+            or fence.get("kind") != _ROUTER_FENCE_KIND
+            or fence.get("state") not in _ROUTER_FENCE_STATES
+            or not isinstance(fence.get("generation"), str)
+            or not _SHA256.fullmatch(fence["generation"])
+            or not isinstance(fence.get("stamp"), str)
+            or not _ROUTER_STAMP.fullmatch(fence["stamp"])
+            or not _finite(fence.get("sinceUnix"))
+            or not (
+                bound is None
+                or (
+                    isinstance(bound, dict)
+                    and set(bound) == {"dev", "ino"}
+                    and all(type(bound[k]) is int and bound[k] >= 0 for k in ("dev", "ino"))
+                )
+            )
+        ):
             install["state"] = "invalid"
         else:
             install.update(state=fence["state"], generation=fence["generation"])
@@ -671,32 +788,61 @@ def _router_policy(root: Path, install: dict[str, Any]) -> dict[str, Any]:
     inode the install bound ('unknown').  Notes only name the shared holders.
     """
     if install["state"] in ("absent", "rolled-back"):
-        return {"policy": "single", "source": "legacy-router", "drainState": "not-applicable",
-                "draining": False, "sharedHolders": []}
+        return {
+            "policy": "single",
+            "source": "legacy-router",
+            "drainState": "not-applicable",
+            "draining": False,
+            "sharedHolders": [],
+        }
     if install["state"] in ("missing", "invalid"):
         # Every router entrypoint refuses (ROUTER_INSTALL_FENCE_MISSING / _INVALID): no run
         # is admitted whatever policy.json says, until the owner finishes or rolls back.
-        return {"policy": None, "source": "fence-" + install["state"], "drainState": "unknown",
-                "draining": False, "sharedHolders": []}
+        return {
+            "policy": None,
+            "source": "fence-" + install["state"],
+            "drainState": "unknown",
+            "draining": False,
+            "sharedHolders": [],
+        }
     status, value = _observe_retry(root / "policy.json", _ROUTER_SMALL_MAX)
     if status == "absent":
         policy, source = "single", "default"
-    elif (status == "ok" and set(value) == {"schemaVersion", "kind", "concurrency"}
-          and type(value.get("schemaVersion")) is int and value["schemaVersion"] == 1
-          and value.get("kind") == _ROUTER_POLICY_KIND and value.get("concurrency") in ("single", "multi")):
+    elif (
+        status == "ok"
+        and set(value) == {"schemaVersion", "kind", "concurrency"}
+        and type(value.get("schemaVersion")) is int
+        and value["schemaVersion"] == 1
+        and value.get("kind") == _ROUTER_POLICY_KIND
+        and value.get("concurrency") in ("single", "multi")
+    ):
         policy, source = value["concurrency"], "file"
     else:
         # The router fails closed on an invalid policy: no new run is admitted.
         return {"policy": None, "source": "invalid", "drainState": "unknown", "draining": False, "sharedHolders": []}
     if policy != "single":
-        return {"policy": policy, "source": source, "drainState": "not-applicable",
-                "draining": False, "sharedHolders": []}
+        return {
+            "policy": policy,
+            "source": source,
+            "drainState": "not-applicable",
+            "draining": False,
+            "sharedHolders": [],
+        }
     drain = "unknown"
-    if (install["state"] == "installed" and not install["inProgress"]
-            and install["ownerLockBound"] is not False and not _monitor_holds_router_owner()):
+    if (
+        install["state"] == "installed"
+        and not install["inProgress"]
+        and install["ownerLockBound"] is not False
+        and not _monitor_holds_router_owner()
+    ):
         drain = _router_drain_probe(root / "owner.lock")
-    return {"policy": policy, "source": source, "drainState": drain,
-            "draining": drain != "drained", "sharedHolders": []}
+    return {
+        "policy": policy,
+        "source": source,
+        "drainState": drain,
+        "draining": drain != "drained",
+        "sharedHolders": [],
+    }
 
 
 def _router_drain_probe(path: Path) -> str:
@@ -707,24 +853,28 @@ def _router_drain_probe(path: Path) -> str:
         return "unknown"
     try:
         info = os.fstat(fd)
-        if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
-                or stat.S_IMODE(info.st_mode) & 0o077 or info.st_nlink != 1):
+        if (
+            not stat.S_ISREG(info.st_mode)
+            or info.st_uid != os.getuid()
+            or stat.S_IMODE(info.st_mode) & 0o077
+            or info.st_nlink != 1
+        ):
             return "unknown"
         try:
             fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
         except BlockingIOError:
-            return "drained"            # an EX holder: no SH holder exists at this instant
+            return "drained"  # an EX holder: no SH holder exists at this instant
         except OSError:
             return "unknown"
         fcntl.flock(fd, fcntl.LOCK_UN)
         try:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
-            return "draining"           # SH holders (runs admitted shared) are still running
+            return "draining"  # SH holders (runs admitted shared) are still running
         except OSError:
             return "unknown"
         fcntl.flock(fd, fcntl.LOCK_UN)
-        return "drained"                # nobody holds it
+        return "drained"  # nobody holds it
     finally:
         os.close(fd)
 
@@ -737,15 +887,23 @@ def _valid_active_route(active: dict[str, Any], *, per_run: bool = False) -> tup
     base = {"schemaVersion", "runId", "inputSha256", "stage", "checkpoint", "startedUnix"}
     if per_run:
         lock = active.get("runLock")
-        if (not isinstance(lock, dict) or set(lock) != {"dev", "ino"}
-                or any(type(lock[key]) is not int or lock[key] < 0 for key in ("dev", "ino"))):
+        if (
+            not isinstance(lock, dict)
+            or set(lock) != {"dev", "ino"}
+            or any(type(lock[key]) is not int or lock[key] < 0 for key in ("dev", "ino"))
+        ):
             return None
         base = base | {"runLock"}
-    if (active.get("schemaVersion") != 1 or type(active.get("schemaVersion")) is not int
-            or not isinstance(active.get("runId"), str) or not _RUN_ID.fullmatch(active["runId"])
-            or not isinstance(active.get("inputSha256"), str)
-            or not _SHA256.fullmatch(active["inputSha256"])
-            or not isinstance(active.get("stage"), str) or not _STAGE.fullmatch(active["stage"])):
+    if (
+        active.get("schemaVersion") != 1
+        or type(active.get("schemaVersion")) is not int
+        or not isinstance(active.get("runId"), str)
+        or not _RUN_ID.fullmatch(active["runId"])
+        or not isinstance(active.get("inputSha256"), str)
+        or not _SHA256.fullmatch(active["inputSha256"])
+        or not isinstance(active.get("stage"), str)
+        or not _STAGE.fullmatch(active["stage"])
+    ):
         return None
     started = active.get("startedUnix")
     if not _finite(started):
@@ -755,18 +913,21 @@ def _valid_active_route(active: dict[str, Any], *, per_run: bool = False) -> tup
         if set(active) != base or active["stage"] != "started":
             return None
         return active["runId"], float(started), float(started)
-    if (not isinstance(checkpoint, dict) or set(active) != base | {"sequence"}
-            or type(active["sequence"]) is not int or active["sequence"] < 1
-            or set(checkpoint) != {"schemaVersion", "runId", "inputSha256", "sequence",
-                                   "stage", "evidence", "recordedUnix"}
-            or checkpoint.get("schemaVersion") != 1
-            or type(checkpoint.get("schemaVersion")) is not int
-            or checkpoint.get("runId") != active["runId"]
-            or checkpoint.get("inputSha256") != active["inputSha256"]
-            or checkpoint.get("stage") != active["stage"]
-            or type(checkpoint.get("sequence")) is not int
-            or checkpoint["sequence"] != active["sequence"]
-            or not isinstance(checkpoint.get("evidence"), dict)):
+    if (
+        not isinstance(checkpoint, dict)
+        or set(active) != base | {"sequence"}
+        or type(active["sequence"]) is not int
+        or active["sequence"] < 1
+        or set(checkpoint) != {"schemaVersion", "runId", "inputSha256", "sequence", "stage", "evidence", "recordedUnix"}
+        or checkpoint.get("schemaVersion") != 1
+        or type(checkpoint.get("schemaVersion")) is not int
+        or checkpoint.get("runId") != active["runId"]
+        or checkpoint.get("inputSha256") != active["inputSha256"]
+        or checkpoint.get("stage") != active["stage"]
+        or type(checkpoint.get("sequence")) is not int
+        or checkpoint["sequence"] != active["sequence"]
+        or not isinstance(checkpoint.get("evidence"), dict)
+    ):
         return None
     recorded = checkpoint.get("recordedUnix")
     if not _finite(recorded):
@@ -781,15 +942,25 @@ def _router_note(root: Path, run_id: str) -> dict[str, Any] | None:
     if status != "ok" or set(note) != _ROUTER_NOTE_KEYS:
         return None
     finite = _finite
-    if (type(note["schemaVersion"]) is not int or note["schemaVersion"] != 1
-            or note["kind"] != _ROUTER_NOTE_KIND or note["runId"] != run_id
-            or not isinstance(note["inputSha256"], str) or not _SHA256.fullmatch(note["inputSha256"])
-            or note["admission"] not in ("shared", "exclusive")
-            or any(not isinstance(note[key], (str, type(None))) or note[key] not in allowed
-                   for key, allowed in _ROUTER_NOTE_ENUMS.items())
-            or note["phase"] not in _ROUTER_NOTE_PHASES or note["resource"] not in _ROUTER_NOTE_RESOURCES
-            or not finite(note["sinceUnix"]) or (note["untilUnix"] is not None and not finite(note["untilUnix"]))
-            or type(note["pid"]) is not int or note["pid"] < 1):
+    if (
+        type(note["schemaVersion"]) is not int
+        or note["schemaVersion"] != 1
+        or note["kind"] != _ROUTER_NOTE_KIND
+        or note["runId"] != run_id
+        or not isinstance(note["inputSha256"], str)
+        or not _SHA256.fullmatch(note["inputSha256"])
+        or note["admission"] not in ("shared", "exclusive")
+        or any(
+            not isinstance(note[key], (str, type(None))) or note[key] not in allowed
+            for key, allowed in _ROUTER_NOTE_ENUMS.items()
+        )
+        or note["phase"] not in _ROUTER_NOTE_PHASES
+        or note["resource"] not in _ROUTER_NOTE_RESOURCES
+        or not finite(note["sinceUnix"])
+        or (note["untilUnix"] is not None and not finite(note["untilUnix"]))
+        or type(note["pid"]) is not int
+        or note["pid"] < 1
+    ):
         return None
     return note
 
@@ -831,27 +1002,44 @@ def _record_host(record: dict[str, Any] | None) -> str | None:
     return None
 
 
-def _router_row(run_id: str | None, layout: str, record: dict[str, Any] | None, *, readable: bool,
-                per_run: bool) -> dict[str, Any]:
+def _router_row(
+    run_id: str | None, layout: str, record: dict[str, Any] | None, *, readable: bool, per_run: bool
+) -> dict[str, Any]:
     """The bounded, content-free facts of one run (no evidence body is ever copied)."""
     validated = _valid_active_route(record, per_run=per_run) if isinstance(record, dict) else None
     checkpoint = record.get("checkpoint") if validated and isinstance(record.get("checkpoint"), dict) else None
     evidence = checkpoint.get("evidence") if checkpoint else None
     code = evidence.get("code") if isinstance(evidence, dict) and record.get("stage") == "incomplete" else None
-    return {"runId": validated[0] if validated else run_id, "layout": layout,
-            "inputSha256": record["inputSha256"] if validated else None,
-            "stage": record["stage"] if validated else None,
-            "sequence": record.get("sequence") if validated else None,
-            "startedUnix": validated[1] if validated else None,
-            "recordedUnix": validated[2] if validated else None,
-            "recoveryRequired": bool(isinstance(evidence, dict) and evidence.get("recoveryRequired") is True),
-            "code": code if isinstance(code, str) and re.fullmatch(r"[A-Z][A-Z0-9_]{0,63}", code) else None,
-            "host": _record_host(record) if validated else None,
-            "readable": readable, "valid": validated is not None, "read": True,
-            "runLock": record.get("runLock") if validated and per_run else None,
-            "live": False, "lock": None, "lockHeld": False, "lockBound": False, "stalled": False, "state": None,
-            "note": None, "client": None, "collision": False,
-            "operation": None, "pid": None, "archived": False, "evidence": None, "_record": record}
+    return {
+        "runId": validated[0] if validated else run_id,
+        "layout": layout,
+        "inputSha256": record["inputSha256"] if validated else None,
+        "stage": record["stage"] if validated else None,
+        "sequence": record.get("sequence") if validated else None,
+        "startedUnix": validated[1] if validated else None,
+        "recordedUnix": validated[2] if validated else None,
+        "recoveryRequired": bool(isinstance(evidence, dict) and evidence.get("recoveryRequired") is True),
+        "code": code if isinstance(code, str) and re.fullmatch(r"[A-Z][A-Z0-9_]{0,63}", code) else None,
+        "host": _record_host(record) if validated else None,
+        "readable": readable,
+        "valid": validated is not None,
+        "read": True,
+        "runLock": record.get("runLock") if validated and per_run else None,
+        "live": False,
+        "lock": None,
+        "lockHeld": False,
+        "lockBound": False,
+        "stalled": False,
+        "state": None,
+        "note": None,
+        "client": None,
+        "collision": False,
+        "operation": None,
+        "pid": None,
+        "archived": False,
+        "evidence": None,
+        "_record": record,
+    }
 
 
 def _per_run_row(run_id: str, record: dict[str, Any] | None, readable: bool) -> dict[str, Any]:
@@ -906,9 +1094,11 @@ def _process_table(pids: list[int]) -> dict[int, tuple[float, list[str]]]:
     wanted = sorted(set(pid for pid in pids if type(pid) is int and pid > 0))[:16]
     if not wanted:
         return {}
-    listing = _bounded_command(["/bin/ps", "-p", ",".join(str(pid) for pid in wanted),
-                                "-o", "pid=", "-o", "lstart=", "-o", "command="],
-                               limit=4096 * len(wanted), ok_codes=(0, 1))
+    listing = _bounded_command(
+        ["/bin/ps", "-p", ",".join(str(pid) for pid in wanted), "-o", "pid=", "-o", "lstart=", "-o", "command="],
+        limit=4096 * len(wanted),
+        ok_codes=(0, 1),
+    )
     table: dict[int, tuple[float, list[str]]] = {}
     for line in listing.splitlines():
         match = re.match(r"\s*(\d+)\s+(\w{3} \w{3} [ \d]\d \d{2}:\d{2}:\d{2} \d{4})\s+(.*)\Z", line)
@@ -927,14 +1117,22 @@ def _router_work_argv(args: list[str]) -> bool:
     # macOS shows framework interpreters (Xcode's /usr/bin/python3 shim,
     # Homebrew) by their real binary: .../Python.app/Contents/MacOS/Python.
     interpreter = args[0] if args else ""
-    framework = (Path(interpreter).name == "Python"
-                 and interpreter.endswith("/Python.app/Contents/MacOS/Python")
-                 and any(part in ("Python.framework", "Python3.framework")
-                         for part in Path(interpreter).parts))
-    return (len(args) == 5 and (framework or Path(interpreter).name in (
-                "python3", "python3.14", "python3.13", "python3.12", "python3.11", "python3.10"))
-            and args[1:3] == ["-I", "-B"] and args[3] == str(_ROUTER_SCRIPT)
-            and args[4] in ("work", "feedback"))
+    framework = (
+        Path(interpreter).name == "Python"
+        and interpreter.endswith("/Python.app/Contents/MacOS/Python")
+        and any(part in ("Python.framework", "Python3.framework") for part in Path(interpreter).parts)
+    )
+    return (
+        len(args) == 5
+        and (
+            framework
+            or Path(interpreter).name
+            in ("python3", "python3.14", "python3.13", "python3.12", "python3.11", "python3.10")
+        )
+        and args[1:3] == ["-I", "-B"]
+        and args[3] == str(_ROUTER_SCRIPT)
+        and args[4] in ("work", "feedback")
+    )
 
 
 def _real_root(root: Path) -> Path:
@@ -982,16 +1180,25 @@ def _router_owner_process(started: float | None = None) -> tuple[int, float] | N
         if openers is None:
             return None
         run_lock_openers = {pid for pid, _, name in openers if name.startswith(lock_prefix)}
-        candidates = sorted({pid for pid, access, name in openers
-                             if name == lock_path and access == "u" and pid not in run_lock_openers})
+        candidates = sorted(
+            {
+                pid
+                for pid, access, name in openers
+                if name == lock_path and access == "u" and pid not in run_lock_openers
+            }
+        )
         if not candidates or len(candidates) > 16:
             return None
         # lsof can show an open descriptor without reporting flock on macOS.
         # Require the exact canonical work process and check its start time.
         table = _process_table(candidates)
-        matches = [(pid, table[pid][0]) for pid in candidates
-                   if pid in table and _router_work_argv(table[pid][1])
-                   and (started is None or 0 <= started - table[pid][0] <= _ROUTER_START_WINDOW)]
+        matches = [
+            (pid, table[pid][0])
+            for pid in candidates
+            if pid in table
+            and _router_work_argv(table[pid][1])
+            and (started is None or 0 <= started - table[pid][0] <= _ROUTER_START_WINDOW)
+        ]
         return matches[0] if len(matches) == 1 else None
     except (OSError, ValueError, TimeoutError, subprocess.SubprocessError):
         return None
@@ -1019,17 +1226,23 @@ def _run_owners(root: Path, rows: list[dict[str, Any]]) -> None:
         return
     for row in live:
         note_pid = row.get("_notePid")
-        reference = row["startedUnix"] if row["startedUnix"] is not None else (
-            row["note"]["sinceUnix"] if row["note"] else None)
-        matches = [pid for pid in sorted(wanted[row["runId"]])
-                   if pid in table and _router_work_argv(table[pid][1])
-                   and (note_pid is None or pid == note_pid)
-                   and (reference is None or 0 <= reference - table[pid][0] + 1 <= _ROUTER_START_WINDOW + 1)]
+        reference = (
+            row["startedUnix"]
+            if row["startedUnix"] is not None
+            else (row["note"]["sinceUnix"] if row["note"] else None)
+        )
+        matches = [
+            pid
+            for pid in sorted(wanted[row["runId"]])
+            if pid in table
+            and _router_work_argv(table[pid][1])
+            and (note_pid is None or pid == note_pid)
+            and (reference is None or 0 <= reference - table[pid][0] + 1 <= _ROUTER_START_WINDOW + 1)
+        ]
         row["pid"] = matches[0] if len(matches) == 1 else None
 
 
-def _legacy_liveness(row: dict[str, Any], root: Path, install: dict[str, Any],
-                     now: float) -> tuple[str, str]:
+def _legacy_liveness(row: dict[str, Any], root: Path, install: dict[str, Any], now: float) -> tuple[str, str]:
     """Legacy record liveness (spec R2.9 rule 3): (verdict, evidence), verdict one of
     'processing', 'unfinished' (unresolved: live work unverified), 'unknown' (the record
     or its owner changed during the observation) or 'invalid'.
@@ -1053,22 +1266,32 @@ def _legacy_liveness(row: dict[str, Any], root: Path, install: dict[str, Any],
         return "unfinished", "Router route record is stale or has invalid timing; live work unverified"
     quiet = now - recorded
     stale = quiet > _MAX_AGE
-    record = f"Router route record is stale (last checkpoint {quiet:.0f}s ago)" if stale else "Fresh route record exists"
+    record = (
+        f"Router route record is stale (last checkpoint {quiet:.0f}s ago)" if stale else "Fresh route record exists"
+    )
     # The router writes `incomplete` as its terminal quarantine checkpoint.
     # A process may still hold the owner lock while it returns that result;
     # the lock cannot turn a terminal checkpoint back into live inference.
     if active["stage"] == "incomplete":
-        return "unfinished", (("Router route record is stale; it" if stale else "Router")
-                              + " recorded an incomplete checkpoint; recovery is unresolved and live work is unverified")
-    if (install["state"] not in ("absent", "installed", "rolled-back") or install["inProgress"]
-            or _monitor_holds_router_owner()):
-        return "unfinished", (f"{record}, but the router owner lock may be held by an install transition, by this "
-                              "monitor, or the install fence is missing or invalid; live work unverified")
+        return "unfinished", (
+            ("Router route record is stale; it" if stale else "Router")
+            + " recorded an incomplete checkpoint; recovery is unresolved and live work is unverified"
+        )
+    if (
+        install["state"] not in ("absent", "installed", "rolled-back")
+        or install["inProgress"]
+        or _monitor_holds_router_owner()
+    ):
+        return "unfinished", (
+            f"{record}, but the router owner lock may be held by an install transition, by this "
+            "monitor, or the install fence is missing or invalid; live work unverified"
+        )
     if _probe_lock(root / "owner.lock") != "held":
         return "unfinished", f"{record}; no process holds the router owner lock; live work unverified"
     if _any_run_lock_live(root / "locks"):
-        return "unfinished", (f"{record}, but a per-run router lock is held; the owner lock holder is not the "
-                              "legacy route")
+        return "unfinished", (
+            f"{record}, but a per-run router lock is held; the owner lock holder is not the legacy route"
+        )
     owner = _router_owner_process(started)
     if owner is None or not (0 <= started - owner[1] <= _ROUTER_START_WINDOW):
         return "unfinished", f"{record}; matching live owner process unverified"
@@ -1086,18 +1309,21 @@ def _legacy_liveness(row: dict[str, Any], root: Path, install: dict[str, Any],
     row["pid"] = owner[0]
     row["stalled"] = stale
     if stale:
-        return "processing", (f"Bound router record and matching live work process holding the owner lock, but no "
-                              f"checkpoint for {quiet:.0f}s; the route may be stalled; client and chat binding "
-                              "unavailable")
-    return "processing", ("Fresh bound router record and matching live work process holding the owner lock; "
-                          "client and chat binding unavailable")
+        return "processing", (
+            f"Bound router record and matching live work process holding the owner lock, but no "
+            f"checkpoint for {quiet:.0f}s; the route may be stalled; client and chat binding "
+            "unavailable"
+        )
+    return "processing", (
+        "Fresh bound router record and matching live work process holding the owner lock; "
+        "client and chat binding unavailable"
+    )
 
 
 def _router_lanes(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     """Router holders and waiters per Mac-wide lane, from live runs' notes (spec 2.5).
     PC occupancy by pc-llm stays in the worker-heartbeat view."""
-    lanes = {lane: {"capacity": capacity, "holders": [], "waiting": []}
-             for lane, capacity in _ROUTER_LANES.values()}
+    lanes = {lane: {"capacity": capacity, "holders": [], "waiting": []} for lane, capacity in _ROUTER_LANES.values()}
     for row in rows:
         note = row["note"]
         if not row["live"] or note is None or note["resource"] is None:
@@ -1115,8 +1341,9 @@ def _router_lanes(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     return lanes
 
 
-def _router_listed_record(path: Path, archive: Path, *, read: bool) -> tuple[str, dict[str, Any] | None,
-                                                                            os.stat_result | None]:
+def _router_listed_record(
+    path: Path, archive: Path, *, read: bool
+) -> tuple[str, dict[str, Any] | None, os.stat_result | None]:
     """(status, record, lstat) of one listed ``active/<id>.json``.
 
     status: 'ok', 'unreadable', 'unread' (listed, not read: past the read budget) or
@@ -1157,9 +1384,19 @@ def _router_observation(now: float) -> dict[str, Any]:
     """
     root = _router_root()
     install = _router_install_state(root)
-    observation: dict[str, Any] = {"root": str(root), "observedAt": now, "install": install, "admission": None, "rows": [],
-                                   "primary": None, "truncated": False, "error": None,
-                                   "legacyPresent": False, "layout": "absent", "collisions": []}
+    observation: dict[str, Any] = {
+        "root": str(root),
+        "observedAt": now,
+        "install": install,
+        "admission": None,
+        "rows": [],
+        "primary": None,
+        "truncated": False,
+        "error": None,
+        "legacyPresent": False,
+        "layout": "absent",
+        "collisions": [],
+    }
     rows: list[dict[str, Any]] = []
     active_ids, active_cut, active_dir = _router_listing(root / "active", ".json")
     note_ids, note_cut, note_dir = _router_listing(root / "notes", ".json")
@@ -1168,7 +1405,9 @@ def _router_observation(now: float) -> dict[str, Any]:
     locks_dir = _private_dir(root / "locks")
     if "unsafe" in (active_dir, note_dir, locks_dir):
         observation["error"] = "Router run directories are unsafe or unreadable"
-    observation["truncated"] = active_cut or note_cut or len(active_ids) > _ROUTER_LISTED or len(note_ids) > _ROUTER_LISTED
+    observation["truncated"] = (
+        active_cut or note_cut or len(active_ids) > _ROUTER_LISTED or len(note_ids) > _ROUTER_LISTED
+    )
 
     def run_lock(run_id: str, bound: dict[str, Any] | None = None) -> str:
         if locks_dir == "unsafe":
@@ -1207,7 +1446,7 @@ def _router_observation(now: float) -> dict[str, Any]:
             extra += 1
             status, record, info = _router_listed_record(path, archive, read=True)
             if status == "finished":
-                continue                        # the run archived and cleared its record: it finished
+                continue  # the run archived and cleared its record: it finished
             cached.add(path.name)
             row = _per_run_row(run_id, record, status == "ok")
             row["lock"] = run_lock(run_id, row["runLock"])
@@ -1257,7 +1496,7 @@ def _router_observation(now: float) -> dict[str, Any]:
             continue
         lock = run_lock(run_id)
         if lock != "held":
-            continue                            # a stale note of a dead attempt: no row
+            continue  # a stale note of a dead attempt: no row
         row = _router_row(run_id, "note", None, readable=True, per_run=True)
         row.update(lock=lock, lockHeld=True, live=True, _mtime=0.0)
         rows.append(row)
@@ -1268,8 +1507,7 @@ def _router_observation(now: float) -> dict[str, Any]:
         note = _router_note(root, row["runId"]) if row["live"] else None
         # The pathname and runId are not enough to bind a note to a begun run. A stale
         # note for the same ID must not supply its phase, client or lane to another input.
-        if (note is not None and row["layout"] == "per-run"
-                and note["inputSha256"] != row["inputSha256"]):
+        if note is not None and row["layout"] == "per-run" and note["inputSha256"] != row["inputSha256"]:
             note = None
         _apply_note(row, note)
         row["_notePid"] = note["pid"] if note else None
@@ -1282,7 +1520,7 @@ def _router_observation(now: float) -> dict[str, Any]:
         elif not row["readable"]:
             row["state"] = "unreadable"
         elif row["lockHeld"]:
-            row["state"] = "unverified"         # held, but the record binding it was not read
+            row["state"] = "unverified"  # held, but the record binding it was not read
         else:
             row["state"] = "archived-uncleared" if row["archived"] else "unresolved"
         if row["layout"] == "note" and note:
@@ -1298,9 +1536,17 @@ def _router_observation(now: float) -> dict[str, Any]:
         # 'unknown' means the record or its owner changed while it was observed (usually a
         # live route writing a checkpoint): 'changing', re-checked next sample, never counted
         # or shown as an unresolved run.
-        row["state"] = ("running" if row["live"] else "unreadable" if verdict == "invalid"
-                        else "changing" if verdict == "unknown"
-                        else "archived-uncleared" if row["archived"] else "unresolved")
+        row["state"] = (
+            "running"
+            if row["live"]
+            else "unreadable"
+            if verdict == "invalid"
+            else "changing"
+            if verdict == "unknown"
+            else "archived-uncleared"
+            if row["archived"]
+            else "unresolved"
+        )
     # One run ID in both layouts.  It is one run (one row, the per-run one) only when the
     # per-run record is valid, describes the same input, and the legacy route is not live.
     # Otherwise both rows stay and the collision is reported: a live legacy route is never
@@ -1315,12 +1561,20 @@ def _router_observation(now: float) -> dict[str, Any]:
             observation["collisions"].append(row["runId"])
     legacy_rows = [row for row in rows if row["layout"] == "legacy"]
     _run_owners(root, rows)
-    rows.sort(key=lambda row: (row["startedUnix"] if row["startedUnix"] is not None else row.get("_mtime") or 0.0),
-              reverse=True)
+    rows.sort(
+        key=lambda row: row["startedUnix"] if row["startedUnix"] is not None else row.get("_mtime") or 0.0, reverse=True
+    )
     observation["rows"] = rows
     observation["collisions"] = observation["collisions"][:_ROUTER_PROJECTED]
-    observation["layout"] = ("mixed" if legacy_rows and len(rows) > len(legacy_rows)
-                             else "legacy" if legacy_rows else "per-run" if rows else "absent")
+    observation["layout"] = (
+        "mixed"
+        if legacy_rows and len(rows) > len(legacy_rows)
+        else "legacy"
+        if legacy_rows
+        else "per-run"
+        if rows
+        else "absent"
+    )
     live = [row for row in rows if row["live"]]
     # The newest running verified-live run, else the newest queued one, else the newest
     # unresolved one: the single-object projection older consumers read (spec 6.12).
@@ -1331,8 +1585,11 @@ def _router_observation(now: float) -> dict[str, Any]:
     observation["primary"] = (running or live or [row for row in rows if row["runId"] is not None] or rows or [None])[0]
     admission = _router_policy(root, install)
     if admission["policy"] == "single":
-        admission["sharedHolders"] = [row["runId"] for row in live if row["layout"] != "legacy" and (
-            row["note"] is None or row["note"]["admission"] == "shared")][:_ROUTER_PROJECTED]
+        admission["sharedHolders"] = [
+            row["runId"]
+            for row in live
+            if row["layout"] != "legacy" and (row["note"] is None or row["note"]["admission"] == "shared")
+        ][:_ROUTER_PROJECTED]
     # Spec 2.1: CODEMODE_ROUTER_CONCURRENCY=off|single in a caller's own environment forces that
     # caller single (it can never force multi).  That is each router process's environment,
     # which this Monitor (started by its login agent) cannot see, and the Monitor's own
@@ -1348,12 +1605,25 @@ def observe_router(now: float) -> dict[str, Any]:
     try:
         router = _router_observation(now)
     except Exception:
-        router = {"root": str(_router_root()),
-                  "install": {"state": "invalid", "generation": None, "barrier": False,
-                              "inProgress": False, "ownerLockBound": None},
-                  "admission": None, "rows": [], "primary": None, "truncated": False,
-                  "error": "Router run observation failed", "legacyPresent": False,
-                  "layout": "absent", "lanes": _router_lanes([]), "collisions": []}
+        router = {
+            "root": str(_router_root()),
+            "install": {
+                "state": "invalid",
+                "generation": None,
+                "barrier": False,
+                "inProgress": False,
+                "ownerLockBound": None,
+            },
+            "admission": None,
+            "rows": [],
+            "primary": None,
+            "truncated": False,
+            "error": "Router run observation failed",
+            "legacyPresent": False,
+            "layout": "absent",
+            "lanes": _router_lanes([]),
+            "collisions": [],
+        }
     with _LAST_ROUTER_OBSERVATION_LOCK:
         _LAST_ROUTER_OBSERVATION.update(sampledAt=now, value=router)
     return router
@@ -1371,36 +1641,79 @@ def _router_projection(observation: dict[str, Any], now: float) -> dict[str, Any
         if _router_queued(row):
             note = row["note"] or {}
             until = note.get("untilUnix")
-            queued.append({"runId": row["runId"], "phase": row["state"], "resource": note.get("resource"),
-                           "step": note.get("step"), "sinceUnix": note.get("sinceUnix"), "untilUnix": until,
-                           "secondsLeft": round(max(0.0, until - now), 1) if until is not None else None,
-                           "client": row["client"], "host": row["host"], "stage": row["stage"]})
+            queued.append(
+                {
+                    "runId": row["runId"],
+                    "phase": row["state"],
+                    "resource": note.get("resource"),
+                    "step": note.get("step"),
+                    "sinceUnix": note.get("sinceUnix"),
+                    "untilUnix": until,
+                    "secondsLeft": round(max(0.0, until - now), 1) if until is not None else None,
+                    "client": row["client"],
+                    "host": row["host"],
+                    "stage": row["stage"],
+                }
+            )
         else:
-            active.append({"runId": row["runId"], "state": row["state"], "stage": row["stage"],
-                           "host": row["host"], "client": row["client"], "live": row["live"],
-                           "layout": row["layout"], "processVerified": row["pid"] is not None,
-                           "recoveryRequired": row["recoveryRequired"],
-                           "lockHeld": row["lockHeld"] and not row["live"], "collision": row["collision"]})
-    counts = {"running": sum(1 for row in rows if row["live"] and not _router_queued(row)),
-              "queued": sum(1 for row in rows if _router_queued(row)),
-              # A row changing under observation is re-checked next sample, not an unresolved run.
-              "unresolved": sum(1 for row in rows if not row["live"] and row["state"] != "changing")}
-    complete = (not observation['error'] and not observation['truncated'] and _router_namespace_initialized()
-                and len(active) <= _ROUTER_PROJECTED and len(queued) <= _ROUTER_PROJECTED
-                and all(row['state'] not in ('unreadable', 'unverified', 'changing')
-                        # A lock/process verified in this observation establishes
-                        # liveness independently of the last checkpoint's age.
-                        and ((row['live'] and (row.get('lockBound') is True or row.get('pid') is not None
-                                              or row.get('layout') == 'note' and row.get('lockHeld') is True))
-                             or _finite(row.get('recordedUnix')) and -2 <= now - row['recordedUnix'] <= _MAX_AGE)
-                        for row in rows))
-    return {"activeRuns": active[:_ROUTER_PROJECTED], "queuedRuns": queued[:_ROUTER_PROJECTED],
-            "lanes": observation["lanes"], "runCounts": counts,
-            "runCountsComplete": complete,
-            "admission": observation["admission"], "install": observation["install"],
-            "runIdCollisions": list(observation.get("collisions") or []),
-            "runsTruncated": observation["truncated"] or len(active) > _ROUTER_PROJECTED
-            or len(queued) > _ROUTER_PROJECTED}
+            active.append(
+                {
+                    "runId": row["runId"],
+                    "state": row["state"],
+                    "stage": row["stage"],
+                    "host": row["host"],
+                    "client": row["client"],
+                    "live": row["live"],
+                    "layout": row["layout"],
+                    "processVerified": row["pid"] is not None,
+                    "recoveryRequired": row["recoveryRequired"],
+                    "lockHeld": row["lockHeld"] and not row["live"],
+                    "collision": row["collision"],
+                }
+            )
+    counts = {
+        "running": sum(1 for row in rows if row["live"] and not _router_queued(row)),
+        "queued": sum(1 for row in rows if _router_queued(row)),
+        # A row changing under observation is re-checked next sample, not an unresolved run.
+        "unresolved": sum(1 for row in rows if not row["live"] and row["state"] != "changing"),
+    }
+    complete = (
+        not observation["error"]
+        and not observation["truncated"]
+        and _router_namespace_initialized()
+        and len(active) <= _ROUTER_PROJECTED
+        and len(queued) <= _ROUTER_PROJECTED
+        and all(
+            row["state"] not in ("unreadable", "unverified", "changing")
+            # A lock/process verified in this observation establishes
+            # liveness independently of the last checkpoint's age.
+            and (
+                (
+                    row["live"]
+                    and (
+                        row.get("lockBound") is True
+                        or row.get("pid") is not None
+                        or row.get("layout") == "note"
+                        and row.get("lockHeld") is True
+                    )
+                )
+                or _finite(row.get("recordedUnix"))
+                and -2 <= now - row["recordedUnix"] <= _MAX_AGE
+            )
+            for row in rows
+        )
+    )
+    return {
+        "activeRuns": active[:_ROUTER_PROJECTED],
+        "queuedRuns": queued[:_ROUTER_PROJECTED],
+        "lanes": observation["lanes"],
+        "runCounts": counts,
+        "runCountsComplete": complete,
+        "admission": observation["admission"],
+        "install": observation["install"],
+        "runIdCollisions": list(observation.get("collisions") or []),
+        "runsTruncated": observation["truncated"] or len(active) > _ROUTER_PROJECTED or len(queued) > _ROUTER_PROJECTED,
+    }
 
 
 def _launcher_readiness(now: float) -> tuple[str, float | None]:
@@ -1410,20 +1723,28 @@ def _launcher_readiness(now: float) -> tuple[str, float | None]:
     """
     try:
         directory = _LAUNCHER_ROOT.lstat()
-        if (_LAUNCHER_ROOT.is_symlink() or not stat.S_ISDIR(directory.st_mode)
-                or directory.st_uid != os.getuid() or stat.S_IMODE(directory.st_mode) & 0o077):
+        if (
+            _LAUNCHER_ROOT.is_symlink()
+            or not stat.S_ISDIR(directory.st_mode)
+            or directory.st_uid != os.getuid()
+            or stat.S_IMODE(directory.st_mode) & 0o077
+        ):
             return "invalid", None
         receipt = _safe_file(_READINESS_PATH, 4096)
     except FileNotFoundError:
         return "absent", None
     except Exception:
         return "invalid", None
-    if (set(receipt) != {"schemaVersion", "status", "observedAtUnix", "source", "client", "chatId"}
-            or type(receipt.get("schemaVersion")) is not int or receipt["schemaVersion"] != 1
-            or receipt.get("status") != "PREFLIGHT_COMPLETED"
-            or receipt.get("source") != "online-code-mode"
-            or receipt.get("client") is not None or receipt.get("chatId") is not None
-            or not _finite(receipt.get("observedAtUnix"))):
+    if (
+        set(receipt) != {"schemaVersion", "status", "observedAtUnix", "source", "client", "chatId"}
+        or type(receipt.get("schemaVersion")) is not int
+        or receipt["schemaVersion"] != 1
+        or receipt.get("status") != "PREFLIGHT_COMPLETED"
+        or receipt.get("source") != "online-code-mode"
+        or receipt.get("client") is not None
+        or receipt.get("chatId") is not None
+        or not _finite(receipt.get("observedAtUnix"))
+    ):
         return "invalid", None
     age = now - float(receipt["observedAtUnix"])
     if age < -1:
@@ -1433,8 +1754,7 @@ def _launcher_readiness(now: float) -> tuple[str, float | None]:
     return "fresh", round(max(0.0, age), 3)
 
 
-def _online_code_mode(now: float, observed_at: str,
-                      router: dict[str, Any] | None = None) -> dict[str, Any]:
+def _online_code_mode(now: float, observed_at: str, router: dict[str, Any] | None = None) -> dict[str, Any]:
     """Project verified route activity without calling or changing the router.
 
     The single-object contract is kept (the newest verified-live run, else the newest
@@ -1447,30 +1767,44 @@ def _online_code_mode(now: float, observed_at: str,
     mode = _online_code_mode_state(now, observed_at, router)
     collisions = router.get("collisions") or []
     if collisions and not router["install"]["inProgress"]:
-        mode["evidence"] += (f"; run ID {', '.join(collisions)} has both a legacy active.json and an active/ record "
-                             "(one run ID in both journal layouts); settle it with an exact reconcile gate")
+        mode["evidence"] += (
+            f"; run ID {', '.join(collisions)} has both a legacy active.json and an active/ record "
+            "(one run ID in both journal layouts); settle it with an exact reconcile gate"
+        )
     return mode
 
 
 def _online_code_mode_state(now: float, observed_at: str, router: dict[str, Any]) -> dict[str, Any]:
     readiness, readiness_age = _launcher_readiness(now)
     mode: dict[str, Any] = {
-        "state": "unknown", "active": None, "blinking": False,
-        "client": None, "chatId": None, "routeId": None,
-        "taskState": "unknown", "setupState": readiness,
+        "state": "unknown",
+        "active": None,
+        "blinking": False,
+        "client": None,
+        "chatId": None,
+        "routeId": None,
+        "taskState": "unknown",
+        "setupState": readiness,
         "setupAgeSeconds": readiness_age,
         "evidence": "Router journal unavailable; online code mode activity unknown",
         "observedAt": observed_at,
-        "activeRuns": [], "queuedRuns": [], "lanes": _router_lanes([]),
+        "activeRuns": [],
+        "queuedRuns": [],
+        "lanes": _router_lanes([]),
         "runCounts": {"running": 0, "queued": 0, "unresolved": 0},
-        "admission": None, "install": None, "runIdCollisions": [], "runsTruncated": False,
+        "admission": None,
+        "install": None,
+        "runIdCollisions": [],
+        "runsTruncated": False,
     }
     mode.update(_router_projection(router, now))
     if router["install"]["inProgress"]:
         # R2.9: a transition (fence installing / rolling-back, or the installer's second link
         # on owner.lock) is "router install in progress", never an unsafe journal.
-        mode.update(taskState="install-in-progress",
-                    evidence="Router install in progress; route state is verified again when it finishes")
+        mode.update(
+            taskState="install-in-progress",
+            evidence="Router install in progress; route state is verified again when it finishes",
+        )
         return mode
     if not _router_namespace_initialized():
         return mode
@@ -1478,30 +1812,45 @@ def _online_code_mode_state(now: float, observed_at: str, router: dict[str, Any]
         mode["evidence"] = router["error"]
         return mode
     primary = router["primary"]
-    if primary is None and not mode['runCountsComplete']:
-        mode['evidence'] = 'Router inventory incomplete; current route counts unknown'
+    if primary is None and not mode["runCountsComplete"]:
+        mode["evidence"] = "Router inventory incomplete; current route counts unknown"
         return mode
     if primary is None:
         mode["taskState"] = "idle"
         if router["install"]["state"] in ("missing", "invalid"):
-            mode.update(state="inactive", active=False,
-                        evidence=f"No active route; the router install fence is {router['install']['state']}, so the "
-                                 "router refuses every command until its owner finishes or rolls back the install")
+            mode.update(
+                state="inactive",
+                active=False,
+                evidence=f"No active route; the router install fence is {router['install']['state']}, so the "
+                "router refuses every command until its owner finishes or rolls back the install",
+            )
         elif readiness == "fresh":
-            mode.update(state="ready", active=False,
-                        evidence=f"Recent capability inventory completed {readiness_age:.0f}s ago; no active route or client/chat binding")
+            mode.update(
+                state="ready",
+                active=False,
+                evidence=f"Recent capability inventory completed {readiness_age:.0f}s ago; no active route or client/chat binding",
+            )
         elif readiness == "absent":
-            mode.update(state="inactive", active=False,
-                        evidence="Initialized router journal has no active route or recorded recent readiness check")
+            mode.update(
+                state="inactive",
+                active=False,
+                evidence="Initialized router journal has no active route or recorded recent readiness check",
+            )
         elif readiness == "expired":
-            mode.update(state="inactive", active=False,
-                        evidence="Task idle; last capability inventory is older than ten minutes, so current setup readiness is unverified")
+            mode.update(
+                state="inactive",
+                active=False,
+                evidence="Task idle; last capability inventory is older than ten minutes, so current setup readiness is unverified",
+            )
         else:
-            mode.update(state="inactive", active=False,
-                        evidence="Task idle; launcher readiness receipt is invalid or unreadable, so current setup readiness is unverified")
+            mode.update(
+                state="inactive",
+                active=False,
+                evidence="Task idle; launcher readiness receipt is invalid or unreadable, so current setup readiness is unverified",
+            )
         return mode
     counts = mode["runCounts"]
-    several = mode['runCountsComplete'] and counts["running"] + counts["queued"] > 1
+    several = mode["runCountsComplete"] and counts["running"] + counts["queued"] > 1
     if primary["layout"] == "legacy":
         if primary["runId"] is None or primary["state"] == "unreadable" and primary.get("_verdict") is None:
             mode["evidence"] = "Router active record invalid or unreadable"
@@ -1513,8 +1862,13 @@ def _online_code_mode_state(now: float, observed_at: str, router: dict[str, Any]
         mode["routeId"] = primary["runId"]
         if verdict == "processing":
             # A stalled route (no checkpoint within the freshness limit) is live but stops blinking.
-            mode.update(state="processing", active=True, blinking=not primary["stalled"], taskState="processing",
-                        evidence=primary["evidence"])
+            mode.update(
+                state="processing",
+                active=True,
+                blinking=not primary["stalled"],
+                taskState="processing",
+                evidence=primary["evidence"],
+            )
         elif verdict == "unfinished":
             mode.update(taskState="unfinished", evidence=primary["evidence"])
         else:
@@ -1524,34 +1878,49 @@ def _online_code_mode_state(now: float, observed_at: str, router: dict[str, Any]
     if primary["live"]:
         # lsof names the openers of the lock file, not its flock holder: the probe proves the
         # lock is held, and a matching work process is only the likely holder.
-        process = (f"its run lock is held; matching work process pid {primary['pid']} has it open"
-                   if primary["pid"] is not None
-                   else "its run lock is held; the holding process could not be attributed")
+        process = (
+            f"its run lock is held; matching work process pid {primary['pid']} has it open"
+            if primary["pid"] is not None
+            else "its run lock is held; the holding process could not be attributed"
+        )
         # The primary is queued only when no run is running (a running run is chosen first).
         waiting = primary["state"] in ("waiting", "admitting")
-        what = (f"Queued router run {primary['runId']} is waiting"
-                + (f" for {primary['note']['resource']}" if primary["note"] and primary["note"]["resource"] else "")
-                if waiting else f"Router run {primary['runId']} is live")
+        what = (
+            f"Queued router run {primary['runId']} is waiting"
+            + (f" for {primary['note']['resource']}" if primary["note"] and primary["note"]["resource"] else "")
+            if waiting
+            else f"Router run {primary['runId']} is live"
+        )
         # A queued-only primary is listed and active, but it is not running work: it never
         # reads or blinks as processing (taskState 'queued').
-        mode.update(state="processing", active=True, blinking=not waiting,
-                    taskState="queued" if waiting else "processing",
-                    client=primary["client"],
-                    evidence=(f"{counts['running']} routed task(s) running · {counts['queued']} queued; " if several else "")
-                    + f"{what}; {process}; chat binding unavailable")
+        mode.update(
+            state="processing",
+            active=True,
+            blinking=not waiting,
+            taskState="queued" if waiting else "processing",
+            client=primary["client"],
+            evidence=(f"{counts['running']} routed task(s) running · {counts['queued']} queued; " if several else "")
+            + f"{what}; {process}; chat binding unavailable",
+        )
         return mode
     mode["taskState"] = "unfinished"
     held = primary["lockHeld"]
     mode["evidence"] = {
         "archived-uncleared": f"Router run {primary['runId']} was archived but its active record was not cleared; run reconcile-archived",
-        "unverified": (f"Router run {primary['runId']} has an active record, but its run lock is held while that "
-                       "record was not read in this sample, so the lock's identity cannot be checked; liveness "
-                       "cannot be proven" if held and primary["lock"] == "held" else
-                       f"Router run {primary['runId']} has an active record, but its run lock file is "
-                       f"{primary['lock']}; liveness cannot be proven"),
+        "unverified": (
+            f"Router run {primary['runId']} has an active record, but its run lock is held while that "
+            "record was not read in this sample, so the lock's identity cannot be checked; liveness "
+            "cannot be proven"
+            if held and primary["lock"] == "held"
+            else f"Router run {primary['runId']} has an active record, but its run lock file is "
+            f"{primary['lock']}; liveness cannot be proven"
+        ),
         "unreadable": f"Router run {primary['runId']} has an active record that could not be read whole"
-                      + ("; its run lock is held, so it may still be live" if held else ""),
-    }.get(primary["state"], f"Router run {primary['runId']} is unresolved (its run lock is free); settle it with an exact reconcile gate")
+        + ("; its run lock is held, so it may still be live" if held else ""),
+    }.get(
+        primary["state"],
+        f"Router run {primary['runId']} is unresolved (its run lock is free); settle it with an exact reconcile gate",
+    )
     return mode
 
 
@@ -1606,6 +1975,7 @@ def _listener_executable(pid: int) -> str | None:
     """Kernel executable path only; never process arguments or environment."""
     try:
         import ctypes
+
         lib = ctypes.CDLL("/usr/lib/libproc.dylib")
         lib.proc_pidpath.argtypes = [ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32]
         lib.proc_pidpath.restype = ctypes.c_int
@@ -1620,8 +1990,11 @@ def _listener_executable(pid: int) -> str | None:
 def _inventory_listener(port: int) -> tuple[int, str, str] | None:
     """Fresh, unambiguous IPv4 listener owner at the selected loopback endpoint."""
     try:
-        output = _bounded_command(["/usr/sbin/lsof", "-nP", "-b", "-w", "-a", "-i4TCP:" + str(port),
-                                   "-sTCP:LISTEN", "-F", "pfn"], limit=8192, ok_codes=(0, 1))
+        output = _bounded_command(
+            ["/usr/sbin/lsof", "-nP", "-b", "-w", "-a", "-i4TCP:" + str(port), "-sTCP:LISTEN", "-F", "pfn"],
+            limit=8192,
+            ok_codes=(0, 1),
+        )
         pid = None
         owners = set()
         for line in output.splitlines():
@@ -1645,15 +2018,17 @@ def _inventory_listener(port: int) -> tuple[int, str, str] | None:
     return None
 
 
-def _lmstudio_route(port: int, lms_status: dict[str, Any] | None,
-                    listener: tuple | None) -> tuple[str, str]:
+def _lmstudio_route(port: int, lms_status: dict[str, Any] | None, listener: tuple | None) -> tuple[str, str]:
     """Route identity needs a fresh local listener owned by LM Studio."""
     if listener is None or listener[1] != "lmstudio":
         return "unknown", "local listener owner is unidentified; inventory identity cannot be told"
     own = lms_status.get("port") if isinstance(lms_status, dict) else None
     if listener[1] == "lmstudio" and port == own and lms_status.get("running") is True:
         return "direct", f"read directly from LM Studio's own port {own} (fresh lms server status and listener owner)"
-    return "unknown", "fresh lms server status and local listener ownership do not establish a running LM Studio endpoint"
+    return (
+        "unknown",
+        "fresh lms server status and local listener ownership do not establish a running LM Studio endpoint",
+    )
 
 
 def _pair_snapshot(now: float | None = None, *, refresh: bool = True) -> dict[str, Any] | None:
@@ -1676,9 +2051,14 @@ def _pair_snapshot(now: float | None = None, *, refresh: bool = True) -> dict[st
     try:
         return pair_status.read_pair_status(now=now, readings=readings)
     except Exception:
-        return {"schema": pair_status.SCHEMA, "state": "unknown", "reason": "reader-failed",
-                "detail": "NVIDIA PAIR status reader failed; state unknown", "installed": None,
-                "evidence": {"logAgeSeconds": None, "historyAgeSeconds": None}}
+        return {
+            "schema": pair_status.SCHEMA,
+            "state": "unknown",
+            "reason": "reader-failed",
+            "detail": "NVIDIA PAIR status reader failed; state unknown",
+            "installed": None,
+            "evidence": {"logAgeSeconds": None, "historyAgeSeconds": None},
+        }
 
 
 def _bounded_http(endpoint: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -1739,7 +2119,7 @@ def _find_lms() -> str | None:
     return executable
 
 
-_LMS_COMMAND_TIMEOUT = 1.0   # seconds one `lms` status or inventory run may take
+_LMS_COMMAND_TIMEOUT = 1.0  # seconds one `lms` status or inventory run may take
 
 
 def _bounded_lms() -> dict[str, Any]:
@@ -1754,9 +2134,14 @@ def _bounded_lms_json(arguments: list[str], limit: int, *, timeout: float = _LMS
     executable = _find_lms()
     if not executable:
         raise FileNotFoundError("lms unavailable")
-    process = subprocess.Popen([executable, *arguments], stdin=subprocess.DEVNULL,
-                               stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                               close_fds=True, start_new_session=True)
+    process = subprocess.Popen(
+        [executable, *arguments],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        close_fds=True,
+        start_new_session=True,
+    )
     assert process.stdout is not None
     output = bytearray()
     selector = selectors.DefaultSelector()
@@ -1798,8 +2183,13 @@ def _bounded_lms_json(arguments: list[str], limit: int, *, timeout: float = _LMS
 
 
 def _text(value: Any, limit: int = 160) -> str | None:
-    if (isinstance(value, str) and value and len(value) <= limit and value.isascii()
-            and all(ord(char) >= 32 and ord(char) != 127 for char in value)):
+    if (
+        isinstance(value, str)
+        and value
+        and len(value) <= limit
+        and value.isascii()
+        and all(ord(char) >= 32 and ord(char) != 127 for char in value)
+    ):
         return value
     return None
 
@@ -1826,8 +2216,9 @@ def _api_model_metadata(item: dict[str, Any]) -> dict[str, Any]:
     reasoning = capabilities.get("reasoning")
     options: list[str] | None = None
     if isinstance(reasoning, dict) and isinstance(reasoning.get("allowed_options"), list):
-        options = [label for raw in reasoning["allowed_options"][:16]
-                   if (label := _metadata_label(raw, 32)) is not None]
+        options = [
+            label for raw in reasoning["allowed_options"][:16] if (label := _metadata_label(raw, 32)) is not None
+        ]
     instances = item.get("loaded_instances")
     loaded_instances: list[dict[str, Any]] | None = None
     if isinstance(instances, list):
@@ -1840,15 +2231,23 @@ def _api_model_metadata(item: dict[str, Any]) -> dict[str, Any]:
                 continue
             config = raw.get("config")
             config = config if isinstance(config, dict) else {}
-            loaded_instances.append({
-                "id": instance_id,
-                "context": _integer(config.get("context_length"), 1),
-                "parallel": _integer(config.get("parallel"), 1, 10000),
-                "remainingTtlSeconds": _integer(raw.get("remaining_ttl_seconds")),
-            })
-    instance_count = (len(instances) if isinstance(instances, list) and len(instances) <= 16
-                      and loaded_instances is not None and len(loaded_instances) == len(instances)
-                      and len({row['id'] for row in loaded_instances}) == len(instances) else None)
+            loaded_instances.append(
+                {
+                    "id": instance_id,
+                    "context": _integer(config.get("context_length"), 1),
+                    "parallel": _integer(config.get("parallel"), 1, 10000),
+                    "remainingTtlSeconds": _integer(raw.get("remaining_ttl_seconds")),
+                }
+            )
+    instance_count = (
+        len(instances)
+        if isinstance(instances, list)
+        and len(instances) <= 16
+        and loaded_instances is not None
+        and len(loaded_instances) == len(instances)
+        and len({row["id"] for row in loaded_instances}) == len(instances)
+        else None
+    )
     return {
         "type": _metadata_label(item.get("type")),
         "publisher": _metadata_label(item.get("publisher")),
@@ -1859,10 +2258,12 @@ def _api_model_metadata(item: dict[str, Any]) -> dict[str, Any]:
         "format": _metadata_label(item.get("format")),
         "capabilities": {
             "vision": capabilities.get("vision") if type(capabilities.get("vision")) is bool else None,
-            "toolUse": (capabilities.get("trained_for_tool_use")
-                        if type(capabilities.get("trained_for_tool_use")) is bool else None),
-            "reasoning": (True if isinstance(reasoning, dict) else reasoning
-                          if type(reasoning) is bool else None),
+            "toolUse": (
+                capabilities.get("trained_for_tool_use")
+                if type(capabilities.get("trained_for_tool_use")) is bool
+                else None
+            ),
+            "reasoning": (True if isinstance(reasoning, dict) else reasoning if type(reasoning) is bool else None),
             "reasoningOptions": options,
         },
         "loadedInstances": loaded_instances,
@@ -1870,8 +2271,16 @@ def _api_model_metadata(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _model_row(model_id: str, name: str, *, state: str, loaded: bool | None,
-               source: str, age: float | None, raw: dict[str, Any] | None = None) -> dict[str, Any]:
+def _model_row(
+    model_id: str,
+    name: str,
+    *,
+    state: str,
+    loaded: bool | None,
+    source: str,
+    age: float | None,
+    raw: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     raw = raw or {}
     # Only exact status strings documented/observed by LM Studio are actionable.
     raw_status = raw.get("status")
@@ -1915,27 +2324,36 @@ def _parse_api(payload: dict[str, Any], now: float) -> list[dict[str, Any]]:
     if not isinstance(entries, list):
         raise ValueError("model list missing")
     if len(entries) > 256:
-        raise _IncompleteInventoryError("Local inventory incomplete: model list exceeds 256 entries; this source cannot establish the loaded count")
+        raise _IncompleteInventoryError(
+            "Local inventory incomplete: model list exceeds 256 entries; this source cannot establish the loaded count"
+        )
     rows = []
     seen = set()
     for item in entries:
         if not isinstance(item, dict):
-            raise _IncompleteInventoryError("Local inventory incomplete: invalid model row; this source cannot establish the loaded count")
+            raise _IncompleteInventoryError(
+                "Local inventory incomplete: invalid model row; this source cannot establish the loaded count"
+            )
         candidate = _text(item.get("key")) or _text(item.get("id"))
         if not candidate or not _MODEL_ID.fullmatch(candidate) or candidate in seen:
-            raise _IncompleteInventoryError("Local inventory incomplete: invalid or duplicate model identifier; this source cannot establish the loaded count")
+            raise _IncompleteInventoryError(
+                "Local inventory incomplete: invalid or duplicate model identifier; this source cannot establish the loaded count"
+            )
         seen.add(candidate)
         model_id = candidate
         name = _metadata_label(item.get("display_name")) or model_id
         instances = item.get("loaded_instances")
-        loaded = (bool(instances) if isinstance(instances, list) else None)
+        loaded = bool(instances) if isinstance(instances, list) else None
         # API v1 is inventory evidence, not evidence that generation is happening.
-        row = _model_row(model_id, name,
-                               state=("loaded" if loaded is True else
-                                      "unloaded" if loaded is False else "unknown"),
-                               loaded=loaded, source="lmstudio-api", age=0.0,
-                               raw={"contextLength": item.get("max_context_length"),
-                                    "sizeBytes": item.get("size_bytes")})
+        row = _model_row(
+            model_id,
+            name,
+            state=("loaded" if loaded is True else "unloaded" if loaded is False else "unknown"),
+            loaded=loaded,
+            source="lmstudio-api",
+            age=0.0,
+            raw={"contextLength": item.get("max_context_length"), "sizeBytes": item.get("size_bytes")},
+        )
         row["metadata"] = _api_model_metadata(item)
         key = _text(item.get("key"))
         row["modelKey"] = key if key and _MODEL_ID.fullmatch(key) else None
@@ -1943,16 +2361,20 @@ def _parse_api(payload: dict[str, Any], now: float) -> list[dict[str, Any]]:
         raw_instances = item.get("loaded_instances")
         row["loadedInstanceIds"] = (
             [instance["id"] for instance in instances_detail]
-            if (isinstance(raw_instances, list) and len(raw_instances) <= 16
-                and instances_detail is not None and len(instances_detail) == len(raw_instances)
-                and len({instance['id'] for instance in instances_detail}) == len(raw_instances))
-            else None)
+            if (
+                isinstance(raw_instances, list)
+                and len(raw_instances) <= 16
+                and instances_detail is not None
+                and len(instances_detail) == len(raw_instances)
+                and len({instance["id"] for instance in instances_detail}) == len(raw_instances)
+            )
+            else None
+        )
         # A catalog row is not a runtime-instance count. Until the CLI accounts
         # for each alias, multiple or unprojectable instances forbid an exact total.
-        row["inventoryComplete"] = (row["loadedInstanceIds"] is not None
-                                    and len(row["loadedInstanceIds"]) <= 1)
+        row["inventoryComplete"] = row["loadedInstanceIds"] is not None and len(row["loadedInstanceIds"]) <= 1
         if loaded is True and not instances_detail:
-            row.update(loaded=None, state='unknown')
+            row.update(loaded=None, state="unknown")
         rows.append(row)
     return rows
 
@@ -1962,36 +2384,44 @@ def _parse_lms(payload: dict[str, Any], now: float) -> list[dict[str, Any]]:
     if not isinstance(entries, list):
         raise ValueError("model list missing")
     if len(entries) > 256:
-        raise _IncompleteInventoryError("Local inventory incomplete: model list exceeds 256 entries; this source cannot establish the loaded count")
+        raise _IncompleteInventoryError(
+            "Local inventory incomplete: model list exceeds 256 entries; this source cannot establish the loaded count"
+        )
     rows = []
     seen = set()
     for item in entries:
         if not isinstance(item, dict):
-            raise _IncompleteInventoryError("Local inventory incomplete: invalid model row; this source cannot establish the loaded count")
-        candidate = (_text(item.get("identifier")) or _text(item.get("modelKey"))
-                     or _text(item.get("key")) or _text(item.get("id")))
+            raise _IncompleteInventoryError(
+                "Local inventory incomplete: invalid model row; this source cannot establish the loaded count"
+            )
+        candidate = (
+            _text(item.get("identifier"))
+            or _text(item.get("modelKey"))
+            or _text(item.get("key"))
+            or _text(item.get("id"))
+        )
         if not candidate or not _MODEL_ID.fullmatch(candidate) or candidate in seen:
-            raise _IncompleteInventoryError("Local inventory incomplete: invalid or duplicate model identifier; this source cannot establish the loaded count")
+            raise _IncompleteInventoryError(
+                "Local inventory incomplete: invalid or duplicate model identifier; this source cannot establish the loaded count"
+            )
         seen.add(candidate)
         model_id = candidate
         name = _metadata_label(item.get("displayName")) or model_id
         # Restrict generation claims to exact reported values. Unknown enums stay unknown.
-        raw = {key: item.get(key) for key in
-               ("status", "queued", "parallel", "contextLength", "sizeBytes")}
+        raw = {key: item.get(key) for key in ("status", "queued", "parallel", "contextLength", "sizeBytes")}
         raw["max_context_length"] = item.get("max_context_length")
-        row = _model_row(model_id, name, state="loaded", loaded=True,
-                         source="lms-ps", age=0.0, raw=raw)
+        row = _model_row(model_id, name, state="loaded", loaded=True, source="lms-ps", age=0.0, raw=raw)
         key = _text(item.get("modelKey")) or _text(item.get("key"))
         row["modelKey"] = key if key and _MODEL_ID.fullmatch(key) else None
         identifier = _text(item.get("identifier"))
-        row["instanceId"] = (identifier if identifier and _MODEL_ID.fullmatch(identifier)
-                             else None)
+        row["instanceId"] = identifier if identifier and _MODEL_ID.fullmatch(identifier) else None
         rows.append(row)
     return rows
 
 
-def _merge_cli_rows(models_by_id: dict[str, dict[str, Any]],
-                    cli_rows: list[dict[str, Any]], *, isolate_collisions: bool = False) -> list[dict[str, Any]]:
+def _merge_cli_rows(
+    models_by_id: dict[str, dict[str, Any]], cli_rows: list[dict[str, Any]], *, isolate_collisions: bool = False
+) -> list[dict[str, Any]]:
     api_by_id = {row["id"]: row for row in models_by_id.values() if row.get("source") == "lmstudio-api"}
     api_by_key = {row["modelKey"]: row for row in api_by_id.values() if row.get("modelKey")}
     api_by_instance = {}
@@ -2003,15 +2433,21 @@ def _merge_cli_rows(models_by_id: dict[str, dict[str, Any]],
     # would break model_control's exact model-key/instance-ID confirmation contract.
     for row in cli_rows:
         same_id = models_by_id.get(row["id"])
-        if (not isolate_collisions and same_id and row.get("modelKey") is not None
-                and same_id.get("modelKey") != row["modelKey"]):
+        if (
+            not isolate_collisions
+            and same_id
+            and row.get("modelKey") is not None
+            and same_id.get("modelKey") != row["modelKey"]
+        ):
             raise _IncompleteInventoryError(
                 "Local inventory incomplete: instance identifier conflicts with another model key; "
-                "this source cannot establish the loaded count")
+                "this source cannot establish the loaded count"
+            )
     collisions = []
     for row in cli_rows[:256]:
-        previous = (api_by_key.get(row["modelKey"]) if row["modelKey"] is not None
-                    else api_by_instance.get(row["instanceId"]))
+        previous = (
+            api_by_key.get(row["modelKey"]) if row["modelKey"] is not None else api_by_instance.get(row["instanceId"])
+        )
         coincident = api_by_id.get(row["id"])
         if previous is None and coincident and row["modelKey"] in (None, coincident["modelKey"], coincident["id"]):
             previous = coincident
@@ -2022,46 +2458,71 @@ def _merge_cli_rows(models_by_id: dict[str, dict[str, Any]],
                 row["sizeBytes"] = previous["sizeBytes"]
             if row["metadata"] is None:
                 row["metadata"] = previous["metadata"]
-                if not (_finite(previous.get('ageSeconds')) and 0 <= previous['ageSeconds'] <= 3):
-                    row['metadata'] = {**(row['metadata'] or {}), 'loadedInstances': None, 'loadedInstanceCount': None}
+                if not (_finite(previous.get("ageSeconds")) and 0 <= previous["ageSeconds"] <= 3):
+                    row["metadata"] = {**(row["metadata"] or {}), "loadedInstances": None, "loadedInstanceCount": None}
             if row["name"] == row["id"]:
                 row["name"] = previous["name"]
             if row["modelKey"] is None:
                 row["modelKey"] = previous["modelKey"] or previous["id"]
             # Only the same-ID row may inherit the API's complete instance list.
-            if (row["loadedInstanceIds"] is None and row["id"] == previous["id"]
-                    and _finite(previous.get('ageSeconds')) and 0 <= previous['ageSeconds'] <= 3):
+            if (
+                row["loadedInstanceIds"] is None
+                and row["id"] == previous["id"]
+                and _finite(previous.get("ageSeconds"))
+                and 0 <= previous["ageSeconds"] <= 3
+            ):
                 row["loadedInstanceIds"] = previous["loadedInstanceIds"]
         if coincident and row["modelKey"] != (coincident["modelKey"] or coincident["id"]):
             # Inventory keys and instance IDs are separate namespaces. Preserve the
             # inventory and keep this activity out of flat UI/control row identities.
-            collisions.append({key: row[key] for key in ("id", "host", "modelKey", "instanceId",
-                "loadedInstanceIds", "loaded", "state", "source", "ageSeconds")})
+            collisions.append(
+                {
+                    key: row[key]
+                    for key in (
+                        "id",
+                        "host",
+                        "modelKey",
+                        "instanceId",
+                        "loadedInstanceIds",
+                        "loaded",
+                        "state",
+                        "source",
+                        "ageSeconds",
+                    )
+                }
+            )
             continue
         models_by_id[row["id"]] = row
     for row in models_by_id.values():
         if row.get("source") != "lmstudio-api":
             continue
         instances = row.get("loadedInstanceIds")
-        matching = {cli["id"] for cli in cli_rows
-                    if cli.get("modelKey") == row.get("modelKey")
-                    and cli.get("instanceId") == cli["id"]}
+        matching = {
+            cli["id"]
+            for cli in cli_rows
+            if cli.get("modelKey") == row.get("modelKey") and cli.get("instanceId") == cli["id"]
+        }
         # Keep API confirmation for model_control, but do not count its catalog
         # row as another loaded instance once all instances have CLI evidence.
-        if (row.get("modelKey") and isinstance(instances, list) and instances
-                and set(instances) == matching and not any(c["id"] in matching for c in collisions)):
+        if (
+            row.get("modelKey")
+            and isinstance(instances, list)
+            and instances
+            and set(instances) == matching
+            and not any(c["id"] in matching for c in collisions)
+        ):
             row["representedByInstances"] = True
         elif matching and not any(c["id"] in matching for c in collisions):
             row["inventoryComplete"] = False
     # A same-ID CLI row can replace the catalog itself. Preserve contradictory
     # instance evidence in that case too; otherwise the missing aliases vanish.
     for catalog in api_by_key.values():
-        matching = {row['id'] for row in cli_rows if row.get('modelKey') == catalog['modelKey']}
-        instances = catalog.get('loadedInstanceIds')
-        if catalog.get('loaded') is True and matching and (instances is None or set(instances) != matching):
+        matching = {row["id"] for row in cli_rows if row.get("modelKey") == catalog["modelKey"]}
+        instances = catalog.get("loadedInstanceIds")
+        if catalog.get("loaded") is True and matching and (instances is None or set(instances) != matching):
             for row in cli_rows:
-                if row.get('modelKey') == catalog['modelKey']:
-                    row['inventoryComplete'] = False
+                if row.get("modelKey") == catalog["modelKey"]:
+                    row["inventoryComplete"] = False
     return collisions
 
 
@@ -2072,11 +2533,21 @@ def _pipeline_rows(observation: dict[str, Any], now: float) -> list[dict[str, An
         note = row["note"] or {}
         recorded = row["recordedUnix"] if row["recordedUnix"] is not None else row["startedUnix"]
         until = note.get("untilUnix")
-        rows.append({"runId": row["runId"], "status": row["state"], "stage": row["stage"],
-                     "host": row["host"], "client": row["client"], "live": row["live"],
-                     "layout": row["layout"], "recoveryRequired": row["recoveryRequired"],
-                     "ageSeconds": _age(recorded, now), "resource": note.get("resource"),
-                     "secondsLeft": round(max(0.0, until - now), 1) if until is not None else None})
+        rows.append(
+            {
+                "runId": row["runId"],
+                "status": row["state"],
+                "stage": row["stage"],
+                "host": row["host"],
+                "client": row["client"],
+                "live": row["live"],
+                "layout": row["layout"],
+                "recoveryRequired": row["recoveryRequired"],
+                "ageSeconds": _age(recorded, now),
+                "resource": note.get("resource"),
+                "secondsLeft": round(max(0.0, until - now), 1) if until is not None else None,
+            }
+        )
     return rows
 
 
@@ -2087,32 +2558,53 @@ def _marker_attribution(marker: dict[str, Any], live_ids: set[str], now: float) 
     marker (the form pipeline_integrations writes: operation draft/review/answer, a sha256
     digest, a finite start not in the future) is attributed; anything else stays recovery."""
     started = marker.get("started_unix")
-    if (marker.get("kind") != _PENDING_KIND or set(marker) != _PENDING_ROUTER_KEYS
-            or not isinstance(marker.get("runId"), str) or not _PENDING_RUN_ID.fullmatch(marker["runId"])
-            or marker.get("operation") not in _PENDING_OPERATIONS
-            or not isinstance(marker.get("input_sha256"), str) or not _SHA256.fullmatch(marker["input_sha256"])
-            or not _finite(started) or started > now + 5):
+    if (
+        marker.get("kind") != _PENDING_KIND
+        or set(marker) != _PENDING_ROUTER_KEYS
+        or not isinstance(marker.get("runId"), str)
+        or not _PENDING_RUN_ID.fullmatch(marker["runId"])
+        or marker.get("operation") not in _PENDING_OPERATIONS
+        or not isinstance(marker.get("input_sha256"), str)
+        or not _SHA256.fullmatch(marker["input_sha256"])
+        or not _finite(started)
+        or started > now + 5
+    ):
         return None
     child = marker["runId"]
     for suffix in _ROUTER_MARKER_SUFFIXES:
-        if child.endswith(suffix) and child[:-len(suffix)] in live_ids:
-            return child[:-len(suffix)]
+        if child.endswith(suffix) and child[: -len(suffix)] in live_ids:
+            return child[: -len(suffix)]
     return None
 
 
 def _pipeline(now: float, router: dict[str, Any] | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
     pipeline: dict[str, Any] = {
-        "runId": None, "status": "unknown", "stage": None,
-        "recoveryRequired": False, "pendingMarkerObserved": False, "ageSeconds": None,
-        "pendingMarkerAgeSeconds": None, "pendingMarkerOwner": None,
-        "pendingMarkerAttributedTo": None, "pendingMarkerForeign": False, "pendingMarkerUnreadable": False,
-        "queuePhase": None, "queueResource": None,
+        "runId": None,
+        "status": "unknown",
+        "stage": None,
+        "recoveryRequired": False,
+        "pendingMarkerObserved": False,
+        "ageSeconds": None,
+        "pendingMarkerAgeSeconds": None,
+        "pendingMarkerOwner": None,
+        "pendingMarkerAttributedTo": None,
+        "pendingMarkerForeign": False,
+        "pendingMarkerUnreadable": False,
+        "queuePhase": None,
+        "queueResource": None,
         "steps": [{"id": key, "label": label, "state": "pending"} for key, label in _STEPS],
         "usage": {"inputTokens": None, "outputTokens": None, "totalTokens": None},
-        "authorModel": None, "reviewerModel": None, "pipelines": [],
+        "authorModel": None,
+        "reviewerModel": None,
+        "pipelines": [],
     }
-    source = {"id": "pipeline-router", "label": "Pipeline", "state": "unavailable",
-              "ageSeconds": None, "detail": "Router state unavailable"}
+    source = {
+        "id": "pipeline-router",
+        "label": "Pipeline",
+        "state": "unavailable",
+        "ageSeconds": None,
+        "detail": "Router state unavailable",
+    }
     if router is None:
         router = _router_observation(now)
     primary = router["primary"]
@@ -2122,8 +2614,8 @@ def _pipeline(now: float, router: dict[str, Any] | None = None) -> tuple[dict[st
             raise _RouterInstalling()
         if router["error"]:
             raise ValueError(router["error"])
-        if primary is None and router['truncated']:
-            raise ValueError('Router listing incomplete')
+        if primary is None and router["truncated"]:
+            raise ValueError("Router listing incomplete")
         if primary is None:
             raise FileNotFoundError("no router run record")
         if _router_queued(primary):
@@ -2131,9 +2623,13 @@ def _pipeline(now: float, router: dict[str, Any] | None = None) -> tuple[dict[st
             # listed, never a running route and never promoted to one.
             # queuePhase / queueResource let the UI say "queued for a lane" only for a run whose
             # note says it waits for one ('admitting' waits for admission, not a lane).
-            pipeline.update(runId=primary["runId"], status="queued", stage=primary["stage"],
-                            queuePhase=primary["state"],
-                            queueResource=(primary["note"] or {}).get("resource"))
+            pipeline.update(
+                runId=primary["runId"],
+                status="queued",
+                stage=primary["stage"],
+                queuePhase=primary["state"],
+                queueResource=(primary["note"] or {}).get("resource"),
+            )
             source.update(state="live", detail=f"Router run {primary['runId']} is queued; its run lock is held")
             raise _RouterListed()
         active = primary["_record"]
@@ -2146,8 +2642,10 @@ def _pipeline(now: float, router: dict[str, Any] | None = None) -> tuple[dict[st
             # A run listed without a record read in this sample: past the read budget (never
             # live then), or a live pre-begin run whose note says running (no record yet).
             pipeline.update(runId=primary["runId"], status="unresolved", stage=primary["stage"])
-            source.update(state="live" if primary["live"] else "stale",
-                          detail="Router run listed; its checkpoint was not read in this sample")
+            source.update(
+                state="live" if primary["live"] else "stale",
+                detail="Router run listed; its checkpoint was not read in this sample",
+            )
             raise _RouterListed()
         run_id = _text(active.get("runId"), 80)
         stage = _text(active.get("stage"), 64)
@@ -2164,12 +2662,13 @@ def _pipeline(now: float, router: dict[str, Any] | None = None) -> tuple[dict[st
         age = _age(recorded if recorded is not None or not live else active.get("startedUnix"), now)
         evidence = checkpoint.get("evidence") if isinstance(checkpoint.get("evidence"), dict) else {}
         recovery = evidence.get("recoveryRequired") is True
-        pipeline.update(runId=run_id, status="unresolved", stage=stage,
-                        recoveryRequired=recovery, ageSeconds=age)
+        pipeline.update(runId=run_id, status="unresolved", stage=stage, recoveryRequired=recovery, ageSeconds=age)
         # Checkpoints describe recorded progress, not a live generation lock.
-        source.update(state="live" if live or age is not None and age <= _MAX_AGE else "stale",
-                      ageSeconds=age,
-                      detail="Recorded router checkpoint; live execution is unverified")
+        source.update(
+            state="live" if live or age is not None and age <= _MAX_AGE else "stale",
+            ageSeconds=age,
+            detail="Recorded router checkpoint; live execution is unverified",
+        )
         if not live and (age is None or age > _MAX_AGE):
             pipeline["status"] = "stale"
             for step in pipeline["steps"]:
@@ -2183,8 +2682,9 @@ def _pipeline(now: float, router: dict[str, Any] | None = None) -> tuple[dict[st
             if recovery:
                 pipeline["status"] = "recovery-required"
     except _RouterInstalling:
-        source.update(state="unavailable",
-                      detail="Router install in progress; route state is verified again when it finishes")
+        source.update(
+            state="unavailable", detail="Router install in progress; route state is verified again when it finishes"
+        )
     except _RouterListed:
         pass
     except FileNotFoundError:
@@ -2218,8 +2718,9 @@ def _pipeline(now: float, router: dict[str, Any] | None = None) -> tuple[dict[st
             # Only the single-run router's anonymous 3-key marker may be the live primary's own
             # call (one route at a time).  A 5-key marker that names no live run, or any marker
             # beside a per-run primary, belongs to no live route: it stays recovery-required.
-            pipeline["pendingMarkerForeign"] = (set(marker) == _PENDING_ROUTER_KEYS or primary is None
-                                                or primary["layout"] != "legacy")
+            pipeline["pendingMarkerForeign"] = (
+                set(marker) == _PENDING_ROUTER_KEYS or primary is None or primary["layout"] != "legacy"
+            )
             if pipeline["status"] not in ("unknown", "stale", "installing", "queued"):
                 pipeline["status"] = "recovery-required"
             source["detail"] = "Nisi pending marker exists; recovery state is unresolved"
@@ -2230,11 +2731,12 @@ def _pipeline(now: float, router: dict[str, Any] | None = None) -> tuple[dict[st
         source["detail"] = "Nisi marker invalid or unreadable"
         pipeline["pendingMarkerUnreadable"] = True
     pipeline["pipelines"] = _pipeline_rows(router, now)
-    pipeline['pipelinesComplete'] = (_router_projection(router, now)['runCountsComplete']
-                                     and len(router['rows']) <= _ROUTER_PROJECTED)
+    pipeline["pipelinesComplete"] = (
+        _router_projection(router, now)["runCountsComplete"] and len(router["rows"]) <= _ROUTER_PROJECTED
+    )
     if source["state"] in ("live", "recorded"):
         source["observationAgeSeconds"] = 0.0
-    pipeline['runsTruncated'] = router.get('truncated') is True or len(router['rows']) > _ROUTER_PROJECTED
+    pipeline["runsTruncated"] = router.get("truncated") is True or len(router["rows"]) > _ROUTER_PROJECTED
     return pipeline, source
 
 
@@ -2250,7 +2752,7 @@ _PENDING_KIND = "codemode.nisi.pending.v1"
 _PENDING_KEYS = frozenset({"kind", "started_unix", "input_sha256"})
 _PENDING_ROUTER_KEYS = _PENDING_KEYS | {"runId", "operation"}
 _PENDING_RUN_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}\Z")
-_PENDING_OPERATIONS = ("draft", "review", "answer")     # pipeline_integrations.IDENTITY_MODES
+_PENDING_OPERATIONS = ("draft", "review", "answer")  # pipeline_integrations.IDENTITY_MODES
 
 
 def _pending_marker_facts(marker: dict[str, Any], now: float) -> dict[str, Any]:
@@ -2263,8 +2765,12 @@ def _pending_marker_facts(marker: dict[str, Any], now: float) -> dict[str, Any]:
     unknown = {"pendingMarkerAgeSeconds": None, "pendingMarkerOwner": None}
     keys = set(marker)
     started = marker.get("started_unix")
-    if (marker.get("kind") != _PENDING_KIND or keys not in (_PENDING_KEYS, _PENDING_ROUTER_KEYS)
-            or not _finite(started) or started > now + 5):
+    if (
+        marker.get("kind") != _PENDING_KIND
+        or keys not in (_PENDING_KEYS, _PENDING_ROUTER_KEYS)
+        or not _finite(started)
+        or started > now + 5
+    ):
         return unknown
     if keys == _PENDING_ROUTER_KEYS:
         run_id = marker.get("runId")
@@ -2283,9 +2789,12 @@ def _mark_live_route(pipeline: dict[str, Any], source: dict[str, Any], mode: dic
     Only when Online Code Mode verified the live work process that owns this
     exact run is that marker expected; otherwise it still means recovery.
     """
-    if (mode.get("state") == "processing" and pipeline.get("runId")
-            and mode.get("routeId") == pipeline["runId"]
-            and pipeline.get("status") in ("recovery-required", "unresolved")):
+    if (
+        mode.get("state") == "processing"
+        and pipeline.get("runId")
+        and mode.get("routeId") == pipeline["runId"]
+        and pipeline.get("status") in ("recovery-required", "unresolved")
+    ):
         # A marker that belongs to no live run (pendingMarkerForeign) is not this route's call:
         # the route runs, and that marker still needs recovery.
         foreign = pipeline.get("pendingMarkerForeign") is True
@@ -2294,9 +2803,11 @@ def _mark_live_route(pipeline: dict[str, Any], source: dict[str, Any], mode: dic
             if step["state"] == "blocked" and not foreign:
                 step["state"] = "active"
         attributed = pipeline.get("pendingMarkerAttributedTo")
-        detail = ("Live route; its run lock (legacy: owner lock and work process) was verified"
-                  + (f"; Nisi call in flight for live route {attributed}" if attributed else "")
-                  + ("; a Nisi pending marker belongs to no live route" if foreign else ""))
+        detail = (
+            "Live route; its run lock (legacy: owner lock and work process) was verified"
+            + (f"; Nisi call in flight for live route {attributed}" if attributed else "")
+            + ("; a Nisi pending marker belongs to no live route" if foreign else "")
+        )
         if pipeline.get("pendingMarkerUnreadable"):
             # The route is live, but a marker that could not be read stays an error.
             source.update(state="error", detail=detail + "; Nisi marker invalid or unreadable")
@@ -2312,39 +2823,59 @@ def _canary(now: float) -> tuple[dict[str, Any], dict[str, Any]]:
     evidence that a target or model is running.
     """
     summary: dict[str, Any] = {
-        "enabled": None, "stateCounts": None, "outstanding": None,
+        "enabled": None,
+        "stateCounts": None,
+        "outstanding": None,
         "latestRecordedTransitionAgeSeconds": None,
     }
-    source = {"id": "canary-ledger", "label": "Canary", "state": "unavailable",
-              "ageSeconds": None, "detail": "Durable Canary ledger unavailable; scheduler status unknown"}
+    source = {
+        "id": "canary-ledger",
+        "label": "Canary",
+        "state": "unavailable",
+        "ageSeconds": None,
+        "detail": "Durable Canary ledger unavailable; scheduler status unknown",
+    }
     try:
         directory = _CANARY_ROOT.lstat()
-        if (_CANARY_ROOT.is_symlink() or not stat.S_ISDIR(directory.st_mode)
-                or directory.st_uid != os.getuid() or stat.S_IMODE(directory.st_mode) & 0o077):
+        if (
+            _CANARY_ROOT.is_symlink()
+            or not stat.S_ISDIR(directory.st_mode)
+            or directory.st_uid != os.getuid()
+            or stat.S_IMODE(directory.st_mode) & 0o077
+        ):
             raise ValueError("unsafe ledger directory")
         state = _safe_file(_CANARY_PATH, _MAX_CANARY_STATE)
-        if (set(state) != {"schema", "config", "configHash", "enabled", "events", "integrityHash"}
-                or type(state["schema"]) is not int or state["schema"] != 1
-                or type(state["enabled"]) is not bool or not isinstance(state["config"], dict)
-                or not isinstance(state["events"], dict)):
+        if (
+            set(state) != {"schema", "config", "configHash", "enabled", "events", "integrityHash"}
+            or type(state["schema"]) is not int
+            or state["schema"] != 1
+            or type(state["enabled"]) is not bool
+            or not isinstance(state["config"], dict)
+            or not isinstance(state["events"], dict)
+        ):
             raise ValueError("invalid ledger schema")
 
         def digest(value: Any) -> str:
-            raw = json.dumps(value, sort_keys=True, separators=(",", ":"),
-                             ensure_ascii=False, allow_nan=False).encode("utf-8")
+            raw = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode(
+                "utf-8"
+            )
             return hashlib.sha256(raw).hexdigest()
 
-        if (state["configHash"] != digest(state["config"])
-                or state["integrityHash"] != digest({key: value for key, value in state.items()
-                                                       if key != "integrityHash"})):
+        if state["configHash"] != digest(state["config"]) or state["integrityHash"] != digest(
+            {key: value for key, value in state.items() if key != "integrityHash"}
+        ):
             raise ValueError("ledger integrity mismatch")
 
         counts = {key: 0 for key in _CANARY_STATES}
         outstanding = 0
         latest = None
         for event_id, event in state["events"].items():
-            if (not isinstance(event_id, str) or not isinstance(event, dict)
-                    or event.get("eventId") != event_id or event.get("state") not in counts):
+            if (
+                not isinstance(event_id, str)
+                or not isinstance(event, dict)
+                or event.get("eventId") != event_id
+                or event.get("state") not in counts
+            ):
                 raise ValueError("invalid ledger event")
             phase = event["state"]
             created = event.get("createdAt")
@@ -2358,8 +2889,7 @@ def _canary(now: float) -> tuple[dict[str, Any], dict[str, Any]]:
                 stamps.append(claim)
             if phase == "HELD":
                 held = event.get("heldAt")
-                if (type(held) is not int or held <= 0
-                        or type(event.get("heldBlocksTarget")) is not bool):
+                if type(held) is not int or held <= 0 or type(event.get("heldBlocksTarget")) is not bool:
                     raise ValueError("invalid hold metadata")
                 stamps.append(held)
             latest = max([latest, *stamps]) if latest is not None else max(stamps)
@@ -2369,12 +2899,21 @@ def _canary(now: float) -> tuple[dict[str, Any], dict[str, Any]]:
             if phase in ("CLAIMED", "SENT", "RECEIVED") or (phase == "HELD" and event["heldBlocksTarget"]):
                 outstanding += 1
         age = _age(latest, now) if latest is not None and latest <= now + 1 else None
-        summary.update(enabled=state["enabled"], stateCounts=counts,
-                       outstanding=outstanding, latestRecordedTransitionAgeSeconds=age)
-        source.update(state="recorded", ageSeconds=age,
-                      detail=(f"Durable ledger {'enabled' if state['enabled'] else 'disabled'}; "
-                              f"{len(state['events'])} recorded events, {outstanding} outstanding. "
-                              "Scheduler and target activity unverified"))
+        summary.update(
+            enabled=state["enabled"],
+            stateCounts=counts,
+            outstanding=outstanding,
+            latestRecordedTransitionAgeSeconds=age,
+        )
+        source.update(
+            state="recorded",
+            ageSeconds=age,
+            detail=(
+                f"Durable ledger {'enabled' if state['enabled'] else 'disabled'}; "
+                f"{len(state['events'])} recorded events, {outstanding} outstanding. "
+                "Scheduler and target activity unverified"
+            ),
+        )
     except FileNotFoundError:
         pass
     except Exception:
@@ -2405,13 +2944,18 @@ def _windows_worker_stuck_readers() -> int | None:
     global _WINDOWS_WORKER_LAST_STUCK
     count: int | None = None
     try:
-        listing = _bounded_command(["/bin/ps", "-axo", "uid=,state=,command=", "-ww"],
-                                   limit=_MAX_CLI, timeout=1.0,
-                                   cancel=_WINDOWS_WORKER_CANCEL)
+        listing = _bounded_command(
+            ["/bin/ps", "-axo", "uid=,state=,command=", "-ww"],
+            limit=_MAX_CLI,
+            timeout=1.0,
+            cancel=_WINDOWS_WORKER_CANCEL,
+        )
         if listing:
-            suffixes = (f"{_WINDOWS_WORKER_CMD} _io-child",
-                        f"{_SHAREDCHAMI_ENSURE} --probe",
-                        f"{_SHAREDCHAMI_ENSURE} --probe-read-only")
+            suffixes = (
+                f"{_WINDOWS_WORKER_CMD} _io-child",
+                f"{_SHAREDCHAMI_ENSURE} --probe",
+                f"{_SHAREDCHAMI_ENSURE} --probe-read-only",
+            )
             parsed = stuck = 0
             for line in listing.splitlines():
                 fields = line.split(None, 2)
@@ -2421,8 +2965,11 @@ def _windows_worker_stuck_readers() -> int | None:
                 if not uid.isdigit() or not state:
                     continue
                 parsed += 1
-                if (uid == str(os.getuid()) and state.startswith("U")
-                        and any(command.endswith(suffix) for suffix in suffixes)):
+                if (
+                    uid == str(os.getuid())
+                    and state.startswith("U")
+                    and any(command.endswith(suffix) for suffix in suffixes)
+                ):
                     stuck += 1
             count = stuck if parsed else None
     except (OSError, ValueError, TimeoutError, subprocess.SubprocessError):
@@ -2460,14 +3007,28 @@ def _windows_lanes(value: Any) -> dict[str, Any] | None:
         if not isinstance(row, dict):
             return None
         slots, model = row.get("slots"), _metadata_label(row.get("alias"))
-        if (type(row.get("up")) is not bool or model is None or row.get("kind") not in ("qwen", "gpt-oss")
-                or not (slots is None or (isinstance(slots, dict) and type(slots.get("busy")) is int
-                                          and type(slots.get("total")) is int
-                                          and 0 <= slots["busy"] <= slots["total"] <= 64))):
+        if (
+            type(row.get("up")) is not bool
+            or model is None
+            or row.get("kind") not in ("qwen", "gpt-oss")
+            or not (
+                slots is None
+                or (
+                    isinstance(slots, dict)
+                    and type(slots.get("busy")) is int
+                    and type(slots.get("total")) is int
+                    and 0 <= slots["busy"] <= slots["total"] <= 64
+                )
+            )
+        ):
             return None
-        lanes[name] = {"up": row["up"], "model": model, "kind": row["kind"],
-                       "slotsBusy": None if slots is None else slots["busy"],
-                       "slotsTotal": None if slots is None else slots["total"]}
+        lanes[name] = {
+            "up": row["up"],
+            "model": model,
+            "kind": row["kind"],
+            "slotsBusy": None if slots is None else slots["busy"],
+            "slotsTotal": None if slots is None else slots["total"],
+        }
     return lanes
 
 
@@ -2494,8 +3055,14 @@ def _windows_gpus(value: Any) -> list[dict[str, Any]] | None:
         if not isinstance(row, dict):
             return None
         index, name = row.get("index"), row.get("name")
-        if (type(index) is not int or not 0 <= index <= 63 or index in seen or not isinstance(name, str)
-                or not _WINDOWS_GPU_NAME.fullmatch(name) or name.strip() != name):
+        if (
+            type(index) is not int
+            or not 0 <= index <= 63
+            or index in seen
+            or not isinstance(name, str)
+            or not _WINDOWS_GPU_NAME.fullmatch(name)
+            or name.strip() != name
+        ):
             return None
         seen.add(index)
         clean: dict[str, Any] = {"index": index, "name": name}
@@ -2512,30 +3079,41 @@ def _windows_gpus(value: Any) -> list[dict[str, Any]] | None:
 def _windows_hardware(record: dict[str, Any]) -> dict[str, Any]:
     """One heartbeat's worker version and GPU rows, each None when absent or rejected."""
     version = record.get("worker_version")
-    return {"workerVersion": version if isinstance(version, str) and _WINDOWS_WORKER_VERSION.fullmatch(version) else None,
-            "gpus": _windows_gpus(record.get("gpus"))}
+    return {
+        "workerVersion": version if isinstance(version, str) and _WINDOWS_WORKER_VERSION.fullmatch(version) else None,
+        "gpus": _windows_gpus(record.get("gpus")),
+    }
 
 
 def _windows_headless(now: float) -> dict[str, Any]:
     """Project pc-llm's switch with its read_mode rules: anything unsafe, malformed,
     future-dated, expired or off reads as off. Numbers must be real, finite numbers."""
+
     def off(reason: str) -> dict[str, Any]:
         return {"state": "off", "reason": reason, "expiresInSeconds": None, "grantedBy": None}
+
     try:
         info = _WINDOWS_HEADLESS_PATH.lstat()
     except FileNotFoundError:
         return off("never turned on")
     except OSError:
         return off("mode file unreadable")
-    if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_uid != os.getuid()
-            or stat.S_IMODE(info.st_mode) & 0o077):
+    if (
+        not stat.S_ISREG(info.st_mode)
+        or info.st_nlink != 1
+        or info.st_uid != os.getuid()
+        or stat.S_IMODE(info.st_mode) & 0o077
+    ):
         return off("mode file unsafe")
     try:
         mode = _safe_file(_WINDOWS_HEADLESS_PATH, 4096)
     except (OSError, ValueError):
         return off("mode file unreadable")
-    if (mode.get("kind") != _WINDOWS_HEADLESS_KIND or type(mode.get("schemaVersion")) is not int
-            or mode["schemaVersion"] != 1):
+    if (
+        mode.get("kind") != _WINDOWS_HEADLESS_KIND
+        or type(mode.get("schemaVersion")) is not int
+        or mode["schemaVersion"] != 1
+    ):
         return off("mode file malformed")
     if mode.get("state") != "on":
         return off("turned off")
@@ -2549,8 +3127,12 @@ def _windows_headless(now: float) -> dict[str, Any]:
     if expires - granted > 12 * 3600 + 60:  # pc-llm never grants more than 12 hours
         return off("mode file malformed")
     by = mode.get("grantedBy")
-    return {"state": "on", "reason": None, "expiresInSeconds": round(expires - now),
-            "grantedBy": by if isinstance(by, str) and _WINDOWS_CLIENT.fullmatch(by) else None}
+    return {
+        "state": "on",
+        "reason": None,
+        "expiresInSeconds": round(expires - now),
+        "grantedBy": by if isinstance(by, str) and _WINDOWS_CLIENT.fullmatch(by) else None,
+    }
 
 
 def _windows_worker_probe() -> tuple[float, list[str], int, dict[str, Any] | None, dict[str, Any]] | None:
@@ -2573,33 +3155,58 @@ def _windows_worker_probe_locked() -> tuple[float, list[str], int, dict[str, Any
         raise _WindowsWorkerPaused(_WINDOWS_WORKER_LAST_STUCK)
     try:
         info = _WINDOWS_WORKER_CMD.lstat()
-        if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
-                or stat.S_IMODE(info.st_mode) & 0o022
-                or not os.access(_WINDOWS_WORKER_CMD, os.X_OK)):
+        if (
+            not stat.S_ISREG(info.st_mode)
+            or info.st_uid != os.getuid()
+            or stat.S_IMODE(info.st_mode) & 0o022
+            or not os.access(_WINDOWS_WORKER_CMD, os.X_OK)
+        ):
             return None
         # The dispatcher exits 2 when the worker is not ready but still prints
         # the validated heartbeat reason, which is what this observer needs.
-        output = _bounded_command([str(_WINDOWS_WORKER_CMD), "status", "--json", "--no-list"],
-                                  limit=4096, timeout=_WINDOWS_WORKER_COMMAND_TIMEOUT,
-                                  cancel=_WINDOWS_WORKER_CANCEL, ok_codes=(0, 2))
+        output = _bounded_command(
+            [str(_WINDOWS_WORKER_CMD), "status", "--json", "--no-list"],
+            limit=4096,
+            timeout=_WINDOWS_WORKER_COMMAND_TIMEOUT,
+            cancel=_WINDOWS_WORKER_CANCEL,
+            ok_codes=(0, 2),
+        )
         record = _json_object(output.encode("utf-8"), 4096)
         age = record.get("age")
         raw_models = record.get("models")
-        if (record.get("ok") is False and record.get("evidence_scope") == _WINDOWS_WORKER_SCOPE
-                and record.get("reason") in _WINDOWS_WORKER_CONDITIONS
-                and _finite(age) and 0 <= age <= 300):
-            raise _WindowsWorkerCondition(_WINDOWS_WORKER_CONDITIONS[record["reason"]], float(age),
-                                          _windows_lane_detail(record), _windows_hardware(record))
-        if (record.get("ok") is not True or record.get("evidence_scope") != _WINDOWS_WORKER_SCOPE
-                or not _finite(age)
-                or age < 0 or age > 300
-                or not isinstance(raw_models, list) or not 1 <= len(raw_models) <= 128):
+        if (
+            record.get("ok") is False
+            and record.get("evidence_scope") == _WINDOWS_WORKER_SCOPE
+            and record.get("reason") in _WINDOWS_WORKER_CONDITIONS
+            and _finite(age)
+            and 0 <= age <= 300
+        ):
+            raise _WindowsWorkerCondition(
+                _WINDOWS_WORKER_CONDITIONS[record["reason"]],
+                float(age),
+                _windows_lane_detail(record),
+                _windows_hardware(record),
+            )
+        if (
+            record.get("ok") is not True
+            or record.get("evidence_scope") != _WINDOWS_WORKER_SCOPE
+            or not _finite(age)
+            or age < 0
+            or age > 300
+            or not isinstance(raw_models, list)
+            or not 1 <= len(raw_models) <= 128
+        ):
             return None
         models = [_metadata_label(value) for value in raw_models]
         if any(value is None for value in models):
             return None
-        return (time.time() - float(age), models[:8], len(models), _windows_lane_detail(record),
-                _windows_hardware(record))
+        return (
+            time.time() - float(age),
+            models[:8],
+            len(models),
+            _windows_lane_detail(record),
+            _windows_hardware(record),
+        )
     except (OSError, ValueError, TimeoutError, subprocess.SubprocessError):
         return None
 
@@ -2614,8 +3221,9 @@ def _windows_worker_refresh(cache: dict[str, Any]) -> None:
             cache["probePaused"] = False
             cache["probeBusy"] = False
             cache["stuckReaders"] = 0
-            cache["retryAfterMonotonic"] = (time.monotonic() + _WINDOWS_WORKER_FAILURE_BACKOFF_SECONDS
-                                            if observed is None else 0.0)
+            cache["retryAfterMonotonic"] = (
+                time.monotonic() + _WINDOWS_WORKER_FAILURE_BACKOFF_SECONDS if observed is None else 0.0
+            )
             if observed is not None:
                 cache["heartbeatUnix"], cache["modelsAdvertised"], cache["modelCount"], cache["lanes"] = observed[:4]
                 cache["hardware"] = observed[4] if len(observed) > 4 else None
@@ -2623,10 +3231,19 @@ def _windows_worker_refresh(cache: dict[str, Any]) -> None:
     except _WindowsWorkerCondition as condition:
         kind, age, lanes, *extra = condition.args
         with _WINDOWS_WORKER_LOCK:
-            cache.update(probeError=False, probePaused=False, probeBusy=False, stuckReaders=0,
-                         retryAfterMonotonic=0.0, heartbeatUnix=time.time() - age,
-                         modelsAdvertised=[], modelCount=0, workerCondition=kind, lanes=lanes,
-                         hardware=extra[0] if extra else None)
+            cache.update(
+                probeError=False,
+                probePaused=False,
+                probeBusy=False,
+                stuckReaders=0,
+                retryAfterMonotonic=0.0,
+                heartbeatUnix=time.time() - age,
+                modelsAdvertised=[],
+                modelCount=0,
+                workerCondition=kind,
+                lanes=lanes,
+                hardware=extra[0] if extra else None,
+            )
     except _WindowsWorkerPaused as paused:
         reason = paused.args[0] if paused.args else None
         with _WINDOWS_WORKER_LOCK:
@@ -2687,15 +3304,19 @@ def _windows_worker(now: float) -> tuple[dict[str, Any], dict[str, Any]]:
     with _WINDOWS_WORKER_LOCK:
         cache = _WINDOWS_WORKER_CACHE
         checked = time.monotonic()
-        if (not _WINDOWS_WORKER_CANCEL.is_set() and not _WINDOWS_WORKER_HOLD.is_set()
-                and not cache.get("probeRunning")
-                and checked - cache["checkedMonotonic"] >= _WINDOWS_WORKER_POLL_SECONDS
-                and checked >= cache.get("retryAfterMonotonic", 0.0)):
+        if (
+            not _WINDOWS_WORKER_CANCEL.is_set()
+            and not _WINDOWS_WORKER_HOLD.is_set()
+            and not cache.get("probeRunning")
+            and checked - cache["checkedMonotonic"] >= _WINDOWS_WORKER_POLL_SECONDS
+            and checked >= cache.get("retryAfterMonotonic", 0.0)
+        ):
             cache["checkedMonotonic"] = checked
             cache["probeRunning"] = True
             try:
-                thread = threading.Thread(target=_windows_worker_refresh, args=(cache,),
-                                          name="windows-worker-heartbeat", daemon=False)
+                thread = threading.Thread(
+                    target=_windows_worker_refresh, args=(cache,), name="windows-worker-heartbeat", daemon=False
+                )
                 _WINDOWS_WORKER_THREAD = thread
                 thread.start()
             except RuntimeError:
@@ -2714,19 +3335,33 @@ def _windows_worker(now: float) -> tuple[dict[str, Any], dict[str, Any]]:
         stuck = cache.get("stuckReaders")
         stuck = stuck if type(stuck) is int and 0 <= stuck <= 10000 else None
         # Only a counted stuck reader recommends the share recovery in Fix.
-        hint = (f"; {stuck} stuck SharedChami reader{'s' if stuck != 1 else ''}: open Model Tuning Tool > "
-                "Check and repair inference > Run check to recover the share") if probe_paused and stuck else ""
+        hint = (
+            (
+                f"; {stuck} stuck SharedChami reader{'s' if stuck != 1 else ''}: open Model Tuning Tool > "
+                "Check and repair inference > Run check to recover the share"
+            )
+            if probe_paused and stuck
+            else ""
+        )
         if available:
             detail = "Recent registered Windows worker heartbeat; inventory only, inference unknown"
             if probe_paused:
-                detail += "; current refresh paused because a SharedChami reader is uninterruptible or cannot be ruled out" + hint
+                detail += (
+                    "; current refresh paused because a SharedChami reader is uninterruptible or cannot be ruled out"
+                    + hint
+                )
             elif probe_busy:
-                detail += "; current heartbeat refresh deferred while another monitor owner check is reading SharedChami"
+                detail += (
+                    "; current heartbeat refresh deferred while another monitor owner check is reading SharedChami"
+                )
             elif probe_error:
                 detail += "; current heartbeat probe inconclusive"
         elif probe_paused:
-            detail = ("Passive queue reads paused because a SharedChami reader is uninterruptible or cannot be ruled out"
-                      + hint + "; heartbeat availability unknown")
+            detail = (
+                "Passive queue reads paused because a SharedChami reader is uninterruptible or cannot be ruled out"
+                + hint
+                + "; heartbeat availability unknown"
+            )
         elif probe_busy:
             detail = "Heartbeat check deferred while another monitor owner check is reading SharedChami; heartbeat availability unknown"
         elif probe_error:
@@ -2738,8 +3373,10 @@ def _windows_worker(now: float) -> tuple[dict[str, Any], dict[str, Any]]:
         condition = cache.get("workerCondition") if available else None
         hardware = cache.get("hardware") if available and isinstance(cache.get("hardware"), dict) else None
         if condition == "degraded":
-            detail = ("Windows worker heartbeat is fresh, but no model lane answers (worker reports degraded); "
-                      "check the PC worker's configured lanes and start their model servers")
+            detail = (
+                "Windows worker heartbeat is fresh, but no model lane answers (worker reports degraded); "
+                "check the PC worker's configured lanes and start their model servers"
+            )
         elif condition == "stopped":
             detail = "Windows worker reports it has stopped; start the worker on the PC"
         worker = {
@@ -2754,8 +3391,9 @@ def _windows_worker(now: float) -> tuple[dict[str, Any], dict[str, Any]]:
             # today, so a degraded one arrives without them and the map says the heartbeat
             # has no lane detail. Lanes on a degraded heartbeat pass through unchanged once
             # the dispatcher sends them; a stopped worker writes none.
-            "lanes": ({name: dict(row) for name, row in cache["lanes"].items()}
-                      if available and cache.get("lanes") else None),
+            "lanes": (
+                {name: dict(row) for name, row in cache["lanes"].items()} if available and cache.get("lanes") else None
+            ),
             # Detail that was sent but rejected (by the dispatcher or here) is not "no detail".
             "lanesError": _WINDOWS_LANES_MALFORMED if available and cache.get("lanes") == {} else None,
             # Worker 1.2: its version and GPU sample from the same fresh heartbeat (None when not sent,
@@ -2763,10 +3401,15 @@ def _windows_worker(now: float) -> tuple[dict[str, Any], dict[str, Any]]:
             "workerVersion": hardware.get("workerVersion") if hardware else None,
             "gpus": [dict(row) for row in hardware["gpus"]] if hardware and hardware.get("gpus") else None,
         }
-    source = {"id": "windows-worker", "label": "Windows worker",
-              "state": "error" if probe_paused or probe_error or worker["state"] in ("degraded", "stopped")
-              else ("recorded" if available else "unavailable"),
-              "ageSeconds": age, "detail": worker["detail"]}
+    source = {
+        "id": "windows-worker",
+        "label": "Windows worker",
+        "state": "error"
+        if probe_paused or probe_error or worker["state"] in ("degraded", "stopped")
+        else ("recorded" if available else "unavailable"),
+        "ageSeconds": age,
+        "detail": worker["detail"],
+    }
     return worker, source
 
 
@@ -2791,6 +3434,7 @@ def _pid_alive(pid: int | None) -> bool:
 
 class _JournalTail(bytes):
     """A byte-compatible tail that retains the fact that earlier records were cut."""
+
     complete = False
 
 
@@ -2805,9 +3449,13 @@ def _read_windows_journal() -> bytes | None:
     fd = os.open(str(_WINDOWS_JOBS_PATH), os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     try:
         info = os.fstat(fd)
-        if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
-                or stat.S_IMODE(info.st_mode) & 0o077 or info.st_nlink != 1
-                or (info.st_dev, info.st_ino) != (before.st_dev, before.st_ino)):
+        if (
+            not stat.S_ISREG(info.st_mode)
+            or info.st_uid != os.getuid()
+            or stat.S_IMODE(info.st_mode) & 0o077
+            or info.st_nlink != 1
+            or (info.st_dev, info.st_ino) != (before.st_dev, before.st_ino)
+        ):
             raise ValueError("journal is not an owner-private regular file")
         start = max(0, info.st_size - _WINDOWS_JOBS_MAX)
         os.lseek(fd, start, os.SEEK_SET)
@@ -2840,13 +3488,26 @@ def _windows_jobs(now: float) -> tuple[dict[str, Any], dict[str, Any]]:
     dispatcher validated a returned remote result for that job at that time; it
     is not a certification and does not prove the worker is generating now.
     """
-    summary: dict[str, Any] = {"schemaVersion": 1, "journal": "absent", "complete": False, "inFlight": [],
-                               "recent": [], "lastSuccess": None, "unsettled": None, "clientsRecent": {}}
-    source = {"id": "windows-jobs", "label": "Windows jobs", "state": "unavailable",
-              "ageSeconds": None, "detail": "No Windows job has been journaled on this Mac yet"}
+    summary: dict[str, Any] = {
+        "schemaVersion": 1,
+        "journal": "absent",
+        "complete": False,
+        "inFlight": [],
+        "recent": [],
+        "lastSuccess": None,
+        "unsettled": None,
+        "clientsRecent": {},
+    }
+    source = {
+        "id": "windows-jobs",
+        "label": "Windows jobs",
+        "state": "unavailable",
+        "ageSeconds": None,
+        "detail": "No Windows job has been journaled on this Mac yet",
+    }
     try:
         journal = _read_windows_journal()
-        raw, truncated = journal if isinstance(journal, tuple) else (journal, not getattr(journal, 'complete', True))
+        raw, truncated = journal if isinstance(journal, tuple) else (journal, not getattr(journal, "complete", True))
     except (OSError, ValueError):
         summary["journal"] = "invalid"
         source.update(state="error", detail="Windows job journal is unreadable or not owner-private")
@@ -2856,7 +3517,7 @@ def _windows_jobs(now: float) -> tuple[dict[str, Any], dict[str, Any]]:
     jobs: dict[str, dict[str, Any]] = {}
     latest: float | None = None
     lines = raw.splitlines()
-    read_complete = not truncated and getattr(raw, 'complete', True) and len(lines) <= 2000
+    read_complete = not truncated and getattr(raw, "complete", True) and len(lines) <= 2000
     for line in lines[-2000:]:
         if not line.strip():
             continue
@@ -2867,20 +3528,44 @@ def _windows_jobs(now: float) -> tuple[dict[str, Any], dict[str, Any]]:
             continue
         job_id, event = record.get("id"), record.get("event")
         unix = _finite_number(record.get("unix"), 0.0, now)
-        if (record.get("v") != 1 or event not in _WINDOWS_JOBS_EVENTS or unix is None
-                or not isinstance(job_id, str) or not _WINDOWS_JOB_ID.fullmatch(job_id)):
+        if (
+            record.get("v") != 1
+            or event not in _WINDOWS_JOBS_EVENTS
+            or unix is None
+            or not isinstance(job_id, str)
+            or not _WINDOWS_JOB_ID.fullmatch(job_id)
+        ):
             read_complete = False
             continue
         latest = unix if latest is None else max(latest, unix)
-        job = jobs.setdefault(job_id, {"id": job_id, "state": None, "model": None,
-                                       "enqueuedUnix": None, "settledUnix": None,
-                                       "timeout": None, "elapsedSeconds": None, "pid": None,
-                                       "client": None, "lane": None, "predictedPerSecond": None,
-                                       "completionTokens": None, "promptPerSecond": None,
-                                       "promptTokens": None, "flags": [], "cancelRequested": False})
-        if (event == "result" and record.get("status") in _WINDOWS_JOB_RESULTS
-                and job["state"] in _WINDOWS_JOB_RESULTS and job["settledUnix"] is not None
-                and unix < job["settledUnix"]):
+        job = jobs.setdefault(
+            job_id,
+            {
+                "id": job_id,
+                "state": None,
+                "model": None,
+                "enqueuedUnix": None,
+                "settledUnix": None,
+                "timeout": None,
+                "elapsedSeconds": None,
+                "pid": None,
+                "client": None,
+                "lane": None,
+                "predictedPerSecond": None,
+                "completionTokens": None,
+                "promptPerSecond": None,
+                "promptTokens": None,
+                "flags": [],
+                "cancelRequested": False,
+            },
+        )
+        if (
+            event == "result"
+            and record.get("status") in _WINDOWS_JOB_RESULTS
+            and job["state"] in _WINDOWS_JOB_RESULTS
+            and job["settledUnix"] is not None
+            and unix < job["settledUnix"]
+        ):
             # An older result line (journal lines are not guaranteed to be in time order) never undoes a
             # newer one: not its state, speed, model, client or lane.
             continue
@@ -2910,10 +3595,16 @@ def _windows_jobs(now: float) -> tuple[dict[str, Any], dict[str, Any]]:
             if status == "cancelled":
                 # Settled: the worker stopped or skipped the job. There is no answer, so no speed,
                 # size or flag is kept, even if an earlier record carried some.
-                job.update(state="cancelled", settledUnix=unix,
-                           elapsedSeconds=_finite_number(record.get("elapsedSeconds"), 0.0, 86400.0),
-                           predictedPerSecond=None, completionTokens=None, promptPerSecond=None,
-                           promptTokens=None, flags=[])
+                job.update(
+                    state="cancelled",
+                    settledUnix=unix,
+                    elapsedSeconds=_finite_number(record.get("elapsedSeconds"), 0.0, 86400.0),
+                    predictedPerSecond=None,
+                    completionTokens=None,
+                    promptPerSecond=None,
+                    promptTokens=None,
+                    flags=[],
+                )
                 continue
             # A validated result is terminal and wins over any earlier timeout. Prompt (read) speed
             # and size sit beside generation speed; flags keep only the known ones, in a fixed order.
@@ -2925,23 +3616,33 @@ def _windows_jobs(now: float) -> tuple[dict[str, Any], dict[str, Any]]:
             # reported count of 0 tokens cannot vouch for one. (Speed comes from llama-server timings and the
             # count from usage, so a missing count alone does not void a speed.)
             timed = status == "success" and bool(elapsed)  # None (missing/invalid) or 0 s: no speed
-            job.update(state=status, settledUnix=unix, elapsedSeconds=elapsed,
-                       predictedPerSecond=(_finite_number(record.get("predictedPerSecond"), 0.0, 1e6)
-                                           if timed and completion != 0 else None),
-                       completionTokens=completion,
-                       promptPerSecond=(_finite_number(record.get("promptPerSecond"), 0.0, 1e6)
-                                        if timed and prompt_tokens != 0 else None),
-                       promptTokens=prompt_tokens,
-                       flags=[flag for flag in _WINDOWS_JOB_FLAGS
-                              if isinstance(flags, list) and flag in flags[:16]])
+            job.update(
+                state=status,
+                settledUnix=unix,
+                elapsedSeconds=elapsed,
+                predictedPerSecond=(
+                    _finite_number(record.get("predictedPerSecond"), 0.0, 1e6) if timed and completion != 0 else None
+                ),
+                completionTokens=completion,
+                promptPerSecond=(
+                    _finite_number(record.get("promptPerSecond"), 0.0, 1e6) if timed and prompt_tokens != 0 else None
+                ),
+                promptTokens=prompt_tokens,
+                flags=[flag for flag in _WINDOWS_JOB_FLAGS if isinstance(flags, list) and flag in flags[:16]],
+            )
         elif event == "cancel-requested":
             # Informational: the dispatcher asked the worker to stop this job. It stays open (and
             # counts as unsettled) until the worker's 'cancelled' result, or any other result, arrives.
             job["cancelRequested"] = True
         elif job["state"] not in _WINDOWS_JOB_RESULTS:
-            job.update(state="uncertain" if event == "publish-uncertain" else
-                       "invalid" if event == "invalid-result" else "unresolved",
-                       settledUnix=unix)
+            job.update(
+                state="uncertain"
+                if event == "publish-uncertain"
+                else "invalid"
+                if event == "invalid-result"
+                else "unresolved",
+                settledUnix=unix,
+            )
     in_flight: list[dict[str, Any]] = []
     recent: list[dict[str, Any]] = []
     last_success: dict[str, Any] | None = None
@@ -2954,9 +3655,16 @@ def _windows_jobs(now: float) -> tuple[dict[str, Any], dict[str, Any]]:
             if now - started <= budget:
                 unsettled += 1
             if now - started <= budget and _pid_alive(job["pid"]):
-                in_flight.append({"id": job["id"], "model": job["model"],
-                                  "ageSeconds": now - started, "timeoutSeconds": job["timeout"],
-                                  "cancelRequested": job["cancelRequested"], **_windows_job_evidence(job)})
+                in_flight.append(
+                    {
+                        "id": job["id"],
+                        "model": job["model"],
+                        "ageSeconds": now - started,
+                        "timeoutSeconds": job["timeout"],
+                        "cancelRequested": job["cancelRequested"],
+                        **_windows_job_evidence(job),
+                    }
+                )
                 continue
             # The dispatcher stops waiting at timeout + 30 s, and a client that
             # died journals nothing; either way nobody is waiting any more. With
@@ -2966,13 +3674,21 @@ def _windows_jobs(now: float) -> tuple[dict[str, Any], dict[str, Any]]:
         settled = job["settledUnix"]
         if settled is None:
             continue
-        row = {"id": job["id"], "state": job["state"], "model": job["model"],
-               "elapsedSeconds": job["elapsedSeconds"], "ageSeconds": now - settled,
-               **_windows_job_evidence(job)}
+        row = {
+            "id": job["id"],
+            "state": job["state"],
+            "model": job["model"],
+            "elapsedSeconds": job["elapsedSeconds"],
+            "ageSeconds": now - settled,
+            **_windows_job_evidence(job),
+        }
         if now - settled <= _WINDOWS_JOBS_RECENT_SECONDS:
             recent.append(row)
-        if (job["state"] == "success" and job["model"]
-                and (last_success is None or row["ageSeconds"] < last_success["ageSeconds"])):
+        if (
+            job["state"] == "success"
+            and job["model"]
+            and (last_success is None or row["ageSeconds"] < last_success["ageSeconds"])
+        ):
             last_success = row
     in_flight.sort(key=lambda row: row["ageSeconds"])
     recent.sort(key=lambda row: row["ageSeconds"])
@@ -2984,13 +3700,22 @@ def _windows_jobs(now: float) -> tuple[dict[str, Any], dict[str, Any]]:
     complete = read_complete and (latest is None or latest <= now)
     # An incomplete read (A4 truncation or A1 cut tail, invalid records, over 2000
     # lines) invalidates the journal, the exact unsettled count and live availability.
-    summary.update(journal="recorded" if read_complete else "invalid", observationAgeSeconds=0.0,
-                   inFlight=in_flight[:8], recent=recent[:10], complete=complete,
-                   lastSuccess=last_success, unsettled=unsettled if read_complete else None, clientsRecent=clients,
-                   availability={"state": "available" if read_complete else "unknown"}, liveAvailable=read_complete,
-                   projectionComplete=len(in_flight) <= 8 and len(recent) <= 10,
-                   truncated=len(in_flight) > 8 or len(recent) > 10,
-                   inFlightTruncated=len(in_flight) > 8, recentTruncated=len(recent) > 10)
+    summary.update(
+        journal="recorded" if read_complete else "invalid",
+        observationAgeSeconds=0.0,
+        inFlight=in_flight[:8],
+        recent=recent[:10],
+        complete=complete,
+        lastSuccess=last_success,
+        unsettled=unsettled if read_complete else None,
+        clientsRecent=clients,
+        availability={"state": "available" if read_complete else "unknown"},
+        liveAvailable=read_complete,
+        projectionComplete=len(in_flight) <= 8 and len(recent) <= 10,
+        truncated=len(in_flight) > 8 or len(recent) > 10,
+        inFlightTruncated=len(in_flight) > 8,
+        recentTruncated=len(recent) > 10,
+    )
     age = _age(latest, now) if latest is not None else None
     if in_flight:
         detail = f"{len(in_flight)} Windows job{'s' if len(in_flight) != 1 else ''} in flight"
@@ -3009,8 +3734,14 @@ def _windows_jobs(now: float) -> tuple[dict[str, Any], dict[str, Any]]:
         # That is not even a lower bound on work running now.
         detail = "Journal read incomplete or contains invalid records"
         state = "error"
-    source.update(state=state, ageSeconds=age, observationAgeSeconds=0.0, observedAgeSeconds=0.0,
-                  complete=read_complete, detail=detail)
+    source.update(
+        state=state,
+        ageSeconds=age,
+        observationAgeSeconds=0.0,
+        observedAgeSeconds=0.0,
+        complete=read_complete,
+        detail=detail,
+    )
     return summary, source
 
 
@@ -3043,8 +3774,7 @@ def _last_jev_judgment(now: float) -> tuple[float | None, str | None]:
     archive = _ROUTER_ROOT / "archive"
     try:
         info = archive.lstat()
-        if (not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid()
-                or stat.S_IMODE(info.st_mode) & 0o077):
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) & 0o077:
             return None, None
         key = _archive_signature(archive)
     except OSError:
@@ -3077,8 +3807,11 @@ def _scan_jev_judgment(archive: Path) -> tuple[float | None, str | None]:
             result = record.get("result") if isinstance(record.get("result"), dict) else record
             stages = result.get("stages") if isinstance(result, dict) else None
             intake = stages.get("intake") if isinstance(stages, dict) else None
-            if (isinstance(intake, dict) and intake.get("status") == "JUDGED"
-                    and intake.get("kind") == "chami.intake.typesafe.v1"):
+            if (
+                isinstance(intake, dict)
+                and intake.get("status") == "JUDGED"
+                and intake.get("kind") == "chami.intake.typesafe.v1"
+            ):
                 finished = record.get("finishedUnix") or record.get("recordedUnix")
                 when = finished if _finite(finished) else path.stat().st_mtime
                 return when, _metadata_label(intake.get("model"))
@@ -3087,17 +3820,31 @@ def _scan_jev_judgment(archive: Path) -> tuple[float | None, str | None]:
     return None, None
 
 
-def _route_components(pipeline: dict[str, Any], nisi_v02: dict[str, Any],
-                      models_by_id: dict[str, dict[str, Any]], now: float,
-                      inventory_complete: bool = False, *, models_complete: bool = True) -> list[dict[str, Any]]:
+def _route_components(
+    pipeline: dict[str, Any],
+    nisi_v02: dict[str, Any],
+    models_by_id: dict[str, dict[str, Any]],
+    now: float,
+    inventory_complete: bool = False,
+    *,
+    models_complete: bool = True,
+) -> list[dict[str, Any]]:
     """Project Nisi and Jev readiness from local evidence; neither is invoked."""
-    loaded = sorted({row.get("modelKey") or row["id"] for row in models_by_id.values()
-                     if row.get("loaded") is True and not row.get("representedByInstances")
-                     and "embed" not in str(row.get("modelKey") or row.get("id")).lower()})
+    loaded = sorted(
+        {
+            row.get("modelKey") or row["id"]
+            for row in models_by_id.values()
+            if row.get("loaded") is True
+            and not row.get("representedByInstances")
+            and "embed" not in str(row.get("modelKey") or row.get("id")).lower()
+        }
+    )
     if pipeline.get("pendingMarkerAttributedTo"):
         # A 5-key marker whose exact runId belongs to a verified-live route: its call is in flight.
-        nisi = {"state": "in-use",
-                "detail": f"Nisi call in flight for live route {pipeline['pendingMarkerAttributedTo']}"}
+        nisi = {
+            "state": "in-use",
+            "detail": f"Nisi call in flight for live route {pipeline['pendingMarkerAttributedTo']}",
+        }
     elif pipeline.get("pendingMarkerObserved"):
         nisi = {"state": "unresolved", "detail": "Nisi pending marker present; the owner must recover it"}
     elif nisi_v02.get("runtimeIntegrity") == "VERIFIED" and nisi_v02.get("hostBinding") == "VERIFIED":
@@ -3111,12 +3858,17 @@ def _route_components(pipeline: dict[str, Any], nisi_v02: dict[str, Any],
                 reviewer = next(model for model in loaded if model != author)
             else:
                 author, reviewer = loaded[0], loaded[1]
-            nisi = {"state": "ready",
-                    "detail": f"v0.2 pins verified; edit pair {author} (author) + {reviewer} (reviewer); chat {author}",
-                    "authorModel": author, "reviewerModel": reviewer}
+            nisi = {
+                "state": "ready",
+                "detail": f"v0.2 pins verified; edit pair {author} (author) + {reviewer} (reviewer); chat {author}",
+                "authorModel": author,
+                "reviewerModel": reviewer,
+            }
         elif loaded:
-            nisi = {"state": "partial",
-                    "detail": f"v0.2 pins verified; only {loaded[0]} is loaded, so Mac edit routes need a second model"}
+            nisi = {
+                "state": "partial",
+                "detail": f"v0.2 pins verified; only {loaded[0]} is loaded, so Mac edit routes need a second model",
+            }
         else:
             nisi = {"state": "partial", "detail": "v0.2 pins verified; no local model is loaded"}
     elif nisi_v02.get("hostBinding") == "DRIFT":
@@ -3125,18 +3877,21 @@ def _route_components(pipeline: dict[str, Any], nisi_v02: dict[str, Any],
         nisi = {"state": "unknown", "detail": "Nisi Inference runtime evidence unavailable"}
     try:
         env = _JEV_ENV_PATH.lstat()
-        configured = (stat.S_ISREG(env.st_mode) and env.st_uid == os.getuid()
-                      and not stat.S_IMODE(env.st_mode) & 0o077)
+        configured = stat.S_ISREG(env.st_mode) and env.st_uid == os.getuid() and not stat.S_IMODE(env.st_mode) & 0o077
     except OSError:
         configured = False
     age, model = _last_jev_judgment(now)
-    last = (f"; last judged a route {int(age // 60)} min ago" + (f" ({model})" if model else "")
-            if age is not None else "; no archived Jev judgment yet")
-    jev = {"state": "configured" if configured else "unavailable",
-           "detail": ("Opted in (key file present, not read)" if configured else "No private Jev opt-in file") + last,
-           "lastJudgedAgeSeconds": age}
-    return [{"id": "nisi", "label": "Nisi route adapter", **nisi},
-            {"id": "jev", "label": "Jev", **jev}]
+    last = (
+        f"; last judged a route {int(age // 60)} min ago" + (f" ({model})" if model else "")
+        if age is not None
+        else "; no archived Jev judgment yet"
+    )
+    jev = {
+        "state": "configured" if configured else "unavailable",
+        "detail": ("Opted in (key file present, not read)" if configured else "No private Jev opt-in file") + last,
+        "lastJudgedAgeSeconds": age,
+    }
+    return [{"id": "nisi", "label": "Nisi route adapter", **nisi}, {"id": "jev", "label": "Jev", **jev}]
 
 
 def collect_snapshot() -> dict[str, Any]:
@@ -3152,74 +3907,173 @@ def collect_snapshot() -> dict[str, Any]:
     try:
         endpoint = _native_api_endpoint(lms_status)
     except ValueError as error:
-        sources.append({"id": "lmstudio-api", "label": "LM Studio inventory", "state": "error",
-                        "ageSeconds": None, "endpoint": None, "endpointConfigured": True,
-                        "portSource": "env", "route": "unknown", "via": None,
-                        "detail": f"{error}; native inventory was not sampled and no other port was tried"})
+        sources.append(
+            {
+                "id": "lmstudio-api",
+                "label": "LM Studio inventory",
+                "state": "error",
+                "ageSeconds": None,
+                "endpoint": None,
+                "endpointConfigured": True,
+                "portSource": "env",
+                "route": "unknown",
+                "via": None,
+                "detail": f"{error}; native inventory was not sampled and no other port was tried",
+            }
+        )
     else:
         # An unknown status must not turn the historical default into a proxy probe.
-        listener = (_inventory_listener(endpoint["port"])
-                    if isinstance(lms_status, dict) else None)
+        listener = _inventory_listener(endpoint["port"]) if isinstance(lms_status, dict) else None
         route, why = _lmstudio_route(endpoint["port"], lms_status, listener)
         via = None
-        where = {"env": f"{_API_PORT_ENV}", "lms": "lms server status",
-                 "default": f"legacy default; set {_API_PORT_ENV} or start lms"}[endpoint["portSource"]]
-        row = {"id": "lmstudio-api", "label": "LM Studio inventory" + (f" via {via}" if via else ""),
-               "endpoint": f"{endpoint['host']}:{endpoint['port']}",
-               "endpointConfigured": endpoint["portSource"] == "env",
-               "portSource": endpoint["portSource"], "route": route, "via": via}
+        where = {
+            "env": f"{_API_PORT_ENV}",
+            "lms": "lms server status",
+            "default": f"legacy default; set {_API_PORT_ENV} or start lms",
+        }[endpoint["portSource"]]
+        row = {
+            "id": "lmstudio-api",
+            "label": "LM Studio inventory" + (f" via {via}" if via else ""),
+            "endpoint": f"{endpoint['host']}:{endpoint['port']}",
+            "endpointConfigured": endpoint["portSource"] == "env",
+            "portSource": endpoint["portSource"],
+            "route": route,
+            "via": via,
+        }
         suffix = f" at {row['endpoint']} (port from {where}); {why}"
         if isinstance(lms_status, dict) and lms_status.get("running") is False:
             suffix += "; lms reported its server stopped"
         try:
             if route == "unknown":
-                sources.append({**row, "state": "unavailable", "ageSeconds": None,
-                                "detail": "Inventory not sampled: endpoint identity unknown" + suffix})
+                sources.append(
+                    {
+                        **row,
+                        "state": "unavailable",
+                        "ageSeconds": None,
+                        "detail": "Inventory not sampled: endpoint identity unknown" + suffix,
+                    }
+                )
             else:
                 api_payload = _bounded_http(endpoint)
                 api_rows = _parse_api(api_payload, sampled)
                 if _inventory_listener(endpoint["port"]) != listener:
-                    sources.append({**row, "state": "unavailable", "ageSeconds": None,
-                                    "route": "unknown", "via": None, "label": "LM Studio inventory",
-                                    "detail": "Local listener changed during inventory read; response discarded"})
+                    sources.append(
+                        {
+                            **row,
+                            "state": "unavailable",
+                            "ageSeconds": None,
+                            "route": "unknown",
+                            "via": None,
+                            "label": "LM Studio inventory",
+                            "detail": "Local listener changed during inventory read; response discarded",
+                        }
+                    )
                 elif route == "direct":
-                    identity = ({"pid": listener[0], "kind": listener[1], "executable": listener[2]}
-                                if len(listener) == 3 else None)
-                    sources.append({**row, "state": "live", "ageSeconds": 0.0,
-                                    "verifiedListener": identity,
-                                    "modelsComplete": len({item["id"] for item in api_rows}) == len(api_payload["models"]),
-                                    "detail": "Local model inventory sampled" + suffix})
+                    identity = (
+                        {"pid": listener[0], "kind": listener[1], "executable": listener[2]}
+                        if len(listener) == 3
+                        else None
+                    )
+                    sources.append(
+                        {
+                            **row,
+                            "state": "live",
+                            "ageSeconds": 0.0,
+                            "verifiedListener": identity,
+                            "modelsComplete": len({item["id"] for item in api_rows}) == len(api_payload["models"]),
+                            "detail": "Local model inventory sampled" + suffix,
+                        }
+                    )
                     models_by_id.update((item["id"], item) for item in api_rows)
                 else:
-                    sources.append({**row, "state": "recorded", "ageSeconds": 0.0,
-                                    "detail": "Proxy responded; Mac residency and loaded count remain unknown" + suffix})
+                    sources.append(
+                        {
+                            **row,
+                            "state": "recorded",
+                            "ageSeconds": 0.0,
+                            "detail": "Proxy responded; Mac residency and loaded count remain unknown" + suffix,
+                        }
+                    )
         except _IncompleteInventoryError as error:
-            sources.append({**row, "state": "error", "ageSeconds": None, "modelsComplete": False,
-                            "detail": str(error) + suffix})
+            sources.append(
+                {**row, "state": "error", "ageSeconds": None, "modelsComplete": False, "detail": str(error) + suffix}
+            )
         except TimeoutError:
-            sources.append({**row, "state": "unavailable", "ageSeconds": None,
-                            "reasonCode": "timeout", "detail": "Local inventory timed out or unavailable" + suffix})
+            sources.append(
+                {
+                    **row,
+                    "state": "unavailable",
+                    "ageSeconds": None,
+                    "reasonCode": "timeout",
+                    "detail": "Local inventory timed out or unavailable" + suffix,
+                }
+            )
         except Exception as exc:
-            sources.append({**row, "state": "error", "ageSeconds": None,
-                            "reasonCode": ("refused" if isinstance(exc, ConnectionRefusedError) else "non_json" if isinstance(exc, (json.JSONDecodeError, UnicodeError)) else "oversize" if isinstance(exc, ValueError) and "too large" in str(exc) else "read_error" if isinstance(exc, OSError) else "schema_invalid"),
-                            "detail": "Local inventory invalid or unavailable" + suffix})
+            sources.append(
+                {
+                    **row,
+                    "state": "error",
+                    "ageSeconds": None,
+                    "reasonCode": (
+                        "refused"
+                        if isinstance(exc, ConnectionRefusedError)
+                        else "non_json"
+                        if isinstance(exc, (json.JSONDecodeError, UnicodeError))
+                        else "oversize"
+                        if isinstance(exc, ValueError) and "too large" in str(exc)
+                        else "read_error"
+                        if isinstance(exc, OSError)
+                        else "schema_invalid"
+                    ),
+                    "detail": "Local inventory invalid or unavailable" + suffix,
+                }
+            )
 
     try:
         cli_payload = _bounded_lms()
         cli_rows = _parse_lms(cli_payload, sampled)
         instance_observations = _merge_cli_rows(models_by_id, cli_rows, isolate_collisions=True)
-        sources.append({"id": "lms-ps", "label": "LM Studio activity", "state": "live",
-                        "modelsComplete": len({row["id"] for row in cli_rows}) == len(cli_payload["models"]),
-                        "ageSeconds": 0.0, "detail": "Loaded models and reported activity sampled"})
+        sources.append(
+            {
+                "id": "lms-ps",
+                "label": "LM Studio activity",
+                "state": "live",
+                "modelsComplete": len({row["id"] for row in cli_rows}) == len(cli_payload["models"]),
+                "ageSeconds": 0.0,
+                "detail": "Loaded models and reported activity sampled",
+            }
+        )
     except _IncompleteInventoryError as error:
-        sources.append({"id": "lms-ps", "label": "LM Studio activity", "state": "error",
-                        "ageSeconds": None, "modelsComplete": False, "detail": str(error)})
+        sources.append(
+            {
+                "id": "lms-ps",
+                "label": "LM Studio activity",
+                "state": "error",
+                "ageSeconds": None,
+                "modelsComplete": False,
+                "detail": str(error),
+            }
+        )
     except TimeoutError:
-        sources.append({"id": "lms-ps", "label": "LM Studio activity", "state": "unavailable",
-                        "ageSeconds": None, "detail": "lms status timed out"})
+        sources.append(
+            {
+                "id": "lms-ps",
+                "label": "LM Studio activity",
+                "state": "unavailable",
+                "ageSeconds": None,
+                "detail": "lms status timed out",
+            }
+        )
     except Exception:
-        sources.append({"id": "lms-ps", "label": "LM Studio activity", "state": "error",
-                        "ageSeconds": None, "detail": "lms status invalid or unavailable"})
+        sources.append(
+            {
+                "id": "lms-ps",
+                "label": "LM Studio activity",
+                "state": "error",
+                "ageSeconds": None,
+                "detail": "lms status invalid or unavailable",
+            }
+        )
         # Keep inventory state, but never carry forward activity from an old sample.
         for row in models_by_id.values():
             if row["loaded"] is True:
@@ -3231,15 +4085,25 @@ def collect_snapshot() -> dict[str, Any]:
         # A complete source can still overflow the projection after API/CLI merging.
         for source in sources:
             if source["id"] in ("lmstudio-api", "lms-ps"):
-                source.update(state="error", ageSeconds=None, modelsComplete=False,
-                              detail="Local combined inventory incomplete: model list exceeds 256 entries; this source cannot establish the loaded count")
+                source.update(
+                    state="error",
+                    ageSeconds=None,
+                    modelsComplete=False,
+                    detail="Local combined inventory incomplete: model list exceeds 256 entries; this source cannot establish the loaded count",
+                )
 
     afm = _afm_status()
-    sources.append({"id": "afm-executable", "label": "Apple Foundation Models adapter",
-                    "state": "live" if afm["state"] == "executable" else "unavailable",
-                    "ageSeconds": 0.0, "detail": "Adapter executable metadata sampled on this Mac; inference not tested"
-                    if afm["state"] == "executable" else
-                    f"Adapter {afm['state']}; inference not tested"})
+    sources.append(
+        {
+            "id": "afm-executable",
+            "label": "Apple Foundation Models adapter",
+            "state": "live" if afm["state"] == "executable" else "unavailable",
+            "ageSeconds": 0.0,
+            "detail": "Adapter executable metadata sampled on this Mac; inference not tested"
+            if afm["state"] == "executable"
+            else f"Adapter {afm['state']}; inference not tested",
+        }
+    )
 
     # One observation of both router journal layouts feeds the pipeline, Online Code Mode
     # and (through last_router_observation) the activity rows of this sample.
@@ -3253,27 +4117,63 @@ def collect_snapshot() -> dict[str, Any]:
     try:
         windows_worker["headless"] = _windows_headless(sampled)
     except Exception:
-        windows_worker["headless"] = {"state": "unknown", "reason": "mode file unreadable",
-                                      "expiresInSeconds": None, "grantedBy": None}
+        windows_worker["headless"] = {
+            "state": "unknown",
+            "reason": "mode file unreadable",
+            "expiresInSeconds": None,
+            "grantedBy": None,
+        }
     sources.append(worker_source)
     try:
         if peer_feed is None:
             raise ImportError("peer_feed missing")
         peers = peer_feed.peer_feeds(sampled)
     except Exception:
-        peers = [{"feed": None, "source": {"id": platform + "-telemetry", "host": platform,
-                  "platform": platform, "state": "error", "trust": "unverified", "reasonCode": "read_error",
-                  "ageSeconds": None, "detail": "Peer feed reader failed"}} for platform in ("windows",)]
+        peers = [
+            {
+                "feed": None,
+                "source": {
+                    "id": platform + "-telemetry",
+                    "host": platform,
+                    "platform": platform,
+                    "state": "error",
+                    "trust": "unverified",
+                    "reasonCode": "read_error",
+                    "ageSeconds": None,
+                    "detail": "Peer feed reader failed",
+                },
+            }
+            for platform in ("windows",)
+        ]
     sources.extend(entry["source"] for entry in peers)
-    windows_live = next((entry["feed"] for entry in peers if entry["source"].get("platform") == "windows"
-                         and entry["source"].get("state") in ("live", "recorded") and entry.get("feed")), None)
+    windows_live = next(
+        (
+            entry["feed"]
+            for entry in peers
+            if entry["source"].get("platform") == "windows"
+            and entry["source"].get("state") in ("live", "recorded")
+            and entry.get("feed")
+        ),
+        None,
+    )
     try:
         windows_jobs, jobs_source = _windows_jobs(sampled)
     except Exception:
-        windows_jobs = {"schemaVersion": 1, "journal": "invalid", "inFlight": [],
-                        "recent": [], "lastSuccess": None, "clientsRecent": {}}
-        jobs_source = {"id": "windows-jobs", "label": "Windows jobs", "state": "error",
-                       "ageSeconds": None, "detail": "Windows job journal reader failed"}
+        windows_jobs = {
+            "schemaVersion": 1,
+            "journal": "invalid",
+            "inFlight": [],
+            "recent": [],
+            "lastSuccess": None,
+            "clientsRecent": {},
+        }
+        jobs_source = {
+            "id": "windows-jobs",
+            "label": "Windows jobs",
+            "state": "error",
+            "ageSeconds": None,
+            "detail": "Windows job journal reader failed",
+        }
     canary, canary_source = _canary(sampled)
     sources.append(canary_source)
     try:
@@ -3281,17 +4181,30 @@ def collect_snapshot() -> dict[str, Any]:
     except Exception:
         # An optional private-runtime reader must not interrupt local model
         # activity or turn an older activation receipt into a live signal.
-        nisi_v02 = {"schemaVersion": 1, "observedAt": observed,
-                    "integration": "private-local-orchestration-route",
-                    "version": None, "commit": None, "runtimeIntegrity": "UNKNOWN",
-                    "hostBinding": "UNKNOWN", "driftedHostFiles": [],
-                    "activationStatus": "UNKNOWN", "activationVerifiedAt": None,
-                    "activationAgeSeconds": None, "activationProbe": None,
-                    "liveInference": "UNKNOWN", "workflowAcceptance": "UNKNOWN",
-                    "releaseAcceptance": "NOT_ESTABLISHED"}
-        nisi_v02_source = {"id": "nisi-v02-runtime", "label": "Nisi Inference private runtime",
-                           "state": "error", "ageSeconds": None,
-                           "detail": "Private Nisi Inference evidence reader unavailable"}
+        nisi_v02 = {
+            "schemaVersion": 1,
+            "observedAt": observed,
+            "integration": "private-local-orchestration-route",
+            "version": None,
+            "commit": None,
+            "runtimeIntegrity": "UNKNOWN",
+            "hostBinding": "UNKNOWN",
+            "driftedHostFiles": [],
+            "activationStatus": "UNKNOWN",
+            "activationVerifiedAt": None,
+            "activationAgeSeconds": None,
+            "activationProbe": None,
+            "liveInference": "UNKNOWN",
+            "workflowAcceptance": "UNKNOWN",
+            "releaseAcceptance": "NOT_ESTABLISHED",
+        }
+        nisi_v02_source = {
+            "id": "nisi-v02-runtime",
+            "label": "Nisi Inference private runtime",
+            "state": "error",
+            "ageSeconds": None,
+            "detail": "Private Nisi Inference evidence reader unavailable",
+        }
     sources.append(nisi_v02_source)
     sources.append(jobs_source)
     # Independent complete inputs may exceed the shared display/publication budget.
@@ -3299,16 +4212,17 @@ def collect_snapshot() -> dict[str, Any]:
     models_complete = len(models_by_id) <= 256
     if not models_complete:
         for source in sources:
-            if source['id'] in ('lmstudio-api', 'lms-ps') and source['state'] == 'live':
-                source.update(modelsComplete=False, detail='Combined model inventory truncated; counts unknown')
-    inventory_complete = (
-        any(source.get("state") == "live" and
-            (source["id"] == "lms-ps" or
-             source["id"] == "lmstudio-api" and source.get("route") == "direct")
-            for source in sources)
-        and all(type(row.get("loaded")) is bool and row.get("inventoryComplete") is not False
-                for row in models_by_id.values()
-                if not row.get("representedByInstances")))
+            if source["id"] in ("lmstudio-api", "lms-ps") and source["state"] == "live":
+                source.update(modelsComplete=False, detail="Combined model inventory truncated; counts unknown")
+    inventory_complete = any(
+        source.get("state") == "live"
+        and (source["id"] == "lms-ps" or source["id"] == "lmstudio-api" and source.get("route") == "direct")
+        for source in sources
+    ) and all(
+        type(row.get("loaded")) is bool and row.get("inventoryComplete") is not False
+        for row in models_by_id.values()
+        if not row.get("representedByInstances")
+    )
     snapshot = {
         "schemaVersion": 1,
         "host": "mac",
@@ -3328,6 +4242,12 @@ def collect_snapshot() -> dict[str, Any]:
         "pair": pair,
     }
     snapshot["machines"] = machines_summary(snapshot, peers)
-    snapshot["components"] = _route_components(pipeline, nisi_v02, models_by_id, sampled,
-        inventory_complete=inventory_complete, models_complete=snapshot["machines"][0]["modelsComplete"])
+    snapshot["components"] = _route_components(
+        pipeline,
+        nisi_v02,
+        models_by_id,
+        sampled,
+        inventory_complete=inventory_complete,
+        models_complete=snapshot["machines"][0]["modelsComplete"],
+    )
     return snapshot

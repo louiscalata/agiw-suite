@@ -1,5 +1,6 @@
 """`agiw doctor`: read-only checks. It changes nothing (no firewall, permission or service edits), and what
 it prints shows the home folder as ~ and never a key, token, share path or folder outside the home."""
+
 from __future__ import annotations
 
 import errno
@@ -41,15 +42,25 @@ def probe_port(port: int, proto: str, *, address: str = "0.0.0.0") -> str:
 
 def firewall_hints(kind: str, tcp: int, udp: int) -> List[Row]:
     if kind == "mac":
-        return [("info", f"firewall (macOS): if the firewall is on, allow incoming connections for the Python that "
-                         f"runs agiw (System Settings > Network > Firewall > Options). Paired machines reach this "
-                         f"one on tcp/{tcp}; discovery uses udp/{udp}.")]
-    return [("info", f"firewall (Windows): add inbound rules yourself in an administrator PowerShell, Private "
-                     f"profile only: New-NetFirewallRule -DisplayName 'AGIW peer link TCP' -Direction Inbound "
-                     f"-Protocol TCP -LocalPort {tcp} -Profile Private -Action Allow; "
-                     f"New-NetFirewallRule -DisplayName 'AGIW peer link UDP' -Direction Inbound "
-                     f"-Protocol UDP -LocalPort {udp} -Profile Private -Action Allow. "
-                     f"agiw changes no firewall settings.")]
+        return [
+            (
+                "info",
+                f"firewall (macOS): if the firewall is on, allow incoming connections for the Python that "
+                f"runs agiw (System Settings > Network > Firewall > Options). Paired machines reach this "
+                f"one on tcp/{tcp}; discovery uses udp/{udp}.",
+            )
+        ]
+    return [
+        (
+            "info",
+            f"firewall (Windows): add inbound rules yourself in an administrator PowerShell, Private "
+            f"profile only: New-NetFirewallRule -DisplayName 'AGIW peer link TCP' -Direction Inbound "
+            f"-Protocol TCP -LocalPort {tcp} -Profile Private -Action Allow; "
+            f"New-NetFirewallRule -DisplayName 'AGIW peer link UDP' -Direction Inbound "
+            f"-Protocol UDP -LocalPort {udp} -Profile Private -Action Allow. "
+            f"agiw changes no firewall settings.",
+        )
+    ]
 
 
 def _secret_files(state_dir: Path) -> List[Path]:
@@ -85,13 +96,23 @@ def check_state_dir(state_dir: Path, home: Optional[str] = None) -> List[Row]:
             pl._win_check_private(str(state_dir), state_dir.name)
             rows.append(("ok", f"state folder {shown}: owned by you and closed to other accounts"))
         except OSError as exc:
-            rows.append(("warn", f"state folder {shown}: not private ({type(exc).__name__}). The peer link tightens "
-                                 f"it at start and retires any secret others could read; pair again if asked."))
+            rows.append(
+                (
+                    "warn",
+                    f"state folder {shown}: not private ({type(exc).__name__}). The peer link tightens "
+                    f"it at start and retires any secret others could read; pair again if asked.",
+                )
+            )
     elif info.st_uid != os.getuid():
         rows.append(("fail", f"state folder {shown}: belongs to another user; the peer link refuses it"))
     elif info.st_mode & 0o077:
-        rows.append(("warn", f"state folder {shown}: open to other users (mode {stat.S_IMODE(info.st_mode):o}); "
-                             f"the peer link resets it to 700 at start and retires exposed secrets"))
+        rows.append(
+            (
+                "warn",
+                f"state folder {shown}: open to other users (mode {stat.S_IMODE(info.st_mode):o}); "
+                f"the peer link resets it to 700 at start and retires exposed secrets",
+            )
+        )
     else:
         acl = None
         if sys.platform == "darwin":
@@ -100,7 +121,9 @@ def check_state_dir(state_dir: Path, home: Optional[str] = None) -> List[Row]:
             except (OSError, subprocess.SubprocessError) as exc:
                 acl = type(exc).__name__
         if acl:
-            rows.append(("warn", f"state folder {shown}: has an extended ACL ({acl}); the peer link removes it at start"))
+            rows.append(
+                ("warn", f"state folder {shown}: has an extended ACL ({acl}); the peer link removes it at start")
+            )
         else:
             rows.append(("ok", f"state folder {shown}: owned by you, mode 700"))
     loose = []
@@ -118,8 +141,13 @@ def check_state_dir(state_dir: Path, home: Optional[str] = None) -> List[Row]:
             except (OSError, subprocess.SubprocessError):
                 loose.append(path)
     if loose:
-        rows.append(("warn", f"{len(loose)} key file(s) could have been read by others; the peer link replaces "
-                             f"the control token and sets such pairings aside (pair those machines again)"))
+        rows.append(
+            (
+                "warn",
+                f"{len(loose)} key file(s) could have been read by others; the peer link replaces "
+                f"the control token and sets such pairings aside (pair those machines again)",
+            )
+        )
     count = paired_count(state_dir)
     rows.append(("info", f"{count} paired machine(s) on record"))
     return rows
@@ -146,10 +174,18 @@ def check_ports(tcp: int, udp: int, probe: Callable[[int, str], str]) -> List[Ro
     return rows
 
 
-def run(state_dir: Path, tcp: int, udp: int, *, kind: str,
-        probe: Callable[[int, str], str] = probe_port, service_installed: Optional[bool] = None,
-        write: Callable[[str], None] = print, home: Optional[str] = None,
-        version: Tuple[int, ...] = tuple(sys.version_info[:3])) -> int:
+def run(
+    state_dir: Path,
+    tcp: int,
+    udp: int,
+    *,
+    kind: str,
+    probe: Callable[[int, str], str] = probe_port,
+    service_installed: Optional[bool] = None,
+    write: Callable[[str], None] = print,
+    home: Optional[str] = None,
+    version: Tuple[int, ...] = tuple(sys.version_info[:3]),
+) -> int:
     """Inspect local metadata and port occupancy without contacting the peer link or reading secrets."""
     rows: List[Row] = []
     shown_version = ".".join(str(v) for v in version[:3])
@@ -159,8 +195,13 @@ def run(state_dir: Path, tcp: int, udp: int, *, kind: str,
     rows += check_ports(tcp, udp, probe)
     rows += firewall_hints(kind, tcp, udp)
     if service_installed is not None:
-        rows.append(("info", "login service: " + ("installed" if service_installed else
-                                                  "not installed (`agiw service install` starts agiw at login)")))
+        rows.append(
+            (
+                "info",
+                "login service: "
+                + ("installed" if service_installed else "not installed (`agiw service install` starts agiw at login)"),
+            )
+        )
     for level, text in rows:
         write(redact(f"{LEVELS[level]} {text}", home))
     return 1 if any(level == "fail" for level, _ in rows) else 0

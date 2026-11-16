@@ -1,4 +1,5 @@
 """Fourth-round CLI regressions: temporary state, fake services and registry only."""
+
 import io
 import os
 import unittest
@@ -20,16 +21,15 @@ class CliFix4(unittest.TestCase):
         self.state.mkdir()
         self.key = self.state / "identity.json"
         self.key.write_bytes(b"identity")
-        self.manager = SimpleNamespace(home=self.home,
-                                       uninstall=mock.Mock(return_value=["removed service"]))
+        self.manager = SimpleNamespace(home=self.home, uninstall=mock.Mock(return_value=["removed service"]))
 
     def invoke(self, *argv, probe=None):
         events = []
         error = io.StringIO()
-        with mock.patch.object(cli, "make_manager", return_value=self.manager), \
-                mock.patch("sys.stderr", error):
-            code = cli.main(["--state-dir", str(self.state), *argv], out=events.append,
-                            probe=probe or (lambda *_: "free"))
+        with mock.patch.object(cli, "make_manager", return_value=self.manager), mock.patch("sys.stderr", error):
+            code = cli.main(
+                ["--state-dir", str(self.state), *argv], out=events.append, probe=probe or (lambda *_: "free")
+            )
         return code, events, error.getvalue()
 
     def test_purge_lock_refusal_reports_no_service_was_installed(self):
@@ -48,16 +48,16 @@ class CliFix4(unittest.TestCase):
 
     def test_purge_port_refusal_reports_no_service_was_installed(self):
         self.manager.uninstall.return_value = ["no agiw service was installed"]
-        code, output, error = self.invoke("uninstall", "--purge-keys", "--yes",
-                                          probe=lambda *_: "busy")
+        code, output, error = self.invoke("uninstall", "--purge-keys", "--yes", probe=lambda *_: "busy")
         self.assertEqual(code, 1, output)
         self.assertIn("no agiw service was installed; no key file was deleted", error)
         self.assertNotIn("the login service was removed", error)
         self.assertEqual(self.key.read_bytes(), b"identity")
 
     def test_purge_refusal_preserves_confirmation_when_no_removal_was_reported(self):
-        self.manager = cli.ServiceManager("mac", home=self.home, env={}, uid=501,
-                                          runner=FakeRunner({"bootout": (113, ""), "print": (113, "")}))
+        self.manager = cli.ServiceManager(
+            "mac", home=self.home, env={}, uid=501, runner=FakeRunner({"bootout": (113, ""), "print": (113, "")})
+        )
         with mock.patch.object(cli.StateLock, "acquire", side_effect=StateLockBusy("busy")):
             code, output, error = self.invoke("uninstall", "--purge-keys", "--yes")
         self.assertEqual(code, 1, output)
@@ -80,21 +80,29 @@ class CliFix4(unittest.TestCase):
 
                 windows_os = mock.Mock(wraps=os)
                 windows_os.name = "nt"
-                with mock.patch.object(cli, "os", windows_os), \
-                        mock.patch.object(Path, "unlink", unlink), \
-                        mock.patch.object(cli.pl, "_gen_revoke_all", side_effect=PermissionError(
-                            "Access is denied: " + str(self.home / "registry"))) as revoke:
+                with (
+                    mock.patch.object(cli, "os", windows_os),
+                    mock.patch.object(Path, "unlink", unlink),
+                    mock.patch.object(
+                        cli.pl,
+                        "_gen_revoke_all",
+                        side_effect=PermissionError("Access is denied: " + str(self.home / "registry")),
+                    ) as revoke,
+                ):
                     code, output, error = self.invoke("uninstall", "--purge-keys", "--yes")
                 self.assertEqual(code, 1, output)
                 revoke.assert_called_once_with()
                 self.assertFalse(peers.exists())
                 self.assertEqual(self.key.exists(), held_file)
                 summary = next(i for i, line in enumerate(output) if line.startswith("deleted "))
-                failure = next(i for i, line in enumerate(output)
-                               if "revoking the Windows pairing generations failed" in line)
+                failure = next(
+                    i for i, line in enumerate(output) if "revoking the Windows pairing generations failed" in line
+                )
                 self.assertLess(summary, failure)
-                self.assertIn("deleted 1 file(s); 1 file(s) could not be deleted" if held_file
-                              else "deleted 2 file(s)", output[summary])
+                self.assertIn(
+                    "deleted 1 file(s); 1 file(s) could not be deleted" if held_file else "deleted 2 file(s)",
+                    output[summary],
+                )
                 self.assertIn("PermissionError", output[failure])
                 self.assertIn("Access is denied", output[failure])
                 self.assertNotIn(str(self.home), "\n".join(output) + error)
@@ -107,8 +115,10 @@ class CliFix4(unittest.TestCase):
         self.key.unlink()
         windows_os = mock.Mock(wraps=os)
         windows_os.name = "nt"
-        with mock.patch.object(cli, "os", windows_os), \
-                mock.patch.object(cli.pl, "_gen_revoke_all", side_effect=OSError("registry unavailable")):
+        with (
+            mock.patch.object(cli, "os", windows_os),
+            mock.patch.object(cli.pl, "_gen_revoke_all", side_effect=OSError("registry unavailable")),
+        ):
             code, output, error = self.invoke("uninstall", "--purge-keys", "--yes")
         self.assertEqual(code, 1, output)
         self.assertIn("deleted 0 file(s)", "\n".join(output))
@@ -118,11 +128,14 @@ class CliFix4(unittest.TestCase):
 
     def test_service_lock_refusal_is_clean_on_every_host_kind(self):
         for kind in ("mac", "windows"):
-            with self.subTest(kind=kind), \
-                    mock.patch.object(cli.StateLock, "acquire", side_effect=StateLockBusy("busy")), \
-                    mock.patch.object(cli.pl, "main") as peer:
-                code, output, error = self.invoke("serve", "--service", "--host", kind,
-                                                  "--status-file", str(self.home / "observer.json"))
+            with (
+                self.subTest(kind=kind),
+                mock.patch.object(cli.StateLock, "acquire", side_effect=StateLockBusy("busy")),
+                mock.patch.object(cli.pl, "main") as peer,
+            ):
+                code, output, error = self.invoke(
+                    "serve", "--service", "--host", kind, "--status-file", str(self.home / "observer.json")
+                )
                 self.assertEqual(code, 0, output + [error])
                 self.assertIn("stop it first", "\n".join(output) + error)
                 peer.assert_not_called()

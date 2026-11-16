@@ -1,4 +1,5 @@
 """State-folder exclusion uses only temporary homes and a tiny Python child."""
+
 import io
 import os
 import subprocess
@@ -23,8 +24,7 @@ class StateLocks(unittest.TestCase):
         self.state.mkdir()
         self.key = self.state / "identity.json"
         self.key.write_text("keep this identity")
-        self.manager = SimpleNamespace(home=self.home,
-                                       uninstall=mock.Mock(return_value=["removed service"]))
+        self.manager = SimpleNamespace(home=self.home, uninstall=mock.Mock(return_value=["removed service"]))
 
     def hold_in_child(self):
         script = (
@@ -35,9 +35,15 @@ class StateLocks(unittest.TestCase):
             "    print('locked', flush=True)\n"
             "    sys.stdin.readline()\n"
         )
-        child = subprocess.Popen([sys.executable, "-B", "-c", script, str(self.state)], cwd=ROOT,
-                                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                 text=True, env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"})
+        child = subprocess.Popen(
+            [sys.executable, "-B", "-c", script, str(self.state)],
+            cwd=ROOT,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+        )
 
         def finish():
             try:
@@ -48,16 +54,18 @@ class StateLocks(unittest.TestCase):
                 self.fail("lock-holder child did not exit")
 
         self.addCleanup(finish)
-        self.assertEqual(child.stdout.readline().strip(), "locked",
-                         "child could not acquire the state lock")
+        self.assertEqual(child.stdout.readline().strip(), "locked", "child could not acquire the state lock")
         return child
 
     def invoke(self, *args, probe=None):
         output, error = [], io.StringIO()
-        with mock.patch.object(cli, "make_manager", return_value=self.manager), \
-                mock.patch("sys.stderr", error):
-            code = cli.main(["--state-dir", str(self.state), *args], out=output.append,
-                            probe=probe or mock.Mock(return_value="free"), kind="mac")
+        with mock.patch.object(cli, "make_manager", return_value=self.manager), mock.patch("sys.stderr", error):
+            code = cli.main(
+                ["--state-dir", str(self.state), *args],
+                out=output.append,
+                probe=probe or mock.Mock(return_value="free"),
+                kind="mac",
+            )
         return code, "\n".join(output), error.getvalue()
 
     def test_helper_excludes_a_second_process_and_uses_a_sibling_file(self):
@@ -72,11 +80,9 @@ class StateLocks(unittest.TestCase):
         self.hold_in_child()
         before = {p.name: p.read_bytes() for p in self.state.iterdir()}
         probe = mock.Mock(return_value="free")
-        code, output, error = self.invoke("--status-port", "9000", "uninstall", "--purge-keys", "--yes",
-                                          probe=probe)
+        code, output, error = self.invoke("--status-port", "9000", "uninstall", "--purge-keys", "--yes", probe=probe)
         self.assertEqual(code, 1, output + error)
-        self.assertIn("the peer link is running with this state folder; stop it first; nothing was deleted",
-                      error)
+        self.assertIn("the peer link is running with this state folder; stop it first; nothing was deleted", error)
         self.assertEqual({p.name: p.read_bytes() for p in self.state.iterdir()}, before)
         self.manager.uninstall.assert_called_once_with()
         self.assertIn("the login service was removed; no key file was deleted", error)
@@ -85,8 +91,9 @@ class StateLocks(unittest.TestCase):
     def test_serve_refuses_a_lock_held_by_another_process(self):
         self.hold_in_child()
         with mock.patch.object(pl, "main", return_value=0) as run:
-            code, output, error = self.invoke("--status-port", "9000", "serve", "--host", "mac",
-                                              "--beacon-port", "9001")
+            code, output, error = self.invoke(
+                "--status-port", "9000", "serve", "--host", "mac", "--beacon-port", "9001"
+            )
         self.assertEqual(code, 75, output + error)
         self.assertIn("stop it first", error)
         run.assert_not_called()
@@ -140,11 +147,18 @@ class StateLocks(unittest.TestCase):
 
         def reparse(fd):
             info = original_stat(fd)
-            return SimpleNamespace(st_mode=info.st_mode, st_dev=info.st_dev, st_ino=info.st_ino,
-                                   st_size=info.st_size, st_file_attributes=0x400)
+            return SimpleNamespace(
+                st_mode=info.st_mode,
+                st_dev=info.st_dev,
+                st_ino=info.st_ino,
+                st_size=info.st_size,
+                st_file_attributes=0x400,
+            )
 
-        with mock.patch.object(state_lock.os, "fstat", side_effect=reparse), \
-                mock.patch.object(state_lock.os, "write", side_effect=AssertionError("wrote through reparse")):
+        with (
+            mock.patch.object(state_lock.os, "fstat", side_effect=reparse),
+            mock.patch.object(state_lock.os, "write", side_effect=AssertionError("wrote through reparse")),
+        ):
             with self.assertRaisesRegex(OSError, "not a regular file"):
                 StateLock(self.state).acquire()
 

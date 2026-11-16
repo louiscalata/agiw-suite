@@ -30,8 +30,7 @@ def reply(value, code=0):
 
 
 def entry_result(status="ready", evidence="fresh-launcher-receipt", code=0):
-    return reply({"schemaVersion": 1, "operation": "readiness", "status": status,
-                  "evidence": evidence}, code)
+    return reply({"schemaVersion": 1, "operation": "readiness", "status": status, "evidence": evidence}, code)
 
 
 def idle():
@@ -39,37 +38,61 @@ def idle():
 
 
 def windows(pending=None, ready=True):
-    return reply({"kind": "codemode.windows.status.v1", "pending": pending,
-                  "readyForWork": ready, "inventory": {"ok": ready},
-                  "inference": "NOT_RUN"}, 0 if ready and pending is None else 3)
+    return reply(
+        {
+            "kind": "codemode.windows.status.v1",
+            "pending": pending,
+            "readyForWork": ready,
+            "inventory": {"ok": ready},
+            "inference": "NOT_RUN",
+        },
+        0 if ready and pending is None else 3,
+    )
 
 
 def nisi(pending=False):
-    return reply({"kind": "codemode.integrations.v1",
-                  "nisi": {"status": "ADAPTER_PRESENT", "recoveryRequired": pending}})
+    return reply(
+        {"kind": "codemode.integrations.v1", "nisi": {"status": "ADAPTER_PRESENT", "recoveryRequired": pending}}
+    )
 
 
 def bridge(*, inventory="LISTED", recovery=False, binding="VERIFIED", drifted=None):
-    return {"schemaVersion": 1, "kind": "agiw.nisi-v02.bridge-check.v1",
-            "status": "RETURNED", "inventoryStatus": inventory,
-            "runtimeCount": 1, "modelCount": 9,
-            "recoveryRequired": recovery, "activationHostBinding": binding,
-            "driftedHostFiles": list(drifted or []),
-            "modelInference": "NOT_RUN", "workflowAcceptance": "NOT_RUN",
-            "releaseAcceptance": "NOT_ESTABLISHED"}
+    return {
+        "schemaVersion": 1,
+        "kind": "agiw.nisi-v02.bridge-check.v1",
+        "status": "RETURNED",
+        "inventoryStatus": inventory,
+        "runtimeCount": 1,
+        "modelCount": 9,
+        "recoveryRequired": recovery,
+        "activationHostBinding": binding,
+        "driftedHostFiles": list(drifted or []),
+        "modelInference": "NOT_RUN",
+        "workflowAcceptance": "NOT_RUN",
+        "releaseAcceptance": "NOT_ESTABLISHED",
+    }
 
 
 def preflight_active():
-    evidence = {"kind": "codemode.router.v1", "status": "NOT_RUN",
-                "code": "NISI_RECOVERY_REQUIRED", "runId": RUN,
-                "requestSha256": DIGEST, "recoveryRequired": True,
-                "candidate": None, "selectedHost": None,
-                "stages": {stage: {"status": "NOT_RUN"} for stage in repair.STAGES}}
-    return {"schemaVersion": 1, "runId": RUN, "inputSha256": DIGEST,
-            "stage": "incomplete", "sequence": 2,
-            "checkpoint": {"runId": RUN, "inputSha256": DIGEST,
-                           "stage": "incomplete", "sequence": 2,
-                           "evidence": evidence}}
+    evidence = {
+        "kind": "codemode.router.v1",
+        "status": "NOT_RUN",
+        "code": "NISI_RECOVERY_REQUIRED",
+        "runId": RUN,
+        "requestSha256": DIGEST,
+        "recoveryRequired": True,
+        "candidate": None,
+        "selectedHost": None,
+        "stages": {stage: {"status": "NOT_RUN"} for stage in repair.STAGES},
+    }
+    return {
+        "schemaVersion": 1,
+        "runId": RUN,
+        "inputSha256": DIGEST,
+        "stage": "incomplete",
+        "sequence": 2,
+        "checkpoint": {"runId": RUN, "inputSha256": DIGEST, "stage": "incomplete", "sequence": 2, "evidence": evidence},
+    }
 
 
 def active_status(active=None):
@@ -77,10 +100,18 @@ def active_status(active=None):
 
 
 def preflight_settled():
-    return reply({"kind": "codemode.router.v1", "status": "NOT_RUN",
-                  "code": "NISI_RECOVERY_REQUIRED", "runId": RUN,
-                  "requestSha256": DIGEST, "recoveryRequired": False,
-                  "reconciliation": {"kind": "codemode.router.preflight-reconcile.v1"}}, 3)
+    return reply(
+        {
+            "kind": "codemode.router.v1",
+            "status": "NOT_RUN",
+            "code": "NISI_RECOVERY_REQUIRED",
+            "runId": RUN,
+            "requestSha256": DIGEST,
+            "recoveryRequired": False,
+            "reconciliation": {"kind": "codemode.router.preflight-reconcile.v1"},
+        },
+        3,
+    )
 
 
 def prewarmed_script(path, body):
@@ -92,11 +123,18 @@ def prewarmed_script(path, body):
     *body*, so it has no side effects.
     """
     # Use the suite's interpreter; /usr/bin/python3 may launch through xcrun on each exec.
-    path.write_text(f"#!{sys.executable}\nimport sys\n"
-                    "if sys.argv[1:] == ['--prewarm']:\n    raise SystemExit(0)\n" + body)
+    path.write_text(
+        f"#!{sys.executable}\nimport sys\nif sys.argv[1:] == ['--prewarm']:\n    raise SystemExit(0)\n" + body
+    )
     path.chmod(0o700)
-    subprocess.run([str(path), "--prewarm"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                   stderr=subprocess.DEVNULL, timeout=30, check=True)
+    subprocess.run(
+        [str(path), "--prewarm"],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        timeout=30,
+        check=True,
+    )
     return path
 
 
@@ -114,14 +152,24 @@ class ScriptedRunner:
         expected, result = self.script.pop(0)
         if args != expected:
             raise AssertionError(f"expected {expected}, got {args}")
-        if (args in (repair.READINESS, repair.ENTRY_READINESS)
-                and result.returncode == 0 and self.write_readiness
-                and self.readiness_path is not None):
-            self.readiness_path.write_text(json.dumps({
-                "schemaVersion": 1, "status": "PREFLIGHT_COMPLETED",
-                "observedAtUnix": time.time(), "source": "online-code-mode",
-                "client": None, "chatId": None,
-            }))
+        if (
+            args in (repair.READINESS, repair.ENTRY_READINESS)
+            and result.returncode == 0
+            and self.write_readiness
+            and self.readiness_path is not None
+        ):
+            self.readiness_path.write_text(
+                json.dumps(
+                    {
+                        "schemaVersion": 1,
+                        "status": "PREFLIGHT_COMPLETED",
+                        "observedAtUnix": time.time(),
+                        "source": "online-code-mode",
+                        "client": None,
+                        "chatId": None,
+                    }
+                )
+            )
             self.readiness_path.chmod(0o600)
         return result
 
@@ -134,13 +182,23 @@ class OnlineCodeRepairTests(unittest.TestCase):
         self.receipt = Path(self.temporary.name) / "readiness.json"
 
     def test_dispatch_boundary_refuses_every_owner_command_with_closed_l2(self):
-        commands = (repair.ROUTE_STATUS, repair.ROUTE_PREFLIGHT, repair.WINDOWS_STATUS,
-                    repair.WINDOWS_RECONCILE, repair.NISI_STATUS, repair.NISI_RECOVER,
-                    repair.JEV_STATUS, repair.READINESS, repair.ENTRY_READINESS,
-                    ("future-owner-action",))
+        commands = (
+            repair.ROUTE_STATUS,
+            repair.ROUTE_PREFLIGHT,
+            repair.WINDOWS_STATUS,
+            repair.WINDOWS_RECONCILE,
+            repair.NISI_STATUS,
+            repair.NISI_RECOVER,
+            repair.JEV_STATUS,
+            repair.READINESS,
+            repair.ENTRY_READINESS,
+            ("future-owner-action",),
+        )
         for scripted in (False, True):
-            with self.subTest(scripted=scripted), \
-                 mock.patch.object(repair, "launcher_runner", return_value=reply({})) as launcher:
+            with (
+                self.subTest(scripted=scripted),
+                mock.patch.object(repair, "launcher_runner", return_value=reply({})) as launcher,
+            ):
                 injected = mock.Mock(return_value=reply({}))
                 controller = repair.OnlineCodeRepair(injected if scripted else None)
                 for args in commands:
@@ -153,12 +211,22 @@ class OnlineCodeRepairTests(unittest.TestCase):
                 injected.assert_not_called()
 
     def test_dispatch_boundary_preserves_explicitly_open_owner_commands(self):
-        commands = (repair.ROUTE_STATUS, repair.ROUTE_PREFLIGHT, repair.WINDOWS_STATUS,
-                    repair.WINDOWS_RECONCILE, repair.NISI_STATUS, repair.NISI_RECOVER,
-                    repair.JEV_STATUS, repair.READINESS, repair.ENTRY_READINESS)
+        commands = (
+            repair.ROUTE_STATUS,
+            repair.ROUTE_PREFLIGHT,
+            repair.WINDOWS_STATUS,
+            repair.WINDOWS_RECONCILE,
+            repair.NISI_STATUS,
+            repair.NISI_RECOVER,
+            repair.JEV_STATUS,
+            repair.READINESS,
+            repair.ENTRY_READINESS,
+        )
         for scripted in (False, True):
-            with self.subTest(scripted=scripted), \
-                 mock.patch.object(repair, "launcher_runner", return_value=reply({})) as launcher:
+            with (
+                self.subTest(scripted=scripted),
+                mock.patch.object(repair, "launcher_runner", return_value=reply({})) as launcher,
+            ):
                 injected = mock.Mock(return_value=reply({}))
                 controller = repair.OnlineCodeRepair(injected if scripted else None, l2_open=True)
                 target = injected if scripted else launcher
@@ -169,20 +237,18 @@ class OnlineCodeRepairTests(unittest.TestCase):
                 (launcher if scripted else injected).assert_not_called()
 
     def test_default_owner_pauses_queue_calls_before_stalled_reader_can_repeat(self):
-        with mock.patch.object(repair, "_windows_worker_reader_blocked", return_value=True), \
-             mock.patch.object(repair, "launcher_runner",
-                               side_effect=AssertionError("owner must not run")) as owner:
+        with (
+            mock.patch.object(repair, "_windows_worker_reader_blocked", return_value=True),
+            mock.patch.object(repair, "launcher_runner", side_effect=AssertionError("owner must not run")) as owner,
+        ):
             controller = repair.OnlineCodeRepair(l2_open=True)
-            for args in (repair.WINDOWS_STATUS, repair.WINDOWS_RECONCILE,
-                         repair.READINESS, repair.ENTRY_READINESS):
+            for args in (repair.WINDOWS_STATUS, repair.WINDOWS_RECONCILE, repair.READINESS, repair.ENTRY_READINESS):
                 with self.assertRaises(repair._Stop) as stopped:
                     controller._call(args)
                 self.assertEqual(stopped.exception.status, "needs-action")
-                self.assertIn("SharedChami worker status could not be read",
-                              stopped.exception.message)
+                self.assertIn("SharedChami worker status could not be read", stopped.exception.message)
             owner.assert_not_called()
-            self.assertEqual([step["result"] for step in controller.read()["steps"]],
-                             ["paused"] * 4)
+            self.assertEqual([step["result"] for step in controller.read()["steps"]], ["paused"] * 4)
             self.assertTrue(repair._WINDOWS_WORKER_IO_LOCK.acquire(blocking=False))
             repair._WINDOWS_WORKER_IO_LOCK.release()
 
@@ -190,24 +256,26 @@ class OnlineCodeRepairTests(unittest.TestCase):
         command = f"/usr/bin/python3 -I -S {repair.Path.home() / 'bin/chami-ensure'} --probe"
         listing = f"{os.getuid()} U {command}\n"
         controller = repair.OnlineCodeRepair(l2_open=True)
-        with mock.patch.object(telemetry, "_bounded_command", return_value=listing), \
-             mock.patch.object(repair, "launcher_runner",
-                               side_effect=AssertionError("must not launch a repeated SMB reader")) as owner:
+        with (
+            mock.patch.object(telemetry, "_bounded_command", return_value=listing),
+            mock.patch.object(
+                repair, "launcher_runner", side_effect=AssertionError("must not launch a repeated SMB reader")
+            ) as owner,
+        ):
             for _ in range(2):
                 with self.assertRaises(repair._Stop) as stopped:
                     controller._call(repair.READINESS)
-                self.assertIn("SharedChami worker status could not be read",
-                              stopped.exception.message)
+                self.assertIn("SharedChami worker status could not be read", stopped.exception.message)
         owner.assert_not_called()
-        self.assertEqual([step["result"] for step in controller.read()["steps"]],
-                         ["paused", "paused"])
+        self.assertEqual([step["result"] for step in controller.read()["steps"]], ["paused", "paused"])
         self.assertTrue(repair._WINDOWS_WORKER_IO_LOCK.acquire(blocking=False))
         repair._WINDOWS_WORKER_IO_LOCK.release()
 
     def test_default_owner_releases_shared_gate_after_runner_timeout(self):
-        with mock.patch.object(repair, "_windows_worker_reader_blocked", return_value=False), \
-             mock.patch.object(repair, "launcher_runner",
-                               side_effect=subprocess.TimeoutExpired(["owner"], 1)):
+        with (
+            mock.patch.object(repair, "_windows_worker_reader_blocked", return_value=False),
+            mock.patch.object(repair, "launcher_runner", side_effect=subprocess.TimeoutExpired(["owner"], 1)),
+        ):
             controller = repair.OnlineCodeRepair(l2_open=True)
             with self.assertRaises(subprocess.TimeoutExpired):
                 controller._call(repair.WINDOWS_STATUS)
@@ -218,10 +286,16 @@ class OnlineCodeRepairTests(unittest.TestCase):
         controller = repair.OnlineCodeRepair(l2_open=True)
         self.assertTrue(repair._WINDOWS_WORKER_IO_LOCK.acquire(blocking=False))
         try:
-            with mock.patch.object(repair, "_windows_worker_reader_blocked",
-                                   side_effect=AssertionError("must not proceed to process probe")), \
-                 mock.patch.object(repair, "launcher_runner",
-                                   side_effect=AssertionError("must not start another owner read")) as owner:
+            with (
+                mock.patch.object(
+                    repair,
+                    "_windows_worker_reader_blocked",
+                    side_effect=AssertionError("must not proceed to process probe"),
+                ),
+                mock.patch.object(
+                    repair, "launcher_runner", side_effect=AssertionError("must not start another owner read")
+                ) as owner,
+            ):
                 with self.assertRaises(repair._Stop) as stopped:
                     controller._call(repair.WINDOWS_STATUS)
                 self.assertEqual(stopped.exception.status, "needs-action")
@@ -229,8 +303,7 @@ class OnlineCodeRepairTests(unittest.TestCase):
                 owner.assert_not_called()
         finally:
             repair._WINDOWS_WORKER_IO_LOCK.release()
-        self.assertEqual(controller.read()["steps"], [
-            {"name": "windows-preflight", "result": "paused"}])
+        self.assertEqual(controller.read()["steps"], [{"name": "windows-preflight", "result": "paused"}])
 
     def test_button_and_passive_sampler_contend_without_overlapping_owner_reads(self):
         entered, release = threading.Event(), threading.Event()
@@ -241,16 +314,23 @@ class OnlineCodeRepairTests(unittest.TestCase):
             release.wait(2.0)
             return windows()
 
-        cache = {"checkedMonotonic": time.monotonic(), "heartbeatUnix": time.time() - 8,
-                 "modelsAdvertised": ["gpt-oss-20b"], "modelCount": 1,
-                 "probeRunning": False, "probeError": False,
-                 "probePaused": False, "probeBusy": False,
-                 "retryAfterMonotonic": 0.0}
-        worker = threading.Thread(target=lambda: results.append(
-            controller._call(repair.WINDOWS_STATUS)))
+        cache = {
+            "checkedMonotonic": time.monotonic(),
+            "heartbeatUnix": time.time() - 8,
+            "modelsAdvertised": ["gpt-oss-20b"],
+            "modelCount": 1,
+            "probeRunning": False,
+            "probeError": False,
+            "probePaused": False,
+            "probeBusy": False,
+            "retryAfterMonotonic": 0.0,
+        }
+        worker = threading.Thread(target=lambda: results.append(controller._call(repair.WINDOWS_STATUS)))
         try:
-            with mock.patch.object(repair, "_windows_worker_reader_blocked", return_value=False), \
-                 mock.patch.object(repair, "launcher_runner", side_effect=owner):
+            with (
+                mock.patch.object(repair, "_windows_worker_reader_blocked", return_value=False),
+                mock.patch.object(repair, "launcher_runner", side_effect=owner),
+            ):
                 controller = repair.OnlineCodeRepair(l2_open=True)
                 worker.start()
                 self.assertTrue(entered.wait(1.0))
@@ -275,10 +355,16 @@ class OnlineCodeRepairTests(unittest.TestCase):
         controller = repair.OnlineCodeRepair(l2_open=True)
         self.assertTrue(repair._WINDOWS_WORKER_IO_LOCK.acquire(blocking=False))
         try:
-            with mock.patch.object(repair, "_windows_worker_reader_blocked",
-                                   side_effect=AssertionError("must not proceed to process probe")), \
-                 mock.patch.object(repair, "launcher_runner",
-                                   side_effect=AssertionError("must not start another owner read")) as owner:
+            with (
+                mock.patch.object(
+                    repair,
+                    "_windows_worker_reader_blocked",
+                    side_effect=AssertionError("must not proceed to process probe"),
+                ),
+                mock.patch.object(
+                    repair, "launcher_runner", side_effect=AssertionError("must not start another owner read")
+                ) as owner,
+            ):
                 with self.assertRaises(repair._Stop) as stopped:
                     controller._call(repair.WINDOWS_STATUS)
                 self.assertEqual(stopped.exception.status, "needs-action")
@@ -286,30 +372,39 @@ class OnlineCodeRepairTests(unittest.TestCase):
                 owner.assert_not_called()
         finally:
             repair._WINDOWS_WORKER_IO_LOCK.release()
-        self.assertEqual(controller.read()["steps"], [
-            {"name": "windows-preflight", "result": "paused"}])
+        self.assertEqual(controller.read()["steps"], [{"name": "windows-preflight", "result": "paused"}])
 
     def test_default_owner_runs_verified_windows_status_when_local_reader_clear(self):
-        with mock.patch.object(repair, "_windows_worker_reader_blocked", return_value=False), \
-             mock.patch.object(repair, "launcher_runner", return_value=windows()) as owner:
+        with (
+            mock.patch.object(repair, "_windows_worker_reader_blocked", return_value=False),
+            mock.patch.object(repair, "launcher_runner", return_value=windows()) as owner,
+        ):
             controller = repair.OnlineCodeRepair(l2_open=True)
             pending, ready = controller._windows_status()
         self.assertIsNone(pending)
         self.assertTrue(ready)
         owner.assert_called_once()
 
-    def controller(self, script, *, write_readiness=True, sleep=None, monotonic=None,
-                   bridge_probe=None):
+    def controller(self, script, *, write_readiness=True, sleep=None, monotonic=None, bridge_probe=None):
         runner = ScriptedRunner(script, self.receipt, write_readiness)
-        return repair.OnlineCodeRepair(runner, nisi_pending_path=self.marker,
-                                       readiness_path=self.receipt, sleep=sleep,
-                                       monotonic=monotonic,
-                                       bridge_probe=bridge_probe or (lambda _: bridge()), l2_open=True), runner
+        return repair.OnlineCodeRepair(
+            runner,
+            nisi_pending_path=self.marker,
+            readiness_path=self.receipt,
+            sleep=sleep,
+            monotonic=monotonic,
+            bridge_probe=bridge_probe or (lambda _: bridge()),
+            l2_open=True,
+        ), runner
 
     def finish(self, controller, action="repair"):
-        started = (controller.request_entry() if action == "entry" else
-                   controller.request_fix(action.removeprefix("fix-")) if action.startswith("fix-") else
-                   controller.request())
+        started = (
+            controller.request_entry()
+            if action == "entry"
+            else controller.request_fix(action.removeprefix("fix-"))
+            if action.startswith("fix-")
+            else controller.request()
+        )
         self.assertEqual(started["status"], "running")
         deadline = time.monotonic() + 2
         while time.monotonic() < deadline:
@@ -320,12 +415,17 @@ class OnlineCodeRepairTests(unittest.TestCase):
         self.fail("background check did not finish")
 
     def test_idle_runs_one_capability_inventory_then_rechecks_all_owners(self):
-        controller, runner = self.controller([
-            (repair.ROUTE_STATUS, idle()), (repair.WINDOWS_STATUS, windows()),
-            (repair.NISI_STATUS, nisi()), (repair.READINESS, reply(None)),
-            (repair.NISI_STATUS, nisi()), (repair.WINDOWS_STATUS, windows()),
-            (repair.ROUTE_STATUS, idle()),
-        ])
+        controller, runner = self.controller(
+            [
+                (repair.ROUTE_STATUS, idle()),
+                (repair.WINDOWS_STATUS, windows()),
+                (repair.NISI_STATUS, nisi()),
+                (repair.READINESS, reply(None)),
+                (repair.NISI_STATUS, nisi()),
+                (repair.WINDOWS_STATUS, windows()),
+                (repair.ROUTE_STATUS, idle()),
+            ]
+        )
         state = self.finish(controller)
         self.assertEqual(state["status"], "ready")
         self.assertIn("No model inference was run", state["message"])
@@ -336,10 +436,15 @@ class OnlineCodeRepairTests(unittest.TestCase):
         self.assertEqual(state["steps"][-1]["result"], "inventory-verified")
 
     def test_private_v02_partial_inventory_or_recovery_prevents_ready(self):
-        script = [(repair.ROUTE_STATUS, idle()), (repair.WINDOWS_STATUS, windows()),
-                  (repair.NISI_STATUS, nisi()), (repair.READINESS, reply(None)),
-                  (repair.NISI_STATUS, nisi()), (repair.WINDOWS_STATUS, windows()),
-                  (repair.ROUTE_STATUS, idle())]
+        script = [
+            (repair.ROUTE_STATUS, idle()),
+            (repair.WINDOWS_STATUS, windows()),
+            (repair.NISI_STATUS, nisi()),
+            (repair.READINESS, reply(None)),
+            (repair.NISI_STATUS, nisi()),
+            (repair.WINDOWS_STATUS, windows()),
+            (repair.ROUTE_STATUS, idle()),
+        ]
         for result in (bridge(inventory="PARTIAL"), bridge(recovery=True)):
             with self.subTest(result=result):
                 controller, runner = self.controller(script, bridge_probe=lambda _, result=result: result)
@@ -350,17 +455,23 @@ class OnlineCodeRepairTests(unittest.TestCase):
                 self.assertEqual(runner.script, [])
 
     def test_private_v02_listed_inventory_cannot_hide_activation_binding_drift(self):
-        script = [(repair.ROUTE_STATUS, idle()), (repair.WINDOWS_STATUS, windows()),
-                  (repair.NISI_STATUS, nisi()), (repair.READINESS, reply(None)),
-                  (repair.NISI_STATUS, nisi()), (repair.WINDOWS_STATUS, windows()),
-                  (repair.ROUTE_STATUS, idle())]
-        for binding, phrase in (("DRIFT", "pipeline_integrations.py"),
-                                ("UNKNOWN", "activation receipt")):
+        script = [
+            (repair.ROUTE_STATUS, idle()),
+            (repair.WINDOWS_STATUS, windows()),
+            (repair.NISI_STATUS, nisi()),
+            (repair.READINESS, reply(None)),
+            (repair.NISI_STATUS, nisi()),
+            (repair.WINDOWS_STATUS, windows()),
+            (repair.ROUTE_STATUS, idle()),
+        ]
+        for binding, phrase in (("DRIFT", "pipeline_integrations.py"), ("UNKNOWN", "activation receipt")):
             with self.subTest(binding=binding):
                 controller, runner = self.controller(
-                    script, bridge_probe=lambda _, binding=binding: bridge(
-                        binding=binding,
-                        drifted=["pipeline_integrations.py"] if binding == "DRIFT" else []))
+                    script,
+                    bridge_probe=lambda _, binding=binding: bridge(
+                        binding=binding, drifted=["pipeline_integrations.py"] if binding == "DRIFT" else []
+                    ),
+                )
                 state = self.finish(controller)
                 self.assertEqual(state["status"], "needs-action")
                 self.assertEqual(state["steps"][-1]["result"], "needs-action")
@@ -370,12 +481,20 @@ class OnlineCodeRepairTests(unittest.TestCase):
                 self.assertEqual(runner.script, [])
 
     def test_private_v02_bridge_rejects_untrusted_drift_file_names(self):
-        script = [(repair.ROUTE_STATUS, idle()), (repair.WINDOWS_STATUS, windows()),
-                  (repair.NISI_STATUS, nisi()), (repair.READINESS, reply(None)),
-                  (repair.NISI_STATUS, nisi()), (repair.WINDOWS_STATUS, windows()),
-                  (repair.ROUTE_STATUS, idle())]
-        for names in (["../private"], ["pipeline_integrations.py", "pipeline_integrations.py"],
-                      [{"name": "pipeline_integrations.py"}]):
+        script = [
+            (repair.ROUTE_STATUS, idle()),
+            (repair.WINDOWS_STATUS, windows()),
+            (repair.NISI_STATUS, nisi()),
+            (repair.READINESS, reply(None)),
+            (repair.NISI_STATUS, nisi()),
+            (repair.WINDOWS_STATUS, windows()),
+            (repair.ROUTE_STATUS, idle()),
+        ]
+        for names in (
+            ["../private"],
+            ["pipeline_integrations.py", "pipeline_integrations.py"],
+            [{"name": "pipeline_integrations.py"}],
+        ):
             with self.subTest(names=names):
                 result = bridge(binding="DRIFT")
                 result["driftedHostFiles"] = names
@@ -401,30 +520,39 @@ class OnlineCodeRepairTests(unittest.TestCase):
         self.assertEqual(runner.calls, [(repair.ENTRY_READINESS, None, 100)])
 
     def test_universal_entry_exit_zero_without_receipt_is_not_ready(self):
-        controller, runner = self.controller([(repair.ENTRY_READINESS, entry_result())],
-                                            write_readiness=False)
+        controller, runner = self.controller([(repair.ENTRY_READINESS, entry_result())], write_readiness=False)
         state = self.finish(controller, "entry")
         self.assertEqual(state["status"], "needs-action")
         self.assertEqual(state["steps"][0]["result"], "receipt-unverified")
         self.assertEqual(len(runner.calls), 1)
 
     def test_universal_entry_degraded_and_unavailable_remain_distinct(self):
-        for result, expected in ((entry_result("degraded", "launcher-preflight-exit", 3), "needs-action"),
-                                 (entry_result("unavailable", "launcher-timeout", 3), "error")):
+        for result, expected in (
+            (entry_result("degraded", "launcher-preflight-exit", 3), "needs-action"),
+            (entry_result("unavailable", "launcher-timeout", 3), "error"),
+        ):
             with self.subTest(expected=expected):
                 controller, runner = self.controller([(repair.ENTRY_READINESS, result)])
                 self.assertEqual(self.finish(controller, "entry")["status"], expected)
                 self.assertEqual(len(runner.calls), 1)
 
     def test_universal_entry_rejects_mismatched_or_private_output(self):
-        cases = [entry_result("ready", "fresh-launcher-receipt", 3),
-                 entry_result("ready", "private diagnostic", 0),
-                 reply({"schemaVersion": 1, "operation": "status", "status": "ready",
-                        "evidence": "fresh-launcher-receipt"}),
-                 reply({"schemaVersion": 1, "operation": "readiness", "status": "ready",
-                        "evidence": "fresh-launcher-receipt", "task": "private"}),
-                 repair.CommandResult(0, b'{"schemaVersion":1,"schemaVersion":1}'),
-                 reply(None)]
+        cases = [
+            entry_result("ready", "fresh-launcher-receipt", 3),
+            entry_result("ready", "private diagnostic", 0),
+            reply({"schemaVersion": 1, "operation": "status", "status": "ready", "evidence": "fresh-launcher-receipt"}),
+            reply(
+                {
+                    "schemaVersion": 1,
+                    "operation": "readiness",
+                    "status": "ready",
+                    "evidence": "fresh-launcher-receipt",
+                    "task": "private",
+                }
+            ),
+            repair.CommandResult(0, b'{"schemaVersion":1,"schemaVersion":1}'),
+            reply(None),
+        ]
         for result in cases:
             with self.subTest(raw=result.stdout):
                 controller, _ = self.controller([(repair.ENTRY_READINESS, result)])
@@ -435,11 +563,13 @@ class OnlineCodeRepairTests(unittest.TestCase):
     def test_universal_entry_and_repair_share_one_worker_gate(self):
         entered, release = threading.Event(), threading.Event()
         calls = []
+
         def waiting_runner(args, data, timeout):
             calls.append(args)
             entered.set()
             release.wait(1)
             return entry_result()
+
         controller = repair.OnlineCodeRepair(waiting_runner, readiness_path=self.receipt, l2_open=True)
         first = controller.request_entry()
         self.assertTrue(entered.wait(1))
@@ -463,9 +593,16 @@ class OnlineCodeRepairTests(unittest.TestCase):
         self.assertIn("ready=false", evidence)
         self.assertIn("inventory=false", evidence)
 
-        private = reply({"kind": "codemode.windows.status.v1", "pending": None,
-                         "readyForWork": "private status", "inventory": {"ok": "private inventory", "reason": "private reason"},
-                         "code": {"private": "secret"}}, 3)
+        private = reply(
+            {
+                "kind": "codemode.windows.status.v1",
+                "pending": None,
+                "readyForWork": "private status",
+                "inventory": {"ok": "private inventory", "reason": "private reason"},
+                "code": {"private": "secret"},
+            },
+            3,
+        )
         controller, _ = self.controller([(repair.WINDOWS_STATUS, private)])
         with self.assertRaises(repair._Stop):
             controller._windows_status()
@@ -483,7 +620,7 @@ class OnlineCodeRepairTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0)
             self.assertEqual(result.stdout.strip(), b"['readiness']")
             with self.assertRaisesRegex(ValueError, "accepts no input"):
-                repair.launcher_runner(repair.ENTRY_READINESS, b'{}', 2)
+                repair.launcher_runner(repair.ENTRY_READINESS, b"{}", 2)
 
     def test_launcher_cleans_nested_child_after_normal_exit_and_timeout(self):
         script = Path(self.temporary.name) / "launcher"
@@ -491,8 +628,9 @@ class OnlineCodeRepairTests(unittest.TestCase):
         child = "import time;time.sleep(30)"
 
         def live(pid):
-            result = subprocess.run(["/bin/ps", "-p", str(pid), "-o", "stat="],
-                                    capture_output=True, text=True, timeout=2)
+            result = subprocess.run(
+                ["/bin/ps", "-p", str(pid), "-o", "stat="], capture_output=True, text=True, timeout=2
+            )
             return result.returncode == 0 and result.stdout.strip()[:1] not in ("", "Z")
 
         real_popen = subprocess.Popen
@@ -535,14 +673,19 @@ class OnlineCodeRepairTests(unittest.TestCase):
                 # A pid left by the first pass must not stand in for a stall launcher
                 # that never started its nested child before the deadline.
                 pid_path.unlink(missing_ok=True)
-                prewarmed_script(script, "import subprocess,time\n"
-                                 f"time.sleep({startup_delay})\n"
-                                 f"child=subprocess.Popen(['/usr/bin/python3','-c',{child!r}],"
-                                 "stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)\n"
-                                 f"open({str(pid_path)!r},'w').write(str(child.pid))\n"
-                                 + ("time.sleep(30)\n" if stall else "print('done')\n"))
-                with mock.patch.object(repair, "LAUNCHER", script), \
-                        mock.patch.object(repair.subprocess, "Popen", side_effect=ready_launcher):
+                prewarmed_script(
+                    script,
+                    "import subprocess,time\n"
+                    f"time.sleep({startup_delay})\n"
+                    f"child=subprocess.Popen(['/usr/bin/python3','-c',{child!r}],"
+                    "stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)\n"
+                    f"open({str(pid_path)!r},'w').write(str(child.pid))\n"
+                    + ("time.sleep(30)\n" if stall else "print('done')\n"),
+                )
+                with (
+                    mock.patch.object(repair, "LAUNCHER", script),
+                    mock.patch.object(repair.subprocess, "Popen", side_effect=ready_launcher),
+                ):
                     if stall:
                         with self.assertRaises(subprocess.TimeoutExpired):
                             repair.launcher_runner(repair.ROUTE_STATUS, None, 0.2)
@@ -580,14 +723,18 @@ class OnlineCodeRepairTests(unittest.TestCase):
         source.write_text("#!/usr/bin/python3\nprint('captured')\n")
         source.chmod(0o700)
         real_reader = repair._entry_source
+
         def replace_after_capture():
             captured = real_reader()
             source.rename(source.with_name("old-entry"))
             source.write_text("#!/usr/bin/python3\nprint('replacement')\n")
             source.chmod(0o700)
             return captured
-        with mock.patch.object(repair, "ENTRY", source), \
-             mock.patch.object(repair, "_entry_source", side_effect=replace_after_capture):
+
+        with (
+            mock.patch.object(repair, "ENTRY", source),
+            mock.patch.object(repair, "_entry_source", side_effect=replace_after_capture),
+        ):
             result = repair.launcher_runner(repair.ENTRY_READINESS, None, 2)
         self.assertEqual(result.returncode, 0)
         self.assertEqual(result.stdout.strip(), b"captured")
@@ -597,13 +744,19 @@ class OnlineCodeRepairTests(unittest.TestCase):
         private.mkdir(mode=0o700)
         receipt = private / "readiness.json"
         started_at = time.time()
-        good = {"schemaVersion": 1, "status": "PREFLIGHT_COMPLETED",
-                "observedAtUnix": time.time(), "source": "online-code-mode",
-                "client": None, "chatId": None}
+        good = {
+            "schemaVersion": 1,
+            "status": "PREFLIGHT_COMPLETED",
+            "observedAtUnix": time.time(),
+            "source": "online-code-mode",
+            "client": None,
+            "chatId": None,
+        }
         receipt.write_text(json.dumps(good))
         receipt.chmod(0o600)
         real_open = os.open
         swapped = False
+
         def swap_parent(path, flags, *args, **kwargs):
             nonlocal swapped
             if path == "readiness.json" and "dir_fd" in kwargs and not swapped:
@@ -613,6 +766,7 @@ class OnlineCodeRepairTests(unittest.TestCase):
                 (private / "readiness.json").write_text('{"status":"NOT_RUN"}')
                 (private / "readiness.json").chmod(0o600)
             return real_open(path, flags, *args, **kwargs)
+
         with mock.patch.object(repair.os, "open", side_effect=swap_parent):
             self.assertTrue(repair._new_readiness_receipt(receipt, started_at))
         self.assertTrue(swapped)
@@ -625,35 +779,55 @@ class OnlineCodeRepairTests(unittest.TestCase):
         self.assertFalse(repair._new_readiness_receipt(self.receipt, time.time() - 1))
 
     def test_exit_zero_without_new_receipt_cannot_claim_ready(self):
-        controller, runner = self.controller([
-            (repair.ROUTE_STATUS, idle()), (repair.WINDOWS_STATUS, windows()),
-            (repair.NISI_STATUS, nisi()), (repair.READINESS, reply(None)),
-            (repair.NISI_STATUS, nisi()), (repair.WINDOWS_STATUS, windows()),
-            (repair.ROUTE_STATUS, idle()),
-        ], write_readiness=False)
+        controller, runner = self.controller(
+            [
+                (repair.ROUTE_STATUS, idle()),
+                (repair.WINDOWS_STATUS, windows()),
+                (repair.NISI_STATUS, nisi()),
+                (repair.READINESS, reply(None)),
+                (repair.NISI_STATUS, nisi()),
+                (repair.WINDOWS_STATUS, windows()),
+                (repair.ROUTE_STATUS, idle()),
+            ],
+            write_readiness=False,
+        )
         state = self.finish(controller)
         self.assertEqual(state["status"], "needs-action")
         self.assertIn("no verified readiness receipt", state["message"])
         self.assertEqual(runner.calls[-1][0], repair.ROUTE_STATUS)
 
     def test_old_receipt_cannot_satisfy_a_new_click(self):
-        self.receipt.write_text(json.dumps({
-            "schemaVersion": 1, "status": "PREFLIGHT_COMPLETED",
-            "observedAtUnix": time.time() - 30, "source": "online-code-mode",
-            "client": None, "chatId": None,
-        }))
+        self.receipt.write_text(
+            json.dumps(
+                {
+                    "schemaVersion": 1,
+                    "status": "PREFLIGHT_COMPLETED",
+                    "observedAtUnix": time.time() - 30,
+                    "source": "online-code-mode",
+                    "client": None,
+                    "chatId": None,
+                }
+            )
+        )
         self.receipt.chmod(0o600)
-        controller, _ = self.controller([
-            (repair.ROUTE_STATUS, idle()), (repair.WINDOWS_STATUS, windows()),
-            (repair.NISI_STATUS, nisi()), (repair.READINESS, reply(None)),
-            (repair.NISI_STATUS, nisi()), (repair.WINDOWS_STATUS, windows()),
-            (repair.ROUTE_STATUS, idle()),
-        ], write_readiness=False)
+        controller, _ = self.controller(
+            [
+                (repair.ROUTE_STATUS, idle()),
+                (repair.WINDOWS_STATUS, windows()),
+                (repair.NISI_STATUS, nisi()),
+                (repair.READINESS, reply(None)),
+                (repair.NISI_STATUS, nisi()),
+                (repair.WINDOWS_STATUS, windows()),
+                (repair.ROUTE_STATUS, idle()),
+            ],
+            write_readiness=False,
+        )
         self.assertEqual(self.finish(controller)["status"], "needs-action")
 
     def test_launcher_runner_enforces_output_cap_while_child_is_running(self):
-        script = prewarmed_script(Path(self.temporary.name) / "large-output",
-                                  "sys.stdout.buffer.write(b'x' * 262145)\n")
+        script = prewarmed_script(
+            Path(self.temporary.name) / "large-output", "sys.stdout.buffer.write(b'x' * 262145)\n"
+        )
         with mock.patch.object(repair, "LAUNCHER", script):
             with self.assertRaisesRegex(ValueError, "output exceeded limit"):
                 repair.launcher_runner(repair.ROUTE_STATUS, None, 2)
@@ -688,13 +862,15 @@ class OnlineCodeRepairTests(unittest.TestCase):
 
         worker = threading.Thread(target=run)
         try:
-            with mock.patch.object(repair, "LAUNCHER", script), \
-                 mock.patch.object(repair.subprocess, "Popen", side_effect=delayed_spawn):
+            with (
+                mock.patch.object(repair, "LAUNCHER", script),
+                mock.patch.object(repair.subprocess, "Popen", side_effect=delayed_spawn),
+            ):
                 worker.start()
                 self.assertTrue(spawned.wait(1))
                 owner.cancel()
                 release.set()
-                worker.join(.7)
+                worker.join(0.7)
             self.assertFalse(worker.is_alive())
             self.assertEqual(len(errors), 1)
             self.assertEqual(children[0].poll(), -signal.SIGKILL)
@@ -704,8 +880,7 @@ class OnlineCodeRepairTests(unittest.TestCase):
             worker.join(1)
 
     def test_cancel_signal_failure_is_reported_and_direct_child_is_tried(self):
-        controller = repair.OnlineCodeRepair(lambda *_: idle(),
-                                              nisi_pending_path=self.marker, l2_open=True)
+        controller = repair.OnlineCodeRepair(lambda *_: idle(), nisi_pending_path=self.marker, l2_open=True)
         child = mock.Mock(pid=24680)
         controller._owner_children.register(child)
         with controller._lock:
@@ -718,8 +893,10 @@ class OnlineCodeRepairTests(unittest.TestCase):
 
     def test_launcher_cleanup_signal_failure_cannot_return_success(self):
         script = prewarmed_script(Path(self.temporary.name) / "successful-owner", "print('ready')\n")
-        with mock.patch.object(repair, "LAUNCHER", script), \
-             mock.patch.object(repair.os, "killpg", side_effect=PermissionError):
+        with (
+            mock.patch.object(repair, "LAUNCHER", script),
+            mock.patch.object(repair.os, "killpg", side_effect=PermissionError),
+        ):
             with self.assertRaisesRegex(OSError, "could not be confirmed terminated"):
                 repair.launcher_runner(repair.ROUTE_STATUS, None, 2)
 
@@ -737,10 +914,10 @@ class OnlineCodeRepairTests(unittest.TestCase):
                         children = list(controller._owner_children._children.values())
                     if children:
                         break
-                    time.sleep(.005)
+                    time.sleep(0.005)
                 self.assertEqual(len(children), 1)
                 controller.cancel()
-                self.assertTrue(controller.join(.45))
+                self.assertTrue(controller.join(0.45))
                 self.assertEqual(children[0].poll(), -signal.SIGKILL)
                 self.assertEqual(controller.read()["status"], "needs-action")
                 self.assertEqual(controller.request_fix("route")["operationId"], 1)
@@ -752,13 +929,14 @@ class OnlineCodeRepairTests(unittest.TestCase):
         script = Path(self.temporary.name) / "waiting-lms"
         script.write_text("#!/usr/bin/python3\nimport time\ntime.sleep(30)\n")
         script.chmod(0o700)
-        controller = repair.OnlineCodeRepair(lambda *_: idle(),
-                                              nisi_pending_path=self.marker, l2_open=True)
+        controller = repair.OnlineCodeRepair(lambda *_: idle(), nisi_pending_path=self.marker, l2_open=True)
         try:
-            with mock.patch.object(repair, "_runtime_sources", return_value=(False, False)), \
-                 mock.patch.object(repair, "_local_server_stopped", return_value=True), \
-                 mock.patch.object(repair, "_loopback_port_free", return_value=True), \
-                 mock.patch.object(repair, "_find_lms", return_value=str(script)):
+            with (
+                mock.patch.object(repair, "_runtime_sources", return_value=(False, False)),
+                mock.patch.object(repair, "_local_server_stopped", return_value=True),
+                mock.patch.object(repair, "_loopback_port_free", return_value=True),
+                mock.patch.object(repair, "_find_lms", return_value=str(script)),
+            ):
                 self.assertEqual(controller.request_fix("local")["status"], "running")
                 deadline = time.monotonic() + 1
                 while time.monotonic() < deadline:
@@ -766,10 +944,10 @@ class OnlineCodeRepairTests(unittest.TestCase):
                         children = list(controller._owner_children._children.values())
                     if children:
                         break
-                    time.sleep(.005)
+                    time.sleep(0.005)
                 self.assertEqual(len(children), 1)
                 controller.cancel()
-                self.assertTrue(controller.join(.45))
+                self.assertTrue(controller.join(0.45))
                 self.assertEqual(children[0].poll(), -signal.SIGKILL)
                 self.assertEqual(controller.read()["status"], "needs-action")
         finally:
@@ -777,22 +955,28 @@ class OnlineCodeRepairTests(unittest.TestCase):
             controller.join(1)
 
     def test_exact_preflight_refusal_is_archived_with_bound_input(self):
-        controller, runner = self.controller([
-            (repair.ROUTE_STATUS, active_status()),
-            (repair.NISI_STATUS, nisi()), (repair.WINDOWS_STATUS, windows()),
-            (repair.ROUTE_PREFLIGHT, preflight_settled()),
-            (repair.ROUTE_STATUS, idle()), (repair.WINDOWS_STATUS, windows()),
-            (repair.NISI_STATUS, nisi()), (repair.READINESS, reply(None)),
-            (repair.NISI_STATUS, nisi()), (repair.WINDOWS_STATUS, windows()),
-            (repair.ROUTE_STATUS, idle()),
-        ])
+        controller, runner = self.controller(
+            [
+                (repair.ROUTE_STATUS, active_status()),
+                (repair.NISI_STATUS, nisi()),
+                (repair.WINDOWS_STATUS, windows()),
+                (repair.ROUTE_PREFLIGHT, preflight_settled()),
+                (repair.ROUTE_STATUS, idle()),
+                (repair.WINDOWS_STATUS, windows()),
+                (repair.NISI_STATUS, nisi()),
+                (repair.READINESS, reply(None)),
+                (repair.NISI_STATUS, nisi()),
+                (repair.WINDOWS_STATUS, windows()),
+                (repair.ROUTE_STATUS, idle()),
+            ]
+        )
         state = self.finish(controller)
         self.assertEqual(state["status"], "ready")
         reconcile = next(call for call in runner.calls if call[0] == repair.ROUTE_PREFLIGHT)
-        self.assertEqual(json.loads(reconcile[1]), {"runId": RUN, "inputSha256": DIGEST,
-                                                   "confirmPreflightOnly": True})
-        self.assertEqual([step["result"] for step in state["steps"] if step["name"] == "preflight-reconcile"],
-                         ["archived"])
+        self.assertEqual(json.loads(reconcile[1]), {"runId": RUN, "inputSha256": DIGEST, "confirmPreflightOnly": True})
+        self.assertEqual(
+            [step["result"] for step in state["steps"] if step["name"] == "preflight-reconcile"], ["archived"]
+        )
         self.assertEqual(runner.script, [])
 
     def test_backend_or_other_active_run_stops_before_any_repair(self):
@@ -805,8 +989,9 @@ class OnlineCodeRepairTests(unittest.TestCase):
         self.assertEqual(len(runner.calls), 1)
 
     def test_busy_router_stops_after_status(self):
-        controller, runner = self.controller([(repair.ROUTE_STATUS,
-            reply({"status": "NOT_RUN", "code": "ROUTER_OWNER_BUSY"}, 3))])
+        controller, runner = self.controller(
+            [(repair.ROUTE_STATUS, reply({"status": "NOT_RUN", "code": "ROUTER_OWNER_BUSY"}, 3))]
+        )
         state = self.finish(controller)
         self.assertEqual(state["status"], "needs-action")
         self.assertEqual([call[0] for call in runner.calls], [repair.ROUTE_STATUS])
@@ -816,33 +1001,42 @@ class OnlineCodeRepairTests(unittest.TestCase):
         describe router state (several quarantined runs, an install in progress, an owner repair),
         so the check stops with needs-action and changes nothing; an unknown code stays an error."""
         for code, result, words in (
-                ("ROUTER_MULTIPLE_UNRESOLVED_RUNS", "multiple-unresolved", "More than one router run needs owner review"),
-                ("ROUTER_INSTALL_IN_PROGRESS", "install-in-progress", "press the button again afterwards"),
-                ("ROUTER_INSTALL_CHANGED", "install-in-progress", "press the button again afterwards"),
-                # Permanent until the owner acts: never "press the button again afterwards".
-                ("ROUTER_INSTALL_ROLLED_BACK", "install-refusing", "(ROUTER_INSTALL_ROLLED_BACK)"),
-                ("ROUTER_INSTALL_FENCE_MISSING", "install-refusing", "finish the router install"),
-                ("ROUTER_INSTALL_FENCE_INVALID", "install-refusing", "refuses every command (ROUTER_INSTALL_FENCE_INVALID)"),
-                ("ROUTER_INSTALL_GENERATION_MISMATCH", "install-refusing", "or roll it back"),
-                ("ROUTER_OWNER_LOCK_MISSING", "owner-action", "owner lock is missing"),
-                ("ROUTER_OWNER_LOCK_REPLACED", "owner-action", "owner lock was replaced"),
-                ("ROUTER_POLICY_BUSY", "owner-action", "concurrency policy"),
-                ("ROUTER_BEGIN_UNCERTAIN", "owner-action", "exact reconcile gate")):
+            ("ROUTER_MULTIPLE_UNRESOLVED_RUNS", "multiple-unresolved", "More than one router run needs owner review"),
+            ("ROUTER_INSTALL_IN_PROGRESS", "install-in-progress", "press the button again afterwards"),
+            ("ROUTER_INSTALL_CHANGED", "install-in-progress", "press the button again afterwards"),
+            # Permanent until the owner acts: never "press the button again afterwards".
+            ("ROUTER_INSTALL_ROLLED_BACK", "install-refusing", "(ROUTER_INSTALL_ROLLED_BACK)"),
+            ("ROUTER_INSTALL_FENCE_MISSING", "install-refusing", "finish the router install"),
+            (
+                "ROUTER_INSTALL_FENCE_INVALID",
+                "install-refusing",
+                "refuses every command (ROUTER_INSTALL_FENCE_INVALID)",
+            ),
+            ("ROUTER_INSTALL_GENERATION_MISMATCH", "install-refusing", "or roll it back"),
+            ("ROUTER_OWNER_LOCK_MISSING", "owner-action", "owner lock is missing"),
+            ("ROUTER_OWNER_LOCK_REPLACED", "owner-action", "owner lock was replaced"),
+            ("ROUTER_POLICY_BUSY", "owner-action", "concurrency policy"),
+            ("ROUTER_BEGIN_UNCERTAIN", "owner-action", "exact reconcile gate"),
+        ):
             with self.subTest(code=code):
-                controller, runner = self.controller([(repair.ROUTE_STATUS,
-                    reply({"status": "NOT_RUN", "code": code}, 3))])
+                controller, runner = self.controller(
+                    [(repair.ROUTE_STATUS, reply({"status": "NOT_RUN", "code": code}, 3))]
+                )
                 state = self.finish(controller)
                 self.assertEqual(state["status"], "needs-action")
                 self.assertIn(words, state["message"])
                 if result == "install-refusing":
                     self.assertNotIn("press the button again", state["message"])
-                self.assertIn({"name": "router-status", "result": result},
-                              [{k: step.get(k) for k in ("name", "result")} for step in state["steps"]
-                               if isinstance(step, dict)])
+                self.assertIn(
+                    {"name": "router-status", "result": result},
+                    [{k: step.get(k) for k in ("name", "result")} for step in state["steps"] if isinstance(step, dict)],
+                )
                 self.assertEqual([call[0] for call in runner.calls], [repair.ROUTE_STATUS])
-        for code, value in ((3, {"status": "NOT_RUN", "code": "ROUTER_STATE_MISSING"}),
-                            (3, {"status": "NOT_RUN", "code": "ROUTER_INSTALL_../../x"}),
-                            (2, {"status": "NOT_RUN", "code": "ROUTER_MULTIPLE_UNRESOLVED_RUNS"})):
+        for code, value in (
+            (3, {"status": "NOT_RUN", "code": "ROUTER_STATE_MISSING"}),
+            (3, {"status": "NOT_RUN", "code": "ROUTER_INSTALL_../../x"}),
+            (2, {"status": "NOT_RUN", "code": "ROUTER_MULTIPLE_UNRESOLVED_RUNS"}),
+        ):
             with self.subTest(code=value["code"], exit=code):
                 controller, runner = self.controller([(repair.ROUTE_STATUS, reply(value, code))])
                 state = self.finish(controller)
@@ -853,6 +1047,7 @@ class OnlineCodeRepairTests(unittest.TestCase):
         """Spec R2.9 legacy rule (iii): while Fix holds router owner.lock, an EX holder is this
         Monitor, never a live legacy route; the flag is raised before the flock is tried."""
         import telemetry
+
         with tempfile.TemporaryDirectory() as temp:
             lock = Path(temp) / "owner.lock"
             lock.write_bytes(b"")
@@ -899,8 +1094,14 @@ class OnlineCodeRepairTests(unittest.TestCase):
         OverflowError, which escaped the readiness receipt's and the Nisi marker's own error
         handling; a huge integer is now simply not a usable number."""
         huge = json.loads("1" + "0" * 400)
-        good = {"schemaVersion": 1, "status": "PREFLIGHT_COMPLETED", "observedAtUnix": time.time(),
-                "source": "online-code-mode", "client": None, "chatId": None}
+        good = {
+            "schemaVersion": 1,
+            "status": "PREFLIGHT_COMPLETED",
+            "observedAtUnix": time.time(),
+            "source": "online-code-mode",
+            "client": None,
+            "chatId": None,
+        }
         for value, expected in ((good["observedAtUnix"], True), (huge, False)):
             with self.subTest(observed=type(value).__name__):
                 if self.receipt.exists():
@@ -915,26 +1116,28 @@ class OnlineCodeRepairTests(unittest.TestCase):
         self.assertEqual(repair._parse_nisi_marker(json.dumps(marker).encode())["input_sha256"], "f" * 64)
 
     def test_nisi_pending_blocks_preflight_reconciliation(self):
-        controller, runner = self.controller([(repair.ROUTE_STATUS, active_status()),
-                                             (repair.NISI_STATUS, nisi(True))])
+        controller, runner = self.controller([(repair.ROUTE_STATUS, active_status()), (repair.NISI_STATUS, nisi(True))])
         state = self.finish(controller)
         self.assertEqual(state["status"], "needs-action")
         self.assertEqual([call[0] for call in runner.calls], [repair.ROUTE_STATUS, repair.NISI_STATUS])
 
     def test_symlinked_nisi_marker_is_not_treated_as_clear(self):
         self.marker.symlink_to(Path(self.temporary.name) / "missing")
-        controller, runner = self.controller([(repair.ROUTE_STATUS, active_status()),
-                                             (repair.NISI_STATUS, nisi(False))])
+        controller, runner = self.controller(
+            [(repair.ROUTE_STATUS, active_status()), (repair.NISI_STATUS, nisi(False))]
+        )
         state = self.finish(controller)
         self.assertEqual(state["status"], "needs-action")
         self.assertEqual(len(runner.calls), 2)
 
     def test_windows_pending_is_polled_once_and_never_resent(self):
-        controller, runner = self.controller([
-            (repair.ROUTE_STATUS, idle()),
-            (repair.WINDOWS_STATUS, windows({"id": JOB})),
-            (repair.WINDOWS_RECONCILE, reply({"status": "pending", "id": JOB}, 3)),
-        ])
+        controller, runner = self.controller(
+            [
+                (repair.ROUTE_STATUS, idle()),
+                (repair.WINDOWS_STATUS, windows({"id": JOB})),
+                (repair.WINDOWS_RECONCILE, reply({"status": "pending", "id": JOB}, 3)),
+            ]
+        )
         state = self.finish(controller)
         self.assertEqual(state["status"], "needs-action")
         self.assertEqual([call[0] for call in runner.calls].count(repair.WINDOWS_RECONCILE), 1)
@@ -944,15 +1147,22 @@ class OnlineCodeRepairTests(unittest.TestCase):
 
     def test_terminal_windows_error_is_archived_but_not_called_ready(self):
         private_error = "private response body must stay inside owner receipt"
-        controller, runner = self.controller([
-            (repair.ROUTE_STATUS, idle()),
-            (repair.WINDOWS_STATUS, windows({"id": JOB})),
-            (repair.WINDOWS_RECONCILE, reply({"schema_version": 1, "id": JOB,
-                                              "status": "error", "error": private_error})),
-            (repair.WINDOWS_STATUS, windows()), (repair.NISI_STATUS, nisi()),
-            (repair.READINESS, reply(None)), (repair.NISI_STATUS, nisi()),
-            (repair.WINDOWS_STATUS, windows()), (repair.ROUTE_STATUS, idle()),
-        ])
+        controller, runner = self.controller(
+            [
+                (repair.ROUTE_STATUS, idle()),
+                (repair.WINDOWS_STATUS, windows({"id": JOB})),
+                (
+                    repair.WINDOWS_RECONCILE,
+                    reply({"schema_version": 1, "id": JOB, "status": "error", "error": private_error}),
+                ),
+                (repair.WINDOWS_STATUS, windows()),
+                (repair.NISI_STATUS, nisi()),
+                (repair.READINESS, reply(None)),
+                (repair.NISI_STATUS, nisi()),
+                (repair.WINDOWS_STATUS, windows()),
+                (repair.ROUTE_STATUS, idle()),
+            ]
+        )
         state = self.finish(controller)
         self.assertEqual(state["status"], "needs-action")
         self.assertIn("ended in an error", state["message"])
@@ -960,47 +1170,69 @@ class OnlineCodeRepairTests(unittest.TestCase):
         self.assertEqual(runner.script, [])
 
     def test_mismatched_windows_result_does_not_claim_reconciliation(self):
-        controller, runner = self.controller([
-            (repair.ROUTE_STATUS, idle()),
-            (repair.WINDOWS_STATUS, windows({"id": JOB})),
-            (repair.WINDOWS_RECONCILE, reply({"schema_version": 1,
-                                              "id": "mac-other-1234567890", "status": "success"})),
-        ])
+        controller, runner = self.controller(
+            [
+                (repair.ROUTE_STATUS, idle()),
+                (repair.WINDOWS_STATUS, windows({"id": JOB})),
+                (
+                    repair.WINDOWS_RECONCILE,
+                    reply({"schema_version": 1, "id": "mac-other-1234567890", "status": "success"}),
+                ),
+            ]
+        )
         state = self.finish(controller)
         self.assertEqual(state["status"], "needs-action")
         self.assertNotIn(repair.READINESS, [call[0] for call in runner.calls])
 
     def test_owner_detected_job_change_stops_before_readiness(self):
-        controller, runner = self.controller([
-            (repair.ROUTE_STATUS, idle()),
-            (repair.WINDOWS_STATUS, windows({"id": JOB})),
-            (repair.WINDOWS_RECONCILE,
-             reply({"status": "NOT_RUN", "code": "EXPECTED_JOB_ID_MISMATCH"}, 3)),
-        ])
+        controller, runner = self.controller(
+            [
+                (repair.ROUTE_STATUS, idle()),
+                (repair.WINDOWS_STATUS, windows({"id": JOB})),
+                (repair.WINDOWS_RECONCILE, reply({"status": "NOT_RUN", "code": "EXPECTED_JOB_ID_MISMATCH"}, 3)),
+            ]
+        )
         state = self.finish(controller)
         self.assertEqual(state["status"], "needs-action")
         self.assertIn("job changed", state["message"])
         self.assertNotIn(repair.READINESS, [call[0] for call in runner.calls])
 
     def test_failed_preflight_reconcile_retains_unresolved_state(self):
-        controller, runner = self.controller([
-            (repair.ROUTE_STATUS, active_status()),
-            (repair.NISI_STATUS, nisi()), (repair.WINDOWS_STATUS, windows()),
-            (repair.ROUTE_PREFLIGHT, reply({"kind": "codemode.router.reconcile.v1",
-                                             "status": "NOT_RUN", "code": "ROUTER_RECONCILE_STATE_INVALID"}, 3)),
-        ])
+        controller, runner = self.controller(
+            [
+                (repair.ROUTE_STATUS, active_status()),
+                (repair.NISI_STATUS, nisi()),
+                (repair.WINDOWS_STATUS, windows()),
+                (
+                    repair.ROUTE_PREFLIGHT,
+                    reply(
+                        {
+                            "kind": "codemode.router.reconcile.v1",
+                            "status": "NOT_RUN",
+                            "code": "ROUTER_RECONCILE_STATE_INVALID",
+                        },
+                        3,
+                    ),
+                ),
+            ]
+        )
         state = self.finish(controller)
         self.assertEqual(state["status"], "needs-action")
         self.assertIn("not archived", state["message"])
         self.assertNotIn(repair.READINESS, [call[0] for call in runner.calls])
 
     def test_degraded_inventory_still_rechecks_route_without_inference_claim(self):
-        controller, runner = self.controller([
-            (repair.ROUTE_STATUS, idle()), (repair.WINDOWS_STATUS, windows()),
-            (repair.NISI_STATUS, nisi()), (repair.READINESS, reply(None, 3)),
-            (repair.NISI_STATUS, nisi()), (repair.WINDOWS_STATUS, windows()),
-            (repair.ROUTE_STATUS, idle()),
-        ])
+        controller, runner = self.controller(
+            [
+                (repair.ROUTE_STATUS, idle()),
+                (repair.WINDOWS_STATUS, windows()),
+                (repair.NISI_STATUS, nisi()),
+                (repair.READINESS, reply(None, 3)),
+                (repair.NISI_STATUS, nisi()),
+                (repair.WINDOWS_STATUS, windows()),
+                (repair.ROUTE_STATUS, idle()),
+            ]
+        )
         state = self.finish(controller)
         self.assertEqual(state["status"], "needs-action")
         self.assertIn("degraded", state["message"])
@@ -1008,40 +1240,57 @@ class OnlineCodeRepairTests(unittest.TestCase):
 
     def test_mac_inventory_does_not_claim_unavailable_windows_route_ready(self):
         delays = []
-        controller, runner = self.controller([
-            (repair.ROUTE_STATUS, idle()), (repair.WINDOWS_STATUS, windows(ready=False)),
-            (repair.NISI_STATUS, nisi()), (repair.READINESS, reply(None)),
-            (repair.NISI_STATUS, nisi()), (repair.WINDOWS_STATUS, windows(ready=False)),
-            (repair.ROUTE_STATUS, idle()),
-            (repair.WINDOWS_STATUS, windows(ready=False)),
-            (repair.WINDOWS_STATUS, windows(ready=False)),
-        ], sleep=delays.append)
+        controller, runner = self.controller(
+            [
+                (repair.ROUTE_STATUS, idle()),
+                (repair.WINDOWS_STATUS, windows(ready=False)),
+                (repair.NISI_STATUS, nisi()),
+                (repair.READINESS, reply(None)),
+                (repair.NISI_STATUS, nisi()),
+                (repair.WINDOWS_STATUS, windows(ready=False)),
+                (repair.ROUTE_STATUS, idle()),
+                (repair.WINDOWS_STATUS, windows(ready=False)),
+                (repair.WINDOWS_STATUS, windows(ready=False)),
+            ],
+            sleep=delays.append,
+        )
         state = self.finish(controller)
         self.assertEqual(state["status"], "needs-action")
         self.assertIn("Windows route is unavailable", state["message"])
         self.assertEqual([call[0] for call in runner.calls].count(repair.READINESS), 1)
         self.assertEqual([call[0] for call in runner.calls].count(repair.WINDOWS_RECONCILE), 0)
         self.assertEqual(delays, [2.0, 2.0])
-        self.assertEqual([step["result"] for step in state["steps"] if step["name"] == "windows-status"][-3:],
-                         ["unavailable", "unavailable", "unavailable"])
+        self.assertEqual(
+            [step["result"] for step in state["steps"] if step["name"] == "windows-status"][-3:],
+            ["unavailable", "unavailable", "unavailable"],
+        )
 
     def test_windows_heartbeat_recovers_during_read_only_grace(self):
         delays = []
-        controller, runner = self.controller([
-            (repair.ROUTE_STATUS, idle()), (repair.WINDOWS_STATUS, windows(ready=False)),
-            (repair.NISI_STATUS, nisi()), (repair.READINESS, reply(None)),
-            (repair.NISI_STATUS, nisi()), (repair.WINDOWS_STATUS, windows(ready=False)),
-            (repair.ROUTE_STATUS, idle()),
-            (repair.WINDOWS_STATUS, windows()),
-            (repair.NISI_STATUS, nisi()), (repair.ROUTE_STATUS, idle()),
-        ], sleep=delays.append)
+        controller, runner = self.controller(
+            [
+                (repair.ROUTE_STATUS, idle()),
+                (repair.WINDOWS_STATUS, windows(ready=False)),
+                (repair.NISI_STATUS, nisi()),
+                (repair.READINESS, reply(None)),
+                (repair.NISI_STATUS, nisi()),
+                (repair.WINDOWS_STATUS, windows(ready=False)),
+                (repair.ROUTE_STATUS, idle()),
+                (repair.WINDOWS_STATUS, windows()),
+                (repair.NISI_STATUS, nisi()),
+                (repair.ROUTE_STATUS, idle()),
+            ],
+            sleep=delays.append,
+        )
         state = self.finish(controller)
         self.assertEqual(state["status"], "ready")
         self.assertEqual(delays, [2.0])
         self.assertEqual([call[0] for call in runner.calls].count(repair.READINESS), 1)
         self.assertEqual([call[0] for call in runner.calls].count(repair.WINDOWS_RECONCILE), 0)
-        self.assertEqual([step["result"] for step in state["steps"] if step["name"] == "windows-status"][-2:],
-                         ["unavailable", "clear"])
+        self.assertEqual(
+            [step["result"] for step in state["steps"] if step["name"] == "windows-status"][-2:],
+            ["unavailable", "clear"],
+        )
 
     def test_second_click_while_running_does_not_start_another_worker(self):
         entered, release = threading.Event(), threading.Event()
@@ -1068,8 +1317,10 @@ class OnlineCodeRepairTests(unittest.TestCase):
 
     def test_fix_local_healthy_feeds_do_not_start_server_or_call_launcher(self):
         controller, runner = self.controller([])
-        with mock.patch.object(repair, "_runtime_sources", return_value=(True, True)), \
-             mock.patch.object(repair, "_start_local_api", side_effect=AssertionError("unwanted start")):
+        with (
+            mock.patch.object(repair, "_runtime_sources", return_value=(True, True)),
+            mock.patch.object(repair, "_start_local_api", side_effect=AssertionError("unwanted start")),
+        ):
             state = self.finish(controller, "fix-local")
         self.assertEqual(state["status"], "ready")
         self.assertEqual(state["action"], "fix-local")
@@ -1078,8 +1329,10 @@ class OnlineCodeRepairTests(unittest.TestCase):
 
     def test_fix_local_api_live_activity_missing_does_not_restart(self):
         controller, runner = self.controller([])
-        with mock.patch.object(repair, "_runtime_sources", return_value=(True, False)), \
-             mock.patch.object(repair, "_start_local_api", side_effect=AssertionError("unwanted start")):
+        with (
+            mock.patch.object(repair, "_runtime_sources", return_value=(True, False)),
+            mock.patch.object(repair, "_start_local_api", side_effect=AssertionError("unwanted start")),
+        ):
             state = self.finish(controller, "fix-local")
         self.assertEqual(state["status"], "needs-action")
         self.assertIn("activity feed is unavailable", state["message"])
@@ -1087,10 +1340,14 @@ class OnlineCodeRepairTests(unittest.TestCase):
 
     def test_fix_local_stopped_server_starts_only_on_free_loopback_port_and_verifies(self):
         controller, runner = self.controller([])
-        with mock.patch.object(repair, "_runtime_sources", side_effect=[(False, False), (False, False), (True, True)]) as feeds, \
-             mock.patch.object(repair, "_local_server_stopped", return_value=True) as owner, \
-             mock.patch.object(repair, "_loopback_port_free", return_value=True), \
-             mock.patch.object(repair, "_start_local_api", return_value=True) as start:
+        with (
+            mock.patch.object(
+                repair, "_runtime_sources", side_effect=[(False, False), (False, False), (True, True)]
+            ) as feeds,
+            mock.patch.object(repair, "_local_server_stopped", return_value=True) as owner,
+            mock.patch.object(repair, "_loopback_port_free", return_value=True),
+            mock.patch.object(repair, "_start_local_api", return_value=True) as start,
+        ):
             state = self.finish(controller, "fix-local")
         self.assertEqual(state["status"], "ready")
         self.assertEqual(feeds.call_count, 3)
@@ -1103,19 +1360,23 @@ class OnlineCodeRepairTests(unittest.TestCase):
 
     def test_fix_local_occupied_port_refuses_start(self):
         controller, _ = self.controller([])
-        with mock.patch.object(repair, "_runtime_sources", return_value=(False, True)), \
-             mock.patch.object(repair, "_local_server_stopped", return_value=True), \
-             mock.patch.object(repair, "_loopback_port_free", return_value=False), \
-             mock.patch.object(repair, "_start_local_api", side_effect=AssertionError("unwanted start")):
+        with (
+            mock.patch.object(repair, "_runtime_sources", return_value=(False, True)),
+            mock.patch.object(repair, "_local_server_stopped", return_value=True),
+            mock.patch.object(repair, "_loopback_port_free", return_value=False),
+            mock.patch.object(repair, "_start_local_api", side_effect=AssertionError("unwanted start")),
+        ):
             state = self.finish(controller, "fix-local")
         self.assertEqual(state["status"], "needs-action")
         self.assertIn("port 1234 is occupied", state["message"])
 
     def test_fix_local_owner_running_elsewhere_refuses_second_server(self):
         controller, _ = self.controller([])
-        with mock.patch.object(repair, "_runtime_sources", return_value=(False, False)), \
-             mock.patch.object(repair, "_local_server_stopped", return_value=False), \
-             mock.patch.object(repair, "_start_local_api", side_effect=AssertionError("unwanted start")):
+        with (
+            mock.patch.object(repair, "_runtime_sources", return_value=(False, False)),
+            mock.patch.object(repair, "_local_server_stopped", return_value=False),
+            mock.patch.object(repair, "_start_local_api", side_effect=AssertionError("unwanted start")),
+        ):
             state = self.finish(controller, "fix-local")
         self.assertEqual(state["status"], "needs-action")
         self.assertIn("reports a running server", state["message"])
@@ -1124,10 +1385,12 @@ class OnlineCodeRepairTests(unittest.TestCase):
         for owner_checks, port_checks in (([True, False], [True]), ([True, True], [True, False])):
             with self.subTest(owner_checks=owner_checks, port_checks=port_checks):
                 controller, _ = self.controller([])
-                with mock.patch.object(repair, "_runtime_sources", return_value=(False, False)), \
-                     mock.patch.object(repair, "_local_server_stopped", side_effect=owner_checks), \
-                     mock.patch.object(repair, "_loopback_port_free", side_effect=port_checks), \
-                     mock.patch.object(repair, "_start_local_api", side_effect=AssertionError("unwanted start")):
+                with (
+                    mock.patch.object(repair, "_runtime_sources", return_value=(False, False)),
+                    mock.patch.object(repair, "_local_server_stopped", side_effect=owner_checks),
+                    mock.patch.object(repair, "_loopback_port_free", side_effect=port_checks),
+                    mock.patch.object(repair, "_start_local_api", side_effect=AssertionError("unwanted start")),
+                ):
                     state = self.finish(controller, "fix-local")
                 self.assertEqual(state["status"], "needs-action")
                 self.assertIn("changed before the start", state["message"])
@@ -1136,12 +1399,15 @@ class OnlineCodeRepairTests(unittest.TestCase):
         for started in (False, True):
             with self.subTest(started=started):
                 now = [0.0]
-                controller, _ = self.controller([], sleep=lambda delay: now.__setitem__(0, now[0] + delay),
-                                                monotonic=lambda: now[0])
-                with mock.patch.object(repair, "_runtime_sources", return_value=(False, False)) as feeds, \
-                     mock.patch.object(repair, "_local_server_stopped", return_value=True), \
-                     mock.patch.object(repair, "_loopback_port_free", return_value=True), \
-                     mock.patch.object(repair, "_start_local_api", return_value=started):
+                controller, _ = self.controller(
+                    [], sleep=lambda delay: now.__setitem__(0, now[0] + delay), monotonic=lambda: now[0]
+                )
+                with (
+                    mock.patch.object(repair, "_runtime_sources", return_value=(False, False)) as feeds,
+                    mock.patch.object(repair, "_local_server_stopped", return_value=True),
+                    mock.patch.object(repair, "_loopback_port_free", return_value=True),
+                    mock.patch.object(repair, "_start_local_api", return_value=started),
+                ):
                     state = self.finish(controller, "fix-local")
                 self.assertEqual(state["status"], "needs-action")
                 self.assertEqual(feeds.call_count, 19 if started else 2)
@@ -1150,13 +1416,16 @@ class OnlineCodeRepairTests(unittest.TestCase):
 
     def test_fix_local_late_feed_recovery_within_grace_verifies_without_second_start(self):
         now = [0.0]
-        controller, runner = self.controller([], sleep=lambda delay: now.__setitem__(0, now[0] + delay),
-                                             monotonic=lambda: now[0])
+        controller, runner = self.controller(
+            [], sleep=lambda delay: now.__setitem__(0, now[0] + delay), monotonic=lambda: now[0]
+        )
         samples = [(False, False), (False, False)] + [(False, True)] * 5 + [(True, True)]
-        with mock.patch.object(repair, "_runtime_sources", side_effect=samples) as feeds, \
-             mock.patch.object(repair, "_local_server_stopped", return_value=True), \
-             mock.patch.object(repair, "_loopback_port_free", return_value=True), \
-             mock.patch.object(repair, "_start_local_api", return_value=True) as start:
+        with (
+            mock.patch.object(repair, "_runtime_sources", side_effect=samples) as feeds,
+            mock.patch.object(repair, "_local_server_stopped", return_value=True),
+            mock.patch.object(repair, "_loopback_port_free", return_value=True),
+            mock.patch.object(repair, "_start_local_api", return_value=True) as start,
+        ):
             state = self.finish(controller, "fix-local")
         self.assertEqual(state["status"], "ready")
         self.assertEqual(feeds.call_count, len(samples))
@@ -1166,15 +1435,22 @@ class OnlineCodeRepairTests(unittest.TestCase):
         self.assertEqual(runner.calls, [])
 
     def test_fix_both_runs_independent_route_check_when_local_needs_action(self):
-        controller, runner = self.controller([
-            (repair.ROUTE_STATUS, idle()), (repair.WINDOWS_STATUS, windows()),
-            (repair.NISI_STATUS, nisi()), (repair.READINESS, reply(None)),
-            (repair.NISI_STATUS, nisi()), (repair.WINDOWS_STATUS, windows()),
-            (repair.ROUTE_STATUS, idle()),
-        ])
-        with mock.patch.object(repair, "_runtime_sources", return_value=(False, False)), \
-             mock.patch.object(repair, "_local_server_stopped", return_value=True), \
-             mock.patch.object(repair, "_loopback_port_free", return_value=False):
+        controller, runner = self.controller(
+            [
+                (repair.ROUTE_STATUS, idle()),
+                (repair.WINDOWS_STATUS, windows()),
+                (repair.NISI_STATUS, nisi()),
+                (repair.READINESS, reply(None)),
+                (repair.NISI_STATUS, nisi()),
+                (repair.WINDOWS_STATUS, windows()),
+                (repair.ROUTE_STATUS, idle()),
+            ]
+        )
+        with (
+            mock.patch.object(repair, "_runtime_sources", return_value=(False, False)),
+            mock.patch.object(repair, "_local_server_stopped", return_value=True),
+            mock.patch.object(repair, "_loopback_port_free", return_value=False),
+        ):
             state = self.finish(controller, "fix-both")
         self.assertEqual(state["status"], "needs-action")
         self.assertEqual(state["action"], "fix-both")
@@ -1190,16 +1466,17 @@ class OnlineCodeRepairTests(unittest.TestCase):
         self.assertIn("Local runtime: LM Studio inventory and activity feeds are responsive", state["message"])
         self.assertIn("Route: The route check failed unexpectedly", state["message"])
         self.assertNotIn("invalid runner response", state["message"])
-        self.assertEqual(state["steps"][:2], [
-            {"name": "local-api-before", "result": "live"},
-            {"name": "local-activity-before", "result": "live"}])
+        self.assertEqual(
+            state["steps"][:2],
+            [{"name": "local-api-before", "result": "live"}, {"name": "local-activity-before", "result": "live"}],
+        )
         self.assertEqual([call[0] for call in runner.calls], [repair.ROUTE_STATUS])
 
     def test_fix_all_runs_local_nisi_and_route_once_and_journals_the_outcome(self):
         journal = Path(self.temporary.name) / "fix-journal.jsonl"
-        controller = repair.OnlineCodeRepair(lambda *_: reply(None),
-                                             fix_journal_path=journal,
-                                             nisi_pending_path=self.marker, l2_open=True)
+        controller = repair.OnlineCodeRepair(
+            lambda *_: reply(None), fix_journal_path=journal, nisi_pending_path=self.marker, l2_open=True
+        )
         calls = []
 
         def local():
@@ -1215,23 +1492,29 @@ class OnlineCodeRepairTests(unittest.TestCase):
             self.assertTrue(fix)
             return "ready", "route responsive"
 
-        with mock.patch.object(controller, "_fix_local_runtime", side_effect=local), \
-             mock.patch.object(controller, "_fix_nisi", side_effect=nisi), \
-             mock.patch.object(controller, "_check_and_repair", side_effect=route):
+        with (
+            mock.patch.object(controller, "_fix_local_runtime", side_effect=local),
+            mock.patch.object(controller, "_fix_nisi", side_effect=nisi),
+            mock.patch.object(controller, "_check_and_repair", side_effect=route),
+        ):
             state = self.finish(controller, "fix-all")
         self.assertEqual(calls, ["local", "nisi", "route"])
         self.assertEqual((state["status"], state["action"]), ("needs-action", "fix-all"))
         self.assertIn("Nisi Inference: second resident model needed", state["message"])
-        self.assertEqual([step["result"] for step in state["steps"] if step["name"] == "fix-component"],
-                         ["ready", "needs-action", "ready"])
+        self.assertEqual(
+            [step["result"] for step in state["steps"] if step["name"] == "fix-component"],
+            ["ready", "needs-action", "ready"],
+        )
         [line] = [json.loads(value) for value in journal.read_text().splitlines()]
         self.assertEqual((line["action"], line["status"]), ("fix-all", "needs-action"))
 
     def test_fix_all_preserves_all_component_failures_without_a_second_route_attempt(self):
         controller, _runner = self.controller([])
-        with mock.patch.object(controller, "_fix_local_runtime", side_effect=ValueError("private")) as local, \
-             mock.patch.object(controller, "_fix_nisi", side_effect=repair._Stop("needs-action", "owner busy")) as nisi, \
-             mock.patch.object(controller, "_check_and_repair", side_effect=OSError("private")) as route:
+        with (
+            mock.patch.object(controller, "_fix_local_runtime", side_effect=ValueError("private")) as local,
+            mock.patch.object(controller, "_fix_nisi", side_effect=repair._Stop("needs-action", "owner busy")) as nisi,
+            mock.patch.object(controller, "_check_and_repair", side_effect=OSError("private")) as route,
+        ):
             state = self.finish(controller, "fix-all")
         self.assertEqual(state["status"], "error")
         self.assertEqual((local.call_count, nisi.call_count, route.call_count), (1, 1, 1))
@@ -1241,12 +1524,17 @@ class OnlineCodeRepairTests(unittest.TestCase):
         self.assertNotIn("private", state["message"])
 
     def test_fix_route_reuses_exact_existing_owner_check(self):
-        controller, runner = self.controller([
-            (repair.ROUTE_STATUS, idle()), (repair.WINDOWS_STATUS, windows()),
-            (repair.NISI_STATUS, nisi()), (repair.READINESS, reply(None)),
-            (repair.NISI_STATUS, nisi()), (repair.WINDOWS_STATUS, windows()),
-            (repair.ROUTE_STATUS, idle()),
-        ])
+        controller, runner = self.controller(
+            [
+                (repair.ROUTE_STATUS, idle()),
+                (repair.WINDOWS_STATUS, windows()),
+                (repair.NISI_STATUS, nisi()),
+                (repair.READINESS, reply(None)),
+                (repair.NISI_STATUS, nisi()),
+                (repair.WINDOWS_STATUS, windows()),
+                (repair.ROUTE_STATUS, idle()),
+            ]
+        )
         with mock.patch.object(repair, "_runtime_sources", side_effect=AssertionError("local not selected")):
             state = self.finish(controller, "fix-route")
         self.assertEqual(state["status"], "ready")
@@ -1255,10 +1543,12 @@ class OnlineCodeRepairTests(unittest.TestCase):
 
     def test_fix_and_readiness_share_worker_gate(self):
         entered, release = threading.Event(), threading.Event()
+
         def blocked_sources():
             entered.set()
             release.wait(1)
             return True, True
+
         controller, runner = self.controller([])
         with mock.patch.object(repair, "_runtime_sources", side_effect=blocked_sources):
             first = controller.request_fix("local")
@@ -1276,23 +1566,31 @@ class OnlineCodeRepairTests(unittest.TestCase):
     def test_fixed_lmstudio_start_command_is_loopback_only(self):
         process = mock.Mock()
         process.wait.return_value = 0
-        with mock.patch.object(repair, "_find_lms", return_value="/owner/lms"), \
-             mock.patch.object(repair.subprocess, "Popen", return_value=process) as popen:
+        with (
+            mock.patch.object(repair, "_find_lms", return_value="/owner/lms"),
+            mock.patch.object(repair.subprocess, "Popen", return_value=process) as popen,
+        ):
             self.assertTrue(repair._start_local_api())
-        self.assertEqual(popen.call_args.args[0],
-                         ["/owner/lms", "server", "start", "--port", "1234", "--bind", "127.0.0.1"])
+        self.assertEqual(
+            popen.call_args.args[0], ["/owner/lms", "server", "start", "--port", "1234", "--bind", "127.0.0.1"]
+        )
         self.assertTrue(popen.call_args.kwargs["start_new_session"])
 
     def test_runtime_inventory_probe_uses_only_verified_direct_endpoint(self):
         endpoint = {"host": "127.0.0.1", "port": 1235, "portSource": "lms"}
         listener = (907, "lmstudio", "/Applications/LM Studio.app/Contents/MacOS/LM Studio")
-        for verified, after, expected in ((None, None, False), ((endpoint, listener), listener, True),
-                                           ((endpoint, listener), (908, "pair", "/fixture/pair"), False)):
-            with self.subTest(verified=verified, after=after), \
-                    mock.patch.object(repair, "_verified_direct_endpoint", return_value=verified), \
-                    mock.patch.object(repair, "_inventory_listener", return_value=after), \
-                    mock.patch.object(repair, "_bounded_http", return_value={"models": []}) as http, \
-                    mock.patch.object(repair, "_bounded_lms", return_value={"models": []}):
+        for verified, after, expected in (
+            (None, None, False),
+            ((endpoint, listener), listener, True),
+            ((endpoint, listener), (908, "pair", "/fixture/pair"), False),
+        ):
+            with (
+                self.subTest(verified=verified, after=after),
+                mock.patch.object(repair, "_verified_direct_endpoint", return_value=verified),
+                mock.patch.object(repair, "_inventory_listener", return_value=after),
+                mock.patch.object(repair, "_bounded_http", return_value={"models": []}) as http,
+                mock.patch.object(repair, "_bounded_lms", return_value={"models": []}),
+            ):
                 self.assertEqual(repair._runtime_sources(), (expected, True))
                 if verified is None:
                     http.assert_not_called()
@@ -1300,17 +1598,25 @@ class OnlineCodeRepairTests(unittest.TestCase):
                     http.assert_called_once_with(endpoint)
 
     def test_owner_status_is_bounded_exact_json_and_fail_closed(self):
-        with mock.patch.object(repair, "_find_lms", return_value="/owner/lms"), \
-             mock.patch.object(repair, "_bounded_command", return_value='{"running":false}') as command:
+        with (
+            mock.patch.object(repair, "_find_lms", return_value="/owner/lms"),
+            mock.patch.object(repair, "_bounded_command", return_value='{"running":false}') as command,
+        ):
             self.assertTrue(repair._local_server_stopped())
         self.assertEqual(command.call_args.args[0], ["/owner/lms", "server", "status", "--json"])
         self.assertEqual(command.call_args.kwargs, {"limit": 4096, "timeout": 3.0})
-        for raw in ('{"running":true,"port":1234}', '{"running":"false"}',
-                    '{"running":false,"running":false}',
-                    '{"running":false,"unexpected":true}', '{"running":false,"port":70000}'):
-            with self.subTest(raw=raw), \
-                 mock.patch.object(repair, "_find_lms", return_value="/owner/lms"), \
-                 mock.patch.object(repair, "_bounded_command", return_value=raw):
+        for raw in (
+            '{"running":true,"port":1234}',
+            '{"running":"false"}',
+            '{"running":false,"running":false}',
+            '{"running":false,"unexpected":true}',
+            '{"running":false,"port":70000}',
+        ):
+            with (
+                self.subTest(raw=raw),
+                mock.patch.object(repair, "_find_lms", return_value="/owner/lms"),
+                mock.patch.object(repair, "_bounded_command", return_value=raw),
+            ):
                 if raw == '{"running":true,"port":1234}':
                     self.assertFalse(repair._local_server_stopped())
                 else:
@@ -1322,18 +1628,27 @@ class VerifiedRuntimeEndpointTests(unittest.TestCase):
     def test_proxy_and_unknown_status_never_count_as_native_inventory(self):
         lm = (907, "lmstudio", "/Applications/LM Studio.app/Contents/MacOS/LM Studio")
         pair = (908, "pair", "/Applications/NVIDIA PAIR.app/Contents/MacOS/nvpair-proxy")
-        for configured, listener, status in (("1234", pair, {"port": 1235, "running": True}),
-                ("1235", lm, None), ("1235", None, {"port": 1235, "running": True}),
-                ("invalid", lm, {"port": 1235, "running": True})):
-            with self.subTest(configured=configured, listener=listener), \
-                    mock.patch.dict(os.environ, {"AGIW_LMSTUDIO_API_PORT": configured}), \
-                    mock.patch.object(repair, "_lms_server_status", return_value=status), \
-                    mock.patch.object(repair, "_inventory_listener", return_value=listener), \
-                    mock.patch.object(repair, "_bounded_http") as http, \
-                    mock.patch.object(repair, "_bounded_lms", return_value={"models": []}):
+        for configured, listener, status in (
+            ("1234", pair, {"port": 1235, "running": True}),
+            ("1235", lm, None),
+            ("1235", None, {"port": 1235, "running": True}),
+            ("invalid", lm, {"port": 1235, "running": True}),
+        ):
+            with (
+                self.subTest(configured=configured, listener=listener),
+                mock.patch.dict(os.environ, {"AGIW_LMSTUDIO_API_PORT": configured}),
+                mock.patch.object(repair, "_lms_server_status", return_value=status),
+                mock.patch.object(repair, "_inventory_listener", return_value=listener),
+                mock.patch.object(repair, "_bounded_http") as http,
+                mock.patch.object(repair, "_bounded_lms", return_value={"models": []}),
+            ):
                 self.assertEqual(repair._runtime_sources(), (False, True))
-                self.assertEqual(repair._server_client_verdict(
-                    repair._lsof_sockets(lsof_listing(listener="LM Studio spoof")), os.getpid())[0], "unknown")
+                self.assertEqual(
+                    repair._server_client_verdict(
+                        repair._lsof_sockets(lsof_listing(listener="LM Studio spoof")), os.getpid()
+                    )[0],
+                    "unknown",
+                )
                 with self.assertRaisesRegex(ValueError, "endpoint identity"):
                     repair.loopback_api_sockets()
                 http.assert_not_called()
@@ -1341,12 +1656,14 @@ class VerifiedRuntimeEndpointTests(unittest.TestCase):
     def test_direct_1235_uses_kernel_identity_instead_of_command_prefix(self):
         listener = (SERVER_PID, "lmstudio", "/Applications/LM Studio.app/Contents/MacOS/LM Studio")
         listing = lsof_listing(listener="truncated name", listen_name="127.0.0.1:1235")
-        with mock.patch.dict(os.environ, {"AGIW_LMSTUDIO_API_PORT": "1235"}), \
-                mock.patch.object(repair, "_lms_server_status", return_value={"port": 1235, "running": True}), \
-                mock.patch.object(repair, "_inventory_listener", return_value=listener), \
-                mock.patch.object(repair, "_bounded_http", return_value={"models": []}) as http, \
-                mock.patch.object(repair, "_bounded_lms", return_value={"models": []}), \
-                mock.patch.object(repair, "_bounded_command", return_value=listing) as command:
+        with (
+            mock.patch.dict(os.environ, {"AGIW_LMSTUDIO_API_PORT": "1235"}),
+            mock.patch.object(repair, "_lms_server_status", return_value={"port": 1235, "running": True}),
+            mock.patch.object(repair, "_inventory_listener", return_value=listener),
+            mock.patch.object(repair, "_bounded_http", return_value={"models": []}) as http,
+            mock.patch.object(repair, "_bounded_lms", return_value={"models": []}),
+            mock.patch.object(repair, "_bounded_command", return_value=listing) as command,
+        ):
             self.assertEqual(repair._runtime_sources(), (True, True))
             self.assertEqual(http.call_args.args[0]["port"], 1235)
             self.assertEqual(repair.loopback_api_sockets(), listing)
@@ -1360,9 +1677,11 @@ class VerifiedRuntimeEndpointTests(unittest.TestCase):
     def test_socket_listener_handoff_discards_listing(self):
         endpoint = {"host": "127.0.0.1", "port": 1235, "portSource": "lms"}
         listener = (907, "lmstudio", "/Applications/LM Studio.app/Contents/MacOS/LM Studio")
-        with mock.patch.object(repair, "_verified_direct_endpoint", return_value=(endpoint, listener)), \
-                mock.patch.object(repair, "_inventory_listener", return_value=(908, "pair", "/fixture/pair")), \
-                mock.patch.object(repair, "_bounded_command", return_value=""):
+        with (
+            mock.patch.object(repair, "_verified_direct_endpoint", return_value=(endpoint, listener)),
+            mock.patch.object(repair, "_inventory_listener", return_value=(908, "pair", "/fixture/pair")),
+            mock.patch.object(repair, "_bounded_command", return_value=""),
+        ):
             with self.assertRaisesRegex(ValueError, "listener changed"):
                 repair.loopback_api_sockets()
 
@@ -1377,8 +1696,10 @@ class HeadlessSwitchTests(unittest.TestCase):
 
     def fake(self, body, mode=0o700):
         script = Path(self.temporary.name) / "pc-llm"
-        script.write_text("#!/usr/bin/python3\nimport json, sys, time\n"
-                          f"open({str(self.argv)!r}, 'w').write(json.dumps(sys.argv[1:]))\n" + body)
+        script.write_text(
+            "#!/usr/bin/python3\nimport json, sys, time\n"
+            f"open({str(self.argv)!r}, 'w').write(json.dumps(sys.argv[1:]))\n" + body
+        )
         script.chmod(mode)
         return script
 
@@ -1398,15 +1719,19 @@ class HeadlessSwitchTests(unittest.TestCase):
 
     def test_on_runs_exact_bounded_command_and_reports_expiry_and_probe_time(self):
         expires = time.time() + 4 * 3600
-        script = self.fake(f"print(json.dumps({{'state': 'on', 'expiresAtUnix': {expires}, 'leaseId': 'SECRET', "
-                           "'probe': {'elapsedSeconds': 3.7, 'jobId': 'mac-private'}}))\n")
+        script = self.fake(
+            f"print(json.dumps({{'state': 'on', 'expiresAtUnix': {expires}, 'leaseId': 'SECRET', "
+            "'probe': {'elapsedSeconds': 3.7, 'jobId': 'mac-private'}}))\n"
+        )
         with mock.patch.object(repair, "_run_bounded", wraps=repair._run_bounded) as bounded:
             state = self.run_switch("on", script)
         self.assertEqual(json.loads(self.argv.read_text()), ["on", "--granted-by", "inference-monitor", "--hours", "4"])
         self.assertEqual(bounded.call_args.args[1:], (None, 150))
         self.assertEqual(state["status"], "ready")
-        self.assertEqual(state["message"],
-                         f"PC headless on until {time.strftime('%H:%M', time.localtime(expires))} (probe answered in 3.7 s).")
+        self.assertEqual(
+            state["message"],
+            f"PC headless on until {time.strftime('%H:%M', time.localtime(expires))} (probe answered in 3.7 s).",
+        )
         self.assertEqual(state["steps"], [{"name": "pc-headless", "result": "on"}])
         self.assertNotIn("SECRET", json.dumps(state))
 
@@ -1420,15 +1745,19 @@ class HeadlessSwitchTests(unittest.TestCase):
         self.assertEqual(state["steps"], [{"name": "pc-headless", "result": "off"}])
 
     def test_probe_failure_and_errors_report_pc_llm_message_without_paths(self):
-        script = self.fake("print(json.dumps({'status': 'error', 'code': 'PC_PROBE_FAILED', "
-                           "'message': 'the PC did not answer the probe correctly; switch stays off'}))\nsys.exit(2)\n")
+        script = self.fake(
+            "print(json.dumps({'status': 'error', 'code': 'PC_PROBE_FAILED', "
+            "'message': 'the PC did not answer the probe correctly; switch stays off'}))\nsys.exit(2)\n"
+        )
         state = self.run_switch("on", script)
         self.assertEqual(state["status"], "needs-action")
         self.assertEqual(state["message"], "the PC did not answer the probe correctly; switch stays off")
         self.assertEqual(state["steps"], [{"name": "pc-headless", "result": "probe-failed"}])
-        script = self.fake("print(json.dumps({'status': 'error', 'code': 'PC_UNAVAILABLE', 'message': "
-                           "'on/off failed: /Users/owner/bin/chami-dispatch and ~/x and C:\\\\SharedChami\\\\q\\n' + 'z' * 400}))\n"
-                           "sys.exit(2)\n")
+        script = self.fake(
+            "print(json.dumps({'status': 'error', 'code': 'PC_UNAVAILABLE', 'message': "
+            "'on/off failed: /Users/owner/bin/chami-dispatch and ~/x and C:\\\\SharedChami\\\\q\\n' + 'z' * 400}))\n"
+            "sys.exit(2)\n"
+        )
         state = self.run_switch("on", script)
         self.assertEqual(state["steps"], [{"name": "pc-headless", "result": "error"}])
         # "on/off" is a word, not a path; the real paths after it are still redacted.
@@ -1439,26 +1768,39 @@ class HeadlessSwitchTests(unittest.TestCase):
 
     def test_pc_llm_message_keeps_queue_io_wording_and_still_redacts_paths(self):
         # chami-dispatch's share fault must read as an I/O fault, not as a redacted path.
-        script = self.fake("print(json.dumps({'status': 'error', 'code': 'PC_UNAVAILABLE', 'message': "
-                           "'worker not ready; job not enqueued: queue I/O unavailable or timed out'}))\nsys.exit(2)\n")
+        script = self.fake(
+            "print(json.dumps({'status': 'error', 'code': 'PC_UNAVAILABLE', 'message': "
+            "'worker not ready; job not enqueued: queue I/O unavailable or timed out'}))\nsys.exit(2)\n"
+        )
         state = self.run_switch("on", script)
         self.assertEqual(state["message"], "worker not ready; job not enqueued: queue I/O unavailable or timed out")
-        for text in ("publication uncertain for mac-20260926-181500-abcdef: queue I/O unavailable or timed out",
-                     "queue I/O.", "switch 'on/off' refused", "turn it On/Off"):
+        for text in (
+            "publication uncertain for mac-20260926-181500-abcdef: queue I/O unavailable or timed out",
+            "queue I/O.",
+            "switch 'on/off' refused",
+            "turn it On/Off",
+        ):
             with self.subTest(text=text):
                 self.assertEqual(repair._pc_llm_message(text), text)
-        for text, expected in (("read /Users/owner/x failed", "read [path] failed"),
-                               ("see ~/x", "see [path]"), ("at C:\\SharedChami\\q", "at [path]"),
-                               ("from bin/chami-dispatch", "from [path]"), ("I/O/Users/owner", "[path]"),
-                               ("'a/b I/O'", "[path]")):
+        for text, expected in (
+            ("read /Users/owner/x failed", "read [path] failed"),
+            ("see ~/x", "see [path]"),
+            ("at C:\\SharedChami\\q", "at [path]"),
+            ("from bin/chami-dispatch", "from [path]"),
+            ("I/O/Users/owner", "[path]"),
+            ("'a/b I/O'", "[path]"),
+        ):
             with self.subTest(text=text):
                 self.assertEqual(repair._pc_llm_message(text), expected)
 
     def test_unexpected_output_is_needs_action(self):
-        for body in ("print('not json')\n", "print('{}')\nprint('{}')\n",
-                     "print(json.dumps({'state': 'off'}))\n",  # off while on was asked
-                     "print(json.dumps({'status': 'error', 'message': 'x'}))\n",  # exit 0 error
-                     "sys.stdout.write('{\"state\":\"on\",\"state\":\"on\"}')\n"):
+        for body in (
+            "print('not json')\n",
+            "print('{}')\nprint('{}')\n",
+            "print(json.dumps({'state': 'off'}))\n",  # off while on was asked
+            "print(json.dumps({'status': 'error', 'message': 'x'}))\n",  # exit 0 error
+            'sys.stdout.write(\'{"state":"on","state":"on"}\')\n',
+        ):
             with self.subTest(body=body):
                 state = self.run_switch("on", self.fake(body))
                 self.assertEqual(state["status"], "needs-action")
@@ -1470,14 +1812,18 @@ class HeadlessSwitchTests(unittest.TestCase):
 
     def test_unsafe_or_missing_command_is_never_run(self):
         for script in (self.fake("print('{}')\n", mode=0o722), Path(self.temporary.name) / "missing"):
-            with self.subTest(script=script.name), \
-                 mock.patch.object(repair, "_run_bounded", side_effect=AssertionError("must not run")):
+            with (
+                self.subTest(script=script.name),
+                mock.patch.object(repair, "_run_bounded", side_effect=AssertionError("must not run")),
+            ):
                 state = self.run_switch("off", script)
             self.assertEqual(state["status"], "needs-action")
             self.assertIn("not installed as an owner executable", state["message"])
         controller = repair.OnlineCodeRepair(ScriptedRunner([]), l2_open=True)
-        with mock.patch.object(repair, "PC_LLM", self.fake("print('{}')\n")), \
-             mock.patch.object(repair, "_run_bounded", side_effect=AssertionError("must not run")):
+        with (
+            mock.patch.object(repair, "PC_LLM", self.fake("print('{}')\n")),
+            mock.patch.object(repair, "_run_bounded", side_effect=AssertionError("must not run")),
+        ):
             controller.request_headless("off")
             controller.join(2)
         self.assertIn("not installed", controller.read()["message"])
@@ -1495,9 +1841,11 @@ class HeadlessSwitchTests(unittest.TestCase):
 
     def test_production_on_holds_sharedchami_and_refuses_beside_a_stuck_reader(self):
         script = self.fake("print(json.dumps({'state': 'on', 'expiresAtUnix': time.time() + 60}))\n")
-        with mock.patch.object(repair, "PC_LLM", script), \
-             mock.patch.object(repair, "_windows_worker_reader_blocked", return_value=True), \
-             mock.patch.object(repair, "_run_bounded", side_effect=AssertionError("must not run")):
+        with (
+            mock.patch.object(repair, "PC_LLM", script),
+            mock.patch.object(repair, "_windows_worker_reader_blocked", return_value=True),
+            mock.patch.object(repair, "_run_bounded", side_effect=AssertionError("must not run")),
+        ):
             controller = repair.OnlineCodeRepair(l2_open=True)
             controller.request_headless("on")
             self.assertTrue(controller.join(8))
@@ -1509,11 +1857,15 @@ class HeadlessSwitchTests(unittest.TestCase):
         held = []
 
         def reader_clear():
-            held.append((telemetry._WINDOWS_WORKER_HOLD.is_set(),
-                         not repair._WINDOWS_WORKER_IO_LOCK.acquire(blocking=False)))
+            held.append(
+                (telemetry._WINDOWS_WORKER_HOLD.is_set(), not repair._WINDOWS_WORKER_IO_LOCK.acquire(blocking=False))
+            )
             return False
-        with mock.patch.object(repair, "PC_LLM", script), \
-             mock.patch.object(repair, "_windows_worker_reader_blocked", side_effect=reader_clear):
+
+        with (
+            mock.patch.object(repair, "PC_LLM", script),
+            mock.patch.object(repair, "_windows_worker_reader_blocked", side_effect=reader_clear),
+        ):
             controller = repair.OnlineCodeRepair(l2_open=True)
             controller.request_headless("on")
             self.assertTrue(controller.join(8))
@@ -1533,10 +1885,10 @@ class HeadlessSwitchTests(unittest.TestCase):
             while time.monotonic() < deadline and not children:
                 with controller._owner_children._lock:
                     children = list(controller._owner_children._children.values())
-                time.sleep(.005)
+                time.sleep(0.005)
             self.assertEqual(len(children), 1)
             controller.cancel()
-            self.assertTrue(controller.join(.45))
+            self.assertTrue(controller.join(0.45))
             self.assertEqual(children[0].poll(), -signal.SIGKILL)
             self.assertIn("probing the PC", controller.read()["message"])
         finally:
@@ -1551,9 +1903,16 @@ MARKER_SHA = "81dbab4f" + "c" * 56
 MARKER_AGE = 9 * 3600 + 12 * 60
 GEMMA, QWEN = "google/gemma-4-26b-a4b-qat", "qwen/qwen3.8-27b"
 SERVER_PID = 907
-JEV_ON = {"kind": "chami.intake.typesafe.status.v1", "version": "0.1.0", "enabled": True,
-          "code": None, "opt_in": {"CHAMI_TYPESAFE": "file", "TYPESAFE_API_KEY": "file"},
-          "offline": False, "network_contacted": False, "next": "call classify with the task text"}
+JEV_ON = {
+    "kind": "chami.intake.typesafe.status.v1",
+    "version": "0.1.0",
+    "enabled": True,
+    "code": None,
+    "opt_in": {"CHAMI_TYPESAFE": "file", "TYPESAFE_API_KEY": "file"},
+    "offline": False,
+    "network_contacted": False,
+    "next": "call classify with the task text",
+}
 
 
 def private_file(path, raw=b"", mode=0o600):
@@ -1562,32 +1921,66 @@ def private_file(path, raw=b"", mode=0o600):
 
 
 def lms_row(model, *, status="idle", queued=0, kind="llm", identifier=None):
-    return {"type": kind, "modelKey": model, "identifier": identifier or model,
-            "status": status, "queued": queued, "parallel": 4}
+    return {
+        "type": kind,
+        "modelKey": model,
+        "identifier": identifier or model,
+        "status": status,
+        "queued": queued,
+        "parallel": 4,
+    }
 
 
 def lsof_listing(*clients, unseen=(), listener="LM Studio", listen_name="127.0.0.1:1234"):
     """lsof -F pcnT text: LM Studio's listener, each client's end and the server's end."""
     lines = [f"p{SERVER_PID}", f"c{listener}", "f78", f"n{listen_name}", "TST=LISTEN", "TQR=0", "TQS=0"]
     for pid, command, port in clients:
-        lines += [f"p{pid}", f"c{command}", f"f{port % 97}",
-                  f"n127.0.0.1:{port}->127.0.0.1:1234", "TST=ESTABLISHED", "TQR=0", "TQS=0"]
+        lines += [
+            f"p{pid}",
+            f"c{command}",
+            f"f{port % 97}",
+            f"n127.0.0.1:{port}->127.0.0.1:1234",
+            "TST=ESTABLISHED",
+            "TQR=0",
+            "TQS=0",
+        ]
     for port in [port for _pid, _command, port in clients] + list(unseen):
-        lines += [f"p{SERVER_PID}", f"c{listener}", f"f{100 + port % 97}",
-                  f"n127.0.0.1:1234->127.0.0.1:{port}", "TST=ESTABLISHED", "TQR=0", "TQS=0"]
+        lines += [
+            f"p{SERVER_PID}",
+            f"c{listener}",
+            f"f{100 + port % 97}",
+            f"n127.0.0.1:1234->127.0.0.1:{port}",
+            "TST=ESTABLISHED",
+            "TQR=0",
+            "TQS=0",
+        ]
     return "\n".join(lines) + "\n"
 
 
 def nisi_status_reply(recovery, **changes):
-    nisi = {"status": "ADAPTER_PRESENT", "root": "/nisi-runtime/test", "recoveryRequired": recovery,
-            "ownership_scope": "online-code-mode Nisi wrapper only",
-            "model_inference": "NOT_RUN", "workflow_acceptance": "NOT_RUN", **changes}
+    nisi = {
+        "status": "ADAPTER_PRESENT",
+        "root": "/nisi-runtime/test",
+        "recoveryRequired": recovery,
+        "ownership_scope": "online-code-mode Nisi wrapper only",
+        "model_inference": "NOT_RUN",
+        "workflow_acceptance": "NOT_RUN",
+        **changes,
+    }
     return reply({"kind": "codemode.integrations.v1", "nisi": nisi})
 
 
 def integration_failure(code):
-    return reply({"kind": "codemode.integrations.v1", "status": "NOT_RUN", "code": code,
-                  "accepted": False, "certification": "NOT_RUN"}, 3)
+    return reply(
+        {
+            "kind": "codemode.integrations.v1",
+            "status": "NOT_RUN",
+            "code": code,
+            "accepted": False,
+            "certification": "NOT_RUN",
+        },
+        3,
+    )
 
 
 def launcher_recover(state):
@@ -1676,8 +2069,12 @@ class FixNisiTests(unittest.TestCase):
                     path.unlink()
 
     def write_marker(self, age=MARKER_AGE, **extra):
-        value = {"kind": "codemode.nisi.pending.v1", "started_unix": self.now - age,
-                 "input_sha256": MARKER_SHA, **extra}
+        value = {
+            "kind": "codemode.nisi.pending.v1",
+            "started_unix": self.now - age,
+            "input_sha256": MARKER_SHA,
+            **extra,
+        }
         raw = json.dumps(value).encode("utf-8")
         private_file(self.pending, raw)
         return raw
@@ -1692,10 +2089,16 @@ class FixNisiTests(unittest.TestCase):
 
     def controller(self, launcher=None, **overrides):
         launcher = launcher or NisiLauncher(self.state)
-        options = dict(nisi_pending_path=self.pending, readiness_path=self.root / "readiness.json",
-                       sleep=self.sleeps.append, clock=lambda: self.now,
-                       lms_ps=self.read_lms, loopback_sockets=self.read_sockets,
-                       router_lock_path=self.router_lock, fix_journal_path=self.journal)
+        options = dict(
+            nisi_pending_path=self.pending,
+            readiness_path=self.root / "readiness.json",
+            sleep=self.sleeps.append,
+            clock=lambda: self.now,
+            lms_ps=self.read_lms,
+            loopback_sockets=self.read_sockets,
+            router_lock_path=self.router_lock,
+            fix_journal_path=self.journal,
+        )
         options.update(overrides)
         controller = repair.OnlineCodeRepair(launcher, **options, l2_open=True)
         self.addCleanup(controller.join, 1)
@@ -1742,20 +2145,33 @@ class FixNisiTests(unittest.TestCase):
         controller, launcher = self.controller()
         state = self.run_fix(controller)
         self.assertEqual(state["status"], "ready", state["message"])
-        self.assertEqual(self.steps(state), [
-            ("route-status", "idle"), ("nisi-status", "recovery-required"), ("marker", "stale"),
-            ("owner-lock", "free"), ("server-idle", "idle"), ("recover", "acknowledged"),
-            ("pair", "resident"), ("jev", "opted-in"), ("verify", "clear"), ("journal", "written")])
-        self.assertEqual([call[0] for call in launcher.calls], [
-            repair.ROUTE_STATUS, repair.NISI_STATUS, repair.NISI_RECOVER,
-            repair.JEV_STATUS, repair.NISI_STATUS])
+        self.assertEqual(
+            self.steps(state),
+            [
+                ("route-status", "idle"),
+                ("nisi-status", "recovery-required"),
+                ("marker", "stale"),
+                ("owner-lock", "free"),
+                ("server-idle", "idle"),
+                ("recover", "acknowledged"),
+                ("pair", "resident"),
+                ("jev", "opted-in"),
+                ("verify", "clear"),
+                ("journal", "written"),
+            ],
+        )
+        self.assertEqual(
+            [call[0] for call in launcher.calls],
+            [repair.ROUTE_STATUS, repair.NISI_STATUS, repair.NISI_RECOVER, repair.JEV_STATUS, repair.NISI_STATUS],
+        )
         self.assertTrue(state["message"].startswith("Nisi Inference ready."))
-        for text in ("age 9 h 12 min", "owner anonymous (legacy)", "input 81dbab4fcccc",
-                     "No model inference was run."):
+        for text in ("age 9 h 12 min", "owner anonymous (legacy)", "input 81dbab4fcccc", "No model inference was run."):
             self.assertIn(text, state["message"])
         marker = self.step(state, "marker")
-        self.assertEqual((marker["ageSeconds"], marker["inputSha256"], marker["owner"]),
-                         (str(MARKER_AGE), MARKER_SHA[:12], "anonymous (legacy)"))
+        self.assertEqual(
+            (marker["ageSeconds"], marker["inputSha256"], marker["owner"]),
+            (str(MARKER_AGE), MARKER_SHA[:12], "anonymous (legacy)"),
+        )
         self.assertIn("kind=codemode.nisi.pending.v1", marker["evidence"])
         self.assertEqual(self.step(state, "owner-lock")["evidence"], "nisi=free; router=held")
         self.assertIn("sample2: lms=2-llm-idle; clients=0", self.step(state, "server-idle")["evidence"])
@@ -1773,8 +2189,10 @@ class FixNisiTests(unittest.TestCase):
         self.assert_lock_free(self.owner_lock)
         self.assertEqual(self.journal.stat().st_mode & 0o777, 0o600)
         [line] = self.journal_lines()
-        self.assertEqual((line["kind"], line["action"], line["status"], line["operationId"]),
-                         ("inference-monitor.fix-journal.v1", "fix-nisi", "ready", state["operationId"]))
+        self.assertEqual(
+            (line["kind"], line["action"], line["status"], line["operationId"]),
+            ("inference-monitor.fix-journal.v1", "fix-nisi", "ready", state["operationId"]),
+        )
         self.assertEqual([(s["name"], s["result"]) for s in line["steps"]], self.steps(state)[:-1])
         self.assertEqual(line["finishedUnix"], NOW)
 
@@ -1784,9 +2202,10 @@ class FixNisiTests(unittest.TestCase):
         state = self.run_fix(controller)
         self.assertEqual(state["status"], "ready", state["message"])
         marker = self.step(state, "marker")
-        self.assertEqual((marker["runId"], marker["operation"], marker["owner"]),
-                         ("marketscout.brainstorm.20260926.qwen.answer", "answer",
-                          "marketscout.brainstorm.20260926.qwen.answer"))
+        self.assertEqual(
+            (marker["runId"], marker["operation"], marker["owner"]),
+            ("marketscout.brainstorm.20260926.qwen.answer", "answer", "marketscout.brainstorm.20260926.qwen.answer"),
+        )
         self.assertIn("owner marketscout.brainstorm.20260926.qwen.answer", state["message"])
         self.assertEqual(launcher.count(repair.NISI_RECOVER), 1)
 
@@ -1800,22 +2219,34 @@ class FixNisiTests(unittest.TestCase):
             raise OSError("launcher missing")
 
         for label, route, result, status in (
-                ("active", active_status(), "active", "needs-action"),
-                ("busy", reply({"status": "NOT_RUN", "code": "ROUTER_OWNER_BUSY"}, 3), "busy", "needs-action"),
-                # The per-run router (spec R2.9 rule 6): router state, never an invalid reply.
-                ("multiple", reply({"status": "NOT_RUN", "code": "ROUTER_MULTIPLE_UNRESOLVED_RUNS"}, 3),
-                 "multiple-unresolved", "needs-action"),
-                ("installing", reply({"status": "NOT_RUN", "code": "ROUTER_INSTALL_IN_PROGRESS"}, 3),
-                 "install-in-progress", "needs-action"),
-                ("owner repair", reply({"status": "NOT_RUN", "code": "ROUTER_OWNER_LOCK_REPLACED"}, 3),
-                 "owner-action", "needs-action"),
-                ("extra key", reply({"schemaVersion": 1, "active": None, "extra": 1}), "unavailable", "error"),
-                ("exit 3", reply({"schemaVersion": 1, "active": None}, 3), "unavailable", "error"),
-                # The launcher's execv failure path prints plain text, not JSON.
-                ("not json", repair.CommandResult(3, b"NOT_RUN: shared router unavailable\n"),
-                 "unavailable", "error"),
-                ("timeout", timed_out, "unavailable", "error"),
-                ("runner error", runner_failed, "unavailable", "error")):
+            ("active", active_status(), "active", "needs-action"),
+            ("busy", reply({"status": "NOT_RUN", "code": "ROUTER_OWNER_BUSY"}, 3), "busy", "needs-action"),
+            # The per-run router (spec R2.9 rule 6): router state, never an invalid reply.
+            (
+                "multiple",
+                reply({"status": "NOT_RUN", "code": "ROUTER_MULTIPLE_UNRESOLVED_RUNS"}, 3),
+                "multiple-unresolved",
+                "needs-action",
+            ),
+            (
+                "installing",
+                reply({"status": "NOT_RUN", "code": "ROUTER_INSTALL_IN_PROGRESS"}, 3),
+                "install-in-progress",
+                "needs-action",
+            ),
+            (
+                "owner repair",
+                reply({"status": "NOT_RUN", "code": "ROUTER_OWNER_LOCK_REPLACED"}, 3),
+                "owner-action",
+                "needs-action",
+            ),
+            ("extra key", reply({"schemaVersion": 1, "active": None, "extra": 1}), "unavailable", "error"),
+            ("exit 3", reply({"schemaVersion": 1, "active": None}, 3), "unavailable", "error"),
+            # The launcher's execv failure path prints plain text, not JSON.
+            ("not json", repair.CommandResult(3, b"NOT_RUN: shared router unavailable\n"), "unavailable", "error"),
+            ("timeout", timed_out, "unavailable", "error"),
+            ("runner error", runner_failed, "unavailable", "error"),
+        ):
             with self.subTest(label=label):
                 controller, launcher = self.controller(NisiLauncher(self.state, route=route))
                 state = self.run_fix(controller)
@@ -1825,10 +2256,12 @@ class FixNisiTests(unittest.TestCase):
                 self.assert_not_recovered(launcher, raw)
                 self.assertIn("Nisi recovery was not attempted", state["message"])
                 if result == "unavailable":
-                    self.assertEqual(state["message"], "Router status is unavailable or invalid; "
-                                                       "Nisi recovery was not attempted.")
-                    self.assertEqual(self.journal_lines()[-1]["steps"], [
-                        {"name": "route-status", "result": "unavailable"}])
+                    self.assertEqual(
+                        state["message"], "Router status is unavailable or invalid; Nisi recovery was not attempted."
+                    )
+                    self.assertEqual(
+                        self.journal_lines()[-1]["steps"], [{"name": "route-status", "result": "unavailable"}]
+                    )
 
     def test_active_router_run_is_named_and_the_advice_is_not_a_loop(self):
         self.write_marker()
@@ -1839,11 +2272,16 @@ class FixNisiTests(unittest.TestCase):
         # message names the manual recover first, then the reconcile gates.
         self.assertEqual(state["message"], repair.ROUTE_ACTIVE_MESSAGE)
         message = state["message"]
-        for text in ("never recovers Nisi under it", "Nisi recovery was not attempted",
-                     "confirm the model server is idle",
-                     "initiate-online-code-mode --nisi recover --confirm-server-idle",
-                     "--route reconcile-review-unavailable", "--route reconcile-finish-refused",
-                     "using the recovered file", "Otherwise resolve the run with its owner first."):
+        for text in (
+            "never recovers Nisi under it",
+            "Nisi recovery was not attempted",
+            "confirm the model server is idle",
+            "initiate-online-code-mode --nisi recover --confirm-server-idle",
+            "--route reconcile-review-unavailable",
+            "--route reconcile-finish-refused",
+            "using the recovered file",
+            "Otherwise resolve the run with its owner first.",
+        ):
             self.assertIn(text, message)
         self.assertLess(message.index("--nisi recover"), message.index("reconcile-review-unavailable"))
         self.assertNotIn(repair.NISI_RECOVER, [call[0] for call in launcher.calls])
@@ -1893,8 +2331,9 @@ class FixNisiTests(unittest.TestCase):
             return reply(JEV_ON)
 
         self.assertFalse(self.router_lock_is_held())
-        controller, launcher = self.controller(NisiLauncher(self.state, recover=recover, jev=jev),
-                                               loopback_sockets=sockets)
+        controller, launcher = self.controller(
+            NisiLauncher(self.state, recover=recover, jev=jev), loopback_sockets=sockets
+        )
         state = self.run_fix(controller)
         self.assertEqual(state["status"], "ready", state["message"])
         # Held for both samples and the launcher's recover; released before the status reads.
@@ -1906,10 +2345,14 @@ class FixNisiTests(unittest.TestCase):
         target = self.root / "elsewhere.lock"
         private_file(target)
         for label, prepare, result, text in (
-                ("missing", lambda: self.router_lock.unlink(), "router-absent",
-                 "The router owner lock is missing"),
-                ("linked", lambda: (self.router_lock.unlink(), self.router_lock.symlink_to(target)),
-                 "router-busy", "A route task started")):
+            ("missing", lambda: self.router_lock.unlink(), "router-absent", "The router owner lock is missing"),
+            (
+                "linked",
+                lambda: (self.router_lock.unlink(), self.router_lock.symlink_to(target)),
+                "router-busy",
+                "A route task started",
+            ),
+        ):
             with self.subTest(label=label):
                 self.reset_state()
                 raw = self.write_marker()
@@ -1996,8 +2439,9 @@ class FixNisiTests(unittest.TestCase):
 
     def test_unsafe_marker_is_never_recovered(self):
         elsewhere = self.root / "elsewhere.json"
-        valid = json.dumps({"kind": "codemode.nisi.pending.v1", "started_unix": NOW - MARKER_AGE,
-                            "input_sha256": MARKER_SHA}).encode()
+        valid = json.dumps(
+            {"kind": "codemode.nisi.pending.v1", "started_unix": NOW - MARKER_AGE, "input_sha256": MARKER_SHA}
+        ).encode()
 
         def symlink():
             private_file(elsewhere, valid)
@@ -2015,25 +2459,35 @@ class FixNisiTests(unittest.TestCase):
             "is not a regular file": lambda: self.pending.mkdir(mode=0o700),
             "is not valid JSON": lambda: private_file(self.pending, b"{not json"),
             "is not valid JSON (duplicate key)": lambda: private_file(
-                self.pending, valid[:-1] + b', "kind": "codemode.nisi.pending.v1"}'),
+                self.pending, valid[:-1] + b', "kind": "codemode.nisi.pending.v1"}'
+            ),
             "is not a recognized form (kind)": lambda: private_file(
-                self.pending, valid.replace(b"pending.v1", b"pending.v2")),
+                self.pending, valid.replace(b"pending.v1", b"pending.v2")
+            ),
             "is not a recognized form (extra key)": lambda: private_file(
-                self.pending, valid[:-1] + b', "runId": "x.answer"}'),
+                self.pending, valid[:-1] + b', "runId": "x.answer"}'
+            ),
             "is not a recognized form (digest)": lambda: private_file(
-                self.pending, valid.replace(MARKER_SHA.encode(), b"81dbab4f")),
+                self.pending, valid.replace(MARKER_SHA.encode(), b"81dbab4f")
+            ),
             "is not a recognized form (bool time)": lambda: private_file(
-                self.pending, json.dumps({"kind": "codemode.nisi.pending.v1", "started_unix": True,
-                                          "input_sha256": MARKER_SHA}).encode()),
+                self.pending,
+                json.dumps(
+                    {"kind": "codemode.nisi.pending.v1", "started_unix": True, "input_sha256": MARKER_SHA}
+                ).encode(),
+            ),
             "is not a recognized form (operation)": lambda: private_file(
-                self.pending, valid[:-1] + b', "runId": "x.answer", "operation": "work"}'),
+                self.pending, valid[:-1] + b', "runId": "x.answer", "operation": "work"}'
+            ),
         }
         for reason, make in cases.items():
             with self.subTest(reason=reason):
                 self.reset_state()
                 make()
                 before = {path.name for path in self.state.iterdir()}
-                controller, launcher = self.controller(NisiLauncher(self.state, nisi_status=lambda: nisi_status_reply(True)))
+                controller, launcher = self.controller(
+                    NisiLauncher(self.state, nisi_status=lambda: nisi_status_reply(True))
+                )
                 state = self.run_fix(controller)
                 self.assertEqual(state["status"], "needs-action")
                 self.assertEqual(self.steps(state)[-2], ("marker", "unsafe"))
@@ -2103,8 +2557,11 @@ class FixNisiTests(unittest.TestCase):
             ("unknown", lsof_listing() + "x-unexpected\n"),
             ("unknown", lsof_listing() + "p4242\ncpython3\nf9\nn[::1]:50127->[::1]:1234\nTST=ESTABLISHED\n"),
             # A process other than LM Studio owning a server-side end of 127.0.0.1:1234.
-            ("unknown", lsof_listing((os.getpid(), "Python", 50128))
-             + "p4242\ncpython3\nf9\nn127.0.0.1:1234->127.0.0.1:50128\nTST=ESTABLISHED\n"),
+            (
+                "unknown",
+                lsof_listing((os.getpid(), "Python", 50128))
+                + "p4242\ncpython3\nf9\nn127.0.0.1:1234->127.0.0.1:50128\nTST=ESTABLISHED\n",
+            ),
         )
         for verdict, listing in cases:
             with self.subTest(verdict=verdict, listing=listing[-80:]):
@@ -2127,15 +2584,23 @@ class FixNisiTests(unittest.TestCase):
         listen = lsof_listing()
         cases = (
             # A Nisi node child that half-closed on its timeout while LM Studio's end is still open.
-            ("half-closed client", listen + client_end(5555, "node", 60000, "FIN_WAIT_2")
-             + server_end(60000, "CLOSE_WAIT"), "clients=1; unseen-clients=0; half-closed=2"),
+            (
+                "half-closed client",
+                listen + client_end(5555, "node", 60000, "FIN_WAIT_2") + server_end(60000, "CLOSE_WAIT"),
+                "clients=1; unseen-clients=0; half-closed=2",
+            ),
             # The client died: only LM Studio's CLOSE_WAIT end remains, maybe still generating.
-            ("dead client", listen + server_end(60000, "CLOSE_WAIT"),
-             "clients=0; unseen-clients=1; half-closed=1"),
-            ("client reading after server closed", listen + client_end(5555, "node", 60001, "CLOSE_WAIT")
-             + server_end(60001, "FIN_WAIT_2"), "clients=1; unseen-clients=0; half-closed=2"),
-            ("closing", listen + client_end(5555, "node", 60002, "CLOSING")
-             + server_end(60002, "CLOSING"), "clients=1; unseen-clients=0; half-closed=2"),
+            ("dead client", listen + server_end(60000, "CLOSE_WAIT"), "clients=0; unseen-clients=1; half-closed=1"),
+            (
+                "client reading after server closed",
+                listen + client_end(5555, "node", 60001, "CLOSE_WAIT") + server_end(60001, "FIN_WAIT_2"),
+                "clients=1; unseen-clients=0; half-closed=2",
+            ),
+            (
+                "closing",
+                listen + client_end(5555, "node", 60002, "CLOSING") + server_end(60002, "CLOSING"),
+                "clients=1; unseen-clients=0; half-closed=2",
+            ),
             ("last ack", listen + server_end(60003, "LAST_ACK"), "clients=0; unseen-clients=1; half-closed=1"),
             ("fin wait 1", listen + server_end(60004, "FIN_WAIT_1"), "clients=0; unseen-clients=1; half-closed=1"),
         )
@@ -2153,11 +2618,13 @@ class FixNisiTests(unittest.TestCase):
         # Only LISTEN, TIME_WAIT and CLOSED sockets are ignored; this monitor's own
         # half-closed inventory read (LM Studio closed first) is not a client.
         for label, listing in (
-                ("time wait", listen + server_end(60005, "TIME_WAIT")
-                 + client_end(5555, "node", 60006, "TIME_WAIT")),
-                ("closed", listen + client_end(5555, "node", 60007, "CLOSED")),
-                ("own read", listen + client_end(os.getpid(), "Python", 60008, "CLOSE_WAIT")
-                 + server_end(60008, "FIN_WAIT_2"))):
+            ("time wait", listen + server_end(60005, "TIME_WAIT") + client_end(5555, "node", 60006, "TIME_WAIT")),
+            ("closed", listen + client_end(5555, "node", 60007, "CLOSED")),
+            (
+                "own read",
+                listen + client_end(os.getpid(), "Python", 60008, "CLOSE_WAIT") + server_end(60008, "FIN_WAIT_2"),
+            ),
+        ):
             with self.subTest(label=label):
                 verdict = repair._server_client_verdict(repair._lsof_sockets(listing), os.getpid())
                 self.assertEqual(verdict[0], "idle", verdict)
@@ -2236,7 +2703,8 @@ class FixNisiTests(unittest.TestCase):
     def test_marker_still_present_after_acknowledgement_stops(self):
         raw = self.write_marker()
         controller, launcher = self.controller(
-            NisiLauncher(self.state, recover=lambda _: reply(dict(repair.NISI_RECOVERED))))
+            NisiLauncher(self.state, recover=lambda _: reply(dict(repair.NISI_RECOVERED)))
+        )
         state = self.run_fix(controller)
         self.assertEqual(self.steps(state)[-2], ("recover", "marker-still-present"))
         self.assertEqual(launcher.count(repair.NISI_RECOVER), 1)
@@ -2271,9 +2739,13 @@ class FixNisiTests(unittest.TestCase):
             next(state.glob("recovered-*.json")).chmod(0o644)
             return result
 
-        for result, recover in (("unconfirmed", extra_file), ("mismatch", different_content),
-                                ("mismatch", same_bytes_new_inode), ("unconfirmed", odd_name),
-                                ("unconfirmed", shared_mode)):
+        for result, recover in (
+            ("unconfirmed", extra_file),
+            ("mismatch", different_content),
+            ("mismatch", same_bytes_new_inode),
+            ("unconfirmed", odd_name),
+            ("unconfirmed", shared_mode),
+        ):
             with self.subTest(recover=recover.__name__):
                 self.reset_state()
                 self.write_marker()
@@ -2284,8 +2756,9 @@ class FixNisiTests(unittest.TestCase):
                 self.assertEqual(launcher.count(repair.NISI_RECOVER), 1)
 
     def test_marker_replaced_after_measurement_is_not_recovered(self):
-        other = json.dumps({"kind": "codemode.nisi.pending.v1", "started_unix": NOW - MARKER_AGE,
-                            "input_sha256": "d" * 64}).encode()
+        other = json.dumps(
+            {"kind": "codemode.nisi.pending.v1", "started_unix": NOW - MARKER_AGE, "input_sha256": "d" * 64}
+        ).encode()
         # New content, or the same bytes under a new inode (another owner rewrote it).
         for label, content in (("different content", lambda raw: other), ("same bytes, new inode", lambda raw: raw)):
             with self.subTest(label=label):
@@ -2341,11 +2814,20 @@ class FixNisiTests(unittest.TestCase):
         controller, launcher = self.controller()
         state = self.run_fix(controller)
         self.assertEqual(state["status"], "ready", state["message"])
-        self.assertEqual(self.steps(state), [
-            ("route-status", "idle"), ("nisi-status", "clear"), ("pair", "resident"),
-            ("jev", "opted-in"), ("verify", "clear"), ("journal", "written")])
-        self.assertEqual(state["message"], "Nisi Inference ready. No Nisi marker needed recovery. "
-                                           "No model inference was run.")
+        self.assertEqual(
+            self.steps(state),
+            [
+                ("route-status", "idle"),
+                ("nisi-status", "clear"),
+                ("pair", "resident"),
+                ("jev", "opted-in"),
+                ("verify", "clear"),
+                ("journal", "written"),
+            ],
+        )
+        self.assertEqual(
+            state["message"], "Nisi Inference ready. No Nisi marker needed recovery. No model inference was run."
+        )
         self.assertEqual(launcher.count(repair.NISI_RECOVER), 0)
         self.assertEqual((self.lms_calls, self.socket_calls), (1, 0))
         self.assertEqual(self.sleeps, [])
@@ -2358,18 +2840,20 @@ class FixNisiTests(unittest.TestCase):
 
     def test_nisi_status_is_read_closed(self):
         raw = self.write_marker()
-        for response in (nisi_status_reply(True, extra="x"),
-                         reply({"kind": "codemode.integrations.v1",
-                                "nisi": {"status": "ADAPTER_PRESENT", "recoveryRequired": True}}),
-                         nisi_status_reply(True, model_inference="RAN"),
-                         nisi_status_reply(True, status="ADAPTER_MAYBE"),
-                         nisi_status_reply(False, status="READY"),
-                         nisi_status_reply("yes"),
-                         reply({"kind": "codemode.integrations.v1", "nisi": None}),
-                         integration_failure("INTEGRATION_UNAVAILABLE_OR_INVALID")):
+        for response in (
+            nisi_status_reply(True, extra="x"),
+            reply(
+                {"kind": "codemode.integrations.v1", "nisi": {"status": "ADAPTER_PRESENT", "recoveryRequired": True}}
+            ),
+            nisi_status_reply(True, model_inference="RAN"),
+            nisi_status_reply(True, status="ADAPTER_MAYBE"),
+            nisi_status_reply(False, status="READY"),
+            nisi_status_reply("yes"),
+            reply({"kind": "codemode.integrations.v1", "nisi": None}),
+            integration_failure("INTEGRATION_UNAVAILABLE_OR_INVALID"),
+        ):
             with self.subTest(response=response.stdout[:80]):
-                controller, launcher = self.controller(
-                    NisiLauncher(self.state, nisi_status=lambda: response))
+                controller, launcher = self.controller(NisiLauncher(self.state, nisi_status=lambda: response))
                 state = self.run_fix(controller)
                 self.assertEqual(state["status"], "error")
                 self.assertEqual(self.steps(state)[-2], ("nisi-status", "unavailable"))
@@ -2379,8 +2863,7 @@ class FixNisiTests(unittest.TestCase):
         cases = (
             ("missing", [lms_row(GEMMA)], "Nisi needs a second resident model"),
             ("missing", [], "Nisi needs a second resident model"),
-            ("ambiguous", [lms_row(GEMMA), lms_row(QWEN), lms_row(QWEN, identifier=f"{QWEN}:2")],
-             "ambiguous"),
+            ("ambiguous", [lms_row(GEMMA), lms_row(QWEN), lms_row(QWEN, identifier=f"{QWEN}:2")], "ambiguous"),
             ("unavailable", {"models": []}, "loaded-model list is unavailable"),
         )
         for result, rows, gap in cases:
@@ -2416,9 +2899,10 @@ class FixNisiTests(unittest.TestCase):
 
     def test_jev_not_opted_in_or_unavailable_is_a_named_gap(self):
         for jev, result, gap in (
-                (reply({**JEV_ON, "enabled": False}), "not-opted-in", "Jev is not opted in"),
-                (integration_failure("JEV_STATUS_UNAVAILABLE"), "unavailable", "Jev status is unavailable"),
-                (reply({**JEV_ON, "network_contacted": True}), "unavailable", "Jev status is unavailable")):
+            (reply({**JEV_ON, "enabled": False}), "not-opted-in", "Jev is not opted in"),
+            (integration_failure("JEV_STATUS_UNAVAILABLE"), "unavailable", "Jev status is unavailable"),
+            (reply({**JEV_ON, "network_contacted": True}), "unavailable", "Jev status is unavailable"),
+        ):
             with self.subTest(result=result):
                 controller, launcher = self.controller(NisiLauncher(self.state, jev=jev))
                 state = self.run_fix(controller)
@@ -2429,7 +2913,8 @@ class FixNisiTests(unittest.TestCase):
 
     def test_missing_adapter_is_a_named_gap_never_ready(self):
         controller, launcher = self.controller(
-            NisiLauncher(self.state, nisi_status=lambda: nisi_status_reply(False, status="NOT_RUN")))
+            NisiLauncher(self.state, nisi_status=lambda: nisi_status_reply(False, status="NOT_RUN"))
+        )
         state = self.run_fix(controller)
         self.assertEqual(state["status"], "needs-action")
         self.assertEqual(self.steps(state)[-2], ("verify", "adapter-missing"))
@@ -2443,9 +2928,15 @@ class FixNisiTests(unittest.TestCase):
         controller, launcher = self.controller()
         state = self.run_fix(controller)
         self.assertEqual(state["status"], "needs-action")
-        self.assertEqual(self.steps(state), [
-            ("route-status", "idle"), ("nisi-status", "recovery-required"), ("marker", "unsafe"),
-            ("journal", "written")])
+        self.assertEqual(
+            self.steps(state),
+            [
+                ("route-status", "idle"),
+                ("nisi-status", "recovery-required"),
+                ("marker", "unsafe"),
+                ("journal", "written"),
+            ],
+        )
         self.assertIn("is a symbolic link", self.step(state, "marker")["evidence"])
         self.assertEqual(launcher.count(repair.NISI_RECOVER), 0)
         self.assertTrue(self.pending.is_symlink())
@@ -2453,8 +2944,7 @@ class FixNisiTests(unittest.TestCase):
 
     def test_verify_names_a_marker_that_is_still_required(self):
         self.write_marker()
-        controller, launcher = self.controller(
-            NisiLauncher(self.state, nisi_status=lambda: nisi_status_reply(True)))
+        controller, launcher = self.controller(NisiLauncher(self.state, nisi_status=lambda: nisi_status_reply(True)))
         state = self.run_fix(controller)
         self.assertEqual(state["status"], "needs-action")
         self.assertEqual(self.steps(state)[-2], ("verify", "recovery-required"))
@@ -2495,8 +2985,9 @@ class FixNisiTests(unittest.TestCase):
             return copy.deepcopy(self.lms)
 
         for label, overrides, absent, recovered in (
-                ("socket listing", {"loopback_sockets": cancelled_probe}, "server-idle", False),
-                ("pair read", {"lms_ps": cancelled_on_third_lms}, "pair", True)):
+            ("socket listing", {"loopback_sockets": cancelled_probe}, "server-idle", False),
+            ("pair read", {"lms_ps": cancelled_on_third_lms}, "pair", True),
+        ):
             with self.subTest(label=label):
                 self.reset_state()
                 if self.journal.exists():
@@ -2534,7 +3025,7 @@ class FixNisiTests(unittest.TestCase):
         time.sleep(0.05)
         started = time.monotonic()
         controller.cancel()
-        self.assertTrue(controller.join(.45))
+        self.assertTrue(controller.join(0.45))
         self.assertLess(time.monotonic() - started, 1.0)
         self.assertEqual(controller.read()["message"], repair.FIX_NISI_CANCELLED)
         self.assert_not_recovered(launcher, raw)
@@ -2559,27 +3050,42 @@ class FixNisiTests(unittest.TestCase):
 
     def test_cancel_kills_a_live_launcher_recover_through_the_bounded_runner(self):
         raw = self.write_marker()
-        status = {"kind": "codemode.integrations.v1",
-                  "nisi": {"status": "ADAPTER_PRESENT", "root": "/nisi", "recoveryRequired": True,
-                           "ownership_scope": "online-code-mode Nisi wrapper only",
-                           "model_inference": "NOT_RUN", "workflow_acceptance": "NOT_RUN"}}
+        status = {
+            "kind": "codemode.integrations.v1",
+            "nisi": {
+                "status": "ADAPTER_PRESENT",
+                "root": "/nisi",
+                "recoveryRequired": True,
+                "ownership_scope": "online-code-mode Nisi wrapper only",
+                "model_inference": "NOT_RUN",
+                "workflow_acceptance": "NOT_RUN",
+            },
+        }
         script = self.root / "launcher"
-        script.write_text("#!/usr/bin/python3\nimport json, sys, time\nargs = sys.argv[1:]\n"
-                          "if args == ['--route', 'status']:\n"
-                          "    print(json.dumps({'schemaVersion': 1, 'active': None}))\n"
-                          "elif args == ['--nisi', 'status']:\n"
-                          f"    print({json.dumps(status)!r})\n"
-                          "elif args == ['--nisi', 'recover', '--confirm-server-idle']:\n"
-                          "    time.sleep(30)\n"
-                          "else:\n"
-                          "    sys.exit(2)\n")
+        script.write_text(
+            "#!/usr/bin/python3\nimport json, sys, time\nargs = sys.argv[1:]\n"
+            "if args == ['--route', 'status']:\n"
+            "    print(json.dumps({'schemaVersion': 1, 'active': None}))\n"
+            "elif args == ['--nisi', 'status']:\n"
+            f"    print({json.dumps(status)!r})\n"
+            "elif args == ['--nisi', 'recover', '--confirm-server-idle']:\n"
+            "    time.sleep(30)\n"
+            "else:\n"
+            "    sys.exit(2)\n"
+        )
         script.chmod(0o700)
         # Production runner, but every host probe and path is injected (temp only).
         controller = repair.OnlineCodeRepair(
-            nisi_pending_path=self.pending, readiness_path=self.root / "readiness.json",
-            sleep=self.sleeps.append, clock=lambda: self.now, lms_ps=self.read_lms,
-            loopback_sockets=self.read_sockets, router_lock_path=self.router_lock,
-            fix_journal_path=self.journal, l2_open=True)
+            nisi_pending_path=self.pending,
+            readiness_path=self.root / "readiness.json",
+            sleep=self.sleeps.append,
+            clock=lambda: self.now,
+            lms_ps=self.read_lms,
+            loopback_sockets=self.read_sockets,
+            router_lock_path=self.router_lock,
+            fix_journal_path=self.journal,
+            l2_open=True,
+        )
         try:
             with mock.patch.object(repair, "LAUNCHER", script):
                 controller.request_fix("nisi")
@@ -2590,10 +3096,10 @@ class FixNisiTests(unittest.TestCase):
                         children = list(controller._owner_children._children.values())
                     if children and ("server-idle", "idle") in self.steps(controller.read()):
                         break
-                    time.sleep(.005)
+                    time.sleep(0.005)
                 self.assertEqual(len(children), 1)
                 controller.cancel()
-                self.assertTrue(controller.join(.45))
+                self.assertTrue(controller.join(0.45))
                 self.assertEqual(children[0].poll(), -signal.SIGKILL)
             state = controller.read()
             self.assertEqual(state["message"], repair.FIX_NISI_CANCELLED)
@@ -2617,10 +3123,15 @@ class FixNisiTests(unittest.TestCase):
         controller, _ = self.controller(launcher, lms_ps=blocking_lms)
         first = controller.request_fix("nisi")
         self.assertTrue(entered.wait(2))
-        for again in (controller.request_fix("nisi"), controller.request_fix("route"),
-                      controller.request(), controller.request_entry()):
-            self.assertEqual((again["operationId"], again["status"], again["action"]),
-                             (first["operationId"], "running", "fix-nisi"))
+        for again in (
+            controller.request_fix("nisi"),
+            controller.request_fix("route"),
+            controller.request(),
+            controller.request_entry(),
+        ):
+            self.assertEqual(
+                (again["operationId"], again["status"], again["action"]), (first["operationId"], "running", "fix-nisi")
+            )
         release.set()
         self.assertTrue(controller.join(3))
         self.assertEqual(controller.read()["status"], "ready")
@@ -2628,24 +3139,27 @@ class FixNisiTests(unittest.TestCase):
         self.assertEqual(second["operationId"], first["operationId"] + 1)
         self.assertEqual(self.step(second, "nisi-status")["result"], "clear")
         self.assertEqual(launcher.count(repair.NISI_RECOVER), 1)
-        self.assertEqual([line["operationId"] for line in self.journal_lines()],
-                         [first["operationId"], second["operationId"]])
+        self.assertEqual(
+            [line["operationId"] for line in self.journal_lines()], [first["operationId"], second["operationId"]]
+        )
 
     def test_journal_is_private_bounded_and_its_failure_does_not_change_the_outcome(self):
         path = self.root / "journal" / "fix.jsonl"
-        record = {"kind": "inference-monitor.fix-journal.v1", "action": "fix-nisi", "status": "ready",
-                  "steps": [{"name": "route-status", "result": "idle"}]}
+        record = {
+            "kind": "inference-monitor.fix-journal.v1",
+            "action": "fix-nisi",
+            "status": "ready",
+            "steps": [{"name": "route-status", "result": "idle"}],
+        }
         for index in range(200):
             self.assertTrue(repair._append_journal(path, {**record, "operationId": index}, max_bytes=4096))
         self.assertLessEqual(path.stat().st_size, 4096)
         self.assertEqual(path.stat().st_mode & 0o777, 0o600)
         lines = [json.loads(line) for line in path.read_text().splitlines()]
         self.assertEqual(lines[-1]["operationId"], 199)
-        self.assertEqual([line["operationId"] for line in lines],
-                         list(range(200 - len(lines), 200)))
+        self.assertEqual([line["operationId"] for line in lines], list(range(200 - len(lines), 200)))
         self.assertEqual([p.name for p in path.parent.iterdir()], ["fix.jsonl"])
-        huge = repair._append_journal(path, {**record, "operationId": 200, "message": "x" * 20000},
-                                      max_bytes=65536)
+        huge = repair._append_journal(path, {**record, "operationId": 200, "message": "x" * 20000}, max_bytes=65536)
         self.assertTrue(huge)
         self.assertTrue(json.loads(path.read_text().splitlines()[-1])["truncated"])
         # A linked or shared journal is refused, and the fix outcome stands.
@@ -2672,8 +3186,12 @@ class FixNisiTests(unittest.TestCase):
     def test_launcher_runner_accepts_only_the_exact_recover_and_jev_status(self):
         script = prewarmed_script(self.root / "launcher", "import json\nprint(json.dumps(sys.argv[1:]))\n")
         with mock.patch.object(repair, "LAUNCHER", script):
-            for args in (("--nisi", "recover"), ("--nisi", "recover", "--confirm-server-idle", "--force"),
-                         ("--nisi", "work"), ("--jev", "classify")):
+            for args in (
+                ("--nisi", "recover"),
+                ("--nisi", "recover", "--confirm-server-idle", "--force"),
+                ("--nisi", "work"),
+                ("--jev", "classify"),
+            ):
                 with self.assertRaisesRegex(ValueError, "unsupported launcher operation"):
                     repair.launcher_runner(args, None, 2)
             for args in (repair.NISI_RECOVER, repair.JEV_STATUS):
@@ -2689,14 +3207,20 @@ class FixNisiTests(unittest.TestCase):
             calls.append((arguments, kwargs))
             return "[]" if arguments[-1] == "--json" else ""
 
-        with mock.patch.object(repair, "_bounded_command", side_effect=bounded), \
-             mock.patch.object(repair, "_find_lms", return_value="/owner/.lmstudio/bin/lms"):
+        with (
+            mock.patch.object(repair, "_bounded_command", side_effect=bounded),
+            mock.patch.object(repair, "_find_lms", return_value="/owner/.lmstudio/bin/lms"),
+        ):
             self.assertEqual(repair.lms_ps_listing(), [])
             self.assertEqual(repair.loopback_api_sockets(), "")
-        self.assertEqual(calls[0], (["/owner/.lmstudio/bin/lms", "ps", "--json"],
-                                    {"limit": 524288, "timeout": 5.0}))
-        self.assertEqual(calls[1], (["/usr/sbin/lsof", "-nP", "-b", "-w", "-F", "pcnT", "-iTCP@127.0.0.1:1234"],
-                                    {"limit": 65536, "timeout": 5.0, "ok_codes": (0, 1)}))
+        self.assertEqual(calls[0], (["/owner/.lmstudio/bin/lms", "ps", "--json"], {"limit": 524288, "timeout": 5.0}))
+        self.assertEqual(
+            calls[1],
+            (
+                ["/usr/sbin/lsof", "-nP", "-b", "-w", "-F", "pcnT", "-iTCP@127.0.0.1:1234"],
+                {"limit": 65536, "timeout": 5.0, "ok_codes": (0, 1)},
+            ),
+        )
         production = repair.OnlineCodeRepair(l2_open=True)
         self.assertIs(production._lms_ps, repair.lms_ps_listing)
         self.assertIs(production._loopback_sockets, repair.loopback_api_sockets)
@@ -2709,18 +3233,28 @@ class FixNisiTests(unittest.TestCase):
         self.assertEqual(self.steps(state)[-2], ("server-idle", "unknown"))
         self.assert_not_recovered(launcher, raw)
         scripted = repair.OnlineCodeRepair(NisiLauncher(self.state), l2_open=True)
-        self.assertEqual((scripted._lms_ps, scripted._loopback_sockets, scripted._router_lock_path,
-                          scripted._fix_journal_path), (None, None, None, None))
+        self.assertEqual(
+            (scripted._lms_ps, scripted._loopback_sockets, scripted._router_lock_path, scripted._fix_journal_path),
+            (None, None, None, None),
+        )
 
     def test_socket_listing_parser_rejects_malformed_fields(self):
-        for text in ("n127.0.0.1:1234\n", "p907\nf1\nn127.0.0.1:1234\nn127.0.0.1:1235\nTST=LISTEN\n",
-                     "p907\nf1\nn127.0.0.1:1234\nTST=LISTEN\nTST=LISTEN\n", "pabc\n",
-                     "p907\nf1\nTST=LISTEN\n", "p907\nf1\nn127.0.0.1:1234\nTST=BOGUS\n", None):
+        for text in (
+            "n127.0.0.1:1234\n",
+            "p907\nf1\nn127.0.0.1:1234\nn127.0.0.1:1235\nTST=LISTEN\n",
+            "p907\nf1\nn127.0.0.1:1234\nTST=LISTEN\nTST=LISTEN\n",
+            "pabc\n",
+            "p907\nf1\nTST=LISTEN\n",
+            "p907\nf1\nn127.0.0.1:1234\nTST=BOGUS\n",
+            None,
+        ):
             with self.subTest(text=text):
                 with self.assertRaises(ValueError):
                     repair._lsof_sockets(text)
-        self.assertEqual(repair._lsof_sockets("p907\ncLM Studio\nf78\nn127.0.0.1:1234\nTST=LISTEN\nTQR=0\n"),
-                         [{"pid": 907, "command": "LM Studio", "name": "127.0.0.1:1234", "state": "LISTEN"}])
+        self.assertEqual(
+            repair._lsof_sockets("p907\ncLM Studio\nf78\nn127.0.0.1:1234\nTST=LISTEN\nTQR=0\n"),
+            [{"pid": 907, "command": "LM Studio", "name": "127.0.0.1:1234", "state": "LISTEN"}],
+        )
 
     def test_fix_scope_nisi_is_explicit(self):
         self.assertIn("nisi", repair.FIX_SCOPES)

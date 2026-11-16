@@ -4,6 +4,7 @@ HEALTH_WORDS below maps each producer's health words onto machine_state's vocabu
 cell of it. Transport acceptance belongs to peer_link; health and freshness belong to machine_state. Neither
 connection time nor receipt time is evidence of a new observation.
 """
+
 from __future__ import annotations
 
 import datetime as dt
@@ -17,20 +18,26 @@ import peer_link as pl
 HEALTH_WORDS = {
     "mac_local": {"ok": {"health": "ok"}},
     "windows_observer": {
-        "ok": {"health": "ok"}, "degraded": {"health": "degraded"},
-        "down": {"health": "down"}, "unknown": {"reason": "unavailable"},
+        "ok": {"health": "ok"},
+        "degraded": {"health": "degraded"},
+        "down": {"health": "down"},
+        "unknown": {"reason": "unavailable"},
     },
     "peer_feed": {
-        "ok": {"health": "ok"}, "degraded": {"health": "degraded"},
+        "ok": {"health": "ok"},
+        "degraded": {"health": "degraded"},
         "down": {"health": "down"},
     },
     "linux_observer": {
-        "up": {"health": "ok"}, "down": {"health": "down"},
+        "up": {"health": "ok"},
+        "down": {"health": "down"},
         "unknown": {"reason": "unavailable"},
     },
     "cli_peer_link": {
-        "ok": {"health": "ok"}, "degraded": {"health": "degraded"},
-        "down": {"health": "down"}, "unknown": {"reason": "unavailable"},
+        "ok": {"health": "ok"},
+        "degraded": {"health": "degraded"},
+        "down": {"health": "down"},
+        "unknown": {"reason": "unavailable"},
     },
 }
 # The machines AGIW expects; a paired Linux peer still gets its own row, but a missing one is not invented.
@@ -81,13 +88,22 @@ def _accepted(document):
 
 def _report(document):
     models = document.get("models")
-    complete = (document.get("loadedListComplete") is True and isinstance(models, list)
-                and all(isinstance(model, dict) and model.get("loadedState") in ("loaded", "inactive")
-                        for model in models)
-                and ("modelsTotal" not in document
-                     or (type(document["modelsTotal"]) is int and document["modelsTotal"] == len(models))))
-    report = {"observedAt": document.get("observedAt"), "health": document.get("health"),
-              "models": models, "modelsComplete": complete, "handsOff": document.get("handsOff")}
+    complete = (
+        document.get("loadedListComplete") is True
+        and isinstance(models, list)
+        and all(isinstance(model, dict) and model.get("loadedState") in ("loaded", "inactive") for model in models)
+        and (
+            "modelsTotal" not in document
+            or (type(document["modelsTotal"]) is int and document["modelsTotal"] == len(models))
+        )
+    )
+    report = {
+        "observedAt": document.get("observedAt"),
+        "health": document.get("health"),
+        "models": models,
+        "modelsComplete": complete,
+        "handsOff": document.get("handsOff"),
+    }
     word = report["health"]
     table = HEALTH_WORDS[producer_table(document.get("producer"))]
     rule = table.get(word, {"reason": "schema_invalid"}) if isinstance(word, str) else {"reason": "schema_invalid"}
@@ -98,16 +114,16 @@ def _report(document):
 
 def _row(node, name, platform, document, *, now, trust, reason=None):
     # Legacy status.host is a platform kind, not a machine identity.
-    host = (_host(document.get("host"), node)
-            if document is not None and document.get("kind") == "agiw-peer" else node)
+    host = _host(document.get("host"), node) if document is not None and document.get("kind") == "agiw-peer" else node
     report = None
     if document is not None:
         report, reason = _report(document)
     # Signed peer-link status is polled every few seconds, so a remote report keeps a 30 s window;
     # the local row keeps its platform cadence (Mac 3 s).
     fresh = None if trust == "local" else REMOTE_FRESH_SECONDS
-    row = machine_state.machine_summary(host, platform, report, now=now, trust=trust, reason=reason,
-                                        fresh_seconds=fresh)
+    row = machine_state.machine_summary(
+        host, platform, report, now=now, trust=trust, reason=reason, fresh_seconds=fresh
+    )
     row["id"] = node
     if isinstance(name, str) and name:
         row["label"] = name
@@ -136,8 +152,17 @@ def status_document(snapshot, *, now=None, full=False, local=None, protocol=pl.P
     local_reason = "unavailable"
     if isinstance(self_status, dict) and "error" in self_status and self_status.get("code") == "timeout":
         local_reason = "timeout"
-    machines = [_row(node, me.get("name"), kind, local_doc, now=now, trust="local",
-                     reason=(link_error or local_reason) if local_doc is None else None)]
+    machines = [
+        _row(
+            node,
+            me.get("name"),
+            kind,
+            local_doc,
+            now=now,
+            trust="local",
+            reason=(link_error or local_reason) if local_doc is None else None,
+        )
+    ]
     if local_doc is not None:
         documents[node] = pl.project_status(local_doc)
     seen_nodes = {node}
@@ -163,20 +188,27 @@ def status_document(snapshot, *, now=None, full=False, local=None, protocol=pl.P
                 # CLI and the monitor give the same word. A peer's last fetch error and the link's sticky
                 # pollError are diagnostics; they never pick the reason.
                 reason = "not_connected"
-        machines.append(_row(peer_node, peer.get("name"), platform, document, now=now,
-                             trust="authenticated", reason=reason))
+        machines.append(
+            _row(peer_node, peer.get("name"), platform, document, now=now, trust="authenticated", reason=reason)
+        )
         if document is not None:
             documents[peer_node] = pl.project_status(document)
     present = {row["platform"] for row in machines}
     for platform in PLATFORMS:
         if platform not in present:
             machines.append(machine_state.machine_summary(platform, platform, now=now))
-    result = {"schemaVersion": 2, "contract": CONTRACT, "sampledAt": now,
-              "observedAt": dt.datetime.fromtimestamp(now, dt.timezone.utc).isoformat(),
-              "protocol": snapshot.get("protocol", protocol),
-              "linkState": "running" if running else "unreachable" if link_error else "not_running",
-              "self": identity,
-              "machines": machines, "signed": True, "encrypted": False}
+    result = {
+        "schemaVersion": 2,
+        "contract": CONTRACT,
+        "sampledAt": now,
+        "observedAt": dt.datetime.fromtimestamp(now, dt.timezone.utc).isoformat(),
+        "protocol": snapshot.get("protocol", protocol),
+        "linkState": "running" if running else "unreachable" if link_error else "not_running",
+        "self": identity,
+        "machines": machines,
+        "signed": True,
+        "encrypted": False,
+    }
     if full:
         result["documents"] = documents
     return result

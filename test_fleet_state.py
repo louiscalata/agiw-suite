@@ -1,4 +1,5 @@
 """Socket-free contracts shared by Python, the machine UI, and the native badge."""
+
 import copy
 import json
 from concurrent.futures import Future
@@ -36,15 +37,28 @@ class FleetStateTests(unittest.TestCase):
     def test_relayed_registry_identity_row_with_up_is_not_a_host_report(self):
         # A row of configured-lane scope carries endpoint identity only, even
         # when an older producer or relay marked it "up" and complete.
-        relayed = {"id": "registry:pc", "host": "registry:pc", "platform": "remote",
-                   "inventoryScope": "configured-lanes", "trust": "registry", "state": "up",
-                   "reasonCode": "observed", "observedAt": "2026-11-12T11:59:59Z", "freshForSeconds": 6,
-                   "modelsComplete": True, "loadedCount": 2, "busyCount": 0}
-        for row in (relayed, {**relayed, "inventoryScope": None, "observationSource": "registry", "id": "peer:relay",
-                              "host": "relay"}):
+        relayed = {
+            "id": "registry:pc",
+            "host": "registry:pc",
+            "platform": "remote",
+            "inventoryScope": "configured-lanes",
+            "trust": "registry",
+            "state": "up",
+            "reasonCode": "observed",
+            "observedAt": "2026-11-12T11:59:59Z",
+            "freshForSeconds": 6,
+            "modelsComplete": True,
+            "loadedCount": 2,
+            "busyCount": 0,
+        }
+        for row in (
+            relayed,
+            {**relayed, "inventoryScope": None, "observationSource": "registry", "id": "peer:relay", "host": "relay"},
+        ):
             with self.subTest(row=row["id"]):
-                self.snapshot["machines"] = [copy.deepcopy(item) for item in self.snapshot["machines"]
-                                             if item["id"] == "mac"] + [copy.deepcopy(row)]
+                self.snapshot["machines"] = [
+                    copy.deepcopy(item) for item in self.snapshot["machines"] if item["id"] == "mac"
+                ] + [copy.deepcopy(row)]
                 fleet = self.fleet()
                 fact = next(item for item in fleet["facts"] if item["id"] == row["id"])
                 self.assertEqual((fact["state"], fact["reason"]), ("unknown", "host_not_measured"))
@@ -77,7 +91,9 @@ class FleetStateTests(unittest.TestCase):
         self.assertEqual(facts["registry:pc:fast"]["state"], "endpoint answering")
         self.assertEqual(facts["peer:spare"]["state"], "reported")
         self.assertEqual(facts["mac:lmstudio"]["ageSeconds"], 5)
-        self.assertEqual(facts["mac:lmstudio"]["evidence"]["modelId"], "local/model", "retained history stays explicitly stale")
+        self.assertEqual(
+            facts["mac:lmstudio"]["evidence"]["modelId"], "local/model", "retained history stays explicitly stale"
+        )
         self.assertEqual(self.fleet(7)["counts"]["stale"], 3)
         self.assertIsNone(self.fleet(7)["counts"]["answering"])
         self.assertTrue(self.fleet(7)["summary"].startswith("Answering count unknown; 4 lanes configured"))
@@ -85,8 +101,12 @@ class FleetStateTests(unittest.TestCase):
     def test_zero_answering_requires_complete_current_unavailable_evidence(self):
         for node in self.snapshot["inference"]["nodes"]:
             if node.get("role") == "llama":
-                node.update(health="not_measured", modelId=None, reason="timeout",
-                            observedAt=self.snapshot["inference"]["observedAt"])
+                node.update(
+                    health="not_measured",
+                    modelId=None,
+                    reason="timeout",
+                    observedAt=self.snapshot["inference"]["observedAt"],
+                )
         fleet = self.fleet()
         self.assertEqual(fleet["counts"]["answering"], 0)
         self.assertTrue(fleet["summary"].startswith("0 of 4 lanes answering"))
@@ -240,7 +260,7 @@ class FleetStateTests(unittest.TestCase):
 
     def test_huge_now_is_rejected(self):
         with self.assertRaises(ValueError):
-            build_fleet_state({}, now=10 ** 1000)
+            build_fleet_state({}, now=10**1000)
 
     def test_expiry_before_observation_is_unknown(self):
         self.snapshot["inference"]["nodes"][4]["expiresAt"] = "1970-01-01T00:00:00Z"
@@ -255,7 +275,7 @@ class FleetStateTests(unittest.TestCase):
     def test_zero_is_allowed_only_for_fresh_complete_counts(self):
         only_local = {"machines": [self.snapshot["machines"][0]]}
         self.assertEqual(build_fleet_state(only_local, now=self.now)["counts"]["busy"], 0)
-        self.assertIsNone(build_fleet_state(only_local, now=self.now+10)["counts"]["busy"])
+        self.assertIsNone(build_fleet_state(only_local, now=self.now + 10)["counts"]["busy"])
 
     def test_explicit_activity_loss_clears_retained_local_busy_count(self):
         self.snapshot["activityKnown"] = False
@@ -265,8 +285,11 @@ class FleetStateTests(unittest.TestCase):
         self.assertEqual(self.snapshot["machines"][0]["busyCount"], 1, "pure join must not mutate its input")
 
     def test_local_model_contradictions_do_not_keep_complete_totals(self):
-        for models in ([], [{"host": "mac", "id": "local/model", "loaded": None}],
-                       [{"host": "mac", "id": "local/model", "loaded": True, "inventoryComplete": False}]):
+        for models in (
+            [],
+            [{"host": "mac", "id": "local/model", "loaded": None}],
+            [{"host": "mac", "id": "local/model", "loaded": True, "inventoryComplete": False}],
+        ):
             with self.subTest(models=models):
                 self.snapshot["models"] = models
                 local = next(fact for fact in self.fleet()["facts"] if fact["id"] == "mac")
@@ -275,18 +298,23 @@ class FleetStateTests(unittest.TestCase):
                 self.assertIsNone(local["evidence"]["busyCount"])
 
     def test_alias_rows_do_not_require_model_count_equality(self):
-        self.snapshot["models"] = [{"host": "mac", "id": identity, "loaded": True}
-                                   for identity in ("local/model", "local/alias")]
+        self.snapshot["models"] = [
+            {"host": "mac", "id": identity, "loaded": True} for identity in ("local/model", "local/alias")
+        ]
         local = next(fact for fact in self.fleet()["facts"] if fact["id"] == "mac")
         self.assertEqual(local["evidence"]["loadedCount"], 1)
 
 
 class RegistryProbeEvidenceTests(unittest.TestCase):
     def test_last_success_is_separate_from_latest_failed_probe(self):
-        target = {"id": "registry:pc:deep", "machine": "registry:pc", "label": "Deep",
-                  "base": "http://127.0.0.1:21001", "timeoutSeconds": 6}
-        lane = remote._lane_node(target, (None, None, "timeout", 1008), 1010, 3,
-                                 ("reported/model", 1000), 1002, False)
+        target = {
+            "id": "registry:pc:deep",
+            "machine": "registry:pc",
+            "label": "Deep",
+            "base": "http://127.0.0.1:21001",
+            "timeoutSeconds": 6,
+        }
+        lane = remote._lane_node(target, (None, None, "timeout", 1008), 1010, 3, ("reported/model", 1000), 1002, False)
         self.assertIsNone(lane["modelId"])
         self.assertEqual(lane["lastProbeAt"], "1970-01-01T00:16:48Z")
         self.assertEqual(lane["lastSuccessAt"], "1970-01-01T00:16:40Z")
@@ -297,8 +325,13 @@ class RegistryProbeEvidenceTests(unittest.TestCase):
         self.assertEqual(document["nodes"][0]["lastSuccessAt"], lane["lastSuccessAt"])
 
     def test_no_success_date_is_invented_for_a_pending_lane(self):
-        target = {"id": "registry:pc:deep", "machine": "registry:pc", "label": "Deep",
-                  "base": "http://127.0.0.1:21001", "timeoutSeconds": 6}
+        target = {
+            "id": "registry:pc:deep",
+            "machine": "registry:pc",
+            "label": "Deep",
+            "base": "http://127.0.0.1:21001",
+            "timeoutSeconds": 6,
+        }
         lane = remote._lane_node(target, None, 1000, 3, started=999, running=True)
         self.assertEqual(lane["probeState"], "running")
         self.assertIsNone(lane["lastProbeAt"])

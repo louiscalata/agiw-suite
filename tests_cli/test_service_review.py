@@ -1,4 +1,5 @@
 """Regression tests for service lifecycle review findings; no native service commands run."""
+
 import csv
 import io
 import subprocess
@@ -18,8 +19,9 @@ class ServiceReview(unittest.TestCase):
         self.home = temp_dir(self, "agiw-service-review-")
 
     def manager(self, kind, runner):
-        return ServiceManager(kind, home=self.home, python="python", runner=runner, env={}, uid=501,
-                              system_dir="C:\\Windows\\System32")
+        return ServiceManager(
+            kind, home=self.home, python="python", runner=runner, env={}, uid=501, system_dir="C:\\Windows\\System32"
+        )
 
     def existing(self, manager):
         path = manager.definition_path()
@@ -56,8 +58,10 @@ class ServiceReview(unittest.TestCase):
         self.assertFalse(any("/Create" in argv for argv in runner.calls))
 
     def test_uninstall_keeps_definition_when_stop_fails_and_service_is_running(self):
-        cases = (("mac", {"bootout": (5, ""), "print": (0, "state = running\n")}),
-                 ("windows", {"/End": (1, ""), "-Command": (0, "Running\n")}))
+        cases = (
+            ("mac", {"bootout": (5, ""), "print": (0, "state = running\n")}),
+            ("windows", {"/End": (1, ""), "-Command": (0, "Running\n")}),
+        )
         for kind, results in cases:
             with self.subTest(kind=kind):
                 runner = self.windows_runner(results) if kind == "windows" else FakeRunner(results)
@@ -69,8 +73,7 @@ class ServiceReview(unittest.TestCase):
                 self.assertFalse(any("/Delete" in argv for argv in runner.calls))
 
     def test_uninstall_keeps_definition_when_post_stop_state_is_unknown(self):
-        cases = (("mac", {"print": (5, "")}),
-                 ("windows", {"-Command": (0, "Unknown\n")}))
+        cases = (("mac", {"print": (5, "")}), ("windows", {"-Command": (0, "Unknown\n")}))
         for kind, results in cases:
             with self.subTest(kind=kind):
                 runner = self.windows_runner(results) if kind == "windows" else FakeRunner(results)
@@ -81,8 +84,7 @@ class ServiceReview(unittest.TestCase):
                 self.assertTrue(path.exists())
 
     def test_mac_uninstall_keeps_definition_for_every_successful_print(self):
-        for output in ("state = waiting\n", "state = exited\n", "state = not running\n",
-                       "Could not find service\n"):
+        for output in ("state = waiting\n", "state = exited\n", "state = not running\n", "Could not find service\n"):
             with self.subTest(output=output):
                 runner = FakeRunner({"print": (0, output)})
                 manager = self.manager("mac", runner)
@@ -99,8 +101,10 @@ class ServiceReview(unittest.TestCase):
         self.assertFalse(path.exists())
 
     def test_failed_stop_can_remove_definition_after_confirmed_stopped_query(self):
-        cases = (("mac", {"bootout": (5, ""), "print": (113, "")}),
-                 ("windows", {"/End": (1, ""), "-Command": (0, "Ready\n")}))
+        cases = (
+            ("mac", {"bootout": (5, ""), "print": (113, "")}),
+            ("windows", {"/End": (1, ""), "-Command": (0, "Ready\n")}),
+        )
         for kind, results in cases:
             with self.subTest(kind=kind):
                 runner = self.windows_runner(results) if kind == "windows" else FakeRunner(results)
@@ -112,8 +116,7 @@ class ServiceReview(unittest.TestCase):
                 self.assertTrue(any(verb in argv for argv in runner.calls))
 
     def test_never_installed_uninstall_succeeds_on_each_platform(self):
-        cases = (("mac", {"bootout": (113, ""), "print": (113, "")}),
-                 ("windows", {"-Command": (3, "")}))
+        cases = (("mac", {"bootout": (113, ""), "print": (113, "")}), ("windows", {"-Command": (3, "")}))
         for kind, results in cases:
             with self.subTest(kind=kind):
                 runner = self.windows_runner(results) if kind == "windows" else FakeRunner(results)
@@ -128,8 +131,10 @@ class ServiceReview(unittest.TestCase):
         self.assertFalse(any("/Delete" in argv for argv in runner.calls))
 
     def test_stop_timeout_is_followed_by_query_and_unknown_query_keeps_definition(self):
-        for kind, stop, query, inactive in (("mac", "bootout", "print", (113, "")),
-                                           ("windows", "/End", "-Command", (0, "Ready\n"))):
+        for kind, stop, query, inactive in (
+            ("mac", "bootout", "print", (113, "")),
+            ("windows", "/End", "-Command", (0, "Ready\n")),
+        ):
             for query_fails in (False, True):
                 with self.subTest(kind=kind, query_fails=query_fails):
                     fake = self.windows_runner() if kind == "windows" else FakeRunner()

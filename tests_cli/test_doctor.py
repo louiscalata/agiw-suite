@@ -1,5 +1,6 @@
 """`agiw doctor` and every diagnostic line: the home folder shows as ~, and no key, token, share path or
 folder outside the home is ever printed. Ports are probed through a fake; nothing is changed."""
+
 import contextlib
 import os
 import secrets
@@ -63,8 +64,7 @@ class Doctor(unittest.TestCase):
     def run_doctor(self, probe=lambda port, proto: "free", **kw):
         kw.setdefault("kind", "mac")
         state = kw.pop("state", self.state)
-        return doctor.run(state, 8768, 8769, probe=probe, write=self.lines.append,
-                          home=str(self.home), **kw)
+        return doctor.run(state, 8768, 8769, probe=probe, write=self.lines.append, home=str(self.home), **kw)
 
     def assert_clean(self):
         text = "\n".join(self.lines)
@@ -131,8 +131,14 @@ class Doctor(unittest.TestCase):
     def test_through_the_cli_without_a_running_peer_link(self):
         lines = []
         with mock.patch.object(doctor, "probe_port", lambda port, proto: "free"):
-            code = cli.main(["--state-dir", str(self.home / "fresh"), "doctor"], out=lines.append,
-                            runner=FakeRunner(), kind="mac", home=self.home, env={})
+            code = cli.main(
+                ["--state-dir", str(self.home / "fresh"), "doctor"],
+                out=lines.append,
+                runner=FakeRunner(),
+                kind="mac",
+                home=self.home,
+                env={},
+            )
         text = "\n".join(lines)
         self.assertEqual(code, 0, text)
         self.assertIn("not created yet", text)
@@ -141,27 +147,36 @@ class Doctor(unittest.TestCase):
         self.assertFalse((self.home / "fresh").exists(), "doctor must not create the state folder")
 
     def cli_doctor(self):
-        return cli.main(["--state-dir", str(self.state), "doctor"], out=self.lines.append,
-                        runner=FakeRunner(), kind="mac", home=self.home, env={})
+        return cli.main(
+            ["--state-dir", str(self.state), "doctor"],
+            out=self.lines.append,
+            runner=FakeRunner(),
+            kind="mac",
+            home=self.home,
+            env={},
+        )
 
     def test_cli_doctor_opens_no_tcp_connection(self):
-        with mock.patch.object(doctor, "probe_port", return_value="in use"), \
-                mock.patch("socket.create_connection", side_effect=AssertionError("TCP connection")) as tcp, \
-                mock.patch("http.client.HTTPConnection", side_effect=AssertionError("HTTP connection")) as http, \
-                mock.patch.object(pl, "_read_private", return_value=TOKEN), \
-                mock.patch.object(pl, "_unseal", return_value=TOKEN):
+        with (
+            mock.patch.object(doctor, "probe_port", return_value="in use"),
+            mock.patch("socket.create_connection", side_effect=AssertionError("TCP connection")) as tcp,
+            mock.patch("http.client.HTTPConnection", side_effect=AssertionError("HTTP connection")) as http,
+            mock.patch.object(pl, "_read_private", return_value=TOKEN),
+            mock.patch.object(pl, "_unseal", return_value=TOKEN),
+        ):
             # Force any regressed exchange path past token loading without requiring a real DPAPI blob.
             code = self.cli_doctor()
         self.assertEqual(code, 0)
         tcp.assert_not_called()
         http.assert_not_called()
-        self.assertIn("port in use (probably the peer link; run `agiw status` to check)",
-                      "\n".join(self.lines))
+        self.assertIn("port in use (probably the peer link; run `agiw status` to check)", "\n".join(self.lines))
 
     def test_cli_doctor_never_reads_or_unseals_token_contents(self):
-        with mock.patch.object(doctor, "probe_port", return_value="free"), \
-                mock.patch.object(pl, "_read_private", side_effect=AssertionError("read token")) as read, \
-                mock.patch.object(pl, "_unseal", side_effect=AssertionError("unseal token")) as unseal:
+        with (
+            mock.patch.object(doctor, "probe_port", return_value="free"),
+            mock.patch.object(pl, "_read_private", side_effect=AssertionError("read token")) as read,
+            mock.patch.object(pl, "_unseal", side_effect=AssertionError("unseal token")) as unseal,
+        ):
             code = self.cli_doctor()
         self.assertEqual(code, 0)
         read.assert_not_called()
@@ -170,13 +185,20 @@ class Doctor(unittest.TestCase):
     def test_windows_token_privacy_is_checked_without_unsealing(self):
         windows_os = mock.Mock(wraps=os)
         windows_os.name = "nt"
-        with mock.patch.object(doctor, "os", windows_os), \
-                mock.patch.object(pl, "_win_check_private", side_effect=[None, PermissionError()]) as acl, \
-                mock.patch.object(pl, "_unseal", side_effect=AssertionError("unseal token")) as unseal:
+        with (
+            mock.patch.object(doctor, "os", windows_os),
+            mock.patch.object(pl, "_win_check_private", side_effect=[None, PermissionError()]) as acl,
+            mock.patch.object(pl, "_unseal", side_effect=AssertionError("unseal token")) as unseal,
+        ):
             rows = doctor.check_state_dir(self.state, str(self.home))
         self.assertIn("1 key file(s) could have been read by others", "\n".join(text for _, text in rows))
-        self.assertEqual(acl.call_args_list, [mock.call(str(self.state), self.state.name),
-                                            mock.call(str(self.state / "control-token"), "control-token")])
+        self.assertEqual(
+            acl.call_args_list,
+            [
+                mock.call(str(self.state), self.state.name),
+                mock.call(str(self.state / "control-token"), "control-token"),
+            ],
+        )
         unseal.assert_not_called()
 
     def test_mac_token_acl_privacy_is_checked_without_reading_contents(self):
@@ -185,21 +207,30 @@ class Doctor(unittest.TestCase):
         posix_os = mock.Mock(wraps=os)
         posix_os.name = "posix"
         posix_os.getuid = mock.Mock(return_value=123)
-        posix_os.lstat = lambda path: mock.Mock(st_mode=(stat.S_IFDIR | 0o700 if path == self.state else
-                                                        stat.S_IFREG | 0o600), st_uid=123)
-        with mock.patch.object(doctor, "sys", mac_sys), mock.patch.object(doctor, "os", posix_os), \
-                mock.patch.object(pl, "_only_me", side_effect=[None, PermissionError()]) as acl, \
-                mock.patch.object(pl, "_read_private", side_effect=AssertionError("read token")) as read:
+        posix_os.lstat = lambda path: mock.Mock(
+            st_mode=(stat.S_IFDIR | 0o700 if path == self.state else stat.S_IFREG | 0o600), st_uid=123
+        )
+        with (
+            mock.patch.object(doctor, "sys", mac_sys),
+            mock.patch.object(doctor, "os", posix_os),
+            mock.patch.object(pl, "_only_me", side_effect=[None, PermissionError()]) as acl,
+            mock.patch.object(pl, "_read_private", side_effect=AssertionError("read token")) as read,
+        ):
             rows = doctor.check_state_dir(self.state, str(self.home))
         self.assertIn("1 key file(s) could have been read by others", "\n".join(text for _, text in rows))
-        self.assertEqual(acl.call_args_list, [mock.call(self.state, True),
-                                            mock.call(self.state / "control-token", False)])
+        self.assertEqual(
+            acl.call_args_list, [mock.call(self.state, True), mock.call(self.state / "control-token", False)]
+        )
         read.assert_not_called()
 
     def state_snapshot(self):
-        return {str(path.relative_to(self.state)): (stat.S_IMODE(path.lstat().st_mode),
-                path.read_bytes() if path.is_file() else None)
-                for path in [self.state, *self.state.rglob("*")]}
+        return {
+            str(path.relative_to(self.state)): (
+                stat.S_IMODE(path.lstat().st_mode),
+                path.read_bytes() if path.is_file() else None,
+            )
+            for path in [self.state, *self.state.rglob("*")]
+        }
 
     @unittest.skipIf(os.name == "nt", "POSIX permission bits")
     def test_cli_doctor_preserves_loose_state_modes_contents_and_listing(self):
@@ -215,9 +246,10 @@ class Doctor(unittest.TestCase):
 
     def test_cli_doctor_never_calls_filesystem_mutators(self):
         with contextlib.ExitStack() as stack:
-            forbidden = [stack.enter_context(mock.patch("os." + name,
-                         side_effect=AssertionError("doctor attempted " + name)))
-                         for name in ("chmod", "unlink", "remove", "replace", "rename", "mkdir")]
+            forbidden = [
+                stack.enter_context(mock.patch("os." + name, side_effect=AssertionError("doctor attempted " + name)))
+                for name in ("chmod", "unlink", "remove", "replace", "rename", "mkdir")
+            ]
             stack.enter_context(mock.patch.object(doctor, "probe_port", return_value="free"))
             code = self.cli_doctor()
         self.assertEqual(code, 0)
@@ -233,10 +265,12 @@ class Doctor(unittest.TestCase):
             self.run_doctor()
         self.assertEqual(self.state_snapshot(), before)
 
+
 @unittest.skipIf(os.name == "nt", "TIME_WAIT and SO_REUSEADDR are the POSIX behavior")
 class PortProbe(unittest.TestCase):
     def listener(self):
         import socket
+
         server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         server.bind(("127.0.0.1", 0))
@@ -252,11 +286,12 @@ class PortProbe(unittest.TestCase):
 
     def test_time_wait_after_the_server_closed_first_reads_free(self):
         import socket
+
         server = self.listener()
         port = server.getsockname()[1]
         client = socket.create_connection(("127.0.0.1", port))
         conn, _ = server.accept()
-        conn.close()        # the server closes first, as the HTTP/1.0 peer link does, leaving TIME_WAIT on its port
+        conn.close()  # the server closes first, as the HTTP/1.0 peer link does, leaving TIME_WAIT on its port
         client.recv(1)
         client.close()
         server.close()

@@ -3,6 +3,7 @@
 The logon task uses MultipleInstancesPolicy IgnoreNew, so `schtasks /Run` on a running task starts nothing and
 the old peer-link process keeps serving the code it loaded. Every command goes to a scripted runner; any real
 process start fails these tests."""
+
 import io
 import subprocess
 import unittest
@@ -23,8 +24,15 @@ class WindowsReinstall(unittest.TestCase):
         self.home = temp_dir(self, "agiw-service-reinstall-")
 
     def manager(self, runner):
-        return ServiceManager("windows", home=self.home, python="python", runner=runner,
-                              env={}, uid=501, system_dir="C:\\Windows\\System32")
+        return ServiceManager(
+            "windows",
+            home=self.home,
+            python="python",
+            runner=runner,
+            env={},
+            uid=501,
+            system_dir="C:\\Windows\\System32",
+        )
 
     def scripted(self, states, end=(0, "")):
         """Each State query takes the next (code, stdout) from states; the last one repeats."""
@@ -94,8 +102,14 @@ class WindowsReinstall(unittest.TestCase):
         runner = self.scripted([(0, "Running\n")])
         error = io.StringIO()
         with mock.patch("agiw.service.time.sleep"), mock.patch("sys.stderr", error):
-            code = cli.main(["service", "install", "--status-file", str(self.home / "status.json")],
-                            kind="windows", home=self.home, env={}, runner=runner, out=lambda line: None)
+            code = cli.main(
+                ["service", "install", "--status-file", str(self.home / "status.json")],
+                kind="windows",
+                home=self.home,
+                env={},
+                runner=runner,
+                out=lambda line: None,
+            )
         self.assertEqual(code, 1)
         self.assertIn("previous instance", error.getvalue())
         self.assertIn("schtasks /End /TN " + TASK, error.getvalue())
@@ -106,8 +120,10 @@ class WindowsReinstall(unittest.TestCase):
         for before in ((1, ""), (0, "Unknown\n"), OSError("query unavailable")):
             with self.subTest(before=before):
                 runner = self.scripted([before])
-                with mock.patch("agiw.service.time.sleep"), \
-                        self.assertRaisesRegex(ServiceError, "cannot tell whether .* is running"):
+                with (
+                    mock.patch("agiw.service.time.sleep"),
+                    self.assertRaisesRegex(ServiceError, "cannot tell whether .* is running"),
+                ):
                     self.manager(runner).install()
                 self.assertNotIn("/Run", self.verbs(runner))
                 self.assertNotIn("/End", self.verbs(runner))

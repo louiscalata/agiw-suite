@@ -9,8 +9,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-SPEC = importlib.util.spec_from_file_location(
-    "check_wrapper_archive", ROOT / "scripts" / "check-wrapper-archive.py")
+SPEC = importlib.util.spec_from_file_location("check_wrapper_archive", ROOT / "scripts" / "check-wrapper-archive.py")
 ARCHIVE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(ARCHIVE)
 FORBIDDEN = ARCHIVE.FORBIDDEN

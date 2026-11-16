@@ -1,4 +1,5 @@
 """Keep Windows workflow triggers aligned with shipped shared dependencies."""
+
 import ast
 import fnmatch
 from pathlib import Path
@@ -22,15 +23,21 @@ class WindowsWorkflowCoverageTests(unittest.TestCase):
             patterns = re.findall(r"'([^']+)'", block)
             for path in runtime:
                 with self.subTest(event=event, path=path):
-                    self.assertTrue(any(fnmatch.fnmatchcase(path, pattern) for pattern in patterns),
-                                    f"{event} misses shipped dependency {path}")
+                    self.assertTrue(
+                        any(fnmatch.fnmatchcase(path, pattern) for pattern in patterns),
+                        f"{event} misses shipped dependency {path}",
+                    )
 
     def test_windows_workflow_covers_root_files_the_windows_tests_read(self):
         # Root test modules (and the root modules they import) and test_support fixtures that windows/tests use.
         def root_module(name):
             top = name.split(".")[0]
-            shadows = (ROOT / "windows" / f"{top}.py", ROOT / "windows" / top,
-                       ROOT / "windows/tests" / f"{top}.py", ROOT / "windows/agiw_win" / f"{top}.py")
+            shadows = (
+                ROOT / "windows" / f"{top}.py",
+                ROOT / "windows" / top,
+                ROOT / "windows/tests" / f"{top}.py",
+                ROOT / "windows/agiw_win" / f"{top}.py",
+            )
             path = ROOT / f"{top}.py"
             return path if path.is_file() and not any(shadow.exists() for shadow in shadows) else None
 
@@ -61,9 +68,13 @@ class WindowsWorkflowCoverageTests(unittest.TestCase):
                     path = "/".join(parts(node))
                     if path.startswith("test_support/") and (ROOT / path).is_file():
                         needed.add(path)
-                elif source.parent.name == "tests" and isinstance(node, ast.Constant) and \
-                        isinstance(node.value, str) and node.value.startswith("test_support/") and \
-                        (ROOT / node.value).is_file():
+                elif (
+                    source.parent.name == "tests"
+                    and isinstance(node, ast.Constant)
+                    and isinstance(node.value, str)
+                    and node.value.startswith("test_support/")
+                    and (ROOT / node.value).is_file()
+                ):
                     needed.add(node.value)
         self.assertIn("test_eci_fast_check.py", needed)
         self.assertIn("test_support/eci_tuning/results.json", needed)
@@ -74,8 +85,10 @@ class WindowsWorkflowCoverageTests(unittest.TestCase):
             patterns = re.findall(r"'([^']+)'", block)
             for path in sorted(needed):
                 with self.subTest(event=event, path=path):
-                    self.assertTrue(any(fnmatch.fnmatchcase(path, pattern) for pattern in patterns),
-                                    f"{event} misses {path}, which a Windows test reads")
+                    self.assertTrue(
+                        any(fnmatch.fnmatchcase(path, pattern) for pattern in patterns),
+                        f"{event} misses {path}, which a Windows test reads",
+                    )
 
 
 if __name__ == "__main__":

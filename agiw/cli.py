@@ -4,6 +4,7 @@ Every command except `serve`, `doctor`, `service` and `uninstall` talks to this 
 127.0.0.1, which must first prove it holds the control token in the state folder (peer_link.py). Status is
 signed but not encrypted, and v1.1.0 dispatches no jobs: it only discovers, pairs and reads status.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -34,10 +35,14 @@ EXIT_TEMPFAIL = 75
 # AGIW's hosts are the Mac and the Windows PC; the peer link still knows "linux" for an occasional peer,
 # but this CLI neither runs nor installs a service there.
 SUPPORTED_KINDS = ("mac", "windows")
-NOT_RUNNING = ("the peer link is not running on this machine; start it with `agiw serve` "
-               "(or `agiw service install` to start it at login)")
-WINDOWS_SOURCE = ("on Windows, pass --status-file with the Windows observer's status file "
-                  "(<observer folder>\\state\\peer-link-status.json)")
+NOT_RUNNING = (
+    "the peer link is not running on this machine; start it with `agiw serve` "
+    "(or `agiw service install` to start it at login)"
+)
+WINDOWS_SOURCE = (
+    "on Windows, pass --status-file with the Windows observer's status file "
+    "(<observer folder>\\state\\peer-link-status.json)"
+)
 
 
 class CliError(Exception):
@@ -79,6 +84,7 @@ def control(state_dir: Path, port: int, method: str, path: str, body: Optional[d
 
 # ---------- status ----------
 
+
 def machine_rows(snapshot: dict, *, now=None) -> List[dict]:
     """Frozen contract rows, including local evidence and missing platforms."""
     return status_document(snapshot, now=now)["machines"]
@@ -91,6 +97,7 @@ def _table(rows: List[List[str]]) -> List[str]:
 
 # ---------- commands ----------
 
+
 def needs_status_file(args) -> bool:
     """Windows serves only its observer's status file (unchanged peer-link rule); say so in agiw's words."""
     return (args.host or pl.detect_host_kind()) == "windows" and not (args.status_file or args.lmstudio)
@@ -102,8 +109,9 @@ def hold_state_lock(state_dir: Path, *, busy_code: int = EXIT_FAILED):
     try:
         lock.acquire()
     except StateLockBusy as exc:
-        raise CliError("the peer link is running with this state folder; stop it first; nothing was deleted",
-                       busy_code) from exc
+        raise CliError(
+            "the peer link is running with this state folder; stop it first; nothing was deleted", busy_code
+        ) from exc
     except OSError as exc:
         raise CliError(f"the state folder could not be locked ({type(exc).__name__}); nothing was deleted") from exc
     try:
@@ -115,8 +123,15 @@ def hold_state_lock(state_dir: Path, *, busy_code: int = EXIT_FAILED):
 def cmd_serve(args, out) -> int:
     if needs_status_file(args):
         raise CliError(WINDOWS_SOURCE, EXIT_USAGE)
-    argv = ["--state-dir", str(args.state_dir), "--status-port", str(args.status_port), "run",
-            "--beacon-port", str(args.beacon_port)]
+    argv = [
+        "--state-dir",
+        str(args.state_dir),
+        "--status-port",
+        str(args.status_port),
+        "run",
+        "--beacon-port",
+        str(args.beacon_port),
+    ]
     if args.host:
         argv += ["--host", args.host]
     if args.name:
@@ -162,8 +177,15 @@ def cmd_peers(args, out) -> int:
     rows = [["STATE", "NAME", "KIND", "PAIRED", "NOTE"]]
     for row in doc.get("peers", []):
         note = "invite waiting: run `agiw accept`" if row.get("inviteWaiting") else ""
-        rows.append([str(row.get("state")), str(row.get("name") or "?"), str(row.get("host") or "?"),
-                     "yes" if row.get("paired") else "no", note])
+        rows.append(
+            [
+                str(row.get("state")),
+                str(row.get("name") or "?"),
+                str(row.get("host") or "?"),
+                "yes" if row.get("paired") else "no",
+                note,
+            ]
+        )
     if len(rows) == 1:
         out("no AGIW machines seen yet (both machines need `agiw serve` on the same LAN, udp/8769 allowed)")
     else:
@@ -188,8 +210,7 @@ def cmd_status(args, out) -> int:
         elif exc.code != EXIT_NOT_RUNNING:
             raise
         snapshot = None
-    local = {"node": pl.detect_host_kind(), "name": socket.gethostname().split(".")[0],
-             "host": pl.detect_host_kind()}
+    local = {"node": pl.detect_host_kind(), "name": socket.gethostname().split(".")[0], "host": pl.detect_host_kind()}
     doc = status_document(snapshot, full=args.full, local=local, link_error=link_error)
     if args.json:
         out(json.dumps(doc, indent=1, sort_keys=True))
@@ -198,8 +219,7 @@ def cmd_status(args, out) -> int:
     for m in doc["machines"]:
         age = "?" if m["ageSeconds"] is None else f"{m['ageSeconds']:.1f}s"
         count = "?" if m["loadedCount"] is None else str(m["loadedCount"])
-        rows.append([m.get("label") or m["host"], m["platform"] or "?", m["state"],
-                     m["reasonCode"], age, count])
+        rows.append([m.get("label") or m["host"], m["platform"] or "?", m["state"], m["reasonCode"], age, count])
     for line in _table(rows):
         out(redact(line))
     if not any(peer.get("paired") for peer in snapshot.get("peers", [])):
@@ -209,9 +229,16 @@ def cmd_status(args, out) -> int:
 
 def cmd_doctor(args, out, manager: ServiceManager) -> int:
     installed = manager.definition_path().exists()
-    return doctor_mod.run(args.state_dir, args.status_port, args.beacon_port, kind=manager.kind,
-                          probe=doctor_mod.probe_port, service_installed=installed, write=out,
-                          home=str(manager.home))
+    return doctor_mod.run(
+        args.state_dir,
+        args.status_port,
+        args.beacon_port,
+        kind=manager.kind,
+        probe=doctor_mod.probe_port,
+        service_installed=installed,
+        write=out,
+        home=str(manager.home),
+    )
 
 
 def serve_args(args) -> List[str]:
@@ -234,8 +261,9 @@ def serve_options(args) -> List[str]:
     return out
 
 
-def make_manager(args, runner=None, kind: Optional[str] = None, home: Optional[Path] = None,
-                 env: Optional[dict] = None) -> ServiceManager:
+def make_manager(
+    args, runner=None, kind: Optional[str] = None, home: Optional[Path] = None, env: Optional[dict] = None
+) -> ServiceManager:
     options = serve_options(args) if getattr(args, "action", None) == "install" else []
     return ServiceManager(kind or pl.detect_host_kind(), serve_args(args), options, runner=runner, home=home, env=env)
 
@@ -251,13 +279,21 @@ def cmd_service(args, out, manager: ServiceManager) -> int:
     else:
         state = manager.status()
         if args.json:
-            out(json.dumps({**state, "definition": show_path(Path(state["definition"]), home)}, indent=1,
-                           sort_keys=True))
+            out(
+                json.dumps(
+                    {**state, "definition": show_path(Path(state["definition"]), home)}, indent=1, sort_keys=True
+                )
+            )
             return 0
-        steps = [f"service ({state['kind']}): " + ("installed" if state["installed"] else "not installed") +
-                 f", definition {show_path(Path(state['definition']), home)}",
-                 "loaded: " + {True: "yes", False: "no", None: "unknown"}[state["loaded"]] +
-                 ", running: " + {True: "yes", False: "no", None: "unknown"}[state["running"]]]
+        steps = [
+            f"service ({state['kind']}): "
+            + ("installed" if state["installed"] else "not installed")
+            + f", definition {show_path(Path(state['definition']), home)}",
+            "loaded: "
+            + {True: "yes", False: "no", None: "unknown"}[state["loaded"]]
+            + ", running: "
+            + {True: "yes", False: "no", None: "unknown"}[state["running"]],
+        ]
     for step in steps:
         out(redact(_show_paths_in(step, home), home))
     return 0
@@ -266,7 +302,7 @@ def cmd_service(args, out, manager: ServiceManager) -> int:
 def _show_paths_in(step: str, home: Optional[str] = None) -> str:
     for prefix in ("wrote ", "removed "):
         if step.startswith(prefix):
-            return prefix + show_path(Path(step[len(prefix):]), home)
+            return prefix + show_path(Path(step[len(prefix) :]), home)
     return step
 
 
@@ -276,9 +312,12 @@ _KNOWN_FILES = ("identity.json", "control-token", "peers.json")
 
 
 def _link_or_reparse(path: Path, info) -> bool:
-    return (stat.S_ISLNK(info.st_mode) or path.is_symlink()
-            or getattr(path, "is_junction", lambda: False)()
-            or bool(getattr(info, "st_file_attributes", 0) & 0x400))
+    return (
+        stat.S_ISLNK(info.st_mode)
+        or path.is_symlink()
+        or getattr(path, "is_junction", lambda: False)()
+        or bool(getattr(info, "st_file_attributes", 0) & 0x400)
+    )
 
 
 def purge_plan(state_dir: Path) -> tuple:
@@ -304,14 +343,16 @@ def purge_plan(state_dir: Path) -> tuple:
                 if _link_or_reparse(record, record_info):
                     keep.append(record)
                 elif stat.S_ISREG(record_info.st_mode) and (
-                        (base.endswith(".json") and pl.UUID_RE.match(base[:-5].casefold()))
-                        or (name.startswith(".") and name.endswith(".tmp"))):
+                    (base.endswith(".json") and pl.UUID_RE.match(base[:-5].casefold()))
+                    or (name.startswith(".") and name.endswith(".tmp"))
+                ):
                     delete.append(record)
                 else:
                     keep.append(record)
             folders.append(path)
         elif stat.S_ISREG(entry_info.st_mode) and (
-                entry in _KNOWN_FILES or (entry.startswith(".") and entry.endswith(".tmp"))):
+            entry in _KNOWN_FILES or (entry.startswith(".") and entry.endswith(".tmp"))
+        ):
             delete.append(path)
         else:
             keep.append(path)
@@ -334,9 +375,11 @@ def peer_link_answers(state_dir: Path, port: int, probe=None) -> bool:
     probe = doctor_mod.probe_port if probe is None else probe
 
     def refuse(reason):
-        raise CliError(f"{reason}. Stop any running `agiw serve` using this state folder "
-                       "(Ctrl-C, or `agiw service uninstall`), and pass its --status-port to uninstall; "
-                       "nothing was deleted from the state folder.")
+        raise CliError(
+            f"{reason}. Stop any running `agiw serve` using this state folder "
+            "(Ctrl-C, or `agiw service uninstall`), and pass its --status-port to uninstall; "
+            "nothing was deleted from the state folder."
+        )
 
     try:
         (state_dir / "control-token").lstat()
@@ -365,9 +408,11 @@ def cmd_uninstall(args, out, manager: ServiceManager, probe=None) -> int:
     service_steps = manager.uninstall()
     for step in service_steps:
         out("login service: " + redact(_show_paths_in(step, home), home))
-    service_result = ("the login service was removed" if any(
-        step.startswith(("removed ", "stopped ")) for step in service_steps)
-        else "; ".join(service_steps) or "no agiw service was installed")
+    service_result = (
+        "the login service was removed"
+        if any(step.startswith(("removed ", "stopped ")) for step in service_steps)
+        else "; ".join(service_steps) or "no agiw service was installed"
+    )
     if args.purge_keys and args.yes:
         # Stop the login service before trying to take its state-folder lock.
         # All CliError refusals below occur before any key file is deleted.
@@ -377,8 +422,10 @@ def cmd_uninstall(args, out, manager: ServiceManager, probe=None) -> int:
                 try:
                     lock.remove_if_state_gone()
                 except OSError as exc:
-                    out(f"could not remove the state lock file: {show_path(lock.path, home)} "
-                        f"({type(exc).__name__}: {redact(str(exc), home)})")
+                    out(
+                        f"could not remove the state lock file: {show_path(lock.path, home)} "
+                        f"({type(exc).__name__}: {redact(str(exc), home)})"
+                    )
                     return EXIT_FAILED
                 return result
         except CliError as exc:
@@ -392,8 +439,10 @@ def _cmd_uninstall(args, out, manager: ServiceManager, probe=None) -> int:
         out("pairing keys kept; `agiw uninstall --purge-keys` lists what would be deleted")
         return 0
     if args.yes and peer_link_answers(args.state_dir, args.status_port, probe=probe):
-        raise CliError("the peer link is still running here; stop it (Ctrl-C, or `agiw service uninstall`) "
-                       "before deleting its keys. Nothing was deleted from the state folder.")
+        raise CliError(
+            "the peer link is still running here; stop it (Ctrl-C, or `agiw service uninstall`) "
+            "before deleting its keys. Nothing was deleted from the state folder."
+        )
     delete, folders, keep = purge_plan(args.state_dir)
     windows_registry = os.name == "nt"
     verb = "deleting" if args.yes else "would delete"
@@ -404,8 +453,10 @@ def _cmd_uninstall(args, out, manager: ServiceManager, probe=None) -> int:
     for path in keep:
         out(f"left in place (not created by agiw): {show_path(path, home)}")
     if not args.yes:
-        out("keys: dry run, no key files were deleted. Add --yes to delete these files. "
-            "Your other machines keep their side; run `agiw unpair <this machine>` there.")
+        out(
+            "keys: dry run, no key files were deleted. Add --yes to delete these files. "
+            "Your other machines keep their side; run `agiw unpair <this machine>` there."
+        )
         return 0
     if not delete and not windows_registry:
         for folder in folders:
@@ -423,8 +474,7 @@ def _cmd_uninstall(args, out, manager: ServiceManager, probe=None) -> int:
             pass
         except OSError as exc:
             failed += 1
-            out(f"could not delete: {show_path(path, home)} "
-                f"({type(exc).__name__}: {redact(str(exc), home)})")
+            out(f"could not delete: {show_path(path, home)} ({type(exc).__name__}: {redact(str(exc), home)})")
         else:
             deleted += 1
     revoke_error = None
@@ -441,21 +491,27 @@ def _cmd_uninstall(args, out, manager: ServiceManager, probe=None) -> int:
     failures = f"; {failed} file(s) could not be deleted" if failed else ""
     out(f"deleted {deleted} file(s){failures}. Run `agiw unpair <this machine>` on your other machines.")
     if revoke_error is not None:
-        out("revoking the Windows pairing generations failed "
-            f"({type(revoke_error).__name__}: {redact(str(revoke_error), home)})")
+        out(
+            "revoking the Windows pairing generations failed "
+            f"({type(revoke_error).__name__}: {redact(str(revoke_error), home)})"
+        )
     return EXIT_FAILED if failed or revoke_error is not None else 0
 
 
 # ---------- parser ----------
 
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="agiw", description="Pair your Mac and Windows PC with a PIN and read their signed, "
-                                 "read-only status over the LAN (agiw-peer/2). Status is signed, not encrypted; "
-                                 "v1.1.0 dispatches no jobs.")
+        prog="agiw",
+        description="Pair your Mac and Windows PC with a PIN and read their signed, "
+        "read-only status over the LAN (agiw-peer/2). Status is signed, not encrypted; "
+        "v1.1.0 dispatches no jobs.",
+    )
     parser.add_argument("--version", action="version", version=f"agiw {__version__} ({pl.PROTOCOL})")
-    parser.add_argument("--state-dir", type=Path, default=None,
-                        help="peer-link state folder (default: the per-OS user folder)")
+    parser.add_argument(
+        "--state-dir", type=Path, default=None, help="peer-link state folder (default: the per-OS user folder)"
+    )
     parser.add_argument("--status-port", type=int, default=pl.STATUS_PORT, help=f"default {pl.STATUS_PORT}")
     sub = parser.add_subparsers(dest="command", metavar="COMMAND")
     sub.required = True
@@ -494,9 +550,17 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: Optional[Sequence[str]] = None, *, out: Optional[Callable[[str], None]] = None,
-         read_pin: Optional[Callable[[str], str]] = None, runner=None, kind: Optional[str] = None,
-         home: Optional[Path] = None, env: Optional[dict] = None, probe=None) -> int:
+def main(
+    argv: Optional[Sequence[str]] = None,
+    *,
+    out: Optional[Callable[[str], None]] = None,
+    read_pin: Optional[Callable[[str], str]] = None,
+    runner=None,
+    kind: Optional[str] = None,
+    home: Optional[Path] = None,
+    env: Optional[dict] = None,
+    probe=None,
+) -> int:
     """Output, PIN input, service context and the uninstall port probe are injectable for tests."""
     out = out or (lambda line: print(line, flush=True))
     args = build_parser().parse_args(list(sys.argv[1:] if argv is None else argv))
@@ -504,8 +568,9 @@ def main(argv: Optional[Sequence[str]] = None, *, out: Optional[Callable[[str], 
         args.state_dir = pl.default_state_dir()
     try:
         if (kind or pl.detect_host_kind()) not in SUPPORTED_KINDS:
-            raise CliError("agiw supports macOS and Windows only; Linux is not supported. Nothing was changed.",
-                           EXIT_USAGE)
+            raise CliError(
+                "agiw supports macOS and Windows only; Linux is not supported. Nothing was changed.", EXIT_USAGE
+            )
         if args.command == "uninstall" and args.yes and not args.purge_keys:
             raise CliError("--yes requires --purge-keys; nothing was changed", EXIT_USAGE)
         if args.command == "serve":

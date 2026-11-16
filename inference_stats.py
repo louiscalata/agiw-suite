@@ -3,6 +3,7 @@
 Alerts, history and spend are later. They key off ``id`` and these fields;
 this module does not store them.
 """
+
 from __future__ import annotations
 
 import math
@@ -18,8 +19,7 @@ MAX_MAP_EDGES = 256
 HEALTH = frozenset({"ok", "degraded", "down", "not_measured"})
 ROLES = frozenset({"machine", "lmstudio", "veritas", "router", "llama", "client"})
 _RATES = ("promptTokensPerSecond", "generationTokensPerSecond", "latencyMs")
-_COUNTS = ("queueDepth", "slotsBusy", "slotsTotal", "contextUsed", "contextLimit",
-           "vramUsedMiB", "vramTotalMiB")
+_COUNTS = ("queueDepth", "slotsBusy", "slotsTotal", "contextUsed", "contextLimit", "vramUsedMiB", "vramTotalMiB")
 _TEXT = ("id", "machine", "role", "label", "endpoint", "modelId", "upstream", "reason", "detail")
 
 
@@ -33,8 +33,7 @@ def expire_map(document, now):
     except (TypeError, ValueError, AttributeError, OverflowError):
         age = math.inf
     if document.get("tunnel") and not -2 <= age <= 30:
-        document["tunnel"] = {"state": "not_measured", "reason": "stale",
-                              "detail": "PC tunnel observation stale."}
+        document["tunnel"] = {"state": "not_measured", "reason": "stale", "detail": "PC tunnel observation stale."}
     expired = set()
     for node in document.get("nodes") or []:
         registry = node.get("observationSource") == "registry"
@@ -51,8 +50,7 @@ def expire_map(document, now):
             max_age = 2 * interval
             # Pending probes have no completion time. Keep their explicit unknown
             # reason without borrowing a newer snapshot timestamp.
-            if (node.get("observedAt") is None and node.get("health") == "not_measured"
-                    and node.get("modelId") is None):
+            if node.get("observedAt") is None and node.get("health") == "not_measured" and node.get("modelId") is None:
                 continue
         else:
             max_age = 30 if node.get("machine") == "pc" else 3
@@ -64,9 +62,11 @@ def expire_map(document, now):
     for node in document.get("nodes") or []:
         if node.get("role") != "machine":
             continue
-        children = [child for child in document["nodes"]
-                    if child.get("machine") == node.get("machine")
-                    and child.get("role") not in ("machine", "client")]
+        children = [
+            child
+            for child in document["nodes"]
+            if child.get("machine") == node.get("machine") and child.get("role") not in ("machine", "client")
+        ]
         rollup = machine_node(node["machine"], node["label"], children)
         if node.get("inventoryScope") == "configured-lanes" and any(child.get("health") != "ok" for child in children):
             rollup.update(health="not_measured", reason="lane_unknown")
@@ -75,9 +75,12 @@ def expire_map(document, now):
     # Upstream and caller links are observations too; retain only structural links
     # when either end has expired, without changing the node layout.
     if "edges" in document:
-        document["edges"] = [edge for edge in document["edges"]
-                             if edge.get("kind") not in ("upstream", "caller")
-                             or not expired.intersection((edge.get("from"), edge.get("to")))]
+        document["edges"] = [
+            edge
+            for edge in document["edges"]
+            if edge.get("kind") not in ("upstream", "caller")
+            or not expired.intersection((edge.get("from"), edge.get("to")))
+        ]
 
 
 def _text(value, limit):
@@ -88,11 +91,32 @@ def _text(value, limit):
     return value
 
 
-def make_node(*, id, machine, role, label, health, endpoint=None, model_id=None,
-              upstream=None, reason=None, observed_at=None, prompt_tokens_per_second=None,
-              generation_tokens_per_second=None, latency_ms=None, queue_depth=None,
-              slots_busy=None, slots_total=None, context_used=None, context_limit=None,
-              vram_used_mib=None, vram_total_mib=None, detail=None, models=None, callers=None):
+def make_node(
+    *,
+    id,
+    machine,
+    role,
+    label,
+    health,
+    endpoint=None,
+    model_id=None,
+    upstream=None,
+    reason=None,
+    observed_at=None,
+    prompt_tokens_per_second=None,
+    generation_tokens_per_second=None,
+    latency_ms=None,
+    queue_depth=None,
+    slots_busy=None,
+    slots_total=None,
+    context_used=None,
+    context_limit=None,
+    vram_used_mib=None,
+    vram_total_mib=None,
+    detail=None,
+    models=None,
+    callers=None,
+):
     """One map node. ``model_id`` is the id the server reported, unchanged."""
     node = {
         "id": _text(id, 80),
@@ -141,8 +165,12 @@ def _models(models):
     for item in models:
         if not isinstance(item, dict):
             raise ValueError("models")
-        rows.append({"id": _text(item.get("id"), 1024),
-                     "upstream": _text(item["upstream"], 200) if item.get("upstream") is not None else None})
+        rows.append(
+            {
+                "id": _text(item.get("id"), 1024),
+                "upstream": _text(item["upstream"], 200) if item.get("upstream") is not None else None,
+            }
+        )
         if rows[-1]["id"] is None:
             raise ValueError("models")
     return rows
@@ -155,8 +183,12 @@ def _callers(callers):
     for item in callers:
         if not isinstance(item, dict):
             raise ValueError("callers")
-        rows.append({"id": _text(item.get("id"), 80),
-                     "label": _text(item["label"], 80) if item.get("label") is not None else None})
+        rows.append(
+            {
+                "id": _text(item.get("id"), 80),
+                "label": _text(item["label"], 80) if item.get("label") is not None else None,
+            }
+        )
         if rows[-1]["id"] is None:
             raise ValueError("callers")
     return rows
@@ -178,9 +210,17 @@ def client_nodes(nodes):
     for node in nodes:
         for caller in node.get("callers") or []:
             label = caller.get("label") or caller["id"]
-            extra.append(make_node(id=f"{node['id']}:caller:{caller['id']}", machine=node["machine"],
-                                   role="client", label=label, health="ok", endpoint=node.get("endpoint"),
-                                   reason="reported"))
+            extra.append(
+                make_node(
+                    id=f"{node['id']}:caller:{caller['id']}",
+                    machine=node["machine"],
+                    role="client",
+                    label=label,
+                    health="ok",
+                    endpoint=node.get("endpoint"),
+                    reason="reported",
+                )
+            )
     return extra
 
 
@@ -248,11 +288,19 @@ def machine_node(machine, label, children, *, observed_at=None, vram=None, reaso
         used, total = vram.get("usedMiB"), vram.get("totalMiB")
         if type(used) is not int or type(total) is not int or used < 0 or total < used:
             used = total = None
-    return make_node(id=machine, machine=machine, role="machine",
-                     label=label, health=health, reason=reason, observed_at=observed_at,
-                     prompt_tokens_per_second=_sum(children, machine, "promptTokensPerSecond"),
-                     generation_tokens_per_second=_sum(children, machine, "generationTokensPerSecond"),
-                     vram_used_mib=used, vram_total_mib=total)
+    return make_node(
+        id=machine,
+        machine=machine,
+        role="machine",
+        label=label,
+        health=health,
+        reason=reason,
+        observed_at=observed_at,
+        prompt_tokens_per_second=_sum(children, machine, "promptTokensPerSecond"),
+        generation_tokens_per_second=_sum(children, machine, "generationTokensPerSecond"),
+        vram_used_mib=used,
+        vram_total_mib=total,
+    )
 
 
 def apply_rates(machines, nodes):
@@ -275,11 +323,17 @@ def apply_rates(machines, nodes):
 
     windows = [row for row in machines if isinstance(row, dict) and row.get("platform") == "windows"]
     macs = [row for row in machines if isinstance(row, dict) and row.get("platform") in ("mac", "macos")]
-    local_windows = [row for row in windows if row.get("role") == "this-machine" or row.get("trust") == "local"
-                     or row.get("source") == "local"]
+    local_windows = [
+        row
+        for row in windows
+        if row.get("role") == "this-machine" or row.get("trust") == "local" or row.get("source") == "local"
+    ]
     assign(local_windows or (windows if len(windows) == 1 else []), "pc")
-    local_macs = [row for row in macs if row.get("host") == "mac" or row.get("trust") == "local"
-                  or row.get("role") == "this-machine"]
+    local_macs = [
+        row
+        for row in macs
+        if row.get("host") == "mac" or row.get("trust") == "local" or row.get("role") == "this-machine"
+    ]
     assign(local_macs or (macs if len(macs) == 1 else []), "mac")
 
 
@@ -289,22 +343,42 @@ def public_map(document):
         return None
     nodes = document.get("nodes")
     edges = document.get("edges")
-    if (not isinstance(nodes, list) or len(nodes) > MAX_MAP_NODES
-            or not isinstance(edges, list) or len(edges) > MAX_MAP_EDGES):
+    if (
+        not isinstance(nodes, list)
+        or len(nodes) > MAX_MAP_NODES
+        or not isinstance(edges, list)
+        or len(edges) > MAX_MAP_EDGES
+    ):
         return None
     try:
-        copied = [make_node(id=node["id"], machine=node["machine"], role=node["role"], label=node["label"],
-                            health=node["health"], endpoint=node.get("endpoint"), model_id=node.get("modelId"),
-                            upstream=node.get("upstream"), reason=node.get("reason"),
-                            observed_at=node.get("observedAt"),
-                            prompt_tokens_per_second=node.get("promptTokensPerSecond"),
-                            generation_tokens_per_second=node.get("generationTokensPerSecond"),
-                            latency_ms=node.get("latencyMs"), queue_depth=node.get("queueDepth"),
-                            slots_busy=node.get("slotsBusy"), slots_total=node.get("slotsTotal"),
-                            context_used=node.get("contextUsed"), context_limit=node.get("contextLimit"),
-                            vram_used_mib=node.get("vramUsedMiB"), vram_total_mib=node.get("vramTotalMiB"),
-                            detail=node.get("detail"), models=node.get("models"), callers=node.get("callers"))
-                  for node in nodes]
+        copied = [
+            make_node(
+                id=node["id"],
+                machine=node["machine"],
+                role=node["role"],
+                label=node["label"],
+                health=node["health"],
+                endpoint=node.get("endpoint"),
+                model_id=node.get("modelId"),
+                upstream=node.get("upstream"),
+                reason=node.get("reason"),
+                observed_at=node.get("observedAt"),
+                prompt_tokens_per_second=node.get("promptTokensPerSecond"),
+                generation_tokens_per_second=node.get("generationTokensPerSecond"),
+                latency_ms=node.get("latencyMs"),
+                queue_depth=node.get("queueDepth"),
+                slots_busy=node.get("slotsBusy"),
+                slots_total=node.get("slotsTotal"),
+                context_used=node.get("contextUsed"),
+                context_limit=node.get("contextLimit"),
+                vram_used_mib=node.get("vramUsedMiB"),
+                vram_total_mib=node.get("vramTotalMiB"),
+                detail=node.get("detail"),
+                models=node.get("models"),
+                callers=node.get("callers"),
+            )
+            for node in nodes
+        ]
         for source, node in zip(nodes, copied):
             if source.get("observationSource") == "registry":
                 interval = source.get("probeIntervalSeconds", 3)
@@ -312,8 +386,14 @@ def public_map(document):
                 if not _finite(interval) or interval <= 0 or (age is not None and (not _finite(age) or age < 0)):
                     raise ValueError("registry freshness")
                 node.update(observationSource="registry", probeIntervalSeconds=interval, ageSeconds=age)
-                for field in ("configuredEndpoint", "probeState", "probeStartedAt", "lastProbeAt",
-                              "lastSuccessAt", "lastSuccessModelId"):
+                for field in (
+                    "configuredEndpoint",
+                    "probeState",
+                    "probeStartedAt",
+                    "lastProbeAt",
+                    "lastSuccessAt",
+                    "lastSuccessModelId",
+                ):
                     if field in source:
                         node[field] = _text(source[field], 1024 if field == "lastSuccessModelId" else 80)
                 if "probeTimeoutSeconds" in source:

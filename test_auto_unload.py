@@ -3,6 +3,7 @@
 Every test drives AutoUnloader with a fake clock, fake snapshots and a fake unload path;
 nothing here touches LM Studio, the real config, the real journal or the real lock.
 """
+
 import errno
 import json
 import os
@@ -42,41 +43,59 @@ class Clock:
 
 def row(key, *, state="idle", queued=0, instance=None, age=0.0, confirm=True, **extra):
     instance = instance or key
-    value = {"id": instance, "name": key, "host": "mac", "state": state, "loaded": True,
-             "queued": queued, "source": "lms-ps", "ageSeconds": age, "modelKey": key,
-             "instanceId": instance, "loadedInstanceIds": [instance] if confirm else None,
-             "metadata": {"type": "embedding" if "embed" in key.casefold() else "llm"}}
+    value = {
+        "id": instance,
+        "name": key,
+        "host": "mac",
+        "state": state,
+        "loaded": True,
+        "queued": queued,
+        "source": "lms-ps",
+        "ageSeconds": age,
+        "modelKey": key,
+        "instanceId": instance,
+        "loadedInstanceIds": [instance] if confirm else None,
+        "metadata": {"type": "embedding" if "embed" in key.casefold() else "llm"},
+    }
     value.update(extra)
     return value
 
 
 def metadata(instance, *, ttl=None, kind="llm"):
     """telemetry's API metadata, which the same-id lms-ps row inherits in the merge."""
-    return {"type": kind, "loadedInstances": [{"id": instance, "context": 8192, "parallel": 4,
-                                               "remainingTtlSeconds": ttl}]}
+    return {
+        "type": kind,
+        "loadedInstances": [{"id": instance, "context": 8192, "parallel": 4, "remainingTtlSeconds": ttl}],
+    }
 
 
 def quiet_pipeline(**fields):
-    value = {"status": "idle", "recoveryRequired": False, "pendingMarkerObserved": False,
-             "pendingMarkerUnreadable": False, "pipelines": []}
+    value = {
+        "status": "idle",
+        "recoveryRequired": False,
+        "pendingMarkerObserved": False,
+        "pendingMarkerUnreadable": False,
+        "pipelines": [],
+    }
     value.update(fields)
     return value
 
 
 def quiet_mode(**fields):
-    value = {"state": "inactive", "active": False,
-             "runCounts": {"running": 0, "queued": 0, "unresolved": 0}}
+    value = {"state": "inactive", "active": False, "runCounts": {"running": 0, "queued": 0, "unresolved": 0}}
     value.update(fields)
     return value
 
 
-def snapshot(clock, rows, *, memory="ok", status="idle", age=0.2, lms="live", api="live", guard="live",
-             **extra):
+def snapshot(clock, rows, *, memory="ok", status="idle", age=0.2, lms="live", api="live", guard="live", **extra):
     value = {
         "sampledAt": clock.wall - age,
         "models": rows,
-        "sources": [{"id": "lmstudio-api", "state": api}, {"id": "lms-ps", "state": lms},
-                    {"id": "mem-guard", "state": guard}],
+        "sources": [
+            {"id": "lmstudio-api", "state": api},
+            {"id": "lms-ps", "state": lms},
+            {"id": "mem-guard", "state": guard},
+        ],
         "pipeline": quiet_pipeline(status=status),
         "onlineCodeMode": quiet_mode(),
         "activity": {"runs": []},
@@ -109,9 +128,13 @@ class FakeControl:
             error, self.raise_next = self.raise_next, None
             raise error
         self.calls.append(instance_id)
-        self.status = {"status": "running", "operationId": f"op{len(self.calls)}",
-                       "action": "unload", "modelId": instance_id,
-                       "message": "LM Studio unload requested; checking current state."}
+        self.status = {
+            "status": "running",
+            "operationId": f"op{len(self.calls)}",
+            "action": "unload",
+            "modelId": instance_id,
+            "message": "LM Studio unload requested; checking current state.",
+        }
         return dict(self.status)
 
     def read(self):
@@ -142,8 +165,13 @@ class Base(unittest.TestCase):
         if default_enabled and not os.path.lexists(self.config):
             self.write_config({"enabled": True})
         options.setdefault("unload_fn", self.control.unload)
-        unloader = au.AutoUnloader(clock=self.clock.monotonic, now=self.clock.time,
-                                   config_path=self.config, journal_path=self.journal, **options)
+        unloader = au.AutoUnloader(
+            clock=self.clock.monotonic,
+            now=self.clock.time,
+            config_path=self.config,
+            journal_path=self.journal,
+            **options,
+        )
         self.addCleanup(unloader.close)
         return unloader
 
@@ -165,8 +193,18 @@ class Base(unittest.TestCase):
         os.chmod(self.journal, 0o600)
 
     def journal_row(self, key, ts, result="requested"):
-        return {"ts": ts, "attemptTs": ts, "model": key, "instanceId": key, "idleSeconds": 1200,
-                "reason": "idle", "memoryLevel": "ok", "result": result, "message": None, "operationId": None}
+        return {
+            "ts": ts,
+            "attemptTs": ts,
+            "model": key,
+            "instanceId": key,
+            "idleSeconds": 1200,
+            "reason": "idle",
+            "memoryLevel": "ok",
+            "result": result,
+            "message": None,
+            "operationId": None,
+        }
 
     def drive(self, unloader, seconds, make_snapshot, step=5.0):
         """Tick every `step` seconds for `seconds`, building each snapshot at the current time."""
@@ -227,8 +265,7 @@ class StartupGraceTests(Base):
         state = unloader.tick(make())
         self.assertEqual(self.control.calls, [])
         # Critical has not held yet, so the normal threshold still applies.
-        self.assertEqual([(c["model"], c["idleSeconds"], c["eta"]) for c in state["candidates"]],
-                         [(OTHER, 0, 1200)])
+        self.assertEqual([(c["model"], c["idleSeconds"], c["eta"]) for c in state["candidates"]], [(OTHER, 0, 1200)])
         state = self.drive(unloader, 60, make)
         self.assertEqual((state["thresholdSeconds"], state["candidates"][0]["eta"]), (300, 240))
         self.assertEqual(self.control.calls, [])
@@ -252,8 +289,12 @@ class StartupGraceTests(Base):
         self.assertEqual(self.control.calls, [OTHER])
 
     def test_generation_and_queued_work_restart_the_idle_clock(self):
-        for busy in (row(OTHER, state="generating"), row(OTHER, state="busy"),
-                     row(OTHER, state="processing"), row(OTHER, queued=2)):
+        for busy in (
+            row(OTHER, state="generating"),
+            row(OTHER, state="busy"),
+            row(OTHER, state="processing"),
+            row(OTHER, queued=2),
+        ):
             with self.subTest(busy=busy["state"], queued=busy["queued"]):
                 self.setUp()
                 unloader = self.make()
@@ -279,6 +320,7 @@ class RequestEvidenceTests(Base):
         def make():
             ttl = ttl_at(elapsed["s"])
             return snapshot(self.clock, self.pair_and(row(OTHER, metadata=metadata(OTHER, ttl=ttl))))
+
         unloader.tick(make())
         while elapsed["s"] < limit * MINUTE:
             self.clock.advance(5)
@@ -303,10 +345,18 @@ class RequestEvidenceTests(Base):
         elapsed = {"s": 0}
 
         def make():
-            api = {"id": OTHER, "host": "mac", "source": "lmstudio-api", "loaded": True, "state": "loaded",
-                   "modelKey": OTHER, "loadedInstanceIds": [OTHER],
-                   "metadata": metadata(OTHER, ttl=600 - (elapsed["s"] % 120))}
+            api = {
+                "id": OTHER,
+                "host": "mac",
+                "source": "lmstudio-api",
+                "loaded": True,
+                "state": "loaded",
+                "modelKey": OTHER,
+                "loadedInstanceIds": [OTHER],
+                "metadata": metadata(OTHER, ttl=600 - (elapsed["s"] % 120)),
+            }
             return snapshot(self.clock, self.pair_and(row(OTHER), api))
+
         unloader.tick(make())
         while elapsed["s"] < 40 * MINUTE:
             self.clock.advance(5)
@@ -331,8 +381,14 @@ class ThresholdTests(Base):
         return None
 
     def test_levels_select_the_threshold(self):
-        for memory, minutes in (("ok", 20), ("watch", 20), ("unknown", 20), ("bogus", 20),
-                                ("tight", 5), ("critical", 5)):
+        for memory, minutes in (
+            ("ok", 20),
+            ("watch", 20),
+            ("unknown", 20),
+            ("bogus", 20),
+            ("tight", 5),
+            ("critical", 5),
+        ):
             with self.subTest(memory=memory):
                 self.setUp()
                 self.assertEqual(self.minutes_until_unload(memory), minutes)
@@ -380,7 +436,7 @@ class ThresholdTests(Base):
         self.assertGreaterEqual(entry["idleSeconds"], 8 * 60)
 
     def test_flapping_tight_samples_never_switch_the_threshold(self):
-        make = lambda memory: (lambda: snapshot(self.clock, self.pair_and(row(OTHER)), memory=memory))
+        make = lambda memory: lambda: snapshot(self.clock, self.pair_and(row(OTHER)), memory=memory)
         for name, spike, calm in (("every-30s", 5, 25), ("every-other-sample", 5, 5)):
             with self.subTest(pattern=name):
                 self.setUp()
@@ -395,9 +451,12 @@ class ThresholdTests(Base):
 
     def test_a_gap_in_tight_samples_restarts_the_hold(self):
         make = lambda memory, **options: (
-            lambda: snapshot(self.clock, self.pair_and(row(OTHER)), memory=memory, **options))
-        for name, gap in (("mem-guard-unavailable", make("tight", guard="unavailable")),
-                          ("stale-sample", make("tight", age=3.5))):
+            lambda: snapshot(self.clock, self.pair_and(row(OTHER)), memory=memory, **options)
+        )
+        for name, gap in (
+            ("mem-guard-unavailable", make("tight", guard="unavailable")),
+            ("stale-sample", make("tight", age=3.5)),
+        ):
             with self.subTest(gap=name):
                 self.setUp()
                 unloader = self.make()
@@ -415,8 +474,11 @@ class ThresholdTests(Base):
     def test_embedding_models_keep_the_normal_threshold_under_tight_memory(self):
         vectors = "lab/vectors"
         unloader = self.make()
-        make = lambda: snapshot(self.clock, self.live(
-            row(OTHER), row(EMBED), row(vectors, metadata=metadata(vectors, kind="embedding"))), memory="tight")
+        make = lambda: snapshot(
+            self.clock,
+            self.live(row(OTHER), row(EMBED), row(vectors, metadata=metadata(vectors, kind="embedding"))),
+            memory="tight",
+        )
         unloader.tick(make())
         self.drive(unloader, 19 * MINUTE, make)
         self.assertEqual(self.control.calls, [OTHER])
@@ -438,8 +500,9 @@ class ProtectionTests(Base):
     def test_selected_resident_pair_is_protected_and_unselected_qwen_can_unload(self):
         unloader = self.make()
         rows = [row(GEMMA), row(GEMMA3), row(QWEN)]
-        make = lambda: snapshot(self.clock, [item for item in rows if item["id"] not in self.control.calls],
-                                memory="critical")
+        make = lambda: snapshot(
+            self.clock, [item for item in rows if item["id"] not in self.control.calls], memory="critical"
+        )
         state = self.drive(unloader, 25 * MINUTE, make)
         self.assertEqual(self.control.calls, [QWEN])
         self.assertEqual(state["protect"], [GEMMA, GEMMA3])
@@ -447,8 +510,7 @@ class ProtectionTests(Base):
     def test_uncertain_resident_pair_blocks_all_unloads(self):
         unloader = self.make()
         rows = [row(GEMMA), row(QWEN, instance=f"{QWEN}:3")]
-        state = self.drive(unloader, 30 * MINUTE,
-                           lambda: snapshot(self.clock, rows, memory="critical"))
+        state = self.drive(unloader, 30 * MINUTE, lambda: snapshot(self.clock, rows, memory="critical"))
         self.assertEqual(self.control.calls, [])
         self.assertEqual(state["candidates"], [])
         self.assertEqual(state["blocked"], "Nisi resident model pair is uncertain")
@@ -456,8 +518,7 @@ class ProtectionTests(Base):
 
     def test_single_resident_model_blocks_all_unloads(self):
         unloader = self.make()
-        state = self.drive(unloader, 30 * MINUTE,
-                           lambda: snapshot(self.clock, [row(GEMMA)], memory="critical"))
+        state = self.drive(unloader, 30 * MINUTE, lambda: snapshot(self.clock, [row(GEMMA)], memory="critical"))
         self.assertEqual(self.control.calls, [])
         self.assertEqual(state["candidates"], [])
         self.assertEqual(state["blocked"], "Nisi resident model pair is uncertain")
@@ -496,12 +557,21 @@ class RouteGateTests(Base):
         return unloader
 
     def test_router_statuses_other_than_idle_block(self):
-        for status in ("running", "queued", "unresolved", "recovery-required", "installing",
-                       "unknown", "added-later", None):
+        for status in (
+            "running",
+            "queued",
+            "unresolved",
+            "recovery-required",
+            "installing",
+            "unknown",
+            "added-later",
+            None,
+        ):
             with self.subTest(status=status):
                 self.setUp()
-                self.assert_blocked(lambda: snapshot(self.clock, self.pair_and(row(OTHER)), status=status),
-                                    "router status")
+                self.assert_blocked(
+                    lambda: snapshot(self.clock, self.pair_and(row(OTHER)), status=status), "router status"
+                )
                 self.assertEqual(self.control.calls, [OTHER])
                 self.tearDown()
 
@@ -517,9 +587,11 @@ class RouteGateTests(Base):
             value["onlineCodeMode"]["runCounts"]["unresolved"] = 2
             return value
 
-        for name, make in (("stale", real_shape), ("stale-without-count",
-                                                   lambda: snapshot(self.clock, self.pair_and(row(OTHER)), status="stale")),
-                           ("unresolved-count", unresolved_only)):
+        for name, make in (
+            ("stale", real_shape),
+            ("stale-without-count", lambda: snapshot(self.clock, self.pair_and(row(OTHER)), status="stale")),
+            ("unresolved-count", unresolved_only),
+        ):
             with self.subTest(case=name):
                 self.setUp()
                 self.assert_blocked(make, au.UNRESOLVED_ROUTE)
@@ -532,6 +604,7 @@ class RouteGateTests(Base):
                 value = snapshot(self.clock, self.pair_and(row(OTHER)))
                 value["pipeline"].update(fields)
                 return value
+
             return make
 
         def without(key):
@@ -539,6 +612,7 @@ class RouteGateTests(Base):
                 value = snapshot(self.clock, self.pair_and(row(OTHER)))
                 del value["pipeline"][key]
                 return value
+
             return make
 
         def with_mode(**fields):
@@ -588,8 +662,11 @@ class RouteGateTests(Base):
 
     def test_online_code_check_or_model_operation_blocks_through_busy_fn(self):
         busy = {"value": "Online Code check running"}
-        unloader = self.assert_blocked(lambda: snapshot(self.clock, self.pair_and(row(OTHER))),
-                                       "Online Code check running", busy_fn=lambda: busy["value"])
+        unloader = self.assert_blocked(
+            lambda: snapshot(self.clock, self.pair_and(row(OTHER))),
+            "Online Code check running",
+            busy_fn=lambda: busy["value"],
+        )
         self.assertEqual(self.control.calls, [])
         busy["value"] = None
         self.clock.advance(1)
@@ -599,6 +676,7 @@ class RouteGateTests(Base):
     def test_busy_check_failure_blocks(self):
         def broken():
             raise RuntimeError("probe failed")
+
         unloader = self.make(busy_fn=broken)
         state = self.drive(unloader, 25 * MINUTE, lambda: snapshot(self.clock, self.pair_and(row(OTHER))))
         self.assertEqual(self.control.calls, [])
@@ -615,6 +693,7 @@ class FreshRouteCheckTests(Base):
         def check():
             consulted.append(self.clock.mono)
             return fresh["value"]
+
         unloader = self.make(route_check_fn=check)
         make = lambda: snapshot(self.clock, self.pair_and(row(OTHER)))
         unloader.tick(make())
@@ -624,8 +703,10 @@ class FreshRouteCheckTests(Base):
         self.assertEqual(self.control.calls, [])
         self.assertEqual(state["blocked"], "fresh router check: router status is queued")
         self.assertEqual((state["unloadsLastHour"], self.journal_rows()), (0, []))
-        fresh["value"] = {"pipeline": quiet_pipeline(), "onlineCodeMode": quiet_mode(
-            runCounts={"running": 1, "queued": 0, "unresolved": 0})}
+        fresh["value"] = {
+            "pipeline": quiet_pipeline(),
+            "onlineCodeMode": quiet_mode(runCounts={"running": 1, "queued": 0, "unresolved": 0}),
+        }
         state = self.drive(unloader, 5, make)
         self.assertEqual(state["blocked"], "fresh router check: Online Code Mode has running or queued routes")
         fresh["value"] = {"pipeline": quiet_pipeline(), "onlineCodeMode": quiet_mode()}
@@ -635,8 +716,12 @@ class FreshRouteCheckTests(Base):
     def test_a_failing_or_garbled_fresh_check_blocks(self):
         def broken():
             raise OSError("router journal unreadable")
-        for name, check, expect in (("raises", broken, "failed"), ("none", lambda: None, "nothing usable"),
-                                    ("reshaped", lambda: {"pipeline": quiet_pipeline()}, "Online Code Mode state")):
+
+        for name, check, expect in (
+            ("raises", broken, "failed"),
+            ("none", lambda: None, "nothing usable"),
+            ("reshaped", lambda: {"pipeline": quiet_pipeline()}, "Online Code Mode state"),
+        ):
             with self.subTest(case=name):
                 self.setUp()
                 unloader = self.make(route_check_fn=check)
@@ -649,14 +734,19 @@ class FreshRouteCheckTests(Base):
 
 class FeedTests(Base):
     def test_stale_or_future_samples_and_dead_sources_block(self):
-        cases = {"old": dict(age=3.5), "future": dict(age=-1.0), "lms-error": dict(lms="error"),
-                 "api-unavailable": dict(api="unavailable")}
+        cases = {
+            "old": dict(age=3.5),
+            "future": dict(age=-1.0),
+            "lms-error": dict(lms="error"),
+            "api-unavailable": dict(api="unavailable"),
+        }
         for name, options in cases.items():
             with self.subTest(case=name):
                 self.setUp()
                 unloader = self.make()
-                state = self.drive(unloader, 40 * MINUTE,
-                                   lambda: snapshot(self.clock, self.pair_and(row(OTHER)), **options))
+                state = self.drive(
+                    unloader, 40 * MINUTE, lambda: snapshot(self.clock, self.pair_and(row(OTHER)), **options)
+                )
                 self.assertEqual(self.control.calls, [])
                 self.assertIsNotNone(state["blocked"])
                 self.assertEqual(state["candidates"], [])
@@ -670,8 +760,7 @@ class FeedTests(Base):
 
     def test_stale_row_counts_as_unobserved(self):
         unloader = self.make()
-        state = self.drive(unloader, 40 * MINUTE,
-                           lambda: snapshot(self.clock, self.pair_and(row(OTHER, age=3.5))))
+        state = self.drive(unloader, 40 * MINUTE, lambda: snapshot(self.clock, self.pair_and(row(OTHER, age=3.5))))
         self.assertEqual(self.control.calls, [])
         self.assertEqual(state["candidates"][0]["idleSeconds"], 0)
 
@@ -722,8 +811,12 @@ class RateLimitTests(Base):
 
     def test_cooldown_covers_every_instance_of_the_model_key(self):
         unloader = self.make()
-        make = lambda: snapshot(self.clock, self.live(
-            row(OTHER, loadedInstanceIds=[OTHER, f"{OTHER}:2"]), row(OTHER, instance=f"{OTHER}:2", confirm=False)))
+        make = lambda: snapshot(
+            self.clock,
+            self.live(
+                row(OTHER, loadedInstanceIds=[OTHER, f"{OTHER}:2"]), row(OTHER, instance=f"{OTHER}:2", confirm=False)
+            ),
+        )
         state = self.drive(unloader, 21 * MINUTE, make)
         self.assertEqual(self.control.calls, [])
         self.assertEqual(state["blocked"], "Nisi resident model pair is uncertain")
@@ -835,8 +928,9 @@ class SingleOwnerTests(Base):
         gone = set()
         for _ in range(int(3600 / 5)):
             self.clock.advance(5)
-            current = snapshot(self.clock, [item for item in self.pair_and(*models) if item["id"] not in gone],
-                               memory="tight")
+            current = snapshot(
+                self.clock, [item for item in self.pair_and(*models) if item["id"] not in gone], memory="tight"
+            )
             first.tick(current)
             state = second.tick(current)
             gone |= set(first_control.calls) | set(second_control.calls)
@@ -845,9 +939,15 @@ class SingleOwnerTests(Base):
         self.assertEqual(len(self.journal_rows()), 6)
         # The owner exits: the other takes over and inherits the budget from the journal.
         first.close()
-        live = lambda: snapshot(self.clock, [item for item in self.pair_and(*models)
-                                             if item["id"] not in set(first_control.calls) | set(second_control.calls)],
-                                memory="tight")
+        live = lambda: snapshot(
+            self.clock,
+            [
+                item
+                for item in self.pair_and(*models)
+                if item["id"] not in set(first_control.calls) | set(second_control.calls)
+            ],
+            memory="tight",
+        )
         state = self.drive(second, 5, live)
         self.assertEqual(state["unloadsLastHour"], 6)
         self.assertEqual(state["blocked"], "hourly limit reached (6/6)")
@@ -886,8 +986,9 @@ class SingleOwnerTests(Base):
                     os.chmod(lock, 0o600)
                     os.link(lock, self.root / "second-name.lock")
                 unloader = self.within(self.make)
-                state = self.within(lambda: self.drive(
-                    unloader, 25 * MINUTE, lambda: snapshot(self.clock, self.pair_and(row(OTHER)))))
+                state = self.within(
+                    lambda: self.drive(unloader, 25 * MINUTE, lambda: snapshot(self.clock, self.pair_and(row(OTHER))))
+                )
                 self.assertEqual(self.control.calls, [])
                 self.assertIn("auto-unload lock", state["blocked"])
                 self.tearDown()
@@ -913,15 +1014,28 @@ class UnknownStateTests(Base):
             with self.subTest(case=name):
                 self.setUp()
                 unloader = self.make()
-                self.drive(unloader, 90 * MINUTE,
-                           lambda: snapshot(self.clock, self.pair_and(candidate), memory="critical"), step=10)
+                self.drive(
+                    unloader,
+                    90 * MINUTE,
+                    lambda: snapshot(self.clock, self.pair_and(candidate), memory="critical"),
+                    step=10,
+                )
                 self.assertEqual(self.control.calls, [])
                 self.tearDown()
 
     def test_two_instance_lists_for_one_key_is_ambiguous(self):
         unloader = self.make()
-        rows = self.pair_and(row(OTHER), {"id": "dup", "host": "mac", "source": "lmstudio-api", "loaded": True,
-                                          "modelKey": OTHER, "loadedInstanceIds": [OTHER]})
+        rows = self.pair_and(
+            row(OTHER),
+            {
+                "id": "dup",
+                "host": "mac",
+                "source": "lmstudio-api",
+                "loaded": True,
+                "modelKey": OTHER,
+                "loadedInstanceIds": [OTHER],
+            },
+        )
         state = self.drive(unloader, 30 * MINUTE, lambda: snapshot(self.clock, rows, memory="tight"))
         self.assertEqual(self.control.calls, [])
         self.assertEqual(state["candidates"][0]["blocked"], "instance not confirmed by LM Studio inventory")
@@ -934,17 +1048,38 @@ class UnknownStateTests(Base):
         self.control.raise_next = RuntimeError("boom")
         self.drive(unloader, 2 * MINUTE + 5, make)
         results = [(r["result"], r["message"]) for r in self.journal_rows()]
-        self.assertEqual(results, [("refused", "409: Selected model is busy or its activity is unknown."),
-                                   ("error", "unload call failed (RuntimeError)")])
+        self.assertEqual(
+            results,
+            [
+                ("refused", "409: Selected model is busy or its activity is unknown."),
+                ("error", "unload call failed (RuntimeError)"),
+            ],
+        )
 
     def test_garbage_never_raises(self):
         def broken_status():
             raise RuntimeError("status")
+
         unloader = self.make(status_fn=broken_status)
-        for value in (None, "x", 5, [], {"models": "x"}, {"sampledAt": float("nan")},
-                      snapshot(self.clock, [1, None, {"id": 5}, {"host": "mac", "source": "lms-ps", "loaded": True},
-                                            row(OTHER, metadata={"type": 5, "loadedInstances": [None, {"id": 3}]})]),
-                      snapshot(self.clock, self.pair_and(row(OTHER)), memory=None, pipeline=[])):
+        for value in (
+            None,
+            "x",
+            5,
+            [],
+            {"models": "x"},
+            {"sampledAt": float("nan")},
+            snapshot(
+                self.clock,
+                [
+                    1,
+                    None,
+                    {"id": 5},
+                    {"host": "mac", "source": "lms-ps", "loaded": True},
+                    row(OTHER, metadata={"type": 5, "loadedInstances": [None, {"id": 3}]}),
+                ],
+            ),
+            snapshot(self.clock, self.pair_and(row(OTHER)), memory=None, pipeline=[]),
+        ):
             state = unloader.tick(value)
             json.dumps(state, allow_nan=False)
             self.assertEqual(tuple(state), au.STATE_KEYS)
@@ -969,8 +1104,17 @@ class JournalTests(Base):
         self.assertEqual(stat.S_IMODE(self.journal.parent.stat().st_mode), 0o700)
         [entry] = self.journal_rows()
         self.assertEqual(sorted(entry), sorted(au.JOURNAL_KEYS))
-        self.assertEqual((entry["model"], entry["instanceId"], entry["reason"], entry["memoryLevel"],
-                          entry["result"], entry["operationId"]), (OTHER, OTHER, "idle", "ok", "requested", "op1"))
+        self.assertEqual(
+            (
+                entry["model"],
+                entry["instanceId"],
+                entry["reason"],
+                entry["memoryLevel"],
+                entry["result"],
+                entry["operationId"],
+            ),
+            (OTHER, OTHER, "idle", "ok", "requested", "op1"),
+        )
         self.assertEqual(entry["idleSeconds"], 20 * 60)
         self.assertEqual(entry["ts"], entry["attemptTs"])
 
@@ -1006,16 +1150,18 @@ class JournalTests(Base):
         os.mkfifo(self.journal, 0o600)
         unloader = self.within(self.make)
         self.assertEqual(unloader.state()["journalError"], "journal is not a regular file")
-        state = self.within(lambda: self.drive(
-            unloader, 21 * MINUTE, lambda: snapshot(self.clock, self.pair_and(row(OTHER)))))
+        state = self.within(
+            lambda: self.drive(unloader, 21 * MINUTE, lambda: snapshot(self.clock, self.pair_and(row(OTHER))))
+        )
         self.assertEqual(self.control.calls, [])
         self.assertIn("journal unavailable", state["blocked"])
 
     def test_fifo_planted_after_startup_never_blocks_the_attempt(self):
         unloader = self.make()
         os.mkfifo(self.journal, 0o600)
-        state = self.within(lambda: self.drive(
-            unloader, 21 * MINUTE, lambda: snapshot(self.clock, self.pair_and(row(OTHER)))))
+        state = self.within(
+            lambda: self.drive(unloader, 21 * MINUTE, lambda: snapshot(self.clock, self.pair_and(row(OTHER))))
+        )
         self.assertEqual(self.control.calls, [])
         self.assertIn("journal unavailable", state["blocked"])
         self.assertTrue(stat.S_ISFIFO(os.lstat(self.journal).st_mode))
@@ -1101,8 +1247,17 @@ class ConfigTests(Base):
 
     def test_missing_file_is_the_defaults(self):
         state = self.make(default_enabled=False).state()
-        self.assertEqual((state["enabled"], state["idleMinutes"], state["tightIdleMinutes"], state["maxPerHour"],
-                          state["protect"], state["configError"]), (False, 20, 5, 6, [], None))
+        self.assertEqual(
+            (
+                state["enabled"],
+                state["idleMinutes"],
+                state["tightIdleMinutes"],
+                state["maxPerHour"],
+                state["protect"],
+                state["configError"],
+            ),
+            (False, 20, 5, 6, [], None),
+        )
 
     def test_missing_config_tracks_idle_but_requires_explicit_opt_in(self):
         unloader = self.make(default_enabled=False)
@@ -1116,13 +1271,29 @@ class ConfigTests(Base):
         self.assertEqual(self.control.calls, [OTHER])
 
     def test_closed_reader_rejects_everything_outside_the_contract(self):
-        cases = [{"enabled": True, "extra": 1}, {"enabled": "yes"}, {"enabled": 1},
-                 {"idleMinutes": 4}, {"idleMinutes": 241}, {"idleMinutes": 20.0}, {"idleMinutes": True},
-                 {"tightIdleMinutes": 0}, {"tightIdleMinutes": 61}, {"maxPerHour": 0}, {"maxPerHour": 61},
-                 {"protect": OTHER}, {"protect": [1]}, {"protect": ["bad id!"]},
-                 {"protect": [f"lab/m{index}" for index in range(33)]}, [], "not json {",
-                 '{"enabled": true, "enabled": false}', '{"idleMinutes": NaN}', b"\xff\xfe",
-                 json.dumps({"protect": ["a" * 150] * 30})]  # valid ids, but over 4096 bytes
+        cases = [
+            {"enabled": True, "extra": 1},
+            {"enabled": "yes"},
+            {"enabled": 1},
+            {"idleMinutes": 4},
+            {"idleMinutes": 241},
+            {"idleMinutes": 20.0},
+            {"idleMinutes": True},
+            {"tightIdleMinutes": 0},
+            {"tightIdleMinutes": 61},
+            {"maxPerHour": 0},
+            {"maxPerHour": 61},
+            {"protect": OTHER},
+            {"protect": [1]},
+            {"protect": ["bad id!"]},
+            {"protect": [f"lab/m{index}" for index in range(33)]},
+            [],
+            "not json {",
+            '{"enabled": true, "enabled": false}',
+            '{"idleMinutes": NaN}',
+            b"\xff\xfe",
+            json.dumps({"protect": ["a" * 150] * 30}),
+        ]  # valid ids, but over 4096 bytes
         for value in cases:
             with self.subTest(value=value if not isinstance(value, str) else value[:40]):
                 self.setUp()
@@ -1167,9 +1338,10 @@ class ConfigTests(Base):
         state = unloader.set_enabled(False)
         self.assertFalse(state["enabled"])
         self.assertEqual(stat.S_IMODE(self.config.stat().st_mode), 0o600)
-        self.assertEqual(json.loads(self.config.read_text()),
-                         {"enabled": False, "idleMinutes": 20, "maxPerHour": 6,
-                          "protect": [], "tightIdleMinutes": 5})
+        self.assertEqual(
+            json.loads(self.config.read_text()),
+            {"enabled": False, "idleMinutes": 20, "maxPerHour": 6, "protect": [], "tightIdleMinutes": 5},
+        )
         self.write_config({"idleMinutes": 45, "protect": [OTHER]})
         state = unloader.set_enabled(True)
         self.assertTrue(state["enabled"])
@@ -1186,16 +1358,19 @@ class ConfigTests(Base):
 class StateShapeTests(Base):
     def test_state_shape_is_closed_and_json_safe(self):
         unloader = self.make(status_fn=self.control.read)
-        state = self.drive(unloader, 21 * MINUTE,
-                           lambda: snapshot(self.clock, self.pair_and(row(OTHER), row(EMBED, state="loaded"))))
+        state = self.drive(
+            unloader, 21 * MINUTE, lambda: snapshot(self.clock, self.pair_and(row(OTHER), row(EMBED, state="loaded")))
+        )
         text = json.dumps(state, allow_nan=False)
         self.assertEqual(tuple(json.loads(text)), au.STATE_KEYS)
         self.assertEqual(state["thresholdSeconds"], 1200)
         self.assertEqual(state["memoryLevel"], "ok")
         for candidate in state["candidates"]:
             self.assertEqual(tuple(candidate), au.CANDIDATE_KEYS)
-        self.assertEqual({c["model"]: c["blocked"] for c in state["candidates"]},
-                         {OTHER: "auto-unloaded less than 2 min ago", EMBED: "activity or queue state unknown"})
+        self.assertEqual(
+            {c["model"]: c["blocked"] for c in state["candidates"]},
+            {OTHER: "auto-unloaded less than 2 min ago", EMBED: "activity or queue state unknown"},
+        )
         [recent] = state["recent"]
         self.assertEqual(sorted(recent), sorted(au.JOURNAL_KEYS + ("ageSeconds",)))
         self.assertEqual(state["unloadsLastHour"], 1)

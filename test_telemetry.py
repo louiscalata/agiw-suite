@@ -18,10 +18,20 @@ import telemetry
 
 # Snapshot fixtures never read the installed peer link or a mounted share.
 _NO_WINDOWS_WORKER = (
-    {"state": "unavailable", "ageSeconds": None, "modelsAdvertised": [],
-     "modelCount": 0, "detail": "No recent registered Windows worker heartbeat"},
-    {"id": "windows-worker", "label": "Windows worker", "state": "unavailable",
-     "ageSeconds": None, "detail": "No recent registered Windows worker heartbeat"},
+    {
+        "state": "unavailable",
+        "ageSeconds": None,
+        "modelsAdvertised": [],
+        "modelCount": 0,
+        "detail": "No recent registered Windows worker heartbeat",
+    },
+    {
+        "id": "windows-worker",
+        "label": "Windows worker",
+        "state": "unavailable",
+        "ageSeconds": None,
+        "detail": "No recent registered Windows worker heartbeat",
+    },
 )
 
 # collect_snapshot() now asks `lms server status` for LM Studio's port and reads NVIDIA PAIR's
@@ -29,20 +39,27 @@ _NO_WINDOWS_WORKER = (
 # folder unless a test patches these itself. The originals stay reachable for their own tests.
 _REAL_LMS_SERVER_STATUS = telemetry._lms_server_status
 _REAL_PAIR_SNAPSHOT = telemetry._pair_snapshot
-_NO_PAIR = {"schema": "agiw.pair-status.v1", "state": "unknown", "reason": "not-found",
-            "detail": "NVIDIA PAIR's data folder was not found on this Mac; its state is unknown",
-            "installed": False, "evidence": {"logAgeSeconds": None, "historyAgeSeconds": None},
-            "pairSays": {"note": "", "engines": []}}
+_NO_PAIR = {
+    "schema": "agiw.pair-status.v1",
+    "state": "unknown",
+    "reason": "not-found",
+    "detail": "NVIDIA PAIR's data folder was not found on this Mac; its state is unknown",
+    "installed": False,
+    "evidence": {"logAgeSeconds": None, "historyAgeSeconds": None},
+    "pairSays": {"note": "", "engines": []},
+}
 _MODULE_PATCHES = []
 
 
 def setUpModule():
-    peer_patcher = mock.patch.object(telemetry.peer_feed, 'peer_feeds', return_value=[])
+    peer_patcher = mock.patch.object(telemetry.peer_feed, "peer_feeds", return_value=[])
     peer_patcher.start()
     _MODULE_PATCHES.append(peer_patcher)
-    for name, value in (("_lms_server_status", {"port": 1234, "running": True}),
-                        ("_inventory_listener", (41, "lmstudio", "/fixture/LM Studio")),
-                        ("_pair_snapshot", _NO_PAIR)):
+    for name, value in (
+        ("_lms_server_status", {"port": 1234, "running": True}),
+        ("_inventory_listener", (41, "lmstudio", "/fixture/LM Studio")),
+        ("_pair_snapshot", _NO_PAIR),
+    ):
         patcher = mock.patch.object(telemetry, name, return_value=value)
         patcher.start()
         _MODULE_PATCHES.append(patcher)
@@ -59,8 +76,7 @@ class AFMExecutableStatusTests(unittest.TestCase):
             adapter = Path(temp) / "afm"
             adapter.write_bytes(b"test adapter fixture")
             adapter.chmod(0o700)
-            with mock.patch.object(telemetry.subprocess, "Popen",
-                                   side_effect=AssertionError("AFM must not run")):
+            with mock.patch.object(telemetry.subprocess, "Popen", side_effect=AssertionError("AFM must not run")):
                 result = telemetry._afm_status(adapter)
             self.assertEqual(result["state"], "executable")
             self.assertEqual(result["callability"], "permission-granted")
@@ -89,79 +105,125 @@ class AFMExecutableStatusTests(unittest.TestCase):
 
 class TelemetryParsingTests(unittest.TestCase):
     def test_snapshot_keeps_colliding_instance_activity_separate_from_inventory_ids(self):
-        api = {'models': [{'key': 'provider/model', 'loaded_instances': [{'id': 'alias-1'}]},
-                          {'key': 'alias-1', 'loaded_instances': []}]}
-        cli = {'models': [{'identifier': 'alias-1', 'status': 'idle'}]}
-        with mock.patch.object(telemetry, '_bounded_http', return_value=api), \
-             mock.patch.object(telemetry, '_bounded_lms', return_value=cli), \
-             mock.patch.object(telemetry, '_windows_worker', return_value=_NO_WINDOWS_WORKER), \
-             mock.patch.object(telemetry.peer_feed, 'peer_feeds', return_value=[]):
+        api = {
+            "models": [
+                {"key": "provider/model", "loaded_instances": [{"id": "alias-1"}]},
+                {"key": "alias-1", "loaded_instances": []},
+            ]
+        }
+        cli = {"models": [{"identifier": "alias-1", "status": "idle"}]}
+        with (
+            mock.patch.object(telemetry, "_bounded_http", return_value=api),
+            mock.patch.object(telemetry, "_bounded_lms", return_value=cli),
+            mock.patch.object(telemetry, "_windows_worker", return_value=_NO_WINDOWS_WORKER),
+            mock.patch.object(telemetry.peer_feed, "peer_feeds", return_value=[]),
+        ):
             result = telemetry.collect_snapshot()
-        self.assertEqual((result['machines'][0]['loadedCount'], result['machines'][0]['busyCount']), (1, 0))
-        self.assertEqual([row['id'] for row in result['models']], ['provider/model', 'alias-1'])
-        self.assertIs(result['models'][1]['loaded'], False)
-        self.assertEqual(result['localInstanceObservations'][0]['modelKey'], 'provider/model')
-        with mock.patch.object(telemetry, '_bounded_http', return_value=api), \
-             mock.patch.object(telemetry, '_bounded_lms', side_effect=TimeoutError()), \
-             mock.patch.object(telemetry, '_windows_worker', return_value=_NO_WINDOWS_WORKER), \
-             mock.patch.object(telemetry.peer_feed, 'peer_feeds', return_value=[]):
+        self.assertEqual((result["machines"][0]["loadedCount"], result["machines"][0]["busyCount"]), (1, 0))
+        self.assertEqual([row["id"] for row in result["models"]], ["provider/model", "alias-1"])
+        self.assertIs(result["models"][1]["loaded"], False)
+        self.assertEqual(result["localInstanceObservations"][0]["modelKey"], "provider/model")
+        with (
+            mock.patch.object(telemetry, "_bounded_http", return_value=api),
+            mock.patch.object(telemetry, "_bounded_lms", side_effect=TimeoutError()),
+            mock.patch.object(telemetry, "_windows_worker", return_value=_NO_WINDOWS_WORKER),
+            mock.patch.object(telemetry.peer_feed, "peer_feeds", return_value=[]),
+        ):
             result = telemetry.collect_snapshot()
-        self.assertEqual(result['localInstanceObservations'], [])
-        self.assertIsNone(result['machines'][0]['busyCount'])
+        self.assertEqual(result["localInstanceObservations"], [])
+        self.assertIsNone(result["machines"][0]["busyCount"])
 
     def test_machine_snapshot_preserves_each_peer_and_feed_failure(self):
-        pc = {'host': 'pc-one', 'platform': 'windows', 'health': 'ok', 'ageSeconds': 0,
-              'modelsComplete': True, 'models': [{'id': 'm', 'loadedState': 'loaded', 'activity': 'busy'}]}
-        peers = [{'feed': pc, 'source': {'id': 'pc-one-feed', 'platform': 'windows', 'host': 'pc-one',
-                   'state': 'recorded', 'trust': 'share-reported'}},
-                 {'feed': None, 'source': {'id': 'linux-one-feed', 'platform': 'linux', 'host': 'linux-one',
-                   'state': 'unavailable', 'reasonCode': 'timeout'}}]
-        with mock.patch.object(telemetry, '_bounded_http', return_value={'models': []}), \
-             mock.patch.object(telemetry, '_bounded_lms', return_value={'models': []}), \
-             mock.patch.object(telemetry, '_windows_worker', return_value=_NO_WINDOWS_WORKER), \
-             mock.patch.object(telemetry.peer_feed, 'peer_feeds', return_value=peers) as read:
+        pc = {
+            "host": "pc-one",
+            "platform": "windows",
+            "health": "ok",
+            "ageSeconds": 0,
+            "modelsComplete": True,
+            "models": [{"id": "m", "loadedState": "loaded", "activity": "busy"}],
+        }
+        peers = [
+            {
+                "feed": pc,
+                "source": {
+                    "id": "pc-one-feed",
+                    "platform": "windows",
+                    "host": "pc-one",
+                    "state": "recorded",
+                    "trust": "share-reported",
+                },
+            },
+            {
+                "feed": None,
+                "source": {
+                    "id": "linux-one-feed",
+                    "platform": "linux",
+                    "host": "linux-one",
+                    "state": "unavailable",
+                    "reasonCode": "timeout",
+                },
+            },
+        ]
+        with (
+            mock.patch.object(telemetry, "_bounded_http", return_value={"models": []}),
+            mock.patch.object(telemetry, "_bounded_lms", return_value={"models": []}),
+            mock.patch.object(telemetry, "_windows_worker", return_value=_NO_WINDOWS_WORKER),
+            mock.patch.object(telemetry.peer_feed, "peer_feeds", return_value=peers) as read,
+        ):
             result = telemetry.collect_snapshot()
         read.assert_called_once()
-        self.assertEqual([row['host'] for row in result['machines']], ['mac', 'pc-one', 'linux-one'])
-        self.assertEqual(result['machines'][1]['busyCount'], 1)
-        self.assertEqual(result['machines'][2]['reasonCode'], 'timeout')
-        self.assertIsNone(result['machines'][2]['busyCount'])
-        self.assertEqual(result['windowsLive'], pc)
+        self.assertEqual([row["host"] for row in result["machines"]], ["mac", "pc-one", "linux-one"])
+        self.assertEqual(result["machines"][1]["busyCount"], 1)
+        self.assertEqual(result["machines"][2]["reasonCode"], "timeout")
+        self.assertIsNone(result["machines"][2]["busyCount"])
+        self.assertEqual(result["windowsLive"], pc)
 
     def test_invalid_local_inventory_never_claims_zero_and_read_faults_are_named(self):
-        cases = [(ConnectionRefusedError(), 'refused'), (TimeoutError(), 'timeout'),
-                 (json.JSONDecodeError('invalid', 'x', 0), 'non_json'),
-                 (ValueError('status response too large'), 'oversize'), (ValueError('bad schema'), 'schema_invalid')]
+        cases = [
+            (ConnectionRefusedError(), "refused"),
+            (TimeoutError(), "timeout"),
+            (json.JSONDecodeError("invalid", "x", 0), "non_json"),
+            (ValueError("status response too large"), "oversize"),
+            (ValueError("bad schema"), "schema_invalid"),
+        ]
         for error, reason in cases:
-            with self.subTest(reason=reason), \
-                 mock.patch.object(telemetry, '_bounded_http', side_effect=error), \
-                 mock.patch.object(telemetry, '_bounded_lms', side_effect=TimeoutError()), \
-                 mock.patch.object(telemetry, '_windows_worker', return_value=_NO_WINDOWS_WORKER):
+            with (
+                self.subTest(reason=reason),
+                mock.patch.object(telemetry, "_bounded_http", side_effect=error),
+                mock.patch.object(telemetry, "_bounded_lms", side_effect=TimeoutError()),
+                mock.patch.object(telemetry, "_windows_worker", return_value=_NO_WINDOWS_WORKER),
+            ):
                 result = telemetry.collect_snapshot()
-                self.assertEqual((result['machines'][0]['state'], result['machines'][0]['reasonCode']), ('unknown', reason))
-                self.assertIsNone(result['machines'][0]['loadedCount'])
-        with mock.patch.object(telemetry, '_bounded_http', return_value={'models': [{}]}), \
-             mock.patch.object(telemetry, '_bounded_lms', side_effect=TimeoutError()), \
-             mock.patch.object(telemetry, '_windows_worker', return_value=_NO_WINDOWS_WORKER):
+                self.assertEqual(
+                    (result["machines"][0]["state"], result["machines"][0]["reasonCode"]), ("unknown", reason)
+                )
+                self.assertIsNone(result["machines"][0]["loadedCount"])
+        with (
+            mock.patch.object(telemetry, "_bounded_http", return_value={"models": [{}]}),
+            mock.patch.object(telemetry, "_bounded_lms", side_effect=TimeoutError()),
+            mock.patch.object(telemetry, "_windows_worker", return_value=_NO_WINDOWS_WORKER),
+        ):
             result = telemetry.collect_snapshot()
-        self.assertIsNone(result['machines'][0]['loadedCount'])
+        self.assertIsNone(result["machines"][0]["loadedCount"])
 
     def test_headless_read_failure_is_unknown(self):
-        with mock.patch.object(telemetry, '_bounded_http', return_value={'models': []}), \
-             mock.patch.object(telemetry, '_bounded_lms', return_value={'models': []}), \
-             mock.patch.object(telemetry, '_windows_worker', return_value=_NO_WINDOWS_WORKER), \
-             mock.patch.object(telemetry, '_windows_headless', side_effect=OSError()):
+        with (
+            mock.patch.object(telemetry, "_bounded_http", return_value={"models": []}),
+            mock.patch.object(telemetry, "_bounded_lms", return_value={"models": []}),
+            mock.patch.object(telemetry, "_windows_worker", return_value=_NO_WINDOWS_WORKER),
+            mock.patch.object(telemetry, "_windows_headless", side_effect=OSError()),
+        ):
             result = telemetry.collect_snapshot()
-        self.assertEqual(result['windowsWorker']['headless']['state'], 'unknown')
+        self.assertEqual(result["windowsWorker"]["headless"]["state"], "unknown")
 
     def setUp(self):
-        if self._testMethodName == 'test_online_mode_process_probe_rejects_read_only_or_wrong_command':
+        if self._testMethodName == "test_online_mode_process_probe_rejects_read_only_or_wrong_command":
             return  # This case checks the real installed script path in ps output.
         # This class exercises the pre-fence owner.lock journal. Point its code
         # provenance at a legacy fixture so an installed router_fence.py on the
         # test host cannot make the isolated temporary journal appear broken.
-        legacy_script = Path(__file__).resolve().parent / '_legacy_router_fixture/pipeline_router.py'
-        patcher = mock.patch.object(telemetry, '_ROUTER_SCRIPT', legacy_script)
+        legacy_script = Path(__file__).resolve().parent / "_legacy_router_fixture/pipeline_router.py"
+        patcher = mock.patch.object(telemetry, "_ROUTER_SCRIPT", legacy_script)
         patcher.start()
         self.addCleanup(patcher.stop)
 
@@ -209,9 +271,7 @@ class TelemetryParsingTests(unittest.TestCase):
             child_pid = None
             try:
                 with self.assertRaises(TimeoutError):
-                    telemetry._bounded_command(
-                        [sys.executable, str(parent), str(marker), str(pid_file)],
-                        timeout=1.5)
+                    telemetry._bounded_command([sys.executable, str(parent), str(marker), str(pid_file)], timeout=1.5)
                 self.assertTrue(pid_file.exists())
                 self.assertTrue(marker.exists())
                 child_pid = int(pid_file.read_text())
@@ -250,22 +310,35 @@ class TelemetryParsingTests(unittest.TestCase):
 
     @staticmethod
     def _active_route(now):
-        return {"schemaVersion": 1, "runId": "bound-route", "inputSha256": "a" * 64,
-                "stage": "backend_draft", "sequence": 1, "startedUnix": now - 15,
-                "checkpoint": {"schemaVersion": 1, "runId": "bound-route",
-                               "inputSha256": "a" * 64, "sequence": 1,
-                               "stage": "backend_draft", "recordedUnix": now - 5,
-                               "evidence": {"prompt": "PRIVATE_ROUTER_TASK"}}}
+        return {
+            "schemaVersion": 1,
+            "runId": "bound-route",
+            "inputSha256": "a" * 64,
+            "stage": "backend_draft",
+            "sequence": 1,
+            "startedUnix": now - 15,
+            "checkpoint": {
+                "schemaVersion": 1,
+                "runId": "bound-route",
+                "inputSha256": "a" * 64,
+                "sequence": 1,
+                "stage": "backend_draft",
+                "recordedUnix": now - 5,
+                "evidence": {"prompt": "PRIVATE_ROUTER_TASK"},
+            },
+        }
 
     def test_online_mode_inactive_requires_initialized_empty_journal(self):
         now = 2_000_000_000.0
         observed = "2033-05-18T03:33:20Z"
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp) / "router"
-            with mock.patch.object(telemetry, "_ROUTER_ROOT", root), \
-                 mock.patch.object(telemetry, "_ACTIVE_PATH", root / "active.json"), \
-                 mock.patch.object(telemetry, "_LAUNCHER_ROOT", Path(temp) / "launcher"), \
-                 mock.patch.object(telemetry, "_READINESS_PATH", Path(temp) / "launcher/readiness.json"):
+            with (
+                mock.patch.object(telemetry, "_ROUTER_ROOT", root),
+                mock.patch.object(telemetry, "_ACTIVE_PATH", root / "active.json"),
+                mock.patch.object(telemetry, "_LAUNCHER_ROOT", Path(temp) / "launcher"),
+                mock.patch.object(telemetry, "_READINESS_PATH", Path(temp) / "launcher/readiness.json"),
+            ):
                 missing = telemetry._online_code_mode(now, observed)
                 self._router_journal(root)
                 idle = telemetry._online_code_mode(now, observed)
@@ -284,15 +357,22 @@ class TelemetryParsingTests(unittest.TestCase):
             self._router_journal(root)
             launcher.mkdir(mode=0o700)
             receipt = launcher / "readiness.json"
-            record = {"schemaVersion": 1, "status": "PREFLIGHT_COMPLETED",
-                      "observedAtUnix": now - 12, "source": "online-code-mode",
-                      "client": None, "chatId": None}
+            record = {
+                "schemaVersion": 1,
+                "status": "PREFLIGHT_COMPLETED",
+                "observedAtUnix": now - 12,
+                "source": "online-code-mode",
+                "client": None,
+                "chatId": None,
+            }
             receipt.write_text(json.dumps(record))
             receipt.chmod(0o600)
-            with mock.patch.object(telemetry, "_ROUTER_ROOT", root), \
-                 mock.patch.object(telemetry, "_ACTIVE_PATH", root / "active.json"), \
-                 mock.patch.object(telemetry, "_LAUNCHER_ROOT", launcher), \
-                 mock.patch.object(telemetry, "_READINESS_PATH", receipt):
+            with (
+                mock.patch.object(telemetry, "_ROUTER_ROOT", root),
+                mock.patch.object(telemetry, "_ACTIVE_PATH", root / "active.json"),
+                mock.patch.object(telemetry, "_LAUNCHER_ROOT", launcher),
+                mock.patch.object(telemetry, "_READINESS_PATH", receipt),
+            ):
                 ready = telemetry._online_code_mode(now, "now")
                 expired = telemetry._online_code_mode(now + 601, "later")
                 record["client"] = "invented-client"
@@ -317,10 +397,12 @@ class TelemetryParsingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp) / "router"
             self._router_journal(root, self._active_route(now))
-            with mock.patch.object(telemetry, "_ROUTER_ROOT", root), \
-                 mock.patch.object(telemetry, "_ACTIVE_PATH", root / "active.json"), \
-                 mock.patch.object(telemetry, "_router_owner_process", return_value=(321, now - 16)), \
-                 self._owner_lock_held(root):
+            with (
+                mock.patch.object(telemetry, "_ROUTER_ROOT", root),
+                mock.patch.object(telemetry, "_ACTIVE_PATH", root / "active.json"),
+                mock.patch.object(telemetry, "_router_owner_process", return_value=(321, now - 16)),
+                self._owner_lock_held(root),
+            ):
                 mode = telemetry._online_code_mode(now, "2033-05-18T03:33:20Z")
         self.assertEqual(mode["state"], "processing")
         self.assertIs(mode["active"], True)
@@ -340,9 +422,11 @@ class TelemetryParsingTests(unittest.TestCase):
             record["checkpoint"]["stage"] = "incomplete"
             record["checkpoint"]["evidence"] = {"recoveryRequired": True}
             self._router_journal(root, record)
-            with mock.patch.object(telemetry, "_ROUTER_ROOT", root), \
-                 mock.patch.object(telemetry, "_ACTIVE_PATH", root / "active.json"), \
-                 mock.patch.object(telemetry, "_router_owner_process", return_value=(321, now - 16)) as owner:
+            with (
+                mock.patch.object(telemetry, "_ROUTER_ROOT", root),
+                mock.patch.object(telemetry, "_ACTIVE_PATH", root / "active.json"),
+                mock.patch.object(telemetry, "_router_owner_process", return_value=(321, now - 16)) as owner,
+            ):
                 mode = telemetry._online_code_mode(now, "now")
                 owner.assert_not_called()
                 record["checkpoint"]["recordedUnix"] = now - 301
@@ -366,15 +450,19 @@ class TelemetryParsingTests(unittest.TestCase):
             root = Path(temp) / "router"
             record = self._active_route(now)
             self._router_journal(root, record)
-            with mock.patch.object(telemetry, "_ROUTER_ROOT", root), \
-                 mock.patch.object(telemetry, "_ACTIVE_PATH", root / "active.json"), \
-                 mock.patch.object(telemetry, "_router_owner_process", return_value=None):
+            with (
+                mock.patch.object(telemetry, "_ROUTER_ROOT", root),
+                mock.patch.object(telemetry, "_ACTIVE_PATH", root / "active.json"),
+                mock.patch.object(telemetry, "_router_owner_process", return_value=None),
+            ):
                 without_owner = telemetry._online_code_mode(now, "now")
             record["checkpoint"]["recordedUnix"] = now - 600
             (root / "active.json").write_text(json.dumps(record))
-            with mock.patch.object(telemetry, "_ROUTER_ROOT", root), \
-                 mock.patch.object(telemetry, "_ACTIVE_PATH", root / "active.json"), \
-                 mock.patch.object(telemetry, "_router_owner_process", return_value=(321, now - 16)) as owner:
+            with (
+                mock.patch.object(telemetry, "_ROUTER_ROOT", root),
+                mock.patch.object(telemetry, "_ACTIVE_PATH", root / "active.json"),
+                mock.patch.object(telemetry, "_router_owner_process", return_value=(321, now - 16)) as owner,
+            ):
                 stale = telemetry._online_code_mode(now, "now")
                 owner.assert_not_called()
         for mode in (without_owner, stale):
@@ -390,10 +478,12 @@ class TelemetryParsingTests(unittest.TestCase):
             record["startedUnix"] = now - 400
             record["checkpoint"]["recordedUnix"] = now - 299
             self._router_journal(root, record)
-            with mock.patch.object(telemetry, "_ROUTER_ROOT", root), \
-                 mock.patch.object(telemetry, "_ACTIVE_PATH", root / "active.json"), \
-                 mock.patch.object(telemetry, "_router_owner_process", return_value=(321, now - 410)) as owner, \
-                 self._owner_lock_held(root):
+            with (
+                mock.patch.object(telemetry, "_ROUTER_ROOT", root),
+                mock.patch.object(telemetry, "_ACTIVE_PATH", root / "active.json"),
+                mock.patch.object(telemetry, "_router_owner_process", return_value=(321, now - 410)) as owner,
+                self._owner_lock_held(root),
+            ):
                 recent = telemetry._online_code_mode(now, "now")
                 record["checkpoint"]["recordedUnix"] = now - 301
                 (root / "active.json").write_text(json.dumps(record))
@@ -403,8 +493,9 @@ class TelemetryParsingTests(unittest.TestCase):
         # R2.9 rule 3: liveness is (i)-(iv), not the checkpoint's age.  A route still holding
         # the owner lock with its exact work process is live but stalled: it stops blinking
         # and says so, and is never shown as a dead, unfinished run.
-        self.assertEqual((stalled["state"], stalled["active"], stalled["taskState"]),
-                         ("processing", True, "processing"))
+        self.assertEqual(
+            (stalled["state"], stalled["active"], stalled["taskState"]), ("processing", True, "processing")
+        )
         self.assertFalse(stalled["blinking"])
         self.assertIn("no checkpoint for 301s", stalled["evidence"])
         self.assertIn("may be stalled", stalled["evidence"])
@@ -416,12 +507,15 @@ class TelemetryParsingTests(unittest.TestCase):
             root = Path(temp) / "router"
             record = self._active_route(now)
             self._router_journal(root, record)
-            with mock.patch.object(telemetry, "_ROUTER_ROOT", root), \
-                 mock.patch.object(telemetry, "_ACTIVE_PATH", root / "active.json"), \
-                 mock.patch.object(telemetry, "_router_owner_process", return_value=(322, now - 1)):
+            with (
+                mock.patch.object(telemetry, "_ROUTER_ROOT", root),
+                mock.patch.object(telemetry, "_ACTIVE_PATH", root / "active.json"),
+                mock.patch.object(telemetry, "_router_owner_process", return_value=(322, now - 1)),
+            ):
                 later_process = telemetry._online_code_mode(now, "now")
             original = telemetry._safe_file
             active_reads = 0
+
             def swapped(path, limit):
                 nonlocal active_reads
                 value = original(path, limit)
@@ -430,11 +524,14 @@ class TelemetryParsingTests(unittest.TestCase):
                     if active_reads == 2:
                         value["stage"] = "backend_review"
                 return value
-            with mock.patch.object(telemetry, "_ROUTER_ROOT", root), \
-                 mock.patch.object(telemetry, "_ACTIVE_PATH", root / "active.json"), \
-                 mock.patch.object(telemetry, "_router_owner_process", return_value=(321, now - 16)), \
-                 mock.patch.object(telemetry, "_safe_file", side_effect=swapped), \
-                 self._owner_lock_held(root):
+
+            with (
+                mock.patch.object(telemetry, "_ROUTER_ROOT", root),
+                mock.patch.object(telemetry, "_ACTIVE_PATH", root / "active.json"),
+                mock.patch.object(telemetry, "_router_owner_process", return_value=(321, now - 16)),
+                mock.patch.object(telemetry, "_safe_file", side_effect=swapped),
+                self._owner_lock_held(root),
+            ):
                 changed = telemetry._online_code_mode(now, "now")
         self.assertEqual(later_process["state"], "unknown")
         self.assertEqual(changed["state"], "unknown")
@@ -445,11 +542,12 @@ class TelemetryParsingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp) / "router"
             self._router_journal(root, self._active_route(now))
-            with mock.patch.object(telemetry, "_ROUTER_ROOT", root), \
-                 mock.patch.object(telemetry, "_ACTIVE_PATH", root / "active.json"), \
-                 mock.patch.object(telemetry, "_router_owner_process",
-                                   side_effect=[(321, now - 16), None]), \
-                 self._owner_lock_held(root):
+            with (
+                mock.patch.object(telemetry, "_ROUTER_ROOT", root),
+                mock.patch.object(telemetry, "_ACTIVE_PATH", root / "active.json"),
+                mock.patch.object(telemetry, "_router_owner_process", side_effect=[(321, now - 16), None]),
+                self._owner_lock_held(root),
+            ):
                 mode = telemetry._online_code_mode(now, "now")
         self.assertEqual(mode["state"], "unknown")
         self.assertFalse(mode["blinking"])
@@ -462,9 +560,11 @@ class TelemetryParsingTests(unittest.TestCase):
             record = self._active_route(now)
             record["checkpoint"]["runId"] = "other-route"
             self._router_journal(root, record)
-            with mock.patch.object(telemetry, "_ROUTER_ROOT", root), \
-                 mock.patch.object(telemetry, "_ACTIVE_PATH", root / "active.json"), \
-                 mock.patch.object(telemetry, "_router_owner_process", return_value=(321, now - 16)) as owner:
+            with (
+                mock.patch.object(telemetry, "_ROUTER_ROOT", root),
+                mock.patch.object(telemetry, "_ACTIVE_PATH", root / "active.json"),
+                mock.patch.object(telemetry, "_router_owner_process", return_value=(321, now - 16)) as owner,
+            ):
                 mode = telemetry._online_code_mode(now, "now")
                 owner.assert_not_called()
         self.assertEqual(mode["state"], "unknown")
@@ -474,39 +574,53 @@ class TelemetryParsingTests(unittest.TestCase):
     def test_online_mode_process_probe_rejects_read_only_or_wrong_command(self):
         lock_path = str(telemetry._ROUTER_ROOT / "owner.lock")
         owner_line = f"p123\nf3\nau\nn{lock_path}\n"
-        ps_line = ("  123 Wed Sep 23 23:14:44 2026     /usr/bin/python3 -I -B "
-                   f"{telemetry._ROUTER_SCRIPT} work\n")
-        with mock.patch.object(telemetry, "_windows_worker_reader_blocked", return_value=False), \
-             mock.patch.object(telemetry, "_bounded_command",
-                               side_effect=[owner_line, ps_line]):
+        ps_line = f"  123 Wed Sep 23 23:14:44 2026     /usr/bin/python3 -I -B {telemetry._ROUTER_SCRIPT} work\n"
+        with (
+            mock.patch.object(telemetry, "_windows_worker_reader_blocked", return_value=False),
+            mock.patch.object(telemetry, "_bounded_command", side_effect=[owner_line, ps_line]),
+        ):
             self.assertEqual(telemetry._router_owner_process()[0], 123)
         # What ps really shows for /usr/bin/python3 (Xcode) and Homebrew python3.
         for interpreter in (
-                "/Applications/Xcode-27.0.app/Contents/Developer/Library/Frameworks/Python3.framework/"
-                "Versions/3.9/Resources/Python.app/Contents/MacOS/Python",
-                "/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/"
-                "Resources/Python.app/Contents/MacOS/Python"):
+            "/Applications/Xcode-27.0.app/Contents/Developer/Library/Frameworks/Python3.framework/"
+            "Versions/3.9/Resources/Python.app/Contents/MacOS/Python",
+            "/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/"
+            "Resources/Python.app/Contents/MacOS/Python",
+        ):
             framework_line = ps_line.replace("/usr/bin/python3", interpreter)
-            with mock.patch.object(telemetry, "_windows_worker_reader_blocked", return_value=False), \
-                 mock.patch.object(telemetry, "_bounded_command", side_effect=[owner_line, framework_line]):
+            with (
+                mock.patch.object(telemetry, "_windows_worker_reader_blocked", return_value=False),
+                mock.patch.object(telemetry, "_bounded_command", side_effect=[owner_line, framework_line]),
+            ):
                 self.assertEqual(telemetry._router_owner_process()[0], 123)
         for impostor in ("/tmp/Python", "/tmp/evil/Python.app/Contents/MacOS/Python"):
-            with mock.patch.object(telemetry, "_windows_worker_reader_blocked", return_value=False), \
-                 mock.patch.object(telemetry, "_bounded_command",
-                                   side_effect=[owner_line, ps_line.replace("/usr/bin/python3", impostor)]):
+            with (
+                mock.patch.object(telemetry, "_windows_worker_reader_blocked", return_value=False),
+                mock.patch.object(
+                    telemetry,
+                    "_bounded_command",
+                    side_effect=[owner_line, ps_line.replace("/usr/bin/python3", impostor)],
+                ),
+            ):
                 self.assertIsNone(telemetry._router_owner_process())
-        with mock.patch.object(telemetry, "_windows_worker_reader_blocked", return_value=False), \
-             mock.patch.object(telemetry, "_bounded_command",
-                               return_value=owner_line.replace("au", "ar")):
+        with (
+            mock.patch.object(telemetry, "_windows_worker_reader_blocked", return_value=False),
+            mock.patch.object(telemetry, "_bounded_command", return_value=owner_line.replace("au", "ar")),
+        ):
             self.assertIsNone(telemetry._router_owner_process())
-        with mock.patch.object(telemetry, "_windows_worker_reader_blocked", return_value=False), \
-             mock.patch.object(telemetry, "_bounded_command",
-                               side_effect=[owner_line, ps_line.replace(" work", " status")]):
+        with (
+            mock.patch.object(telemetry, "_windows_worker_reader_blocked", return_value=False),
+            mock.patch.object(
+                telemetry, "_bounded_command", side_effect=[owner_line, ps_line.replace(" work", " status")]
+            ),
+        ):
             self.assertIsNone(telemetry._router_owner_process())
 
     def test_router_owner_lsof_probe_pauses_while_shared_queue_reader_is_stalled(self):
-        with mock.patch.object(telemetry, "_windows_worker_reader_blocked", return_value=True), \
-             mock.patch.object(telemetry, "_bounded_command") as bounded:
+        with (
+            mock.patch.object(telemetry, "_windows_worker_reader_blocked", return_value=True),
+            mock.patch.object(telemetry, "_bounded_command") as bounded,
+        ):
             self.assertIsNone(telemetry._router_owner_process())
             bounded.assert_not_called()
 
@@ -516,12 +630,12 @@ class TelemetryParsingTests(unittest.TestCase):
         config = {"mode": "review", "targets": ["registered-task"]}
 
         def digest(value):
-            raw = json.dumps(value, sort_keys=True, separators=(",", ":"),
-                             ensure_ascii=False, allow_nan=False).encode("utf-8")
+            raw = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode(
+                "utf-8"
+            )
             return hashlib.sha256(raw).hexdigest()
 
-        record = {"schema": 1, "config": config, "configHash": digest(config),
-                  "enabled": enabled, "events": events}
+        record = {"schema": 1, "config": config, "configHash": digest(config), "enabled": enabled, "events": events}
         record["integrityHash"] = digest(record)
         path = root / "state.json"
         path.write_text(json.dumps(record))
@@ -533,9 +647,14 @@ class TelemetryParsingTests(unittest.TestCase):
         secret = "PRIVATE_CANARY_PROMPT"
 
         def event(name, phase, **extra):
-            return {"eventId": name, "state": phase, "createdAt": int(now - 3600),
-                    "payload": {"request": {"task": secret}, "sourceSha256": "a" * 64},
-                    "claimToken": "PRIVATE_CLAIM_TOKEN", **extra}
+            return {
+                "eventId": name,
+                "state": phase,
+                "createdAt": int(now - 3600),
+                "payload": {"request": {"task": secret}, "sourceSha256": "a" * 64},
+                "claimToken": "PRIVATE_CLAIM_TOKEN",
+                **extra,
+            }
 
         events = {
             "ready": event("ready", "READY"),
@@ -549,15 +668,21 @@ class TelemetryParsingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp) / "nisi-canary"
             path = self._canary_record(root, events)
-            with mock.patch.object(telemetry, "_CANARY_ROOT", root), \
-                 mock.patch.object(telemetry, "_CANARY_PATH", path):
+            with mock.patch.object(telemetry, "_CANARY_ROOT", root), mock.patch.object(telemetry, "_CANARY_PATH", path):
                 summary, source = telemetry._canary(now)
         self.assertEqual(source["state"], "recorded")
         self.assertEqual(summary["enabled"], True)
-        self.assertEqual(summary["stateCounts"], {
-            "READY": 1, "CLAIMED": 1, "SENT": 1, "RECEIVED": 1,
-            "VERIFIED": 1, "HELD": 2,
-        })
+        self.assertEqual(
+            summary["stateCounts"],
+            {
+                "READY": 1,
+                "CLAIMED": 1,
+                "SENT": 1,
+                "RECEIVED": 1,
+                "VERIFIED": 1,
+                "HELD": 2,
+            },
+        )
         self.assertEqual(summary["outstanding"], 4)
         self.assertEqual(summary["latestRecordedTransitionAgeSeconds"], 60.0)
         self.assertIn("Scheduler and target activity unverified", source["detail"])
@@ -571,8 +696,7 @@ class TelemetryParsingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp) / "nisi-canary"
             path = self._canary_record(root, events)
-            with mock.patch.object(telemetry, "_CANARY_ROOT", root), \
-                 mock.patch.object(telemetry, "_CANARY_PATH", path):
+            with mock.patch.object(telemetry, "_CANARY_ROOT", root), mock.patch.object(telemetry, "_CANARY_PATH", path):
                 summary, source = telemetry._canary(now)
         self.assertEqual(source["state"], "recorded")
         self.assertEqual(source["ageSeconds"], 86400.0)
@@ -583,14 +707,15 @@ class TelemetryParsingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp) / "nisi-canary"
             path = self._canary_record(root, {}, enabled=False)
-            with mock.patch.object(telemetry, "_CANARY_ROOT", root), \
-                 mock.patch.object(telemetry, "_CANARY_PATH", path):
+            with mock.patch.object(telemetry, "_CANARY_ROOT", root), mock.patch.object(telemetry, "_CANARY_PATH", path):
                 disabled, recorded = telemetry._canary(time.time())
             self.assertEqual(recorded["state"], "recorded")
             self.assertEqual(disabled["enabled"], False)
             self.assertEqual(disabled["outstanding"], 0)
-            with mock.patch.object(telemetry, "_CANARY_ROOT", root), \
-                 mock.patch.object(telemetry, "_CANARY_PATH", root / "missing.json"):
+            with (
+                mock.patch.object(telemetry, "_CANARY_ROOT", root),
+                mock.patch.object(telemetry, "_CANARY_PATH", root / "missing.json"),
+            ):
                 unknown, missing = telemetry._canary(time.time())
             self.assertEqual(missing["state"], "unavailable")
             self.assertIsNone(unknown["enabled"])
@@ -604,43 +729,66 @@ class TelemetryParsingTests(unittest.TestCase):
             record["enabled"] = False  # Integrity hash no longer matches.
             path.write_text(json.dumps(record))
             path.chmod(0o600)
-            with mock.patch.object(telemetry, "_CANARY_ROOT", root), \
-                 mock.patch.object(telemetry, "_CANARY_PATH", path):
+            with mock.patch.object(telemetry, "_CANARY_ROOT", root), mock.patch.object(telemetry, "_CANARY_PATH", path):
                 summary, source = telemetry._canary(time.time())
             self.assertEqual(source["state"], "error")
             self.assertIsNone(summary["enabled"])
             root.chmod(0o755)
-            with mock.patch.object(telemetry, "_CANARY_ROOT", root), \
-                 mock.patch.object(telemetry, "_CANARY_PATH", path):
+            with mock.patch.object(telemetry, "_CANARY_ROOT", root), mock.patch.object(telemetry, "_CANARY_PATH", path):
                 summary, source = telemetry._canary(time.time())
             self.assertEqual(source["state"], "error")
             root.chmod(0o700)
             link = root / "linked-state.json"
             link.symlink_to(path)
-            with mock.patch.object(telemetry, "_CANARY_ROOT", root), \
-                 mock.patch.object(telemetry, "_CANARY_PATH", link):
+            with mock.patch.object(telemetry, "_CANARY_ROOT", root), mock.patch.object(telemetry, "_CANARY_PATH", link):
                 summary, source = telemetry._canary(time.time())
             self.assertEqual(source["state"], "error")
 
     def test_snapshot_includes_only_canary_aggregate_metadata(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp) / "nisi-canary"
-            path = self._canary_record(root, {
-                "job": {"eventId": "job", "state": "CLAIMED",
-                        "createdAt": int(time.time() - 120), "claimAt": int(time.time() - 60),
+            path = self._canary_record(
+                root,
+                {
+                    "job": {
+                        "eventId": "job",
+                        "state": "CLAIMED",
+                        "createdAt": int(time.time() - 120),
+                        "claimAt": int(time.time() - 60),
                         "claimToken": "SECRET_DISPATCH_TOKEN",
-                        "payload": {"request": "SECRET_TASK_TEXT", "targetThreadId": "SECRET_TARGET"}},
-            })
-            with mock.patch.object(telemetry, "_CANARY_ROOT", root), \
-                 mock.patch.object(telemetry, "_CANARY_PATH", path), \
-                 mock.patch.object(telemetry, "_bounded_http", return_value={"models": []}), \
-                 mock.patch.object(telemetry, "_bounded_lms", return_value={"models": []}), \
-                 mock.patch.object(telemetry, "_windows_worker", return_value=_NO_WINDOWS_WORKER), \
-                 mock.patch.object(telemetry, "_pipeline", return_value=(
-                     {"runId": None, "status": "idle", "stage": None, "recoveryRequired": False,
-                      "ageSeconds": None, "steps": [], "usage": {}},
-                     {"id": "pipeline-router", "label": "Pipeline", "state": "recorded",
-                      "ageSeconds": None, "detail": "No unresolved route"})):
+                        "payload": {"request": "SECRET_TASK_TEXT", "targetThreadId": "SECRET_TARGET"},
+                    },
+                },
+            )
+            with (
+                mock.patch.object(telemetry, "_CANARY_ROOT", root),
+                mock.patch.object(telemetry, "_CANARY_PATH", path),
+                mock.patch.object(telemetry, "_bounded_http", return_value={"models": []}),
+                mock.patch.object(telemetry, "_bounded_lms", return_value={"models": []}),
+                mock.patch.object(telemetry, "_windows_worker", return_value=_NO_WINDOWS_WORKER),
+                mock.patch.object(
+                    telemetry,
+                    "_pipeline",
+                    return_value=(
+                        {
+                            "runId": None,
+                            "status": "idle",
+                            "stage": None,
+                            "recoveryRequired": False,
+                            "ageSeconds": None,
+                            "steps": [],
+                            "usage": {},
+                        },
+                        {
+                            "id": "pipeline-router",
+                            "label": "Pipeline",
+                            "state": "recorded",
+                            "ageSeconds": None,
+                            "detail": "No unresolved route",
+                        },
+                    ),
+                ),
+            ):
                 snapshot = telemetry.collect_snapshot()
         self.assertEqual(snapshot["canary"]["stateCounts"]["CLAIMED"], 1)
         self.assertEqual(snapshot["canary"]["outstanding"], 1)
@@ -651,13 +799,15 @@ class TelemetryParsingTests(unittest.TestCase):
             self.assertNotIn(private, public)
 
     def test_lms_exact_activity_states_and_unknown_enum(self):
-        payload = {"models": [
-            {"identifier": "provider/idle", "displayName": "Idle", "status": "idle", "queued": 0},
-            {"identifier": "provider/generating", "status": "generating", "queued": 0},
-            {"identifier": "provider/prompt", "status": "processingPrompt", "queued": 0},
-            {"identifier": "provider/queued", "status": "idle", "queued": 2},
-            {"identifier": "provider/future", "status": "warming-up", "queued": 0},
-        ]}
+        payload = {
+            "models": [
+                {"identifier": "provider/idle", "displayName": "Idle", "status": "idle", "queued": 0},
+                {"identifier": "provider/generating", "status": "generating", "queued": 0},
+                {"identifier": "provider/prompt", "status": "processingPrompt", "queued": 0},
+                {"identifier": "provider/queued", "status": "idle", "queued": 2},
+                {"identifier": "provider/future", "status": "warming-up", "queued": 0},
+            ]
+        }
         rows = {row["id"]: row for row in telemetry._parse_lms(payload, time.time())}
         self.assertEqual(rows["provider/idle"]["state"], "idle")
         self.assertEqual(rows["provider/generating"]["state"], "generating")
@@ -668,17 +818,30 @@ class TelemetryParsingTests(unittest.TestCase):
         self.assertTrue(all(row["loaded"] is True for row in rows.values()))
 
     def test_api_inventory_distinguishes_loaded_and_unloaded(self):
-        rows = telemetry._parse_api({"models": [
-            {"key": "loaded", "display_name": "Loaded", "loaded_instances": [{"id": "i"}],
-             "size_bytes": 12, "max_context_length": 32},
-            {"key": "downloaded", "loaded_instances": []},
-            {"key": "missing-load-field"},
-            {"key": "invalid-load-field", "loaded_instances": "unknown"},
-            {"key": "malicious", "display_name": "prompt: do not leak", "loaded_instances": [],
-             "prompt": "private source content"},
-        ]}, time.time())
-        self.assertEqual([row["state"] for row in rows],
-                         ["loaded", "unloaded", "unknown", "unknown", "unloaded"])
+        rows = telemetry._parse_api(
+            {
+                "models": [
+                    {
+                        "key": "loaded",
+                        "display_name": "Loaded",
+                        "loaded_instances": [{"id": "i"}],
+                        "size_bytes": 12,
+                        "max_context_length": 32,
+                    },
+                    {"key": "downloaded", "loaded_instances": []},
+                    {"key": "missing-load-field"},
+                    {"key": "invalid-load-field", "loaded_instances": "unknown"},
+                    {
+                        "key": "malicious",
+                        "display_name": "prompt: do not leak",
+                        "loaded_instances": [],
+                        "prompt": "private source content",
+                    },
+                ]
+            },
+            time.time(),
+        )
+        self.assertEqual([row["state"] for row in rows], ["loaded", "unloaded", "unknown", "unknown", "unloaded"])
         self.assertIsNone(rows[2]["loaded"])
         self.assertIsNone(rows[3]["loaded"])
         self.assertEqual(rows[0]["sizeBytes"], 12)
@@ -687,28 +850,51 @@ class TelemetryParsingTests(unittest.TestCase):
         self.assertNotIn("private source content", json.dumps(rows))
 
     def test_api_model_details_are_allowlisted_and_survive_cli_merge(self):
-        api = telemetry._parse_api({"models": [{
-            "key": "google/gemma-3-4b", "display_name": "Gemma 3 4B", "type": "llm",
-            "publisher": "google", "architecture": "gemma3", "params_string": "4B",
-            "format": "mlx", "quantization": {"name": "4bit", "bits_per_weight": 4},
-            "capabilities": {"vision": True, "trained_for_tool_use": False,
-                             "reasoning": {"allowed_options": ["off", "low", "on"],
-                                           "private_prompt": "SECRET_REASONING_PROMPT"}},
-            "loaded_instances": [{"id": "google/gemma-3-4b",
-                                  "config": {"context_length": 8192, "parallel": 2,
-                                             "reasoning_budget_message": "SECRET_MESSAGE"},
-                                  "remaining_ttl_seconds": 300}],
-            "description": "SECRET_DESCRIPTION", "prompt": "SECRET_PROMPT",
-        }]}, time.time())[0]
+        api = telemetry._parse_api(
+            {
+                "models": [
+                    {
+                        "key": "google/gemma-3-4b",
+                        "display_name": "Gemma 3 4B",
+                        "type": "llm",
+                        "publisher": "google",
+                        "architecture": "gemma3",
+                        "params_string": "4B",
+                        "format": "mlx",
+                        "quantization": {"name": "4bit", "bits_per_weight": 4},
+                        "capabilities": {
+                            "vision": True,
+                            "trained_for_tool_use": False,
+                            "reasoning": {
+                                "allowed_options": ["off", "low", "on"],
+                                "private_prompt": "SECRET_REASONING_PROMPT",
+                            },
+                        },
+                        "loaded_instances": [
+                            {
+                                "id": "google/gemma-3-4b",
+                                "config": {
+                                    "context_length": 8192,
+                                    "parallel": 2,
+                                    "reasoning_budget_message": "SECRET_MESSAGE",
+                                },
+                                "remaining_ttl_seconds": 300,
+                            }
+                        ],
+                        "description": "SECRET_DESCRIPTION",
+                        "prompt": "SECRET_PROMPT",
+                    }
+                ]
+            },
+            time.time(),
+        )[0]
         self.assertEqual(api["name"], "Gemma 3 4B")
         self.assertEqual(api["metadata"]["quantization"], "4bit")
-        self.assertEqual(api["metadata"]["capabilities"]["reasoningOptions"],
-                         ["off", "low", "on"])
+        self.assertEqual(api["metadata"]["capabilities"]["reasoningOptions"], ["off", "low", "on"])
         self.assertEqual(api["metadata"]["loadedInstances"][0]["parallel"], 2)
         self.assertEqual(api["modelKey"], "google/gemma-3-4b")
         self.assertEqual(api["loadedInstanceIds"], ["google/gemma-3-4b"])
-        cli = telemetry._parse_lms({"models": [{"identifier": "google/gemma-3-4b"}]},
-                                   time.time())[0]
+        cli = telemetry._parse_lms({"models": [{"identifier": "google/gemma-3-4b"}]}, time.time())[0]
         merged = {api["id"]: api}
         telemetry._merge_cli_rows(merged, [cli])
         row = merged[api["id"]]
@@ -717,18 +903,29 @@ class TelemetryParsingTests(unittest.TestCase):
         self.assertEqual(row["modelKey"], "google/gemma-3-4b")
         self.assertEqual(row["loadedInstanceIds"], ["google/gemma-3-4b"])
         public = json.dumps(row)
-        for private in ("SECRET_REASONING_PROMPT", "SECRET_MESSAGE",
-                        "SECRET_DESCRIPTION", "SECRET_PROMPT"):
+        for private in ("SECRET_REASONING_PROMPT", "SECRET_MESSAGE", "SECRET_DESCRIPTION", "SECRET_PROMPT"):
             self.assertNotIn(private, public)
 
     def test_cli_model_key_and_instance_identifier_are_projected_without_config_text(self):
-        api = telemetry._parse_api({"models": [{
-            "key": "provider/model", "loaded_instances": [{
-                "identifier": "alias-1", "config": {"reasoning_budget_message": "SECRET"},
-            }],
-        }]}, time.time())[0]
-        cli = telemetry._parse_lms({"models": [{"identifier": "alias-1",
-                                                 "modelKey": "provider/model"}]}, time.time())[0]
+        api = telemetry._parse_api(
+            {
+                "models": [
+                    {
+                        "key": "provider/model",
+                        "loaded_instances": [
+                            {
+                                "identifier": "alias-1",
+                                "config": {"reasoning_budget_message": "SECRET"},
+                            }
+                        ],
+                    }
+                ]
+            },
+            time.time(),
+        )[0]
+        cli = telemetry._parse_lms({"models": [{"identifier": "alias-1", "modelKey": "provider/model"}]}, time.time())[
+            0
+        ]
         self.assertEqual(api["loadedInstanceIds"], ["alias-1"])
         self.assertEqual(cli["modelKey"], "provider/model")
         self.assertEqual(cli["instanceId"], "alias-1")
@@ -740,24 +937,29 @@ class TelemetryParsingTests(unittest.TestCase):
         self.assertNotIn("SECRET", json.dumps(api))
 
     def test_catalog_is_represented_only_by_complete_matching_cli_instances(self):
-        for instances, cli_key, expected in (([{"id": "alias"}], "provider/model", True),
-                ([{"id": "alias"}, {"id": "other"}], "provider/model", False),
-                ([{"id": "alias"}, {"id": "invalid id"}], "provider/model", False),
-                ([{"id": "alias"}], "different/model", False)):
+        for instances, cli_key, expected in (
+            ([{"id": "alias"}], "provider/model", True),
+            ([{"id": "alias"}, {"id": "other"}], "provider/model", False),
+            ([{"id": "alias"}, {"id": "invalid id"}], "provider/model", False),
+            ([{"id": "alias"}], "different/model", False),
+        ):
             with self.subTest(instances=instances, cli_key=cli_key):
-                api = telemetry._parse_api({"models": [{"key": "provider/model",
-                                                        "loaded_instances": instances}]}, time.time())[0]
-                cli = telemetry._parse_lms({"models": [{"identifier": "alias", "modelKey": cli_key}]},
-                                           time.time())
+                api = telemetry._parse_api(
+                    {"models": [{"key": "provider/model", "loaded_instances": instances}]}, time.time()
+                )[0]
+                cli = telemetry._parse_lms({"models": [{"identifier": "alias", "modelKey": cli_key}]}, time.time())
                 merged = {api["id"]: api}
                 telemetry._merge_cli_rows(merged, cli)
                 self.assertEqual(merged[api["id"]].get("representedByInstances", False), expected)
 
     def test_cli_identity_conflict_is_atomic_before_any_row_is_replaced(self):
-        api = telemetry._parse_api({"models": [{"key": "a", "loaded_instances": []},
-                                               {"key": "b", "loaded_instances": [{"id": "a"}]}]}, time.time())
-        cli = telemetry._parse_lms({"models": [{"identifier": "b", "modelKey": "b"},
-                                               {"identifier": "a", "modelKey": "b"}]}, time.time())
+        api = telemetry._parse_api(
+            {"models": [{"key": "a", "loaded_instances": []}, {"key": "b", "loaded_instances": [{"id": "a"}]}]},
+            time.time(),
+        )
+        cli = telemetry._parse_lms(
+            {"models": [{"identifier": "b", "modelKey": "b"}, {"identifier": "a", "modelKey": "b"}]}, time.time()
+        )
         merged = {row["id"]: row for row in api}
         before = json.dumps(merged, sort_keys=True)
         with self.assertRaisesRegex(telemetry._IncompleteInventoryError, "identifier conflicts"):
@@ -765,27 +967,49 @@ class TelemetryParsingTests(unittest.TestCase):
         self.assertEqual(json.dumps(merged, sort_keys=True), before)
 
     def test_incomplete_instance_projection_cannot_confirm_an_unload(self):
-        row = telemetry._parse_api({"models": [{
-            "key": "provider/model", "loaded_instances": [
-                {"id": "valid"}, {"id": "invalid id"}],
-        }]}, time.time())[0]
+        row = telemetry._parse_api(
+            {
+                "models": [
+                    {
+                        "key": "provider/model",
+                        "loaded_instances": [{"id": "valid"}, {"id": "invalid id"}],
+                    }
+                ]
+            },
+            time.time(),
+        )[0]
         self.assertIsNone(row["metadata"]["loadedInstanceCount"])
         self.assertIsNone(row["loadedInstanceIds"])
-        many = telemetry._parse_api({"models": [{
-            "key": "provider/model", "loaded_instances": [
-                {"id": f"instance-{i}"} for i in range(17)],
-        }]}, time.time())[0]
+        many = telemetry._parse_api(
+            {
+                "models": [
+                    {
+                        "key": "provider/model",
+                        "loaded_instances": [{"id": f"instance-{i}"} for i in range(17)],
+                    }
+                ]
+            },
+            time.time(),
+        )[0]
         self.assertIsNone(many["metadata"]["loadedInstanceCount"])
         self.assertIsNone(many["loadedInstanceIds"])
-        fallback = telemetry._parse_lms({"models": [{"modelKey": "provider/model"}]},
-                                        time.time())[0]
+        fallback = telemetry._parse_lms({"models": [{"modelKey": "provider/model"}]}, time.time())[0]
         self.assertIsNone(fallback["instanceId"])
 
     def test_identifier_only_cli_alias_inherits_its_api_model_identity(self):
-        api = telemetry._parse_api({"models": [{"key": "provider/model", "display_name": "Model",
-            "loaded_instances": [{"id": "alias-1"}, {"id": "alias-2"}]}]}, time.time())[0]
-        cli = telemetry._parse_lms({"models": [{"identifier": "alias-1", "status": "idle"}]},
-                                   time.time())[0]
+        api = telemetry._parse_api(
+            {
+                "models": [
+                    {
+                        "key": "provider/model",
+                        "display_name": "Model",
+                        "loaded_instances": [{"id": "alias-1"}, {"id": "alias-2"}],
+                    }
+                ]
+            },
+            time.time(),
+        )[0]
+        cli = telemetry._parse_lms({"models": [{"identifier": "alias-1", "status": "idle"}]}, time.time())[0]
         merged = {api["id"]: api}
         telemetry._merge_cli_rows(merged, [cli])
         self.assertEqual(merged["alias-1"]["modelKey"], "provider/model")
@@ -794,13 +1018,18 @@ class TelemetryParsingTests(unittest.TestCase):
         self.assertEqual(merged["provider/model"]["loadedInstanceIds"], ["alias-1", "alias-2"])
 
     def test_ambiguous_instance_ids_and_explicit_other_keys_do_not_alias_an_api_model(self):
-        api = telemetry._parse_api({"models": [
-            {"key": key, "loaded_instances": [{"id": "alias-1"}]}
-            for key in ("provider/first", "provider/second")]}, time.time())
+        api = telemetry._parse_api(
+            {
+                "models": [
+                    {"key": key, "loaded_instances": [{"id": "alias-1"}]}
+                    for key in ("provider/first", "provider/second")
+                ]
+            },
+            time.time(),
+        )
         for key in (None, "provider/other"):
             with self.subTest(modelKey=key):
-                cli = telemetry._parse_lms({"models": [{"identifier": "alias-1", "modelKey": key}]},
-                                           time.time())[0]
+                cli = telemetry._parse_lms({"models": [{"identifier": "alias-1", "modelKey": key}]}, time.time())[0]
                 merged = {row["id"]: row for row in api}
                 telemetry._merge_cli_rows(merged, [cli])
                 self.assertEqual(merged["alias-1"]["modelKey"], key)
@@ -812,23 +1041,34 @@ class TelemetryParsingTests(unittest.TestCase):
             command = Path(temp) / "chami-dispatch"
             command.write_text("test fixture")
             command.chmod(0o700)
-            payload = {"ok": True, "age": 5.0,
-                       "evidence_scope": telemetry._WINDOWS_WORKER_SCOPE,
-                       "models": ["Qwen3.8-27B Q4_K_M", "gpt-oss-20b"],
-                       "task": "PRIVATE_WINDOWS_TASK"}
-            with mock.patch.object(telemetry, "_WINDOWS_WORKER_CMD", command), \
-                 mock.patch.object(telemetry, "_windows_worker_reader_blocked", return_value=False), \
-                 mock.patch.object(telemetry, "_bounded_command",
-                                   return_value=json.dumps(payload)):
+            payload = {
+                "ok": True,
+                "age": 5.0,
+                "evidence_scope": telemetry._WINDOWS_WORKER_SCOPE,
+                "models": ["Qwen3.8-27B Q4_K_M", "gpt-oss-20b"],
+                "task": "PRIVATE_WINDOWS_TASK",
+            }
+            with (
+                mock.patch.object(telemetry, "_WINDOWS_WORKER_CMD", command),
+                mock.patch.object(telemetry, "_windows_worker_reader_blocked", return_value=False),
+                mock.patch.object(telemetry, "_bounded_command", return_value=json.dumps(payload)),
+            ):
                 observed = telemetry._windows_worker_probe()
             self.assertIsNotNone(observed)
             self.assertEqual(observed[1:4], (["Qwen3.8-27B Q4_K_M", "gpt-oss-20b"], 2, None))
             # A pre-1.2 worker sends neither a version nor GPUs.
             self.assertEqual(observed[4], {"workerVersion": None, "gpus": None})
-            cache = {"checkedMonotonic": float("-inf"), "heartbeatUnix": None,
-                     "modelsAdvertised": [], "modelCount": 0, "probeRunning": False}
-            with mock.patch.object(telemetry, "_WINDOWS_WORKER_CACHE", cache), \
-                 mock.patch.object(telemetry, "_windows_worker_probe", return_value=observed):
+            cache = {
+                "checkedMonotonic": float("-inf"),
+                "heartbeatUnix": None,
+                "modelsAdvertised": [],
+                "modelCount": 0,
+                "probeRunning": False,
+            }
+            with (
+                mock.patch.object(telemetry, "_WINDOWS_WORKER_CACHE", cache),
+                mock.patch.object(telemetry, "_windows_worker_probe", return_value=observed),
+            ):
                 first, _ = telemetry._windows_worker(now)
                 self.assertEqual(first["state"], "unknown")
                 self._wait_for_windows_probe(cache)
@@ -837,8 +1077,10 @@ class TelemetryParsingTests(unittest.TestCase):
             self.assertEqual(source["state"], "recorded")
             self.assertNotIn("PRIVATE_WINDOWS_TASK", json.dumps((worker, source)))
             cache["checkedMonotonic"] = time.monotonic() - telemetry._WINDOWS_WORKER_POLL_SECONDS
-            with mock.patch.object(telemetry, "_WINDOWS_WORKER_CACHE", cache), \
-                 mock.patch.object(telemetry, "_windows_worker_probe", return_value=None):
+            with (
+                mock.patch.object(telemetry, "_WINDOWS_WORKER_CACHE", cache),
+                mock.patch.object(telemetry, "_windows_worker_probe", return_value=None),
+            ):
                 telemetry._windows_worker(now + 61)
                 self._wait_for_windows_probe(cache)
                 expired, source = telemetry._windows_worker(now + 61)
@@ -849,8 +1091,13 @@ class TelemetryParsingTests(unittest.TestCase):
 
     def test_windows_worker_slow_success_does_not_block_sampling_or_duplicate_probe(self):
         now = time.time()
-        cache = {"checkedMonotonic": float("-inf"), "heartbeatUnix": None,
-                 "modelsAdvertised": [], "modelCount": 0, "probeRunning": False}
+        cache = {
+            "checkedMonotonic": float("-inf"),
+            "heartbeatUnix": None,
+            "modelsAdvertised": [],
+            "modelCount": 0,
+            "probeRunning": False,
+        }
         entered = threading.Event()
         release = threading.Event()
         calls = []
@@ -863,8 +1110,10 @@ class TelemetryParsingTests(unittest.TestCase):
             return now - 5, ["Qwen3.8-27B"], 1, None
 
         try:
-            with mock.patch.object(telemetry, "_WINDOWS_WORKER_CACHE", cache), \
-                 mock.patch.object(telemetry, "_windows_worker_probe", side_effect=slow_probe):
+            with (
+                mock.patch.object(telemetry, "_WINDOWS_WORKER_CACHE", cache),
+                mock.patch.object(telemetry, "_windows_worker_probe", side_effect=slow_probe),
+            ):
                 start = time.monotonic()
                 first, _ = telemetry._windows_worker(now)
                 self.assertLess(time.monotonic() - start, 0.2)
@@ -887,11 +1136,17 @@ class TelemetryParsingTests(unittest.TestCase):
 
     def test_windows_worker_timeout_retains_cache_until_heartbeat_expires(self):
         now = time.time()
-        cache = {"checkedMonotonic": float("-inf"), "heartbeatUnix": now - 6,
-                 "modelsAdvertised": ["gpt-oss-20b"], "modelCount": 1,
-                 "probeRunning": False}
-        with mock.patch.object(telemetry, "_WINDOWS_WORKER_CACHE", cache), \
-             mock.patch.object(telemetry, "_windows_worker_probe", return_value=None):
+        cache = {
+            "checkedMonotonic": float("-inf"),
+            "heartbeatUnix": now - 6,
+            "modelsAdvertised": ["gpt-oss-20b"],
+            "modelCount": 1,
+            "probeRunning": False,
+        }
+        with (
+            mock.patch.object(telemetry, "_WINDOWS_WORKER_CACHE", cache),
+            mock.patch.object(telemetry, "_windows_worker_probe", return_value=None),
+        ):
             retained, _ = telemetry._windows_worker(now)
             self._wait_for_windows_probe(cache)
             expired, source = telemetry._windows_worker(now + 61)
@@ -906,11 +1161,17 @@ class TelemetryParsingTests(unittest.TestCase):
     def test_windows_worker_busy_defers_refresh_without_losing_freshness(self):
         now = time.time()
         heartbeat = now - 12
-        cache = {"checkedMonotonic": time.monotonic(), "heartbeatUnix": heartbeat,
-                 "modelsAdvertised": ["gpt-oss-20b"], "modelCount": 1,
-                 "probeRunning": False, "probeError": False,
-                 "probePaused": False, "probeBusy": False,
-                 "retryAfterMonotonic": 0.0}
+        cache = {
+            "checkedMonotonic": time.monotonic(),
+            "heartbeatUnix": heartbeat,
+            "modelsAdvertised": ["gpt-oss-20b"],
+            "modelCount": 1,
+            "probeRunning": False,
+            "probeError": False,
+            "probePaused": False,
+            "probeBusy": False,
+            "retryAfterMonotonic": 0.0,
+        }
         self.assertTrue(telemetry._WINDOWS_WORKER_IO_LOCK.acquire(blocking=False))
         try:
             telemetry._windows_worker_refresh(cache)
@@ -938,9 +1199,13 @@ class TelemetryParsingTests(unittest.TestCase):
 
     def test_concurrent_windows_samples_start_only_one_probe(self):
         now = time.time()
-        cache = {"checkedMonotonic": float("-inf"), "heartbeatUnix": now - 2,
-                 "modelsAdvertised": ["gpt-oss-20b"], "modelCount": 1,
-                 "probeRunning": False}
+        cache = {
+            "checkedMonotonic": float("-inf"),
+            "heartbeatUnix": now - 2,
+            "modelsAdvertised": ["gpt-oss-20b"],
+            "modelCount": 1,
+            "probeRunning": False,
+        }
         release = threading.Event()
         entered = threading.Event()
         calls = []
@@ -952,11 +1217,15 @@ class TelemetryParsingTests(unittest.TestCase):
             return None
 
         try:
-            with mock.patch.object(telemetry, "_WINDOWS_WORKER_CACHE", cache), \
-                 mock.patch.object(telemetry, "_windows_worker_probe", side_effect=probe):
+            with (
+                mock.patch.object(telemetry, "_WINDOWS_WORKER_CACHE", cache),
+                mock.patch.object(telemetry, "_windows_worker_probe", side_effect=probe),
+            ):
                 results = []
-                workers = [threading.Thread(target=lambda: results.append(
-                    telemetry._windows_worker(now)[0]["state"])) for _ in range(8)]
+                workers = [
+                    threading.Thread(target=lambda: results.append(telemetry._windows_worker(now)[0]["state"]))
+                    for _ in range(8)
+                ]
                 for worker in workers:
                     worker.start()
                 for worker in workers:
@@ -974,22 +1243,26 @@ class TelemetryParsingTests(unittest.TestCase):
             command = Path(temp) / "chami-dispatch"
             command.write_text("test fixture")
             command.chmod(0o700)
-            with mock.patch.object(telemetry, "_WINDOWS_WORKER_CMD", command), \
-                 mock.patch.object(telemetry, "_windows_worker_reader_blocked", return_value=False), \
-                 mock.patch.object(telemetry, "_bounded_command",
-                                   side_effect=TimeoutError("SMB stalled")) as bounded:
+            with (
+                mock.patch.object(telemetry, "_WINDOWS_WORKER_CMD", command),
+                mock.patch.object(telemetry, "_windows_worker_reader_blocked", return_value=False),
+                mock.patch.object(telemetry, "_bounded_command", side_effect=TimeoutError("SMB stalled")) as bounded,
+            ):
                 self.assertIsNone(telemetry._windows_worker_probe())
-            self.assertEqual(bounded.call_args.kwargs["timeout"],
-                             telemetry._WINDOWS_WORKER_COMMAND_TIMEOUT)
+            self.assertEqual(bounded.call_args.kwargs["timeout"], telemetry._WINDOWS_WORKER_COMMAND_TIMEOUT)
             self.assertGreater(telemetry._WINDOWS_WORKER_COMMAND_TIMEOUT, 3.0)
 
     def test_windows_worker_skips_probe_while_another_owner_read_holds_sharedchami_gate(self):
         self.assertTrue(telemetry._WINDOWS_WORKER_IO_LOCK.acquire(blocking=False))
         try:
-            with mock.patch.object(telemetry, "_windows_worker_reader_blocked",
-                                   side_effect=AssertionError("must not inspect or dispatch")), \
-                 mock.patch.object(telemetry, "_bounded_command",
-                                   side_effect=AssertionError("must not read SMB")):
+            with (
+                mock.patch.object(
+                    telemetry,
+                    "_windows_worker_reader_blocked",
+                    side_effect=AssertionError("must not inspect or dispatch"),
+                ),
+                mock.patch.object(telemetry, "_bounded_command", side_effect=AssertionError("must not read SMB")),
+            ):
                 with self.assertRaises(telemetry._WindowsWorkerBusy):
                     telemetry._windows_worker_probe()
         finally:
@@ -997,12 +1270,19 @@ class TelemetryParsingTests(unittest.TestCase):
 
     def test_windows_worker_pauses_before_dispatch_when_smb_reader_is_uninterruptible(self):
         now = time.time()
-        cache = {"checkedMonotonic": float("-inf"), "heartbeatUnix": None,
-                 "modelsAdvertised": [], "modelCount": 0, "probeRunning": False}
+        cache = {
+            "checkedMonotonic": float("-inf"),
+            "heartbeatUnix": None,
+            "modelsAdvertised": [],
+            "modelCount": 0,
+            "probeRunning": False,
+        }
         reader = f"{telemetry._WINDOWS_WORKER_CMD} _io-child"
         listing = f"{os.getuid()} U /usr/bin/python3 -I -S {reader}\n"
-        with mock.patch.object(telemetry, "_WINDOWS_WORKER_CACHE", cache), \
-             mock.patch.object(telemetry, "_bounded_command", return_value=listing) as bounded:
+        with (
+            mock.patch.object(telemetry, "_WINDOWS_WORKER_CACHE", cache),
+            mock.patch.object(telemetry, "_bounded_command", return_value=listing) as bounded,
+        ):
             telemetry._windows_worker(now)
             self._wait_for_windows_probe(cache)
             worker, source = telemetry._windows_worker(now + 1)
@@ -1015,8 +1295,7 @@ class TelemetryParsingTests(unittest.TestCase):
             self.assertTrue(all(call.args[0][0] == "/bin/ps" for call in bounded.call_args_list))
 
     def test_windows_worker_releases_shared_gate_when_reader_guard_raises(self):
-        with mock.patch.object(telemetry, "_windows_worker_reader_blocked",
-                               side_effect=RuntimeError("guard failure")):
+        with mock.patch.object(telemetry, "_windows_worker_reader_blocked", side_effect=RuntimeError("guard failure")):
             with self.assertRaises(RuntimeError):
                 telemetry._windows_worker_probe()
         self.assertTrue(telemetry._WINDOWS_WORKER_IO_LOCK.acquire(blocking=False))
@@ -1027,19 +1306,23 @@ class TelemetryParsingTests(unittest.TestCase):
         matched = f"/usr/bin/python3 -I -S {path} --probe"
         matched_readonly = f"/usr/bin/python3 -I -S {path} --probe-read-only"
         unrelated = f"/usr/bin/python3 -I -S {path}.other --probe"
-        for state, command, expected in (("U", matched, True),
-                                         ("U", matched_readonly, True),
-                                         ("S", matched, False),
-                                         ("U", unrelated, False)):
-            with self.subTest(state=state, command=command), \
-                 mock.patch.object(telemetry, "_bounded_command",
-                                   return_value=f"{os.getuid()} {state} {command}\n"):
+        for state, command, expected in (
+            ("U", matched, True),
+            ("U", matched_readonly, True),
+            ("S", matched, False),
+            ("U", unrelated, False),
+        ):
+            with (
+                self.subTest(state=state, command=command),
+                mock.patch.object(telemetry, "_bounded_command", return_value=f"{os.getuid()} {state} {command}\n"),
+            ):
                 self.assertEqual(telemetry._windows_worker_reader_blocked(), expected)
 
     def test_windows_worker_reader_inspection_is_local_and_fails_closed(self):
         reader = f"{telemetry._WINDOWS_WORKER_CMD} _io-child"
-        with mock.patch.object(telemetry, "_bounded_command",
-                               return_value=f"{os.getuid()} S /usr/bin/python3 -I -S {reader}\n"):
+        with mock.patch.object(
+            telemetry, "_bounded_command", return_value=f"{os.getuid()} S /usr/bin/python3 -I -S {reader}\n"
+        ):
             self.assertFalse(telemetry._windows_worker_reader_blocked())
         with mock.patch.object(telemetry, "_bounded_command", side_effect=TimeoutError("ps stalled")):
             self.assertTrue(telemetry._windows_worker_reader_blocked())
@@ -1048,10 +1331,17 @@ class TelemetryParsingTests(unittest.TestCase):
 
     def test_windows_worker_failed_probe_backs_off_without_repeating_queue_read(self):
         now = time.time()
-        cache = {"checkedMonotonic": float("-inf"), "heartbeatUnix": None,
-                 "modelsAdvertised": [], "modelCount": 0, "probeRunning": False}
-        with mock.patch.object(telemetry, "_WINDOWS_WORKER_CACHE", cache), \
-             mock.patch.object(telemetry, "_windows_worker_probe", return_value=None) as probe:
+        cache = {
+            "checkedMonotonic": float("-inf"),
+            "heartbeatUnix": None,
+            "modelsAdvertised": [],
+            "modelCount": 0,
+            "probeRunning": False,
+        }
+        with (
+            mock.patch.object(telemetry, "_WINDOWS_WORKER_CACHE", cache),
+            mock.patch.object(telemetry, "_windows_worker_probe", return_value=None) as probe,
+        ):
             telemetry._windows_worker(now)
             self._wait_for_windows_probe(cache)
             cache["checkedMonotonic"] = time.monotonic() - telemetry._WINDOWS_WORKER_POLL_SECONDS
@@ -1084,28 +1374,36 @@ class TelemetryParsingTests(unittest.TestCase):
                 "time.sleep(600)\n"
             )
             command.chmod(0o700)
-            cache = {"checkedMonotonic": float("-inf"), "heartbeatUnix": None,
-                     "modelsAdvertised": [], "modelCount": 0, "probeRunning": False}
+            cache = {
+                "checkedMonotonic": float("-inf"),
+                "heartbeatUnix": None,
+                "modelsAdvertised": [],
+                "modelCount": 0,
+                "probeRunning": False,
+            }
             reader = None
             try:
                 telemetry._WINDOWS_WORKER_CANCEL.clear()
-                with mock.patch.object(telemetry, "_WINDOWS_WORKER_CMD", command), \
-                     mock.patch.object(telemetry, "_WINDOWS_WORKER_COMMAND_TIMEOUT", command_timeout), \
-                     mock.patch.object(telemetry, "_windows_worker_reader_blocked", return_value=False), \
-                     mock.patch.object(telemetry, "_WINDOWS_WORKER_CACHE", cache):
+                with (
+                    mock.patch.object(telemetry, "_WINDOWS_WORKER_CMD", command),
+                    mock.patch.object(telemetry, "_WINDOWS_WORKER_COMMAND_TIMEOUT", command_timeout),
+                    mock.patch.object(telemetry, "_windows_worker_reader_blocked", return_value=False),
+                    mock.patch.object(telemetry, "_WINDOWS_WORKER_CACHE", cache),
+                ):
                     telemetry._windows_worker(time.time())
                     deadline = time.monotonic() + generous
                     while not marker.exists() and time.monotonic() < deadline:
-                        time.sleep(.01)
+                        time.sleep(0.01)
                     self.assertTrue(marker.exists(), "the nested reader never started")
                     reader = int(marker.read_text())
-                    os.kill(reader, 0)                       # the nested reader is running
-                    self.assertTrue(cache["probeRunning"])   # and the probe is still reading
+                    os.kill(reader, 0)  # the nested reader is running
+                    self.assertTrue(cache["probeRunning"])  # and the probe is still reading
                     start = time.monotonic()
                     # The default wait is what the server's exit path uses; a loaded machine may
                     # need longer, so a slow first answer is retried against the generous bound.
-                    stopped = (telemetry.stop_windows_worker_probe()
-                               or telemetry.stop_windows_worker_probe(timeout=generous))
+                    stopped = telemetry.stop_windows_worker_probe() or telemetry.stop_windows_worker_probe(
+                        timeout=generous
+                    )
                     self.assertTrue(stopped)
                     # Far inside the command deadline: cancellation ended it, not the timeout.
                     self.assertLess(time.monotonic() - start, command_timeout / 2)
@@ -1113,7 +1411,7 @@ class TelemetryParsingTests(unittest.TestCase):
                     # The whole process group was killed, the nested reader included.
                     deadline = time.monotonic() + generous
                     while self._process_exists(reader) and time.monotonic() < deadline:
-                        time.sleep(.01)
+                        time.sleep(0.01)
                     self.assertFalse(self._process_exists(reader), "the nested reader outlived the probe")
             finally:
                 telemetry.stop_windows_worker_probe(timeout=generous)
@@ -1138,13 +1436,16 @@ class TelemetryParsingTests(unittest.TestCase):
 
             def close(self):
                 pass
+
         cancel = threading.Event()
         command = [sys.executable, "-B", "-c", "import time;time.sleep(600)"]
-        with mock.patch.object(telemetry.selectors, "DefaultSelector", Selector), \
-                mock.patch.object(telemetry.os, "killpg", wraps=os.killpg) as killpg, \
-                self.assertRaisesRegex(TimeoutError, "cancelled"):
+        with (
+            mock.patch.object(telemetry.selectors, "DefaultSelector", Selector),
+            mock.patch.object(telemetry.os, "killpg", wraps=os.killpg) as killpg,
+            self.assertRaisesRegex(TimeoutError, "cancelled"),
+        ):
             telemetry._bounded_command(command, timeout=300.0, cancel=cancel)
-        self.assertEqual(len(waits), 3)                  # noticed on the very next look
+        self.assertEqual(len(waits), 3)  # noticed on the very next look
         self.assertTrue(all(0 < wait <= 0.05 for wait in waits), waits)
         killpg.assert_called_once_with(mock.ANY, signal.SIGKILL)
 
@@ -1160,11 +1461,17 @@ class TelemetryParsingTests(unittest.TestCase):
 
     def test_unexpected_windows_probe_error_is_generic_and_observable(self):
         now = time.time()
-        cache = {"checkedMonotonic": float("-inf"), "heartbeatUnix": None,
-                 "modelsAdvertised": [], "modelCount": 0, "probeRunning": False}
-        with mock.patch.object(telemetry, "_WINDOWS_WORKER_CACHE", cache), \
-             mock.patch.object(telemetry, "_windows_worker_probe",
-                               side_effect=RuntimeError("PRIVATE WINDOWS PATH")):
+        cache = {
+            "checkedMonotonic": float("-inf"),
+            "heartbeatUnix": None,
+            "modelsAdvertised": [],
+            "modelCount": 0,
+            "probeRunning": False,
+        }
+        with (
+            mock.patch.object(telemetry, "_WINDOWS_WORKER_CACHE", cache),
+            mock.patch.object(telemetry, "_windows_worker_probe", side_effect=RuntimeError("PRIVATE WINDOWS PATH")),
+        ):
             telemetry._windows_worker(now)
             self._wait_for_windows_probe(cache)
             worker, source = telemetry._windows_worker(now + 1)
@@ -1175,10 +1482,17 @@ class TelemetryParsingTests(unittest.TestCase):
 
     def test_windows_probe_thread_start_failure_is_inconclusive(self):
         now = time.time()
-        cache = {"checkedMonotonic": float("-inf"), "heartbeatUnix": None,
-                 "modelsAdvertised": [], "modelCount": 0, "probeRunning": False}
-        with mock.patch.object(telemetry, "_WINDOWS_WORKER_CACHE", cache), \
-             mock.patch.object(threading.Thread, "start", side_effect=RuntimeError("private")):
+        cache = {
+            "checkedMonotonic": float("-inf"),
+            "heartbeatUnix": None,
+            "modelsAdvertised": [],
+            "modelCount": 0,
+            "probeRunning": False,
+        }
+        with (
+            mock.patch.object(telemetry, "_WINDOWS_WORKER_CACHE", cache),
+            mock.patch.object(threading.Thread, "start", side_effect=RuntimeError("private")),
+        ):
             worker, source = telemetry._windows_worker(now)
         self.assertEqual(worker["state"], "unknown")
         self.assertEqual(source["state"], "error")
@@ -1197,8 +1511,10 @@ class TelemetryParsingTests(unittest.TestCase):
                 "'models': ['gpt-oss-20b']}))\n"
             )
             command.chmod(0o700)
-            with mock.patch.object(telemetry, "_WINDOWS_WORKER_CMD", command), \
-                 mock.patch.object(telemetry, "_windows_worker_reader_blocked", return_value=False):
+            with (
+                mock.patch.object(telemetry, "_WINDOWS_WORKER_CMD", command),
+                mock.patch.object(telemetry, "_windows_worker_reader_blocked", return_value=False),
+            ):
                 result = telemetry._windows_worker_probe()
             self.assertIsNotNone(result)
             self.assertEqual(result[1:4], (["gpt-oss-20b"], 1, None))
@@ -1206,20 +1522,43 @@ class TelemetryParsingTests(unittest.TestCase):
     @staticmethod
     def _route_record(run_id, stage, started, recorded, evidence):
         """A whole legacy router record (the closed envelope the router writes)."""
-        return {"schemaVersion": 1, "runId": run_id, "inputSha256": "a" * 64, "stage": stage, "sequence": 1,
-                "startedUnix": started,
-                "checkpoint": {"schemaVersion": 1, "runId": run_id, "inputSha256": "a" * 64, "sequence": 1,
-                               "stage": stage, "recordedUnix": recorded, "evidence": evidence}}
+        return {
+            "schemaVersion": 1,
+            "runId": run_id,
+            "inputSha256": "a" * 64,
+            "stage": stage,
+            "sequence": 1,
+            "startedUnix": started,
+            "checkpoint": {
+                "schemaVersion": 1,
+                "runId": run_id,
+                "inputSha256": "a" * 64,
+                "sequence": 1,
+                "stage": stage,
+                "recordedUnix": recorded,
+                "evidence": evidence,
+            },
+        }
 
     def test_pipeline_stale_record_is_not_active_and_text_is_projected_away(self):
         with tempfile.TemporaryDirectory() as temp:
             active = Path(temp) / "active.json"
-            active.write_text(json.dumps(self._route_record(
-                "safe-run-1", "backend_draft", time.time() - 3600, time.time() - 3600,
-                {"recoveryRequired": False, "prompt": "private prompt text"})))
+            active.write_text(
+                json.dumps(
+                    self._route_record(
+                        "safe-run-1",
+                        "backend_draft",
+                        time.time() - 3600,
+                        time.time() - 3600,
+                        {"recoveryRequired": False, "prompt": "private prompt text"},
+                    )
+                )
+            )
             active.chmod(0o600)
-            with mock.patch.object(telemetry, "_ACTIVE_PATH", active), \
-                 mock.patch.object(telemetry, "_PENDING_PATH", Path(temp) / "absent.json"):
+            with (
+                mock.patch.object(telemetry, "_ACTIVE_PATH", active),
+                mock.patch.object(telemetry, "_PENDING_PATH", Path(temp) / "absent.json"),
+            ):
                 pipeline, source = telemetry._pipeline(time.time())
         self.assertEqual(pipeline["status"], "stale")
         self.assertEqual(pipeline["steps"][0]["state"], "unknown")
@@ -1235,9 +1574,11 @@ class TelemetryParsingTests(unittest.TestCase):
             pending = Path(temp) / "pending.json"
             pending.write_text(raw if raw is not None else json.dumps(marker))
             pending.chmod(mode)
-            with mock.patch.object(telemetry, "_ACTIVE_PATH", Path(temp) / "absent-active.json"), \
-                 mock.patch.object(telemetry, "_PENDING_PATH", pending), \
-                 mock.patch.object(telemetry, "_router_namespace_initialized", return_value=True):
+            with (
+                mock.patch.object(telemetry, "_ACTIVE_PATH", Path(temp) / "absent-active.json"),
+                mock.patch.object(telemetry, "_PENDING_PATH", pending),
+                mock.patch.object(telemetry, "_router_namespace_initialized", return_value=True),
+            ):
                 return telemetry._pipeline(1_000_000.0)
 
     def test_pending_marker_age_and_owner_are_projected_without_its_digest(self):
@@ -1250,19 +1591,28 @@ class TelemetryParsingTests(unittest.TestCase):
         self.assertEqual(pipeline["pendingMarkerAgeSeconds"], 33_000)
         self.assertEqual(pipeline["pendingMarkerOwner"], "anonymous (legacy)")
         self.assertNotIn(digest[:12], json.dumps(pipeline) + json.dumps(source))
-        router = {**legacy, "started_unix": 1_000_000 - 900, "runId": "marketscout.brainstorm.20260926.qwen", "operation": "answer"}
+        router = {
+            **legacy,
+            "started_unix": 1_000_000 - 900,
+            "runId": "marketscout.brainstorm.20260926.qwen",
+            "operation": "answer",
+        }
         pipeline, _ = self._pending_pipeline(router)
-        self.assertEqual((pipeline["pendingMarkerAgeSeconds"], pipeline["pendingMarkerOwner"]),
-                         (900, "marketscout.brainstorm.20260926.qwen"))
+        self.assertEqual(
+            (pipeline["pendingMarkerAgeSeconds"], pipeline["pendingMarkerOwner"]),
+            (900, "marketscout.brainstorm.20260926.qwen"),
+        )
 
     def test_unrecognized_or_future_pending_marker_still_requires_recovery_but_reports_no_numbers(self):
         base = {"kind": "codemode.nisi.pending.v1", "started_unix": 1_000_000.0 - 600, "input_sha256": "a" * 64}
-        for marker in ({**base, "started_unix": 1_000_000.0 + 3600},          # future-dated
-                       {**base, "kind": "other"},                             # wrong kind
-                       {**base, "extra": 1},                                  # unknown key
-                       {**base, "started_unix": "600"},                       # not a number
-                       {**base, "runId": "bad run id!", "operation": "answer"},  # malformed owner
-                       {**base, "runId": "ok-run"}):                          # router form missing a key
+        for marker in (
+            {**base, "started_unix": 1_000_000.0 + 3600},  # future-dated
+            {**base, "kind": "other"},  # wrong kind
+            {**base, "extra": 1},  # unknown key
+            {**base, "started_unix": "600"},  # not a number
+            {**base, "runId": "bad run id!", "operation": "answer"},  # malformed owner
+            {**base, "runId": "ok-run"},
+        ):  # router form missing a key
             with self.subTest(marker=marker):
                 pipeline, _ = self._pending_pipeline(marker)
                 self.assertTrue(pipeline["pendingMarkerObserved"])
@@ -1276,10 +1626,12 @@ class TelemetryParsingTests(unittest.TestCase):
         self.assertFalse(pipeline["pendingMarkerObserved"])
 
     def test_no_pending_marker_leaves_its_facts_unknown(self):
-        with tempfile.TemporaryDirectory() as temp, \
-             mock.patch.object(telemetry, "_ACTIVE_PATH", Path(temp) / "absent-active.json"), \
-             mock.patch.object(telemetry, "_PENDING_PATH", Path(temp) / "absent.json"), \
-             mock.patch.object(telemetry, "_router_namespace_initialized", return_value=True):
+        with (
+            tempfile.TemporaryDirectory() as temp,
+            mock.patch.object(telemetry, "_ACTIVE_PATH", Path(temp) / "absent-active.json"),
+            mock.patch.object(telemetry, "_PENDING_PATH", Path(temp) / "absent.json"),
+            mock.patch.object(telemetry, "_router_namespace_initialized", return_value=True),
+        ):
             pipeline, _ = telemetry._pipeline(time.time())
         self.assertEqual(pipeline["status"], "idle")
         self.assertEqual((pipeline["pendingMarkerAgeSeconds"], pipeline["pendingMarkerOwner"]), (None, None))
@@ -1287,11 +1639,18 @@ class TelemetryParsingTests(unittest.TestCase):
     def test_router_freshness_uses_checkpoint_time_and_never_infers_prior_completion(self):
         with tempfile.TemporaryDirectory() as temp:
             active = Path(temp) / "active.json"
-            active.write_text(json.dumps(self._route_record(
-                "safe-run-2", "backend_review", time.time() - 7200, time.time() - 10, {"recoveryRequired": True})))
+            active.write_text(
+                json.dumps(
+                    self._route_record(
+                        "safe-run-2", "backend_review", time.time() - 7200, time.time() - 10, {"recoveryRequired": True}
+                    )
+                )
+            )
             active.chmod(0o600)
-            with mock.patch.object(telemetry, "_ACTIVE_PATH", active), \
-                 mock.patch.object(telemetry, "_PENDING_PATH", Path(temp) / "absent.json"):
+            with (
+                mock.patch.object(telemetry, "_ACTIVE_PATH", active),
+                mock.patch.object(telemetry, "_PENDING_PATH", Path(temp) / "absent.json"),
+            ):
                 pipeline, source = telemetry._pipeline(time.time())
         self.assertEqual(source["state"], "live")
         self.assertLess(pipeline["ageSeconds"], 30)
@@ -1301,11 +1660,13 @@ class TelemetryParsingTests(unittest.TestCase):
         self.assertFalse(any(step["state"] == "complete" for step in pipeline["steps"]))
 
     def test_cli_context_is_kept_and_api_context_only_fills_missing_value(self):
-        api = telemetry._parse_api({"models": [{"key": "provider/model",
-                                                 "loaded_instances": [{"id": "i"}],
-                                                 "max_context_length": 128}]}, time.time())[0]
-        cli = telemetry._parse_lms({"models": [{"identifier": "provider/model",
-                                                 "contextLength": 4096}]}, time.time())[0]
+        api = telemetry._parse_api(
+            {"models": [{"key": "provider/model", "loaded_instances": [{"id": "i"}], "max_context_length": 128}]},
+            time.time(),
+        )[0]
+        cli = telemetry._parse_lms({"models": [{"identifier": "provider/model", "contextLength": 4096}]}, time.time())[
+            0
+        ]
         merged = {api["id"]: api}
         telemetry._merge_cli_rows(merged, [cli])
         self.assertEqual(merged["provider/model"]["context"], 4096)
@@ -1321,8 +1682,10 @@ class TelemetryParsingTests(unittest.TestCase):
             fixed.parent.mkdir(parents=True)
             fixed.write_text("stub")
             fixed.chmod(0o700)
-            with mock.patch.object(telemetry.shutil, "which", return_value=None), \
-                 mock.patch.object(telemetry, "_HOME", home):
+            with (
+                mock.patch.object(telemetry.shutil, "which", return_value=None),
+                mock.patch.object(telemetry, "_HOME", home),
+            ):
                 self.assertEqual(telemetry._find_lms(), str(fixed))
 
     def test_malformed_pipeline_state_fails_closed(self):
@@ -1330,8 +1693,10 @@ class TelemetryParsingTests(unittest.TestCase):
             active = Path(temp) / "active.json"
             active.write_text("not-json")
             active.chmod(0o600)
-            with mock.patch.object(telemetry, "_ACTIVE_PATH", active), \
-                 mock.patch.object(telemetry, "_PENDING_PATH", Path(temp) / "absent.json"):
+            with (
+                mock.patch.object(telemetry, "_ACTIVE_PATH", active),
+                mock.patch.object(telemetry, "_PENDING_PATH", Path(temp) / "absent.json"),
+            ):
                 pipeline, source = telemetry._pipeline(time.time())
         self.assertEqual(pipeline["status"], "unknown")
         self.assertEqual(source["state"], "error")
@@ -1345,9 +1710,11 @@ class TelemetryParsingTests(unittest.TestCase):
             (root / "checkpoints").mkdir(mode=0o700)
             (root / "owner.lock").write_text("")
             (root / "owner.lock").chmod(0o600)
-            with mock.patch.object(telemetry, "_ACTIVE_PATH", root / "active.json"), \
-                 mock.patch.object(telemetry, "_ROUTER_ROOT", root), \
-                 mock.patch.object(telemetry, "_PENDING_PATH", Path(temp) / "absent.json"):
+            with (
+                mock.patch.object(telemetry, "_ACTIVE_PATH", root / "active.json"),
+                mock.patch.object(telemetry, "_ROUTER_ROOT", root),
+                mock.patch.object(telemetry, "_PENDING_PATH", Path(temp) / "absent.json"),
+            ):
                 pipeline, source = telemetry._pipeline(time.time())
         self.assertIsNone(pipeline["runId"])
         self.assertEqual(pipeline["status"], "idle")
@@ -1356,9 +1723,11 @@ class TelemetryParsingTests(unittest.TestCase):
     def test_absent_router_namespace_is_unknown_not_idle(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp) / "missing-router"
-            with mock.patch.object(telemetry, "_ACTIVE_PATH", root / "active.json"), \
-                 mock.patch.object(telemetry, "_ROUTER_ROOT", root), \
-                 mock.patch.object(telemetry, "_PENDING_PATH", Path(temp) / "absent.json"):
+            with (
+                mock.patch.object(telemetry, "_ACTIVE_PATH", root / "active.json"),
+                mock.patch.object(telemetry, "_ROUTER_ROOT", root),
+                mock.patch.object(telemetry, "_PENDING_PATH", Path(temp) / "absent.json"),
+            ):
                 pipeline, source = telemetry._pipeline(time.time())
         self.assertIsNone(pipeline["runId"])
         self.assertEqual(pipeline["status"], "unknown")
@@ -1375,19 +1744,47 @@ class TelemetryParsingTests(unittest.TestCase):
                 telemetry._safe_file(link, 4096)
 
     def test_snapshot_falls_back_to_cli_and_drops_untrusted_fields(self):
-        cli = {"models": [{"identifier": "model-a", "displayName": "Model A",
-                           "status": "idle", "queued": 0,
-                           "prompt": "private prompt", "source": "private source"}]}
-        with mock.patch.object(telemetry, "_bounded_http", side_effect=OSError("offline")), \
-             mock.patch.object(telemetry, "_bounded_lms", return_value=cli), \
-             mock.patch.object(telemetry, "_windows_worker", return_value=_NO_WINDOWS_WORKER), \
-             mock.patch.object(telemetry, "_pipeline", return_value=(
-                 {"runId": None, "status": "idle", "stage": None, "recoveryRequired": False,
-                  "ageSeconds": None, "steps": [],
-                  "usage": {"inputTokens": None, "outputTokens": None, "totalTokens": None},
-                  "authorModel": None, "reviewerModel": None},
-                 {"id": "pipeline-router", "label": "Pipeline", "state": "unavailable",
-                  "ageSeconds": None, "detail": "Unavailable"})):
+        cli = {
+            "models": [
+                {
+                    "identifier": "model-a",
+                    "displayName": "Model A",
+                    "status": "idle",
+                    "queued": 0,
+                    "prompt": "private prompt",
+                    "source": "private source",
+                }
+            ]
+        }
+        with (
+            mock.patch.object(telemetry, "_bounded_http", side_effect=OSError("offline")),
+            mock.patch.object(telemetry, "_bounded_lms", return_value=cli),
+            mock.patch.object(telemetry, "_windows_worker", return_value=_NO_WINDOWS_WORKER),
+            mock.patch.object(
+                telemetry,
+                "_pipeline",
+                return_value=(
+                    {
+                        "runId": None,
+                        "status": "idle",
+                        "stage": None,
+                        "recoveryRequired": False,
+                        "ageSeconds": None,
+                        "steps": [],
+                        "usage": {"inputTokens": None, "outputTokens": None, "totalTokens": None},
+                        "authorModel": None,
+                        "reviewerModel": None,
+                    },
+                    {
+                        "id": "pipeline-router",
+                        "label": "Pipeline",
+                        "state": "unavailable",
+                        "ageSeconds": None,
+                        "detail": "Unavailable",
+                    },
+                ),
+            ),
+        ):
             result = telemetry.collect_snapshot()
         self.assertEqual(result["models"][0]["state"], "idle")
         self.assertEqual(result["models"][0]["loaded"], True)
@@ -1398,41 +1795,74 @@ class TelemetryParsingTests(unittest.TestCase):
 
     def test_activity_is_downgraded_when_cli_source_fails(self):
         api = {"models": [{"key": "model-a", "loaded_instances": [{"id": "x"}]}]}
-        with mock.patch.object(telemetry, "_bounded_http", return_value=api), \
-             mock.patch.object(telemetry, "_bounded_lms", side_effect=TimeoutError()), \
-             mock.patch.object(telemetry, "_windows_worker", return_value=_NO_WINDOWS_WORKER), \
-             mock.patch.object(telemetry, "_pipeline", return_value=(
-                 {"runId": None, "status": "idle", "stage": None, "recoveryRequired": False,
-                  "ageSeconds": None, "steps": [],
-                  "usage": {"inputTokens": None, "outputTokens": None, "totalTokens": None},
-                  "authorModel": None, "reviewerModel": None},
-                 {"id": "pipeline-router", "label": "Pipeline", "state": "unavailable",
-                  "ageSeconds": None, "detail": "Unavailable"})):
+        with (
+            mock.patch.object(telemetry, "_bounded_http", return_value=api),
+            mock.patch.object(telemetry, "_bounded_lms", side_effect=TimeoutError()),
+            mock.patch.object(telemetry, "_windows_worker", return_value=_NO_WINDOWS_WORKER),
+            mock.patch.object(
+                telemetry,
+                "_pipeline",
+                return_value=(
+                    {
+                        "runId": None,
+                        "status": "idle",
+                        "stage": None,
+                        "recoveryRequired": False,
+                        "ageSeconds": None,
+                        "steps": [],
+                        "usage": {"inputTokens": None, "outputTokens": None, "totalTokens": None},
+                        "authorModel": None,
+                        "reviewerModel": None,
+                    },
+                    {
+                        "id": "pipeline-router",
+                        "label": "Pipeline",
+                        "state": "unavailable",
+                        "ageSeconds": None,
+                        "detail": "Unavailable",
+                    },
+                ),
+            ),
+        ):
             result = telemetry.collect_snapshot()
         self.assertEqual(result["models"][0]["state"], "loaded")
         self.assertIsNone(result["models"][0]["queued"])
         self.assertEqual(result["sources"][1]["state"], "unavailable")
 
     def test_private_v02_projection_is_separate_and_reader_failure_preserves_runtime(self):
-        status = {"schemaVersion": 1, "integration": "private-local-orchestration-route",
-                  "runtimeIntegrity": "VERIFIED", "hostBinding": "DRIFT",
-                  "liveInference": "UNKNOWN", "workflowAcceptance": "UNKNOWN",
-                  "releaseAcceptance": "NOT_ESTABLISHED"}
-        source = {"id": "nisi-v02-runtime", "label": "Nisi Inference private runtime",
-                  "state": "error", "ageSeconds": 120, "detail": "Host bridge changed"}
-        with mock.patch.object(telemetry, "_bounded_http", return_value={"models": []}), \
-             mock.patch.object(telemetry, "_bounded_lms", return_value={"models": []}), \
-             mock.patch.object(telemetry, "_windows_worker", return_value=_NO_WINDOWS_WORKER), \
-             mock.patch.object(telemetry, "collect_nisi_v02", return_value=(status, source)):
+        status = {
+            "schemaVersion": 1,
+            "integration": "private-local-orchestration-route",
+            "runtimeIntegrity": "VERIFIED",
+            "hostBinding": "DRIFT",
+            "liveInference": "UNKNOWN",
+            "workflowAcceptance": "UNKNOWN",
+            "releaseAcceptance": "NOT_ESTABLISHED",
+        }
+        source = {
+            "id": "nisi-v02-runtime",
+            "label": "Nisi Inference private runtime",
+            "state": "error",
+            "ageSeconds": 120,
+            "detail": "Host bridge changed",
+        }
+        with (
+            mock.patch.object(telemetry, "_bounded_http", return_value={"models": []}),
+            mock.patch.object(telemetry, "_bounded_lms", return_value={"models": []}),
+            mock.patch.object(telemetry, "_windows_worker", return_value=_NO_WINDOWS_WORKER),
+            mock.patch.object(telemetry, "collect_nisi_v02", return_value=(status, source)),
+        ):
             observed = telemetry.collect_snapshot()
         self.assertEqual(observed["nisiV02"], status)
         self.assertIn(source, observed["sources"])
         self.assertEqual(observed["components"][0]["label"], "Nisi route adapter")
 
-        with mock.patch.object(telemetry, "_bounded_http", return_value={"models": []}), \
-             mock.patch.object(telemetry, "_bounded_lms", return_value={"models": []}), \
-             mock.patch.object(telemetry, "_windows_worker", return_value=_NO_WINDOWS_WORKER), \
-             mock.patch.object(telemetry, "collect_nisi_v02", side_effect=RuntimeError("private failure")):
+        with (
+            mock.patch.object(telemetry, "_bounded_http", return_value={"models": []}),
+            mock.patch.object(telemetry, "_bounded_lms", return_value={"models": []}),
+            mock.patch.object(telemetry, "_windows_worker", return_value=_NO_WINDOWS_WORKER),
+            mock.patch.object(telemetry, "collect_nisi_v02", side_effect=RuntimeError("private failure")),
+        ):
             failed = telemetry.collect_snapshot()
         self.assertEqual(failed["nisiV02"]["runtimeIntegrity"], "UNKNOWN")
         self.assertEqual(failed["nisiV02"]["liveInference"], "UNKNOWN")
@@ -1471,12 +1901,14 @@ class WindowsJobsJournalTests(unittest.TestCase):
         self.assertEqual(source["state"], "unavailable")
 
     def test_in_flight_then_result_then_expiry(self):
-        self._journal([
-            self.rec("enqueued", self.JOB_A, 20, model="gpt-oss-20b", timeout=60, promptChars=9),
-            self.rec("enqueued", self.JOB_B, 50, model="Qwen3.8-27B Q4_K_M", timeout=60, promptChars=9),
-            self.rec("result", self.JOB_B, 10, status="success", model="Qwen3.8-27B Q4_K_M", elapsedSeconds=14.1),
-            self.rec("enqueued", self.JOB_C, 500, model="gpt-oss-20b", timeout=60, promptChars=9),
-        ])
+        self._journal(
+            [
+                self.rec("enqueued", self.JOB_A, 20, model="gpt-oss-20b", timeout=60, promptChars=9),
+                self.rec("enqueued", self.JOB_B, 50, model="Qwen3.8-27B Q4_K_M", timeout=60, promptChars=9),
+                self.rec("result", self.JOB_B, 10, status="success", model="Qwen3.8-27B Q4_K_M", elapsedSeconds=14.1),
+                self.rec("enqueued", self.JOB_C, 500, model="gpt-oss-20b", timeout=60, promptChars=9),
+            ]
+        )
         jobs, source = telemetry._windows_jobs(self.NOW)
         self.assertEqual([j["id"] for j in jobs["inFlight"]], [self.JOB_A])
         self.assertEqual(jobs["inFlight"][0]["timeoutSeconds"], 60)
@@ -1489,24 +1921,30 @@ class WindowsJobsJournalTests(unittest.TestCase):
         json.dumps(jobs, allow_nan=False)
 
     def test_result_after_unresolved_wins(self):
-        self._journal([
-            self.rec("enqueued", self.JOB_A, 300, timeout=60),
-            self.rec("unresolved", self.JOB_A, 200),
-            self.rec("result", self.JOB_A, 100, status="error", elapsedSeconds=61.0),
-        ])
+        self._journal(
+            [
+                self.rec("enqueued", self.JOB_A, 300, timeout=60),
+                self.rec("unresolved", self.JOB_A, 200),
+                self.rec("result", self.JOB_A, 100, status="error", elapsedSeconds=61.0),
+            ]
+        )
         jobs, _ = telemetry._windows_jobs(self.NOW)
         self.assertEqual(jobs["recent"][0]["state"], "error")
         self.assertIsNone(jobs["lastSuccess"])
 
     def test_invalid_records_are_ignored_without_leaking_values(self):
-        self._journal([
-            {"v": 2, "event": "enqueued", "id": self.JOB_A, "unix": self.NOW - 1},
-            {"v": 1, "event": "enqueued", "id": "../../etc/passwd", "unix": self.NOW - 1},
-            {"v": 1, "event": "shell", "id": self.JOB_A, "unix": self.NOW - 1},
-            {"v": 1, "event": "enqueued", "id": self.JOB_A, "unix": self.NOW + 999},
-            self.rec("enqueued", self.JOB_B, 5, model="bad\u0000model; rm -rf", timeout=10**9),
-            self.rec("result", self.JOB_C, 5, status="success", model="gpt-oss-20b", elapsedSeconds=float("inf")) | {"elapsedSeconds": 1e309},
-        ], raw_extra=b'{"v":1,"event":"result","id":"' + self.JOB_C.encode() + b'","unix":NaN}\n{"torn line')
+        self._journal(
+            [
+                {"v": 2, "event": "enqueued", "id": self.JOB_A, "unix": self.NOW - 1},
+                {"v": 1, "event": "enqueued", "id": "../../etc/passwd", "unix": self.NOW - 1},
+                {"v": 1, "event": "shell", "id": self.JOB_A, "unix": self.NOW - 1},
+                {"v": 1, "event": "enqueued", "id": self.JOB_A, "unix": self.NOW + 999},
+                self.rec("enqueued", self.JOB_B, 5, model="bad\u0000model; rm -rf", timeout=10**9),
+                self.rec("result", self.JOB_C, 5, status="success", model="gpt-oss-20b", elapsedSeconds=float("inf"))
+                | {"elapsedSeconds": 1e309},
+            ],
+            raw_extra=b'{"v":1,"event":"result","id":"' + self.JOB_C.encode() + b'","unix":NaN}\n{"torn line',
+        )
         jobs, _ = telemetry._windows_jobs(self.NOW)
         self.assertEqual([j["id"] for j in jobs["inFlight"]], [self.JOB_B])
         self.assertIsNone(jobs["inFlight"][0]["model"])
@@ -1531,8 +1969,7 @@ class WindowsJobsJournalTests(unittest.TestCase):
         self.assertEqual(jobs["journal"], "invalid")
 
     def test_tail_read_drops_partial_first_record(self):
-        filler = [self.rec("enqueued", "mac-20260925-070000-" + f"{i:032x}", 1000 + i, timeout=60)
-                  for i in range(3000)]
+        filler = [self.rec("enqueued", "mac-20260925-070000-" + f"{i:032x}", 1000 + i, timeout=60) for i in range(3000)]
         self._journal(filler + [self.rec("enqueued", self.JOB_A, 1, timeout=60)])
         jobs, _ = telemetry._windows_jobs(self.NOW)
         self.assertEqual([j["id"] for j in jobs["inFlight"]], [self.JOB_A])
@@ -1543,17 +1980,25 @@ class WindowsJobsJournalTests(unittest.TestCase):
         reader = f"{telemetry._WINDOWS_WORKER_CMD} _io-child"
         listing = (f"{os.getuid()} U /usr/bin/python3 -I -S {reader}\n") * 3
         # Python 3.9 on macOS starts time.monotonic() near zero per process.
-        cache = {"checkedMonotonic": time.monotonic() - telemetry._WINDOWS_WORKER_POLL_SECONDS - 1,
-                 "heartbeatUnix": None,
-                 "modelsAdvertised": [], "modelCount": 0, "probeRunning": False}
-        with mock.patch.object(telemetry, "_WINDOWS_WORKER_CACHE", cache), \
-             mock.patch.object(telemetry, "_bounded_command", return_value=listing), \
-             mock.patch.object(telemetry, "_bounded_http", side_effect=TimeoutError()), \
-             mock.patch.object(telemetry, "_bounded_lms", side_effect=TimeoutError()), \
-             mock.patch.object(telemetry, "_pipeline", return_value=({}, {"id": "router", "state": "unavailable"})), \
-             mock.patch.object(telemetry, "_online_code_mode", return_value={}), \
-             mock.patch.object(telemetry, "_canary", return_value=({}, {"id": "canary", "state": "unavailable"})), \
-             mock.patch.object(telemetry, "collect_nisi_v02", return_value=({}, {"id": "nisi-v02-runtime", "state": "unavailable"})):
+        cache = {
+            "checkedMonotonic": time.monotonic() - telemetry._WINDOWS_WORKER_POLL_SECONDS - 1,
+            "heartbeatUnix": None,
+            "modelsAdvertised": [],
+            "modelCount": 0,
+            "probeRunning": False,
+        }
+        with (
+            mock.patch.object(telemetry, "_WINDOWS_WORKER_CACHE", cache),
+            mock.patch.object(telemetry, "_bounded_command", return_value=listing),
+            mock.patch.object(telemetry, "_bounded_http", side_effect=TimeoutError()),
+            mock.patch.object(telemetry, "_bounded_lms", side_effect=TimeoutError()),
+            mock.patch.object(telemetry, "_pipeline", return_value=({}, {"id": "router", "state": "unavailable"})),
+            mock.patch.object(telemetry, "_online_code_mode", return_value={}),
+            mock.patch.object(telemetry, "_canary", return_value=({}, {"id": "canary", "state": "unavailable"})),
+            mock.patch.object(
+                telemetry, "collect_nisi_v02", return_value=({}, {"id": "nisi-v02-runtime", "state": "unavailable"})
+            ),
+        ):
             telemetry.collect_snapshot()
             deadline = time.monotonic() + 5
             while cache.get("probeRunning") and time.monotonic() < deadline:
@@ -1561,7 +2006,9 @@ class WindowsJobsJournalTests(unittest.TestCase):
             snapshot = telemetry.collect_snapshot()
         self.assertEqual(snapshot["windowsWorker"]["stuckReaders"], 3)
         self.assertIn("3 stuck SharedChami readers", snapshot["windowsWorker"]["detail"])
-        self.assertIn("open Model Tuning Tool > Check and repair inference > Run check", snapshot["windowsWorker"]["detail"])
+        self.assertIn(
+            "open Model Tuning Tool > Check and repair inference > Run check", snapshot["windowsWorker"]["detail"]
+        )
         self.assertEqual(len(snapshot["windowsJobs"]["inFlight"]), 1)
         self.assertEqual(snapshot["sources"][-1]["id"], "windows-jobs")
         self.assertEqual(snapshot["sources"][-1]["state"], "live")
@@ -1570,11 +2017,13 @@ class WindowsJobsJournalTests(unittest.TestCase):
     def test_job_whose_waiting_client_exited_is_not_in_flight(self):
         child = __import__("subprocess").Popen(["/usr/bin/true"])
         child.wait()
-        self._journal([
-            self.rec("enqueued", self.JOB_A, 5, timeout=60, pid=child.pid),
-            self.rec("enqueued", self.JOB_B, 5, timeout=60, pid=os.getpid()),
-            self.rec("enqueued", self.JOB_C, 5, timeout=60),
-        ])
+        self._journal(
+            [
+                self.rec("enqueued", self.JOB_A, 5, timeout=60, pid=child.pid),
+                self.rec("enqueued", self.JOB_B, 5, timeout=60, pid=os.getpid()),
+                self.rec("enqueued", self.JOB_C, 5, timeout=60),
+            ]
+        )
         jobs, _ = telemetry._windows_jobs(self.NOW)
         self.assertEqual(sorted(j["id"] for j in jobs["inFlight"]), sorted([self.JOB_B, self.JOB_C]))
         self.assertEqual([j["state"] for j in jobs["recent"] if j["id"] == self.JOB_A], ["unresolved"])
@@ -1582,8 +2031,13 @@ class WindowsJobsJournalTests(unittest.TestCase):
         self.assertEqual(jobs["unsettled"], 3)
 
     def test_hold_blocks_new_passive_reads_and_waits_for_the_running_one(self):
-        cache = {"checkedMonotonic": time.monotonic() - telemetry._WINDOWS_WORKER_POLL_SECONDS - 1,
-                 "heartbeatUnix": None, "modelsAdvertised": [], "modelCount": 0, "probeRunning": False}
+        cache = {
+            "checkedMonotonic": time.monotonic() - telemetry._WINDOWS_WORKER_POLL_SECONDS - 1,
+            "heartbeatUnix": None,
+            "modelsAdvertised": [],
+            "modelCount": 0,
+            "probeRunning": False,
+        }
         release = threading.Event()
         calls = []
 
@@ -1591,8 +2045,11 @@ class WindowsJobsJournalTests(unittest.TestCase):
             calls.append(1)
             release.wait(2)
             return None
-        with mock.patch.object(telemetry, "_WINDOWS_WORKER_CACHE", cache), \
-             mock.patch.object(telemetry, "_windows_worker_probe", side_effect=slow_probe):
+
+        with (
+            mock.patch.object(telemetry, "_WINDOWS_WORKER_CACHE", cache),
+            mock.patch.object(telemetry, "_windows_worker_probe", side_effect=slow_probe),
+        ):
             telemetry._windows_worker(time.time())
             threading.Timer(0.2, release.set).start()
             started = time.monotonic()
@@ -1608,55 +2065,87 @@ class WindowsJobsJournalTests(unittest.TestCase):
             self.assertFalse(telemetry._WINDOWS_WORKER_HOLD.is_set())
 
     def test_pause_wording_matches_the_observed_reason(self):
-        cases = ((telemetry._WindowsWorkerBusy(), "another monitor owner check is reading SharedChami", 0, False),
-                 (telemetry._WindowsWorkerPaused(), "cannot be ruled out", None, False),
-                 (telemetry._WindowsWorkerPaused(2), "2 stuck SharedChami readers", 2, True))
+        cases = (
+            (telemetry._WindowsWorkerBusy(), "another monitor owner check is reading SharedChami", 0, False),
+            (telemetry._WindowsWorkerPaused(), "cannot be ruled out", None, False),
+            (telemetry._WindowsWorkerPaused(2), "2 stuck SharedChami readers", 2, True),
+        )
         for exc, expected, stuck, recommends_fix in cases:
-            cache = {"checkedMonotonic": time.monotonic(), "heartbeatUnix": None,
-                     "modelsAdvertised": [], "modelCount": 0, "probeRunning": False}
+            cache = {
+                "checkedMonotonic": time.monotonic(),
+                "heartbeatUnix": None,
+                "modelsAdvertised": [],
+                "modelCount": 0,
+                "probeRunning": False,
+            }
             with mock.patch.object(telemetry, "_windows_worker_probe", side_effect=exc):
                 telemetry._windows_worker_refresh(cache)
             with mock.patch.object(telemetry, "_WINDOWS_WORKER_CACHE", cache):
                 worker, _ = telemetry._windows_worker(time.time())
             self.assertIn(expected, worker["detail"])
             self.assertEqual(worker["stuckReaders"], stuck)
-            self.assertEqual("Model Tuning Tool > Check and repair inference > Run check" in worker["detail"], recommends_fix)
+            self.assertEqual(
+                "Model Tuning Tool > Check and repair inference > Run check" in worker["detail"], recommends_fix
+            )
 
     def test_abandoned_job_settles_at_enqueue_and_never_outranks_a_later_success(self):
         child = __import__("subprocess").Popen(["/usr/bin/true"])
         child.wait()
-        self._journal([
-            self.rec("enqueued", self.JOB_A, 100, timeout=300, pid=child.pid),
-            self.rec("enqueued", self.JOB_B, 60, model="gpt-oss-20b", timeout=60),
-            self.rec("result", self.JOB_B, 50, status="success", model="gpt-oss-20b", elapsedSeconds=6.0),
-        ])
+        self._journal(
+            [
+                self.rec("enqueued", self.JOB_A, 100, timeout=300, pid=child.pid),
+                self.rec("enqueued", self.JOB_B, 60, model="gpt-oss-20b", timeout=60),
+                self.rec("result", self.JOB_B, 50, status="success", model="gpt-oss-20b", elapsedSeconds=6.0),
+            ]
+        )
         jobs, _ = telemetry._windows_jobs(self.NOW)
-        self.assertEqual([(j["id"], j["state"], j["ageSeconds"]) for j in jobs["recent"]],
-                         [(self.JOB_B, "success", 50.0), (self.JOB_A, "unresolved", 100.0)])
+        self.assertEqual(
+            [(j["id"], j["state"], j["ageSeconds"]) for j in jobs["recent"]],
+            [(self.JOB_B, "success", 50.0), (self.JOB_A, "unresolved", 100.0)],
+        )
 
     def test_held_heartbeat_reports_deferred_not_unverified(self):
-        cache = {"checkedMonotonic": time.monotonic() - telemetry._WINDOWS_WORKER_POLL_SECONDS - 1,
-                 "heartbeatUnix": time.time() - 61, "modelsAdvertised": ["gpt-oss-20b"], "modelCount": 1,
-                 "probeRunning": False}
-        with mock.patch.object(telemetry, "_WINDOWS_WORKER_CACHE", cache), \
-             mock.patch.object(telemetry, "_windows_worker_probe", side_effect=AssertionError("no read while held")):
+        cache = {
+            "checkedMonotonic": time.monotonic() - telemetry._WINDOWS_WORKER_POLL_SECONDS - 1,
+            "heartbeatUnix": time.time() - 61,
+            "modelsAdvertised": ["gpt-oss-20b"],
+            "modelCount": 1,
+            "probeRunning": False,
+        }
+        with (
+            mock.patch.object(telemetry, "_WINDOWS_WORKER_CACHE", cache),
+            mock.patch.object(telemetry, "_windows_worker_probe", side_effect=AssertionError("no read while held")),
+        ):
             with telemetry.hold_windows_worker_probe():
                 worker, _ = telemetry._windows_worker(time.time())
         self.assertIn("deferred", worker["detail"])
         self.assertFalse(cache.get("probeRunning"))
 
     def test_fresh_degraded_worker_is_reported_not_inconclusive(self):
-        payload = {"ok": False, "reason": "worker status degraded", "age": 12.0,
-                   "evidence_scope": telemetry._WINDOWS_WORKER_SCOPE, "models": [], "endpoints": {}}
-        cache = {"checkedMonotonic": time.monotonic(), "heartbeatUnix": None,
-                 "modelsAdvertised": ["old"], "modelCount": 1, "probeRunning": False}
+        payload = {
+            "ok": False,
+            "reason": "worker status degraded",
+            "age": 12.0,
+            "evidence_scope": telemetry._WINDOWS_WORKER_SCOPE,
+            "models": [],
+            "endpoints": {},
+        }
+        cache = {
+            "checkedMonotonic": time.monotonic(),
+            "heartbeatUnix": None,
+            "modelsAdvertised": ["old"],
+            "modelCount": 1,
+            "probeRunning": False,
+        }
         with tempfile.TemporaryDirectory() as temp:
             command = Path(temp) / "chami-dispatch"
             command.write_text("#!/bin/sh\n")
             command.chmod(0o700)
-            with mock.patch.object(telemetry, "_WINDOWS_WORKER_CMD", command), \
-                 mock.patch.object(telemetry, "_windows_worker_reader_blocked", return_value=False), \
-                 mock.patch.object(telemetry, "_bounded_command", return_value=json.dumps(payload)) as bounded:
+            with (
+                mock.patch.object(telemetry, "_WINDOWS_WORKER_CMD", command),
+                mock.patch.object(telemetry, "_windows_worker_reader_blocked", return_value=False),
+                mock.patch.object(telemetry, "_bounded_command", return_value=json.dumps(payload)) as bounded,
+            ):
                 telemetry._windows_worker_refresh(cache)
         self.assertEqual(bounded.call_args.kwargs["ok_codes"], (0, 2))
         with mock.patch.object(telemetry, "_WINDOWS_WORKER_CACHE", cache):
@@ -1669,34 +2158,70 @@ class WindowsJobsJournalTests(unittest.TestCase):
             self.assertNotIn(port, worker["detail"])
         self.assertEqual(source["state"], "error")
         payload["reason"] = "queue I/O unavailable or timed out"
-        with mock.patch.object(telemetry, "_windows_worker_reader_blocked", return_value=False), \
-             mock.patch.object(telemetry, "_WINDOWS_WORKER_CMD", Path("/nonexistent")):
+        with (
+            mock.patch.object(telemetry, "_windows_worker_reader_blocked", return_value=False),
+            mock.patch.object(telemetry, "_WINDOWS_WORKER_CMD", Path("/nonexistent")),
+        ):
             self.assertIsNone(telemetry._windows_worker_probe_locked())
 
-
     def test_job_rows_carry_validated_client_lane_and_speed(self):
-        self._journal([
-            self.rec("enqueued", self.JOB_A, 40, model="gpt-oss-20b", timeout=60, client="Claude", maxTokens=64),
-            self.rec("result", self.JOB_A, 30, status="success", model="gpt-oss-20b", elapsedSeconds=3.5,
-                     lane="amd", servedModel="openai/gpt-oss-20b", client="Claude", completionTokens=12,
-                     predictedPerSecond=41.5),
-            self.rec("enqueued", self.JOB_B, 20, model="Qwen3.8-27B Q4_K_M", timeout=60, client="codex"),
-            self.rec("result", self.JOB_B, 10, status="success", model="Qwen3.8-27B Q4_K_M", elapsedSeconds=9.0,
-                     lane="bionic", completionTokens=True, predictedPerSecond=1e7),
-            self.rec("enqueued", self.JOB_C, 5, model="gpt-oss-20b", timeout=60, client="rm -rf /; x"),
-        ])
+        self._journal(
+            [
+                self.rec("enqueued", self.JOB_A, 40, model="gpt-oss-20b", timeout=60, client="Claude", maxTokens=64),
+                self.rec(
+                    "result",
+                    self.JOB_A,
+                    30,
+                    status="success",
+                    model="gpt-oss-20b",
+                    elapsedSeconds=3.5,
+                    lane="amd",
+                    servedModel="openai/gpt-oss-20b",
+                    client="Claude",
+                    completionTokens=12,
+                    predictedPerSecond=41.5,
+                ),
+                self.rec("enqueued", self.JOB_B, 20, model="Qwen3.8-27B Q4_K_M", timeout=60, client="codex"),
+                self.rec(
+                    "result",
+                    self.JOB_B,
+                    10,
+                    status="success",
+                    model="Qwen3.8-27B Q4_K_M",
+                    elapsedSeconds=9.0,
+                    lane="bionic",
+                    completionTokens=True,
+                    predictedPerSecond=1e7,
+                ),
+                self.rec("enqueued", self.JOB_C, 5, model="gpt-oss-20b", timeout=60, client="rm -rf /; x"),
+            ]
+        )
         jobs, _ = telemetry._windows_jobs(self.NOW)
         self.assertEqual([row["id"] for row in jobs["inFlight"]], [self.JOB_C])
-        self.assertEqual({k: jobs["inFlight"][0][k] for k in ("client", "lane", "predictedPerSecond", "completionTokens")},
-                         {"client": None, "lane": "fast", "predictedPerSecond": None, "completionTokens": None})
+        self.assertEqual(
+            {k: jobs["inFlight"][0][k] for k in ("client", "lane", "predictedPerSecond", "completionTokens")},
+            {"client": None, "lane": "fast", "predictedPerSecond": None, "completionTokens": None},
+        )
         # In-flight rows know their lane from the requested model, so the map can light the lane live.
         rows = {row["id"]: row for row in jobs["recent"]}
-        self.assertEqual((rows[self.JOB_A]["client"], rows[self.JOB_A]["lane"],
-                          rows[self.JOB_A]["predictedPerSecond"], rows[self.JOB_A]["completionTokens"]),
-                         ("claude", "fast", 41.5, 12))
-        self.assertEqual((rows[self.JOB_B]["client"], rows[self.JOB_B]["lane"],
-                          rows[self.JOB_B]["predictedPerSecond"], rows[self.JOB_B]["completionTokens"]),
-                         ("codex", "deep", None, None))
+        self.assertEqual(
+            (
+                rows[self.JOB_A]["client"],
+                rows[self.JOB_A]["lane"],
+                rows[self.JOB_A]["predictedPerSecond"],
+                rows[self.JOB_A]["completionTokens"],
+            ),
+            ("claude", "fast", 41.5, 12),
+        )
+        self.assertEqual(
+            (
+                rows[self.JOB_B]["client"],
+                rows[self.JOB_B]["lane"],
+                rows[self.JOB_B]["predictedPerSecond"],
+                rows[self.JOB_B]["completionTokens"],
+            ),
+            ("codex", "deep", None, None),
+        )
         self.assertEqual(jobs["lastSuccess"]["lane"], "deep")
         self.assertEqual(jobs["clientsRecent"], {"codex": 1, "claude": 1})
         text = json.dumps(jobs, allow_nan=False)
@@ -1705,52 +2230,126 @@ class WindowsJobsJournalTests(unittest.TestCase):
 
     def test_result_rows_carry_prompt_speed_size_and_known_flags_within_bounds(self):
         # UI pass 26 Sep: the dispatcher journals promptPerSecond, promptTokens and flags on result events.
-        self._journal([
-            self.rec("enqueued", self.JOB_A, 40, model="gpt-oss-20b", timeout=60, client="codex"),
-            self.rec("result", self.JOB_A, 30, status="success", model="gpt-oss-20b", elapsedSeconds=1.5, lane="amd",
-                     predictedPerSecond=104.0, promptPerSecond=212.5, promptTokens=830, completionTokens=96,
-                     flags=["hit-token-limit", "rm -rf /", "hit-token-limit", 7]),
-            self.rec("enqueued", self.JOB_B, 20, model="Qwen3.8-27B Q4_K_M", timeout=60, client="claude"),
-            self.rec("result", self.JOB_B, 10, status="success", model="Qwen3.8-27B Q4_K_M", elapsedSeconds=9.0,
-                     lane="bionic", promptPerSecond=2e6, promptTokens=2**31, flags="hit-token-limit"),
-            self.rec("enqueued", self.JOB_C, 5, model="gpt-oss-20b", timeout=60, client="codex",
-                     flags=["hit-token-limit"], promptPerSecond=50.0),
-        ])
+        self._journal(
+            [
+                self.rec("enqueued", self.JOB_A, 40, model="gpt-oss-20b", timeout=60, client="codex"),
+                self.rec(
+                    "result",
+                    self.JOB_A,
+                    30,
+                    status="success",
+                    model="gpt-oss-20b",
+                    elapsedSeconds=1.5,
+                    lane="amd",
+                    predictedPerSecond=104.0,
+                    promptPerSecond=212.5,
+                    promptTokens=830,
+                    completionTokens=96,
+                    flags=["hit-token-limit", "rm -rf /", "hit-token-limit", 7],
+                ),
+                self.rec("enqueued", self.JOB_B, 20, model="Qwen3.8-27B Q4_K_M", timeout=60, client="claude"),
+                self.rec(
+                    "result",
+                    self.JOB_B,
+                    10,
+                    status="success",
+                    model="Qwen3.8-27B Q4_K_M",
+                    elapsedSeconds=9.0,
+                    lane="bionic",
+                    promptPerSecond=2e6,
+                    promptTokens=2**31,
+                    flags="hit-token-limit",
+                ),
+                self.rec(
+                    "enqueued",
+                    self.JOB_C,
+                    5,
+                    model="gpt-oss-20b",
+                    timeout=60,
+                    client="codex",
+                    flags=["hit-token-limit"],
+                    promptPerSecond=50.0,
+                ),
+            ]
+        )
         jobs, _ = telemetry._windows_jobs(self.NOW)
         rows = {row["id"]: row for row in jobs["recent"]}
-        self.assertEqual((rows[self.JOB_A]["promptPerSecond"], rows[self.JOB_A]["promptTokens"], rows[self.JOB_A]["flags"]),
-                         (212.5, 830, ["hit-token-limit"]))
+        self.assertEqual(
+            (rows[self.JOB_A]["promptPerSecond"], rows[self.JOB_A]["promptTokens"], rows[self.JOB_A]["flags"]),
+            (212.5, 830, ["hit-token-limit"]),
+        )
         # Out of range (over 1e6 per second, over 2^31 - 1 tokens) or not a list: dropped, never clamped.
-        self.assertEqual((rows[self.JOB_B]["promptPerSecond"], rows[self.JOB_B]["promptTokens"], rows[self.JOB_B]["flags"]),
-                         (None, None, []))
+        self.assertEqual(
+            (rows[self.JOB_B]["promptPerSecond"], rows[self.JOB_B]["promptTokens"], rows[self.JOB_B]["flags"]),
+            (None, None, []),
+        )
         # Only a result carries this evidence; an enqueue record cannot plant it.
-        self.assertEqual({k: jobs["inFlight"][0][k] for k in ("promptPerSecond", "promptTokens", "flags")},
-                         {"promptPerSecond": None, "promptTokens": None, "flags": []})
+        self.assertEqual(
+            {k: jobs["inFlight"][0][k] for k in ("promptPerSecond", "promptTokens", "flags")},
+            {"promptPerSecond": None, "promptTokens": None, "flags": []},
+        )
         self.assertEqual(jobs["lastSuccess"]["id"], self.JOB_B)
         self.assertIsNot(rows[self.JOB_A]["flags"], rows[self.JOB_B]["flags"])
-        self._journal([
-            self.rec("enqueued", self.JOB_A, 40, timeout=60),
-            self.rec("result", self.JOB_A, 30, status="success", model="gpt-oss-20b", elapsedSeconds=1.0,
-                     promptPerSecond=True, promptTokens=-1, flags=[["hit-token-limit"]]),
-        ])
+        self._journal(
+            [
+                self.rec("enqueued", self.JOB_A, 40, timeout=60),
+                self.rec(
+                    "result",
+                    self.JOB_A,
+                    30,
+                    status="success",
+                    model="gpt-oss-20b",
+                    elapsedSeconds=1.0,
+                    promptPerSecond=True,
+                    promptTokens=-1,
+                    flags=[["hit-token-limit"]],
+                ),
+            ]
+        )
         row = telemetry._windows_jobs(self.NOW)[0]["recent"][0]
         self.assertEqual((row["promptPerSecond"], row["promptTokens"], row["flags"]), (None, None, []))
         self.assertNotIn("rm -rf", json.dumps(jobs, allow_nan=False))
 
     def test_speed_needs_a_successful_answer_with_tokens_and_time(self):
-        self._journal([
-            self.rec("enqueued", self.JOB_A, 40, model="gpt-oss-20b", timeout=60),
-            self.rec("result", self.JOB_A, 30, status="error", elapsedSeconds=2.0, completionTokens=10,
-                     predictedPerSecond=50.0, promptTokens=20, promptPerSecond=90.0),
-            self.rec("enqueued", self.JOB_B, 20, model="gpt-oss-20b", timeout=60),
-            self.rec("result", self.JOB_B, 10, status="success", elapsedSeconds=0, completionTokens=10,
-                     predictedPerSecond=50.0),
-            self.rec("enqueued", self.JOB_D, 9, model="gpt-oss-20b", timeout=60),
-            self.rec("result", self.JOB_D, 8, status="success", completionTokens=10, predictedPerSecond=40.0),
-            self.rec("enqueued", self.JOB_C, 9, model="gpt-oss-20b", timeout=60),
-            self.rec("result", self.JOB_C, 8, status="success", elapsedSeconds=2.0, completionTokens=0,
-                     predictedPerSecond=50.0, promptPerSecond=90.0),
-        ])
+        self._journal(
+            [
+                self.rec("enqueued", self.JOB_A, 40, model="gpt-oss-20b", timeout=60),
+                self.rec(
+                    "result",
+                    self.JOB_A,
+                    30,
+                    status="error",
+                    elapsedSeconds=2.0,
+                    completionTokens=10,
+                    predictedPerSecond=50.0,
+                    promptTokens=20,
+                    promptPerSecond=90.0,
+                ),
+                self.rec("enqueued", self.JOB_B, 20, model="gpt-oss-20b", timeout=60),
+                self.rec(
+                    "result",
+                    self.JOB_B,
+                    10,
+                    status="success",
+                    elapsedSeconds=0,
+                    completionTokens=10,
+                    predictedPerSecond=50.0,
+                ),
+                self.rec("enqueued", self.JOB_D, 9, model="gpt-oss-20b", timeout=60),
+                self.rec("result", self.JOB_D, 8, status="success", completionTokens=10, predictedPerSecond=40.0),
+                self.rec("enqueued", self.JOB_C, 9, model="gpt-oss-20b", timeout=60),
+                self.rec(
+                    "result",
+                    self.JOB_C,
+                    8,
+                    status="success",
+                    elapsedSeconds=2.0,
+                    completionTokens=0,
+                    predictedPerSecond=50.0,
+                    promptPerSecond=90.0,
+                ),
+            ]
+        )
         rows = {row["id"]: row for row in telemetry._windows_jobs(self.NOW)[0]["recent"]}
         for job in (self.JOB_A, self.JOB_B, self.JOB_D):  # error / 0 s / no elapsed time
             self.assertEqual((rows[job]["predictedPerSecond"], rows[job]["promptPerSecond"]), (None, None), job)
@@ -1759,73 +2358,133 @@ class WindowsJobsJournalTests(unittest.TestCase):
 
     def test_an_older_result_line_never_undoes_a_newer_one(self):
         # Journal lines out of time order: the cancel (newer) is written before an older success line.
-        self._journal([
-            self.rec("enqueued", self.JOB_A, 40, model="gpt-oss-20b", timeout=60),
-            self.rec("result", self.JOB_A, 10, status="cancelled", elapsedSeconds=30.0),
-            self.rec("result", self.JOB_A, 20, status="success", elapsedSeconds=2.0, completionTokens=80,
-                     predictedPerSecond=40.0, model="Qwen3.8-27B Q4_K_M", client="codex", lane="bionic"),
-            self.rec("enqueued", self.JOB_B, 40, model="gpt-oss-20b", timeout=60),
-            self.rec("result", self.JOB_B, 10, status="success", elapsedSeconds=2.0, completionTokens=80,
-                     predictedPerSecond=40.0),
-            self.rec("result", self.JOB_B, 20, status="cancelled", elapsedSeconds=1.0),
-        ])
+        self._journal(
+            [
+                self.rec("enqueued", self.JOB_A, 40, model="gpt-oss-20b", timeout=60),
+                self.rec("result", self.JOB_A, 10, status="cancelled", elapsedSeconds=30.0),
+                self.rec(
+                    "result",
+                    self.JOB_A,
+                    20,
+                    status="success",
+                    elapsedSeconds=2.0,
+                    completionTokens=80,
+                    predictedPerSecond=40.0,
+                    model="Qwen3.8-27B Q4_K_M",
+                    client="codex",
+                    lane="bionic",
+                ),
+                self.rec("enqueued", self.JOB_B, 40, model="gpt-oss-20b", timeout=60),
+                self.rec(
+                    "result",
+                    self.JOB_B,
+                    10,
+                    status="success",
+                    elapsedSeconds=2.0,
+                    completionTokens=80,
+                    predictedPerSecond=40.0,
+                ),
+                self.rec("result", self.JOB_B, 20, status="cancelled", elapsedSeconds=1.0),
+            ]
+        )
         rows = {row["id"]: row for row in telemetry._windows_jobs(self.NOW)[0]["recent"]}
-        self.assertEqual((rows[self.JOB_A]["state"], rows[self.JOB_A]["predictedPerSecond"], rows[self.JOB_A]["model"],
-                          rows[self.JOB_A]["lane"]), ("cancelled", None, "gpt-oss-20b", "fast"))
+        self.assertEqual(
+            (
+                rows[self.JOB_A]["state"],
+                rows[self.JOB_A]["predictedPerSecond"],
+                rows[self.JOB_A]["model"],
+                rows[self.JOB_A]["lane"],
+            ),
+            ("cancelled", None, "gpt-oss-20b", "fast"),
+        )
         self.assertEqual((rows[self.JOB_B]["state"], rows[self.JOB_B]["predictedPerSecond"]), ("success", 40.0))
 
     def test_cancelled_result_settles_the_job_and_cancel_requested_is_informational(self):
         # Worker 1.2 (26 Sep): chami-dispatch journals 'cancel-requested' when it asks the worker to stop a
         # job, and the worker's 'cancelled' result (status only, plus elapsed time) then settles it.
-        self._journal([
-            self.rec("enqueued", self.JOB_A, 50, model="Qwen3.8-27B Q4_K_M", timeout=600, client="claude"),
-            self.rec("cancel-requested", self.JOB_A, 40),
-            self.rec("result", self.JOB_A, 38, status="cancelled", elapsedSeconds=11.5,
-                     predictedPerSecond=40.0, promptPerSecond=90.0, flags=["hit-token-limit"]),
-            # A late unresolved record never reopens or rewrites a cancelled job.
-            self.rec("unresolved", self.JOB_A, 30),
-            self.rec("enqueued", self.JOB_B, 20, model="gpt-oss-20b", timeout=600, client="codex"),
-            self.rec("cancel-requested", self.JOB_B, 10),
-            # A cancel request for a job this journal never saw enqueued creates no row.
-            self.rec("cancel-requested", self.JOB_C, 5),
-        ])
+        self._journal(
+            [
+                self.rec("enqueued", self.JOB_A, 50, model="Qwen3.8-27B Q4_K_M", timeout=600, client="claude"),
+                self.rec("cancel-requested", self.JOB_A, 40),
+                self.rec(
+                    "result",
+                    self.JOB_A,
+                    38,
+                    status="cancelled",
+                    elapsedSeconds=11.5,
+                    predictedPerSecond=40.0,
+                    promptPerSecond=90.0,
+                    flags=["hit-token-limit"],
+                ),
+                # A late unresolved record never reopens or rewrites a cancelled job.
+                self.rec("unresolved", self.JOB_A, 30),
+                self.rec("enqueued", self.JOB_B, 20, model="gpt-oss-20b", timeout=600, client="codex"),
+                self.rec("cancel-requested", self.JOB_B, 10),
+                # A cancel request for a job this journal never saw enqueued creates no row.
+                self.rec("cancel-requested", self.JOB_C, 5),
+            ]
+        )
         jobs, source = telemetry._windows_jobs(self.NOW)
         rows = {row["id"]: row for row in jobs["recent"]}
         self.assertEqual(list(rows), [self.JOB_A])
-        self.assertEqual((rows[self.JOB_A]["state"], rows[self.JOB_A]["elapsedSeconds"], rows[self.JOB_A]["client"],
-                          rows[self.JOB_A]["lane"]), ("cancelled", 11.5, "claude", "deep"))
+        self.assertEqual(
+            (
+                rows[self.JOB_A]["state"],
+                rows[self.JOB_A]["elapsedSeconds"],
+                rows[self.JOB_A]["client"],
+                rows[self.JOB_A]["lane"],
+            ),
+            ("cancelled", 11.5, "claude", "deep"),
+        )
         # A cancelled job has no answer, so nothing it sent vouches for a speed, size or flag.
-        self.assertEqual((rows[self.JOB_A]["predictedPerSecond"], rows[self.JOB_A]["promptPerSecond"],
-                          rows[self.JOB_A]["flags"]), (None, None, []))
+        self.assertEqual(
+            (rows[self.JOB_A]["predictedPerSecond"], rows[self.JOB_A]["promptPerSecond"], rows[self.JOB_A]["flags"]),
+            (None, None, []),
+        )
         self.assertIsNone(jobs["lastSuccess"])
         # The request alone settles nothing: JOB_B is still in flight (and unsettled), marked as asked to stop.
         self.assertEqual([(row["id"], row["cancelRequested"]) for row in jobs["inFlight"]], [(self.JOB_B, True)])
         self.assertEqual(jobs["unsettled"], 1)
         self.assertEqual(source["state"], "live")
         # Once its cancelled result arrives, nothing is unsettled.
-        self._journal([
-            self.rec("enqueued", self.JOB_B, 20, model="gpt-oss-20b", timeout=600, client="codex"),
-            self.rec("cancel-requested", self.JOB_B, 10),
-            self.rec("result", self.JOB_B, 8, status="cancelled", elapsedSeconds=0.0),
-        ])
+        self._journal(
+            [
+                self.rec("enqueued", self.JOB_B, 20, model="gpt-oss-20b", timeout=600, client="codex"),
+                self.rec("cancel-requested", self.JOB_B, 10),
+                self.rec("result", self.JOB_B, 8, status="cancelled", elapsedSeconds=0.0),
+            ]
+        )
         jobs, source = telemetry._windows_jobs(self.NOW)
         self.assertEqual((jobs["inFlight"], jobs["unsettled"], jobs["recent"][0]["state"]), ([], 0, "cancelled"))
         # An unknown result status leaves the observed job open, but the total is unknown.
-        self._journal([self.rec("enqueued", self.JOB_B, 20, timeout=600),
-                       self.rec("result", self.JOB_B, 8, status="aborted")])
+        self._journal(
+            [self.rec("enqueued", self.JOB_B, 20, timeout=600), self.rec("result", self.JOB_B, 8, status="aborted")]
+        )
         jobs, _ = telemetry._windows_jobs(self.NOW)
-        self.assertEqual((len(jobs["inFlight"]), jobs["inFlight"][0]["cancelRequested"], jobs["unsettled"]), (1, False, None))
+        self.assertEqual(
+            (len(jobs["inFlight"]), jobs["inFlight"][0]["cancelRequested"], jobs["unsettled"]), (1, False, None)
+        )
         self.assertFalse(jobs["complete"])
         self.assertEqual(jobs["journal"], "invalid")
 
     def test_unknown_lane_and_missing_client_count_as_unknown(self):
-        self._journal([
-            self.rec("enqueued", self.JOB_A, 40, timeout=60),
-            self.rec("result", self.JOB_A, 30, status="error", elapsedSeconds=3.0, lane="gpu9"),
-            self.rec("enqueued", self.JOB_B, 20, timeout=60, client=["claude"]),
-            self.rec("result", self.JOB_B, 10, status="success", model="gpt-oss-20b", elapsedSeconds=2.0,
-                     lane=["amd"], client="x" * 41),
-        ])
+        self._journal(
+            [
+                self.rec("enqueued", self.JOB_A, 40, timeout=60),
+                self.rec("result", self.JOB_A, 30, status="error", elapsedSeconds=3.0, lane="gpu9"),
+                self.rec("enqueued", self.JOB_B, 20, timeout=60, client=["claude"]),
+                self.rec(
+                    "result",
+                    self.JOB_B,
+                    10,
+                    status="success",
+                    model="gpt-oss-20b",
+                    elapsedSeconds=2.0,
+                    lane=["amd"],
+                    client="x" * 41,
+                ),
+            ]
+        )
         jobs, _ = telemetry._windows_jobs(self.NOW)
         # An unrecognised lane value is ignored; the lane then follows the model when one is known.
         self.assertEqual([(row["client"], row["lane"]) for row in jobs["recent"]], [(None, "fast"), (None, None)])
@@ -1835,22 +2494,40 @@ class WindowsJobsJournalTests(unittest.TestCase):
 
 
 class WindowsLanesAndHeadlessTests(unittest.TestCase):
-    LANES = {"bionic": {"up": True, "alias": "Qwen3.8-27B", "kind": "qwen", "slots": {"busy": 1, "total": 2}},
-             "amd": {"up": False, "alias": "gpt-oss-20b", "kind": "gpt-oss", "slots": None}}
+    LANES = {
+        "bionic": {"up": True, "alias": "Qwen3.8-27B", "kind": "qwen", "slots": {"busy": 1, "total": 2}},
+        "amd": {"up": False, "alias": "gpt-oss-20b", "kind": "gpt-oss", "slots": None},
+    }
 
     def test_lanes_are_mapped_to_monitor_names_and_revalidated(self):
-        self.assertEqual(telemetry._windows_lanes(self.LANES), {
-            "fast": {"up": False, "model": "gpt-oss-20b", "kind": "gpt-oss", "slotsBusy": None, "slotsTotal": None},
-            "deep": {"up": True, "model": "Qwen3.8-27B", "kind": "qwen", "slotsBusy": 1, "slotsTotal": 2}})
+        self.assertEqual(
+            telemetry._windows_lanes(self.LANES),
+            {
+                "fast": {"up": False, "model": "gpt-oss-20b", "kind": "gpt-oss", "slotsBusy": None, "slotsTotal": None},
+                "deep": {"up": True, "model": "Qwen3.8-27B", "kind": "qwen", "slotsBusy": 1, "slotsTotal": 2},
+            },
+        )
         bad = []
-        for lane, change in (("amd", {"up": 1}), ("amd", {"kind": "llama"}), ("bionic", {"alias": "a;rm -rf"}),
-                             ("bionic", {"slots": {"busy": 3, "total": 2}}), ("bionic", {"slots": {"busy": True, "total": 2}}),
-                             ("bionic", {"slots": {"busy": 0, "total": 65}}), ("bionic", {"slots": [1, 2]})):
+        for lane, change in (
+            ("amd", {"up": 1}),
+            ("amd", {"kind": "llama"}),
+            ("bionic", {"alias": "a;rm -rf"}),
+            ("bionic", {"slots": {"busy": 3, "total": 2}}),
+            ("bionic", {"slots": {"busy": True, "total": 2}}),
+            ("bionic", {"slots": {"busy": 0, "total": 65}}),
+            ("bionic", {"slots": [1, 2]}),
+        ):
             lanes = json.loads(json.dumps(self.LANES))
             lanes[lane].update(change)
             bad.append(lanes)
-        bad += [None, [], {}, {"amd": self.LANES["amd"]}, dict(self.LANES, gpu=self.LANES["amd"]),
-                dict(self.LANES, amd="up")]
+        bad += [
+            None,
+            [],
+            {},
+            {"amd": self.LANES["amd"]},
+            dict(self.LANES, gpu=self.LANES["amd"]),
+            dict(self.LANES, amd="up"),
+        ]
         for value in bad:
             with self.subTest(value=value):
                 self.assertIsNone(telemetry._windows_lanes(value))
@@ -1860,18 +2537,30 @@ class WindowsLanesAndHeadlessTests(unittest.TestCase):
             command = Path(temp) / "chami-dispatch"
             command.write_text("#!/bin/sh\n")
             command.chmod(0o700)
-            cache = {"checkedMonotonic": time.monotonic(), "heartbeatUnix": None,
-                     "modelsAdvertised": [], "modelCount": 0, "probeRunning": False}
-            with mock.patch.object(telemetry, "_WINDOWS_WORKER_CMD", command), \
-                 mock.patch.object(telemetry, "_windows_worker_reader_blocked", return_value=False), \
-                 mock.patch.object(telemetry, "_bounded_command", return_value=json.dumps(payload)):
+            cache = {
+                "checkedMonotonic": time.monotonic(),
+                "heartbeatUnix": None,
+                "modelsAdvertised": [],
+                "modelCount": 0,
+                "probeRunning": False,
+            }
+            with (
+                mock.patch.object(telemetry, "_WINDOWS_WORKER_CMD", command),
+                mock.patch.object(telemetry, "_windows_worker_reader_blocked", return_value=False),
+                mock.patch.object(telemetry, "_bounded_command", return_value=json.dumps(payload)),
+            ):
                 telemetry._windows_worker_refresh(cache)
         return cache
 
     def test_fresh_heartbeat_publishes_lanes_and_hides_them_when_stale_or_absent_on_degraded(self):
         now = time.time()
-        payload = {"ok": True, "age": 4.0, "evidence_scope": telemetry._WINDOWS_WORKER_SCOPE,
-                   "models": ["gpt-oss-20b"], "lanes": self.LANES}
+        payload = {
+            "ok": True,
+            "age": 4.0,
+            "evidence_scope": telemetry._WINDOWS_WORKER_SCOPE,
+            "models": ["gpt-oss-20b"],
+            "lanes": self.LANES,
+        }
         cache = self._probe(payload)
         with mock.patch.object(telemetry, "_WINDOWS_WORKER_CACHE", cache):
             worker, _ = telemetry._windows_worker(now)
@@ -1882,8 +2571,14 @@ class WindowsLanesAndHeadlessTests(unittest.TestCase):
         self.assertIsNone(stale["lanes"])
         # What chami-dispatch validate_state prints today for a degraded worker: it adds
         # "lanes" only when the worker is ready, so a degraded heartbeat carries none.
-        degraded = {"ok": False, "reason": "worker status degraded", "age": 4.0,
-                    "evidence_scope": telemetry._WINDOWS_WORKER_SCOPE, "models": [], "endpoints": {}}
+        degraded = {
+            "ok": False,
+            "reason": "worker status degraded",
+            "age": 4.0,
+            "evidence_scope": telemetry._WINDOWS_WORKER_SCOPE,
+            "models": [],
+            "endpoints": {},
+        }
         cache = self._probe(degraded)
         with mock.patch.object(telemetry, "_WINDOWS_WORKER_CACHE", cache):
             worker, _ = telemetry._windows_worker(time.time())
@@ -1900,21 +2595,31 @@ class WindowsLanesAndHeadlessTests(unittest.TestCase):
             worker, _ = telemetry._windows_worker(time.time())
         self.assertEqual(worker["state"], "advertised")
         self.assertIsNone(worker["lanes"])
-        with mock.patch.object(telemetry, "_WINDOWS_WORKER_CACHE",
-                               {"checkedMonotonic": time.monotonic(), "heartbeatUnix": None,
-                                "modelsAdvertised": [], "modelCount": 0, "probeRunning": False}):
+        with mock.patch.object(
+            telemetry,
+            "_WINDOWS_WORKER_CACHE",
+            {
+                "checkedMonotonic": time.monotonic(),
+                "heartbeatUnix": None,
+                "modelsAdvertised": [],
+                "modelCount": 0,
+                "probeRunning": False,
+            },
+        ):
             self.assertIsNone(telemetry._windows_worker(time.time())[0]["lanes"])
 
     def test_rejected_or_dispatcher_flagged_lane_detail_is_published_as_lanes_error(self):
         # Follow-up 26 Sep: detail that was sent but rejected is "malformed", not "no lane detail".
         payload = {"ok": True, "age": 4.0, "evidence_scope": telemetry._WINDOWS_WORKER_SCOPE, "models": ["gpt-oss-20b"]}
-        cases = ((dict(payload, lanes=self.LANES), None, True),
-                 (payload, None, False),
-                 (dict(payload, lanes=None), None, False),
-                 (dict(payload, lanesError="malformed lane detail"), "malformed lane detail", False),
-                 (dict(payload, lanes={"amd": {"up": "yes"}}), "malformed lane detail", False),
-                 # The dispatcher's own wording never reaches the snapshot; its flag wins over any lanes.
-                 (dict(payload, lanes=self.LANES, lanesError="PRIVATE dispatcher text"), "malformed lane detail", False))
+        cases = (
+            (dict(payload, lanes=self.LANES), None, True),
+            (payload, None, False),
+            (dict(payload, lanes=None), None, False),
+            (dict(payload, lanesError="malformed lane detail"), "malformed lane detail", False),
+            (dict(payload, lanes={"amd": {"up": "yes"}}), "malformed lane detail", False),
+            # The dispatcher's own wording never reaches the snapshot; its flag wins over any lanes.
+            (dict(payload, lanes=self.LANES, lanesError="PRIVATE dispatcher text"), "malformed lane detail", False),
+        )
         for record, error, has_lanes in cases:
             with self.subTest(record=record):
                 now = time.time()
@@ -1927,24 +2632,54 @@ class WindowsLanesAndHeadlessTests(unittest.TestCase):
                 self.assertEqual(worker["lanes"] is not None, has_lanes)
                 self.assertIsNone(stale["lanesError"])
                 self.assertNotIn("PRIVATE", json.dumps(worker))
-        degraded = {"ok": False, "reason": "worker status degraded", "age": 4.0,
-                    "evidence_scope": telemetry._WINDOWS_WORKER_SCOPE, "models": [], "endpoints": {}, "lanes": {"amd": 1}}
+        degraded = {
+            "ok": False,
+            "reason": "worker status degraded",
+            "age": 4.0,
+            "evidence_scope": telemetry._WINDOWS_WORKER_SCOPE,
+            "models": [],
+            "endpoints": {},
+            "lanes": {"amd": 1},
+        }
         cache = self._probe(degraded)
         with mock.patch.object(telemetry, "_WINDOWS_WORKER_CACHE", cache):
             worker, _ = telemetry._windows_worker(time.time())
-        self.assertEqual((worker["state"], worker["lanes"], worker["lanesError"]), ("degraded", None, "malformed lane detail"))
-        with mock.patch.object(telemetry, "_WINDOWS_WORKER_CACHE",
-                               {"checkedMonotonic": time.monotonic(), "heartbeatUnix": None,
-                                "modelsAdvertised": [], "modelCount": 0, "probeRunning": False}):
+        self.assertEqual(
+            (worker["state"], worker["lanes"], worker["lanesError"]), ("degraded", None, "malformed lane detail")
+        )
+        with mock.patch.object(
+            telemetry,
+            "_WINDOWS_WORKER_CACHE",
+            {
+                "checkedMonotonic": time.monotonic(),
+                "heartbeatUnix": None,
+                "modelsAdvertised": [],
+                "modelCount": 0,
+                "probeRunning": False,
+            },
+        ):
             self.assertIsNone(telemetry._windows_worker(time.time())[0]["lanesError"])
 
-    GPU = {"index": 0, "name": "NVIDIA GeForce RTX 4070", "utilizationPercent": 32, "memoryUsedMiB": 11980,
-           "memoryTotalMiB": 12282, "temperatureC": 54, "powerW": 118.5}
+    GPU = {
+        "index": 0,
+        "name": "NVIDIA GeForce RTX 4070",
+        "utilizationPercent": 32,
+        "memoryUsedMiB": 11980,
+        "memoryTotalMiB": 12282,
+        "temperatureC": 54,
+        "powerW": 118.5,
+    }
 
     def test_worker_version_and_gpus_pass_through_revalidated_and_only_while_fresh(self):
         # Worker 1.2 (26 Sep): chami-dispatch status relays worker_version and gpus (null when unavailable).
-        payload = {"ok": True, "age": 4.0, "evidence_scope": telemetry._WINDOWS_WORKER_SCOPE, "models": ["gpt-oss-20b"],
-                   "worker_version": "1.2", "gpus": [dict(self.GPU, index=1, name="Second GPU"), self.GPU]}
+        payload = {
+            "ok": True,
+            "age": 4.0,
+            "evidence_scope": telemetry._WINDOWS_WORKER_SCOPE,
+            "models": ["gpt-oss-20b"],
+            "worker_version": "1.2",
+            "gpus": [dict(self.GPU, index=1, name="Second GPU"), self.GPU],
+        }
         now = time.time()
         cache = self._probe(payload)
         with mock.patch.object(telemetry, "_WINDOWS_WORKER_CACHE", cache):
@@ -1959,12 +2694,23 @@ class WindowsLanesAndHeadlessTests(unittest.TestCase):
         with mock.patch.object(telemetry, "_WINDOWS_WORKER_CACHE", cache):
             self.assertEqual(telemetry._windows_worker(now)[0]["gpus"][0]["utilizationPercent"], 32)
         # A degraded heartbeat carries them too (the dispatcher relays them for ready and degraded).
-        degraded = {"ok": False, "reason": "worker status degraded", "age": 4.0, "evidence_scope": telemetry._WINDOWS_WORKER_SCOPE,
-                    "models": [], "endpoints": {}, "worker_version": "1.2", "gpus": [self.GPU]}
+        degraded = {
+            "ok": False,
+            "reason": "worker status degraded",
+            "age": 4.0,
+            "evidence_scope": telemetry._WINDOWS_WORKER_SCOPE,
+            "models": [],
+            "endpoints": {},
+            "worker_version": "1.2",
+            "gpus": [self.GPU],
+        }
         cache = self._probe(degraded)
         with mock.patch.object(telemetry, "_WINDOWS_WORKER_CACHE", cache):
             worker, _ = telemetry._windows_worker(time.time())
-        self.assertEqual((worker["state"], worker["workerVersion"], worker["gpus"][0]["name"]), ("degraded", "1.2", "NVIDIA GeForce RTX 4070"))
+        self.assertEqual(
+            (worker["state"], worker["workerVersion"], worker["gpus"][0]["name"]),
+            ("degraded", "1.2", "NVIDIA GeForce RTX 4070"),
+        )
         # null (no GPU sample), a pre-1.2 worker and the dispatcher's own error flag all read as unknown.
         without = {k: v for k, v in payload.items() if k not in ("gpus", "worker_version")}
         for record in (dict(payload, gpus=None), without, dict(without, gpusError="malformed gpu detail")):
@@ -1980,24 +2726,54 @@ class WindowsLanesAndHeadlessTests(unittest.TestCase):
         gpu = self.GPU
         self.assertEqual(telemetry._windows_gpus([gpu]), [gpu])
         self.assertEqual(telemetry._windows_gpus([dict(gpu, extra="PRIVATE")]), [gpu], "unknown keys are dropped")
-        bad = [None, [], {}, [gpu] * 2, [dict(gpu, index=i) for i in range(5)], ["gpu"],
-               [dict(gpu, index=-1)], [dict(gpu, index=64)], [dict(gpu, index=True)], [dict(gpu, index=1.0)],
-               [dict(gpu, name="")], [dict(gpu, name=" padded")], [dict(gpu, name="x" * 65)], [dict(gpu, name="tab\there")],
-               [dict(gpu, name="caf\u00e9")], [dict(gpu, name=7)],
-               [dict(gpu, utilizationPercent=101)], [dict(gpu, utilizationPercent=-1)], [dict(gpu, utilizationPercent=True)],
-               [dict(gpu, utilizationPercent=float("nan"))], [dict(gpu, utilizationPercent="32")],
-               [dict(gpu, memoryUsedMiB=12283)], [dict(gpu, memoryTotalMiB=0)], [dict(gpu, memoryTotalMiB=1048577)],
-               [dict(gpu, temperatureC=151)], [dict(gpu, powerW=2001)], [{k: v for k, v in gpu.items() if k != "powerW"}]]
+        bad = [
+            None,
+            [],
+            {},
+            [gpu] * 2,
+            [dict(gpu, index=i) for i in range(5)],
+            ["gpu"],
+            [dict(gpu, index=-1)],
+            [dict(gpu, index=64)],
+            [dict(gpu, index=True)],
+            [dict(gpu, index=1.0)],
+            [dict(gpu, name="")],
+            [dict(gpu, name=" padded")],
+            [dict(gpu, name="x" * 65)],
+            [dict(gpu, name="tab\there")],
+            [dict(gpu, name="caf\u00e9")],
+            [dict(gpu, name=7)],
+            [dict(gpu, utilizationPercent=101)],
+            [dict(gpu, utilizationPercent=-1)],
+            [dict(gpu, utilizationPercent=True)],
+            [dict(gpu, utilizationPercent=float("nan"))],
+            [dict(gpu, utilizationPercent="32")],
+            [dict(gpu, memoryUsedMiB=12283)],
+            [dict(gpu, memoryTotalMiB=0)],
+            [dict(gpu, memoryTotalMiB=1048577)],
+            [dict(gpu, temperatureC=151)],
+            [dict(gpu, powerW=2001)],
+            [{k: v for k, v in gpu.items() if k != "powerW"}],
+        ]
         for value in bad:
             with self.subTest(value=value):
                 self.assertIsNone(telemetry._windows_gpus(value))
-        self.assertEqual(telemetry._windows_hardware({"worker_version": "1.2", "gpus": [gpu]}), {"workerVersion": "1.2", "gpus": [gpu]})
+        self.assertEqual(
+            telemetry._windows_hardware({"worker_version": "1.2", "gpus": [gpu]}),
+            {"workerVersion": "1.2", "gpus": [gpu]},
+        )
         for version in ("", "x" * 17, "1.2; rm -rf /", 1.2, None, ["1.2"]):
             with self.subTest(version=version):
                 self.assertIsNone(telemetry._windows_hardware({"worker_version": version})["workerVersion"])
         # One bad row drops the whole list, and nothing from it reaches the snapshot.
-        payload = {"ok": True, "age": 4.0, "evidence_scope": telemetry._WINDOWS_WORKER_SCOPE, "models": ["gpt-oss-20b"],
-                   "worker_version": "PRIVATE version text", "gpus": [gpu, dict(gpu, index=1, name="PRIVATE\nname")]}
+        payload = {
+            "ok": True,
+            "age": 4.0,
+            "evidence_scope": telemetry._WINDOWS_WORKER_SCOPE,
+            "models": ["gpt-oss-20b"],
+            "worker_version": "PRIVATE version text",
+            "gpus": [gpu, dict(gpu, index=1, name="PRIVATE\nname")],
+        }
         cache = self._probe(payload)
         with mock.patch.object(telemetry, "_WINDOWS_WORKER_CACHE", cache):
             worker, _ = telemetry._windows_worker(time.time())
@@ -2017,30 +2793,46 @@ class WindowsLanesAndHeadlessTests(unittest.TestCase):
 
     def test_headless_switch_follows_pc_llm_read_mode_and_fails_closed(self):
         now = 2_000_000_000.0
-        on = {"schemaVersion": 1, "kind": "codemode.online-mode.v1", "state": "on", "leaseId": "a" * 32,
-              "grantedBy": "inference-monitor", "grantedAtUnix": now - 60, "expiresAtUnix": now + 3 * 3600 + 1799.6,
-              "probe": {"jobId": "mac-x", "elapsedSeconds": 3.7}}
+        on = {
+            "schemaVersion": 1,
+            "kind": "codemode.online-mode.v1",
+            "state": "on",
+            "leaseId": "a" * 32,
+            "grantedBy": "inference-monitor",
+            "grantedAtUnix": now - 60,
+            "expiresAtUnix": now + 3 * 3600 + 1799.6,
+            "probe": {"jobId": "mac-x", "elapsedSeconds": 3.7},
+        }
         self._mode(on)
-        self.assertEqual(telemetry._windows_headless(now),
-                         {"state": "on", "reason": None, "expiresInSeconds": 3 * 3600 + 1800,
-                          "grantedBy": "inference-monitor"})
-        cases = ((None, None, "never turned on"),
-                 (dict(on, state="off"), None, "turned off"),
-                 (dict(on, kind="other"), None, "mode file malformed"),
-                 (dict(on, schemaVersion=True), None, "mode file malformed"),
-                 (dict(on, expiresAtUnix="soon"), None, "mode file malformed"),
-                 (dict(on, grantedAtUnix=True), None, "mode file malformed"),
-                 ('{"schemaVersion":1,"kind":"codemode.online-mode.v1","state":"on","grantedAtUnix":1,'
-                  '"expiresAtUnix":NaN}', None, "mode file unreadable"),
-                 ("{not json", None, "mode file unreadable"),
-                 (dict(on, grantedAtUnix=now + 61), None, "mode file future-dated"),
-                 (dict(on, expiresAtUnix=now), None, "expired"),
-                 (on, 0o640, "mode file unsafe"))
+        self.assertEqual(
+            telemetry._windows_headless(now),
+            {"state": "on", "reason": None, "expiresInSeconds": 3 * 3600 + 1800, "grantedBy": "inference-monitor"},
+        )
+        cases = (
+            (None, None, "never turned on"),
+            (dict(on, state="off"), None, "turned off"),
+            (dict(on, kind="other"), None, "mode file malformed"),
+            (dict(on, schemaVersion=True), None, "mode file malformed"),
+            (dict(on, expiresAtUnix="soon"), None, "mode file malformed"),
+            (dict(on, grantedAtUnix=True), None, "mode file malformed"),
+            (
+                '{"schemaVersion":1,"kind":"codemode.online-mode.v1","state":"on","grantedAtUnix":1,'
+                '"expiresAtUnix":NaN}',
+                None,
+                "mode file unreadable",
+            ),
+            ("{not json", None, "mode file unreadable"),
+            (dict(on, grantedAtUnix=now + 61), None, "mode file future-dated"),
+            (dict(on, expiresAtUnix=now), None, "expired"),
+            (on, 0o640, "mode file unsafe"),
+        )
         for value, mode, reason in cases:
             with self.subTest(reason=reason, value=value):
                 self._mode(value, mode or 0o600)
-                self.assertEqual(telemetry._windows_headless(now),
-                                 {"state": "off", "reason": reason, "expiresInSeconds": None, "grantedBy": None})
+                self.assertEqual(
+                    telemetry._windows_headless(now),
+                    {"state": "off", "reason": reason, "expiresInSeconds": None, "grantedBy": None},
+                )
         self._mode(dict(on, grantedBy="../../x"))
         self.assertIsNone(telemetry._windows_headless(now)["grantedBy"])
         with tempfile.TemporaryDirectory() as temp:
@@ -2056,18 +2848,34 @@ class WindowsLanesAndHeadlessTests(unittest.TestCase):
 
     def test_snapshot_exposes_headless_state_without_private_fields(self):
         now = time.time()
-        self._mode({"schemaVersion": 1, "kind": "codemode.online-mode.v1", "state": "on", "leaseId": "SECRETLEASE",
-                    "grantedBy": "cli", "grantedAtUnix": now, "expiresAtUnix": now + 600,
-                    "probe": {"jobId": "mac-PRIVATE"}})
-        with mock.patch.object(telemetry, "_bounded_http", side_effect=TimeoutError()), \
-             mock.patch.object(telemetry, "_bounded_lms", side_effect=TimeoutError()), \
-             mock.patch.object(telemetry, "_pipeline", return_value=({}, {"id": "router", "state": "unavailable"})), \
-             mock.patch.object(telemetry, "_online_code_mode", return_value={}), \
-             mock.patch.object(telemetry, "_windows_worker", return_value=({"state": "unknown", "lanes": None},
-                                                                        {"id": "windows-worker"})), \
-             mock.patch.object(telemetry, "_windows_jobs", side_effect=RuntimeError("private")), \
-             mock.patch.object(telemetry, "_canary", return_value=({}, {"id": "canary", "state": "unavailable"})), \
-             mock.patch.object(telemetry, "collect_nisi_v02", return_value=({}, {"id": "nisi-v02-runtime", "state": "unavailable"})):
+        self._mode(
+            {
+                "schemaVersion": 1,
+                "kind": "codemode.online-mode.v1",
+                "state": "on",
+                "leaseId": "SECRETLEASE",
+                "grantedBy": "cli",
+                "grantedAtUnix": now,
+                "expiresAtUnix": now + 600,
+                "probe": {"jobId": "mac-PRIVATE"},
+            }
+        )
+        with (
+            mock.patch.object(telemetry, "_bounded_http", side_effect=TimeoutError()),
+            mock.patch.object(telemetry, "_bounded_lms", side_effect=TimeoutError()),
+            mock.patch.object(telemetry, "_pipeline", return_value=({}, {"id": "router", "state": "unavailable"})),
+            mock.patch.object(telemetry, "_online_code_mode", return_value={}),
+            mock.patch.object(
+                telemetry,
+                "_windows_worker",
+                return_value=({"state": "unknown", "lanes": None}, {"id": "windows-worker"}),
+            ),
+            mock.patch.object(telemetry, "_windows_jobs", side_effect=RuntimeError("private")),
+            mock.patch.object(telemetry, "_canary", return_value=({}, {"id": "canary", "state": "unavailable"})),
+            mock.patch.object(
+                telemetry, "collect_nisi_v02", return_value=({}, {"id": "nisi-v02-runtime", "state": "unavailable"})
+            ),
+        ):
             snapshot = telemetry.collect_snapshot()
         headless = snapshot["windowsWorker"]["headless"]
         self.assertEqual((headless["state"], headless["grantedBy"]), ("on", "cli"))
@@ -2078,7 +2886,7 @@ class WindowsLanesAndHeadlessTests(unittest.TestCase):
         self.assertNotIn("PRIVATE", text)
 
 
-_HUGE = "1" + "0" * 400     # a JSON integer too large for a float (math.isfinite raises on it)
+_HUGE = "1" + "0" * 400  # a JSON integer too large for a float (math.isfinite raises on it)
 
 
 def _private_write(path, text, mode=0o600):
@@ -2108,13 +2916,19 @@ class RouteComponentTests(unittest.TestCase):
 
     def components(self, pipeline=None, nisi=None, rows=None):
         verified = {"runtimeIntegrity": "VERIFIED", "hostBinding": "VERIFIED"}
-        result = telemetry._route_components(pipeline or {}, verified if nisi is None else nisi,
-                                             rows if rows is not None else {}, time.time(), inventory_complete=True)
+        result = telemetry._route_components(
+            pipeline or {},
+            verified if nisi is None else nisi,
+            rows if rows is not None else {},
+            time.time(),
+            inventory_complete=True,
+        )
         return {c["id"]: c for c in result}
 
     def test_pair_resident_is_ready_with_roles(self):
-        c = self.components(rows=self.rows("qwen/qwen3.8-27b", "google/gemma-4-26b-a4b-qat",
-                                           "text-embedding-nomic-embed-text-v1.5"))
+        c = self.components(
+            rows=self.rows("qwen/qwen3.8-27b", "google/gemma-4-26b-a4b-qat", "text-embedding-nomic-embed-text-v1.5")
+        )
         self.assertEqual(c["nisi"]["state"], "ready")
         self.assertEqual(c["nisi"]["authorModel"], "google/gemma-4-26b-a4b-qat")
         self.assertEqual(c["nisi"]["reviewerModel"], "qwen/qwen3.8-27b")
@@ -2123,10 +2937,16 @@ class RouteComponentTests(unittest.TestCase):
         self.assertEqual((c["nisi"]["authorModel"], c["nisi"]["reviewerModel"]), ("a-model", "b-model"))
 
     def test_multiple_alias_instances_of_one_model_do_not_make_an_edit_pair(self):
-        rows = {"alias-1": {"id": "alias-1", "modelKey": "provider/model", "loaded": True},
-                "alias-2": {"id": "alias-2", "modelKey": "provider/model", "loaded": True},
-                "provider/model": {"id": "provider/model", "modelKey": "provider/model", "loaded": True,
-                                   "representedByInstances": True}}
+        rows = {
+            "alias-1": {"id": "alias-1", "modelKey": "provider/model", "loaded": True},
+            "alias-2": {"id": "alias-2", "modelKey": "provider/model", "loaded": True},
+            "provider/model": {
+                "id": "provider/model",
+                "modelKey": "provider/model",
+                "loaded": True,
+                "representedByInstances": True,
+            },
+        }
         nisi = self.components(rows=rows)["nisi"]
         self.assertEqual(nisi["state"], "partial")
         self.assertIn("only provider/model", nisi["detail"])
@@ -2137,17 +2957,24 @@ class RouteComponentTests(unittest.TestCase):
         self.assertIn("need a second model", c["nisi"]["detail"])
 
     def test_pending_marker_and_drift_take_precedence(self):
-        self.assertEqual(self.components(pipeline={"pendingMarkerObserved": True},
-                                         rows=self.rows("a", "b"))["nisi"]["state"], "unresolved")
-        self.assertEqual(self.components(nisi={"runtimeIntegrity": "VERIFIED", "hostBinding": "DRIFT"})
-                         ["nisi"]["state"], "needs-action")
+        self.assertEqual(
+            self.components(pipeline={"pendingMarkerObserved": True}, rows=self.rows("a", "b"))["nisi"]["state"],
+            "unresolved",
+        )
+        self.assertEqual(
+            self.components(nisi={"runtimeIntegrity": "VERIFIED", "hostBinding": "DRIFT"})["nisi"]["state"],
+            "needs-action",
+        )
 
     def test_jev_opt_in_and_last_judgment_without_reading_the_key(self):
         self.assertEqual(self.components()["jev"]["state"], "unavailable")
         _private_write(self.env, "TYPESAFE_API_KEY=secret-value")
-        record = {"finishedUnix": time.time() - 120,
-                  "result": {"stages": {"intake": {"kind": "chami.intake.typesafe.v1",
-                                                   "status": "JUDGED", "model": "jev-1.13.0"}}}}
+        record = {
+            "finishedUnix": time.time() - 120,
+            "result": {
+                "stages": {"intake": {"kind": "chami.intake.typesafe.v1", "status": "JUDGED", "model": "jev-1.13.0"}}
+            },
+        }
         _private_write(self.router / "archive" / "run-1.json", json.dumps(record))
         jev = self.components()["jev"]
         self.assertEqual(jev["state"], "configured")
@@ -2159,8 +2986,10 @@ class RouteComponentTests(unittest.TestCase):
             self.assertEqual(self.components()["jev"]["state"], "unavailable")
 
     def test_list_stages_do_not_crash_or_count_as_a_judgment(self):
-        listed = {"finishedUnix": time.time() - 30,
-                  "result": {"stages": [{"status": "JUDGED", "kind": "chami.intake.typesafe.v1", "model": "jev"}]}}
+        listed = {
+            "finishedUnix": time.time() - 30,
+            "result": {"stages": [{"status": "JUDGED", "kind": "chami.intake.typesafe.v1", "model": "jev"}]},
+        }
         _private_write(self.router / "archive" / "run-list.json", json.dumps(listed))
         jev = self.components()["jev"]
         self.assertNotIn("last judged", jev["detail"])
@@ -2169,9 +2998,16 @@ class RouteComponentTests(unittest.TestCase):
 
 class LiveRouteTests(unittest.TestCase):
     def pipeline(self, status="recovery-required"):
-        return ({"runId": "run-1", "status": status, "stage": "backend_review", "recoveryRequired": True,
-                 "steps": [{"id": "backend_review", "state": "blocked"}]},
-                {"id": "pipeline-router", "state": "live", "detail": "x"})
+        return (
+            {
+                "runId": "run-1",
+                "status": status,
+                "stage": "backend_review",
+                "recoveryRequired": True,
+                "steps": [{"id": "backend_review", "state": "blocked"}],
+            },
+            {"id": "pipeline-router", "state": "live", "detail": "x"},
+        )
 
     def test_verified_live_owner_turns_the_record_into_a_running_route(self):
         pipeline, source = self.pipeline()
@@ -2180,8 +3016,11 @@ class LiveRouteTests(unittest.TestCase):
         self.assertEqual(pipeline["steps"][0]["state"], "active")
 
     def test_unverified_or_other_run_keeps_recovery(self):
-        for mode in ({"state": "unknown", "routeId": "run-1"}, {"state": "processing", "routeId": "run-2"},
-                     {"state": "processing"}):
+        for mode in (
+            {"state": "unknown", "routeId": "run-1"},
+            {"state": "processing", "routeId": "run-2"},
+            {"state": "processing"},
+        ):
             pipeline, source = self.pipeline()
             telemetry._mark_live_route(pipeline, source, mode)
             self.assertEqual(pipeline["status"], "recovery-required")
@@ -2201,12 +3040,14 @@ class LiveRouteTests(unittest.TestCase):
 # directories; without them only the installed router scripts are tried.
 _INSTALLED_SCRIPTS = Path.home() / ".codex/skills/local-llm-orchestrator/scripts"
 _ROUTER_WRITERS = {
-    "per-run": [Path(os.environ["MONITOR_ROUTER_DEV_SCRIPTS"])] if os.environ.get("MONITOR_ROUTER_DEV_SCRIPTS")
+    "per-run": [Path(os.environ["MONITOR_ROUTER_DEV_SCRIPTS"])]
+    if os.environ.get("MONITOR_ROUTER_DEV_SCRIPTS")
     else [_INSTALLED_SCRIPTS],
-    "legacy": [Path(os.environ["MONITOR_ROUTER_LEGACY_SCRIPTS"])] if os.environ.get("MONITOR_ROUTER_LEGACY_SCRIPTS")
+    "legacy": [Path(os.environ["MONITOR_ROUTER_LEGACY_SCRIPTS"])]
+    if os.environ.get("MONITOR_ROUTER_LEGACY_SCRIPTS")
     else [_INSTALLED_SCRIPTS],
 }
-_DRIVER = r'''
+_DRIVER = r"""
 import json, os, runpy, time
 from pathlib import Path
 cfg = json.loads(os.environ["MONITOR_ROUTER_FIXTURE"])
@@ -2229,7 +3070,7 @@ deadline = time.monotonic() + 60
 while not Path(cfg["stop"]).exists() and time.monotonic() < deadline:
     time.sleep(0.02)
 os._exit(0)     # no finish: the record stays behind, as after a crash (the lock is released)
-'''
+"""
 
 
 def _router_writer(kind):
@@ -2241,7 +3082,8 @@ def _router_writer(kind):
         except OSError:
             continue
         if ("def claim(" in text) == (kind == "per-run") and (
-                kind == "legacy" or (directory / "router_fence.py").is_file()):
+            kind == "legacy" or (directory / "router_fence.py").is_file()
+        ):
             return path
     return None
 
@@ -2271,10 +3113,14 @@ class RouterDualReadTests(unittest.TestCase):
         self.driver = self.base / "pipeline_router.py"
         self.driver.write_text(_DRIVER)
         self.pending = self.base / "nisi-pending.json"
-        for name, value in (("_ROUTER_ROOT", self.root), ("_ACTIVE_PATH", self.root / "active.json"),
-                            ("_ROUTER_SCRIPT", self.driver), ("_PENDING_PATH", self.pending),
-                            ("_LAUNCHER_ROOT", self.base / "launcher"),
-                            ("_READINESS_PATH", self.base / "launcher/readiness.json")):
+        for name, value in (
+            ("_ROUTER_ROOT", self.root),
+            ("_ACTIVE_PATH", self.root / "active.json"),
+            ("_ROUTER_SCRIPT", self.driver),
+            ("_PENDING_PATH", self.pending),
+            ("_LAUNCHER_ROOT", self.base / "launcher"),
+            ("_READINESS_PATH", self.base / "launcher/readiness.json"),
+        ):
             patcher = mock.patch.object(telemetry, name, value)
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -2298,20 +3144,25 @@ class RouterDualReadTests(unittest.TestCase):
     def per_run_layout(self, *, policy="multi", fence="installed"):
         state, path = self.writer("per-run")
         with state["RouterOwner"](self.root):
-            pass                                  # the router's own layout: dirs 0700, owner.lock 0600
+            pass  # the router's own layout: dirs 0700, owner.lock 0600
         if fence:
             runpy.run_path(str(path.with_name("router_fence.py")))["write"](
-                self.root, fence, "c" * 64, "20260927T120000Z")
+                self.root, fence, "c" * 64, "20260927T120000Z"
+            )
         if policy:
             self.set_policy(state, policy)
         return state
 
     def set_policy(self, state, policy):
-        state["_atomic"](self.root / "policy.json", {"schemaVersion": 1, "kind": "codemode.router.policy.v1",
-                                                     "concurrency": policy}, 1024)
+        state["_atomic"](
+            self.root / "policy.json",
+            {"schemaVersion": 1, "kind": "codemode.router.policy.v1", "concurrency": policy},
+            1024,
+        )
 
-    def run_in_process(self, state, run_id, digest, *, begin=True, stage=None, evidence=None, note=None,
-                       keep=True, meta=None):
+    def run_in_process(
+        self, state, run_id, digest, *, begin=True, stage=None, evidence=None, note=None, keep=True, meta=None
+    ):
         """A run of this test process (L0 + its L1 held on its own descriptors)."""
         owner = state["RouterOwner"](self.root)
         owner.__enter__()
@@ -2325,7 +3176,7 @@ class RouterDualReadTests(unittest.TestCase):
         if keep:
             self.owners.append(owner)
         else:
-            owner.__exit__(None, None, None)      # no finish: an unresolved (quarantined) record
+            owner.__exit__(None, None, None)  # no finish: an unresolved (quarantined) record
         return owner
 
     @contextlib.contextmanager
@@ -2333,11 +3184,26 @@ class RouterDualReadTests(unittest.TestCase):
         """A real router work process (`python -I -B pipeline_router.py work`) holding the run."""
         _state, writer = self.writer(kind)
         ready, stop = self.base / f"{run_id}.ready", self.base / f"{run_id}.stop"
-        config = dict({"writer": str(writer), "root": str(self.root), "layout": kind, "runId": run_id,
-                       "digest": digest, "ready": str(ready), "stop": str(stop)}, **config)
+        config = dict(
+            {
+                "writer": str(writer),
+                "root": str(self.root),
+                "layout": kind,
+                "runId": run_id,
+                "digest": digest,
+                "ready": str(ready),
+                "stop": str(stop),
+            },
+            **config,
+        )
         env = dict(os.environ, MONITOR_ROUTER_FIXTURE=json.dumps(config))
-        process = subprocess.Popen([sys.executable, "-I", "-B", str(self.driver), "work"], env=env,
-                                   stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        process = subprocess.Popen(
+            [sys.executable, "-I", "-B", str(self.driver), "work"],
+            env=env,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+        )
         try:
             deadline = time.monotonic() + 15
             while not ready.exists():
@@ -2392,10 +3258,11 @@ class RouterDualReadTests(unittest.TestCase):
                 self.assertFalse((self.root / name).exists(), name)
             router, mode, pipeline, source = self.observe()
             row = self.row(router, "legacy-live")
-            self.assertEqual((row["layout"], row["live"], row["state"], row["pid"]),
-                             ("legacy", True, "running", pid))
-            self.assertEqual((mode["state"], mode["active"], mode["routeId"], mode["taskState"]),
-                             ("processing", True, "legacy-live", "processing"))
+            self.assertEqual((row["layout"], row["live"], row["state"], row["pid"]), ("legacy", True, "running", pid))
+            self.assertEqual(
+                (mode["state"], mode["active"], mode["routeId"], mode["taskState"]),
+                ("processing", True, "legacy-live", "processing"),
+            )
             self.assertIsNone(mode["client"])
             self.assertEqual(mode["runCounts"], {"running": 1, "queued": 0, "unresolved": 0})
             self.assertEqual(mode["admission"]["source"], "legacy-router")
@@ -2407,17 +3274,35 @@ class RouterDualReadTests(unittest.TestCase):
             # the route stays running and the marker is not a recovery.
             self.write_marker(None)
             _router, _mode, pipeline, source = self.observe()
-            self.assertEqual((pipeline["status"], pipeline["recoveryRequired"], pipeline["pendingMarkerForeign"],
-                              pipeline["pendingMarkerAttributedTo"], pipeline["pendingMarkerOwner"]),
-                             ("running", False, False, None, "anonymous (legacy)"))
+            self.assertEqual(
+                (
+                    pipeline["status"],
+                    pipeline["recoveryRequired"],
+                    pipeline["pendingMarkerForeign"],
+                    pipeline["pendingMarkerAttributedTo"],
+                    pipeline["pendingMarkerOwner"],
+                ),
+                ("running", False, False, None, "anonymous (legacy)"),
+            )
             self.assertEqual(source["state"], "live")
             # After P1 the same route's chat call writes the 5-key form: attributed by exact runId.
             self.write_marker("legacy-live.answer", operation="answer")
             _router, _mode, pipeline, source = self.observe()
-            components = {c["id"]: c for c in telemetry._route_components(
-                pipeline, {"runtimeIntegrity": "VERIFIED", "hostBinding": "VERIFIED"}, {}, time.time())}
-            self.assertEqual((pipeline["status"], pipeline["recoveryRequired"], pipeline["pendingMarkerForeign"],
-                              pipeline["pendingMarkerAttributedTo"]), ("running", False, False, "legacy-live"))
+            components = {
+                c["id"]: c
+                for c in telemetry._route_components(
+                    pipeline, {"runtimeIntegrity": "VERIFIED", "hostBinding": "VERIFIED"}, {}, time.time()
+                )
+            }
+            self.assertEqual(
+                (
+                    pipeline["status"],
+                    pipeline["recoveryRequired"],
+                    pipeline["pendingMarkerForeign"],
+                    pipeline["pendingMarkerAttributedTo"],
+                ),
+                ("running", False, False, "legacy-live"),
+            )
             self.assertEqual(components["nisi"]["state"], "in-use")
             self.assertIn("Nisi call in flight for live route legacy-live", source["detail"])
             self.pending.unlink()
@@ -2491,51 +3376,76 @@ class RouterDualReadTests(unittest.TestCase):
         """New layout: a live run is its L1 held (SH|NB probe fails) on the inode its record binds;
         the process is attributed separately; N runs project as separate rows."""
         state = self.per_run_layout(policy="multi")
-        self.run_in_process(state, "run-dead", "d" * 64, stage="incomplete",
-                            evidence={"recoveryRequired": True, "code": "NISI_OWNER_BUSY",
-                                      "prompt": "PRIVATE_FIXTURE_TEXT"}, keep=False)
-        with self.holder("per-run", "run-live", "a" * 64, stage="backend_draft",
-                         meta={"client": "claude", "host": "mac", "operation": "work"},
-                         note=["running", "mac-pair", "backend"]) as pid:
-            self.run_in_process(state, "run-queued", "b" * 64, begin=False,
-                                meta={"client": "codex", "host": "windows", "operation": "work"},
-                                note=("waiting", "pc-route", "pre-begin"))
+        self.run_in_process(
+            state,
+            "run-dead",
+            "d" * 64,
+            stage="incomplete",
+            evidence={"recoveryRequired": True, "code": "NISI_OWNER_BUSY", "prompt": "PRIVATE_FIXTURE_TEXT"},
+            keep=False,
+        )
+        with self.holder(
+            "per-run",
+            "run-live",
+            "a" * 64,
+            stage="backend_draft",
+            meta={"client": "claude", "host": "mac", "operation": "work"},
+            note=["running", "mac-pair", "backend"],
+        ) as pid:
+            self.run_in_process(
+                state,
+                "run-queued",
+                "b" * 64,
+                begin=False,
+                meta={"client": "codex", "host": "windows", "operation": "work"},
+                note=("waiting", "pc-route", "pre-begin"),
+            )
             router, mode, pipeline, source = self.observe()
             live = self.row(router, "run-live")
             record = json.loads((self.root / "active" / "run-live.json").read_text())
             self.assertEqual(record["runLock"]["ino"], os.stat(self.root / "locks" / "run-live.lock").st_ino)
-            self.assertEqual((live["layout"], live["lock"], live["live"], live["state"], live["pid"]),
-                             ("per-run", "held", True, "running", pid))
+            self.assertEqual(
+                (live["layout"], live["lock"], live["live"], live["state"], live["pid"]),
+                ("per-run", "held", True, "running", pid),
+            )
             self.assertEqual((live["client"], live["host"]), ("claude", "mac"))
             queued = self.row(router, "run-queued")
             self.assertEqual((queued["layout"], queued["live"], queued["state"]), ("note", True, "waiting"))
             dead = self.row(router, "run-dead")
-            self.assertEqual((dead["live"], dead["state"], dead["code"], dead["recoveryRequired"]),
-                             (False, "unresolved", "NISI_OWNER_BUSY", True))
+            self.assertEqual(
+                (dead["live"], dead["state"], dead["code"], dead["recoveryRequired"]),
+                (False, "unresolved", "NISI_OWNER_BUSY", True),
+            )
             # One object for older consumers: the newest running run, never the queued one.
             self.assertEqual((mode["state"], mode["routeId"], mode["client"]), ("processing", "run-live", "claude"))
             self.assertIn(f"pid {pid}", mode["evidence"])
             self.assertEqual(mode["runCounts"], {"running": 1, "queued": 1, "unresolved": 1})
             self.assertEqual([r["runId"] for r in mode["activeRuns"]], ["run-live", "run-dead"])
-            self.assertEqual([(r["runId"], r["resource"], r["client"]) for r in mode["queuedRuns"]],
-                             [("run-queued", "pc-route", "codex")])
+            self.assertEqual(
+                [(r["runId"], r["resource"], r["client"]) for r in mode["queuedRuns"]],
+                [("run-queued", "pc-route", "codex")],
+            )
             self.assertGreater(mode["queuedRuns"][0]["secondsLeft"], 30)
             self.assertEqual(mode["lanes"]["mac-pair"], {"capacity": 1, "holders": ["run-live"], "waiting": []})
             self.assertEqual(mode["lanes"]["pc-route"], {"capacity": 1, "holders": [], "waiting": ["run-queued"]})
             self.assertEqual(mode["lanes"]["pc-fast"]["capacity"], 2)
             self.assertEqual((mode["admission"]["policy"], mode["admission"]["source"]), ("multi", "file"))
             self.assertEqual((mode["install"]["state"], mode["install"]["inProgress"]), ("installed", False))
-            self.assertEqual((pipeline["status"], pipeline["runId"], pipeline["stage"]),
-                             ("running", "run-live", "backend_draft"))
-            self.assertEqual({p["runId"]: p["status"] for p in pipeline["pipelines"]},
-                             {"run-live": "running", "run-queued": "waiting", "run-dead": "unresolved"})
+            self.assertEqual(
+                (pipeline["status"], pipeline["runId"], pipeline["stage"]), ("running", "run-live", "backend_draft")
+            )
+            self.assertEqual(
+                {p["runId"]: p["status"] for p in pipeline["pipelines"]},
+                {"run-live": "running", "run-queued": "waiting", "run-dead": "unresolved"},
+            )
             self.assertNotIn("PRIVATE_FIXTURE_TEXT", json.dumps([mode, pipeline, source]))
         # The run's process is gone: its lock is free, its record stays (quarantined), and the stale
         # note it left is ignored.
         self.assertTrue((self.root / "notes" / "run-live.json").exists())
         router, mode, _pipeline, _ = self.observe()
-        self.assertEqual((self.row(router, "run-live")["state"], self.row(router, "run-live")["note"]),
-                         ("unresolved", None))
+        self.assertEqual(
+            (self.row(router, "run-live")["state"], self.row(router, "run-live")["note"]), ("unresolved", None)
+        )
         self.assertEqual((mode["state"], mode["routeId"]), ("processing", "run-queued"))
         self.assertEqual(mode["runCounts"], {"running": 0, "queued": 1, "unresolved": 2})
 
@@ -2546,19 +3456,28 @@ class RouterDualReadTests(unittest.TestCase):
         self.run_in_process(state, "run-x", "a" * 64, stage="backend_draft")
         self.run_in_process(state, "src.jev", "b" * 64, stage="feedback_review_intent")
         self.run_in_process(state, "dead-run", "c" * 64, stage="backend_review", keep=False)
-        for marker, attributed in (("run-x.draft", "run-x"), ("run-x.review", "run-x"),
-                                   ("run-x.mac-return", "run-x"), ("run-x.answer", "run-x"),
-                                   ("src.jev.review", "src.jev"),
-                                   ("run-x2.draft", None),            # a longer id, never by prefix
-                                   ("run.draft", None),               # a shorter id
-                                   ("run-x.draft.review", None),      # one suffix only
-                                   ("run-xdraft", None), ("run-x", None),
-                                   ("dead-run.review", None)):         # its run is not live
+        for marker, attributed in (
+            ("run-x.draft", "run-x"),
+            ("run-x.review", "run-x"),
+            ("run-x.mac-return", "run-x"),
+            ("run-x.answer", "run-x"),
+            ("src.jev.review", "src.jev"),
+            ("run-x2.draft", None),  # a longer id, never by prefix
+            ("run.draft", None),  # a shorter id
+            ("run-x.draft.review", None),  # one suffix only
+            ("run-xdraft", None),
+            ("run-x", None),
+            ("dead-run.review", None),
+        ):  # its run is not live
             with self.subTest(marker=marker):
                 self.write_marker(marker)
                 router, mode, pipeline, source = self.observe()
-                components = {c["id"]: c for c in telemetry._route_components(
-                    pipeline, {"runtimeIntegrity": "VERIFIED", "hostBinding": "VERIFIED"}, {}, time.time())}
+                components = {
+                    c["id"]: c
+                    for c in telemetry._route_components(
+                        pipeline, {"runtimeIntegrity": "VERIFIED", "hostBinding": "VERIFIED"}, {}, time.time()
+                    )
+                }
                 self.assertEqual(pipeline["pendingMarkerAttributedTo"], attributed)
                 self.assertTrue(pipeline["pendingMarkerObserved"])
                 self.assertEqual(pipeline["pendingMarkerOwner"], marker)
@@ -2576,8 +3495,10 @@ class RouterDualReadTests(unittest.TestCase):
         self.write_marker(None)
         _router, _mode, pipeline, _ = self.observe()
         self.assertIsNone(pipeline["pendingMarkerAttributedTo"])
-        self.assertEqual((pipeline["status"], pipeline["recoveryRequired"], pipeline["pendingMarkerForeign"]),
-                         ("running", True, True))
+        self.assertEqual(
+            (pipeline["status"], pipeline["recoveryRequired"], pipeline["pendingMarkerForeign"]),
+            ("running", True, True),
+        )
         self.assertEqual(pipeline["pendingMarkerOwner"], "anonymous (legacy)")
 
     # -- the rest of R2.9 rule 8 ---------------------------------------------------------------
@@ -2593,13 +3514,14 @@ class RouterDualReadTests(unittest.TestCase):
         with mock.patch.object(telemetry.time, "sleep") as sleep:
             router, mode, pipeline, source = self.observe()
         self.assertEqual(sleep.call_count, telemetry._ROUTER_READ_RETRIES - 1)
-        self.assertEqual((self.row(router, "run-a")["state"], self.row(router, "run-a")["readable"]),
-                         ("unreadable", False))
+        self.assertEqual(
+            (self.row(router, "run-a")["state"], self.row(router, "run-a")["readable"]), ("unreadable", False)
+        )
         self.assertEqual(self.row(router, "run-b")["state"], "unresolved")
         self.assertEqual(mode["taskState"], "unfinished")
         self.assertEqual(sorted(r["runId"] for r in mode["activeRuns"]), ["run-a", "run-b"])
         self.assertNotIn("run-a.json.tmp-4242", json.dumps([mode, pipeline]))
-        os.unlink(record.with_name("run-a.json.tmp-4242"))           # the next L1 holder heals it
+        os.unlink(record.with_name("run-a.json.tmp-4242"))  # the next L1 holder heals it
         self.assertEqual(self.row(self.observe()[0], "run-a")["state"], "unresolved")
 
     def test_dual_read_multiple_unresolved_runs_of_both_layouts(self):
@@ -2610,12 +3532,20 @@ class RouterDualReadTests(unittest.TestCase):
             owner.begin("legacy-old", "e" * 64)
             owner.checkpoint("backend_review", {"recoveryRequired": True})
         state = self.per_run_layout(policy=None, fence=None)
-        self.run_in_process(state, "run-new", "a" * 64, stage="incomplete",
-                            evidence={"recoveryRequired": True, "code": "WINDOWS_OWNER_UNAVAILABLE"}, keep=False)
+        self.run_in_process(
+            state,
+            "run-new",
+            "a" * 64,
+            stage="incomplete",
+            evidence={"recoveryRequired": True, "code": "WINDOWS_OWNER_UNAVAILABLE"},
+            keep=False,
+        )
         router, mode, pipeline, _ = self.observe()
         self.assertEqual(router["layout"], "mixed")
-        self.assertEqual({row["runId"]: (row["layout"], row["state"]) for row in router["rows"]},
-                         {"legacy-old": ("legacy", "unresolved"), "run-new": ("per-run", "unresolved")})
+        self.assertEqual(
+            {row["runId"]: (row["layout"], row["state"]) for row in router["rows"]},
+            {"legacy-old": ("legacy", "unresolved"), "run-new": ("per-run", "unresolved")},
+        )
         self.assertEqual((mode["state"], mode["taskState"], mode["routeId"]), ("unknown", "unfinished", "run-new"))
         self.assertEqual(mode["runCounts"], {"running": 0, "queued": 0, "unresolved": 2})
         self.assertEqual(pipeline["runId"], "run-new")
@@ -2633,7 +3563,7 @@ class RouterDualReadTests(unittest.TestCase):
         ghost.__enter__()
         ghost.claim("run-ghost", "b" * 64, until=time.monotonic() + 2)
         ghost.note("waiting", "mac-pair", "pre-begin", time.monotonic() + 30)
-        ghost._l1, l1 = None, ghost._l1              # keep its note on disk, then release its locks
+        ghost._l1, l1 = None, ghost._l1  # keep its note on disk, then release its locks
         os.close(l1)
         ghost.__exit__(None, None, None)
         self.assertTrue((self.root / "notes" / "run-ghost.json").exists())
@@ -2649,7 +3579,7 @@ class RouterDualReadTests(unittest.TestCase):
         owner = self.run_in_process(state, "run-r", "a" * 64, stage="backend_draft")
         lock = self.root / "locks" / "run-r.lock"
         os.unlink(lock)
-        fd = os.open(str(lock), os.O_RDWR | os.O_CREAT, 0o600)   # an impostor lock file, held
+        fd = os.open(str(lock), os.O_RDWR | os.O_CREAT, 0o600)  # an impostor lock file, held
         try:
             fcntl.flock(fd, fcntl.LOCK_EX)
             router, mode, _pipeline, _ = self.observe()
@@ -2661,8 +3591,9 @@ class RouterDualReadTests(unittest.TestCase):
             os.close(fd)
         os.unlink(lock)
         router, mode, _pipeline, _ = self.observe()
-        self.assertEqual((self.row(router, "run-r")["lock"], self.row(router, "run-r")["state"]),
-                         ("missing", "unverified"))
+        self.assertEqual(
+            (self.row(router, "run-r")["lock"], self.row(router, "run-r")["state"]), ("missing", "unverified")
+        )
         self.assertFalse(lock.exists(), "the reader never re-creates a lock file")
         self.assertIsNotNone(owner)
 
@@ -2673,13 +3604,18 @@ class RouterDualReadTests(unittest.TestCase):
         state, path = self.writer("per-run")
         fence = runpy.run_path(str(path.with_name("router_fence.py")))
         with self.holder("legacy", "legacy-live", "a" * 64, stage="backend_draft"):
-            for fence_state, in_progress, live in (("installing", True, False), ("rolling-back", True, False),
-                                                   ("installed", False, True), ("rolled-back", False, True)):
+            for fence_state, in_progress, live in (
+                ("installing", True, False),
+                ("rolling-back", True, False),
+                ("installed", False, True),
+                ("rolled-back", False, True),
+            ):
                 with self.subTest(fence=fence_state):
                     fence["write"](self.root, fence_state, "c" * 64, "20260927T120000Z")
                     router, mode, pipeline, _ = self.observe()
-                    self.assertEqual((router["install"]["state"], router["install"]["inProgress"]),
-                                     (fence_state, in_progress))
+                    self.assertEqual(
+                        (router["install"]["state"], router["install"]["inProgress"]), (fence_state, in_progress)
+                    )
                     self.assertEqual(self.row(router, "legacy-live")["live"], live)
                     if in_progress:
                         self.assertEqual(mode["taskState"], "install-in-progress")
@@ -2711,9 +3647,11 @@ class RouterDualReadTests(unittest.TestCase):
             self.assertEqual(self.observe()[1]["admission"]["drainState"], "not-applicable")
             self.set_policy(state, "single")
             admission = self.observe()[1]["admission"]
-            self.assertEqual((admission["policy"], admission["drainState"], admission["draining"],
-                              admission["sharedHolders"]), ("single", "draining", True, ["run-shared"]))
-            with telemetry.monitor_router_hold():      # never probe owner.lock while Fix may hold it
+            self.assertEqual(
+                (admission["policy"], admission["drainState"], admission["draining"], admission["sharedHolders"]),
+                ("single", "draining", True, ["run-shared"]),
+            )
+            with telemetry.monitor_router_hold():  # never probe owner.lock while Fix may hold it
                 self.assertEqual(self.observe()[1]["admission"]["drainState"], "unknown")
         admission = self.observe()[1]["admission"]
         self.assertEqual((admission["drainState"], admission["draining"]), ("drained", False))
@@ -2733,7 +3671,7 @@ class RouterDualReadTests(unittest.TestCase):
             while not stop.is_set():
                 try:
                     telemetry._router_observation(time.time())
-                except Exception as exc:          # pragma: no cover - reported below
+                except Exception as exc:  # pragma: no cover - reported below
                     failures.append(repr(exc))
 
         thread = threading.Thread(target=monitor)
@@ -2749,8 +3687,17 @@ class RouterDualReadTests(unittest.TestCase):
                     owner.claim(run_id, digest, until=time.monotonic() + 0.3)
                     owner.begin(run_id, digest)
                     owner.checkpoint("backend_draft", {"selectedHost": "mac"})
-                    owner.finish({"kind": "codemode.router.v1", "status": "NOT_RUN", "runId": run_id,
-                                  "requestSha256": digest, "accepted": False, "advisoryOnly": True}, 3)
+                    owner.finish(
+                        {
+                            "kind": "codemode.router.v1",
+                            "status": "NOT_RUN",
+                            "runId": run_id,
+                            "requestSha256": digest,
+                            "accepted": False,
+                            "advisoryOnly": True,
+                        },
+                        3,
+                    )
         finally:
             stop.set()
             thread.join(10)
@@ -2766,18 +3713,21 @@ class RouterDualReadTests(unittest.TestCase):
         mode = telemetry._online_code_mode(time.time(), "now", router)
         self.assertEqual((mode["state"], mode["activeRuns"], mode["queuedRuns"]), ("unknown", [], []))
         with mock.patch.object(telemetry.time, "time", return_value=time.time() + 60):
-            self.assertIsNone(telemetry.last_router_observation())   # only this sample's observation
+            self.assertIsNone(telemetry.last_router_observation())  # only this sample's observation
 
     def test_dual_read_bounds_listing_and_full_reads(self):
         """At most 64 names per directory and 4 full reads per sample; older rows stay listed with
         their liveness but no checkpoint, and a truncated listing says so."""
         state = self.per_run_layout(policy="multi")
         for index in range(6):
-            self.run_in_process(state, f"run-{index}", hashlib.sha256(bytes([index])).hexdigest(),
-                                stage="backend_draft", keep=False)
+            self.run_in_process(
+                state, f"run-{index}", hashlib.sha256(bytes([index])).hexdigest(), stage="backend_draft", keep=False
+            )
             os.utime(self.root / "active" / f"run-{index}.json", (1000 + index, 1000 + index))
-        with mock.patch.object(telemetry, "_ROUTER_LISTED", 5), \
-             mock.patch.object(telemetry, "_safe_file", wraps=telemetry._safe_file) as reads:
+        with (
+            mock.patch.object(telemetry, "_ROUTER_LISTED", 5),
+            mock.patch.object(telemetry, "_safe_file", wraps=telemetry._safe_file) as reads,
+        ):
             router, mode, _pipeline, _ = self.observe()
         record_reads = [c for c in reads.call_args_list if "/active/" in str(c.args[0])]
         self.assertEqual(len(record_reads), telemetry._ROUTER_FULL_READS)
@@ -2802,13 +3752,16 @@ class RouterDualReadTests(unittest.TestCase):
     def activity_runs(self, router, now=None):
         """activity.collect_activity over this journal, fed by ``router`` as this sample's observation."""
         import activity
+
         now = time.time() if now is None else now
         with telemetry._LAST_ROUTER_OBSERVATION_LOCK:
             telemetry._LAST_ROUTER_OBSERVATION.update(sampledAt=now, value=router)
-        with mock.patch.object(activity, "_ACTIVE", self.root / "active.json"), \
-             mock.patch.object(activity, "_ROOT", self.root), \
-             mock.patch.object(activity, "_receipt_files", return_value=[]), \
-             mock.patch.object(activity, "_archive_files", return_value=[]):
+        with (
+            mock.patch.object(activity, "_ACTIVE", self.root / "active.json"),
+            mock.patch.object(activity, "_ROOT", self.root),
+            mock.patch.object(activity, "_receipt_files", return_value=[]),
+            mock.patch.object(activity, "_archive_files", return_value=[]),
+        ):
             return activity.collect_activity(now)
 
     def test_converge_hostile_numbers_never_fail_the_observation(self):
@@ -2825,21 +3778,35 @@ class RouterDualReadTests(unittest.TestCase):
         self.rewrite(self.pending, lambda value: value.update(started_unix="__HUGE__"))
         router, mode, pipeline, _source = self.observe()
         self.assertIsNone(router["error"])
-        self.assertEqual({row["runId"]: row["state"] for row in router["rows"]},
-                         {"run-ok": "unresolved", "run-huge": "unreadable", "run-note": "admitting"})
+        self.assertEqual(
+            {row["runId"]: row["state"] for row in router["rows"]},
+            {"run-ok": "unresolved", "run-huge": "unreadable", "run-note": "admitting"},
+        )
         self.assertEqual(mode["runCounts"], {"running": 0, "queued": 1, "unresolved": 2})
-        self.assertEqual((pipeline["pendingMarkerObserved"], pipeline["recoveryRequired"],
-                          pipeline["pendingMarkerAgeSeconds"]), (True, True, None))
+        self.assertEqual(
+            (pipeline["pendingMarkerObserved"], pipeline["recoveryRequired"], pipeline["pendingMarkerAgeSeconds"]),
+            (True, True, None),
+        )
         self.rewrite(self.root / "install-fence.json", lambda value: value.update(sinceUnix="__HUGE__"))
         self.assertEqual(telemetry.observe_router(time.time())["install"]["state"], "invalid")
         os.mkdir(self.base / "launcher", 0o700)
-        self.rewrite(self.base / "launcher/readiness.json", raw=json.dumps({
-            "schemaVersion": 1, "status": "PREFLIGHT_COMPLETED", "observedAtUnix": "__HUGE__",
-            "source": "online-code-mode", "client": None, "chatId": None}))
+        self.rewrite(
+            self.base / "launcher/readiness.json",
+            raw=json.dumps(
+                {
+                    "schemaVersion": 1,
+                    "status": "PREFLIGHT_COMPLETED",
+                    "observedAtUnix": "__HUGE__",
+                    "source": "online-code-mode",
+                    "client": None,
+                    "chatId": None,
+                }
+            ),
+        )
         self.assertEqual(telemetry._launcher_readiness(time.time()), ("invalid", None))
         self.assertFalse(telemetry._finite(True))
-        self.assertTrue(telemetry._finite(2 ** 53 - 1))
-        self.assertFalse(telemetry._finite(2 ** 53))
+        self.assertTrue(telemetry._finite(2**53 - 1))
+        self.assertFalse(telemetry._finite(2**53))
 
     def test_converge_legacy_live_route_past_the_freshness_limit_is_live_and_stalled(self):
         """Sol #4 / review 6: R2.9 legacy liveness is rules (i)-(iv); the checkpoint's age is not
@@ -2853,11 +3820,15 @@ class RouterDualReadTests(unittest.TestCase):
             telemetry._mark_live_route(pipeline, source, mode)
         row = self.row(router, "legacy-live")
         self.assertEqual((row["live"], row["state"], row["stalled"], row["pid"]), (True, "running", True, pid))
-        self.assertEqual((mode["state"], mode["active"], mode["taskState"], mode["blinking"]),
-                         ("processing", True, "processing", False))
+        self.assertEqual(
+            (mode["state"], mode["active"], mode["taskState"], mode["blinking"]),
+            ("processing", True, "processing", False),
+        )
         self.assertIn("may be stalled", mode["evidence"])
         self.assertEqual(mode["runCounts"], {"running": 1, "queued": 0, "unresolved": 0})
-        self.assertEqual((pipeline["status"], pipeline["recoveryRequired"], source["state"]), ("running", False, "live"))
+        self.assertEqual(
+            (pipeline["status"], pipeline["recoveryRequired"], source["state"]), ("running", False, "live")
+        )
 
     def test_converge_legacy_record_changing_under_observation_is_not_unresolved(self):
         """Review 5 (and mutant ME): owner.lock released between the first probe and the final
@@ -2880,8 +3851,10 @@ class RouterDualReadTests(unittest.TestCase):
         fd = os.open(str(self.root / "owner.lock"), os.O_RDWR)
         try:
             fcntl.flock(fd, fcntl.LOCK_EX)
-            with mock.patch.object(telemetry, "_router_owner_process", return_value=(4242, started - 1)), \
-                 mock.patch.object(telemetry, "_probe_lock", side_effect=probe):
+            with (
+                mock.patch.object(telemetry, "_router_owner_process", return_value=(4242, started - 1)),
+                mock.patch.object(telemetry, "_probe_lock", side_effect=probe),
+            ):
                 router, mode, pipeline, _source = self.observe()
         finally:
             os.close(fd)
@@ -2894,7 +3867,9 @@ class RouterDualReadTests(unittest.TestCase):
         self.assertEqual((mode["state"], mode["taskState"]), ("unknown", "unknown"))
         self.assertEqual([p["status"] for p in pipeline["pipelines"]], ["changing"])
         runs = self.activity_runs(router)["runs"]
-        self.assertEqual([(r["runId"], r["status"], r["activity"]) for r in runs], [("legacy-a", "changing", "unknown")])
+        self.assertEqual(
+            [(r["runId"], r["status"], r["activity"]) for r in runs], [("legacy-a", "changing", "unknown")]
+        )
 
     def test_converge_run_finishing_during_the_sample_leaves_no_row(self):
         """Review 4 / Sol #11: a live run that archives, clears its record and releases its lock
@@ -2912,8 +3887,17 @@ class RouterDualReadTests(unittest.TestCase):
         def record(path, info):
             status, value = real(path, info)
             if path.name == "run-g.json" and owner._run is not None:
-                owner.finish({"kind": "codemode.router.v1", "status": "RESPONSE_VALIDATED", "runId": "run-g",
-                              "requestSha256": "b" * 64, "accepted": False, "advisoryOnly": True}, 0)
+                owner.finish(
+                    {
+                        "kind": "codemode.router.v1",
+                        "status": "RESPONSE_VALIDATED",
+                        "runId": "run-g",
+                        "requestSha256": "b" * 64,
+                        "accepted": False,
+                        "advisoryOnly": True,
+                    },
+                    0,
+                )
                 owner.__exit__(None, None, None)
             return status, value
 
@@ -2927,15 +3911,20 @@ class RouterDualReadTests(unittest.TestCase):
         # p2-readers converge (Sol #11, R2.9 rule 2): a listed record gone before its read, with
         # no archive, is looked for again (<= 3 x 20 ms), then shown as one unreadable row;
         # only a run whose archive exists finished cleanly and leaves no row.
-        with mock.patch.object(telemetry, "_router_record", return_value=("absent", None)), \
-             mock.patch.object(telemetry.time, "sleep") as sleep:
+        with (
+            mock.patch.object(telemetry, "_router_record", return_value=("absent", None)),
+            mock.patch.object(telemetry.time, "sleep") as sleep,
+        ):
             rows = telemetry._router_observation(time.time())["rows"]
         self.assertEqual(sleep.call_count, telemetry._ROUTER_READ_RETRIES - 1)
-        self.assertEqual([(row["runId"], row["state"], row["readable"]) for row in rows],
-                         [("run-v", "unreadable", False)])
+        self.assertEqual(
+            [(row["runId"], row["state"], row["readable"]) for row in rows], [("run-v", "unreadable", False)]
+        )
         _private_write(self.root / "archive" / "run-v.json", "{}")
-        with mock.patch.object(telemetry, "_router_record", return_value=("absent", None)), \
-             mock.patch.object(telemetry.time, "sleep") as sleep:
+        with (
+            mock.patch.object(telemetry, "_router_record", return_value=("absent", None)),
+            mock.patch.object(telemetry.time, "sleep") as sleep,
+        ):
             self.assertEqual(telemetry._router_observation(time.time())["rows"], [])
         sleep.assert_not_called()
         os.unlink(self.root / "archive" / "run-v.json")
@@ -2954,11 +3943,13 @@ class RouterDualReadTests(unittest.TestCase):
             os.utime(self.root / "active" / f"{run_id}.json", (1000 + index, 1000 + index))
         with mock.patch.object(telemetry, "_safe_file", wraps=telemetry._safe_file) as reads:
             router, mode, _pipeline, _source = self.observe()
-        self.assertEqual(len([c for c in reads.call_args_list if "/active/" in str(c.args[0])]),
-                         telemetry._ROUTER_FULL_READS + 1)
+        self.assertEqual(
+            len([c for c in reads.call_args_list if "/active/" in str(c.args[0])]), telemetry._ROUTER_FULL_READS + 1
+        )
         row = self.row(router, "run-old")
-        self.assertEqual((row["lock"], row["live"], row["lockBound"], row["stage"]),
-                         ("held", True, True, "backend_draft"))
+        self.assertEqual(
+            (row["lock"], row["live"], row["lockBound"], row["stage"]), ("held", True, True, "backend_draft")
+        )
         self.assertNotIn("identity cannot be checked", mode["evidence"])
         # p2-readers converge (Sol High #1/#6): with even that budget spent, a held lock whose
         # record was not read proves nothing about this run: unverified (run lock held), never
@@ -2966,20 +3957,28 @@ class RouterDualReadTests(unittest.TestCase):
         with mock.patch.object(telemetry, "_ROUTER_ATTRIBUTED", 0):
             router, mode, _pipeline, _source = self.observe()
         row = self.row(router, "run-old")
-        self.assertEqual((row["live"], row["lockBound"], row["lockHeld"], row["read"], row["state"]),
-                         (False, False, True, False, "unverified"))
+        self.assertEqual(
+            (row["live"], row["lockBound"], row["lockHeld"], row["read"], row["state"]),
+            (False, False, True, False, "unverified"),
+        )
         self.assertEqual(mode["runCounts"]["running"], 0)
-        self.assertEqual({r["runId"]: (r["state"], r["lockHeld"]) for r in mode["activeRuns"]}["run-old"],
-                         ("unverified", True))
-        with mock.patch.object(telemetry, "_ROUTER_ATTRIBUTED", 0), mock.patch.object(telemetry, "_ROUTER_FULL_READS", 0):
+        self.assertEqual(
+            {r["runId"]: (r["state"], r["lockHeld"]) for r in mode["activeRuns"]}["run-old"], ("unverified", True)
+        )
+        with (
+            mock.patch.object(telemetry, "_ROUTER_ATTRIBUTED", 0),
+            mock.patch.object(telemetry, "_ROUTER_FULL_READS", 0),
+        ):
             for index in range(1, 5):
                 os.unlink(self.root / "active" / f"run-{index}.json")
             router, mode, _pipeline, _source = self.observe()
-        self.assertEqual((router["primary"]["runId"], mode["state"], mode["taskState"]), ("run-old", "unknown", "unfinished"))
+        self.assertEqual(
+            (router["primary"]["runId"], mode["state"], mode["taskState"]), ("run-old", "unknown", "unfinished")
+        )
         self.assertIn("identity cannot be checked", mode["evidence"])
         lock = self.root / "locks" / "run-old.lock"
         os.unlink(lock)
-        fd = os.open(str(lock), os.O_RDWR | os.O_CREAT, 0o600)        # an impostor, held
+        fd = os.open(str(lock), os.O_RDWR | os.O_CREAT, 0o600)  # an impostor, held
         try:
             fcntl.flock(fd, fcntl.LOCK_EX)
             router, mode, _pipeline, _source = self.observe()
@@ -2998,8 +3997,10 @@ class RouterDualReadTests(unittest.TestCase):
         router, mode, pipeline, source = self.observe()
         self.assertEqual(self.row(router, "run-x")["state"], "unreadable")
         self.assertIn("could not be read whole", mode["evidence"])
-        self.assertEqual((pipeline["status"], pipeline["stage"], pipeline["ageSeconds"], source["state"]),
-                         ("unknown", None, None, "error"))
+        self.assertEqual(
+            (pipeline["status"], pipeline["stage"], pipeline["ageSeconds"], source["state"]),
+            ("unknown", None, None, "error"),
+        )
         runs = self.activity_runs(router)["runs"]
         self.assertEqual([(r["runId"], r["status"], r["stage"]) for r in runs], [("run-x", "unreadable", None)])
 
@@ -3015,18 +4016,22 @@ class RouterDualReadTests(unittest.TestCase):
         # as processing and never blinks; the pipeline names what it waits for.
         self.assertEqual((mode["taskState"], mode["blinking"], mode["runCounts"]["running"]), ("queued", False, 0))
         self.assertEqual((pipeline["queuePhase"], pipeline["queueResource"]), ("waiting", "mac-pair"))
-        self.assertEqual((pipeline["status"], pipeline["runId"], pipeline.get("liveOwnerVerified")),
-                         ("queued", "run-q", None))
+        self.assertEqual(
+            (pipeline["status"], pipeline["runId"], pipeline.get("liveOwnerVerified")), ("queued", "run-q", None)
+        )
         self.assertEqual(source["state"], "live")
         self.assertEqual([p["status"] for p in pipeline["pipelines"]], ["waiting"])
         self.write_marker("other-run.draft")
         _router, _mode, pipeline, _source = self.observe()
-        self.assertEqual((pipeline["status"], pipeline["recoveryRequired"], pipeline["pendingMarkerForeign"]),
-                         ("queued", True, True))
+        self.assertEqual(
+            (pipeline["status"], pipeline["recoveryRequired"], pipeline["pendingMarkerForeign"]), ("queued", True, True)
+        )
         self.pending.unlink()
         self.run_in_process(state, "run-w", "b" * 64, stage="backend_draft", note=("waiting", "pc-route", "backend"))
         router, mode, pipeline, _source = self.observe()
-        self.assertEqual((self.row(router, "run-w")["state"], self.row(router, "run-w")["layout"]), ("waiting", "per-run"))
+        self.assertEqual(
+            (self.row(router, "run-w")["state"], self.row(router, "run-w")["layout"]), ("waiting", "per-run")
+        )
         self.assertEqual(mode["runCounts"], {"running": 0, "queued": 2, "unresolved": 0})
         self.assertEqual(pipeline["status"], "queued")
 
@@ -3036,10 +4041,22 @@ class RouterDualReadTests(unittest.TestCase):
         marker beside a live route stays an error instead of being overwritten with 'live'."""
         state = self.per_run_layout(policy="multi")
         self.run_in_process(state, "run-x", "a" * 64, stage="backend_draft")
-        good = {"kind": "codemode.nisi.pending.v1", "started_unix": time.time() - 5, "input_sha256": "f" * 64,
-                "runId": "run-x.draft", "operation": "draft"}
-        for change in ({"operation": 7}, {"operation": "work"}, {"input_sha256": []}, {"input_sha256": "F" * 64},
-                       {"started_unix": time.time() + 3600}, {"started_unix": "__HUGE__"}, {"started_unix": True}):
+        good = {
+            "kind": "codemode.nisi.pending.v1",
+            "started_unix": time.time() - 5,
+            "input_sha256": "f" * 64,
+            "runId": "run-x.draft",
+            "operation": "draft",
+        }
+        for change in (
+            {"operation": 7},
+            {"operation": "work"},
+            {"input_sha256": []},
+            {"input_sha256": "F" * 64},
+            {"started_unix": time.time() + 3600},
+            {"started_unix": "__HUGE__"},
+            {"started_unix": True},
+        ):
             with self.subTest(change=change):
                 self.rewrite(self.pending, raw=json.dumps(dict(good, **change)))
                 _router, _mode, pipeline, _source = self.observe()
@@ -3049,8 +4066,9 @@ class RouterDualReadTests(unittest.TestCase):
         self.assertEqual(self.observe()[2]["pendingMarkerAttributedTo"], "run-x")
         self.rewrite(self.pending, raw="{not json")
         _router, _mode, pipeline, source = self.observe()
-        self.assertEqual((pipeline["status"], pipeline["pendingMarkerUnreadable"], source["state"]),
-                         ("running", True, "error"))
+        self.assertEqual(
+            (pipeline["status"], pipeline["pendingMarkerUnreadable"], source["state"]), ("running", True, "error")
+        )
         self.assertIn("Nisi marker invalid or unreadable", source["detail"])
 
     def test_converge_the_install_fence_is_read_closed(self):
@@ -3062,14 +4080,22 @@ class RouterDualReadTests(unittest.TestCase):
         fence = self.root / "install-fence.json"
         good = json.loads(fence.read_text())
         self.assertEqual(telemetry._router_install_state(self.root)["state"], "installed")
-        for change in ({"stamp": 17}, {"stamp": "not-a-stamp"}, {"stamp": None}, {"stamp": "20260927T1200Z"},
-                       {"sinceUnix": "soon"}, {"sinceUnix": "__HUGE__"}, {"sinceUnix": True}):
+        for change in (
+            {"stamp": 17},
+            {"stamp": "not-a-stamp"},
+            {"stamp": None},
+            {"stamp": "20260927T1200Z"},
+            {"sinceUnix": "soon"},
+            {"sinceUnix": "__HUGE__"},
+            {"sinceUnix": True},
+        ):
             with self.subTest(change=change):
                 self.rewrite(fence, raw=json.dumps(dict(good, **change)))
                 router = telemetry._router_observation(time.time())
                 self.assertEqual(router["install"]["state"], "invalid")
-                self.assertEqual((router["admission"]["policy"], router["admission"]["source"]),
-                                 (None, "fence-invalid"))
+                self.assertEqual(
+                    (router["admission"]["policy"], router["admission"]["source"]), (None, "fence-invalid")
+                )
         os.unlink(fence)
         self.assertEqual(telemetry._router_observation(time.time())["admission"]["source"], "legacy-router")
         (self.base / "router_fence.py").write_text("")
@@ -3109,7 +4135,7 @@ class RouterDualReadTests(unittest.TestCase):
         os.makedirs(locks, mode=0o700)
         for name in ("a.lock", "b.lock", "c.lock"):
             _private_write(locks / name, "")
-        _private_write(locks / "readme.txt", "", mode=0o644)          # not a lock file: ignored
+        _private_write(locks / "readme.txt", "", mode=0o644)  # not a lock file: ignored
         self.assertFalse(telemetry._any_run_lock_live(locks))
         with mock.patch.object(telemetry, "_ROUTER_SCAN", 2):
             self.assertTrue(telemetry._any_run_lock_live(locks))
@@ -3163,21 +4189,37 @@ class RouterDualReadTests(unittest.TestCase):
         a PC lane token holds the PC route."""
         lock_name = str(self.root / "locks" / "run-a.lock")
         argv = ["/usr/bin/python3", "-I", "-B", str(self.driver), "work"]
-        row = {"runId": "run-a", "live": True, "layout": "per-run", "startedUnix": 1000.0, "note": None,
-               "_notePid": 222, "pid": None}
-        with mock.patch.object(telemetry, "_router_openers", return_value=[(111, "r", lock_name), (222, "r", lock_name)]), \
-             mock.patch.object(telemetry, "_process_table", return_value={111: (999.0, argv), 222: (999.0, argv)}):
+        row = {
+            "runId": "run-a",
+            "live": True,
+            "layout": "per-run",
+            "startedUnix": 1000.0,
+            "note": None,
+            "_notePid": 222,
+            "pid": None,
+        }
+        with (
+            mock.patch.object(
+                telemetry, "_router_openers", return_value=[(111, "r", lock_name), (222, "r", lock_name)]
+            ),
+            mock.patch.object(telemetry, "_process_table", return_value={111: (999.0, argv), 222: (999.0, argv)}),
+        ):
             telemetry._run_owners(self.root, [row])
             self.assertEqual(row["pid"], 222)
             row.update(_notePid=None, pid=None)
             telemetry._run_owners(self.root, [row])
             self.assertIsNone(row["pid"])
-        lanes = telemetry._router_lanes([
-            {"live": True, "runId": "run-f", "note": {"resource": "pc-lane-fast", "phase": "running"}},
-            {"live": True, "runId": "run-d", "note": {"resource": "pc-lane-deep", "phase": "waiting"}},
-            {"live": False, "runId": "run-x", "note": {"resource": "pc-route", "phase": "running"}}])
-        self.assertEqual((lanes["pc-fast"]["holders"], lanes["pc-deep"]["waiting"], lanes["pc-route"]["holders"]),
-                         (["run-f"], ["run-d"], ["run-f", "run-d"]))
+        lanes = telemetry._router_lanes(
+            [
+                {"live": True, "runId": "run-f", "note": {"resource": "pc-lane-fast", "phase": "running"}},
+                {"live": True, "runId": "run-d", "note": {"resource": "pc-lane-deep", "phase": "waiting"}},
+                {"live": False, "runId": "run-x", "note": {"resource": "pc-route", "phase": "running"}},
+            ]
+        )
+        self.assertEqual(
+            (lanes["pc-fast"]["holders"], lanes["pc-deep"]["waiting"], lanes["pc-route"]["holders"]),
+            (["run-f"], ["run-d"], ["run-f", "run-d"]),
+        )
 
     def test_converge_legacy_and_per_run_records_of_one_run_are_one_row(self):
         """Mutant MM: a legacy active.json naming a run that also has active/<id>.json is the same
@@ -3205,34 +4247,54 @@ class RouterDualReadTests(unittest.TestCase):
         self.run_in_process(state, "run-x", "a" * 64, stage="backend_draft", note=("running", "mac-pair", "backend"))
         before, _mode, _pipeline, _source = self.observe()
         self.assertEqual((self.row(before, "run-x")["state"], self.row(before, "run-x")["live"]), ("running", True))
-        for label, change, raw in (("envelope", lambda value: value.update(extra=1), None), ("json", None, "{not json")):
+        for label, change, raw in (
+            ("envelope", lambda value: value.update(extra=1), None),
+            ("json", None, "{not json"),
+        ):
             with self.subTest(record=label):
                 self.rewrite(self.root / "active" / "run-x.json", change, raw=raw)
                 router, mode, pipeline, source = self.observe()
                 row = self.row(router, "run-x")
-                self.assertEqual((row["state"], row["live"], row["lockHeld"], row["lock"], row["readable"], row["note"]),
-                                 ("unreadable", False, True, "held", False, None))
+                self.assertEqual(
+                    (row["state"], row["live"], row["lockHeld"], row["lock"], row["readable"], row["note"]),
+                    ("unreadable", False, True, "held", False, None),
+                )
                 self.assertEqual(mode["runCounts"], {"running": 0, "queued": 0, "unresolved": 1})
                 self.assertEqual((mode["state"], mode["taskState"], mode["blinking"]), ("unknown", "unfinished", False))
                 self.assertIn("its run lock is held, so it may still be live", mode["evidence"])
-                self.assertEqual((mode["activeRuns"][0]["state"], mode["activeRuns"][0]["lockHeld"]), ("unreadable", True))
+                self.assertEqual(
+                    (mode["activeRuns"][0]["state"], mode["activeRuns"][0]["lockHeld"]), ("unreadable", True)
+                )
                 self.assertEqual((pipeline["status"], source["state"]), ("unknown", "error"))
                 self.assertEqual(router["lanes"]["mac-pair"]["holders"], [])
                 for observation in (router, before):
                     runs = self.activity_runs(observation)["runs"]
-                    self.assertEqual([(r["runId"], r["status"], r["activity"]) for r in runs],
-                                     [("run-x", "unreadable", "unknown")])
+                    self.assertEqual(
+                        [(r["runId"], r["status"], r["activity"]) for r in runs], [("run-x", "unreadable", "unknown")]
+                    )
 
     def test_p2conv_activity_lists_a_live_route_older_than_its_four_record_reads(self):
         """Claude reviewer (Low): activity read only the 4 newest records, so a live run in a long
         PC call (older record) vanished from Live activity while the tab said Processing.  Every
         run the observation verified live is listed."""
         state = self.per_run_layout(policy="multi")
-        self.run_in_process(state, "run-live", "0" * 64, stage="backend_draft", note=("running", "pc-route", "backend"),
-                            meta={"client": "claude", "host": "windows", "operation": "work"})
+        self.run_in_process(
+            state,
+            "run-live",
+            "0" * 64,
+            stage="backend_draft",
+            note=("running", "pc-route", "backend"),
+            meta={"client": "claude", "host": "windows", "operation": "work"},
+        )
         for index in range(1, 5):
-            self.run_in_process(state, f"run-dead{index}", f"{index}" * 64, stage="incomplete",
-                                evidence={"recoveryRequired": True, "code": "NISI_OWNER_BUSY"}, keep=False)
+            self.run_in_process(
+                state,
+                f"run-dead{index}",
+                f"{index}" * 64,
+                stage="incomplete",
+                evidence={"recoveryRequired": True, "code": "NISI_OWNER_BUSY"},
+                keep=False,
+            )
         now = time.time()
         os.utime(self.root / "active" / "run-live.json", (now - 100, now - 100))
         router, mode, _pipeline, _source = self.observe()
@@ -3240,9 +4302,17 @@ class RouterDualReadTests(unittest.TestCase):
         result = self.activity_runs(router)
         rows = {r["runId"]: r for r in result["runs"]}
         self.assertEqual(len(rows), 5)
-        self.assertEqual((rows["run-live"]["status"], rows["run-live"]["activity"], rows["run-live"]["stage"],
-                          rows["run-live"]["client"], rows["run-live"]["host"], rows["run-live"]["layout"]),
-                         ("running", "running", "backend_draft", "claude", "windows", "per-run"))
+        self.assertEqual(
+            (
+                rows["run-live"]["status"],
+                rows["run-live"]["activity"],
+                rows["run-live"]["stage"],
+                rows["run-live"]["client"],
+                rows["run-live"]["host"],
+                rows["run-live"]["layout"],
+            ),
+            ("running", "running", "backend_draft", "claude", "windows", "per-run"),
+        )
         self.assertIn("1 verified live", result["sources"][0]["detail"])
         self.assertEqual(len({r["traceKey"] for r in result["runs"]}), 5)
 
@@ -3256,13 +4326,19 @@ class RouterDualReadTests(unittest.TestCase):
         _private_write(self.root / "active" / "run-deep.json", '{"x":' + "[" * 1000000 + "]" * 1000000 + "}")
         router, mode, _pipeline, _source = self.observe()
         # Telemetry isolates it as one row (it has no run lock file either, so 'unverified').
-        self.assertEqual({row["runId"]: (row["state"], row["readable"]) for row in router["rows"]},
-                         {"run-live": ("running", True), "run-dead": ("unresolved", True),
-                          "run-deep": ("unverified", False)})
+        self.assertEqual(
+            {row["runId"]: (row["state"], row["readable"]) for row in router["rows"]},
+            {"run-live": ("running", True), "run-dead": ("unresolved", True), "run-deep": ("unverified", False)},
+        )
         result = self.activity_runs(router)
-        self.assertEqual({r["runId"]: (r["status"], r["activity"]) for r in result["runs"]},
-                         {"run-live": ("running", "running"), "run-dead": ("unresolved", "unknown"),
-                          "run-deep": ("unreadable", "unknown")})
+        self.assertEqual(
+            {r["runId"]: (r["status"], r["activity"]) for r in result["runs"]},
+            {
+                "run-live": ("running", "running"),
+                "run-dead": ("unresolved", "unknown"),
+                "run-deep": ("unreadable", "unknown"),
+            },
+        )
         self.assertEqual(result["sources"][0]["state"], "live")
 
     def test_p2conv_one_run_id_in_both_layouts_never_hides_a_live_legacy_route(self):
@@ -3275,17 +4351,23 @@ class RouterDualReadTests(unittest.TestCase):
             router, mode, _pipeline, _source = self.observe()
             rows = {(r["runId"], r["layout"]): r for r in router["rows"]}
             # The per-run row has no run lock file either: unverified, never live.
-            self.assertEqual({key: (r["state"], r["live"], r["readable"], r["collision"]) for key, r in rows.items()},
-                             {("run-c", "legacy"): ("running", True, True, True),
-                              ("run-c", "per-run"): ("unverified", False, False, True)})
+            self.assertEqual(
+                {key: (r["state"], r["live"], r["readable"], r["collision"]) for key, r in rows.items()},
+                {
+                    ("run-c", "legacy"): ("running", True, True, True),
+                    ("run-c", "per-run"): ("unverified", False, False, True),
+                },
+            )
             self.assertEqual(rows[("run-c", "legacy")]["pid"], pid)
             self.assertEqual((router["collisions"], mode["runIdCollisions"]), (["run-c"], ["run-c"]))
             self.assertEqual((mode["state"], mode["routeId"]), ("processing", "run-c"))
             self.assertEqual(mode["runCounts"], {"running": 1, "queued": 0, "unresolved": 1})
             self.assertIn("both journal layouts", mode["evidence"])
             runs = self.activity_runs(router)["runs"]
-            self.assertEqual(sorted((r["layout"], r["status"], r["activity"]) for r in runs),
-                             [("legacy", "running", "running"), ("per-run", "unreadable", "unknown")])
+            self.assertEqual(
+                sorted((r["layout"], r["status"], r["activity"]) for r in runs),
+                [("legacy", "running", "running"), ("per-run", "unreadable", "unknown")],
+            )
             self.assertEqual(len({r["traceKey"] for r in runs}), 2)
 
     def test_p2conv_a_foreign_input_under_one_run_id_is_a_collision_not_one_row(self):
@@ -3298,8 +4380,10 @@ class RouterDualReadTests(unittest.TestCase):
         record["inputSha256"] = record["checkpoint"]["inputSha256"] = "b" * 64
         _private_write(self.root / "active.json", json.dumps(record))
         router, mode, _pipeline, _source = self.observe()
-        self.assertEqual(sorted((r["layout"], r["state"], r["collision"]) for r in router["rows"]),
-                         [("legacy", "unresolved", True), ("per-run", "unresolved", True)])
+        self.assertEqual(
+            sorted((r["layout"], r["state"], r["collision"]) for r in router["rows"]),
+            [("legacy", "unresolved", True), ("per-run", "unresolved", True)],
+        )
         self.assertEqual(mode["runCounts"]["unresolved"], 2)
         self.assertIn("both journal layouts", mode["evidence"])
         self.assertEqual(sorted(r["layout"] for r in self.activity_runs(router)["runs"]), ["legacy", "per-run"])
@@ -3307,10 +4391,14 @@ class RouterDualReadTests(unittest.TestCase):
         # activity too, never folded away.
         self.rewrite(self.root / "active" / "run-dup.json", raw="{not json")
         router = self.observe()[0]
-        self.assertEqual(sorted((r["layout"], r["state"], r["collision"]) for r in router["rows"]),
-                         [("legacy", "unresolved", True), ("per-run", "unreadable", True)])
-        self.assertEqual(sorted((r["layout"], r["status"]) for r in self.activity_runs(router)["runs"]),
-                         [("legacy", "unresolved"), ("per-run", "unreadable")])
+        self.assertEqual(
+            sorted((r["layout"], r["state"], r["collision"]) for r in router["rows"]),
+            [("legacy", "unresolved", True), ("per-run", "unreadable", True)],
+        )
+        self.assertEqual(
+            sorted((r["layout"], r["status"]) for r in self.activity_runs(router)["runs"]),
+            [("legacy", "unresolved"), ("per-run", "unreadable")],
+        )
 
     def test_p2conv_a_live_legacy_route_is_never_folded_into_its_per_run_twin(self):
         """Sol N1 (the fold rule, live side): even a valid active/R.json with the same input never
@@ -3321,12 +4409,16 @@ class RouterDualReadTests(unittest.TestCase):
             os.mkdir(self.root / "locks", 0o700)
             _private_write(self.root / "locks" / "run-t.lock", "")
             lock = os.stat(self.root / "locks" / "run-t.lock")
-            _private_write(self.root / "active" / "run-t.json",
-                           json.dumps(dict(record, runLock={"dev": lock.st_dev, "ino": lock.st_ino})))
+            _private_write(
+                self.root / "active" / "run-t.json",
+                json.dumps(dict(record, runLock={"dev": lock.st_dev, "ino": lock.st_ino})),
+            )
             router, mode, _pipeline, _source = self.observe()
         rows = {r["layout"]: r for r in router["rows"]}
-        self.assertEqual({layout: (r["state"], r["live"], r["valid"], r["collision"]) for layout, r in rows.items()},
-                         {"legacy": ("running", True, True, True), "per-run": ("unresolved", False, True, True)})
+        self.assertEqual(
+            {layout: (r["state"], r["live"], r["valid"], r["collision"]) for layout, r in rows.items()},
+            {"legacy": ("running", True, True, True), "per-run": ("unresolved", False, True, True)},
+        )
         self.assertEqual((rows["legacy"]["pid"], mode["state"], mode["routeId"]), (pid, "processing", "run-t"))
         self.assertIn("both journal layouts", mode["evidence"])
 
@@ -3355,14 +4447,26 @@ class RouterDualReadTests(unittest.TestCase):
         names its own run; otherwise it is ignored: a begun run reads running, a record-less one is
         still in admission (begin writes the record first)."""
         state = self.per_run_layout(policy="multi")
-        self.run_in_process(state, "run-n", "a" * 64, stage="backend_draft", note=("waiting", "pc-route", "backend"),
-                            meta={"client": "codex", "host": "auto", "operation": "work"})
+        self.run_in_process(
+            state,
+            "run-n",
+            "a" * 64,
+            stage="backend_draft",
+            note=("waiting", "pc-route", "backend"),
+            meta={"client": "codex", "host": "auto", "operation": "work"},
+        )
         row = self.row(self.observe()[0], "run-n")
         self.assertEqual((row["state"], row["host"], row["client"]), ("waiting", "auto", "codex"))
         note = self.root / "notes" / "run-n.json"
         good = json.loads(note.read_text())
-        for change in ({"operation": "xyz"}, {"client": "cursor"}, {"host": "moon"}, {"step": "somewhere"},
-                       {"step": 7}, {"runId": "run-other"}):
+        for change in (
+            {"operation": "xyz"},
+            {"client": "cursor"},
+            {"host": "moon"},
+            {"step": "somewhere"},
+            {"step": 7},
+            {"runId": "run-other"},
+        ):
             with self.subTest(change=change):
                 self.rewrite(note, raw=json.dumps(dict(good, **change)))
                 row = self.row(self.observe()[0], "run-n")
@@ -3376,9 +4480,14 @@ class RouterDualReadTests(unittest.TestCase):
         """A stale or foreign note under the same run ID cannot change a begun run's phase,
         client, host or lane. Its held L1 still proves the record live."""
         state = self.per_run_layout(policy="multi")
-        self.run_in_process(state, "run-bound", "a" * 64, stage="backend_draft",
-                            note=("waiting", "pc-route", "backend"),
-                            meta={"client": "claude", "host": "windows", "operation": "work"})
+        self.run_in_process(
+            state,
+            "run-bound",
+            "a" * 64,
+            stage="backend_draft",
+            note=("waiting", "pc-route", "backend"),
+            meta={"client": "claude", "host": "windows", "operation": "work"},
+        )
         note_path = self.root / "notes" / "run-bound.json"
         self.rewrite(note_path, lambda note: note.update(inputSha256="b" * 64))
 
@@ -3386,8 +4495,10 @@ class RouterDualReadTests(unittest.TestCase):
         row = self.row(router, "run-bound")
         self.assertEqual((row["live"], row["state"], row["note"]), (True, "running", None))
         self.assertEqual((row["client"], row["host"]), (None, "mac"))
-        self.assertEqual((mode["runCounts"], mode["lanes"]["pc-route"]["holders"]),
-                         ({"running": 1, "queued": 0, "unresolved": 0}, []))
+        self.assertEqual(
+            (mode["runCounts"], mode["lanes"]["pc-route"]["holders"]),
+            ({"running": 1, "queued": 0, "unresolved": 0}, []),
+        )
 
     def test_p2conv_multi_policy_says_a_caller_override_is_not_observable(self):
         """Sol round-1 #9: CODEMODE_ROUTER_CONCURRENCY=off|single forces single for the caller whose
@@ -3397,8 +4508,9 @@ class RouterDualReadTests(unittest.TestCase):
         state = self.per_run_layout(policy="multi")
         with mock.patch.dict(os.environ, {"CODEMODE_ROUTER_CONCURRENCY": "off"}):
             admission = self.observe()[1]["admission"]
-        self.assertEqual((admission["policy"], admission["source"], admission["callerOverride"]),
-                         ("multi", "file", "not-observable"))
+        self.assertEqual(
+            (admission["policy"], admission["source"], admission["callerOverride"]), ("multi", "file", "not-observable")
+        )
         self.set_policy(state, "single")
         self.assertIsNone(self.observe()[1]["admission"]["callerOverride"])
 
@@ -3409,8 +4521,9 @@ class RouterDualReadTests(unittest.TestCase):
         owner, lock = str(root / "owner.lock"), str(root / "locks" / "x.lock")
         argv = ["/usr/bin/python3", "-I", "-B", str(self.driver), "work"]
         with mock.patch.object(telemetry, "_process_table", return_value={111: (1000.0, argv), 222: (1000.0, argv)}):
-            with mock.patch.object(telemetry, "_router_openers",
-                                   return_value=[(111, "u", owner), (111, "r", lock), (222, "u", owner)]):
+            with mock.patch.object(
+                telemetry, "_router_openers", return_value=[(111, "u", owner), (111, "r", lock), (222, "u", owner)]
+            ):
                 self.assertEqual(telemetry._router_owner_process(1001.0), (222, 1000.0))
             with mock.patch.object(telemetry, "_router_openers", return_value=[(111, "u", owner), (222, "u", owner)]):
                 self.assertIsNone(telemetry._router_owner_process(1001.0))
@@ -3420,15 +4533,26 @@ class RouterDualReadTests(unittest.TestCase):
         that started outside the window of the run's record, is never 'its work process'."""
         lock_name = str(telemetry._real_root(self.root) / "locks" / "run-a.lock")
         argv = ["/usr/bin/python3", "-I", "-B", str(self.driver), "work"]
-        for table, expected in (({111: (999.0, argv)}, 111),
-                                ({111: (999.0, ["/usr/bin/python3", "-I", "-B", "gate.py", "work"])}, None),
-                                ({111: (1000.0 - 700, argv)}, None),
-                                ({111: (1005.0, argv)}, None)):
-            with self.subTest(table=table), \
-                 mock.patch.object(telemetry, "_router_openers", return_value=[(111, "r", lock_name)]), \
-                 mock.patch.object(telemetry, "_process_table", return_value=table):
-                row = {"runId": "run-a", "live": True, "layout": "per-run", "startedUnix": 1000.0, "note": None,
-                       "_notePid": None, "pid": None}
+        for table, expected in (
+            ({111: (999.0, argv)}, 111),
+            ({111: (999.0, ["/usr/bin/python3", "-I", "-B", "gate.py", "work"])}, None),
+            ({111: (1000.0 - 700, argv)}, None),
+            ({111: (1005.0, argv)}, None),
+        ):
+            with (
+                self.subTest(table=table),
+                mock.patch.object(telemetry, "_router_openers", return_value=[(111, "r", lock_name)]),
+                mock.patch.object(telemetry, "_process_table", return_value=table),
+            ):
+                row = {
+                    "runId": "run-a",
+                    "live": True,
+                    "layout": "per-run",
+                    "startedUnix": 1000.0,
+                    "note": None,
+                    "_notePid": None,
+                    "pid": None,
+                }
                 telemetry._run_owners(self.root, [row])
                 self.assertEqual(row["pid"], expected)
 
@@ -3484,8 +4608,9 @@ class RouterDualReadTests(unittest.TestCase):
         _private_write(self.root / "archive" / "legacy-c10.json", "{}")
         self.assertEqual(self.row(self.observe()[0], "legacy-c10")["state"], "archived-uncleared")
         os.unlink(self.root / "archive" / "legacy-c10.json")
-        self.rewrite(self.root / "active.json",
-                     lambda value: value.update(startedUnix=value["checkpoint"]["recordedUnix"] + 50))
+        self.rewrite(
+            self.root / "active.json", lambda value: value.update(startedUnix=value["checkpoint"]["recordedUnix"] + 50)
+        )
         started = json.loads((self.root / "active.json").read_text())["startedUnix"]
         fd = os.open(str(self.root / "owner.lock"), os.O_RDWR)
         try:
@@ -3503,8 +4628,13 @@ class RouterDualReadTests(unittest.TestCase):
         """Reviewer mutant R14: only the exact 5-key marker is attributed to a live run."""
         state = self.per_run_layout(policy="multi")
         self.run_in_process(state, "run-x", "a" * 64, stage="backend_draft")
-        good = {"kind": "codemode.nisi.pending.v1", "started_unix": time.time() - 5, "input_sha256": "f" * 64,
-                "runId": "run-x.draft", "operation": "draft"}
+        good = {
+            "kind": "codemode.nisi.pending.v1",
+            "started_unix": time.time() - 5,
+            "input_sha256": "f" * 64,
+            "runId": "run-x.draft",
+            "operation": "draft",
+        }
         self.rewrite(self.pending, raw=json.dumps(good))
         self.assertEqual(self.observe()[2]["pendingMarkerAttributedTo"], "run-x")
         self.rewrite(self.pending, raw=json.dumps(dict(good, extra=1)))
@@ -3522,7 +4652,9 @@ class RouterDualReadTests(unittest.TestCase):
         for label in ("json", "mode", "links"):
             with self.subTest(fence=label):
                 os.unlink(fence)
-                _private_write(fence, "{not json" if label == "json" else good, mode=0o644 if label == "mode" else 0o600)
+                _private_write(
+                    fence, "{not json" if label == "json" else good, mode=0o644 if label == "mode" else 0o600
+                )
                 if label == "links":
                     os.link(fence, self.base / "fence-second-link")
                 try:
@@ -3535,8 +4667,9 @@ class RouterDualReadTests(unittest.TestCase):
         _private_write(fence, "{not json")
         with self.holder("legacy", "legacy-live", "a" * 64, stage="backend_draft"):
             router, mode, _pipeline, _source = self.observe()
-        self.assertEqual((self.row(router, "legacy-live")["live"], mode["admission"]["source"]),
-                         (False, "fence-invalid"))
+        self.assertEqual(
+            (self.row(router, "legacy-live")["live"], mode["admission"]["source"]), (False, "fence-invalid")
+        )
 
     def test_p2conv_a_note_or_run_lock_that_is_not_private_proves_nothing(self):
         """Reviewer mutants R16, R17: a stale note whose lock file is not a private regular file
@@ -3547,7 +4680,7 @@ class RouterDualReadTests(unittest.TestCase):
         ghost.__enter__()
         ghost.claim("run-s", "b" * 64, until=time.monotonic() + 2)
         ghost.note("waiting", "mac-pair", "pre-begin", time.monotonic() + 30)
-        ghost._l1, l1 = None, ghost._l1              # keep its note on disk, then release its locks
+        ghost._l1, l1 = None, ghost._l1  # keep its note on disk, then release its locks
         os.close(l1)
         ghost.__exit__(None, None, None)
         lock = self.root / "locks" / "run-s.lock"
@@ -3571,15 +4704,28 @@ class RouterDualReadTests(unittest.TestCase):
 
 def _pair_doc(installed=True, state="up", lmstudio_port=1235):
     """A pair_status document as read_pair_status() returns it, reduced to what telemetry reads."""
-    engines = [] if lmstudio_port is None else [
-        {"node": "linux-node-1", "reportedAgeSeconds": 4.0,
-         "engines": [{"engine": "lmstudio", "installed": True, "running": False, "healthy": False,
-                      "port": lmstudio_port}]}]
-    return {"schema": "agiw.pair-status.v1", "state": state, "reason": None if state == "up" else "stale",
-            "detail": "PAIR wrote its log 3 s ago" if state == "up" else "PAIR's newest write is 900 s old",
-            "installed": installed, "evidence": {"logAgeSeconds": 3.0 if state == "up" else 900.0,
-                                                 "historyAgeSeconds": None},
-            "pairSays": {"note": "PAIR says", "engines": engines}}
+    engines = (
+        []
+        if lmstudio_port is None
+        else [
+            {
+                "node": "linux-node-1",
+                "reportedAgeSeconds": 4.0,
+                "engines": [
+                    {"engine": "lmstudio", "installed": True, "running": False, "healthy": False, "port": lmstudio_port}
+                ],
+            }
+        ]
+    )
+    return {
+        "schema": "agiw.pair-status.v1",
+        "state": state,
+        "reason": None if state == "up" else "stale",
+        "detail": "PAIR wrote its log 3 s ago" if state == "up" else "PAIR's newest write is 900 s old",
+        "installed": installed,
+        "evidence": {"logAgeSeconds": 3.0 if state == "up" else 900.0, "historyAgeSeconds": None},
+        "pairSays": {"note": "PAIR says", "engines": engines},
+    }
 
 
 class LmStudioPortAndPairAttributionTests(unittest.TestCase):
@@ -3596,23 +4742,31 @@ class LmStudioPortAndPairAttributionTests(unittest.TestCase):
 
     def collect(self, lms_status, pair, api=None, env=None):
         http = mock.Mock(return_value=api or {"models": [{"key": "a/b", "loaded_instances": []}]})
-        selected = int((env or {}).get("AGIW_LMSTUDIO_API_PORT", "0")) if (env or {}).get("AGIW_LMSTUDIO_API_PORT", "0").isdigit() else 0
+        selected = (
+            int((env or {}).get("AGIW_LMSTUDIO_API_PORT", "0"))
+            if (env or {}).get("AGIW_LMSTUDIO_API_PORT", "0").isdigit()
+            else 0
+        )
         owner = (41, "lmstudio", "/fixture/LM Studio") if lms_status and selected in (0, lms_status["port"]) else None
-        with mock.patch.dict(os.environ, env or {}), \
-                mock.patch.object(telemetry, "_lms_server_status", return_value=lms_status), \
-                mock.patch.object(telemetry, "_pair_snapshot", return_value=pair), \
-                mock.patch.object(telemetry, "_inventory_listener", return_value=owner), \
-                mock.patch.object(telemetry, "_bounded_http", http), \
-                mock.patch.object(telemetry, "_bounded_lms", return_value={"models": []}), \
-                mock.patch.object(telemetry, "_windows_worker", return_value=_NO_WINDOWS_WORKER):
+        with (
+            mock.patch.dict(os.environ, env or {}),
+            mock.patch.object(telemetry, "_lms_server_status", return_value=lms_status),
+            mock.patch.object(telemetry, "_pair_snapshot", return_value=pair),
+            mock.patch.object(telemetry, "_inventory_listener", return_value=owner),
+            mock.patch.object(telemetry, "_bounded_http", http),
+            mock.patch.object(telemetry, "_bounded_lms", return_value={"models": []}),
+            mock.patch.object(telemetry, "_windows_worker", return_value=_NO_WINDOWS_WORKER),
+        ):
             snapshot = telemetry.collect_snapshot()
         source = next(s for s in snapshot["sources"] if s["id"] == "lmstudio-api")
         return snapshot, source, http
 
     def test_env_port_is_strict_and_never_falls_back(self):
         os.environ["AGIW_LMSTUDIO_API_PORT"] = "1235"
-        self.assertEqual(telemetry._native_api_endpoint({"port": 1236, "running": True}),
-                         {"host": "127.0.0.1", "port": 1235, "portSource": "env"})
+        self.assertEqual(
+            telemetry._native_api_endpoint({"port": 1236, "running": True}),
+            {"host": "127.0.0.1", "port": 1235, "portSource": "env"},
+        )
         for bad in ("", " 1235", "1235 ", "01235", "0", "65536", "12a", "+1235", "127.0.0.1:1235", "１２３５"):
             with self.subTest(bad=bad):
                 os.environ["AGIW_LMSTUDIO_API_PORT"] = bad
@@ -3620,27 +4774,41 @@ class LmStudioPortAndPairAttributionTests(unittest.TestCase):
                     telemetry._native_api_endpoint({"port": 1235, "running": True})
 
     def test_port_from_lms_server_status_then_legacy_default(self):
-        self.assertEqual(telemetry._native_api_endpoint({"port": 1235, "running": True}),
-                         {"host": "127.0.0.1", "port": 1235, "portSource": "lms"})
-        self.assertEqual(telemetry._native_api_endpoint(None),
-                         {"host": "127.0.0.1", "port": 1234, "portSource": "default"})
+        self.assertEqual(
+            telemetry._native_api_endpoint({"port": 1235, "running": True}),
+            {"host": "127.0.0.1", "port": 1235, "portSource": "lms"},
+        )
+        self.assertEqual(
+            telemetry._native_api_endpoint(None), {"host": "127.0.0.1", "port": 1234, "portSource": "default"}
+        )
 
     def test_lms_server_status_shape_is_validated(self):
-        self.assertEqual(telemetry._parse_lms_server_status({"running": True, "port": 1235}),
-                         {"port": 1235, "running": True})
-        self.assertEqual(telemetry._parse_lms_server_status({"running": False, "port": 1235}),
-                         {"port": 1235, "running": False})
-        for bad in ([], "1235", {"running": True}, {"running": True, "port": "1235"},
-                    {"running": True, "port": 0}, {"running": True, "port": 65536},
-                    {"running": True, "port": True}, {"running": "yes", "port": 1235}):
+        self.assertEqual(
+            telemetry._parse_lms_server_status({"running": True, "port": 1235}), {"port": 1235, "running": True}
+        )
+        self.assertEqual(
+            telemetry._parse_lms_server_status({"running": False, "port": 1235}), {"port": 1235, "running": False}
+        )
+        for bad in (
+            [],
+            "1235",
+            {"running": True},
+            {"running": True, "port": "1235"},
+            {"running": True, "port": 0},
+            {"running": True, "port": 65536},
+            {"running": True, "port": True},
+            {"running": "yes", "port": 1235},
+        ):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
                 telemetry._parse_lms_server_status(bad)
 
     def test_lms_server_status_is_fresh_and_failures_back_off(self):
         clock = [1000.0]
         runner = mock.Mock(return_value={"running": True, "port": 1235})
-        with mock.patch.object(telemetry, "_bounded_lms_json", runner), \
-                mock.patch.object(telemetry.time, "monotonic", side_effect=lambda: clock[0]):
+        with (
+            mock.patch.object(telemetry, "_bounded_lms_json", runner),
+            mock.patch.object(telemetry.time, "monotonic", side_effect=lambda: clock[0]),
+        ):
             self.assertEqual(_REAL_LMS_SERVER_STATUS(), {"port": 1235, "running": True})
             clock[0] += 1
             self.assertEqual(_REAL_LMS_SERVER_STATUS(), {"port": 1235, "running": True})
@@ -3671,6 +4839,7 @@ class LmStudioPortAndPairAttributionTests(unittest.TestCase):
         def popen(*args, **kwargs):
             started.append(real(*args, **kwargs))
             return started[-1]
+
         with mock.patch.object(telemetry.subprocess, "Popen", popen):
             yield started
 
@@ -3680,10 +4849,12 @@ class LmStudioPortAndPairAttributionTests(unittest.TestCase):
         # generous one.  Each returns as soon as the stand-in answers.
         generous = 60.0
         with tempfile.TemporaryDirectory() as temp:
-            for body, expected in (('printf \'{"running":true,"port":1235}\'', {"running": True, "port": 1235}),
-                                   ("head -c 5000 /dev/zero | tr '\\0' 'x'", ValueError),
-                                   ("printf 'not json'", ValueError),
-                                   ("exit 3", OSError)):
+            for body, expected in (
+                ('printf \'{"running":true,"port":1235}\'', {"running": True, "port": 1235}),
+                ("head -c 5000 /dev/zero | tr '\\0' 'x'", ValueError),
+                ("printf 'not json'", ValueError),
+                ("exit 3", OSError),
+            ):
                 with self.subTest(body=body), self._lms_stand_in(temp, body):
                     arguments = (["server", "status", "--json"], 4096)
                     if isinstance(expected, dict):
@@ -3708,12 +4879,16 @@ class LmStudioPortAndPairAttributionTests(unittest.TestCase):
 
             def close(self):
                 pass
+
         clock = [1000.0]
-        with tempfile.TemporaryDirectory() as temp, self._lms_stand_in(temp, "exec sleep 600"), \
-                self._recorded_lms_process() as started, \
-                mock.patch.object(telemetry.selectors, "DefaultSelector", Selector), \
-                mock.patch.object(telemetry.time, "monotonic", lambda: clock[0]), \
-                self.assertRaisesRegex(TimeoutError, "lms status timed out"):
+        with (
+            tempfile.TemporaryDirectory() as temp,
+            self._lms_stand_in(temp, "exec sleep 600"),
+            self._recorded_lms_process() as started,
+            mock.patch.object(telemetry.selectors, "DefaultSelector", Selector),
+            mock.patch.object(telemetry.time, "monotonic", lambda: clock[0]),
+            self.assertRaisesRegex(TimeoutError, "lms status timed out"),
+        ):
             telemetry._bounded_lms_json(["server", "status", "--json"], 4096)
         # On an injected clock the looks add up to exactly the one-second deadline, none longer
         # than 0.1 s (an eleventh, if any, is only the rounding remainder of the first ten).
@@ -3723,8 +4898,11 @@ class LmStudioPortAndPairAttributionTests(unittest.TestCase):
         self.assertEqual(started[0].returncode, -signal.SIGKILL)
 
     def test_bounded_lms_json_kills_and_reaps_a_run_that_outlives_its_deadline(self):
-        with tempfile.TemporaryDirectory() as temp, self._lms_stand_in(temp, "exec sleep 600"), \
-                self._recorded_lms_process() as started:
+        with (
+            tempfile.TemporaryDirectory() as temp,
+            self._lms_stand_in(temp, "exec sleep 600"),
+            self._recorded_lms_process() as started,
+        ):
             before = time.monotonic()
             with self.assertRaisesRegex(TimeoutError, "lms status timed out"):
                 telemetry._bounded_lms_json(["server", "status", "--json"], 4096, timeout=0.2)
@@ -3759,9 +4937,12 @@ class LmStudioPortAndPairAttributionTests(unittest.TestCase):
             def kill(self):
                 calls.append(("kill",))
                 self.returncode = -signal.SIGKILL
-        with mock.patch.object(telemetry, "_find_lms", return_value="/nonexistent/lms"), \
-                mock.patch.object(telemetry.subprocess, "Popen", return_value=Lingering()), \
-                self.assertRaises(TimeoutError) as raised:
+
+        with (
+            mock.patch.object(telemetry, "_find_lms", return_value="/nonexistent/lms"),
+            mock.patch.object(telemetry.subprocess, "Popen", return_value=Lingering()),
+            self.assertRaises(TimeoutError) as raised,
+        ):
             telemetry._bounded_lms_json(["server", "status", "--json"], 4096, timeout=60.0)
         self.assertEqual(str(raised.exception), "lms status timed out")
         self.assertEqual(calls, [("wait", True), ("kill",), ("wait", False)])
@@ -3772,8 +4953,10 @@ class LmStudioPortAndPairAttributionTests(unittest.TestCase):
         # command itself has exited; the reader must not block until that service closes the pipe.
         with tempfile.TemporaryDirectory() as temp:
             holder_file = Path(temp) / "holder"
-            body = (f"sleep 600 &\necho $! > '{holder_file}.part'\nmv '{holder_file}.part' '{holder_file}'\n"
-                    'printf \'{"running":true,"port":1235}\'')
+            body = (
+                f"sleep 600 &\necho $! > '{holder_file}.part'\nmv '{holder_file}.part' '{holder_file}'\n"
+                'printf \'{"running":true,"port":1235}\''
+            )
             holder = None
             try:
                 with self._lms_stand_in(temp, body):
@@ -3809,9 +4992,12 @@ class LmStudioPortAndPairAttributionTests(unittest.TestCase):
 
             def close(self):
                 pass
+
         lms = mock.Mock(return_value={"port": 1236, "running": True})
-        with mock.patch.object(telemetry.http.client, "HTTPConnection", Refused), \
-                mock.patch.object(telemetry, "_lms_server_status", lms):
+        with (
+            mock.patch.object(telemetry.http.client, "HTTPConnection", Refused),
+            mock.patch.object(telemetry, "_lms_server_status", lms),
+        ):
             with mock.patch.dict(os.environ, {"AGIW_LMSTUDIO_API_PORT": "1235"}), self.assertRaises(OSError):
                 telemetry._bounded_http()
             # Without an endpoint or override, lms is never consulted: legacy 1234 stays.
@@ -3842,8 +5028,10 @@ class LmStudioPortAndPairAttributionTests(unittest.TestCase):
 
     def test_source_row_keeps_legacy_port_route_unknown_without_local_evidence(self):
         snapshot, source, http = self.collect(None, _pair_doc())
-        self.assertEqual((source["state"], source["endpoint"], source["portSource"], source["route"], source["via"]),
-                         ("unavailable", "127.0.0.1:1234", "default", "unknown", None))
+        self.assertEqual(
+            (source["state"], source["endpoint"], source["portSource"], source["route"], source["via"]),
+            ("unavailable", "127.0.0.1:1234", "default", "unknown", None),
+        )
         self.assertEqual(source["label"], "LM Studio inventory")
         self.assertIn("cannot be told", source["detail"])
         self.assertIs(source["endpointConfigured"], False)
@@ -3863,8 +5051,9 @@ class LmStudioPortAndPairAttributionTests(unittest.TestCase):
     def test_pair_folder_does_not_identify_another_ports_owner(self):
         for port in (1234, 1236):
             with self.subTest(port=port):
-                _, source, _ = self.collect({"port": 1235, "running": True}, _pair_doc(),
-                                           env={"AGIW_LMSTUDIO_API_PORT": str(port)})
+                _, source, _ = self.collect(
+                    {"port": 1235, "running": True}, _pair_doc(), env={"AGIW_LMSTUDIO_API_PORT": str(port)}
+                )
                 self.assertEqual((source["route"], source["via"]), ("unknown", None))
                 self.assertIn("unidentified", source["detail"])
                 self.assertNotIn("via NVIDIA PAIR", source["label"])
@@ -3872,8 +5061,10 @@ class LmStudioPortAndPairAttributionTests(unittest.TestCase):
     def test_lms_port_selection_and_snapshot_are_independent_of_pair_status(self):
         down = _pair_doc(state="unknown")
         snapshot, source, http = self.collect({"port": 1235, "running": True}, down)
-        self.assertEqual((source["state"], source["endpoint"], source["portSource"], source["route"], source["via"]),
-                         ("live", "127.0.0.1:1235", "lms", "direct", None))
+        self.assertEqual(
+            (source["state"], source["endpoint"], source["portSource"], source["route"], source["via"]),
+            ("live", "127.0.0.1:1235", "lms", "direct", None),
+        )
         self.assertEqual(source["label"], "LM Studio inventory")
         self.assertNotIn("via NVIDIA PAIR", source["detail"])
         self.assertEqual(http.call_args.args[0]["port"], 1235)
@@ -3882,28 +5073,35 @@ class LmStudioPortAndPairAttributionTests(unittest.TestCase):
         self.assertNotIn("nvidia-pair", [s["id"] for s in snapshot["sources"]])
 
     def test_env_port_wins_and_is_attributed_against_lms(self):
-        _, source, http = self.collect({"port": 1235, "running": True}, _pair_doc(),
-                                       env={"AGIW_LMSTUDIO_API_PORT": "1234"})
-        self.assertEqual((source["endpoint"], source["portSource"], source["route"], source["endpointConfigured"]),
-                         ("127.0.0.1:1234", "env", "unknown", True))
-        _, source, _ = self.collect({"port": 1235, "running": True}, _pair_doc(),
-                                    env={"AGIW_LMSTUDIO_API_PORT": "1235"})
+        _, source, http = self.collect(
+            {"port": 1235, "running": True}, _pair_doc(), env={"AGIW_LMSTUDIO_API_PORT": "1234"}
+        )
+        self.assertEqual(
+            (source["endpoint"], source["portSource"], source["route"], source["endpointConfigured"]),
+            ("127.0.0.1:1234", "env", "unknown", True),
+        )
+        _, source, _ = self.collect(
+            {"port": 1235, "running": True}, _pair_doc(), env={"AGIW_LMSTUDIO_API_PORT": "1235"}
+        )
         self.assertEqual((source["route"], source["via"]), ("direct", None))
 
     def test_invalid_env_port_is_never_sampled(self):
-        _, source, http = self.collect({"port": 1235, "running": True}, _pair_doc(),
-                                       env={"AGIW_LMSTUDIO_API_PORT": "pair"})
+        _, source, http = self.collect(
+            {"port": 1235, "running": True}, _pair_doc(), env={"AGIW_LMSTUDIO_API_PORT": "pair"}
+        )
         self.assertEqual((source["state"], source["endpoint"], source["route"]), ("error", None, "unknown"))
         self.assertIn("no other port was tried", source["detail"])
         http.assert_not_called()
 
     def test_failed_read_keeps_the_route_and_says_so(self):
         http_error = mock.Mock(side_effect=ConnectionRefusedError())
-        with mock.patch.object(telemetry, "_lms_server_status", return_value={"port": 1235, "running": False}), \
-                mock.patch.object(telemetry, "_pair_snapshot", return_value=_pair_doc()), \
-                mock.patch.object(telemetry, "_bounded_http", http_error), \
-                mock.patch.object(telemetry, "_bounded_lms", return_value={"models": []}), \
-                mock.patch.object(telemetry, "_windows_worker", return_value=_NO_WINDOWS_WORKER):
+        with (
+            mock.patch.object(telemetry, "_lms_server_status", return_value={"port": 1235, "running": False}),
+            mock.patch.object(telemetry, "_pair_snapshot", return_value=_pair_doc()),
+            mock.patch.object(telemetry, "_bounded_http", http_error),
+            mock.patch.object(telemetry, "_bounded_lms", return_value={"models": []}),
+            mock.patch.object(telemetry, "_windows_worker", return_value=_NO_WINDOWS_WORKER),
+        ):
             snapshot = telemetry.collect_snapshot()
         source = snapshot["sources"][0]
         self.assertEqual((source["id"], source["state"], source["route"]), ("lmstudio-api", "unavailable", "unknown"))
@@ -3930,8 +5128,10 @@ class LmStudioPortAndPairAttributionTests(unittest.TestCase):
     def test_pair_snapshot_is_cached_and_a_reader_failure_is_unknown(self):
         clock = [50.0]
         reader = mock.Mock(side_effect=RuntimeError("boom"))
-        with mock.patch.object(telemetry.pair_status, "read_pair_files", reader), \
-                mock.patch.object(telemetry.time, "monotonic", side_effect=lambda: clock[0]):
+        with (
+            mock.patch.object(telemetry.pair_status, "read_pair_files", reader),
+            mock.patch.object(telemetry.time, "monotonic", side_effect=lambda: clock[0]),
+        ):
             first = _REAL_PAIR_SNAPSHOT()
             clock[0] += telemetry._PAIR_TTL - 0.5
             self.assertEqual(_REAL_PAIR_SNAPSHOT(), first)
@@ -3945,13 +5145,24 @@ class LmStudioPortAndPairAttributionTests(unittest.TestCase):
     def test_pair_cache_reages_exact_node_and_log_cutoffs_without_rereading(self):
         pair = telemetry.pair_status
         now = 1_800_000_000
-        entry = {"time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now - 120)),
-                 "message": "discovery:nodes-changed", "data": [{"name": "fixture-node", "lastSeen": now - 30,
-                 "modelsByEngine": {"lmstudio": ["m"]}, "loadedByEngine": {"lmstudio": ["m"]}}]}
+        entry = {
+            "time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now - 120)),
+            "message": "discovery:nodes-changed",
+            "data": [
+                {
+                    "name": "fixture-node",
+                    "lastSeen": now - 30,
+                    "modelsByEngine": {"lmstudio": ["m"]},
+                    "loadedByEngine": {"lmstudio": ["m"]},
+                }
+            ],
+        }
         raw = {rel: (None, "missing", None, False) for rel in pair.ALLOWED}
         raw[pair.LOG] = (json.dumps(entry).encode(), "ok", now, False)
-        with mock.patch.object(pair, "read_pair_files", return_value=("ok", raw)) as read, \
-                mock.patch.object(telemetry.time, "monotonic", return_value=50.0):
+        with (
+            mock.patch.object(pair, "read_pair_files", return_value=("ok", raw)) as read,
+            mock.patch.object(telemetry.time, "monotonic", return_value=50.0),
+        ):
             first = _REAL_PAIR_SNAPSHOT(now=now)
             later = _REAL_PAIR_SNAPSHOT(now=now + 0.001)
         read.assert_called_once_with()

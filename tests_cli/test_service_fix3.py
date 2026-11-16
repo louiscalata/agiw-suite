@@ -1,4 +1,5 @@
 """Third-round service regressions: fake runners and temporary homes only."""
+
 import plistlib
 import subprocess
 import sys
@@ -21,8 +22,15 @@ class ServiceFix3(unittest.TestCase):
         self.home = temp_dir(self, "agiw-service-fix3-")
 
     def manager(self, kind, runner=None, **kwargs):
-        return ServiceManager(kind, home=self.home, runner=runner or FakeRunner(), env={}, uid=501,
-                              system_dir="C:\\Windows\\System32", **kwargs)
+        return ServiceManager(
+            kind,
+            home=self.home,
+            runner=runner or FakeRunner(),
+            env={},
+            uid=501,
+            system_dir="C:\\Windows\\System32",
+            **kwargs,
+        )
 
     def existing(self, manager):
         path = manager.definition_path()
@@ -70,8 +78,9 @@ class ServiceFix3(unittest.TestCase):
         with mock.patch("agiw.service.time.sleep"), self.assertRaisesRegex(ServiceError, "rolled back"):
             manager.install()
         self.assertEqual(path.read_bytes(), b"previous definition\n")
-        self.assertEqual([verb for verb, data in calls if data == b"previous definition\n"],
-                         ["bootout", "bootstrap", "print"])
+        self.assertEqual(
+            [verb for verb, data in calls if data == b"previous definition\n"], ["bootout", "bootstrap", "print"]
+        )
 
     def test_mac_rollback_not_loaded_bootout_still_requires_successful_print(self):
         for print_code in (0, 113):
@@ -97,8 +106,13 @@ class ServiceFix3(unittest.TestCase):
                 self.assertEqual([verb for verb, old in calls if old], ["bootout", "bootstrap", "print"])
 
     def test_windows_status_uses_locale_independent_state_for_each_enum(self):
-        for enum, running in (("Unknown", None), ("Disabled", False), ("Queued", False),
-                              ("Ready", False), ("Running", True)):
+        for enum, running in (
+            ("Unknown", None),
+            ("Disabled", False),
+            ("Queued", False),
+            ("Ready", False),
+            ("Running", True),
+        ):
             with self.subTest(enum=enum):
                 runner = self.windows_runner(enum + "\n")
                 result = self.manager("windows", runner, python="python").status()
@@ -126,7 +140,9 @@ class ServiceFix3(unittest.TestCase):
         # an unavailable cmdlet/module must keep the ordinary failure exit.
         runner = self.windows_runner()
         script = self.manager("windows", runner, python="python")._windows_state_command()[-1]
-        self.assertIn("$_.CategoryInfo.Category -eq [System.Management.Automation.ErrorCategory]::ObjectNotFound", script)
+        self.assertIn(
+            "$_.CategoryInfo.Category -eq [System.Management.Automation.ErrorCategory]::ObjectNotFound", script
+        )
         self.assertIn("-and $_.FullyQualifiedErrorId -like 'CmdletizationQuery_NotFound*,Get-ScheduledTask'", script)
         self.assertIn("{ exit 3 }; [Console]::Error.WriteLine($_.Exception.Message); exit 1", script)
 
@@ -162,7 +178,9 @@ class ServiceFix3(unittest.TestCase):
                 state = manager.status()
                 self.assertIsNone(state["loaded"])
                 self.assertIsNone(state["running"])
-                with self.assertRaisesRegex(ServiceError, "definition was kept.*state query failed.*Zugriff verweigert"):
+                with self.assertRaisesRegex(
+                    ServiceError, "definition was kept.*state query failed.*Zugriff verweigert"
+                ):
                     manager.uninstall()
                 self.assertEqual(path.read_bytes(), b"previous definition\n")
                 self.assertFalse(any("/Delete" in argv for argv in runner.calls))

@@ -3,6 +3,7 @@
 The key and HTTPS exchange stay inside the signed native helper. This module
 passes only the explicit ``check`` action and accepts a small fixed receipt.
 """
+
 from __future__ import annotations
 
 import json
@@ -61,7 +62,7 @@ def _default_helper() -> Path | None:
     # Installed app: Contents/Resources/jev_connection.py and Contents/MacOS/JevKeychain.
     # Development checkouts intentionally have no helper.
     resources = Path(__file__).resolve().parent
-    if resources.name != 'Resources' or resources.parent.name != 'Contents':
+    if resources.name != "Resources" or resources.parent.name != "Contents":
         return None
     candidate = resources.parent / "MacOS" / "JevKeychain"
     return candidate if candidate.is_file() else None
@@ -81,8 +82,12 @@ class JevConnection:
             return None
         try:
             return subprocess.run(
-                [str(self._helper), command], capture_output=True, timeout=timeout,
-                check=False, stdin=subprocess.DEVNULL, env={'PATH': '/usr/bin:/bin'},
+                [str(self._helper), command],
+                capture_output=True,
+                timeout=timeout,
+                check=False,
+                stdin=subprocess.DEVNULL,
+                env={"PATH": "/usr/bin:/bin"},
             )
         except (OSError, subprocess.TimeoutExpired):
             return None
@@ -111,8 +116,14 @@ class JevConnection:
             return Credential()
         return Credential(CredentialState.UNCONFIGURED if available else CredentialState.UNAVAILABLE)
 
-    def _transition_locked(self, event: str, *, credential: Credential | None = None,
-                           revision: str | None = None, result: str | None = None) -> None:
+    def _transition_locked(
+        self,
+        event: str,
+        *,
+        credential: Credential | None = None,
+        revision: str | None = None,
+        result: str | None = None,
+    ) -> None:
         """Only writer of association state; callers serialize observations under _lock."""
         if event == "reset":
             self._credential, self._probe = Credential(), Probe()
@@ -124,8 +135,10 @@ class JevConnection:
             assert self._credential.state is CredentialState.CONFIGURED
             self._probe = Probe(ProbeState.CHECKING, self._credential.revision)
         elif event == "finish":
-            if (self._probe.state is ProbeState.CHECKING
-                    and self._probe.revision == revision == self._credential.revision):
+            if (
+                self._probe.state is ProbeState.CHECKING
+                and self._probe.revision == revision == self._credential.revision
+            ):
                 self._probe = Probe(ProbeState.FINISHED, revision, result)
         else:
             raise ValueError("Unknown Jev association transition")
@@ -148,8 +161,9 @@ class JevConnection:
             self._transition_locked("start")
             revision = self._credential.revision
             try:
-                self._worker = threading.Thread(target=self._run_probe, args=(revision,),
-                                                name="JevConnectionCheck", daemon=True)
+                self._worker = threading.Thread(
+                    target=self._run_probe, args=(revision,), name="JevConnectionCheck", daemon=True
+                )
                 self._worker.start()
             except RuntimeError:
                 self._transition_locked("finish", revision=revision, result="start-failed")
@@ -187,8 +201,7 @@ class JevConnection:
                     receipt = json.loads(helper.stdout.decode("utf-8"))
                 except (UnicodeError, ValueError):
                     receipt = None
-                state = (receipt.get("state") if isinstance(receipt, dict)
-                         and set(receipt) == {"state"} else None)
+                state = receipt.get("state") if isinstance(receipt, dict) and set(receipt) == {"state"} else None
                 if state not in _CHECK_STATES:
                     state = "error"
         except Exception:

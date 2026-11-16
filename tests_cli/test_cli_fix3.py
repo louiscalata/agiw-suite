@@ -1,4 +1,5 @@
 """Third-round CLI regressions: fake service runners, locks and temporary state only."""
+
 import io
 import os
 import plistlib
@@ -25,15 +26,20 @@ class CliFix3(unittest.TestCase):
 
     def invoke(self, *argv, **kwargs):
         lines, error = [], io.StringIO()
-        with mock.patch.object(cli, "make_manager", return_value=self.manager), \
-                mock.patch("sys.stderr", error):
-            code = cli.main(["--state-dir", str(self.state), *argv], out=lines.append,
-                            probe=kwargs.pop("probe", lambda *_: "free"), **kwargs)
+        with mock.patch.object(cli, "make_manager", return_value=self.manager), mock.patch("sys.stderr", error):
+            code = cli.main(
+                ["--state-dir", str(self.state), *argv],
+                out=lines.append,
+                probe=kwargs.pop("probe", lambda *_: "free"),
+                **kwargs,
+            )
         return code, "\n".join(lines), error.getvalue()
 
     def test_foreground_lock_refusal_exits_tempfail(self):
-        with mock.patch.object(cli.StateLock, "acquire", side_effect=StateLockBusy("busy")), \
-                mock.patch.object(cli.pl, "main") as peer:
+        with (
+            mock.patch.object(cli.StateLock, "acquire", side_effect=StateLockBusy("busy")),
+            mock.patch.object(cli.pl, "main") as peer,
+        ):
             code, output, error = self.invoke("serve", "--host", "mac")
         self.assertEqual(code, 75, output + error)
         self.assertIn("state folder", error)
@@ -41,8 +47,10 @@ class CliFix3(unittest.TestCase):
         peer.assert_not_called()
 
     def test_launchd_service_lock_refusal_exits_success_with_message(self):
-        with mock.patch.object(cli.StateLock, "acquire", side_effect=StateLockBusy("busy")), \
-                mock.patch.object(cli.pl, "main") as peer:
+        with (
+            mock.patch.object(cli.StateLock, "acquire", side_effect=StateLockBusy("busy")),
+            mock.patch.object(cli.pl, "main") as peer,
+        ):
             code, output, error = self.invoke("serve", "--service", "--host", "mac")
         self.assertEqual(code, 0, output + error)
         self.assertIn("state folder", output + error)
@@ -50,8 +58,10 @@ class CliFix3(unittest.TestCase):
         peer.assert_not_called()
 
     def test_service_flag_does_not_hide_other_lock_errors(self):
-        with mock.patch.object(cli.StateLock, "acquire", side_effect=PermissionError("denied")), \
-                mock.patch.object(cli.pl, "main") as peer:
+        with (
+            mock.patch.object(cli.StateLock, "acquire", side_effect=PermissionError("denied")),
+            mock.patch.object(cli.pl, "main") as peer,
+        ):
             code, output, error = self.invoke("serve", "--service", "--host", "mac")
         self.assertEqual(code, 1, output + error)
         self.assertIn("PermissionError", error)
@@ -75,8 +85,7 @@ class CliFix3(unittest.TestCase):
 
     def test_purge_port_refusal_reports_removed_service_and_unchanged_keys(self):
         before = {p.name: p.read_bytes() for p in self.state.iterdir()}
-        code, output, error = self.invoke("uninstall", "--purge-keys", "--yes",
-                                          probe=lambda *_: "busy")
+        code, output, error = self.invoke("uninstall", "--purge-keys", "--yes", probe=lambda *_: "busy")
         self.assertEqual(code, 1, output + error)
         self.manager.uninstall.assert_called_once_with()
         self.assertIn("the login service was removed; no key file was deleted", error)
@@ -105,16 +114,29 @@ class CliFix3(unittest.TestCase):
         kinds = ("windows",) if os.name == "nt" else ("mac", "windows")
         for kind in kinds:
             with self.subTest(kind=kind):
-                runner = FakeRunner({"/user": (0, '"user","S-1-5-21-42-1001"\n'),
-                                     "is-active": (0, "active\n"), "-Command": (0, "Running\n")},
-                                    idle_until_run=True)
+                runner = FakeRunner(
+                    {
+                        "/user": (0, '"user","S-1-5-21-42-1001"\n'),
+                        "is-active": (0, "active\n"),
+                        "-Command": (0, "Running\n"),
+                    },
+                    idle_until_run=True,
+                )
                 extra = ["--status-file", str(self.home / "observer.json")] if kind == "windows" else []
                 lines = []
-                with mock.patch.object(cli.pl.sys, "platform", "linux"), \
-                        mock.patch.dict(os.environ, {"XDG_STATE_HOME": str(state_home)}):
+                with (
+                    mock.patch.object(cli.pl.sys, "platform", "linux"),
+                    mock.patch.dict(os.environ, {"XDG_STATE_HOME": str(state_home)}),
+                ):
                     expected = str(Path(cli.pl.default_state_dir()).expanduser().resolve())
-                    code = cli.main(["service", "install", *extra], out=lines.append, runner=runner,
-                                    kind=kind, home=self.home, env={"USERNAME": "tester"})
+                    code = cli.main(
+                        ["service", "install", *extra],
+                        out=lines.append,
+                        runner=runner,
+                        kind=kind,
+                        home=self.home,
+                        env={"USERNAME": "tester"},
+                    )
                 if os.name != "nt":
                     self.assertEqual(expected, str((state_home / "agiw" / "peer-link").resolve()))
                 self.assertEqual(code, 0, lines)
@@ -126,8 +148,10 @@ class CliFix3(unittest.TestCase):
                 else:
                     root = ET.fromstring(raw)
                     ns = {"t": "http://schemas.microsoft.com/windows/2004/02/mit/task"}
-                    self.assertIn("--state-dir " + service._windows_quote(expected),
-                                  root.find("t:Actions/t:Exec/t:Arguments", ns).text)
+                    self.assertIn(
+                        "--state-dir " + service._windows_quote(expected),
+                        root.find("t:Actions/t:Exec/t:Arguments", ns).text,
+                    )
 
     def test_windows_purge_continues_after_each_unlink_failure_and_revokes_registry(self):
         peers = self.state / "peers.json"
@@ -145,8 +169,11 @@ class CliFix3(unittest.TestCase):
 
         windows_os = mock.Mock(wraps=os)
         windows_os.name = "nt"
-        with mock.patch.object(cli, "os", windows_os), mock.patch.object(Path, "unlink", unlink), \
-                mock.patch.object(cli.pl, "_gen_revoke_all") as revoke:
+        with (
+            mock.patch.object(cli, "os", windows_os),
+            mock.patch.object(Path, "unlink", unlink),
+            mock.patch.object(cli.pl, "_gen_revoke_all") as revoke,
+        ):
             code, output, error = self.invoke("uninstall", "--purge-keys", "--yes")
         self.assertEqual(code, 1, output + error)
         revoke.assert_called_once_with()
@@ -179,8 +206,11 @@ class CliFix3(unittest.TestCase):
     def test_uninstall_documents_direct_peer_link_purge_limit(self):
         docs = (Path(__file__).resolve().parents[1] / "docs" / "cli.md").read_text()
         uninstall = docs.split("## Uninstall", 1)[1].split("## What leaves the machine", 1)[0]
-        self.assertIn("Purge protects against `agiw serve` and the login service; "
-                      "if you started peer_link.py directly, stop it before purging.", uninstall)
+        self.assertIn(
+            "Purge protects against `agiw serve` and the login service; "
+            "if you started peer_link.py directly, stop it before purging.",
+            uninstall,
+        )
 
 
 if __name__ == "__main__":

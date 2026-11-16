@@ -1,4 +1,5 @@
 """The build-input exporter carries every file wrapper-patch/sync-web.sh needs from the tree."""
+
 import os
 from pathlib import Path
 import re
@@ -19,8 +20,13 @@ class ExportBuildInputs(unittest.TestCase):
         self.assertIn("usage-format.mjs", sources)
         with tempfile.TemporaryDirectory(prefix="agiw-export-test-") as folder:
             out = Path(folder) / "out"
-            result = subprocess.run([sys.executable, "-B", str(ROOT / "scripts" / "export-build-inputs.py"), str(out)],
-                                    capture_output=True, text=True, cwd=ROOT, env=dict(os.environ, PYTHONDONTWRITEBYTECODE="1"))
+            result = subprocess.run(
+                [sys.executable, "-B", str(ROOT / "scripts" / "export-build-inputs.py"), str(out)],
+                capture_output=True,
+                text=True,
+                cwd=ROOT,
+                env=dict(os.environ, PYTHONDONTWRITEBYTECODE="1"),
+            )
             self.assertEqual(result.returncode, 0, result.stderr)
             missing = [name for name in sources if not (out / "payload" / "mac-web" / name).is_file()]
             self.assertEqual(missing, [], "sync-web.sh would stop on these")

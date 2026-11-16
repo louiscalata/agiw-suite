@@ -18,18 +18,34 @@ class NumericScreeningTests(unittest.TestCase):
         cases = {
             "2,125": "2125",
             "1,000.50": "1000.5",
-            "$12": "12", "£12": "12", "€12": "12", "¥12": "12",
-            "12 dollars": "12", "12 meters.": "12", "12%": "12", "12 €": "12",
-            "12.": "12", "-12": "-12", "-$12": "-12", "$-12": "-12",
+            "$12": "12",
+            "£12": "12",
+            "€12": "12",
+            "¥12": "12",
+            "12 dollars": "12",
+            "12 meters.": "12",
+            "12%": "12",
+            "12 €": "12",
+            "12.": "12",
+            "-12": "-12",
+            "-$12": "-12",
+            "$-12": "-12",
             "-1,000.50 dollars.": "-1000.5",
-            "+12.00": "12", "-0.000": "0", ".125": "0.125", "1.2e3": "1200",
+            "+12.00": "12",
+            "-0.000": "0",
+            ".125": "0.125",
+            "1.2e3": "1200",
             "Work: 2000 + 125.\n#### 2,125": "2125",
             "Work first.\nFinal answer: $12.": "12",
             "Work first.\nAnswer: 12 dollars": "12",
-            r"\boxed{12}": "12", r"\boxed{-1,000.50}": "-1000.5",
-            r"$\boxed{12}$": "12", r"\(\boxed{12}\)": "12",
-            r"\[\boxed{12}\]": "12", r"#### \boxed{12}": "12",
-            r"\boxed{\$12}": "12", r"\boxed{12.}": "12",
+            r"\boxed{12}": "12",
+            r"\boxed{-1,000.50}": "-1000.5",
+            r"$\boxed{12}$": "12",
+            r"\(\boxed{12}\)": "12",
+            r"\[\boxed{12}\]": "12",
+            r"#### \boxed{12}": "12",
+            r"\boxed{\$12}": "12",
+            r"\boxed{12.}": "12",
             "Work first.\n" + r"\boxed{12}.": "12",
         }
         row = {"id": "n", "question": "Compute."}
@@ -41,28 +57,58 @@ class NumericScreeningTests(unittest.TestCase):
 
     def test_numeric_substrings_malformed_groups_and_ambiguous_prose_are_unparsed(self):
         for text in (
-            "abc12", "12abc", "word1,000.50word", "A12", "12e", "12eels",
-            "12,34", "1,00.50", "1,,000", "1,000,00", "1.000,50", "12..",
-            "12 or 13", "12 and 13 dollars", "12 is wrong", "12 dollars more",
-            "There are 12 dollars", "The question says 12", "12/2", "1 + 2",
-            "NaN", "Infinity", "1e101", "-1e-101", "++12", "$--12",
-            r"\boxed{12", r"\boxed{12}\boxed{13}", r"\boxed{\boxed{12}}",
-            r"$\boxed{12}\)", "#### 12\nBut perhaps 13", "Reasoning: 12\nMore reasoning.",
-            "#### 12 or 13", "#### 12 dollars and cents",
+            "abc12",
+            "12abc",
+            "word1,000.50word",
+            "A12",
+            "12e",
+            "12eels",
+            "12,34",
+            "1,00.50",
+            "1,,000",
+            "1,000,00",
+            "1.000,50",
+            "12..",
+            "12 or 13",
+            "12 and 13 dollars",
+            "12 is wrong",
+            "12 dollars more",
+            "There are 12 dollars",
+            "The question says 12",
+            "12/2",
+            "1 + 2",
+            "NaN",
+            "Infinity",
+            "1e101",
+            "-1e-101",
+            "++12",
+            "$--12",
+            r"\boxed{12",
+            r"\boxed{12}\boxed{13}",
+            r"\boxed{\boxed{12}}",
+            r"$\boxed{12}\)",
+            "#### 12\nBut perhaps 13",
+            "Reasoning: 12\nMore reasoning.",
+            "#### 12 or 13",
+            "#### 12 dollars and cents",
         ):
             with self.subTest(text=text):
                 self.assertIsNone(adapter.number_answer(text))
 
     def test_values_are_exact_no_tolerance_or_decimal_context_rounding(self):
-        self.assertNotEqual(adapter.number_answer("1,000.50"), adapter.number_answer("1000.500000000000000000000000001"))
+        self.assertNotEqual(
+            adapter.number_answer("1,000.50"), adapter.number_answer("1000.500000000000000000000000001")
+        )
         self.assertNotEqual(adapter.number_answer("-12"), adapter.number_answer("12"))
         self.assertEqual(adapter.number_answer("1234567890123456789012345678901.00"), "1234567890123456789012345678901")
 
     def test_numeric_rule_identifies_the_final_answer_selection(self):
         row = {"id": "n", "question": "Calculate.", "answer": "12"}
-        for content, rule in (("12 dollars", "numeric_complete"),
-                              ("Work.\n#### $12", "numeric_marked_final"),
-                              ("Work.\n" + r"\boxed{12}", "numeric_boxed_final")):
+        for content, rule in (
+            ("12 dollars", "numeric_complete"),
+            ("Work.\n#### $12", "numeric_marked_final"),
+            ("Work.\n" + r"\boxed{12}", "numeric_boxed_final"),
+        ):
             self.assertEqual(adapter.parse_answer(content, row, "gsm8k"), ("12", rule))
 
     def test_answer_equal_to_question_number_is_still_scored(self):
@@ -95,10 +141,21 @@ class ChoiceScreeningTests(unittest.TestCase):
 
     def test_ambiguous_or_embedded_choices_are_unparsed(self):
         for text in (
-            "A or B", "The answer might be B", "Answer: A or B", "(B", "B)",
-            "Answer: B) ", "Answer: A\nAnswer: B", "Answer: unknown\nAnswer: B",
-            "Answer: B\nC", "Answer: B\nMore prose", "A, B, C and D", "B2",
-            "blue or green", "Answer: blue and green", "B. green",
+            "A or B",
+            "The answer might be B",
+            "Answer: A or B",
+            "(B",
+            "B)",
+            "Answer: B) ",
+            "Answer: A\nAnswer: B",
+            "Answer: unknown\nAnswer: B",
+            "Answer: B\nC",
+            "Answer: B\nMore prose",
+            "A, B, C and D",
+            "B2",
+            "blue or green",
+            "Answer: blue and green",
+            "B. green",
         ):
             with self.subTest(text=text):
                 self.assertEqual(adapter.parse_answer(text, self.row, "arc"), (None, None))
@@ -144,9 +201,19 @@ class ChoiceScreeningTests(unittest.TestCase):
 
 class TemplateScreeningTests(unittest.TestCase):
     def data(self):
-        return {"gsm8k": {"items": [{"id": "test", "question": "Test population question?", "answer": "12"}],
-                          "demonstrations": [{"id": "train-" + str(i), "question": "Training question " + str(i) + "?",
-                                              "answer": "Add 1 and 2.\n#### 3"} for i in range(5)]}}
+        return {
+            "gsm8k": {
+                "items": [{"id": "test", "question": "Test population question?", "answer": "12"}],
+                "demonstrations": [
+                    {
+                        "id": "train-" + str(i),
+                        "question": "Training question " + str(i) + "?",
+                        "answer": "Add 1 and 2.\n#### 3",
+                    }
+                    for i in range(5)
+                ],
+            }
+        }
 
     def test_five_descriptor_demonstrations_render_with_fixed_final_lines(self):
         data = self.data()
@@ -165,7 +232,9 @@ class TemplateScreeningTests(unittest.TestCase):
             [{"question": " TEST   population question? ", "answer": "12"}],
             [{"id": "test", "question": "Other?", "answer": "12"}],
             [{"question": "Train?", "answer": "1"}] * 2,
-            [{"question": "Train?"}], "not a list", ["not a row"],
+            [{"question": "Train?"}],
+            "not a list",
+            ["not a row"],
         ]
         for demos in invalid:
             with self.subTest(demos=demos):
@@ -211,7 +280,10 @@ class TemplateScreeningTests(unittest.TestCase):
             self.assertIn("screening", settings["evaluation_scope"])
             demos = settings["prompt_template"]["demonstrations"]
             self.assertEqual(len(demos["gsm8k"]), 5)
-            self.assertEqual(stub.posts[0]["messages"][1]["content"], adapter.prompt_for(data["gsm8k"]["items"][0], "gsm8k", demos["gsm8k"]))
+            self.assertEqual(
+                stub.posts[0]["messages"][1]["content"],
+                adapter.prompt_for(data["gsm8k"]["items"][0], "gsm8k", demos["gsm8k"]),
+            )
             changed = copy.deepcopy(settings)
             changed["prompt_template"]["demonstrations"]["gsm8k"][0]["question"] += "Changed"
             with self.assertRaises(fast.ValidationError):
@@ -223,11 +295,20 @@ class TemplateScreeningTests(unittest.TestCase):
             self.assertEqual(len(stub.posts), posts)
 
     def test_different_parse_template_ids_versions_and_hashes_cannot_compare(self):
-        versioned = dict(SETTINGS, parse_version=adapter.PARSE_VERSION,
-                         prompt_template_version=adapter.TEMPLATE_VERSION,
-                         prompt_template_sha256="b" * 64)
+        versioned = dict(
+            SETTINGS,
+            parse_version=adapter.PARSE_VERSION,
+            prompt_template_version=adapter.TEMPLATE_VERSION,
+            prompt_template_sha256="b" * 64,
+        )
         baseline = run(datasets(1), runtime_settings=versioned)
-        for key in ("scorer_id", "parse_version", "prompt_template_id", "prompt_template_version", "prompt_template_sha256"):
+        for key in (
+            "scorer_id",
+            "parse_version",
+            "prompt_template_id",
+            "prompt_template_version",
+            "prompt_template_sha256",
+        ):
             settings = dict(versioned, **{key: "c" * 64 if key.endswith("sha256") else "different-v1"})
             with self.subTest(key=key):
                 candidate = run(datasets(1), runtime_settings=settings)

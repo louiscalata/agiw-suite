@@ -4,6 +4,7 @@ The earlier router and llama-server lanes are retired. Nothing built in probes
 them or reports them as down. Lane membership on the Mac comes from the machine
 registry; an unconfigured lane is not counted.
 """
+
 import json
 import tempfile
 import threading
@@ -25,8 +26,11 @@ def refuse(url):
 
 
 def legacy_lanes(document):
-    return {item["id"]: item for item in document["nodes"]
-            if item.get("machine") == "pc" and item.get("role") not in ("machine", "client")}
+    return {
+        item["id"]: item
+        for item in document["nodes"]
+        if item.get("machine") == "pc" and item.get("role") not in ("machine", "client")
+    }
 
 
 def node(document, node_id):
@@ -66,9 +70,13 @@ class NoBuiltInLayoutTests(unittest.TestCase):
 
 class TunnelWithoutForwardsTests(unittest.TestCase):
     def test_host_without_forwards_is_not_up_and_starts_nothing(self):
-        config = pc_tunnel.load_config(environ={"AGIW_PC_SSH_USER": CONFIGURED["user"],
-                                                "AGIW_PC_SSH_HOST": CONFIGURED["host"],
-                                                "AGIW_PC_SSH_IDENTITY": CONFIGURED["identityFile"]})
+        config = pc_tunnel.load_config(
+            environ={
+                "AGIW_PC_SSH_USER": CONFIGURED["user"],
+                "AGIW_PC_SSH_HOST": CONFIGURED["host"],
+                "AGIW_PC_SSH_IDENTITY": CONFIGURED["identityFile"],
+            }
+        )
         self.assertNotIn("error", config)
         status, rows = pc_tunnel.targets(config, lambda port: True)
         self.assertEqual((status["state"], status["reason"], rows), ("down", "forwards_unconfigured", []))
@@ -79,8 +87,7 @@ class TunnelWithoutForwardsTests(unittest.TestCase):
         def spawn(_argv):
             raise AssertionError("spawn")
 
-        self.assertEqual(pc_tunnel.supervise(config, threading.Event(), spawn=spawn)["reason"],
-                         "forwards_unconfigured")
+        self.assertEqual(pc_tunnel.supervise(config, threading.Event(), spawn=spawn)["reason"], "forwards_unconfigured")
 
     def test_a_file_must_still_list_at_least_one_forward(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -98,15 +105,22 @@ class TunnelWithoutForwardsTests(unittest.TestCase):
         self.assertIn("127.0.0.1:21011:127.0.0.1:21001", pc_tunnel.ssh_command(config))
         status, rows = pc_tunnel.targets(config, lambda port: port == 21011)
         self.assertEqual(status["state"], "up")
-        self.assertEqual(rows, [{"id": "pc:lane", "name": "lane", "service": "127.0.0.1:21001",
-                                 "base": "http://127.0.0.1:21011"}])
+        self.assertEqual(
+            rows, [{"id": "pc:lane", "name": "lane", "service": "127.0.0.1:21001", "base": "http://127.0.0.1:21011"}]
+        )
 
 
 class RetiredLaneVisibilityTests(unittest.TestCase):
     def test_a_stale_forward_for_a_retired_lane_is_unknown_and_not_probed(self):
-        targets = [{"id": "pc:router", "name": "router", "service": "127.0.0.1:1234", "base": "http://127.0.0.1:1334"},
-                   {"id": "pc:qwen3.8-27b", "name": "qwen3.8-27b", "service": "127.0.0.1:1236",
-                    "base": "http://127.0.0.1:1336"}]
+        targets = [
+            {"id": "pc:router", "name": "router", "service": "127.0.0.1:1234", "base": "http://127.0.0.1:1334"},
+            {
+                "id": "pc:qwen3.8-27b",
+                "name": "qwen3.8-27b",
+                "service": "127.0.0.1:1236",
+                "base": "http://127.0.0.1:1336",
+            },
+        ]
         seen = []
 
         def fetch(url):
@@ -116,8 +130,9 @@ class RetiredLaneVisibilityTests(unittest.TestCase):
         document = collect_map("mac", fetch=fetch, now=1000, targets=targets, tunnel=None, veritas_url="")
         lanes = legacy_lanes(document)
         self.assertEqual(set(lanes), {"pc:router", "pc:qwen3.8-27b"})
-        self.assertEqual({(item["health"], item["reason"]) for item in lanes.values()},
-                         {("not_measured", "unknown_lane")})
+        self.assertEqual(
+            {(item["health"], item["reason"]) for item in lanes.values()}, {("not_measured", "unknown_lane")}
+        )
         self.assertFalse([url for url in seen if ":1334/" in url or ":1336/" in url])
         self.assertNotEqual(node(document, "pc")["health"], "down")
 
@@ -134,13 +149,25 @@ class RetiredLaneVisibilityTests(unittest.TestCase):
                     return remote_machines.unavailable_nodes(config, now=now)
 
             with self.subTest(replaces=replaces):
-                document = collect_map("mac", fetch=refuse, now=1000, targets=None, veritas_url="",
-                                       remote_config=config, remote_probes=Probes())
+                document = collect_map(
+                    "mac",
+                    fetch=refuse,
+                    now=1000,
+                    targets=None,
+                    veritas_url="",
+                    remote_config=config,
+                    remote_probes=Probes(),
+                )
                 ids = {item["id"] for item in document["nodes"]}
                 self.assertEqual(legacy_lanes(document), {})
                 self.assertFalse(ids & RETIRED_IDS)
-                self.assertTrue(any(item.get("observationSource") == "registry" and item.get("role") != "machine"
-                                    for item in document["nodes"]), ids)
+                self.assertTrue(
+                    any(
+                        item.get("observationSource") == "registry" and item.get("role") != "machine"
+                        for item in document["nodes"]
+                    ),
+                    ids,
+                )
 
 
 class LaneDocsTests(unittest.TestCase):

@@ -9,6 +9,7 @@ one row per run.  Whether a run is live comes only from the telemetry reader's l
 probes of the same sample (``telemetry.last_router_observation``); without one the
 row's activity stays unknown.
 """
+
 from __future__ import annotations
 
 import os
@@ -33,8 +34,8 @@ _RECEIPTS = _HOME / ".local/state/inference-monitor/receipts"
 _MAX_BYTES = 3 * 1024 * 1024
 _MAX_ARCHIVE_BYTES = 3 * 1024 * 1024
 _MAX_ARCHIVE_ENTRIES = 256
-_MAX_ARCHIVE_SCAN = 4096        # archive names examined before sorting by mtime
-_MAX_ACTIVE_READS = 4           # per-run records read per sample, newest by mtime
+_MAX_ARCHIVE_SCAN = 4096  # archive names examined before sorting by mtime
+_MAX_ACTIVE_READS = 4  # per-run records read per sample, newest by mtime
 _MAX_ACTIVE_LISTED = 64
 _READ_RETRIES = 3
 _READ_RETRY_S = 0.02
@@ -46,21 +47,42 @@ _STAGE = re.compile(r"[A-Za-z][A-Za-z0-9_.:-]{0,63}\Z")
 _SAFE_MODEL = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/+-]{0,159}\Z")
 _SAFE_STATUS = re.compile(r"[A-Z][A-Z0-9_]{0,63}\Z")
 _MAX_SAFE_INT = (1 << 53) - 1
-_COMPLETION_FIELDS = frozenset({
-    "kind", "verdict", "code", "criteriaTotal", "criteriaVerified",
-    "criteriaUnassessed", "verifiedCriterionIndices", "evidenceFingerprint",
-    "progressStatus", "stopReason", "dispatchAuthorized",
-    "workflowAcceptance", "releaseAcceptance",
-})
-_COMPLETION_CODES = frozenset({
-    "COVERAGE_ASSESSED", "INPUT_INVALID", "VALIDATION_UNBOUND",
-    "TEST_EVIDENCE_INVALID", "LITERAL_EVIDENCE_INVALID",
-    "EVIDENCE_GATE_UNAVAILABLE",
-})
-_COMPLETION_PROGRESS = frozenset({
-    "HISTORY_UNKNOWN", "HISTORY_UNTRUSTED", "NO_PRIOR_MATCH",
-    "SAME_RUN_REPLAY", "NO_PROGRESS",
-})
+_COMPLETION_FIELDS = frozenset(
+    {
+        "kind",
+        "verdict",
+        "code",
+        "criteriaTotal",
+        "criteriaVerified",
+        "criteriaUnassessed",
+        "verifiedCriterionIndices",
+        "evidenceFingerprint",
+        "progressStatus",
+        "stopReason",
+        "dispatchAuthorized",
+        "workflowAcceptance",
+        "releaseAcceptance",
+    }
+)
+_COMPLETION_CODES = frozenset(
+    {
+        "COVERAGE_ASSESSED",
+        "INPUT_INVALID",
+        "VALIDATION_UNBOUND",
+        "TEST_EVIDENCE_INVALID",
+        "LITERAL_EVIDENCE_INVALID",
+        "EVIDENCE_GATE_UNAVAILABLE",
+    }
+)
+_COMPLETION_PROGRESS = frozenset(
+    {
+        "HISTORY_UNKNOWN",
+        "HISTORY_UNTRUSTED",
+        "NO_PRIOR_MATCH",
+        "SAME_RUN_REPLAY",
+        "NO_PROGRESS",
+    }
+)
 
 
 class _Changed(ValueError):
@@ -79,8 +101,12 @@ def _read_record(path: Path) -> dict[str, Any]:
         info = os.fstat(fd)
         if (info.st_dev, info.st_ino) != (before.st_dev, before.st_ino) or info.st_nlink in (0, 2):
             raise _Changed("record changed")
-        if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
-                or stat.S_IMODE(info.st_mode) & 0o077 or info.st_nlink != 1):
+        if (
+            not stat.S_ISREG(info.st_mode)
+            or info.st_uid != os.getuid()
+            or stat.S_IMODE(info.st_mode) & 0o077
+            or info.st_nlink != 1
+        ):
             raise ValueError("unsafe router pointer")
         chunks = bytearray()
         while len(chunks) <= _MAX_BYTES:
@@ -136,8 +162,12 @@ def _per_run_names() -> tuple[list[tuple[float, Path]], str]:
         return [], "absent"
     except OSError:
         return [], "unsafe"
-    if (stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode)
-            or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) & 0o077):
+    if (
+        stat.S_ISLNK(info.st_mode)
+        or not stat.S_ISDIR(info.st_mode)
+        or info.st_uid != os.getuid()
+        or stat.S_IMODE(info.st_mode) & 0o077
+    ):
         return [], "unsafe"
     rows = []
     status = "ok"
@@ -178,8 +208,7 @@ def _read_actives() -> tuple[list[dict[str, Any]], bool, str]:
         if status == "absent":
             continue
         run_id = path.name[:-5]
-        if (status != "ok" or value.get("runId") != run_id
-                or telemetry._valid_active_route(value, per_run=True) is None):
+        if status != "ok" or value.get("runId") != run_id or telemetry._valid_active_route(value, per_run=True) is None:
             records.append({"runId": run_id, "_layout": "per-run", "_unreadable": True})
             seen.add((run_id, None))
             continue
@@ -206,11 +235,18 @@ def _live_rows(now: float) -> dict[tuple[str, str], dict[str, Any]]:
     journal.  Keyed by layout too: one run ID may have a row in each layout (a collision)."""
     observation = telemetry.last_router_observation()
     observed = observation.get("observedAt") if observation else None
-    if (not observation or observation.get("root") != str(_ACTIVE.parent)
-            or not _finite(observed) or not -CLOCK_SKEW_SECONDS <= now - observed <= RUN_EVIDENCE_MAX_AGE):
+    if (
+        not observation
+        or observation.get("root") != str(_ACTIVE.parent)
+        or not _finite(observed)
+        or not -CLOCK_SKEW_SECONDS <= now - observed <= RUN_EVIDENCE_MAX_AGE
+    ):
         return {}
-    return {(row["runId"], row.get("layout")): dict(row, _observedAt=observed)
-            for row in observation.get("rows", []) if row.get("runId")}
+    return {
+        (row["runId"], row.get("layout")): dict(row, _observedAt=observed)
+        for row in observation.get("rows", [])
+        if row.get("runId")
+    }
 
 
 def _age(timestamp: Any, now: float) -> float | None:
@@ -236,7 +272,9 @@ def _review_consistency(stages: Any) -> dict[str, Any] | None:
         if not isinstance(record, dict) or record.get("status") not in _CONSISTENCY_STATUS:
             continue
         evidence = record.get("evidence")
-        evidence = (re.sub(r"[\s\x00-\x1f\x7f]+", " ", evidence).strip()[:160] or None) if isinstance(evidence, str) else None
+        evidence = (
+            (re.sub(r"[\s\x00-\x1f\x7f]+", " ", evidence).strip()[:160] or None) if isinstance(evidence, str) else None
+        )
         return {"status": record["status"], "rule": _label(record.get("rule")), "evidence": evidence, "stage": stage}
     return None
 
@@ -263,16 +301,25 @@ def _intake_usage(usage: Any) -> dict[str, Any]:
         reported = _nonnegative_int(usage.get("total_tokens"))
         if reported is None or reported != summed:
             return empty
-        return {"inputTokens": inputs, "outputTokens": outputs,
-                "totalTokens": reported, "totalSource": "explicit_total"}
-    return {"inputTokens": inputs, "outputTokens": outputs,
-            "totalTokens": summed, "totalSource": "sum_of_reported_input_output"}
+        return {
+            "inputTokens": inputs,
+            "outputTokens": outputs,
+            "totalTokens": reported,
+            "totalSource": "explicit_total",
+        }
+    return {
+        "inputTokens": inputs,
+        "outputTokens": outputs,
+        "totalTokens": summed,
+        "totalSource": "sum_of_reported_input_output",
+    }
 
 
 class _Listing(list):
     """The paths an enumerator returns, newest mtime first, and what its bounds left out:
     ``cut_mtime`` is the newest mtime among the valid names it did not return (None: none),
     and ``scan_cut`` says the name scan stopped early, so a name of any age may be missing."""
+
     cut_mtime: float | None = None
     scan_cut = False
     read_failed = False
@@ -291,8 +338,12 @@ def _archive_files() -> list[Path]:
     try:
         info = _ROOT.joinpath("archive").lstat()
         archive = _ROOT / "archive"
-        if (archive.is_symlink() or not stat.S_ISDIR(info.st_mode)
-                or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) & 0o077):
+        if (
+            archive.is_symlink()
+            or not stat.S_ISDIR(info.st_mode)
+            or info.st_uid != os.getuid()
+            or stat.S_IMODE(info.st_mode) & 0o077
+        ):
             return _listing([], True)
         rows = []
         scan_cut = False
@@ -304,7 +355,9 @@ def _archive_files() -> list[Path]:
                 if index >= _MAX_ARCHIVE_SCAN:
                     scan_cut = True
                     break
-                if not entry.name.endswith(".json") or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}\.json", entry.name):
+                if not entry.name.endswith(".json") or not re.fullmatch(
+                    r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}\.json", entry.name
+                ):
                     continue
                 try:
                     if entry.is_symlink() or not entry.is_file(follow_symlinks=False):
@@ -334,9 +387,13 @@ def _read_archive(path: Path) -> dict[str, Any]:
     fd = os.open(str(path), os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     try:
         info = os.fstat(fd)
-        if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
-                or stat.S_IMODE(info.st_mode) & 0o077 or info.st_nlink != 1
-                or (info.st_dev, info.st_ino) != (before.st_dev, before.st_ino)):
+        if (
+            not stat.S_ISREG(info.st_mode)
+            or info.st_uid != os.getuid()
+            or stat.S_IMODE(info.st_mode) & 0o077
+            or info.st_nlink != 1
+            or (info.st_dev, info.st_ino) != (before.st_dev, before.st_ino)
+        ):
             raise ValueError("unsafe archive")
         data = bytearray()
         while len(data) <= _MAX_ARCHIVE_BYTES:
@@ -361,11 +418,11 @@ def _attempt_id(run_id: str, digest: Any) -> str | None:
 def _binding_conflict(value: Any, run_id: str, digest: Any) -> bool:
     if not isinstance(value, dict):
         return False
-    expected = {"parentRunId": run_id, "routerRequestSha256": digest,
-                "attemptId": _attempt_id(run_id, digest)}
-    return any(isinstance(binding, dict) and any(key in binding and binding[key] != match
-               for key, match in expected.items())
-               for binding in (value, value.get("bindings"), value.get("binding")))
+    expected = {"parentRunId": run_id, "routerRequestSha256": digest, "attemptId": _attempt_id(run_id, digest)}
+    return any(
+        isinstance(binding, dict) and any(key in binding and binding[key] != match for key, match in expected.items())
+        for binding in (value, value.get("bindings"), value.get("binding"))
+    )
 
 
 def _run_evidence(row: dict[str, Any], digest: Any) -> dict[str, Any]:
@@ -379,19 +436,32 @@ def _run_evidence(row: dict[str, Any], digest: Any) -> dict[str, Any]:
             call["state"] = "unknown"
     calls = row.get("calls", [])
     row["usageCoverage"] = {
-        "scope": "reported-calls-only", "reportedCallCount": len(calls),
+        "scope": "reported-calls-only",
+        "reportedCallCount": len(calls),
         "measuredCallCount": sum(call.get("usage", {}).get("totalTokens") is not None for call in calls),
-        "expectedCallCount": None, "complete": False,
-        "detail": ("Attempt binding unavailable; whole-run totals unknown" if attempt is None else
-                   "No independent expected-call manifest; whole-run totals unknown"),
+        "expectedCallCount": None,
+        "complete": False,
+        "detail": (
+            "Attempt binding unavailable; whole-run totals unknown"
+            if attempt is None
+            else "No independent expected-call manifest; whole-run totals unknown"
+        ),
     }
     row["analysisSlots"] = [
-        {"tool": tool, "phase": phase, "runId": row["runId"], "attemptId": attempt,
-         "state": "unavailable", "evidenced": False,
-         "detail": "NOT AVAILABLE YET: " + label + " producer is not connected"}
-        for tool, phase, label in (("jev", "pre", "Complete Jev pre-analysis"),
-                                   ("nisi", "journal", "Nisi journal"),
-                                   ("jev", "post", "Complete Jev post-analysis"))
+        {
+            "tool": tool,
+            "phase": phase,
+            "runId": row["runId"],
+            "attemptId": attempt,
+            "state": "unavailable",
+            "evidenced": False,
+            "detail": "NOT AVAILABLE YET: " + label + " producer is not connected",
+        }
+        for tool, phase, label in (
+            ("jev", "pre", "Complete Jev pre-analysis"),
+            ("nisi", "journal", "Nisi journal"),
+            ("jev", "post", "Complete Jev post-analysis"),
+        )
     ]
     return row
 
@@ -402,22 +472,31 @@ def current_run_evidence(evidence: Any, now: float) -> dict[str, Any]:
     observed = evidence.get("observedAt")
     fresh = _finite(observed) and -CLOCK_SKEW_SECONDS <= now - observed <= RUN_EVIDENCE_MAX_AGE
     counts = evidence.get("counts")
-    valid = (isinstance(counts, dict)
-             and all(_nonnegative_int(counts.get(key)) is not None
-                     for key in ("running", "queued", "unresolved"))
-             and counts['running'] + counts['queued'] <= _MAX_SAFE_INT)
+    valid = (
+        isinstance(counts, dict)
+        and all(_nonnegative_int(counts.get(key)) is not None for key in ("running", "queued", "unresolved"))
+        and counts["running"] + counts["queued"] <= _MAX_SAFE_INT
+    )
     complete = fresh and evidence.get("complete") is True and valid and counts["unresolved"] == 0
-    reason = ("Fresh complete router inventory" if complete else
-              "Run inventory timestamp unavailable" if not _finite(observed) else
-              "Run inventory stale or clock ahead" if not fresh else
-              "Run inventory incomplete or unresolved")
-    return {"scope": "router-current-work", "complete": bool(complete),
-            "count": counts["running"] + counts["queued"] if complete else None,
-            "running": counts["running"] if complete else None,
-            "queued": counts["queued"] if complete else None,
-            "observedAt": observed if _finite(observed) else None,
-            "expiresAt": observed + RUN_EVIDENCE_MAX_AGE if _finite(observed) else None,
-            "reason": reason}
+    reason = (
+        "Fresh complete router inventory"
+        if complete
+        else "Run inventory timestamp unavailable"
+        if not _finite(observed)
+        else "Run inventory stale or clock ahead"
+        if not fresh
+        else "Run inventory incomplete or unresolved"
+    )
+    return {
+        "scope": "router-current-work",
+        "complete": bool(complete),
+        "count": counts["running"] + counts["queued"] if complete else None,
+        "running": counts["running"] if complete else None,
+        "queued": counts["queued"] if complete else None,
+        "observedAt": observed if _finite(observed) else None,
+        "expiresAt": observed + RUN_EVIDENCE_MAX_AGE if _finite(observed) else None,
+        "reason": reason,
+    }
 
 
 def _role_identity_only(backend: dict[str, Any], role: str, parent_run_id: str) -> dict[str, Any] | None:
@@ -426,21 +505,29 @@ def _role_identity_only(backend: dict[str, Any], role: str, parent_run_id: str) 
     row = rows.get(role) if isinstance(rows, dict) else None
     stage = "draft" if role == "author" else "review"
     expected_id = "opencode.advisory:" + parent_run_id + "." + stage
-    if (not isinstance(row, dict) or row.get("runId") != expected_id
-            or row.get("operation") != stage):
+    if not isinstance(row, dict) or row.get("runId") != expected_id or row.get("operation") != stage:
         return None
     requested, reported = row.get("requestedModel"), row.get("reportedModel")
     requested = requested if isinstance(requested, str) and _SAFE_MODEL.fullmatch(requested) else None
     reported = reported if isinstance(reported, str) and _SAFE_MODEL.fullmatch(reported) else None
     status = row.get("status")
     status = status if isinstance(status, str) and _SAFE_STATUS.fullmatch(status) else "unknown"
-    return {"id": expected_id, "role": role, "model": reported, "servedModel": reported,
-            "requestedModel": requested, "status": status, "state": "unknown", "elapsedMs": None,
-            "usage": {"inputTokens": None, "outputTokens": None, "totalTokens": None}}
+    return {
+        "id": expected_id,
+        "role": role,
+        "model": reported,
+        "servedModel": reported,
+        "requestedModel": requested,
+        "status": status,
+        "state": "unknown",
+        "elapsedMs": None,
+        "usage": {"inputTokens": None, "outputTokens": None, "totalTokens": None},
+    }
 
 
-def _verified_stage_call(backend: dict[str, Any], role: str, parent_run_id: str,
-                         common_candidate: Any) -> dict[str, Any] | None:
+def _verified_stage_call(
+    backend: dict[str, Any], role: str, parent_run_id: str, common_candidate: Any
+) -> dict[str, Any] | None:
     """Bind one returned Nisi envelope to the matching role receipt."""
     stages, selection = backend.get("stages"), backend.get("selection")
     prepare = stages.get("prepare") if isinstance(stages, dict) else None
@@ -450,24 +537,41 @@ def _verified_stage_call(backend: dict[str, Any], role: str, parent_run_id: str,
     call_run = parent_run_id + "." + stage
     model = selection.get("authorModel" if role == "author" else "reviewerModel")
     task_fp = prepare.get("taskFingerprint" if role == "author" else "reviewTaskFingerprint")
-    if not isinstance(model, str) or not _SAFE_MODEL.fullmatch(model) or not _hex64(task_fp) or not _hex64(common_candidate):
+    if (
+        not isinstance(model, str)
+        or not _SAFE_MODEL.fullmatch(model)
+        or not _hex64(task_fp)
+        or not _hex64(common_candidate)
+    ):
         return None
     envelope = stages.get(stage)
-    if (not isinstance(envelope, dict) or envelope.get("status") != "RETURNED"
-            or envelope.get("operation") != "work" or envelope.get("recoveryRequired") is not False):
+    if (
+        not isinstance(envelope, dict)
+        or envelope.get("status") != "RETURNED"
+        or envelope.get("operation") != "work"
+        or envelope.get("recoveryRequired") is not False
+    ):
         return None
     result = envelope.get("result")
-    if (not isinstance(result, dict) or result.get("status") != "RESPONSE_VALIDATED"
-            or result.get("runId") != call_run or result.get("mode") != stage
-            or result.get("accepted") is not False or result.get("advisoryOnly") is not True
-            or result.get("outputMode") != "json_schema"
-            or any(result.get(key) != "NOT_RUN" for key in ("checks", "tests", "certification"))
-            or result.get("candidateFingerprint") != common_candidate):
+    if (
+        not isinstance(result, dict)
+        or result.get("status") != "RESPONSE_VALIDATED"
+        or result.get("runId") != call_run
+        or result.get("mode") != stage
+        or result.get("accepted") is not False
+        or result.get("advisoryOnly") is not True
+        or result.get("outputMode") != "json_schema"
+        or any(result.get(key) != "NOT_RUN" for key in ("checks", "tests", "certification"))
+        or result.get("candidateFingerprint") != common_candidate
+    ):
         return None
     binding = result.get("binding")
-    if (not isinstance(binding, dict) or binding.get("runId") != "opencode.advisory:" + call_run
-            or binding.get("taskFingerprint") != task_fp
-            or binding.get("candidateFingerprint") != common_candidate):
+    if (
+        not isinstance(binding, dict)
+        or binding.get("runId") != "opencode.advisory:" + call_run
+        or binding.get("taskFingerprint") != task_fp
+        or binding.get("candidateFingerprint") != common_candidate
+    ):
         return None
     receipt_rows = result.get("receipts")
     retained_rows = backend.get("roleEvidence")
@@ -475,9 +579,15 @@ def _verified_stage_call(backend: dict[str, Any], role: str, parent_run_id: str,
     retained = retained_rows.get(role) if isinstance(retained_rows, dict) else None
     if not isinstance(receipt, dict) or not isinstance(retained, dict):
         return None
-    expected = {"status": "RESPONSE_VALIDATED", "requestedModel": model, "reportedModel": model,
-                "operation": stage, "taskFingerprint": task_fp,
-                "candidateFingerprint": common_candidate, "runId": "opencode.advisory:" + call_run}
+    expected = {
+        "status": "RESPONSE_VALIDATED",
+        "requestedModel": model,
+        "reportedModel": model,
+        "operation": stage,
+        "taskFingerprint": task_fp,
+        "candidateFingerprint": common_candidate,
+        "runId": "opencode.advisory:" + call_run,
+    }
     if any(receipt.get(key) != value or retained.get(key) != value for key, value in expected.items()):
         return None
     for key in ("requestSha256", "responseSha256", "contentSha256", "resultCandidateFingerprint"):
@@ -497,10 +607,17 @@ def _verified_stage_call(backend: dict[str, Any], role: str, parent_run_id: str,
     lifecycle = receipt.get("lifecycle")
     if not isinstance(lifecycle, dict) or lifecycle != retained.get("lifecycle"):
         return None
-    return {"id": "opencode.advisory:" + call_run, "role": role, "model": model,
-            "requestedModel": model, "servedModel": model, "status": "RESPONSE_VALIDATED",
-            "state": "complete", "elapsedMs": elapsed,
-            "usage": {"inputTokens": inputs, "outputTokens": outputs, "totalTokens": total}}
+    return {
+        "id": "opencode.advisory:" + call_run,
+        "role": role,
+        "model": model,
+        "requestedModel": model,
+        "servedModel": model,
+        "status": "RESPONSE_VALIDATED",
+        "state": "complete",
+        "elapsedMs": elapsed,
+        "usage": {"inputTokens": inputs, "outputTokens": outputs, "totalTokens": total},
+    }
 
 
 def _completion_evidence(value: Any) -> dict[str, Any] | None:
@@ -511,31 +628,38 @@ def _completion_evidence(value: Any) -> dict[str, Any] | None:
     """
     if not isinstance(value, dict) or value.keys() != _COMPLETION_FIELDS:
         return None
-    total, verified, unassessed = (value.get(key) for key in
-                                   ("criteriaTotal", "criteriaVerified", "criteriaUnassessed"))
-    if (any(type(count) is not int or not 0 <= count <= 64 for count in
-            (total, verified, unassessed))
-            or verified + unassessed != total):
+    total, verified, unassessed = (
+        value.get(key) for key in ("criteriaTotal", "criteriaVerified", "criteriaUnassessed")
+    )
+    if (
+        any(type(count) is not int or not 0 <= count <= 64 for count in (total, verified, unassessed))
+        or verified + unassessed != total
+    ):
         return None
-    verdict, code, progress = (value.get(key) for key in
-                               ("verdict", "code", "progressStatus"))
-    expected_verdict = ("VERIFIED" if total > 0 and verified == total else
-                        "PARTIAL" if verified > 0 else "UNVERIFIED")
-    if (value.get("kind") != "agiw.completion-evidence.v1"
-            or verdict != expected_verdict
-            or not isinstance(code, str) or code not in _COMPLETION_CODES
-            or not isinstance(progress, str) or progress not in _COMPLETION_PROGRESS
-            or (code == "COVERAGE_ASSESSED" and total == 0)
-            or (code != "COVERAGE_ASSESSED" and (verified != 0 or progress != "HISTORY_UNKNOWN"))
-            or value.get("dispatchAuthorized") is not False
-            or value.get("workflowAcceptance") != "NOT_ESTABLISHED"
-            or value.get("releaseAcceptance") != "NOT_ESTABLISHED"
-            or value.get("stopReason") != ("NO_PROGRESS" if progress == "NO_PROGRESS" else None)):
+    verdict, code, progress = (value.get(key) for key in ("verdict", "code", "progressStatus"))
+    expected_verdict = "VERIFIED" if total > 0 and verified == total else "PARTIAL" if verified > 0 else "UNVERIFIED"
+    if (
+        value.get("kind") != "agiw.completion-evidence.v1"
+        or verdict != expected_verdict
+        or not isinstance(code, str)
+        or code not in _COMPLETION_CODES
+        or not isinstance(progress, str)
+        or progress not in _COMPLETION_PROGRESS
+        or (code == "COVERAGE_ASSESSED" and total == 0)
+        or (code != "COVERAGE_ASSESSED" and (verified != 0 or progress != "HISTORY_UNKNOWN"))
+        or value.get("dispatchAuthorized") is not False
+        or value.get("workflowAcceptance") != "NOT_ESTABLISHED"
+        or value.get("releaseAcceptance") != "NOT_ESTABLISHED"
+        or value.get("stopReason") != ("NO_PROGRESS" if progress == "NO_PROGRESS" else None)
+    ):
         return None
     indices = value["verifiedCriterionIndices"]
-    if (not isinstance(indices, list) or len(indices) != verified
-            or any(type(i) is not int or not 0 <= i < total for i in indices)
-            or indices != sorted(set(indices))):
+    if (
+        not isinstance(indices, list)
+        or len(indices) != verified
+        or any(type(i) is not int or not 0 <= i < total for i in indices)
+        or indices != sorted(set(indices))
+    ):
         return None
     fingerprint = value.get("evidenceFingerprint")
     if code == "COVERAGE_ASSESSED":
@@ -543,29 +667,43 @@ def _completion_evidence(value: Any) -> dict[str, Any] | None:
             return None
     elif fingerprint is not None:
         return None
-    return {"verdict": verdict, "code": code, "criteriaTotal": total,
-            "criteriaVerified": verified, "criteriaUnassessed": unassessed,
-            "progressStatus": progress, "stopReason": value["stopReason"]}
+    return {
+        "verdict": verdict,
+        "code": code,
+        "criteriaTotal": total,
+        "criteriaVerified": verified,
+        "criteriaUnassessed": unassessed,
+        "progressStatus": progress,
+        "stopReason": value["stopReason"],
+    }
 
 
-def _completion_owner_bound(record: dict[str, Any], result: dict[str, Any],
-                            run_id: str, status: str) -> bool:
+def _completion_owner_bound(record: dict[str, Any], result: dict[str, Any], run_id: str, status: str) -> bool:
     """Accept new completion display only from a coherent completed owner row."""
     digest = record.get("inputSha256")
     return (
-        set(record) == {"schemaVersion", "runId", "inputSha256", "result",
-                        "exitCode", "stage", "checkpoint", "finishedUnix"}
-        and type(record.get("schemaVersion")) is int and record["schemaVersion"] == 1
-        and type(record.get("exitCode")) is int and record["exitCode"] == 0
-        and isinstance(digest, str) and re.fullmatch(r"[a-f0-9]{64}", digest) is not None
-        and result.get("requestSha256") == digest and result.get("runId") == run_id
-        and type(result.get("schemaVersion")) is int and result["schemaVersion"] == 1
+        set(record)
+        == {"schemaVersion", "runId", "inputSha256", "result", "exitCode", "stage", "checkpoint", "finishedUnix"}
+        and type(record.get("schemaVersion")) is int
+        and record["schemaVersion"] == 1
+        and type(record.get("exitCode")) is int
+        and record["exitCode"] == 0
+        and isinstance(digest, str)
+        and re.fullmatch(r"[a-f0-9]{64}", digest) is not None
+        and result.get("requestSha256") == digest
+        and result.get("runId") == run_id
+        and type(result.get("schemaVersion")) is int
+        and result["schemaVersion"] == 1
         and status == "RESPONSE_VALIDATED"
-        and result.get("advisoryOnly") is True and result.get("accepted") is False
-        and result.get("authorizing") is False and result.get("filesApplied") is False
+        and result.get("advisoryOnly") is True
+        and result.get("accepted") is False
+        and result.get("authorizing") is False
+        and result.get("filesApplied") is False
         and result.get("recoveryRequired") is False
-        and result.get("tests") == "NOT_RUN" and result.get("certification") == "NOT_RUN"
-        and isinstance(record.get("stage"), str) and _STAGE.fullmatch(record["stage"]) is not None
+        and result.get("tests") == "NOT_RUN"
+        and result.get("certification") == "NOT_RUN"
+        and isinstance(record.get("stage"), str)
+        and _STAGE.fullmatch(record["stage"]) is not None
         and _finite(record.get("finishedUnix"))
     )
 
@@ -575,9 +713,13 @@ def _project_archive(record: dict[str, Any], now: float) -> dict[str, Any] | Non
     run_id = record.get("runId")
     result = record.get("result")
     finished = record.get("finishedUnix")
-    if (not isinstance(run_id, str) or not _RUN_ID.fullmatch(run_id)
-            or not isinstance(result, dict) or result.get("kind") != "codemode.router.v1"
-            or result.get("runId") != run_id):
+    if (
+        not isinstance(run_id, str)
+        or not _RUN_ID.fullmatch(run_id)
+        or not isinstance(result, dict)
+        or result.get("kind") != "codemode.router.v1"
+        or result.get("runId") != run_id
+    ):
         return None
     status = result.get("status")
     if not isinstance(status, str) or not _SAFE_STATUS.fullmatch(status):
@@ -585,8 +727,12 @@ def _project_archive(record: dict[str, Any], now: float) -> dict[str, Any] | Non
     digest = record.get("inputSha256")
     # Preserve a dated legacy status, but never attach contradictory returned
     # evidence to the request named by its enclosing archive.
-    contradictory = ("requestSha256" in result and result["requestSha256"] != digest
-                     or "attemptId" in result and result["attemptId"] != _attempt_id(run_id, digest))
+    contradictory = (
+        "requestSha256" in result
+        and result["requestSha256"] != digest
+        or "attemptId" in result
+        and result["attemptId"] != _attempt_id(run_id, digest)
+    )
     age = _age(finished, now)
     calls = []
     stages = result.get("stages")
@@ -599,9 +745,12 @@ def _project_archive(record: dict[str, Any], now: float) -> dict[str, Any] | Non
             nested = nested.get("draft" if role == "author" else "review") if isinstance(nested, dict) else None
             nested = nested.get("result") if isinstance(nested, dict) else None
             receipts = nested.get("receipts") if isinstance(nested, dict) else None
-            if (_binding_conflict(retained, run_id, digest) or _binding_conflict(nested, run_id, digest)
-                    or isinstance(receipts, list) and any(_binding_conflict(receipt, run_id, digest)
-                                                         for receipt in receipts)):
+            if (
+                _binding_conflict(retained, run_id, digest)
+                or _binding_conflict(nested, run_id, digest)
+                or isinstance(receipts, list)
+                and any(_binding_conflict(receipt, run_id, digest) for receipt in receipts)
+            ):
                 continue
             call = _verified_stage_call(backend, role, run_id, backend.get("candidateFingerprint"))
             if call is None:
@@ -627,16 +776,30 @@ def _project_archive(record: dict[str, Any], now: float) -> dict[str, Any] | Non
     if isinstance(intake, dict) and not _binding_conflict(intake, run_id, digest):
         jev_usage = _intake_usage(usage)
         jev_model, jev_status = intake.get("model"), intake.get("status")
-        if (isinstance(jev_model, str) and _SAFE_MODEL.fullmatch(jev_model)
-                and isinstance(jev_status, str) and _SAFE_STATUS.fullmatch(jev_status)):
-            calls.append({"id": None, "role": "intake", "model": jev_model,
-                          "requestedModel": None, "servedModel": jev_model,
-                          "status": jev_status, "state": "complete" if jev_status == "JUDGED" else "unknown",
-                          "elapsedMs": _nonnegative_int(intake.get("elapsed_ms")),
-                          "decision": {"choice": choice,
-                                       "routeState": route_state,
-                                       "confidence": _confidence(route.get("confidence")) if isinstance(route, dict) else None},
-                          "usage": jev_usage})
+        if (
+            isinstance(jev_model, str)
+            and _SAFE_MODEL.fullmatch(jev_model)
+            and isinstance(jev_status, str)
+            and _SAFE_STATUS.fullmatch(jev_status)
+        ):
+            calls.append(
+                {
+                    "id": None,
+                    "role": "intake",
+                    "model": jev_model,
+                    "requestedModel": None,
+                    "servedModel": jev_model,
+                    "status": jev_status,
+                    "state": "complete" if jev_status == "JUDGED" else "unknown",
+                    "elapsedMs": _nonnegative_int(intake.get("elapsed_ms")),
+                    "decision": {
+                        "choice": choice,
+                        "routeState": route_state,
+                        "confidence": _confidence(route.get("confidence")) if isinstance(route, dict) else None,
+                    },
+                    "usage": jev_usage,
+                }
+            )
     # Individual stage metrics do not prove every attempted invocation is
     # represented. Without an independent manifest, whole-run usage is unknown.
     stage = record.get("stage")
@@ -644,26 +807,42 @@ def _project_archive(record: dict[str, Any], now: float) -> dict[str, Any] | Non
     completion = _completion_evidence(result.get("completionEvidence")) if completion_bound else None
     if contradictory:
         calls, digest = [], None
-    return _run_evidence({"runId": run_id, "stage": stage if isinstance(stage, str) and _STAGE.fullmatch(stage) else None,
-            "status": status, "activity": "completed", "recordedAt": finished if _finite(finished) else None,
-            "ageSeconds": age, "routeChoice": choice, "routeState": route_state, "hostAcceptance": None,
+    return _run_evidence(
+        {
+            "runId": run_id,
+            "stage": stage if isinstance(stage, str) and _STAGE.fullmatch(stage) else None,
+            "status": status,
+            "activity": "completed",
+            "recordedAt": finished if _finite(finished) else None,
+            "ageSeconds": age,
+            "routeChoice": choice,
+            "routeState": route_state,
+            "hostAcceptance": None,
             "reviewConsistency": _review_consistency(stages),
             "completionEvidence": completion,
             "completionEvidenceSource": "router-archive" if completion is not None else None,
             "testsStatus": "NOT_RUN" if completion_bound else None,
             "client": result.get("client") if result.get("client") in ("codex", "claude", "opencode") else None,
             "host": result.get("selectedHost") if result.get("selectedHost") in ("mac", "windows") else None,
-            "calls": calls, "usage": usage_out,
+            "calls": calls,
+            "usage": usage_out,
             "source": "router-archive",
-            "_routerRequestSha256": digest if _hex64(digest) else None}, digest)
+            "_routerRequestSha256": digest if _hex64(digest) else None,
+        },
+        digest,
+    )
 
 
 def _receipt_files() -> list[Path]:
     """Enumerate recent sanitized monitor receipts; never create the directory."""
     try:
         info = _RECEIPTS.lstat()
-        if (_RECEIPTS.is_symlink() or not stat.S_ISDIR(info.st_mode)
-                or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) & 0o077):
+        if (
+            _RECEIPTS.is_symlink()
+            or not stat.S_ISDIR(info.st_mode)
+            or info.st_uid != os.getuid()
+            or stat.S_IMODE(info.st_mode) & 0o077
+        ):
             return _listing([], True)
         rows = []
         scan_cut = False
@@ -673,7 +852,9 @@ def _receipt_files() -> list[Path]:
                 if index >= _MAX_ARCHIVE_ENTRIES:
                     scan_cut = True
                     break
-                if not entry.name.endswith(".json") or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}\.json", entry.name):
+                if not entry.name.endswith(".json") or not re.fullmatch(
+                    r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}\.json", entry.name
+                ):
                     continue
                 try:
                     if entry.is_symlink() or not entry.is_file(follow_symlinks=False):
@@ -719,70 +900,126 @@ def _project_monitor_receipt(receipt: dict[str, Any], now: float) -> dict[str, A
             requested = row.get("requestedModel")
             model = model if isinstance(model, str) and _SAFE_MODEL.fullmatch(model) else None
             requested = requested if isinstance(requested, str) and _SAFE_MODEL.fullmatch(requested) else None
-            if (not isinstance(role, str) or not re.fullmatch(r"[A-Za-z0-9_.:-]{1,32}", role)
-                    or model is None and requested is None):
+            if (
+                not isinstance(role, str)
+                or not re.fullmatch(r"[A-Za-z0-9_.:-]{1,32}", role)
+                or model is None
+                and requested is None
+            ):
                 continue
             usage = row.get("usage") if isinstance(row.get("usage"), dict) else {}
             binding = row.get("bindings") if isinstance(row.get("bindings"), dict) else {}
             call_id = binding.get("runId")
-            if not isinstance(call_id, str) or len(call_id) > 180 or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,179}", call_id):
+            if (
+                not isinstance(call_id, str)
+                or len(call_id) > 180
+                or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,179}", call_id)
+            ):
                 call_id = None
-            if role in ("author", "reviewer") and call_id != "opencode.advisory:" + run_id + (".draft" if role == "author" else ".review"):
+            if role in ("author", "reviewer") and call_id != "opencode.advisory:" + run_id + (
+                ".draft" if role == "author" else ".review"
+            ):
                 continue
             # A receipt explicitly naming another parent/request/attempt cannot
             # borrow this container's identity, even when the run name matches.
-            if (_binding_conflict(row, run_id, digest)
-                    or role not in ("author", "reviewer") and call_id not in
-                    (None, run_id, "jev.intake:" + run_id, "opencode.advisory:" + run_id + ".intake")):
+            if (
+                _binding_conflict(row, run_id, digest)
+                or role not in ("author", "reviewer")
+                and call_id not in (None, run_id, "jev.intake:" + run_id, "opencode.advisory:" + run_id + ".intake")
+            ):
                 continue
             status = row.get("status")
             status = status if isinstance(status, str) and _SAFE_STATUS.fullmatch(status) else "unknown"
-            inputs, outputs, total = (_nonnegative_int(usage.get(k)) for k in ("inputTokens", "outputTokens", "totalTokens"))
-            if not (model is not None and usage.get("complete") is True and inputs is not None and outputs is not None
-                    and total is not None and inputs + outputs == total):
+            inputs, outputs, total = (
+                _nonnegative_int(usage.get(k)) for k in ("inputTokens", "outputTokens", "totalTokens")
+            )
+            if not (
+                model is not None
+                and usage.get("complete") is True
+                and inputs is not None
+                and outputs is not None
+                and total is not None
+                and inputs + outputs == total
+            ):
                 inputs = outputs = total = None
-            calls.append({"id": call_id, "parentRunId": run_id, "role": role,
-                          "model": model, "servedModel": model, "requestedModel": requested,
-                          "state": "complete" if model is not None and status not in ("NOT_RUN", "ERROR", "unknown") else "unknown",
-                          "status": status, "elapsedMs": _nonnegative_int(row.get("elapsedMs")),
-                          "startedAt": None, "finishedAt": None,
-                          "usage": {"inputTokens": inputs, "outputTokens": outputs, "totalTokens": total}})
+            calls.append(
+                {
+                    "id": call_id,
+                    "parentRunId": run_id,
+                    "role": role,
+                    "model": model,
+                    "servedModel": model,
+                    "requestedModel": requested,
+                    "state": "complete"
+                    if model is not None and status not in ("NOT_RUN", "ERROR", "unknown")
+                    else "unknown",
+                    "status": status,
+                    "elapsedMs": _nonnegative_int(row.get("elapsedMs")),
+                    "startedAt": None,
+                    "finishedAt": None,
+                    "usage": {"inputTokens": inputs, "outputTokens": outputs, "totalTokens": total},
+                }
+            )
     finished_at = receipt.get("finishedAt")
     finished_unix = None
     if isinstance(finished_at, str):
         try:
             import datetime
+
             dated = datetime.datetime.fromisoformat(finished_at.replace("Z", "+00:00"))
             if dated.tzinfo is not None and dated.utcoffset() is not None:
                 finished_unix = dated.timestamp()
         except (ValueError, OverflowError):
             pass
-    route_status = route.get("status") if isinstance(route.get("status"), str) and _SAFE_STATUS.fullmatch(route.get("status")) else "unknown"
-    owner_status = owner.get("status") if isinstance(owner.get("status"), str) and _SAFE_STATUS.fullmatch(owner.get("status")) else "unknown"
+    route_status = (
+        route.get("status")
+        if isinstance(route.get("status"), str) and _SAFE_STATUS.fullmatch(route.get("status"))
+        else "unknown"
+    )
+    owner_status = (
+        owner.get("status")
+        if isinstance(owner.get("status"), str) and _SAFE_STATUS.fullmatch(owner.get("status"))
+        else "unknown"
+    )
     # A self-reported logicalCallCount is not an independent manifest of every
     # inference attempt; keep whole-run totals unknown even when included rows sum.
     reported_usage = {"inputTokens": None, "outputTokens": None, "totalTokens": None}
     route_choice = _label(intake.get("route"))
-    decision = {"choice": route_choice,
-                "routeState": _label(intake.get("routeState")),
-                "confidence": _confidence(intake.get("confidence"))}
+    decision = {
+        "choice": route_choice,
+        "routeState": _label(intake.get("routeState")),
+        "confidence": _confidence(intake.get("confidence")),
+    }
     for call in calls:
         if call["role"] == "intake":
             call["decision"] = decision
     if _binding_conflict(receipt, run_id, digest):
         calls, digest = [], None
-    return _run_evidence({"runId": run_id, "stage": "completed", "status": route_status,
-            "hostAcceptance": owner_status, "activity": "completed",
+    return _run_evidence(
+        {
+            "runId": run_id,
+            "stage": "completed",
+            "status": route_status,
+            "hostAcceptance": owner_status,
+            "activity": "completed",
             "client": route.get("client") if route.get("client") in ("codex", "claude", "opencode") else None,
-            "recordedAt": finished_unix, "ageSeconds": _age(finished_unix, now),
-            "routeChoice": decision["choice"], "routeState": decision["routeState"],
+            "recordedAt": finished_unix,
+            "ageSeconds": _age(finished_unix, now),
+            "routeChoice": decision["choice"],
+            "routeState": decision["routeState"],
             "routeConfidence": decision["confidence"],
             "reviewFindings": _nonnegative_int(review.get("structuredFindingCount")),
-            "reviewSummaryContradiction": review.get("summaryContradictsEmptyFindings") if type(review.get("summaryContradictsEmptyFindings")) is bool else None,
+            "reviewSummaryContradiction": review.get("summaryContradictsEmptyFindings")
+            if type(review.get("summaryContradictsEmptyFindings")) is bool
+            else None,
             "note": "Owner decision is separate from router status",
-            "calls": calls, "usage": reported_usage,
+            "calls": calls,
+            "usage": reported_usage,
             "source": "monitor-receipt",
-            "_routerRequestSha256": digest if _hex64(digest) else None}, digest)
+            "_routerRequestSha256": digest if _hex64(digest) else None,
+        },
+        digest,
+    )
 
 
 def _receipt_runs(now: float, paths: list[Path] | None = None) -> list[dict[str, Any]]:
@@ -794,7 +1031,7 @@ def _receipt_runs(now: float, paths: list[Path] | None = None) -> list[dict[str,
                 result.append(item)
             elif isinstance(paths, _Listing):
                 paths.read_failed = True
-        except Exception:           # one malformed receipt (a RecursionError included) is skipped
+        except Exception:  # one malformed receipt (a RecursionError included) is skipped
             if isinstance(paths, _Listing):
                 paths.read_failed = True
             continue
@@ -807,27 +1044,41 @@ def _history_source(source_id, label, paths, runs):
     Plain legacy lists lack a read receipt and keep the conservative old fallback.
     A successful empty _Listing is evidence of zero; a failed read isn't.
     """
-    ages = [row['ageSeconds'] for row in runs if _finite(row.get('ageSeconds'))]
+    ages = [row["ageSeconds"] for row in runs if _finite(row.get("ageSeconds"))]
     age = min(ages, default=None)
     if isinstance(paths, _Listing):
         complete = not (paths.read_failed or paths.scan_cut or paths.cut_mtime is not None)
-        return dict(id=source_id, label=label, state='live' if complete else 'unavailable',
-                    ageSeconds=age, observationAgeSeconds=0.0, complete=complete,
-                    detail='Completed history read' if complete else 'History read incomplete or capped')
-    return dict(id=source_id, label=label,
-                state='live' if age is not None and age <= _MAX_AGE else 'stale' if runs else 'unavailable',
-                ageSeconds=age, detail='Bounded historical records; read coverage unverified')
+        return dict(
+            id=source_id,
+            label=label,
+            state="live" if complete else "unavailable",
+            ageSeconds=age,
+            observationAgeSeconds=0.0,
+            complete=complete,
+            detail="Completed history read" if complete else "History read incomplete or capped",
+        )
+    return dict(
+        id=source_id,
+        label=label,
+        state="live" if age is not None and age <= _MAX_AGE else "stale" if runs else "unavailable",
+        ageSeconds=age,
+        detail="Bounded historical records; read coverage unverified",
+    )
 
 
-_MAX_FLAGGED_KEPT = 4           # older flagged history rows kept past the newest-first cut
+_MAX_FLAGGED_KEPT = 4  # older flagged history rows kept past the newest-first cut
 
 
 def _flagged(row: dict[str, Any]) -> bool:
     """A history row the dashboard flags: a REJECTED host decision, or a recorded review flag
     (the router's summary-consistency verdict, or a receipt's contradicted review summary)."""
     consistency = row.get("reviewConsistency")
-    return (row.get("hostAcceptance") == "REJECTED" or row.get("reviewSummaryContradiction") is True
-            or isinstance(consistency, dict) and consistency.get("status") in _CONSISTENCY_STATUS)
+    return (
+        row.get("hostAcceptance") == "REJECTED"
+        or row.get("reviewSummaryContradiction") is True
+        or isinstance(consistency, dict)
+        and consistency.get("status") in _CONSISTENCY_STATUS
+    )
 
 
 def _bounded_history(runs: list[dict[str, Any]], room: int) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
@@ -848,17 +1099,20 @@ def _bounded_history(runs: list[dict[str, Any]], room: int) -> tuple[list[dict[s
             sources.add(row.get("source"))
             pinned.append(index)
     pinned += [index for index, row in enumerate(runs) if index not in pinned and _flagged(row)][:_MAX_FLAGGED_KEPT]
-    keep = set(pinned[:room // 2])
+    keep = set(pinned[: room // 2])
     for index in range(len(runs)):
         if len(keep) >= room:
             break
         keep.add(index)
-    return ([row for index, row in enumerate(runs) if index in keep],
-            [row for index, row in enumerate(runs) if index not in keep])
+    return (
+        [row for index, row in enumerate(runs) if index in keep],
+        [row for index, row in enumerate(runs) if index not in keep],
+    )
 
 
-def _history_bound(listings: tuple[list[Path], ...], dropped: list[dict[str, Any]], sampled: float,
-                   *, active_incomplete: bool = False) -> dict[str, Any]:
+def _history_bound(
+    listings: tuple[list[Path], ...], dropped: list[dict[str, Any]], sampled: float, *, active_incomplete: bool = False
+) -> dict[str, Any]:
     """What the bounds left out of the history rows, for a reader that counts a time window.
     ``truncated``: some history route may be missing from the list.  ``missingFromAgeSeconds``:
     the youngest age a missing dated route can have, or None when no dated route is missing.
@@ -921,46 +1175,87 @@ def _active_rows(sampled: float) -> tuple[list[dict[str, Any]], bool, str]:
         observed = live.get((run_id, record["_layout"]))
         activity = "unknown"
         if observed and not observed.get("live") and observed.get("state") == "changing":
-            status = "changing"     # changed while observed (a checkpoint): re-checked next sample
+            status = "changing"  # changed while observed (a checkpoint): re-checked next sample
         # The observation describes this record only when both name the same input.
-        bound = (observed if observed and not record.get("_unreadable")
-                 and observed.get("inputSha256") == record.get("inputSha256") else None)
+        bound = (
+            observed
+            if observed and not record.get("_unreadable") and observed.get("inputSha256") == record.get("inputSha256")
+            else None
+        )
         if _observed_live(bound):
             status = bound["state"]
             activity = "running" if status == "running" else "queued"
             if age is None:
                 age = _age(recorded if recorded is not None else bound.get("startedUnix"), sampled)
-        rows.append(_run_evidence({"runId": run_id, "stage": stage, "status": status,
-                     "recordedAt": recorded if _finite(recorded) else None,
-                     "ageSeconds": age, "activity": activity, "layout": record["_layout"],
-                     "livenessObservedAt": bound.get("_observedAt") if _observed_live(bound) else None,
-                     "client": bound.get("client") if bound and bound.get("client") in ("codex", "claude", "opencode") else None,
-                     "host": bound.get("host") if bound and bound.get("host") in ("mac", "windows") else None,
-                     "calls": [], "usage": {"inputTokens": None, "outputTokens": None, "totalTokens": None}}, record.get("inputSha256")))
+        rows.append(
+            _run_evidence(
+                {
+                    "runId": run_id,
+                    "stage": stage,
+                    "status": status,
+                    "recordedAt": recorded if _finite(recorded) else None,
+                    "ageSeconds": age,
+                    "activity": activity,
+                    "layout": record["_layout"],
+                    "livenessObservedAt": bound.get("_observedAt") if _observed_live(bound) else None,
+                    "client": bound.get("client")
+                    if bound and bound.get("client") in ("codex", "claude", "opencode")
+                    else None,
+                    "host": bound.get("host") if bound and bound.get("host") in ("mac", "windows") else None,
+                    "calls": [],
+                    "usage": {"inputTokens": None, "outputTokens": None, "totalTokens": None},
+                },
+                record.get("inputSha256"),
+            )
+        )
     listed = {(row["runId"], row["layout"]) for row in rows}
     for (run_id, layout), observed in live.items():
-        if (run_id, layout) in listed or not isinstance(run_id, str) or not _RUN_ID.fullmatch(run_id) \
-                or layout not in ("per-run", "legacy", "note") or not _observed_live(observed):
+        if (
+            (run_id, layout) in listed
+            or not isinstance(run_id, str)
+            or not _RUN_ID.fullmatch(run_id)
+            or layout not in ("per-run", "legacy", "note")
+            or not _observed_live(observed)
+        ):
             continue
         note = observed.get("note") if isinstance(observed.get("note"), dict) else {}
         if layout == "note":
             stage, recorded = None, note.get("sinceUnix")
-        elif not os.path.lexists(str(_ACTIVE if layout == "legacy" else _ACTIVE.parent / "active" / (run_id + ".json"))):
-            continue                    # its record is gone since the observation: it finished
+        elif not os.path.lexists(
+            str(_ACTIVE if layout == "legacy" else _ACTIVE.parent / "active" / (run_id + ".json"))
+        ):
+            continue  # its record is gone since the observation: it finished
         else:
-            stage = observed.get("stage") if isinstance(observed.get("stage"), str) and _STAGE.fullmatch(observed["stage"]) else None
+            stage = (
+                observed.get("stage")
+                if isinstance(observed.get("stage"), str) and _STAGE.fullmatch(observed["stage"])
+                else None
+            )
             recorded = observed.get("recordedUnix")
             if not _finite(recorded):
                 recorded = observed.get("startedUnix")
         state = observed["state"]
-        rows.append(_run_evidence({"runId": run_id, "stage": stage, "status": state,
-                     "recordedAt": recorded if _finite(recorded) else None,
-                     "ageSeconds": _age(recorded, sampled),
-                     "activity": "running" if state == "running" else "queued", "layout": layout,
-                     "livenessObservedAt": observed.get("_observedAt"),
-                     "client": observed.get("client") if observed.get("client") in ("codex", "claude", "opencode") else None,
-                     "host": observed.get("host") if observed.get("host") in ("mac", "windows") else None,
-                     "calls": [], "usage": {"inputTokens": None, "outputTokens": None, "totalTokens": None}}, observed.get("inputSha256")))
+        rows.append(
+            _run_evidence(
+                {
+                    "runId": run_id,
+                    "stage": stage,
+                    "status": state,
+                    "recordedAt": recorded if _finite(recorded) else None,
+                    "ageSeconds": _age(recorded, sampled),
+                    "activity": "running" if state == "running" else "queued",
+                    "layout": layout,
+                    "livenessObservedAt": observed.get("_observedAt"),
+                    "client": observed.get("client")
+                    if observed.get("client") in ("codex", "claude", "opencode")
+                    else None,
+                    "host": observed.get("host") if observed.get("host") in ("mac", "windows") else None,
+                    "calls": [],
+                    "usage": {"inputTokens": None, "outputTokens": None, "totalTokens": None},
+                },
+                observed.get("inputSha256"),
+            )
+        )
     rows.sort(key=lambda row: (row["activity"] != "unknown", row["recordedAt"] or 0.0), reverse=True)
     # The collector owns the display cap, so it can include omitted active rows
     # in the same history bound as omitted archives and receipts.
@@ -975,14 +1270,18 @@ def collect_activity(now: float | None = None, *, current_evidence: Any = None) 
     keeps mostly the newest rows, but never cuts a source's newest row or the newest flagged
     rows (``_bounded_history``).  ``historyBound`` says which dated routes may be missing."""
     sampled = time.time() if now is None else now
-    source = {"id": "router-active", "label": "Current router checkpoint",
-              "state": "unavailable", "ageSeconds": None,
-              "detail": "Router checkpoint unavailable"}
+    source = {
+        "id": "router-active",
+        "label": "Current router checkpoint",
+        "state": "unavailable",
+        "ageSeconds": None,
+        "detail": "Router checkpoint unavailable",
+    }
     receipt_paths = _receipt_files()
     archive_paths = _archive_files()
     runs = _receipt_runs(sampled, receipt_paths)
     reads_complete = len(runs) == len(receipt_paths)
-    receipt_source = _history_source('monitor-receipts', 'Sanitized call receipts', receipt_paths, runs)
+    receipt_source = _history_source("monitor-receipts", "Sanitized call receipts", receipt_paths, runs)
     receipt_by_id = {row["attemptId"]: row for row in runs if row.get("attemptId") is not None}
     for path in archive_paths:
         try:
@@ -991,10 +1290,12 @@ def collect_activity(now: float | None = None, *, current_evidence: Any = None) 
                 reads_complete = False
             if item is not None:
                 receipt = receipt_by_id.get(item.get("attemptId"))
-                same_trace = (receipt is not None
-                              and receipt.get("_routerRequestSha256") is not None
-                              and receipt.get("_routerRequestSha256") == item.get("_routerRequestSha256")
-                              and receipt.get("status") == item.get("status"))
+                same_trace = (
+                    receipt is not None
+                    and receipt.get("_routerRequestSha256") is not None
+                    and receipt.get("_routerRequestSha256") == item.get("_routerRequestSha256")
+                    and receipt.get("status") == item.get("status")
+                )
                 if same_trace:
                     # The receipt owns call and host-acceptance display, while the
                     # exact matching router archive owns criterion evidence.
@@ -1006,13 +1307,17 @@ def collect_activity(now: float | None = None, *, current_evidence: Any = None) 
                 runs.append(item)
             elif isinstance(archive_paths, _Listing):
                 archive_paths.read_failed = True
-        except Exception:           # one malformed archive (a RecursionError included) is skipped
+        except Exception:  # one malformed archive (a RecursionError included) is skipped
             reads_complete = False
             if isinstance(archive_paths, _Listing):
                 archive_paths.read_failed = True
             continue
-    archive_source = _history_source('router-archive', 'Recent completed routes', archive_paths,
-                                    [r for r in runs if r.get('source') == 'router-archive'])
+    archive_source = _history_source(
+        "router-archive",
+        "Recent completed routes",
+        archive_paths,
+        [r for r in runs if r.get("source") == "router-archive"],
+    )
     # Newest first across sources, before any truncation: receipts were read first and the
     # archives appended after them, so a 17-day-old receipt led the list (the dashboard's
     # default trace) and 12 receipt files would have cut every router route.  The sort is
@@ -1032,73 +1337,146 @@ def collect_activity(now: float | None = None, *, current_evidence: Any = None) 
         active_rows = active_rows[:_MAX_RUNS]
         ages = [row["ageSeconds"] for row in active_rows if row.get("ageSeconds") is not None]
         fresh = any(row["activity"] in ("running", "queued") for row in active_rows) or any(
-            age <= _MAX_AGE for age in ages)
+            age <= _MAX_AGE for age in ages
+        )
         live_count = sum(1 for row in active_rows if row["activity"] in ("running", "queued"))
-        source.update(state="error" if problem else "live" if fresh else "stale",
-                      ageSeconds=min(ages, default=None),
-                      observationAgeSeconds=max((sampled - r['livenessObservedAt'] for r in active_rows
-                                                 if _finite(r.get('livenessObservedAt'))), default=0.0),
-                      detail=(f"{'at least ' if active_dropped else ''}{len(active_rows)} router run record(s) sampled; "
-                              f"{'at least ' if active_dropped else ''}{live_count} verified live by their "
-                              "layout's liveness checks" if live_count else
-                              "Checkpoint sampled; live execution and generation are unverified")
-                      + ("; the router run directory is unsafe or another record was unreadable" if problem else "")
-                      + cut)
+        source.update(
+            state="error" if problem else "live" if fresh else "stale",
+            ageSeconds=min(ages, default=None),
+            observationAgeSeconds=max(
+                (sampled - r["livenessObservedAt"] for r in active_rows if _finite(r.get("livenessObservedAt"))),
+                default=0.0,
+            ),
+            detail=(
+                f"{'at least ' if active_dropped else ''}{len(active_rows)} router run record(s) sampled; "
+                f"{'at least ' if active_dropped else ''}{live_count} verified live by their "
+                "layout's liveness checks"
+                if live_count
+                else "Checkpoint sampled; live execution and generation are unverified"
+            )
+            + ("; the router run directory is unsafe or another record was unreadable" if problem else "")
+            + cut,
+        )
         # Active rows carry their layout in the trace key: one run ID can have a row in each
         # layout (a collision), and the two must stay distinct.
         for item in active_rows:
             item["traceKey"] = "router-active:" + item["runId"] + ":" + item["layout"]
-        history, dropped = _bounded_history([r for r in runs if r.get("attemptId") not in active_ids], _MAX_RUNS - len(active_rows))
+        history, dropped = _bounded_history(
+            [r for r in runs if r.get("attemptId") not in active_ids], _MAX_RUNS - len(active_rows)
+        )
         all_runs = active_rows + history
         for item in all_runs:
             if "traceKey" not in item:
-                item["traceKey"] = item.get("source", "router-active") + ":" + item["runId"] + ":" + (item.pop("_routerRequestSha256", None) or "unknown")
-        bound = _history_bound((receipt_paths, archive_paths), active_dropped + dropped, sampled, active_incomplete=bool(active_dropped) or listing == "truncated")
+                item["traceKey"] = (
+                    item.get("source", "router-active")
+                    + ":"
+                    + item["runId"]
+                    + ":"
+                    + (item.pop("_routerRequestSha256", None) or "unknown")
+                )
+        bound = _history_bound(
+            (receipt_paths, archive_paths),
+            active_dropped + dropped,
+            sampled,
+            active_incomplete=bool(active_dropped) or listing == "truncated",
+        )
         if not reads_complete:
             bound.update(truncated=True, missingFromAgeSeconds=0.0)
         # Fresh lock-verified liveness and saved terminal results do not expire
         # with checkpoint/event age. Unknown open records still require recency.
         current = current_run_evidence(current_evidence, sampled)
-        if (problem or listing == 'truncated' or active_dropped
-                or any(r.get('activity') == 'unknown' for r in active_rows)
-                or current['complete'] and current['count'] != len(active_rows)):
-            current.update(complete=False, count=None, running=None, queued=None,
-                           reason="Current run records incomplete or liveness unverified")
-        return {"schemaVersion": 1, "runs": all_runs, "currentKeys": [r["traceKey"] for r in active_rows], "historyKeys": [r["traceKey"] for r in history],
-                "currentEvidence": current, "maxAgeSeconds": RUN_EVIDENCE_MAX_AGE,
-                "historyBound": bound, "sampledAt": sampled,
-                "complete": (current['complete'] and receipt_source.get('complete') is True
-                             and archive_source.get('complete') is True
-                             and not problem and listing != 'truncated' and not bound['truncated']
-                             and all(r.get('activity') in ('running', 'queued') or _finite(r.get('ageSeconds')) and (r.get('activity') == 'completed' or r['ageSeconds'] <= _MAX_AGE) for r in all_runs)),
-                "sources": [source, receipt_source, archive_source]}
+        if (
+            problem
+            or listing == "truncated"
+            or active_dropped
+            or any(r.get("activity") == "unknown" for r in active_rows)
+            or current["complete"]
+            and current["count"] != len(active_rows)
+        ):
+            current.update(
+                complete=False,
+                count=None,
+                running=None,
+                queued=None,
+                reason="Current run records incomplete or liveness unverified",
+            )
+        return {
+            "schemaVersion": 1,
+            "runs": all_runs,
+            "currentKeys": [r["traceKey"] for r in active_rows],
+            "historyKeys": [r["traceKey"] for r in history],
+            "currentEvidence": current,
+            "maxAgeSeconds": RUN_EVIDENCE_MAX_AGE,
+            "historyBound": bound,
+            "sampledAt": sampled,
+            "complete": (
+                current["complete"]
+                and receipt_source.get("complete") is True
+                and archive_source.get("complete") is True
+                and not problem
+                and listing != "truncated"
+                and not bound["truncated"]
+                and all(
+                    r.get("activity") in ("running", "queued")
+                    or _finite(r.get("ageSeconds"))
+                    and (r.get("activity") == "completed" or r["ageSeconds"] <= _MAX_AGE)
+                    for r in all_runs
+                )
+            ),
+            "sources": [source, receipt_source, archive_source],
+        }
     if problem:
-        source.update(state="error", detail="Router checkpoint invalid or unreadable, or the router run directory is unsafe"
-                                            + cut)
+        source.update(
+            state="error", detail="Router checkpoint invalid or unreadable, or the router run directory is unsafe" + cut
+        )
     elif listing == "truncated":
         source.update(state="error", detail="No unresolved router pointer among the listed records" + cut)
     else:
         source["detail"] = "No unresolved router pointer; history is reported separately"
-        if listing == 'ok':
-            source.update(state='live', observationAgeSeconds=0.0)
+        if listing == "ok":
+            source.update(state="live", observationAgeSeconds=0.0)
     runs, dropped = _bounded_history(runs, _MAX_RUNS)
     for item in runs:
-        item["traceKey"] = item.get("source", "router-active") + ":" + item["runId"] + ":" + (item.pop("_routerRequestSha256", None) or "unknown")
+        item["traceKey"] = (
+            item.get("source", "router-active")
+            + ":"
+            + item["runId"]
+            + ":"
+            + (item.pop("_routerRequestSha256", None) or "unknown")
+        )
     bound = _history_bound((receipt_paths, archive_paths), dropped, sampled, active_incomplete=listing == "truncated")
     if not reads_complete:
         bound.update(truncated=True, missingFromAgeSeconds=0.0)
     current = current_run_evidence(current_evidence, sampled)
-    if problem or listing == 'truncated':
-        current.update(complete=False, count=None, running=None, queued=None,
-                       reason="Current run records incomplete or unreadable")
-    elif current['complete'] and current['count'] != 0:
-        current.update(complete=False, count=None, running=None, queued=None,
-                       reason="Current inventory and sampled run records disagree")
-    return {"schemaVersion": 1, "runs": runs, "currentKeys": [], "historyKeys": [r["traceKey"] for r in runs],
-            "currentEvidence": current, "maxAgeSeconds": RUN_EVIDENCE_MAX_AGE,
-            "historyBound": bound, "sampledAt": sampled,
-            "complete": (current['complete'] and receipt_source.get('complete') is True
-                         and archive_source.get('complete') is True
-                         and not problem and listing != 'truncated' and not bound['truncated']
-                         and all(_finite(r.get('ageSeconds')) for r in runs)),
-            "sources": [source, receipt_source, archive_source]}
+    if problem or listing == "truncated":
+        current.update(
+            complete=False, count=None, running=None, queued=None, reason="Current run records incomplete or unreadable"
+        )
+    elif current["complete"] and current["count"] != 0:
+        current.update(
+            complete=False,
+            count=None,
+            running=None,
+            queued=None,
+            reason="Current inventory and sampled run records disagree",
+        )
+    return {
+        "schemaVersion": 1,
+        "runs": runs,
+        "currentKeys": [],
+        "historyKeys": [r["traceKey"] for r in runs],
+        "currentEvidence": current,
+        "maxAgeSeconds": RUN_EVIDENCE_MAX_AGE,
+        "historyBound": bound,
+        "sampledAt": sampled,
+        "complete": (
+            current["complete"]
+            and receipt_source.get("complete") is True
+            and archive_source.get("complete") is True
+            and not problem
+            and listing != "truncated"
+            and not bound["truncated"]
+            and all(_finite(r.get("ageSeconds")) for r in runs)
+        ),
+        "sources": [source, receipt_source, archive_source],
+    }

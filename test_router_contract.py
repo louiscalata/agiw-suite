@@ -10,6 +10,7 @@ test_telemetry.RouterDualReadTests and test_activity.DualReadActivityTests keep 
 ``RouterContractDocumentTests`` pins the machine-readable contract to the Monitor's readers,
 to the fixture writers' output and to the prose document, so none of the four can drift alone.
 """
+
 import ast
 import contextlib
 import fcntl
@@ -27,13 +28,15 @@ from unittest import mock
 
 import activity
 import telemetry
-import test_activity as dual_read_activity   # module attributes, so their cases are not collected twice
+import test_activity as dual_read_activity  # module attributes, so their cases are not collected twice
 import test_telemetry as dual_read
 
 _REPOSITORY = Path(__file__).resolve().parent
 _FIXTURES = _REPOSITORY / "test_support/router_contract"
-_WRITERS = {"per-run": _FIXTURES / "per_run/pipeline_router_state.py",
-            "legacy": _FIXTURES / "legacy/pipeline_router_state.py"}
+_WRITERS = {
+    "per-run": _FIXTURES / "per_run/pipeline_router_state.py",
+    "legacy": _FIXTURES / "legacy/pipeline_router_state.py",
+}
 _CONTRACT_PATH = _FIXTURES / "contract.json"
 _DOCUMENT_PATH = _REPOSITORY / "docs/router-state-contract.md"
 
@@ -49,18 +52,22 @@ def _work_interpreter_in_contract(interpreter, contract):
     path = Path(interpreter)
     if path.name in rule["interpreterNames"]:
         return True
-    return (interpreter.endswith(rule["frameworkInterpreterSuffix"])
-            and any(part in rule["frameworkDirectories"] for part in path.parts))
+    return interpreter.endswith(rule["frameworkInterpreterSuffix"]) and any(
+        part in rule["frameworkDirectories"] for part in path.parts
+    )
 
 
 def _process_argv0(pid):
-    listing = subprocess.run(["/bin/ps", "-p", str(pid), "-o", "command="], stdout=subprocess.PIPE,
-                             stderr=subprocess.DEVNULL, timeout=10).stdout.decode("utf-8", "replace")
+    listing = subprocess.run(
+        ["/bin/ps", "-p", str(pid), "-o", "command="], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=10
+    ).stdout.decode("utf-8", "replace")
     return listing.split()[0] if listing.split() else ""
 
 
-@unittest.skipUnless(sys.platform == "darwin" and os.path.exists("/usr/sbin/lsof"),
-                     "NOT_RUN: the journal readers attribute processes with macOS lsof and ps")
+@unittest.skipUnless(
+    sys.platform == "darwin" and os.path.exists("/usr/sbin/lsof"),
+    "NOT_RUN: the journal readers attribute processes with macOS lsof and ps",
+)
 class RouterContractFixtureTests(dual_read.RouterDualReadTests):
     """Every dual-read case, with the journal written by the public contract fixtures."""
 
@@ -73,8 +80,10 @@ class RouterContractFixtureTests(dual_read.RouterDualReadTests):
         with super().holder(kind, run_id, digest, **config) as pid:
             interpreter = _process_argv0(pid)
             if not _work_interpreter_in_contract(interpreter, _contract()):
-                self.skipTest("NOT_RUN: this Python runs as %r, which the contract does not name as a "
-                              "router work interpreter" % interpreter)
+                self.skipTest(
+                    "NOT_RUN: this Python runs as %r, which the contract does not name as a "
+                    "router work interpreter" % interpreter
+                )
             yield pid
 
     def test_fixture_writers_are_the_public_ones(self):
@@ -140,25 +149,48 @@ class RouterContractDocumentTests(unittest.TestCase):
     def test_contract_limits_are_the_readers_limits(self):
         limits = self.contract["limits"]
         expected = {
-            "recordBytes": telemetry._MAX_STATE, "noteBytes": telemetry._ROUTER_NOTE_MAX,
-            "policyBytes": telemetry._ROUTER_SMALL_MAX, "fenceBytes": telemetry._ROUTER_SMALL_MAX,
-            "markerBytes": 4096, "readinessBytes": 4096,
+            "recordBytes": telemetry._MAX_STATE,
+            "noteBytes": telemetry._ROUTER_NOTE_MAX,
+            "policyBytes": telemetry._ROUTER_SMALL_MAX,
+            "fenceBytes": telemetry._ROUTER_SMALL_MAX,
+            "markerBytes": 4096,
+            "readinessBytes": 4096,
             "archiveBytes": activity._MAX_ARCHIVE_BYTES,
-            "directoryEntriesScanned": telemetry._ROUTER_SCAN, "namesListed": telemetry._ROUTER_LISTED,
-            "fullRecordReads": telemetry._ROUTER_FULL_READS, "extraLiveRecordReads": telemetry._ROUTER_ATTRIBUTED,
-            "rowsProjected": telemetry._ROUTER_PROJECTED, "readAttempts": telemetry._ROUTER_READ_RETRIES,
+            "directoryEntriesScanned": telemetry._ROUTER_SCAN,
+            "namesListed": telemetry._ROUTER_LISTED,
+            "fullRecordReads": telemetry._ROUTER_FULL_READS,
+            "extraLiveRecordReads": telemetry._ROUTER_ATTRIBUTED,
+            "rowsProjected": telemetry._ROUTER_PROJECTED,
+            "readAttempts": telemetry._ROUTER_READ_RETRIES,
             "readRetrySeconds": telemetry._ROUTER_READ_RETRY_S,
-            "checkpointFreshSeconds": telemetry._MAX_AGE, "readinessFreshSeconds": telemetry._READINESS_MAX_AGE,
+            "checkpointFreshSeconds": telemetry._MAX_AGE,
+            "readinessFreshSeconds": telemetry._READINESS_MAX_AGE,
             "processStartWindowSeconds": telemetry._ROUTER_START_WINDOW,
-            "markerFutureSeconds": 5, "largestExactInteger": telemetry._MAX_EXACT_INT,
-            "archiveNamesScanned": activity._MAX_ARCHIVE_SCAN, "archiveRunsShown": activity._MAX_RUNS,
+            "markerFutureSeconds": 5,
+            "largestExactInteger": telemetry._MAX_EXACT_INT,
+            "archiveNamesScanned": activity._MAX_ARCHIVE_SCAN,
+            "archiveRunsShown": activity._MAX_RUNS,
             "judgmentArchivesRead": 12,
         }
         self.assertEqual(limits, expected)
-        self.assertEqual((activity._MAX_BYTES, activity._MAX_ACTIVE_READS, activity._MAX_ACTIVE_LISTED,
-                          activity._READ_RETRIES, activity._READ_RETRY_S, activity._MAX_AGE),
-                         (limits["recordBytes"], limits["fullRecordReads"], limits["namesListed"],
-                          limits["readAttempts"], limits["readRetrySeconds"], limits["checkpointFreshSeconds"]))
+        self.assertEqual(
+            (
+                activity._MAX_BYTES,
+                activity._MAX_ACTIVE_READS,
+                activity._MAX_ACTIVE_LISTED,
+                activity._READ_RETRIES,
+                activity._READ_RETRY_S,
+                activity._MAX_AGE,
+            ),
+            (
+                limits["recordBytes"],
+                limits["fullRecordReads"],
+                limits["namesListed"],
+                limits["readAttempts"],
+                limits["readRetrySeconds"],
+                limits["checkpointFreshSeconds"],
+            ),
+        )
 
     def test_contract_schemas_are_the_readers_closed_schemas(self):
         files = self.contract["files"]
@@ -171,10 +203,10 @@ class RouterContractDocumentTests(unittest.TestCase):
         self.assertEqual(set(files["note"]["keys"]), telemetry._ROUTER_NOTE_KEYS)
         self.assertEqual(tuple(files["note"]["phases"]), telemetry._ROUTER_NOTE_PHASES)
         self.assertEqual(tuple(files["note"]["resources"]), telemetry._ROUTER_NOTE_RESOURCES)
-        self.assertEqual({key: tuple(values) for key, values in files["note"]["enums"].items()},
-                         telemetry._ROUTER_NOTE_ENUMS)
-        self.assertEqual({name: tuple(lane) for name, lane in files["note"]["lanes"].items()},
-                         telemetry._ROUTER_LANES)
+        self.assertEqual(
+            {key: tuple(values) for key, values in files["note"]["enums"].items()}, telemetry._ROUTER_NOTE_ENUMS
+        )
+        self.assertEqual({name: tuple(lane) for name, lane in files["note"]["lanes"].items()}, telemetry._ROUTER_LANES)
         self.assertEqual(files["marker"]["kind"], telemetry._PENDING_KIND)
         self.assertEqual(set(files["marker"]["anonymousKeys"]), telemetry._PENDING_KEYS)
         self.assertEqual(set(files["marker"]["routerKeys"]), telemetry._PENDING_ROUTER_KEYS)
@@ -191,23 +223,42 @@ class RouterContractDocumentTests(unittest.TestCase):
         record with one key more or one key fewer does not."""
         record = self.contract["files"]["record"]
         digest, lock = "a" * 64, {"dev": 1, "ino": 2}
-        checkpoint = {"schemaVersion": 1, "runId": "run-a", "inputSha256": digest, "sequence": 1,
-                      "stage": "backend_draft", "evidence": {}, "recordedUnix": 20.0}
+        checkpoint = {
+            "schemaVersion": 1,
+            "runId": "run-a",
+            "inputSha256": digest,
+            "sequence": 1,
+            "stage": "backend_draft",
+            "evidence": {},
+            "recordedUnix": 20.0,
+        }
         self.assertEqual(set(checkpoint), set(record["checkpointKeys"]))
-        started = {"schemaVersion": 1, "runId": "run-a", "inputSha256": digest, "stage": "started",
-                   "checkpoint": None, "startedUnix": 10.0}
+        started = {
+            "schemaVersion": 1,
+            "runId": "run-a",
+            "inputSha256": digest,
+            "stage": "started",
+            "checkpoint": None,
+            "startedUnix": 10.0,
+        }
         advanced = dict(started, stage="backend_draft", sequence=1, checkpoint=checkpoint)
-        for value, keys, per_run in ((started, record["startedKeys"], False),
-                                     (advanced, record["checkpointedKeys"], False),
-                                     (dict(started, runLock=lock), record["startedKeys"] + ["runLock"], True),
-                                     (dict(advanced, runLock=lock), record["checkpointedKeys"] + ["runLock"], True)):
+        for value, keys, per_run in (
+            (started, record["startedKeys"], False),
+            (advanced, record["checkpointedKeys"], False),
+            (dict(started, runLock=lock), record["startedKeys"] + ["runLock"], True),
+            (dict(advanced, runLock=lock), record["checkpointedKeys"] + ["runLock"], True),
+        ):
             with self.subTest(keys=sorted(keys), per_run=per_run):
                 self.assertEqual(set(value), set(keys))
                 self.assertIsNotNone(telemetry._valid_active_route(value, per_run=per_run))
                 self.assertIsNone(telemetry._valid_active_route(dict(value, extra=1), per_run=per_run))
                 for key in value:
-                    self.assertIsNone(telemetry._valid_active_route(
-                        {name: item for name, item in value.items() if name != key}, per_run=per_run), key)
+                    self.assertIsNone(
+                        telemetry._valid_active_route(
+                            {name: item for name, item in value.items() if name != key}, per_run=per_run
+                        ),
+                        key,
+                    )
         # A legacy record never carries runLock, and a per-run record always does.
         self.assertIsNone(telemetry._valid_active_route(dict(started, runLock=lock)))
         self.assertIsNone(telemetry._valid_active_route(started, per_run=True))
@@ -218,16 +269,22 @@ class RouterContractDocumentTests(unittest.TestCase):
         for name in rule["interpreterNames"]:
             for operation in rule["operations"]:
                 self.assertTrue(telemetry._router_work_argv(["/usr/bin/" + name] + rule["flags"] + [script, operation]))
-        framework = ("/Library/Frameworks/" + rule["frameworkDirectories"][0] + "/Versions/3.12/Resources"
-                     + rule["frameworkInterpreterSuffix"])
+        framework = (
+            "/Library/Frameworks/"
+            + rule["frameworkDirectories"][0]
+            + "/Versions/3.12/Resources"
+            + rule["frameworkInterpreterSuffix"]
+        )
         self.assertTrue(telemetry._router_work_argv([framework] + rule["flags"] + [script, "work"]))
         self.assertTrue(_work_interpreter_in_contract(framework, self.contract))
-        for argv in (["/usr/bin/python3.9"] + rule["flags"] + [script, "work"],
-                     ["/usr/bin/python3", "-B", "-I", script, "work"],
-                     ["/usr/bin/python3"] + rule["flags"] + [script, "status"],
-                     ["/usr/bin/python3"] + rule["flags"] + [script + ".bak", "work"],
-                     ["/usr/bin/python3"] + rule["flags"] + [script, "work", "extra"],
-                     ["/tmp/Python.app/Contents/MacOS/Python"] + rule["flags"] + [script, "work"]):
+        for argv in (
+            ["/usr/bin/python3.9"] + rule["flags"] + [script, "work"],
+            ["/usr/bin/python3", "-B", "-I", script, "work"],
+            ["/usr/bin/python3"] + rule["flags"] + [script, "status"],
+            ["/usr/bin/python3"] + rule["flags"] + [script + ".bak", "work"],
+            ["/usr/bin/python3"] + rule["flags"] + [script, "work", "extra"],
+            ["/tmp/Python.app/Contents/MacOS/Python"] + rule["flags"] + [script, "work"],
+        ):
             with self.subTest(argv=argv):
                 self.assertFalse(telemetry._router_work_argv(argv))
         self.assertFalse(_work_interpreter_in_contract("/usr/bin/python3.9", self.contract))
@@ -241,10 +298,14 @@ class RouterContractDocumentTests(unittest.TestCase):
         os.mkdir(self.root / "notes", 0o700)
         os.mkdir(base / "launcher", 0o700)
         dual_read._private_write(self.root / "owner.lock", "")
-        for name, value in (("_ROUTER_ROOT", self.root), ("_ACTIVE_PATH", self.root / "active.json"),
-                            ("_ROUTER_SCRIPT", base / "pipeline_router.py"), ("_PENDING_PATH", base / "pending.json"),
-                            ("_LAUNCHER_ROOT", base / "launcher"),
-                            ("_READINESS_PATH", base / "launcher/readiness.json")):
+        for name, value in (
+            ("_ROUTER_ROOT", self.root),
+            ("_ACTIVE_PATH", self.root / "active.json"),
+            ("_ROUTER_SCRIPT", base / "pipeline_router.py"),
+            ("_PENDING_PATH", base / "pending.json"),
+            ("_LAUNCHER_ROOT", base / "launcher"),
+            ("_READINESS_PATH", base / "launcher/readiness.json"),
+        ):
             patcher = mock.patch.object(telemetry, name, value)
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -268,17 +329,28 @@ class RouterContractDocumentTests(unittest.TestCase):
         path = self.root / "install-fence.json"
         for state in spec["states"]:
             for bound in (None, {"dev": lock.st_dev, "ino": lock.st_ino}):
-                fence = {"schemaVersion": 1, "kind": spec["kind"], "state": state, "generation": "c" * 64,
-                         "stamp": "20260927T120000Z", "sinceUnix": 1.0, "ownerLock": bound}
+                fence = {
+                    "schemaVersion": 1,
+                    "kind": spec["kind"],
+                    "state": state,
+                    "generation": "c" * 64,
+                    "stamp": "20260927T120000Z",
+                    "sinceUnix": 1.0,
+                    "ownerLock": bound,
+                }
                 self.assertEqual(set(fence), set(spec["keys"]))
                 self.publish(path, fence)
                 install = telemetry._router_install_state(self.root)
-                self.assertEqual((install["state"], install["ownerLockBound"]), (state, None if bound is None else True))
+                self.assertEqual(
+                    (install["state"], install["ownerLockBound"]), (state, None if bound is None else True)
+                )
         self.assertEqual(set(bound), set(spec["ownerLockKeys"]))
-        changed = list(self.variants(fence)) + [("ownerLock extra key", dict(fence, ownerLock=dict(bound, extra=1))),
-                                                ("unknown state", dict(fence, state="done")),
-                                                ("another kind", dict(fence, kind=spec["kind"] + "x")),
-                                                ("schemaVersion true", dict(fence, schemaVersion=True))]
+        changed = list(self.variants(fence)) + [
+            ("ownerLock extra key", dict(fence, ownerLock=dict(bound, extra=1))),
+            ("unknown state", dict(fence, state="done")),
+            ("another kind", dict(fence, kind=spec["kind"] + "x")),
+            ("schemaVersion true", dict(fence, schemaVersion=True)),
+        ]
         for label, value in changed:
             with self.subTest(fence=label):
                 self.publish(path, value)
@@ -296,8 +368,10 @@ class RouterContractDocumentTests(unittest.TestCase):
             self.publish(path, policy)
             read = telemetry._router_policy(self.root, install)
             self.assertEqual((read["policy"], read["source"]), (concurrency, "file"))
-        for label, value in list(self.variants(policy)) + [("unknown concurrency", dict(policy, concurrency="many")),
-                                                           ("another kind", dict(policy, kind=spec["kind"] + "x"))]:
+        for label, value in list(self.variants(policy)) + [
+            ("unknown concurrency", dict(policy, concurrency="many")),
+            ("another kind", dict(policy, kind=spec["kind"] + "x")),
+        ]:
             with self.subTest(policy=label):
                 self.publish(path, value)
                 read = telemetry._router_policy(self.root, install)
@@ -307,29 +381,50 @@ class RouterContractDocumentTests(unittest.TestCase):
         self.journal()
         spec = self.contract["files"]["note"]
         path = self.root / "notes/run-a.json"
-        good = {"schemaVersion": 1, "kind": spec["kind"], "runId": "run-a", "inputSha256": "a" * 64,
-                "operation": "work", "client": "claude", "host": "mac", "admission": "shared", "phase": "running",
-                "resource": "mac-pair", "step": "backend", "sinceUnix": 1.0, "untilUnix": None, "pid": 4242}
+        good = {
+            "schemaVersion": 1,
+            "kind": spec["kind"],
+            "runId": "run-a",
+            "inputSha256": "a" * 64,
+            "operation": "work",
+            "client": "claude",
+            "host": "mac",
+            "admission": "shared",
+            "phase": "running",
+            "resource": "mac-pair",
+            "step": "backend",
+            "sinceUnix": 1.0,
+            "untilUnix": None,
+            "pid": 4242,
+        }
         self.assertEqual(set(good), set(spec["keys"]))
         accepted = [("admission", value) for value in spec["admissions"]]
-        accepted += [("phase", value) for value in spec["phases"]] + [("resource", value) for value in spec["resources"]]
+        accepted += [("phase", value) for value in spec["phases"]] + [
+            ("resource", value) for value in spec["resources"]
+        ]
         accepted += [(key, value) for key, values in spec["enums"].items() for value in values]
         for key, value in accepted:
             with self.subTest(key=key, value=value):
                 self.publish(path, dict(good, **{key: value}))
                 self.assertEqual(telemetry._router_note(self.root, "run-a")[key], value)
         refused = list(self.variants(good))
-        refused += [("unknown " + key, dict(good, **{key: "other"}))
-                    for key in ("admission", "phase", "resource", "operation", "client", "host", "step")]
-        refused += [("another kind", dict(good, kind=spec["kind"] + "x")), ("pid zero", dict(good, pid=0)),
-                    ("pid true", dict(good, pid=True)), ("null admission", dict(good, admission=None)),
-                    ("null phase", dict(good, phase=None))]
+        refused += [
+            ("unknown " + key, dict(good, **{key: "other"}))
+            for key in ("admission", "phase", "resource", "operation", "client", "host", "step")
+        ]
+        refused += [
+            ("another kind", dict(good, kind=spec["kind"] + "x")),
+            ("pid zero", dict(good, pid=0)),
+            ("pid true", dict(good, pid=True)),
+            ("null admission", dict(good, admission=None)),
+            ("null phase", dict(good, phase=None)),
+        ]
         for label, value in refused:
             with self.subTest(note=label):
                 self.publish(path, value)
                 self.assertIsNone(telemetry._router_note(self.root, "run-a"))
         self.publish(path, good)
-        self.assertIsNone(telemetry._router_note(self.root, "run-b"))        # a note names its own run only
+        self.assertIsNone(telemetry._router_note(self.root, "run-b"))  # a note names its own run only
 
     def test_contract_marker_and_readiness_keys_are_read_closed(self):
         base = self.journal()
@@ -355,8 +450,14 @@ class RouterContractDocumentTests(unittest.TestCase):
 
         spec = self.contract["files"]["readiness"]
         path = base / "launcher/readiness.json"
-        receipt = {"schemaVersion": 1, "status": spec["status"], "observedAtUnix": now - 30, "source": spec["source"],
-                   "client": None, "chatId": None}
+        receipt = {
+            "schemaVersion": 1,
+            "status": spec["status"],
+            "observedAtUnix": now - 30,
+            "source": spec["source"],
+            "client": None,
+            "chatId": None,
+        }
         self.assertEqual(set(receipt), set(spec["keys"]))
         self.assertEqual(telemetry._launcher_readiness(now), ("absent", None))
         self.publish(path, receipt)
@@ -364,9 +465,11 @@ class RouterContractDocumentTests(unittest.TestCase):
         fresh = self.contract["limits"]["readinessFreshSeconds"]
         self.assertEqual(telemetry._launcher_readiness(now - 30 + fresh)[0], "fresh")
         self.assertEqual(telemetry._launcher_readiness(now - 30 + fresh + 1)[0], "expired")
-        for label, value in list(self.variants(receipt)) + [("another status", dict(receipt, status="DONE")),
-                                                            ("a client", dict(receipt, client="codex")),
-                                                            ("future", dict(receipt, observedAtUnix=now + 2))]:
+        for label, value in list(self.variants(receipt)) + [
+            ("another status", dict(receipt, status="DONE")),
+            ("a client", dict(receipt, client="codex")),
+            ("future", dict(receipt, observedAtUnix=now + 2)),
+        ]:
             with self.subTest(readiness=label):
                 self.publish(path, value)
                 self.assertEqual(telemetry._launcher_readiness(now), ("invalid", None))
@@ -374,11 +477,30 @@ class RouterContractDocumentTests(unittest.TestCase):
     def test_contract_archive_keys_are_the_completion_envelope(self):
         spec = self.contract["files"]["archive"]
         digest = "a" * 64
-        result = {"kind": spec["resultKind"], "schemaVersion": 1, "runId": "run-a", "requestSha256": digest,
-                  "status": "RESPONSE_VALIDATED", "advisoryOnly": True, "accepted": False, "authorizing": False,
-                  "filesApplied": False, "recoveryRequired": False, "tests": "NOT_RUN", "certification": "NOT_RUN"}
-        record = {"schemaVersion": 1, "runId": "run-a", "inputSha256": digest, "result": result, "exitCode": 0,
-                  "stage": "final_validation_intent", "checkpoint": None, "finishedUnix": 1_800_000_000.0}
+        result = {
+            "kind": spec["resultKind"],
+            "schemaVersion": 1,
+            "runId": "run-a",
+            "requestSha256": digest,
+            "status": "RESPONSE_VALIDATED",
+            "advisoryOnly": True,
+            "accepted": False,
+            "authorizing": False,
+            "filesApplied": False,
+            "recoveryRequired": False,
+            "tests": "NOT_RUN",
+            "certification": "NOT_RUN",
+        }
+        record = {
+            "schemaVersion": 1,
+            "runId": "run-a",
+            "inputSha256": digest,
+            "result": result,
+            "exitCode": 0,
+            "stage": "final_validation_intent",
+            "checkpoint": None,
+            "finishedUnix": 1_800_000_000.0,
+        }
         self.assertEqual(set(record), set(spec["keys"]))
         self.assertTrue(activity._completion_owner_bound(record, result, "run-a", result["status"]))
         for label, value in self.variants(record):
@@ -405,14 +527,23 @@ class RouterContractDocumentTests(unittest.TestCase):
         self.assertEqual(state["CONTRACT_VERSION"], self.contract["version"])
         with state["RouterOwner"](self.root) as owner:
             fence["write"](self.root, "installed", "c" * 64, "20260927T120000Z")
-            state["_atomic"](self.root / "policy.json", {"schemaVersion": 1, "kind": files["policy"]["kind"],
-                                                         "concurrency": "multi"}, 1024)
-            owner.claim("run-a", "a" * 64, until=time.monotonic() + 2,
-                        meta={"client": "claude", "host": "mac", "operation": "work"})
-            self.assertFalse((self.root / "active/run-a.json").exists())     # claimed, not begun
+            state["_atomic"](
+                self.root / "policy.json",
+                {"schemaVersion": 1, "kind": files["policy"]["kind"], "concurrency": "multi"},
+                1024,
+            )
+            owner.claim(
+                "run-a",
+                "a" * 64,
+                until=time.monotonic() + 2,
+                meta={"client": "claude", "host": "mac", "operation": "work"},
+            )
+            self.assertFalse((self.root / "active/run-a.json").exists())  # claimed, not begun
             note = json.loads((self.root / "notes/run-a.json").read_text())
-            self.assertEqual((note["phase"], note["step"], note["client"], note["host"], note["operation"]),
-                             ("admitting", "pre-begin", "claude", "mac", "work"))
+            self.assertEqual(
+                (note["phase"], note["step"], note["client"], note["host"], note["operation"]),
+                ("admitting", "pre-begin", "claude", "mac", "work"),
+            )
             owner.begin("run-a", "a" * 64)
             self.assertEqual(json.loads((self.root / "notes/run-a.json").read_text())["phase"], "running")
             owner.note("waiting", "mac-pair", "backend", time.monotonic() + 30)
@@ -424,13 +555,16 @@ class RouterContractDocumentTests(unittest.TestCase):
             record = json.loads((self.root / "active/run-a.json").read_text())
             self.assertEqual(set(record), set(files["record"]["checkpointedKeys"]) | {"runLock"})
             self.assertEqual(set(record["checkpoint"]), set(files["record"]["checkpointKeys"]))
-            self.assertEqual((record["sequence"], record["checkpoint"]["sequence"], record["stage"]),
-                             (2, 2, "backend_review"))
+            self.assertEqual(
+                (record["sequence"], record["checkpoint"]["sequence"], record["stage"]), (2, 2, "backend_review")
+            )
             lock = os.stat(self.root / "locks/run-a.lock")
             self.assertEqual(record["runLock"], {"dev": lock.st_dev, "ino": lock.st_ino})
             note = json.loads((self.root / "notes/run-a.json").read_text())
             self.assertEqual(set(note), set(files["note"]["keys"]))
-            self.assertEqual((note["kind"], note["admission"], note["pid"]), (files["note"]["kind"], "shared", os.getpid()))
+            self.assertEqual(
+                (note["kind"], note["admission"], note["pid"]), (files["note"]["kind"], "shared", os.getpid())
+            )
             self.assertEqual((note["phase"], note["resource"]), ("waiting", "mac-pair"))
             self.assertGreater(note["untilUnix"], note["sinceUnix"] + 20)
             written = json.loads((self.root / "install-fence.json").read_text())
@@ -439,8 +573,14 @@ class RouterContractDocumentTests(unittest.TestCase):
             self.assertEqual(written["ownerLock"], {"dev": owner_lock.st_dev, "ino": owner_lock.st_ino})
             for name in self.contract["layouts"]["per-run"]["directories"]:
                 self.assert_private(self.root / name, directory=True)
-            for name in ("owner.lock", "locks/run-a.lock", "active/run-a.json", "notes/run-a.json",
-                         "install-fence.json", "policy.json"):
+            for name in (
+                "owner.lock",
+                "locks/run-a.lock",
+                "active/run-a.json",
+                "notes/run-a.json",
+                "install-fence.json",
+                "policy.json",
+            ):
                 self.assert_private(self.root / name)
             # The locks: L0 shared under multi (another shared holder fits, an exclusive one
             # does not), L1 exclusive.
@@ -456,14 +596,23 @@ class RouterContractDocumentTests(unittest.TestCase):
                             fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
                 finally:
                     os.close(fd)
-            owner.finish({"kind": "codemode.router.v1", "status": "NOT_RUN", "runId": "run-a",
-                          "requestSha256": "a" * 64, "accepted": False, "advisoryOnly": True}, 3)
+            owner.finish(
+                {
+                    "kind": "codemode.router.v1",
+                    "status": "NOT_RUN",
+                    "runId": "run-a",
+                    "requestSha256": "a" * 64,
+                    "accepted": False,
+                    "advisoryOnly": True,
+                },
+                3,
+            )
             archive = json.loads((self.root / "archive/run-a.json").read_text())
             self.assertEqual(set(archive), set(files["archive"]["keys"]))
             self.assert_private(self.root / "archive/run-a.json")
             self.assertFalse((self.root / "active/run-a.json").exists())
             self.assertFalse((self.root / "notes/run-a.json").exists())
-        self.assertEqual(sorted(name for name in os.listdir(self.root / "active")), [])   # no staged file left
+        self.assertEqual(sorted(name for name in os.listdir(self.root / "active")), [])  # no staged file left
         # Without a multi policy the run is admitted exclusive.
         os.unlink(self.root / "policy.json")
         with state["RouterOwner"](self.root) as owner:
@@ -487,8 +636,10 @@ class RouterContractDocumentTests(unittest.TestCase):
             record = json.loads((self.root / "active.json").read_text())
             self.assertEqual(set(record), set(files["record"]["checkpointedKeys"]))
             self.assertEqual(set(record["checkpoint"]), set(files["record"]["checkpointKeys"]))
-            self.assertEqual(sorted(os.listdir(self.root)),
-                             sorted(["active.json", "owner.lock"] + self.contract["layouts"]["legacy"]["directories"]))
+            self.assertEqual(
+                sorted(os.listdir(self.root)),
+                sorted(["active.json", "owner.lock"] + self.contract["layouts"]["legacy"]["directories"]),
+            )
             for name in self.contract["layouts"]["legacy"]["directories"]:
                 self.assert_private(self.root / name, directory=True)
             for name in ("owner.lock", "active.json"):
@@ -501,10 +652,20 @@ class RouterContractDocumentTests(unittest.TestCase):
                 os.close(fd)
             with self.assertRaises(RuntimeError):
                 state["RouterOwner"](self.root).__enter__()
-            owner.finish({"kind": "codemode.router.v1", "status": "NOT_RUN", "runId": "legacy-a",
-                          "requestSha256": "a" * 64, "accepted": False, "advisoryOnly": True}, 3)
-            self.assertEqual(set(json.loads((self.root / "archive/legacy-a.json").read_text())),
-                             set(files["archive"]["keys"]))
+            owner.finish(
+                {
+                    "kind": "codemode.router.v1",
+                    "status": "NOT_RUN",
+                    "runId": "legacy-a",
+                    "requestSha256": "a" * 64,
+                    "accepted": False,
+                    "advisoryOnly": True,
+                },
+                3,
+            )
+            self.assertEqual(
+                set(json.loads((self.root / "archive/legacy-a.json").read_text())), set(files["archive"]["keys"])
+            )
             self.assertFalse((self.root / "active.json").exists())
 
     def test_fixture_writers_stand_alone(self):
@@ -521,9 +682,12 @@ class RouterContractDocumentTests(unittest.TestCase):
                     elif isinstance(node, ast.ImportFrom):
                         imported.add((node.module or ".").split(".")[0])
                 self.assertLessEqual(imported, {"fcntl", "itertools", "json", "os", "re", "time", "pathlib"})
-                result = subprocess.run([sys.executable, "-I", "-B", "-c",
-                                         "import runpy, sys; runpy.run_path(sys.argv[1])", str(path)],
-                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60)
+                result = subprocess.run(
+                    [sys.executable, "-I", "-B", "-c", "import runpy, sys; runpy.run_path(sys.argv[1])", str(path)],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    timeout=60,
+                )
                 self.assertEqual((result.returncode, result.stderr), (0, b""))
 
     # -- the prose document against the machine-readable contract -------------------------------
@@ -533,14 +697,28 @@ class RouterContractDocumentTests(unittest.TestCase):
         contract = self.contract
         self.assertIn("Contract version: **%s**" % contract["version"], text)
         files = contract["files"]
-        needles = [contract["readerContract"], contract["schema"], contract["installBarrierName"],
-                   "test_support/router_contract/contract.json", "test_router_contract.py",
-                   files["fence"]["kind"], files["policy"]["kind"], files["note"]["kind"], files["marker"]["kind"],
-                   files["archive"]["resultKind"]]
+        needles = [
+            contract["readerContract"],
+            contract["schema"],
+            contract["installBarrierName"],
+            "test_support/router_contract/contract.json",
+            "test_router_contract.py",
+            files["fence"]["kind"],
+            files["policy"]["kind"],
+            files["note"]["kind"],
+            files["marker"]["kind"],
+            files["archive"]["resultKind"],
+        ]
         needles += ["`%s`" % value for value in contract["paths"].values()]
         needles += ["`%s`" % key for group in ("fence", "note") for key in files[group]["keys"]]
-        needles += ["`%s`" % key for key in files["record"]["checkpointedKeys"] + files["record"]["checkpointKeys"]
-                    + files["archive"]["keys"] + files["marker"]["routerKeys"] + files["readiness"]["keys"]]
+        needles += [
+            "`%s`" % key
+            for key in files["record"]["checkpointedKeys"]
+            + files["record"]["checkpointKeys"]
+            + files["archive"]["keys"]
+            + files["marker"]["routerKeys"]
+            + files["readiness"]["keys"]
+        ]
         needles += ["`%s`" % state for state in files["fence"]["states"] + contract["rowStates"]]
         for needle in needles:
             with self.subTest(needle=needle):
@@ -593,8 +771,12 @@ class ArchiveJudgmentScanTests(unittest.TestCase):
         self.judged("run-judged.json", now - 120, finishedUnix=now - 120)
         self.archive("run-deep.json", '{"x":' + "[" * 1000000 + "]" * 1000000 + "}", now - 60)
         self.assertEqual(telemetry._last_jev_judgment(now), (120.0, "jev-1"))
-        components = {row["id"]: row for row in telemetry._route_components(
-            {}, {"runtimeIntegrity": "VERIFIED", "hostBinding": "VERIFIED"}, {}, now)}
+        components = {
+            row["id"]: row
+            for row in telemetry._route_components(
+                {}, {"runtimeIntegrity": "VERIFIED", "hostBinding": "VERIFIED"}, {}, now
+            )
+        }
         self.assertEqual(components["jev"]["lastJudgedAgeSeconds"], 120.0)
 
     def test_an_archive_removed_during_the_scan_is_skipped_not_fatal(self):
@@ -611,7 +793,7 @@ class ArchiveJudgmentScanTests(unittest.TestCase):
             return value
 
         def gone(path, *args, **kwargs):
-            if path == newest and newest in read:          # only once its content has been read
+            if path == newest and newest in read:  # only once its content has been read
                 raise FileNotFoundError(2, "removed", str(path))
             return real_stat(path, *args, **kwargs)
 
@@ -641,8 +823,7 @@ class ArchiveJudgmentScanTests(unittest.TestCase):
                 raise FileNotFoundError(2, "removed", self.path)
 
         def scandir(path):
-            return [Gone(entry) if entry.name == "run-gone.json" else entry
-                    for entry in real_scandir(path)]
+            return [Gone(entry) if entry.name == "run-gone.json" else entry for entry in real_scandir(path)]
 
         with mock.patch.object(telemetry.os, "scandir", scandir):
             self.assertEqual(telemetry._scan_jev_judgment(self.root / "archive"), (now - 120, "jev-1"))

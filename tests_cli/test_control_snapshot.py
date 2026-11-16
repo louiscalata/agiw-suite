@@ -1,4 +1,5 @@
 """Control-only local status and packaging checks, without sockets or services."""
+
 import ast
 import copy
 import hashlib
@@ -23,10 +24,17 @@ class ControlSnapshot(unittest.TestCase):
     def setUp(self):
         # Exercise real snapshot/handler methods while avoiding state files and listeners.
         self.document = {
-            "schemaVersion": 1, "kind": "agiw-peer", "host": "local-machine", "platform": "linux",
-            "observedAt": pl._iso(NOW - 1), "health": "up", "producer": "agiw-linux-observer",
+            "schemaVersion": 1,
+            "kind": "agiw-peer",
+            "host": "local-machine",
+            "platform": "linux",
+            "observedAt": pl._iso(NOW - 1),
+            "health": "up",
+            "producer": "agiw-linux-observer",
             "models": [{"id": "model", "loadedState": "loaded", "activity": "idle", "secret": "hidden"}],
-            "loadedListComplete": True, "modelsTotal": 1, "private": "hidden",
+            "loadedListComplete": True,
+            "modelsTotal": 1,
+            "private": "hidden",
             "selfStatus": {"private": "never sent"},
         }
         link = self.link = pl.PeerLink.__new__(pl.PeerLink)
@@ -57,10 +65,13 @@ class ControlSnapshot(unittest.TestCase):
         token, nc, ns = "a" * 64, "b" * 32, pl.secrets.token_hex(16)
         self.link.current_control_token = lambda: token
         self.link._control_challenges[ns] = (nc, float("inf"), pl.control_token_id(token))
-        return self.handler(path, headers={
-            "X-Agiw-Control-Nonce": ns,
-            "X-Agiw-Control-Proof": pl.control_client_proof(token, ns, nc, "GET", path, b""),
-        })
+        return self.handler(
+            path,
+            headers={
+                "X-Agiw-Control-Nonce": ns,
+                "X-Agiw-Control-Proof": pl.control_client_proof(token, ns, nc, "GET", path, b""),
+            },
+        )
 
     def test_snapshot_contains_projected_validated_self_status(self):
         expected = pl.project_status(pl.validate_status(self.document, "linux", NOW))
@@ -94,8 +105,10 @@ class ControlSnapshot(unittest.TestCase):
         handler = self.control_handler()
         handler.do_GET()
         self.assertEqual(handler._json.call_args[0][0], 200)
-        self.assertEqual(handler._json.call_args[0][1]["selfStatus"],
-                         pl.project_status(pl.validate_status(self.document, "linux", NOW)))
+        self.assertEqual(
+            handler._json.call_args[0][1]["selfStatus"],
+            pl.project_status(pl.validate_status(self.document, "linux", NOW)),
+        )
 
     def test_default_snapshot_never_reads_provider(self):
         self.assertNotIn("selfStatus", self.link.snapshot())
@@ -125,15 +138,19 @@ class ControlSnapshot(unittest.TestCase):
         handler = self.control_handler()
         handler.do_GET()
         self.assertEqual(handler._json.call_args[0][0], 200)
-        self.assertEqual(handler._json.call_args[0][1]["selfStatus"],
-                         {"error": "local status unavailable or invalid", "code": "unavailable"})
+        self.assertEqual(
+            handler._json.call_args[0][1]["selfStatus"],
+            {"error": "local status unavailable or invalid", "code": "unavailable"},
+        )
 
     def test_poll_once_publishes_peers_json_without_self_status(self):
         release = threading.Event()
         self.link.status_provider.side_effect = lambda: release.wait()
         # A plain write: the real private write goes through the Windows owner/ACL/registry checks, which
         # this test is not about (and which must never touch real pairing state from a test).
-        plain = mock.patch.object(pl, "_write_private", side_effect=lambda p, t: Path(p).write_text(t, encoding="utf-8"))
+        plain = mock.patch.object(
+            pl, "_write_private", side_effect=lambda p, t: Path(p).write_text(t, encoding="utf-8")
+        )
         plain.start()
         self.addCleanup(plain.stop)
         with tempfile.TemporaryDirectory(prefix="agiw-m2-poll-") as folder:
@@ -210,8 +227,10 @@ class ControlSnapshot(unittest.TestCase):
                     worker.join(1)
         recovered = self.control_handler()
         recovered.do_GET()
-        self.assertEqual(recovered._json.call_args[0][1]["selfStatus"],
-                         pl.project_status(pl.validate_status(self.document, "linux", NOW)))
+        self.assertEqual(
+            recovered._json.call_args[0][1]["selfStatus"],
+            pl.project_status(pl.validate_status(self.document, "linux", NOW)),
+        )
         self.assertEqual(self.link.status_provider.call_count, 2)
 
     def test_the_answer_after_the_deadline_does_not_depend_on_the_clock(self):
@@ -225,18 +244,22 @@ class ControlSnapshot(unittest.TestCase):
             return copy.deepcopy(self.document)
 
         self.link.status_provider.side_effect = blocked
-        with mock.patch.object(pl, "SELF_STATUS_DEADLINE", 0.05), \
-                mock.patch.object(pl.time, "monotonic", return_value=1000.0):
+        with (
+            mock.patch.object(pl, "SELF_STATUS_DEADLINE", 0.05),
+            mock.patch.object(pl.time, "monotonic", return_value=1000.0),
+        ):
             try:
                 first = self.control_handler()
                 first.do_GET()  # waits out its 0.05 s and answers timeout
                 self.assertTrue(entered.wait(0.5))
-                self.assertEqual(first._json.call_args[0][1]["selfStatus"],
-                                 {"error": "local status timed out", "code": "timeout"})
+                self.assertEqual(
+                    first._json.call_args[0][1]["selfStatus"], {"error": "local status timed out", "code": "timeout"}
+                )
                 later = self.control_handler()
                 later.do_GET()
-                self.assertEqual(later._json.call_args[0][1]["selfStatus"],
-                                 {"error": "local status timed out", "code": "timeout"})
+                self.assertEqual(
+                    later._json.call_args[0][1]["selfStatus"], {"error": "local status timed out", "code": "timeout"}
+                )
             finally:
                 release.set()
                 worker = getattr(self.link, "_self_status_worker", None)
@@ -254,8 +277,8 @@ class ControlSnapshot(unittest.TestCase):
                 self.link.status_provider.assert_not_called()
 
     def test_an_integer_too_large_for_a_float_is_dropped_not_a_crash(self):
-        self.document["gpus"] = [{"name": "gpu", "utilizationPercent": 10 ** 400}]
-        self.document["models"][0]["slotsTotal"] = 10 ** 400
+        self.document["gpus"] = [{"name": "gpu", "utilizationPercent": 10**400}]
+        self.document["models"][0]["slotsTotal"] = 10**400
         answer = self.link.snapshot(include_self_status=True)["selfStatus"]
         self.assertNotIn("error", answer)
         self.assertEqual(answer["gpus"], [{"name": "gpu"}])
@@ -268,18 +291,24 @@ class ControlSnapshot(unittest.TestCase):
         path = pl.PREFIX + "/status"
         signed = "\n".join(("GET", path, peer, self.link.node, ts, nonce)).encode()
         keys = pl.Subkeys(key)
-        handler = self.handler(path, address="203.0.113.2", headers={
-            "X-Agiw-Node": peer, "X-Agiw-Ts": ts, "X-Agiw-Nonce": nonce,
-            "X-Agiw-Sig": hmac.new(keys.request, signed, hashlib.sha256).hexdigest(),
-        })
+        handler = self.handler(
+            path,
+            address="203.0.113.2",
+            headers={
+                "X-Agiw-Node": peer,
+                "X-Agiw-Ts": ts,
+                "X-Agiw-Nonce": nonce,
+                "X-Agiw-Sig": hmac.new(keys.request, signed, hashlib.sha256).hexdigest(),
+            },
+        )
         expected = pl.canonical(pl.project_status(pl.validate_status(self.document, "linux", NOW)))
         # Obtain the new control document first, then exercise the existing LAN handler.
         self.assertIn("selfStatus", self.link.snapshot(include_self_status=True))
         handler.do_GET()
-        signature = hmac.new(keys.reply, pl._reply_header(nonce, self.link.node, peer) + expected,
-                             hashlib.sha256).hexdigest()
-        handler._send.assert_called_once_with(200, expected,
-                                              {"X-Agiw-Node": self.link.node, "X-Agiw-Sig": signature})
+        signature = hmac.new(
+            keys.reply, pl._reply_header(nonce, self.link.node, peer) + expected, hashlib.sha256
+        ).hexdigest()
+        handler._send.assert_called_once_with(200, expected, {"X-Agiw-Node": self.link.node, "X-Agiw-Sig": signature})
         self.assertNotIn("selfStatus", json.loads(handler._send.call_args[0][1]))
         handler._json.assert_not_called()
 

@@ -2,6 +2,7 @@
 
 The peer links are the real, unchanged agiw-peer/2 code (SPAKE2 PIN pairing, signed status); only discovery
 is injected as hello datagrams, ports are ephemeral, and nothing leaves loopback."""
+
 import json
 import os
 import re
@@ -20,6 +21,7 @@ class LoopbackPairing(unittest.TestCase):
         elevated = False
         if os.name == "nt":
             import ctypes
+
             elevated = bool(ctypes.windll.shell32.IsUserAnAdmin())
             if elevated:
                 # _win_restrict_dir refuses an Administrators-owned folder. Elevated hosted CI creates
@@ -43,19 +45,32 @@ class LoopbackPairing(unittest.TestCase):
 
     def node(self, host, name):
         state = temp_dir(self, f"agiw-{name}-") / "peer-link"
-        link = pl.PeerLink(state, host, name, lambda: status_doc(host, name), status_port=0, beacon_port=0,
-                           bind="127.0.0.1", broadcast=(), allow_loopback=True).start()
+        link = pl.PeerLink(
+            state,
+            host,
+            name,
+            lambda: status_doc(host, name),
+            status_port=0,
+            beacon_port=0,
+            bind="127.0.0.1",
+            broadcast=(),
+            allow_loopback=True,
+        ).start()
         self.addCleanup(link.stop)
         return link
 
     def hello(self, sender, receiver):
-        receiver.handle_datagram(pl.make_hello(sender.node, sender.host, sender.name, sender.status_port,
-                                               time.time()), "127.0.0.1")
+        receiver.handle_datagram(
+            pl.make_hello(sender.node, sender.host, sender.name, sender.status_port, time.time()), "127.0.0.1"
+        )
 
     def agiw(self, link, *argv, pin=None):
         lines = []
-        code = cli.main(["--state-dir", str(link.state_dir), "--status-port", str(link.status_port), *argv],
-                        out=lines.append, read_pin=lambda prompt: pin)
+        code = cli.main(
+            ["--state-dir", str(link.state_dir), "--status-port", str(link.status_port), *argv],
+            out=lines.append,
+            read_pin=lambda prompt: pin,
+        )
         return code, lines
 
     def test_pair_exchange_one_signed_status_and_unpair(self):
@@ -87,9 +102,17 @@ class LoopbackPairing(unittest.TestCase):
         self.assertEqual((doc["self"]["name"], doc["signed"], doc["encrypted"]), ("alpha", True, False))
         self.assertEqual(doc["schemaVersion"], 2)
         machine = next(row for row in doc["machines"] if row["id"] == self.beta.node)
-        self.assertEqual((machine["label"], machine["host"], machine["platform"], machine["state"],
-                          machine["reasonCode"], machine["loadedCount"]),
-                         ("beta", "beta", "linux", "up", "observed", None))
+        self.assertEqual(
+            (
+                machine["label"],
+                machine["host"],
+                machine["platform"],
+                machine["state"],
+                machine["reasonCode"],
+                machine["loadedCount"],
+            ),
+            ("beta", "beta", "linux", "up", "observed", None),
+        )
 
         code, lines = self.agiw(self.alpha, "status")
         self.assertTrue(any(re.match(r"beta\s+linux\s+up\s+observed\s+\S+\s+\?", line) for line in lines), lines)

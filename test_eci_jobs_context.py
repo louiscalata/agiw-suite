@@ -23,10 +23,16 @@ class ContextTests(EngineCase):
         value = request(max_tokens=16384)
         preview = self.engine.preview(value)
         self.assertEqual(preview["effects"]["lane_context_tokens"], 8192)
-        self.assertEqual([row for row in preview["refusals"] if row["code"] == "context_exceeded"], [{
-            "code": "context_exceeded",
-            "message": "The reviewed max_tokens exceeds the lane's advertised context, "
-                       "or that context is not a valid number."}])
+        self.assertEqual(
+            [row for row in preview["refusals"] if row["code"] == "context_exceeded"],
+            [
+                {
+                    "code": "context_exceeded",
+                    "message": "The reviewed max_tokens exceeds the lane's advertised context, "
+                    "or that context is not a valid number.",
+                }
+            ],
+        )
         review = {"reviewed": True, "review_sha256": preview["review_sha256"]}
         self.refused("context_exceeded", self.engine.submit, value, review)
         self.assertEqual(self.journal(), b"")
@@ -68,8 +74,9 @@ class ContextTests(EngineCase):
     def test_an_advertised_context_of_zero_refuses_every_request(self):
         self.lanes = lanes(0)
         self.assertEqual(self.engine.preview(request(max_tokens=8192))["effects"]["lane_context_tokens"], 0)
-        self.refused("context_exceeded", self.engine.submit, request(max_tokens=8192),
-                     self.reviewed(request(max_tokens=8192)))
+        self.refused(
+            "context_exceeded", self.engine.submit, request(max_tokens=8192), self.reviewed(request(max_tokens=8192))
+        )
 
     def test_the_context_is_read_again_at_start_and_the_runner_is_not_called(self):
         self.lanes = lanes(32768)
@@ -117,6 +124,7 @@ class ContextTests(EngineCase):
     def test_the_refusal_is_a_stable_documented_code(self):
         text = (Path(__file__).resolve().parent / "docs" / "eci-check-jobs.md").read_text(encoding="utf-8")
         self.assertTrue("`context_exceeded`" in text, "the refusal code is not in docs/eci-check-jobs.md")
+
 
 if __name__ == "__main__":
     unittest.main()

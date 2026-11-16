@@ -69,9 +69,7 @@ class ValidationError(ValueError):
 
 
 def canonical(value):
-    return json.dumps(
-        value, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False
-    )
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False)
 
 
 def digest(value):
@@ -93,17 +91,10 @@ def string(value, nullable=False):
 def numeric(value, low=0, high=None, nullable=False, integer=False):
     if value is None and nullable:
         return
-    if (
-        isinstance(value, bool)
-        or not isinstance(value, (int, float))
-        or integer
-        and not isinstance(value, int)
-    ):
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or integer and not isinstance(value, int):
         raise ValidationError("expected a number")
     try:
-        valid = (
-            math.isfinite(value) and value >= low and (high is None or value <= high)
-        )
+        valid = math.isfinite(value) and value >= low and (high is None or value <= high)
     except OverflowError:
         valid = False
     if not valid:
@@ -112,16 +103,10 @@ def numeric(value, low=0, high=None, nullable=False, integer=False):
 
 def decimal(value, low="0", high="1", *, positive=False):
     """Thresholds must arrive as exact finite decimal strings, never floats."""
-    if not isinstance(value, str) or not re.fullmatch(
-        r"(?:0|[1-9][0-9]*)(?:\.[0-9]+)?", value
-    ):
+    if not isinstance(value, str) or not re.fullmatch(r"(?:0|[1-9][0-9]*)(?:\.[0-9]+)?", value):
         raise ValidationError("expected exact decimal string")
     result = Fraction(value)
-    if (
-        result < Fraction(low)
-        or (high is not None and result > Fraction(high))
-        or (positive and result == 0)
-    ):
+    if result < Fraction(low) or (high is not None and result > Fraction(high)) or (positive and result == 0):
         raise ValidationError("decimal outside allowed range")
     return result
 
@@ -136,19 +121,13 @@ def significance(value):
 def sha(value, nullable=False):
     if value is None and nullable:
         return
-    if (
-        not isinstance(value, str)
-        or len(value) != 64
-        or any(c not in "0123456789abcdef" for c in value)
-    ):
+    if not isinstance(value, str) or len(value) != 64 or any(c not in "0123456789abcdef" for c in value):
         raise ValidationError("expected lowercase SHA-256")
 
 
 def timestamp(value):
     string(value)
-    if not re.fullmatch(
-        r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})", value
-    ):
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})", value):
         raise ValidationError("timestamp requires a timezone and seconds")
     try:
         return datetime.fromisoformat(value.replace("Z", "+00:00"))
@@ -182,9 +161,7 @@ def unique_object(pairs):
 
 
 def load(path):
-    value = json.loads(
-        Path(path).read_text(encoding="utf-8"), object_pairs_hook=unique_object
-    )
+    value = json.loads(Path(path).read_text(encoding="utf-8"), object_pairs_hook=unique_object)
     json_value(value)
     return value
 
@@ -210,8 +187,7 @@ def demonstrations_for(benchmark, source):
     if not isinstance(demos, list) or ("demonstrations" in source and benchmark != "gsm8k"):
         raise ValidationError("demonstrations must be a GSM8K training-example list")
     questions = {
-        " ".join(row["question"].split()).casefold()
-        for row in source["items"] if isinstance(row.get("question"), str)
+        " ".join(row["question"].split()).casefold() for row in source["items"] if isinstance(row.get("question"), str)
     }
     ids = {row["id"] for row in source["items"]}
     seen = set()
@@ -226,10 +202,7 @@ def demonstrations_for(benchmark, source):
         for key in demo:
             string(demo[key])
         question = " ".join(demo["question"].split()).casefold()
-        if (
-            question in questions or question in seen
-            or "id" in demo and (demo["id"] in ids or demo["id"] in seen_ids)
-        ):
+        if question in questions or question in seen or "id" in demo and (demo["id"] in ids or demo["id"] in seen_ids):
             raise ValidationError("demonstrations must be unique and disjoint from test items")
         seen.add(question)
         if "id" in demo:
@@ -273,27 +246,19 @@ def make_plan(datasets, count=200, version=PLAN_VERSION, wall_budget_s=None):
             raise ValidationError("chance must be below one")
         if benchmark in CHANCE and chance != CHANCE[benchmark]:
             raise ValidationError("chance disagrees with admission baseline")
-        choice_counts = [
-            len(row["choices"]) for row in rows if isinstance(row.get("choices"), list)
-        ]
+        choice_counts = [len(row["choices"]) for row in rows if isinstance(row.get("choices"), list)]
         inferred_options = (
             min(choice_counts)
             if choice_counts
-            else {"arc": 4, "winogrande": 2}.get(
-                benchmark, 2 if chance is not None and decimal(chance) > 0 else None
-            )
+            else {"arc": 4, "winogrande": 2}.get(benchmark, 2 if chance is not None and decimal(chance) > 0 else None)
         )
         answer_options = source.get("answer_options", inferred_options)
-        if (
-            chance is not None and decimal(chance) > 0 or choice_counts
-        ) and answer_options is None:
+        if (chance is not None and decimal(chance) > 0 or choice_counts) and answer_options is None:
             raise ValidationError("choice benchmark requires answer_options")
         numeric(answer_options, 2, nullable=True, integer=True)
         key = source.get("stratum_key")
         if "stratum_key" not in source:
-            key = next(
-                (k for k in ("subject", "task") if any(k in r for r in rows)), None
-            )
+            key = next((k for k in ("subject", "task") if any(k in r for r in rows)), None)
         string(key, nullable=True)
         groups = {}
         for row in rows:
@@ -305,10 +270,7 @@ def make_plan(datasets, count=200, version=PLAN_VERSION, wall_budget_s=None):
         priority = lambda item_id: (digest([seed, item_id]), item_id)
         selected = sorted((row["id"] for row in rows), key=priority)[:n]
         selected_set = set(selected)
-        quotas = {
-            k: sum(item_id in selected_set for item_id in group)
-            for k, group in groups.items()
-        }
+        quotas = {k: sum(item_id in selected_set for item_id in group) for k, group in groups.items()}
         benchmarks.append(
             dict(
                 benchmark=benchmark,
@@ -350,11 +312,7 @@ def validate_plan(plan):
         plan,
         "kind schema_version plan_version items_per_benchmark wall_budget_s benchmarks plan_id",
     )
-    if (
-        plan["kind"] != "agiw_fast_check_plan"
-        or type(plan["schema_version"]) is not int
-        or plan["schema_version"] != 1
-    ):
+    if plan["kind"] != "agiw_fast_check_plan" or type(plan["schema_version"]) is not int or plan["schema_version"] != 1:
         raise ValidationError("unsupported plan")
     string(plan["plan_version"])
     numeric(plan["items_per_benchmark"], 1, integer=True)
@@ -380,11 +338,7 @@ def validate_plan(plan):
         string(b["stratum_key"], nullable=True)
         numeric(b["population"], 1, integer=True)
         numeric(b["answer_options"], 2, nullable=True, integer=True)
-        if (
-            b["chance"] is not None
-            and decimal(b["chance"]) > 0
-            and b["answer_options"] is None
-        ):
+        if b["chance"] is not None and decimal(b["chance"]) > 0 and b["answer_options"] is None:
             raise ValidationError("choice benchmark requires answer_options")
         if b["chance"] is not None:
             decimal(b["chance"])
@@ -401,9 +355,7 @@ def validate_plan(plan):
             raise ValidationError("item_ids must be an array")
         for item_id in ids:
             string(item_id)
-        if len(ids) != min(plan["items_per_benchmark"], b["population"]) or len(
-            set(ids)
-        ) != len(ids):
+        if len(ids) != min(plan["items_per_benchmark"], b["population"]) or len(set(ids)) != len(ids):
             raise ValidationError("invalid sample ids")
         if (
             b["sampling"] != "simple_random_without_replacement"
@@ -411,9 +363,7 @@ def validate_plan(plan):
             or b["whole_dataset"] != (len(ids) == b["population"])
         ):
             raise ValidationError("sampling declaration mismatch")
-        if ids != sorted(
-            ids, key=lambda item_id: (digest([b["seed"], item_id]), item_id)
-        ):
+        if ids != sorted(ids, key=lambda item_id: (digest([b["seed"], item_id]), item_id)):
             raise ValidationError("sample priorities out of order")
         if not isinstance(b["strata"], list) or not b["strata"]:
             raise ValidationError("missing strata")
@@ -470,9 +420,7 @@ def statistics(correct, n, chance):
         accuracy=p,
         interval95=interval,
         normalized_score=normalized(p, chance),
-        normalized_interval95=None
-        if chance is None
-        else [normalized(v, chance) for v in interval],
+        normalized_interval95=None if chance is None else [normalized(v, chance) for v in interval],
     )
 
 
@@ -480,17 +428,11 @@ def mcnemar(candidate, baseline, alpha="0.05", expected_ids=None):
     """Two-sided exact conditional binomial test; equality is not significant."""
     exact_alpha = significance(alpha)
     for values in (candidate, baseline):
-        if not isinstance(values, dict) or any(
-            type(v) is not bool and v is not None for v in values.values()
-        ):
+        if not isinstance(values, dict) or any(type(v) is not bool and v is not None for v in values.values()):
             raise ValidationError("paired outcomes must be boolean or null")
         for key in values:
             string(key)
-    expected = (
-        set(expected_ids)
-        if expected_ids is not None
-        else set(candidate) | set(baseline)
-    )
+    expected = set(expected_ids) if expected_ids is not None else set(candidate) | set(baseline)
     if set(candidate) - expected or set(baseline) - expected:
         raise ValidationError("unplanned paired item")
     a_ids = {k for k, v in candidate.items() if v is not None}
@@ -499,15 +441,7 @@ def mcnemar(candidate, baseline, alpha="0.05", expected_ids=None):
     counts = dict(both_correct=0, both_wrong=0, model_only=0, baseline_only=0)
     for key in shared:
         a, b = candidate[key], baseline[key]
-        counts[
-            "both_correct"
-            if a and b
-            else "model_only"
-            if a
-            else "baseline_only"
-            if b
-            else "both_wrong"
-        ] += 1
+        counts["both_correct" if a and b else "model_only" if a else "baseline_only" if b else "both_wrong"] += 1
     b, c = counts["model_only"], counts["baseline_only"]
     discordant = b + c
     exact = min(
@@ -518,11 +452,7 @@ def mcnemar(candidate, baseline, alpha="0.05", expected_ids=None):
         ),
     )
     complete = a_ids == b_ids == expected
-    verdict = (
-        ("BETTER" if b > c else "WORSE")
-        if complete and b != c and exact < exact_alpha
-        else "INCONCLUSIVE"
-    )
+    verdict = ("BETTER" if b > c else "WORSE") if complete and b != c and exact < exact_alpha else "INCONCLUSIVE"
     return dict(
         verdict=verdict,
         alpha=alpha,
@@ -557,17 +487,11 @@ def wilson_upper_above(correct, n, threshold):
 def decision(base, reasons, inputs, advisory, order):
     if advisory is not None:
         fields(advisory, "decision reasons")
-        if advisory["decision"] not in order or not isinstance(
-            advisory["reasons"], list
-        ):
+        if advisory["decision"] not in order or not isinstance(advisory["reasons"], list):
             raise ValidationError("invalid advisory")
         for reason in advisory["reasons"]:
             string(reason)
-    final = (
-        max((base, advisory["decision"]), key=order.index)
-        if advisory is not None
-        else base
-    )
+    final = max((base, advisory["decision"]), key=order.index) if advisory is not None else base
     return dict(
         decision=final,
         local_decision=base,
@@ -621,8 +545,7 @@ ALREADY_LOADED_FIELDS = (
     "quantization_source"
 )
 ALREADY_LOADED_STATEMENT = (
-    "operator-stated: the requested model is already loaded and serving; "
-    "available memory was not measured"
+    "operator-stated: the requested model is already loaded and serving; available memory was not measured"
 )
 ALREADY_LOADED_SOURCES = ["/props", "/slots", "/v1/models"]
 STATED_SOURCES = ("server-reported", "operator-stated")
@@ -683,10 +606,7 @@ def fit_gate(model, pre, provenance):
 def binomial_upper_tail(correct, n, chance):
     """One-sided exact H0:p<=chance; the boundary maximizes the upper tail."""
     return sum(
-        (
-            Fraction(math.comb(n, k)) * chance**k * (1 - chance) ** (n - k)
-            for k in range(correct, n + 1)
-        ),
+        (Fraction(math.comb(n, k)) * chance**k * (1 - chance) ** (n - k) for k in range(correct, n + 1)),
         Fraction(0),
     )
 
@@ -713,9 +633,7 @@ def post_check(
         max_truncation_rate=max_truncation_rate,
         max_unparsed_rate=max_unparsed_rate,
     )
-    limits = {
-        k: decimal(v, positive=k == "min_coverage") for k, v in thresholds.items()
-    }
+    limits = {k: decimal(v, positive=k == "min_coverage") for k, v in thresholds.items()}
     exact_alpha = significance(alpha)
     if not isinstance(evidence, list):
         raise ValidationError("post evidence must be an array")
@@ -729,11 +647,7 @@ def post_check(
     if (
         exact_alpha > Fraction("0.05")
         or limits["min_coverage"] < Fraction(STANDARD_POST["min_coverage"])
-        or any(
-            limits[k] > Fraction(v)
-            for k, v in STANDARD_POST.items()
-            if k != "min_coverage"
-        )
+        or any(limits[k] > Fraction(v) for k, v in STANDARD_POST.items() if k != "min_coverage")
     ):
         unknown.append("Admission policy exceeds standard ranking safety bounds.")
     for b in evidence:
@@ -771,9 +685,7 @@ def post_check(
             unknown.append("Errors exceed the declared maximum rate; model quality is unknown.")
             transport_unknown = True
         if b["attempted"] < n:
-            unknown.append(
-                "Incomplete sample: check stopped before all planned items were attempted."
-            )
+            unknown.append("Incomplete sample: check stopped before all planned items were attempted.")
             continue
         if Fraction(b["truncations"], n) > limits["max_truncation_rate"]:
             refuse("answers cut off at the token limit: raise the limit and re-run")
@@ -783,13 +695,9 @@ def post_check(
         if 4 * half2 >= limits["max_interval_width"] ** 2:
             refuse("A Wilson interval meets or exceeds the declared maximum width.")
         answered = b["attempted"] - b["errors"]
-        unparsed = answered > 0 and (
-            Fraction(answered - b["parsed"], answered) > limits["max_unparsed_rate"]
-        )
+        unparsed = answered > 0 and (Fraction(answered - b["parsed"], answered) > limits["max_unparsed_rate"])
         if unparsed:
-            refuse(
-                "runtime/model incompatibility suspected: answers could not be parsed"
-            )
+            refuse("runtime/model incompatibility suspected: answers could not be parsed")
         if b["parsed"] == 0:
             refuse("runtime/model incompatibility suspected")
         degenerate = (
@@ -812,11 +720,11 @@ def post_check(
                 )
         if b["unknown_finish"]:
             unknown.append("Cutoff/finish evidence is unknown.")
-    base = "UNKNOWN" if transport_unknown else "REJECT" if reasons else "UNKNOWN" if unknown or not evidence else "ADMIT"
+    base = (
+        "UNKNOWN" if transport_unknown else "REJECT" if reasons else "UNKNOWN" if unknown or not evidence else "ADMIT"
+    )
     reasons = list(dict.fromkeys(reasons + unknown)) or (
-        ["Required evidence is unknown."]
-        if not evidence
-        else ["All local admissibility thresholds are met."]
+        ["Required evidence is unknown."] if not evidence else ["All local admissibility thresholds are met."]
     )
     return decision(
         base,
@@ -828,10 +736,7 @@ def post_check(
 
 
 def hardware_known(hardware):
-    return all(
-        hardware.get(k) is not None
-        for k in ("machine_label", "cpu", "gpu", "memory", "runtime_build_id")
-    )
+    return all(hardware.get(k) is not None for k in ("machine_label", "cpu", "gpu", "memory", "runtime_build_id"))
 
 
 def identity(model, hardware, settings):
@@ -842,9 +747,7 @@ def identity(model, hardware, settings):
     numeric(model["file_size_bytes"], 1, nullable=True, integer=True)
     required = {"machine_label", "cpu", "gpu", "memory", "runtime_build_id"}
     if not isinstance(hardware, dict) or not required <= set(hardware):
-        raise ValidationError(
-            "hardware identity requires machine label, CPU, GPU, memory and runtime build id"
-        )
+        raise ValidationError("hardware identity requires machine label, CPU, GPU, memory and runtime build id")
     json_value(hardware)
     for key in ("machine_label", "runtime_build_id"):
         string(hardware[key], nullable=True)
@@ -855,24 +758,25 @@ def identity(model, hardware, settings):
             or isinstance(hardware[key], str)
             and hardware[key].strip()
         ):
-            raise ValidationError(
-                "hardware descriptor must be nonempty text, object or null"
-            )
+            raise ValidationError("hardware descriptor must be nonempty text, object or null")
     numeric(hardware.get("memory_bytes"), 1, nullable=True, integer=True)
     if settings is not None and not isinstance(settings, dict):
         raise ValidationError("runtime settings must be an object or null")
     json_value(settings)
     if settings is not None:
         for key in (
-            "scorer_id", "parse_version", "prompt_template_id",
-            "prompt_template_version", "backend", "backend_version",
+            "scorer_id",
+            "parse_version",
+            "prompt_template_id",
+            "prompt_template_version",
+            "backend",
+            "backend_version",
         ):
             string(settings.get(key), nullable=True)
         sha(settings.get("prompt_template_sha256"), nullable=True)
         if "prompt_template" in settings:
-            if (
-                not isinstance(settings["prompt_template"], dict)
-                or digest(settings["prompt_template"]) != settings.get("prompt_template_sha256")
+            if not isinstance(settings["prompt_template"], dict) or digest(settings["prompt_template"]) != settings.get(
+                "prompt_template_sha256"
             ):
                 raise ValidationError("prompt template hash disagrees with manifest")
         for key in ("max_tokens", "ctx", "n_epochs"):
@@ -885,30 +789,23 @@ def identity(model, hardware, settings):
         if message is not None and not isinstance(message, str):
             raise ValidationError("system_message must be text or null")
         stop = settings.get("stop")
-        if stop is not None and not (
-            isinstance(stop, list) and all(isinstance(v, str) for v in stop)
-        ):
+        if stop is not None and not (isinstance(stop, list) and all(isinstance(v, str) for v in stop)):
             raise ValidationError("stop must be an array of text or null")
 
 
 def settings_known(settings):
-    return settings is not None and all(
-        settings.get(k) is not None for k in COMPARISON_SETTINGS
-    )
+    return settings is not None and all(settings.get(k) is not None for k in COMPARISON_SETTINGS)
 
 
 def validate_observation(o):
     fields(
         {k: v for k, v in o.items() if k not in ("parse_rule", "parsed_unit", "attempts")}
-        if isinstance(o, dict) else o,
+        if isinstance(o, dict)
+        else o,
         "item_id outcome parsed finish_reason cut_off answer_value correct prompt_tokens completion_tokens seconds error",
     )
     string(o["item_id"])
-    if (
-        o["outcome"] not in OUTCOMES
-        or type(o["parsed"]) is not bool
-        or type(o["correct"]) is not bool
-    ):
+    if o["outcome"] not in OUTCOMES or type(o["parsed"]) is not bool or type(o["correct"]) is not bool:
         raise ValidationError("invalid outcome, parsed state or correctness")
     if o["correct"] != (o["outcome"] == "correct"):
         raise ValidationError("correctness disagrees with outcome")
@@ -929,11 +826,7 @@ def validate_observation(o):
     value = o["answer_value"]
     if o["parsed"]:
         string(value)
-        if (
-            len(value) > 128
-            or value != value.strip()
-            or any(ord(c) < 32 for c in value)
-        ):
+        if len(value) > 128 or value != value.strip() or any(ord(c) < 32 for c in value):
             raise ValidationError("answer_value must be a short normalized string")
     elif value is not None:
         raise ValidationError("unparsed answer_value must be null")
@@ -954,23 +847,17 @@ def validate_observation(o):
 
 
 def summarize(spec, observations, wall_time_s, stop_reason):
-    counts = {
-        name: sum(o["outcome"] == name for o in observations) for name in OUTCOMES
-    }
+    counts = {name: sum(o["outcome"] == name for o in observations) for name in OUTCOMES}
     parsed = sum(o["parsed"] and o["outcome"] != "error" for o in observations)
     answer_counts = {}
     for o in observations:
         if o["parsed"] and o["outcome"] != "error":
-            answer_counts[o["answer_value"]] = (
-                answer_counts.get(o["answer_value"], 0) + 1
-            )
+            answer_counts[o["answer_value"]] = answer_counts.get(o["answer_value"], 0) + 1
     top_answer_count = max(answer_counts.values(), default=0)
 
     def total(key):
         return (
-            None
-            if not observations or any(o[key] is None for o in observations)
-            else sum(o[key] for o in observations)
+            None if not observations or any(o[key] is None for o in observations) else sum(o[key] for o in observations)
         )
 
     tokens, seconds = total("completion_tokens"), total("seconds")
@@ -986,10 +873,7 @@ def summarize(spec, observations, wall_time_s, stop_reason):
         retried=sum(o.get("attempts", 1) > 1 for o in observations),
         timeouts=sum(o["error"] == "TimeoutError" for o in observations),
         truncations=sum(o["cut_off"] and not o["parsed"] for o in observations),
-        unknown_finish=sum(
-            o["finish_reason"] is None and o["outcome"] != "error"
-            for o in observations
-        ),
+        unknown_finish=sum(o["finish_reason"] is None and o["outcome"] != "error" for o in observations),
         answer_counts=answer_counts,
         top_answer_count=top_answer_count,
         top_answer_share=top_answer_count / parsed if parsed else None,
@@ -1009,31 +893,24 @@ def summarize(spec, observations, wall_time_s, stop_reason):
 
 def outcomes(bench):
     # A transport failure supplies no model answer and cannot be a wrong pair.
-    return {o["item_id"]: None if o["outcome"] == "error" else o["correct"]
-            for o in bench["observations"]}
+    return {o["item_id"]: None if o["outcome"] == "error" else o["correct"] for o in bench["observations"]}
 
 
 # Schema version 1 rules, frozen at agiw-suite 46ebf83 (PR #141). They exist
 # only to validate records written before schema version 2; never use them to
 # write a new record.
 def _summarize_v1(spec, observations, wall_time_s, stop_reason):
-    counts = {
-        name: sum(o["outcome"] == name for o in observations) for name in OUTCOMES
-    }
+    counts = {name: sum(o["outcome"] == name for o in observations) for name in OUTCOMES}
     parsed = sum(o["parsed"] for o in observations)
     answer_counts = {}
     for o in observations:
         if o["parsed"]:
-            answer_counts[o["answer_value"]] = (
-                answer_counts.get(o["answer_value"], 0) + 1
-            )
+            answer_counts[o["answer_value"]] = answer_counts.get(o["answer_value"], 0) + 1
     top_answer_count = max(answer_counts.values(), default=0)
 
     def total(key):
         return (
-            None
-            if not observations or any(o[key] is None for o in observations)
-            else sum(o[key] for o in observations)
+            None if not observations or any(o[key] is None for o in observations) else sum(o[key] for o in observations)
         )
 
     tokens, seconds = total("completion_tokens"), total("seconds")
@@ -1067,10 +944,7 @@ def _summarize_v1(spec, observations, wall_time_s, stop_reason):
 
 
 def _outcomes_v1(bench):
-    return {
-        o["item_id"]: o["correct"] if o["outcome"] in ("correct", "wrong") else None
-        for o in bench["observations"]
-    }
+    return {o["item_id"]: o["correct"] if o["outcome"] in ("correct", "wrong") else None for o in bench["observations"]}
 
 
 def _post_check_v1(
@@ -1090,9 +964,7 @@ def _post_check_v1(
         max_truncation_rate=max_truncation_rate,
         max_unparsed_rate=max_unparsed_rate,
     )
-    limits = {
-        k: decimal(v, positive=k == "min_coverage") for k, v in thresholds.items()
-    }
+    limits = {k: decimal(v, positive=k == "min_coverage") for k, v in thresholds.items()}
     exact_alpha = decimal(alpha, positive=True)
     if not isinstance(evidence, list):
         raise ValidationError("post evidence must be an array")
@@ -1145,13 +1017,9 @@ def _post_check_v1(
             refuse("Errors exceed the declared maximum rate.")
         if Fraction(b["truncations"], n) > limits["max_truncation_rate"]:
             refuse("answers cut off at the token limit: raise the limit and re-run")
-        unparsed = (
-            Fraction(b["attempted"] - b["parsed"], n) > limits["max_unparsed_rate"]
-        )
+        unparsed = Fraction(b["attempted"] - b["parsed"], n) > limits["max_unparsed_rate"]
         if unparsed:
-            refuse(
-                "runtime/model incompatibility suspected: answers could not be parsed"
-            )
+            refuse("runtime/model incompatibility suspected: answers could not be parsed")
         if b["parsed"] == 0:
             refuse("runtime/model incompatibility suspected")
         degenerate = (
@@ -1176,9 +1044,7 @@ def _post_check_v1(
             unknown.append("Cutoff/finish evidence is unknown.")
     base = "REJECT" if reasons else "UNKNOWN" if unknown or not evidence else "ADMIT"
     reasons = list(dict.fromkeys(reasons + unknown)) or (
-        ["Required evidence is unknown."]
-        if not evidence
-        else ["All local admissibility thresholds are met."]
+        ["Required evidence is unknown."] if not evidence else ["All local admissibility thresholds are met."]
     )
     return decision(
         base,
@@ -1231,10 +1097,7 @@ def verified_baseline(binding, seen=()):
     if binding["record"] is None:
         return None
     record = validate_record(binding["record"], _seen=seen)
-    if (
-        record["record_id"] != binding["record_id"]
-        or digest(baseline_outcomes(record)) != binding["outcomes_sha256"]
-    ):
+    if record["record_id"] != binding["record_id"] or digest(baseline_outcomes(record)) != binding["outcomes_sha256"]:
         raise ValidationError("baseline record or per-item outcome hash mismatch")
     return record
 
@@ -1250,16 +1113,13 @@ def _comparisons_validated(record, baseline, alpha):
     if baseline is not None and (
         baseline["plan"]["plan_id"] != record["plan"]["plan_id"]
         or canonical(baseline["hardware"]) != canonical(record["hardware"])
-        or canonical(baseline["runtime_settings"])
-        != canonical(record["runtime_settings"])
+        or canonical(baseline["runtime_settings"]) != canonical(record["runtime_settings"])
     ):
         # Full settings equality includes parse/template versions and template
         # hashes when present. Legacy records remain valid in their own cohort;
         # missing fields cannot silently match a versioned adapter result.
         raise ValidationError("baseline plan, hardware or settings mismatch")
-    known = hardware_known(record["hardware"]) and settings_known(
-        record["runtime_settings"]
-    )
+    known = hardware_known(record["hardware"]) and settings_known(record["runtime_settings"])
     # Pairs are formed under the rules of the record being compared; a schema
     # 1 record was written with schema 1 rules for both sides.
     pair_outcomes = _outcomes_v1 if legacy_record(record) else outcomes
@@ -1287,14 +1147,8 @@ def _comparisons_validated(record, baseline, alpha):
                 p_exact=None,
             )
         else:
-            peer = next(
-                b
-                for b in baseline["benchmarks"]
-                if b["benchmark"] == bench["benchmark"]
-            )
-            result[bench["benchmark"]] = mcnemar(
-                a, pair_outcomes(peer), alpha, spec["item_ids"]
-            )
+            peer = next(b for b in baseline["benchmarks"] if b["benchmark"] == bench["benchmark"])
+            result[bench["benchmark"]] = mcnemar(a, pair_outcomes(peer), alpha, spec["item_ids"])
     return result
 
 
@@ -1319,35 +1173,27 @@ def checkpoint_open(path, binding, plan):
 
                 fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError as exc:
-            raise ValidationError(
-                "checkpoint already locked by another writer"
-            ) from exc
+            raise ValidationError("checkpoint already locked by another writer") from exc
         stream.seek(0)
-        expected = [
-            (s["benchmark"], i) for s in plan["benchmarks"] for i in s["item_ids"]
-        ]
+        expected = [(s["benchmark"], i) for s in plan["benchmarks"] for i in s["item_ids"]]
         observations = []
         previous = digest(binding)
         for line in stream:
             if binding["model"]["file_sha256"] is None:
-                raise ValidationError(
-                    "checkpoint resume requires a stable artifact file_sha256 hash"
-                )
+                raise ValidationError("checkpoint resume requires a stable artifact file_sha256 hash")
             if not line.endswith("\n"):
-                raise ValidationError(
-                    "incomplete checkpoint line; preserve file for recovery"
-                )
+                raise ValidationError("incomplete checkpoint line; preserve file for recovery")
             try:
                 entry = json.loads(line, object_pairs_hook=unique_object)
             except ValueError as exc:
                 raise ValidationError("invalid checkpoint JSON") from exc
             json_value(entry)
-            fields({k: v for k, v in entry.items() if k != "supersedes_sha256"},
-                   "binding benchmark observation previous_sha256 entry_sha256")
+            fields(
+                {k: v for k, v in entry.items() if k != "supersedes_sha256"},
+                "binding benchmark observation previous_sha256 entry_sha256",
+            )
             if canonical(entry["binding"]) != canonical(binding):
-                raise ValidationError(
-                    "checkpoint plan/model/hardware/settings mismatch"
-                )
+                raise ValidationError("checkpoint plan/model/hardware/settings mismatch")
             if entry["previous_sha256"] != previous or entry["entry_sha256"] != digest(
                 {k: v for k, v in entry.items() if k != "entry_sha256"}
             ):
@@ -1357,20 +1203,23 @@ def checkpoint_open(path, binding, plan):
             if "supersedes_sha256" in entry:
                 # Only an error in the current trailing suffix may be replaced.
                 # The exact old entry hash binds each replacement to its history.
-                position = next((i for i, old in enumerate(observations)
-                                 if old["entry_sha256"] == entry["supersedes_sha256"]), None)
-                if (position is None or key != expected[position]
-                        or any(old["observation"]["outcome"] != "error"
-                               for old in observations[position:])):
+                position = next(
+                    (i for i, old in enumerate(observations) if old["entry_sha256"] == entry["supersedes_sha256"]), None
+                )
+                if (
+                    position is None
+                    or key != expected[position]
+                    or any(old["observation"]["outcome"] != "error" for old in observations[position:])
+                ):
                     raise ValidationError("checkpoint supersession must replace a trailing error")
                 observations[position] = entry
             else:
                 position = len(observations)
                 if position >= len(expected) or key != expected[position]:
                     raise ValidationError("checkpoint is not the frozen item prefix")
-                if (len(observations) >= MAX_CONSECUTIVE_ERRORS
-                        and all(old["observation"]["outcome"] == "error"
-                                for old in observations[-MAX_CONSECUTIVE_ERRORS:])):
+                if len(observations) >= MAX_CONSECUTIVE_ERRORS and all(
+                    old["observation"]["outcome"] == "error" for old in observations[-MAX_CONSECUTIVE_ERRORS:]
+                ):
                     raise ValidationError("checkpoint continued after consecutive error stop")
                 observations.append(entry)
             previous = entry["entry_sha256"]
@@ -1413,17 +1262,12 @@ def adapter_call(callback, args, spec):
     try:
         signature = inspect.signature(callback)
     except (TypeError, ValueError) as exc:
-        raise ValidationError(
-            "adapter callback must expose an inspectable signature"
-        ) from exc
+        raise ValidationError("adapter callback must expose an inspectable signature") from exc
     accepted = {
         name: value
         for name, value in context.items()
         if name in signature.parameters
-        or any(
-            p.kind == inspect.Parameter.VAR_KEYWORD
-            for p in signature.parameters.values()
-        )
+        or any(p.kind == inspect.Parameter.VAR_KEYWORD for p in signature.parameters.values())
     }
     signature.bind(*args, **accepted)
     return callback(*args, **accepted)
@@ -1483,17 +1327,13 @@ def run_check(
     # Validate a stated gate even beside a CHECK, so a record cannot carry both.
     authorized = fit_gate(model, pre, provenance) == "already_loaded" or pre["decision"] == "CHECK"
     available = pre["inputs"]["available_memory_bytes"]
-    if (
-        available is not None
-        and hardware.get("memory_bytes") is not None
-        and available > hardware["memory_bytes"]
-    ):
+    if available is not None and hardware.get("memory_bytes") is not None and available > hardware["memory_bytes"]:
         raise ValidationError("available memory exceeds hardware memory")
     if baseline is not None:
         validate_record(baseline)
-        if canonical(
-            [baseline["plan"], baseline["hardware"], baseline["runtime_settings"]]
-        ) != canonical([plan, hardware, runtime_settings]):
+        if canonical([baseline["plan"], baseline["hardware"], baseline["runtime_settings"]]) != canonical(
+            [plan, hardware, runtime_settings]
+        ):
             raise ValidationError("baseline plan, hardware or settings mismatch")
         baseline = baseline_snapshot(baseline)
     stamp = created_at or datetime.now(timezone.utc).isoformat()
@@ -1522,9 +1362,7 @@ def run_check(
     if provenance is not None:
         record["provenance"] = copy.deepcopy(provenance)
         binding["provenance"] = copy.deepcopy(provenance)
-    stream, prior = (
-        (None, []) if checkpoint is None else checkpoint_open(checkpoint, binding, plan)
-    )
+    stream, prior = (None, []) if checkpoint is None else checkpoint_open(checkpoint, binding, plan)
     if (prior or stream is not None and stream._eci_supersedes) and not authorized:
         stream.close()
         raise ValidationError("checkpoint observations conflict with pre gate")
@@ -1534,11 +1372,7 @@ def run_check(
         for spec in plan["benchmarks"]:
             begin = clock()
             rows = {r["id"]: r for r in datasets[spec["benchmark"]]["items"]}
-            observations = [
-                copy.deepcopy(e["observation"])
-                for e in prior
-                if e["benchmark"] == spec["benchmark"]
-            ]
+            observations = [copy.deepcopy(e["observation"]) for e in prior if e["benchmark"] == spec["benchmark"]]
             stop = "complete"
             for item_id in spec["item_ids"][len(observations) :]:
                 if not authorized:
@@ -1547,9 +1381,7 @@ def run_check(
                 if consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
                     stop = "errors"
                     break
-                if plan["wall_budget_s"] is not None and Fraction(
-                    str(clock())
-                ) - Fraction(str(start)) >= decimal(
+                if plan["wall_budget_s"] is not None and Fraction(str(clock())) - Fraction(str(start)) >= decimal(
                     plan["wall_budget_s"], high=None, positive=True
                 ):
                     stop = "budget"
@@ -1573,9 +1405,7 @@ def run_check(
                 try:
                     supplied = adapter_call(answer, (row,), spec)
                     if not isinstance(supplied, dict):
-                        raise ValidationError(
-                            "adapter must supply classified outcome evidence"
-                        )
+                        raise ValidationError("adapter must supply classified outcome evidence")
                     # Retain every valid measured value even if another field or scoring fails.
                     bad_measurement = False
                     for key in ("prompt_tokens", "completion_tokens", "seconds"):
@@ -1587,10 +1417,7 @@ def run_check(
                             bad_measurement = True
                     if type(supplied.get("parsed")) is bool:
                         observation["parsed"] = supplied["parsed"]
-                    if (
-                        isinstance(supplied.get("finish_reason"), str)
-                        and supplied["finish_reason"].strip()
-                    ):
+                    if isinstance(supplied.get("finish_reason"), str) and supplied["finish_reason"].strip():
                         observation["finish_reason"] = supplied["finish_reason"]
                     required = {
                         "outcome",
@@ -1605,13 +1432,10 @@ def run_check(
                     }
                     if (
                         not required <= set(supplied)
-                        or set(supplied) - required
-                        - {"prediction", "parse_rule", "parsed_unit", "attempts"}
+                        or set(supplied) - required - {"prediction", "parse_rule", "parsed_unit", "attempts"}
                         or bad_measurement
                     ):
-                        raise ValidationError(
-                            "invalid adapter evidence fields or measurements"
-                        )
+                        raise ValidationError("invalid adapter evidence fields or measurements")
                     observation.update(
                         outcome=supplied["outcome"],
                         correct=supplied["outcome"] == "correct",
@@ -1624,34 +1448,20 @@ def run_check(
                     for optional in ("parse_rule", "parsed_unit", "attempts"):
                         if optional in supplied:
                             observation[optional] = supplied[optional]
-                    if (
-                        observation["cut_off"] is True
-                        and observation["parsed"] is False
-                    ):
-                        observation.update(
-                            outcome="truncated_empty", correct=False, error=None
-                        )
+                    if observation["cut_off"] is True and observation["parsed"] is False:
+                        observation.update(outcome="truncated_empty", correct=False, error=None)
                     validate_observation(observation)
                     if score is not None and observation["outcome"] in (
                         "correct",
                         "wrong",
                     ):
-                        checked = adapter_call(
-                            score, (supplied.get("prediction"), row), spec
-                        )
-                        if (
-                            type(checked) is not bool
-                            or checked != observation["correct"]
-                        ):
-                            raise ValidationError(
-                                "scorer disagrees with adapter outcome"
-                            )
+                        checked = adapter_call(score, (supplied.get("prediction"), row), spec)
+                        if type(checked) is not bool or checked != observation["correct"]:
+                            raise ValidationError("scorer disagrees with adapter outcome")
                 except ValidationError:
                     raise
                 except Exception as exc:
-                    observation.update(
-                        outcome="error", correct=False, error=type(exc).__name__
-                    )
+                    observation.update(outcome="error", correct=False, error=type(exc).__name__)
                     attempts = getattr(exc, "attempts", 1)
                     numeric(attempts, 1, integer=True)
                     observation["attempts"] = attempts
@@ -1666,27 +1476,19 @@ def run_check(
                     if observation["seconds"] is None:
                         observation["seconds"] = max(0, clock() - call_start)
                 if observation["cut_off"] and not observation["parsed"]:
-                    observation.update(
-                        outcome="truncated_empty", correct=False, error=None
-                    )
+                    observation.update(outcome="truncated_empty", correct=False, error=None)
                 validate_observation(observation)
                 if stream is not None:
                     checkpoint_append(stream, binding, spec["benchmark"], observation)
                 observations.append(observation)
-                consecutive_errors = (
-                    consecutive_errors + 1 if observation["outcome"] == "error" else 0
-                )
-            record["benchmarks"].append(
-                summarize(spec, observations, max(0, clock() - begin), stop)
-            )
+                consecutive_errors = consecutive_errors + 1 if observation["outcome"] == "error" else 0
+            record["benchmarks"].append(summarize(spec, observations, max(0, clock() - begin), stop))
         record["wall_time_s"] = max(0, clock() - start)
     finally:
         if stream is not None:
             stream.close()
     record["comparison"] = comparisons(record, baseline, alpha)
-    record["post"] = post_check(
-        post_inputs(record), alpha=alpha, **(post_options or {})
-    )
+    record["post"] = post_check(post_inputs(record), alpha=alpha, **(post_options or {}))
     record["record_id"] = digest(record)
     validate_record(record)
     return record
@@ -1713,8 +1515,7 @@ def post_inputs(record):
 def validate_record(record, _seen=()):
     """Recompute derived claims and recursively verify the full bound baseline."""
     fields(
-        {k: v for k, v in record.items() if k != "provenance"}
-        if isinstance(record, dict) else record,
+        {k: v for k, v in record.items() if k != "provenance"} if isinstance(record, dict) else record,
         "kind schema_version protocol_id record_id created_at model hardware runtime_settings plan pre journal post baseline alpha benchmarks wall_time_s comparison",
     )
     if "provenance" in record and not isinstance(record["provenance"], dict):
@@ -1733,10 +1534,7 @@ def validate_record(record, _seen=()):
         raise ValidationError("schema version 1 records predate provenance")
     json_value(record)
     sha(record["record_id"])
-    if (
-        digest({k: v for k, v in record.items() if k != "record_id"})
-        != record["record_id"]
-    ):
+    if digest({k: v for k, v in record.items() if k != "record_id"}) != record["record_id"]:
         raise ValidationError("record identity mismatch")
     timestamp(record["created_at"])
     identity(record["model"], record["hardware"], record["runtime_settings"])
@@ -1750,11 +1548,8 @@ def validate_record(record, _seen=()):
         pre["inputs"],
         "file_size_bytes quantization available_memory_bytes safety_margin",
     )
-    if canonical(pre) != canonical(
-        pre_check(**pre["inputs"], advisory=pre["advisory"])
-    ) or any(
-        pre["inputs"][k] != record["model"][k]
-        for k in ("file_size_bytes", "quantization")
+    if canonical(pre) != canonical(pre_check(**pre["inputs"], advisory=pre["advisory"])) or any(
+        pre["inputs"][k] != record["model"][k] for k in ("file_size_bytes", "quantization")
     ):
         raise ValidationError("pre decision/model disagrees with inputs")
     available = pre["inputs"]["available_memory_bytes"]
@@ -1764,8 +1559,9 @@ def validate_record(record, _seen=()):
         and available > record["hardware"]["memory_bytes"]
     ):
         raise ValidationError("available memory exceeds hardware memory")
-    authorized = (fit_gate(record["model"], pre, record.get("provenance")) == "already_loaded"
-                  or pre["decision"] == "CHECK")
+    authorized = (
+        fit_gate(record["model"], pre, record.get("provenance")) == "already_loaded" or pre["decision"] == "CHECK"
+    )
     benches, specs = record["benchmarks"], record["plan"]["benchmarks"]
     if not isinstance(benches, list) or len(benches) != len(specs):
         raise ValidationError("benchmark coverage mismatch")
@@ -1785,9 +1581,7 @@ def validate_record(record, _seen=()):
                 raise ValidationError("schema version 1 observations predate unit and retry evidence")
             validate_observation(o)
             ids.append(o["item_id"])
-            consecutive_errors = (
-                consecutive_errors + 1 if o["outcome"] == "error" else 0
-            )
+            consecutive_errors = consecutive_errors + 1 if o["outcome"] == "error" else 0
         if b["stop_reason"] == "errors" and consecutive_errors < MAX_CONSECUTIVE_ERRORS:
             raise ValidationError("error stop requires consecutive error evidence")
         if ids != spec["item_ids"][: len(ids)] or len(ids) > len(spec["item_ids"]):
@@ -1808,14 +1602,12 @@ def validate_record(record, _seen=()):
         expected_summary = summary_rule(spec, b["observations"], b["wall_time_s"], b["stop_reason"])
         if canonical(b) != canonical(expected_summary):
             raise ValidationError("summary disagrees with observations")
-    if sum(Fraction(str(b["wall_time_s"])) for b in benches) > Fraction(
-        str(record["wall_time_s"])
-    ) + Fraction("0.000001"):
+    if sum(Fraction(str(b["wall_time_s"])) for b in benches) > Fraction(str(record["wall_time_s"])) + Fraction(
+        "0.000001"
+    ):
         raise ValidationError("benchmark time exceeds total wall time")
     if canonical(record["comparison"]) != canonical(
-        comparisons(
-            record, record["baseline"], record["alpha"], _seen + (record["record_id"],)
-        )
+        comparisons(record, record["baseline"], record["alpha"], _seen + (record["record_id"],))
     ):
         raise ValidationError("paired comparison disagrees with verified evidence")
     post = record["post"]
@@ -1827,9 +1619,9 @@ def validate_record(record, _seen=()):
     if post["inputs"]["alpha"] != record["alpha"]:
         raise ValidationError("post alpha must match record alpha")
     post_rule = _post_check_v1 if legacy else post_check
-    if canonical(post) != canonical(
-        post_rule(**post["inputs"], advisory=post["advisory"])
-    ) or canonical(post_inputs(record)) != canonical(post["inputs"]["evidence"]):
+    if canonical(post) != canonical(post_rule(**post["inputs"], advisory=post["advisory"])) or canonical(
+        post_inputs(record)
+    ) != canonical(post["inputs"]["evidence"]):
         raise ValidationError("post decision disagrees with evidence")
     return record
 
@@ -1845,20 +1637,29 @@ def _pair_verdict_validated(candidate, baseline, alpha):
     tests = _comparisons_validated(candidate, baseline, alpha)
     if not candidate["model"]["file_sha256"] or not baseline["model"]["file_sha256"]:
         for test in tests.values():
-            test.update(verdict="INCONCLUSIVE", verification="UNVERIFIED",
-                        reason="candidate model artifact identity unknown", p_value=None, p_exact=None)
+            test.update(
+                verdict="INCONCLUSIVE",
+                verification="UNVERIFIED",
+                reason="candidate model artifact identity unknown",
+                p_value=None,
+                p_exact=None,
+            )
         return "INCONCLUSIVE", tests
-    if (candidate["model"]["name"] == baseline["model"]["name"] and
-            candidate["model"]["file_sha256"] != baseline["model"]["file_sha256"]):
+    if (
+        candidate["model"]["name"] == baseline["model"]["name"]
+        and candidate["model"]["file_sha256"] != baseline["model"]["file_sha256"]
+    ):
         for test in tests.values():
-            test.update(verdict="INCONCLUSIVE", verification="UNVERIFIED",
-                        reason="same model name, different model artifact", p_value=None, p_exact=None)
+            test.update(
+                verdict="INCONCLUSIVE",
+                verification="UNVERIFIED",
+                reason="same model name, different model artifact",
+                p_value=None,
+                p_exact=None,
+            )
         return "INCONCLUSIVE", tests
     # Every benchmark must have complete verified pairs, even where another wins.
-    if any(
-        t["verification"] != "VERIFIED" or t["reason"] == "incomplete pairs"
-        for t in tests.values()
-    ):
+    if any(t["verification"] != "VERIFIED" or t["reason"] == "incomplete pairs" for t in tests.values()):
         return "INCONCLUSIVE", tests
     directions = {t["verdict"] for t in tests.values()} - {"INCONCLUSIVE"}
     return (next(iter(directions)) if len(directions) == 1 else "INCONCLUSIVE"), tests
@@ -1866,16 +1667,35 @@ def _pair_verdict_validated(candidate, baseline, alpha):
 
 def screening_evidence(record):
     """Project counts from validated observations, including incomplete runs."""
-    return [dict(
-        **{k: b[k] for k in ("benchmark", "planned", "attempted", "completed",
-                              "correct", "parsed", "truncations", "errors", "timeouts",
-                              "unknown_finish", "stop_reason", "normalized_score",
-                              "normalized_interval95", "accuracy", "interval95")},
-        unparsed=b["attempted"] - b["parsed"] - b["errors"],
-        retried=b.get("retried"),
-        wrong=b["outcome_counts"]["wrong"],
-        cut_off=sum(o["cut_off"] for o in b["observations"]),
-    ) for b in record["benchmarks"]]
+    return [
+        dict(
+            **{
+                k: b[k]
+                for k in (
+                    "benchmark",
+                    "planned",
+                    "attempted",
+                    "completed",
+                    "correct",
+                    "parsed",
+                    "truncations",
+                    "errors",
+                    "timeouts",
+                    "unknown_finish",
+                    "stop_reason",
+                    "normalized_score",
+                    "normalized_interval95",
+                    "accuracy",
+                    "interval95",
+                )
+            },
+            unparsed=b["attempted"] - b["parsed"] - b["errors"],
+            retried=b.get("retried"),
+            wrong=b["outcome_counts"]["wrong"],
+            cut_off=sum(o["cut_off"] for o in b["observations"]),
+        )
+        for b in record["benchmarks"]
+    ]
 
 
 def screening_baseline_evidence(record):
@@ -1883,16 +1703,28 @@ def screening_baseline_evidence(record):
     result = copy.deepcopy(record["comparison"])
     binding = record["baseline"]
     baseline = binding["record"] if binding else None
-    if (not record["model"]["file_sha256"] or
-            baseline is not None and not baseline["model"]["file_sha256"]):
+    if not record["model"]["file_sha256"] or baseline is not None and not baseline["model"]["file_sha256"]:
         for test in result.values():
-            test.update(verdict="INCONCLUSIVE", verification="UNVERIFIED",
-                        reason="candidate model artifact identity unknown", p_value=None, p_exact=None)
-    elif (baseline is not None and record["model"]["name"] == baseline["model"]["name"] and
-          record["model"]["file_sha256"] != baseline["model"]["file_sha256"]):
+            test.update(
+                verdict="INCONCLUSIVE",
+                verification="UNVERIFIED",
+                reason="candidate model artifact identity unknown",
+                p_value=None,
+                p_exact=None,
+            )
+    elif (
+        baseline is not None
+        and record["model"]["name"] == baseline["model"]["name"]
+        and record["model"]["file_sha256"] != baseline["model"]["file_sha256"]
+    ):
         for test in result.values():
-            test.update(verdict="INCONCLUSIVE", verification="UNVERIFIED",
-                        reason="same model name, different model artifact", p_value=None, p_exact=None)
+            test.update(
+                verdict="INCONCLUSIVE",
+                verification="UNVERIFIED",
+                reason="same model name, different model artifact",
+                p_value=None,
+                p_exact=None,
+            )
     return result
 
 
@@ -1911,8 +1743,10 @@ def screening_mismatches(first, second):
         reasons.append("runtime settings differ")
     if not first["model"]["file_sha256"] or not second["model"]["file_sha256"]:
         reasons.append("candidate model artifact identity unknown")
-    elif (first["model"]["name"] == second["model"]["name"] and
-          first["model"]["file_sha256"] != second["model"]["file_sha256"]):
+    elif (
+        first["model"]["name"] == second["model"]["name"]
+        and first["model"]["file_sha256"] != second["model"]["file_sha256"]
+    ):
         reasons.append("same model name, different model artifact")
     if first["alpha"] != second["alpha"]:
         reasons.append("alpha differs")
@@ -1952,9 +1786,7 @@ def rank(records):
                 plan_id=record["plan"]["plan_id"],
                 runtime_settings=record["runtime_settings"],
                 alpha=record["alpha"],
-                admission_policy={
-                    k: record["post"]["inputs"][k] for k in STANDARD_POST
-                },
+                admission_policy={k: record["post"]["inputs"][k] for k in STANDARD_POST},
                 records=[],
             ),
         )
@@ -1965,9 +1797,11 @@ def rank(records):
         group_records = group.pop("records")
         group["not_comparable"] = [
             dict(record_id=record["record_id"], other_record_id=other["record_id"], reasons=reasons)
-            for record in group_records for other in records
+            for record in group_records
+            for other in records
             if record["record_id"] != other["record_id"]
-            for reasons in [screening_mismatches(record, other)] if reasons
+            for reasons in [screening_mismatches(record, other)]
+            if reasons
         ]
         for record in group_records:
             known = (
@@ -1975,18 +1809,12 @@ def rank(records):
                 and settings_known(record["runtime_settings"])
                 and record["model"]["file_sha256"] is not None
                 and all(
-                    b["normalized_score"] is not None and b["attempted"] == b["planned"]
-                    for b in record["benchmarks"]
+                    b["normalized_score"] is not None and b["attempted"] == b["planned"] for b in record["benchmarks"]
                 )
             )
             # Screening only: an operator statement is not a measured fit.
             loaded = record_fit_gate(record) == "already_loaded"
-            if (
-                loaded
-                or record["pre"]["decision"] != "CHECK"
-                or record["post"]["decision"] != "ADMIT"
-                or not known
-            ):
+            if loaded or record["pre"]["decision"] != "CHECK" or record["post"]["decision"] != "ADMIT" or not known:
                 pending.append(
                     dict(
                         record_id=record["record_id"],
@@ -1995,8 +1823,8 @@ def rank(records):
                         pre=record["pre"]["decision"],
                         post=record["post"]["decision"],
                         reason="Screening only: the operator stated the model was already loaded and serving; available memory was not measured, so this record is not ranked."
-                        if loaded else
-                        "Not eligible: fit, admissibility, hardware, model artifact, settings, complete coverage or normalized score is unknown or refused.",
+                        if loaded
+                        else "Not eligible: fit, admissibility, hardware, model artifact, settings, complete coverage or normalized score is unknown or refused.",
                         **({"fit_gate": "already_loaded"} if loaded else {}),
                         reasons=record["pre"]["reasons"] + record["post"]["reasons"],
                         baseline_id=record["baseline"]["record_id"] if record["baseline"] else None,
@@ -2011,12 +1839,9 @@ def rank(records):
             tests = [
                 (other, *_pair_verdict_validated(record, other, group["alpha"]))
                 for other in eligible
-                if other["record_id"] != record["record_id"]
-                and not screening_mismatches(record, other)
+                if other["record_id"] != record["record_id"] and not screening_mismatches(record, other)
             ]
-            ties = [
-                o["record_id"] for o, verdict, _ in tests if verdict == "INCONCLUSIVE"
-            ]
+            ties = [o["record_id"] for o, verdict, _ in tests if verdict == "INCONCLUSIVE"]
             dominated = any(verdict == "WORSE" for _, verdict, _ in tests)
             n = len(record["benchmarks"])
             rows.append(
@@ -2030,31 +1855,18 @@ def rank(records):
                     reasons=record["pre"]["reasons"] + record["post"]["reasons"],
                     quantization=record["model"]["quantization"],
                     label="fast check",
-                    normalized_score=math.fsum(
-                        b["normalized_score"] for b in record["benchmarks"]
-                    )
-                    / n,
+                    normalized_score=math.fsum(b["normalized_score"] for b in record["benchmarks"]) / n,
                     interval=[
-                        math.fsum(
-                            b["normalized_interval95"][i] for b in record["benchmarks"]
-                        )
-                        / n
-                        for i in (0, 1)
+                        math.fsum(b["normalized_interval95"][i] for b in record["benchmarks"]) / n for i in (0, 1)
                     ],
                     interval_basis="mean of component Wilson 95% endpoints; not a joint 95% interval",
                     benchmarks=screening_evidence(record),
                     tie_with=ties,
-                    verdict="INCONCLUSIVE"
-                    if ties or not tests
-                    else "WORSE"
-                    if dominated
-                    else "BETTER",
+                    verdict="INCONCLUSIVE" if ties or not tests else "WORSE" if dominated else "BETTER",
                     finalist=not dominated,
                     full_run="NOT_RUN",
                     comparisons=[
-                        dict(
-                            record_id=o["record_id"], model=o["model"]["name"], verdict=verdict, benchmarks=detail
-                        )
+                        dict(record_id=o["record_id"], model=o["model"]["name"], verdict=verdict, benchmarks=detail)
                         for o, verdict, detail in tests
                     ],
                 )
@@ -2096,9 +1908,7 @@ def main(argv=None):
     )
     sub = parser.add_subparsers(dest="command", required=True)
     p = sub.add_parser("plan")
-    p.add_argument(
-        "datasets", type=Path, help="JSON benchmark descriptors with local items"
-    )
+    p.add_argument("datasets", type=Path, help="JSON benchmark descriptors with local items")
     p.add_argument("--count", type=int, default=200)
     p.add_argument("--version", default=PLAN_VERSION)
     p.add_argument("--wall-budget-s", help="exact positive decimal seconds")
@@ -2108,9 +1918,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
     try:
         if args.command == "plan":
-            value = make_plan(
-                load(args.datasets), args.count, args.version, args.wall_budget_s
-            )
+            value = make_plan(load(args.datasets), args.count, args.version, args.wall_budget_s)
             # Exclusive creation protects a frozen plan from accidental replacement.
             with args.output.open("x", encoding="utf-8") as stream:
                 stream.write(json.dumps(value, indent=2, allow_nan=False) + "\n")

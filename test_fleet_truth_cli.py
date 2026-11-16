@@ -1,4 +1,5 @@
 """Bounded CLI projections retain the server's fleet evidence decisions."""
+
 import copy
 import json
 from pathlib import Path
@@ -31,8 +32,16 @@ class FleetTruthCliTests(unittest.TestCase):
         snapshot["inference"]["remoteMachines"] = {"state": "invalid", "detail": "private diagnostic"}
         snapshot["fleetState"] = build_fleet_state(snapshot, now=NOW)
         allowed = {"id", "host", "platform", "label", "observationSource", "replaces", "observedAt"}
-        normalized = {"state", "reasonCode", "modelsComplete", "loadedCount", "busyCount",
-                      "promptTokensPerSecond", "generationTokensPerSecond", "handsOff"}
+        normalized = {
+            "state",
+            "reasonCode",
+            "modelsComplete",
+            "loadedCount",
+            "busyCount",
+            "promptTokensPerSecond",
+            "generationTokensPerSecond",
+            "handsOff",
+        }
         originals = {}
         for row in snapshot["machines"]:
             if row.get("observationSource") == "registry":
@@ -45,8 +54,10 @@ class FleetTruthCliTests(unittest.TestCase):
                 continue
             original = originals[row["id"]]
             self.assertEqual(set(row), (set(original) & allowed) | normalized)
-            self.assertEqual({key: row[key] for key in allowed if key in row},
-                             {key: original[key] for key in allowed if key in original})
+            self.assertEqual(
+                {key: row[key] for key in allowed if key in row},
+                {key: original[key] for key in allowed if key in original},
+            )
             self.assertEqual((row["state"], row["reasonCode"]), ("unknown", "host_not_measured"))
             self.assertIsNone(row["loadedCount"])
             self.assertIsNone(row["busyCount"])
@@ -69,8 +80,7 @@ class FleetTruthCliTests(unittest.TestCase):
         snapshot["inference"]["nodes"] = []
         with patch.object(agiw_status, "build_fleet_state", side_effect=AssertionError("rebuilt served fleet")):
             result = agiw_status._summary(snapshot, NOW + 10)
-        self.assertEqual(result["fleetState"], {key: served[key]
-                         for key in ("summary", "counts", "completeness")})
+        self.assertEqual(result["fleetState"], {key: served[key] for key in ("summary", "counts", "completeness")})
 
     def test_cli_builds_fleet_only_when_server_contract_is_absent(self):
         snapshot = projected_snapshot()
@@ -78,18 +88,21 @@ class FleetTruthCliTests(unittest.TestCase):
         with patch.object(agiw_status, "build_fleet_state", wraps=build_fleet_state) as build:
             result = agiw_status._summary(snapshot, NOW)
         build.assert_called_once_with(snapshot, now=NOW)
-        self.assertEqual(result["fleetState"], {key: expected[key]
-                         for key in ("summary", "counts", "completeness")})
+        self.assertEqual(result["fleetState"], {key: expected[key] for key in ("summary", "counts", "completeness")})
 
     def test_cli_can_project_server_fleet_without_registry_membership(self):
         snapshot = legacy_snapshot()
-        snapshot["fleetState"] = {"summary": "Endpoint coverage unknown; no lane evidence",
-                                  "counts": {"lanes": 0, "answering": None},
-                                  "completeness": "partial", "facts": [{"evidence": "omit"}]}
+        snapshot["fleetState"] = {
+            "summary": "Endpoint coverage unknown; no lane evidence",
+            "counts": {"lanes": 0, "answering": None},
+            "completeness": "partial",
+            "facts": [{"evidence": "omit"}],
+        }
         with patch.object(agiw_status, "build_fleet_state", side_effect=AssertionError("rebuilt served fleet")):
             result = agiw_status._summary(snapshot, 1000)
-        self.assertEqual(result["fleetState"], {key: snapshot["fleetState"][key]
-                         for key in ("summary", "counts", "completeness")})
+        self.assertEqual(
+            result["fleetState"], {key: snapshot["fleetState"][key] for key in ("summary", "counts", "completeness")}
+        )
 
     def test_legacy_snapshot_without_fleet_or_registry_keeps_existing_shape(self):
         snapshot = legacy_snapshot()
