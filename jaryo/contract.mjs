@@ -73,15 +73,15 @@ export function checkPlatformVariants(tokens) {
   }
   if (!isDeepStrictEqual(tokens?.appliedChoiceFile, CHOICE_FILE)) problems.push('choice file name or SHA-256 drifted');
   if (!isDeepStrictEqual(tokens?.chosenFamilyIds, CHOSEN)) problems.push('chosen family IDs must equal all 17 owner choices');
-  if (!isDeepStrictEqual(tokens?.ownerOverrides, OVERRIDES)) problems.push('F17 owner override must record booklet red and 2026-11-11');
+  if (!isDeepStrictEqual(tokens?.ownerOverrides, OVERRIDES)) problems.push('F17 owner choice must record Copper and 2026-11-12');
   for (const [key, expected] of Object.entries(IMPLEMENTATION)) {
     if (!isDeepStrictEqual(tokens?.[key], expected)) problems.push(`owner choice implementation drifted: ${key}`);
   }
   const web = tokens?.variants?.web;
   if (web?.scope !== 'full-observer-web' || web?.fonts?.text !== 'IBM Plex Sans'
       || web?.fonts?.figures !== 'IBM Plex Mono' || web?.fontLicense !== 'SIL Open Font License 1.1'
-      || web?.accent !== '#C21A27' || JSON.stringify(web?.typeScalePx) !== '[13,21,34,55,89,144]') {
-    problems.push('web variant must record implemented Plex typography, booklet accent and six-step scale');
+      || web?.accent !== '#C47A3A' || JSON.stringify(web?.typeScalePx) !== '[13,14,16,20,28,28]') {
+    problems.push('web variant must record implemented Plex typography, Copper accent and readable five-role scale');
   }
   if (JSON.stringify(tokens?.variants?.android) !== '{"inherits":"foundation"}') {
     problems.push('Android must inherit the foundation without web overrides');

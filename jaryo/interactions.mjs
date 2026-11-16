@@ -98,7 +98,8 @@ export function mountChoicePipeline(host, config) {
   const close=choiceButton(doc,'Close',() => inspector.close()); close.classList.add('jp-sheet-close');
   close.dataset.focusKey='inspector-close';
   inspector.append(close,title,detail,controls); host.append(spine,inspector);
-  const media=doc.defaultView.matchMedia('(max-width: 700px)');
+  // Reserve the side column only when the station rows and inspector both fit.
+  const media=doc.defaultView.matchMedia('(max-width: 1199px)');
   let selected=steps.find(item => item.id===config.selectedId) || null;
   let opener=null, focusAfter=null;
   const buttons=new Map();
