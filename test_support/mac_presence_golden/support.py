@@ -1,0 +1,116 @@
+"""Deterministic snapshot replay and ordered observations for presence goldens."""
+
+import copy
+import math
+import operator
+from contextlib import ExitStack
+from unittest import mock
+
+_HELPERS = ("public_id", "_iso", "_mac_gpus", "_number", "mac_components")
+_ERRORS = {"ValueError": ValueError, "TypeError": TypeError, "OSError": OSError, "RuntimeError": RuntimeError}
+
+# These built-in operations own their messages; application errors stay literal.
+_INTERPRETER_OPERATIONS = {
+    "snapshot_string": lambda: operator.getitem("snapshot", "sampledAt"),
+    "sampled_none": lambda: float(None),
+    "sampled_object": lambda: float({}),
+    "sampled_list": lambda: float([]),
+    "sources_unhashable_id": lambda: dict.fromkeys([[]]),
+    "api_coverage_unhashable": lambda: set([[]]),
+    "cli_coverage_unhashable": lambda: set([[]]),
+    "cli_instance_unhashable": lambda: set([[]]),
+}
+
+
+def expected_outcome(case):
+    """Keep complete expectations, deriving only built-in TypeError wording locally."""
+    expected = copy.deepcopy(case["expected"])
+    operation = _INTERPRETER_OPERATIONS.get(case["name"])
+    if operation is not None:
+        if expected.get("error") != "TypeError":
+            raise ValueError("Interpreter message requires a TypeError expectation")
+        try:
+            operation()
+        except TypeError as error:
+            expected["message"] = str(error)
+        else:
+            raise AssertionError("Interpreter operation did not raise TypeError")
+    return expected
+
+
+def _decode(value):
+    if isinstance(value, dict):
+        if set(value) == {"$float"}:
+            return float(value["$float"])
+        return {key: _decode(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_decode(item) for item in value]
+    return value
+
+
+def _encode(value):
+    if isinstance(value, float) and not math.isfinite(value):
+        return {"$float": str(value)}
+    if isinstance(value, dict):
+        return {key: _encode(item) for key, item in value.items()}
+    if isinstance(value, (tuple, list)):
+        return [_encode(item) for item in value]
+    return value
+
+
+def run_case(module, case):
+    """Call the supplied implementation with fresh inputs and fail closed on I/O."""
+    snapshot = _decode(copy.deepcopy(case["snapshot"]))
+    original = _encode(copy.deepcopy(snapshot))
+    events = []
+    counts = dict.fromkeys(_HELPERS, 0)
+    fault = case.get("fault", {})
+    originals = {name: getattr(module, name) for name in _HELPERS}
+
+    def observe(name):
+        def call(*args, **kwargs):
+            events.append([name, _encode(copy.deepcopy(args)), _encode(copy.deepcopy(kwargs))])
+            counts[name] += 1
+            if fault.get("helper") == name and counts[name] == fault.get("at", 1):
+                raise _ERRORS[fault["error"]]("fixture helper failure")
+            return originals[name](*args, **kwargs)
+
+        return call
+
+    with ExitStack() as stack:
+        for target in (
+            "builtins.open",
+            "pathlib.Path.open",
+            "os.open",
+            "socket.socket",
+            "socket.create_connection",
+            "subprocess.Popen",
+            "subprocess.run",
+            "time.time",
+            "time.monotonic",
+            "time.sleep",
+        ):
+            stack.enter_context(mock.patch(target, side_effect=AssertionError("Unexpected external operation")))
+        for name in _HELPERS:
+            stack.enter_context(mock.patch.object(module, name, side_effect=observe(name)))
+        try:
+            result = module.mac_presence(
+                snapshot,
+                copy.deepcopy(case["host"]),
+                version=copy.deepcopy(case.get("version")),
+                dashboard_port=copy.deepcopy(case.get("dashboard_port")),
+            )
+            outcome = {"result": _encode(result)}
+        except (
+            AttributeError,
+            IndexError,
+            KeyError,
+            OSError,
+            OverflowError,
+            RuntimeError,
+            TypeError,
+            ValueError,
+        ) as error:
+            outcome = {"error": type(error).__name__, "message": str(error)}
+    outcome.update(events=events, inputsUnchanged=_encode(snapshot) == original)
+    return outcome
