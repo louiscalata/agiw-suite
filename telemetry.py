@@ -3481,43 +3481,10 @@ def _windows_job_evidence(job: dict[str, Any]) -> dict[str, Any]:
     return {key: list(job[key]) if key == "flags" else job[key] for key in _WINDOWS_JOB_EVIDENCE}
 
 
-def _windows_jobs(now: float) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Fold the dispatcher's local job journal into in-flight and recent jobs.
-
-    The journal holds no prompt or output text. A recorded success means the
-    dispatcher validated a returned remote result for that job at that time; it
-    is not a certification and does not prove the worker is generating now.
-    """
-    summary: dict[str, Any] = {
-        "schemaVersion": 1,
-        "journal": "absent",
-        "complete": False,
-        "inFlight": [],
-        "recent": [],
-        "lastSuccess": None,
-        "unsettled": None,
-        "clientsRecent": {},
-    }
-    source = {
-        "id": "windows-jobs",
-        "label": "Windows jobs",
-        "state": "unavailable",
-        "ageSeconds": None,
-        "detail": "No Windows job has been journaled on this Mac yet",
-    }
-    try:
-        journal = _read_windows_journal()
-        raw, truncated = journal if isinstance(journal, tuple) else (journal, not getattr(journal, "complete", True))
-    except (OSError, ValueError):
-        summary["journal"] = "invalid"
-        source.update(state="error", detail="Windows job journal is unreadable or not owner-private")
-        return summary, source
-    if raw is None:
-        return summary, source
+def _fold_windows_journal(lines: list[bytes], now: float) -> tuple[dict[str, dict[str, Any]], float | None, bool]:
     jobs: dict[str, dict[str, Any]] = {}
     latest: float | None = None
-    lines = raw.splitlines()
-    read_complete = not truncated and getattr(raw, "complete", True) and len(lines) <= 2000
+    read_complete = True
     for line in lines[-2000:]:
         if not line.strip():
             continue
@@ -3643,6 +3610,12 @@ def _windows_jobs(now: float) -> tuple[dict[str, Any], dict[str, Any]]:
                 else "unresolved",
                 settledUnix=unix,
             )
+    return jobs, latest, read_complete
+
+
+def _classify_windows_jobs(
+    jobs: dict[str, dict[str, Any]], now: float
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any] | None, int]:
     in_flight: list[dict[str, Any]] = []
     recent: list[dict[str, Any]] = []
     last_success: dict[str, Any] | None = None
@@ -3690,6 +3663,18 @@ def _windows_jobs(now: float) -> tuple[dict[str, Any], dict[str, Any]]:
             and (last_success is None or row["ageSeconds"] < last_success["ageSeconds"])
         ):
             last_success = row
+    return in_flight, recent, last_success, unsettled
+
+
+def _windows_jobs_report(
+    summary: dict[str, Any],
+    source: dict[str, Any],
+    read_complete: bool,
+    latest: float | None,
+    now: float,
+    classified: tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any] | None, int],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    in_flight, recent, last_success, unsettled = classified
     in_flight.sort(key=lambda row: row["ageSeconds"])
     recent.sort(key=lambda row: row["ageSeconds"])
     clients: dict[str, int] = {}
@@ -3743,6 +3728,47 @@ def _windows_jobs(now: float) -> tuple[dict[str, Any], dict[str, Any]]:
         detail=detail,
     )
     return summary, source
+
+
+def _windows_jobs(now: float) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Fold the dispatcher's local job journal into in-flight and recent jobs.
+
+    The journal holds no prompt or output text. A recorded success means the
+    dispatcher validated a returned remote result for that job at that time; it
+    is not a certification and does not prove the worker is generating now.
+    """
+    summary: dict[str, Any] = {
+        "schemaVersion": 1,
+        "journal": "absent",
+        "complete": False,
+        "inFlight": [],
+        "recent": [],
+        "lastSuccess": None,
+        "unsettled": None,
+        "clientsRecent": {},
+    }
+    source = {
+        "id": "windows-jobs",
+        "label": "Windows jobs",
+        "state": "unavailable",
+        "ageSeconds": None,
+        "detail": "No Windows job has been journaled on this Mac yet",
+    }
+    try:
+        journal = _read_windows_journal()
+        raw, truncated = journal if isinstance(journal, tuple) else (journal, not getattr(journal, "complete", True))
+    except (OSError, ValueError):
+        summary["journal"] = "invalid"
+        source.update(state="error", detail="Windows job journal is unreadable or not owner-private")
+        return summary, source
+    if raw is None:
+        return summary, source
+    lines = raw.splitlines()
+    read_complete = not truncated and getattr(raw, "complete", True) and len(lines) <= 2000
+    jobs, latest, lines_complete = _fold_windows_journal(lines, now)
+    read_complete = read_complete and lines_complete
+    classified = _classify_windows_jobs(jobs, now)
+    return _windows_jobs_report(summary, source, read_complete, latest, now, classified)
 
 
 _JEV_CACHE: dict[str, Any] = {"key": None, "when": None, "model": None}
