@@ -34,6 +34,7 @@ from typing import Any, Callable
 
 import peer_link
 from machine_state import PEER_FUTURE_SKEW
+from machine_state import utc_iso_milliseconds as _iso
 
 SHARE_STATUS = Path("/Volumes/SharedChami/llm-lab/status")
 FRESH_SECONDS = 30.0
@@ -975,10 +976,6 @@ def windows_feed(now: float) -> tuple[dict | None, dict]:
         "ageSeconds": None,
         "detail": f"Not linked: peer link not connected{f' ({lan_note})' if lan_note else ''}; {why}",
     }
-
-
-def _iso(ts: float) -> str:
-    return time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(ts)) + f".{int(ts % 1 * 1000):03d}Z"
 
 
 def _strip_model_suffix(name: str) -> str:

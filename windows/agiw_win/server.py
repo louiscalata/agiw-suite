@@ -35,7 +35,7 @@ if _INFERENCE_ROOT is not None and str(_INFERENCE_ROOT) not in sys.path:
 from inference_collect import RateMemory, attach, vram_from_gpus, collector_diagnostic
 from inference_stats import expire_map
 from fleet_state import build_fleet_state
-from machine_state import CLOCK_SKEW_SECONDS, expire_machines, finite_number
+from machine_state import CLOCK_SKEW_SECONDS, expire_machines, find_jaryo_root, finite_number
 import eci_tuning
 
 AGED_REASONS = {"stale": "stale", "clock_skew": "clock-ahead", "schema_invalid": "report-refused"}
@@ -113,11 +113,7 @@ JARYO_FILES = {
 
 
 def jaryo_root() -> Path:
-    here = Path(__file__).resolve().parent
-    for candidate in (here / "jaryo", here.parent / "jaryo", here.parent.parent / "jaryo"):
-        if (candidate / "tokens.json").is_file():
-            return candidate
-    return here / "jaryo"
+    return find_jaryo_root(__file__)
 
 
 _INFERENCE_RATES = RateMemory()

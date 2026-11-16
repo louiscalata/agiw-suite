@@ -35,7 +35,7 @@ from local_callers import LocalCallers
 from mem_guard import Guard, LevelFile, unknown_block
 from bundled_components import BundledComponents
 from jev_connection import JevConnection
-from machine_state import CLOCK_SKEW_SECONDS, FRESH_SECONDS, expire_machines, finite_number, platform_name
+from machine_state import CLOCK_SKEW_SECONDS, FRESH_SECONDS, expire_machines, find_jaryo_root, finite_number, platform_name
 from inference_collect import RateMemory, attach, vram_from_reading, collector_diagnostic
 from inference_stats import expire_map
 from fleet_state import build_fleet_state
@@ -97,11 +97,7 @@ JARYO_FILES = {
 
 
 def jaryo_root():
-    here = Path(__file__).resolve().parent
-    for candidate in (here / 'jaryo', here.parent / 'jaryo', here.parent.parent / 'jaryo'):
-        if (candidate / 'tokens.json').is_file():
-            return candidate
-    return here / 'jaryo'
+    return find_jaryo_root(__file__)
 ACTIVE = {'generating', 'busy'}
 _INFERENCE_RATES = RateMemory()
 KNOWN_ACTIVITY = ACTIVE | {'idle'}

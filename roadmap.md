@@ -1,5 +1,15 @@
 # AGIW Suite roadmap and release evidence
 
+## Shared helpers phase 2 — 15 November 2026
+
+- [x] Recheck fresh main `4905bcb`: the numeric helpers and fleet/remote UTC aliases are already shared. Inventory exact production function bodies before selecting changes: 10 cross-file groups / 24 functions; after this lane, 9 / 22 remain, including the two deliberate caller-local Jaryo delegates.
+- [x] Share the peer timestamp implementation in `machine_state.utc_iso_milliseconds` for `peer_feed`, retain the separate datetime format in `utc_iso`, and delegate `inference_collect._iso` without losing `when=`. Share Jaryo lookup through `find_jaryo_root(source_file)` with each observer passing its own file. The existing Mac, Windows and CLI inventories already ship this module.
+- [x] Keep `peer_link._iso` as its own local body: `peer_link.py` stays stdlib-only, because the native composition harness copies it alone into an isolated `python -I` child. The exact-body inventory does not count this copy, since the shared function carries a docstring. `mem_guard` stays standalone for the same reason.
+- [x] Add 13 regression tests with frozen old bodies: 29 timestamp inputs, a three-way peer comparison, explicit format differences, preserved private keywords, a stdlib-only import check for `peer_link`, eight filesystem layouts, caller anchors, source and Jaryo-directory symlinks, and invalid inputs. They pass on Python 3.15.2 and 3.9.6.
+- [x] Full suites in the lane checkout, run one after another: root 2,166 tests (28 skips), Windows 593 (77 skips), CLI 222 (one skip), Node 1,089 passed, with no failures. Ruff 0.17.4 check and format check pass for all 171 in-scope files. The edits to the protected server, machine-state and Windows sources stay minimal.
+- [x] Two independent Claude verifiers reviewed the lane: the behaviour review said LAND, and the coupling review's `peer_link` fix is applied. The lane is staged for Codex to land.
+- [ ] Native Windows execution, app builds/installs, browser/device checks, live inference and hosted CI are NOT_RUN in this lane.
+
 ## Python conventions preparation — 15 November 2026
 
 - [ ] Prepare the Ruff 0.17.4 format and lint lane with Python 3.9 syntax, 120 columns, double quotes and an exact-file lint baseline. Keep hashed, pinned, vendored, generated and evidence bytes excluded. The docstring-normalising AST comparison and the root, Windows and CLI unittest comparison establish the source result; record their completed counts in the lane review.

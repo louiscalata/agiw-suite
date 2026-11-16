@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import datetime as dt
 import math
+import time
+from pathlib import Path
 
 
 CLOCK_SKEW_SECONDS = 1.0  # matches the browser run-evidence views; never extends the expiry window
@@ -26,6 +28,20 @@ def finite_number(value):
 
 def utc_iso(seconds):
     return dt.datetime.fromtimestamp(seconds, dt.timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def utc_iso_milliseconds(ts: float) -> str:
+    """Keep the peer protocol's three-digit, truncated UTC timestamp format."""
+    return time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(ts)) + f".{int(ts % 1 * 1000):03d}Z"
+
+
+def find_jaryo_root(source_file: str | Path) -> Path:
+    """Find Jaryo beside a caller's resolved source file or its two ancestors."""
+    here = Path(source_file).resolve().parent
+    for candidate in (here / "jaryo", here.parent / "jaryo", here.parent.parent / "jaryo"):
+        if (candidate / "tokens.json").is_file():
+            return candidate
+    return here / "jaryo"
 
 
 def platform_name(value):
