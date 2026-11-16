@@ -111,7 +111,7 @@ function oklchChroma(body) {
   return scaledChroma(chroma * Math.cos(radians), chroma * Math.sin(radians), alpha);
 }
 
-// Only the opaque booklet accent is admitted, and only at display roles by the
+// Only the opaque owner-selected accent is admitted, and only at display roles by the
 // caller. Unknown serializations keep failing closed through chromaOf.
 function isOpaqueHexColor(color, hex) {
   const match = String(color ?? '').trim().toLowerCase().match(/^rgba?\(([^()]*)\)$/);

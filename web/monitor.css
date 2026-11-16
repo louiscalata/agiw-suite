@@ -3,7 +3,24 @@ body.jaryo-app { height: auto; min-height: 100%; overflow: auto; }
 #mapLedger.j-board { position: relative; left: auto; right: auto; bottom: auto; max-height: none; margin: 16px; }
 #map { display: block; }
 .node { cursor: pointer; }
-.node text { font-size: 12px; }
-.node .sub { font-size: 11px; }
+.node text { font-size: 14px; }
+.node .sub { font-size: 13px; }
 #tunnel { margin: 0; padding: 8px 16px; color: var(--j-muted); }
 .j-map #detail[hidden] { display: none; }
+
+/* Preserve readable graph labels; the named map region scrolls when necessary. */
+.j-map { overflow-x:auto; }
+.j-map #map { min-width:720px; }
+/* With the detail column open the map track keeps that minimum, so the region scrolls instead of the graph running under the detail text. */
+@media (min-width:1200px) {
+  body.jaryo-app .j-map:has(#detail:not([hidden])) { grid-template-columns:minmax(720px,1.4fr) minmax(260px,.8fr); }
+}
+
+@media (max-width:1199px) {
+  .j-map { grid-template-columns:minmax(0,1fr); }
+  .j-map #detail:not([hidden]) { position:fixed; z-index:12; inset:auto 0 0; max-height:70dvh;
+    overflow:auto; border:1px solid var(--j-border); background:var(--j-surface); }
+}
+@media (max-width:700px) {
+  .j-map #detail:not([hidden]) { bottom:var(--j-nav-clear,0px); }
+}

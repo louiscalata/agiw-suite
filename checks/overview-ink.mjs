@@ -92,7 +92,7 @@ try {
       }
       return hits;
     });
-    const colored = paints.filter(paint => chromaOf(paint.value) > 18 && !isChoiceInk(paint.value, {...paint, scheme}) && !(paint.accentAllowed && isWebAccent(paint.value))).slice(0, 12);
+    const colored = paints.filter(paint => chromaOf(paint.value) > 18 && !isChoiceInk(paint.value, {...paint, scheme}) && !(paint.accentAllowed && paint.prop === 'backgroundColor' && isWebAccent(paint.value))).slice(0, 12);
     if (colored.length) failures.push({ width, scheme, colored });
     // Multiple fictional tabs exercise wrapping without depending on the CI host's clients.
     await page.goto(`http://127.0.0.1:${port}/?demo=1`, { waitUntil: 'domcontentloaded' });

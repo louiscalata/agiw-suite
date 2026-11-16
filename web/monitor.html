@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1, viewport-fit=cover">
 <title>AGIW Inference Monitor</title>
 <link rel="icon" href="/jaryo/marks/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/jaryo.css">
@@ -33,9 +33,10 @@
 <p id="tunnel" role="status">Reading the monitor feed.</p>
 <p class="j-hint" id="mapTabHint">Arrow keys switch map monitors. Switching does not pause, cancel, or restart inference. Route sessions are on the overview.</p>
 <div id="monitorTabs" class="j-tabs" role="tablist" aria-label="Inference map monitors" aria-describedby="mapTabHint" data-jaryo-tabs="1"></div>
-<div class="j-map" id="content" tabindex="-1">
+<div class="j-map" id="content" role="region" aria-label="Machine and model map" tabindex="0">
   <svg id="map" role="img" aria-label="Machines and model servers"></svg>
-  <section id="detail" hidden>
+  <section id="detail" aria-labelledby="detailTitle" hidden>
+    <button id="detailClose" type="button">Close details</button>
     <h2 id="detailTitle"></h2>
     <dl id="detailFacts"></dl>
   </section>

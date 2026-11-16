@@ -7,7 +7,7 @@
 .jp-port { align-self: flex-start; position: relative; margin: -24px 0 8px; padding: 0 8px; color: inherit; background: inherit; font: 13px var(--j-mono); }
 .jp-port:last-child { align-self: flex-end; margin: 8px 0 -24px; }
 .jp-name { color: inherit; font: 700 16px var(--j-font); overflow-wrap: anywhere; }
-.jp-subline, body.jaryo-app .jp-subline { display: block; font-family: var(--j-mono) !important; font-size: 13px !important; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jp-subline, body.jaryo-app .jp-subline { display: block; font-family: var(--j-mono) !important; font-size: 13px !important; max-width: 100%; overflow: visible; white-space: normal; overflow-wrap: anywhere; }
 .jp-step:focus .jp-subline, .jp-step[aria-pressed="true"] .jp-subline, .jp-inspector .jp-subline { white-space: normal; overflow-wrap: anywhere; }
 .jp-state, body.jaryo-app .jp-state { color: var(--j-text); white-space: normal; overflow: visible; font-size: 13px !important; }
 .jp-step[data-neighbour]:not([data-neighbour=""]) { border-width: 2px; color: var(--j-text); }
@@ -54,15 +54,16 @@
 .jp-ledger [data-state="RUNNING"] > * { background: var(--j-invert); color: var(--j-invert-ink); }
 .jp-install { padding: 16px; border: 1px solid var(--j-border); background: var(--j-surface); color: var(--j-text); }
 .jp-install code { overflow-wrap: anywhere; }
-@media (min-width: 701px) and (max-width: 1099px) {
-  .jp-workbench { gap: 12px; grid-template-columns: minmax(0, 1fr) var(--j-inspector-min); }
+@media (max-width: 1199px) {
+  .jp-workbench { grid-template-columns: minmax(0, 1fr); }
+  .jp-inspector[open] { position: fixed; inset: 0; width: 100%; height: 100dvh; max-height: 100dvh; max-width: 100%; padding: max(20px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); overflow-y: auto; }
+  .jp-sheet-close { display: block; margin-bottom: 16px; }
 }
 @media (max-width: 700px) {
-  .jp-workbench { grid-template-columns: minmax(0, 1fr); padding-bottom: calc(var(--j-thumb-bar) + env(safe-area-inset-bottom)); }
+  .jp-workbench { padding-bottom: calc(var(--j-thumb-bar) + env(safe-area-inset-bottom)); }
   .jp-port { margin: 0; padding: 0; }
   .jp-port:last-child { margin: 0; }
   .jp-inspector[open] { position: fixed; inset: 0; width: 100%; height: 100dvh; max-height: 100dvh; max-width: 100%; padding: max(20px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) calc(var(--j-thumb-bar) + 24px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); overflow-y: auto; }
-  .jp-sheet-close { display: block; margin-bottom: 16px; }
   .jp-pager { position: fixed; inset: auto 0 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); flex-wrap: nowrap; margin: 0; height: calc(var(--j-thumb-bar) + env(safe-area-inset-bottom)); padding: 0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); background: var(--j-bg); border-top: 2px solid var(--j-border); z-index: 10; }
   .jp-pager button, body.jaryo-app .jp-pager button { font-size: 13px !important; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .jp-palette { position: fixed; inset: 0; margin: 0; width: 100%; height: 100dvh; max-height: 100dvh; padding: max(20px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(20px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
@@ -86,10 +87,6 @@
   .jk-shell .jp-step[data-state="BLOCKED"][aria-pressed="true"] { border-left-color: HighlightText; color: HighlightText; }
 }
 .jp-inspector, .jp-palette, .jp-branches { font: 14px/1.45 var(--j-font); }
-@media (min-width: 701px) and (max-width: 1099px) {
-  .jp-spine { overflow-x: auto; }
-  .jp-spine .jp-step { min-width: 300px; }
-}
 /* Neighbour outlines must not narrow a blocked node's double rule. */
 .jp-step[data-state="BLOCKED"][data-neighbour], .jk-shell .jp-step[data-state="BLOCKED"][data-neighbour] { border-left-width: 6px; }
 .jp-button { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }

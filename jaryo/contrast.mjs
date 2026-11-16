@@ -21,7 +21,7 @@ export function contrastPairs(tokens) {
     pair('status_blocked','status_blocked_bg',4.5,'blocked body and hatch');
     for (const fg of ['selected_fg','sel_sub','sel_blocked','sel_run']) pair(fg,'selected_bg',4.5,'selected body');
     pair('accent_ink','accent_identity',4.5,'brand and primary label');
-    // The red fill has an explicit page-ink boundary; red alone is not a UI boundary.
+    // The accent fill retains an explicit page-ink boundary.
     pair('text','accent_identity',3,'primary boundary (inner edge)');
     pair('focus_ring','status_blocked_bg',3,'blocked outer focus');
   }

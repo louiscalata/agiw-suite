@@ -13,11 +13,11 @@ test('the implemented web variant is scoped separately from the Android foundati
   for (const family of Object.values(tokens.variants.web.fonts)) {
     assert.ok(css.includes(`font-family: "${family}"`), family);
   }
-  const finalScale = css.slice(css.indexOf('Six steps, none under 12px'), css.indexOf('/* Fleet landing:'));
-  const sizes = [...finalScale.matchAll(/--j-size-\d:\s*(\d+)px;/g)].map(match => Number(match[1]));
+  const sizes = [...css.matchAll(/--j-web-size-\d:\s*(\d+)px;/g)].map(match => Number(match[1]));
   assert.deepEqual(sizes, tokens.variants.web.typeScalePx);
+  for (let i = 1; i <= 6; i++) assert.ok(css.includes(`--j-size-${i}: var(--j-web-size-${i});`));
   assert.match(read('./android/app/src/main/res/values/themes.xml'), /android:fontFamily">@font\/inter</);
-  assert.doesNotMatch(read('./android/app/src/main/res/values/colors.xml'), /C21A27|c21a27/);
+  assert.doesNotMatch(read('./android/app/src/main/res/values/colors.xml'), /C47A3A|c47a3a/);
 });
 
 test('variant validation rejects cross-platform drift and invented approvals', () => {
@@ -44,7 +44,7 @@ test('variant validation rejects cross-platform drift and invented approvals', (
 // then require a matching explicit selector in the final Mono override. A rule
 // for a nonexistent dd is insufficient. This source check does not claim native computed-font verification.
 function assertOverviewCounterFonts(html, css) {
-  const finalScale = css.slice(css.indexOf('Six steps, none under 12px'));
+  const finalScale = css.slice(css.indexOf('Five readable roles across every monitor screen'));
   const monoRule = [...finalScale.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
     .find(([, , declarations]) => /font-family:\s*"IBM Plex Mono"[^;]*!important;/.test(declarations));
   assert.ok(monoRule, 'final Mono override exists after the blanket Sans rule');

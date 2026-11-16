@@ -40,11 +40,11 @@
   --j-text: #F4F1EA;
   --j-muted: #9AA3A8;
   --j-border: #5A676C;
-  --j-focus: #E8D7A8;
+  --j-focus: #C47A3A;
   --j-invert: #F4F1EA;
   --j-invert-ink: #0B1012;
-  --j-accent: #C21A27;
-  --j-accent-ink: #FFFFFF;
+  --j-accent: #C47A3A;
+  --j-accent-ink: #000000;
   --j-status-ok: #8FC4A0;
   --j-status-run: #8FB4D6;
   --j-status-blocked: #FFD2C8;
@@ -56,6 +56,12 @@
   --j-grid: transparent;
   --j-font: "IBM Plex Sans", "Liberation Sans", "Noto Sans", sans-serif;
   --j-mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace;
+  --j-web-size-1: 13px;
+  --j-web-size-2: 14px;
+  --j-web-size-3: 16px;
+  --j-web-size-4: 20px;
+  --j-web-size-5: 28px;
+  --j-web-size-6: 28px;
   --j-motion: 0ms;
   --j-thumb-bar: 56px;
   --j-inspector-min: 340px;
@@ -70,11 +76,11 @@
   --j-text: #000000;
   --j-muted: #000000;
   --j-border: #000000;
-  --j-focus: #000000;
+  --j-focus: #C47A3A;
   --j-invert: #000000;
   --j-invert-ink: #FFFFFF;
-  --j-accent: #C21A27;
-  --j-accent-ink: #FFFFFF;
+  --j-accent: #C47A3A;
+  --j-accent-ink: #000000;
   --j-status-ok: #000000;
   --j-status-run: #000000;
   --j-status-blocked: #000000;
@@ -92,11 +98,11 @@ html[data-theme="dark"] {
   --j-text: #F4F1EA;
   --j-muted: #9AA3A8;
   --j-border: #5A676C;
-  --j-focus: #E8D7A8;
+  --j-focus: #C47A3A;
   --j-invert: #F4F1EA;
   --j-invert-ink: #0B1012;
-  --j-accent: #C21A27;
-  --j-accent-ink: #FFFFFF;
+  --j-accent: #C47A3A;
+  --j-accent-ink: #000000;
   --j-status-ok: #8FC4A0;
   --j-status-run: #8FB4D6;
   --j-status-blocked: #FFD2C8;
@@ -113,11 +119,11 @@ html[data-theme="light"] {
   --j-text: #000000;
   --j-muted: #000000;
   --j-border: #000000;
-  --j-focus: #000000;
+  --j-focus: #C47A3A;
   --j-invert: #000000;
   --j-invert-ink: #FFFFFF;
-  --j-accent: #C21A27;
-  --j-accent-ink: #FFFFFF;
+  --j-accent: #C47A3A;
+  --j-accent-ink: #000000;
   --j-status-ok: #000000;
   --j-status-run: #000000;
   --j-status-blocked: #000000;
@@ -1495,16 +1501,14 @@ body.jaryo-app input::placeholder {
 }
 
 /* style.css still supplies the overview structure. These steps replace its
-   palette and its 7px-and-up sizes. Six steps, none under 12px.
-   Fibonacci jumps from the Typography 1 proportion study:
-   13 meta, 21 body, 34 title, 55 wordmark, 89 headline, 144 poster. */
+   palette and type scale. Five readable roles across every monitor screen. */
 body.jaryo-app {
-  --j-size-1: 13px;
-  --j-size-2: 21px;
-  --j-size-3: 34px;
-  --j-size-4: 55px;
-  --j-size-5: 89px;
-  --j-size-6: 144px;
+  --j-size-1: var(--j-web-size-1);
+  --j-size-2: var(--j-web-size-2);
+  --j-size-3: var(--j-web-size-3);
+  --j-size-4: var(--j-web-size-4);
+  --j-size-5: var(--j-web-size-5);
+  --j-size-6: var(--j-web-size-6);
   font-size: var(--j-size-2);
   font-family: "IBM Plex Sans", "Liberation Sans", "Noto Sans", sans-serif;
 }
@@ -1699,7 +1703,7 @@ body.jaryo-app .jp-ledger *, body.jaryo-app .jp-subline, body.jaryo-app .jp-port
 .jp-port { align-self: flex-start; position: relative; margin: -24px 0 8px; padding: 0 8px; color: inherit; background: inherit; font: 13px var(--j-mono); }
 .jp-port:last-child { align-self: flex-end; margin: 8px 0 -24px; }
 .jp-name { color: inherit; font: 700 16px var(--j-font); overflow-wrap: anywhere; }
-.jp-subline, body.jaryo-app .jp-subline { display: block; font-family: var(--j-mono) !important; font-size: 13px !important; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jp-subline, body.jaryo-app .jp-subline { display: block; font-family: var(--j-mono) !important; font-size: 13px !important; max-width: 100%; overflow: visible; white-space: normal; overflow-wrap: anywhere; }
 .jp-step:focus .jp-subline, .jp-step[aria-pressed="true"] .jp-subline, .jp-inspector .jp-subline { white-space: normal; overflow-wrap: anywhere; }
 .jp-state, body.jaryo-app .jp-state { color: var(--j-text); white-space: normal; overflow: visible; font-size: 13px !important; }
 .jp-step[data-neighbour]:not([data-neighbour=""]) { border-width: 2px; color: var(--j-text); }
@@ -1746,15 +1750,16 @@ body.jaryo-app .jp-ledger *, body.jaryo-app .jp-subline, body.jaryo-app .jp-port
 .jp-ledger [data-state="RUNNING"] > * { background: var(--j-invert); color: var(--j-invert-ink); }
 .jp-install { padding: 16px; border: 1px solid var(--j-border); background: var(--j-surface); color: var(--j-text); }
 .jp-install code { overflow-wrap: anywhere; }
-@media (min-width: 701px) and (max-width: 1099px) {
-  .jp-workbench { gap: 12px; grid-template-columns: minmax(0, 1fr) var(--j-inspector-min); }
+@media (max-width: 1199px) {
+  .jp-workbench { grid-template-columns: minmax(0, 1fr); }
+  .jp-inspector[open] { position: fixed; inset: 0; width: 100%; height: 100dvh; max-height: 100dvh; max-width: 100%; padding: max(20px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); overflow-y: auto; }
+  .jp-sheet-close { display: block; margin-bottom: 16px; }
 }
 @media (max-width: 700px) {
-  .jp-workbench { grid-template-columns: minmax(0, 1fr); padding-bottom: calc(var(--j-thumb-bar) + env(safe-area-inset-bottom)); }
+  .jp-workbench { padding-bottom: calc(var(--j-thumb-bar) + env(safe-area-inset-bottom)); }
   .jp-port { margin: 0; padding: 0; }
   .jp-port:last-child { margin: 0; }
   .jp-inspector[open] { position: fixed; inset: 0; width: 100%; height: 100dvh; max-height: 100dvh; max-width: 100%; padding: max(20px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) calc(var(--j-thumb-bar) + 24px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); overflow-y: auto; }
-  .jp-sheet-close { display: block; margin-bottom: 16px; }
   .jp-pager { position: fixed; inset: auto 0 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); flex-wrap: nowrap; margin: 0; height: calc(var(--j-thumb-bar) + env(safe-area-inset-bottom)); padding: 0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); background: var(--j-bg); border-top: 2px solid var(--j-border); z-index: 10; }
   .jp-pager button, body.jaryo-app .jp-pager button { font-size: 13px !important; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .jp-palette { position: fixed; inset: 0; margin: 0; width: 100%; height: 100dvh; max-height: 100dvh; padding: max(20px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(20px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
@@ -1778,10 +1783,6 @@ body.jaryo-app .jp-ledger *, body.jaryo-app .jp-subline, body.jaryo-app .jp-port
   .jk-shell .jp-step[data-state="BLOCKED"][aria-pressed="true"] { border-left-color: HighlightText; color: HighlightText; }
 }
 .jp-inspector, .jp-palette, .jp-branches { font: 14px/1.45 var(--j-font); }
-@media (min-width: 701px) and (max-width: 1099px) {
-  .jp-spine { overflow-x: auto; }
-  .jp-spine .jp-step { min-width: 300px; }
-}
 /* Neighbour outlines must not narrow a blocked node's double rule. */
 .jp-step[data-state="BLOCKED"][data-neighbour], .jk-shell .jp-step[data-state="BLOCKED"][data-neighbour] { border-left-width: 6px; }
 .jp-button { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
@@ -1955,4 +1956,82 @@ body.jaryo-app.fleet-ledger .evidence-rail > .panel { max-height:100%; }
     grid-column:1;
     grid-row:4;
   }
+}
+
+/* Monitor visual roles and narrow-screen reflow. Data stays in the existing views. */
+body.jaryo-app { font-size:14px !important; line-height:1.45; }
+/* Every page sets viewport-fit=cover; keep content clear of the side sensor housing in landscape. */
+body.jaryo-app { padding-left:env(safe-area-inset-left,0px); padding-right:env(safe-area-inset-right,0px); }
+body.jaryo-app h1, body.jaryo-app .sidebar h1 { font-size:28px !important; line-height:1.2; }
+body.jaryo-app h2, body.jaryo-app .j-board-title, body.jaryo-app .evidence-rail .panel-head h2 { font-size:20px !important; }
+body.jaryo-app h3, body.jaryo-app .j-machine-title, body.jaryo-app .j-setup-title { font-size:16px !important; }
+body.jaryo-app .j-hint, body.jaryo-app .j-footnote, body.jaryo-app .j-note,
+body.jaryo-app .j-reason, body.jaryo-app .j-step-detail, body.jaryo-app .j-step-reason,
+body.jaryo-app .j-machine-host, body.jaryo-app .j-eyebrow { font-size:13px !important; }
+body.jaryo-app .j-machine-facts, body.jaryo-app .j-machine-lane,
+body.jaryo-app .j-tab, body.jaryo-app .j-theme { font-size:14px !important; }
+body.jaryo-app :is(#monitorTabHint,#mapTabHint).j-hint { position:static; width:auto; height:auto; margin:0; padding:4px 16px; overflow:visible; clip-path:none; white-space:normal; }
+body.jaryo-app .j-machine-grid { grid-template-columns:repeat(auto-fill,minmax(min(100%,16rem),1fr)); }
+body.jaryo-app .j-machine-facts, body.jaryo-app .j-machine-lane { min-width:0; }
+body.jaryo-app .j-machine-facts dd, body.jaryo-app .j-machine-lane > * { min-width:0; overflow-wrap:anywhere; }
+body.jaryo-app .j-machine-host, body.jaryo-app .j-lane-model, body.jaryo-app code,
+body.jaryo-app .fleet-table { font-family:var(--j-mono) !important; overflow-wrap:anywhere; }
+body.jaryo-app button, body.jaryo-app select, body.jaryo-app summary { min-height:44px; }
+body.jaryo-app .evidence-rail .panel-head .panel-close { width:44px; height:44px; }
+body.jaryo-app .evidence-rail .panel-body p, body.jaryo-app .evidence-rail .panel-body dd,
+body.jaryo-app .evidence-rail .panel-body dt, body.jaryo-app .evidence-rail .panel-actions button { font-size:14px !important; }
+body.jaryo-app .evidence-rail .inspect-id, body.jaryo-app .evidence-rail small { font-size:13px !important; }
+@media (max-width:800px) {
+  body.jaryo-app .topbar, body.jaryo-app .j-tabs { min-height:0; }
+  body.jaryo-app .j-machine-lane { grid-template-columns:minmax(0,1fr); }
+  body.jaryo-app .j-lane-health { grid-column:1; grid-row:auto; }
+}
+@media (max-width:1199px) {
+  body.jaryo-app.fleet-ledger .evidence-rail { inset:auto 0 0; width:100%; max-height:min(70dvh,600px); }
+}
+@media (max-width:700px) {
+  /* --j-nav-clear is the height of the fixed bottom nav; everything pinned above it reads this one value. */
+  body.jaryo-app { --j-nav-clear:calc(56px + env(safe-area-inset-bottom,0px)); padding-bottom:calc(var(--j-nav-clear) + 8px); }
+  body.jaryo-app > .j-nav { box-sizing:border-box; position:fixed; inset:auto 0 0; z-index:15; width:100%; min-width:0;
+    min-height:56px; max-height:none; display:flex; flex-flow:row nowrap; align-items:center;
+    gap:4px; padding:4px max(8px,env(safe-area-inset-right)) calc(4px + env(safe-area-inset-bottom)) max(8px,env(safe-area-inset-left));
+    overflow-x:auto; overflow-y:hidden; border-top:1px solid var(--j-border); background:var(--j-bg); }
+  body.jaryo-app > .j-nav a, body.jaryo-app > .j-nav .j-theme, body.jaryo-app > .j-nav > .jp-button { flex:0 0 auto; white-space:nowrap; }
+  body.jaryo-app > .j-nav a { min-width:44px; padding-inline:8px; }
+  body.jaryo-app > .j-nav .j-theme { margin:0; }
+  body.jaryo-app .jp-pager { bottom:var(--j-nav-clear); }
+  /* The modal sheet covers the nav, so its pager goes back to the bottom edge the sheet reserves room for. */
+  body.jaryo-app .jp-inspector[open] .jp-pager { bottom:0; }
+  body.jaryo-app .jp-workbench { padding-bottom:calc(var(--j-nav-clear) + 64px); }
+  body.jaryo-app.fleet-ledger .evidence-rail { inset:auto 0 var(--j-nav-clear); width:100%; max-height:min(70dvh,600px); }
+  /* Enlarged text: a fixed bar would wrap into a tall overlay, so the nav returns to the page flow and nothing reserves room for it. */
+  html:is([data-text-size="150"],[data-text-size="200"]) body.jaryo-app { --j-nav-clear:0px; padding-bottom:env(safe-area-inset-bottom,0px); }
+  html:is([data-text-size="150"],[data-text-size="200"]) body.jaryo-app > .j-nav { position:static; inset:auto; z-index:auto;
+    min-height:0; flex-wrap:wrap; gap:8px 12px; padding:8px 12px; overflow:visible; border-top:0; }
+  html:is([data-text-size="150"],[data-text-size="200"]) body.jaryo-app > .j-nav :is(a,.j-theme,.jp-button) { flex:0 1 auto; max-width:100%; white-space:normal; }
+  html:is([data-text-size="150"],[data-text-size="200"]) body.jaryo-app .jp-workbench { padding-bottom:calc(var(--j-thumb-bar) + env(safe-area-inset-bottom,0px)); }
+}
+
+/* Keep ledger values readable in the existing native table at phone widths. */
+body.jaryo-app .fleet-table td, body.jaryo-app .fleet-table td *,
+body.jaryo-app .fleet-id, body.jaryo-app .j-lane-model { font-family:var(--j-mono) !important; }
+body.jaryo-app .j-map .node .sub { font-size:13px !important; }
+body.jaryo-app .j-map .node circle.not_measured,
+body.jaryo-app .j-map .node circle.down { fill:none; stroke:var(--j-text); }
+body.jaryo-app .j-map .node circle.not_measured { stroke-dasharray:2 2; }
+body.jaryo-app .j-map .node circle.degraded { fill:none; stroke:var(--j-text); stroke-width:2; }
+body.jaryo-app .j-map:not(:has(#detail:not([hidden]))) { grid-template-columns:minmax(0,1fr); }
+@media (max-width:700px) {
+  body.jaryo-app.fleet-ledger .fleet-table:is(table) { min-width:0; display:block; }
+  body.jaryo-app.fleet-ledger table.fleet-table thead { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
+  body.jaryo-app.fleet-ledger table.fleet-table tbody,
+  body.jaryo-app.fleet-ledger table.fleet-table tr,
+  body.jaryo-app.fleet-ledger table.fleet-table th,
+  body.jaryo-app.fleet-ledger table.fleet-table td { display:block; width:auto; min-width:0; }
+  body.jaryo-app.fleet-ledger table.fleet-table tr { border-bottom:1px solid var(--j-border); }
+  body.jaryo-app.fleet-ledger table.fleet-table td::before { display:block; font:700 13px var(--j-font); }
+  body.jaryo-app.fleet-ledger table.fleet-table td:nth-of-type(1)::before { content:'Lane / ID'; }
+  body.jaryo-app.fleet-ledger table.fleet-table td:nth-of-type(2)::before { content:'Reported model'; }
+  body.jaryo-app.fleet-ledger table.fleet-table td:nth-of-type(3)::before { content:'Endpoint evidence / age'; }
+  body.jaryo-app.fleet-ledger table.fleet-table td:nth-of-type(4)::before { content:'Why not answering'; }
 }
