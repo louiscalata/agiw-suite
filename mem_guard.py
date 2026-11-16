@@ -1201,6 +1201,87 @@ def _quiet_swap_evidence(state: dict, cfg: dict, evidence: Any) -> bool:
     return 0 <= swapins <= SWAP_TREND_MAX_SWAPINS_BYTES and swapouts == 0
 
 
+def _rule_pressure(pressure: Optional[int], hits: dict) -> None:
+    if pressure == 4:
+        hits["critical"].append("macOS memory pressure: critical")
+    elif pressure == 2:
+        hits["tight"].append("macOS memory pressure: warning")
+
+
+def _rule_available(avail: Optional[float], cfg: dict, hits: dict) -> None:
+    if avail is not None:
+        text = f"only {avail:.0f}% of memory available"
+        if avail < cfg["critical_available_percent"]:
+            hits["critical"].append(text)
+        elif avail < cfg["tight_available_percent"]:
+            hits["tight"].append(text)
+        elif avail < cfg["watch_available_percent"]:
+            hits["watch"].append(text)
+
+
+def _rule_swap(
+    swap: Optional[int], ram: Optional[int], s: dict, cfg: dict, swap_evidence: Optional[SwapEvidence], hits: dict
+) -> None:
+    if swap is not None and ram:
+        fraction = swap / ram
+        text = f"swap {gb(swap)} ({fraction * 100:.0f}% of RAM)"
+        if fraction >= cfg["critical_swap_fraction"]:
+            hits["critical"].append(text)
+        elif fraction >= cfg["tight_swap_fraction"]:
+            if _quiet_swap_evidence(s, cfg, swap_evidence):
+                hits["watch"].append(text + " (no swap growth or swapouts during fresh confirmation)")
+            else:
+                hits["tight"].append(text)
+        elif fraction >= cfg["watch_swap_fraction"]:
+            hits["watch"].append(text)
+
+
+def _rule_compressor(
+    compressed: Optional[int],
+    ram: Optional[int],
+    pressure: Optional[int],
+    avail: Optional[float],
+    cfg: dict,
+    hits: dict,
+) -> None:
+    if compressed is not None and ram:
+        fraction = compressed / ram
+        text = f"compressor {gb(compressed)} ({fraction * 100:.0f}% of RAM)"
+        # Compressor occupancy lags: it stays high long after pressure has passed. On its own it
+        # raises the level only to watch; it counts toward tight when the kernel agrees memory is
+        # short (pressure warning or worse, or availability already below the watch threshold).
+        corroborated = (pressure is not None and pressure >= 2) or (
+            avail is not None and avail < cfg["watch_available_percent"]
+        )
+        if fraction >= cfg["tight_compressor_fraction"] and corroborated:
+            hits["tight"].append(text)
+        elif fraction >= cfg["tight_compressor_fraction"]:
+            hits["watch"].append(text)
+        elif fraction >= cfg["watch_compressor_fraction"]:
+            hits["watch"].append(text)
+
+
+def _rule_vm_free(vm_free: Optional[int], cfg: dict, hits: dict) -> None:
+    if vm_free is not None and vm_free < cfg["critical_vm_free_gib"] * GiB:
+        hits["critical"].append(f"VM volume has only {gb(vm_free)} free")
+
+
+def _source_reason(s: dict, level: str, reasons: list[str]) -> None:
+    source = s.get("levelSource")
+    if level != "unknown" and source == "level-file":
+        age = _number_in(s.get("levelAgeSeconds"), 0, 86400)
+        reasons.append(
+            "read from the monitor's level file"
+            + (f" ({age:.0f} s old)" if age is not None else "")
+            + ": this process cannot read the kernel's memory sysctls"
+        )
+    elif level != "unknown" and source == "memory_pressure":
+        reasons.append(
+            "availability from memory_pressure -Q: this process cannot read the kernel's "
+            "pressure level or swap (no fresh level file)"
+        )
+
+
 def classify(
     state: Optional[dict], cfg: Optional[dict] = None, *, swap_evidence: Optional[SwapEvidence] = None
 ) -> tuple[str, list[str]]:
@@ -1218,47 +1299,11 @@ def classify(
     vm_free = _bytes_or_none(s.get("vmFreeBytes"))
     hits: dict[str, list[str]] = {"critical": [], "tight": [], "watch": []}
 
-    if pressure == 4:
-        hits["critical"].append("macOS memory pressure: critical")
-    elif pressure == 2:
-        hits["tight"].append("macOS memory pressure: warning")
-    if avail is not None:
-        text = f"only {avail:.0f}% of memory available"
-        if avail < cfg["critical_available_percent"]:
-            hits["critical"].append(text)
-        elif avail < cfg["tight_available_percent"]:
-            hits["tight"].append(text)
-        elif avail < cfg["watch_available_percent"]:
-            hits["watch"].append(text)
-    if swap is not None and ram:
-        fraction = swap / ram
-        text = f"swap {gb(swap)} ({fraction * 100:.0f}% of RAM)"
-        if fraction >= cfg["critical_swap_fraction"]:
-            hits["critical"].append(text)
-        elif fraction >= cfg["tight_swap_fraction"]:
-            if _quiet_swap_evidence(s, cfg, swap_evidence):
-                hits["watch"].append(text + " (no swap growth or swapouts during fresh confirmation)")
-            else:
-                hits["tight"].append(text)
-        elif fraction >= cfg["watch_swap_fraction"]:
-            hits["watch"].append(text)
-    if compressed is not None and ram:
-        fraction = compressed / ram
-        text = f"compressor {gb(compressed)} ({fraction * 100:.0f}% of RAM)"
-        # Compressor occupancy lags: it stays high long after pressure has passed. On its own it
-        # raises the level only to watch; it counts toward tight when the kernel agrees memory is
-        # short (pressure warning or worse, or availability already below the watch threshold).
-        corroborated = (pressure is not None and pressure >= 2) or (
-            avail is not None and avail < cfg["watch_available_percent"]
-        )
-        if fraction >= cfg["tight_compressor_fraction"] and corroborated:
-            hits["tight"].append(text)
-        elif fraction >= cfg["tight_compressor_fraction"]:
-            hits["watch"].append(text)
-        elif fraction >= cfg["watch_compressor_fraction"]:
-            hits["watch"].append(text)
-    if vm_free is not None and vm_free < cfg["critical_vm_free_gib"] * GiB:
-        hits["critical"].append(f"VM volume has only {gb(vm_free)} free")
+    _rule_pressure(pressure, hits)
+    _rule_available(avail, cfg, hits)
+    _rule_swap(swap, ram, s, cfg, swap_evidence, hits)
+    _rule_compressor(compressed, ram, pressure, avail, cfg, hits)
+    _rule_vm_free(vm_free, cfg, hits)
 
     level = next((name for name in ("critical", "tight", "watch") if hits[name]), "ok")
     reasons = hits["critical"] + hits["tight"] + hits["watch"]
@@ -1267,19 +1312,7 @@ def classify(
         reasons.insert(0, "memory state unknown: macOS pressure and availability unreadable")
     reasons.extend(str(note) for note in cfg.get("notes") or [])
     # Said last, so a refusal's first reason is still the memory reason itself.
-    source = s.get("levelSource")
-    if level != "unknown" and source == "level-file":
-        age = _number_in(s.get("levelAgeSeconds"), 0, 86400)
-        reasons.append(
-            "read from the monitor's level file"
-            + (f" ({age:.0f} s old)" if age is not None else "")
-            + ": this process cannot read the kernel's memory sysctls"
-        )
-    elif level != "unknown" and source == "memory_pressure":
-        reasons.append(
-            "availability from memory_pressure -Q: this process cannot read the kernel's "
-            "pressure level or swap (no fresh level file)"
-        )
+    _source_reason(s, level, reasons)
     return level, reasons
 
 
@@ -3258,6 +3291,60 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _cmd_register(ctx: Context, args: argparse.Namespace) -> int:
+    try:
+        entry = ctx.registry.register(args.pid, args.label)
+    except (RegistryError, OSError) as error:
+        ctx.stderr.write(f"mem-guard: register failed: {error}\n")
+        if args.json:
+            ctx.out(json.dumps({"ok": False, "error": _clean_text(str(error), 300)}))
+        return 1
+    if args.json:
+        ctx.out(
+            json.dumps(
+                {
+                    "ok": True,
+                    "pid": entry["pid"],
+                    "startTime": entry["startTime"],
+                    "comm": entry["comm"],
+                    "label": entry["label"],
+                }
+            )
+        )
+    else:
+        ctx.out(f"registered pid {entry['pid']} ({entry['label']})")
+    return 0
+
+
+def _cmd_unregister(ctx: Context, args: argparse.Namespace) -> int:
+    try:
+        removed = ctx.registry.unregister(args.pid)
+    except (RegistryError, OSError) as error:
+        ctx.stderr.write(f"mem-guard: unregister failed: {error}\n")
+        return 1
+    ctx.out(f"unregistered pid {args.pid}" if removed else f"pid {args.pid} was not registered")
+    return 0
+
+
+def _cmd_resume_all(ctx: Context) -> int:
+    try:
+        resumed = ctx.registry.resume()
+    except (RegistryError, OSError) as error:
+        ctx.stderr.write(f"mem-guard: resume failed: {error}\n")
+        return 1
+    if resumed:
+        ctx.journal.write({"type": "resume", "why": "manual", "jobs": [_job_summary(job) for job in resumed]})
+    ctx.out(f"resumed {len(resumed)} paused job{'s' if len(resumed) != 1 else ''}")
+    stuck = [pid for job in resumed for pid in job.get("failed") or []]
+    if stuck:
+        ctx.stderr.write(
+            f"mem-guard: could not continue {len(stuck)} process{'es' if len(stuck) != 1 else ''} "
+            f"({', '.join(map(str, stuck[:10]))}); they stay recorded, run resume-all again\n"
+        )
+        return 1
+    return 0
+
+
 def main(argv: Optional[list[str]] = None, ctx: Optional[Context] = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     ctx = ctx or Context()
@@ -3277,53 +3364,11 @@ def main(argv: Optional[list[str]] = None, ctx: Optional[Context] = None) -> int
             return 2
         return _cmd_admit(ctx, args.need_gb, args.kind, args.wait, _clean_text(args.label, 80))
     if args.command == "register":
-        try:
-            entry = ctx.registry.register(args.pid, args.label)
-        except (RegistryError, OSError) as error:
-            ctx.stderr.write(f"mem-guard: register failed: {error}\n")
-            if args.json:
-                ctx.out(json.dumps({"ok": False, "error": _clean_text(str(error), 300)}))
-            return 1
-        if args.json:
-            ctx.out(
-                json.dumps(
-                    {
-                        "ok": True,
-                        "pid": entry["pid"],
-                        "startTime": entry["startTime"],
-                        "comm": entry["comm"],
-                        "label": entry["label"],
-                    }
-                )
-            )
-        else:
-            ctx.out(f"registered pid {entry['pid']} ({entry['label']})")
-        return 0
+        return _cmd_register(ctx, args)
     if args.command == "unregister":
-        try:
-            removed = ctx.registry.unregister(args.pid)
-        except (RegistryError, OSError) as error:
-            ctx.stderr.write(f"mem-guard: unregister failed: {error}\n")
-            return 1
-        ctx.out(f"unregistered pid {args.pid}" if removed else f"pid {args.pid} was not registered")
-        return 0
+        return _cmd_unregister(ctx, args)
     if args.command == "resume-all":
-        try:
-            resumed = ctx.registry.resume()
-        except (RegistryError, OSError) as error:
-            ctx.stderr.write(f"mem-guard: resume failed: {error}\n")
-            return 1
-        if resumed:
-            ctx.journal.write({"type": "resume", "why": "manual", "jobs": [_job_summary(job) for job in resumed]})
-        ctx.out(f"resumed {len(resumed)} paused job{'s' if len(resumed) != 1 else ''}")
-        stuck = [pid for job in resumed for pid in job.get("failed") or []]
-        if stuck:
-            ctx.stderr.write(
-                f"mem-guard: could not continue {len(stuck)} process{'es' if len(stuck) != 1 else ''} "
-                f"({', '.join(map(str, stuck[:10]))}); they stay recorded, run resume-all again\n"
-            )
-            return 1
-        return 0
+        return _cmd_resume_all(ctx)
     if args.command == "watch":
         return _cmd_watch(ctx, max(0.5, min(args.interval, 3600.0)), max(0, args.ticks))
     return 2
