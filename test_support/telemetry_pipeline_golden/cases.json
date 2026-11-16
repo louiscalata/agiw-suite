@@ -83877,6 +83877,5157 @@
         ],
         "inputsUnchanged": true
       }
+    },
+    {
+      "name": "text_bound_runId_79_fresh",
+      "target": "pipeline",
+      "now": 10000.0,
+      "observed_at": "1970-01-01T02:46:40.000Z",
+      "router": {
+        "root": "/golden/router",
+        "install": {
+          "state": "valid",
+          "generation": "golden",
+          "inProgress": false
+        },
+        "admission": {
+          "policy": "single"
+        },
+        "rows": [
+          {
+            "runId": "run-1",
+            "layout": "per-run",
+            "stage": "backend_draft",
+            "startedUnix": 9990.0,
+            "recordedUnix": 9995.0,
+            "recoveryRequired": false,
+            "host": "mac",
+            "readable": true,
+            "valid": true,
+            "live": false,
+            "lock": "free",
+            "lockHeld": false,
+            "lockBound": false,
+            "stalled": false,
+            "state": "unresolved",
+            "note": null,
+            "client": null,
+            "collision": false,
+            "pid": null,
+            "evidence": "fixture route evidence",
+            "_record": {
+              "runId": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr",
+              "stage": "backend_draft",
+              "startedUnix": 9990.0,
+              "checkpoint": {
+                "recordedUnix": 9995.0,
+                "evidence": {
+                  "recoveryRequired": false
+                }
+              }
+            }
+          }
+        ],
+        "primary": {
+          "runId": "run-1",
+          "layout": "per-run",
+          "stage": "backend_draft",
+          "startedUnix": 9990.0,
+          "recordedUnix": 9995.0,
+          "recoveryRequired": false,
+          "host": "mac",
+          "readable": true,
+          "valid": true,
+          "live": false,
+          "lock": "free",
+          "lockHeld": false,
+          "lockBound": false,
+          "stalled": false,
+          "state": "unresolved",
+          "note": null,
+          "client": null,
+          "collision": false,
+          "pid": null,
+          "evidence": "fixture route evidence",
+          "_record": {
+            "runId": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr",
+            "stage": "backend_draft",
+            "startedUnix": 9990.0,
+            "checkpoint": {
+              "recordedUnix": 9995.0,
+              "evidence": {
+                "recoveryRequired": false
+              }
+            }
+          }
+        },
+        "truncated": false,
+        "error": null,
+        "legacyPresent": false,
+        "layout": "per-run",
+        "lanes": {
+          "fixture-lane": {
+            "capacity": 1,
+            "holders": [],
+            "waiting": []
+          }
+        },
+        "collisions": []
+      },
+      "text_bound_patterns": {
+        "run_id": "[A-Za-z0-9][A-Za-z0-9_.:-]*\\Z",
+        "stage": "[A-Za-z][A-Za-z0-9_.:-]*\\Z"
+      },
+      "generated_from": {
+        "revision": "2e128b78b0f00b4092a82630c6c96637a7270ce9",
+        "telemetry_sha256": "935723549f896c85cfaaef45a390e788253deb2a240ac9c155678b107f2ca02c",
+        "archive": "git archive 2e128b7"
+      },
+      "expected": {
+        "result": [
+          {
+            "runId": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr",
+            "status": "unresolved",
+            "stage": "backend_draft",
+            "recoveryRequired": false,
+            "pendingMarkerObserved": false,
+            "ageSeconds": 5.0,
+            "pendingMarkerAgeSeconds": null,
+            "pendingMarkerOwner": null,
+            "pendingMarkerAttributedTo": null,
+            "pendingMarkerForeign": false,
+            "pendingMarkerUnreadable": false,
+            "queuePhase": null,
+            "queueResource": null,
+            "steps": [
+              {
+                "id": "intake",
+                "label": "Intake",
+                "state": "pending"
+              },
+              {
+                "id": "preflight",
+                "label": "Preflight",
+                "state": "pending"
+              },
+              {
+                "id": "backend_draft",
+                "label": "Author",
+                "state": "pending"
+              },
+              {
+                "id": "backend_answer",
+                "label": "Author",
+                "state": "pending"
+              },
+              {
+                "id": "backend_review",
+                "label": "Review",
+                "state": "pending"
+              },
+              {
+                "id": "validation",
+                "label": "Validation",
+                "state": "pending"
+              },
+              {
+                "id": "checks",
+                "label": "Checks",
+                "state": "pending"
+              },
+              {
+                "id": "mac_return",
+                "label": "Return",
+                "state": "pending"
+              },
+              {
+                "id": "final_validation",
+                "label": "Final validation",
+                "state": "pending"
+              }
+            ],
+            "usage": {
+              "inputTokens": null,
+              "outputTokens": null,
+              "totalTokens": null
+            },
+            "authorModel": null,
+            "reviewerModel": null,
+            "pipelines": [
+              {
+                "runId": "run-1",
+                "status": "unresolved",
+                "stage": "backend_draft",
+                "host": "mac",
+                "client": null,
+                "live": false,
+                "layout": "per-run",
+                "recoveryRequired": false,
+                "ageSeconds": 5.0,
+                "resource": null,
+                "secondsLeft": null
+              }
+            ],
+            "pipelinesComplete": true,
+            "runsTruncated": false
+          },
+          {
+            "id": "pipeline-router",
+            "label": "Pipeline",
+            "state": "live",
+            "ageSeconds": 5.0,
+            "detail": "Recorded router checkpoint; live execution is unverified",
+            "observationAgeSeconds": 0.0
+          }
+        ],
+        "events": [
+          [
+            "read",
+            "/golden/pending.json",
+            4096
+          ],
+          [
+            "namespace"
+          ]
+        ],
+        "inputsUnchanged": true
+      }
+    },
+    {
+      "name": "text_bound_runId_80_fresh",
+      "target": "pipeline",
+      "now": 10000.0,
+      "observed_at": "1970-01-01T02:46:40.000Z",
+      "router": {
+        "root": "/golden/router",
+        "install": {
+          "state": "valid",
+          "generation": "golden",
+          "inProgress": false
+        },
+        "admission": {
+          "policy": "single"
+        },
+        "rows": [
+          {
+            "runId": "run-1",
+            "layout": "per-run",
+            "stage": "backend_draft",
+            "startedUnix": 9990.0,
+            "recordedUnix": 9995.0,
+            "recoveryRequired": false,
+            "host": "mac",
+            "readable": true,
+            "valid": true,
+            "live": false,
+            "lock": "free",
+            "lockHeld": false,
+            "lockBound": false,
+            "stalled": false,
+            "state": "unresolved",
+            "note": null,
+            "client": null,
+            "collision": false,
+            "pid": null,
+            "evidence": "fixture route evidence",
+            "_record": {
+              "runId": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr",
+              "stage": "backend_draft",
+              "startedUnix": 9990.0,
+              "checkpoint": {
+                "recordedUnix": 9995.0,
+                "evidence": {
+                  "recoveryRequired": false
+                }
+              }
+            }
+          }
+        ],
+        "primary": {
+          "runId": "run-1",
+          "layout": "per-run",
+          "stage": "backend_draft",
+          "startedUnix": 9990.0,
+          "recordedUnix": 9995.0,
+          "recoveryRequired": false,
+          "host": "mac",
+          "readable": true,
+          "valid": true,
+          "live": false,
+          "lock": "free",
+          "lockHeld": false,
+          "lockBound": false,
+          "stalled": false,
+          "state": "unresolved",
+          "note": null,
+          "client": null,
+          "collision": false,
+          "pid": null,
+          "evidence": "fixture route evidence",
+          "_record": {
+            "runId": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr",
+            "stage": "backend_draft",
+            "startedUnix": 9990.0,
+            "checkpoint": {
+              "recordedUnix": 9995.0,
+              "evidence": {
+                "recoveryRequired": false
+              }
+            }
+          }
+        },
+        "truncated": false,
+        "error": null,
+        "legacyPresent": false,
+        "layout": "per-run",
+        "lanes": {
+          "fixture-lane": {
+            "capacity": 1,
+            "holders": [],
+            "waiting": []
+          }
+        },
+        "collisions": []
+      },
+      "text_bound_patterns": {
+        "run_id": "[A-Za-z0-9][A-Za-z0-9_.:-]*\\Z",
+        "stage": "[A-Za-z][A-Za-z0-9_.:-]*\\Z"
+      },
+      "generated_from": {
+        "revision": "2e128b78b0f00b4092a82630c6c96637a7270ce9",
+        "telemetry_sha256": "935723549f896c85cfaaef45a390e788253deb2a240ac9c155678b107f2ca02c",
+        "archive": "git archive 2e128b7"
+      },
+      "expected": {
+        "result": [
+          {
+            "runId": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr",
+            "status": "unresolved",
+            "stage": "backend_draft",
+            "recoveryRequired": false,
+            "pendingMarkerObserved": false,
+            "ageSeconds": 5.0,
+            "pendingMarkerAgeSeconds": null,
+            "pendingMarkerOwner": null,
+            "pendingMarkerAttributedTo": null,
+            "pendingMarkerForeign": false,
+            "pendingMarkerUnreadable": false,
+            "queuePhase": null,
+            "queueResource": null,
+            "steps": [
+              {
+                "id": "intake",
+                "label": "Intake",
+                "state": "pending"
+              },
+              {
+                "id": "preflight",
+                "label": "Preflight",
+                "state": "pending"
+              },
+              {
+                "id": "backend_draft",
+                "label": "Author",
+                "state": "pending"
+              },
+              {
+                "id": "backend_answer",
+                "label": "Author",
+                "state": "pending"
+              },
+              {
+                "id": "backend_review",
+                "label": "Review",
+                "state": "pending"
+              },
+              {
+                "id": "validation",
+                "label": "Validation",
+                "state": "pending"
+              },
+              {
+                "id": "checks",
+                "label": "Checks",
+                "state": "pending"
+              },
+              {
+                "id": "mac_return",
+                "label": "Return",
+                "state": "pending"
+              },
+              {
+                "id": "final_validation",
+                "label": "Final validation",
+                "state": "pending"
+              }
+            ],
+            "usage": {
+              "inputTokens": null,
+              "outputTokens": null,
+              "totalTokens": null
+            },
+            "authorModel": null,
+            "reviewerModel": null,
+            "pipelines": [
+              {
+                "runId": "run-1",
+                "status": "unresolved",
+                "stage": "backend_draft",
+                "host": "mac",
+                "client": null,
+                "live": false,
+                "layout": "per-run",
+                "recoveryRequired": false,
+                "ageSeconds": 5.0,
+                "resource": null,
+                "secondsLeft": null
+              }
+            ],
+            "pipelinesComplete": true,
+            "runsTruncated": false
+          },
+          {
+            "id": "pipeline-router",
+            "label": "Pipeline",
+            "state": "live",
+            "ageSeconds": 5.0,
+            "detail": "Recorded router checkpoint; live execution is unverified",
+            "observationAgeSeconds": 0.0
+          }
+        ],
+        "events": [
+          [
+            "read",
+            "/golden/pending.json",
+            4096
+          ],
+          [
+            "namespace"
+          ]
+        ],
+        "inputsUnchanged": true
+      }
+    },
+    {
+      "name": "text_bound_runId_81_fresh",
+      "target": "pipeline",
+      "now": 10000.0,
+      "observed_at": "1970-01-01T02:46:40.000Z",
+      "router": {
+        "root": "/golden/router",
+        "install": {
+          "state": "valid",
+          "generation": "golden",
+          "inProgress": false
+        },
+        "admission": {
+          "policy": "single"
+        },
+        "rows": [
+          {
+            "runId": "run-1",
+            "layout": "per-run",
+            "stage": "backend_draft",
+            "startedUnix": 9990.0,
+            "recordedUnix": 9995.0,
+            "recoveryRequired": false,
+            "host": "mac",
+            "readable": true,
+            "valid": true,
+            "live": false,
+            "lock": "free",
+            "lockHeld": false,
+            "lockBound": false,
+            "stalled": false,
+            "state": "unresolved",
+            "note": null,
+            "client": null,
+            "collision": false,
+            "pid": null,
+            "evidence": "fixture route evidence",
+            "_record": {
+              "runId": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr",
+              "stage": "backend_draft",
+              "startedUnix": 9990.0,
+              "checkpoint": {
+                "recordedUnix": 9995.0,
+                "evidence": {
+                  "recoveryRequired": false
+                }
+              }
+            }
+          }
+        ],
+        "primary": {
+          "runId": "run-1",
+          "layout": "per-run",
+          "stage": "backend_draft",
+          "startedUnix": 9990.0,
+          "recordedUnix": 9995.0,
+          "recoveryRequired": false,
+          "host": "mac",
+          "readable": true,
+          "valid": true,
+          "live": false,
+          "lock": "free",
+          "lockHeld": false,
+          "lockBound": false,
+          "stalled": false,
+          "state": "unresolved",
+          "note": null,
+          "client": null,
+          "collision": false,
+          "pid": null,
+          "evidence": "fixture route evidence",
+          "_record": {
+            "runId": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr",
+            "stage": "backend_draft",
+            "startedUnix": 9990.0,
+            "checkpoint": {
+              "recordedUnix": 9995.0,
+              "evidence": {
+                "recoveryRequired": false
+              }
+            }
+          }
+        },
+        "truncated": false,
+        "error": null,
+        "legacyPresent": false,
+        "layout": "per-run",
+        "lanes": {
+          "fixture-lane": {
+            "capacity": 1,
+            "holders": [],
+            "waiting": []
+          }
+        },
+        "collisions": []
+      },
+      "text_bound_patterns": {
+        "run_id": "[A-Za-z0-9][A-Za-z0-9_.:-]*\\Z",
+        "stage": "[A-Za-z][A-Za-z0-9_.:-]*\\Z"
+      },
+      "generated_from": {
+        "revision": "2e128b78b0f00b4092a82630c6c96637a7270ce9",
+        "telemetry_sha256": "935723549f896c85cfaaef45a390e788253deb2a240ac9c155678b107f2ca02c",
+        "archive": "git archive 2e128b7"
+      },
+      "expected": {
+        "result": [
+          {
+            "runId": null,
+            "status": "unknown",
+            "stage": null,
+            "recoveryRequired": false,
+            "pendingMarkerObserved": false,
+            "ageSeconds": null,
+            "pendingMarkerAgeSeconds": null,
+            "pendingMarkerOwner": null,
+            "pendingMarkerAttributedTo": null,
+            "pendingMarkerForeign": false,
+            "pendingMarkerUnreadable": false,
+            "queuePhase": null,
+            "queueResource": null,
+            "steps": [
+              {
+                "id": "intake",
+                "label": "Intake",
+                "state": "pending"
+              },
+              {
+                "id": "preflight",
+                "label": "Preflight",
+                "state": "pending"
+              },
+              {
+                "id": "backend_draft",
+                "label": "Author",
+                "state": "pending"
+              },
+              {
+                "id": "backend_answer",
+                "label": "Author",
+                "state": "pending"
+              },
+              {
+                "id": "backend_review",
+                "label": "Review",
+                "state": "pending"
+              },
+              {
+                "id": "validation",
+                "label": "Validation",
+                "state": "pending"
+              },
+              {
+                "id": "checks",
+                "label": "Checks",
+                "state": "pending"
+              },
+              {
+                "id": "mac_return",
+                "label": "Return",
+                "state": "pending"
+              },
+              {
+                "id": "final_validation",
+                "label": "Final validation",
+                "state": "pending"
+              }
+            ],
+            "usage": {
+              "inputTokens": null,
+              "outputTokens": null,
+              "totalTokens": null
+            },
+            "authorModel": null,
+            "reviewerModel": null,
+            "pipelines": [
+              {
+                "runId": "run-1",
+                "status": "unresolved",
+                "stage": "backend_draft",
+                "host": "mac",
+                "client": null,
+                "live": false,
+                "layout": "per-run",
+                "recoveryRequired": false,
+                "ageSeconds": 5.0,
+                "resource": null,
+                "secondsLeft": null
+              }
+            ],
+            "pipelinesComplete": true,
+            "runsTruncated": false
+          },
+          {
+            "id": "pipeline-router",
+            "label": "Pipeline",
+            "state": "error",
+            "ageSeconds": null,
+            "detail": "Router state invalid or unreadable"
+          }
+        ],
+        "events": [
+          [
+            "read",
+            "/golden/pending.json",
+            4096
+          ],
+          [
+            "namespace"
+          ]
+        ],
+        "inputsUnchanged": true
+      }
+    },
+    {
+      "name": "text_bound_stage_63_fresh",
+      "target": "pipeline",
+      "now": 10000.0,
+      "observed_at": "1970-01-01T02:46:40.000Z",
+      "router": {
+        "root": "/golden/router",
+        "install": {
+          "state": "valid",
+          "generation": "golden",
+          "inProgress": false
+        },
+        "admission": {
+          "policy": "single"
+        },
+        "rows": [
+          {
+            "runId": "run-1",
+            "layout": "per-run",
+            "stage": "backend_draft",
+            "startedUnix": 9990.0,
+            "recordedUnix": 9995.0,
+            "recoveryRequired": false,
+            "host": "mac",
+            "readable": true,
+            "valid": true,
+            "live": false,
+            "lock": "free",
+            "lockHeld": false,
+            "lockBound": false,
+            "stalled": false,
+            "state": "unresolved",
+            "note": null,
+            "client": null,
+            "collision": false,
+            "pid": null,
+            "evidence": "fixture route evidence",
+            "_record": {
+              "runId": "run-1",
+              "stage": "sssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss",
+              "startedUnix": 9990.0,
+              "checkpoint": {
+                "recordedUnix": 9995.0,
+                "evidence": {
+                  "recoveryRequired": false
+                }
+              }
+            }
+          }
+        ],
+        "primary": {
+          "runId": "run-1",
+          "layout": "per-run",
+          "stage": "backend_draft",
+          "startedUnix": 9990.0,
+          "recordedUnix": 9995.0,
+          "recoveryRequired": false,
+          "host": "mac",
+          "readable": true,
+          "valid": true,
+          "live": false,
+          "lock": "free",
+          "lockHeld": false,
+          "lockBound": false,
+          "stalled": false,
+          "state": "unresolved",
+          "note": null,
+          "client": null,
+          "collision": false,
+          "pid": null,
+          "evidence": "fixture route evidence",
+          "_record": {
+            "runId": "run-1",
+            "stage": "sssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss",
+            "startedUnix": 9990.0,
+            "checkpoint": {
+              "recordedUnix": 9995.0,
+              "evidence": {
+                "recoveryRequired": false
+              }
+            }
+          }
+        },
+        "truncated": false,
+        "error": null,
+        "legacyPresent": false,
+        "layout": "per-run",
+        "lanes": {
+          "fixture-lane": {
+            "capacity": 1,
+            "holders": [],
+            "waiting": []
+          }
+        },
+        "collisions": []
+      },
+      "text_bound_patterns": {
+        "run_id": "[A-Za-z0-9][A-Za-z0-9_.:-]*\\Z",
+        "stage": "[A-Za-z][A-Za-z0-9_.:-]*\\Z"
+      },
+      "generated_from": {
+        "revision": "2e128b78b0f00b4092a82630c6c96637a7270ce9",
+        "telemetry_sha256": "935723549f896c85cfaaef45a390e788253deb2a240ac9c155678b107f2ca02c",
+        "archive": "git archive 2e128b7"
+      },
+      "expected": {
+        "result": [
+          {
+            "runId": "run-1",
+            "status": "unresolved",
+            "stage": "sssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss",
+            "recoveryRequired": false,
+            "pendingMarkerObserved": false,
+            "ageSeconds": 5.0,
+            "pendingMarkerAgeSeconds": null,
+            "pendingMarkerOwner": null,
+            "pendingMarkerAttributedTo": null,
+            "pendingMarkerForeign": false,
+            "pendingMarkerUnreadable": false,
+            "queuePhase": null,
+            "queueResource": null,
+            "steps": [
+              {
+                "id": "intake",
+                "label": "Intake",
+                "state": "pending"
+              },
+              {
+                "id": "preflight",
+                "label": "Preflight",
+                "state": "pending"
+              },
+              {
+                "id": "backend_draft",
+                "label": "Author",
+                "state": "pending"
+              },
+              {
+                "id": "backend_answer",
+                "label": "Author",
+                "state": "pending"
+              },
+              {
+                "id": "backend_review",
+                "label": "Review",
+                "state": "pending"
+              },
+              {
+                "id": "validation",
+                "label": "Validation",
+                "state": "pending"
+              },
+              {
+                "id": "checks",
+                "label": "Checks",
+                "state": "pending"
+              },
+              {
+                "id": "mac_return",
+                "label": "Return",
+                "state": "pending"
+              },
+              {
+                "id": "final_validation",
+                "label": "Final validation",
+                "state": "pending"
+              }
+            ],
+            "usage": {
+              "inputTokens": null,
+              "outputTokens": null,
+              "totalTokens": null
+            },
+            "authorModel": null,
+            "reviewerModel": null,
+            "pipelines": [
+              {
+                "runId": "run-1",
+                "status": "unresolved",
+                "stage": "backend_draft",
+                "host": "mac",
+                "client": null,
+                "live": false,
+                "layout": "per-run",
+                "recoveryRequired": false,
+                "ageSeconds": 5.0,
+                "resource": null,
+                "secondsLeft": null
+              }
+            ],
+            "pipelinesComplete": true,
+            "runsTruncated": false
+          },
+          {
+            "id": "pipeline-router",
+            "label": "Pipeline",
+            "state": "live",
+            "ageSeconds": 5.0,
+            "detail": "Recorded router checkpoint; live execution is unverified",
+            "observationAgeSeconds": 0.0
+          }
+        ],
+        "events": [
+          [
+            "read",
+            "/golden/pending.json",
+            4096
+          ],
+          [
+            "namespace"
+          ]
+        ],
+        "inputsUnchanged": true
+      }
+    },
+    {
+      "name": "text_bound_stage_64_fresh",
+      "target": "pipeline",
+      "now": 10000.0,
+      "observed_at": "1970-01-01T02:46:40.000Z",
+      "router": {
+        "root": "/golden/router",
+        "install": {
+          "state": "valid",
+          "generation": "golden",
+          "inProgress": false
+        },
+        "admission": {
+          "policy": "single"
+        },
+        "rows": [
+          {
+            "runId": "run-1",
+            "layout": "per-run",
+            "stage": "backend_draft",
+            "startedUnix": 9990.0,
+            "recordedUnix": 9995.0,
+            "recoveryRequired": false,
+            "host": "mac",
+            "readable": true,
+            "valid": true,
+            "live": false,
+            "lock": "free",
+            "lockHeld": false,
+            "lockBound": false,
+            "stalled": false,
+            "state": "unresolved",
+            "note": null,
+            "client": null,
+            "collision": false,
+            "pid": null,
+            "evidence": "fixture route evidence",
+            "_record": {
+              "runId": "run-1",
+              "stage": "ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss",
+              "startedUnix": 9990.0,
+              "checkpoint": {
+                "recordedUnix": 9995.0,
+                "evidence": {
+                  "recoveryRequired": false
+                }
+              }
+            }
+          }
+        ],
+        "primary": {
+          "runId": "run-1",
+          "layout": "per-run",
+          "stage": "backend_draft",
+          "startedUnix": 9990.0,
+          "recordedUnix": 9995.0,
+          "recoveryRequired": false,
+          "host": "mac",
+          "readable": true,
+          "valid": true,
+          "live": false,
+          "lock": "free",
+          "lockHeld": false,
+          "lockBound": false,
+          "stalled": false,
+          "state": "unresolved",
+          "note": null,
+          "client": null,
+          "collision": false,
+          "pid": null,
+          "evidence": "fixture route evidence",
+          "_record": {
+            "runId": "run-1",
+            "stage": "ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss",
+            "startedUnix": 9990.0,
+            "checkpoint": {
+              "recordedUnix": 9995.0,
+              "evidence": {
+                "recoveryRequired": false
+              }
+            }
+          }
+        },
+        "truncated": false,
+        "error": null,
+        "legacyPresent": false,
+        "layout": "per-run",
+        "lanes": {
+          "fixture-lane": {
+            "capacity": 1,
+            "holders": [],
+            "waiting": []
+          }
+        },
+        "collisions": []
+      },
+      "text_bound_patterns": {
+        "run_id": "[A-Za-z0-9][A-Za-z0-9_.:-]*\\Z",
+        "stage": "[A-Za-z][A-Za-z0-9_.:-]*\\Z"
+      },
+      "generated_from": {
+        "revision": "2e128b78b0f00b4092a82630c6c96637a7270ce9",
+        "telemetry_sha256": "935723549f896c85cfaaef45a390e788253deb2a240ac9c155678b107f2ca02c",
+        "archive": "git archive 2e128b7"
+      },
+      "expected": {
+        "result": [
+          {
+            "runId": "run-1",
+            "status": "unresolved",
+            "stage": "ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss",
+            "recoveryRequired": false,
+            "pendingMarkerObserved": false,
+            "ageSeconds": 5.0,
+            "pendingMarkerAgeSeconds": null,
+            "pendingMarkerOwner": null,
+            "pendingMarkerAttributedTo": null,
+            "pendingMarkerForeign": false,
+            "pendingMarkerUnreadable": false,
+            "queuePhase": null,
+            "queueResource": null,
+            "steps": [
+              {
+                "id": "intake",
+                "label": "Intake",
+                "state": "pending"
+              },
+              {
+                "id": "preflight",
+                "label": "Preflight",
+                "state": "pending"
+              },
+              {
+                "id": "backend_draft",
+                "label": "Author",
+                "state": "pending"
+              },
+              {
+                "id": "backend_answer",
+                "label": "Author",
+                "state": "pending"
+              },
+              {
+                "id": "backend_review",
+                "label": "Review",
+                "state": "pending"
+              },
+              {
+                "id": "validation",
+                "label": "Validation",
+                "state": "pending"
+              },
+              {
+                "id": "checks",
+                "label": "Checks",
+                "state": "pending"
+              },
+              {
+                "id": "mac_return",
+                "label": "Return",
+                "state": "pending"
+              },
+              {
+                "id": "final_validation",
+                "label": "Final validation",
+                "state": "pending"
+              }
+            ],
+            "usage": {
+              "inputTokens": null,
+              "outputTokens": null,
+              "totalTokens": null
+            },
+            "authorModel": null,
+            "reviewerModel": null,
+            "pipelines": [
+              {
+                "runId": "run-1",
+                "status": "unresolved",
+                "stage": "backend_draft",
+                "host": "mac",
+                "client": null,
+                "live": false,
+                "layout": "per-run",
+                "recoveryRequired": false,
+                "ageSeconds": 5.0,
+                "resource": null,
+                "secondsLeft": null
+              }
+            ],
+            "pipelinesComplete": true,
+            "runsTruncated": false
+          },
+          {
+            "id": "pipeline-router",
+            "label": "Pipeline",
+            "state": "live",
+            "ageSeconds": 5.0,
+            "detail": "Recorded router checkpoint; live execution is unverified",
+            "observationAgeSeconds": 0.0
+          }
+        ],
+        "events": [
+          [
+            "read",
+            "/golden/pending.json",
+            4096
+          ],
+          [
+            "namespace"
+          ]
+        ],
+        "inputsUnchanged": true
+      }
+    },
+    {
+      "name": "text_bound_stage_65_fresh",
+      "target": "pipeline",
+      "now": 10000.0,
+      "observed_at": "1970-01-01T02:46:40.000Z",
+      "router": {
+        "root": "/golden/router",
+        "install": {
+          "state": "valid",
+          "generation": "golden",
+          "inProgress": false
+        },
+        "admission": {
+          "policy": "single"
+        },
+        "rows": [
+          {
+            "runId": "run-1",
+            "layout": "per-run",
+            "stage": "backend_draft",
+            "startedUnix": 9990.0,
+            "recordedUnix": 9995.0,
+            "recoveryRequired": false,
+            "host": "mac",
+            "readable": true,
+            "valid": true,
+            "live": false,
+            "lock": "free",
+            "lockHeld": false,
+            "lockBound": false,
+            "stalled": false,
+            "state": "unresolved",
+            "note": null,
+            "client": null,
+            "collision": false,
+            "pid": null,
+            "evidence": "fixture route evidence",
+            "_record": {
+              "runId": "run-1",
+              "stage": "sssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss",
+              "startedUnix": 9990.0,
+              "checkpoint": {
+                "recordedUnix": 9995.0,
+                "evidence": {
+                  "recoveryRequired": false
+                }
+              }
+            }
+          }
+        ],
+        "primary": {
+          "runId": "run-1",
+          "layout": "per-run",
+          "stage": "backend_draft",
+          "startedUnix": 9990.0,
+          "recordedUnix": 9995.0,
+          "recoveryRequired": false,
+          "host": "mac",
+          "readable": true,
+          "valid": true,
+          "live": false,
+          "lock": "free",
+          "lockHeld": false,
+          "lockBound": false,
+          "stalled": false,
+          "state": "unresolved",
+          "note": null,
+          "client": null,
+          "collision": false,
+          "pid": null,
+          "evidence": "fixture route evidence",
+          "_record": {
+            "runId": "run-1",
+            "stage": "sssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss",
+            "startedUnix": 9990.0,
+            "checkpoint": {
+              "recordedUnix": 9995.0,
+              "evidence": {
+                "recoveryRequired": false
+              }
+            }
+          }
+        },
+        "truncated": false,
+        "error": null,
+        "legacyPresent": false,
+        "layout": "per-run",
+        "lanes": {
+          "fixture-lane": {
+            "capacity": 1,
+            "holders": [],
+            "waiting": []
+          }
+        },
+        "collisions": []
+      },
+      "text_bound_patterns": {
+        "run_id": "[A-Za-z0-9][A-Za-z0-9_.:-]*\\Z",
+        "stage": "[A-Za-z][A-Za-z0-9_.:-]*\\Z"
+      },
+      "generated_from": {
+        "revision": "2e128b78b0f00b4092a82630c6c96637a7270ce9",
+        "telemetry_sha256": "935723549f896c85cfaaef45a390e788253deb2a240ac9c155678b107f2ca02c",
+        "archive": "git archive 2e128b7"
+      },
+      "expected": {
+        "result": [
+          {
+            "runId": "run-1",
+            "status": "unresolved",
+            "stage": null,
+            "recoveryRequired": false,
+            "pendingMarkerObserved": false,
+            "ageSeconds": 5.0,
+            "pendingMarkerAgeSeconds": null,
+            "pendingMarkerOwner": null,
+            "pendingMarkerAttributedTo": null,
+            "pendingMarkerForeign": false,
+            "pendingMarkerUnreadable": false,
+            "queuePhase": null,
+            "queueResource": null,
+            "steps": [
+              {
+                "id": "intake",
+                "label": "Intake",
+                "state": "pending"
+              },
+              {
+                "id": "preflight",
+                "label": "Preflight",
+                "state": "pending"
+              },
+              {
+                "id": "backend_draft",
+                "label": "Author",
+                "state": "pending"
+              },
+              {
+                "id": "backend_answer",
+                "label": "Author",
+                "state": "pending"
+              },
+              {
+                "id": "backend_review",
+                "label": "Review",
+                "state": "pending"
+              },
+              {
+                "id": "validation",
+                "label": "Validation",
+                "state": "pending"
+              },
+              {
+                "id": "checks",
+                "label": "Checks",
+                "state": "pending"
+              },
+              {
+                "id": "mac_return",
+                "label": "Return",
+                "state": "pending"
+              },
+              {
+                "id": "final_validation",
+                "label": "Final validation",
+                "state": "pending"
+              }
+            ],
+            "usage": {
+              "inputTokens": null,
+              "outputTokens": null,
+              "totalTokens": null
+            },
+            "authorModel": null,
+            "reviewerModel": null,
+            "pipelines": [
+              {
+                "runId": "run-1",
+                "status": "unresolved",
+                "stage": "backend_draft",
+                "host": "mac",
+                "client": null,
+                "live": false,
+                "layout": "per-run",
+                "recoveryRequired": false,
+                "ageSeconds": 5.0,
+                "resource": null,
+                "secondsLeft": null
+              }
+            ],
+            "pipelinesComplete": true,
+            "runsTruncated": false
+          },
+          {
+            "id": "pipeline-router",
+            "label": "Pipeline",
+            "state": "live",
+            "ageSeconds": 5.0,
+            "detail": "Recorded router checkpoint; live execution is unverified",
+            "observationAgeSeconds": 0.0
+          }
+        ],
+        "events": [
+          [
+            "read",
+            "/golden/pending.json",
+            4096
+          ],
+          [
+            "namespace"
+          ]
+        ],
+        "inputsUnchanged": true
+      }
+    },
+    {
+      "name": "text_bound_runId_79_live",
+      "target": "pipeline",
+      "now": 10000.0,
+      "observed_at": "1970-01-01T02:46:40.000Z",
+      "router": {
+        "root": "/golden/router",
+        "install": {
+          "state": "valid",
+          "generation": "golden",
+          "inProgress": false
+        },
+        "admission": {
+          "policy": "single"
+        },
+        "rows": [
+          {
+            "runId": "run-1",
+            "layout": "per-run",
+            "stage": "backend_draft",
+            "startedUnix": 9990.0,
+            "recordedUnix": 9995.0,
+            "recoveryRequired": false,
+            "host": "mac",
+            "readable": true,
+            "valid": true,
+            "live": true,
+            "lock": "held",
+            "lockHeld": true,
+            "lockBound": true,
+            "stalled": false,
+            "state": "unresolved",
+            "note": null,
+            "client": null,
+            "collision": false,
+            "pid": null,
+            "evidence": "fixture route evidence",
+            "_record": {
+              "runId": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr",
+              "stage": "backend_draft",
+              "startedUnix": 9990.0,
+              "checkpoint": {
+                "recordedUnix": 9995.0,
+                "evidence": {
+                  "recoveryRequired": false
+                }
+              }
+            }
+          }
+        ],
+        "primary": {
+          "runId": "run-1",
+          "layout": "per-run",
+          "stage": "backend_draft",
+          "startedUnix": 9990.0,
+          "recordedUnix": 9995.0,
+          "recoveryRequired": false,
+          "host": "mac",
+          "readable": true,
+          "valid": true,
+          "live": true,
+          "lock": "held",
+          "lockHeld": true,
+          "lockBound": true,
+          "stalled": false,
+          "state": "unresolved",
+          "note": null,
+          "client": null,
+          "collision": false,
+          "pid": null,
+          "evidence": "fixture route evidence",
+          "_record": {
+            "runId": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr",
+            "stage": "backend_draft",
+            "startedUnix": 9990.0,
+            "checkpoint": {
+              "recordedUnix": 9995.0,
+              "evidence": {
+                "recoveryRequired": false
+              }
+            }
+          }
+        },
+        "truncated": false,
+        "error": null,
+        "legacyPresent": false,
+        "layout": "per-run",
+        "lanes": {
+          "fixture-lane": {
+            "capacity": 1,
+            "holders": [],
+            "waiting": []
+          }
+        },
+        "collisions": []
+      },
+      "text_bound_patterns": {
+        "run_id": "[A-Za-z0-9][A-Za-z0-9_.:-]*\\Z",
+        "stage": "[A-Za-z][A-Za-z0-9_.:-]*\\Z"
+      },
+      "generated_from": {
+        "revision": "2e128b78b0f00b4092a82630c6c96637a7270ce9",
+        "telemetry_sha256": "935723549f896c85cfaaef45a390e788253deb2a240ac9c155678b107f2ca02c",
+        "archive": "git archive 2e128b7"
+      },
+      "expected": {
+        "result": [
+          {
+            "runId": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr",
+            "status": "unresolved",
+            "stage": "backend_draft",
+            "recoveryRequired": false,
+            "pendingMarkerObserved": false,
+            "ageSeconds": 5.0,
+            "pendingMarkerAgeSeconds": null,
+            "pendingMarkerOwner": null,
+            "pendingMarkerAttributedTo": null,
+            "pendingMarkerForeign": false,
+            "pendingMarkerUnreadable": false,
+            "queuePhase": null,
+            "queueResource": null,
+            "steps": [
+              {
+                "id": "intake",
+                "label": "Intake",
+                "state": "pending"
+              },
+              {
+                "id": "preflight",
+                "label": "Preflight",
+                "state": "pending"
+              },
+              {
+                "id": "backend_draft",
+                "label": "Author",
+                "state": "pending"
+              },
+              {
+                "id": "backend_answer",
+                "label": "Author",
+                "state": "pending"
+              },
+              {
+                "id": "backend_review",
+                "label": "Review",
+                "state": "pending"
+              },
+              {
+                "id": "validation",
+                "label": "Validation",
+                "state": "pending"
+              },
+              {
+                "id": "checks",
+                "label": "Checks",
+                "state": "pending"
+              },
+              {
+                "id": "mac_return",
+                "label": "Return",
+                "state": "pending"
+              },
+              {
+                "id": "final_validation",
+                "label": "Final validation",
+                "state": "pending"
+              }
+            ],
+            "usage": {
+              "inputTokens": null,
+              "outputTokens": null,
+              "totalTokens": null
+            },
+            "authorModel": null,
+            "reviewerModel": null,
+            "pipelines": [
+              {
+                "runId": "run-1",
+                "status": "unresolved",
+                "stage": "backend_draft",
+                "host": "mac",
+                "client": null,
+                "live": true,
+                "layout": "per-run",
+                "recoveryRequired": false,
+                "ageSeconds": 5.0,
+                "resource": null,
+                "secondsLeft": null
+              }
+            ],
+            "pipelinesComplete": true,
+            "runsTruncated": false
+          },
+          {
+            "id": "pipeline-router",
+            "label": "Pipeline",
+            "state": "live",
+            "ageSeconds": 5.0,
+            "detail": "Recorded router checkpoint; live execution is unverified",
+            "observationAgeSeconds": 0.0
+          }
+        ],
+        "events": [
+          [
+            "read",
+            "/golden/pending.json",
+            4096
+          ],
+          [
+            "namespace"
+          ]
+        ],
+        "inputsUnchanged": true
+      }
+    },
+    {
+      "name": "text_bound_runId_80_live",
+      "target": "pipeline",
+      "now": 10000.0,
+      "observed_at": "1970-01-01T02:46:40.000Z",
+      "router": {
+        "root": "/golden/router",
+        "install": {
+          "state": "valid",
+          "generation": "golden",
+          "inProgress": false
+        },
+        "admission": {
+          "policy": "single"
+        },
+        "rows": [
+          {
+            "runId": "run-1",
+            "layout": "per-run",
+            "stage": "backend_draft",
+            "startedUnix": 9990.0,
+            "recordedUnix": 9995.0,
+            "recoveryRequired": false,
+            "host": "mac",
+            "readable": true,
+            "valid": true,
+            "live": true,
+            "lock": "held",
+            "lockHeld": true,
+            "lockBound": true,
+            "stalled": false,
+            "state": "unresolved",
+            "note": null,
+            "client": null,
+            "collision": false,
+            "pid": null,
+            "evidence": "fixture route evidence",
+            "_record": {
+              "runId": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr",
+              "stage": "backend_draft",
+              "startedUnix": 9990.0,
+              "checkpoint": {
+                "recordedUnix": 9995.0,
+                "evidence": {
+                  "recoveryRequired": false
+                }
+              }
+            }
+          }
+        ],
+        "primary": {
+          "runId": "run-1",
+          "layout": "per-run",
+          "stage": "backend_draft",
+          "startedUnix": 9990.0,
+          "recordedUnix": 9995.0,
+          "recoveryRequired": false,
+          "host": "mac",
+          "readable": true,
+          "valid": true,
+          "live": true,
+          "lock": "held",
+          "lockHeld": true,
+          "lockBound": true,
+          "stalled": false,
+          "state": "unresolved",
+          "note": null,
+          "client": null,
+          "collision": false,
+          "pid": null,
+          "evidence": "fixture route evidence",
+          "_record": {
+            "runId": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr",
+            "stage": "backend_draft",
+            "startedUnix": 9990.0,
+            "checkpoint": {
+              "recordedUnix": 9995.0,
+              "evidence": {
+                "recoveryRequired": false
+              }
+            }
+          }
+        },
+        "truncated": false,
+        "error": null,
+        "legacyPresent": false,
+        "layout": "per-run",
+        "lanes": {
+          "fixture-lane": {
+            "capacity": 1,
+            "holders": [],
+            "waiting": []
+          }
+        },
+        "collisions": []
+      },
+      "text_bound_patterns": {
+        "run_id": "[A-Za-z0-9][A-Za-z0-9_.:-]*\\Z",
+        "stage": "[A-Za-z][A-Za-z0-9_.:-]*\\Z"
+      },
+      "generated_from": {
+        "revision": "2e128b78b0f00b4092a82630c6c96637a7270ce9",
+        "telemetry_sha256": "935723549f896c85cfaaef45a390e788253deb2a240ac9c155678b107f2ca02c",
+        "archive": "git archive 2e128b7"
+      },
+      "expected": {
+        "result": [
+          {
+            "runId": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr",
+            "status": "unresolved",
+            "stage": "backend_draft",
+            "recoveryRequired": false,
+            "pendingMarkerObserved": false,
+            "ageSeconds": 5.0,
+            "pendingMarkerAgeSeconds": null,
+            "pendingMarkerOwner": null,
+            "pendingMarkerAttributedTo": null,
+            "pendingMarkerForeign": false,
+            "pendingMarkerUnreadable": false,
+            "queuePhase": null,
+            "queueResource": null,
+            "steps": [
+              {
+                "id": "intake",
+                "label": "Intake",
+                "state": "pending"
+              },
+              {
+                "id": "preflight",
+                "label": "Preflight",
+                "state": "pending"
+              },
+              {
+                "id": "backend_draft",
+                "label": "Author",
+                "state": "pending"
+              },
+              {
+                "id": "backend_answer",
+                "label": "Author",
+                "state": "pending"
+              },
+              {
+                "id": "backend_review",
+                "label": "Review",
+                "state": "pending"
+              },
+              {
+                "id": "validation",
+                "label": "Validation",
+                "state": "pending"
+              },
+              {
+                "id": "checks",
+                "label": "Checks",
+                "state": "pending"
+              },
+              {
+                "id": "mac_return",
+                "label": "Return",
+                "state": "pending"
+              },
+              {
+                "id": "final_validation",
+                "label": "Final validation",
+                "state": "pending"
+              }
+            ],
+            "usage": {
+              "inputTokens": null,
+              "outputTokens": null,
+              "totalTokens": null
+            },
+            "authorModel": null,
+            "reviewerModel": null,
+            "pipelines": [
+              {
+                "runId": "run-1",
+                "status": "unresolved",
+                "stage": "backend_draft",
+                "host": "mac",
+                "client": null,
+                "live": true,
+                "layout": "per-run",
+                "recoveryRequired": false,
+                "ageSeconds": 5.0,
+                "resource": null,
+                "secondsLeft": null
+              }
+            ],
+            "pipelinesComplete": true,
+            "runsTruncated": false
+          },
+          {
+            "id": "pipeline-router",
+            "label": "Pipeline",
+            "state": "live",
+            "ageSeconds": 5.0,
+            "detail": "Recorded router checkpoint; live execution is unverified",
+            "observationAgeSeconds": 0.0
+          }
+        ],
+        "events": [
+          [
+            "read",
+            "/golden/pending.json",
+            4096
+          ],
+          [
+            "namespace"
+          ]
+        ],
+        "inputsUnchanged": true
+      }
+    },
+    {
+      "name": "text_bound_runId_81_live",
+      "target": "pipeline",
+      "now": 10000.0,
+      "observed_at": "1970-01-01T02:46:40.000Z",
+      "router": {
+        "root": "/golden/router",
+        "install": {
+          "state": "valid",
+          "generation": "golden",
+          "inProgress": false
+        },
+        "admission": {
+          "policy": "single"
+        },
+        "rows": [
+          {
+            "runId": "run-1",
+            "layout": "per-run",
+            "stage": "backend_draft",
+            "startedUnix": 9990.0,
+            "recordedUnix": 9995.0,
+            "recoveryRequired": false,
+            "host": "mac",
+            "readable": true,
+            "valid": true,
+            "live": true,
+            "lock": "held",
+            "lockHeld": true,
+            "lockBound": true,
+            "stalled": false,
+            "state": "unresolved",
+            "note": null,
+            "client": null,
+            "collision": false,
+            "pid": null,
+            "evidence": "fixture route evidence",
+            "_record": {
+              "runId": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr",
+              "stage": "backend_draft",
+              "startedUnix": 9990.0,
+              "checkpoint": {
+                "recordedUnix": 9995.0,
+                "evidence": {
+                  "recoveryRequired": false
+                }
+              }
+            }
+          }
+        ],
+        "primary": {
+          "runId": "run-1",
+          "layout": "per-run",
+          "stage": "backend_draft",
+          "startedUnix": 9990.0,
+          "recordedUnix": 9995.0,
+          "recoveryRequired": false,
+          "host": "mac",
+          "readable": true,
+          "valid": true,
+          "live": true,
+          "lock": "held",
+          "lockHeld": true,
+          "lockBound": true,
+          "stalled": false,
+          "state": "unresolved",
+          "note": null,
+          "client": null,
+          "collision": false,
+          "pid": null,
+          "evidence": "fixture route evidence",
+          "_record": {
+            "runId": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr",
+            "stage": "backend_draft",
+            "startedUnix": 9990.0,
+            "checkpoint": {
+              "recordedUnix": 9995.0,
+              "evidence": {
+                "recoveryRequired": false
+              }
+            }
+          }
+        },
+        "truncated": false,
+        "error": null,
+        "legacyPresent": false,
+        "layout": "per-run",
+        "lanes": {
+          "fixture-lane": {
+            "capacity": 1,
+            "holders": [],
+            "waiting": []
+          }
+        },
+        "collisions": []
+      },
+      "text_bound_patterns": {
+        "run_id": "[A-Za-z0-9][A-Za-z0-9_.:-]*\\Z",
+        "stage": "[A-Za-z][A-Za-z0-9_.:-]*\\Z"
+      },
+      "generated_from": {
+        "revision": "2e128b78b0f00b4092a82630c6c96637a7270ce9",
+        "telemetry_sha256": "935723549f896c85cfaaef45a390e788253deb2a240ac9c155678b107f2ca02c",
+        "archive": "git archive 2e128b7"
+      },
+      "expected": {
+        "result": [
+          {
+            "runId": null,
+            "status": "unknown",
+            "stage": null,
+            "recoveryRequired": false,
+            "pendingMarkerObserved": false,
+            "ageSeconds": null,
+            "pendingMarkerAgeSeconds": null,
+            "pendingMarkerOwner": null,
+            "pendingMarkerAttributedTo": null,
+            "pendingMarkerForeign": false,
+            "pendingMarkerUnreadable": false,
+            "queuePhase": null,
+            "queueResource": null,
+            "steps": [
+              {
+                "id": "intake",
+                "label": "Intake",
+                "state": "pending"
+              },
+              {
+                "id": "preflight",
+                "label": "Preflight",
+                "state": "pending"
+              },
+              {
+                "id": "backend_draft",
+                "label": "Author",
+                "state": "pending"
+              },
+              {
+                "id": "backend_answer",
+                "label": "Author",
+                "state": "pending"
+              },
+              {
+                "id": "backend_review",
+                "label": "Review",
+                "state": "pending"
+              },
+              {
+                "id": "validation",
+                "label": "Validation",
+                "state": "pending"
+              },
+              {
+                "id": "checks",
+                "label": "Checks",
+                "state": "pending"
+              },
+              {
+                "id": "mac_return",
+                "label": "Return",
+                "state": "pending"
+              },
+              {
+                "id": "final_validation",
+                "label": "Final validation",
+                "state": "pending"
+              }
+            ],
+            "usage": {
+              "inputTokens": null,
+              "outputTokens": null,
+              "totalTokens": null
+            },
+            "authorModel": null,
+            "reviewerModel": null,
+            "pipelines": [
+              {
+                "runId": "run-1",
+                "status": "unresolved",
+                "stage": "backend_draft",
+                "host": "mac",
+                "client": null,
+                "live": true,
+                "layout": "per-run",
+                "recoveryRequired": false,
+                "ageSeconds": 5.0,
+                "resource": null,
+                "secondsLeft": null
+              }
+            ],
+            "pipelinesComplete": true,
+            "runsTruncated": false
+          },
+          {
+            "id": "pipeline-router",
+            "label": "Pipeline",
+            "state": "error",
+            "ageSeconds": null,
+            "detail": "Router state invalid or unreadable"
+          }
+        ],
+        "events": [
+          [
+            "read",
+            "/golden/pending.json",
+            4096
+          ],
+          [
+            "namespace"
+          ]
+        ],
+        "inputsUnchanged": true
+      }
+    },
+    {
+      "name": "text_bound_stage_63_live",
+      "target": "pipeline",
+      "now": 10000.0,
+      "observed_at": "1970-01-01T02:46:40.000Z",
+      "router": {
+        "root": "/golden/router",
+        "install": {
+          "state": "valid",
+          "generation": "golden",
+          "inProgress": false
+        },
+        "admission": {
+          "policy": "single"
+        },
+        "rows": [
+          {
+            "runId": "run-1",
+            "layout": "per-run",
+            "stage": "backend_draft",
+            "startedUnix": 9990.0,
+            "recordedUnix": 9995.0,
+            "recoveryRequired": false,
+            "host": "mac",
+            "readable": true,
+            "valid": true,
+            "live": true,
+            "lock": "held",
+            "lockHeld": true,
+            "lockBound": true,
+            "stalled": false,
+            "state": "unresolved",
+            "note": null,
+            "client": null,
+            "collision": false,
+            "pid": null,
+            "evidence": "fixture route evidence",
+            "_record": {
+              "runId": "run-1",
+              "stage": "sssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss",
+              "startedUnix": 9990.0,
+              "checkpoint": {
+                "recordedUnix": 9995.0,
+                "evidence": {
+                  "recoveryRequired": false
+                }
+              }
+            }
+          }
+        ],
+        "primary": {
+          "runId": "run-1",
+          "layout": "per-run",
+          "stage": "backend_draft",
+          "startedUnix": 9990.0,
+          "recordedUnix": 9995.0,
+          "recoveryRequired": false,
+          "host": "mac",
+          "readable": true,
+          "valid": true,
+          "live": true,
+          "lock": "held",
+          "lockHeld": true,
+          "lockBound": true,
+          "stalled": false,
+          "state": "unresolved",
+          "note": null,
+          "client": null,
+          "collision": false,
+          "pid": null,
+          "evidence": "fixture route evidence",
+          "_record": {
+            "runId": "run-1",
+            "stage": "sssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss",
+            "startedUnix": 9990.0,
+            "checkpoint": {
+              "recordedUnix": 9995.0,
+              "evidence": {
+                "recoveryRequired": false
+              }
+            }
+          }
+        },
+        "truncated": false,
+        "error": null,
+        "legacyPresent": false,
+        "layout": "per-run",
+        "lanes": {
+          "fixture-lane": {
+            "capacity": 1,
+            "holders": [],
+            "waiting": []
+          }
+        },
+        "collisions": []
+      },
+      "text_bound_patterns": {
+        "run_id": "[A-Za-z0-9][A-Za-z0-9_.:-]*\\Z",
+        "stage": "[A-Za-z][A-Za-z0-9_.:-]*\\Z"
+      },
+      "generated_from": {
+        "revision": "2e128b78b0f00b4092a82630c6c96637a7270ce9",
+        "telemetry_sha256": "935723549f896c85cfaaef45a390e788253deb2a240ac9c155678b107f2ca02c",
+        "archive": "git archive 2e128b7"
+      },
+      "expected": {
+        "result": [
+          {
+            "runId": "run-1",
+            "status": "unresolved",
+            "stage": "sssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss",
+            "recoveryRequired": false,
+            "pendingMarkerObserved": false,
+            "ageSeconds": 5.0,
+            "pendingMarkerAgeSeconds": null,
+            "pendingMarkerOwner": null,
+            "pendingMarkerAttributedTo": null,
+            "pendingMarkerForeign": false,
+            "pendingMarkerUnreadable": false,
+            "queuePhase": null,
+            "queueResource": null,
+            "steps": [
+              {
+                "id": "intake",
+                "label": "Intake",
+                "state": "pending"
+              },
+              {
+                "id": "preflight",
+                "label": "Preflight",
+                "state": "pending"
+              },
+              {
+                "id": "backend_draft",
+                "label": "Author",
+                "state": "pending"
+              },
+              {
+                "id": "backend_answer",
+                "label": "Author",
+                "state": "pending"
+              },
+              {
+                "id": "backend_review",
+                "label": "Review",
+                "state": "pending"
+              },
+              {
+                "id": "validation",
+                "label": "Validation",
+                "state": "pending"
+              },
+              {
+                "id": "checks",
+                "label": "Checks",
+                "state": "pending"
+              },
+              {
+                "id": "mac_return",
+                "label": "Return",
+                "state": "pending"
+              },
+              {
+                "id": "final_validation",
+                "label": "Final validation",
+                "state": "pending"
+              }
+            ],
+            "usage": {
+              "inputTokens": null,
+              "outputTokens": null,
+              "totalTokens": null
+            },
+            "authorModel": null,
+            "reviewerModel": null,
+            "pipelines": [
+              {
+                "runId": "run-1",
+                "status": "unresolved",
+                "stage": "backend_draft",
+                "host": "mac",
+                "client": null,
+                "live": true,
+                "layout": "per-run",
+                "recoveryRequired": false,
+                "ageSeconds": 5.0,
+                "resource": null,
+                "secondsLeft": null
+              }
+            ],
+            "pipelinesComplete": true,
+            "runsTruncated": false
+          },
+          {
+            "id": "pipeline-router",
+            "label": "Pipeline",
+            "state": "live",
+            "ageSeconds": 5.0,
+            "detail": "Recorded router checkpoint; live execution is unverified",
+            "observationAgeSeconds": 0.0
+          }
+        ],
+        "events": [
+          [
+            "read",
+            "/golden/pending.json",
+            4096
+          ],
+          [
+            "namespace"
+          ]
+        ],
+        "inputsUnchanged": true
+      }
+    },
+    {
+      "name": "text_bound_stage_64_live",
+      "target": "pipeline",
+      "now": 10000.0,
+      "observed_at": "1970-01-01T02:46:40.000Z",
+      "router": {
+        "root": "/golden/router",
+        "install": {
+          "state": "valid",
+          "generation": "golden",
+          "inProgress": false
+        },
+        "admission": {
+          "policy": "single"
+        },
+        "rows": [
+          {
+            "runId": "run-1",
+            "layout": "per-run",
+            "stage": "backend_draft",
+            "startedUnix": 9990.0,
+            "recordedUnix": 9995.0,
+            "recoveryRequired": false,
+            "host": "mac",
+            "readable": true,
+            "valid": true,
+            "live": true,
+            "lock": "held",
+            "lockHeld": true,
+            "lockBound": true,
+            "stalled": false,
+            "state": "unresolved",
+            "note": null,
+            "client": null,
+            "collision": false,
+            "pid": null,
+            "evidence": "fixture route evidence",
+            "_record": {
+              "runId": "run-1",
+              "stage": "ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss",
+              "startedUnix": 9990.0,
+              "checkpoint": {
+                "recordedUnix": 9995.0,
+                "evidence": {
+                  "recoveryRequired": false
+                }
+              }
+            }
+          }
+        ],
+        "primary": {
+          "runId": "run-1",
+          "layout": "per-run",
+          "stage": "backend_draft",
+          "startedUnix": 9990.0,
+          "recordedUnix": 9995.0,
+          "recoveryRequired": false,
+          "host": "mac",
+          "readable": true,
+          "valid": true,
+          "live": true,
+          "lock": "held",
+          "lockHeld": true,
+          "lockBound": true,
+          "stalled": false,
+          "state": "unresolved",
+          "note": null,
+          "client": null,
+          "collision": false,
+          "pid": null,
+          "evidence": "fixture route evidence",
+          "_record": {
+            "runId": "run-1",
+            "stage": "ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss",
+            "startedUnix": 9990.0,
+            "checkpoint": {
+              "recordedUnix": 9995.0,
+              "evidence": {
+                "recoveryRequired": false
+              }
+            }
+          }
+        },
+        "truncated": false,
+        "error": null,
+        "legacyPresent": false,
+        "layout": "per-run",
+        "lanes": {
+          "fixture-lane": {
+            "capacity": 1,
+            "holders": [],
+            "waiting": []
+          }
+        },
+        "collisions": []
+      },
+      "text_bound_patterns": {
+        "run_id": "[A-Za-z0-9][A-Za-z0-9_.:-]*\\Z",
+        "stage": "[A-Za-z][A-Za-z0-9_.:-]*\\Z"
+      },
+      "generated_from": {
+        "revision": "2e128b78b0f00b4092a82630c6c96637a7270ce9",
+        "telemetry_sha256": "935723549f896c85cfaaef45a390e788253deb2a240ac9c155678b107f2ca02c",
+        "archive": "git archive 2e128b7"
+      },
+      "expected": {
+        "result": [
+          {
+            "runId": "run-1",
+            "status": "unresolved",
+            "stage": "ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss",
+            "recoveryRequired": false,
+            "pendingMarkerObserved": false,
+            "ageSeconds": 5.0,
+            "pendingMarkerAgeSeconds": null,
+            "pendingMarkerOwner": null,
+            "pendingMarkerAttributedTo": null,
+            "pendingMarkerForeign": false,
+            "pendingMarkerUnreadable": false,
+            "queuePhase": null,
+            "queueResource": null,
+            "steps": [
+              {
+                "id": "intake",
+                "label": "Intake",
+                "state": "pending"
+              },
+              {
+                "id": "preflight",
+                "label": "Preflight",
+                "state": "pending"
+              },
+              {
+                "id": "backend_draft",
+                "label": "Author",
+                "state": "pending"
+              },
+              {
+                "id": "backend_answer",
+                "label": "Author",
+                "state": "pending"
+              },
+              {
+                "id": "backend_review",
+                "label": "Review",
+                "state": "pending"
+              },
+              {
+                "id": "validation",
+                "label": "Validation",
+                "state": "pending"
+              },
+              {
+                "id": "checks",
+                "label": "Checks",
+                "state": "pending"
+              },
+              {
+                "id": "mac_return",
+                "label": "Return",
+                "state": "pending"
+              },
+              {
+                "id": "final_validation",
+                "label": "Final validation",
+                "state": "pending"
+              }
+            ],
+            "usage": {
+              "inputTokens": null,
+              "outputTokens": null,
+              "totalTokens": null
+            },
+            "authorModel": null,
+            "reviewerModel": null,
+            "pipelines": [
+              {
+                "runId": "run-1",
+                "status": "unresolved",
+                "stage": "backend_draft",
+                "host": "mac",
+                "client": null,
+                "live": true,
+                "layout": "per-run",
+                "recoveryRequired": false,
+                "ageSeconds": 5.0,
+                "resource": null,
+                "secondsLeft": null
+              }
+            ],
+            "pipelinesComplete": true,
+            "runsTruncated": false
+          },
+          {
+            "id": "pipeline-router",
+            "label": "Pipeline",
+            "state": "live",
+            "ageSeconds": 5.0,
+            "detail": "Recorded router checkpoint; live execution is unverified",
+            "observationAgeSeconds": 0.0
+          }
+        ],
+        "events": [
+          [
+            "read",
+            "/golden/pending.json",
+            4096
+          ],
+          [
+            "namespace"
+          ]
+        ],
+        "inputsUnchanged": true
+      }
+    },
+    {
+      "name": "text_bound_stage_65_live",
+      "target": "pipeline",
+      "now": 10000.0,
+      "observed_at": "1970-01-01T02:46:40.000Z",
+      "router": {
+        "root": "/golden/router",
+        "install": {
+          "state": "valid",
+          "generation": "golden",
+          "inProgress": false
+        },
+        "admission": {
+          "policy": "single"
+        },
+        "rows": [
+          {
+            "runId": "run-1",
+            "layout": "per-run",
+            "stage": "backend_draft",
+            "startedUnix": 9990.0,
+            "recordedUnix": 9995.0,
+            "recoveryRequired": false,
+            "host": "mac",
+            "readable": true,
+            "valid": true,
+            "live": true,
+            "lock": "held",
+            "lockHeld": true,
+            "lockBound": true,
+            "stalled": false,
+            "state": "unresolved",
+            "note": null,
+            "client": null,
+            "collision": false,
+            "pid": null,
+            "evidence": "fixture route evidence",
+            "_record": {
+              "runId": "run-1",
+              "stage": "sssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss",
+              "startedUnix": 9990.0,
+              "checkpoint": {
+                "recordedUnix": 9995.0,
+                "evidence": {
+                  "recoveryRequired": false
+                }
+              }
+            }
+          }
+        ],
+        "primary": {
+          "runId": "run-1",
+          "layout": "per-run",
+          "stage": "backend_draft",
+          "startedUnix": 9990.0,
+          "recordedUnix": 9995.0,
+          "recoveryRequired": false,
+          "host": "mac",
+          "readable": true,
+          "valid": true,
+          "live": true,
+          "lock": "held",
+          "lockHeld": true,
+          "lockBound": true,
+          "stalled": false,
+          "state": "unresolved",
+          "note": null,
+          "client": null,
+          "collision": false,
+          "pid": null,
+          "evidence": "fixture route evidence",
+          "_record": {
+            "runId": "run-1",
+            "stage": "sssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss",
+            "startedUnix": 9990.0,
+            "checkpoint": {
+              "recordedUnix": 9995.0,
+              "evidence": {
+                "recoveryRequired": false
+              }
+            }
+          }
+        },
+        "truncated": false,
+        "error": null,
+        "legacyPresent": false,
+        "layout": "per-run",
+        "lanes": {
+          "fixture-lane": {
+            "capacity": 1,
+            "holders": [],
+            "waiting": []
+          }
+        },
+        "collisions": []
+      },
+      "text_bound_patterns": {
+        "run_id": "[A-Za-z0-9][A-Za-z0-9_.:-]*\\Z",
+        "stage": "[A-Za-z][A-Za-z0-9_.:-]*\\Z"
+      },
+      "generated_from": {
+        "revision": "2e128b78b0f00b4092a82630c6c96637a7270ce9",
+        "telemetry_sha256": "935723549f896c85cfaaef45a390e788253deb2a240ac9c155678b107f2ca02c",
+        "archive": "git archive 2e128b7"
+      },
+      "expected": {
+        "result": [
+          {
+            "runId": "run-1",
+            "status": "unresolved",
+            "stage": null,
+            "recoveryRequired": false,
+            "pendingMarkerObserved": false,
+            "ageSeconds": 5.0,
+            "pendingMarkerAgeSeconds": null,
+            "pendingMarkerOwner": null,
+            "pendingMarkerAttributedTo": null,
+            "pendingMarkerForeign": false,
+            "pendingMarkerUnreadable": false,
+            "queuePhase": null,
+            "queueResource": null,
+            "steps": [
+              {
+                "id": "intake",
+                "label": "Intake",
+                "state": "pending"
+              },
+              {
+                "id": "preflight",
+                "label": "Preflight",
+                "state": "pending"
+              },
+              {
+                "id": "backend_draft",
+                "label": "Author",
+                "state": "pending"
+              },
+              {
+                "id": "backend_answer",
+                "label": "Author",
+                "state": "pending"
+              },
+              {
+                "id": "backend_review",
+                "label": "Review",
+                "state": "pending"
+              },
+              {
+                "id": "validation",
+                "label": "Validation",
+                "state": "pending"
+              },
+              {
+                "id": "checks",
+                "label": "Checks",
+                "state": "pending"
+              },
+              {
+                "id": "mac_return",
+                "label": "Return",
+                "state": "pending"
+              },
+              {
+                "id": "final_validation",
+                "label": "Final validation",
+                "state": "pending"
+              }
+            ],
+            "usage": {
+              "inputTokens": null,
+              "outputTokens": null,
+              "totalTokens": null
+            },
+            "authorModel": null,
+            "reviewerModel": null,
+            "pipelines": [
+              {
+                "runId": "run-1",
+                "status": "unresolved",
+                "stage": "backend_draft",
+                "host": "mac",
+                "client": null,
+                "live": true,
+                "layout": "per-run",
+                "recoveryRequired": false,
+                "ageSeconds": 5.0,
+                "resource": null,
+                "secondsLeft": null
+              }
+            ],
+            "pipelinesComplete": true,
+            "runsTruncated": false
+          },
+          {
+            "id": "pipeline-router",
+            "label": "Pipeline",
+            "state": "live",
+            "ageSeconds": 5.0,
+            "detail": "Recorded router checkpoint; live execution is unverified",
+            "observationAgeSeconds": 0.0
+          }
+        ],
+        "events": [
+          [
+            "read",
+            "/golden/pending.json",
+            4096
+          ],
+          [
+            "namespace"
+          ]
+        ],
+        "inputsUnchanged": true
+      }
+    },
+    {
+      "name": "text_bound_runId_79_stale",
+      "target": "pipeline",
+      "now": 10000.0,
+      "observed_at": "1970-01-01T02:46:40.000Z",
+      "router": {
+        "root": "/golden/router",
+        "install": {
+          "state": "valid",
+          "generation": "golden",
+          "inProgress": false
+        },
+        "admission": {
+          "policy": "single"
+        },
+        "rows": [
+          {
+            "runId": "run-1",
+            "layout": "per-run",
+            "stage": "backend_draft",
+            "startedUnix": 9990.0,
+            "recordedUnix": 9699.0,
+            "recoveryRequired": false,
+            "host": "mac",
+            "readable": true,
+            "valid": true,
+            "live": false,
+            "lock": "free",
+            "lockHeld": false,
+            "lockBound": false,
+            "stalled": false,
+            "state": "unresolved",
+            "note": null,
+            "client": null,
+            "collision": false,
+            "pid": null,
+            "evidence": "fixture route evidence",
+            "_record": {
+              "runId": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr",
+              "stage": "backend_draft",
+              "startedUnix": 9990.0,
+              "checkpoint": {
+                "recordedUnix": 9699.0,
+                "evidence": {
+                  "recoveryRequired": false
+                }
+              }
+            }
+          }
+        ],
+        "primary": {
+          "runId": "run-1",
+          "layout": "per-run",
+          "stage": "backend_draft",
+          "startedUnix": 9990.0,
+          "recordedUnix": 9699.0,
+          "recoveryRequired": false,
+          "host": "mac",
+          "readable": true,
+          "valid": true,
+          "live": false,
+          "lock": "free",
+          "lockHeld": false,
+          "lockBound": false,
+          "stalled": false,
+          "state": "unresolved",
+          "note": null,
+          "client": null,
+          "collision": false,
+          "pid": null,
+          "evidence": "fixture route evidence",
+          "_record": {
+            "runId": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr",
+            "stage": "backend_draft",
+            "startedUnix": 9990.0,
+            "checkpoint": {
+              "recordedUnix": 9699.0,
+              "evidence": {
+                "recoveryRequired": false
+              }
+            }
+          }
+        },
+        "truncated": false,
+        "error": null,
+        "legacyPresent": false,
+        "layout": "per-run",
+        "lanes": {
+          "fixture-lane": {
+            "capacity": 1,
+            "holders": [],
+            "waiting": []
+          }
+        },
+        "collisions": []
+      },
+      "text_bound_patterns": {
+        "run_id": "[A-Za-z0-9][A-Za-z0-9_.:-]*\\Z",
+        "stage": "[A-Za-z][A-Za-z0-9_.:-]*\\Z"
+      },
+      "generated_from": {
+        "revision": "2e128b78b0f00b4092a82630c6c96637a7270ce9",
+        "telemetry_sha256": "935723549f896c85cfaaef45a390e788253deb2a240ac9c155678b107f2ca02c",
+        "archive": "git archive 2e128b7"
+      },
+      "expected": {
+        "result": [
+          {
+            "runId": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr",
+            "status": "stale",
+            "stage": "backend_draft",
+            "recoveryRequired": false,
+            "pendingMarkerObserved": false,
+            "ageSeconds": 301.0,
+            "pendingMarkerAgeSeconds": null,
+            "pendingMarkerOwner": null,
+            "pendingMarkerAttributedTo": null,
+            "pendingMarkerForeign": false,
+            "pendingMarkerUnreadable": false,
+            "queuePhase": null,
+            "queueResource": null,
+            "steps": [
+              {
+                "id": "intake",
+                "label": "Intake",
+                "state": "unknown"
+              },
+              {
+                "id": "preflight",
+                "label": "Preflight",
+                "state": "unknown"
+              },
+              {
+                "id": "backend_draft",
+                "label": "Author",
+                "state": "unknown"
+              },
+              {
+                "id": "backend_answer",
+                "label": "Author",
+                "state": "unknown"
+              },
+              {
+                "id": "backend_review",
+                "label": "Review",
+                "state": "unknown"
+              },
+              {
+                "id": "validation",
+                "label": "Validation",
+                "state": "unknown"
+              },
+              {
+                "id": "checks",
+                "label": "Checks",
+                "state": "unknown"
+              },
+              {
+                "id": "mac_return",
+                "label": "Return",
+                "state": "unknown"
+              },
+              {
+                "id": "final_validation",
+                "label": "Final validation",
+                "state": "unknown"
+              }
+            ],
+            "usage": {
+              "inputTokens": null,
+              "outputTokens": null,
+              "totalTokens": null
+            },
+            "authorModel": null,
+            "reviewerModel": null,
+            "pipelines": [
+              {
+                "runId": "run-1",
+                "status": "unresolved",
+                "stage": "backend_draft",
+                "host": "mac",
+                "client": null,
+                "live": false,
+                "layout": "per-run",
+                "recoveryRequired": false,
+                "ageSeconds": 301.0,
+                "resource": null,
+                "secondsLeft": null
+              }
+            ],
+            "pipelinesComplete": false,
+            "runsTruncated": false
+          },
+          {
+            "id": "pipeline-router",
+            "label": "Pipeline",
+            "state": "stale",
+            "ageSeconds": 301.0,
+            "detail": "Recorded router checkpoint; live execution is unverified"
+          }
+        ],
+        "events": [
+          [
+            "read",
+            "/golden/pending.json",
+            4096
+          ],
+          [
+            "namespace"
+          ]
+        ],
+        "inputsUnchanged": true
+      }
+    },
+    {
+      "name": "text_bound_runId_80_stale",
+      "target": "pipeline",
+      "now": 10000.0,
+      "observed_at": "1970-01-01T02:46:40.000Z",
+      "router": {
+        "root": "/golden/router",
+        "install": {
+          "state": "valid",
+          "generation": "golden",
+          "inProgress": false
+        },
+        "admission": {
+          "policy": "single"
+        },
+        "rows": [
+          {
+            "runId": "run-1",
+            "layout": "per-run",
+            "stage": "backend_draft",
+            "startedUnix": 9990.0,
+            "recordedUnix": 9699.0,
+            "recoveryRequired": false,
+            "host": "mac",
+            "readable": true,
+            "valid": true,
+            "live": false,
+            "lock": "free",
+            "lockHeld": false,
+            "lockBound": false,
+            "stalled": false,
+            "state": "unresolved",
+            "note": null,
+            "client": null,
+            "collision": false,
+            "pid": null,
+            "evidence": "fixture route evidence",
+            "_record": {
+              "runId": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr",
+              "stage": "backend_draft",
+              "startedUnix": 9990.0,
+              "checkpoint": {
+                "recordedUnix": 9699.0,
+                "evidence": {
+                  "recoveryRequired": false
+                }
+              }
+            }
+          }
+        ],
+        "primary": {
+          "runId": "run-1",
+          "layout": "per-run",
+          "stage": "backend_draft",
+          "startedUnix": 9990.0,
+          "recordedUnix": 9699.0,
+          "recoveryRequired": false,
+          "host": "mac",
+          "readable": true,
+          "valid": true,
+          "live": false,
+          "lock": "free",
+          "lockHeld": false,
+          "lockBound": false,
+          "stalled": false,
+          "state": "unresolved",
+          "note": null,
+          "client": null,
+          "collision": false,
+          "pid": null,
+          "evidence": "fixture route evidence",
+          "_record": {
+            "runId": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr",
+            "stage": "backend_draft",
+            "startedUnix": 9990.0,
+            "checkpoint": {
+              "recordedUnix": 9699.0,
+              "evidence": {
+                "recoveryRequired": false
+              }
+            }
+          }
+        },
+        "truncated": false,
+        "error": null,
+        "legacyPresent": false,
+        "layout": "per-run",
+        "lanes": {
+          "fixture-lane": {
+            "capacity": 1,
+            "holders": [],
+            "waiting": []
+          }
+        },
+        "collisions": []
+      },
+      "text_bound_patterns": {
+        "run_id": "[A-Za-z0-9][A-Za-z0-9_.:-]*\\Z",
+        "stage": "[A-Za-z][A-Za-z0-9_.:-]*\\Z"
+      },
+      "generated_from": {
+        "revision": "2e128b78b0f00b4092a82630c6c96637a7270ce9",
+        "telemetry_sha256": "935723549f896c85cfaaef45a390e788253deb2a240ac9c155678b107f2ca02c",
+        "archive": "git archive 2e128b7"
+      },
+      "expected": {
+        "result": [
+          {
+            "runId": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr",
+            "status": "stale",
+            "stage": "backend_draft",
+            "recoveryRequired": false,
+            "pendingMarkerObserved": false,
+            "ageSeconds": 301.0,
+            "pendingMarkerAgeSeconds": null,
+            "pendingMarkerOwner": null,
+            "pendingMarkerAttributedTo": null,
+            "pendingMarkerForeign": false,
+            "pendingMarkerUnreadable": false,
+            "queuePhase": null,
+            "queueResource": null,
+            "steps": [
+              {
+                "id": "intake",
+                "label": "Intake",
+                "state": "unknown"
+              },
+              {
+                "id": "preflight",
+                "label": "Preflight",
+                "state": "unknown"
+              },
+              {
+                "id": "backend_draft",
+                "label": "Author",
+                "state": "unknown"
+              },
+              {
+                "id": "backend_answer",
+                "label": "Author",
+                "state": "unknown"
+              },
+              {
+                "id": "backend_review",
+                "label": "Review",
+                "state": "unknown"
+              },
+              {
+                "id": "validation",
+                "label": "Validation",
+                "state": "unknown"
+              },
+              {
+                "id": "checks",
+                "label": "Checks",
+                "state": "unknown"
+              },
+              {
+                "id": "mac_return",
+                "label": "Return",
+                "state": "unknown"
+              },
+              {
+                "id": "final_validation",
+                "label": "Final validation",
+                "state": "unknown"
+              }
+            ],
+            "usage": {
+              "inputTokens": null,
+              "outputTokens": null,
+              "totalTokens": null
+            },
+            "authorModel": null,
+            "reviewerModel": null,
+            "pipelines": [
+              {
+                "runId": "run-1",
+                "status": "unresolved",
+                "stage": "backend_draft",
+                "host": "mac",
+                "client": null,
+                "live": false,
+                "layout": "per-run",
+                "recoveryRequired": false,
+                "ageSeconds": 301.0,
+                "resource": null,
+                "secondsLeft": null
+              }
+            ],
+            "pipelinesComplete": false,
+            "runsTruncated": false
+          },
+          {
+            "id": "pipeline-router",
+            "label": "Pipeline",
+            "state": "stale",
+            "ageSeconds": 301.0,
+            "detail": "Recorded router checkpoint; live execution is unverified"
+          }
+        ],
+        "events": [
+          [
+            "read",
+            "/golden/pending.json",
+            4096
+          ],
+          [
+            "namespace"
+          ]
+        ],
+        "inputsUnchanged": true
+      }
+    },
+    {
+      "name": "text_bound_runId_81_stale",
+      "target": "pipeline",
+      "now": 10000.0,
+      "observed_at": "1970-01-01T02:46:40.000Z",
+      "router": {
+        "root": "/golden/router",
+        "install": {
+          "state": "valid",
+          "generation": "golden",
+          "inProgress": false
+        },
+        "admission": {
+          "policy": "single"
+        },
+        "rows": [
+          {
+            "runId": "run-1",
+            "layout": "per-run",
+            "stage": "backend_draft",
+            "startedUnix": 9990.0,
+            "recordedUnix": 9699.0,
+            "recoveryRequired": false,
+            "host": "mac",
+            "readable": true,
+            "valid": true,
+            "live": false,
+            "lock": "free",
+            "lockHeld": false,
+            "lockBound": false,
+            "stalled": false,
+            "state": "unresolved",
+            "note": null,
+            "client": null,
+            "collision": false,
+            "pid": null,
+            "evidence": "fixture route evidence",
+            "_record": {
+              "runId": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr",
+              "stage": "backend_draft",
+              "startedUnix": 9990.0,
+              "checkpoint": {
+                "recordedUnix": 9699.0,
+                "evidence": {
+                  "recoveryRequired": false
+                }
+              }
+            }
+          }
+        ],
+        "primary": {
+          "runId": "run-1",
+          "layout": "per-run",
+          "stage": "backend_draft",
+          "startedUnix": 9990.0,
+          "recordedUnix": 9699.0,
+          "recoveryRequired": false,
+          "host": "mac",
+          "readable": true,
+          "valid": true,
+          "live": false,
+          "lock": "free",
+          "lockHeld": false,
+          "lockBound": false,
+          "stalled": false,
+          "state": "unresolved",
+          "note": null,
+          "client": null,
+          "collision": false,
+          "pid": null,
+          "evidence": "fixture route evidence",
+          "_record": {
+            "runId": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr",
+            "stage": "backend_draft",
+            "startedUnix": 9990.0,
+            "checkpoint": {
+              "recordedUnix": 9699.0,
+              "evidence": {
+                "recoveryRequired": false
+              }
+            }
+          }
+        },
+        "truncated": false,
+        "error": null,
+        "legacyPresent": false,
+        "layout": "per-run",
+        "lanes": {
+          "fixture-lane": {
+            "capacity": 1,
+            "holders": [],
+            "waiting": []
+          }
+        },
+        "collisions": []
+      },
+      "text_bound_patterns": {
+        "run_id": "[A-Za-z0-9][A-Za-z0-9_.:-]*\\Z",
+        "stage": "[A-Za-z][A-Za-z0-9_.:-]*\\Z"
+      },
+      "generated_from": {
+        "revision": "2e128b78b0f00b4092a82630c6c96637a7270ce9",
+        "telemetry_sha256": "935723549f896c85cfaaef45a390e788253deb2a240ac9c155678b107f2ca02c",
+        "archive": "git archive 2e128b7"
+      },
+      "expected": {
+        "result": [
+          {
+            "runId": null,
+            "status": "unknown",
+            "stage": null,
+            "recoveryRequired": false,
+            "pendingMarkerObserved": false,
+            "ageSeconds": null,
+            "pendingMarkerAgeSeconds": null,
+            "pendingMarkerOwner": null,
+            "pendingMarkerAttributedTo": null,
+            "pendingMarkerForeign": false,
+            "pendingMarkerUnreadable": false,
+            "queuePhase": null,
+            "queueResource": null,
+            "steps": [
+              {
+                "id": "intake",
+                "label": "Intake",
+                "state": "pending"
+              },
+              {
+                "id": "preflight",
+                "label": "Preflight",
+                "state": "pending"
+              },
+              {
+                "id": "backend_draft",
+                "label": "Author",
+                "state": "pending"
+              },
+              {
+                "id": "backend_answer",
+                "label": "Author",
+                "state": "pending"
+              },
+              {
+                "id": "backend_review",
+                "label": "Review",
+                "state": "pending"
+              },
+              {
+                "id": "validation",
+                "label": "Validation",
+                "state": "pending"
+              },
+              {
+                "id": "checks",
+                "label": "Checks",
+                "state": "pending"
+              },
+              {
+                "id": "mac_return",
+                "label": "Return",
+                "state": "pending"
+              },
+              {
+                "id": "final_validation",
+                "label": "Final validation",
+                "state": "pending"
+              }
+            ],
+            "usage": {
+              "inputTokens": null,
+              "outputTokens": null,
+              "totalTokens": null
+            },
+            "authorModel": null,
+            "reviewerModel": null,
+            "pipelines": [
+              {
+                "runId": "run-1",
+                "status": "unresolved",
+                "stage": "backend_draft",
+                "host": "mac",
+                "client": null,
+                "live": false,
+                "layout": "per-run",
+                "recoveryRequired": false,
+                "ageSeconds": 301.0,
+                "resource": null,
+                "secondsLeft": null
+              }
+            ],
+            "pipelinesComplete": false,
+            "runsTruncated": false
+          },
+          {
+            "id": "pipeline-router",
+            "label": "Pipeline",
+            "state": "error",
+            "ageSeconds": null,
+            "detail": "Router state invalid or unreadable"
+          }
+        ],
+        "events": [
+          [
+            "read",
+            "/golden/pending.json",
+            4096
+          ],
+          [
+            "namespace"
+          ]
+        ],
+        "inputsUnchanged": true
+      }
+    },
+    {
+      "name": "text_bound_stage_63_stale",
+      "target": "pipeline",
+      "now": 10000.0,
+      "observed_at": "1970-01-01T02:46:40.000Z",
+      "router": {
+        "root": "/golden/router",
+        "install": {
+          "state": "valid",
+          "generation": "golden",
+          "inProgress": false
+        },
+        "admission": {
+          "policy": "single"
+        },
+        "rows": [
+          {
+            "runId": "run-1",
+            "layout": "per-run",
+            "stage": "backend_draft",
+            "startedUnix": 9990.0,
+            "recordedUnix": 9699.0,
+            "recoveryRequired": false,
+            "host": "mac",
+            "readable": true,
+            "valid": true,
+            "live": false,
+            "lock": "free",
+            "lockHeld": false,
+            "lockBound": false,
+            "stalled": false,
+            "state": "unresolved",
+            "note": null,
+            "client": null,
+            "collision": false,
+            "pid": null,
+            "evidence": "fixture route evidence",
+            "_record": {
+              "runId": "run-1",
+              "stage": "sssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss",
+              "startedUnix": 9990.0,
+              "checkpoint": {
+                "recordedUnix": 9699.0,
+                "evidence": {
+                  "recoveryRequired": false
+                }
+              }
+            }
+          }
+        ],
+        "primary": {
+          "runId": "run-1",
+          "layout": "per-run",
+          "stage": "backend_draft",
+          "startedUnix": 9990.0,
+          "recordedUnix": 9699.0,
+          "recoveryRequired": false,
+          "host": "mac",
+          "readable": true,
+          "valid": true,
+          "live": false,
+          "lock": "free",
+          "lockHeld": false,
+          "lockBound": false,
+          "stalled": false,
+          "state": "unresolved",
+          "note": null,
+          "client": null,
+          "collision": false,
+          "pid": null,
+          "evidence": "fixture route evidence",
+          "_record": {
+            "runId": "run-1",
+            "stage": "sssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss",
+            "startedUnix": 9990.0,
+            "checkpoint": {
+              "recordedUnix": 9699.0,
+              "evidence": {
+                "recoveryRequired": false
+              }
+            }
+          }
+        },
+        "truncated": false,
+        "error": null,
+        "legacyPresent": false,
+        "layout": "per-run",
+        "lanes": {
+          "fixture-lane": {
+            "capacity": 1,
+            "holders": [],
+            "waiting": []
+          }
+        },
+        "collisions": []
+      },
+      "text_bound_patterns": {
+        "run_id": "[A-Za-z0-9][A-Za-z0-9_.:-]*\\Z",
+        "stage": "[A-Za-z][A-Za-z0-9_.:-]*\\Z"
+      },
+      "generated_from": {
+        "revision": "2e128b78b0f00b4092a82630c6c96637a7270ce9",
+        "telemetry_sha256": "935723549f896c85cfaaef45a390e788253deb2a240ac9c155678b107f2ca02c",
+        "archive": "git archive 2e128b7"
+      },
+      "expected": {
+        "result": [
+          {
+            "runId": "run-1",
+            "status": "stale",
+            "stage": "sssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss",
+            "recoveryRequired": false,
+            "pendingMarkerObserved": false,
+            "ageSeconds": 301.0,
+            "pendingMarkerAgeSeconds": null,
+            "pendingMarkerOwner": null,
+            "pendingMarkerAttributedTo": null,
+            "pendingMarkerForeign": false,
+            "pendingMarkerUnreadable": false,
+            "queuePhase": null,
+            "queueResource": null,
+            "steps": [
+              {
+                "id": "intake",
+                "label": "Intake",
+                "state": "unknown"
+              },
+              {
+                "id": "preflight",
+                "label": "Preflight",
+                "state": "unknown"
+              },
+              {
+                "id": "backend_draft",
+                "label": "Author",
+                "state": "unknown"
+              },
+              {
+                "id": "backend_answer",
+                "label": "Author",
+                "state": "unknown"
+              },
+              {
+                "id": "backend_review",
+                "label": "Review",
+                "state": "unknown"
+              },
+              {
+                "id": "validation",
+                "label": "Validation",
+                "state": "unknown"
+              },
+              {
+                "id": "checks",
+                "label": "Checks",
+                "state": "unknown"
+              },
+              {
+                "id": "mac_return",
+                "label": "Return",
+                "state": "unknown"
+              },
+              {
+                "id": "final_validation",
+                "label": "Final validation",
+                "state": "unknown"
+              }
+            ],
+            "usage": {
+              "inputTokens": null,
+              "outputTokens": null,
+              "totalTokens": null
+            },
+            "authorModel": null,
+            "reviewerModel": null,
+            "pipelines": [
+              {
+                "runId": "run-1",
+                "status": "unresolved",
+                "stage": "backend_draft",
+                "host": "mac",
+                "client": null,
+                "live": false,
+                "layout": "per-run",
+                "recoveryRequired": false,
+                "ageSeconds": 301.0,
+                "resource": null,
+                "secondsLeft": null
+              }
+            ],
+            "pipelinesComplete": false,
+            "runsTruncated": false
+          },
+          {
+            "id": "pipeline-router",
+            "label": "Pipeline",
+            "state": "stale",
+            "ageSeconds": 301.0,
+            "detail": "Recorded router checkpoint; live execution is unverified"
+          }
+        ],
+        "events": [
+          [
+            "read",
+            "/golden/pending.json",
+            4096
+          ],
+          [
+            "namespace"
+          ]
+        ],
+        "inputsUnchanged": true
+      }
+    },
+    {
+      "name": "text_bound_stage_64_stale",
+      "target": "pipeline",
+      "now": 10000.0,
+      "observed_at": "1970-01-01T02:46:40.000Z",
+      "router": {
+        "root": "/golden/router",
+        "install": {
+          "state": "valid",
+          "generation": "golden",
+          "inProgress": false
+        },
+        "admission": {
+          "policy": "single"
+        },
+        "rows": [
+          {
+            "runId": "run-1",
+            "layout": "per-run",
+            "stage": "backend_draft",
+            "startedUnix": 9990.0,
+            "recordedUnix": 9699.0,
+            "recoveryRequired": false,
+            "host": "mac",
+            "readable": true,
+            "valid": true,
+            "live": false,
+            "lock": "free",
+            "lockHeld": false,
+            "lockBound": false,
+            "stalled": false,
+            "state": "unresolved",
+            "note": null,
+            "client": null,
+            "collision": false,
+            "pid": null,
+            "evidence": "fixture route evidence",
+            "_record": {
+              "runId": "run-1",
+              "stage": "ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss",
+              "startedUnix": 9990.0,
+              "checkpoint": {
+                "recordedUnix": 9699.0,
+                "evidence": {
+                  "recoveryRequired": false
+                }
+              }
+            }
+          }
+        ],
+        "primary": {
+          "runId": "run-1",
+          "layout": "per-run",
+          "stage": "backend_draft",
+          "startedUnix": 9990.0,
+          "recordedUnix": 9699.0,
+          "recoveryRequired": false,
+          "host": "mac",
+          "readable": true,
+          "valid": true,
+          "live": false,
+          "lock": "free",
+          "lockHeld": false,
+          "lockBound": false,
+          "stalled": false,
+          "state": "unresolved",
+          "note": null,
+          "client": null,
+          "collision": false,
+          "pid": null,
+          "evidence": "fixture route evidence",
+          "_record": {
+            "runId": "run-1",
+            "stage": "ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss",
+            "startedUnix": 9990.0,
+            "checkpoint": {
+              "recordedUnix": 9699.0,
+              "evidence": {
+                "recoveryRequired": false
+              }
+            }
+          }
+        },
+        "truncated": false,
+        "error": null,
+        "legacyPresent": false,
+        "layout": "per-run",
+        "lanes": {
+          "fixture-lane": {
+            "capacity": 1,
+            "holders": [],
+            "waiting": []
+          }
+        },
+        "collisions": []
+      },
+      "text_bound_patterns": {
+        "run_id": "[A-Za-z0-9][A-Za-z0-9_.:-]*\\Z",
+        "stage": "[A-Za-z][A-Za-z0-9_.:-]*\\Z"
+      },
+      "generated_from": {
+        "revision": "2e128b78b0f00b4092a82630c6c96637a7270ce9",
+        "telemetry_sha256": "935723549f896c85cfaaef45a390e788253deb2a240ac9c155678b107f2ca02c",
+        "archive": "git archive 2e128b7"
+      },
+      "expected": {
+        "result": [
+          {
+            "runId": "run-1",
+            "status": "stale",
+            "stage": "ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss",
+            "recoveryRequired": false,
+            "pendingMarkerObserved": false,
+            "ageSeconds": 301.0,
+            "pendingMarkerAgeSeconds": null,
+            "pendingMarkerOwner": null,
+            "pendingMarkerAttributedTo": null,
+            "pendingMarkerForeign": false,
+            "pendingMarkerUnreadable": false,
+            "queuePhase": null,
+            "queueResource": null,
+            "steps": [
+              {
+                "id": "intake",
+                "label": "Intake",
+                "state": "unknown"
+              },
+              {
+                "id": "preflight",
+                "label": "Preflight",
+                "state": "unknown"
+              },
+              {
+                "id": "backend_draft",
+                "label": "Author",
+                "state": "unknown"
+              },
+              {
+                "id": "backend_answer",
+                "label": "Author",
+                "state": "unknown"
+              },
+              {
+                "id": "backend_review",
+                "label": "Review",
+                "state": "unknown"
+              },
+              {
+                "id": "validation",
+                "label": "Validation",
+                "state": "unknown"
+              },
+              {
+                "id": "checks",
+                "label": "Checks",
+                "state": "unknown"
+              },
+              {
+                "id": "mac_return",
+                "label": "Return",
+                "state": "unknown"
+              },
+              {
+                "id": "final_validation",
+                "label": "Final validation",
+                "state": "unknown"
+              }
+            ],
+            "usage": {
+              "inputTokens": null,
+              "outputTokens": null,
+              "totalTokens": null
+            },
+            "authorModel": null,
+            "reviewerModel": null,
+            "pipelines": [
+              {
+                "runId": "run-1",
+                "status": "unresolved",
+                "stage": "backend_draft",
+                "host": "mac",
+                "client": null,
+                "live": false,
+                "layout": "per-run",
+                "recoveryRequired": false,
+                "ageSeconds": 301.0,
+                "resource": null,
+                "secondsLeft": null
+              }
+            ],
+            "pipelinesComplete": false,
+            "runsTruncated": false
+          },
+          {
+            "id": "pipeline-router",
+            "label": "Pipeline",
+            "state": "stale",
+            "ageSeconds": 301.0,
+            "detail": "Recorded router checkpoint; live execution is unverified"
+          }
+        ],
+        "events": [
+          [
+            "read",
+            "/golden/pending.json",
+            4096
+          ],
+          [
+            "namespace"
+          ]
+        ],
+        "inputsUnchanged": true
+      }
+    },
+    {
+      "name": "text_bound_stage_65_stale",
+      "target": "pipeline",
+      "now": 10000.0,
+      "observed_at": "1970-01-01T02:46:40.000Z",
+      "router": {
+        "root": "/golden/router",
+        "install": {
+          "state": "valid",
+          "generation": "golden",
+          "inProgress": false
+        },
+        "admission": {
+          "policy": "single"
+        },
+        "rows": [
+          {
+            "runId": "run-1",
+            "layout": "per-run",
+            "stage": "backend_draft",
+            "startedUnix": 9990.0,
+            "recordedUnix": 9699.0,
+            "recoveryRequired": false,
+            "host": "mac",
+            "readable": true,
+            "valid": true,
+            "live": false,
+            "lock": "free",
+            "lockHeld": false,
+            "lockBound": false,
+            "stalled": false,
+            "state": "unresolved",
+            "note": null,
+            "client": null,
+            "collision": false,
+            "pid": null,
+            "evidence": "fixture route evidence",
+            "_record": {
+              "runId": "run-1",
+              "stage": "sssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss",
+              "startedUnix": 9990.0,
+              "checkpoint": {
+                "recordedUnix": 9699.0,
+                "evidence": {
+                  "recoveryRequired": false
+                }
+              }
+            }
+          }
+        ],
+        "primary": {
+          "runId": "run-1",
+          "layout": "per-run",
+          "stage": "backend_draft",
+          "startedUnix": 9990.0,
+          "recordedUnix": 9699.0,
+          "recoveryRequired": false,
+          "host": "mac",
+          "readable": true,
+          "valid": true,
+          "live": false,
+          "lock": "free",
+          "lockHeld": false,
+          "lockBound": false,
+          "stalled": false,
+          "state": "unresolved",
+          "note": null,
+          "client": null,
+          "collision": false,
+          "pid": null,
+          "evidence": "fixture route evidence",
+          "_record": {
+            "runId": "run-1",
+            "stage": "sssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss",
+            "startedUnix": 9990.0,
+            "checkpoint": {
+              "recordedUnix": 9699.0,
+              "evidence": {
+                "recoveryRequired": false
+              }
+            }
+          }
+        },
+        "truncated": false,
+        "error": null,
+        "legacyPresent": false,
+        "layout": "per-run",
+        "lanes": {
+          "fixture-lane": {
+            "capacity": 1,
+            "holders": [],
+            "waiting": []
+          }
+        },
+        "collisions": []
+      },
+      "text_bound_patterns": {
+        "run_id": "[A-Za-z0-9][A-Za-z0-9_.:-]*\\Z",
+        "stage": "[A-Za-z][A-Za-z0-9_.:-]*\\Z"
+      },
+      "generated_from": {
+        "revision": "2e128b78b0f00b4092a82630c6c96637a7270ce9",
+        "telemetry_sha256": "935723549f896c85cfaaef45a390e788253deb2a240ac9c155678b107f2ca02c",
+        "archive": "git archive 2e128b7"
+      },
+      "expected": {
+        "result": [
+          {
+            "runId": "run-1",
+            "status": "stale",
+            "stage": null,
+            "recoveryRequired": false,
+            "pendingMarkerObserved": false,
+            "ageSeconds": 301.0,
+            "pendingMarkerAgeSeconds": null,
+            "pendingMarkerOwner": null,
+            "pendingMarkerAttributedTo": null,
+            "pendingMarkerForeign": false,
+            "pendingMarkerUnreadable": false,
+            "queuePhase": null,
+            "queueResource": null,
+            "steps": [
+              {
+                "id": "intake",
+                "label": "Intake",
+                "state": "unknown"
+              },
+              {
+                "id": "preflight",
+                "label": "Preflight",
+                "state": "unknown"
+              },
+              {
+                "id": "backend_draft",
+                "label": "Author",
+                "state": "unknown"
+              },
+              {
+                "id": "backend_answer",
+                "label": "Author",
+                "state": "unknown"
+              },
+              {
+                "id": "backend_review",
+                "label": "Review",
+                "state": "unknown"
+              },
+              {
+                "id": "validation",
+                "label": "Validation",
+                "state": "unknown"
+              },
+              {
+                "id": "checks",
+                "label": "Checks",
+                "state": "unknown"
+              },
+              {
+                "id": "mac_return",
+                "label": "Return",
+                "state": "unknown"
+              },
+              {
+                "id": "final_validation",
+                "label": "Final validation",
+                "state": "unknown"
+              }
+            ],
+            "usage": {
+              "inputTokens": null,
+              "outputTokens": null,
+              "totalTokens": null
+            },
+            "authorModel": null,
+            "reviewerModel": null,
+            "pipelines": [
+              {
+                "runId": "run-1",
+                "status": "unresolved",
+                "stage": "backend_draft",
+                "host": "mac",
+                "client": null,
+                "live": false,
+                "layout": "per-run",
+                "recoveryRequired": false,
+                "ageSeconds": 301.0,
+                "resource": null,
+                "secondsLeft": null
+              }
+            ],
+            "pipelinesComplete": false,
+            "runsTruncated": false
+          },
+          {
+            "id": "pipeline-router",
+            "label": "Pipeline",
+            "state": "stale",
+            "ageSeconds": 301.0,
+            "detail": "Recorded router checkpoint; live execution is unverified"
+          }
+        ],
+        "events": [
+          [
+            "read",
+            "/golden/pending.json",
+            4096
+          ],
+          [
+            "namespace"
+          ]
+        ],
+        "inputsUnchanged": true
+      }
+    },
+    {
+      "name": "text_bound_runId_79_recovery",
+      "target": "pipeline",
+      "now": 10000.0,
+      "observed_at": "1970-01-01T02:46:40.000Z",
+      "router": {
+        "root": "/golden/router",
+        "install": {
+          "state": "valid",
+          "generation": "golden",
+          "inProgress": false
+        },
+        "admission": {
+          "policy": "single"
+        },
+        "rows": [
+          {
+            "runId": "run-1",
+            "layout": "per-run",
+            "stage": "backend_draft",
+            "startedUnix": 9990.0,
+            "recordedUnix": 9995.0,
+            "recoveryRequired": false,
+            "host": "mac",
+            "readable": true,
+            "valid": true,
+            "live": false,
+            "lock": "free",
+            "lockHeld": false,
+            "lockBound": false,
+            "stalled": false,
+            "state": "unresolved",
+            "note": null,
+            "client": null,
+            "collision": false,
+            "pid": null,
+            "evidence": "fixture route evidence",
+            "_record": {
+              "runId": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr",
+              "stage": "backend_draft",
+              "startedUnix": 9990.0,
+              "checkpoint": {
+                "recordedUnix": 9995.0,
+                "evidence": {
+                  "recoveryRequired": true
+                }
+              }
+            }
+          }
+        ],
+        "primary": {
+          "runId": "run-1",
+          "layout": "per-run",
+          "stage": "backend_draft",
+          "startedUnix": 9990.0,
+          "recordedUnix": 9995.0,
+          "recoveryRequired": false,
+          "host": "mac",
+          "readable": true,
+          "valid": true,
+          "live": false,
+          "lock": "free",
+          "lockHeld": false,
+          "lockBound": false,
+          "stalled": false,
+          "state": "unresolved",
+          "note": null,
+          "client": null,
+          "collision": false,
+          "pid": null,
+          "evidence": "fixture route evidence",
+          "_record": {
+            "runId": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr",
+            "stage": "backend_draft",
+            "startedUnix": 9990.0,
+            "checkpoint": {
+              "recordedUnix": 9995.0,
+              "evidence": {
+                "recoveryRequired": true
+              }
+            }
+          }
+        },
+        "truncated": false,
+        "error": null,
+        "legacyPresent": false,
+        "layout": "per-run",
+        "lanes": {
+          "fixture-lane": {
+            "capacity": 1,
+            "holders": [],
+            "waiting": []
+          }
+        },
+        "collisions": []
+      },
+      "text_bound_patterns": {
+        "run_id": "[A-Za-z0-9][A-Za-z0-9_.:-]*\\Z",
+        "stage": "[A-Za-z][A-Za-z0-9_.:-]*\\Z"
+      },
+      "generated_from": {
+        "revision": "2e128b78b0f00b4092a82630c6c96637a7270ce9",
+        "telemetry_sha256": "935723549f896c85cfaaef45a390e788253deb2a240ac9c155678b107f2ca02c",
+        "archive": "git archive 2e128b7"
+      },
+      "expected": {
+        "result": [
+          {
+            "runId": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr",
+            "status": "recovery-required",
+            "stage": "backend_draft",
+            "recoveryRequired": true,
+            "pendingMarkerObserved": false,
+            "ageSeconds": 5.0,
+            "pendingMarkerAgeSeconds": null,
+            "pendingMarkerOwner": null,
+            "pendingMarkerAttributedTo": null,
+            "pendingMarkerForeign": false,
+            "pendingMarkerUnreadable": false,
+            "queuePhase": null,
+            "queueResource": null,
+            "steps": [
+              {
+                "id": "intake",
+                "label": "Intake",
+                "state": "pending"
+              },
+              {
+                "id": "preflight",
+                "label": "Preflight",
+                "state": "pending"
+              },
+              {
+                "id": "backend_draft",
+                "label": "Author",
+                "state": "blocked"
+              },
+              {
+                "id": "backend_answer",
+                "label": "Author",
+                "state": "pending"
+              },
+              {
+                "id": "backend_review",
+                "label": "Review",
+                "state": "pending"
+              },
+              {
+                "id": "validation",
+                "label": "Validation",
+                "state": "pending"
+              },
+              {
+                "id": "checks",
+                "label": "Checks",
+                "state": "pending"
+              },
+              {
+                "id": "mac_return",
+                "label": "Return",
+                "state": "pending"
+              },
+              {
+                "id": "final_validation",
+                "label": "Final validation",
+                "state": "pending"
+              }
+            ],
+            "usage": {
+              "inputTokens": null,
+              "outputTokens": null,
+              "totalTokens": null
+            },
+            "authorModel": null,
+            "reviewerModel": null,
+            "pipelines": [
+              {
+                "runId": "run-1",
+                "status": "unresolved",
+                "stage": "backend_draft",
+                "host": "mac",
+                "client": null,
+                "live": false,
+                "layout": "per-run",
+                "recoveryRequired": false,
+                "ageSeconds": 5.0,
+                "resource": null,
+                "secondsLeft": null
+              }
+            ],
+            "pipelinesComplete": true,
+            "runsTruncated": false
+          },
+          {
+            "id": "pipeline-router",
+            "label": "Pipeline",
+            "state": "live",
+            "ageSeconds": 5.0,
+            "detail": "Recorded router checkpoint; live execution is unverified",
+            "observationAgeSeconds": 0.0
+          }
+        ],
+        "events": [
+          [
+            "read",
+            "/golden/pending.json",
+            4096
+          ],
+          [
+            "namespace"
+          ]
+        ],
+        "inputsUnchanged": true
+      }
+    },
+    {
+      "name": "text_bound_runId_80_recovery",
+      "target": "pipeline",
+      "now": 10000.0,
+      "observed_at": "1970-01-01T02:46:40.000Z",
+      "router": {
+        "root": "/golden/router",
+        "install": {
+          "state": "valid",
+          "generation": "golden",
+          "inProgress": false
+        },
+        "admission": {
+          "policy": "single"
+        },
+        "rows": [
+          {
+            "runId": "run-1",
+            "layout": "per-run",
+            "stage": "backend_draft",
+            "startedUnix": 9990.0,
+            "recordedUnix": 9995.0,
+            "recoveryRequired": false,
+            "host": "mac",
+            "readable": true,
+            "valid": true,
+            "live": false,
+            "lock": "free",
+            "lockHeld": false,
+            "lockBound": false,
+            "stalled": false,
+            "state": "unresolved",
+            "note": null,
+            "client": null,
+            "collision": false,
+            "pid": null,
+            "evidence": "fixture route evidence",
+            "_record": {
+              "runId": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr",
+              "stage": "backend_draft",
+              "startedUnix": 9990.0,
+              "checkpoint": {
+                "recordedUnix": 9995.0,
+                "evidence": {
+                  "recoveryRequired": true
+                }
+              }
+            }
+          }
+        ],
+        "primary": {
+          "runId": "run-1",
+          "layout": "per-run",
+          "stage": "backend_draft",
+          "startedUnix": 9990.0,
+          "recordedUnix": 9995.0,
+          "recoveryRequired": false,
+          "host": "mac",
+          "readable": true,
+          "valid": true,
+          "live": false,
+          "lock": "free",
+          "lockHeld": false,
+          "lockBound": false,
+          "stalled": false,
+          "state": "unresolved",
+          "note": null,
+          "client": null,
+          "collision": false,
+          "pid": null,
+          "evidence": "fixture route evidence",
+          "_record": {
+            "runId": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr",
+            "stage": "backend_draft",
+            "startedUnix": 9990.0,
+            "checkpoint": {
+              "recordedUnix": 9995.0,
+              "evidence": {
+                "recoveryRequired": true
+              }
+            }
+          }
+        },
+        "truncated": false,
+        "error": null,
+        "legacyPresent": false,
+        "layout": "per-run",
+        "lanes": {
+          "fixture-lane": {
+            "capacity": 1,
+            "holders": [],
+            "waiting": []
+          }
+        },
+        "collisions": []
+      },
+      "text_bound_patterns": {
+        "run_id": "[A-Za-z0-9][A-Za-z0-9_.:-]*\\Z",
+        "stage": "[A-Za-z][A-Za-z0-9_.:-]*\\Z"
+      },
+      "generated_from": {
+        "revision": "2e128b78b0f00b4092a82630c6c96637a7270ce9",
+        "telemetry_sha256": "935723549f896c85cfaaef45a390e788253deb2a240ac9c155678b107f2ca02c",
+        "archive": "git archive 2e128b7"
+      },
+      "expected": {
+        "result": [
+          {
+            "runId": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr",
+            "status": "recovery-required",
+            "stage": "backend_draft",
+            "recoveryRequired": true,
+            "pendingMarkerObserved": false,
+            "ageSeconds": 5.0,
+            "pendingMarkerAgeSeconds": null,
+            "pendingMarkerOwner": null,
+            "pendingMarkerAttributedTo": null,
+            "pendingMarkerForeign": false,
+            "pendingMarkerUnreadable": false,
+            "queuePhase": null,
+            "queueResource": null,
+            "steps": [
+              {
+                "id": "intake",
+                "label": "Intake",
+                "state": "pending"
+              },
+              {
+                "id": "preflight",
+                "label": "Preflight",
+                "state": "pending"
+              },
+              {
+                "id": "backend_draft",
+                "label": "Author",
+                "state": "blocked"
+              },
+              {
+                "id": "backend_answer",
+                "label": "Author",
+                "state": "pending"
+              },
+              {
+                "id": "backend_review",
+                "label": "Review",
+                "state": "pending"
+              },
+              {
+                "id": "validation",
+                "label": "Validation",
+                "state": "pending"
+              },
+              {
+                "id": "checks",
+                "label": "Checks",
+                "state": "pending"
+              },
+              {
+                "id": "mac_return",
+                "label": "Return",
+                "state": "pending"
+              },
+              {
+                "id": "final_validation",
+                "label": "Final validation",
+                "state": "pending"
+              }
+            ],
+            "usage": {
+              "inputTokens": null,
+              "outputTokens": null,
+              "totalTokens": null
+            },
+            "authorModel": null,
+            "reviewerModel": null,
+            "pipelines": [
+              {
+                "runId": "run-1",
+                "status": "unresolved",
+                "stage": "backend_draft",
+                "host": "mac",
+                "client": null,
+                "live": false,
+                "layout": "per-run",
+                "recoveryRequired": false,
+                "ageSeconds": 5.0,
+                "resource": null,
+                "secondsLeft": null
+              }
+            ],
+            "pipelinesComplete": true,
+            "runsTruncated": false
+          },
+          {
+            "id": "pipeline-router",
+            "label": "Pipeline",
+            "state": "live",
+            "ageSeconds": 5.0,
+            "detail": "Recorded router checkpoint; live execution is unverified",
+            "observationAgeSeconds": 0.0
+          }
+        ],
+        "events": [
+          [
+            "read",
+            "/golden/pending.json",
+            4096
+          ],
+          [
+            "namespace"
+          ]
+        ],
+        "inputsUnchanged": true
+      }
+    },
+    {
+      "name": "text_bound_runId_81_recovery",
+      "target": "pipeline",
+      "now": 10000.0,
+      "observed_at": "1970-01-01T02:46:40.000Z",
+      "router": {
+        "root": "/golden/router",
+        "install": {
+          "state": "valid",
+          "generation": "golden",
+          "inProgress": false
+        },
+        "admission": {
+          "policy": "single"
+        },
+        "rows": [
+          {
+            "runId": "run-1",
+            "layout": "per-run",
+            "stage": "backend_draft",
+            "startedUnix": 9990.0,
+            "recordedUnix": 9995.0,
+            "recoveryRequired": false,
+            "host": "mac",
+            "readable": true,
+            "valid": true,
+            "live": false,
+            "lock": "free",
+            "lockHeld": false,
+            "lockBound": false,
+            "stalled": false,
+            "state": "unresolved",
+            "note": null,
+            "client": null,
+            "collision": false,
+            "pid": null,
+            "evidence": "fixture route evidence",
+            "_record": {
+              "runId": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr",
+              "stage": "backend_draft",
+              "startedUnix": 9990.0,
+              "checkpoint": {
+                "recordedUnix": 9995.0,
+                "evidence": {
+                  "recoveryRequired": true
+                }
+              }
+            }
+          }
+        ],
+        "primary": {
+          "runId": "run-1",
+          "layout": "per-run",
+          "stage": "backend_draft",
+          "startedUnix": 9990.0,
+          "recordedUnix": 9995.0,
+          "recoveryRequired": false,
+          "host": "mac",
+          "readable": true,
+          "valid": true,
+          "live": false,
+          "lock": "free",
+          "lockHeld": false,
+          "lockBound": false,
+          "stalled": false,
+          "state": "unresolved",
+          "note": null,
+          "client": null,
+          "collision": false,
+          "pid": null,
+          "evidence": "fixture route evidence",
+          "_record": {
+            "runId": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr",
+            "stage": "backend_draft",
+            "startedUnix": 9990.0,
+            "checkpoint": {
+              "recordedUnix": 9995.0,
+              "evidence": {
+                "recoveryRequired": true
+              }
+            }
+          }
+        },
+        "truncated": false,
+        "error": null,
+        "legacyPresent": false,
+        "layout": "per-run",
+        "lanes": {
+          "fixture-lane": {
+            "capacity": 1,
+            "holders": [],
+            "waiting": []
+          }
+        },
+        "collisions": []
+      },
+      "text_bound_patterns": {
+        "run_id": "[A-Za-z0-9][A-Za-z0-9_.:-]*\\Z",
+        "stage": "[A-Za-z][A-Za-z0-9_.:-]*\\Z"
+      },
+      "generated_from": {
+        "revision": "2e128b78b0f00b4092a82630c6c96637a7270ce9",
+        "telemetry_sha256": "935723549f896c85cfaaef45a390e788253deb2a240ac9c155678b107f2ca02c",
+        "archive": "git archive 2e128b7"
+      },
+      "expected": {
+        "result": [
+          {
+            "runId": null,
+            "status": "unknown",
+            "stage": null,
+            "recoveryRequired": false,
+            "pendingMarkerObserved": false,
+            "ageSeconds": null,
+            "pendingMarkerAgeSeconds": null,
+            "pendingMarkerOwner": null,
+            "pendingMarkerAttributedTo": null,
+            "pendingMarkerForeign": false,
+            "pendingMarkerUnreadable": false,
+            "queuePhase": null,
+            "queueResource": null,
+            "steps": [
+              {
+                "id": "intake",
+                "label": "Intake",
+                "state": "pending"
+              },
+              {
+                "id": "preflight",
+                "label": "Preflight",
+                "state": "pending"
+              },
+              {
+                "id": "backend_draft",
+                "label": "Author",
+                "state": "pending"
+              },
+              {
+                "id": "backend_answer",
+                "label": "Author",
+                "state": "pending"
+              },
+              {
+                "id": "backend_review",
+                "label": "Review",
+                "state": "pending"
+              },
+              {
+                "id": "validation",
+                "label": "Validation",
+                "state": "pending"
+              },
+              {
+                "id": "checks",
+                "label": "Checks",
+                "state": "pending"
+              },
+              {
+                "id": "mac_return",
+                "label": "Return",
+                "state": "pending"
+              },
+              {
+                "id": "final_validation",
+                "label": "Final validation",
+                "state": "pending"
+              }
+            ],
+            "usage": {
+              "inputTokens": null,
+              "outputTokens": null,
+              "totalTokens": null
+            },
+            "authorModel": null,
+            "reviewerModel": null,
+            "pipelines": [
+              {
+                "runId": "run-1",
+                "status": "unresolved",
+                "stage": "backend_draft",
+                "host": "mac",
+                "client": null,
+                "live": false,
+                "layout": "per-run",
+                "recoveryRequired": false,
+                "ageSeconds": 5.0,
+                "resource": null,
+                "secondsLeft": null
+              }
+            ],
+            "pipelinesComplete": true,
+            "runsTruncated": false
+          },
+          {
+            "id": "pipeline-router",
+            "label": "Pipeline",
+            "state": "error",
+            "ageSeconds": null,
+            "detail": "Router state invalid or unreadable"
+          }
+        ],
+        "events": [
+          [
+            "read",
+            "/golden/pending.json",
+            4096
+          ],
+          [
+            "namespace"
+          ]
+        ],
+        "inputsUnchanged": true
+      }
+    },
+    {
+      "name": "text_bound_stage_63_recovery",
+      "target": "pipeline",
+      "now": 10000.0,
+      "observed_at": "1970-01-01T02:46:40.000Z",
+      "router": {
+        "root": "/golden/router",
+        "install": {
+          "state": "valid",
+          "generation": "golden",
+          "inProgress": false
+        },
+        "admission": {
+          "policy": "single"
+        },
+        "rows": [
+          {
+            "runId": "run-1",
+            "layout": "per-run",
+            "stage": "backend_draft",
+            "startedUnix": 9990.0,
+            "recordedUnix": 9995.0,
+            "recoveryRequired": false,
+            "host": "mac",
+            "readable": true,
+            "valid": true,
+            "live": false,
+            "lock": "free",
+            "lockHeld": false,
+            "lockBound": false,
+            "stalled": false,
+            "state": "unresolved",
+            "note": null,
+            "client": null,
+            "collision": false,
+            "pid": null,
+            "evidence": "fixture route evidence",
+            "_record": {
+              "runId": "run-1",
+              "stage": "sssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss",
+              "startedUnix": 9990.0,
+              "checkpoint": {
+                "recordedUnix": 9995.0,
+                "evidence": {
+                  "recoveryRequired": true
+                }
+              }
+            }
+          }
+        ],
+        "primary": {
+          "runId": "run-1",
+          "layout": "per-run",
+          "stage": "backend_draft",
+          "startedUnix": 9990.0,
+          "recordedUnix": 9995.0,
+          "recoveryRequired": false,
+          "host": "mac",
+          "readable": true,
+          "valid": true,
+          "live": false,
+          "lock": "free",
+          "lockHeld": false,
+          "lockBound": false,
+          "stalled": false,
+          "state": "unresolved",
+          "note": null,
+          "client": null,
+          "collision": false,
+          "pid": null,
+          "evidence": "fixture route evidence",
+          "_record": {
+            "runId": "run-1",
+            "stage": "sssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss",
+            "startedUnix": 9990.0,
+            "checkpoint": {
+              "recordedUnix": 9995.0,
+              "evidence": {
+                "recoveryRequired": true
+              }
+            }
+          }
+        },
+        "truncated": false,
+        "error": null,
+        "legacyPresent": false,
+        "layout": "per-run",
+        "lanes": {
+          "fixture-lane": {
+            "capacity": 1,
+            "holders": [],
+            "waiting": []
+          }
+        },
+        "collisions": []
+      },
+      "text_bound_patterns": {
+        "run_id": "[A-Za-z0-9][A-Za-z0-9_.:-]*\\Z",
+        "stage": "[A-Za-z][A-Za-z0-9_.:-]*\\Z"
+      },
+      "generated_from": {
+        "revision": "2e128b78b0f00b4092a82630c6c96637a7270ce9",
+        "telemetry_sha256": "935723549f896c85cfaaef45a390e788253deb2a240ac9c155678b107f2ca02c",
+        "archive": "git archive 2e128b7"
+      },
+      "expected": {
+        "result": [
+          {
+            "runId": "run-1",
+            "status": "recovery-required",
+            "stage": "sssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss",
+            "recoveryRequired": true,
+            "pendingMarkerObserved": false,
+            "ageSeconds": 5.0,
+            "pendingMarkerAgeSeconds": null,
+            "pendingMarkerOwner": null,
+            "pendingMarkerAttributedTo": null,
+            "pendingMarkerForeign": false,
+            "pendingMarkerUnreadable": false,
+            "queuePhase": null,
+            "queueResource": null,
+            "steps": [
+              {
+                "id": "intake",
+                "label": "Intake",
+                "state": "pending"
+              },
+              {
+                "id": "preflight",
+                "label": "Preflight",
+                "state": "pending"
+              },
+              {
+                "id": "backend_draft",
+                "label": "Author",
+                "state": "pending"
+              },
+              {
+                "id": "backend_answer",
+                "label": "Author",
+                "state": "pending"
+              },
+              {
+                "id": "backend_review",
+                "label": "Review",
+                "state": "pending"
+              },
+              {
+                "id": "validation",
+                "label": "Validation",
+                "state": "pending"
+              },
+              {
+                "id": "checks",
+                "label": "Checks",
+                "state": "pending"
+              },
+              {
+                "id": "mac_return",
+                "label": "Return",
+                "state": "pending"
+              },
+              {
+                "id": "final_validation",
+                "label": "Final validation",
+                "state": "pending"
+              }
+            ],
+            "usage": {
+              "inputTokens": null,
+              "outputTokens": null,
+              "totalTokens": null
+            },
+            "authorModel": null,
+            "reviewerModel": null,
+            "pipelines": [
+              {
+                "runId": "run-1",
+                "status": "unresolved",
+                "stage": "backend_draft",
+                "host": "mac",
+                "client": null,
+                "live": false,
+                "layout": "per-run",
+                "recoveryRequired": false,
+                "ageSeconds": 5.0,
+                "resource": null,
+                "secondsLeft": null
+              }
+            ],
+            "pipelinesComplete": true,
+            "runsTruncated": false
+          },
+          {
+            "id": "pipeline-router",
+            "label": "Pipeline",
+            "state": "live",
+            "ageSeconds": 5.0,
+            "detail": "Recorded router checkpoint; live execution is unverified",
+            "observationAgeSeconds": 0.0
+          }
+        ],
+        "events": [
+          [
+            "read",
+            "/golden/pending.json",
+            4096
+          ],
+          [
+            "namespace"
+          ]
+        ],
+        "inputsUnchanged": true
+      }
+    },
+    {
+      "name": "text_bound_stage_64_recovery",
+      "target": "pipeline",
+      "now": 10000.0,
+      "observed_at": "1970-01-01T02:46:40.000Z",
+      "router": {
+        "root": "/golden/router",
+        "install": {
+          "state": "valid",
+          "generation": "golden",
+          "inProgress": false
+        },
+        "admission": {
+          "policy": "single"
+        },
+        "rows": [
+          {
+            "runId": "run-1",
+            "layout": "per-run",
+            "stage": "backend_draft",
+            "startedUnix": 9990.0,
+            "recordedUnix": 9995.0,
+            "recoveryRequired": false,
+            "host": "mac",
+            "readable": true,
+            "valid": true,
+            "live": false,
+            "lock": "free",
+            "lockHeld": false,
+            "lockBound": false,
+            "stalled": false,
+            "state": "unresolved",
+            "note": null,
+            "client": null,
+            "collision": false,
+            "pid": null,
+            "evidence": "fixture route evidence",
+            "_record": {
+              "runId": "run-1",
+              "stage": "ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss",
+              "startedUnix": 9990.0,
+              "checkpoint": {
+                "recordedUnix": 9995.0,
+                "evidence": {
+                  "recoveryRequired": true
+                }
+              }
+            }
+          }
+        ],
+        "primary": {
+          "runId": "run-1",
+          "layout": "per-run",
+          "stage": "backend_draft",
+          "startedUnix": 9990.0,
+          "recordedUnix": 9995.0,
+          "recoveryRequired": false,
+          "host": "mac",
+          "readable": true,
+          "valid": true,
+          "live": false,
+          "lock": "free",
+          "lockHeld": false,
+          "lockBound": false,
+          "stalled": false,
+          "state": "unresolved",
+          "note": null,
+          "client": null,
+          "collision": false,
+          "pid": null,
+          "evidence": "fixture route evidence",
+          "_record": {
+            "runId": "run-1",
+            "stage": "ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss",
+            "startedUnix": 9990.0,
+            "checkpoint": {
+              "recordedUnix": 9995.0,
+              "evidence": {
+                "recoveryRequired": true
+              }
+            }
+          }
+        },
+        "truncated": false,
+        "error": null,
+        "legacyPresent": false,
+        "layout": "per-run",
+        "lanes": {
+          "fixture-lane": {
+            "capacity": 1,
+            "holders": [],
+            "waiting": []
+          }
+        },
+        "collisions": []
+      },
+      "text_bound_patterns": {
+        "run_id": "[A-Za-z0-9][A-Za-z0-9_.:-]*\\Z",
+        "stage": "[A-Za-z][A-Za-z0-9_.:-]*\\Z"
+      },
+      "generated_from": {
+        "revision": "2e128b78b0f00b4092a82630c6c96637a7270ce9",
+        "telemetry_sha256": "935723549f896c85cfaaef45a390e788253deb2a240ac9c155678b107f2ca02c",
+        "archive": "git archive 2e128b7"
+      },
+      "expected": {
+        "result": [
+          {
+            "runId": "run-1",
+            "status": "recovery-required",
+            "stage": "ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss",
+            "recoveryRequired": true,
+            "pendingMarkerObserved": false,
+            "ageSeconds": 5.0,
+            "pendingMarkerAgeSeconds": null,
+            "pendingMarkerOwner": null,
+            "pendingMarkerAttributedTo": null,
+            "pendingMarkerForeign": false,
+            "pendingMarkerUnreadable": false,
+            "queuePhase": null,
+            "queueResource": null,
+            "steps": [
+              {
+                "id": "intake",
+                "label": "Intake",
+                "state": "pending"
+              },
+              {
+                "id": "preflight",
+                "label": "Preflight",
+                "state": "pending"
+              },
+              {
+                "id": "backend_draft",
+                "label": "Author",
+                "state": "pending"
+              },
+              {
+                "id": "backend_answer",
+                "label": "Author",
+                "state": "pending"
+              },
+              {
+                "id": "backend_review",
+                "label": "Review",
+                "state": "pending"
+              },
+              {
+                "id": "validation",
+                "label": "Validation",
+                "state": "pending"
+              },
+              {
+                "id": "checks",
+                "label": "Checks",
+                "state": "pending"
+              },
+              {
+                "id": "mac_return",
+                "label": "Return",
+                "state": "pending"
+              },
+              {
+                "id": "final_validation",
+                "label": "Final validation",
+                "state": "pending"
+              }
+            ],
+            "usage": {
+              "inputTokens": null,
+              "outputTokens": null,
+              "totalTokens": null
+            },
+            "authorModel": null,
+            "reviewerModel": null,
+            "pipelines": [
+              {
+                "runId": "run-1",
+                "status": "unresolved",
+                "stage": "backend_draft",
+                "host": "mac",
+                "client": null,
+                "live": false,
+                "layout": "per-run",
+                "recoveryRequired": false,
+                "ageSeconds": 5.0,
+                "resource": null,
+                "secondsLeft": null
+              }
+            ],
+            "pipelinesComplete": true,
+            "runsTruncated": false
+          },
+          {
+            "id": "pipeline-router",
+            "label": "Pipeline",
+            "state": "live",
+            "ageSeconds": 5.0,
+            "detail": "Recorded router checkpoint; live execution is unverified",
+            "observationAgeSeconds": 0.0
+          }
+        ],
+        "events": [
+          [
+            "read",
+            "/golden/pending.json",
+            4096
+          ],
+          [
+            "namespace"
+          ]
+        ],
+        "inputsUnchanged": true
+      }
+    },
+    {
+      "name": "text_bound_stage_65_recovery",
+      "target": "pipeline",
+      "now": 10000.0,
+      "observed_at": "1970-01-01T02:46:40.000Z",
+      "router": {
+        "root": "/golden/router",
+        "install": {
+          "state": "valid",
+          "generation": "golden",
+          "inProgress": false
+        },
+        "admission": {
+          "policy": "single"
+        },
+        "rows": [
+          {
+            "runId": "run-1",
+            "layout": "per-run",
+            "stage": "backend_draft",
+            "startedUnix": 9990.0,
+            "recordedUnix": 9995.0,
+            "recoveryRequired": false,
+            "host": "mac",
+            "readable": true,
+            "valid": true,
+            "live": false,
+            "lock": "free",
+            "lockHeld": false,
+            "lockBound": false,
+            "stalled": false,
+            "state": "unresolved",
+            "note": null,
+            "client": null,
+            "collision": false,
+            "pid": null,
+            "evidence": "fixture route evidence",
+            "_record": {
+              "runId": "run-1",
+              "stage": "sssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss",
+              "startedUnix": 9990.0,
+              "checkpoint": {
+                "recordedUnix": 9995.0,
+                "evidence": {
+                  "recoveryRequired": true
+                }
+              }
+            }
+          }
+        ],
+        "primary": {
+          "runId": "run-1",
+          "layout": "per-run",
+          "stage": "backend_draft",
+          "startedUnix": 9990.0,
+          "recordedUnix": 9995.0,
+          "recoveryRequired": false,
+          "host": "mac",
+          "readable": true,
+          "valid": true,
+          "live": false,
+          "lock": "free",
+          "lockHeld": false,
+          "lockBound": false,
+          "stalled": false,
+          "state": "unresolved",
+          "note": null,
+          "client": null,
+          "collision": false,
+          "pid": null,
+          "evidence": "fixture route evidence",
+          "_record": {
+            "runId": "run-1",
+            "stage": "sssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss",
+            "startedUnix": 9990.0,
+            "checkpoint": {
+              "recordedUnix": 9995.0,
+              "evidence": {
+                "recoveryRequired": true
+              }
+            }
+          }
+        },
+        "truncated": false,
+        "error": null,
+        "legacyPresent": false,
+        "layout": "per-run",
+        "lanes": {
+          "fixture-lane": {
+            "capacity": 1,
+            "holders": [],
+            "waiting": []
+          }
+        },
+        "collisions": []
+      },
+      "text_bound_patterns": {
+        "run_id": "[A-Za-z0-9][A-Za-z0-9_.:-]*\\Z",
+        "stage": "[A-Za-z][A-Za-z0-9_.:-]*\\Z"
+      },
+      "generated_from": {
+        "revision": "2e128b78b0f00b4092a82630c6c96637a7270ce9",
+        "telemetry_sha256": "935723549f896c85cfaaef45a390e788253deb2a240ac9c155678b107f2ca02c",
+        "archive": "git archive 2e128b7"
+      },
+      "expected": {
+        "result": [
+          {
+            "runId": "run-1",
+            "status": "unresolved",
+            "stage": null,
+            "recoveryRequired": true,
+            "pendingMarkerObserved": false,
+            "ageSeconds": 5.0,
+            "pendingMarkerAgeSeconds": null,
+            "pendingMarkerOwner": null,
+            "pendingMarkerAttributedTo": null,
+            "pendingMarkerForeign": false,
+            "pendingMarkerUnreadable": false,
+            "queuePhase": null,
+            "queueResource": null,
+            "steps": [
+              {
+                "id": "intake",
+                "label": "Intake",
+                "state": "pending"
+              },
+              {
+                "id": "preflight",
+                "label": "Preflight",
+                "state": "pending"
+              },
+              {
+                "id": "backend_draft",
+                "label": "Author",
+                "state": "pending"
+              },
+              {
+                "id": "backend_answer",
+                "label": "Author",
+                "state": "pending"
+              },
+              {
+                "id": "backend_review",
+                "label": "Review",
+                "state": "pending"
+              },
+              {
+                "id": "validation",
+                "label": "Validation",
+                "state": "pending"
+              },
+              {
+                "id": "checks",
+                "label": "Checks",
+                "state": "pending"
+              },
+              {
+                "id": "mac_return",
+                "label": "Return",
+                "state": "pending"
+              },
+              {
+                "id": "final_validation",
+                "label": "Final validation",
+                "state": "pending"
+              }
+            ],
+            "usage": {
+              "inputTokens": null,
+              "outputTokens": null,
+              "totalTokens": null
+            },
+            "authorModel": null,
+            "reviewerModel": null,
+            "pipelines": [
+              {
+                "runId": "run-1",
+                "status": "unresolved",
+                "stage": "backend_draft",
+                "host": "mac",
+                "client": null,
+                "live": false,
+                "layout": "per-run",
+                "recoveryRequired": false,
+                "ageSeconds": 5.0,
+                "resource": null,
+                "secondsLeft": null
+              }
+            ],
+            "pipelinesComplete": true,
+            "runsTruncated": false
+          },
+          {
+            "id": "pipeline-router",
+            "label": "Pipeline",
+            "state": "live",
+            "ageSeconds": 5.0,
+            "detail": "Recorded router checkpoint; live execution is unverified",
+            "observationAgeSeconds": 0.0
+          }
+        ],
+        "events": [
+          [
+            "read",
+            "/golden/pending.json",
+            4096
+          ],
+          [
+            "namespace"
+          ]
+        ],
+        "inputsUnchanged": true
+      }
     }
   ]
 }
