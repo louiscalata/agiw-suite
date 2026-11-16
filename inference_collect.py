@@ -24,6 +24,7 @@ from urllib.parse import urlsplit
 import http.client
 
 from machine_state import finite_number as _finite
+from machine_state import utc_iso
 from inference_stats import MAP_SCHEMA, apply_rates, client_nodes, edges_for, machine_node, make_node
 import remote_machines
 
@@ -123,8 +124,8 @@ def _ms(elapsed):
     return round(float(elapsed), 1) if _finite(elapsed) and elapsed >= 0 else None
 
 
-def _iso(when):
-    return dt.datetime.fromtimestamp(when, dt.timezone.utc).isoformat().replace("+00:00", "Z")
+def _iso(when: float) -> str:
+    return utc_iso(when)
 
 
 def _strict_chunked_read(response, limit):
