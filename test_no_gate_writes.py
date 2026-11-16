@@ -286,19 +286,20 @@ class ClosedL2Tests(unittest.TestCase):
                 blocked_call.assert_not_called()
 
     def test_diagnosis_projects_cached_machine_states_without_refreshing_them(self):
-        snapshot = {'machines': [{'id': 'pc', 'host': 'pc', 'platform': 'windows',
+        snapshot = {'sampledAt': 90, 'machines': [{'id': 'pc', 'host': 'pc', 'platform': 'windows',
                                  'state': 'unknown', 'reasonCode': 'stale', 'privateDetail': 'excluded'}]}
         read = mock.Mock(return_value=snapshot)
-        controller = repair.OnlineCodeRepair(snapshot_read=read)
+        controller = repair.OnlineCodeRepair(snapshot_read=read, clock=lambda: 100)
         result = controller.request()
         self.assert_diagnosis(result, 'check-and-repair')
         self.assertIn('windows: unknown (stale)', result['diagnosis'])
         self.assertEqual(result['machines'], [{'id': 'pc', 'host': 'pc', 'platform': 'windows',
-                                              'state': 'unknown', 'reasonCode': 'stale'}])
+                                              'state': 'unknown', 'reasonCode': 'stale',
+                                              'lastState': 'unknown', 'lastReasonCode': 'stale'}])
         result['machines'][0]['state'] = 'up'
         self.assertEqual(controller.read()['machines'][0]['state'], 'unknown')
         self.assertEqual(snapshot['machines'][0]['state'], 'unknown')
-        read.assert_called_once_with()
+        self.assertEqual(read.call_args_list, [mock.call(), mock.call()])
 
     def test_l2_flag_rejects_truthy_non_booleans_before_constructing_owners(self):
         for invalid in (None, 0, 1, '', 'false', 'true', [], {}):
