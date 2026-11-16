@@ -1,5 +1,11 @@
 # AGIW Suite roadmap and release evidence
 
+## Drawer focus restoration — 13 November 2026
+
+- [x] Preserve the actual drawer invoker from sidebar, map, registry/vital chip and memory Details actions. Restore a connected visible invoker; when Show map is closed, skip its SVG targets and use the current matching sidebar button before the Fleet ledger fallback. Hidden, inert, disabled and detached candidates are excluded.
+- [x] Keep the Fleet ledger programmatically focusable without adding a tab stop. Cover collapsed and expanded maps, removed selections, memory dismissal, real list-button replacement, fleet-map buttons replaced by a background refresh, run selections opened without a list invoker key, Details clicks that do not focus the button, and hidden chip invokers at 375 and 1280 px.
+- [x] The full Node and Python root suites and the focused production-DOM tests pass on the rebased tree; Python skips are limited to absent legacy-router fixtures, native Windows cases and an unset wrapper archive. Exact counts are in the pull request. App syntax and whitespace checks passed. Browser rendering and native keyboard/accessibility review remain NOT_RUN.
+
 ## Monitor redesign stage 5 — local evaluation dataset — 12 November 2026
 
 - [x] Both observers use the shared read-only dataset loader: `AGIW_ECI_TUNING_DATASET_DIR` selects an absolute directory containing normalized `dataset.json`. Unset configuration uses the bundled catalog; missing, unreadable or invalid configured data reports unknown with a reason. The operator is responsible for selecting local storage.
