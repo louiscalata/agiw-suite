@@ -42,9 +42,12 @@ class FakeElement {
     let scroller = this; while (scroller && !scroller.scroller) scroller = scroller.parentNode;
     (scroller || this).scrollTop = 0; this.append(...nodes);
   }
+  get parentElement() { return this.parentNode; }
+  get isConnected() { return this.doc.body.contains(this); }
+  getClientRects() { return [this.getBoundingClientRect()]; }
   get lastElementChild() { return this.children.at(-1) || null; }
   contains(node) { for (let n = node; n; n = n.parentNode) if (n === this) return true; return false; }
-  matches(selector) { return selector.startsWith('.') ? this.classList.contains(selector.slice(1)) : this.tagName === selector.toUpperCase(); }
+  matches(selector) { if (selector === 'button[data-key]') return this.tagName === 'BUTTON' && this.dataset.key !== undefined; return selector.startsWith('.') ? this.classList.contains(selector.slice(1)) : this.tagName === selector.toUpperCase(); }
   closest(selector) { for (let n = this; n; n = n.parentNode) if (n.matches(selector)) return n; return null; }
   querySelectorAll(selector) { const out = []; const walk = n => n.children.forEach(c => { if (c.matches(selector)) out.push(c); walk(c); }); walk(this); return out; }
   querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
@@ -52,7 +55,7 @@ class FakeElement {
   setAttribute(name, value) { this.attributes[name] = String(value); }
   getAttribute(name) { return this.attributes[name] ?? null; }
   addEventListener(type, listener) { (this.listeners[type] ||= []).push(listener); }
-  click() { for (const listener of this.listeners.click || []) listener({ target: this }); }
+  click() { for (const listener of this.listeners.click || []) listener({ target: this, currentTarget: this }); }
   getBoundingClientRect() { return { left: 0, top: 0, right: 820, bottom: 604, width: 820, height: 604 }; }
 }
 
@@ -97,7 +100,10 @@ export function harness({ width = 1150, extra = {}, legacyDetails = false } = {}
 ;${graphSeam}
 ;({renderActivity,renderVitals,renderSummary,renderRegistryTable,localRuntimeCounts,vitalsInput,syncCompactUI,toggleActivity,toggleAbout,closeCompactSidebar,setSidebarOpen,
   rebuildPanel,disclosure,onlineCodeSummary,liveNow,renderInspector,modelControlPollWanted,onlineCodePollWanted,pollOnlineCodeAction,
-  renderModelScope,renderList,setModelScope,
+  renderModelScope,renderList,setModelScope,closeDrawer,nodeSelect,selectRun,openMemoryDetails,renderRegistryChips,
+  mountMapNode(id,node){nodeElements.set(id,node);},
+  stubDrawerGeometry(){renderGraph=fitMap=revealSelected=()=>{};},
+  stubMapFocus(id,node){selected=id;nodeElements.set(id,node);renderGraph=renderList=fitMap=()=>{};},
   renderAutoUnload,pollAutoUnload,requestAutoUnload,get autoUnloadState(){return autoUnloadState;},
   requestOnlineCodeAction,updateOnlineCodeMode,updateInferenceFix,openFixInference,closeFixInference,renderMemoryBanner,dismissMemoryBanner,
   get memoryDismissed(){return memoryDismissed;},
