@@ -1,0 +1,229 @@
+{
+  "sourceSha256": "af208a566b53812eec46139d014f081e4e2fb8521385a24fe81a73031132f5d5",
+  "mutations": [
+    {
+      "case": "lane_expiry_without_observed",
+      "kind": "booldrop",
+      "index": 133,
+      "arg": 1,
+      "line": 51
+    },
+    {
+      "case": "source_node_matches_id_not_host",
+      "kind": "boolop",
+      "index": 164,
+      "arg": 0,
+      "line": 114
+    },
+    {
+      "case": "source_node_matches_id_not_host",
+      "kind": "booldrop",
+      "index": 164,
+      "arg": 0,
+      "line": 114
+    },
+    {
+      "case": "source_node_matches_host_no_id",
+      "kind": "booldrop",
+      "index": 164,
+      "arg": 1,
+      "line": 114
+    },
+    {
+      "case": "answering_and_unknown_lane",
+      "kind": "booldrop",
+      "index": 181,
+      "arg": 0,
+      "line": 158
+    },
+    {
+      "case": "pc_placeholder_without_replacement",
+      "kind": "booldrop",
+      "index": 532,
+      "arg": 0,
+      "line": 234
+    },
+    {
+      "case": "pc_placeholder_not_windows",
+      "kind": "booldrop",
+      "index": 532,
+      "arg": 1,
+      "line": 234
+    },
+    {
+      "case": "pc_placeholder_is_local",
+      "kind": "booldrop",
+      "index": 532,
+      "arg": 2,
+      "line": 234
+    },
+    {
+      "case": "unobserved_windows_other_id",
+      "kind": "booldrop",
+      "index": 532,
+      "arg": 3,
+      "line": 234
+    },
+    {
+      "case": "peer_counts_with_incomplete_inventory",
+      "kind": "booldrop",
+      "index": 572,
+      "arg": 1,
+      "line": 285
+    },
+    {
+      "case": "lane_expiry_without_observed",
+      "kind": "const",
+      "index": 720,
+      "arg": "none",
+      "line": 51
+    },
+    {
+      "case": "source_node_matches_id_not_host",
+      "kind": "const",
+      "index": 795,
+      "arg": "str",
+      "line": 114
+    },
+    {
+      "case": "source_node_matches_host_no_id",
+      "kind": "const",
+      "index": 797,
+      "arg": "str",
+      "line": 114
+    },
+    {
+      "case": "machine_node_integer_id",
+      "kind": "booldrop",
+      "index": 882,
+      "arg": 0,
+      "line": 180
+    },
+    {
+      "case": "same_id_unattributed_then_unknown_attribution",
+      "kind": "booldrop",
+      "index": 972,
+      "arg": 1,
+      "line": 227
+    },
+    {
+      "case": "same_id_unknown_attribution_then_unattributed",
+      "kind": "booldrop",
+      "index": 972,
+      "arg": 2,
+      "line": 227
+    },
+    {
+      "case": "source_host_differs_from_row_host",
+      "kind": "boolop",
+      "index": 1331,
+      "arg": 0,
+      "line": 120
+    },
+    {
+      "case": "source_and_row_without_host_or_id",
+      "kind": "booldrop",
+      "index": 1331,
+      "arg": 0,
+      "line": 120
+    },
+    {
+      "case": "source_host_differs_from_row_host",
+      "kind": "booldrop",
+      "index": 1331,
+      "arg": 1,
+      "line": 120
+    },
+    {
+      "case": "source_id_differs_from_row_source_id",
+      "kind": "boolop",
+      "index": 1332,
+      "arg": 0,
+      "line": 122
+    },
+    {
+      "case": "source_and_row_without_host_or_id",
+      "kind": "booldrop",
+      "index": 1332,
+      "arg": 0,
+      "line": 122
+    },
+    {
+      "case": "source_id_differs_from_row_source_id",
+      "kind": "booldrop",
+      "index": 1332,
+      "arg": 1,
+      "line": 122
+    },
+    {
+      "case": "peer_label_and_host",
+      "kind": "booldrop",
+      "index": 1572,
+      "arg": 0,
+      "line": 246
+    },
+    {
+      "case": "configured_host_only_windows_row_plus_candidate",
+      "kind": "booldrop",
+      "index": 2034,
+      "arg": 1,
+      "line": 208
+    },
+    {
+      "case": "local_row_host_alias_models",
+      "kind": "const",
+      "index": 2170,
+      "arg": "str",
+      "line": 290
+    },
+    {
+      "case": "peer_label_and_host",
+      "kind": "const",
+      "index": 2509,
+      "arg": "str",
+      "line": 246
+    },
+    {
+      "case": "configured_host_only_windows_row_plus_candidate",
+      "kind": "const",
+      "index": 2785,
+      "arg": "str",
+      "line": 208
+    },
+    {
+      "case": "unavailable_lane_with_input_endpoint_answered",
+      "kind": "booldrop",
+      "index": 2921,
+      "arg": 0,
+      "line": 404
+    },
+    {
+      "case": "reported_host_with_reason_code",
+      "kind": "booldrop",
+      "index": 2944,
+      "arg": 0,
+      "line": 106
+    },
+    {
+      "case": "unmeasured_host_with_reason_code",
+      "kind": "booldrop",
+      "index": 2947,
+      "arg": 0,
+      "line": 109
+    },
+    {
+      "case": "reported_host_with_reason_code",
+      "kind": "const",
+      "index": 3179,
+      "arg": "str",
+      "line": 106
+    },
+    {
+      "case": "unmeasured_host_with_reason_code",
+      "kind": "const",
+      "index": 3181,
+      "arg": "str",
+      "line": 109
+    }
+  ]
+}
