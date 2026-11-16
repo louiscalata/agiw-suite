@@ -3807,7 +3807,7 @@ def _windows_jobs(now: float) -> tuple[dict[str, Any], dict[str, Any]]:
     lines = raw.splitlines()
     read_complete = not truncated and getattr(raw, "complete", True) and len(lines) <= 2000
     jobs, latest, lines_complete = _fold_windows_journal(lines, now)
-    read_complete = read_complete and lines_complete
+    read_complete = read_complete if lines_complete else False
     classified = _classify_windows_jobs(jobs, now)
     return _windows_jobs_report(summary, source, read_complete, latest, now, classified)
 
