@@ -1,5 +1,13 @@
 # AGIW Suite roadmap and release evidence
 
+## Windows edition accuracy — 13 November 2026
+
+- [x] Confirm the five assigned audit findings against the current source. Watch installed root Python modules and the observer entry point as well as package sources; keep checkout watches limited to runtime dependencies. Copied-install regressions reproduce the missing reloads before the fix and verify exit code 3 afterward.
+- [x] Document bytecode-free Python commands and execution-policy bypass. The installer's pre-update check tolerates timestamp-validated `.pyc` files in `__pycache__` beside shipped Python modules while retaining path, link and permission checks and refusing unexpected code or directories. It refuses hash-based caches, which Python can load without checking the source, and the provenance check stays strict, so an install that holds any cache is recorded as `unverified`. Correct the Overview label, dashboard instructions, Linux diagnostic behavior and version heading.
+- [x] Use `machine_state.PEER_FUTURE_SKEW` for the Mac-side PC-reader mirror, the Windows reader, and the Mac-side row ageing and feed clock-lead checks. The boundary regression failed at 2.1, 3.0 and 5.0 seconds ahead before the fix; both readers now accept 2.0 seconds and reject larger leads.
+- [x] Run the full suites on macOS with bytecode disabled: the Node, root Python, Windows-edition and CLI suites pass on the rebased tree, with only the existing router-fixture and Windows-native skips. Exact counts and commands are in the pull request. Python used `MONITOR_ALLOW_ROUTER_FIXTURE_SKIP=1`. An earlier pass ran the same suites under an external fixture socket guard; its first root run exited 1 with four errors because the guard rejected an existing temporary shell fixture. After the guard allowed only that fixture's exact script contents, the focused fixture test and the full rerun passed. Logs and the guard remain outside the checkout.
+- [ ] Native Windows installer, tray and Windows API acceptance remain NOT_RUN. The installer cache tests need Windows and were skipped on macOS, so native failing-before and passing-after evidence remains unavailable. Workflow changes belong to another lane. No model workload, model server, browser or device action is part of this change.
+
 ## Monitor redesign stage 5 — local evaluation dataset — 12 November 2026
 
 - [x] Both observers use the shared read-only dataset loader: `AGIW_ECI_TUNING_DATASET_DIR` selects an absolute directory containing normalized `dataset.json`. Unset configuration uses the bundled catalog; missing, unreadable or invalid configured data reports unknown with a reason. The operator is responsible for selecting local storage.

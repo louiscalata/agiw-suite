@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from agiw_win import probes  # noqa: E402
 from agiw_win.collect import Collector, LANE_FRESH_SECONDS  # noqa: E402
 from agiw_win.server import MonitorServer, SnapshotStore, activity_is_known, find_web_root, sample  # noqa: E402
+from agiw_win import server as observer_server  # noqa: E402
 
 
 def lane_server(model, state):
@@ -1188,6 +1189,37 @@ class UnsupportedBodyRequests(unittest.TestCase):
         self.assertIn(b"Invalid HTTP version (2.0)", payload)
 
 
+class ReloadSources(unittest.TestCase):
+    def test_checkout_watches_entry_point_and_imported_shared_modules_only(self):
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            package = root / "windows" / "agiw_win"
+            package.mkdir(parents=True)
+            paths = (package / "server.py", package.parent / "agiw_observer.py",
+                     root / "inference_collect.py", root / "peer_link.py", root / "peer_feed.py",
+                     root / "unrelated.py")
+            for path in paths:
+                path.write_text("# fixture\n")
+            module = SimpleNamespace(__file__=str(root / "inference_collect.py"))
+            with mock.patch.object(observer_server, "_INFERENCE_ROOT", root), \
+                    mock.patch.dict(sys.modules, {"reload_fixture": module}):
+                sources = observer_server.reload_sources(package)
+            self.assertEqual(set(sources), set(paths[:-1]))
+
+    def test_install_watches_all_shipped_root_modules(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            package = root / "agiw_win"
+            package.mkdir()
+            paths = (package / "server.py", root / "agiw_observer.py", root / "machine_state.py")
+            for path in paths:
+                path.write_text("# fixture\n")
+            with mock.patch.object(observer_server, "_INFERENCE_ROOT", root):
+                sources = observer_server.reload_sources(package)
+            self.assertEqual(set(sources), set(paths))
+
+
 class ObserverRecovery(unittest.TestCase):
     """The real observer process, run from a copy so its source can change: the tray relies on these exits."""
 
@@ -1242,6 +1274,18 @@ class ObserverRecovery(unittest.TestCase):
         source.write_text(source.read_text() + "\n# changed\n")
         self.assertEqual(process.wait(15), 3)  # exit code 3 tells the tray this is an update
         self.assertIn("source changed; exiting for reload", (self.root / "observer.log").read_text())
+
+    def test_shared_module_change_exits_for_reload(self):
+        process = self.start(os.getpid())
+        source = self.install / "inference_collect.py"
+        source.write_text(source.read_text() + "\n# changed\n")
+        self.assertEqual(process.wait(15), 3)
+
+    def test_entry_point_change_exits_for_reload(self):
+        process = self.start(os.getpid())
+        source = self.install / "agiw_observer.py"
+        source.write_text(source.read_text() + "\n# changed\n")
+        self.assertEqual(process.wait(15), 3)
 
     def test_parent_exit_stops_the_observer(self):
         import subprocess
