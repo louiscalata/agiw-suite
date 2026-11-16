@@ -1183,17 +1183,7 @@ def hands_off_flag(value: Any) -> bool | None:
     return value if type(value) is bool else None
 
 
-def project_status(doc: dict) -> dict:
-    """What leaves this machine: only the documented fields, nothing a provider happened to include."""
-    out: dict[str, Any] = {"schemaVersion": 1, "observedAt": doc["observedAt"], "models": []}
-    for key in ("kind", "host", "platform", "edition", "health", "producer"):
-        if _scalar(doc.get(key), str, 64) is not None:
-            out[key] = _scalar(doc[key], str, 64)
-    if _scalar(doc.get("observedUnix"), float) is not None:
-        out["observedUnix"] = doc["observedUnix"]
-    hands_off = hands_off_flag(doc.get("handsOff"))
-    if hands_off is not None:
-        out["handsOff"] = hands_off
+def _project_models(doc: dict, out: dict) -> None:
     # The publisher's uncapped model count, so a reader can tell a whole list from a capped one.
     if type(doc.get("modelsTotal")) is int and 0 <= doc["modelsTotal"] <= 1 << 16:
         out["modelsTotal"] = doc["modelsTotal"]
@@ -1208,6 +1198,9 @@ def project_status(doc: dict) -> dict:
             if _scalar(model.get(key), float) is not None and model[key] >= 0:
                 row[key] = model[key]
         out["models"].append(row)
+
+
+def _project_gpus(doc: dict, out: dict) -> None:
     gpus = doc.get("gpus") if isinstance(doc.get("gpus"), list) else []
     out["gpus"] = [
         {
@@ -1218,14 +1211,18 @@ def project_status(doc: dict) -> dict:
         for g in gpus[:4]
         if isinstance(g, dict)
     ]
+
+
+def _project_memory(doc: dict, out: dict) -> None:
     memory = doc.get("memory") if isinstance(doc.get("memory"), dict) else {}
     out["memory"] = {
         k: memory[k]
         for k in ("level", "availablePercent")
         if _scalar(memory.get(k), str if k == "level" else float, 16) is not None
     }
-    if _scalar(doc.get("version"), str, 32) is not None:
-        out["version"] = _scalar(doc["version"], str, 32)
+
+
+def _project_components(doc: dict, out: dict) -> None:
     # Route components (Nisi, Jev): known ids, the table's own label, a short state word and one age. Detail
     # crosses only when it is exactly the fixed sentence COMPONENTS holds for that state; any other text (a
     # path, an account name) stays on the machine.
@@ -1255,6 +1252,25 @@ def project_status(doc: dict) -> dict:
         rows.append(row)
     if rows:
         out["components"] = rows
+
+
+def project_status(doc: dict) -> dict:
+    """What leaves this machine: only the documented fields, nothing a provider happened to include."""
+    out: dict[str, Any] = {"schemaVersion": 1, "observedAt": doc["observedAt"], "models": []}
+    for key in ("kind", "host", "platform", "edition", "health", "producer"):
+        if _scalar(doc.get(key), str, 64) is not None:
+            out[key] = _scalar(doc[key], str, 64)
+    if _scalar(doc.get("observedUnix"), float) is not None:
+        out["observedUnix"] = doc["observedUnix"]
+    hands_off = hands_off_flag(doc.get("handsOff"))
+    if hands_off is not None:
+        out["handsOff"] = hands_off
+    _project_models(doc, out)
+    _project_gpus(doc, out)
+    _project_memory(doc, out)
+    if _scalar(doc.get("version"), str, 32) is not None:
+        out["version"] = _scalar(doc["version"], str, 32)
+    _project_components(doc, out)
     return out
 
 
