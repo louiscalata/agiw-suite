@@ -132,7 +132,9 @@ default explicit, so the review covers the values that will run.
 - `facts` are the adapter's optional model and hardware facts: a lowercase
   SHA-256, sizes and short public descriptors. `model_label` must be a public
   model identifier like `model_id`, because the adapter writes it as the
-  record's model name.
+  record's model name. `already_loaded` is not a fact and not a request
+  field: a job cannot state that a lane is already loaded, so a job against a
+  lane whose available memory is unknown still fails at the adapter's fit gate.
 
 `job_id` is derived from the normalized request, which includes
 `submission_id`. `review` is exactly

@@ -181,7 +181,44 @@ A path-shaped served model ID requires a safe `--model-label` for records.
 Always declare the actual GGUF file size; reported tensor sizes remain separate
 and a mismatch is unverified. If other artifact or fit inputs are missing, supply verified values
 with `--model-sha256`, `--file-size-bytes`, `--quantization` and
-`--available-memory-bytes`. Missing evidence refuses inference. One transient request retry is allowed; three consecutive exhausted item errors
+`--available-memory-bytes`. Missing evidence refuses inference.
+
+A lane that already serves its model can say so with `--already-loaded`
+(`already_loaded=True` in `run()`). This is an operator statement, not a
+memory measurement, and it is accepted only when available memory is unknown:
+with `--available-memory-bytes` or a server-reported value the normal fit gate
+decides instead. Only an absent or null server value is unknown: a reported
+`0` is a known reading that the fit gate turns into `SKIP`, and a negative,
+boolean, text or fractional memory value, from the server or the argument,
+refuses. The server value is read separately from `/props.hardware` and from
+the selected model's `meta.hardware`: a reading in either one is known, an
+invalid value in either one refuses, and two different readings refuse
+([source rules](eci-fast-check.md#loopback-harness-adapter)). A non-null
+`available_memory_bytes` anywhere else in the `/props`, `/v1/models` or
+`/slots` responses also refuses the mode. Before any prompt the adapter checks that `/props` names the
+requested model (`model_alias`, or `model.id`), that `/props.is_sleeping` is
+absent or exactly `false` (a sleeping lane has unloaded its weights), that
+`/v1/models` advertises exactly that one model, that `/props`
+`default_generation_settings.n_ctx` and the model metadata `n_ctx` are both
+reported as positive integers and are equal, and that `/slots` lists at least
+one slot, exactly as many as the integer `/props.total_slots`, all with
+`is_processing: false`. A missing context size or slot count refuses. The operator
+must also state `--file-size-bytes`; the quantization and the artifact hash must
+be known as usual, and any explicit fact that disagrees with the server still
+refuses. A different model, a sleeping lane, a busy or unreadable slot list, or
+a missing fact refuses with no prompt sent. The record keeps `pre` as the honest `UNKNOWN`
+with null `available_memory_bytes`, and its `provenance` adds
+`fit_gate: "already_loaded"` with the evidence: the fixed statement, served
+model and its source, `advertised_models`, `n_ctx`, `total_slots`,
+`slots_idle`, `is_sleeping` (`false`, or `null` when `/props` did not report
+it), the three endpoints,
+the stated file size and where the hash and quantization came from.
+`available_memory_source` reads `unknown`, and a record with the gate that
+names any other source is refused by the validator and the schema. Idle is observed once, before the
+first item; the adapter does not watch the lane during the run. Without the
+flag nothing changes: unknown memory still refuses.
+
+One transient request retry is allowed; three consecutive exhausted item errors
 stop the check. Every final item outcome is checkpointed with flush/fsync. Repeat the same command to resume; use a fresh
 output directory to change settings. Resume re-asks trailing error rows as
 append-only superseding entries and resets the consecutive-error count. Attempts
@@ -205,6 +242,13 @@ validation is left out and listed in `rejected_fast_checks` with its
 `record_id` (null when it has no SHA-256 id) and the validator's reason; the
 other records and the rest of the dataset stay usable. `validate` prints the
 same list. A duplicate valid record still fails the whole ingest.
+An already-loaded record (`provenance.fit_gate` is `already_loaded`) validates
+and is ingested, but ranking lists it under `pending` as screening only, with
+`fit_gate: "already_loaded"` and its own reason, never among ranked rows. The
+ranking's eligibility needs a measured fit, and an operator statement is not one.
+Its benchmark counts stay visible in the pending row. Comparing it with a
+memory-estimate record lists `fit gate differs`. Records without the field are
+memory-estimate records, so existing records keep their meaning.
 A bare fast-check `result.json` cannot be ingested as its own input file:
 ingest refuses a fast-check record anywhere except the root `fast_checks` list
 of a normalized v1 dataset. Wrap the record first, for example

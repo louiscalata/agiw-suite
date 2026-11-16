@@ -615,6 +615,71 @@ def pre_check(
     return decision(base, reasons, inputs, advisory, ["CHECK", "UNKNOWN", "SKIP"])
 
 
+ALREADY_LOADED_FIELDS = (
+    "statement served_model served_model_source advertised_models n_ctx total_slots "
+    "slots_idle is_sleeping evidence_sources file_size_bytes file_size_source file_sha256_source "
+    "quantization_source"
+)
+ALREADY_LOADED_STATEMENT = (
+    "operator-stated: the requested model is already loaded and serving; "
+    "available memory was not measured"
+)
+ALREADY_LOADED_SOURCES = ["/props", "/slots", "/v1/models"]
+STATED_SOURCES = ("server-reported", "operator-stated")
+
+
+def fit_gate(model, pre, provenance):
+    """Return "already_loaded" or "memory_estimate" after checking the evidence.
+
+    The memory estimate is the default. An already-loaded record states that the
+    server was serving exactly this model with idle slots; memory stays unknown,
+    so its pre decision is the honest UNKNOWN and the statement, not a number,
+    authorizes the observations. A SKIP or a known available memory is refused.
+    """
+    if not isinstance(provenance, dict) or not ({"fit_gate", "already_loaded"} & set(provenance)):
+        return "memory_estimate"
+    if provenance.get("fit_gate") != "already_loaded":
+        raise ValidationError("unknown fit gate")
+    evidence = provenance.get("already_loaded")
+    fields(evidence, ALREADY_LOADED_FIELDS)
+    # served_model must equal the record's validated model name and
+    # served_model_source is an enum, so only the statement needs its own check.
+    if evidence["statement"] != ALREADY_LOADED_STATEMENT:
+        raise ValidationError("already-loaded statement differs")
+    # null: /props carried no is_sleeping field; a sleeping lane is never loaded.
+    if evidence["is_sleeping"] is not None and evidence["is_sleeping"] is not False:
+        raise ValidationError("already-loaded lane must not be sleeping")
+    for key in ("n_ctx", "total_slots"):
+        if type(evidence[key]) is not int or evidence[key] < 1:
+            raise ValidationError("already-loaded context and slots must be positive integers")
+    inputs = pre["inputs"]
+    if (
+        evidence["served_model"] != model["name"]
+        or evidence["advertised_models"] != 1
+        or type(evidence["advertised_models"]) is not int
+        or evidence["slots_idle"] is not True
+        or evidence["served_model_source"] not in ("/props model_alias", "/props model.id")
+        or evidence["evidence_sources"] != ALREADY_LOADED_SOURCES
+        or evidence["file_size_source"] != "operator-stated"
+        or evidence["file_sha256_source"] not in STATED_SOURCES
+        or evidence["quantization_source"] not in STATED_SOURCES
+        or type(evidence["file_size_bytes"]) is not int
+        or evidence["file_size_bytes"] != inputs["file_size_bytes"]
+    ):
+        raise ValidationError("already-loaded evidence is incomplete or disagrees")
+    if (
+        pre["decision"] != "UNKNOWN"
+        or pre["local_decision"] != "UNKNOWN"
+        or inputs["available_memory_bytes"] is not None
+        or inputs["file_size_bytes"] is None
+        or inputs["quantization"] is None
+        # The receipt may not name a memory source the gate says it lacked.
+        or provenance.get("available_memory_source", "unknown") != "unknown"
+    ):
+        raise ValidationError("already-loaded gate applies only when available memory is unknown")
+    return "already_loaded"
+
+
 def binomial_upper_tail(correct, n, chance):
     """One-sided exact H0:p<=chance; the boundary maximizes the upper tail."""
     return sum(
@@ -1415,6 +1480,8 @@ def run_check(
         pre["inputs"][k] != model[k] for k in ("file_size_bytes", "quantization")
     ):
         raise ValidationError("pre decision or model inputs disagree")
+    # Validate a stated gate even beside a CHECK, so a record cannot carry both.
+    authorized = fit_gate(model, pre, provenance) == "already_loaded" or pre["decision"] == "CHECK"
     available = pre["inputs"]["available_memory_bytes"]
     if (
         available is not None
@@ -1458,7 +1525,7 @@ def run_check(
     stream, prior = (
         (None, []) if checkpoint is None else checkpoint_open(checkpoint, binding, plan)
     )
-    if (prior or stream is not None and stream._eci_supersedes) and pre["decision"] != "CHECK":
+    if (prior or stream is not None and stream._eci_supersedes) and not authorized:
         stream.close()
         raise ValidationError("checkpoint observations conflict with pre gate")
     start = clock()
@@ -1474,7 +1541,7 @@ def run_check(
             ]
             stop = "complete"
             for item_id in spec["item_ids"][len(observations) :]:
-                if pre["decision"] != "CHECK":
+                if not authorized:
                     stop = "pre"
                     break
                 if consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
@@ -1697,6 +1764,8 @@ def validate_record(record, _seen=()):
         and available > record["hardware"]["memory_bytes"]
     ):
         raise ValidationError("available memory exceeds hardware memory")
+    authorized = (fit_gate(record["model"], pre, record.get("provenance")) == "already_loaded"
+                  or pre["decision"] == "CHECK")
     benches, specs = record["benchmarks"], record["plan"]["benchmarks"]
     if not isinstance(benches, list) or len(benches) != len(specs):
         raise ValidationError("benchmark coverage mismatch")
@@ -1723,13 +1792,13 @@ def validate_record(record, _seen=()):
             raise ValidationError("error stop requires consecutive error evidence")
         if ids != spec["item_ids"][: len(ids)] or len(ids) > len(spec["item_ids"]):
             raise ValidationError("observations must follow frozen sample prefix")
-        if pre["decision"] != "CHECK" and (ids or b["stop_reason"] != "pre"):
+        if not authorized and (ids or b["stop_reason"] != "pre"):
             raise ValidationError("pre did not authorize check")
         if legacy:
             if b["stop_reason"] == "complete" and len(ids) != len(spec["item_ids"]):
                 raise ValidationError("incomplete sample cannot claim completion")
         else:
-            if (b["stop_reason"] == "pre") != (pre["decision"] != "CHECK"):
+            if (b["stop_reason"] == "pre") != (not authorized):
                 raise ValidationError("pre stop must match the pre decision")
             if (b["stop_reason"] == "complete") != (len(ids) == len(spec["item_ids"])):
                 raise ValidationError("completion stop must match complete sample coverage")
@@ -1849,7 +1918,14 @@ def screening_mismatches(first, second):
         reasons.append("alpha differs")
     if any(first["post"]["inputs"][k] != second["post"]["inputs"][k] for k in STANDARD_POST):
         reasons.append("admission policy differs")
+    if record_fit_gate(first) != record_fit_gate(second):
+        reasons.append("fit gate differs: already loaded versus memory estimate")
     return reasons
+
+
+def record_fit_gate(record):
+    """The fit gate of a validated record."""
+    return fit_gate(record["model"], record["pre"], record.get("provenance"))
 
 
 def rank(records):
@@ -1903,8 +1979,11 @@ def rank(records):
                     for b in record["benchmarks"]
                 )
             )
+            # Screening only: an operator statement is not a measured fit.
+            loaded = record_fit_gate(record) == "already_loaded"
             if (
-                record["pre"]["decision"] != "CHECK"
+                loaded
+                or record["pre"]["decision"] != "CHECK"
                 or record["post"]["decision"] != "ADMIT"
                 or not known
             ):
@@ -1915,7 +1994,10 @@ def rank(records):
                         label="fast check",
                         pre=record["pre"]["decision"],
                         post=record["post"]["decision"],
-                        reason="Not eligible: fit, admissibility, hardware, model artifact, settings, complete coverage or normalized score is unknown or refused.",
+                        reason="Screening only: the operator stated the model was already loaded and serving; available memory was not measured, so this record is not ranked."
+                        if loaded else
+                        "Not eligible: fit, admissibility, hardware, model artifact, settings, complete coverage or normalized score is unknown or refused.",
+                        **({"fit_gate": "already_loaded"} if loaded else {}),
                         reasons=record["pre"]["reasons"] + record["post"]["reasons"],
                         baseline_id=record["baseline"]["record_id"] if record["baseline"] else None,
                         baseline_comparison=screening_baseline_evidence(record),

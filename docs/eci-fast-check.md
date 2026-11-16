@@ -518,8 +518,45 @@ model's `meta` when `/props` omits them. Missing hardware/build facts remain nul
 raw payloads, model paths and machine/device identifiers are omitted. These are
 server reports, not independently measured hardware or artifact attestation.
 
+Each hardware fact is read from `/props.hardware` and from the selected model's
+`meta.hardware` separately, key by key; one source's `hardware` object never
+hides a key that only the other reports, and a `hardware` value that is not an
+object refuses in either source.
+
+- `hardware.memory_bytes` and `hardware.available_memory_bytes`: both sources
+  are validated whenever the key is present. Absent or null is unknown. Any
+  other value must be a non-boolean integer, at least `1` for the total and at
+  least `0` for available memory; a negative, boolean, text, fractional, list
+  or object value in either source refuses, so a valid value in one source
+  never covers an invalid one in the other. A reading from either source is
+  known, zero included. When both report, the two values must be equal or
+  discovery refuses.
+- `hardware.cpu` and `hardware.gpu`: `/props` decides whenever it reports the
+  key, even when the descriptor is dropped as non-public; `meta.hardware` is
+  used only when `/props` omits the key or reports null.
+- `build_info` and the context size keep the earlier top-level rule: a key
+  present in `/props` wins and the `meta` key is used only when `/props` has
+  no such key. A `/props` `default_generation_settings.n_ctx` that is not a
+  positive integer falls through to a top-level `n_ctx`, from `/props` first
+  and otherwise from `meta`. `--already-loaded` does not rely on this: it
+  requires both context sizes (see the adapter section).
+
+Memory is read nowhere else. A non-null `available_memory_bytes` at any other
+place in the `/props`, `/v1/models` or `/slots` responses, another model's
+entry included, is never used as a reading; with `--already-loaded` it
+refuses, and without the flag available memory stays unknown. An explicit
+`--available-memory-bytes` is the operator's figure and decides the default
+path even beside a different valid server reading
+(`provenance.available_memory_source` is `explicit`); an invalid server value
+still refuses. `--memory-bytes` must equal a server-reported total.
+
 The existing fit gate needs model size, quantization and sufficient available
-memory; resume needs the actual artifact SHA-256. Always supply the actual GGUF
+memory; resume needs the actual artifact SHA-256. When available memory is
+unknown and the lane already serves the model, `--already-loaded` records an
+operator statement instead (see
+[the adapter section](eci-model-tuning.md#run-a-fast-check-against-an-existing-server)):
+`pre` stays `UNKNOWN`, `provenance.fit_gate` is `already_loaded`, and the
+record is screening only. Always supply the actual GGUF
 file size with `--file-size-bytes`; a server size may describe tensor storage.
 For other missing facts add `--file-size-bytes BYTES --quantization QUANT --available-memory-bytes BYTES
 --model-sha256 SHA256` using verified values. Conflicting hash or quantization facts are refused. File-size provenance records
