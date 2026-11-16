@@ -1774,8 +1774,7 @@ def _online_code_mode(now: float, observed_at: str, router: dict[str, Any] | Non
     return mode
 
 
-def _online_code_mode_state(now: float, observed_at: str, router: dict[str, Any]) -> dict[str, Any]:
-    readiness, readiness_age = _launcher_readiness(now)
+def _online_code_mode_initial(readiness: str, readiness_age: float | None, observed_at: str) -> dict[str, Any]:
     mode: dict[str, Any] = {
         "state": "unknown",
         "active": None,
@@ -1797,58 +1796,48 @@ def _online_code_mode_state(now: float, observed_at: str, router: dict[str, Any]
         "runIdCollisions": [],
         "runsTruncated": False,
     }
-    mode.update(_router_projection(router, now))
-    if router["install"]["inProgress"]:
-        # R2.9: a transition (fence installing / rolling-back, or the installer's second link
-        # on owner.lock) is "router install in progress", never an unsafe journal.
+    return mode
+
+
+def _online_code_mode_idle(
+    mode: dict[str, Any], router: dict[str, Any], readiness: str, readiness_age: float | None
+) -> dict[str, Any]:
+    mode["taskState"] = "idle"
+    if router["install"]["state"] in ("missing", "invalid"):
         mode.update(
-            taskState="install-in-progress",
-            evidence="Router install in progress; route state is verified again when it finishes",
+            state="inactive",
+            active=False,
+            evidence=f"No active route; the router install fence is {router['install']['state']}, so the "
+            "router refuses every command until its owner finishes or rolls back the install",
         )
-        return mode
-    if not _router_namespace_initialized():
-        return mode
-    if router["error"]:
-        mode["evidence"] = router["error"]
-        return mode
-    primary = router["primary"]
-    if primary is None and not mode["runCountsComplete"]:
-        mode["evidence"] = "Router inventory incomplete; current route counts unknown"
-        return mode
-    if primary is None:
-        mode["taskState"] = "idle"
-        if router["install"]["state"] in ("missing", "invalid"):
-            mode.update(
-                state="inactive",
-                active=False,
-                evidence=f"No active route; the router install fence is {router['install']['state']}, so the "
-                "router refuses every command until its owner finishes or rolls back the install",
-            )
-        elif readiness == "fresh":
-            mode.update(
-                state="ready",
-                active=False,
-                evidence=f"Recent capability inventory completed {readiness_age:.0f}s ago; no active route or client/chat binding",
-            )
-        elif readiness == "absent":
-            mode.update(
-                state="inactive",
-                active=False,
-                evidence="Initialized router journal has no active route or recorded recent readiness check",
-            )
-        elif readiness == "expired":
-            mode.update(
-                state="inactive",
-                active=False,
-                evidence="Task idle; last capability inventory is older than ten minutes, so current setup readiness is unverified",
-            )
-        else:
-            mode.update(
-                state="inactive",
-                active=False,
-                evidence="Task idle; launcher readiness receipt is invalid or unreadable, so current setup readiness is unverified",
-            )
-        return mode
+    elif readiness == "fresh":
+        mode.update(
+            state="ready",
+            active=False,
+            evidence=f"Recent capability inventory completed {readiness_age:.0f}s ago; no active route or client/chat binding",
+        )
+    elif readiness == "absent":
+        mode.update(
+            state="inactive",
+            active=False,
+            evidence="Initialized router journal has no active route or recorded recent readiness check",
+        )
+    elif readiness == "expired":
+        mode.update(
+            state="inactive",
+            active=False,
+            evidence="Task idle; last capability inventory is older than ten minutes, so current setup readiness is unverified",
+        )
+    else:
+        mode.update(
+            state="inactive",
+            active=False,
+            evidence="Task idle; launcher readiness receipt is invalid or unreadable, so current setup readiness is unverified",
+        )
+    return mode
+
+
+def _online_code_mode_primary(mode: dict[str, Any], primary: dict[str, Any]) -> dict[str, Any]:
     counts = mode["runCounts"]
     several = mode["runCountsComplete"] and counts["running"] + counts["queued"] > 1
     if primary["layout"] == "legacy":
@@ -1922,6 +1911,32 @@ def _online_code_mode_state(now: float, observed_at: str, router: dict[str, Any]
         f"Router run {primary['runId']} is unresolved (its run lock is free); settle it with an exact reconcile gate",
     )
     return mode
+
+
+def _online_code_mode_state(now: float, observed_at: str, router: dict[str, Any]) -> dict[str, Any]:
+    readiness, readiness_age = _launcher_readiness(now)
+    mode = _online_code_mode_initial(readiness, readiness_age, observed_at)
+    mode.update(_router_projection(router, now))
+    if router["install"]["inProgress"]:
+        # R2.9: a transition (fence installing / rolling-back, or the installer's second link
+        # on owner.lock) is "router install in progress", never an unsafe journal.
+        mode.update(
+            taskState="install-in-progress",
+            evidence="Router install in progress; route state is verified again when it finishes",
+        )
+        return mode
+    if not _router_namespace_initialized():
+        return mode
+    if router["error"]:
+        mode["evidence"] = router["error"]
+        return mode
+    primary = router["primary"]
+    if primary is None and not mode["runCountsComplete"]:
+        mode["evidence"] = "Router inventory incomplete; current route counts unknown"
+        return mode
+    if primary is None:
+        return _online_code_mode_idle(mode, router, readiness, readiness_age)
+    return _online_code_mode_primary(mode, primary)
 
 
 def _parse_lms_server_status(value: Any) -> dict[str, Any]:
@@ -2577,7 +2592,7 @@ def _marker_attribution(marker: dict[str, Any], live_ids: set[str], now: float) 
     return None
 
 
-def _pipeline(now: float, router: dict[str, Any] | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
+def _pipeline_initial() -> tuple[dict[str, Any], dict[str, Any]]:
     pipeline: dict[str, Any] = {
         "runId": None,
         "status": "unknown",
@@ -2605,82 +2620,125 @@ def _pipeline(now: float, router: dict[str, Any] | None = None) -> tuple[dict[st
         "ageSeconds": None,
         "detail": "Router state unavailable",
     }
+    return pipeline, source
+
+
+def _pipeline_primary(
+    pipeline: dict[str, Any],
+    source: dict[str, Any],
+    router: dict[str, Any],
+    primary: dict[str, Any] | None,
+    now: float,
+) -> None:
+    if router["install"]["inProgress"]:
+        pipeline["status"] = "installing"
+        raise _RouterInstalling()
+    if router["error"]:
+        raise ValueError(router["error"])
+    if primary is None and router["truncated"]:
+        raise ValueError("Router listing incomplete")
+    if primary is None:
+        raise FileNotFoundError("no router run record")
+    if _router_queued(primary):
+        # A live run queued for admission or a lane (its note says waiting / admitting):
+        # listed, never a running route and never promoted to one.
+        # queuePhase / queueResource let the UI say "queued for a lane" only for a run whose
+        # note says it waits for one ('admitting' waits for admission, not a lane).
+        pipeline.update(
+            runId=primary["runId"],
+            status="queued",
+            stage=primary["stage"],
+            queuePhase=primary["state"],
+            queueResource=(primary["note"] or {}).get("resource"),
+        )
+        source.update(state="live", detail=f"Router run {primary['runId']} is queued; its run lock is held")
+        raise _RouterListed()
+    active = primary["_record"]
+    if isinstance(active, dict) and not primary["valid"]:
+        # A readable JSON object that fails the closed record envelope describes nothing.
+        raise ValueError("router run record invalid")
+    if not isinstance(active, dict):
+        if primary["runId"] is None or primary["layout"] == "legacy" or not primary["readable"]:
+            raise ValueError("router run record unreadable")
+        # A run listed without a record read in this sample: past the read budget (never
+        # live then), or a live pre-begin run whose note says running (no record yet).
+        pipeline.update(runId=primary["runId"], status="unresolved", stage=primary["stage"])
+        source.update(
+            state="live" if primary["live"] else "stale",
+            detail="Router run listed; its checkpoint was not read in this sample",
+        )
+        raise _RouterListed()
+    run_id = _text(active.get("runId"), 80)
+    stage = _text(active.get("stage"), 64)
+    if not run_id or not _RUN_ID.fullmatch(run_id):
+        raise ValueError("invalid router run id")
+    if stage and not _STAGE.fullmatch(stage):
+        stage = None
+    checkpoint = active.get("checkpoint") if isinstance(active.get("checkpoint"), dict) else {}
+    recorded = checkpoint.get("recordedUnix")
+    # A verified-live route (a per-run run lock, or R2.9 legacy rules (i)-(iv)) may sit at
+    # 'started', wait at mac_return or stall past the freshness limit; its liveness is the
+    # lock, not the age.
+    live = primary["live"]
+    age = _age(recorded if recorded is not None or not live else active.get("startedUnix"), now)
+    evidence = checkpoint.get("evidence") if isinstance(checkpoint.get("evidence"), dict) else {}
+    recovery = evidence.get("recoveryRequired") is True
+    pipeline.update(runId=run_id, status="unresolved", stage=stage, recoveryRequired=recovery, ageSeconds=age)
+    # Checkpoints describe recorded progress, not a live generation lock.
+    source.update(
+        state="live" if live or age is not None and age <= _MAX_AGE else "stale",
+        ageSeconds=age,
+        detail="Recorded router checkpoint; live execution is unverified",
+    )
+    if not live and (age is None or age > _MAX_AGE):
+        pipeline["status"] = "stale"
+        for step in pipeline["steps"]:
+            step["state"] = "unknown"
+    elif stage:
+        # A stage label is a checkpoint label, not proof that earlier stages
+        # completed or that this stage is executing now.
+        current = next((step for step in pipeline["steps"] if step["id"] == stage), None)
+        if current and recovery:
+            current["state"] = "blocked"
+        if recovery:
+            pipeline["status"] = "recovery-required"
+
+
+def _pipeline_marker(
+    pipeline: dict[str, Any],
+    source: dict[str, Any],
+    primary: dict[str, Any] | None,
+    marker: dict[str, Any],
+    live_ids: set[str],
+    now: float,
+) -> None:
+    pipeline["pendingMarkerObserved"] = True
+    pipeline.update(_pending_marker_facts(marker, now))
+    attributed = _marker_attribution(marker, live_ids, now)
+    if attributed is not None:
+        # R2.9 rule 5: the in-flight call of a verified-live run, not a recovery.
+        pipeline["pendingMarkerAttributedTo"] = attributed
+        source["detail"] = f"Nisi call in flight for live route {attributed}"
+    else:
+        pipeline["recoveryRequired"] = True
+        # Only the single-run router's anonymous 3-key marker may be the live primary's own
+        # call (one route at a time).  A 5-key marker that names no live run, or any marker
+        # beside a per-run primary, belongs to no live route: it stays recovery-required.
+        pipeline["pendingMarkerForeign"] = (
+            set(marker) == _PENDING_ROUTER_KEYS or primary is None or primary["layout"] != "legacy"
+        )
+        if pipeline["status"] not in ("unknown", "stale", "installing", "queued"):
+            pipeline["status"] = "recovery-required"
+        source["detail"] = "Nisi pending marker exists; recovery state is unresolved"
+
+
+def _pipeline(now: float, router: dict[str, Any] | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
+    pipeline, source = _pipeline_initial()
     if router is None:
         router = _router_observation(now)
     primary = router["primary"]
     try:
-        if router["install"]["inProgress"]:
-            pipeline["status"] = "installing"
-            raise _RouterInstalling()
-        if router["error"]:
-            raise ValueError(router["error"])
-        if primary is None and router["truncated"]:
-            raise ValueError("Router listing incomplete")
-        if primary is None:
-            raise FileNotFoundError("no router run record")
-        if _router_queued(primary):
-            # A live run queued for admission or a lane (its note says waiting / admitting):
-            # listed, never a running route and never promoted to one.
-            # queuePhase / queueResource let the UI say "queued for a lane" only for a run whose
-            # note says it waits for one ('admitting' waits for admission, not a lane).
-            pipeline.update(
-                runId=primary["runId"],
-                status="queued",
-                stage=primary["stage"],
-                queuePhase=primary["state"],
-                queueResource=(primary["note"] or {}).get("resource"),
-            )
-            source.update(state="live", detail=f"Router run {primary['runId']} is queued; its run lock is held")
-            raise _RouterListed()
-        active = primary["_record"]
-        if isinstance(active, dict) and not primary["valid"]:
-            # A readable JSON object that fails the closed record envelope describes nothing.
-            raise ValueError("router run record invalid")
-        if not isinstance(active, dict):
-            if primary["runId"] is None or primary["layout"] == "legacy" or not primary["readable"]:
-                raise ValueError("router run record unreadable")
-            # A run listed without a record read in this sample: past the read budget (never
-            # live then), or a live pre-begin run whose note says running (no record yet).
-            pipeline.update(runId=primary["runId"], status="unresolved", stage=primary["stage"])
-            source.update(
-                state="live" if primary["live"] else "stale",
-                detail="Router run listed; its checkpoint was not read in this sample",
-            )
-            raise _RouterListed()
-        run_id = _text(active.get("runId"), 80)
-        stage = _text(active.get("stage"), 64)
-        if not run_id or not _RUN_ID.fullmatch(run_id):
-            raise ValueError("invalid router run id")
-        if stage and not _STAGE.fullmatch(stage):
-            stage = None
-        checkpoint = active.get("checkpoint") if isinstance(active.get("checkpoint"), dict) else {}
-        recorded = checkpoint.get("recordedUnix")
-        # A verified-live route (a per-run run lock, or R2.9 legacy rules (i)-(iv)) may sit at
-        # 'started', wait at mac_return or stall past the freshness limit; its liveness is the
-        # lock, not the age.
-        live = primary["live"]
-        age = _age(recorded if recorded is not None or not live else active.get("startedUnix"), now)
-        evidence = checkpoint.get("evidence") if isinstance(checkpoint.get("evidence"), dict) else {}
-        recovery = evidence.get("recoveryRequired") is True
-        pipeline.update(runId=run_id, status="unresolved", stage=stage, recoveryRequired=recovery, ageSeconds=age)
-        # Checkpoints describe recorded progress, not a live generation lock.
-        source.update(
-            state="live" if live or age is not None and age <= _MAX_AGE else "stale",
-            ageSeconds=age,
-            detail="Recorded router checkpoint; live execution is unverified",
-        )
-        if not live and (age is None or age > _MAX_AGE):
-            pipeline["status"] = "stale"
-            for step in pipeline["steps"]:
-                step["state"] = "unknown"
-        elif stage:
-            # A stage label is a checkpoint label, not proof that earlier stages
-            # completed or that this stage is executing now.
-            current = next((step for step in pipeline["steps"] if step["id"] == stage), None)
-            if current and recovery:
-                current["state"] = "blocked"
-            if recovery:
-                pipeline["status"] = "recovery-required"
+        _pipeline_primary(pipeline, source, router, primary, now)
     except _RouterInstalling:
         source.update(
             state="unavailable", detail="Router install in progress; route state is verified again when it finishes"
@@ -2706,24 +2764,7 @@ def _pipeline(now: float, router: dict[str, Any] | None = None) -> tuple[dict[st
             # Spec 6.12: 4 KiB, one retry; a marker still changing after it is unreadable.
             time.sleep(_ROUTER_READ_RETRY_S)
             marker = _safe_file(_PENDING_PATH, 4096)
-        pipeline["pendingMarkerObserved"] = True
-        pipeline.update(_pending_marker_facts(marker, now))
-        attributed = _marker_attribution(marker, live_ids, now)
-        if attributed is not None:
-            # R2.9 rule 5: the in-flight call of a verified-live run, not a recovery.
-            pipeline["pendingMarkerAttributedTo"] = attributed
-            source["detail"] = f"Nisi call in flight for live route {attributed}"
-        else:
-            pipeline["recoveryRequired"] = True
-            # Only the single-run router's anonymous 3-key marker may be the live primary's own
-            # call (one route at a time).  A 5-key marker that names no live run, or any marker
-            # beside a per-run primary, belongs to no live route: it stays recovery-required.
-            pipeline["pendingMarkerForeign"] = (
-                set(marker) == _PENDING_ROUTER_KEYS or primary is None or primary["layout"] != "legacy"
-            )
-            if pipeline["status"] not in ("unknown", "stale", "installing", "queued"):
-                pipeline["status"] = "recovery-required"
-            source["detail"] = "Nisi pending marker exists; recovery state is unresolved"
+        _pipeline_marker(pipeline, source, primary, marker, live_ids, now)
     except FileNotFoundError:
         pass
     except Exception:
