@@ -68,6 +68,8 @@ from nisi_v02 import probe_nisi_v02_bridge
 LAUNCHER = Path.home() / "bin" / "initiate-online-code-mode"
 ENTRY = Path.home() / "bin" / "online-code-entry"
 MAX_OUTPUT = 262144
+# Cached full observations expire independently of fast model overlays.
+FULL_SAMPLE_MAX_AGE = 3.0
 MAX_ENTRY_SOURCE = 65536
 ENTRY_READINESS = ("readiness",)
 ROUTE_STATUS = ("--route", "status")
@@ -1290,14 +1292,31 @@ def _append_journal(path: Path, record: dict, max_bytes: int = FIX_JOURNAL_MAX_B
             os.close(dir_fd)
 
 
-def read_only_diagnosis(action: str | None, snapshot: dict | None = None) -> dict:
+def read_only_diagnosis(action: str | None, snapshot: dict | None = None, *, now: float | None = None) -> dict:
     """Explain the closed owner-action gate using only already observed state."""
+    snapshot = snapshot if isinstance(snapshot, dict) else {}
+    sampled = snapshot.get("fullSampledAt", snapshot.get("sampledAt"))
+    sampled = sampled if _finite(sampled) else None
+    now = time.time() if now is None else now
+    age = now - sampled if _finite(now) and sampled is not None else None
+    # These full-sample and request clocks belong to the same observer host.
+    # Unlike cross-host browser transport, no future-time tolerance is needed.
+    reason = ("not_observed" if age is None else "clock_skew" if age < 0
+              else "stale" if age > FULL_SAMPLE_MAX_AGE else None)
     machines = []
-    rows = snapshot.get("machines", []) if isinstance(snapshot, dict) else []
+    rows = snapshot.get("machines", [])
     for row in rows if isinstance(rows, list) else []:
         if not isinstance(row, dict):
             continue
-        machines.append({key: row[key] for key in ("id", "host", "platform", "state", "reasonCode") if key in row})
+        machine = {key: row[key] for key in ("id", "host", "platform", "state", "reasonCode",
+                                             "lastState", "lastReasonCode") if key in row}
+        if reason in {"stale", "clock_skew"}:
+            for key, last in (("state", "lastState"), ("reasonCode", "lastReasonCode")):
+                if last not in machine and key in row:
+                    machine[last] = row[key]
+        if reason:
+            machine.update(state="unknown", reasonCode=reason)
+        machines.append(machine)
     observations = []
     for row in machines:
         platform = row.get("platform") if row.get("platform") in ("mac", "windows", "linux") else "machine"
@@ -1312,7 +1331,7 @@ def read_only_diagnosis(action: str | None, snapshot: dict | None = None) -> dic
                  "before requesting this action again.")
     return {"status": "needs-action", "reasonCode": "l2_closed", "readOnly": True,
             "message": f"{diagnosis} {next_step}", "diagnosis": diagnosis,
-            "nextStep": next_step, "machines": machines, "steps": [],
+            "nextStep": next_step, "machines": machines, "sampledAt": sampled, "ageSeconds": age, "steps": [],
             "operationId": 0, "action": action}
 
 
@@ -1404,7 +1423,7 @@ class OnlineCodeRepair:
             self._state = {"status": "idle", "message": "No check requested yet.",
                            "steps": [], "operationId": 0, "action": None}
         elif event == "l2-closed":
-            self._state = read_only_diagnosis(action, snapshot)
+            self._state = read_only_diagnosis(action, snapshot, now=self._clock())
         elif event == "requested":
             if self._worker_state() in (_RepairWorkerState.RUNNING, _RepairWorkerState.STOPPED):
                 return
@@ -1465,6 +1484,9 @@ class OnlineCodeRepair:
 
     def read(self) -> dict:
         with self._lock:
+            if self._state.get("reasonCode") == "l2_closed":
+                snapshot = self._snapshot_read() if self._snapshot_read is not None else None
+                return read_only_diagnosis(self._state["action"], snapshot, now=self._clock())
             return copy.deepcopy(self._state)
 
     def request(self) -> dict:
