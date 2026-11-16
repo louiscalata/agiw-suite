@@ -10,7 +10,7 @@
 | qwen3.8-27b | 1236 |
 | gpt-oss-20b | 1245 |
 
-In that configuration, the Mac used LM Studio on loopback and read the PC lanes through the SSH forwards in [inference-monitor.md](inference-monitor.md). Current source observes the configured local endpoint and worker lanes. Opening the observer starts no model service and loads no model. See [configured machine lanes](three-machine-pipeline.md) for the optional registry.
+That layout is retired. The source no longer has a built-in PC lane list or built-in tunnel forwards; lanes are declared in the machine registry. In that earlier configuration, the Mac used LM Studio on loopback and read the PC lanes through the SSH forwards in [inference-monitor.md](inference-monitor.md). Current source observes the configured local endpoint and worker lanes. Opening the observer starts no model service and loads no model. See [configured machine lanes](three-machine-pipeline.md) for the optional registry.
 
 AGIW Suite is being developed to coordinate useful AI work across an Apple-silicon Mac and a Windows PC. Earlier plans also included a Linux Mac Pro. Each worker can use an appropriate local model; the workflow retains task results, quality checks and model-lifecycle evidence.
 

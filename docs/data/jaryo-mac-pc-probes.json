@@ -6,7 +6,7 @@
     "observer": "python3 -B server.py --port 8765 binds 127.0.0.1 only. Standalone launch cannot dispatch control POSTs.",
     "reads": [
       "GET /api/snapshot — schemaVersion 1, host mac, models, clients, pipeline.pipelines, windowsWorker, windowsJobs, components",
-      "GET /api/inference — schema agiw.inference-map.v1. Stable node ids: mac, mac:lmstudio, mac:veritas, pc, pc:router, pc:gpt-oss-20b, pc:qwen3.8-27b. Null measurements mean not measured.",
+      "GET /api/inference — schema agiw.inference-map.v1. Stable node ids built into the collector: mac, mac:lmstudio, mac:veritas, pc. PC lane node ids come from the machine registry; the earlier built-in ids pc:router, pc:gpt-oss-20b and pc:qwen3.8-27b were retired. Null measurements mean not measured.",
       "GET /api/stream — SSE event snapshot. One refresh in flight on /monitor.",
       "GET /api/components — public Nisi integrity and Node availability. No model call.",
       "GET /api/components/jev — configured and state only. No key in the body.",
@@ -15,7 +15,7 @@
     "freshnessAlreadyInCode": [
       "Mac map nodes expire after 3 seconds. PC map nodes expire after 30 seconds. Source: docs/inference-monitor.md and inference_stats.expire_map.",
       "A missing or invalid observation time is unknown. Fetch failure clears measurements.",
-      "PC tunnel down reason is tunnel_down. Unconfigured SSH is host_unconfigured from pc_tunnel.py. Default forwards are local 1334, 1345, 1336 to remote 1234, 1245, 1236."
+      "PC tunnel down reason is tunnel_down. Unconfigured SSH is host_unconfigured from pc_tunnel.py. There are no default forwards; with none configured the tunnel reports forwards_unconfigured and does not start ssh. Forwards are listed in the tunnel configuration file. (Dated record: the earlier defaults, retired in this change, were local 1334, 1345, 1336 to remote 1234, 1245, 1236.)"
     ],
     "doNotCallForThisValidation": [
       "POST /api/components/jev/check — hosted TypeSafe probe; can spend provider usage.",

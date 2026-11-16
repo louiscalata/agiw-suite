@@ -4,8 +4,10 @@ The PC servers bind to 127.0.0.1. The Mac reaches them with ``ssh -N -L``.
 User, host and the identity file come from the environment or from
 ``~/.config/agiw/pc-tunnel.json``. This module never reads the key.
 
-A restricted PC key refuses the forward until an admin adds permitopen for
-127.0.0.1:1234, :1245 and :1236. This code does not check or change sshd.
+There are no built-in forwards: the earlier router and lane ports are retired,
+and forwards are listed in the configuration file. A restricted PC key refuses
+each forward until an admin adds permitopen for its remote loopback port. This
+code does not check or change sshd.
 """
 from __future__ import annotations
 
@@ -18,11 +20,7 @@ import socket
 import subprocess
 import threading
 
-DEFAULT_FORWARDS = (
-    {"name": "router", "localPort": 1334, "remotePort": 1234, "id": "pc:router"},
-    {"name": "gpt-oss-20b", "localPort": 1345, "remotePort": 1245, "id": "pc:gpt-oss-20b"},
-    {"name": "qwen3.8-27b", "localPort": 1336, "remotePort": 1236, "id": "pc:qwen3.8-27b"},
-)
+DEFAULT_FORWARDS = ()
 _NAME = re.compile(r"[A-Za-z0-9._-]{1,64}\Z")
 _HOST = re.compile(r"[A-Za-z0-9.-]{1,253}\Z")
 
@@ -120,14 +118,17 @@ def load_config(path=None, environ=None):
         if config["host"] is not None and not _HOST.fullmatch(config["host"]):
             raise ValueError("host")
         config["identityFile"] = _identity(config["identityFile"])
-        config["forwards"] = _forwards(config["forwards"])
+        # No built-in forwards: an empty default list stays empty. A file that
+        # lists "forwards" must still give 1 to 8 valid rows (_apply).
+        config["forwards"] = _forwards(config["forwards"]) if config["forwards"] else []
     except (TypeError, ValueError):
         config["error"] = "config_invalid"
     return config
 
 
 def runnable(config):
-    return not config.get("error") and bool(config.get("user") and config.get("host") and config.get("identityFile"))
+    return not config.get("error") and bool(config.get("user") and config.get("host") and config.get("identityFile")
+                                            and config.get("forwards"))
 
 
 def ssh_command(config):
@@ -167,6 +168,9 @@ def describe(config, accepts):
     if not config.get("user") or not config.get("host"):
         return {"state": "down", "reason": "host_unconfigured",
                 "detail": "PC SSH user and host are not configured.", "forwards": []}
+    if not config.get("forwards"):
+        return {"state": "down", "reason": "forwards_unconfigured",
+                "detail": "No PC forwards are configured.", "forwards": []}
     forwards = []
     closed = []
     for item in config["forwards"]:
@@ -202,6 +206,8 @@ def supervise(config, stop, spawn=subprocess.Popen, pause=2.0):
         return {"state": "down", "reason": "config_invalid"}
     if not config.get("user") or not config.get("host"):
         return {"state": "down", "reason": "host_unconfigured"}
+    if not config.get("forwards"):
+        return {"state": "down", "reason": "forwards_unconfigured"}
     if not config.get("identityFile"):
         return {"state": "down", "reason": "identity_missing"}
     argv = ssh_command(config)

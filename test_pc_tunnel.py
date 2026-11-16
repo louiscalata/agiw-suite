@@ -6,6 +6,13 @@ import unittest
 
 import pc_tunnel
 
+# There are no built-in forwards. This isolated fixture is the retired layout.
+FIXTURE_FORWARDS = (
+    {"name": "router", "localPort": 1334, "remotePort": 1234, "id": "pc:router"},
+    {"name": "gpt-oss-20b", "localPort": 1345, "remotePort": 1245, "id": "pc:gpt-oss-20b"},
+    {"name": "qwen3.8-27b", "localPort": 1336, "remotePort": 1236, "id": "pc:qwen3.8-27b"},
+)
+
 
 class _Proc:
     def __init__(self):
@@ -40,7 +47,7 @@ class TunnelTests(unittest.TestCase):
 
     def test_closed_forwards_are_tunnel_down_and_open_forwards_are_probed(self):
         config = {"user": "pc-user", "host": "pc.example", "identityFile": "/keys/restricted",
-                  "forwards": [dict(item) for item in pc_tunnel.DEFAULT_FORWARDS]}
+                  "forwards": [dict(item) for item in FIXTURE_FORWARDS]}
         status, rows = pc_tunnel.targets(config, lambda port: port == 1345)
         self.assertEqual(status["state"], "down")
         self.assertEqual(status["reason"], "tunnel_down")
@@ -106,12 +113,12 @@ class TunnelTests(unittest.TestCase):
             via_env = pc_tunnel.load_config(environ={"AGIW_PC_SSH_CONFIG": str(path),
                                                      "AGIW_PC_SSH_HOST": "env.example"})
             self.assertEqual((via_env["user"], via_env["host"]), ("file-user", "env.example"))
-        # Without a file the environment still fills the fields and the default forwards stay.
+        # Without a file the environment still fills the fields; there are no default forwards.
         env_only = pc_tunnel.load_config(environ={"AGIW_PC_SSH_USER": "env-user",
                                                   "AGIW_PC_SSH_HOST": "env.example",
                                                   "AGIW_PC_SSH_IDENTITY": "/keys/env"})
         self.assertNotIn("error", env_only)
-        self.assertEqual(env_only["forwards"], [dict(item) for item in pc_tunnel.DEFAULT_FORWARDS])
+        self.assertEqual(env_only["forwards"], [])
 
     def test_invalid_environment_value_is_rejected_like_an_invalid_file_value(self):
         bad = {"AGIW_PC_SSH_USER": "bad user", "AGIW_PC_SSH_HOST": "bad host/x",
@@ -137,7 +144,7 @@ class TunnelTests(unittest.TestCase):
 
     def test_supervisor_stops_the_forward_it_started(self):
         config = {"user": "pc-user", "host": "pc.example", "identityFile": "/keys/restricted",
-                  "forwards": [dict(item) for item in pc_tunnel.DEFAULT_FORWARDS]}
+                  "forwards": [dict(item) for item in FIXTURE_FORWARDS]}
         stop = threading.Event()
         started = []
 
