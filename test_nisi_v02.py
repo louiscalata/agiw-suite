@@ -35,46 +35,91 @@ def fixture(home: Path) -> tuple[Path, Path, Path]:
         "hosts/local-models/opencode-orchestration-v1.mjs": b"host fixture",
     }
     pins = {name: write(runtime / name, content) for name, content in runtime_files.items()}
-    write(runtime / "INSTALL-MANIFEST.json", json.dumps({"commit": COMMIT, "archiveSha256": archive_hash,
-                                                        "files": pins}).encode())
+    write(
+        runtime / "INSTALL-MANIFEST.json",
+        json.dumps({"commit": COMMIT, "archiveSha256": archive_hash, "files": pins}).encode(),
+    )
     hosts = {}
     for name, relative in nisi_v02._HOST_FILES.items():
         path = home / relative
         hosts[name] = {"installedPath": str(path), "afterSha256": write(path, name.encode())}
     receipt = base / f"rollback-{COMMIT[:8]}-fixture/receipt.json"
-    write(receipt, json.dumps({"commit": COMMIT, "runtimeRoot": str(runtime),
-                               "runtimeArchiveSha256": archive_hash, "status": "VERIFIED",
-                               "verifiedAt": "2026-09-24T12:00:00Z", "routedAt": "2026-09-24T11:55:00Z",
-                               "files": hosts, "verification": {
-                                   "work": {"status": "RESPONSE_VALIDATED", "prompt": "SECRET"},
-                                   "validation": {"contract": "PASS", "syntax": "PASS", "tests": "NOT_RUN",
-                                                  "certification": "NOT_RUN", "accepted": False,
-                                                  "candidate": "SECRET"}}}).encode())
+    write(
+        receipt,
+        json.dumps(
+            {
+                "commit": COMMIT,
+                "runtimeRoot": str(runtime),
+                "runtimeArchiveSha256": archive_hash,
+                "status": "VERIFIED",
+                "verifiedAt": "2026-09-24T12:00:00Z",
+                "routedAt": "2026-09-24T11:55:00Z",
+                "files": hosts,
+                "verification": {
+                    "work": {"status": "RESPONSE_VALIDATED", "prompt": "SECRET"},
+                    "validation": {
+                        "contract": "PASS",
+                        "syntax": "PASS",
+                        "tests": "NOT_RUN",
+                        "certification": "NOT_RUN",
+                        "accepted": False,
+                        "candidate": "SECRET",
+                    },
+                },
+            }
+        ).encode(),
+    )
     return runtime, receipt, base
 
 
 def listed_model(runtime_id="opencode.local", model_id="m"):
-    return {"runtimeId": runtime_id, "modelId": model_id, "displayName": "Model",
-            "type": "llm", "sizeBytes": 123, "reportedDigest": None,
-            "presence": "PROVIDER_LISTED", "loadedState": "REPORTED_NOT_LOADED",
-            "instanceIds": [], "locality": "NOT_VERIFIED", "inference": "NOT_TESTED",
-            "license": "NOT_REVIEWED", "providerFee": "UNKNOWN", "useAuthorization": "NONE"}
+    return {
+        "runtimeId": runtime_id,
+        "modelId": model_id,
+        "displayName": "Model",
+        "type": "llm",
+        "sizeBytes": 123,
+        "reportedDigest": None,
+        "presence": "PROVIDER_LISTED",
+        "loadedState": "REPORTED_NOT_LOADED",
+        "instanceIds": [],
+        "locality": "NOT_VERIFIED",
+        "inference": "NOT_TESTED",
+        "license": "NOT_REVIEWED",
+        "providerFee": "UNKNOWN",
+        "useAuthorization": "NONE",
+    }
 
 
 def runtime_row(runtime_id="opencode.local", status="LISTED", models=None):
-    return {"runtimeId": runtime_id, "provider": "lmstudio-v1",
-            "endpoint": "http://127.0.0.1:1234/api/v1/models", "status": status,
-            "code": None if status == "LISTED" else "INVENTORY_UNAVAILABLE",
-            "responseSha256": "a" * 64 if status == "LISTED" else None,
-            "models": [listed_model(runtime_id)] if models is None and status == "LISTED"
-            else [] if models is None else models}
+    return {
+        "runtimeId": runtime_id,
+        "provider": "lmstudio-v1",
+        "endpoint": "http://127.0.0.1:1234/api/v1/models",
+        "status": status,
+        "code": None if status == "LISTED" else "INVENTORY_UNAVAILABLE",
+        "responseSha256": "a" * 64 if status == "LISTED" else None,
+        "models": [listed_model(runtime_id)]
+        if models is None and status == "LISTED"
+        else []
+        if models is None
+        else models,
+    }
 
 
 def bridge_envelope(rows, status="LISTED"):
-    return {"kind": "codemode.nisi.bridge.v1", "operation": "status", "status": "RETURNED",
-            "recoveryRequired": False,
-            "result": {"schemaVersion": 1, "scope": "REGISTERED_RUNTIME_INVENTORY_ONLY",
-                       "status": status, "runtimes": rows}}
+    return {
+        "kind": "codemode.nisi.bridge.v1",
+        "operation": "status",
+        "status": "RETURNED",
+        "recoveryRequired": False,
+        "result": {
+            "schemaVersion": 1,
+            "scope": "REGISTERED_RUNTIME_INVENTORY_ONLY",
+            "status": status,
+            "runtimes": rows,
+        },
+    }
 
 
 GENERATION = "4bbabe71f193500183827ca4772518eede4ad426"
@@ -92,21 +137,49 @@ def generation_fixture(home: Path) -> tuple[Path, Path, Path]:
         "hosts/local-models/output-budget.mjs": b"budget fixture",
     }
     pins = {name: write(runtime / name, content) for name, content in runtime_files.items()}
-    manifest_sha = write(runtime / "INSTALL-MANIFEST.json", json.dumps({
-        "kind": "nisi.runtime.local-review-evidence.v1", "schemaVersion": 2, "generation": GENERATION,
-        "commit": None, "archiveSha256": None, "files": pins}).encode())
+    manifest_sha = write(
+        runtime / "INSTALL-MANIFEST.json",
+        json.dumps(
+            {
+                "kind": "nisi.runtime.local-review-evidence.v1",
+                "schemaVersion": 2,
+                "generation": GENERATION,
+                "commit": None,
+                "archiveSha256": None,
+                "files": pins,
+            }
+        ).encode(),
+    )
     hosts = {}
     for name, relative in nisi_v02._HOST_FILES.items():
         path = home / relative
         hosts[name] = {"installedPath": str(path), "afterSha256": write(path, name.encode())}
     receipt = base / f"rollback-{GENERATION[:8]}-fixture/receipt.json"
-    write(receipt, json.dumps({"kind": "nisi.runtime.activation.v2", "generation": GENERATION,
-                               "runtimeRoot": str(runtime), "manifestSha256": manifest_sha,
-                               "status": "VERIFIED", "verifiedAt": "2026-09-24T12:00:00Z",
-                               "routedAt": "2026-09-24T11:55:00Z", "files": hosts, "verification": {
-                                   "work": {"status": "RESPONSE_VALIDATED"},
-                                   "validation": {"contract": "PASS", "syntax": "PASS", "tests": "NOT_RUN",
-                                                  "certification": "NOT_RUN", "accepted": False}}}).encode())
+    write(
+        receipt,
+        json.dumps(
+            {
+                "kind": "nisi.runtime.activation.v2",
+                "generation": GENERATION,
+                "runtimeRoot": str(runtime),
+                "manifestSha256": manifest_sha,
+                "status": "VERIFIED",
+                "verifiedAt": "2026-09-24T12:00:00Z",
+                "routedAt": "2026-09-24T11:55:00Z",
+                "files": hosts,
+                "verification": {
+                    "work": {"status": "RESPONSE_VALIDATED"},
+                    "validation": {
+                        "contract": "PASS",
+                        "syntax": "PASS",
+                        "tests": "NOT_RUN",
+                        "certification": "NOT_RUN",
+                        "accepted": False,
+                    },
+                },
+            }
+        ).encode(),
+    )
     return runtime, receipt, base
 
 
@@ -117,8 +190,10 @@ class NisiGenerationTests(unittest.TestCase):
             generation_fixture(home)
             item, source = nisi_v02.collect_nisi_v02(NOW, home=home)
             self.assertEqual((item["generation"], item["commit"]), (GENERATION, None))
-            self.assertEqual((item["runtimeIntegrity"], item["hostBinding"], item["activationStatus"]),
-                             ("VERIFIED", "VERIFIED", "VERIFIED"))
+            self.assertEqual(
+                (item["runtimeIntegrity"], item["hostBinding"], item["activationStatus"]),
+                ("VERIFIED", "VERIFIED", "VERIFIED"),
+            )
             self.assertEqual(item["activationProbe"]["workStatus"], "RESPONSE_VALIDATED")
             self.assertEqual(source["state"], "recorded")
 
@@ -284,7 +359,9 @@ class NisiV02ProjectionTests(unittest.TestCase):
             write(node, b"synthetic node executable")
             node.chmod(0o700)
             envelope = bridge_envelope([runtime_row()])
-            with mock.patch.object(nisi_v02, "_bounded_process", return_value=(0, json.dumps(envelope).encode())) as run:
+            with mock.patch.object(
+                nisi_v02, "_bounded_process", return_value=(0, json.dumps(envelope).encode())
+            ) as run:
                 result = nisi_v02.probe_nisi_v02_bridge(NOW, home=home, node_binary=node)
             self.assertEqual(result["status"], "RETURNED")
             self.assertEqual(result["inventoryStatus"], "LISTED")
@@ -305,8 +382,9 @@ class NisiV02ProjectionTests(unittest.TestCase):
             node.chmod(0o700)
             for state in ("UNAVAILABLE", "NOT_RUN"):
                 rows = [runtime_row(), runtime_row("other.runtime", state)]
-                with mock.patch.object(nisi_v02, "_bounded_process",
-                                       return_value=(0, json.dumps(bridge_envelope(rows)).encode())):
+                with mock.patch.object(
+                    nisi_v02, "_bounded_process", return_value=(0, json.dumps(bridge_envelope(rows)).encode())
+                ):
                     result = nisi_v02.probe_nisi_v02_bridge(NOW, home=home, node_binary=node)
                 self.assertEqual(result["status"], "UNAVAILABLE")
                 self.assertEqual(result["inventoryStatus"], "UNKNOWN")
@@ -324,8 +402,11 @@ class NisiV02ProjectionTests(unittest.TestCase):
             invalid_size["sizeBytes"] = True
             duplicate = [listed_model(), listed_model()]
             for models in ([{}], [wrong_runtime], [invalid_size], duplicate):
-                with mock.patch.object(nisi_v02, "_bounded_process",
-                                       return_value=(0, json.dumps(bridge_envelope([runtime_row(models=models)])).encode())):
+                with mock.patch.object(
+                    nisi_v02,
+                    "_bounded_process",
+                    return_value=(0, json.dumps(bridge_envelope([runtime_row(models=models)])).encode()),
+                ):
                     result = nisi_v02.probe_nisi_v02_bridge(NOW, home=home, node_binary=node)
                 self.assertEqual(result["status"], "UNAVAILABLE")
                 self.assertIsNone(result["modelCount"])
@@ -349,8 +430,10 @@ class NisiV02ProjectionTests(unittest.TestCase):
             node = home / "node"
             write(node, b"synthetic node executable")
             node.chmod(0o700)
-            for raw in (b'{"kind":"codemode.nisi.bridge.v1","operation":"work"}',
-                        b'{"kind":"codemode.nisi.bridge.v1","kind":"codemode.nisi.bridge.v1"}'):
+            for raw in (
+                b'{"kind":"codemode.nisi.bridge.v1","operation":"work"}',
+                b'{"kind":"codemode.nisi.bridge.v1","kind":"codemode.nisi.bridge.v1"}',
+            ):
                 with mock.patch.object(nisi_v02, "_bounded_process", return_value=(0, raw)):
                     result = nisi_v02.probe_nisi_v02_bridge(NOW, home=home, node_binary=node)
                 self.assertEqual(result["status"], "UNAVAILABLE")
@@ -360,34 +443,37 @@ class NisiV02ProjectionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             home = Path(temp)
             with self.assertRaisesRegex(nisi_v02._InvalidEvidence, "PROBE_TIMEOUT"):
-                nisi_v02._bounded_process([sys.executable, "-c", "import time; time.sleep(2)"],
-                                          home, 0.1, 1024)
+                nisi_v02._bounded_process([sys.executable, "-c", "import time; time.sleep(2)"], home, 0.1, 1024)
             with self.assertRaisesRegex(nisi_v02._InvalidEvidence, "PROBE_OUTPUT_LIMIT"):
-                nisi_v02._bounded_process([sys.executable, "-c", "print('x'*4096)"],
-                                          home, 1, 128)
+                nisi_v02._bounded_process([sys.executable, "-c", "print('x'*4096)"], home, 1, 128)
 
     def test_status_timeout_kills_descendant_after_leader_exits(self):
         with tempfile.TemporaryDirectory() as temp:
             home = Path(temp)
             marker, pid_file = home / "heartbeat", home / "child-pid"
-            child = ("from pathlib import Path\nimport sys,time\nn=0\n"
-                     "while True:\n Path(sys.argv[1]).write_text(str(n)); n+=1; time.sleep(.02)\n")
-            parent = ("from pathlib import Path\nimport subprocess,sys,time\n"
-                      f"child={child!r}\n"
-                      "p=subprocess.Popen([sys.executable,'-c',child,sys.argv[1]],"
-                      "stdout=sys.stdout,stderr=subprocess.DEVNULL)\n"
-                      "Path(sys.argv[2]).write_text(str(p.pid))\n"
-                      "deadline=time.monotonic()+.3\n"
-                      "while not Path(sys.argv[1]).exists() and time.monotonic()<deadline: time.sleep(.01)\n")
+            child = (
+                "from pathlib import Path\nimport sys,time\nn=0\n"
+                "while True:\n Path(sys.argv[1]).write_text(str(n)); n+=1; time.sleep(.02)\n"
+            )
+            parent = (
+                "from pathlib import Path\nimport subprocess,sys,time\n"
+                f"child={child!r}\n"
+                "p=subprocess.Popen([sys.executable,'-c',child,sys.argv[1]],"
+                "stdout=sys.stdout,stderr=subprocess.DEVNULL)\n"
+                "Path(sys.argv[2]).write_text(str(p.pid))\n"
+                "deadline=time.monotonic()+.3\n"
+                "while not Path(sys.argv[1]).exists() and time.monotonic()<deadline: time.sleep(.01)\n"
+            )
             child_pid = None
             try:
                 with self.assertRaisesRegex(nisi_v02._InvalidEvidence, "PROBE_TIMEOUT"):
-                    nisi_v02._bounded_process([sys.executable, "-c", parent, str(marker), str(pid_file)],
-                                              home, .5, 1024)
+                    nisi_v02._bounded_process(
+                        [sys.executable, "-c", parent, str(marker), str(pid_file)], home, 0.5, 1024
+                    )
                 self.assertTrue(marker.exists())
                 child_pid = int(pid_file.read_text())
                 before = marker.read_text()
-                time.sleep(.15)
+                time.sleep(0.15)
                 self.assertEqual(marker.read_text(), before)
             finally:
                 if child_pid is not None:

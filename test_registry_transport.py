@@ -1,4 +1,5 @@
 """Registry observations through real HTTP transport on ephemeral loopback ports."""
+
 import contextlib
 import socketserver
 import threading
@@ -10,9 +11,11 @@ import remote_machines
 
 BODY = b'{"data":[{"id":"server/model"}]}'
 
+
 @contextlib.contextmanager
 def http_server(response, *, delay=0, drip=False, body_drip=False):
     requests = []
+
     class Handler(socketserver.BaseRequestHandler):
         def handle(self):
             self.request.settimeout(1)
@@ -37,11 +40,13 @@ def http_server(response, *, delay=0, drip=False, body_drip=False):
                     self.request.sendall(outgoing)
             except OSError:
                 pass
+
     class Server(socketserver.ThreadingTCPServer):
         daemon_threads = True
         allow_reuse_address = True
+
     server = Server(("127.0.0.1", 0), Handler)
-    thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": .01}, daemon=True)
+    thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
     thread.start()
     try:
         yield f"http://127.0.0.1:{server.server_address[1]}/v1/models", requests
@@ -53,20 +58,34 @@ def http_server(response, *, delay=0, drip=False, body_drip=False):
 
 def response(body=BODY, *, headers=None, status="200 OK"):
     headers = [("Content-Length", str(len(body)))] if headers is None else headers
-    return (f"HTTP/1.1 {status}\r\n".encode("ascii") +
-            b"".join(f"{key}: {value}\r\n".encode("ascii") for key, value in headers) +
-            b"Connection: close\r\n\r\n" + body)
+    return (
+        f"HTTP/1.1 {status}\r\n".encode("ascii")
+        + b"".join(f"{key}: {value}\r\n".encode("ascii") for key, value in headers)
+        + b"Connection: close\r\n\r\n"
+        + body
+    )
 
 
 def registry_for(url):
-    return {"schemaVersion": 1, "machines": [{"id": "worker", "label": "Worker", "lanes": [
-        {"id": "lane", "label": "Lane", "localPort": int(url.split(":")[2].split("/")[0])}]}]}
+    return {
+        "schemaVersion": 1,
+        "machines": [
+            {
+                "id": "worker",
+                "label": "Worker",
+                "lanes": [{"id": "lane", "label": "Lane", "localPort": int(url.split(":")[2].split("/")[0])}],
+            }
+        ],
+    }
 
 
 class RegistryTransportTests(unittest.TestCase):
-    def observation(self, url, *, timeout=.5, limit=1024 * 1024):
-        nodes = remote_machines.collect(registry_for(url), now=1000,
-                    fetch=lambda target: loopback_get(target, timeout=timeout, limit=limit, strict=True))
+    def observation(self, url, *, timeout=0.5, limit=1024 * 1024):
+        nodes = remote_machines.collect(
+            registry_for(url),
+            now=1000,
+            fetch=lambda target: loopback_get(target, timeout=timeout, limit=limit, strict=True),
+        )
         return next(node for node in nodes if node["role"] == "llama")
 
     def assert_unknown(self, wire, reason, **kwargs):
@@ -85,16 +104,20 @@ class RegistryTransportTests(unittest.TestCase):
         self.assertEqual(requests, [b"GET /v1/models HTTP/1.1"])
 
     def test_strict_identity_answer_projects_reachability_not_machine_state(self):
-        for wire, identity in ((response(), "answering"),
-                               (response(headers=[("Content-Length", str(len(BODY) + 19))]), "unknown")):
+        for wire, identity in (
+            (response(), "answering"),
+            (response(headers=[("Content-Length", str(len(BODY) + 19))]), "unknown"),
+        ):
             with self.subTest(identity=identity), http_server(wire) as (url, requests):
-                nodes = remote_machines.collect(registry_for(url), now=1000,
-                            fetch=lambda target: loopback_get(target, timeout=.5, strict=True))
+                nodes = remote_machines.collect(
+                    registry_for(url), now=1000, fetch=lambda target: loopback_get(target, timeout=0.5, strict=True)
+                )
                 snapshot = {"machines": [], "inference": {"nodes": nodes}}
                 remote_machines.project_snapshot(snapshot)
                 [row] = snapshot["machines"]
-                self.assertEqual((row["state"], row["health"], row["reasonCode"]),
-                                 ("unknown", "not_measured", "host_not_measured"))
+                self.assertEqual(
+                    (row["state"], row["health"], row["reasonCode"]), ("unknown", "not_measured", "host_not_measured")
+                )
                 self.assertEqual(row["laneIdentity"], identity)
                 self.assertEqual(row["lanesAnswering"], 1 if identity == "answering" else 0)
                 self.assertEqual(requests, [b"GET /v1/models HTTP/1.1"])
@@ -117,12 +140,14 @@ class RegistryTransportTests(unittest.TestCase):
         self.assert_unknown(response(BODY.replace(b"model", b"m\xffdel")), "invalid_utf8")
 
     def test_missing_length_and_ambiguous_framing_are_unknown(self):
-        for headers, reason in (([], "missing_length"),
-                ([("Content-Length", "-1")], "invalid_length"),
-                ([("Content-Length", "bad")], "invalid_length"),
-                ([("Content-Length", str(len(BODY))), ("Content-Length", str(len(BODY)))], "ambiguous_framing"),
-                ([("Content-Length", str(len(BODY))), ("Transfer-Encoding", "chunked")], "ambiguous_framing"),
-                ([("Transfer-Encoding", "gzip")], "ambiguous_framing")):
+        for headers, reason in (
+            ([], "missing_length"),
+            ([("Content-Length", "-1")], "invalid_length"),
+            ([("Content-Length", "bad")], "invalid_length"),
+            ([("Content-Length", str(len(BODY))), ("Content-Length", str(len(BODY)))], "ambiguous_framing"),
+            ([("Content-Length", str(len(BODY))), ("Transfer-Encoding", "chunked")], "ambiguous_framing"),
+            ([("Transfer-Encoding", "gzip")], "ambiguous_framing"),
+        ):
             with self.subTest(headers=headers):
                 self.assert_unknown(response(headers=headers), reason)
 
@@ -152,24 +177,36 @@ class RegistryTransportTests(unittest.TestCase):
         self.assert_unknown(response(status="503 Unavailable"), "upstream_error")
 
     def test_hanging_headers_and_dribbled_body_obey_total_deadline(self):
-        for wire, delay, drip, body_drip in ((response(), .3, False, False), (response(), .005, True, False),
-                                            (response(), .01, True, True)):
-            with self.subTest(body_drip=body_drip), http_server(wire, delay=delay, drip=drip, body_drip=body_drip) as (url, _):
+        for wire, delay, drip, body_drip in (
+            (response(), 0.3, False, False),
+            (response(), 0.005, True, False),
+            (response(), 0.01, True, True),
+        ):
+            with (
+                self.subTest(body_drip=body_drip),
+                http_server(wire, delay=delay, drip=drip, body_drip=body_drip) as (url, _),
+            ):
                 started = time.monotonic()
-                node = self.observation(url, timeout=.08)
+                node = self.observation(url, timeout=0.08)
                 elapsed = time.monotonic() - started
             self.assertEqual(node["health"], "not_measured")
             self.assertIsNone(node["modelId"])
             self.assertEqual(node["reason"], "timeout")
-            self.assertLess(elapsed, .25)
+            self.assertLess(elapsed, 0.25)
 
     def test_invalid_ambiguous_or_nonprintable_model_identity_is_unknown(self):
-        for body in (b'{"data":[{"id":"first","id":"last"}]}', b'{"data":[],"data":[{"id":"last"}]}',
-                     b'{"data":[{"id":"a\\u0085b"}]}', b'{"data":[{"id":"a\\u202eb"}]}',
-                     b'{"data":[{"id":"valid"}],"metadata":NaN}',
-                     b'{"data":[{"id":"valid"}],"metadata":Infinity}',
-                     b'{"data":[{"id":"' + b'x' * 1025 + b'"}]}', b'{"data":[]}',
-                     b'{"data":[{"id":"a"},{"id":"b"}]}', b'invalid'):
+        for body in (
+            b'{"data":[{"id":"first","id":"last"}]}',
+            b'{"data":[],"data":[{"id":"last"}]}',
+            b'{"data":[{"id":"a\\u0085b"}]}',
+            b'{"data":[{"id":"a\\u202eb"}]}',
+            b'{"data":[{"id":"valid"}],"metadata":NaN}',
+            b'{"data":[{"id":"valid"}],"metadata":Infinity}',
+            b'{"data":[{"id":"' + b"x" * 1025 + b'"}]}',
+            b'{"data":[]}',
+            b'{"data":[{"id":"a"},{"id":"b"}]}',
+            b"invalid",
+        ):
             with self.subTest(body=body):
                 self.assert_unknown(response(body), "identity_unknown")
 

@@ -13,15 +13,34 @@ import server
 
 
 def snapshot(sampled, **extra):
-    base = {"schemaVersion": 1, "sampledAt": sampled, "fullSampledAt": sampled, "observedAt": "x",
-            "models": [{"host": "mac", "id": "m", "name": "m", "state": "idle", "loaded": True,
-                        "source": "lms-ps", "ageSeconds": 0.0}],
-            "sources": [{"id": "lms-ps", "state": "live", "ageSeconds": 0.0},
-                        {"id": "windows-jobs", "state": "live", "ageSeconds": 0.0}],
-            "windowsWorker": {"state": "advertised", "ageSeconds": 4.0,
-                              "headless": {"state": "on", "expiresInSeconds": 100}},
-            "windowsJobs": {"schemaVersion": 1, "inFlight": [], "recent": [], "lastSuccess": None},
-            "activity": {"runs": [{"runId": "r", "ageSeconds": 10.0}]}}
+    base = {
+        "schemaVersion": 1,
+        "sampledAt": sampled,
+        "fullSampledAt": sampled,
+        "observedAt": "x",
+        "models": [
+            {
+                "host": "mac",
+                "id": "m",
+                "name": "m",
+                "state": "idle",
+                "loaded": True,
+                "source": "lms-ps",
+                "ageSeconds": 0.0,
+            }
+        ],
+        "sources": [
+            {"id": "lms-ps", "state": "live", "ageSeconds": 0.0},
+            {"id": "windows-jobs", "state": "live", "ageSeconds": 0.0},
+        ],
+        "windowsWorker": {
+            "state": "advertised",
+            "ageSeconds": 4.0,
+            "headless": {"state": "on", "expiresInSeconds": 100},
+        },
+        "windowsJobs": {"schemaVersion": 1, "inFlight": [], "recent": [], "lastSuccess": None},
+        "activity": {"runs": [{"runId": "r", "ageSeconds": 10.0}]},
+    }
     base.update(extra)
     return base
 
@@ -42,6 +61,7 @@ class FingerprintTests(unittest.TestCase):
         """Router concurrency (spec 6.12): a per-run record, note or run lock appearing or being
         replaced moves active/, notes/ or locks/; the fast path re-reads the router on either layout."""
         import telemetry
+
         root = Path("/fixture/router")
         with mock.patch.object(telemetry, "_ROUTER_ROOT", root):
             watched = live_feed._paths()["router"]
@@ -65,12 +85,23 @@ class FingerprintTests(unittest.TestCase):
 
 class ShiftAgesTests(unittest.TestCase):
     def test_ages_grow_and_expiries_shrink_everywhere_but_booleans_and_nulls_stay(self):
-        data = {"models": [{"ageSeconds": 1.0}, {"ageSeconds": None}], "flag": {"ageSeconds": True},
-                "worker": {"headless": {"expiresInSeconds": 100}}, "deep": [[{"ageSeconds": 2}]],
-                "sources": [{"observationAgeSeconds": 29.999}, {"observationAgeSeconds": None},
-                            {"observationAgeSeconds": True}],
-                "pair": {"evidence": {"logAgeSeconds": 4, "historyAgeSeconds": None}, "discoveryAgeSeconds": 3,
-                         "nodes": [{"lastSeenAgeSeconds": 5}], "pairSays": {"engines": [{"reportedAgeSeconds": 6}]}}}
+        data = {
+            "models": [{"ageSeconds": 1.0}, {"ageSeconds": None}],
+            "flag": {"ageSeconds": True},
+            "worker": {"headless": {"expiresInSeconds": 100}},
+            "deep": [[{"ageSeconds": 2}]],
+            "sources": [
+                {"observationAgeSeconds": 29.999},
+                {"observationAgeSeconds": None},
+                {"observationAgeSeconds": True},
+            ],
+            "pair": {
+                "evidence": {"logAgeSeconds": 4, "historyAgeSeconds": None},
+                "discoveryAgeSeconds": 3,
+                "nodes": [{"lastSeenAgeSeconds": 5}],
+                "pairSays": {"engines": [{"reportedAgeSeconds": 6}]},
+            },
+        }
         live_feed.shift_ages(data, 0.5)
         self.assertEqual(data["models"][0]["ageSeconds"], 1.5)
         self.assertIsNone(data["models"][1]["ageSeconds"])
@@ -89,20 +120,35 @@ class ShiftAgesTests(unittest.TestCase):
 class OverlayTests(unittest.TestCase):
     def test_pair_overlay_uses_cached_file_timestamps_and_expires_exact_cutoffs_without_io(self):
         now = 1_800_000_000
-        entry = {"time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now - 120)),
-                 "message": "discovery:nodes-changed", "data": [{"name": "fixture-node", "lastSeen": now - 30,
-                 "modelsByEngine": {"lmstudio": ["m"]}, "loadedByEngine": {"lmstudio": ["m"]},
-                 "ipAddress": "PRIVATE-FIXTURE-ADDRESS"}]}
+        entry = {
+            "time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now - 120)),
+            "message": "discovery:nodes-changed",
+            "data": [
+                {
+                    "name": "fixture-node",
+                    "lastSeen": now - 30,
+                    "modelsByEngine": {"lmstudio": ["m"]},
+                    "loadedByEngine": {"lmstudio": ["m"]},
+                    "ipAddress": "PRIVATE-FIXTURE-ADDRESS",
+                }
+            ],
+        }
         raw = {rel: (None, "missing", None, False) for rel in pair_status.ALLOWED}
         raw[pair_status.LOG] = (json.dumps(entry).encode(), "ok", now, False)
         readings = ("ok", raw)
         for history in (False, True):
             with self.subTest(history=history):
-                raw[pair_status.WORKLOADS] = (b"[]", "ok", now - 330, False) if history else (None, "missing", None, False)
+                raw[pair_status.WORKLOADS] = (
+                    (b"[]", "ok", now - 330, False) if history else (None, "missing", None, False)
+                )
                 pair = pair_status.read_pair_status(now=now, readings=readings)
                 base = snapshot(now, pair=pair, sources=[pair_status.source_row(pair)])
-                with mock.patch.dict(live_feed.telemetry._PAIR_CACHE, {"nextCheck": 0, "value": readings}), \
-                        mock.patch.object(pair_status, "read_pair_files", side_effect=AssertionError("no new file I/O")) as read:
+                with (
+                    mock.patch.dict(live_feed.telemetry._PAIR_CACHE, {"nextCheck": 0, "value": readings}),
+                    mock.patch.object(
+                        pair_status, "read_pair_files", side_effect=AssertionError("no new file I/O")
+                    ) as read,
+                ):
                     out = live_feed.LiveFeed(lambda: {}).overlay(base, [], now=now + 0.001)
                 read.assert_not_called()
                 self.assertEqual(out["pair"]["state"], "unknown")
@@ -115,11 +161,23 @@ class OverlayTests(unittest.TestCase):
                 self.assertNotIn("PRIVATE-FIXTURE-ADDRESS", json.dumps(out))
 
     def test_pair_overlay_without_cached_readings_keeps_aged_evidence_and_withdraws_current_claims(self):
-        pair = {"state": "up", "evidence": {"logAgeSeconds": 4}, "nodes": [{"lastSeenAgeSeconds": 20,
-                "pairClaimModelCount": 1, "pairClaimLoadedCount": 0, "pairClaimLoadedModels": []}]}
+        pair = {
+            "state": "up",
+            "evidence": {"logAgeSeconds": 4},
+            "nodes": [
+                {
+                    "lastSeenAgeSeconds": 20,
+                    "pairClaimModelCount": 1,
+                    "pairClaimLoadedCount": 0,
+                    "pairClaimLoadedModels": [],
+                }
+            ],
+        }
         base = snapshot(1000, pair=pair, sources=[pair_status.source_row(pair)])
-        with mock.patch.dict(live_feed.telemetry._PAIR_CACHE, {"nextCheck": 0, "value": None}), \
-                mock.patch.object(pair_status, "read_pair_files", side_effect=AssertionError("no new file I/O")) as read:
+        with (
+            mock.patch.dict(live_feed.telemetry._PAIR_CACHE, {"nextCheck": 0, "value": None}),
+            mock.patch.object(pair_status, "read_pair_files", side_effect=AssertionError("no new file I/O")) as read,
+        ):
             out = live_feed.LiveFeed(lambda: {}).overlay(base, [], now=1001)
         read.assert_not_called()
         self.assertEqual(out["pair"]["evidence"]["logAgeSeconds"], 5)
@@ -132,11 +190,21 @@ class OverlayTests(unittest.TestCase):
 
     def test_overlay_rereads_only_changed_groups_and_keeps_absolute_freshness(self):
         base = snapshot(1000.0)
-        fresh_jobs = {"schemaVersion": 1, "inFlight": [{"id": "j", "ageSeconds": 0.1}], "recent": [], "lastSuccess": None}
-        with mock.patch.object(live_feed.telemetry, "_windows_jobs",
-                               return_value=(fresh_jobs, {"id": "windows-jobs", "state": "live", "ageSeconds": 0.0, "detail": "new"})), \
-                mock.patch.object(live_feed.telemetry, "_windows_headless") as headless, \
-                mock.patch.object(live_feed.telemetry, "_pipeline") as pipeline:
+        fresh_jobs = {
+            "schemaVersion": 1,
+            "inFlight": [{"id": "j", "ageSeconds": 0.1}],
+            "recent": [],
+            "lastSuccess": None,
+        }
+        with (
+            mock.patch.object(
+                live_feed.telemetry,
+                "_windows_jobs",
+                return_value=(fresh_jobs, {"id": "windows-jobs", "state": "live", "ageSeconds": 0.0, "detail": "new"}),
+            ),
+            mock.patch.object(live_feed.telemetry, "_windows_headless") as headless,
+            mock.patch.object(live_feed.telemetry, "_pipeline") as pipeline,
+        ):
             out = live_feed.LiveFeed(lambda: {}).overlay(base, ["jobs"], now=1000.4)
         headless.assert_not_called()
         pipeline.assert_not_called()
@@ -187,11 +255,16 @@ class SamplerTests(unittest.TestCase):
         feed = mock.Mock()
         feed.changed.return_value = (["jobs"], {"jobs": (1,)})
         stop = threading.Event()
-        with mock.patch.object(server, "collect_snapshot", side_effect=RuntimeError("sampler down")), \
-                mock.patch.object(server, "memory_sample", return_value=({}, {})), \
-                mock.patch.object(server, "LocalCallers"):
-            thread = threading.Thread(target=server.sample, args=(store, stop, feed),
-                                      kwargs={"tick": 0.02, "full_interval": 5.0, "guard": object()})
+        with (
+            mock.patch.object(server, "collect_snapshot", side_effect=RuntimeError("sampler down")),
+            mock.patch.object(server, "memory_sample", return_value=({}, {})),
+            mock.patch.object(server, "LocalCallers"),
+        ):
+            thread = threading.Thread(
+                target=server.sample,
+                args=(store, stop, feed),
+                kwargs={"tick": 0.02, "full_interval": 5.0, "guard": object()},
+            )
             thread.start()
             time.sleep(0.2)
             stop.set()

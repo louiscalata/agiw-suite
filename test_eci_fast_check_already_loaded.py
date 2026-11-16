@@ -47,8 +47,11 @@ def served_props(**changes):
 
 
 def served_models(*ids, meta=None):
-    return {"data": [dict(id=i, meta=dict(meta or {"n_ctx": 32768, "size": 90, "ftype": "Q4_0"}))
-                     for i in (ids or (MODEL_ID,))]}
+    return {
+        "data": [
+            dict(id=i, meta=dict(meta or {"n_ctx": 32768, "size": 90, "ftype": "Q4_0"})) for i in (ids or (MODEL_ID,))
+        ]
+    }
 
 
 class LoadedLane:
@@ -131,12 +134,29 @@ class AlreadyLoadedTests(unittest.TestCase):
         self.addCleanup(self.directory.cleanup)
         self.path = Path(self.directory.name)
         self.samples = [self.path / "arc.json"]
-        self.samples[0].write_text(json.dumps({"arc": {"items": [
-            {"id": "one", "question": "Choose the fixture answer.",
-             "choices": ["first", "second", "third", "fourth"], "answer": "A"},
-            {"id": "two", "question": "Choose another fixture answer.",
-             "choices": ["first", "second", "third", "fourth"], "answer": "A"},
-        ]}}), encoding="utf-8")
+        self.samples[0].write_text(
+            json.dumps(
+                {
+                    "arc": {
+                        "items": [
+                            {
+                                "id": "one",
+                                "question": "Choose the fixture answer.",
+                                "choices": ["first", "second", "third", "fourth"],
+                                "answer": "A",
+                            },
+                            {
+                                "id": "two",
+                                "question": "Choose another fixture answer.",
+                                "choices": ["first", "second", "third", "fourth"],
+                                "answer": "A",
+                            },
+                        ]
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
 
     def run_lane(self, lane, output="out", **kwargs):
         facts = dict(model_sha256=MODEL_SHA, file_size_bytes=100)
@@ -171,22 +191,25 @@ class AlreadyLoadedTests(unittest.TestCase):
         provenance = record["provenance"]
         self.assertEqual(provenance["fit_gate"], "already_loaded")
         self.assertEqual(provenance["available_memory_source"], "unknown")
-        self.assertEqual(provenance["already_loaded"], {
-            "statement": "operator-stated: the requested model is already loaded and serving; "
-                         "available memory was not measured",
-            "served_model": MODEL_ID,
-            "served_model_source": "/props model_alias",
-            "advertised_models": 1,
-            "n_ctx": 32768,
-            "total_slots": 1,
-            "slots_idle": True,
-            "is_sleeping": False,
-            "evidence_sources": ["/props", "/slots", "/v1/models"],
-            "file_size_bytes": 100,
-            "file_size_source": "operator-stated",
-            "file_sha256_source": "operator-stated",
-            "quantization_source": "server-reported",
-        })
+        self.assertEqual(
+            provenance["already_loaded"],
+            {
+                "statement": "operator-stated: the requested model is already loaded and serving; "
+                "available memory was not measured",
+                "served_model": MODEL_ID,
+                "served_model_source": "/props model_alias",
+                "advertised_models": 1,
+                "n_ctx": 32768,
+                "total_slots": 1,
+                "slots_idle": True,
+                "is_sleeping": False,
+                "evidence_sources": ["/props", "/slots", "/v1/models"],
+                "file_size_bytes": 100,
+                "file_size_source": "operator-stated",
+                "file_sha256_source": "operator-stated",
+                "quantization_source": "server-reported",
+            },
+        )
         self.assertTrue(all(b["stop_reason"] == "complete" for b in record["benchmarks"]))
         self.assertIsNone(record["hardware"]["memory"])
         self.assertIsNone(record["hardware"]["memory_bytes"])
@@ -197,8 +220,9 @@ class AlreadyLoadedTests(unittest.TestCase):
             second = self.run_lane(lane, already_loaded=True)
             self.assertEqual(lane.posts, [])
         outcomes = [[(o["item_id"], o["outcome"]) for o in b["observations"]] for b in first["benchmarks"]]
-        self.assertEqual(outcomes, [[(o["item_id"], o["outcome"]) for o in b["observations"]]
-                                    for b in second["benchmarks"]])
+        self.assertEqual(
+            outcomes, [[(o["item_id"], o["outcome"]) for o in b["observations"]] for b in second["benchmarks"]]
+        )
         self.assertEqual(first["provenance"], second["provenance"])
 
     # Refusals: mismatch, busy, contradicting facts, mixed modes.
@@ -223,13 +247,16 @@ class AlreadyLoadedTests(unittest.TestCase):
         self.assert_refused(LoadedLane(models=served_models(MODEL_ID, "other-model")), "one advertised model")
 
     def test_refused_when_a_slot_is_busy(self):
-        slots = [{"id": 0, "n_ctx": 16384, "is_processing": False},
-                 {"id": 1, "n_ctx": 16384, "is_processing": True}]
+        slots = [{"id": 0, "n_ctx": 16384, "is_processing": False}, {"id": 1, "n_ctx": 16384, "is_processing": True}]
         self.assert_refused(LoadedLane(slots=slots, props=served_props(total_slots=2)), "busy")
 
     def test_refused_when_slot_state_is_unknown(self):
-        for slots, status in (([], 200), ([{"id": 0}], 200), ([{"id": 0, "is_processing": "no"}], 200),
-                              ([{"id": 0, "is_processing": False}], 404)):
+        for slots, status in (
+            ([], 200),
+            ([{"id": 0}], 200),
+            ([{"id": 0, "is_processing": "no"}], 200),
+            ([{"id": 0, "is_processing": False}], 404),
+        ):
             with self.subTest(slots=slots, status=status):
                 self.assert_refused(LoadedLane(slots=slots, slots_status=status), "slot")
 
@@ -334,8 +361,10 @@ class AlreadyLoadedTests(unittest.TestCase):
                 self.assertEqual(pre["decision"], "UNKNOWN")
 
     def test_invalid_server_reported_memory_refuses_on_both_paths(self):
-        invalid = [("available_memory_bytes", value) for value in
-                   (-1, True, False, "0", "8000", 8000.0, 0.0, float("nan"), float("inf"), [], {})]
+        invalid = [
+            ("available_memory_bytes", value)
+            for value in (-1, True, False, "0", "8000", 8000.0, 0.0, float("nan"), float("inf"), [], {})
+        ]
         invalid += [("memory_bytes", value) for value in (0, -1, True, "8000", 8000.0, float("nan"))]
         for key, value in invalid:
             for loaded in (True, False):
@@ -364,16 +393,32 @@ class AlreadyLoadedTests(unittest.TestCase):
                 with self.subTest(value=value, already_loaded=loaded):
                     self.fresh_output()
                     lane = LoadedLane()
-                    self.assert_refused(lane, "expected a number|number outside", already_loaded=loaded,
-                                        available_memory_bytes=value)
+                    self.assert_refused(
+                        lane, "expected a number|number outside", already_loaded=loaded, available_memory_bytes=value
+                    )
                     self.assertEqual(lane.requests, [])
 
     def test_cli_explicit_zero_memory_with_the_flag_refuses(self):
         with LoadedLane() as lane, contextlib.redirect_stderr(io.StringIO()) as stderr:
-            status = adapter.main(["--base-url", lane.url, "--model", MODEL_ID,
-                                   "--samples", str(self.samples[0]), "--output-dir", str(self.path / "out"),
-                                   "--model-sha256", MODEL_SHA, "--file-size-bytes", "100",
-                                   "--available-memory-bytes", "0", "--already-loaded"])
+            status = adapter.main(
+                [
+                    "--base-url",
+                    lane.url,
+                    "--model",
+                    MODEL_ID,
+                    "--samples",
+                    str(self.samples[0]),
+                    "--output-dir",
+                    str(self.path / "out"),
+                    "--model-sha256",
+                    MODEL_SHA,
+                    "--file-size-bytes",
+                    "100",
+                    "--available-memory-bytes",
+                    "0",
+                    "--already-loaded",
+                ]
+            )
             self.assertEqual(lane.posts, [])
         self.assertEqual(status, 2)
         self.assertIn("available memory is known", stderr.getvalue())
@@ -392,13 +437,25 @@ class AlreadyLoadedTests(unittest.TestCase):
     def test_record_with_weakened_evidence_is_refused(self):
         record = self.loaded_record()
         changes = [
-            ("slots_idle", False), ("slots_idle", 1), ("advertised_models", 2), ("advertised_models", True),
-            ("file_size_source", "server-reported"), ("served_model", "other-model"),
-            ("file_size_bytes", 99), ("file_size_bytes", 100.0), ("n_ctx", 0), ("total_slots", True),
+            ("slots_idle", False),
+            ("slots_idle", 1),
+            ("advertised_models", 2),
+            ("advertised_models", True),
+            ("file_size_source", "server-reported"),
+            ("served_model", "other-model"),
+            ("file_size_bytes", 99),
+            ("file_size_bytes", 100.0),
+            ("n_ctx", 0),
+            ("total_slots", True),
             ("evidence_sources", ["/props", "/v1/models"]),
-            ("served_model_source", "/v1/models id"), ("file_sha256_source", "unknown"),
-            ("quantization_source", "unknown"), ("statement", "loaded"), ("statement", 7),
-            ("is_sleeping", True), ("is_sleeping", 0), ("is_sleeping", "false"),
+            ("served_model_source", "/v1/models id"),
+            ("file_sha256_source", "unknown"),
+            ("quantization_source", "unknown"),
+            ("statement", "loaded"),
+            ("statement", 7),
+            ("is_sleeping", True),
+            ("is_sleeping", 0),
+            ("is_sleeping", "false"),
         ]
         for key, value in changes:
             with self.subTest(key=key, value=value):
@@ -406,8 +463,12 @@ class AlreadyLoadedTests(unittest.TestCase):
                 forged["provenance"]["already_loaded"][key] = value
                 with self.assertRaises(fast.ValidationError):
                     fast.validate_record(redigest(forged))
-        for key, value in (("is_sleeping", None), ("quantization_source", "operator-stated"),
-                           ("file_sha256_source", "server-reported"), ("served_model_source", "/props model.id")):
+        for key, value in (
+            ("is_sleeping", None),
+            ("quantization_source", "operator-stated"),
+            ("file_sha256_source", "server-reported"),
+            ("served_model_source", "/props model.id"),
+        ):
             with self.subTest(accepted=key, value=value):
                 kept = copy.deepcopy(record)
                 kept["provenance"]["already_loaded"][key] = value
@@ -469,8 +530,10 @@ class AlreadyLoadedTests(unittest.TestCase):
         (row,) = [row for row in pending if row["record_id"] == loaded["record_id"]]
         self.assertEqual(row["fit_gate"], "already_loaded")
         self.assertIn("already loaded", row["reason"])
+
         def gate_differs(first, second):
             return any(r.startswith("fit gate differs") for r in fast.screening_mismatches(first, second))
+
         self.assertTrue(gate_differs(loaded, gated))
         self.assertFalse(gate_differs(gated, gated))
         self.assertFalse(gate_differs(loaded, loaded))
@@ -482,8 +545,9 @@ class AlreadyLoadedTests(unittest.TestCase):
     def test_ingest_accepts_and_ranks_the_record_as_pending(self):
         record = self.loaded_record()
         path = self.path / "dataset.json"
-        path.write_text(json.dumps({"schema_version": 1, "runs": [], "items": [],
-                                    "fast_checks": [record]}), encoding="utf-8")
+        path.write_text(
+            json.dumps({"schema_version": 1, "runs": [], "items": [], "fast_checks": [record]}), encoding="utf-8"
+        )
         data = eci_tuning.ingest([path])
         self.assertEqual(data["fast_checks"], [record])
         self.assertEqual(data["rejected_fast_checks"], [])
@@ -493,14 +557,36 @@ class AlreadyLoadedTests(unittest.TestCase):
     # Interfaces: CLI flag and schema.
 
     def test_cli_flag_reaches_run(self):
-        with patch.object(adapter, "run", side_effect=fast.ValidationError("stop")) as run, \
-                contextlib.redirect_stderr(io.StringIO()):
-            adapter.main(["--base-url", "http://127.0.0.1:1", "--model", MODEL_ID,
-                          "--samples", str(self.samples[0]), "--output-dir", str(self.path / "out"),
-                          "--already-loaded"])
+        with (
+            patch.object(adapter, "run", side_effect=fast.ValidationError("stop")) as run,
+            contextlib.redirect_stderr(io.StringIO()),
+        ):
+            adapter.main(
+                [
+                    "--base-url",
+                    "http://127.0.0.1:1",
+                    "--model",
+                    MODEL_ID,
+                    "--samples",
+                    str(self.samples[0]),
+                    "--output-dir",
+                    str(self.path / "out"),
+                    "--already-loaded",
+                ]
+            )
             self.assertIs(run.call_args.kwargs["already_loaded"], True)
-            adapter.main(["--base-url", "http://127.0.0.1:1", "--model", MODEL_ID,
-                          "--samples", str(self.samples[0]), "--output-dir", str(self.path / "out")])
+            adapter.main(
+                [
+                    "--base-url",
+                    "http://127.0.0.1:1",
+                    "--model",
+                    MODEL_ID,
+                    "--samples",
+                    str(self.samples[0]),
+                    "--output-dir",
+                    str(self.path / "out"),
+                ]
+            )
             self.assertIs(run.call_args.kwargs["already_loaded"], False)
 
     def test_schema_describes_the_mode(self):
@@ -512,6 +598,7 @@ class AlreadyLoadedTests(unittest.TestCase):
         self.assertEqual(set(evidence["required"]), set(fast.ALREADY_LOADED_FIELDS.split()))
         self.assertFalse(evidence["additionalProperties"])
         from test_eci_measured_data import schema_errors
+
         record = self.loaded_record()
         self.assertEqual(schema_errors(record, schema["$defs"]["record"], schema), [])
         for drop in ("fit_gate", "already_loaded"):
@@ -519,8 +606,7 @@ class AlreadyLoadedTests(unittest.TestCase):
                 unpaired = copy.deepcopy(record)
                 del unpaired["provenance"][drop]
                 self.assertNotEqual(schema_errors(unpaired, schema["$defs"]["record"], schema), [])
-        for key, value in (("slots_idle", False), ("is_sleeping", True), ("is_sleeping", 0),
-                           ("statement", "loaded")):
+        for key, value in (("slots_idle", False), ("is_sleeping", True), ("is_sleeping", 0), ("statement", "loaded")):
             with self.subTest(key=key, value=value):
                 forged = copy.deepcopy(record)
                 forged["provenance"]["already_loaded"][key] = value
@@ -627,8 +713,7 @@ class MemorySourceTests(unittest.TestCase):
     # available_memory_bytes: every source combination, both paths.
 
     def test_available_memory_with_the_flag_for_every_source_combination(self):
-        for name, props_hardware, meta_hardware, expected in source_cases(
-                "available_memory_bytes", INVALID_AVAILABLE):
+        for name, props_hardware, meta_hardware, expected in source_cases("available_memory_bytes", INVALID_AVAILABLE):
             with self.subTest(name):
                 lane = source_lane(props_hardware, meta_hardware)
                 if expected is None:
@@ -640,8 +725,7 @@ class MemorySourceTests(unittest.TestCase):
                     self.refused(lane, REFUSALS.get(expected, "available memory is known"), already_loaded=True)
 
     def test_available_memory_by_default_for_every_source_combination(self):
-        for name, props_hardware, meta_hardware, expected in source_cases(
-                "available_memory_bytes", INVALID_AVAILABLE):
+        for name, props_hardware, meta_hardware, expected in source_cases("available_memory_bytes", INVALID_AVAILABLE):
             with self.subTest(name):
                 lane = source_lane(props_hardware, meta_hardware)
                 if expected == 8000:
@@ -656,15 +740,20 @@ class MemorySourceTests(unittest.TestCase):
                 else:
                     self.fresh_output()
                     [pre] = self.run_capturing_pre(lane)
-                    self.assertEqual((pre["decision"], pre["inputs"]["available_memory_bytes"]),
-                                     ("UNKNOWN" if expected is None else "SKIP", expected))
+                    self.assertEqual(
+                        (pre["decision"], pre["inputs"]["available_memory_bytes"]),
+                        ("UNKNOWN" if expected is None else "SKIP", expected),
+                    )
                     self.assertNotIn(("GET", "/slots"), lane.requests)
 
     def test_codex_round_58_metadata_zero_is_not_hidden_by_props_hardware(self):
         for props_hardware in ({}, {"cpu": "fixture-cpu"}):
             with self.subTest(props_hardware=props_hardware):
-                self.refused(source_lane(props_hardware, {"available_memory_bytes": 0}),
-                             "available memory is known", already_loaded=True)
+                self.refused(
+                    source_lane(props_hardware, {"available_memory_bytes": 0}),
+                    "available memory is known",
+                    already_loaded=True,
+                )
                 self.fresh_output()
                 [pre] = self.run_capturing_pre(source_lane(props_hardware, {"available_memory_bytes": 0}))
                 self.assertEqual((pre["decision"], pre["inputs"]["available_memory_bytes"]), ("SKIP", 0))
@@ -686,17 +775,23 @@ class MemorySourceTests(unittest.TestCase):
     # Each fact falls back per key, never per hardware object.
 
     def test_each_hardware_fact_falls_back_per_key(self):
-        record = self.accepted(source_lane(
-            {"cpu": "fixture-cpu"},
-            {"cpu": "other-cpu", "gpu": "fixture-gpu", "memory_bytes": 16000, "available_memory_bytes": 8000}))
+        record = self.accepted(
+            source_lane(
+                {"cpu": "fixture-cpu"},
+                {"cpu": "other-cpu", "gpu": "fixture-gpu", "memory_bytes": 16000, "available_memory_bytes": 8000},
+            )
+        )
         self.assertEqual(
-            [record["hardware"][key] for key in ("cpu", "gpu", "memory_bytes")],
-            ["fixture-cpu", "fixture-gpu", 16000])
+            [record["hardware"][key] for key in ("cpu", "gpu", "memory_bytes")], ["fixture-cpu", "fixture-gpu", 16000]
+        )
         self.assertEqual(record["pre"]["inputs"]["available_memory_bytes"], 8000)
         # A /props descriptor the allowlist drops stays unknown; metadata never replaces it.
-        record = self.accepted(source_lane(
-            {"cpu": "/private/fixture", "gpu": None, "available_memory_bytes": 8000},
-            {"cpu": "other-cpu", "gpu": "fixture-gpu"}))
+        record = self.accepted(
+            source_lane(
+                {"cpu": "/private/fixture", "gpu": None, "available_memory_bytes": 8000},
+                {"cpu": "other-cpu", "gpu": "fixture-gpu"},
+            )
+        )
         self.assertEqual((record["hardware"]["cpu"], record["hardware"]["gpu"]), (None, "fixture-gpu"))
 
     def test_one_endpoint_alone_supplies_the_facts(self):
@@ -707,10 +802,15 @@ class MemorySourceTests(unittest.TestCase):
         props = served_props(model={"id": MODEL_ID, "ftype": "Q4_0"}, hardware=hardware)
         record = self.accepted(LoadedLane(props=props, missing=("/v1/models",)))
         self.assertEqual(record["hardware"]["memory_bytes"], 16000)
-        for missing, zero in ((("/props",), source_lane(ABSENT, {"available_memory_bytes": 0})),
-                              (("/v1/models",), LoadedLane(props=served_props(
-                                  model={"id": MODEL_ID, "ftype": "Q4_0"},
-                                  hardware={"available_memory_bytes": 0})))):
+        for missing, zero in (
+            (("/props",), source_lane(ABSENT, {"available_memory_bytes": 0})),
+            (
+                ("/v1/models",),
+                LoadedLane(
+                    props=served_props(model={"id": MODEL_ID, "ftype": "Q4_0"}, hardware={"available_memory_bytes": 0})
+                ),
+            ),
+        ):
             with self.subTest(missing=missing):
                 zero.missing = missing
                 self.refused(zero, "available memory is known", already_loaded=True)
@@ -729,8 +829,9 @@ class MemorySourceTests(unittest.TestCase):
             "props hardware, nested deeper": LoadedLane(props=served_props(hardware={"memory": figure})),
             "props hardware list entry": LoadedLane(props=served_props(hardware={"devices": [figure]})),
             "props model object": LoadedLane(props=served_props(model=dict(nested, id=MODEL_ID))),
-            "props generation settings": LoadedLane(props=served_props(
-                default_generation_settings=dict(figure, n_ctx=32768))),
+            "props generation settings": LoadedLane(
+                props=served_props(default_generation_settings=dict(figure, n_ctx=32768))
+            ),
             "metadata top level": LoadedLane(models=served_models(meta=dict(meta, **figure))),
             "selected entry outside meta": LoadedLane(models={"data": [dict(entry, **nested)]}),
             "models document top level": LoadedLane(models=dict(nested, data=[entry])),
@@ -768,18 +869,25 @@ class MemorySourceTests(unittest.TestCase):
             for slot in ({"available_memory_bytes": value}, {"hardware": {"available_memory_bytes": value}}):
                 with self.subTest(slot=slot):
                     slots = [dict(slot, id=0, n_ctx=32768, is_processing=False)]
-                    self.refused(LoadedLane(slots=slots), "outside the recognized hardware facts",
-                                 slots=True, already_loaded=True)
+                    self.refused(
+                        LoadedLane(slots=slots),
+                        "outside the recognized hardware facts",
+                        slots=True,
+                        already_loaded=True,
+                    )
         slots = [{"id": 0, "n_ctx": 32768, "is_processing": False, "available_memory_bytes": None}]
         self.accepted(LoadedLane(slots=slots), already_loaded=True)
 
     # Explicit arguments beside each server source.
 
     def test_explicit_memory_is_validated_before_any_request(self):
-        invalid = [("available_memory_bytes", value) for value in
-                   (-1, True, False, "0", "8000", 0.0, 8000.0, NAN, INF, [], {}, 10**400)]
-        invalid += [("memory_bytes", value) for value in
-                    (0, -1, True, False, "8000", 8000.0, NAN, INF, [], {}, 10**400)]
+        invalid = [
+            ("available_memory_bytes", value)
+            for value in (-1, True, False, "0", "8000", 0.0, 8000.0, NAN, INF, [], {}, 10**400)
+        ]
+        invalid += [
+            ("memory_bytes", value) for value in (0, -1, True, False, "8000", 8000.0, NAN, INF, [], {}, 10**400)
+        ]
         for key, value in invalid:
             for loaded in (True, False):
                 with self.subTest(key=key, value=value, already_loaded=loaded):
@@ -790,13 +898,30 @@ class MemorySourceTests(unittest.TestCase):
     def test_cli_refuses_invalid_memory_arguments_with_no_request(self):
         for flag in ("--available-memory-bytes", "--memory-bytes"):
             for value in ("-1", "8000.0", "nan", "true", ""):
-                with self.subTest(flag=flag, value=value), LoadedLane() as lane, \
-                        contextlib.redirect_stderr(io.StringIO()):
+                with (
+                    self.subTest(flag=flag, value=value),
+                    LoadedLane() as lane,
+                    contextlib.redirect_stderr(io.StringIO()),
+                ):
                     try:
-                        status = adapter.main([
-                            "--base-url", lane.url, "--model", MODEL_ID, "--samples", str(self.samples[0]),
-                            "--output-dir", str(self.path / "out"), "--model-sha256", MODEL_SHA,
-                            "--file-size-bytes", "100", "--already-loaded", flag + "=" + value])
+                        status = adapter.main(
+                            [
+                                "--base-url",
+                                lane.url,
+                                "--model",
+                                MODEL_ID,
+                                "--samples",
+                                str(self.samples[0]),
+                                "--output-dir",
+                                str(self.path / "out"),
+                                "--model-sha256",
+                                MODEL_SHA,
+                                "--file-size-bytes",
+                                "100",
+                                "--already-loaded",
+                                flag + "=" + value,
+                            ]
+                        )
                     except SystemExit as stop:  # argparse refuses a non-integer.
                         status = stop.code
                     self.assertEqual(status, 2)
@@ -804,19 +929,30 @@ class MemorySourceTests(unittest.TestCase):
 
     def test_explicit_memory_beside_each_server_source(self):
         for source in ("props", "metadata"):
+
             def lane(hardware):
                 return source_lane(hardware, ABSENT) if source == "props" else source_lane(ABSENT, hardware)
+
             with self.subTest(source=source):
                 # Known from either argument or either source: the mode is refused.
-                self.refused(lane({"available_memory_bytes": 0}), "available memory is known",
-                             already_loaded=True, available_memory_bytes=8000)
+                self.refused(
+                    lane({"available_memory_bytes": 0}),
+                    "available memory is known",
+                    already_loaded=True,
+                    available_memory_bytes=8000,
+                )
                 self.refused(lane({}), "available memory is known", already_loaded=True, available_memory_bytes=0)
                 # An invalid server value refuses even beside a valid argument.
-                self.refused(lane({"available_memory_bytes": -1}), "invalid server-reported memory",
-                             available_memory_bytes=8000)
+                self.refused(
+                    lane({"available_memory_bytes": -1}), "invalid server-reported memory", available_memory_bytes=8000
+                )
                 # The stated total must match a server total and bound available memory.
-                self.refused(lane({"memory_bytes": 16000}), "disagrees with server", memory_bytes=32000,
-                             available_memory_bytes=8000)
+                self.refused(
+                    lane({"memory_bytes": 16000}),
+                    "disagrees with server",
+                    memory_bytes=32000,
+                    available_memory_bytes=8000,
+                )
                 self.refused(lane({"memory_bytes": 4000}), "exceeds hardware memory", available_memory_bytes=8000)
                 self.refused(lane({"available_memory_bytes": 8000}), "exceeds hardware memory", memory_bytes=4000)
                 record = self.accepted(lane({"memory_bytes": 16000}), memory_bytes=16000, already_loaded=True)
@@ -832,6 +968,7 @@ class MemorySourceTests(unittest.TestCase):
         record = self.accepted(LoadedLane(), already_loaded=True)
         schema = fast.load(ROOT / "eci_fast_check.schema.json")
         from test_eci_measured_data import schema_errors
+
         for source in ("server-reported", "explicit", None, 0):
             with self.subTest(source=source):
                 forged = copy.deepcopy(record)
@@ -850,16 +987,21 @@ class MemorySourceTests(unittest.TestCase):
 
     def test_saved_record_memory_fields_keep_zero_apart_from_unknown(self):
         record = self.accepted(source_lane({"memory_bytes": 16000, "available_memory_bytes": 8000}))
-        for path, value in ((("pre", "inputs", "available_memory_bytes"), 0),
-                            (("pre", "inputs", "available_memory_bytes"), None),
-                            (("pre", "inputs", "available_memory_bytes"), -1),
-                            (("pre", "inputs", "available_memory_bytes"), True),
-                            (("pre", "inputs", "available_memory_bytes"), "8000"),
-                            (("pre", "inputs", "available_memory_bytes"), 8000.0),
-                            (("pre", "inputs", "available_memory_bytes"), 16001),
-                            (("hardware", "memory_bytes"), 0), (("hardware", "memory_bytes"), -1),
-                            (("hardware", "memory_bytes"), True), (("hardware", "memory_bytes"), "16000"),
-                            (("hardware", "memory_bytes"), 16000.0), (("hardware", "memory_bytes"), 4000)):
+        for path, value in (
+            (("pre", "inputs", "available_memory_bytes"), 0),
+            (("pre", "inputs", "available_memory_bytes"), None),
+            (("pre", "inputs", "available_memory_bytes"), -1),
+            (("pre", "inputs", "available_memory_bytes"), True),
+            (("pre", "inputs", "available_memory_bytes"), "8000"),
+            (("pre", "inputs", "available_memory_bytes"), 8000.0),
+            (("pre", "inputs", "available_memory_bytes"), 16001),
+            (("hardware", "memory_bytes"), 0),
+            (("hardware", "memory_bytes"), -1),
+            (("hardware", "memory_bytes"), True),
+            (("hardware", "memory_bytes"), "16000"),
+            (("hardware", "memory_bytes"), 16000.0),
+            (("hardware", "memory_bytes"), 4000),
+        ):
             with self.subTest(path=path, value=value):
                 forged = copy.deepcopy(record)
                 target = forged
@@ -881,8 +1023,10 @@ class MemorySourceTests(unittest.TestCase):
         forged["pre"]["inputs"]["available_memory_bytes"] = 0
         forged = redigest(forged)
         path = self.path / "dataset.json"
-        path.write_text(json.dumps({"schema_version": 1, "runs": [], "items": [],
-                                    "fast_checks": [loaded, gated, forged]}), encoding="utf-8")
+        path.write_text(
+            json.dumps({"schema_version": 1, "runs": [], "items": [], "fast_checks": [loaded, gated, forged]}),
+            encoding="utf-8",
+        )
         data = eci_tuning.ingest([path])
         self.assertEqual(data["fast_checks"], [loaded, gated])
         self.assertEqual([entry["record_id"] for entry in data["rejected_fast_checks"]], [forged["record_id"]])
@@ -894,8 +1038,13 @@ class JobMemoryFactTests(unittest.TestCase):
     def test_job_facts_refuse_zero_and_invalid_memory_and_drop_null(self):
         import eci_jobs
         from test_eci_jobs import request
-        policy = eci_jobs.Policy(gate=lambda: True, allowed_targets={request()["target"]},
-                                 default_wall_budget_s="60", max_wall_budget_s="600")
+
+        policy = eci_jobs.Policy(
+            gate=lambda: True,
+            allowed_targets={request()["target"]},
+            default_wall_budget_s="60",
+            max_wall_budget_s="600",
+        )
         for key in ("available_memory_bytes", "memory_bytes"):
             for value in (0, -1, True, False, "8000", 8000.0, NAN, [], {}):
                 with self.subTest(key=key, value=value), self.assertRaises(eci_jobs.Refused) as caught:
@@ -913,14 +1062,34 @@ class JobMemoryFactTests(unittest.TestCase):
 # payloads such as chat templates and the model path are left out.
 R5_MODEL = "ornith-ai/ornith-1.5-9b"
 R5_PROPS = {
-    "model_alias": R5_MODEL, "model_ftype": "Q4_K - Medium", "total_slots": 1, "is_sleeping": False,
-    "build_info": "b12254-45c8ea837", "default_generation_settings": {"n_ctx": 16384},
+    "model_alias": R5_MODEL,
+    "model_ftype": "Q4_K - Medium",
+    "total_slots": 1,
+    "is_sleeping": False,
+    "build_info": "b12254-45c8ea837",
+    "default_generation_settings": {"n_ctx": 16384},
 }
-R5_MODELS = {"object": "list", "data": [{
-    "id": R5_MODEL, "aliases": [R5_MODEL], "object": "model", "owned_by": "llamacpp",
-    "meta": {"vocab_type": 2, "n_vocab": 248320, "n_ctx": 16384, "n_ctx_train": 262144, "n_embd": 4096,
-             "n_params": 9197093888, "size": 5769121792, "ftype": "Q4_K - Medium"},
-}]}
+R5_MODELS = {
+    "object": "list",
+    "data": [
+        {
+            "id": R5_MODEL,
+            "aliases": [R5_MODEL],
+            "object": "model",
+            "owned_by": "llamacpp",
+            "meta": {
+                "vocab_type": 2,
+                "n_vocab": 248320,
+                "n_ctx": 16384,
+                "n_ctx_train": 262144,
+                "n_embd": 4096,
+                "n_params": 9197093888,
+                "size": 5769121792,
+                "ftype": "Q4_K - Medium",
+            },
+        }
+    ],
+}
 R5_SLOTS = [{"id": 0, "n_ctx": 16384, "speculative": False, "is_processing": False}]
 
 
@@ -930,14 +1099,22 @@ class ReplayedCaptureTests(unittest.TestCase):
     setUp = AlreadyLoadedTests.setUp
 
     def replay(self, **props):
-        lane = LoadedLane(props=dict(copy.deepcopy(R5_PROPS), **props), models=copy.deepcopy(R5_MODELS),
-                          slots=copy.deepcopy(R5_SLOTS))
+        lane = LoadedLane(
+            props=dict(copy.deepcopy(R5_PROPS), **props), models=copy.deepcopy(R5_MODELS), slots=copy.deepcopy(R5_SLOTS)
+        )
         lane.model = R5_MODEL
         return lane
 
     def run_r5(self, lane):
-        return adapter.run(lane.url, R5_MODEL, self.samples, self.path / "out", model_sha256=MODEL_SHA,
-                           file_size_bytes=5769121792, already_loaded=True)
+        return adapter.run(
+            lane.url,
+            R5_MODEL,
+            self.samples,
+            self.path / "out",
+            model_sha256=MODEL_SHA,
+            file_size_bytes=5769121792,
+            already_loaded=True,
+        )
 
     def test_captured_lane_is_accepted(self):
         with self.replay() as lane:

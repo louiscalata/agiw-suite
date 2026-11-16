@@ -1,4 +1,5 @@
 """Run evidence contracts, using only private temporary records and mocked liveness."""
+
 import copy
 import datetime
 import json
@@ -14,7 +15,7 @@ import telemetry
 
 
 def group(data, name):
-    return [row for row in data['runs'] if row['traceKey'] in data[name + 'Keys']]
+    return [row for row in data["runs"] if row["traceKey"] in data[name + "Keys"]]
 
 
 class RunEvidenceTests(unittest.TestCase):
@@ -31,8 +32,7 @@ class RunEvidenceTests(unittest.TestCase):
         for directory in (self.root, self.root / "archive", self.root / "active", self.receipts):
             directory.mkdir(mode=0o700)
             directory.chmod(0o700)
-        for name, value in (("_ROOT", self.root), ("_ACTIVE", self.root / "active.json"),
-                            ("_RECEIPTS", self.receipts)):
+        for name, value in (("_ROOT", self.root), ("_ACTIVE", self.root / "active.json"), ("_RECEIPTS", self.receipts)):
             patcher = mock.patch.object(activity, name, value)
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -49,35 +49,64 @@ class RunEvidenceTests(unittest.TestCase):
     def receipt(self, run_id="run-1", digest=None):
         stamp = datetime.datetime.fromtimestamp(self.NOW - 10, datetime.timezone.utc).isoformat()
         return {
-            "kind": "codemode.monitor.run-receipt.v1", "schemaVersion": 1,
-            "runId": run_id, "startedAt": stamp, "finishedAt": stamp,
+            "kind": "codemode.monitor.run-receipt.v1",
+            "schemaVersion": 1,
+            "runId": run_id,
+            "startedAt": stamp,
+            "finishedAt": stamp,
             "route": {"status": "RESPONSE_VALIDATED"},
-            "ownerDecision": {"status": "REJECTED"}, "intakeDecision": {}, "review": {},
+            "ownerDecision": {"status": "REJECTED"},
+            "intakeDecision": {},
+            "review": {},
             "bindings": {"routerRequestSha256": digest or self.DIGEST},
-            "calls": [{"role": "author", "requestedModel": "requested/model",
-                       "reportedModel": "served/model", "status": "RESPONSE_VALIDATED",
-                       "bindings": {"runId": "opencode.advisory:" + run_id + ".draft"},
-                       "usage": {"inputTokens": 2, "outputTokens": 3, "totalTokens": 5,
-                                 "complete": True}}],
+            "calls": [
+                {
+                    "role": "author",
+                    "requestedModel": "requested/model",
+                    "reportedModel": "served/model",
+                    "status": "RESPONSE_VALIDATED",
+                    "bindings": {"runId": "opencode.advisory:" + run_id + ".draft"},
+                    "usage": {"inputTokens": 2, "outputTokens": 3, "totalTokens": 5, "complete": True},
+                }
+            ],
         }
 
     def archive(self, run_id, digest=None, when=None):
-        return {"schemaVersion": 1, "runId": run_id, "inputSha256": digest or self.DIGEST,
-                "stage": "done", "finishedUnix": self.NOW - 10 if when is None else when,
-                "exitCode": 0,
-                "result": {"kind": "codemode.router.v1", "runId": run_id,
-                           "status": "RESPONSE_VALIDATED", "stages": {}}}
+        return {
+            "schemaVersion": 1,
+            "runId": run_id,
+            "inputSha256": digest or self.DIGEST,
+            "stage": "done",
+            "finishedUnix": self.NOW - 10 if when is None else when,
+            "exitCode": 0,
+            "result": {"kind": "codemode.router.v1", "runId": run_id, "status": "RESPONSE_VALIDATED", "stages": {}},
+        }
 
     def active(self, run_id, digest):
-        return {"schemaVersion": 1, "runId": run_id, "inputSha256": digest,
-                "stage": "backend_draft", "sequence": 1, "startedUnix": self.NOW - 2,
-                "checkpoint": {"schemaVersion": 1, "runId": run_id, "inputSha256": digest,
-                               "sequence": 1, "stage": "backend_draft",
-                               "recordedUnix": self.NOW - 1, "evidence": {}}}
+        return {
+            "schemaVersion": 1,
+            "runId": run_id,
+            "inputSha256": digest,
+            "stage": "backend_draft",
+            "sequence": 1,
+            "startedUnix": self.NOW - 2,
+            "checkpoint": {
+                "schemaVersion": 1,
+                "runId": run_id,
+                "inputSha256": digest,
+                "sequence": 1,
+                "stage": "backend_draft",
+                "recordedUnix": self.NOW - 1,
+                "evidence": {},
+            },
+        }
 
     def current_evidence(self, observed_at=None, complete=True):
-        return {"observedAt": self.NOW if observed_at is None else observed_at,
-                "complete": complete, "counts": {"running": 0, "queued": 0, "unresolved": 0}}
+        return {
+            "observedAt": self.NOW if observed_at is None else observed_at,
+            "complete": complete,
+            "counts": {"running": 0, "queued": 0, "unresolved": 0},
+        }
 
     def test_receipt_and_calls_bind_to_exact_request_attempt(self):
         projected = activity._project_monitor_receipt(self.receipt(), self.NOW)
@@ -85,8 +114,7 @@ class RunEvidenceTests(unittest.TestCase):
         self.assertEqual(projected["attemptId"], attempt)
         call = projected["calls"][0]
         self.assertEqual((call["parentRunId"], call["attemptId"]), ("run-1", attempt))
-        self.assertEqual((call["requestedModel"], call["servedModel"]),
-                         ("requested/model", "served/model"))
+        self.assertEqual((call["requestedModel"], call["servedModel"]), ("requested/model", "served/model"))
         self.assertEqual(call["usage"]["totalTokens"], 5)
 
     def test_foreign_attempt_cannot_contribute_a_call_or_usage(self):
@@ -98,16 +126,16 @@ class RunEvidenceTests(unittest.TestCase):
 
     def test_nested_archive_receipt_cannot_override_the_enclosing_attempt(self):
         from test_activity import ActivityTests
+
         backend = ActivityTests()._backend_with_calls()
-        backend['stages']['draft']['result']['receipts'][0]['bindings'] = {
-            'routerRequestSha256': self.OTHER_DIGEST}
-        record = self.archive('bound-route')
-        record['result']['requestSha256'] = self.DIGEST
-        record['result']['stages'] = {'backend': backend}
+        backend["stages"]["draft"]["result"]["receipts"][0]["bindings"] = {"routerRequestSha256": self.OTHER_DIGEST}
+        record = self.archive("bound-route")
+        record["result"]["requestSha256"] = self.DIGEST
+        record["result"]["stages"] = {"backend": backend}
         projected = activity._project_archive(record, self.NOW)
-        self.assertEqual([call['role'] for call in projected['calls']], ['reviewer'])
-        self.assertEqual(projected['usageCoverage']['measuredCallCount'], 1)
-        self.assertEqual(projected['calls'][0]['attemptId'], 'bound-route:' + self.DIGEST)
+        self.assertEqual([call["role"] for call in projected["calls"]], ["reviewer"])
+        self.assertEqual(projected["usageCoverage"]["measuredCallCount"], 1)
+        self.assertEqual(projected["calls"][0]["attemptId"], "bound-route:" + self.DIGEST)
 
     def test_foreign_role_binding_cannot_attach_even_to_same_attempt(self):
         receipt = self.receipt()
@@ -138,11 +166,11 @@ class RunEvidenceTests(unittest.TestCase):
         self.assertEqual(projected["calls"], [])
         self.assertIsNone(projected["usage"]["totalTokens"])
         slots = projected["analysisSlots"]
-        self.assertEqual([(slot["tool"], slot["phase"]) for slot in slots],
-                         [("jev", "pre"), ("nisi", "journal"), ("jev", "post")])
+        self.assertEqual(
+            [(slot["tool"], slot["phase"]) for slot in slots], [("jev", "pre"), ("nisi", "journal"), ("jev", "post")]
+        )
         for slot in slots:
-            self.assertEqual((slot["runId"], slot["attemptId"]),
-                             (projected["runId"], projected["attemptId"]))
+            self.assertEqual((slot["runId"], slot["attemptId"]), (projected["runId"], projected["attemptId"]))
             self.assertEqual(slot["state"], "unavailable")
             self.assertFalse(slot["evidenced"])
             self.assertIn("NOT AVAILABLE YET", slot["detail"])
@@ -150,8 +178,7 @@ class RunEvidenceTests(unittest.TestCase):
     def test_complete_call_metrics_do_not_claim_whole_run_coverage(self):
         receipt = self.receipt()
         receipt["logicalCallCount"] = 1
-        receipt["usageTotals"] = {"inputTokens": 2, "outputTokens": 3,
-                                  "totalTokens": 5, "complete": True}
+        receipt["usageTotals"] = {"inputTokens": 2, "outputTokens": 3, "totalTokens": 5, "complete": True}
         projected = activity._project_monitor_receipt(receipt, self.NOW)
         self.assertEqual(projected["calls"][0]["usage"]["totalTokens"], 5)
         self.assertIsNone(projected["usage"]["totalTokens"])
@@ -166,7 +193,9 @@ class RunEvidenceTests(unittest.TestCase):
     def test_intake_judgment_is_not_a_complete_jev_phase_producer(self):
         record = self.archive("run-1")
         record["result"]["intake"] = {
-            "model": "jev/intake", "status": "JUDGED", "elapsed_ms": 4,
+            "model": "jev/intake",
+            "status": "JUDGED",
+            "elapsed_ms": 4,
             "usage": {"input_tokens": 2, "output_tokens": 3},
             "route": {"choice": "edit", "confidence": 0.8},
         }
@@ -198,9 +227,13 @@ class RunEvidenceTests(unittest.TestCase):
     def test_same_run_id_different_attempt_retains_dated_outcome_separately(self):
         self.write(self.receipts / "prior.json", self.receipt("same-run", self.OTHER_DIGEST))
         self.write(self.root / "active.json", self.active("same-run", self.DIGEST))
-        self.observation.return_value = {"root": str(self.root), "observedAt": self.NOW, "rows": [
-            {"runId": "same-run", "layout": "legacy", "inputSha256": self.DIGEST,
-             "live": True, "state": "running"}]}
+        self.observation.return_value = {
+            "root": str(self.root),
+            "observedAt": self.NOW,
+            "rows": [
+                {"runId": "same-run", "layout": "legacy", "inputSha256": self.DIGEST, "live": True, "state": "running"}
+            ],
+        }
         result = activity.collect_activity(self.NOW)
         self.assertEqual(len(group(result, "current")), 1)
         self.assertEqual(len(group(result, "history")), 1)
@@ -211,9 +244,11 @@ class RunEvidenceTests(unittest.TestCase):
 
     def test_history_bound_does_not_destroy_independent_current_empty_evidence(self):
         for index in range(13):
-            self.write(self.root / "archive" / ("run-%02d.json" % index),
-                       self.archive("run-%02d" % index, when=self.NOW - index - 10),
-                       when=self.NOW - index - 10)
+            self.write(
+                self.root / "archive" / ("run-%02d.json" % index),
+                self.archive("run-%02d" % index, when=self.NOW - index - 10),
+                when=self.NOW - index - 10,
+            )
         result = activity.collect_activity(self.NOW, current_evidence=self.current_evidence())
         self.assertEqual(len(result["runs"]), 12)
         self.assertTrue(result["historyBound"]["truncated"])
@@ -238,8 +273,7 @@ class RunEvidenceTests(unittest.TestCase):
         self.assertTrue(result["currentEvidence"]["reason"])
 
     def test_stale_incomplete_or_missing_inventory_cannot_establish_zero(self):
-        for evidence in (None, self.current_evidence(self.NOW - 4),
-                         self.current_evidence(complete=False)):
+        for evidence in (None, self.current_evidence(self.NOW - 4), self.current_evidence(complete=False)):
             with self.subTest(evidence=evidence):
                 result = activity.collect_activity(self.NOW, current_evidence=evidence)
                 self.assertFalse(result["currentEvidence"]["complete"])
@@ -248,7 +282,7 @@ class RunEvidenceTests(unittest.TestCase):
 
     def test_invalid_counts_and_clock_ahead_cannot_become_no_jobs(self):
         candidates = [self.current_evidence(self.NOW + 1.001)]
-        for value in (True, -1, None, 2 ** 53):
+        for value in (True, -1, None, 2**53):
             evidence = self.current_evidence()
             evidence["counts"]["running"] = value
             candidates.append(evidence)
@@ -271,9 +305,13 @@ class RunEvidenceTests(unittest.TestCase):
 
     def test_inventory_count_cannot_contradict_observed_active_work(self):
         self.write(self.root / "active.json", self.active("live-run", self.DIGEST))
-        self.observation.return_value = {"root": str(self.root), "observedAt": self.NOW, "rows": [
-            {"runId": "live-run", "layout": "legacy", "inputSha256": self.DIGEST,
-             "live": True, "state": "running"}]}
+        self.observation.return_value = {
+            "root": str(self.root),
+            "observedAt": self.NOW,
+            "rows": [
+                {"runId": "live-run", "layout": "legacy", "inputSha256": self.DIGEST, "live": True, "state": "running"}
+            ],
+        }
         result = activity.collect_activity(self.NOW, current_evidence=self.current_evidence())
         self.assertEqual(group(result, "current")[0]["activity"], "running")
         self.assertFalse(result["currentEvidence"]["complete"])
@@ -281,12 +319,20 @@ class RunEvidenceTests(unittest.TestCase):
 
     def test_both_server_stores_expire_run_counts_on_original_evidence_clock(self):
         from server import SnapshotStore as MacStore
+
         sys.path.append(str(Path(__file__).resolve().parent / "windows"))
         from agiw_win.server import SnapshotStore as WindowsStore
+
         self.write(self.receipts / "prior.json", self.receipt())
         evidence = activity.collect_activity(self.NOW, current_evidence=self.current_evidence())
-        snapshot = {"sampledAt": self.NOW + 2, "models": [], "machines": [], "sources": [],
-                    "activity": evidence, "inference": {}}
+        snapshot = {
+            "sampledAt": self.NOW + 2,
+            "models": [],
+            "machines": [],
+            "sources": [],
+            "activity": evidence,
+            "inference": {},
+        }
         for store_class in (MacStore, WindowsStore):
             with self.subTest(edition=store_class.__module__):
                 store = store_class()
@@ -303,20 +349,24 @@ class RunEvidenceTests(unittest.TestCase):
                 self.assertTrue(current["reason"])
                 self.assertEqual(group(expired["activity"], "history"), group(evidence, "history"))
                 self.assertEqual(group(expired["activity"], "history")[0]["hostAcceptance"], "REJECTED")
-                self.assertEqual(store.snapshot["activity"]["currentEvidence"]["count"], 0,
-                                 "aging a read must not rewrite the saved observation")
+                self.assertEqual(
+                    store.snapshot["activity"]["currentEvidence"]["count"],
+                    0,
+                    "aging a read must not rewrite the saved observation",
+                )
 
     def test_snapshot_partitions_reference_rows_without_serializing_them_twice(self):
-        self.write(self.receipts / 'prior.json', self.receipt())
+        self.write(self.receipts / "prior.json", self.receipt())
         result = activity.collect_activity(self.NOW, current_evidence=self.current_evidence())
-        self.assertNotIn('current', result)
-        self.assertNotIn('history', result)
-        self.assertEqual(result['historyKeys'], [row['traceKey'] for row in result['runs']])
-        self.assertEqual(result['currentKeys'], [])
+        self.assertNotIn("current", result)
+        self.assertNotIn("history", result)
+        self.assertEqual(result["historyKeys"], [row["traceKey"] for row in result["runs"]])
+        self.assertEqual(result["currentKeys"], [])
 
     def test_windows_without_run_producer_explains_unknown_instead_of_zero(self):
         sys.path.append(str(Path(__file__).resolve().parent / "windows"))
         from agiw_win.server import SnapshotStore
+
         store = SnapshotStore()
         store.snapshot = {"sampledAt": self.NOW, "models": [], "sources": []}
         with mock.patch("time.time", return_value=self.NOW):
@@ -328,23 +378,31 @@ class RunEvidenceTests(unittest.TestCase):
 
     def test_fresh_inventory_envelope_cannot_renew_an_older_run_lock(self):
         from server import SnapshotStore as MacStore
+
         sys.path.append(str(Path(__file__).resolve().parent / "windows"))
         from agiw_win.server import SnapshotStore as WindowsStore
-        run = {'runId': 'older-lock', 'activity': 'running', 'status': 'running',
-               'livenessObservedAt': self.NOW - 4}
-        snapshot = {'sampledAt': self.NOW, 'models': [], 'sources': [],
-                    'activity': {'sampledAt': self.NOW, 'runs': [run], 'current': [run],
-                                 'currentEvidence': {'complete': True, 'count': 1,
-                                                     'observedAt': self.NOW}}}
+
+        run = {"runId": "older-lock", "activity": "running", "status": "running", "livenessObservedAt": self.NOW - 4}
+        snapshot = {
+            "sampledAt": self.NOW,
+            "models": [],
+            "sources": [],
+            "activity": {
+                "sampledAt": self.NOW,
+                "runs": [run],
+                "current": [run],
+                "currentEvidence": {"complete": True, "count": 1, "observedAt": self.NOW},
+            },
+        }
         for store_class in (MacStore, WindowsStore):
             store = store_class()
             store.snapshot = copy.deepcopy(snapshot)
-            with mock.patch('time.time', return_value=self.NOW):
-                data = store.read()['activity']
-            self.assertEqual(data['runs'][0]['activity'], 'unknown')
-            self.assertFalse(data['currentEvidence']['complete'])
-            self.assertIsNone(data['currentEvidence']['count'])
-            self.assertEqual(data['runs'][0]['livenessObservedAt'], self.NOW - 4)
+            with mock.patch("time.time", return_value=self.NOW):
+                data = store.read()["activity"]
+            self.assertEqual(data["runs"][0]["activity"], "unknown")
+            self.assertFalse(data["currentEvidence"]["complete"])
+            self.assertIsNone(data["currentEvidence"]["count"])
+            self.assertEqual(data["runs"][0]["livenessObservedAt"], self.NOW - 4)
 
     def test_undated_dropped_history_can_hide_an_event_of_any_age(self):
         bound = activity._history_bound((activity._Listing(),), [{"runId": "undated", "ageSeconds": None}], self.NOW)
@@ -354,8 +412,11 @@ class RunEvidenceTests(unittest.TestCase):
     def test_conflicting_archive_result_request_cannot_bind_calls(self):
         record = self.archive("run-1")
         record["result"]["requestSha256"] = self.OTHER_DIGEST
-        record["result"]["intake"] = {"model": "jev/intake", "status": "JUDGED",
-                                         "usage": {"input_tokens": 2, "output_tokens": 3}}
+        record["result"]["intake"] = {
+            "model": "jev/intake",
+            "status": "JUDGED",
+            "usage": {"input_tokens": 2, "output_tokens": 3},
+        }
         projected = activity._project_archive(record, self.NOW)
         self.assertEqual(projected["status"], "RESPONSE_VALIDATED")
         self.assertIsNone(projected["attemptId"])
@@ -370,9 +431,13 @@ class RunEvidenceTests(unittest.TestCase):
 
     def test_cached_liveness_observation_expires_before_new_activity_sample(self):
         self.write(self.root / "active.json", self.active("live-run", self.DIGEST))
-        self.observation.return_value = {"root": str(self.root), "observedAt": self.NOW - 4, "rows": [
-            {"runId": "live-run", "layout": "legacy", "inputSha256": self.DIGEST,
-             "live": True, "state": "running"}]}
+        self.observation.return_value = {
+            "root": str(self.root),
+            "observedAt": self.NOW - 4,
+            "rows": [
+                {"runId": "live-run", "layout": "legacy", "inputSha256": self.DIGEST, "live": True, "state": "running"}
+            ],
+        }
         result = activity.collect_activity(self.NOW, current_evidence=self.current_evidence())
         self.assertEqual(result["runs"][0]["activity"], "unknown")
         self.assertFalse(result["currentEvidence"]["complete"])

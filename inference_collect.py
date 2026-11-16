@@ -7,6 +7,7 @@ helper uses GET /api/v0/models, then /v1/models. Veritas is GET of
 VERITAS_REVIEWER_URL. No request asks a model to generate. Slot prompts are
 not kept.
 """
+
 from __future__ import annotations
 
 import datetime as dt
@@ -49,18 +50,31 @@ class ProbeError(Exception):
 def collector_diagnostic(stage, error, *, now=None, last_success=None):
     """Bounded public failure context. Never expose exception text or private paths."""
     stage = stage if isinstance(stage, str) and re.fullmatch(r"[a-z][a-z0-9_]{0,47}", stage) else "collector"
-    code = ("timeout" if isinstance(error, TimeoutError) else
-            "permission_denied" if isinstance(error, PermissionError) else
-            "io_error" if isinstance(error, OSError) else
-            "missing_field" if isinstance(error, KeyError) else
-            "invalid_value" if isinstance(error, ValueError) else
-            "invalid_type" if isinstance(error, TypeError) else "collector_failed")
+    code = (
+        "timeout"
+        if isinstance(error, TimeoutError)
+        else "permission_denied"
+        if isinstance(error, PermissionError)
+        else "io_error"
+        if isinstance(error, OSError)
+        else "missing_field"
+        if isinstance(error, KeyError)
+        else "invalid_value"
+        if isinstance(error, ValueError)
+        else "invalid_type"
+        if isinstance(error, TypeError)
+        else "collector_failed"
+    )
     failed_at = now if _finite(now) else time.time()
-    return {"stage": stage, "code": code, "failedAt": failed_at,
-            "lastSuccessfulSampleAt": last_success if _finite(last_success) else None}
+    return {
+        "stage": stage,
+        "code": code,
+        "failedAt": failed_at,
+        "lastSuccessfulSampleAt": last_success if _finite(last_success) else None,
+    }
 
 
-_MIN_RATE_GAP = 0.5          # seconds between two scrapes before a wall-clock rate means anything
+_MIN_RATE_GAP = 0.5  # seconds between two scrapes before a wall-clock rate means anything
 _MIN_COUNTER_SECONDS = 0.01  # llama-server's own busy-seconds delta below this is rounding, not work
 
 
@@ -79,8 +93,10 @@ class RateMemory:
         if not _finite(elapsed) or elapsed < _MIN_RATE_GAP:
             # Two scrapes a few milliseconds apart turn one token into thousands per second.
             return None, None
-        return (_speed(prev, counters, elapsed, "prompt_tokens_total", "prompt_seconds_total"),
-                _speed(prev, counters, elapsed, "tokens_predicted_total", "tokens_predicted_seconds_total"))
+        return (
+            _speed(prev, counters, elapsed, "prompt_tokens_total", "prompt_seconds_total"),
+            _speed(prev, counters, elapsed, "tokens_predicted_total", "tokens_predicted_seconds_total"),
+        )
 
 
 def _speed(prev, counters, elapsed, tokens, seconds):
@@ -120,8 +136,7 @@ def _strict_chunked_read(response, limit):
     body = bytearray()
     while True:
         line = response.fp.readline(8193)
-        if (len(line) > 8192 or not line.endswith(b"\r\n")
-                or any(byte < 32 or byte > 126 for byte in line[:-2])):
+        if len(line) > 8192 or not line.endswith(b"\r\n") or any(byte < 32 or byte > 126 for byte in line[:-2]):
             raise ProbeError("incomplete_body")
         size_text = line[:-2].split(b";", 1)[0]
         if not re.fullmatch(rb"[0-9a-fA-F]{1,16}", size_text):
@@ -132,8 +147,7 @@ def _strict_chunked_read(response, limit):
             while True:
                 trailer = response.fp.readline(8193)
                 trailer_bytes += len(trailer)
-                if (len(trailer) > 8192 or trailer_bytes > 65536
-                        or not trailer.endswith(b"\r\n")):
+                if len(trailer) > 8192 or trailer_bytes > 65536 or not trailer.endswith(b"\r\n"):
                     raise ProbeError("incomplete_body")
                 if trailer == b"\r\n":
                     return bytes(body)
@@ -154,8 +168,15 @@ def loopback_get(url, timeout=0.4, limit=1024 * 1024, *, strict=False):
     readers retain their existing permissive decoding and close-delimited reads.
     """
     parts = urlsplit(url)
-    if (parts.scheme != "http" or parts.hostname != "127.0.0.1" or parts.port is None
-            or parts.username or parts.password or parts.query or parts.fragment):
+    if (
+        parts.scheme != "http"
+        or parts.hostname != "127.0.0.1"
+        or parts.port is None
+        or parts.username
+        or parts.password
+        or parts.query
+        or parts.fragment
+    ):
         raise ProbeError("refused")
     started = time.monotonic()
     deadline = started + timeout
@@ -166,12 +187,14 @@ def loopback_get(url, timeout=0.4, limit=1024 * 1024, *, strict=False):
     try:
         connection.connect()
         sock = connection.sock
+
         def expire():
             expired.set()
             try:
                 sock.shutdown(socket.SHUT_RDWR)
             except OSError:
                 pass
+
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise ProbeError("timeout")
@@ -185,8 +208,14 @@ def loopback_get(url, timeout=0.4, limit=1024 * 1024, *, strict=False):
         if strict:
             lengths = response.headers.get_all("Content-Length", [])
             transfers = response.headers.get_all("Transfer-Encoding", [])
-            if (len(lengths) > 1 or len(transfers) > 1 or lengths and transfers
-                    or transfers and transfers[0].strip().lower() != "chunked"):
+            if (
+                len(lengths) > 1
+                or len(transfers) > 1
+                or lengths
+                and transfers
+                or transfers
+                and transfers[0].strip().lower() != "chunked"
+            ):
                 raise ProbeError("ambiguous_framing")
             if lengths:
                 value = lengths[0].strip()
@@ -198,8 +227,7 @@ def loopback_get(url, timeout=0.4, limit=1024 * 1024, *, strict=False):
             elif not transfers:
                 raise ProbeError("missing_length")
             strict_chunked = bool(transfers)
-        body = (_strict_chunked_read(response, limit) if strict_chunked
-                else response.read(limit + 1))
+        body = _strict_chunked_read(response, limit) if strict_chunked else response.read(limit + 1)
         if expired.is_set() or time.monotonic() >= deadline:
             raise ProbeError("timeout")
         if len(body) > limit:
@@ -252,9 +280,9 @@ def parse_metrics(text):
             continue
         name = match.group(1)
         if name.startswith("llamacpp:"):
-            name = name[len("llamacpp:"):]
+            name = name[len("llamacpp:") :]
         elif name.startswith("llamacpp_"):
-            name = name[len("llamacpp_"):]
+            name = name[len("llamacpp_") :]
         if name not in _WANTED:
             continue
         try:
@@ -318,7 +346,12 @@ def parse_router_models(text):
         return None
     models = []
     for item in rows[:16]:
-        if not isinstance(item, dict) or not isinstance(item.get("id"), str) or not item["id"] or len(item["id"]) > 1024:
+        if (
+            not isinstance(item, dict)
+            or not isinstance(item.get("id"), str)
+            or not item["id"]
+            or len(item["id"]) > 1024
+        ):
             continue
         upstream = _loopback_upstream(item)
         models.append({"id": item["id"], "upstream": upstream})
@@ -369,19 +402,38 @@ def _model_fields(model, expected):
 
 
 def _blank(node_id, machine, role, label, observed, *, health, reason, endpoint=None, **extra):
-    return make_node(id=node_id, machine=machine, role=role, label=label, health=health, reason=reason,
-                     endpoint=endpoint, observed_at=observed, **extra)
+    return make_node(
+        id=node_id,
+        machine=machine,
+        role=role,
+        label=label,
+        health=health,
+        reason=reason,
+        endpoint=endpoint,
+        observed_at=observed,
+        **extra,
+    )
 
 
 def _transport_failure(spec, endpoint, observed, reason):
     health = "down" if reason == "refused" else "not_measured"
-    return _blank(spec["id"], spec.get("machine", "pc"), spec["role"], spec["label"], observed,
-                  health=health, reason=reason, endpoint=endpoint)
+    return _blank(
+        spec["id"],
+        spec.get("machine", "pc"),
+        spec["role"],
+        spec["label"],
+        observed,
+        health=health,
+        reason=reason,
+        endpoint=endpoint,
+    )
 
 
 def direct_targets():
-    return [{"id": lane["id"], "service": f"127.0.0.1:{lane['port']}",
-             "base": f"http://127.0.0.1:{lane['port']}"} for lane in PC_LANES]
+    return [
+        {"id": lane["id"], "service": f"127.0.0.1:{lane['port']}", "base": f"http://127.0.0.1:{lane['port']}"}
+        for lane in PC_LANES
+    ]
 
 
 def closed_targets():
@@ -408,10 +460,29 @@ def _read_llama(spec, base, fetch, rates, now, observed, endpoint):
         if failure:
             return _transport_failure(spec, endpoint, observed, failure)
         if result and 200 <= result[0] < 300:
-            return _blank(spec["id"], "pc", "llama", spec["label"], observed, health="ok", reason=None,
-                          endpoint=endpoint, latency_ms=_ms(result[2]), detail="Timed health probe")
-        return _blank(spec["id"], "pc", "llama", spec["label"], observed, health="down",
-                      reason="upstream_error", endpoint=endpoint, latency_ms=_ms(result[2]) if result else None)
+            return _blank(
+                spec["id"],
+                "pc",
+                "llama",
+                spec["label"],
+                observed,
+                health="ok",
+                reason=None,
+                endpoint=endpoint,
+                latency_ms=_ms(result[2]),
+                detail="Timed health probe",
+            )
+        return _blank(
+            spec["id"],
+            "pc",
+            "llama",
+            spec["label"],
+            observed,
+            health="down",
+            reason="upstream_error",
+            endpoint=endpoint,
+            latency_ms=_ms(result[2]) if result else None,
+        )
     prompt = generation = None
     if metrics is not None:
         prompt, generation = rates.update(spec["id"], {key: metrics[key] for key in _COUNTERS if key in metrics}, now)
@@ -427,12 +498,25 @@ def _read_llama(spec, base, fetch, rates, now, observed, endpoint):
         if gauge is None and metrics:
             gauge = metrics.get("requests_processing")
         slots_busy, slots_total, context_used = _whole(gauge), None, None
-    return _blank(spec["id"], "pc", "llama", spec["label"], observed, health=health, reason=reason,
-                  endpoint=endpoint, model_id=model_id, latency_ms=latency,
-                  prompt_tokens_per_second=prompt, generation_tokens_per_second=generation,
-                  queue_depth=_whole(metrics.get("requests_deferred")) if metrics else None,
-                  slots_busy=slots_busy, slots_total=slots_total,
-                  context_used=context_used, context_limit=context)
+    return _blank(
+        spec["id"],
+        "pc",
+        "llama",
+        spec["label"],
+        observed,
+        health=health,
+        reason=reason,
+        endpoint=endpoint,
+        model_id=model_id,
+        latency_ms=latency,
+        prompt_tokens_per_second=prompt,
+        generation_tokens_per_second=generation,
+        queue_depth=_whole(metrics.get("requests_deferred")) if metrics else None,
+        slots_busy=slots_busy,
+        slots_total=slots_total,
+        context_used=context_used,
+        context_limit=context,
+    )
 
 
 def _read_router(spec, base, fetch, observed, endpoint):
@@ -440,28 +524,71 @@ def _read_router(spec, base, fetch, observed, endpoint):
     if failure:
         return _transport_failure({**spec, "machine": "pc"}, endpoint, observed, failure)
     if not result or result[0] != 200:
-        return _blank(spec["id"], "pc", "router", spec["label"], observed, health="down",
-                      reason="upstream_error", endpoint=endpoint, latency_ms=_ms(result[2]) if result else None)
+        return _blank(
+            spec["id"],
+            "pc",
+            "router",
+            spec["label"],
+            observed,
+            health="down",
+            reason="upstream_error",
+            endpoint=endpoint,
+            latency_ms=_ms(result[2]) if result else None,
+        )
     models = parse_router_models(result[1])
     if models is None:
-        return _blank(spec["id"], "pc", "router", spec["label"], observed, health="degraded",
-                      reason="models_unreadable", endpoint=endpoint, latency_ms=_ms(result[2]))
-    return _blank(spec["id"], "pc", "router", spec["label"], observed, health="ok" if models else "degraded",
-                  reason=None if models else "no_models", endpoint=endpoint, latency_ms=_ms(result[2]),
-                  models=models)
+        return _blank(
+            spec["id"],
+            "pc",
+            "router",
+            spec["label"],
+            observed,
+            health="degraded",
+            reason="models_unreadable",
+            endpoint=endpoint,
+            latency_ms=_ms(result[2]),
+        )
+    return _blank(
+        spec["id"],
+        "pc",
+        "router",
+        spec["label"],
+        observed,
+        health="ok" if models else "degraded",
+        reason=None if models else "no_models",
+        endpoint=endpoint,
+        latency_ms=_ms(result[2]),
+        models=models,
+    )
 
 
 def _read_pc(target, fetch, rates, now, observed, *, unconfigured=False):
     spec = _BY_ID.get(target.get("id"))
     endpoint = target.get("base")
     if spec is None:
-        return _blank(str(target.get("id") or "pc:unknown"), "pc", "llama", "Unknown lane", observed,
-                      health="not_measured", reason="unknown_lane", endpoint=endpoint)
+        return _blank(
+            str(target.get("id") or "pc:unknown"),
+            "pc",
+            "llama",
+            "Unknown lane",
+            observed,
+            health="not_measured",
+            reason="unknown_lane",
+            endpoint=endpoint,
+        )
     if not target.get("base"):
         # No SSH user/host set up at all is "not configured"; a configured local forward listener
         # that is not accepting stays "tunnel_down" (listener state, not SSH or PC reachability).
-        return _blank(spec["id"], "pc", spec["role"], spec["label"], observed, health="not_measured",
-                      reason="not_configured" if unconfigured else "tunnel_down", endpoint=endpoint)
+        return _blank(
+            spec["id"],
+            "pc",
+            spec["role"],
+            spec["label"],
+            observed,
+            health="not_measured",
+            reason="not_configured" if unconfigured else "tunnel_down",
+            endpoint=endpoint,
+        )
     if spec["role"] == "router":
         return _read_router(spec, target["base"], fetch, observed, endpoint)
     node = _read_llama(spec, target["base"], fetch, rates, now, observed, endpoint)
@@ -481,40 +608,101 @@ def _read_lmstudio(fetch, observed):
         if failure:
             return _transport_failure(spec, "127.0.0.1:1234", observed, failure)
         if result and result[0] == 200:
-            return _blank(spec["id"], "mac", "lmstudio", spec["label"], observed, health="not_measured",
-                          reason="load_state_unreported", endpoint="127.0.0.1:1234", latency_ms=_ms(result[2]))
-        return _blank(spec["id"], "mac", "lmstudio", spec["label"], observed, health="down",
-                      reason="upstream_error", endpoint="127.0.0.1:1234")
+            return _blank(
+                spec["id"],
+                "mac",
+                "lmstudio",
+                spec["label"],
+                observed,
+                health="not_measured",
+                reason="load_state_unreported",
+                endpoint="127.0.0.1:1234",
+                latency_ms=_ms(result[2]),
+            )
+        return _blank(
+            spec["id"],
+            "mac",
+            "lmstudio",
+            spec["label"],
+            observed,
+            health="down",
+            reason="upstream_error",
+            endpoint="127.0.0.1:1234",
+        )
     latency = _ms(result[2])
     if len(loaded) == 1:
         model_id, health, reason = _model_fields(loaded[0]["id"], None)
-        return _blank(spec["id"], "mac", "lmstudio", spec["label"], observed, health=health, reason=reason,
-                      endpoint="127.0.0.1:1234", model_id=model_id, latency_ms=latency,
-                      context_limit=loaded[0]["context"])
+        return _blank(
+            spec["id"],
+            "mac",
+            "lmstudio",
+            spec["label"],
+            observed,
+            health=health,
+            reason=reason,
+            endpoint="127.0.0.1:1234",
+            model_id=model_id,
+            latency_ms=latency,
+            context_limit=loaded[0]["context"],
+        )
     if not loaded:
-        return _blank(spec["id"], "mac", "lmstudio", spec["label"], observed, health="degraded",
-                      reason="model_not_loaded", endpoint="127.0.0.1:1234", latency_ms=latency)
-    return _blank(spec["id"], "mac", "lmstudio", spec["label"], observed, health="ok",
-                  reason="multiple_loaded", endpoint="127.0.0.1:1234", latency_ms=latency)
+        return _blank(
+            spec["id"],
+            "mac",
+            "lmstudio",
+            spec["label"],
+            observed,
+            health="degraded",
+            reason="model_not_loaded",
+            endpoint="127.0.0.1:1234",
+            latency_ms=latency,
+        )
+    return _blank(
+        spec["id"],
+        "mac",
+        "lmstudio",
+        spec["label"],
+        observed,
+        health="ok",
+        reason="multiple_loaded",
+        endpoint="127.0.0.1:1234",
+        latency_ms=latency,
+    )
 
 
 def _read_veritas(fetch, observed, url):
     spec = {"id": "mac:veritas", "machine": "mac", "role": "veritas", "label": "Veritas reviewer"}
     if not url:
-        return _blank(spec["id"], "mac", "veritas", spec["label"], observed,
-                      health="not_measured", reason="not_configured")
+        return _blank(
+            spec["id"], "mac", "veritas", spec["label"], observed, health="not_measured", reason="not_configured"
+        )
     parts = urlsplit(url)
-    if (parts.scheme != "http" or parts.hostname != "127.0.0.1" or parts.port is None
-            or parts.username or parts.query or parts.fragment):
-        return _blank(spec["id"], "mac", "veritas", spec["label"], observed,
-                      health="not_measured", reason="url_not_loopback")
+    if (
+        parts.scheme != "http"
+        or parts.hostname != "127.0.0.1"
+        or parts.port is None
+        or parts.username
+        or parts.query
+        or parts.fragment
+    ):
+        return _blank(
+            spec["id"], "mac", "veritas", spec["label"], observed, health="not_measured", reason="url_not_loopback"
+        )
     failure, result = _request(fetch, url)
     if failure:
         return _transport_failure(spec, f"127.0.0.1:{parts.port}", observed, failure)
     if not result or not 200 <= result[0] < 300:
-        return _blank(spec["id"], "mac", "veritas", spec["label"], observed, health="down",
-                      reason="upstream_error", endpoint=f"127.0.0.1:{parts.port}",
-                      latency_ms=_ms(result[2]) if result else None)
+        return _blank(
+            spec["id"],
+            "mac",
+            "veritas",
+            spec["label"],
+            observed,
+            health="down",
+            reason="upstream_error",
+            endpoint=f"127.0.0.1:{parts.port}",
+            latency_ms=_ms(result[2]) if result else None,
+        )
     model_id = None
     try:
         body = json.loads(result[1])
@@ -526,62 +714,119 @@ def _read_veritas(fetch, observed, url):
             if isinstance(value, str) and value and len(value) <= 1024:
                 model_id = value
                 break
-    return _blank(spec["id"], "mac", "veritas", spec["label"], observed, health="ok", reason=None,
-                  endpoint=f"127.0.0.1:{parts.port}", model_id=model_id, latency_ms=_ms(result[2]))
+    return _blank(
+        spec["id"],
+        "mac",
+        "veritas",
+        spec["label"],
+        observed,
+        health="ok",
+        reason=None,
+        endpoint=f"127.0.0.1:{parts.port}",
+        model_id=model_id,
+        latency_ms=_ms(result[2]),
+    )
 
 
 def _mac_absent(observed):
     return [
-        _blank("mac:lmstudio", "mac", "lmstudio", "LM Studio", observed, health="not_measured", reason="not_observed",
-               endpoint="127.0.0.1:1234"),
-        _blank("mac:veritas", "mac", "veritas", "Veritas reviewer", observed, health="not_measured",
-               reason="not_observed"),
+        _blank(
+            "mac:lmstudio",
+            "mac",
+            "lmstudio",
+            "LM Studio",
+            observed,
+            health="not_measured",
+            reason="not_observed",
+            endpoint="127.0.0.1:1234",
+        ),
+        _blank(
+            "mac:veritas", "mac", "veritas", "Veritas reviewer", observed, health="not_measured", reason="not_observed"
+        ),
     ]
 
 
-def collect_map(host, *, fetch=None, rates=None, now=None, targets=None, veritas_url=None, tunnel=None, vram=None,
-                lmstudio=None, remote_config=None, remote_probes=None):
+def collect_map(
+    host,
+    *,
+    fetch=None,
+    rates=None,
+    now=None,
+    targets=None,
+    veritas_url=None,
+    tunnel=None,
+    vram=None,
+    lmstudio=None,
+    remote_config=None,
+    remote_probes=None,
+):
     """The same node ids on the Mac and the PC. A machine only fills what it can probe."""
     if host not in ("mac", "pc"):
         raise ValueError(host)
     if fetch is None:
-        deadline = time.monotonic() + .8
+        deadline = time.monotonic() + 0.8
+
         def fetch(url):
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise ProbeError("timeout")
-            return loopback_get(url, timeout=min(.4, remaining))
+            return loopback_get(url, timeout=min(0.4, remaining))
+
     rates = rates or RateMemory()
     now = time.time() if now is None else now
     observed = _iso(now)
-    pc_targets = (targets or direct_targets()) if host == "pc" else (targets if targets is not None else closed_targets())
+    pc_targets = (
+        (targets or direct_targets()) if host == "pc" else (targets if targets is not None else closed_targets())
+    )
     registry_enabled = host == "mac" and remote_config is not None
     if registry_enabled and remote_machines.replaces_legacy_pc(remote_config):
         pc_targets = []
-    remote_nodes = ((remote_probes.snapshot(remote_config, now=now) if remote_probes is not None
-                     else remote_machines.background_snapshot(remote_config, now=now))
-                    if host == "mac" else None)
+    remote_nodes = (
+        (
+            remote_probes.snapshot(remote_config, now=now)
+            if remote_probes is not None
+            else remote_machines.background_snapshot(remote_config, now=now)
+        )
+        if host == "mac"
+        else None
+    )
     # Each lane keeps its serial parsing/fallbacks, but independent lanes share
     # the deadline concurrently so a slow successful lane cannot starve another.
     with ThreadPoolExecutor(max_workers=len(pc_targets) + 2) as pool:
         if host == "mac":
             studio = pool.submit(_read_lmstudio, fetch, observed) if lmstudio is None else None
-            veritas = pool.submit(_read_veritas, fetch, observed,
-                                  os.environ.get("VERITAS_REVIEWER_URL") if veritas_url is None else veritas_url)
+            veritas = pool.submit(
+                _read_veritas,
+                fetch,
+                observed,
+                os.environ.get("VERITAS_REVIEWER_URL") if veritas_url is None else veritas_url,
+            )
         unconfigured = host == "mac" and isinstance(tunnel, dict) and tunnel.get("reason") == "host_unconfigured"
-        pc_reads = [pool.submit(_read_pc, item, fetch, rates, now, observed, unconfigured=unconfigured)
-                    for item in pc_targets]
-        mac_children = (_mac_absent(observed) if host == "pc" else
-                        [studio.result() if studio is not None else lmstudio, veritas.result()])
+        pc_reads = [
+            pool.submit(_read_pc, item, fetch, rates, now, observed, unconfigured=unconfigured) for item in pc_targets
+        ]
+        mac_children = (
+            _mac_absent(observed)
+            if host == "pc"
+            else [studio.result() if studio is not None else lmstudio, veritas.result()]
+        )
         pc_children = [read.result() for read in pc_reads]
     if host == "pc":
         tunnel = None
-    nodes = [machine_node("mac", "Mac", mac_children, observed_at=observed, vram=vram if host == "mac" else None),
-             *mac_children,
-             machine_node("pc", "PC", pc_children, observed_at=observed, vram=vram if host == "pc" else None),
-             *pc_children]
+    nodes = [
+        machine_node("mac", "Mac", mac_children, observed_at=observed, vram=vram if host == "mac" else None),
+        *mac_children,
+        machine_node("pc", "PC", pc_children, observed_at=observed, vram=vram if host == "pc" else None),
+        *pc_children,
+    ]
     nodes.extend(client_nodes(nodes))
-    document = {"schema": MAP_SCHEMA, "observedAt": observed, "tunnel": tunnel, "nodes": nodes, "edges": edges_for(nodes)}
+    document = {
+        "schema": MAP_SCHEMA,
+        "observedAt": observed,
+        "tunnel": tunnel,
+        "nodes": nodes,
+        "edges": edges_for(nodes),
+    }
     return remote_machines.extend_map(document, remote_config, remote_nodes) if registry_enabled else document
 
 
@@ -589,27 +834,37 @@ def _snapshot_lmstudio(snapshot):
     """Reuse telemetry's inventory and verified endpoint; do not probe a second listener."""
     sampled = snapshot.get("fullSampledAt", snapshot.get("sampledAt"))
     observed = _iso(sampled) if _finite(sampled) else None
-    node = _blank("mac:lmstudio", "mac", "lmstudio", "LM Studio", observed,
-                  health="not_measured", reason="inventory_unverified")
+    node = _blank(
+        "mac:lmstudio", "mac", "lmstudio", "LM Studio", observed, health="not_measured", reason="inventory_unverified"
+    )
     sources = [source for source in snapshot.get("sources", []) if source.get("id") == "lmstudio-api"]
     if len(sources) != 1:
         return node
     source = sources[0]
     owner = source.get("verifiedListener") or {}
     endpoint = source.get("endpoint")
-    if (source.get("state") != "live" or source.get("route") != "direct"
-            or source.get("modelsComplete") is not True or owner.get("kind") != "lmstudio"
-            or type(owner.get("pid")) is not int or owner["pid"] <= 0 or not owner.get("executable")
-            or not isinstance(endpoint, str) or not re.fullmatch(r"127\.0\.0\.1:[1-9][0-9]{0,4}", endpoint)
-            or int(endpoint.rsplit(":", 1)[1]) > 65535):
+    if (
+        source.get("state") != "live"
+        or source.get("route") != "direct"
+        or source.get("modelsComplete") is not True
+        or owner.get("kind") != "lmstudio"
+        or type(owner.get("pid")) is not int
+        or owner["pid"] <= 0
+        or not owner.get("executable")
+        or not isinstance(endpoint, str)
+        or not re.fullmatch(r"127\.0\.0\.1:[1-9][0-9]{0,4}", endpoint)
+        or int(endpoint.rsplit(":", 1)[1]) > 65535
+    ):
         return node
     node["endpoint"] = "http://" + endpoint
     rows = [row for row in snapshot.get("models", []) if row.get("host") == "mac"]
     unknown = any(type(row.get("loaded")) is not bool for row in rows)
     rows = [row for row in rows if type(row.get("loaded")) is bool]
-    if (not _finite(sampled) or not -2 <= time.time() - sampled <= 3
-            or any(not _finite(row.get("ageSeconds"))
-                   or not 0 <= row["ageSeconds"] <= 3 for row in rows)):
+    if (
+        not _finite(sampled)
+        or not -2 <= time.time() - sampled <= 3
+        or any(not _finite(row.get("ageSeconds")) or not 0 <= row["ageSeconds"] <= 3 for row in rows)
+    ):
         return node
     loaded = {row.get("modelKey") or row["id"]: row for row in rows if row.get("loaded") is True}
     if unknown and not loaded:
@@ -635,8 +890,11 @@ def attach(snapshot, host, *, previous=None, **kwargs):
     except Exception as error:
         # Keep historical observations and their original times. A diagnostic is
         # a newly observed failure, not a successful replacement measurement.
-        document = (copy.deepcopy(previous) if isinstance(previous, dict) and previous.get("schema") == MAP_SCHEMA
-                    else {"schema": MAP_SCHEMA, "nodes": [], "edges": []})
+        document = (
+            copy.deepcopy(previous)
+            if isinstance(previous, dict) and previous.get("schema") == MAP_SCHEMA
+            else {"schema": MAP_SCHEMA, "nodes": [], "edges": []}
+        )
         last_success = None
         try:
             stamp = dt.datetime.fromisoformat(document.get("observedAt", "").replace("Z", "+00:00"))

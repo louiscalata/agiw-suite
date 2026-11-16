@@ -1,4 +1,5 @@
 """Compile production coordination code with synthetic app inventory; never launch Monitor."""
+
 from pathlib import Path
 import os
 import subprocess
@@ -7,14 +8,14 @@ import tempfile
 import unittest
 
 
-@unittest.skipUnless(sys.platform == 'darwin', 'native Monitor coordination requires macOS and Cocoa')
+@unittest.skipUnless(sys.platform == "darwin", "native Monitor coordination requires macOS and Cocoa")
 class MonitorInstanceTests(unittest.TestCase):
     def test_native_policy_and_lifecycle(self):
-        source = Path(__file__).with_name('Monitor.swift').read_text()
-        begin = source.index('// BEGIN MONITOR INSTANCE POLICY')
-        end_marker = '// END MONITOR INSTANCE COORDINATOR'
+        source = Path(__file__).with_name("Monitor.swift").read_text()
+        begin = source.index("// BEGIN MONITOR INSTANCE POLICY")
+        end_marker = "// END MONITOR INSTANCE COORDINATOR"
         end = source.index(end_marker) + len(end_marker)
-        harness = r'''
+        harness = r"""
 let full = "local.codemode.inference-monitor"
 let mas = "com.louiscalata.agiw.inference-monitor.mas"
 func app(_ id: String, _ pid: Int32, _ date: Double?, _ terminated: Bool = false,
@@ -140,17 +141,18 @@ inventory = [older]
 queued?()
 check(selfExits == 1 && cancellations == 3, "queued callback after teardown cannot exit")
 print("PASS \(checks) production policy/lifecycle assertions")
-'''
-        environment = dict(os.environ, DEVELOPER_DIR='/Applications/Xcode.app/Contents/Developer')
-        with tempfile.TemporaryDirectory(prefix='agiw-monitor-instance-') as directory:
+"""
+        environment = dict(os.environ, DEVELOPER_DIR="/Applications/Xcode.app/Contents/Developer")
+        with tempfile.TemporaryDirectory(prefix="agiw-monitor-instance-") as directory:
             stage = Path(directory)
-            swift = stage / 'main.swift'
-            swift.write_text('import Cocoa\n' + source[begin:end] + '\n' + harness)
-            binary = stage / 'policy-tests'
-            subprocess.run(['xcrun', 'swiftc', '-framework', 'Cocoa', str(swift), '-o', str(binary)],
-                           env=environment, check=True)
+            swift = stage / "main.swift"
+            swift.write_text("import Cocoa\n" + source[begin:end] + "\n" + harness)
+            binary = stage / "policy-tests"
+            subprocess.run(
+                ["xcrun", "swiftc", "-framework", "Cocoa", str(swift), "-o", str(binary)], env=environment, check=True
+            )
             subprocess.run([str(binary)], env=environment, check=True)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

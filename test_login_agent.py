@@ -36,26 +36,38 @@ class LoginAgentConfigTests(unittest.TestCase):
                 env["AGIW_SHARE_HOSTS"] = hosts
             if username is not None:
                 env["AGIW_SHARE_USERNAME"] = username
-            result = subprocess.run([sys.executable, "-c", plist_writer(),
-                                     str(binary), str(destination), str(state)],
-                                    env=env, capture_output=True, text=True, timeout=5)
+            result = subprocess.run(
+                [sys.executable, "-c", plist_writer(), str(binary), str(destination), str(state)],
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
             if existing_mode is not None and result.returncode == 0:
                 destination.chmod(existing_mode)
-                result = subprocess.run([sys.executable, "-c", plist_writer(),
-                                         str(binary), str(destination), str(state)],
-                                        env=env, capture_output=True, text=True, timeout=5)
+                result = subprocess.run(
+                    [sys.executable, "-c", plist_writer(), str(binary), str(destination), str(state)],
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
             payload = plistlib.loads(destination.read_bytes()) if destination.exists() else None
             mode = destination.stat().st_mode & 0o777 if destination.exists() else None
             return result, payload, mode
 
     def test_explicit_share_settings_survive_in_private_plist(self):
-        result, payload, mode = self.run_writer(hosts="10.222.33.10,10.222.33.20,pc.example.invalid",
-                                                username="suiteuser")
+        result, payload, mode = self.run_writer(
+            hosts="10.222.33.10,10.222.33.20,pc.example.invalid", username="suiteuser"
+        )
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(payload["EnvironmentVariables"], {
-            "AGIW_SHARE_HOSTS": "10.222.33.10,10.222.33.20,pc.example.invalid",
-            "AGIW_SHARE_USERNAME": "suiteuser",
-        })
+        self.assertEqual(
+            payload["EnvironmentVariables"],
+            {
+                "AGIW_SHARE_HOSTS": "10.222.33.10,10.222.33.20,pc.example.invalid",
+                "AGIW_SHARE_USERNAME": "suiteuser",
+            },
+        )
         self.assertEqual(mode, 0o600)
 
     def test_absent_settings_do_not_create_environment_fields(self):
@@ -65,8 +77,7 @@ class LoginAgentConfigTests(unittest.TestCase):
         self.assertEqual(mode, 0o600)
 
     def test_identical_existing_plist_is_tightened_to_owner_only(self):
-        result, payload, mode = self.run_writer(hosts="10.222.33.10", username="suiteuser",
-                                                existing_mode=0o644)
+        result, payload, mode = self.run_writer(hosts="10.222.33.10", username="suiteuser", existing_mode=0o644)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(payload["EnvironmentVariables"]["AGIW_SHARE_USERNAME"], "suiteuser")
         self.assertEqual(mode, 0o600)
@@ -80,9 +91,12 @@ class LoginAgentConfigTests(unittest.TestCase):
             os.mkfifo(destination)
             state = root / "state"
             state.mkdir()
-            result = subprocess.run([sys.executable, "-c", plist_writer(),
-                                     str(binary), str(destination), str(state)],
-                                    capture_output=True, text=True, timeout=2)
+            result = subprocess.run(
+                [sys.executable, "-c", plist_writer(), str(binary), str(destination), str(state)],
+                capture_output=True,
+                text=True,
+                timeout=2,
+            )
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("unsafe login agent", result.stderr)
 
@@ -115,8 +129,7 @@ class LoginAgentConfigTests(unittest.TestCase):
     def test_exported_dataset_dir_survives_in_private_plist(self):
         result, payload, mode = self.run_writer(dataset_dir="/Users/owner/eci-dataset")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(payload["EnvironmentVariables"],
-                         {"AGIW_ECI_TUNING_DATASET_DIR": "/Users/owner/eci-dataset"})
+        self.assertEqual(payload["EnvironmentVariables"], {"AGIW_ECI_TUNING_DATASET_DIR": "/Users/owner/eci-dataset"})
         self.assertEqual(mode, 0o600)
 
     def test_unset_dataset_dir_adds_no_environment_key(self):
@@ -133,14 +146,18 @@ class LoginAgentConfigTests(unittest.TestCase):
             self.assertIsNone(mode)
 
     def test_dataset_dir_and_share_settings_are_both_stored(self):
-        result, payload, mode = self.run_writer(hosts="10.222.33.10", username="suiteuser",
-                                                dataset_dir="/Users/owner/eci-dataset")
+        result, payload, mode = self.run_writer(
+            hosts="10.222.33.10", username="suiteuser", dataset_dir="/Users/owner/eci-dataset"
+        )
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(payload["EnvironmentVariables"], {
-            "AGIW_ECI_TUNING_DATASET_DIR": "/Users/owner/eci-dataset",
-            "AGIW_SHARE_HOSTS": "10.222.33.10",
-            "AGIW_SHARE_USERNAME": "suiteuser",
-        })
+        self.assertEqual(
+            payload["EnvironmentVariables"],
+            {
+                "AGIW_ECI_TUNING_DATASET_DIR": "/Users/owner/eci-dataset",
+                "AGIW_SHARE_HOSTS": "10.222.33.10",
+                "AGIW_SHARE_USERNAME": "suiteuser",
+            },
+        )
         self.assertEqual(mode, 0o600)
 
     def test_existing_plist_without_dataset_dir_is_not_replaced(self):
@@ -152,9 +169,11 @@ class LoginAgentConfigTests(unittest.TestCase):
             state = root / "state"
             state.mkdir()
             args = [sys.executable, "-c", plist_writer(), str(binary), str(destination), str(state)]
-            env = {key: value for key, value in os.environ.items()
-                   if key not in ("AGIW_SHARE_HOSTS", "AGIW_SHARE_USERNAME",
-                                  "AGIW_ECI_TUNING_DATASET_DIR")}
+            env = {
+                key: value
+                for key, value in os.environ.items()
+                if key not in ("AGIW_SHARE_HOSTS", "AGIW_SHARE_USERNAME", "AGIW_ECI_TUNING_DATASET_DIR")
+            }
             first = subprocess.run(args, env=env, capture_output=True, text=True, timeout=5)
             self.assertEqual(first.returncode, 0, first.stderr)
             before = destination.read_bytes()

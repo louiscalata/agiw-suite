@@ -20,25 +20,48 @@ from remote_machines import PROTECTED_PORTS
 ROOT = Path(__file__).resolve().parent
 LANE = "registry:bench:lane-a"
 OTHER = "registry:bench:lane-b"
-MODEL = dict(name="synthetic candidate", file_sha256="a" * 64, quantization="Q4_K_M",
-             file_size_bytes=100)
-HARDWARE = dict(machine_label="placeholder-machine", cpu="placeholder-cpu", gpu="placeholder-gpu",
-                memory={"bytes": 1000}, runtime_build_id="placeholder-build", memory_bytes=1000)
-SETTINGS = dict(scorer_id="parsed_exact_match-v1", prompt_template_id="synthetic-v1", temperature=0,
-                max_tokens=128, backend="fake", backend_version="1", ctx=4096, seed=42, stop=[],
-                system_message="", n_epochs=1)
+MODEL = dict(name="synthetic candidate", file_sha256="a" * 64, quantization="Q4_K_M", file_size_bytes=100)
+HARDWARE = dict(
+    machine_label="placeholder-machine",
+    cpu="placeholder-cpu",
+    gpu="placeholder-gpu",
+    memory={"bytes": 1000},
+    runtime_build_id="placeholder-build",
+    memory_bytes=1000,
+)
+SETTINGS = dict(
+    scorer_id="parsed_exact_match-v1",
+    prompt_template_id="synthetic-v1",
+    temperature=0,
+    max_tokens=128,
+    backend="fake",
+    backend_version="1",
+    ctx=4096,
+    seed=42,
+    stop=[],
+    system_message="",
+    n_epochs=1,
+)
 STAMP = "2026-11-12T12:00:00+00:00"
 
 
 def datasets(n=6):
-    return {"arc": {"items": [dict(id=str(i), answer="A", question="synthetic") for i in range(n)],
-                    "revision": None}}
+    return {"arc": {"items": [dict(id=str(i), answer="A", question="synthetic") for i in range(n)], "revision": None}}
 
 
 def observation():
-    return dict(outcome="correct", parsed=True, finish_reason="stop", cut_off=False,
-                answer_value="A", prompt_tokens=8, completion_tokens=4, seconds=2, error=None,
-                prediction="A")
+    return dict(
+        outcome="correct",
+        parsed=True,
+        finish_reason="stop",
+        cut_off=False,
+        answer_value="A",
+        prompt_tokens=8,
+        completion_tokens=4,
+        seconds=2,
+        error=None,
+        prediction="A",
+    )
 
 
 def make_record(count=4, wall_budget_s="60", step=0, model=None, max_tokens=128, settings=True):
@@ -54,10 +77,16 @@ def make_record(count=4, wall_budget_s="60", step=0, model=None, max_tokens=128,
     model = model or copy.deepcopy(MODEL)
     settings = dict(copy.deepcopy(SETTINGS), max_tokens=max_tokens) if settings else None
     return fast.run_check(
-        plan, data, lambda item: observation(), model=model, hardware=copy.deepcopy(HARDWARE),
+        plan,
+        data,
+        lambda item: observation(),
+        model=model,
+        hardware=copy.deepcopy(HARDWARE),
         runtime_settings=settings,
         pre=fast.pre_check(model["file_size_bytes"], model["quantization"], 800),
-        clock=clock, created_at=STAMP)
+        clock=clock,
+        created_at=STAMP,
+    )
 
 
 class Clock:
@@ -112,15 +141,17 @@ class Runner:
 
 def record_for(spec, **changes):
     """The record the adapter would return for ``spec``: its model name and its max_tokens."""
-    options = dict(count=spec["count"], wall_budget_s=spec["wall_budget_s"],
-                   max_tokens=spec["max_tokens"],
-                   model=dict(MODEL, name=spec["facts"].get("model_label", spec["model_id"])))
+    options = dict(
+        count=spec["count"],
+        wall_budget_s=spec["wall_budget_s"],
+        max_tokens=spec["max_tokens"],
+        model=dict(MODEL, name=spec["facts"].get("model_label", spec["model_id"])),
+    )
     options.update(changes)
     return make_record(**options)
 
 
-NORMAL = {"model_id": "synthetic/candidate", "max_tokens": 16384, "count": 4,
-          "wall_budget_s": "60", "facts": {}}
+NORMAL = {"model_id": "synthetic/candidate", "max_tokens": 16384, "count": 4, "wall_budget_s": "60", "facts": {}}
 
 
 class Sink:
@@ -135,15 +166,34 @@ class Sink:
 
 
 def targets(port=18300):
-    return [{"id": LANE, "machine": "registry:bench", "lane": "lane-a", "label": "Lane A",
-             "base": "http://127.0.0.1:%d" % port, "timeoutSeconds": 1.5},
-            {"id": OTHER, "machine": "registry:bench", "lane": "lane-b", "label": "Lane B",
-             "base": "http://127.0.0.1:18301", "timeoutSeconds": 1.5}]
+    return [
+        {
+            "id": LANE,
+            "machine": "registry:bench",
+            "lane": "lane-a",
+            "label": "Lane A",
+            "base": "http://127.0.0.1:%d" % port,
+            "timeoutSeconds": 1.5,
+        },
+        {
+            "id": OTHER,
+            "machine": "registry:bench",
+            "lane": "lane-b",
+            "label": "Lane B",
+            "base": "http://127.0.0.1:18301",
+            "timeoutSeconds": 1.5,
+        },
+    ]
 
 
 def request(**changes):
-    value = {"submission_id": "submission-0001", "target": LANE,
-             "model_id": "synthetic/candidate", "sample_set": "screening", "count": 4}
+    value = {
+        "submission_id": "submission-0001",
+        "target": LANE,
+        "model_id": "synthetic/candidate",
+        "sample_set": "screening",
+        "count": 4,
+    }
     value.update(changes)
     return value
 
@@ -157,16 +207,23 @@ class EngineCase(unittest.TestCase):
         self.gate = {"open": True}
         self.lanes = targets()
         self.runner, self.sink, self.clock, self.now = Runner(), Sink(), Clock(), Now()
-        self.policy = jobs.Policy(gate=lambda: self.gate["open"], allowed_targets={LANE},
-                                  max_wall_budget_s="600", default_wall_budget_s="60")
+        self.policy = jobs.Policy(
+            gate=lambda: self.gate["open"], allowed_targets={LANE}, max_wall_budget_s="600", default_wall_budget_s="60"
+        )
         self.engines = []
         self.engine = self.open()
 
     def open(self, state=None, **changes):
-        options = dict(policy=self.policy, targets=lambda: self.lanes,
-                       sample_sets={"screening": [str(self.root / "samples.json")]},
-                       runner=self.runner, sink=self.sink, now=self.now, clock=self.clock,
-                       plan_size=lambda files, count: count)
+        options = dict(
+            policy=self.policy,
+            targets=lambda: self.lanes,
+            sample_sets={"screening": [str(self.root / "samples.json")]},
+            runner=self.runner,
+            sink=self.sink,
+            now=self.now,
+            clock=self.clock,
+            plan_size=lambda files, count: count,
+        )
         options.update(changes)
         engine = jobs.Engine(state or self.state, **options)
         self.engines.append(engine)
@@ -195,31 +252,65 @@ class EngineCase(unittest.TestCase):
 class RequestTests(EngineCase):
     def test_defaults_become_explicit_in_the_reviewed_request(self):
         normalized = jobs.normalize_request(request(), self.policy)
-        self.assertEqual(normalized, {
-            "submission_id": "submission-0001", "target": LANE, "model_id": "synthetic/candidate",
-            "sample_set": "screening", "count": 4, "max_tokens": 16384, "wall_budget_s": "60",
-            "request_timeout_s": 180, "disable_thinking": False, "facts": {}})
+        self.assertEqual(
+            normalized,
+            {
+                "submission_id": "submission-0001",
+                "target": LANE,
+                "model_id": "synthetic/candidate",
+                "sample_set": "screening",
+                "count": 4,
+                "max_tokens": 16384,
+                "wall_budget_s": "60",
+                "request_timeout_s": 180,
+                "disable_thinking": False,
+                "facts": {},
+            },
+        )
         self.assertEqual(jobs.normalize_request(normalized, self.policy), normalized)
 
     def test_malformed_requests_refuse(self):
-        cases = [None, [], request(extra=1), request(submission_id="short"), request(submission_id=7),
-                 request(target="lane-a"), request(target="registry:bench"), request(sample_set="../x"),
-                 request(model_id="/private/model.gguf"), request(model_id="http://x/y"),
-                 request(count=0), request(count=True), request(count=jobs.MAX_COUNT + 1),
-                 request(max_tokens=8191), request(max_tokens=jobs.MAX_MAX_TOKENS + 1),
-                 request(request_timeout_s=0), request(request_timeout_s=1.5),
-                 request(disable_thinking="no"), request(wall_budget_s=60),
-                 request(wall_budget_s="0"), request(wall_budget_s="1e3"),
-                 request(facts=[]), request(facts={"unknown": 1}),
-                 request(facts={"model_sha256": "A" * 64}), request(facts={"file_size_bytes": 0}),
-                 request(facts={"cpu": "/dev/cpu"}), request(facts={"quantization": "q4_k_m"})]
+        cases = [
+            None,
+            [],
+            request(extra=1),
+            request(submission_id="short"),
+            request(submission_id=7),
+            request(target="lane-a"),
+            request(target="registry:bench"),
+            request(sample_set="../x"),
+            request(model_id="/private/model.gguf"),
+            request(model_id="http://x/y"),
+            request(count=0),
+            request(count=True),
+            request(count=jobs.MAX_COUNT + 1),
+            request(max_tokens=8191),
+            request(max_tokens=jobs.MAX_MAX_TOKENS + 1),
+            request(request_timeout_s=0),
+            request(request_timeout_s=1.5),
+            request(disable_thinking="no"),
+            request(wall_budget_s=60),
+            request(wall_budget_s="0"),
+            request(wall_budget_s="1e3"),
+            request(facts=[]),
+            request(facts={"unknown": 1}),
+            request(facts={"model_sha256": "A" * 64}),
+            request(facts={"file_size_bytes": 0}),
+            request(facts={"cpu": "/dev/cpu"}),
+            request(facts={"quantization": "q4_k_m"}),
+        ]
         for value in cases:
             with self.subTest(value=value):
                 self.refused("invalid_request", jobs.normalize_request, value, self.policy)
 
     def test_accepted_facts_are_kept(self):
-        facts = {"model_sha256": "b" * 64, "quantization": "Q4_K_M", "file_size_bytes": 100,
-                 "machine_label": "placeholder machine", "cpu": None}
+        facts = {
+            "model_sha256": "b" * 64,
+            "quantization": "Q4_K_M",
+            "file_size_bytes": 100,
+            "machine_label": "placeholder machine",
+            "cpu": None,
+        }
         normalized = jobs.normalize_request(request(facts=facts), self.policy)
         self.assertEqual(normalized["facts"], {key: value for key, value in facts.items() if value})
 
@@ -231,12 +322,16 @@ class RequestTests(EngineCase):
         self.assertEqual(jobs.normalize_request(request(wall_budget_s="600"), self.policy)["wall_budget_s"], "600")
 
     def test_policy_rejects_undecidable_settings(self):
-        for options in (dict(gate=True), dict(allowed_targets={"lane-a"}),
-                        dict(max_wall_budget_s=60), dict(default_wall_budget_s="60"),
-                        dict(max_wall_budget_s="60", default_wall_budget_s="61"),
-                        dict(max_wall_budget_s="1." + "0" * 31),
-                        dict(max_wall_budget_s="9" * 33),
-                        dict(max_wall_budget_s="60", default_wall_budget_s="1." + "0" * 5000)):
+        for options in (
+            dict(gate=True),
+            dict(allowed_targets={"lane-a"}),
+            dict(max_wall_budget_s=60),
+            dict(default_wall_budget_s="60"),
+            dict(max_wall_budget_s="60", default_wall_budget_s="61"),
+            dict(max_wall_budget_s="1." + "0" * 31),
+            dict(max_wall_budget_s="9" * 33),
+            dict(max_wall_budget_s="60", default_wall_budget_s="1." + "0" * 5000),
+        ):
             with self.subTest(options=str(options)[:80]), self.assertRaises(ValueError) as caught:
                 jobs.Policy(**options)
             self.assertNotIn("digits", str(caught.exception))
@@ -244,20 +339,24 @@ class RequestTests(EngineCase):
     def test_a_wall_budget_is_at_most_32_characters(self):
         self.assertEqual(jobs.MAX_BUDGET_CHARS, 32)
         longest = "1." + "0" * 30
-        self.assertEqual(jobs.normalize_request(request(wall_budget_s=longest), self.policy)["wall_budget_s"],
-                         longest)
+        self.assertEqual(jobs.normalize_request(request(wall_budget_s=longest), self.policy)["wall_budget_s"], longest)
         jobs.Policy(max_wall_budget_s="9" * 32, default_wall_budget_s=longest)
         # 5,000 digits is past the integer conversion limit of newer interpreters;
         # about a million is what the older one accepted and journalled.
         for digits in (31, 5000, 1040000):
             for value in ("1." + "0" * digits, "9" * (digits + 2)):
                 with self.subTest(digits=digits, kind=value[:2]):
-                    error = self.refused("invalid_request", jobs.normalize_request,
-                                         request(wall_budget_s=value), self.policy)
+                    error = self.refused(
+                        "invalid_request", jobs.normalize_request, request(wall_budget_s=value), self.policy
+                    )
                     self.assertLess(len(str(error)), 200)
                     self.refused("invalid_request", self.engine.preview, request(wall_budget_s=value))
-                    self.refused("invalid_request", self.engine.submit, request(wall_budget_s=value),
-                                 {"reviewed": True, "review_sha256": "0" * 64})
+                    self.refused(
+                        "invalid_request",
+                        self.engine.submit,
+                        request(wall_budget_s=value),
+                        {"reviewed": True, "review_sha256": "0" * 64},
+                    )
         self.assertEqual(self.journal(), b"")
 
     def test_a_policy_budget_changed_to_an_overlong_value_refuses(self):
@@ -282,8 +381,9 @@ class RequestTests(EngineCase):
         self.assertEqual(kept["facts"], {"model_label": "vendor/label-1"})
         for label in ("synthetic candidate", "/private/model.gguf", "http://x/y", "../label", "", 7):
             with self.subTest(label=label):
-                self.refused("invalid_request", jobs.normalize_request,
-                             request(facts={"model_label": label}), self.policy)
+                self.refused(
+                    "invalid_request", jobs.normalize_request, request(facts={"model_label": label}), self.policy
+                )
 
 
 class GateTests(EngineCase):
@@ -315,8 +415,7 @@ class GateTests(EngineCase):
             raise RuntimeError("gate source failed")
 
         for gate in (lambda: 1, lambda: "yes", lambda: None, lambda: [True], broken):
-            policy = jobs.Policy(gate=gate, allowed_targets={LANE}, max_wall_budget_s="600",
-                                 default_wall_budget_s="60")
+            policy = jobs.Policy(gate=gate, allowed_targets={LANE}, max_wall_budget_s="600", default_wall_budget_s="60")
             self.assertIs(policy.gate_open(), False)
 
     def test_preview_names_every_reason_and_writes_nothing(self):
@@ -324,8 +423,10 @@ class GateTests(EngineCase):
         self.lanes = []
         engine = self.open(state=self.root / "preview", runner=None)
         preview = engine.preview(request(sample_set="absent"))
-        self.assertEqual([item["code"] for item in preview["refusals"]],
-                         ["gate_closed", "unknown_target", "unknown_sample_set", "not_configured"])
+        self.assertEqual(
+            [item["code"] for item in preview["refusals"]],
+            ["gate_closed", "unknown_target", "unknown_sample_set", "not_configured"],
+        )
         self.assertIs(preview["effects"]["starts_model"], False)
         self.assertIsNone(preview["effects"]["planned_requests"])
         self.assertEqual((self.root / "preview" / "jobs.jsonl").read_bytes(), b"")
@@ -347,29 +448,42 @@ class GateTests(EngineCase):
 class ReviewTests(EngineCase):
     def test_unreviewed_submissions_refuse(self):
         sha = self.reviewed()["review_sha256"]
-        for review in (None, True, {}, {"reviewed": True}, {"reviewed": False, "review_sha256": sha},
-                       {"reviewed": 1, "review_sha256": sha}, {"reviewed": "true", "review_sha256": sha},
-                       {"reviewed": True, "review_sha256": sha, "note": "x"}):
+        for review in (
+            None,
+            True,
+            {},
+            {"reviewed": True},
+            {"reviewed": False, "review_sha256": sha},
+            {"reviewed": 1, "review_sha256": sha},
+            {"reviewed": "true", "review_sha256": sha},
+            {"reviewed": True, "review_sha256": sha, "note": "x"},
+        ):
             with self.subTest(review=review):
                 self.refused("not_reviewed", self.engine.submit, request(), review)
         self.assertEqual(self.journal(), b"")
 
     def test_a_review_binds_one_exact_request(self):
         review = self.reviewed()
-        for changed in (request(count=5), request(model_id="synthetic/other"), request(target=OTHER),
-                        request(wall_budget_s="61"), request(submission_id="submission-0002"),
-                        request(disable_thinking=True), request(facts={"quantization": "Q8_0"})):
+        for changed in (
+            request(count=5),
+            request(model_id="synthetic/other"),
+            request(target=OTHER),
+            request(wall_budget_s="61"),
+            request(submission_id="submission-0002"),
+            request(disable_thinking=True),
+            request(facts={"quantization": "Q8_0"}),
+        ):
             with self.subTest(changed=changed):
                 self.refused("review_mismatch", self.engine.submit, changed, review)
-        self.refused("review_mismatch", self.engine.submit, request(),
-                     {"reviewed": True, "review_sha256": "0" * 64})
+        self.refused("review_mismatch", self.engine.submit, request(), {"reviewed": True, "review_sha256": "0" * 64})
         self.assertEqual(self.journal(), b"")
 
 
 class TargetTests(EngineCase):
     def test_targets_outside_the_registry_or_policy_refuse(self):
-        self.refused("target_not_allowed", self.engine.submit, request(target=OTHER),
-                     self.reviewed(request(target=OTHER)))
+        self.refused(
+            "target_not_allowed", self.engine.submit, request(target=OTHER), self.reviewed(request(target=OTHER))
+        )
         value = request(target="registry:bench:absent")
         self.refused("unknown_target", self.engine.submit, value, self.reviewed(value))
         review = self.reviewed()
@@ -393,8 +507,15 @@ class TargetTests(EngineCase):
 
     def test_only_a_loopback_lane_address_is_a_target(self):
         review = self.reviewed()
-        for base in ("http://localhost:18300", "https://127.0.0.1:18300", "http://127.0.0.1",
-                     "http://127.0.0.1:18300/v2", "http://127.0.0.1:99999", "http://192.0.2.1:18300", 7):
+        for base in (
+            "http://localhost:18300",
+            "https://127.0.0.1:18300",
+            "http://127.0.0.1",
+            "http://127.0.0.1:18300/v2",
+            "http://127.0.0.1:99999",
+            "http://192.0.2.1:18300",
+            7,
+        ):
             with self.subTest(base=base):
                 self.lanes = targets()
                 self.lanes[0]["base"] = base
@@ -458,8 +579,10 @@ class RunTests(EngineCase):
         self.assertIsNone(done["progress"])
         self.assertEqual(len(self.sink.records), 1)
         self.assertEqual(done["result"]["record_id"], self.sink.records[0]["record_id"])
-        self.assertEqual(done["result"]["benchmarks"],
-                         [{"benchmark": "arc", "planned": 4, "attempted": 4, "stop_reason": "complete"}])
+        self.assertEqual(
+            done["result"]["benchmarks"],
+            [{"benchmark": "arc", "planned": 4, "attempted": 4, "stop_reason": "complete"}],
+        )
         spec = self.runner.calls[0]
         self.assertEqual(spec["base_url"], "http://127.0.0.1:18300")
         self.assertEqual(spec["output_dir"], str(self.state / "runs" / job["job_id"]))
@@ -501,16 +624,16 @@ class RunTests(EngineCase):
                 self.submit(request(submission_id="submission-%04d" % index))
                 self.runner.result = result
                 done = self.engine.run_next()
-                self.assertEqual((done["state"], done["reason"]),
-                                 ("failed", "The runner returned an invalid record."))
+                self.assertEqual((done["state"], done["reason"]), ("failed", "The runner returned an invalid record."))
         self.assertEqual(self.sink.records, [])
 
     def test_an_incomplete_record_is_kept_out_of_the_dataset(self):
         self.submit(request(wall_budget_s="10"))
         self.runner.result = record_for(dict(NORMAL, wall_budget_s="10"), step=3)
         done = self.engine.run_next()
-        self.assertEqual((done["state"], done["reason"]),
-                         ("failed", "The check is incomplete; the checkpoint is kept."))
+        self.assertEqual(
+            (done["state"], done["reason"]), ("failed", "The check is incomplete; the checkpoint is kept.")
+        )
         bench = done["result"]["benchmarks"][0]
         self.assertEqual(bench["stop_reason"], "budget")
         self.assertLess(bench["attempted"], bench["planned"])
@@ -541,8 +664,9 @@ class RunTests(EngineCase):
                 self.submit(request(submission_id="submission-%04d" % index, **changes))
                 self.runner.result = result
                 done = self.engine.run_next()
-                self.assertEqual((done["state"], done["reason"]),
-                                 ("failed", "The record does not match the reviewed request."))
+                self.assertEqual(
+                    (done["state"], done["reason"]), ("failed", "The record does not match the reviewed request.")
+                )
                 self.assertEqual(done["result"]["record_id"], result["record_id"])
         self.assertEqual(self.sink.records, [])
         self.assertEqual(len(self.runner.calls), len(cases))
@@ -558,8 +682,9 @@ class RunTests(EngineCase):
         self.submit()
         self.sink.error = OSError("disk")
         done = self.engine.run_next()
-        self.assertEqual((done["state"], done["reason"]),
-                         ("failed", "The record could not be ingested; the dataset is unchanged."))
+        self.assertEqual(
+            (done["state"], done["reason"]), ("failed", "The record could not be ingested; the dataset is unchanged.")
+        )
         self.assertTrue(done["resumable"])
 
     def test_one_job_at_a_time(self):
@@ -621,8 +746,9 @@ class CancelTests(EngineCase):
         self.runner.between = between
         done = self.engine.run_next()
         self.assertEqual(self.runner.stops, [None, None, "cancel"])
-        self.assertEqual([(view["state"], view["cancel_requested"]) for view in views],
-                         [("running", True), ("running", True)])
+        self.assertEqual(
+            [(view["state"], view["cancel_requested"]) for view in views], [("running", True), ("running", True)]
+        )
         self.assertEqual((done["state"], done["reason"]), ("cancelled", "Cancelled while running."))
         self.assertEqual(self.sink.records, [])
         states = [json.loads(line)["state"] for line in self.journal().splitlines()]
@@ -697,9 +823,13 @@ class RestartTests(EngineCase):
         self.assertEqual(jobs.read_status(target)["active"], job["job_id"])
         engine = self.open(state=target)
         status = engine.status()
-        self.assertEqual([(item["state"], item["reason"]) for item in status["jobs"]], [
-            ("interrupted", "The engine stopped while the job was running."),
-            ("interrupted", "The engine stopped before the job started.")])
+        self.assertEqual(
+            [(item["state"], item["reason"]) for item in status["jobs"]],
+            [
+                ("interrupted", "The engine stopped while the job was running."),
+                ("interrupted", "The engine stopped before the job started."),
+            ],
+        )
         self.assertIsNone(status["active"])
         self.assertIsNone(engine.run_next())
         self.assertEqual(self.runner.calls, [])
@@ -736,13 +866,15 @@ class RestartTests(EngineCase):
         self.assertEqual(self.runner.calls[0]["attempt"], 2)
         self.assertEqual(engine.resume(job_id, review), done)
         self.refused("not_resumable", engine.preview_resume, job_id)
-        self.refused("review_mismatch", engine.resume, job_id,
-                     {"reviewed": True, "review_sha256": "0" * 64})
-        states = [(entry["attempt"], entry["state"]) for entry in
-                  map(json.loads, (target / "jobs.jsonl").read_bytes().splitlines())
-                  if entry.get("job_id") == job_id]
-        self.assertEqual(states, [(1, "queued"), (1, "running"), (1, "interrupted"),
-                                  (2, "queued"), (2, "running"), (2, "finished")])
+        self.refused("review_mismatch", engine.resume, job_id, {"reviewed": True, "review_sha256": "0" * 64})
+        states = [
+            (entry["attempt"], entry["state"])
+            for entry in map(json.loads, (target / "jobs.jsonl").read_bytes().splitlines())
+            if entry.get("job_id") == job_id
+        ]
+        self.assertEqual(
+            states, [(1, "queued"), (1, "running"), (1, "interrupted"), (2, "queued"), (2, "running"), (2, "finished")]
+        )
 
     def test_each_new_stop_needs_a_new_review(self):
         job = self.submit()
@@ -784,8 +916,7 @@ class RestartTests(EngineCase):
         self.assertEqual(self.engine.job(job["job_id"]), view)
         self.assertIsNone(self.engine.run_next())
         self.assertEqual(len(self.runner.calls), calls)
-        self.assertEqual(max(json.loads(line)["attempt"] for line in before.splitlines()),
-                         jobs.MAX_ATTEMPTS)
+        self.assertEqual(max(json.loads(line)["attempt"] for line in before.splitlines()), jobs.MAX_ATTEMPTS)
 
 
 class JournalTests(EngineCase):
@@ -821,15 +952,13 @@ class JournalTests(EngineCase):
         grew()
         entries = [json.loads(line) for line in seen[-1].splitlines()]
         self.assertEqual([entry["seq"] for entry in entries], list(range(1, len(entries) + 1)))
-        self.assertEqual([entry["prev"] for entry in entries],
-                         [None] + [entry["sha256"] for entry in entries[:-1]])
+        self.assertEqual([entry["prev"] for entry in entries], [None] + [entry["sha256"] for entry in entries[:-1]])
         self.assertEqual(jobs.read_status(self.state)["jobs"], self.engine.status()["jobs"])
 
     def test_a_torn_tail_is_superseded_and_the_rest_is_kept(self):
         raw = self.finished()
         lines = raw.splitlines(keepends=True)
-        for name, torn in (("cut", raw[:-40]), ("garbage", raw + b'{"v":1,"seq"'),
-                           ("two", raw + b"not json\n{\"v\":")):
+        for name, torn in (("cut", raw[:-40]), ("garbage", raw + b'{"v":1,"seq"'), ("two", raw + b'not json\n{"v":')):
             with self.subTest(name=name):
                 expected = jobs.replay(b"".join(lines[:-1]) if name == "cut" else raw)["jobs"]
                 self.assertEqual(len(jobs.read_status(self.root / "state")["jobs"]), 2)
@@ -875,8 +1004,12 @@ class JournalTests(EngineCase):
                 status = engine.status()
                 self.assertEqual((status["status"], status["jobs"], status["gate"]), ("unknown", [], "closed"))
                 self.assertEqual(jobs.read_status(target)["status"], "unknown")
-                self.refused("journal_unavailable", engine.submit, request(submission_id="submission-0009"),
-                             self.reviewed(request(submission_id="submission-0009"), engine))
+                self.refused(
+                    "journal_unavailable",
+                    engine.submit,
+                    request(submission_id="submission-0009"),
+                    self.reviewed(request(submission_id="submission-0009"), engine),
+                )
                 self.refused("journal_unavailable", engine.run_next)
                 self.refused("journal_unavailable", engine.cancel, "0" * 32)
                 self.assertEqual((target / "jobs.jsonl").read_bytes(), damaged)
@@ -885,8 +1018,7 @@ class JournalTests(EngineCase):
     def test_an_edit_that_keeps_a_legal_move_is_detected_by_the_entry_hash(self):
         raw = self.finished()
         lines = raw.splitlines(keepends=True)
-        self.assertEqual([json.loads(line)["state"] for line in lines],
-                         ["queued", "running", "finished", "queued"])
+        self.assertEqual([json.loads(line)["state"] for line in lines], ["queued", "running", "finished", "queued"])
 
         def edited(index, change):
             entry = json.loads(lines[index])
@@ -905,13 +1037,17 @@ class JournalTests(EngineCase):
         def recount(entry):
             entry["detail"]["result"]["benchmarks"][0]["attempted"] = 3
 
-        for name, index, change in (("timestamp", 1, retime), ("record id", 2, rename),
-                                    ("post decision", 2, redecide), ("counts", 2, recount)):
+        for name, index, change in (
+            ("timestamp", 1, retime),
+            ("record id", 2, rename),
+            ("post decision", 2, redecide),
+            ("counts", 2, recount),
+        ):
             with self.subTest(name=name):
                 line = edited(index, change)
                 self.assertNotEqual(line, lines[index])
                 # Every field a state change is checked against is unchanged; only the hash differs.
-                damaged = b"".join(lines[:index]) + line + b"".join(lines[index + 1:])
+                damaged = b"".join(lines[:index]) + line + b"".join(lines[index + 1 :])
                 state = jobs.replay(damaged)
                 self.assertIsNotNone(state["problem"])
                 self.assertEqual(len(state["jobs"]), 0)
@@ -931,13 +1067,18 @@ class JournalTests(EngineCase):
         raw = self.finished()
         lines = raw.splitlines(keepends=True)
         second = json.loads(lines[1])
-        noise = b"noise\n{\"v\":1,\n"
+        noise = b'noise\n{"v":1,\n'
 
         def repaired(skipped, bad):
-            body = {"v": 1, "seq": second["seq"] + 1, "prev": second["sha256"], "at": second["at"],
-                    "kind": "repair", "skipped_sha256": skipped}
-            return (lines[0] + lines[1] + bad
-                    + (fast.canonical(dict(body, sha256=fast.digest(body))) + "\n").encode())
+            body = {
+                "v": 1,
+                "seq": second["seq"] + 1,
+                "prev": second["sha256"],
+                "at": second["at"],
+                "kind": "repair",
+                "skipped_sha256": skipped,
+            }
+            return lines[0] + lines[1] + bad + (fast.canonical(dict(body, sha256=fast.digest(body))) + "\n").encode()
 
         exact = repaired(hashlib.sha256(noise).hexdigest(), noise)
         state = jobs.replay(exact)
@@ -964,17 +1105,28 @@ class JournalTests(EngineCase):
         first = json.loads(raw.splitlines()[0])
 
         def forged(state, detail, attempt=1, job_id=first["job_id"]):
-            body = {"v": 1, "seq": last["seq"] + 1, "prev": last["sha256"], "at": last["at"],
-                    "kind": "job", "job_id": job_id, "attempt": attempt, "state": state, "detail": detail}
+            body = {
+                "v": 1,
+                "seq": last["seq"] + 1,
+                "prev": last["sha256"],
+                "at": last["at"],
+                "kind": "job",
+                "job_id": job_id,
+                "attempt": attempt,
+                "state": state,
+                "detail": detail,
+            }
             return raw + (fast.canonical(dict(body, sha256=fast.digest(body))) + "\n").encode()
 
-        cases = [forged("running", {"cancel_requested": False}),
-                 forged("queued", {"review_sha256": "0" * 64}, attempt=2),
-                 forged("finished", {"result": None}),
-                 forged("paused", {}),
-                 forged("cancelled", {"reason": "x"}, job_id="0" * 32),
-                 forged("failed", {"reason": "bad\ntext", "result": None}),
-                 forged("cancelled", {"reason": "x", "extra": 1})]
+        cases = [
+            forged("running", {"cancel_requested": False}),
+            forged("queued", {"review_sha256": "0" * 64}, attempt=2),
+            forged("finished", {"result": None}),
+            forged("paused", {}),
+            forged("cancelled", {"reason": "x"}, job_id="0" * 32),
+            forged("failed", {"reason": "bad\ntext", "result": None}),
+            forged("cancelled", {"reason": "x", "extra": 1}),
+        ]
         for index, damaged in enumerate(cases):
             with self.subTest(index=index):
                 self.assertIsNotNone(jobs.replay(damaged)["problem"])
@@ -1054,8 +1206,13 @@ class DatasetSinkTests(EngineCase):
         self.assertEqual(sorted(p.name for p in self.folder.iterdir()), ["dataset.json"])
 
     def test_an_unusable_existing_dataset_is_left_alone(self):
-        for index, content in enumerate((b"not json", b'{"schema_version":2,"runs":[],"items":[]}',
-                                         b'{"schema_version":1,"runs":[{"status":"COMPUTED"}],"items":[]}')):
+        for index, content in enumerate(
+            (
+                b"not json",
+                b'{"schema_version":2,"runs":[],"items":[]}',
+                b'{"schema_version":1,"runs":[{"status":"COMPUTED"}],"items":[]}',
+            )
+        ):
             with self.subTest(index=index):
                 self.path.write_bytes(content)
                 with self.assertRaises(Exception):
@@ -1114,23 +1271,47 @@ class DatasetSinkTests(EngineCase):
 
 
 class AdapterRunnerTests(unittest.TestCase):
-    SPEC = {"base_url": "http://127.0.0.1:18300", "model_id": "synthetic/candidate",
-            "sample_files": ["/samples/a.json"], "output_dir": "/state/runs/x", "count": 4,
-            "max_tokens": 16384, "request_timeout_s": 180, "wall_budget_s": "60",
-            "disable_thinking": True, "facts": {"quantization": "Q4_K_M", "memory_bytes": 9}}
+    SPEC = {
+        "base_url": "http://127.0.0.1:18300",
+        "model_id": "synthetic/candidate",
+        "sample_files": ["/samples/a.json"],
+        "output_dir": "/state/runs/x",
+        "count": 4,
+        "max_tokens": 16384,
+        "request_timeout_s": 180,
+        "wall_budget_s": "60",
+        "disable_thinking": True,
+        "facts": {"quantization": "Q4_K_M", "memory_bytes": 9},
+    }
 
     def test_it_only_calls_the_public_run_with_the_reviewed_values(self):
         with mock.patch.object(jobs.adapter, "run", return_value={"record": 1}) as run:
             result = jobs.adapter_runner(self.SPEC, lambda: None, lambda done, planned: None)
         self.assertEqual(result, {"record": 1})
         args, kwargs = run.call_args
-        self.assertEqual(args, ("http://127.0.0.1:18300", "synthetic/candidate",
-                                [Path("/samples/a.json")], Path("/state/runs/x")))
-        self.assertEqual(kwargs, dict(
-            count=4, max_tokens=16384, timeout=180, wall_budget_s="60", disable_thinking=True,
-            model_sha256=None, quantization="Q4_K_M", model_label=None, machine_label=None,
-            cpu=None, gpu=None, runtime_build_id=None, file_size_bytes=None,
-            available_memory_bytes=None, memory_bytes=9))
+        self.assertEqual(
+            args, ("http://127.0.0.1:18300", "synthetic/candidate", [Path("/samples/a.json")], Path("/state/runs/x"))
+        )
+        self.assertEqual(
+            kwargs,
+            dict(
+                count=4,
+                max_tokens=16384,
+                timeout=180,
+                wall_budget_s="60",
+                disable_thinking=True,
+                model_sha256=None,
+                quantization="Q4_K_M",
+                model_label=None,
+                machine_label=None,
+                cpu=None,
+                gpu=None,
+                runtime_build_id=None,
+                file_size_bytes=None,
+                available_memory_bytes=None,
+                memory_bytes=9,
+            ),
+        )
 
     def test_a_stop_request_before_the_first_call_contacts_nothing(self):
         with mock.patch.object(jobs.adapter, "run") as run, self.assertRaises(jobs.Stopped):
@@ -1147,8 +1328,21 @@ class SourceTests(unittest.TestCase):
                 imported.update(alias.name.split(".")[0] for alias in node.names)
             elif isinstance(node, ast.ImportFrom):
                 imported.add((node.module or "").split(".")[0])
-        self.assertFalse(imported & {"subprocess", "socket", "http", "urllib3", "requests", "asyncio",
-                                     "model_control", "server", "online_code_repair", "multiprocessing"})
+        self.assertFalse(
+            imported
+            & {
+                "subprocess",
+                "socket",
+                "http",
+                "urllib3",
+                "requests",
+                "asyncio",
+                "model_control",
+                "server",
+                "online_code_repair",
+                "multiprocessing",
+            }
+        )
         names = {node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)}
         self.assertFalse(names & {"system", "popen", "Popen", "urlopen", "create_connection", "Thread"})
         self.assertIs(jobs.Engine.__init__.__kwdefaults__["policy"], jobs.CLOSED)

@@ -1,4 +1,5 @@
 """peer_link.py's host-kind default: Linux is no longer served as a Mac; Mac and Windows are unchanged."""
+
 import io
 import json
 import os
@@ -128,9 +129,17 @@ class LinuxStatusSource(unittest.TestCase):
     def test_a_fresh_observer_file_is_served_and_a_stale_one_refused(self):
         path = self.base / "agiw" / "linux-status.json"
         path.parent.mkdir(parents=True)
-        observed = {"schemaVersion": 1, "kind": "agiw-peer", "host": "node", "platform": "linux", "edition": "linux",
-                    "observedAt": pl._iso(time.time()), "health": "ok", "producer": "agiw-linux-status",
-                    "models": [{"id": "m", "loadedState": "loaded", "host": "linux"}]}
+        observed = {
+            "schemaVersion": 1,
+            "kind": "agiw-peer",
+            "host": "node",
+            "platform": "linux",
+            "edition": "linux",
+            "observedAt": pl._iso(time.time()),
+            "health": "ok",
+            "producer": "agiw-linux-status",
+            "models": [{"id": "m", "loadedState": "loaded", "host": "linux"}],
+        }
         path.write_text(json.dumps(observed))
         provider = pl.linux_status()
         self.assertEqual(provider()["producer"], "agiw-linux-status")
@@ -147,16 +156,34 @@ class ServeWrapper(unittest.TestCase):
 
     def test_serve_hands_its_options_to_peer_link_run(self):
         from agiw import cli
+
         state = temp_dir(self) / "S"
         with mock.patch.object(pl, "main", return_value=0) as run:
-            code = cli.main(["--state-dir", str(state), "--status-port", "9000", "serve", "--host", "mac", "--name", "lab"],
-                            out=lambda line: None)
+            code = cli.main(
+                ["--state-dir", str(state), "--status-port", "9000", "serve", "--host", "mac", "--name", "lab"],
+                out=lambda line: None,
+            )
         self.assertEqual(code, 0)
-        self.assertEqual(run.call_args[0][0], ["--state-dir", str(state), "--status-port", "9000", "run", "--beacon-port",
-                                               "8769", "--host", "mac", "--name", "lab"])
+        self.assertEqual(
+            run.call_args[0][0],
+            [
+                "--state-dir",
+                str(state),
+                "--status-port",
+                "9000",
+                "run",
+                "--beacon-port",
+                "8769",
+                "--host",
+                "mac",
+                "--name",
+                "lab",
+            ],
+        )
 
     def test_an_omitted_kind_on_linux_refuses_before_any_change(self):
         from support import cli_main_without_kind_stub
+
         error = io.StringIO()
         with mock.patch.object(pl, "detect_host_kind", return_value="linux"), mock.patch("sys.stderr", error):
             code = cli_main_without_kind_stub(["--state-dir", "unused", "status"], out=lambda line: None)
@@ -165,6 +192,7 @@ class ServeWrapper(unittest.TestCase):
 
     def test_the_suite_stub_does_not_treat_linux_detection_as_the_refusal(self):
         from agiw import cli
+
         error = io.StringIO()
         state = temp_dir(self)
         with mock.patch.object(pl, "detect_host_kind", return_value="linux"), mock.patch("sys.stderr", error):
@@ -173,8 +201,12 @@ class ServeWrapper(unittest.TestCase):
 
     def test_windows_without_a_status_file_is_refused_in_agiw_words(self):
         from agiw import cli
-        with mock.patch.object(pl, "main") as run, mock.patch.object(pl, "detect_host_kind", return_value="windows"), \
-                mock.patch("sys.stderr"):
+
+        with (
+            mock.patch.object(pl, "main") as run,
+            mock.patch.object(pl, "detect_host_kind", return_value="windows"),
+            mock.patch("sys.stderr"),
+        ):
             code = cli.main(["--state-dir", "S", "serve"], out=lambda line: None)
         self.assertEqual(code, 2)
         run.assert_not_called()

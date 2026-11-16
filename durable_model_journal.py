@@ -4,6 +4,7 @@ The journal is a safety latch, not a process supervisor. A record left pending
 without owner-recorded cleanup cannot be cleared by process exit or inventory
 alone. Provisioning is an explicit clean-install action, never a startup repair.
 """
+
 from __future__ import annotations
 
 from contextlib import contextmanager
@@ -60,12 +61,18 @@ def _validate(record):
             raise JournalError("Invalid ready journal.")
         return record
     if type(operation) is not dict or set(operation) != {
-        "operationId", "action", "modelId", "modelKey", "startedAt",
-        "updatedAt", "finishedAt", "cleanupConfirmed", "observedAt",
+        "operationId",
+        "action",
+        "modelId",
+        "modelKey",
+        "startedAt",
+        "updatedAt",
+        "finishedAt",
+        "cleanupConfirmed",
+        "observedAt",
     }:
         raise JournalError("Invalid journal operation.")
-    if not (type(operation["operationId"]) is str
-            and OPERATION_ID.fullmatch(operation["operationId"])):
+    if not (type(operation["operationId"]) is str and OPERATION_ID.fullmatch(operation["operationId"])):
         raise JournalError("Invalid journal operation ID.")
     if operation["action"] not in ("load", "unload") or type(operation["action"]) is not str:
         raise JournalError("Invalid journal action.")
@@ -78,8 +85,8 @@ def _validate(record):
     if operation["updatedAt"] < operation["startedAt"]:
         raise JournalError("Journal time moved backward.")
     if operation["finishedAt"] is not None and (
-            not _finite_time(operation["finishedAt"])
-            or operation["finishedAt"] < operation["startedAt"]):
+        not _finite_time(operation["finishedAt"]) or operation["finishedAt"] < operation["startedAt"]
+    ):
         raise JournalError("Invalid journal finish time.")
     if type(operation["cleanupConfirmed"]) is not bool:
         raise JournalError("Invalid cleanup evidence.")
@@ -105,15 +112,13 @@ class DurableModelJournal:
             info = self.path.parent.lstat()
         except OSError as exc:
             raise JournalError("Journal directory is unavailable.") from exc
-        if (not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid()
-                or info.st_mode & 0o022):
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o022:
             raise JournalError("Journal directory is not private to this user.")
 
     @staticmethod
     def _check_file(fd):
         info = os.fstat(fd)
-        if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
-                or info.st_mode & 0o077 or info.st_nlink != 1):
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077 or info.st_nlink != 1:
             raise JournalError("Journal file is not a private regular file.")
 
     @contextmanager
@@ -151,8 +156,7 @@ class DurableModelJournal:
         if len(raw) > MAX_BYTES:
             raise JournalError("Journal exceeds the safety limit.")
         try:
-            record = json.loads(raw.decode("utf-8"), object_pairs_hook=_unique_pairs,
-                                parse_constant=_invalid_constant)
+            record = json.loads(raw.decode("utf-8"), object_pairs_hook=_unique_pairs, parse_constant=_invalid_constant)
         except (UnicodeError, ValueError) as exc:
             raise JournalError("Journal is corrupt.") from exc
         return _validate(record)
@@ -163,8 +167,7 @@ class DurableModelJournal:
 
     def _write_locked(self, record):
         _validate(record)
-        data = json.dumps(record, sort_keys=True, separators=(",", ":"),
-                          allow_nan=False).encode("utf-8")
+        data = json.dumps(record, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
         if len(data) > MAX_BYTES:
             raise JournalError("Journal record exceeds the safety limit.")
         temp = self.path.with_name(self.path.name + "." + uuid.uuid4().hex + ".tmp")
@@ -216,64 +219,96 @@ class DurableModelJournal:
         with self._locked(provision_lock=True):
             if self.path.exists() or self.path.is_symlink():
                 raise JournalError("Existing journal cannot be reprovisioned.")
-            self._write_locked({"schema": SCHEMA, "generation": 0,
-                                "phase": "ready", "operation": None})
+            self._write_locked({"schema": SCHEMA, "generation": 0, "phase": "ready", "operation": None})
 
     def begin(self, *, operation_id, action, model_id, model_key, started_at):
         with self._locked():
             before = self._read_locked()
             if before["phase"] not in ("ready", "confirmed"):
                 raise JournalError("A previous model operation is unconfirmed.")
-            record = {"schema": SCHEMA, "generation": before["generation"] + 1,
-                      "phase": "pending", "operation": {
-                          "operationId": operation_id, "action": action,
-                          "modelId": model_id, "modelKey": model_key,
-                          "startedAt": started_at, "updatedAt": started_at,
-                          "finishedAt": None, "cleanupConfirmed": False,
-                          "observedAt": None}}
+            record = {
+                "schema": SCHEMA,
+                "generation": before["generation"] + 1,
+                "phase": "pending",
+                "operation": {
+                    "operationId": operation_id,
+                    "action": action,
+                    "modelId": model_id,
+                    "modelKey": model_key,
+                    "startedAt": started_at,
+                    "updatedAt": started_at,
+                    "finishedAt": None,
+                    "cleanupConfirmed": False,
+                    "observedAt": None,
+                },
+            }
             self._write_locked(record)
             return record
 
     @staticmethod
     def _match(record, *, operation_id, action, model_id, model_key, generation):
         op = record["operation"]
-        if (record["phase"] != "pending" or record["generation"] != generation
-                or op["operationId"] != operation_id or op["action"] != action
-                or op["modelId"] != model_id or op["modelKey"] != model_key):
+        if (
+            record["phase"] != "pending"
+            or record["generation"] != generation
+            or op["operationId"] != operation_id
+            or op["action"] != action
+            or op["modelId"] != model_id
+            or op["modelKey"] != model_key
+        ):
             raise JournalError("Exact journal operation identity changed.")
 
-    def finish(self, *, operation_id, action, model_id, model_key, generation,
-               finished_at, cleanup_confirmed, observed_at=None):
+    def finish(
+        self, *, operation_id, action, model_id, model_key, generation, finished_at, cleanup_confirmed, observed_at=None
+    ):
         with self._locked():
             record = self._read_locked()
-            self._match(record, operation_id=operation_id, action=action,
-                        model_id=model_id, model_key=model_key, generation=generation)
+            self._match(
+                record,
+                operation_id=operation_id,
+                action=action,
+                model_id=model_id,
+                model_key=model_key,
+                generation=generation,
+            )
             if not _finite_time(finished_at) or finished_at < record["operation"]["startedAt"]:
                 raise JournalError("Invalid finish time.")
             if type(cleanup_confirmed) is not bool:
                 raise JournalError("Invalid cleanup evidence.")
             if observed_at is not None and not cleanup_confirmed:
                 raise JournalError("Observation cannot confirm without owner cleanup.")
-            record["operation"].update(finishedAt=finished_at,
-                                       updatedAt=max(finished_at, record["operation"]["updatedAt"]),
-                                       cleanupConfirmed=cleanup_confirmed,
-                                       observedAt=observed_at)
+            record["operation"].update(
+                finishedAt=finished_at,
+                updatedAt=max(finished_at, record["operation"]["updatedAt"]),
+                cleanupConfirmed=cleanup_confirmed,
+                observedAt=observed_at,
+            )
             if observed_at is not None:
                 record["phase"] = "confirmed"
             self._write_locked(record)
             return record
 
-    def confirm_recovered(self, *, operation_id, action, model_id, model_key,
-                          generation, observed_at, recovery_started_at):
+    def confirm_recovered(
+        self, *, operation_id, action, model_id, model_key, generation, observed_at, recovery_started_at
+    ):
         with self._locked():
             record = self._read_locked()
-            self._match(record, operation_id=operation_id, action=action,
-                        model_id=model_id, model_key=model_key, generation=generation)
+            self._match(
+                record,
+                operation_id=operation_id,
+                action=action,
+                model_id=model_id,
+                model_key=model_key,
+                generation=generation,
+            )
             op = record["operation"]
             if not op["cleanupConfirmed"] or op["finishedAt"] is None:
                 raise JournalError("Original worker cleanup was not durably confirmed.")
-            if (not _finite_time(observed_at) or not _finite_time(recovery_started_at)
-                    or observed_at <= max(op["updatedAt"], recovery_started_at)):
+            if (
+                not _finite_time(observed_at)
+                or not _finite_time(recovery_started_at)
+                or observed_at <= max(op["updatedAt"], recovery_started_at)
+            ):
                 raise JournalError("A fresh post-restart observation is required.")
             op["observedAt"] = observed_at
             op["updatedAt"] = max(op["updatedAt"], observed_at)

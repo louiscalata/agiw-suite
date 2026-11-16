@@ -1,5 +1,10 @@
 # AGIW Suite roadmap and release evidence
 
+## Python conventions preparation — 15 November 2026
+
+- [ ] Prepare the Ruff 0.17.4 format and lint lane with Python 3.9 syntax, 120 columns, double quotes and an exact-file lint baseline. Keep hashed, pinned, vendored, generated and evidence bytes excluded. The docstring-normalising AST comparison and the root, Windows and CLI unittest comparison establish the source result; record their completed counts in the lane review.
+- [ ] Rebuild and independently verify this lane on the newest main after `mon-eci-rejected-view`, `mon-eci-jobs-host` and `mon-eci-jobs-panel` merge, with no competing Python or CI lane. Preparation does not authorize a commit, push, pull request, merge, release or install.
+
 ## 14 November 2026 merges (#161-#171)
 
 - [x] #161 telemetry timing flake: two telemetry tests no longer depend on how fast a newly written stand-in script starts. The `lms` reader returns once the command has exited even if a descendant keeps the pipe open, and a run that closes its output but keeps running is reported as timed out. The one-second deadline is unchanged and is now named `_LMS_COMMAND_TIMEOUT`. Tests: `test_telemetry.py`.

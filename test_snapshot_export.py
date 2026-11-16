@@ -1,4 +1,5 @@
 """GET /api/snapshot from a real observer process on a free port."""
+
 import json
 import os
 import signal
@@ -14,16 +15,36 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 
 DOCUMENTED_KEYS = {
-    "schemaVersion", "host", "observedAt", "sampledAt", "models",
-    "localInstanceObservations", "afm", "sources", "pipeline", "onlineCodeMode",
-    "windowsWorker", "windowsLive", "windowsJobs", "canary", "nisiV02", "pair",
-    "machines", "components",
+    "schemaVersion",
+    "host",
+    "observedAt",
+    "sampledAt",
+    "models",
+    "localInstanceObservations",
+    "afm",
+    "sources",
+    "pipeline",
+    "onlineCodeMode",
+    "windowsWorker",
+    "windowsLive",
+    "windowsJobs",
+    "canary",
+    "nisiV02",
+    "pair",
+    "machines",
+    "components",
 }
 
 # Field names only. modelKey and similar readings are not credentials.
 _FORBIDDEN = {
-    "hostname", "token", "apikey", "password", "secret", "authorization",
-    "accesstoken", "refreshtoken",
+    "hostname",
+    "token",
+    "apikey",
+    "password",
+    "secret",
+    "authorization",
+    "accesstoken",
+    "refreshtoken",
 }
 
 
@@ -51,7 +72,12 @@ class SnapshotExportTest(unittest.TestCase):
         env["PYTHONDONTWRITEBYTECODE"] = "1"
         process = subprocess.Popen(
             [sys.executable, "-B", str(ROOT / "server.py"), "--port", "0"],
-            cwd=ROOT, env=env, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+            cwd=ROOT,
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
         try:
             line = process.stdout.readline()
             port = json.loads(line)["port"]

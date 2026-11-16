@@ -1,4 +1,5 @@
 """SHA256SUMS.txt matches the 1.0.0 line format."""
+
 import hashlib
 import subprocess
 import sys
@@ -16,8 +17,7 @@ class Sha256SumsTest(unittest.TestCase):
             folder = Path(temp)
             (folder / "AGIW-example.zip").write_bytes(b"zip-bytes")
             (folder / "notes.txt").write_bytes(b"notes")
-            write = subprocess.run([sys.executable, "-B", str(SCRIPT), str(folder)],
-                                    capture_output=True, text=True)
+            write = subprocess.run([sys.executable, "-B", str(SCRIPT), str(folder)], capture_output=True, text=True)
             self.assertEqual(write.returncode, 0, write.stderr)
             sums = (folder / "SHA256SUMS.txt").read_text(encoding="utf-8")
             lines = sums.splitlines()
@@ -31,12 +31,14 @@ class Sha256SumsTest(unittest.TestCase):
                 self.assertEqual(digest, hashlib.sha256((folder / name).read_bytes()).hexdigest())
                 names.append(name)
             self.assertEqual(names, ["AGIW-example.zip", "notes.txt"])
-            check = subprocess.run([sys.executable, "-B", str(SCRIPT), "--check", str(folder)],
-                                    capture_output=True, text=True)
+            check = subprocess.run(
+                [sys.executable, "-B", str(SCRIPT), "--check", str(folder)], capture_output=True, text=True
+            )
             self.assertEqual(check.returncode, 0, check.stderr)
             (folder / "notes.txt").write_bytes(b"changed")
-            failed = subprocess.run([sys.executable, "-B", str(SCRIPT), "--check", str(folder)],
-                                     capture_output=True, text=True)
+            failed = subprocess.run(
+                [sys.executable, "-B", str(SCRIPT), "--check", str(folder)], capture_output=True, text=True
+            )
             self.assertEqual(failed.returncode, 1)
             self.assertIn("checksum mismatch: notes.txt", failed.stderr)
 

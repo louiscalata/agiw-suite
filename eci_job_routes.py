@@ -22,8 +22,13 @@ _JOB_PATH = re.compile(r"/api/eci-jobs/jobs/([0-9a-f]{32})\Z")
 _INTEGER = re.compile(r"(0|[1-9][0-9]{0,9})\Z")
 # A refusal the caller can correct is 400 or 404; one about engine state is 503.
 # Every other refusal is a decision or a limit that stands against the request.
-HTTP_STATUS = {"invalid_request": 400, "unknown_job": 404, "not_found": 404,
-               "not_owner": 503, "journal_unavailable": 503}
+HTTP_STATUS = {
+    "invalid_request": 400,
+    "unknown_job": 404,
+    "not_found": 404,
+    "not_owner": 503,
+    "journal_unavailable": 503,
+}
 
 
 def _bad_query():
@@ -46,8 +51,7 @@ def request_from_query(query):
     if not isinstance(query, str) or not query or len(query) > MAX_QUERY_BYTES:
         raise _bad_query()
     try:
-        pairs = parse_qsl(query, keep_blank_values=True, strict_parsing=True,
-                          encoding="utf-8", errors="strict")
+        pairs = parse_qsl(query, keep_blank_values=True, strict_parsing=True, encoding="utf-8", errors="strict")
     except ValueError:
         raise _bad_query() from None
     request, facts, seen = {}, {}, set()
@@ -63,8 +67,8 @@ def request_from_query(query):
             if text not in ("true", "false"):
                 raise _bad_query()
             request[name] = text == "true"
-        elif name.startswith(FACT_PREFIX) and name[len(FACT_PREFIX):] in eci_jobs.FACT_FIELDS:
-            fact = name[len(FACT_PREFIX):]
+        elif name.startswith(FACT_PREFIX) and name[len(FACT_PREFIX) :] in eci_jobs.FACT_FIELDS:
+            fact = name[len(FACT_PREFIX) :]
             facts[fact] = _integer(text) if fact in eci_jobs.INTEGER_FACTS else text
         else:
             raise _bad_query()
@@ -97,4 +101,7 @@ class ReadOnlyRoutes:
             return 200, self._engine.job(match.group(1))
         except eci_jobs.Refused as refusal:
             return HTTP_STATUS.get(refusal.code, 409), {
-                "status": "refused", "code": refusal.code, "message": str(refusal)}
+                "status": "refused",
+                "code": refusal.code,
+                "message": str(refusal),
+            }

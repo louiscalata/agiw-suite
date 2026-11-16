@@ -15,6 +15,7 @@ Journal layout written under ``root`` (directories 0700, files 0600, one link):
 This layout has no locks/, active/ or notes/ directory, no policy and no install fence, and
 this writer has no admission step: entering the owner takes the lock or fails.
 """
+
 import fcntl
 import itertools
 import json
@@ -86,7 +87,7 @@ class RouterOwner:
     def __exit__(self, *_exc):
         fd, self._l0 = self._l0, None
         if fd is not None:
-            os.close(fd)              # closing the description releases its flock
+            os.close(fd)  # closing the description releases its flock
         return False
 
     def _publish(self):
@@ -98,27 +99,53 @@ class RouterOwner:
         if self._l0 is None or self._record is not None:
             raise RuntimeError("begin needs an entered owner with no run")
         self._run, self._digest = run_id, digest
-        self._record = {"schemaVersion": 1, "runId": run_id, "inputSha256": digest, "stage": "started",
-                        "checkpoint": None, "startedUnix": time.time()}
+        self._record = {
+            "schemaVersion": 1,
+            "runId": run_id,
+            "inputSha256": digest,
+            "stage": "started",
+            "checkpoint": None,
+            "startedUnix": time.time(),
+        }
         self._publish()
 
     def checkpoint(self, stage, evidence):
         if self._record is None:
             raise RuntimeError("checkpoint needs a begun run")
         sequence = self._record.get("sequence", 0) + 1
-        self._record.update(stage=stage, sequence=sequence, checkpoint={
-            "schemaVersion": 1, "runId": self._run, "inputSha256": self._digest, "sequence": sequence,
-            "stage": stage, "evidence": dict(evidence), "recordedUnix": time.time()})
+        self._record.update(
+            stage=stage,
+            sequence=sequence,
+            checkpoint={
+                "schemaVersion": 1,
+                "runId": self._run,
+                "inputSha256": self._digest,
+                "sequence": sequence,
+                "stage": stage,
+                "evidence": dict(evidence),
+                "recordedUnix": time.time(),
+            },
+        )
         self._publish()
 
     def finish(self, result, exit_code):
         """Archive first, then clear active.json.  owner.lock stays held until exit."""
         if self._record is None:
             raise RuntimeError("finish needs a begun run")
-        _atomic(self.root / "archive" / (self._run + ".json"), {
-            "schemaVersion": 1, "runId": self._run, "inputSha256": self._digest, "result": result,
-            "exitCode": exit_code, "stage": self._record["stage"],
-            "checkpoint": self._record["checkpoint"], "finishedUnix": time.time()}, 3 * 1024 * 1024)
+        _atomic(
+            self.root / "archive" / (self._run + ".json"),
+            {
+                "schemaVersion": 1,
+                "runId": self._run,
+                "inputSha256": self._digest,
+                "result": result,
+                "exitCode": exit_code,
+                "stage": self._record["stage"],
+                "checkpoint": self._record["checkpoint"],
+                "finishedUnix": time.time(),
+            },
+            3 * 1024 * 1024,
+        )
         try:
             os.unlink(str(self.root / "active.json"))
         except FileNotFoundError:

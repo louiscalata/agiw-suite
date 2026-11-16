@@ -7,6 +7,7 @@ used an answer callable raising ConnectionError for the first frozen item,
 returning (None, 4, 2) for the second, and ("A", 4, 2) for the others.
 No model or real fast check was run. Do not regenerate via the current writer.
 """
+
 import copy
 import json
 import unittest
@@ -15,7 +16,7 @@ import eci_fast_check as f
 import eci_fast_check_adapter as a
 from test_eci_fast_check import datasets, run, rehash
 
-FROZEN_V1 = json.loads(r'''
+FROZEN_V1 = json.loads(r"""
 {
   "alpha": "0.05",
   "baseline": {
@@ -565,70 +566,75 @@ FROZEN_V1 = json.loads(r'''
   "schema_version": 1,
   "wall_time_s": 0
 }
-''')
+""")
 
 
 class RecordVersionTests(unittest.TestCase):
     def test_frozen_base_record_with_error_and_unparsed_validates_unchanged(self):
         record = copy.deepcopy(FROZEN_V1)
-        bench = record['benchmarks'][0]
-        self.assertEqual(record['schema_version'], 1)
-        self.assertEqual(bench['errors'], 1)
-        self.assertEqual(bench['outcome_counts']['unparsed'], 1)
-        self.assertEqual(bench['unknown_finish'], 1)
-        self.assertEqual(record['comparison']['arc']['n_candidate'], 4)
+        bench = record["benchmarks"][0]
+        self.assertEqual(record["schema_version"], 1)
+        self.assertEqual(bench["errors"], 1)
+        self.assertEqual(bench["outcome_counts"]["unparsed"], 1)
+        self.assertEqual(bench["unknown_finish"], 1)
+        self.assertEqual(record["comparison"]["arc"]["n_candidate"], 4)
         self.assertEqual(f.validate_record(record), FROZEN_V1)
         self.assertEqual(record, FROZEN_V1)
 
     def test_new_records_use_v2_and_validate_with_v1_bound_baseline(self):
         record = run(datasets(6), baseline=FROZEN_V1)
-        self.assertEqual(record['schema_version'], 2)
+        self.assertEqual(record["schema_version"], 2)
         self.assertEqual(f.validate_record(record), record)
-        self.assertEqual(record['comparison']['arc']['n_baseline'], 5)
-        self.assertEqual(record['baseline']['record'], FROZEN_V1)
+        self.assertEqual(record["comparison"]["arc"]["n_baseline"], 5)
+        self.assertEqual(record["baseline"]["record"], FROZEN_V1)
 
     def test_tuning_ingest_accepts_frozen_v1_record_next_to_clean_v2_record(self):
         import tempfile
         from pathlib import Path
         import eci_tuning as e
+
         clean = run(datasets(6))
-        self.assertEqual(clean['schema_version'], 2)
+        self.assertEqual(clean["schema_version"], 2)
         with tempfile.TemporaryDirectory() as folder:
-            source = Path(folder) / 'mixed-versions.json'
-            source.write_text(json.dumps(dict(schema_version=1, runs=[], items=[],
-                                              fast_checks=[copy.deepcopy(FROZEN_V1), clean])))
+            source = Path(folder) / "mixed-versions.json"
+            source.write_text(
+                json.dumps(dict(schema_version=1, runs=[], items=[], fast_checks=[copy.deepcopy(FROZEN_V1), clean]))
+            )
             ingested = e.ingest([source])
-        self.assertEqual(sorted(r['record_id'] for r in ingested['fast_checks']),
-                         sorted([FROZEN_V1['record_id'], clean['record_id']]))
-        self.assertEqual([r['schema_version'] for r in ingested['fast_checks']], [1, 2])
+        self.assertEqual(
+            sorted(r["record_id"] for r in ingested["fast_checks"]),
+            sorted([FROZEN_V1["record_id"], clean["record_id"]]),
+        )
+        self.assertEqual([r["schema_version"] for r in ingested["fast_checks"]], [1, 2])
 
     def test_published_schema_accepts_both_record_versions(self):
         from pathlib import Path
-        schema = f.load(Path(__file__).resolve().parent / 'eci_fast_check.schema.json')
-        record_schema = schema['$defs']['record']
-        self.assertEqual(record_schema['properties']['schema_version']['enum'], [1, 2])
+
+        schema = f.load(Path(__file__).resolve().parent / "eci_fast_check.schema.json")
+        record_schema = schema["$defs"]["record"]
+        self.assertEqual(record_schema["properties"]["schema_version"]["enum"], [1, 2])
         self.assertEqual(f.SCHEMA_VERSIONS, (1, 2))
         self.assertEqual(f.SCHEMA_VERSION, 2)
-        self.assertLessEqual(set(record_schema['required']), set(FROZEN_V1))
-        self.assertLessEqual(set(FROZEN_V1), set(record_schema['properties']))
-        bench_schema = schema['$defs']['benchmark']
-        self.assertLessEqual(set(bench_schema['required']), set(FROZEN_V1['benchmarks'][0]))
-        self.assertLessEqual(set(FROZEN_V1['benchmarks'][0]), set(bench_schema['properties']))
+        self.assertLessEqual(set(record_schema["required"]), set(FROZEN_V1))
+        self.assertLessEqual(set(FROZEN_V1), set(record_schema["properties"]))
+        bench_schema = schema["$defs"]["benchmark"]
+        self.assertLessEqual(set(bench_schema["required"]), set(FROZEN_V1["benchmarks"][0]))
+        self.assertLessEqual(set(FROZEN_V1["benchmarks"][0]), set(bench_schema["properties"]))
 
     def test_v1_legacy_rules_are_not_the_v2_rules(self):
-        bench = FROZEN_V1['benchmarks'][0]
-        spec = FROZEN_V1['plan']['benchmarks'][0]
-        args = (spec, bench['observations'], bench['wall_time_s'], bench['stop_reason'])
-        self.assertEqual(f._summarize_v1(*args)['unknown_finish'], 1)
-        self.assertEqual(f.summarize(*args)['unknown_finish'], 0)
+        bench = FROZEN_V1["benchmarks"][0]
+        spec = FROZEN_V1["plan"]["benchmarks"][0]
+        args = (spec, bench["observations"], bench["wall_time_s"], bench["stop_reason"])
+        self.assertEqual(f._summarize_v1(*args)["unknown_finish"], 1)
+        self.assertEqual(f.summarize(*args)["unknown_finish"], 0)
         self.assertEqual(sum(v is not None for v in f._outcomes_v1(bench).values()), 4)
         self.assertEqual(sum(v is not None for v in f.outcomes(bench).values()), 5)
 
     def test_v1_records_cannot_carry_schema_2_evidence(self):
         for change, reason in (
-            (lambda r: r.update(provenance={}), 'predate provenance'),
-            (lambda r: r['benchmarks'][0]['observations'][2].update(attempts=1), 'predate unit and retry'),
-            (lambda r: r['benchmarks'][0].update(stop_reason='errors'), 'invalid stop reason'),
+            (lambda r: r.update(provenance={}), "predate provenance"),
+            (lambda r: r["benchmarks"][0]["observations"][2].update(attempts=1), "predate unit and retry"),
+            (lambda r: r["benchmarks"][0].update(stop_reason="errors"), "invalid stop reason"),
         ):
             with self.subTest(reason=reason):
                 record = copy.deepcopy(FROZEN_V1)
@@ -638,10 +644,10 @@ class RecordVersionTests(unittest.TestCase):
 
     def test_legacy_derived_claims_and_version_are_still_verified(self):
         for change, reason in (
-            (lambda r: r['benchmarks'][0].update(unknown_finish=0), 'summary disagrees'),
-            (lambda r: r['comparison']['arc'].update(n_candidate=5), 'paired comparison disagrees'),
-            (lambda r: r['post'].update(decision='ADMIT'), 'post decision disagrees'),
-            (lambda r: r.update(schema_version=3), 'unsupported fast-check record'),
+            (lambda r: r["benchmarks"][0].update(unknown_finish=0), "summary disagrees"),
+            (lambda r: r["comparison"]["arc"].update(n_candidate=5), "paired comparison disagrees"),
+            (lambda r: r["post"].update(decision="ADMIT"), "post decision disagrees"),
+            (lambda r: r.update(schema_version=3), "unsupported fast-check record"),
         ):
             with self.subTest(reason=reason):
                 record = copy.deepcopy(FROZEN_V1)
@@ -652,29 +658,33 @@ class RecordVersionTests(unittest.TestCase):
 
 class UnitCaseTests(unittest.TestCase):
     def test_word_units_and_multi_letter_abbreviations_ignore_case(self):
-        for value, expected in (('72 Dollars', '72'), ('5 usd', '5'), ('3 Hours', '3'),
-                                ('12 KM', '12'), ('Answer: 7 Apples', '7')):
+        for value, expected in (
+            ("72 Dollars", "72"),
+            ("5 usd", "5"),
+            ("3 Hours", "3"),
+            ("12 KM", "12"),
+            ("Answer: 7 Apples", "7"),
+        ):
             with self.subTest(value=value):
                 self.assertEqual(a.number_answer(value), expected)
-        self.assertEqual(a.number_parts('12 Cents'), ('12', 'cents'))
+        self.assertEqual(a.number_parts("12 Cents"), ("12", "cents"))
 
     def test_cents_cannot_match_unitless_reference_and_scale_stays_unparsed(self):
-        row = dict(id='fixture', question='Example?', answer='#### 12')
-        for value in ('12 Cents', '12 CENTS', '12 M', '12 G'):
+        row = dict(id="fixture", question="Example?", answer="#### 12")
+        for value in ("12 Cents", "12 CENTS", "12 M", "12 G"):
             with self.subTest(value=value):
-                self.assertEqual(a.parse_answer(value, row, 'gsm8k'), (None, None))
-        for unit in ('m', 'g', 'l', 'L'):
-            self.assertEqual(a.number_answer('12 ' + unit), '12')
+                self.assertEqual(a.parse_answer(value, row, "gsm8k"), (None, None))
+        for unit in ("m", "g", "l", "L"):
+            self.assertEqual(a.number_answer("12 " + unit), "12")
 
     def test_capital_litre_parses_and_capital_scale_letters_do_not(self):
-        row = dict(id='fixture', question='Example?', answer='#### 5')
-        self.assertEqual(a.parse_answer('Answer: 5 L', row, 'gsm8k'), ('5', 'numeric_marked_final'))
-        self.assertEqual(a.number_parts('Answer: 5 L'), ('5', 'l'))
-        self.assertEqual(a.number_parts('12 M'), (None, None))
-        self.assertEqual(a.number_parts('12 G'), (None, None))
-        self.assertEqual(a.number_parts('12 m'), ('12', 'm'))
+        row = dict(id="fixture", question="Example?", answer="#### 5")
+        self.assertEqual(a.parse_answer("Answer: 5 L", row, "gsm8k"), ("5", "numeric_marked_final"))
+        self.assertEqual(a.number_parts("Answer: 5 L"), ("5", "l"))
+        self.assertEqual(a.number_parts("12 M"), (None, None))
+        self.assertEqual(a.number_parts("12 G"), (None, None))
+        self.assertEqual(a.number_parts("12 m"), ("12", "m"))
 
     def test_marked_capitalized_dollars_preserves_parse_rule(self):
-        row = dict(id='fixture', question='Example?', answer='#### 72')
-        self.assertEqual(a.parse_answer('Answer: 72 Dollars', row, 'gsm8k'),
-                         ('72', 'numeric_marked_final'))
+        row = dict(id="fixture", question="Example?", answer="#### 72")
+        self.assertEqual(a.parse_answer("Answer: 72 Dollars", row, "gsm8k"), ("72", "numeric_marked_final"))

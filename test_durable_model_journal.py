@@ -1,4 +1,5 @@
 """Crash/restart safety checks using fake runners and synthetic inventory only."""
+
 import os
 from pathlib import Path
 import subprocess
@@ -19,24 +20,36 @@ MODEL = "publisher/model"
 def inventory(*, loaded=True, sampled=None):
     return {
         "sampledAt": time.time() if sampled is None else sampled,
-        "sources": [{"id": "lmstudio-api", "state": "live"},
-                    {"id": "lms-ps", "state": "live"}],
-        "models": [{"id": MODEL, "name": MODEL, "host": "mac", "modelKey": MODEL,
-                    "source": "lms-ps" if loaded else "lmstudio-api",
-                    "instanceId": MODEL if loaded else None,
-                    "loadedInstanceIds": [MODEL] if loaded else [],
-                    "loaded": loaded, "state": "idle" if loaded else "unloaded",
-                    "queued": 0, "ageSeconds": 0}],
+        "sources": [{"id": "lmstudio-api", "state": "live"}, {"id": "lms-ps", "state": "live"}],
+        "models": [
+            {
+                "id": MODEL,
+                "name": MODEL,
+                "host": "mac",
+                "modelKey": MODEL,
+                "source": "lms-ps" if loaded else "lmstudio-api",
+                "instanceId": MODEL if loaded else None,
+                "loadedInstanceIds": [MODEL] if loaded else [],
+                "loaded": loaded,
+                "state": "idle" if loaded else "unloaded",
+                "queued": 0,
+                "ageSeconds": 0,
+            }
+        ],
     }
 
 
 def aliased_load_inventory():
     result = inventory(loaded=True)
     result["models"] = [
-        {**result["models"][0], "source": "lmstudio-api", "instanceId": None,
-         "loadedInstanceIds": ["instance-1"]},
-        {**result["models"][0], "id": "instance-1", "source": "lms-ps",
-         "instanceId": "instance-1", "loadedInstanceIds": None},
+        {**result["models"][0], "source": "lmstudio-api", "instanceId": None, "loadedInstanceIds": ["instance-1"]},
+        {
+            **result["models"][0],
+            "id": "instance-1",
+            "source": "lms-ps",
+            "instanceId": "instance-1",
+            "loadedInstanceIds": None,
+        },
     ]
     return result
 
@@ -61,14 +74,19 @@ class DurableJournalTests(unittest.TestCase):
 
     def pending(self, *, cleanup=False):
         self.provision()
-        begun = self.journal.begin(operation_id="a" * 32, action="unload",
-                                   model_id=MODEL, model_key=MODEL,
-                                   started_at=time.time())
+        begun = self.journal.begin(
+            operation_id="a" * 32, action="unload", model_id=MODEL, model_key=MODEL, started_at=time.time()
+        )
         if cleanup:
-            self.journal.finish(operation_id="a" * 32, action="unload",
-                                model_id=MODEL, model_key=MODEL,
-                                generation=begun["generation"], finished_at=time.time(),
-                                cleanup_confirmed=True)
+            self.journal.finish(
+                operation_id="a" * 32,
+                action="unload",
+                model_id=MODEL,
+                model_key=MODEL,
+                generation=begun["generation"],
+                finished_at=time.time(),
+                cleanup_confirmed=True,
+            )
         return begun
 
     def test_missing_journal_fails_closed_without_runner(self):
@@ -84,12 +102,11 @@ class DurableJournalTests(unittest.TestCase):
 
     def test_corrupt_duplicate_and_symlinked_journals_fail_closed(self):
         self.provision()
-        for raw in ('{', '{"schema":1,"schema":1}', '{"schema":NaN}'):
+        for raw in ("{", '{"schema":1,"schema":1}', '{"schema":NaN}'):
             with self.subTest(raw=raw):
                 self.path.write_text(raw)
                 self.path.chmod(0o600)
-                control = ModelControl(Store(), runner=lambda *_: self.fail("runner called"),
-                                       journal_path=self.path)
+                control = ModelControl(Store(), runner=lambda *_: self.fail("runner called"), journal_path=self.path)
                 with self.assertRaises(ControlError):
                     control.request("unload", MODEL)
                 self.assertTrue(control.read()["durableJournal"]["blocked"])
@@ -99,16 +116,14 @@ class DurableJournalTests(unittest.TestCase):
         target.write_text("{}")
         target.chmod(0o600)
         self.path.symlink_to(target)
-        control = ModelControl(Store(), runner=lambda *_: self.fail("runner called"),
-                               journal_path=self.path)
+        control = ModelControl(Store(), runner=lambda *_: self.fail("runner called"), journal_path=self.path)
         with self.assertRaises(ControlError):
             control.request("unload", MODEL)
 
     def test_missing_lockfile_fails_closed_even_with_ready_journal(self):
         self.provision()
         self.journal.lock_path.unlink()
-        control = ModelControl(Store(), runner=lambda *_: self.fail("runner called"),
-                               journal_path=self.path)
+        control = ModelControl(Store(), runner=lambda *_: self.fail("runner called"), journal_path=self.path)
         self.assertTrue(control.read()["durableJournal"]["blocked"])
         self.assertFalse(control.read()["cleanupConfirmed"])
         with self.assertRaises(ControlError):
@@ -122,8 +137,7 @@ class DurableJournalTests(unittest.TestCase):
         self.assertFalse(self.journal.lock_path.exists())
         with self.assertRaises(JournalError):
             self.journal.read()
-        control = ModelControl(Store(), runner=lambda *_: self.fail("runner called"),
-                               journal_path=self.path)
+        control = ModelControl(Store(), runner=lambda *_: self.fail("runner called"), journal_path=self.path)
         self.assertTrue(control.read()["durableJournal"]["blocked"])
         with self.assertRaises(ControlError):
             control.request("unload", MODEL)
@@ -146,8 +160,8 @@ class DurableJournalTests(unittest.TestCase):
         with self.assertRaises(JournalError):
             self.journal.provision_new()
         self.pending_with_existing = self.journal.begin(
-            operation_id="b" * 32, action="unload", model_id=MODEL,
-            model_key=MODEL, started_at=time.time())
+            operation_id="b" * 32, action="unload", model_id=MODEL, model_key=MODEL, started_at=time.time()
+        )
         with self.assertRaises(JournalError):
             self.journal.provision_new()
         self.assertEqual(self.journal.read()["phase"], "pending")
@@ -155,14 +169,12 @@ class DurableJournalTests(unittest.TestCase):
     def test_crash_after_admission_retains_exact_identity_and_blocks_even_with_desired_inventory(self):
         begun = self.pending(cleanup=False)
         store = Store(inventory(loaded=False))
-        control = ModelControl(store, runner=lambda *_: self.fail("runner called"),
-                               journal_path=self.path)
+        control = ModelControl(store, runner=lambda *_: self.fail("runner called"), journal_path=self.path)
         state = control.read()
-        self.assertEqual((state["operationId"], state["action"], state["modelId"]),
-                         ("a" * 32, "unload", MODEL))
+        self.assertEqual((state["operationId"], state["action"], state["modelId"]), ("a" * 32, "unload", MODEL))
         self.assertEqual(state["settlement"], "unconfirmed")
         self.assertFalse(state["cleanupConfirmed"])
-        time.sleep(.012)
+        time.sleep(0.012)
         store.snapshot = inventory(loaded=False)
         with self.assertRaisesRegex(ControlError, "cleanup"):
             control.reconcile("a" * 32)
@@ -172,24 +184,32 @@ class DurableJournalTests(unittest.TestCase):
 
     def test_real_process_exit_during_fake_dispatch_keeps_write_ahead_pending(self):
         self.provision()
-        script = ("import os,time\n"
-                  "from model_control import ModelControl\n"
-                  "from test_durable_model_journal import Store,MODEL\n"
-                  f"control=ModelControl(Store(),runner=lambda *_: os._exit(42),journal_path={str(self.path)!r})\n"
-                  "control.request('unload',MODEL)\n"
-                  "time.sleep(3)\n")
-        child = subprocess.run([sys.executable, "-c", script], cwd=Path(__file__).parent,
-                               capture_output=True, text=True, timeout=5,
-                               env={**os.environ, "PYTHONPATH": os.pathsep.join(sys.path)})
+        script = (
+            "import os,time\n"
+            "from model_control import ModelControl\n"
+            "from test_durable_model_journal import Store,MODEL\n"
+            f"control=ModelControl(Store(),runner=lambda *_: os._exit(42),journal_path={str(self.path)!r})\n"
+            "control.request('unload',MODEL)\n"
+            "time.sleep(3)\n"
+        )
+        child = subprocess.run(
+            [sys.executable, "-c", script],
+            cwd=Path(__file__).parent,
+            capture_output=True,
+            text=True,
+            timeout=5,
+            env={**os.environ, "PYTHONPATH": os.pathsep.join(sys.path)},
+        )
         self.assertEqual(child.returncode, 42, child.stderr)
         saved = self.journal.read()
         self.assertEqual(saved["phase"], "pending")
         self.assertEqual(saved["operation"]["action"], "unload")
         self.assertEqual(saved["operation"]["modelId"], MODEL)
         self.assertFalse(saved["operation"]["cleanupConfirmed"])
-        restarted = ModelControl(Store(inventory(loaded=False)),
-                                 runner=lambda *_: self.fail("runner called"), journal_path=self.path)
-        time.sleep(.012)
+        restarted = ModelControl(
+            Store(inventory(loaded=False)), runner=lambda *_: self.fail("runner called"), journal_path=self.path
+        )
+        time.sleep(0.012)
         restarted.store.snapshot = inventory(loaded=False)
         with self.assertRaises(ControlError):
             restarted.reconcile(saved["operation"]["operationId"])
@@ -207,7 +227,7 @@ class DurableJournalTests(unittest.TestCase):
         store.snapshot = inventory(loaded=False, sampled=begun["operation"]["startedAt"] - 1)
         with self.assertRaises(ControlError):
             control.reconcile("a" * 32)  # stale observation is insufficient
-        time.sleep(.012)
+        time.sleep(0.012)
         store.snapshot = inventory(loaded=False)
         reconciled = control.reconcile("a" * 32)
         self.assertEqual(reconciled["settlement"], "confirmed")
@@ -227,21 +247,27 @@ class DurableJournalTests(unittest.TestCase):
             control.reconcile("a" * 32)
         self.assertEqual(control.read()["settlement"], "unconfirmed")
         self.assertFalse(control.read()["durableJournal"]["blocked"])
-        time.sleep(.012)
+        time.sleep(0.012)
         control.store.snapshot = inventory(loaded=False)
         self.assertEqual(control.reconcile("a" * 32)["settlement"], "confirmed")
 
     def test_recovered_load_requires_one_exact_instance_not_ambiguous_inventory(self):
         self.provision()
-        begun = self.journal.begin(operation_id="c" * 32, action="load",
-                                   model_id=MODEL, model_key=MODEL,
-                                   started_at=time.time())
-        self.journal.finish(operation_id="c" * 32, action="load", model_id=MODEL,
-                            model_key=MODEL, generation=begun["generation"],
-                            finished_at=time.time(), cleanup_confirmed=True)
+        begun = self.journal.begin(
+            operation_id="c" * 32, action="load", model_id=MODEL, model_key=MODEL, started_at=time.time()
+        )
+        self.journal.finish(
+            operation_id="c" * 32,
+            action="load",
+            model_id=MODEL,
+            model_key=MODEL,
+            generation=begun["generation"],
+            finished_at=time.time(),
+            cleanup_confirmed=True,
+        )
         store = Store(inventory(loaded=True))
         control = ModelControl(store, runner=lambda *_: None, journal_path=self.path)
-        time.sleep(.012)
+        time.sleep(0.012)
         store.snapshot = inventory(loaded=True)
         store.snapshot["models"][0]["loadedInstanceIds"] = [MODEL, "other-instance"]
         with self.assertRaises(ControlError):
@@ -255,15 +281,21 @@ class DurableJournalTests(unittest.TestCase):
 
     def test_recovered_load_accepts_a_distinct_instance_id_only_when_api_and_cli_agree(self):
         self.provision()
-        begun = self.journal.begin(operation_id="d" * 32, action="load",
-                                   model_id=MODEL, model_key=MODEL,
-                                   started_at=time.time())
-        self.journal.finish(operation_id="d" * 32, action="load", model_id=MODEL,
-                            model_key=MODEL, generation=begun["generation"],
-                            finished_at=time.time(), cleanup_confirmed=True)
+        begun = self.journal.begin(
+            operation_id="d" * 32, action="load", model_id=MODEL, model_key=MODEL, started_at=time.time()
+        )
+        self.journal.finish(
+            operation_id="d" * 32,
+            action="load",
+            model_id=MODEL,
+            model_key=MODEL,
+            generation=begun["generation"],
+            finished_at=time.time(),
+            cleanup_confirmed=True,
+        )
         store = Store(aliased_load_inventory())
         control = ModelControl(store, runner=lambda *_: self.fail("runner called"), journal_path=self.path)
-        time.sleep(.012)
+        time.sleep(0.012)
         store.snapshot = aliased_load_inventory()
         store.snapshot["models"][1]["instanceId"] = "different-instance"
         with self.assertRaises(ControlError):
@@ -273,8 +305,7 @@ class DurableJournalTests(unittest.TestCase):
         with self.assertRaises(ControlError):
             control.reconcile("d" * 32)
         store.snapshot = aliased_load_inventory()
-        store.snapshot["models"].append(
-            {**store.snapshot["models"][1], "id": "instance-2", "instanceId": "instance-2"})
+        store.snapshot["models"].append({**store.snapshot["models"][1], "id": "instance-2", "instanceId": "instance-2"})
         with self.assertRaises(ControlError):
             control.reconcile("d" * 32)
         store.snapshot = aliased_load_inventory()
@@ -283,28 +314,33 @@ class DurableJournalTests(unittest.TestCase):
 
     def test_wrong_identity_or_generation_cannot_finish_or_reconcile(self):
         begun = self.pending(cleanup=False)
-        params = dict(operation_id="a" * 32, action="unload", model_id=MODEL,
-                      model_key=MODEL, generation=begun["generation"])
-        for changed in ({"operation_id": "b" * 32}, {"action": "load"},
-                        {"model_id": "other/model"}, {"model_key": "other/model"},
-                        {"generation": 99}):
+        params = dict(
+            operation_id="a" * 32, action="unload", model_id=MODEL, model_key=MODEL, generation=begun["generation"]
+        )
+        for changed in (
+            {"operation_id": "b" * 32},
+            {"action": "load"},
+            {"model_id": "other/model"},
+            {"model_key": "other/model"},
+            {"generation": 99},
+        ):
             with self.subTest(changed=changed), self.assertRaises(JournalError):
-                self.journal.finish(**{**params, **changed}, finished_at=time.time(),
-                                    cleanup_confirmed=True)
+                self.journal.finish(**{**params, **changed}, finished_at=time.time(), cleanup_confirmed=True)
         self.assertEqual(self.journal.read(), begun)
 
     def test_two_monitors_cannot_both_admit_from_ready_state(self):
         self.provision()
         started, release = threading.Event(), threading.Event()
         calls = []
+
         def runner(*args):
             calls.append(args)
             started.set()
             release.wait(2)
+
         store = Store()
         first = ModelControl(store, runner=runner, journal_path=self.path)
-        second = ModelControl(store, runner=lambda *_: self.fail("second runner called"),
-                              journal_path=self.path)
+        second = ModelControl(store, runner=lambda *_: self.fail("second runner called"), journal_path=self.path)
         accepted = first.request("unload", MODEL)
         self.assertTrue(started.wait(1))
         with self.assertRaises(ControlError):
@@ -318,8 +354,7 @@ class DurableJournalTests(unittest.TestCase):
     def test_failed_pre_dispatch_journal_write_never_calls_runner(self):
         self.provision()
         calls = []
-        control = ModelControl(Store(), runner=lambda *args: calls.append(args),
-                               journal_path=self.path)
+        control = ModelControl(Store(), runner=lambda *args: calls.append(args), journal_path=self.path)
         with patch.object(control.journal, "_write_locked", side_effect=JournalError("disk fault")):
             with self.assertRaises(ControlError):
                 control.request("unload", MODEL)
@@ -336,8 +371,9 @@ class DurableJournalTests(unittest.TestCase):
             self.assertTrue(control.join(1))
         self.assertEqual(control.read()["settlement"], "unconfirmed")
         self.assertTrue(control.read()["durableJournal"]["blocked"])
-        restarted = ModelControl(Store(inventory(loaded=False)), runner=lambda *_: self.fail("runner called"),
-                                 journal_path=self.path)
+        restarted = ModelControl(
+            Store(inventory(loaded=False)), runner=lambda *_: self.fail("runner called"), journal_path=self.path
+        )
         self.assertEqual(restarted.read()["operationId"], op)
         with self.assertRaises(ControlError):
             restarted.request("unload", MODEL)
@@ -355,9 +391,9 @@ class DurableJournalTests(unittest.TestCase):
             control.request("unload", MODEL)
             deadline = time.monotonic() + 1
             while "waiting for fresh inventory" not in control.read()["message"] and time.monotonic() < deadline:
-                time.sleep(.005)
+                time.sleep(0.005)
             self.assertIn("waiting for fresh inventory", control.read()["message"])
-            time.sleep(.012)
+            time.sleep(0.012)
             store.snapshot = inventory(loaded=False)
             self.assertTrue(control.join(1))
         self.assertEqual(control.read()["settlement"], "confirmed")
@@ -374,7 +410,7 @@ class DurableJournalTests(unittest.TestCase):
         self.assertTrue(entered.wait(1))
         deadline = time.monotonic() + 1
         while "waiting for fresh inventory" not in control.read()["message"] and time.monotonic() < deadline:
-            time.sleep(.005)
+            time.sleep(0.005)
         store.snapshot = inventory(loaded=False)
         self.assertTrue(control.join(1))
         self.assertEqual(control.read()["settlement"], "unconfirmed")

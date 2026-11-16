@@ -26,9 +26,17 @@ def _install_registry_guard(registry):
     if getattr(registry, "_agiw_peer_test_guard", False):
         return
     paths = {}
-    roots = {getattr(registry, name) for name in (
-        "HKEY_CLASSES_ROOT", "HKEY_CURRENT_USER", "HKEY_LOCAL_MACHINE", "HKEY_USERS",
-        "HKEY_CURRENT_CONFIG", "HKEY_PERFORMANCE_DATA")}
+    roots = {
+        getattr(registry, name)
+        for name in (
+            "HKEY_CLASSES_ROOT",
+            "HKEY_CURRENT_USER",
+            "HKEY_LOCAL_MACHINE",
+            "HKEY_USERS",
+            "HKEY_CURRENT_CONFIG",
+            "HKEY_PERFORMANCE_DATA",
+        )
+    }
 
     def path_for(key):
         handle = int(key)
@@ -56,13 +64,18 @@ def _install_registry_guard(registry):
             # Check the requested path first: a restored production key must still be refused.
             test_path = getattr(_registry_scope, "test_path", None)
             node_path = getattr(_registry_scope, "node_path", None)
-            if path is not None and test_path is not None and node_path is not None \
-                    and path.casefold() == test_path.casefold():
+            if (
+                path is not None
+                and test_path is not None
+                and node_path is not None
+                and path.casefold() == test_path.casefold()
+            ):
                 key, sub_key, path = registry.HKEY_CURRENT_USER, node_path, node_path
             answer = original(key, sub_key, *args, **kwargs)
             if opens:
                 paths[int(answer)] = path
             return answer
+
         return guarded
 
     for name in ("OpenKey", "OpenKeyEx", "CreateKey", "CreateKeyEx"):
@@ -74,6 +87,7 @@ def _install_registry_guard(registry):
 
 if os.name == "nt":
     import winreg as _test_winreg
+
     _install_registry_guard(_test_winreg)  # Intentionally stays installed until this process exits.
 
 
@@ -95,8 +109,11 @@ class PeerLinkCase(unittest.TestCase):
 
     def run(self, result=None):
         method = getattr(self, self._testMethodName)
-        if os.name != "nt" or getattr(self.__class__, "__unittest_skip__", False) \
-                or getattr(method, "__unittest_skip__", False):
+        if (
+            os.name != "nt"
+            or getattr(self.__class__, "__unittest_skip__", False)
+            or getattr(method, "__unittest_skip__", False)
+        ):
             return super().run(result)
         self.registry_path = _TEST_REGISTRY_PARENT + "\\" + pl.uuidlib.uuid4().hex
         self._test_threads, self._test_links = [], []
@@ -122,12 +139,12 @@ class PeerLinkCase(unittest.TestCase):
             def routed(store, *args, **kwargs):
                 with self.registry_for_directory(store.dir.parent):
                     return original(store, *args, **kwargs)
+
             return routed
 
         for method_name in ("load", "pin", "remove"):
             original = getattr(pl.TrustStore, method_name)
-            self._registry_context.enter_context(
-                mock.patch.object(pl.TrustStore, method_name, store_method(original)))
+            self._registry_context.enter_context(mock.patch.object(pl.TrustStore, method_name, store_method(original)))
         real_restrict = pl._win_restrict_dir
 
         def restrict_directory(directory, info):
@@ -156,12 +173,16 @@ class PeerLinkCase(unittest.TestCase):
             return
         directory = os.path.normcase(os.path.abspath(directory))
         with self._registry_lock:
-            namespace = next((self._node_registry_paths[root] for root in
-                              sorted(self._node_registry_paths, key=len, reverse=True)
-                              if directory == root or directory.startswith(root + os.sep)), None)
+            namespace = next(
+                (
+                    self._node_registry_paths[root]
+                    for root in sorted(self._node_registry_paths, key=len, reverse=True)
+                    if directory == root or directory.startswith(root + os.sep)
+                ),
+                None,
+            )
         # Routing is thread-local. Leave the backend's locking observable to the security tests.
-        previous = (getattr(_registry_scope, "test_path", None),
-                    getattr(_registry_scope, "node_path", None))
+        previous = (getattr(_registry_scope, "test_path", None), getattr(_registry_scope, "node_path", None))
         _registry_scope.test_path, _registry_scope.node_path = self.registry_path, namespace
         try:
             yield
@@ -195,8 +216,10 @@ class PeerLinkCase(unittest.TestCase):
 class RegistryIsolation(PeerLinkCase):
     def test_module_cleanup_removes_parent_after_test_namespaces_are_gone(self):
         child = self.registry_path + "\\active-child"
-        with mock.patch(__name__ + "._TEST_REGISTRY_PARENT", self.registry_path), \
-                mock.patch.object(pl, "_GENERATIONS", child):
+        with (
+            mock.patch(__name__ + "._TEST_REGISTRY_PARENT", self.registry_path),
+            mock.patch.object(pl, "_GENERATIONS", child),
+        ):
             try:
                 pl._gen_set(PEER, "a" * 32)
                 tearDownModule()
@@ -213,14 +236,21 @@ class RegistryIsolation(PeerLinkCase):
 
     def test_module_cleanup_preserves_parent_values(self):
         sentinel = pl.uuidlib.uuid4().hex
-        with mock.patch(__name__ + "._TEST_REGISTRY_PARENT", self.registry_path), \
-                _test_winreg.CreateKeyEx(_test_winreg.HKEY_CURRENT_USER, self.registry_path, 0,
-                                        _test_winreg.KEY_SET_VALUE | _test_winreg.KEY_QUERY_VALUE) as parent:
+        with (
+            mock.patch(__name__ + "._TEST_REGISTRY_PARENT", self.registry_path),
+            _test_winreg.CreateKeyEx(
+                _test_winreg.HKEY_CURRENT_USER,
+                self.registry_path,
+                0,
+                _test_winreg.KEY_SET_VALUE | _test_winreg.KEY_QUERY_VALUE,
+            ) as parent,
+        ):
             _test_winreg.SetValueEx(parent, sentinel, 0, _test_winreg.REG_SZ, "another test's data")
             try:
                 tearDownModule()
-                self.assertEqual(_test_winreg.QueryValueEx(parent, sentinel),
-                                 ("another test's data", _test_winreg.REG_SZ))
+                self.assertEqual(
+                    _test_winreg.QueryValueEx(parent, sentinel), ("another test's data", _test_winreg.REG_SZ)
+                )
             finally:
                 _test_winreg.DeleteValue(parent, sentinel)
 
@@ -296,8 +326,12 @@ class RegistryIsolation(PeerLinkCase):
             with self.assertRaisesRegex(AssertionError, "never access HKCU"):
                 _test_winreg.OpenKey(software, "AGIW\\PeerLink\\TrustGenerations")
         with mock.patch.object(pl, "_GENERATIONS", "Software\\AGIW\\PeerLink\\TrustGenerations"):
-            for operation in (lambda: pl._gen_get(PEER), lambda: pl._gen_set(PEER, "a" * 32),
-                              lambda: pl._gen_delete(PEER), pl._gen_revoke_all):
+            for operation in (
+                lambda: pl._gen_get(PEER),
+                lambda: pl._gen_set(PEER, "a" * 32),
+                lambda: pl._gen_delete(PEER),
+                pl._gen_revoke_all,
+            ):
                 with self.assertRaisesRegex(AssertionError, "never access HKCU"):
                     operation()
 
@@ -359,8 +393,12 @@ class RegistryIsolation(PeerLinkCase):
 
 
 def status(host, state="loaded"):
-    return {"schemaVersion": 1, "host": host, "observedAt": pl._iso(time.time()),
-            "models": [{"id": "gpt-oss-20b", "host": host, "loadedState": state}]}
+    return {
+        "schemaVersion": 1,
+        "host": host,
+        "observedAt": pl._iso(time.time()),
+        "models": [{"id": "gpt-oss-20b", "host": host, "loadedState": state}],
+    }
 
 
 ME = "S-1-5-21-1111111111-2222222222-3333333333-1001"
@@ -385,7 +423,8 @@ def fake_protect(data, entropy, key=ACCOUNT_KEY):
 def fake_unprotect(blob, entropy, key=ACCOUNT_KEY):
     data = blob[20:]
     if blob[:4] != b"BLOB" or not pl.hmac.compare_digest(
-            blob[4:20], pl.hmac.new(key, entropy + b"\0" + data, pl.hashlib.sha256).digest()[:16]):
+        blob[4:20], pl.hmac.new(key, entropy + b"\0" + data, pl.hashlib.sha256).digest()[:16]
+    ):
         raise pl.LooseSecret("not sealed by this account")
     return data
 
@@ -396,7 +435,7 @@ def sealed(value, purpose, key=ACCOUNT_KEY):
 
 def unsealed(text, purpose="agiw-peer control-token"):
     assert text.startswith(pl.SEAL_PREFIX), "Windows secrets are stored sealed"
-    return fake_unprotect(pl.base64.b64decode(text[len(pl.SEAL_PREFIX):]), purpose.encode()).decode()
+    return fake_unprotect(pl.base64.b64decode(text[len(pl.SEAL_PREFIX) :]), purpose.encode()).decode()
 
 
 @contextlib.contextmanager
@@ -405,18 +444,21 @@ def as_windows(security, me=ME):
     ctypes call that reads a security descriptor); icacls is mocked and returned for inspection. Each
     entry starts with nothing tightened, like a fresh process. Build every Path before entering: pathlib
     refuses to construct one while os.name says 'nt'."""
-    with mock.patch.object(pl.os, "name", "nt"), mock.patch.object(pl.sys, "platform", "win32"), \
-            mock.patch.object(pl, "_win_current_sid", return_value=me), \
-            mock.patch.object(pl, "_win_owner_and_allow_sids", security), \
-            mock.patch.object(pl, "_win_system_dir", return_value=SYSTEM32), \
-            mock.patch.object(pl, "_win_tightened", set()), \
-            mock.patch.object(pl, "_win_protect", fake_protect), \
-            mock.patch.object(pl, "_gen_get", FAKE_REGISTRY.get), \
-            mock.patch.object(pl, "_gen_set", FAKE_REGISTRY.__setitem__), \
-            mock.patch.object(pl, "_gen_delete", lambda node: FAKE_REGISTRY.pop(node, None)), \
-            mock.patch.object(pl, "_gen_revoke_all", FAKE_REGISTRY.clear), \
-            mock.patch.object(pl, "_win_unprotect", fake_unprotect), \
-            mock.patch.object(pl.subprocess, "run", return_value=mock.Mock(returncode=0)) as run:
+    with (
+        mock.patch.object(pl.os, "name", "nt"),
+        mock.patch.object(pl.sys, "platform", "win32"),
+        mock.patch.object(pl, "_win_current_sid", return_value=me),
+        mock.patch.object(pl, "_win_owner_and_allow_sids", security),
+        mock.patch.object(pl, "_win_system_dir", return_value=SYSTEM32),
+        mock.patch.object(pl, "_win_tightened", set()),
+        mock.patch.object(pl, "_win_protect", fake_protect),
+        mock.patch.object(pl, "_gen_get", FAKE_REGISTRY.get),
+        mock.patch.object(pl, "_gen_set", FAKE_REGISTRY.__setitem__),
+        mock.patch.object(pl, "_gen_delete", lambda node: FAKE_REGISTRY.pop(node, None)),
+        mock.patch.object(pl, "_gen_revoke_all", FAKE_REGISTRY.clear),
+        mock.patch.object(pl, "_win_unprotect", fake_unprotect),
+        mock.patch.object(pl.subprocess, "run", return_value=mock.Mock(returncode=0)) as run,
+    ):
         yield run
 
 
@@ -428,13 +470,25 @@ class Node:
         if os.name == "nt" and hasattr(case, "registry_path"):
             case.register_node_directory(self.dir)  # Before identity/control-token folder validation.
         kw = {"clock": clock} if clock else {}
-        self.link = pl.PeerLink(self.dir, host, name, provider or (lambda: status(host)), status_port=0,
-                                beacon_port=0, bind="127.0.0.1", broadcast=(), allow_loopback=True, **kw).start()
+        self.link = pl.PeerLink(
+            self.dir,
+            host,
+            name,
+            provider or (lambda: status(host)),
+            status_port=0,
+            beacon_port=0,
+            bind="127.0.0.1",
+            broadcast=(),
+            allow_loopback=True,
+            **kw,
+        ).start()
         case.addCleanup(self.link.stop)
 
     def hello_to(self, other):
-        other.link.handle_datagram(pl.make_hello(self.link.node, self.link.host, self.link.name,
-                                                 self.link.status_port, time.time()), "127.0.0.1")
+        other.link.handle_datagram(
+            pl.make_hello(self.link.node, self.link.host, self.link.name, self.link.status_port, time.time()),
+            "127.0.0.1",
+        )
 
     def control(self, method, path, body=None):
         status, doc = pl.control_request(self.dir, self.link.status_port, method, path, body)
@@ -494,11 +548,16 @@ class Hello(PeerLinkCase):
     def test_valid_hello_and_junk(self):
         node = "33333333-3333-4333-8333-333333333333"
         self.assertEqual(pl.read_hello(pl.make_hello(node, "windows", "pc", 8768, 1.0))["name"], "pc")
-        for data in (b"\xff", b"[]", b"{}", b"x" * 2000,
-                     pl.make_hello("not-a-uuid", "windows", "pc", 8768, 1.0),
-                     pl.make_hello(node, "toaster", "pc", 8768, 1.0),
-                     pl.make_hello(node, "windows", "pc", 80, 1.0),
-                     pl.make_hello(node, "windows", "bad\x1bname", 8768, 1.0)):
+        for data in (
+            b"\xff",
+            b"[]",
+            b"{}",
+            b"x" * 2000,
+            pl.make_hello("not-a-uuid", "windows", "pc", 8768, 1.0),
+            pl.make_hello(node, "toaster", "pc", 8768, 1.0),
+            pl.make_hello(node, "windows", "pc", 80, 1.0),
+            pl.make_hello(node, "windows", "bad\x1bname", 8768, 1.0),
+        ):
             self.assertIsNone(pl.read_hello(data), data[:50])
 
     def test_only_private_lan_sources(self):
@@ -531,8 +590,10 @@ class Pairing(PeerLinkCase):
         self.assertEqual([f.stem for f in files], [self.pc.link.node])
         if os.name != "nt":
             self.assertEqual(files[0].stat().st_mode & 0o777, 0o600)
-        self.assertEqual(pl.TrustStore(self.mac.dir).load()[self.pc.link.node]["key"],
-                         pl.TrustStore(self.pc.dir).load()[self.mac.link.node]["key"])
+        self.assertEqual(
+            pl.TrustStore(self.mac.dir).load()[self.pc.link.node]["key"],
+            pl.TrustStore(self.pc.dir).load()[self.mac.link.node]["key"],
+        )
 
     def test_inviter_shows_pin_and_joiner_sees_waiting_invite(self):
         self.pc.hello_to(self.mac)
@@ -600,8 +661,15 @@ class StatusRoute(PeerLinkCase):
         self.key = self.mac.link.trusted()[self.pc.link.node]["key"]
 
     def fetch(self, key=None, me=None, peer=None):
-        return pl.fetch_status(key or self.key, me or self.mac.link.node, "127.0.0.1", self.pc.link.status_port,
-                               peer or self.pc.link.node, "windows", time.time())
+        return pl.fetch_status(
+            key or self.key,
+            me or self.mac.link.node,
+            "127.0.0.1",
+            self.pc.link.status_port,
+            peer or self.pc.link.node,
+            "windows",
+            time.time(),
+        )
 
     def test_paired_fetch_works(self):
         self.assertEqual(self.fetch()["host"], "windows")
@@ -664,8 +732,9 @@ class Spoofing(PeerLinkCase):
         self.mac.link.handle_datagram(fake, "10.9.9.9")
         self.mac.link.poll_once()
         row = self.mac.link.snapshot()["peers"][0]
-        self.assertEqual((row["name"], row["host"], row["state"], row["address"]),
-                         ("winpc01", "windows", "connected", "127.0.0.1"))
+        self.assertEqual(
+            (row["name"], row["host"], row["state"], row["address"]), ("winpc01", "windows", "connected", "127.0.0.1")
+        )
 
     def test_table_flood_evicts_unpaired_not_paired(self):
         for i in range(pl.MAX_PEERS + 10):
@@ -699,8 +768,9 @@ class Control(PeerLinkCase):
         self.pc = Node(self, "windows", "winpc01")
 
     def raw(self, path, headers, method="GET", data=None):
-        req = urllib.request.Request(f"http://127.0.0.1:{self.mac.link.status_port}{path}", method=method,
-                                     headers=headers, data=data)
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{self.mac.link.status_port}{path}", method=method, headers=headers, data=data
+        )
         with self.assertRaises(urllib.error.HTTPError) as caught:
             urllib.request.urlopen(req, timeout=5)
         return caught.exception.code
@@ -709,25 +779,41 @@ class Control(PeerLinkCase):
         token = self.mac.link.control_token
         self.assertEqual(self.raw("/control/peers", {"X-Agiw-Control": token}), 404)
         nc = "b" * 32
-        hello = json.loads(urllib.request.urlopen(urllib.request.Request(
-            f"http://127.0.0.1:{self.mac.link.status_port}/control/hello", headers={"X-Agiw-Client-Nonce": nc}),
-            timeout=5).read())
-        good = {"X-Agiw-Control-Nonce": hello["ns"],
-                "X-Agiw-Control-Proof": pl.control_client_proof(token, hello["ns"], nc, "GET", "/control/peers", b"")}
+        hello = json.loads(
+            urllib.request.urlopen(
+                urllib.request.Request(
+                    f"http://127.0.0.1:{self.mac.link.status_port}/control/hello", headers={"X-Agiw-Client-Nonce": nc}
+                ),
+                timeout=5,
+            ).read()
+        )
+        good = {
+            "X-Agiw-Control-Nonce": hello["ns"],
+            "X-Agiw-Control-Proof": pl.control_client_proof(token, hello["ns"], nc, "GET", "/control/peers", b""),
+        }
         self.assertEqual(self.raw("/control/peers", {**good, "Origin": "http://evil.example"}), 404)
         self.assertEqual(self.raw("/control/hello", {"X-Agiw-Client-Nonce": nc, "Origin": "http://evil.example"}), 404)
 
     def test_wrong_token_and_replayed_proof_are_refused(self):
         token = self.mac.link.control_token
         nc = "c" * 32
-        hello = json.loads(urllib.request.urlopen(urllib.request.Request(
-            f"http://127.0.0.1:{self.mac.link.status_port}/control/hello", headers={"X-Agiw-Client-Nonce": nc}),
-            timeout=5).read())
-        bad = {"X-Agiw-Control-Nonce": hello["ns"],
-               "X-Agiw-Control-Proof": pl.control_client_proof("0" * 64, hello["ns"], nc, "GET", "/control/peers", b"")}
+        hello = json.loads(
+            urllib.request.urlopen(
+                urllib.request.Request(
+                    f"http://127.0.0.1:{self.mac.link.status_port}/control/hello", headers={"X-Agiw-Client-Nonce": nc}
+                ),
+                timeout=5,
+            ).read()
+        )
+        bad = {
+            "X-Agiw-Control-Nonce": hello["ns"],
+            "X-Agiw-Control-Proof": pl.control_client_proof("0" * 64, hello["ns"], nc, "GET", "/control/peers", b""),
+        }
         self.assertEqual(self.raw("/control/peers", bad), 404)
-        good = {"X-Agiw-Control-Nonce": hello["ns"],
-                "X-Agiw-Control-Proof": pl.control_client_proof(token, hello["ns"], nc, "GET", "/control/peers", b"")}
+        good = {
+            "X-Agiw-Control-Nonce": hello["ns"],
+            "X-Agiw-Control-Proof": pl.control_client_proof(token, hello["ns"], nc, "GET", "/control/peers", b""),
+        }
         self.assertEqual(self.raw("/control/peers", good), 404, "server nonce is single use, even after a failure")
 
     def test_a_listener_squatting_the_port_never_sees_the_token(self):
@@ -765,8 +851,9 @@ class Control(PeerLinkCase):
         self.assertEqual(self.pc.control("POST", "/control/accept", {"peer": "", "pin": pin})["peer"], "example-mac")
         self.mac.link.poll_once()
         self.assertEqual(self.mac.control("GET", "/control/peers")["peers"][0]["state"], "connected")
-        self.assertEqual(self.mac.control("POST", "/control/unpair", {"peer": "winpc01"})["unpaired"],
-                         self.pc.link.node)
+        self.assertEqual(
+            self.mac.control("POST", "/control/unpair", {"peer": "winpc01"})["unpaired"], self.pc.link.node
+        )
 
     def test_identity_is_stable_and_private(self):
         again = pl.load_identity(self.mac.dir)
@@ -799,13 +886,18 @@ class Hardening(PeerLinkCase):
         key = pl.Subkeys(self.mac.link.trusted()[self.pc.link.node]["key"])
         nonce = "a" * 32
         signed = "\n".join(("GET", pl.PREFIX + "/status", self.mac.link.node, self.pc.link.node, ts, nonce)).encode()
-        return {"X-Agiw-Node": self.mac.link.node, "X-Agiw-Ts": ts, "X-Agiw-Nonce": nonce,
-                "X-Agiw-Sig": pl.hmac.new(key.request, signed, pl.hashlib.sha256).hexdigest()}
+        return {
+            "X-Agiw-Node": self.mac.link.node,
+            "X-Agiw-Ts": ts,
+            "X-Agiw-Nonce": nonce,
+            "X-Agiw-Sig": pl.hmac.new(key.request, signed, pl.hashlib.sha256).hexdigest(),
+        }
 
     def test_non_finite_request_timestamp_is_refused(self):
         for ts in ("nan", "inf", "-inf"):
-            req = urllib.request.Request(f"http://127.0.0.1:{self.pc.link.status_port}{pl.PREFIX}/status",
-                                         headers=self.signed_headers(ts))
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{self.pc.link.status_port}{pl.PREFIX}/status", headers=self.signed_headers(ts)
+            )
             with self.assertRaises(urllib.error.HTTPError) as caught:
                 urllib.request.urlopen(req, timeout=2)
             self.assertEqual(caught.exception.code, 403, ts)
@@ -920,8 +1012,7 @@ class Regressions(PeerLinkCase):
         started = time.monotonic()
         try:
             with self.assertRaises((TimeoutError, OSError, pl.http.client.HTTPException)):
-                pl._http("127.0.0.1", listener.getsockname()[1], "GET", "/", {}, None,
-                         10000, deadline=0.5)
+                pl._http("127.0.0.1", listener.getsockname()[1], "GET", "/", {}, None, 10000, deadline=0.5)
             elapsed = time.monotonic() - started
         finally:
             stopped.set()
@@ -962,10 +1053,12 @@ class Regressions(PeerLinkCase):
             except Exception as exc:
                 errors.append(exc)
 
-        with mock.patch.object(pl, "FETCH_DEADLINE", 0.2), \
-                mock.patch.object(pl, "fetch_status", fetch), \
-                mock.patch.object(mac.link, "trusted", return_value=ordered), \
-                mock.patch.object(mac.link, "_poll_peer", poll_peer):
+        with (
+            mock.patch.object(pl, "FETCH_DEADLINE", 0.2),
+            mock.patch.object(pl, "fetch_status", fetch),
+            mock.patch.object(mac.link, "trusted", return_value=ordered),
+            mock.patch.object(mac.link, "_poll_peer", poll_peer),
+        ):
             thread = pl.threading.Thread(target=poll, daemon=True)
             started = time.monotonic()
             thread.start()
@@ -1057,9 +1150,17 @@ class Regressions(PeerLinkCase):
         if os.name != "nt":
             reserved.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         reserved.bind(("127.0.0.1", old_port))
-        pc.link = pl.PeerLink(pc.dir, "windows", "winpc01", lambda: status("windows"),
-                              status_port=0, beacon_port=0, bind="127.0.0.1", broadcast=(),
-                              allow_loopback=True).start()
+        pc.link = pl.PeerLink(
+            pc.dir,
+            "windows",
+            "winpc01",
+            lambda: status("windows"),
+            status_port=0,
+            beacon_port=0,
+            bind="127.0.0.1",
+            broadcast=(),
+            allow_loopback=True,
+        ).start()
         self.addCleanup(pc.link.stop)
         self.assertEqual(pc.link.node, node)
         new_port = pc.link.status_port
@@ -1109,8 +1210,7 @@ class Regressions(PeerLinkCase):
             except Exception as exc:
                 errors[name] = exc
 
-        threads = {name: pl.threading.Thread(target=accept, args=(name,), name=name, daemon=True)
-                   for name in ready}
+        threads = {name: pl.threading.Thread(target=accept, args=(name,), name=name, daemon=True) for name in ready}
         with mock.patch.object(pl, "_http", http):
             threads["older"].start()
             try:
@@ -1151,8 +1251,10 @@ class Regressions(PeerLinkCase):
                     raise ConnectionResetError("lost final reply after inviter processed it")
             return reply
 
-        with mock.patch.object(pl, "_http", drop_first_finish), \
-                mock.patch.object(mac.link.store, "pin", wraps=mac.link.store.pin) as pin:
+        with (
+            mock.patch.object(pl, "_http", drop_first_finish),
+            mock.patch.object(mac.link.store, "pin", wraps=mac.link.store.pin) as pin,
+        ):
             pair(self, mac, pc)
         self.assertEqual(pinned_before_drop, [True])
         self.assertEqual(len(finishes), 2)
@@ -1170,8 +1272,13 @@ class Regressions(PeerLinkCase):
         mac, pc = self.nodes()
         mac.link.poll_once()
         real = mac.link.snapshot
-        big_rows = [{"node": f"{i:08x}-0000-4000-8000-000000000000", "status": {"models": [
-            {"id": "m" * 256, "loadedState": "loaded"}] * pl.MAX_MODELS}} for i in range(8)]
+        big_rows = [
+            {
+                "node": f"{i:08x}-0000-4000-8000-000000000000",
+                "status": {"models": [{"id": "m" * 256, "loadedState": "loaded"}] * pl.MAX_MODELS},
+            }
+            for i in range(8)
+        ]
 
         def big(**kwargs):  # the control route asks for include_self_status=True
             doc = real(**kwargs)
@@ -1204,8 +1311,17 @@ class StartupFailure(PeerLinkCase):
         blocker = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         blocker.bind(("127.0.0.1", 0))
         self.addCleanup(blocker.close)
-        link = pl.PeerLink(Path(tempfile.mkdtemp()), "mac", "m", lambda: status("mac"), status_port=0,
-                           beacon_port=blocker.getsockname()[1], bind="127.0.0.1", broadcast=(), allow_loopback=True)
+        link = pl.PeerLink(
+            Path(tempfile.mkdtemp()),
+            "mac",
+            "m",
+            lambda: status("mac"),
+            status_port=0,
+            beacon_port=blocker.getsockname()[1],
+            bind="127.0.0.1",
+            broadcast=(),
+            allow_loopback=True,
+        )
         with mock.patch.object(socket.socket, "setsockopt"):  # no SO_REUSEADDR, so the bind really fails
             with self.assertRaises(OSError):
                 link.start()
@@ -1248,10 +1364,13 @@ class FinishAck(PeerLinkCase):
         state = Path(tempfile.mkdtemp())
         pl.load_control_token(state)
         path = state / "control-token"
-        for bad in (b"\xff" * 64 + b"\n",                              # not UTF-8 (a ValueError, not OSError)
-                    b"Z" * 64 + b"\n",                                 # 64 characters, but not hex
-                    (secrets.token_hex(32).upper() + "\n").encode(),   # not what token_hex writes
-                    b"", b"ab" * 31 + b"\n"):
+        for bad in (
+            b"\xff" * 64 + b"\n",  # not UTF-8 (a ValueError, not OSError)
+            b"Z" * 64 + b"\n",  # 64 characters, but not hex
+            (secrets.token_hex(32).upper() + "\n").encode(),  # not what token_hex writes
+            b"",
+            b"ab" * 31 + b"\n",
+        ):
             path.write_bytes(bad)  # same file, still private
             fresh = pl.load_control_token(state)
             self.assertRegex(fresh, r"\A[0-9a-f]{64}\Z", msg=repr(bad))
@@ -1275,16 +1394,17 @@ class FinishAck(PeerLinkCase):
         path = Path(tempfile.mkdtemp())
         cases = [
             (PermissionError("could not read the access list"), PermissionError),  # read-back failed
-            ((ME, None), pl.LooseSecret),                                           # NULL DACL: anyone
-            ((ME, [ME, OTHER]), pl.LooseSecret),                                    # another account
+            ((ME, None), pl.LooseSecret),  # NULL DACL: anyone
+            ((ME, [ME, OTHER]), pl.LooseSecret),  # another account
             ((ME, [ME, EVERYONE]), pl.LooseSecret),
-            ((ME, [ME, "S-1-5-32-545"]), pl.LooseSecret),                           # BUILTIN\Users
-            ((OTHER, [ME]), pl.LooseSecret),                                        # someone else's file
-            ((pl._ADMINS_SID, [ME]), pl.LooseSecret),                               # Administrators-owned
+            ((ME, [ME, "S-1-5-32-545"]), pl.LooseSecret),  # BUILTIN\Users
+            ((OTHER, [ME]), pl.LooseSecret),  # someone else's file
+            ((pl._ADMINS_SID, [ME]), pl.LooseSecret),  # Administrators-owned
         ]
         for answer, expected in cases:
-            security = mock.Mock(side_effect=answer) if isinstance(answer, Exception) else mock.Mock(
-                return_value=answer)
+            security = (
+                mock.Mock(side_effect=answer) if isinstance(answer, Exception) else mock.Mock(return_value=answer)
+            )
             with as_windows(security):
                 with self.assertRaises(expected, msg=str(answer)):
                     pl._only_me(path, True)
@@ -1305,6 +1425,7 @@ class Hardening3(PeerLinkCase):
     def test_hands_off_survives_authenticated_projection_into_machine_summary(self):
         from machine_state import machines_summary
         from peer_feed import summarize_document
+
         now = time.time()
         for hands_off in (True, False):
             with self.subTest(handsOff=hands_off):
@@ -1324,9 +1445,14 @@ class Hardening3(PeerLinkCase):
         self.assertNotIn("handsOff", pl.project_status(pl.validate_status(status("windows"), "windows")))
 
     def test_outbound_status_is_projected_to_the_allowlist(self):
-        doc = {**status("windows"), "secretPath": "C:/Users/x/.ssh", "models": [
-            {"id": "m", "host": "windows", "loadedState": "loaded", "prompt": "do not leak", "slotsTotal": 2}],
-            "memory": {"level": "ok", "availablePercent": 50, "commitCharge": {"x": 1}}}
+        doc = {
+            **status("windows"),
+            "secretPath": "C:/Users/x/.ssh",
+            "models": [
+                {"id": "m", "host": "windows", "loadedState": "loaded", "prompt": "do not leak", "slotsTotal": 2}
+            ],
+            "memory": {"level": "ok", "availablePercent": 50, "commitCharge": {"x": 1}},
+        }
         out = pl.project_status(pl.validate_status(doc, "windows"))
         self.assertNotIn("secretPath", out)
         self.assertNotIn("prompt", out["models"][0])
@@ -1334,18 +1460,33 @@ class Hardening3(PeerLinkCase):
         self.assertEqual(out["memory"], {"level": "ok", "availablePercent": 50})
 
     def test_models_total_crosses_the_link_only_as_a_bounded_integer(self):
-        doc = {**status("windows"), "modelsTotal": 1,
-               "models": [{"id": "m", "host": "windows", "loadedState": "loaded"}]}
+        doc = {
+            **status("windows"),
+            "modelsTotal": 1,
+            "models": [{"id": "m", "host": "windows", "loadedState": "loaded"}],
+        }
         self.assertEqual(pl.project_status(pl.validate_status(doc, "windows"))["modelsTotal"], 1)
         for bad in (True, -1, 1.0, "1", 1 << 17, None):
             out = pl.project_status(pl.validate_status({**doc, "modelsTotal": bad}, "windows"))
             self.assertNotIn("modelsTotal", out, repr(bad))
 
     def test_route_components_cross_the_link_but_only_known_ones_and_short_words(self):
-        doc = {**status("mac"), "version": "0.1.0", "components": [
-            {"id": "nisi", "label": "Nisi route adapter", "state": "ready", "detail": "pins verified", "extra": "x"},
-            {"id": "jev", "label": "Jev", "state": "configured", "detail": "opted in", "lastJudgedAgeSeconds": 12},
-            {"id": "secrets", "state": "leak"}, {"id": "jev", "state": "y" * 500}]}
+        doc = {
+            **status("mac"),
+            "version": "0.1.0",
+            "components": [
+                {
+                    "id": "nisi",
+                    "label": "Nisi route adapter",
+                    "state": "ready",
+                    "detail": "pins verified",
+                    "extra": "x",
+                },
+                {"id": "jev", "label": "Jev", "state": "configured", "detail": "opted in", "lastJudgedAgeSeconds": 12},
+                {"id": "secrets", "state": "leak"},
+                {"id": "jev", "state": "y" * 500},
+            ],
+        }
         out = pl.project_status(pl.validate_status(doc, "mac"))
         self.assertEqual(out["version"], "0.1.0")
         # One row per known id; a repeated id or an over-long state word is not forwarded.
@@ -1358,8 +1499,13 @@ class Hardening3(PeerLinkCase):
 
     def test_invite_notice_from_an_undiscovered_machine_is_refused(self):
         pc = Node(self, "windows", "winpc01")
-        stranger = {"node": "77777777-7777-4777-8777-777777777777", "name": "x", "host": "mac",
-                    "invite": "a" * 32, "port": 9000}
+        stranger = {
+            "node": "77777777-7777-4777-8777-777777777777",
+            "name": "x",
+            "host": "mac",
+            "invite": "a" * 32,
+            "port": 9000,
+        }
         self.assertEqual(pc.link.on_notify(stranger, "127.0.0.1")[0], 403)
 
     def test_retry_during_the_inviters_save_waits_and_gets_the_ack(self):
@@ -1382,8 +1528,9 @@ class Hardening3(PeerLinkCase):
             if path.endswith("/pair/finish") and not calls:
                 calls.append(1)
                 # the first finish reaches the inviter, which starts its slow save; the reply is "lost"
-                pl.threading.Thread(target=real_http, args=(address, port, method, path, headers, body, limit, 10),
-                                    daemon=True).start()
+                pl.threading.Thread(
+                    target=real_http, args=(address, port, method, path, headers, body, limit, 10), daemon=True
+                ).start()
                 time.sleep(0.3)
                 pl.threading.Timer(0.5, release.set).start()
                 raise ConnectionResetError("reply lost")
@@ -1415,8 +1562,9 @@ class ControlTokenRotation(PeerLinkCase):
 
     def peers(self, token, ns, nc):
         proof = pl.control_client_proof(token, ns, nc, "GET", "/control/peers", b"")
-        req = urllib.request.Request(self.base + "/control/peers",
-                                     headers={"X-Agiw-Control-Nonce": ns, "X-Agiw-Control-Proof": proof})
+        req = urllib.request.Request(
+            self.base + "/control/peers", headers={"X-Agiw-Control-Nonce": ns, "X-Agiw-Control-Proof": proof}
+        )
         try:
             with urllib.request.urlopen(req, timeout=5) as reply:
                 json.loads(reply.read())
@@ -1438,20 +1586,18 @@ class ControlTokenRotation(PeerLinkCase):
         self.assertTrue(proved)
         self.assertEqual(self.peers(b, ns, "3" * 32), 200, "the new token works without a restart")
         self.assertEqual(self.mac.link.control_token, b)
-        self.assertEqual(pl.control_request(self.mac.dir, self.mac.link.status_port, "GET", "/control/peers")[0],
-                         200)
+        self.assertEqual(pl.control_request(self.mac.dir, self.mac.link.status_port, "GET", "/control/peers")[0], 200)
 
     @unittest.skipIf(os.name == "nt", "POSIX modes")
     def test_exposed_token_rotation_reaches_the_running_daemon(self):
         a = self.on_disk()
-        os.chmod(self.file, 0o644)               # exposed
+        os.chmod(self.file, 0o644)  # exposed
         b = pl.load_control_token(self.mac.dir)  # the next legitimate client notices and rotates it
         self.assertNotEqual(a, b)
         ns, proved = self.proves(a, "4" * 32)
         self.assertFalse(proved)
         self.assertEqual(self.peers(a, ns, "4" * 32), 404)
-        self.assertEqual(pl.control_request(self.mac.dir, self.mac.link.status_port, "GET", "/control/peers")[0],
-                         200)
+        self.assertEqual(pl.control_request(self.mac.dir, self.mac.link.status_port, "GET", "/control/peers")[0], 200)
         # The daemon rotates an exposed token itself before using it, and never proves the exposed one.
         os.chmod(self.file, 0o604)
         ns, proved = self.proves(b, "5" * 32)
@@ -1484,8 +1630,11 @@ class ControlTokenRotation(PeerLinkCase):
             self.assertEqual(caught.exception.code, 503)
             self.assertEqual(self.peers(token, ns, "9" * 32), 404)
         # Whatever loading raises, hello answers 503 instead of dropping the connection.
-        for failure in (UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte"), ValueError("bad"),
-                        RuntimeError("unexpected")):
+        for failure in (
+            UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte"),
+            ValueError("bad"),
+            RuntimeError("unexpected"),
+        ):
             with mock.patch.object(pl, "load_control_token", side_effect=failure):
                 with self.assertRaises(urllib.error.HTTPError, msg=repr(failure)) as caught:
                     self.proves(token, "c" * 32)
@@ -1501,8 +1650,9 @@ class ControlTokenRotation(PeerLinkCase):
         self.assertTrue(hmac.compare_digest(doc["proof"], pl.control_server_proof(fresh, nc, doc["ns"])))
         self.assertEqual(self.peers(fresh, doc["ns"], nc), 200)
         self.file.write_bytes(b"\xfe" * 64 + b"\n")
-        self.assertEqual(pl.control_request(self.mac.dir, self.mac.link.status_port, "GET", "/control/peers")[0],
-                         200)  # the CLI rotates it too, instead of raising until the file is deleted by hand
+        self.assertEqual(
+            pl.control_request(self.mac.dir, self.mac.link.status_port, "GET", "/control/peers")[0], 200
+        )  # the CLI rotates it too, instead of raising until the file is deleted by hand
         self.assertRegex(self.on_disk(), r"\A[0-9a-f]{64}\Z")
 
 
@@ -1521,7 +1671,9 @@ class NativeAcl(PeerLinkCase):
             system = pl._win_system_dir()
             result = pl.subprocess.run(
                 [os.path.join(system, "icacls.exe"), folder, "/grant:r", "*S-1-5-32-545:(OI)(CI)R", "/Q"],
-                capture_output=True, timeout=10, cwd=system,
+                capture_output=True,
+                timeout=10,
+                cwd=system,
             )
             self.assertEqual(result.returncode, 0, result.stderr)
             with self.assertRaises(pl.LooseSecret):
@@ -1545,8 +1697,9 @@ class WindowsSecurity(PeerLinkCase):
         trusted.mkdir()
         record = trusted / f"{PEER}.json"
         FAKE_REGISTRY[PEER] = "e" * 32
-        record.write_text(json.dumps({**PEER_RECORD_PLAIN,
-                                      "linkKey": sealed("ab" * 32 + ":" + "e" * 32, "agiw-peer link " + PEER)}))
+        record.write_text(
+            json.dumps({**PEER_RECORD_PLAIN, "linkKey": sealed("ab" * 32 + ":" + "e" * 32, "agiw-peer link " + PEER)})
+        )
         return trusted, record
 
     def test_owner_rights_preserves_tokens_trust_and_generations(self):
@@ -1621,8 +1774,10 @@ class WindowsSecurity(PeerLinkCase):
             pl._restrict_dir(self.folder)  # verified again: no cache and no second icacls
             self.assertEqual(run.call_count, 1)
             # By full path from the system folder, never a bare name that PATH or the working folder resolves.
-            self.assertEqual(run.call_args.args[0], [ICACLS, str(self.folder), "/inheritance:r", "/grant:r",
-                                                     f"*{ME}:(OI)(CI)F", "/Q"])
+            self.assertEqual(
+                run.call_args.args[0],
+                [ICACLS, str(self.folder), "/inheritance:r", "/grant:r", f"*{ME}:(OI)(CI)F", "/Q"],
+            )
             self.assertEqual(run.call_args.kwargs["cwd"], SYSTEM32)
             self.assertEqual(targets, [str(self.folder), str(self.secret), str(self.folder), str(self.folder)])
             acl["sids"] = [ME, EVERYONE]  # widened; on Windows the inode and creation time stay the same
@@ -1675,10 +1830,15 @@ class WindowsSecurity(PeerLinkCase):
                 pl._restrict_dir(self.folder)  # tightening was tried, but a NULL DACL read back is refused
             self.assertEqual(run.call_count, 1)
         reparse = mock.Mock(st_file_attributes=0x400, st_mode=stat.S_IFDIR | 0o700, st_ino=1, st_ctime_ns=1)
-        with as_windows(mock.Mock(return_value=(ME, [ME]))) as run, \
-                mock.patch.object(pl.os, "lstat", return_value=reparse):
-            for attempt in (lambda: pl._restrict_dir(self.folder), lambda: pl._read_private(self.secret),
-                            lambda: pl._only_me(self.secret, False)):
+        with (
+            as_windows(mock.Mock(return_value=(ME, [ME]))) as run,
+            mock.patch.object(pl.os, "lstat", return_value=reparse),
+        ):
+            for attempt in (
+                lambda: pl._restrict_dir(self.folder),
+                lambda: pl._read_private(self.secret),
+                lambda: pl._only_me(self.secret, False),
+            ):
                 with self.assertRaises(PermissionError) as caught:
                     attempt()
                 self.assertIn("reparse point", str(caught.exception))
@@ -1741,8 +1901,11 @@ class WindowsSecurity(PeerLinkCase):
         acl = {"tight": False}
 
         def security(target):
-            if not acl["tight"] and os.path.basename(str(target)).casefold() in ("", self.folder.name.casefold(),
-                                                                                  "trusted"):
+            if not acl["tight"] and os.path.basename(str(target)).casefold() in (
+                "",
+                self.folder.name.casefold(),
+                "trusted",
+            ):
                 return (ME, [ME, EVERYONE])
             return (ME, [ME])
 
@@ -1899,8 +2062,9 @@ class WindowsSecurity(PeerLinkCase):
         self.assertFalse(record.exists())
         self.assertEqual(store.quarantined, [PEER])
         FAKE_REGISTRY[PEER] = "f" * 32  # quarantine revoked the old generation; this is a fresh pairing
-        record.write_text(json.dumps({**PEER_RECORD_PLAIN,
-                                      "linkKey": sealed("ab" * 32 + ":" + "f" * 32, "agiw-peer link " + PEER)}))
+        record.write_text(
+            json.dumps({**PEER_RECORD_PLAIN, "linkKey": sealed("ab" * 32 + ":" + "f" * 32, "agiw-peer link " + PEER)})
+        )
         with as_windows(mock.Mock(return_value=(ME, [ME]))):
             self.assertIn(PEER, store.load())
 
@@ -1943,14 +2107,14 @@ class WindowsSecurity(PeerLinkCase):
             store.pin(PEER, "pc", "windows", b"k" * 32)
             original = record.read_bytes()
             self.assertIn(PEER, store.load())
-            store.remove(PEER)                       # unpair
-        record.write_bytes(original)                 # the exact old file, restored through an old handle
+            store.remove(PEER)  # unpair
+        record.write_bytes(original)  # the exact old file, restored through an old handle
         with as_windows(private):
             self.assertEqual(store.load(), {}, "revoked in the registry, so the restored record is refused")
             store.pin(PEER, "pc", "windows", b"k" * 32)
             fresh = record.read_bytes()
             self.assertIn(PEER, store.load())
-        record.write_bytes(original)                 # an older genuine record over a newer pairing
+        record.write_bytes(original)  # an older genuine record over a newer pairing
         with as_windows(private):
             self.assertEqual(store.load(), {}, "superseded generation")
         self.assertTrue(any(".quarantined-" in n for n in os.listdir(self.folder / "trusted")))
@@ -2061,8 +2225,14 @@ class WindowsSecurity(PeerLinkCase):
             values.pop(name)
             deleted.append(name)
 
-        return mock.Mock(HKEY_CURRENT_USER=0, KEY_QUERY_VALUE=1, KEY_SET_VALUE=2, OpenKey=lambda *a: Key(),
-                         EnumValue=enum_value, DeleteValue=delete_value), deleted
+        return mock.Mock(
+            HKEY_CURRENT_USER=0,
+            KEY_QUERY_VALUE=1,
+            KEY_SET_VALUE=2,
+            OpenKey=lambda *a: Key(),
+            EnumValue=enum_value,
+            DeleteValue=delete_value,
+        ), deleted
 
     def test_real_revoke_all_drains_every_value_and_stops_only_on_no_more_items(self):
         values = {PEER: "a" * 32, "99999999-9999-4999-8999-999999999999": "b" * 32}
@@ -2089,8 +2259,11 @@ class WindowsSecurity(PeerLinkCase):
             return (ME, [ME, EVERYONE])
 
         real_revoke = pl._gen_revoke_all
-        with as_windows(security) as run, mock.patch.object(pl, "_gen_revoke_all", real_revoke), \
-                mock.patch.dict(sys.modules, {"winreg": fake}):
+        with (
+            as_windows(security) as run,
+            mock.patch.object(pl, "_gen_revoke_all", real_revoke),
+            mock.patch.dict(sys.modules, {"winreg": fake}),
+        ):
             with self.assertRaises(PermissionError):
                 pl._restrict_dir(self.folder)
             run.assert_not_called()
@@ -2125,8 +2298,16 @@ class WindowsSecurity(PeerLinkCase):
         self.assertEqual(pl._ace_allow_sid(ace(0xB, mask + flags(0) + sid)), sid)
         for deny in (0x1, 0x6, 0xA, 0xC):
             self.assertIsNone(pl._ace_allow_sid(ace(deny, mask + sid)))
-        for bad in (ace(0x4, mask + sid), ace(0x11, mask + sid), ace(0x0, mask + sid[:-1]), ace(0x0, mask),
-                    ace(0x5, mask + flags(1) + sid), ace(0x0, mask + b"\x02" + sid[1:]), b"\x00\x00", b""):
+        for bad in (
+            ace(0x4, mask + sid),
+            ace(0x11, mask + sid),
+            ace(0x0, mask + sid[:-1]),
+            ace(0x0, mask),
+            ace(0x5, mask + flags(1) + sid),
+            ace(0x0, mask + b"\x02" + sid[1:]),
+            b"\x00\x00",
+            b"",
+        ):
             with self.assertRaises(pl.LooseSecret, msg=bad.hex()):
                 pl._ace_allow_sid(bad)
 
@@ -2170,8 +2351,10 @@ class TrustFolder(PeerLinkCase):
             self.assertEqual(store.load(), {})
         self.assertEqual(order, ["validate"], "a folder that fails validation is never listed")
         order.clear()
-        with mock.patch.object(pl, "_restrict_dir", lambda _d: order.append("validate")), \
-                mock.patch.object(pl.os, "listdir", listdir):
+        with (
+            mock.patch.object(pl, "_restrict_dir", lambda _d: order.append("validate")),
+            mock.patch.object(pl.os, "listdir", listdir),
+        ):
             store.load()
         self.assertEqual(order, ["validate", "list"])
         fresh = Path(tempfile.mkdtemp())
@@ -2183,8 +2366,9 @@ class TrustFolder(PeerLinkCase):
         elsewhere = Path(tempfile.mkdtemp())
         node = "99999999-9999-4999-8999-999999999999"
         record = elsewhere / f"{node}.json"
-        pl._write_private(record, json.dumps({"nodeUuid": node, "name": "pc", "host": "windows",
-                                              "linkKey": "cd" * 32, "pinnedAt": 1}))
+        pl._write_private(
+            record, json.dumps({"nodeUuid": node, "name": "pc", "host": "windows", "linkKey": "cd" * 32, "pinnedAt": 1})
+        )
         state = Path(tempfile.mkdtemp())
         os.symlink(elsewhere, state / "trusted")
         with mock.patch.object(pl.Path, "glob", side_effect=AssertionError("listed before validation")):
@@ -2235,8 +2419,10 @@ class FinishRace(PeerLinkCase):
         def finish(name):
             results[name] = mac.link.on_finish(dict(body))
 
-        with mock.patch.object(mac.link, "_lock", Scheduled()), \
-                mock.patch.object(mac.link.store, "pin", wraps=mac.link.store.pin) as pinned:
+        with (
+            mock.patch.object(mac.link, "_lock", Scheduled()),
+            mock.patch.object(mac.link.store, "pin", wraps=mac.link.store.pin) as pinned,
+        ):
             first = pl.threading.Thread(target=finish, args=("first",), name="first", daemon=True)
             first.start()
             self.assertTrue(first_out.wait(2))
@@ -2339,8 +2525,14 @@ class StatusDocs(PeerLinkCase):
         self.assertEqual(pl.validate_status(status("windows"), "windows")["host"], "windows")
         presence = {**status("x"), "kind": "agiw-peer", "host": "winpc01", "platform": "windows"}
         self.assertEqual(pl.validate_status(presence, "windows")["host"], "winpc01")
-        for doc in (status("mac"), status("windows", "running"), {**status("windows"), "schemaVersion": 2},
-                    {**status("windows"), "models": [{}] * 33}, [], {**presence, "platform": "mac"}):
+        for doc in (
+            status("mac"),
+            status("windows", "running"),
+            {**status("windows"), "schemaVersion": 2},
+            {**status("windows"), "models": [{}] * 33},
+            [],
+            {**presence, "platform": "mac"},
+        ):
             with self.assertRaises(ValueError):
                 pl.validate_status(doc, "windows")
 
@@ -2353,7 +2545,6 @@ class StatusDocs(PeerLinkCase):
             os.utime(path, (old, old))
             with self.assertRaises(ValueError):
                 pl.file_status(path)()
-
 
 
 peer_link = pl
@@ -2377,24 +2568,58 @@ class StatusStrictnessTests(unittest.TestCase):
         self.assertEqual(peer_link.strict_json('{"a": 1, "b": {"a": 2}}'), {"a": 1, "b": {"a": 2}})
 
     def test_component_free_text_never_crosses(self):
-        out = peer_link.project_status(self.doc(components=[
-            {"id": "nisi", "label": "/Users/someone", "state": "ready", "detail": "edit pair /Users/someone/secret"},
-            {"id": "nisi", "state": "ready"},
-            {"id": "jev", "state": "configured", "detail": "Jev opted in on this Mac (key never read or shared)"},
-            {"id": "pair", "state": "ready", "detail": "x"}]))
-        self.assertEqual(out["components"], [
-            {"id": "nisi", "label": "Nisi route adapter", "state": "ready"},
-            {"id": "jev", "label": "Jev", "state": "configured",
-             "detail": "Jev opted in on this Mac (key never read or shared)"}])
+        out = peer_link.project_status(
+            self.doc(
+                components=[
+                    {
+                        "id": "nisi",
+                        "label": "/Users/someone",
+                        "state": "ready",
+                        "detail": "edit pair /Users/someone/secret",
+                    },
+                    {"id": "nisi", "state": "ready"},
+                    {
+                        "id": "jev",
+                        "state": "configured",
+                        "detail": "Jev opted in on this Mac (key never read or shared)",
+                    },
+                    {"id": "pair", "state": "ready", "detail": "x"},
+                ]
+            )
+        )
+        self.assertEqual(
+            out["components"],
+            [
+                {"id": "nisi", "label": "Nisi route adapter", "state": "ready"},
+                {
+                    "id": "jev",
+                    "label": "Jev",
+                    "state": "configured",
+                    "detail": "Jev opted in on this Mac (key never read or shared)",
+                },
+            ],
+        )
         self.assertNotIn("/Users", json.dumps(out))
         odd = peer_link.project_status(self.doc(components=[{"id": "jev", "state": "Has a Space /x"}]))
         self.assertEqual(odd["components"], [{"id": "jev", "label": "Jev"}])
 
     def test_unknown_state_or_odd_id_never_breaks_the_projection(self):
-        out = peer_link.project_status(self.doc(components=[
-            {"id": "nisi", "state": "idle"}, {"id": ["jev"], "state": "ready"}, {"id": "jev", "state": "error", "detail": None}]))
-        self.assertEqual(out["components"], [{"id": "nisi", "label": "Nisi route adapter", "state": "idle"},
-                                             {"id": "jev", "label": "Jev", "state": "error"}])
+        out = peer_link.project_status(
+            self.doc(
+                components=[
+                    {"id": "nisi", "state": "idle"},
+                    {"id": ["jev"], "state": "ready"},
+                    {"id": "jev", "state": "error", "detail": None},
+                ]
+            )
+        )
+        self.assertEqual(
+            out["components"],
+            [
+                {"id": "nisi", "label": "Nisi route adapter", "state": "idle"},
+                {"id": "jev", "label": "Jev", "state": "error"},
+            ],
+        )
 
     def test_duplicate_key_error_does_not_echo_the_key(self):
         with self.assertRaises(ValueError) as caught:
@@ -2402,8 +2627,13 @@ class StatusStrictnessTests(unittest.TestCase):
         self.assertNotIn("PEER-CHOSEN", str(caught.exception))
 
     def test_negative_model_numbers_are_dropped(self):
-        out = peer_link.project_status(self.doc(models=[
-            {"id": "m", "loadedState": "loaded", "slotsBusy": -1, "slotsTotal": 2, "liveTokensPerSecond": -3.0}]))
+        out = peer_link.project_status(
+            self.doc(
+                models=[
+                    {"id": "m", "loadedState": "loaded", "slotsBusy": -1, "slotsTotal": 2, "liveTokensPerSecond": -3.0}
+                ]
+            )
+        )
         self.assertEqual(out["models"], [{"id": "m", "loadedState": "loaded", "slotsTotal": 2}])
 
 

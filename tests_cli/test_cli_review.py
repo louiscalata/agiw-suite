@@ -1,4 +1,5 @@
 """Regression coverage for purge safety and uninstall command reporting."""
+
 import errno
 import io
 import os
@@ -44,13 +45,19 @@ class CliReview(unittest.TestCase):
         lines, err = [], io.StringIO()
         kwargs = {} if probe is None else {"probe": probe}
         with mock.patch.object(cli, "make_manager", return_value=self.manager), mock.patch("sys.stderr", err):
-            code = cli.main(["--state-dir", str(self.state), *args], out=lines.append,
-                            runner=FakeRunner(), kind="mac", home=self.home, env={}, **kwargs)
+            code = cli.main(
+                ["--state-dir", str(self.state), *args],
+                out=lines.append,
+                runner=FakeRunner(),
+                kind="mac",
+                home=self.home,
+                env={},
+                **kwargs,
+            )
         return code, "\n".join(lines), err.getvalue()
 
     def assert_refused(self, probe, port=pl.STATUS_PORT):
-        code, output, err = self.run_cli("--status-port", str(port), "uninstall", "--purge-keys", "--yes",
-                                         probe=probe)
+        code, output, err = self.run_cli("--status-port", str(port), "uninstall", "--purge-keys", "--yes", probe=probe)
         self.assertEqual(code, 1, output + err)
         self.assertTrue(self.key.exists())
         self.assertIn("stop", err.casefold())
@@ -77,12 +84,13 @@ class CliReview(unittest.TestCase):
                 self.fail("purge descended into a junction")
             return real_listdir(path)
 
-        with mock.patch("os.lstat", side_effect=fake_lstat), \
-                mock.patch.object(Path, "is_junction", lambda path: path == trusted and method == "junction",
-                                  create=True), \
-                mock.patch.object(Path, "is_symlink", return_value=False), \
-                mock.patch("os.listdir", side_effect=checked_listdir) as listing, \
-                mock.patch.object(cli, "peer_link_answers", return_value=False):
+        with (
+            mock.patch("os.lstat", side_effect=fake_lstat),
+            mock.patch.object(Path, "is_junction", lambda path: path == trusted and method == "junction", create=True),
+            mock.patch.object(Path, "is_symlink", return_value=False),
+            mock.patch("os.listdir", side_effect=checked_listdir) as listing,
+            mock.patch.object(cli, "peer_link_answers", return_value=False),
+        ):
             delete, folders, keep = cli.purge_plan(self.state)
             self.assertIn(trusted, keep)
             self.assertNotIn(trusted, folders)
@@ -135,9 +143,11 @@ class CliReview(unittest.TestCase):
                 return SimpleNamespace(**fields)
             return result
 
-        with mock.patch("os.lstat", side_effect=flagged), \
-                mock.patch.object(Path, "is_symlink", lambda path: path == linked_tmp or real_symlink(path)), \
-                mock.patch.object(cli, "peer_link_answers", return_value=False):
+        with (
+            mock.patch("os.lstat", side_effect=flagged),
+            mock.patch.object(Path, "is_symlink", lambda path: path == linked_tmp or real_symlink(path)),
+            mock.patch.object(cli, "peer_link_answers", return_value=False),
+        ):
             delete, folders, keep = cli.purge_plan(self.state)
             self.assertIn(reparse, keep)
             self.assertIn(linked_tmp, keep)
@@ -154,10 +164,13 @@ class CliReview(unittest.TestCase):
                 cli.peer_link_answers(self.state, pl.STATUS_PORT)
 
     def test_purge_refuses_uncertain_token_reads(self):
-        for error in (PermissionError("loose token"), TimeoutError("late"), OSError(errno.EIO, "I/O"),
-                      ValueError("bad token")):
-            with self.subTest(error=type(error).__name__), \
-                    mock.patch.object(cli, "_purge_token", side_effect=error):
+        for error in (
+            PermissionError("loose token"),
+            TimeoutError("late"),
+            OSError(errno.EIO, "I/O"),
+            ValueError("bad token"),
+        ):
+            with self.subTest(error=type(error).__name__), mock.patch.object(cli, "_purge_token", side_effect=error):
                 self.assert_refused(lambda port, proto: "free")
 
     def test_purge_refuses_token_acl_command_timeout(self):
@@ -167,18 +180,20 @@ class CliReview(unittest.TestCase):
     def test_purge_with_token_requires_selected_default_and_beacon_ports_free(self):
         probe = mock.Mock(return_value="free")
         selected = pl.STATUS_PORT + 10
-        code, output, err = self.run_cli("--status-port", str(selected), "uninstall", "--purge-keys", "--yes",
-                                         probe=probe)
+        code, output, err = self.run_cli(
+            "--status-port", str(selected), "uninstall", "--purge-keys", "--yes", probe=probe
+        )
         self.assertEqual(code, 0, output + err)
         self.assertFalse(self.key.exists())
-        self.assertEqual(set(call.args for call in probe.call_args_list),
-                         {(selected, "tcp"), (pl.STATUS_PORT, "tcp"), (pl.BEACON_PORT, "udp")})
+        self.assertEqual(
+            set(call.args for call in probe.call_args_list),
+            {(selected, "tcp"), (pl.STATUS_PORT, "tcp"), (pl.BEACON_PORT, "udp")},
+        )
         self.check_token.assert_called_once_with(self.state)
 
     def test_purge_with_token_refuses_busy_or_unknown_ports(self):
         for result in ("in use", "unknown"):
-            with self.subTest(result=result), \
-                    mock.patch.object(cli, "_purge_token", return_value="a" * 64):
+            with self.subTest(result=result), mock.patch.object(cli, "_purge_token", return_value="a" * 64):
                 self.assert_refused(lambda port, proto: result)
 
     def test_purge_without_token_requires_selected_default_and_beacon_ports_free(self):
@@ -187,8 +202,9 @@ class CliReview(unittest.TestCase):
         needed = {(selected, "tcp"), (pl.STATUS_PORT, "tcp"), (pl.BEACON_PORT, "udp")}
         probe = mock.Mock(return_value="free")
         with mock.patch.object(cli, "_purge_token", side_effect=AssertionError("must not read missing token")):
-            code, output, err = self.run_cli("--status-port", str(selected), "uninstall", "--purge-keys", "--yes",
-                                             probe=probe)
+            code, output, err = self.run_cli(
+                "--status-port", str(selected), "uninstall", "--purge-keys", "--yes", probe=probe
+            )
         self.assertEqual(code, 0, output + err)
         self.assertEqual(set(call.args for call in probe.call_args_list), needed)
         self.assertFalse(self.key.exists())
@@ -199,8 +215,9 @@ class CliReview(unittest.TestCase):
         for checked in ((selected, "tcp"), (pl.STATUS_PORT, "tcp"), (pl.BEACON_PORT, "udp")):
             for outcome in ("in use", "unknown"):
                 with self.subTest(port=checked, outcome=outcome):
-                    self.assert_refused(lambda port, proto: outcome if (port, proto) == checked else "free",
-                                        port=selected)
+                    self.assert_refused(
+                        lambda port, proto: outcome if (port, proto) == checked else "free", port=selected
+                    )
 
     def test_purge_real_probe_refuses_a_listening_loopback_status_port_without_token(self):
         self.token.unlink()
@@ -265,25 +282,31 @@ class PurgeTokenChecks(unittest.TestCase):
             os.chmod(self.token, 0o600)
         # These are read-only policy tests with plaintext data; native Windows
         # DPAPI and OS ACL queries are explicit mocked boundaries.
-        for name, value in (("_only_me", lambda *a, **k: None),
-                            ("_win_check_private", lambda *a, **k: None),
-                            ("_unseal", lambda stored, purpose: stored)):
+        for name, value in (
+            ("_only_me", lambda *a, **k: None),
+            ("_win_check_private", lambda *a, **k: None),
+            ("_unseal", lambda stored, purpose: stored),
+        ):
             patcher = mock.patch.object(pl, name, value)
             patcher.start()
             self.addCleanup(patcher.stop)
 
     def test_purge_token_validation_is_read_only_and_makes_no_exchange(self):
         before = self.token.read_bytes()
-        with mock.patch.object(pl, "_restrict_dir", side_effect=AssertionError("state repair")), \
-                mock.patch.object(pl, "_http", side_effect=AssertionError("HTTP exchange")), \
-                mock.patch("socket.create_connection", side_effect=AssertionError("TCP connection")), \
-                mock.patch("http.client.HTTPConnection", side_effect=AssertionError("HTTP connection")):
+        with (
+            mock.patch.object(pl, "_restrict_dir", side_effect=AssertionError("state repair")),
+            mock.patch.object(pl, "_http", side_effect=AssertionError("HTTP exchange")),
+            mock.patch("socket.create_connection", side_effect=AssertionError("TCP connection")),
+            mock.patch("http.client.HTTPConnection", side_effect=AssertionError("HTTP connection")),
+        ):
             self.assertEqual(cli._purge_token(self.state), "a" * 64)
             probe = mock.Mock(return_value="free")
             self.assertFalse(cli.peer_link_answers(self.state, 9000, probe=probe))
         self.assertEqual(self.token.read_bytes(), before)
-        self.assertEqual(set(call.args for call in probe.call_args_list),
-                         {(9000, "tcp"), (pl.STATUS_PORT, "tcp"), (pl.BEACON_PORT, "udp")})
+        self.assertEqual(
+            set(call.args for call in probe.call_args_list),
+            {(9000, "tcp"), (pl.STATUS_PORT, "tcp"), (pl.BEACON_PORT, "udp")},
+        )
 
     def test_purge_token_rejects_malformed_contents(self):
         self.token.write_text("invalid")
@@ -298,8 +321,10 @@ class PurgeTokenChecks(unittest.TestCase):
                 cli._purge_token(self.state)
 
     def test_purge_token_privacy_failure_prevents_unsealing(self):
-        with mock.patch.object(pl, "_read_private", side_effect=PermissionError("not private")), \
-                mock.patch.object(pl, "_unseal", side_effect=AssertionError("unsealed unsafe token")) as unseal:
+        with (
+            mock.patch.object(pl, "_read_private", side_effect=PermissionError("not private")),
+            mock.patch.object(pl, "_unseal", side_effect=AssertionError("unsealed unsafe token")) as unseal,
+        ):
             with self.assertRaises(PermissionError):
                 cli._purge_token(self.state)
         unseal.assert_not_called()

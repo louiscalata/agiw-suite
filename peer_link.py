@@ -34,6 +34,7 @@ Signatures authenticate but do not encrypt: someone capturing LAN traffic can re
 states. Outgoing status is cut down to an allowlist (project_status), so nothing else leaves the machine. A LAN host that relays a paired peer's traffic can only pass on that peer's own
 signed replies, or drop them, which shows as an error. IPv4 only.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -80,10 +81,10 @@ MAX_INBOUND_INVITES = 4
 MAX_CONNECTIONS = 8
 PER_SOURCE_CONNECTIONS = 2
 CONTROL_CHALLENGE_TTL = 10.0
-REQUEST_DEADLINE = 6.0   # absolute, from accept to close, so drip-fed headers cannot hold a slot
-FETCH_DEADLINE = 4.0     # absolute, from connect to last byte
+REQUEST_DEADLINE = 6.0  # absolute, from accept to close, so drip-fed headers cannot hold a slot
+FETCH_DEADLINE = 4.0  # absolute, from connect to last byte
 SELF_STATUS_DEADLINE = 3.0  # control-only provider wait, below the control client's deadline
-STATUS_MAX_AGE = 60.0    # a status whose observedAt is older (or further ahead) than this is refused
+STATUS_MAX_AGE = 60.0  # a status whose observedAt is older (or further ahead) than this is refused
 HOST_KINDS = ("mac", "windows", "linux")
 UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
 
@@ -97,7 +98,9 @@ P = int(
     "EE386BFB5A899FA5AE9F24117C4B1FE649286651ECE45B3DC2007CB8A163BF0598DA48361C55D39A69163FA8FD24CF5F"
     "83655D23DCA3AD961C62F356208552BB9ED529077096966D670C354E4ABC9804F1746C08CA18217C32905E462E36CE3B"
     "E39E772C180E86039B2783A2EC07A28FB5C55DF06F4C52C9DE2BCBF6955817183995497CEA956AE515D2261898FA0510"
-    "15728E5A8AACAA68FFFFFFFFFFFFFFFF", 16)
+    "15728E5A8AACAA68FFFFFFFFFFFFFFFF",
+    16,
+)
 Q = (P - 1) // 2
 G = 4  # 2^2 generates the order-Q subgroup
 
@@ -158,21 +161,32 @@ class Spake:
         k = pow(other * pow(unblind, -self.w, P) % P, self.secret, P)
         x, y = (self.public, other) if self.role == "joiner" else (other, self.public)
         info = lambda d: canonical({"node": d["node"], "name": d["name"], "host": d["host"]})  # noqa: E731
-        transcript = _lp(PROTOCOL.encode(), self.invite.encode(), info(self.joiner), info(self.inviter),
-                         _hex(x).encode(), _hex(y).encode(), _hex(k).encode(), self.w.to_bytes(256, "big"))
+        transcript = _lp(
+            PROTOCOL.encode(),
+            self.invite.encode(),
+            info(self.joiner),
+            info(self.inviter),
+            _hex(x).encode(),
+            _hex(y).encode(),
+            _hex(k).encode(),
+            self.w.to_bytes(256, "big"),
+        )
         digest = hashlib.sha512(transcript).digest()
         ke, ka = digest[:32], digest[32:]
         kdf = lambda key, label: hmac.new(key, label, hashlib.sha256).digest()  # noqa: E731
         kc_inviter, kc_joiner = kdf(ka, b"ConfirmationKeys inviter"), kdf(ka, b"ConfirmationKeys joiner")
         # Ke becomes the link key only after both confirmations verify; callers pin nothing before that.
-        return {"link": kdf(ke, b"agiw-peer link key"),
-                "inviterConfirm": hmac.new(kc_inviter, transcript, hashlib.sha256).hexdigest(),
-                "joinerConfirm": hmac.new(kc_joiner, transcript, hashlib.sha256).hexdigest(),
-                # Sent by the inviter only after it has pinned; the joiner pins only after verifying it.
-                "finishAck": hmac.new(kc_inviter, b"pinned\n" + transcript, hashlib.sha256).hexdigest()}
+        return {
+            "link": kdf(ke, b"agiw-peer link key"),
+            "inviterConfirm": hmac.new(kc_inviter, transcript, hashlib.sha256).hexdigest(),
+            "joinerConfirm": hmac.new(kc_joiner, transcript, hashlib.sha256).hexdigest(),
+            # Sent by the inviter only after it has pinned; the joiner pins only after verifying it.
+            "finishAck": hmac.new(kc_inviter, b"pinned\n" + transcript, hashlib.sha256).hexdigest(),
+        }
 
 
 # ---------- identity and trust store ----------
+
 
 def default_state_dir() -> Path:
     if os.name == "nt":
@@ -204,13 +218,13 @@ _quarantined: dict[str, list[str]] = {}  # trusted folder -> node UUIDs this pro
 # parsing account names, and on every use. Nothing is cached there: Windows st_ctime is the creation
 # time, so an access-list edit leaves (inode, ctime) unchanged.
 _SYSTEM_SID, _ADMINS_SID = "S-1-5-18", "S-1-5-32-544"
-_OWNER_RIGHTS_SID = "S-1-3-4"       # Refers to the object owner, which must be this account first.
-_ALLOW_ACES = (0x0, 0x9)            # ACCESS_ALLOWED, ACCESS_ALLOWED_CALLBACK: the SID follows the mask
-_ALLOW_OBJECT_ACES = (0x5, 0xB)     # ACCESS_ALLOWED_OBJECT, ACCESS_ALLOWED_CALLBACK_OBJECT
-_DENY_ACES = (0x1, 0x6, 0xA, 0xC)   # the deny forms of the four above
+_OWNER_RIGHTS_SID = "S-1-3-4"  # Refers to the object owner, which must be this account first.
+_ALLOW_ACES = (0x0, 0x9)  # ACCESS_ALLOWED, ACCESS_ALLOWED_CALLBACK: the SID follows the mask
+_ALLOW_OBJECT_ACES = (0x5, 0xB)  # ACCESS_ALLOWED_OBJECT, ACCESS_ALLOWED_CALLBACK_OBJECT
+_DENY_ACES = (0x1, 0x6, 0xA, 0xC)  # the deny forms of the four above
 _win_api_cache: list = []
 _win_user: list[str] = []
-_win_tightened: set[str] = set()    # folders this process has set an exact DACL on (still verified every call)
+_win_tightened: set[str] = set()  # folders this process has set an exact DACL on (still verified every call)
 
 
 def _is_reparse(info: Any) -> bool:
@@ -248,33 +262,70 @@ def _win_api():
     if not _win_api_cache:
         import ctypes
         from ctypes import wintypes
+
         advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
         kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
         crypt32 = ctypes.WinDLL("crypt32", use_last_error=True)
         out = ctypes.POINTER(ctypes.c_void_p)
         for fn, args, result in (
-                (kernel32.GetCurrentProcess, [], wintypes.HANDLE),
-                (kernel32.CloseHandle, [wintypes.HANDLE], wintypes.BOOL),
-                (kernel32.LocalFree, [ctypes.c_void_p], ctypes.c_void_p),
-                (kernel32.GetSystemDirectoryW, [wintypes.LPWSTR, wintypes.UINT], wintypes.UINT),
-                (advapi32.OpenProcessToken, [wintypes.HANDLE, wintypes.DWORD, ctypes.POINTER(wintypes.HANDLE)],
-                 wintypes.BOOL),
-                (advapi32.GetTokenInformation, [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD,
-                                                ctypes.POINTER(wintypes.DWORD)], wintypes.BOOL),
-                (advapi32.ConvertSidToStringSidW, [ctypes.c_void_p, out], wintypes.BOOL),
-                (advapi32.GetSecurityInfo, [wintypes.HANDLE, ctypes.c_int, wintypes.DWORD, out, out, out, out, out],
-                 wintypes.DWORD),
-                (advapi32.GetNamedSecurityInfoW, [wintypes.LPCWSTR, ctypes.c_int, wintypes.DWORD, out, out, out,
-                                                  out, out], wintypes.DWORD),
-                (advapi32.GetAclInformation, [ctypes.c_void_p, ctypes.c_void_p, wintypes.DWORD, ctypes.c_int],
-                 wintypes.BOOL),
-                (advapi32.GetAce, [ctypes.c_void_p, wintypes.DWORD, out], wintypes.BOOL),
-                (crypt32.CryptProtectData, [ctypes.POINTER(_DataBlob.get()), wintypes.LPCWSTR,
-                                            ctypes.POINTER(_DataBlob.get()), ctypes.c_void_p, ctypes.c_void_p,
-                                            wintypes.DWORD, ctypes.POINTER(_DataBlob.get())], wintypes.BOOL),
-                (crypt32.CryptUnprotectData, [ctypes.POINTER(_DataBlob.get()), ctypes.c_void_p,
-                                              ctypes.POINTER(_DataBlob.get()), ctypes.c_void_p, ctypes.c_void_p,
-                                              wintypes.DWORD, ctypes.POINTER(_DataBlob.get())], wintypes.BOOL)):
+            (kernel32.GetCurrentProcess, [], wintypes.HANDLE),
+            (kernel32.CloseHandle, [wintypes.HANDLE], wintypes.BOOL),
+            (kernel32.LocalFree, [ctypes.c_void_p], ctypes.c_void_p),
+            (kernel32.GetSystemDirectoryW, [wintypes.LPWSTR, wintypes.UINT], wintypes.UINT),
+            (
+                advapi32.OpenProcessToken,
+                [wintypes.HANDLE, wintypes.DWORD, ctypes.POINTER(wintypes.HANDLE)],
+                wintypes.BOOL,
+            ),
+            (
+                advapi32.GetTokenInformation,
+                [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD, ctypes.POINTER(wintypes.DWORD)],
+                wintypes.BOOL,
+            ),
+            (advapi32.ConvertSidToStringSidW, [ctypes.c_void_p, out], wintypes.BOOL),
+            (
+                advapi32.GetSecurityInfo,
+                [wintypes.HANDLE, ctypes.c_int, wintypes.DWORD, out, out, out, out, out],
+                wintypes.DWORD,
+            ),
+            (
+                advapi32.GetNamedSecurityInfoW,
+                [wintypes.LPCWSTR, ctypes.c_int, wintypes.DWORD, out, out, out, out, out],
+                wintypes.DWORD,
+            ),
+            (
+                advapi32.GetAclInformation,
+                [ctypes.c_void_p, ctypes.c_void_p, wintypes.DWORD, ctypes.c_int],
+                wintypes.BOOL,
+            ),
+            (advapi32.GetAce, [ctypes.c_void_p, wintypes.DWORD, out], wintypes.BOOL),
+            (
+                crypt32.CryptProtectData,
+                [
+                    ctypes.POINTER(_DataBlob.get()),
+                    wintypes.LPCWSTR,
+                    ctypes.POINTER(_DataBlob.get()),
+                    ctypes.c_void_p,
+                    ctypes.c_void_p,
+                    wintypes.DWORD,
+                    ctypes.POINTER(_DataBlob.get()),
+                ],
+                wintypes.BOOL,
+            ),
+            (
+                crypt32.CryptUnprotectData,
+                [
+                    ctypes.POINTER(_DataBlob.get()),
+                    ctypes.c_void_p,
+                    ctypes.POINTER(_DataBlob.get()),
+                    ctypes.c_void_p,
+                    ctypes.c_void_p,
+                    wintypes.DWORD,
+                    ctypes.POINTER(_DataBlob.get()),
+                ],
+                wintypes.BOOL,
+            ),
+        ):
             fn.argtypes, fn.restype = args, result
         _win_api_cache.append((ctypes, wintypes, advapi32, kernel32))
         _win_crypt32.append(crypt32)
@@ -283,6 +334,7 @@ def _win_api():
 
 class _DataBlob:
     """DATA_BLOB {DWORD cbData; BYTE *pbData}, built lazily so the module imports on any OS."""
+
     _cls: list = []
 
     @classmethod
@@ -293,6 +345,7 @@ class _DataBlob:
 
             class DATA_BLOB(ctypes.Structure):
                 _fields_ = [("cbData", wintypes.DWORD), ("pbData", ctypes.POINTER(ctypes.c_char))]
+
             cls._cls.append(DATA_BLOB)
         return cls._cls[0]
 
@@ -315,12 +368,16 @@ def _win_dpapi(data: bytes, entropy: bytes, protect: bool) -> bytes:
     extra, keep_extra = blob(entropy)
     result = blob_type()
     call = crypt32.CryptProtectData if protect else crypt32.CryptUnprotectData
-    ok = call(ctypes.byref(data_in), None, ctypes.byref(extra), None, None, _CRYPTPROTECT_UI_FORBIDDEN,
-              ctypes.byref(result))
+    ok = call(
+        ctypes.byref(data_in), None, ctypes.byref(extra), None, None, _CRYPTPROTECT_UI_FORBIDDEN, ctypes.byref(result)
+    )
     del keep_in, keep_extra
     if not ok:
-        raise LooseSecret("this secret was not sealed by this Windows account") if not protect \
+        raise (
+            LooseSecret("this secret was not sealed by this Windows account")
+            if not protect
             else PermissionError("DPAPI could not seal the secret")
+        )
     try:
         return ctypes.string_at(result.pbData, result.cbData)
     finally:
@@ -348,6 +405,7 @@ def _gen_get(node: str) -> str | None:
     if os.name != "nt":
         return None
     import winreg
+
     try:
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, _GENERATIONS) as key:
             value, kind = winreg.QueryValueEx(key, node)
@@ -362,6 +420,7 @@ def _gen_set(node: str, generation: str) -> None:
     if os.name != "nt":
         return
     import winreg
+
     with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, _GENERATIONS, 0, winreg.KEY_SET_VALUE) as key:
         winreg.SetValueEx(key, node, 0, winreg.REG_SZ, generation)
 
@@ -373,6 +432,7 @@ def _gen_revoke_all() -> None:
     if os.name != "nt":
         return
     import winreg
+
     try:
         key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, _GENERATIONS, 0, winreg.KEY_QUERY_VALUE | winreg.KEY_SET_VALUE)
     except FileNotFoundError:
@@ -392,6 +452,7 @@ def _gen_delete(node: str) -> None:
     if os.name != "nt":
         return
     import winreg
+
     try:
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, _GENERATIONS, 0, winreg.KEY_SET_VALUE) as key:
             winreg.DeleteValue(key, node)
@@ -415,7 +476,7 @@ def _unseal(stored: str, purpose: str) -> str:
     if not isinstance(stored, str) or not stored.startswith(SEAL_PREFIX):
         raise LooseSecret("a Windows secret that is not sealed to this account is never used")
     try:
-        raw = base64.b64decode(stored[len(SEAL_PREFIX):], validate=True)
+        raw = base64.b64decode(stored[len(SEAL_PREFIX) :], validate=True)
     except (ValueError, TypeError):
         raise LooseSecret("sealed secret is malformed")
     try:
@@ -474,11 +535,21 @@ def _win_owner_and_allow_sids(target: int | str) -> tuple[str, list[str] | None]
     wanted = 0x1 | 0x4  # OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION; object type 1 = SE_FILE_OBJECT
     if isinstance(target, int):
         import msvcrt
-        rc = advapi32.GetSecurityInfo(msvcrt.get_osfhandle(target), 1, wanted, ctypes.byref(owner), None,
-                                      ctypes.byref(dacl), None, ctypes.byref(descriptor))
+
+        rc = advapi32.GetSecurityInfo(
+            msvcrt.get_osfhandle(target),
+            1,
+            wanted,
+            ctypes.byref(owner),
+            None,
+            ctypes.byref(dacl),
+            None,
+            ctypes.byref(descriptor),
+        )
     else:
-        rc = advapi32.GetNamedSecurityInfoW(str(target), 1, wanted, ctypes.byref(owner), None,
-                                            ctypes.byref(dacl), None, ctypes.byref(descriptor))
+        rc = advapi32.GetNamedSecurityInfoW(
+            str(target), 1, wanted, ctypes.byref(owner), None, ctypes.byref(dacl), None, ctypes.byref(descriptor)
+        )
     if rc != 0:
         raise PermissionError(f"could not read the access list (Windows error {rc})")
     try:
@@ -561,11 +632,11 @@ def _case_variants(folder: Path, canonical: str) -> list[str]:
 def _quarantine_trust_record(path: str) -> None:
     """Rename a trust record out of use (kept for inspection); the user pairs that machine again."""
     folder, name = os.path.split(path)
-    _gen_delete(name[:-len(".json")].casefold())  # revoked first: a restored copy can never be trusted again
+    _gen_delete(name[: -len(".json")].casefold())  # revoked first: a restored copy can never be trusted again
     os.replace(path, os.path.join(folder, f"{name}.quarantined-{int(time.time())}"))
     with _quarantine_lock:
         nodes = _quarantined.setdefault(folder, [])
-        nodes.append(name[:-len(".json")])
+        nodes.append(name[: -len(".json")])
         del nodes[:-16]
 
 
@@ -636,8 +707,12 @@ def _win_restrict_dir(directory: Path, info: Any) -> None:
         _win_retire_exposed(directory, unconditional=not private)
         # icacls (by full path) only sets the restriction (no inherited entries, full control for this
         # account's SID); what is accepted is decided by reading the security descriptor back.
-        result = subprocess.run([ntpath.join(system, "icacls.exe"), key, "/inheritance:r", "/grant:r",
-                                 f"*{me}:(OI)(CI)F", "/Q"], capture_output=True, timeout=30, cwd=system)
+        result = subprocess.run(
+            [ntpath.join(system, "icacls.exe"), key, "/inheritance:r", "/grant:r", f"*{me}:(OI)(CI)F", "/Q"],
+            capture_output=True,
+            timeout=30,
+            cwd=system,
+        )
         if result.returncode != 0:
             raise PermissionError("icacls could not make the peer-link folder private")
         _win_check_private(key, directory.name)
@@ -653,8 +728,9 @@ def _only_me(path: Path, is_dir: bool) -> None:
     and on Windows unless this account owns it. POSIX mode bits and owners are checked by the caller;
     this covers macOS extended ACLs and Windows owners and DACLs."""
     if sys.platform == "darwin":
-        out = subprocess.run(["/bin/ls", "-led" if is_dir else "-le", str(path)], capture_output=True, text=True,
-                             timeout=10)
+        out = subprocess.run(
+            ["/bin/ls", "-led" if is_dir else "-le", str(path)], capture_output=True, text=True, timeout=10
+        )
         if out.returncode != 0:
             raise PermissionError(f"could not read the access list of {path.name}")
         if any(re.match(r"^\s*\d+: ", line) for line in out.stdout.splitlines()[1:]):
@@ -875,8 +951,10 @@ class TrustStore:
         with _token_lock, self._lock:
             path = self.dir / f"{node}.json"
             if not _trust_folder_genuine(self.dir):
-                raise PermissionError("the pairing folder is not the one this program made (a differently "
-                                      "cased, aliased or linked 'trusted'); remove it, then pair again")
+                raise PermissionError(
+                    "the pairing folder is not the one this program made (a differently "
+                    "cased, aliased or linked 'trusted'); remove it, then pair again"
+                )
             _restrict_dir(self.dir)  # create or validate before anything inside it is listed or removed
             if not _trust_folder_genuine(self.dir):
                 raise PermissionError("the pairing folder changed while it was being checked; pair again")
@@ -894,9 +972,18 @@ class TrustStore:
                 generation = secrets.token_hex(16)
                 _gen_set(node, generation)
                 stored = f"{stored}:{generation}"
-            _write_private(path, json.dumps({"nodeUuid": node, "name": name[:64], "host": host,
-                                             "linkKey": _seal(stored, "agiw-peer link " + node),
-                                             "pinnedAt": int(time.time() * 1000)}))
+            _write_private(
+                path,
+                json.dumps(
+                    {
+                        "nodeUuid": node,
+                        "name": name[:64],
+                        "host": host,
+                        "linkKey": _seal(stored, "agiw-peer link " + node),
+                        "pinnedAt": int(time.time() * 1000),
+                    }
+                ),
+            )
 
     def remove(self, node: str) -> bool:
         with _token_lock, self._lock:
@@ -967,6 +1054,7 @@ class NonceCache:
 
 # ---------- hello beacons ----------
 
+
 def make_hello(node: str, host: str, name: str, port: int, now: float) -> bytes:
     return canonical({"p": PROTOCOL, "node": node, "host": host, "name": name[:64], "port": port, "ts": round(now, 3)})
 
@@ -982,17 +1070,28 @@ def read_hello(data: bytes) -> dict | None:
     if not isinstance(body, dict) or body.get("p") != PROTOCOL:
         return None
     node, port, name = body.get("node"), body.get("port"), body.get("name")
-    if (not isinstance(node, str) or not UUID_RE.match(node) or body.get("host") not in HOST_KINDS
-            or not isinstance(name, str) or not name or len(name) > 64 or not name.isprintable()
-            or not isinstance(port, int) or isinstance(port, bool) or not 1024 <= port <= 65535):
+    if (
+        not isinstance(node, str)
+        or not UUID_RE.match(node)
+        or body.get("host") not in HOST_KINDS
+        or not isinstance(name, str)
+        or not name
+        or len(name) > 64
+        or not name.isprintable()
+        or not isinstance(port, int)
+        or isinstance(port, bool)
+        or not 1024 <= port <= 65535
+    ):
         return None
     return {"node": node, "host": body["host"], "name": name, "port": port}
 
 
 # ---------- status documents ----------
 
+
 def _parse_iso(text: str) -> float:
     import datetime as _dt
+
     value = _dt.datetime.fromisoformat(text.replace("Z", "+00:00"))
     if value.tzinfo is None:
         raise ValueError("observedAt needs a timezone")
@@ -1002,13 +1101,21 @@ def _parse_iso(text: str) -> float:
 def validate_status(doc: Any, host: str, now: float | None = None) -> dict:
     """Schema-1 status: windows-status.json shape (host = kind) or the agiw-peer presence shape
     (kind "agiw-peer", host = machine name, platform = kind)."""
-    kind = doc.get("platform") if isinstance(doc, dict) and doc.get("kind") == "agiw-peer" else (
-        doc.get("host") if isinstance(doc, dict) else None)
+    kind = (
+        doc.get("platform")
+        if isinstance(doc, dict) and doc.get("kind") == "agiw-peer"
+        else (doc.get("host") if isinstance(doc, dict) else None)
+    )
     # type() so True and 1.0 (both == 1 in Python) are not taken for schema 1
-    if (not isinstance(doc, dict) or type(doc.get("schemaVersion")) is not int or doc["schemaVersion"] != 1
-            or kind != host
-            or not isinstance(doc.get("observedAt"), str) or not isinstance(doc.get("models"), list)
-            or len(doc["models"]) > MAX_MODELS):
+    if (
+        not isinstance(doc, dict)
+        or type(doc.get("schemaVersion")) is not int
+        or doc["schemaVersion"] != 1
+        or kind != host
+        or not isinstance(doc.get("observedAt"), str)
+        or not isinstance(doc.get("models"), list)
+        or len(doc["models"]) > MAX_MODELS
+    ):
         raise ValueError("status document invalid")
     if now is not None:
         try:
@@ -1018,8 +1125,12 @@ def validate_status(doc: Any, host: str, now: float | None = None) -> dict:
         if not math.isfinite(observed) or abs(now - observed) > STATUS_MAX_AGE:
             raise ValueError("status is not fresh")
     for model in doc["models"]:
-        if (not isinstance(model, dict) or not isinstance(model.get("id"), str) or not model["id"]
-                or model.get("loadedState") not in ("loaded", "inactive", "unknown")):
+        if (
+            not isinstance(model, dict)
+            or not isinstance(model.get("id"), str)
+            or not model["id"]
+            or model.get("loadedState") not in ("loaded", "inactive", "unknown")
+        ):
             raise ValueError("status model invalid")
     return doc
 
@@ -1027,19 +1138,27 @@ def validate_status(doc: Any, host: str, now: float | None = None) -> dict:
 # Nisi and Jev as peers see them: one fixed label per component and one fixed detail per state. This is the
 # only component text that leaves a machine; free text from a status file or an observer is never forwarded.
 COMPONENTS = (
-    ("nisi", "Nisi route adapter", {
-        "ready": "Nisi Inference route ready on this Mac (pins verified, edit pair loaded)",
-        "partial": "Nisi Inference pins verified; the Mac edit pair is not fully loaded",
-        "in-use": "A Nisi call is in flight for a live route on this Mac",
-        "unresolved": "A Nisi pending marker on this Mac needs owner recovery",
-        "needs-action": "Nisi Inference host binding drifted since activation on this Mac",
-        "unknown": "Nisi Inference state not known on this Mac",
-    }),
-    ("jev", "Jev", {
-        "configured": "Jev opted in on this Mac (key never read or shared)",
-        "unavailable": "No Jev opt-in on this Mac",
-        "unknown": "Jev state not known on this Mac",
-    }),
+    (
+        "nisi",
+        "Nisi route adapter",
+        {
+            "ready": "Nisi Inference route ready on this Mac (pins verified, edit pair loaded)",
+            "partial": "Nisi Inference pins verified; the Mac edit pair is not fully loaded",
+            "in-use": "A Nisi call is in flight for a live route on this Mac",
+            "unresolved": "A Nisi pending marker on this Mac needs owner recovery",
+            "needs-action": "Nisi Inference host binding drifted since activation on this Mac",
+            "unknown": "Nisi Inference state not known on this Mac",
+        },
+    ),
+    (
+        "jev",
+        "Jev",
+        {
+            "configured": "Jev opted in on this Mac (key never read or shared)",
+            "unavailable": "No Jev opt-in on this Mac",
+            "unknown": "Jev state not known on this Mac",
+        },
+    ),
 )
 _STATE_WORD = re.compile(r"[a-z][a-z0-9-]{0,23}\Z")
 _COMPONENT_WORDS = {component_id: (label, details) for component_id, label, details in COMPONENTS}
@@ -1079,8 +1198,7 @@ def project_status(doc: dict) -> dict:
     if type(doc.get("modelsTotal")) is int and 0 <= doc["modelsTotal"] <= 1 << 16:
         out["modelsTotal"] = doc["modelsTotal"]
     if type(doc.get("loadedListComplete")) is bool:
-        out["loadedListComplete"] = (doc["loadedListComplete"]
-                                     and len(doc["models"]) <= MAX_MODELS)
+        out["loadedListComplete"] = doc["loadedListComplete"] and len(doc["models"]) <= MAX_MODELS
     for model in doc["models"][:MAX_MODELS]:
         row = {"id": model["id"][:256], "loadedState": model["loadedState"]}
         for key in ("host", "activity", "lane", "servedModel"):
@@ -1091,12 +1209,21 @@ def project_status(doc: dict) -> dict:
                 row[key] = model[key]
         out["models"].append(row)
     gpus = doc.get("gpus") if isinstance(doc.get("gpus"), list) else []
-    out["gpus"] = [{k: g[k] for k in ("name", "utilizationPercent", "memoryUsedMiB", "memoryTotalMiB", "temperatureC")
-                    if _scalar(g.get(k), str if k == "name" else float, 80) is not None}
-                   for g in gpus[:4] if isinstance(g, dict)]
+    out["gpus"] = [
+        {
+            k: g[k]
+            for k in ("name", "utilizationPercent", "memoryUsedMiB", "memoryTotalMiB", "temperatureC")
+            if _scalar(g.get(k), str if k == "name" else float, 80) is not None
+        }
+        for g in gpus[:4]
+        if isinstance(g, dict)
+    ]
     memory = doc.get("memory") if isinstance(doc.get("memory"), dict) else {}
-    out["memory"] = {k: memory[k] for k in ("level", "availablePercent")
-                     if _scalar(memory.get(k), str if k == "level" else float, 16) is not None}
+    out["memory"] = {
+        k: memory[k]
+        for k in ("level", "availablePercent")
+        if _scalar(memory.get(k), str if k == "level" else float, 16) is not None
+    }
     if _scalar(doc.get("version"), str, 32) is not None:
         out["version"] = _scalar(doc["version"], str, 32)
     # Route components (Nisi, Jev): known ids, the table's own label, a short state word and one age. Detail
@@ -1105,8 +1232,12 @@ def project_status(doc: dict) -> dict:
     components = doc.get("components") if isinstance(doc.get("components"), list) else []
     rows, seen = [], set()
     for item in components[:4]:
-        if (not isinstance(item, dict) or not isinstance(item.get("id"), str)
-                or item["id"] not in _COMPONENT_WORDS or item["id"] in seen):
+        if (
+            not isinstance(item, dict)
+            or not isinstance(item.get("id"), str)
+            or item["id"] not in _COMPONENT_WORDS
+            or item["id"] in seen
+        ):
             continue
         seen.add(item["id"])
         label, details = _COMPONENT_WORDS[item["id"]]
@@ -1139,9 +1270,18 @@ def lmstudio_status(base: str = "http://127.0.0.1:1234", host: str = "mac") -> S
                 state = {"loaded": "loaded", "not-loaded": "inactive"}.get(item.get("state"), "unknown")
                 models.append({"id": item["id"][:256], "host": host, "loadedState": state})
         now = time.time()
-        return {"schemaVersion": 1, "kind": "agiw-peer", "host": socket.gethostname().split(".")[0].lower()[:63],
-                "platform": host, "edition": "peer-link", "observedAt": _iso(now), "observedUnix": round(now, 3),
-                "health": "ok", "producer": "agiw-peer-link lmstudio", "models": models}
+        return {
+            "schemaVersion": 1,
+            "kind": "agiw-peer",
+            "host": socket.gethostname().split(".")[0].lower()[:63],
+            "platform": host,
+            "edition": "peer-link",
+            "observedAt": _iso(now),
+            "observedUnix": round(now, 3),
+            "health": "ok",
+            "producer": "agiw-peer-link lmstudio",
+            "models": models,
+        }
 
     return provide
 
@@ -1179,9 +1319,19 @@ def minimal_status(host: str) -> StatusProvider:
 
     def provide() -> dict:
         now = time.time()
-        return {"schemaVersion": 1, "kind": "agiw-peer", "host": socket.gethostname().split(".")[0].lower()[:63],
-                "platform": host, "edition": "peer-link", "observedAt": _iso(now), "observedUnix": round(now, 3),
-                "health": "unknown", "producer": "agiw-peer-link minimal", "models": [], "loadedListComplete": False}
+        return {
+            "schemaVersion": 1,
+            "kind": "agiw-peer",
+            "host": socket.gethostname().split(".")[0].lower()[:63],
+            "platform": host,
+            "edition": "peer-link",
+            "observedAt": _iso(now),
+            "observedUnix": round(now, 3),
+            "health": "unknown",
+            "producer": "agiw-peer-link minimal",
+            "models": [],
+            "loadedListComplete": False,
+        }
 
     return provide
 
@@ -1208,6 +1358,7 @@ def _iso(ts: float) -> str:
 
 
 # ---------- HTTP plumbing ----------
+
 
 def _exclusive(sock: socket.socket) -> None:
     """Windows SO_REUSEADDR lets another process bind the same port and steal traffic; claim it exclusively."""
@@ -1436,8 +1587,9 @@ class LinkHandler(BaseHTTPRequestHandler):
             return self._send(403)
         keys = Subkeys(pin["key"])
         signed = "\n".join(("GET", PREFIX + "/status", node, link.node, ts, nonce)).encode()
-        if (not hmac.compare_digest(sig, hmac.new(keys.request, signed, hashlib.sha256).hexdigest())
-                or not link.nonces_for(node).fresh(nonce, time.monotonic())):
+        if not hmac.compare_digest(
+            sig, hmac.new(keys.request, signed, hashlib.sha256).hexdigest()
+        ) or not link.nonces_for(node).fresh(nonce, time.monotonic()):
             return self._send(403)
         try:
             body = canonical(project_status(validate_status(link.status_provider(), link.host, time.time())))
@@ -1463,29 +1615,58 @@ def control_client_proof(token: str, ns: str, nc: str, method: str, path: str, b
     return hmac.new(token.encode(), text.encode(), hashlib.sha256).hexdigest()
 
 
-def control_request(state_dir: Path, port: int, method: str, path: str, body: dict | None = None,
-                    limit: int = (MAX_PEERS + 1) * MAX_STATUS_BYTES, deadline: float = 20.0) -> tuple[int, Any]:
+def control_request(
+    state_dir: Path,
+    port: int,
+    method: str,
+    path: str,
+    body: dict | None = None,
+    limit: int = (MAX_PEERS + 1) * MAX_STATUS_BYTES,
+    deadline: float = 20.0,
+) -> tuple[int, Any]:
     """Talk to this user's own peer link on 127.0.0.1. The listener must first prove it holds the
     control token; the token itself is never sent, so whatever squats on the port learns nothing."""
     token = load_control_token(state_dir)
     nc = secrets.token_hex(16)
-    status, _h, raw = _http("127.0.0.1", port, "GET", "/control/hello", {"X-Agiw-Client-Nonce": nc}, None,
-                            1024, deadline=min(deadline, 3.0))
+    status, _h, raw = _http(
+        "127.0.0.1", port, "GET", "/control/hello", {"X-Agiw-Client-Nonce": nc}, None, 1024, deadline=min(deadline, 3.0)
+    )
     hello = strict_json(raw) if status == 200 and raw else {}
     ns = hello.get("ns") if isinstance(hello, dict) else None
-    if (not isinstance(ns, str) or not re.fullmatch(r"[0-9a-f]{32}", ns)
-            or not hmac.compare_digest(str(hello.get("proof", "")), control_server_proof(token, nc, ns))):
+    if (
+        not isinstance(ns, str)
+        or not re.fullmatch(r"[0-9a-f]{32}", ns)
+        or not hmac.compare_digest(str(hello.get("proof", "")), control_server_proof(token, nc, ns))
+    ):
         raise PermissionError(f"the process on 127.0.0.1:{port} is not your peer link; nothing was sent to it")
     payload = canonical(body) if body is not None else b""
-    status, _h, raw = _http("127.0.0.1", port, method, path, {
-        "X-Agiw-Control-Nonce": ns, "Content-Type": "application/json",
-        "X-Agiw-Control-Proof": control_client_proof(token, ns, nc, method, path, payload)},
-        payload if body is not None else None, limit, deadline=deadline)
+    status, _h, raw = _http(
+        "127.0.0.1",
+        port,
+        method,
+        path,
+        {
+            "X-Agiw-Control-Nonce": ns,
+            "Content-Type": "application/json",
+            "X-Agiw-Control-Proof": control_client_proof(token, ns, nc, method, path, payload),
+        },
+        payload if body is not None else None,
+        limit,
+        deadline=deadline,
+    )
     return status, (strict_json(raw) if raw else {})
 
 
-def _http(address: str, port: int, method: str, path: str, headers: dict, body: bytes | None,
-          limit: int, deadline: float = FETCH_DEADLINE) -> tuple[int, dict, bytes]:
+def _http(
+    address: str,
+    port: int,
+    method: str,
+    path: str,
+    headers: dict,
+    body: bytes | None,
+    limit: int,
+    deadline: float = FETCH_DEADLINE,
+) -> tuple[int, dict, bytes]:
     started = time.monotonic()
     conn = http.client.HTTPConnection(address, port, timeout=deadline)
     expired = threading.Event()
@@ -1536,30 +1717,52 @@ def _reply_header(nonce: str, server: str, client: str) -> bytes:
     return "\n".join(("200", PREFIX + "/status", server, client, nonce, "")).encode()
 
 
-def fetch_status(link_key: bytes, me: str, address: str, port: int, peer_node: str, peer_host: str,
-                 now: float) -> dict:
+def fetch_status(link_key: bytes, me: str, address: str, port: int, peer_node: str, peer_host: str, now: float) -> dict:
     keys = Subkeys(link_key)
     nonce, ts = secrets.token_hex(16), f"{now:.3f}"
     signed = "\n".join(("GET", PREFIX + "/status", me, peer_node, ts, nonce)).encode()
-    status, headers, body = _http(address, port, "GET", PREFIX + "/status", {
-        "X-Agiw-Node": me, "X-Agiw-Ts": ts, "X-Agiw-Nonce": nonce,
-        "X-Agiw-Sig": hmac.new(keys.request, signed, hashlib.sha256).hexdigest()}, None, MAX_STATUS_BYTES)
+    status, headers, body = _http(
+        address,
+        port,
+        "GET",
+        PREFIX + "/status",
+        {
+            "X-Agiw-Node": me,
+            "X-Agiw-Ts": ts,
+            "X-Agiw-Nonce": nonce,
+            "X-Agiw-Sig": hmac.new(keys.request, signed, hashlib.sha256).hexdigest(),
+        },
+        None,
+        MAX_STATUS_BYTES,
+    )
     if status != 200:
         raise ConnectionError(f"peer answered {status}")
     expected = hmac.new(keys.reply, _reply_header(nonce, peer_node, me) + body, hashlib.sha256)
-    if headers.get("x-agiw-node") != peer_node or not hmac.compare_digest(headers.get("x-agiw-sig", ""),
-                                                                           expected.hexdigest()):
+    if headers.get("x-agiw-node") != peer_node or not hmac.compare_digest(
+        headers.get("x-agiw-sig", ""), expected.hexdigest()
+    ):
         raise PermissionError("peer reply signature invalid")
     return validate_status(strict_json(body), peer_host, time.time())
 
 
 # ---------- the link ----------
 
+
 class PeerLink:
-    def __init__(self, state_dir: Path, host: str, name: str, status_provider: StatusProvider,
-                 status_port: int = STATUS_PORT, beacon_port: int = BEACON_PORT, bind: str = "0.0.0.0",
-                 broadcast: tuple[str, ...] = ("255.255.255.255",), allow_loopback: bool = False,
-                 clock: Callable[[], float] = time.monotonic, on_change: Callable[[dict], None] | None = None):
+    def __init__(
+        self,
+        state_dir: Path,
+        host: str,
+        name: str,
+        status_provider: StatusProvider,
+        status_port: int = STATUS_PORT,
+        beacon_port: int = BEACON_PORT,
+        bind: str = "0.0.0.0",
+        broadcast: tuple[str, ...] = ("255.255.255.255",),
+        allow_loopback: bool = False,
+        clock: Callable[[], float] = time.monotonic,
+        on_change: Callable[[dict], None] | None = None,
+    ):
         if host not in HOST_KINDS:
             raise ValueError("host must be one of " + ", ".join(HOST_KINDS))
         self.state_dir = state_dir
@@ -1574,10 +1777,10 @@ class PeerLink:
         # server nonce -> (client nonce, expiry, id of the control token it was issued under)
         self._control_challenges: dict[str, tuple[str, float, str]] = {}
         self.allow_loopback_lan = allow_loopback
-        self._seen: dict[str, dict] = {}       # uuid -> last hello facts (address, port, lastHello, ...)
-        self._live: dict[str, dict] = {}       # uuid -> status / statusAt / error for paired peers
-        self._outbound: dict[str, dict] = {}   # invite id -> invite this node shows a PIN for
-        self._inbound: dict[str, dict] = {}    # peer uuid -> invite waiting for the user to type a PIN
+        self._seen: dict[str, dict] = {}  # uuid -> last hello facts (address, port, lastHello, ...)
+        self._live: dict[str, dict] = {}  # uuid -> status / statusAt / error for paired peers
+        self._outbound: dict[str, dict] = {}  # invite id -> invite this node shows a PIN for
+        self._inbound: dict[str, dict] = {}  # peer uuid -> invite waiting for the user to type a PIN
         self._completed: dict[str, dict] = {}  # invite id -> finished exchange, for idempotent finish retries
         self._trusted_cache: tuple[float, dict] | None = None  # None = reload (monotonic may start near 0)
         self._lock = threading.RLock()
@@ -1674,8 +1877,7 @@ class PeerLink:
             data = make_hello(self.node, self.host, self.name, self.status_port, time.time())
             try:
                 with self._lock:
-                    unicast = {p["address"] for n, p in self._seen.items()
-                               if n in self.trusted() and p.get("address")}
+                    unicast = {p["address"] for n, p in self._seen.items() if n in self.trusted() and p.get("address")}
             except Exception as exc:  # noqa: BLE001 - announcing must outlive any trust-store failure
                 self.poll_error = f"announce: {type(exc).__name__}"[:200]
                 unicast = set()
@@ -1742,19 +1944,25 @@ class PeerLink:
         now = self.clock()
         trusted = self.trusted()
         with self._lock:
-            for node in [n for n, s in self._seen.items()
-                         if n not in trusted and now - s["lastHello"] > FORGET_AVAILABLE_AFTER]:
+            for node in [
+                n for n, s in self._seen.items() if n not in trusted and now - s["lastHello"] > FORGET_AVAILABLE_AFTER
+            ]:
                 del self._seen[node]
             for invite_id in [i for i, v in self._outbound.items() if now > v["expires"]]:
                 del self._outbound[invite_id]
             for node in [n for n, v in self._inbound.items() if now > v["expires"]]:
                 del self._inbound[node]
-            targets = [(n, dict(self._seen[n], candidates=list(self._seen[n]["candidates"])))
-                       for n in trusted if n in self._seen]
+            targets = [
+                (n, dict(self._seen[n], candidates=list(self._seen[n]["candidates"])))
+                for n in trusted
+                if n in self._seen
+            ]
         # Peers are polled in parallel so one dead machine cannot age a healthy one; each peer tries its
         # known endpoint and at most the newest candidate, so a cycle stays within 2 x FETCH_DEADLINE.
-        threads = [threading.Thread(target=self._poll_peer, args=(node, trusted[node], seen), daemon=True)
-                   for node, seen in targets]
+        threads = [
+            threading.Thread(target=self._poll_peer, args=(node, trusted[node], seen), daemon=True)
+            for node, seen in targets
+        ]
         for thread in threads:
             thread.start()
         for thread in threads:
@@ -1779,8 +1987,11 @@ class PeerLink:
             if current is None or not hmac.compare_digest(current["key"], pin["key"]):
                 return  # unpaired or re-paired while this poll was in flight: its result belongs to nobody
             if adopted and node in self._seen:
-                self._seen[node].update(address=adopted[0], port=adopted[1],
-                                        candidates=[c for c in self._seen[node]["candidates"] if c != adopted])
+                self._seen[node].update(
+                    address=adopted[0],
+                    port=adopted[1],
+                    candidates=[c for c in self._seen[node]["candidates"] if c != adopted],
+                )
             self._live.setdefault(node, {}).update(update)
 
     def _bounded_self_status(self) -> dict:
@@ -1823,10 +2034,17 @@ class PeerLink:
         with self._lock:
             for node in sorted(set(trusted) | set(self._seen)):
                 seen, live, pin = self._seen.get(node, {}), self._live.get(node, {}), trusted.get(node)
-                row = {"node": node, "name": (pin or seen).get("name"), "host": (pin or seen).get("host"),
-                       "paired": pin is not None, "address": seen.get("address"),
-                       "lastHello": seen.get("lastHello"), "error": live.get("error") if pin else None,
-                       "status": None, "inviteWaiting": node in self._inbound}
+                row = {
+                    "node": node,
+                    "name": (pin or seen).get("name"),
+                    "host": (pin or seen).get("host"),
+                    "paired": pin is not None,
+                    "address": seen.get("address"),
+                    "lastHello": seen.get("lastHello"),
+                    "error": live.get("error") if pin else None,
+                    "status": None,
+                    "inviteWaiting": node in self._inbound,
+                }
                 good = live.get("statusAt")
                 if pin is None:
                     row["state"] = "available"
@@ -1837,11 +2055,20 @@ class PeerLink:
                 else:
                     row["state"] = "stale" if good is not None else "connecting"
                 rows.append(row)
-            outbound = [{"peer": v["peer"]["node"], "name": v["peer"]["name"], "expires": v["expires"]}
-                        for v in self._outbound.values()]
-        result = {"schemaVersion": 1, "protocol": PROTOCOL, "observedAt": _iso(time.time()), "self": self.me(),
-                  "peers": rows, "invitesShowingPin": outbound, "pollError": self.poll_error,
-                  "quarantined": list(self.store.quarantined)}
+            outbound = [
+                {"peer": v["peer"]["node"], "name": v["peer"]["name"], "expires": v["expires"]}
+                for v in self._outbound.values()
+            ]
+        result = {
+            "schemaVersion": 1,
+            "protocol": PROTOCOL,
+            "observedAt": _iso(time.time()),
+            "self": self.me(),
+            "peers": rows,
+            "invitesShowingPin": outbound,
+            "pollError": self.poll_error,
+            "quarantined": list(self.store.quarantined),
+        }
         if include_self_status:
             result["selfStatus"] = self._bounded_self_status()
         return result
@@ -1861,28 +2088,49 @@ class PeerLink:
         pin = f"{secrets.randbelow(1_000_000):06d}"
         invite_id = secrets.token_hex(16)
         expires = self.clock() + INVITE_TTL
-        record = {"id": invite_id, "pin": pin, "expires": expires, "attempts": 0,
-                  "peer": {"node": node, "name": seen["name"], "host": seen["host"]}, "spake": None}
+        record = {
+            "id": invite_id,
+            "pin": pin,
+            "expires": expires,
+            "attempts": 0,
+            "peer": {"node": node, "name": seen["name"], "host": seen["host"]},
+            "spake": None,
+        }
         with self._lock:
             for old in [i for i, v in self._outbound.items() if v["peer"]["node"] == node]:
                 del self._outbound[old]
             self._outbound[invite_id] = record
-        status, _h, _b = _http(seen["address"], seen["port"], "POST", PREFIX + "/pair/notify",
-                               {"Content-Type": "application/json"},
-                               canonical({**self.me(), "invite": invite_id, "port": self.status_port}), 512)
+        status, _h, _b = _http(
+            seen["address"],
+            seen["port"],
+            "POST",
+            PREFIX + "/pair/notify",
+            {"Content-Type": "application/json"},
+            canonical({**self.me(), "invite": invite_id, "port": self.status_port}),
+            512,
+        )
         if status != 200:
             with self._lock:
                 self._outbound.pop(invite_id, None)
             raise ConnectionError(f"{seen['name']} did not accept the invite notice ({status})")
-        return {"pin": pin, "peer": seen["name"], "expiresInSeconds": int(INVITE_TTL),
-                "say": f"Type {pin} on {seen['name']} within 5 minutes."}
+        return {
+            "pin": pin,
+            "peer": seen["name"],
+            "expiresInSeconds": int(INVITE_TTL),
+            "say": f"Type {pin} on {seen['name']} within 5 minutes.",
+        }
 
     def on_start(self, body: dict) -> tuple[int, dict]:
         with self._lock:
             record = self._outbound.get(body.get("invite"))
             joiner = record and record["peer"]
-            if (not record or self.clock() > record["expires"] or body.get("node") != joiner["node"]
-                    or body.get("host") != joiner["host"] or body.get("name") != joiner["name"]):
+            if (
+                not record
+                or self.clock() > record["expires"]
+                or body.get("node") != joiner["node"]
+                or body.get("host") != joiner["host"]
+                or body.get("name") != joiner["name"]
+            ):
                 return 404, {"error": "no such invite"}
             record["attempts"] += 1
             if record["attempts"] > INVITE_ATTEMPTS:
@@ -1909,8 +2157,12 @@ class PeerLink:
             done = self._completed.get(body.get("invite"))
             if done is None:
                 record = self._outbound.get(body.get("invite"))
-                if (not record or not record.get("spake") or self.clock() > record["expires"]
-                        or body.get("attempt") != record.get("attempt")):
+                if (
+                    not record
+                    or not record.get("spake")
+                    or self.clock() > record["expires"]
+                    or body.get("attempt") != record.get("attempt")
+                ):
                     return 404, {"error": "no such invite"}
                 keys, joiner = record["spake"], record["peer"]
                 if not hmac.compare_digest(confirm, keys["joinerConfirm"]):
@@ -1918,9 +2170,13 @@ class PeerLink:
                     return 403, {"error": "wrong PIN"}
                 del self._outbound[record["id"]]
                 self._completed = {k: v for k, v in self._completed.items() if self.clock() <= v["expires"]}
-                done = self._completed[record["id"]] = {"joinerConfirm": keys["joinerConfirm"],
-                                                        "finishAck": keys["finishAck"], "saved": threading.Event(),
-                                                        "ok": False, "expires": self.clock() + INVITE_TTL}
+                done = self._completed[record["id"]] = {
+                    "joinerConfirm": keys["joinerConfirm"],
+                    "finishAck": keys["finishAck"],
+                    "saved": threading.Event(),
+                    "ok": False,
+                    "expires": self.clock() + INVITE_TTL,
+                }
                 retry = False
             else:
                 retry = True
@@ -1947,54 +2203,90 @@ class PeerLink:
     # pairing: joiner side
     def on_notify(self, body: dict, address: str) -> tuple[int, dict]:
         node, invite_id, port = body.get("node"), body.get("invite"), body.get("port")
-        if (not isinstance(node, str) or not UUID_RE.match(node) or node == self.node
-                or body.get("host") not in HOST_KINDS or not isinstance(body.get("name"), str)
-                or not body["name"] or len(body["name"]) > 64 or not body["name"].isprintable()
-                or not isinstance(invite_id, str) or not re.fullmatch(r"[0-9a-f]{32}", invite_id)
-                or not isinstance(port, int) or isinstance(port, bool) or not 1024 <= port <= 65535):
+        if (
+            not isinstance(node, str)
+            or not UUID_RE.match(node)
+            or node == self.node
+            or body.get("host") not in HOST_KINDS
+            or not isinstance(body.get("name"), str)
+            or not body["name"]
+            or len(body["name"]) > 64
+            or not body["name"].isprintable()
+            or not isinstance(invite_id, str)
+            or not re.fullmatch(r"[0-9a-f]{32}", invite_id)
+            or not isinstance(port, int)
+            or isinstance(port, bool)
+            or not 1024 <= port <= 65535
+        ):
             return 400, {"error": "bad invite"}
         with self._lock:
             now = self.clock()
             self._inbound = {n: v for n, v in self._inbound.items() if now <= v["expires"]}
             seen = self._seen.get(node)
-            if (not seen or seen.get("address") != address or now - seen.get("lastHello", -1e9) > FORGET_AVAILABLE_AFTER):
+            if not seen or seen.get("address") != address or now - seen.get("lastHello", -1e9) > FORGET_AVAILABLE_AFTER:
                 return 403, {"error": "invite from a machine this one has not discovered"}
             if node not in self._inbound and len(self._inbound) >= MAX_INBOUND_INVITES:
                 return 429, {"error": "too many pending invites"}
-            self._inbound[node] = {"peer": {"node": node, "name": body["name"], "host": body["host"]},
-                                   "invite": invite_id, "address": address, "port": port,
-                                   "expires": self.clock() + INVITE_TTL}
+            self._inbound[node] = {
+                "peer": {"node": node, "name": body["name"], "host": body["host"]},
+                "invite": invite_id,
+                "address": address,
+                "port": port,
+                "expires": self.clock() + INVITE_TTL,
+            }
         return 200, {"waiting": True}
 
     def accept(self, peer: str, pin: str) -> dict:
         if not re.fullmatch(r"\d{6}", pin):
             raise ValueError("the PIN is six digits")
         with self._lock:
-            matches = [v for n, v in self._inbound.items() if peer in (n, v["peer"]["name"]) or
-                       (not peer and len(self._inbound) == 1)]
+            matches = [
+                v
+                for n, v in self._inbound.items()
+                if peer in (n, v["peer"]["name"]) or (not peer and len(self._inbound) == 1)
+            ]
             if len(matches) != 1:
                 raise LookupError("no single pending invite matches " + repr(peer[:64]))
             invite = dict(matches[0])
         spake = Spake("joiner", pin, invite["peer"], self.me(), invite["invite"])
-        status, _h, raw = _http(invite["address"], invite["port"], "POST", PREFIX + "/pair/start",
-                                {"Content-Type": "application/json"},
-                                canonical({**self.me(), "invite": invite["invite"], "x": _hex(spake.public)}), 2048)
+        status, _h, raw = _http(
+            invite["address"],
+            invite["port"],
+            "POST",
+            PREFIX + "/pair/start",
+            {"Content-Type": "application/json"},
+            canonical({**self.me(), "invite": invite["invite"], "x": _hex(spake.public)}),
+            2048,
+        )
         if status != 200:
             raise ConnectionError(f"{invite['peer']['name']} refused the pairing ({status})")
         reply = strict_json(raw)
         keys = spake.finish(reply.get("y"))
         attempt = reply.get("attempt")
         if not hmac.compare_digest(str(reply.get("confirm", "")), keys["inviterConfirm"]):
-            _http(invite["address"], invite["port"], "POST", PREFIX + "/pair/finish",
-                  {"Content-Type": "application/json"},
-                  canonical({"invite": invite["invite"], "attempt": attempt, "confirm": "0"}), 512)
+            _http(
+                invite["address"],
+                invite["port"],
+                "POST",
+                PREFIX + "/pair/finish",
+                {"Content-Type": "application/json"},
+                canonical({"invite": invite["invite"], "attempt": attempt, "confirm": "0"}),
+                512,
+            )
             raise PermissionError("wrong PIN (or not the machine that showed it); try again")
         finish = canonical({"invite": invite["invite"], "attempt": attempt, "confirm": keys["joinerConfirm"]})
         status, ack = None, ""
         for _ in range(3):  # the inviter answers a repeated finish idempotently, so a lost reply is retried
             try:
-                status, _h, raw_ack = _http(invite["address"], invite["port"], "POST", PREFIX + "/pair/finish",
-                                            {"Content-Type": "application/json"}, finish, 512)
+                status, _h, raw_ack = _http(
+                    invite["address"],
+                    invite["port"],
+                    "POST",
+                    PREFIX + "/pair/finish",
+                    {"Content-Type": "application/json"},
+                    finish,
+                    512,
+                )
                 ack = str(strict_json(raw_ack).get("ack", "")) if status == 200 else ""
                 break
             except (OSError, TimeoutError, ValueError, AttributeError):
@@ -2008,9 +2300,16 @@ class PeerLink:
         self._invalidate()
         with self._lock:
             self._inbound.pop(invite["peer"]["node"], None)
-            self._seen.setdefault(invite["peer"]["node"], {"address": invite["address"], "candidates": [],
-                                                           "lastHello": self.clock(), **invite["peer"],
-                                                           "port": invite["port"]})
+            self._seen.setdefault(
+                invite["peer"]["node"],
+                {
+                    "address": invite["address"],
+                    "candidates": [],
+                    "lastHello": self.clock(),
+                    **invite["peer"],
+                    "port": invite["port"],
+                },
+            )
         return {"paired": True, "peer": invite["peer"]["name"]}
 
     def unpair(self, peer: str) -> dict:
@@ -2052,6 +2351,7 @@ def write_snapshot(path: Path) -> Callable[[dict], None]:
 
 # ---------- CLI ----------
 
+
 def _control(state_dir: Path, port: int, method: str, path: str, body: dict | None = None) -> dict:
     status, doc = control_request(state_dir, port, method, path, body)
     if status != 200:
@@ -2088,14 +2388,26 @@ def main(argv: list[str] | None = None) -> int:
         elif args.host == "linux":
             provider = linux_status()
         else:
-            parser.error("--status-file is required on " + args.host + ": serve the observer's own status, "
-                         "not whatever LM Studio happens to list")
-        link = PeerLink(args.state_dir, args.host, args.name, provider, status_port=args.status_port,
-                        beacon_port=args.beacon_port, broadcast=directed_broadcasts())
+            parser.error(
+                "--status-file is required on " + args.host + ": serve the observer's own status, "
+                "not whatever LM Studio happens to list"
+            )
+        link = PeerLink(
+            args.state_dir,
+            args.host,
+            args.name,
+            provider,
+            status_port=args.status_port,
+            beacon_port=args.beacon_port,
+            broadcast=directed_broadcasts(),
+        )
         link.on_change = write_snapshot(args.state_dir / "peers.json")
         link.start()
-        print(f"agiw peer link: {link.name} {link.node} ({args.host}); tcp/{link.status_port} udp/{link.beacon_port}; "
-              f"{len(link.trusted())} paired", flush=True)
+        print(
+            f"agiw peer link: {link.name} {link.node} ({args.host}); tcp/{link.status_port} udp/{link.beacon_port}; "
+            f"{len(link.trusted())} paired",
+            flush=True,
+        )
         try:
             while True:
                 time.sleep(3600)
@@ -2116,6 +2428,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "accept":
         import getpass
+
         pin = getpass.getpass("PIN shown on the other machine: ").strip()
         doc = _control(args.state_dir, args.status_port, "POST", "/control/accept", {"peer": args.peer, "pin": pin})
         print(f"paired with {doc['peer']}")

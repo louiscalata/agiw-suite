@@ -1,4 +1,5 @@
 """What the CLI prints about this machine: the home folder as ~, never keys, tokens or share paths."""
+
 from __future__ import annotations
 
 import os
@@ -11,7 +12,7 @@ HIDDEN_PATH = "(a folder outside your home; not shown)"
 # 32+ hex characters: control tokens, link keys, nonces and proofs. Node UUIDs (dashed) are not matched.
 _HEX = re.compile(r"(?<![0-9A-Fa-f])[0-9A-Fa-f]{32,}(?![0-9A-Fa-f])")
 _SEALED = re.compile(r"dpapi1:[A-Za-z0-9+/=]+")
-_UNC = re.compile(r"\\\\[^\\\s]+\\[^\s'\"]*")                       # \\server\share\...
+_UNC = re.compile(r"\\\\[^\\\s]+\\[^\s'\"]*")  # \\server\share\...
 _NETWORK_URL = re.compile(r"(?i)\b(?:smb|cifs|afp|nfs)://[^\s'\"]+")  # smb://server/share
 _MOUNTED = re.compile(r"(?:/Volumes|/mnt|/media|/run/user/\d+/gvfs)/[^\s'\"]+")  # mounted shares and volumes
 

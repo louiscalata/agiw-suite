@@ -1,4 +1,5 @@
 """agiw runs on the Mac and the Windows PC only; on Linux it refuses before touching anything."""
+
 import io
 import tempfile
 import unittest
@@ -20,13 +21,27 @@ class LinuxIsRefused(unittest.TestCase):
     def run_cli(self, *argv, kind="linux"):
         runner, err = FakeRunner(), io.StringIO()
         with redirect_stderr(err):
-            code = cli.main(["--state-dir", str(self.state), *argv], out=lambda _: None, runner=runner,
-                            kind=kind, home=self.home, env={})
+            code = cli.main(
+                ["--state-dir", str(self.state), *argv],
+                out=lambda _: None,
+                runner=runner,
+                kind=kind,
+                home=self.home,
+                env={},
+            )
         return code, err.getvalue(), runner
 
     def test_every_command_refuses_on_linux_and_changes_nothing(self):
-        for argv in (("serve",), ("status",), ("peers",), ("doctor",), ("service", "install"),
-                     ("service", "status"), ("uninstall",), ("uninstall", "--purge-keys", "--yes")):
+        for argv in (
+            ("serve",),
+            ("status",),
+            ("peers",),
+            ("doctor",),
+            ("service", "install"),
+            ("service", "status"),
+            ("uninstall",),
+            ("uninstall", "--purge-keys", "--yes"),
+        ):
             with self.subTest(argv=argv):
                 code, err, runner = self.run_cli(*argv)
                 self.assertEqual(code, cli.EXIT_USAGE)

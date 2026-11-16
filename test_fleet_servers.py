@@ -1,4 +1,5 @@
 """Both API stores project identical facts without opening a network socket."""
+
 import copy
 import json
 from pathlib import Path
@@ -31,6 +32,7 @@ class FleetStoreTests(unittest.TestCase):
     def test_both_servers_ship_the_selector_module(self):
         from server import ASSETS as mac_assets
         from agiw_win.server import ASSETS as windows_assets
+
         for assets in (mac_assets, windows_assets):
             self.assertEqual(assets["/fleet-state.mjs"], ("fleet-state.mjs", "text/javascript; charset=utf-8"))
 

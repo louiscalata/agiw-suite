@@ -40,14 +40,17 @@ class TunnelTests(unittest.TestCase):
         def spawn(_argv):
             raise AssertionError("spawn")
 
-        self.assertEqual(pc_tunnel.supervise(config, threading.Event(), spawn=spawn)["reason"],
-                         "host_unconfigured")
+        self.assertEqual(pc_tunnel.supervise(config, threading.Event(), spawn=spawn)["reason"], "host_unconfigured")
         with self.assertRaises(ValueError):
             pc_tunnel.ssh_command(config)
 
     def test_closed_forwards_are_tunnel_down_and_open_forwards_are_probed(self):
-        config = {"user": "pc-user", "host": "pc.example", "identityFile": "/keys/restricted",
-                  "forwards": [dict(item) for item in FIXTURE_FORWARDS]}
+        config = {
+            "user": "pc-user",
+            "host": "pc.example",
+            "identityFile": "/keys/restricted",
+            "forwards": [dict(item) for item in FIXTURE_FORWARDS],
+        }
         status, rows = pc_tunnel.targets(config, lambda port: port == 1345)
         self.assertEqual(status["state"], "down")
         self.assertEqual(status["reason"], "tunnel_down")
@@ -66,8 +69,12 @@ class TunnelTests(unittest.TestCase):
     def test_forward_detail_reports_local_listeners_not_ssh_or_pc_reachability(self):
         # The probe is a TCP connect to 127.0.0.1:<localPort>. Any process can own that
         # listener, so neither state is a reading of SSH or of the PC.
-        config = {"user": "pc-user", "host": "pc.example", "identityFile": "/keys/restricted",
-                  "forwards": [dict(item) for item in FIXTURE_FORWARDS]}
+        config = {
+            "user": "pc-user",
+            "host": "pc.example",
+            "identityFile": "/keys/restricted",
+            "forwards": [dict(item) for item in FIXTURE_FORWARDS],
+        }
         closed = pc_tunnel.describe(config, lambda port: port == 1345)
         opened = pc_tunnel.describe(config, lambda _port: True)
         self.assertEqual((closed["state"], closed["reason"]), ("down", "tunnel_down"))
@@ -89,8 +96,10 @@ class TunnelTests(unittest.TestCase):
             path.write_text("{", encoding="utf-8")
             broken = pc_tunnel.load_config(path, environ={})
             self.assertEqual(broken["error"], "config_invalid")
-            path.write_text(json.dumps({"user": "pc-user", "host": "pc.example",
-                                        "identityFile": "keys/restricted"}), encoding="utf-8")
+            path.write_text(
+                json.dumps({"user": "pc-user", "host": "pc.example", "identityFile": "keys/restricted"}),
+                encoding="utf-8",
+            )
             relative = pc_tunnel.load_config(path, environ={})
             self.assertEqual(relative["error"], "config_invalid")
 
@@ -98,53 +107,75 @@ class TunnelTests(unittest.TestCase):
         forwards = [{"name": "only", "localPort": 2001, "remotePort": 3001}]
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "pc-tunnel.json"
-            path.write_text(json.dumps({"user": "file-user", "host": "file.example",
-                                        "identityFile": "/keys/file", "forwards": forwards}),
-                            encoding="utf-8")
+            path.write_text(
+                json.dumps(
+                    {"user": "file-user", "host": "file.example", "identityFile": "/keys/file", "forwards": forwards}
+                ),
+                encoding="utf-8",
+            )
             # File beats defaults: nothing in the environment.
             from_file = pc_tunnel.load_config(path, environ={})
             self.assertNotIn("error", from_file)
-            self.assertEqual((from_file["user"], from_file["host"], from_file["identityFile"]),
-                             ("file-user", "file.example", "/keys/file"))
-            self.assertEqual(from_file["forwards"],
-                             [{"name": "only", "localPort": 2001, "remotePort": 3001, "id": "pc:only"}])
+            self.assertEqual(
+                (from_file["user"], from_file["host"], from_file["identityFile"]),
+                ("file-user", "file.example", "/keys/file"),
+            )
+            self.assertEqual(
+                from_file["forwards"], [{"name": "only", "localPort": 2001, "remotePort": 3001, "id": "pc:only"}]
+            )
             # Empty environment values are ignored, so they do not erase the file.
-            blank = pc_tunnel.load_config(path, environ={"AGIW_PC_SSH_USER": "", "AGIW_PC_SSH_HOST": "",
-                                                          "AGIW_PC_SSH_IDENTITY": ""})
+            blank = pc_tunnel.load_config(
+                path, environ={"AGIW_PC_SSH_USER": "", "AGIW_PC_SSH_HOST": "", "AGIW_PC_SSH_IDENTITY": ""}
+            )
             self.assertEqual(blank, from_file)
             # Environment beats file for every overridable field.
-            both = pc_tunnel.load_config(path, environ={"AGIW_PC_SSH_USER": "env-user",
-                                                        "AGIW_PC_SSH_HOST": "env.example",
-                                                        "AGIW_PC_SSH_IDENTITY": "/keys/env"})
+            both = pc_tunnel.load_config(
+                path,
+                environ={
+                    "AGIW_PC_SSH_USER": "env-user",
+                    "AGIW_PC_SSH_HOST": "env.example",
+                    "AGIW_PC_SSH_IDENTITY": "/keys/env",
+                },
+            )
             self.assertNotIn("error", both)
-            self.assertEqual((both["user"], both["host"], both["identityFile"]),
-                             ("env-user", "env.example", "/keys/env"))
+            self.assertEqual(
+                (both["user"], both["host"], both["identityFile"]), ("env-user", "env.example", "/keys/env")
+            )
             self.assertEqual(both["forwards"], from_file["forwards"])
             self.assertEqual(pc_tunnel.ssh_command(both)[-1], "env-user@env.example")
             # Each field overrides on its own and leaves the other file values alone.
-            for key, field, value in (("AGIW_PC_SSH_USER", "user", "env-user"),
-                                      ("AGIW_PC_SSH_HOST", "host", "env.example"),
-                                      ("AGIW_PC_SSH_IDENTITY", "identityFile", "/keys/env")):
+            for key, field, value in (
+                ("AGIW_PC_SSH_USER", "user", "env-user"),
+                ("AGIW_PC_SSH_HOST", "host", "env.example"),
+                ("AGIW_PC_SSH_IDENTITY", "identityFile", "/keys/env"),
+            ):
                 one = pc_tunnel.load_config(path, environ={key: value})
                 self.assertNotIn("error", one)
                 for name in ("user", "host", "identityFile"):
                     self.assertEqual(one[name], value if name == field else from_file[name])
             # The file path itself comes from the environment and still loses to env values.
-            via_env = pc_tunnel.load_config(environ={"AGIW_PC_SSH_CONFIG": str(path),
-                                                     "AGIW_PC_SSH_HOST": "env.example"})
+            via_env = pc_tunnel.load_config(
+                environ={"AGIW_PC_SSH_CONFIG": str(path), "AGIW_PC_SSH_HOST": "env.example"}
+            )
             self.assertEqual((via_env["user"], via_env["host"]), ("file-user", "env.example"))
         # Without a file the environment still fills the fields; there are no default forwards.
-        env_only = pc_tunnel.load_config(environ={"AGIW_PC_SSH_USER": "env-user",
-                                                  "AGIW_PC_SSH_HOST": "env.example",
-                                                  "AGIW_PC_SSH_IDENTITY": "/keys/env"})
+        env_only = pc_tunnel.load_config(
+            environ={
+                "AGIW_PC_SSH_USER": "env-user",
+                "AGIW_PC_SSH_HOST": "env.example",
+                "AGIW_PC_SSH_IDENTITY": "/keys/env",
+            }
+        )
         self.assertNotIn("error", env_only)
         self.assertEqual(env_only["forwards"], [])
 
     def test_invalid_environment_value_is_rejected_like_an_invalid_file_value(self):
-        bad = {"AGIW_PC_SSH_USER": "bad user", "AGIW_PC_SSH_HOST": "bad host/x",
-               "AGIW_PC_SSH_IDENTITY": "keys/relative"}
-        field_for = {"AGIW_PC_SSH_USER": "user", "AGIW_PC_SSH_HOST": "host",
-                     "AGIW_PC_SSH_IDENTITY": "identityFile"}
+        bad = {
+            "AGIW_PC_SSH_USER": "bad user",
+            "AGIW_PC_SSH_HOST": "bad host/x",
+            "AGIW_PC_SSH_IDENTITY": "keys/relative",
+        }
+        field_for = {"AGIW_PC_SSH_USER": "user", "AGIW_PC_SSH_HOST": "host", "AGIW_PC_SSH_IDENTITY": "identityFile"}
         good = {"user": "file-user", "host": "file.example", "identityFile": "/keys/file"}
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "pc-tunnel.json"
@@ -163,8 +194,12 @@ class TunnelTests(unittest.TestCase):
                     pc_tunnel.ssh_command(invalid)
 
     def test_supervisor_stops_the_forward_it_started(self):
-        config = {"user": "pc-user", "host": "pc.example", "identityFile": "/keys/restricted",
-                  "forwards": [dict(item) for item in FIXTURE_FORWARDS]}
+        config = {
+            "user": "pc-user",
+            "host": "pc.example",
+            "identityFile": "/keys/restricted",
+            "forwards": [dict(item) for item in FIXTURE_FORWARDS],
+        }
         stop = threading.Event()
         started = []
 

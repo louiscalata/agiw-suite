@@ -15,9 +15,7 @@ class RoundTwoTests(unittest.TestCase):
     def data(self, chance="0.5", options=2):
         from test_eci_fast_check import datasets
 
-        return {
-            "fixture": dict(datasets()["arc"], chance=chance, answer_options=options)
-        }
+        return {"fixture": dict(datasets()["arc"], chance=chance, answer_options=options)}
 
     def obs(self, outcome="correct", **kw):
         from test_eci_fast_check import observation
@@ -37,17 +35,11 @@ class RoundTwoTests(unittest.TestCase):
 
             def answer(item):
                 calls.append(item)
-                return (
-                    self.obs("unparsed", cut_off=True, finish_reason=reason)
-                    if len(calls) <= 20
-                    else self.obs()
-                )
+                return self.obs("unparsed", cut_off=True, finish_reason=reason) if len(calls) <= 20 else self.obs()
 
             record = self.run_fixture(data=self.data(), answer=answer)
             self.assertEqual(record["benchmarks"][0]["truncations"], 20)
-            self.assertEqual(
-                record["benchmarks"][0]["outcome_counts"]["truncated_empty"], 20
-            )
+            self.assertEqual(record["benchmarks"][0]["outcome_counts"]["truncated_empty"], 20)
             self.assertEqual(record["post"]["decision"], "REJECT")
             self.assertIn(
                 "answers cut off at the token limit: raise the limit and re-run",
@@ -81,9 +73,7 @@ class RoundTwoTests(unittest.TestCase):
                 record["post"]["reasons"],
             )
             if not parsed:
-                self.assertIn(
-                    "runtime/model incompatibility suspected", record["post"]["reasons"]
-                )
+                self.assertIn("runtime/model incompatibility suspected", record["post"]["reasons"])
             self.assertEqual(record["post"]["inputs"]["max_unparsed_rate"], "0.10")
             self.assertEqual(f.rank([record])[0]["rows"], [])
 
@@ -126,14 +116,10 @@ class RoundTwoTests(unittest.TestCase):
                     "not distinguishable from chance on this sample: weak model or incompatible runtime; re-run with a larger sample or check the runtime",
                     post["reasons"],
                 )
-                unknown_probability += Fraction(
-                    math.comb(200, k) * 11**k * 9 ** (200 - k), 20**200
-                )
+                unknown_probability += Fraction(math.comb(200, k) * 11**k * 9 ** (200 - k), 20**200)
             else:
                 self.assertEqual(post["decision"], "ADMIT")
-        self.assertAlmostEqual(
-            float(unknown_probability), 0.6380034604943883, places=15
-        )
+        self.assertAlmostEqual(float(unknown_probability), 0.6380034604943883, places=15)
         calls = []
 
         def answer(item):
@@ -168,13 +154,9 @@ class RoundTwoTests(unittest.TestCase):
         with localcontext() as ctx:
             ctx.prec = 250
             exact = Decimal(p.numerator) / Decimal(p.denominator)
+            self.assertEqual(f.post_check([evidence], alpha=format(exact, "f"))["decision"], "ADMIT")
             self.assertEqual(
-                f.post_check([evidence], alpha=format(exact, "f"))["decision"], "ADMIT"
-            )
-            self.assertEqual(
-                f.post_check([evidence], alpha=format(exact - Decimal("1e-210"), "f"))[
-                    "decision"
-                ],
+                f.post_check([evidence], alpha=format(exact - Decimal("1e-210"), "f"))["decision"],
                 "UNKNOWN",
             )
 
@@ -184,16 +166,12 @@ class RoundTwoTests(unittest.TestCase):
 
             def answer(item):
                 calls.append(item)
-                return self.obs(
-                    "correct" if len(calls) <= 100 else "wrong", answer_value="A"
-                )
+                return self.obs("correct" if len(calls) <= 100 else "wrong", answer_value="A")
 
             record = self.run_fixture(data=self.data(chance), answer=answer)
             self.assertEqual(record["benchmarks"][0]["top_answer_share"], 1)
             self.assertEqual(record["post"]["decision"], "REJECT")
-            self.assertIn(
-                "runtime/model incompatibility suspected", record["post"]["reasons"]
-            )
+            self.assertIn("runtime/model incompatibility suspected", record["post"]["reasons"])
 
     def test_relaxed_missing_evidence_never_ranks(self):
         calls = []
@@ -207,9 +185,7 @@ class RoundTwoTests(unittest.TestCase):
             ({"max_error_rate": "1", "max_unparsed_rate": "1"}, "UNKNOWN"),
         ):
             calls.clear()
-            record = self.run_fixture(
-                data=self.data("0", None), answer=answer, post_options=options
-            )
+            record = self.run_fixture(data=self.data("0", None), answer=answer, post_options=options)
             self.assertEqual(record["post"]["decision"], expected)
             self.assertEqual(f.rank([record])[0]["rows"], [])
 
@@ -220,9 +196,7 @@ class RoundTwoTests(unittest.TestCase):
             post_options={"max_unparsed_rate": "1"},
         )
         self.assertEqual(record["post"]["decision"], "REJECT")
-        self.assertIn(
-            "runtime/model incompatibility suspected", record["post"]["reasons"]
-        )
+        self.assertIn("runtime/model incompatibility suspected", record["post"]["reasons"])
 
     def test_degeneracy_boundary_is_inclusive(self):
         for top, expected in ((179, "ADMIT"), (180, "REJECT")):
@@ -244,9 +218,7 @@ class RoundTwoTests(unittest.TestCase):
         two = self.run_fixture(post_options={"max_error_rate": "0.005"})
         groups = f.rank([one, two])
         self.assertEqual(len(groups), 2)
-        self.assertEqual(
-            {g["admission_policy"]["max_error_rate"] for g in groups}, {"0.01", "0.005"}
-        )
+        self.assertEqual({g["admission_policy"]["max_error_rate"] for g in groups}, {"0.01", "0.005"})
         self.assertTrue(all(len(g["rows"]) == 1 for g in groups))
 
     def test_record_alpha_cannot_be_overridden_by_post_options(self):
@@ -258,16 +230,12 @@ class RoundTwoTests(unittest.TestCase):
             )
 
     def test_parsed_cutoff_answer_is_not_empty_truncation(self):
-        record = self.run_fixture(
-            answer=lambda item: self.obs(cut_off=True, finish_reason="model_length")
-        )
+        record = self.run_fixture(answer=lambda item: self.obs(cut_off=True, finish_reason="model_length"))
         self.assertEqual(record["benchmarks"][0]["truncations"], 0)
         self.assertEqual(record["post"]["decision"], "ADMIT")
 
     def test_unknown_finish_evidence_is_retained_and_pending(self):
         record = self.run_fixture(answer=lambda item: self.obs(finish_reason=None))
-        self.assertEqual(
-            record["benchmarks"][0]["observations"][0]["finish_reason"], None
-        )
+        self.assertEqual(record["benchmarks"][0]["observations"][0]["finish_reason"], None)
         self.assertEqual(record["post"]["decision"], "UNKNOWN")
         self.assertEqual(f.rank([record])[0]["rows"], [])

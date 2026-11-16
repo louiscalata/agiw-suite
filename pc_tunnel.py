@@ -9,6 +9,7 @@ and forwards are listed in the configuration file. A restricted PC key refuses
 each forward until an admin adds permitopen for its remote loopback port. This
 code does not check or change sshd.
 """
+
 from __future__ import annotations
 
 import json
@@ -54,14 +55,14 @@ def _forwards(value):
         lane = item.get("id")
         if lane is not None and (not isinstance(lane, str) or not _NAME.fullmatch(lane.replace(":", ""))):
             raise ValueError("forwards")
-        rows.append({"name": name, "localPort": item["localPort"], "remotePort": item["remotePort"],
-                     "id": lane or f"pc:{name}"})
+        rows.append(
+            {"name": name, "localPort": item["localPort"], "remotePort": item["remotePort"], "id": lane or f"pc:{name}"}
+        )
     return rows
 
 
 def _blank():
-    return {"user": None, "host": None, "identityFile": None,
-            "forwards": [dict(item) for item in DEFAULT_FORWARDS]}
+    return {"user": None, "host": None, "identityFile": None, "forwards": [dict(item) for item in DEFAULT_FORWARDS]}
 
 
 def _apply(config, parsed):
@@ -108,8 +109,11 @@ def load_config(path=None, environ=None):
         except (OSError, UnicodeError, json.JSONDecodeError, ValueError, TypeError):
             config["error"] = "config_invalid"
             return config
-    for name, key in (("AGIW_PC_SSH_USER", "user"), ("AGIW_PC_SSH_HOST", "host"),
-                      ("AGIW_PC_SSH_IDENTITY", "identityFile")):
+    for name, key in (
+        ("AGIW_PC_SSH_USER", "user"),
+        ("AGIW_PC_SSH_HOST", "host"),
+        ("AGIW_PC_SSH_IDENTITY", "identityFile"),
+    ):
         if env.get(name):
             config[key] = env[name]
     try:
@@ -127,22 +131,33 @@ def load_config(path=None, environ=None):
 
 
 def runnable(config):
-    return not config.get("error") and bool(config.get("user") and config.get("host") and config.get("identityFile")
-                                            and config.get("forwards"))
+    return not config.get("error") and bool(
+        config.get("user") and config.get("host") and config.get("identityFile") and config.get("forwards")
+    )
 
 
 def ssh_command(config):
     """``ssh -N -L`` argv. Raises when user, host or the identity file is missing."""
     if not runnable(config):
         raise ValueError("tunnel config is not runnable")
-    argv = ["ssh", "-N",
-            "-o", "ExitOnForwardFailure=yes",
-            "-o", "BatchMode=yes",
-            "-o", "ConnectTimeout=8",
-            "-o", "ServerAliveInterval=15",
-            "-o", "ServerAliveCountMax=2",
-            "-o", "IdentitiesOnly=yes",
-            "-i", config["identityFile"]]
+    argv = [
+        "ssh",
+        "-N",
+        "-o",
+        "ExitOnForwardFailure=yes",
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "ConnectTimeout=8",
+        "-o",
+        "ServerAliveInterval=15",
+        "-o",
+        "ServerAliveCountMax=2",
+        "-o",
+        "IdentitiesOnly=yes",
+        "-i",
+        config["identityFile"],
+    ]
     for forward in config["forwards"]:
         argv.extend(["-L", f"127.0.0.1:{forward['localPort']}:127.0.0.1:{forward['remotePort']}"])
     argv.append(f"{config['user']}@{config['host']}")
@@ -172,30 +187,59 @@ def describe(config, accepts):
     if config.get("error"):
         return {"state": "down", "reason": "config_invalid", "detail": "PC tunnel config is invalid.", "forwards": []}
     if not config.get("user") or not config.get("host"):
-        return {"state": "down", "reason": "host_unconfigured",
-                "detail": "PC SSH user and host are not configured.", "forwards": []}
+        return {
+            "state": "down",
+            "reason": "host_unconfigured",
+            "detail": "PC SSH user and host are not configured.",
+            "forwards": [],
+        }
     if not config.get("forwards"):
-        return {"state": "down", "reason": "forwards_unconfigured",
-                "detail": "No PC forwards are configured.", "forwards": []}
+        return {
+            "state": "down",
+            "reason": "forwards_unconfigured",
+            "detail": "No PC forwards are configured.",
+            "forwards": [],
+        }
     forwards = []
     closed = []
     for item in config["forwards"]:
         opened = bool(accepts(item["localPort"]))
-        forwards.append({"name": item["name"], "id": item["id"], "localPort": item["localPort"],
-                         "remotePort": item["remotePort"], "open": opened})
+        forwards.append(
+            {
+                "name": item["name"],
+                "id": item["id"],
+                "localPort": item["localPort"],
+                "remotePort": item["remotePort"],
+                "open": opened,
+            }
+        )
         if not opened:
             closed.append(item["localPort"])
     if closed:
         identity = " An identity file is not configured." if not config.get("identityFile") else ""
         ports = ", ".join(str(port) for port in closed)
-        return {"state": "down", "reason": "tunnel_down",
-                "detail": (f"Local forward listeners not accepting on 127.0.0.1: {ports}. "
-                           f"This is listener state on this Mac, not SSH or PC reachability.{identity}"),
-                "host": config["host"], "user": config["user"], "forwards": forwards}
-    return {"state": "up", "reason": "forwarded",
-            "detail": ("Local forward listeners on 127.0.0.1 are accepting connections. "
-                       "This is listener state on this Mac, not SSH or PC reachability."),
-            "host": config["host"], "user": config["user"], "forwards": forwards}
+        return {
+            "state": "down",
+            "reason": "tunnel_down",
+            "detail": (
+                f"Local forward listeners not accepting on 127.0.0.1: {ports}. "
+                f"This is listener state on this Mac, not SSH or PC reachability.{identity}"
+            ),
+            "host": config["host"],
+            "user": config["user"],
+            "forwards": forwards,
+        }
+    return {
+        "state": "up",
+        "reason": "forwarded",
+        "detail": (
+            "Local forward listeners on 127.0.0.1 are accepting connections. "
+            "This is listener state on this Mac, not SSH or PC reachability."
+        ),
+        "host": config["host"],
+        "user": config["user"],
+        "forwards": forwards,
+    }
 
 
 def targets(config, accepts):
@@ -203,9 +247,15 @@ def targets(config, accepts):
     status = describe(config, accepts)
     source = config.get("forwards") if config.get("forwards") and not config.get("error") else DEFAULT_FORWARDS
     opened = {row["name"]: row["open"] for row in status.get("forwards") or []}
-    return status, [{"id": item["id"], "name": item["name"], "service": f"127.0.0.1:{item['remotePort']}",
-                     "base": f"http://127.0.0.1:{item['localPort']}" if opened.get(item["name"]) else None}
-                    for item in source]
+    return status, [
+        {
+            "id": item["id"],
+            "name": item["name"],
+            "service": f"127.0.0.1:{item['remotePort']}",
+            "base": f"http://127.0.0.1:{item['localPort']}" if opened.get(item["name"]) else None,
+        }
+        for item in source
+    ]
 
 
 def supervise(config, stop, spawn=subprocess.Popen, pause=2.0):

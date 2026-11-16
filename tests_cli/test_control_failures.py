@@ -1,4 +1,5 @@
 """Transport failures through the real CLI control wrapper, without listeners."""
+
 import errno
 import http.client
 import io
@@ -21,10 +22,12 @@ class ControlFailures(unittest.TestCase):
         argv = ["--state-dir", "unused", "status"]
         if mode != "human":
             argv += ["--json"] + (["--full"] if mode == "full" else [])
-        with mock.patch.object(pl, "control_request", side_effect=error) as request, \
-                mock.patch.object(pl, "detect_host_kind", return_value="mac"), \
-                mock.patch.object(cli.socket, "gethostname", return_value="test-host"), \
-                mock.patch("sys.stderr", stderr):
+        with (
+            mock.patch.object(pl, "control_request", side_effect=error) as request,
+            mock.patch.object(pl, "detect_host_kind", return_value="mac"),
+            mock.patch.object(cli.socket, "gethostname", return_value="test-host"),
+            mock.patch("sys.stderr", stderr),
+        ):
             code = cli.main(argv, out=lines.append)
         request.assert_called_once_with(Path("unused"), pl.STATUS_PORT, "GET", "/control/status", None)
         return code, lines, stderr.getvalue()
@@ -41,8 +44,7 @@ class ControlFailures(unittest.TestCase):
                     else:
                         self.assertEqual(code, cli.EXIT_FAILED)
                         detail = "timeout" if reason == "timeout" else "read error"
-                        self.assertEqual(stderr, "agiw: the peer link is running but did not answer: "
-                                         + detail + "\n")
+                        self.assertEqual(stderr, "agiw: the peer link is running but did not answer: " + detail + "\n")
                     continue
                 self.assertEqual((code, stderr), (0, ""))
                 doc = json.loads("\n".join(lines))
@@ -67,8 +69,11 @@ class ControlFailures(unittest.TestCase):
                     self.assertNotIn("documents", doc)
 
     def test_control_refused_or_missing_state_is_not_running(self):
-        for error in (ConnectionRefusedError(), FileNotFoundError("missing control-token"),
-                      FileNotFoundError("missing state directory")):
+        for error in (
+            ConnectionRefusedError(),
+            FileNotFoundError("missing control-token"),
+            FileNotFoundError("missing state directory"),
+        ):
             self.check_failure(error, "not_running", "unavailable")
 
     def test_control_timeout_is_unreachable(self):
@@ -83,8 +88,12 @@ class ControlFailures(unittest.TestCase):
             self.check_failure(error, "unreachable", "read_error")
 
     def test_control_other_read_errors_are_unreachable(self):
-        for error in (OSError(errno.EIO, "read failed"), ConnectionError("disconnected"),
-                      http.client.BadStatusLine("bad status"), http.client.IncompleteRead(b"partial")):
+        for error in (
+            OSError(errno.EIO, "read failed"),
+            ConnectionError("disconnected"),
+            http.client.BadStatusLine("bad status"),
+            http.client.IncompleteRead(b"partial"),
+        ):
             self.check_failure(error, "unreachable", "read_error")
 
     def test_control_non_object_response_is_unreachable(self):
@@ -108,7 +117,6 @@ class ControlFailures(unittest.TestCase):
                 code, lines, stderr = self.invoke(PermissionError("control authentication failed"), mode)
                 self.assertEqual((code, lines), (cli.EXIT_FAILED, []))
                 self.assertEqual(stderr, "agiw: control authentication failed\n")
-
 
 
 class WriteOutcomeUnknown(unittest.TestCase):

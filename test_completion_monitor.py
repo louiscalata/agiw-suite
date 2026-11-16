@@ -1,4 +1,5 @@
 """Display-only completion evidence projection tests."""
+
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -28,34 +29,57 @@ def evidence(verdict="VERIFIED", total=1, verified=1, progress="HISTORY_UNKNOWN"
 
 
 def archive(completion=None):
-    result = {"kind": "codemode.router.v1", "schemaVersion": 1,
-              "runId": "evidence-run", "requestSha256": "b" * 64,
-              "status": "RESPONSE_VALIDATED", "advisoryOnly": True,
-              "accepted": False, "authorizing": False, "filesApplied": False,
-              "recoveryRequired": False, "tests": "NOT_RUN",
-              "certification": "NOT_RUN"}
+    result = {
+        "kind": "codemode.router.v1",
+        "schemaVersion": 1,
+        "runId": "evidence-run",
+        "requestSha256": "b" * 64,
+        "status": "RESPONSE_VALIDATED",
+        "advisoryOnly": True,
+        "accepted": False,
+        "authorizing": False,
+        "filesApplied": False,
+        "recoveryRequired": False,
+        "tests": "NOT_RUN",
+        "certification": "NOT_RUN",
+    }
     if completion is not None:
         result["completionEvidence"] = completion
-    return {"schemaVersion": 1, "runId": "evidence-run",
-            "inputSha256": "b" * 64, "exitCode": 0, "stage": "final_validation",
-            "checkpoint": {}, "finishedUnix": 1800000000.0, "result": result}
+    return {
+        "schemaVersion": 1,
+        "runId": "evidence-run",
+        "inputSha256": "b" * 64,
+        "exitCode": 0,
+        "stage": "final_validation",
+        "checkpoint": {},
+        "finishedUnix": 1800000000.0,
+        "result": result,
+    }
 
 
 def receipt(router_sha="b" * 64, status="RESPONSE_VALIDATED"):
-    return {"kind": "codemode.monitor.run-receipt.v1", "schemaVersion": 1,
-            "runId": "evidence-run",
-            "finishedAt": datetime.fromtimestamp(1800000000.0, timezone.utc).isoformat(),
-            "route": {"status": status, "client": "codex"},
-            "ownerDecision": {"status": "REJECTED"},
-            "intakeDecision": {"route": "edit", "routeState": "recorded"},
-            "review": {"structuredFindingCount": 0},
-            "bindings": {"routerRequestSha256": router_sha},
-            "calls": [{"role": "author", "reportedModel": "local/author",
-                       "status": "RESPONSE_VALIDATED", "elapsedMs": 5,
-                       "bindings": {"runId": "opencode.advisory:evidence-run.draft"},
-                       "usage": {"inputTokens": 3, "outputTokens": 2,
-                                 "totalTokens": 5, "complete": True},
-                       "prompt": "private model prompt"}]}
+    return {
+        "kind": "codemode.monitor.run-receipt.v1",
+        "schemaVersion": 1,
+        "runId": "evidence-run",
+        "finishedAt": datetime.fromtimestamp(1800000000.0, timezone.utc).isoformat(),
+        "route": {"status": status, "client": "codex"},
+        "ownerDecision": {"status": "REJECTED"},
+        "intakeDecision": {"route": "edit", "routeState": "recorded"},
+        "review": {"structuredFindingCount": 0},
+        "bindings": {"routerRequestSha256": router_sha},
+        "calls": [
+            {
+                "role": "author",
+                "reportedModel": "local/author",
+                "status": "RESPONSE_VALIDATED",
+                "elapsedMs": 5,
+                "bindings": {"runId": "opencode.advisory:evidence-run.draft"},
+                "usage": {"inputTokens": 3, "outputTokens": 2, "totalTokens": 5, "complete": True},
+                "prompt": "private model prompt",
+            }
+        ],
+    }
 
 
 class CompletionMonitorTests(unittest.TestCase):
@@ -98,7 +122,10 @@ class CompletionMonitorTests(unittest.TestCase):
         self.assertIsNone(activity._project_archive(archive(), 1800000010.0)["completionEvidence"])
         sample = evidence()
         malformed = [
-            None, [], "VERIFIED", {"verdict": "VERIFIED"},
+            None,
+            [],
+            "VERIFIED",
+            {"verdict": "VERIFIED"},
             {**sample, "criteriaTotal": True},
             {**sample, "criteriaVerified": 65},
             {**sample, "criteriaUnassessed": 1},
@@ -114,11 +141,21 @@ class CompletionMonitorTests(unittest.TestCase):
             {**evidence("PARTIAL", 3, 2), "verifiedCriterionIndices": [1, 0]},
             {**sample, "evidenceFingerprint": "raw proof text"},
             {**sample, "evidenceFingerprint": None},
-            {**sample, "criteriaTotal": 0, "criteriaVerified": 0,
-             "criteriaUnassessed": 0, "verifiedCriterionIndices": [],
-             "verdict": "UNVERIFIED"},
-            {**sample, "code": "VALIDATION_UNBOUND", "verdict": "UNVERIFIED",
-             "criteriaVerified": 0, "criteriaUnassessed": 1},
+            {
+                **sample,
+                "criteriaTotal": 0,
+                "criteriaVerified": 0,
+                "criteriaUnassessed": 0,
+                "verifiedCriterionIndices": [],
+                "verdict": "UNVERIFIED",
+            },
+            {
+                **sample,
+                "code": "VALIDATION_UNBOUND",
+                "verdict": "UNVERIFIED",
+                "criteriaVerified": 0,
+                "criteriaUnassessed": 1,
+            },
             {**sample, "criterionText": "private acceptance criterion"},
             {**sample, "proofReceipts": ["private signed proof"]},
             {**sample, "candidate": {"content": "private source"}},
@@ -199,9 +236,11 @@ class CompletionMonitorTests(unittest.TestCase):
             row["result"]["candidate"] = {"files": [{"content": "private candidate"}]}
             self.write(archive_dir / "evidence-run.json", row)
             self.write(receipt_dir / "evidence-run.json", receipt())
-            with mock.patch.object(activity, "_ROOT", root), \
-                 mock.patch.object(activity, "_RECEIPTS", receipt_dir), \
-                 mock.patch.object(activity, "_active_rows", return_value=([], False, "ok")):
+            with (
+                mock.patch.object(activity, "_ROOT", root),
+                mock.patch.object(activity, "_RECEIPTS", receipt_dir),
+                mock.patch.object(activity, "_active_rows", return_value=([], False, "ok")),
+            ):
                 result = activity.collect_activity(now=1800000010.0)
         self.assertEqual(len(result["runs"]), 1)
         projected = result["runs"][0]
@@ -225,9 +264,11 @@ class CompletionMonitorTests(unittest.TestCase):
             receipt_dir.mkdir(mode=0o700)
             self.write(archive_dir / "evidence-run.json", archive(evidence()))
             self.write(receipt_dir / "evidence-run.json", receipt(router_sha="a" * 64))
-            with mock.patch.object(activity, "_ROOT", root), \
-                 mock.patch.object(activity, "_RECEIPTS", receipt_dir), \
-                 mock.patch.object(activity, "_active_rows", return_value=([], False, "ok")):
+            with (
+                mock.patch.object(activity, "_ROOT", root),
+                mock.patch.object(activity, "_RECEIPTS", receipt_dir),
+                mock.patch.object(activity, "_active_rows", return_value=([], False, "ok")),
+            ):
                 result = activity.collect_activity(now=1800000010.0)
         self.assertEqual(len(result["runs"]), 2)
         by_source = {row["source"]: row for row in result["runs"]}

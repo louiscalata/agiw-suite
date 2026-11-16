@@ -23,6 +23,7 @@ Honesty rules (PLAN C2 and C8):
 
 The output carries no IP addresses, node or cluster UUIDs, certificates or keys.
 """
+
 from __future__ import annotations
 
 import datetime as _dt
@@ -59,8 +60,10 @@ MAX_NODES = 16
 MAX_ENGINES = 8
 MAX_WORKLOAD_ROWS = 10000
 MAX_LOADED_NAMES = 16
-NOTE = ("PAIR's own engine flags and discovery claims; not verified, and seen to contradict "
-        "LM Studio's own status on this Mac")
+NOTE = (
+    "PAIR's own engine flags and discovery claims; not verified, and seen to contradict "
+    "LM Studio's own status on this Mac"
+)
 
 _TEXT = re.compile(r"[\x20-\x7e]{1,80}\Z")
 _WORD = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,31}\Z")
@@ -137,7 +140,9 @@ def _open_directory(path: Path | str, *, dir_fd: int | None = None) -> tuple[int
         return None, "unreadable"
 
 
-def _read(directory_fd: int, rel: str, limit: int, *, tail: bool = False) -> tuple[bytes | None, str, float | None, bool]:
+def _read(
+    directory_fd: int, rel: str, limit: int, *, tail: bool = False
+) -> tuple[bytes | None, str, float | None, bool]:
     """(data, status, mtime, truncated) for one allowlisted file. Status is ok, missing, symlink,
     not-regular, too-large or unreadable. Never follows a symlink, in the name or in its directories."""
     if rel not in ALLOWED or Path(rel).name in FORBIDDEN_NAMES:
@@ -205,9 +210,15 @@ def _engine_rows(value: Any) -> list[dict[str, Any]] | None:
     rows = []
     for row in value[:MAX_ENGINES]:
         if isinstance(row, dict) and _text(row.get("engine"), _WORD):
-            rows.append({"engine": row["engine"], "installed": _bool(row.get("installed")),
-                         "running": _bool(row.get("running")), "healthy": _bool(row.get("healthy")),
-                         "port": _int(row.get("port"), 1, 65535)})
+            rows.append(
+                {
+                    "engine": row["engine"],
+                    "installed": _bool(row.get("installed")),
+                    "running": _bool(row.get("running")),
+                    "healthy": _bool(row.get("healthy")),
+                    "port": _int(row.get("port"), 1, 65535),
+                }
+            )
     return rows
 
 
@@ -218,8 +229,11 @@ def _list_len(value: Any) -> int | None:
 def _node(row: dict[str, Any], now: float) -> dict[str, Any]:
     last_seen = _epoch_seconds(row.get("lastSeen"))
     age = _age(last_seen, now)
-    reason = ("future-last-seen" if last_seen is not None else "unknown-last-seen") if age is None else (
-        "stale-last-seen" if now - last_seen > NODE_FRESH_SECONDS else None)
+    reason = (
+        ("future-last-seen" if last_seen is not None else "unknown-last-seen")
+        if age is None
+        else ("stale-last-seen" if now - last_seen > NODE_FRESH_SECONDS else None)
+    )
     models = row.get("modelsByEngine")
     loaded = row.get("loadedByEngine")
     engines = sorted(k for k in models if _WORD.fullmatch(k))[:MAX_ENGINES] if isinstance(models, dict) else None
@@ -235,17 +249,29 @@ def _node(row: dict[str, Any], now: float) -> dict[str, Any]:
             loaded_names = None  # a name this module cannot show safely: the list is incomplete
     if reason is not None:
         model_count = loaded_count = loaded_names = None
-    return {"name": _text(row.get("name")),
-            "lastSeenAgeSeconds": age, "residencyReason": reason,
-            "trusted": _bool(row.get("trusted")), "clustered": _bool(row.get("clustered")),
-            "pairClaimEngines": engines, "pairClaimModelCount": model_count, "pairClaimLoadedCount": loaded_count,
-            "pairClaimLoadedModels": loaded_names}
+    return {
+        "name": _text(row.get("name")),
+        "lastSeenAgeSeconds": age,
+        "residencyReason": reason,
+        "trusted": _bool(row.get("trusted")),
+        "clustered": _bool(row.get("clustered")),
+        "pairClaimEngines": engines,
+        "pairClaimModelCount": model_count,
+        "pairClaimLoadedCount": loaded_count,
+        "pairClaimLoadedModels": loaded_names,
+    }
 
 
 def _tail(data: bytes | None, truncated: bool, now: float) -> dict[str, Any]:
     """Newest log time, the newest discovery snapshot and PAIR's newest engine report per peer."""
-    out: dict[str, Any] = {"lines": 0, "skipped": 0, "newest": None, "discovery": None,
-                           "discoveryAt": None, "polls": {}}
+    out: dict[str, Any] = {
+        "lines": 0,
+        "skipped": 0,
+        "newest": None,
+        "discovery": None,
+        "discoveryAt": None,
+        "polls": {},
+    }
     if data is None:
         return out
     lines = data.split(b"\n")
@@ -311,8 +337,13 @@ def _workloads(value: Any, names: dict[str, str], now: float) -> dict[str, Any] 
             if at is not None and at - now <= FUTURE_TOLERANCE:
                 newest = at if newest is None else max(newest, at)
                 break
-    return {"total": len(value), "byState": by_state, "byEngine": by_engine, "byNode": by_node,
-            "newestAgeSeconds": _age(newest, now)}
+    return {
+        "total": len(value),
+        "byState": by_state,
+        "byEngine": by_engine,
+        "byNode": by_node,
+        "newestAgeSeconds": _age(newest, now),
+    }
 
 
 def read_pair_files(root: Path | str | None = None) -> tuple[str, dict]:
@@ -326,11 +357,19 @@ def read_pair_files(root: Path | str | None = None) -> tuple[str, dict]:
     try:
         for name in ("cluster", "logs"):
             directories[name] = _open_directory(name, dir_fd=root_fd)
-        for rel, limit in ((SETTINGS, MAX_SMALL), (ADMISSION, MAX_SMALL), (MEMBERS, MAX_SMALL),
-                           (WORKLOADS, MAX_WORKLOADS), (LOG, TAIL_BYTES)):
+        for rel, limit in (
+            (SETTINGS, MAX_SMALL),
+            (ADMISSION, MAX_SMALL),
+            (MEMBERS, MAX_SMALL),
+            (WORKLOADS, MAX_WORKLOADS),
+            (LOG, TAIL_BYTES),
+        ):
             directory_fd, status = directories[str(Path(rel).parent)]
-            raw[rel] = (_read(directory_fd, rel, limit, tail=rel == LOG) if directory_fd is not None
-                        else (None, status, None, False))
+            raw[rel] = (
+                _read(directory_fd, rel, limit, tail=rel == LOG)
+                if directory_fd is not None
+                else (None, status, None, False)
+            )
     finally:
         for descriptor, _ in directories.values():
             if descriptor is not None:
@@ -338,20 +377,33 @@ def read_pair_files(root: Path | str | None = None) -> tuple[str, dict]:
     return "ok", raw
 
 
-def read_pair_status(root: Path | str | None = None, now: float | None = None, *,
-                     readings: tuple[str, dict] | None = None) -> dict[str, Any]:
+def read_pair_status(
+    root: Path | str | None = None, now: float | None = None, *, readings: tuple[str, dict] | None = None
+) -> dict[str, Any]:
     """Project bounded file readings at now; cached readings never freeze ages or freshness."""
     now = time.time() if now is None else now
-    doc: dict[str, Any] = {"schema": SCHEMA, "state": "unknown", "reason": None, "detail": None,
-                           "installed": None, "evidence": {"logAgeSeconds": None, "historyAgeSeconds": None},
-                           "cluster": {"name": None, "epoch": None, "memberCount": None, "members": None},
-                           "nodes": None, "discoveryAgeSeconds": None, "workloads": None,
-                           "pairSays": {"note": NOTE, "engines": []}, "files": {},
-                           "tail": {"bytes": 0, "lines": 0, "skipped": 0}}
+    doc: dict[str, Any] = {
+        "schema": SCHEMA,
+        "state": "unknown",
+        "reason": None,
+        "detail": None,
+        "installed": None,
+        "evidence": {"logAgeSeconds": None, "historyAgeSeconds": None},
+        "cluster": {"name": None, "epoch": None, "memberCount": None, "members": None},
+        "nodes": None,
+        "discoveryAgeSeconds": None,
+        "workloads": None,
+        "pairSays": {"note": NOTE, "engines": []},
+        "files": {},
+        "tail": {"bytes": 0, "lines": 0, "skipped": 0},
+    }
     root_status, raw = read_pair_files(root) if readings is None else readings
     if root_status == "missing":
-        doc.update(installed=False, reason="not-found",
-                   detail="NVIDIA PAIR's data folder was not found on this Mac; its state is unknown")
+        doc.update(
+            installed=False,
+            reason="not-found",
+            detail="NVIDIA PAIR's data folder was not found on this Mac; its state is unknown",
+        )
         return doc
     if root_status == "unreadable":
         doc.update(reason="unreadable", detail="NVIDIA PAIR's data folder could not be inspected")
@@ -391,8 +443,11 @@ def read_pair_status(root: Path | str | None = None, now: float | None = None, *
 
     log_data, _, _, truncated = raw[LOG]
     tail = _tail(log_data, truncated, now)
-    doc["tail"] = {"bytes": len(log_data) if log_data is not None else 0,
-                   "lines": tail["lines"], "skipped": tail["skipped"]}
+    doc["tail"] = {
+        "bytes": len(log_data) if log_data is not None else 0,
+        "lines": tail["lines"],
+        "skipped": tail["skipped"],
+    }
     doc["evidence"]["logAgeSeconds"] = _age(tail["newest"], now)
     if tail["discovery"] is not None:
         doc["nodes"] = [_node(row, now) for row in tail["discovery"][:MAX_NODES] if isinstance(row, dict)]
@@ -402,7 +457,8 @@ def read_pair_status(root: Path | str | None = None, now: float | None = None, *
                 names.setdefault(row["hostUuid"], row["name"])
     doc["pairSays"]["engines"] = [
         {"node": names.get(uuid, "unidentified peer"), "reportedAgeSeconds": _age(at, now), "engines": engines}
-        for uuid, (at, engines) in sorted(tail["polls"].items(), key=lambda item: names.get(item[0], "~"))]
+        for uuid, (at, engines) in sorted(tail["polls"].items(), key=lambda item: names.get(item[0], "~"))
+    ]
 
     log_age = _raw_age(tail["newest"], now)
     history_age = _raw_age(history_mtime, now)
@@ -422,7 +478,10 @@ def source_row(status: dict[str, Any]) -> dict[str, Any]:
     """The snapshot ``sources[]`` row for PAIR. Unknown is "unavailable", never "error" or down."""
     up = status.get("state") == "up"
     ages = [age for age in (status.get("evidence") or {}).values() if isinstance(age, (int, float))]
-    return {"id": "nvidia-pair", "label": "NVIDIA PAIR (read from its files)",
-            "state": "live" if up else "unavailable",
-            "ageSeconds": min(ages) if ages else None,
-            "detail": status.get("detail") or "NVIDIA PAIR state unknown"}
+    return {
+        "id": "nvidia-pair",
+        "label": "NVIDIA PAIR (read from its files)",
+        "state": "live" if up else "unavailable",
+        "ageSeconds": min(ages) if ages else None,
+        "detail": status.get("detail") or "NVIDIA PAIR state unknown",
+    }

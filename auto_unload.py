@@ -36,6 +36,7 @@ The unloader never loads anything and never runs the CLI itself: ``unload_fn(ins
 is injected (the monitor's ModelControl.request("unload", ...), which re-validates the target
 against its own fresh snapshot). ``tick`` and ``state`` never raise.
 """
+
 from __future__ import annotations
 
 import collections
@@ -71,12 +72,12 @@ _INSTANCE_SUFFIX = re.compile(r":[0-9]{1,4}\Z")
 # `lms` child, and never a blocking open (a FIFO fails with ENXIO or is refused by fstat).
 _SAFE_OPEN = os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NONBLOCK", 0)
 
-FRESH_SECONDS = 3.0                # model_control.MAX_SNAPSHOT_AGE
-FUTURE_TOLERANCE_SECONDS = 0.5     # model_control._target's clock-skew allowance
-OBSERVATION_GAP_SECONDS = 10.0     # a longer blind spot restarts every idle clock
-TIGHT_HOLD_SECONDS = 60.0          # tight/critical must hold this long before the tight threshold
+FRESH_SECONDS = 3.0  # model_control.MAX_SNAPSHOT_AGE
+FUTURE_TOLERANCE_SECONDS = 0.5  # model_control._target's clock-skew allowance
+OBSERVATION_GAP_SECONDS = 10.0  # a longer blind spot restarts every idle clock
+TIGHT_HOLD_SECONDS = 60.0  # tight/critical must hold this long before the tight threshold
 COOLDOWN_SECONDS = 120.0
-OUTCOME_TIMEOUT_SECONDS = 60.0     # > ModelControl UNLOAD_TIMEOUT (30) + VERIFY_TIMEOUT (12)
+OUTCOME_TIMEOUT_SECONDS = 60.0  # > ModelControl UNLOAD_TIMEOUT (30) + VERIFY_TIMEOUT (12)
 LOCK_RETRY_SECONDS = 5.0
 HOUR_SECONDS = 3600.0
 JOURNAL_CAP_BYTES = 256 * 1024
@@ -98,18 +99,40 @@ UNRESOLVED_ROUTE = "an unresolved route record exists; reconcile it"
 
 CONFIG_KEYS = frozenset({"enabled", "idleMinutes", "tightIdleMinutes", "protect", "maxPerHour"})
 CONFIG_RANGES = {"idleMinutes": (5, 240), "tightIdleMinutes": (1, 60), "maxPerHour": (1, 60)}
-DEFAULT_CONFIG = {"enabled": False, "idleMinutes": 20, "tightIdleMinutes": 5,
-                  "protect": [], "maxPerHour": 6}
+DEFAULT_CONFIG = {"enabled": False, "idleMinutes": 20, "tightIdleMinutes": 5, "protect": [], "maxPerHour": 6}
 
-JOURNAL_KEYS = ("ts", "attemptTs", "model", "instanceId", "idleSeconds", "reason",
-                "memoryLevel", "result", "message", "operationId")
+JOURNAL_KEYS = (
+    "ts",
+    "attemptTs",
+    "model",
+    "instanceId",
+    "idleSeconds",
+    "reason",
+    "memoryLevel",
+    "result",
+    "message",
+    "operationId",
+)
 ATTEMPT_RESULTS = frozenset({"requested", "refused", "error", "succeeded", "failed"})
 OUTCOME_RESULTS = frozenset({"succeeded", "failed", "unconfirmed"})
 REASONS = frozenset({"idle", "idle-tight-memory"})
 
-STATE_KEYS = ("enabled", "idleMinutes", "tightIdleMinutes", "maxPerHour", "protect",
-              "thresholdSeconds", "memoryLevel", "blocked", "candidates", "recent",
-              "unloadsLastHour", "configError", "journalError", "tickedAt")
+STATE_KEYS = (
+    "enabled",
+    "idleMinutes",
+    "tightIdleMinutes",
+    "maxPerHour",
+    "protect",
+    "thresholdSeconds",
+    "memoryLevel",
+    "blocked",
+    "candidates",
+    "recent",
+    "unloadsLastHour",
+    "configError",
+    "journalError",
+    "tickedAt",
+)
 CANDIDATE_KEYS = ("model", "instanceId", "idleSeconds", "eta", "blocked")
 
 
@@ -132,8 +155,7 @@ def _strict_json(raw: bytes) -> Any:
     def refuse_constant(_name):
         raise ValueError("non-finite number")
 
-    return json.loads(raw.decode("utf-8"), object_pairs_hook=distinct,
-                      parse_constant=refuse_constant)
+    return json.loads(raw.decode("utf-8"), object_pairs_hook=distinct, parse_constant=refuse_constant)
 
 
 def validate_config(value: Any) -> dict:
@@ -157,8 +179,11 @@ def validate_config(value: Any) -> dict:
             config[key] = item
     if "protect" in value:
         items = value["protect"]
-        if (not isinstance(items, list) or len(items) > PROTECT_MAX
-                or not all(isinstance(item, str) and MODEL_ID.fullmatch(item) for item in items)):
+        if (
+            not isinstance(items, list)
+            or len(items) > PROTECT_MAX
+            or not all(isinstance(item, str) and MODEL_ID.fullmatch(item) for item in items)
+        ):
             raise ValueError(f"protect must be a list of at most {PROTECT_MAX} exact model ids")
         config["protect"] = list(dict.fromkeys(items))
     return config
@@ -172,8 +197,7 @@ def read_config(path: Path) -> tuple:
     except FileNotFoundError:
         return dict(DEFAULT_CONFIG, protect=list(DEFAULT_CONFIG["protect"])), None
     except OSError:
-        return dict(DEFAULT_CONFIG, protect=list(DEFAULT_CONFIG["protect"])), \
-            "config unreadable or a symlink"
+        return dict(DEFAULT_CONFIG, protect=list(DEFAULT_CONFIG["protect"])), "config unreadable or a symlink"
     try:
         info = os.fstat(fd)
         if not stat.S_ISREG(info.st_mode):
@@ -217,8 +241,7 @@ def _private_dir(directory: Path) -> Optional[str]:
         info = os.lstat(directory)
     except OSError as error:
         return f"state directory unavailable ({type(error).__name__})"
-    if (not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid()
-            or stat.S_IMODE(info.st_mode) & 0o022):
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) & 0o022:
         return "state directory is not a private directory owned by this user"
     return None
 
@@ -226,14 +249,22 @@ def _private_dir(directory: Path) -> Optional[str]:
 def _valid_journal_row(row: Any) -> bool:
     if not isinstance(row, dict) or tuple(sorted(row)) != tuple(sorted(JOURNAL_KEYS)):
         return False
-    return (_finite(row["ts"]) and _finite(row["attemptTs"]) and row["attemptTs"] <= row["ts"]
-            and isinstance(row["model"], str) and MODEL_ID.fullmatch(row["model"]) is not None
-            and isinstance(row["instanceId"], str) and MODEL_ID.fullmatch(row["instanceId"]) is not None
-            and type(row["idleSeconds"]) is int and row["idleSeconds"] >= 0
-            and row["reason"] in REASONS and row["memoryLevel"] in MEMORY_LEVELS
-            and row["result"] in (ATTEMPT_RESULTS | OUTCOME_RESULTS)
-            and (row["message"] is None or isinstance(row["message"], str))
-            and (row["operationId"] is None or isinstance(row["operationId"], str)))
+    return (
+        _finite(row["ts"])
+        and _finite(row["attemptTs"])
+        and row["attemptTs"] <= row["ts"]
+        and isinstance(row["model"], str)
+        and MODEL_ID.fullmatch(row["model"]) is not None
+        and isinstance(row["instanceId"], str)
+        and MODEL_ID.fullmatch(row["instanceId"]) is not None
+        and type(row["idleSeconds"]) is int
+        and row["idleSeconds"] >= 0
+        and row["reason"] in REASONS
+        and row["memoryLevel"] in MEMORY_LEVELS
+        and row["result"] in (ATTEMPT_RESULTS | OUTCOME_RESULTS)
+        and (row["message"] is None or isinstance(row["message"], str))
+        and (row["operationId"] is None or isinstance(row["operationId"], str))
+    )
 
 
 def _names_embedding(value: Any) -> bool:
@@ -244,7 +275,8 @@ def _source_live(snapshot: dict, source_id: str) -> bool:
     sources = snapshot.get("sources")
     return isinstance(sources, list) and any(
         isinstance(source, dict) and source.get("id") == source_id and source.get("state") == "live"
-        for source in sources)
+        for source in sources
+    )
 
 
 def _memory_level(snapshot: Any, wall: float) -> str:
@@ -367,16 +399,24 @@ def resident_route_pair(rows: Any) -> Optional[tuple[str, str]]:
         if kind not in ("llm", "embedding"):
             return None
         identifier, model_key = row.get("id"), row.get("modelKey")
-        if (not isinstance(identifier, str) or not MODEL_ID.fullmatch(identifier)
-                or not isinstance(model_key, str) or not MODEL_ID.fullmatch(model_key)):
+        if (
+            not isinstance(identifier, str)
+            or not MODEL_ID.fullmatch(identifier)
+            or not isinstance(model_key, str)
+            or not MODEL_ID.fullmatch(model_key)
+        ):
             return None
         all_identifiers.append(identifier)
         if kind == "llm":
             if identifier != model_key:
                 return None
             identifiers.append(identifier)
-    if (not found_source or len(set(all_identifiers)) != len(all_identifiers)
-            or len(identifiers) < 2 or len(set(identifiers)) != len(identifiers)):
+    if (
+        not found_source
+        or len(set(all_identifiers)) != len(all_identifiers)
+        or len(identifiers) < 2
+        or len(set(identifiers)) != len(identifiers)
+    ):
         return None
     ids = sorted(identifiers)
     author = ROUTE_DEFAULT_AUTHOR if ROUTE_DEFAULT_AUTHOR in ids else ids[0]
@@ -387,16 +427,20 @@ def resident_route_pair(rows: Any) -> Optional[tuple[str, str]]:
 class AutoUnloader:
     """Idle tracking and bounded auto-unload; call tick(snapshot) once per full sample."""
 
-    def __init__(self, *, unload_fn: Callable[[str], Any],
-                 clock: Callable[[], float] = time.monotonic,
-                 now: Callable[[], float] = time.time,
-                 config_path: Optional[Path] = None,
-                 journal_path: Optional[Path] = None,
-                 lock_path: Optional[Path] = None,
-                 status_fn: Optional[Callable[[], Any]] = None,
-                 busy_fn: Optional[Callable[[], Any]] = None,
-                 route_check_fn: Optional[Callable[[], Any]] = None,
-                 journal_cap: int = JOURNAL_CAP_BYTES):
+    def __init__(
+        self,
+        *,
+        unload_fn: Callable[[str], Any],
+        clock: Callable[[], float] = time.monotonic,
+        now: Callable[[], float] = time.time,
+        config_path: Optional[Path] = None,
+        journal_path: Optional[Path] = None,
+        lock_path: Optional[Path] = None,
+        status_fn: Optional[Callable[[], Any]] = None,
+        busy_fn: Optional[Callable[[], Any]] = None,
+        route_check_fn: Optional[Callable[[], Any]] = None,
+        journal_cap: int = JOURNAL_CAP_BYTES,
+    ):
         self._unload_fn = unload_fn
         self._clock = clock
         self._now = now
@@ -484,13 +528,22 @@ class AutoUnloader:
                     "tickedAt": self._ticked_at,
                 }
         except Exception as error:
-            return {"enabled": False, "idleMinutes": DEFAULT_CONFIG["idleMinutes"],
-                    "tightIdleMinutes": DEFAULT_CONFIG["tightIdleMinutes"],
-                    "maxPerHour": DEFAULT_CONFIG["maxPerHour"], "protect": list(self._protect_list()),
-                    "thresholdSeconds": None, "memoryLevel": None,
-                    "blocked": f"state unavailable ({type(error).__name__})", "candidates": [],
-                    "recent": [], "unloadsLastHour": 0, "configError": None,
-                    "journalError": None, "tickedAt": None}
+            return {
+                "enabled": False,
+                "idleMinutes": DEFAULT_CONFIG["idleMinutes"],
+                "tightIdleMinutes": DEFAULT_CONFIG["tightIdleMinutes"],
+                "maxPerHour": DEFAULT_CONFIG["maxPerHour"],
+                "protect": list(self._protect_list()),
+                "thresholdSeconds": None,
+                "memoryLevel": None,
+                "blocked": f"state unavailable ({type(error).__name__})",
+                "candidates": [],
+                "recent": [],
+                "unloadsLastHour": 0,
+                "configError": None,
+                "journalError": None,
+                "tickedAt": None,
+            }
 
     def set_enabled(self, enabled: bool) -> dict:
         """The UI toggle: persist enabled in the config file (0600, atomic), keeping every other
@@ -592,10 +645,10 @@ class AutoUnloader:
         path = self._config_path
         path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         temp = path.with_name(f".{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
-        payload = (json.dumps({key: config[key] for key in sorted(CONFIG_KEYS)}, indent=2,
-                              allow_nan=False) + "\n").encode()
-        fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
-                     | getattr(os, "O_CLOEXEC", 0), 0o600)
+        payload = (
+            json.dumps({key: config[key] for key in sorted(CONFIG_KEYS)}, indent=2, allow_nan=False) + "\n"
+        ).encode()
+        fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0), 0o600)
         try:
             with os.fdopen(fd, "wb") as handle:
                 handle.write(payload)
@@ -653,7 +706,8 @@ class AutoUnloader:
         try:
             data = prefix + b"".join(
                 (json.dumps(row, allow_nan=False, sort_keys=True, separators=(",", ":")) + "\n").encode()
-                for row in rows)
+                for row in rows
+            )
             view = memoryview(data)
             while view:
                 written = os.write(fd, view)
@@ -701,7 +755,7 @@ class AutoUnloader:
                         break
                     data += part
                     if len(data) > self._journal_cap * 4:
-                        data = data[-self._journal_cap * 2:]
+                        data = data[-self._journal_cap * 2 :]
             finally:
                 os.close(fd)
             keep, budget = [], self._journal_cap // 2
@@ -713,8 +767,9 @@ class AutoUnloader:
                 keep.append(line)
                 budget -= len(line) + 1
             payload = b"".join(line + b"\n" for line in reversed(keep))
-            out = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
-                          | getattr(os, "O_CLOEXEC", 0), 0o600)
+            out = os.open(
+                temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0), 0o600
+            )
             with os.fdopen(out, "wb") as handle:
                 handle.write(payload)
                 handle.flush()
@@ -784,29 +839,36 @@ class AutoUnloader:
         memory = _memory_level(snapshot, wall)
         self._memory = memory
         normal = config["idleMinutes"] * 60
-        threshold = (min(config["tightIdleMinutes"] * 60, normal) if self._tight_held(memory, mono)
-                     else normal)
+        threshold = min(config["tightIdleMinutes"] * 60, normal) if self._tight_held(memory, mono) else normal
         self._threshold = threshold
         problem = feed_problem(snapshot, wall)
         if problem is None:
             self._route_pair = resident_route_pair(snapshot["models"])
             self._route_pair_uncertain = self._route_pair is None
-            self._candidates = ([] if self._route_pair_uncertain else
-                                self._observe(snapshot, mono, threshold, normal))
+            self._candidates = [] if self._route_pair_uncertain else self._observe(snapshot, mono, threshold, normal)
         else:
             self._route_pair = None
             self._route_pair_uncertain = True
             self._candidates = []
-        blocked = (f"config invalid: {self._config_error}" if self._config_error is not None
-                   else "auto-unload is off" if not config["enabled"]
-                   else self._owner_problem if not owner
-                   else problem or ("Nisi resident model pair is uncertain" if self._route_pair_uncertain else None)
-                   or route_problem(snapshot)
-                   or ("waiting for the previous auto-unload to confirm" if self._pending is not None else None)
-                   or ("journal write failed; retrying it before any further unload" if self._unwritten else None)
-                   or self._busy()
-                   or (f"hourly limit reached ({len(self._attempts)}/{config['maxPerHour']})"
-                       if len(self._attempts) >= config["maxPerHour"] else None))
+        blocked = (
+            f"config invalid: {self._config_error}"
+            if self._config_error is not None
+            else "auto-unload is off"
+            if not config["enabled"]
+            else self._owner_problem
+            if not owner
+            else problem
+            or ("Nisi resident model pair is uncertain" if self._route_pair_uncertain else None)
+            or route_problem(snapshot)
+            or ("waiting for the previous auto-unload to confirm" if self._pending is not None else None)
+            or ("journal write failed; retrying it before any further unload" if self._unwritten else None)
+            or self._busy()
+            or (
+                f"hourly limit reached ({len(self._attempts)}/{config['maxPerHour']})"
+                if len(self._attempts) >= config["maxPerHour"]
+                else None
+            )
+        )
         self._blocked = blocked
         if blocked is not None:
             return
@@ -876,8 +938,12 @@ class AutoUnloader:
         candidates = []
         tight_targets = set()
         for row in rows:
-            if not (isinstance(row, dict) and row.get("host") == "mac"
-                    and row.get("source") == "lms-ps" and row.get("loaded") is True):
+            if not (
+                isinstance(row, dict)
+                and row.get("host") == "mac"
+                and row.get("source") == "lms-ps"
+                and row.get("loaded") is True
+            ):
                 continue
             instance = row.get("id")
             if not isinstance(instance, str) or not MODEL_ID.fullmatch(instance) or instance in seen:
@@ -888,8 +954,9 @@ class AutoUnloader:
             age = row.get("ageSeconds")
             state = row.get("state")
             queued = row.get("queued")
-            known_idle = (_finite(age) and 0 <= age <= FRESH_SECONDS and state == "idle"
-                          and type(queued) is int and queued == 0)
+            known_idle = (
+                _finite(age) and 0 <= age <= FRESH_SECONDS and state == "idle" and type(queued) is int and queued == 0
+            )
             track = self._tracks.get(instance)
             if track is None:
                 # Startup and newly loaded instances: active now, never unloaded on sight.
@@ -922,12 +989,18 @@ class AutoUnloader:
             if reason is None and not self._instance_confirmed(lists, key, instance):
                 reason = "instance not confirmed by LM Studio inventory"
             if reason is None and any(
-                    mono - self._cooldown.get(name, -math.inf) < COOLDOWN_SECONDS
-                    for name in (instance, "key:" + key)):
+                mono - self._cooldown.get(name, -math.inf) < COOLDOWN_SECONDS for name in (instance, "key:" + key)
+            ):
                 reason = "auto-unloaded less than 2 min ago"
-            candidates.append({"model": key if key_ok else instance, "instanceId": instance,
-                               "idleSeconds": int(idle), "eta": int(math.ceil(max(0.0, limit - idle))),
-                               "blocked": reason})
+            candidates.append(
+                {
+                    "model": key if key_ok else instance,
+                    "instanceId": instance,
+                    "idleSeconds": int(idle),
+                    "eta": int(math.ceil(max(0.0, limit - idle))),
+                    "blocked": reason,
+                }
+            )
         for instance in list(self._tracks):
             if instance not in seen:  # lms ps is live, so absence means not loaded
                 del self._tracks[instance]
@@ -964,10 +1037,18 @@ class AutoUnloader:
             self._blocked = f"fresh router check: {problem}"
             return
         stamp = round(wall, 3)
-        row = {"ts": stamp, "attemptTs": stamp, "model": target["model"],
-               "instanceId": target["instanceId"], "idleSeconds": target["idleSeconds"],
-               "reason": "idle-tight-memory" if target["instanceId"] in self._tight_targets else "idle",
-               "memoryLevel": memory, "result": "error", "message": None, "operationId": None}
+        row = {
+            "ts": stamp,
+            "attemptTs": stamp,
+            "model": target["model"],
+            "instanceId": target["instanceId"],
+            "idleSeconds": target["idleSeconds"],
+            "reason": "idle-tight-memory" if target["instanceId"] in self._tight_targets else "idle",
+            "memoryLevel": memory,
+            "result": "error",
+            "message": None,
+            "operationId": None,
+        }
         # Counted before the call: a failing unload still spends the hourly budget and cooldown.
         self._attempts.append(mono)
         self._cooldown[target["instanceId"]] = mono
@@ -995,8 +1076,11 @@ class AutoUnloader:
         op = outcome.get("operationId")
         op = op if isinstance(op, str) and 0 < len(op) <= 64 else None
         status = outcome.get("status")
-        return {"result": status if status in ("succeeded", "failed") else "requested",
-                "message": _clip(outcome.get("message")), "operationId": op}
+        return {
+            "result": status if status in ("succeeded", "failed") else "requested",
+            "message": _clip(outcome.get("message")),
+            "operationId": op,
+        }
 
     def _follow_pending(self, mono: float, wall: float) -> None:
         pending = self._pending
@@ -1017,6 +1101,5 @@ class AutoUnloader:
         else:
             return
         self._pending = None
-        row = dict(pending["row"], ts=max(round(wall, 3), pending["row"]["attemptTs"]),
-                   result=result, message=message)
+        row = dict(pending["row"], ts=max(round(wall, 3), pending["row"]["attemptTs"]), result=result, message=message)
         self._record(row)

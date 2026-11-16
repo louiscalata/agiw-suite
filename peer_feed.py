@@ -11,6 +11,7 @@ recorded, never live; otherwise the Windows source says why there is neither. Th
 presence file (and removing this host's own leftover temp files beside it), and only when publishStatus or
 peerLink is turned on.
 """
+
 from __future__ import annotations
 
 import errno
@@ -43,8 +44,8 @@ CONTROL_DEADLINE = 1.0
 # The PC edition's presence names (windows/agiw_win/probes.py), so both editions meet in one folder.
 PEER_DIR = ("llm-lab", "status", "agiw-peers")
 PEER_HOST = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,62}\Z")
-PRESENCE_INTERVAL = 10.0   # the PC's publish_every
-PRESENCE_DEADLINE = 5.0    # a write still running after this is reported stuck; nothing queues behind it
+PRESENCE_INTERVAL = 10.0  # the PC's publish_every
+PRESENCE_DEADLINE = 5.0  # a write still running after this is reported stuck; nothing queues behind it
 PRESENCE_READS = ["agiw-peers", "windows-status.json"]
 # The PC links a Mac by this platform name (collect.py: platform == "macos"); the LAN link's host kind stays "mac".
 SHARE_PLATFORM = "macos"
@@ -66,8 +67,19 @@ _NONCE = re.compile(r"[0-9a-f]{32}\Z")
 _DIR_FLAGS = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
 _NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
 # Model-file names that make an identifier a path (D4); such an id is published as its bare final name.
-MODEL_FILE_SUFFIXES = (".gguf", ".safetensors", ".bin", ".mlx", ".npz", ".pt", ".pth", ".ckpt", ".onnx",
-                       ".mlmodel", ".mlpackage")
+MODEL_FILE_SUFFIXES = (
+    ".gguf",
+    ".safetensors",
+    ".bin",
+    ".mlx",
+    ".npz",
+    ".pt",
+    ".pth",
+    ".ckpt",
+    ".onnx",
+    ".mlmodel",
+    ".mlpackage",
+)
 _REGISTRY_PART = re.compile(r"[A-Za-z0-9][A-Za-z0-9._@:+-]{0,119}\Z")
 # Leftover temp files of this host's own presence writes (a dropped share or a killed process) older than this
 # are swept before the next write, so they never crowd the PC reader's bounded folder scan.
@@ -92,6 +104,7 @@ class ShareRefused(ValueError):
     """The share's status folders cannot be read as bounded, link-free folders, so nothing from the share is used
     (never a partial read). Fixed words, never a path from the share."""
 
+
 # The PC reads publishStatus / peerLink from config.json beside its observer; the Mac keeps it beside peer-link/.
 CONFIG_PATH = Path.home() / "Library" / "Application Support" / "AGIW" / "config.json"
 CONFIG_MAX_BYTES = 16384
@@ -115,17 +128,25 @@ def _summary(doc: dict, via: str, now: float, platform: str = "windows") -> dict
         raise ValueError("status document invalid")
     raw_models = doc.get("models")
     valid_models, seen = [], set()
-    for model in (raw_models if isinstance(raw_models, list) else [])[:peer_link.MAX_MODELS]:
-        if (not isinstance(model, dict) or not isinstance(model.get("id"), str) or not model["id"].strip()
-                or model.get("loadedState") not in LOADED_STATES):
+    for model in (raw_models if isinstance(raw_models, list) else [])[: peer_link.MAX_MODELS]:
+        if (
+            not isinstance(model, dict)
+            or not isinstance(model.get("id"), str)
+            or not model["id"].strip()
+            or model.get("loadedState") not in LOADED_STATES
+        ):
             continue
         model_id = model["id"][:256]
         if model_id in seen:
             continue
         seen.add(model_id)
         valid_models.append(model)
-    complete = (doc.get("modelsComplete") is not False and isinstance(raw_models, list) and len(raw_models) <= peer_link.MAX_MODELS
-                and len(valid_models) == len(raw_models))
+    complete = (
+        doc.get("modelsComplete") is not False
+        and isinstance(raw_models, list)
+        and len(raw_models) <= peer_link.MAX_MODELS
+        and len(valid_models) == len(raw_models)
+    )
     if doc.get("kind") == "agiw-peer":
         complete = complete and type(doc.get("modelsTotal")) is int and doc["modelsTotal"] == len(valid_models)
     # Keep the valid prefix of a partial inventory; the link's other status rules still apply.
@@ -136,7 +157,7 @@ def _summary(doc: dict, via: str, now: float, platform: str = "windows") -> dict
         # A clock mismatch is never turned into freshness.
         raise ValueError("PC observation is dated in the future (clock mismatch)")
     models = []
-    for model in doc["models"][:peer_link.MAX_MODELS]:
+    for model in doc["models"][: peer_link.MAX_MODELS]:
         row = {"id": str(model["id"])[:256], "loadedState": model["loadedState"]}
         for key in ("activity", "lane", "servedModel"):
             if _text(model.get(key), 64) is not None:
@@ -153,34 +174,67 @@ def _summary(doc: dict, via: str, now: float, platform: str = "windows") -> dict
         if not isinstance(g, dict):
             continue
         gpu = {"name": _text(g.get("name"), 80)}
-        for key, high in (("utilizationPercent", 100), ("memoryUsedMiB", 1 << 22), ("memoryTotalMiB", 1 << 22),
-                          ("temperatureC", 150)):
+        for key, high in (
+            ("utilizationPercent", 100),
+            ("memoryUsedMiB", 1 << 22),
+            ("memoryTotalMiB", 1 << 22),
+            ("temperatureC", 150),
+        ):
             gpu[key] = _number(g.get(key), 0, high)
         gpus.append({k: v for k, v in gpu.items() if v is not None})
     memory = doc.get("memory") if isinstance(doc.get("memory"), dict) else {}
     # The PC's own levels (probes.memory_level): "tight" is the pressure case the inspector must keep showing.
     level = memory.get("level") if isinstance(memory.get("level"), str) and memory["level"] in MEMORY_LEVELS else None
     free = _number(memory.get("availablePercent"), 0, 100)
-    return {"via": via, "host": _text(doc.get("host"), 63) or "", "health": doc.get("health") if doc.get("health") in
-            ("ok", "degraded", "down") else None, "observedAt": doc["observedAt"],
-            "ageSeconds": round(max(0.0, age), 1), "models": models, "modelsComplete": complete, "gpus": gpus,
-            "memory": {k: v for k, v in (("level", level), ("availablePercent", free)) if v is not None} or None}
+    return {
+        "via": via,
+        "host": _text(doc.get("host"), 63) or "",
+        "health": doc.get("health") if doc.get("health") in ("ok", "degraded", "down") else None,
+        "observedAt": doc["observedAt"],
+        "ageSeconds": round(max(0.0, age), 1),
+        "models": models,
+        "modelsComplete": complete,
+        "gpus": gpus,
+        "memory": {k: v for k, v in (("level", level), ("availablePercent", free)) if v is not None} or None,
+    }
 
 
-REASON_CODES = frozenset({"ok", "timeout", "refused", "non_json", "oversize", "schema_invalid", "stale",
-                          "host_key_mismatch", "share_unmounted", "asleep", "clock_skew", "not_connected", "not_observed",
-                          "unverified", "unavailable", "not_configured"})
+REASON_CODES = frozenset(
+    {
+        "ok",
+        "timeout",
+        "refused",
+        "non_json",
+        "oversize",
+        "schema_invalid",
+        "stale",
+        "host_key_mismatch",
+        "share_unmounted",
+        "asleep",
+        "clock_skew",
+        "not_connected",
+        "not_observed",
+        "unverified",
+        "unavailable",
+        "not_configured",
+    }
+)
 
 
 class FeedUnavailable(Exception):
     """A transport's fixed reason code; never include remote text or private paths."""
+
     def __init__(self, reason_code: str):
         self.reason_code = reason_code if reason_code in REASON_CODES else "unavailable"
         super().__init__(self.reason_code)
 
 
 def normalize_platform(value: Any) -> str | None:
-    return {"macos": "mac", "mac": "mac", "windows": "windows", "linux": "linux"}.get(value) if isinstance(value, str) else None
+    return (
+        {"macos": "mac", "mac": "mac", "windows": "windows", "linux": "linux"}.get(value)
+        if isinstance(value, str)
+        else None
+    )
 
 
 def failure_reason(exc: Exception) -> str:
@@ -204,13 +258,23 @@ def failure_reason(exc: Exception) -> str:
 
 
 def _feed_failure(platform: str, host: str, reason: str, age: float | None = None) -> dict:
-    return {"feed": None, "source": {"id": f"{platform}:{host}-telemetry", "label": host,
-            "host": host, "platform": platform, "state": "unavailable", "trust": "unverified",
-            "reasonCode": reason, "ageSeconds": age, "detail": reason.replace("_", " ")}}
+    return {
+        "feed": None,
+        "source": {
+            "id": f"{platform}:{host}-telemetry",
+            "label": host,
+            "host": host,
+            "platform": platform,
+            "state": "unavailable",
+            "trust": "unverified",
+            "reasonCode": reason,
+            "ageSeconds": age,
+            "detail": reason.replace("_", " "),
+        },
+    }
 
 
-def summarize_document(doc: Any, via: str, now: float, *, platform: str | None = None,
-                       host: str | None = None) -> dict:
+def summarize_document(doc: Any, via: str, now: float, *, platform: str | None = None, host: str | None = None) -> dict:
     """Project one host's report. Transport callers supply trusted identity and provenance, not document fields.
 
     Failure keeps attribution and age but exposes no stale model inventory. A share report can never acquire
@@ -263,22 +327,39 @@ def summarize_document(doc: Any, via: str, now: float, *, platform: str | None =
         # retain the unsigned share observation as a diagnostic, never health evidence.
         if actual != "windows" and via == "share":
             result = _feed_failure(actual, identity, "unverified", round(max(0.0, age), 1))
-            result["source"].update(via="share", observedAt=canonical["observedAt"],
-                                     detail=f"{'Mac' if actual == 'mac' else 'Linux'} share hint; authenticated transport required")
+            result["source"].update(
+                via="share",
+                observedAt=canonical["observedAt"],
+                detail=f"{'Mac' if actual == 'mac' else 'Linux'} share hint; authenticated transport required",
+            )
             return result
         trust = "authenticated" if via in ("lan", "ssh") else "share-reported" if via == "share" else "unverified"
         summary.update(host=identity, platform=actual, trust=trust, reasonCode="ok")
         hands_off = peer_link.hands_off_flag(doc.get("handsOff"))
         if hands_off is not None:
             summary["handsOff"] = hands_off
-        source = {"id": f"{actual}:{identity}-telemetry", "label": identity, "host": identity,
-                  "platform": actual, "state": "live" if trust == "authenticated" else "recorded",
-                  "trust": trust, "reasonCode": "ok", "ageSeconds": summary["ageSeconds"],
-                  "detail": "Authenticated peer report" if trust == "authenticated" else
-                            "Unsigned report via share" if trust == "share-reported" else "Unverified report"}
+        source = {
+            "id": f"{actual}:{identity}-telemetry",
+            "label": identity,
+            "host": identity,
+            "platform": actual,
+            "state": "live" if trust == "authenticated" else "recorded",
+            "trust": trust,
+            "reasonCode": "ok",
+            "ageSeconds": summary["ageSeconds"],
+            "detail": "Authenticated peer report"
+            if trust == "authenticated"
+            else "Unsigned report via share"
+            if trust == "share-reported"
+            else "Unverified report",
+        }
         return {"feed": summary, "source": source}
     except (ValueError, KeyError, TypeError, AttributeError, OverflowError, RecursionError, FeedUnavailable) as exc:
-        return _feed_failure(expected or "unknown", identity, failure_reason(exc) if isinstance(exc, (ValueError, FeedUnavailable)) else "schema_invalid")
+        return _feed_failure(
+            expected or "unknown",
+            identity,
+            failure_reason(exc) if isinstance(exc, (ValueError, FeedUnavailable)) else "schema_invalid",
+        )
 
 
 # Remember only each UUID's last reported label to detect a change within this process.
@@ -299,7 +380,11 @@ def from_peer_link_hosts(now: float, state_dir: Path | None = None, port: int | 
     status, listing = _control_get(state_dir, peer_link.STATUS_PORT if port is None else port, "/control/peers")
     if status != 200:
         raise FeedUnavailable("refused")
-    if not isinstance(listing, dict) or not isinstance(listing.get("peers"), list) or len(listing["peers"]) > peer_link.MAX_PEERS:
+    if (
+        not isinstance(listing, dict)
+        or not isinstance(listing.get("peers"), list)
+        or len(listing["peers"]) > peer_link.MAX_PEERS
+    ):
         raise FeedUnavailable("schema_invalid")
     global _paired_hosts_scope
     rows = []
@@ -324,8 +409,9 @@ def from_peer_link_hosts(now: float, state_dir: Path | None = None, port: int | 
             known = _paired_hosts.get(node)
             host = known[1] if known and known[0] == platform else node
             if row.get("state") == "connected" and row.get("status") is not None:
-                result = summarize_document(row["status"], "lan", now, platform=platform,
-                                            host=known[1] if known else None)
+                result = summarize_document(
+                    row["status"], "lan", now, platform=platform, host=known[1] if known else None
+                )
                 if result["feed"]:
                     claimed = result["feed"]["host"]
                     if known and known[0] != platform:
@@ -342,8 +428,12 @@ def from_peer_link_hosts(now: float, state_dir: Path | None = None, port: int | 
                 result = _feed_failure(platform, host, "not_observed" if never else "not_connected")
             # The paired UUID owns the row. A peer may report a label used by another
             # UUID; that cannot reserve the name or make the other peer fail validation.
-            result["source"].update(node=node, host=node, id=f"{platform}:{node}-telemetry",
-                                     label=f"{host} (reported)" if host != node else node)
+            result["source"].update(
+                node=node,
+                host=node,
+                id=f"{platform}:{node}-telemetry",
+                label=f"{host} (reported)" if host != node else node,
+            )
             if host != node:
                 result["source"]["reportedHost"] = host
             if result["feed"]:
@@ -359,6 +449,7 @@ def from_share_hosts(now: float, root: Path | None = None, anchor: Path | None =
 
 class _HostShareReader:
     """One bounded share read at a time; sleeping SMB never grows an unbounded thread queue."""
+
     def __init__(self):
         self.lock = threading.Lock()
         self.thread = None
@@ -368,11 +459,13 @@ class _HostShareReader:
             if self.thread is not None and self.thread.is_alive():
                 raise FeedUnavailable("timeout")
             box = {}
+
             def run():
                 try:
                     box["rows"] = from_share_hosts(now)
                 except Exception as exc:
                     box["error"] = exc
+
             thread = threading.Thread(target=run, name="agiw-host-share-feed", daemon=True)
             self.thread = thread
             thread.start()
@@ -394,12 +487,18 @@ MAX_FEED_DIAGNOSTICS = PEER_MAX_FILES + 1
 
 def _attach_diagnostic(target: dict, observation: dict, candidate_nodes=()) -> None:
     source = observation["source"]
-    diagnostic = {key: source[key] for key in
-                  ("host", "platform", "reasonCode", "ageSeconds", "observedAt", "legacy") if key in source}
-    diagnostic.update(correlation="unverified", trust="share-reported",
-                      detail="Uncorrelated share observation; not machine identity or health evidence")
+    diagnostic = {
+        key: source[key]
+        for key in ("host", "platform", "reasonCode", "ageSeconds", "observedAt", "legacy")
+        if key in source
+    }
+    diagnostic.update(
+        correlation="unverified",
+        trust="share-reported",
+        detail="Uncorrelated share observation; not machine identity or health evidence",
+    )
     if candidate_nodes:
-        diagnostic["candidateNodes"] = sorted(candidate_nodes)[:peer_link.MAX_PEERS]
+        diagnostic["candidateNodes"] = sorted(candidate_nodes)[: peer_link.MAX_PEERS]
     feed = observation.get("feed")
     if feed:
         diagnostic["observedAt"] = feed.get("observedAt")
@@ -423,7 +522,9 @@ def peer_feeds(now: float, *, peer_reader: Callable | None = None, share_reader:
     failures = []
     local_host = host_id()
     paired_platforms = {}
-    for reader_index, reader in enumerate((peer_reader or from_peer_link_hosts, share_reader or _host_share_reader.read)):
+    for reader_index, reader in enumerate(
+        (peer_reader or from_peer_link_hosts, share_reader or _host_share_reader.read)
+    ):
         try:
             rows = reader(now)
         except Exception as exc:
@@ -464,20 +565,32 @@ def peer_feeds(now: float, *, peer_reader: Callable | None = None, share_reader:
             if previous is None or (not previous["feed"] and row["feed"]):
                 merged[key] = row
             elif previous["feed"] and row["feed"] and previous["source"]["trust"] == source["trust"]:
-                if peer_link._parse_iso(row["feed"]["observedAt"]) > peer_link._parse_iso(previous["feed"]["observedAt"]):
+                if peer_link._parse_iso(row["feed"]["observedAt"]) > peer_link._parse_iso(
+                    previous["feed"]["observedAt"]
+                ):
                     merged[key] = row
-    modern = [row for row in merged.values()
-              if row["source"]["platform"] == "windows" and row["source"].get("legacy") is not True]
+    modern = [
+        row
+        for row in merged.values()
+        if row["source"]["platform"] == "windows" and row["source"].get("legacy") is not True
+    ]
     if modern:
         # The legacy platform-named report is a fallback, not a second machine. It stays only as the sole fresh
         # evidence (it has a feed while no modern file does); a stale one with no feed names no machine.
         modern_seen = any(row["feed"] for row in modern)
-        merged = {key: row for key, row in merged.items()
-                  if not (row["source"]["platform"] == "windows" and row["source"].get("legacy") is True
-                          and (modern_seen or not row["feed"]))}
+        merged = {
+            key: row
+            for key, row in merged.items()
+            if not (
+                row["source"]["platform"] == "windows"
+                and row["source"].get("legacy") is True
+                and (modern_seen or not row["feed"])
+            )
+        }
     represented = {key[0] for key in merged}
-    unattributed = [row["source"]["reasonCode"] for key, row in merged.items()
-                    if key[0] == "unknown" and row["feed"] is None]
+    unattributed = [
+        row["source"]["reasonCode"] for key, row in merged.items() if key[0] == "unknown" and row["feed"] is None
+    ]
     for platform in ("windows",):
         if platform not in represented:
             # No paired PC, no PC report on the share and no failed reader: no PC is configured at all. A PC that
@@ -534,8 +647,9 @@ def _observer_token(state_dir: Path) -> str:
         try:
             stored = peer_link._read_private(state_dir / CONTROL_TOKEN)
         except peer_link.LooseSecret:
-            raise LinkUnavailable("control token could have been read or written by another user "
-                                  "(the peer link replaces it)") from None
+            raise LinkUnavailable(
+                "control token could have been read or written by another user (the peer link replaces it)"
+            ) from None
         except (OSError, ValueError):
             raise LinkUnavailable("control token unreadable") from None
     try:
@@ -553,17 +667,38 @@ def _control_get(state_dir: Path, port: int, path: str, deadline: float = CONTRO
     nonce and proof out); only then is a token-derived proof sent. The token itself is never sent."""
     token = _observer_token(state_dir)
     nc = secrets.token_hex(16)
-    status, _h, raw = peer_link._http("127.0.0.1", port, "GET", "/control/hello", {"X-Agiw-Client-Nonce": nc}, None,
-                                      CONTROL_HELLO_LIMIT, deadline=min(deadline, 3.0))
+    status, _h, raw = peer_link._http(
+        "127.0.0.1",
+        port,
+        "GET",
+        "/control/hello",
+        {"X-Agiw-Client-Nonce": nc},
+        None,
+        CONTROL_HELLO_LIMIT,
+        deadline=min(deadline, 3.0),
+    )
     hello = peer_link.strict_json(raw) if status == 200 and raw else {}
     ns = hello.get("ns") if isinstance(hello, dict) else None
-    if (not isinstance(ns, str) or not _NONCE.match(ns)
-            or not hmac.compare_digest(str(hello.get("proof", "")), peer_link.control_server_proof(token, nc, ns))):
+    if (
+        not isinstance(ns, str)
+        or not _NONCE.match(ns)
+        or not hmac.compare_digest(str(hello.get("proof", "")), peer_link.control_server_proof(token, nc, ns))
+    ):
         raise LinkUnavailable("the process on the peer-link port did not prove it is your peer link; nothing was sent")
-    status, _h, body = peer_link._http("127.0.0.1", port, "GET", path, {
-        "X-Agiw-Control-Nonce": ns, "Content-Type": "application/json",
-        "X-Agiw-Control-Proof": peer_link.control_client_proof(token, ns, nc, "GET", path, b"")},
-        None, max(0, CONTROL_LIMIT - len(raw)), deadline=deadline)
+    status, _h, body = peer_link._http(
+        "127.0.0.1",
+        port,
+        "GET",
+        path,
+        {
+            "X-Agiw-Control-Nonce": ns,
+            "Content-Type": "application/json",
+            "X-Agiw-Control-Proof": peer_link.control_client_proof(token, ns, nc, "GET", path, b""),
+        },
+        None,
+        max(0, CONTROL_LIMIT - len(raw)),
+        deadline=deadline,
+    )
     return status, (peer_link.strict_json(body) if body else {})
 
 
@@ -643,8 +778,9 @@ def _peer_names(directory: int) -> list[str]:
         for entry in entries:
             seen += 1
             if seen > PEER_SCAN_LIMIT:
-                raise ShareRefused(f"agiw-peers holds more than {PEER_SCAN_LIMIT} entries (too many entries); "
-                                   "share status not read")
+                raise ShareRefused(
+                    f"agiw-peers holds more than {PEER_SCAN_LIMIT} entries (too many entries); share status not read"
+                )
             name = entry.name
             if not name.endswith(".json") or name.startswith(".") or not PEER_HOST.match(name[:-5]):
                 continue
@@ -661,8 +797,9 @@ def _refused_folder(exc: OSError) -> bool:
     return exc.errno in (errno.ELOOP, errno.ENOTDIR)
 
 
-def from_share(now: float, root: Path | None = None, anchor: Path | None = None,
-               *, _all_hosts: bool = False) -> dict | list | None:
+def from_share(
+    now: float, root: Path | None = None, anchor: Path | None = None, *, _all_hosts: bool = False
+) -> dict | list | None:
     """The freshest Windows presence file in agiw-peers/, then windows-status.json; None when nothing is fresh.
 
     Every folder from the share root down is opened descriptor-relatively without following links, agiw-peers is
@@ -724,9 +861,11 @@ def from_share(now: float, root: Path | None = None, anchor: Path | None = None,
         rows = []
         legacy = []
         for host, raw in records:
-            row = (_feed_failure("unknown" if host else "windows", host or "windows", failure_reason(raw))
-                   if isinstance(raw, Exception) else
-                   summarize_document(raw, "share", now, host=host, platform="windows" if host is None else None))
+            row = (
+                _feed_failure("unknown" if host else "windows", host or "windows", failure_reason(raw))
+                if isinstance(raw, Exception)
+                else summarize_document(raw, "share", now, host=host, platform="windows" if host is None else None)
+            )
             if host is None:
                 row["source"]["legacy"] = True  # local read-path metadata, never trusted from document content
             (rows if host is not None else legacy).append(row)
@@ -736,8 +875,9 @@ def from_share(now: float, root: Path | None = None, anchor: Path | None = None,
                 # Failed modern observations do not establish an additional PC. Keep
                 # their named errors on the selected legacy report without claiming
                 # that its platform-only name proves which modern file it belongs to.
-                uncertain = [row for row in rows if not row["feed"]
-                             and row["source"]["platform"] in ("windows", "unknown")]
+                uncertain = [
+                    row for row in rows if not row["feed"] and row["source"]["platform"] in ("windows", "unknown")
+                ]
                 for row in uncertain:
                     _attach_diagnostic(legacy[0], row)
                 rows = [row for row in rows if row not in uncertain]
@@ -797,9 +937,14 @@ def windows_feed(now: float) -> tuple[dict | None, dict]:
     try:
         feed = from_peer_link(now)
         if feed:
-            return feed, {"id": "windows-telemetry", "label": "Windows", "state": "live", "ageSeconds": feed["ageSeconds"],
-                          "detail": f"Reported by {feed['host'] or 'the PC'} over the paired LAN link "
-                                    "(signed by the paired peer; its own report of its state)"}
+            return feed, {
+                "id": "windows-telemetry",
+                "label": "Windows",
+                "state": "live",
+                "ageSeconds": feed["ageSeconds"],
+                "detail": f"Reported by {feed['host'] or 'the PC'} over the paired LAN link "
+                "(signed by the paired peer; its own report of its state)",
+            }
     except LinkUnavailable as exc:  # fixed words: why the token or the listener could not be used as they are
         lan_note = str(exc)
     except Exception as exc:  # noqa: BLE001 - the share fallback still runs
@@ -807,13 +952,29 @@ def windows_feed(now: float) -> tuple[dict | None, dict]:
     outcome, feed, note = _share_reader.read(now)
     lan = f"LAN link not connected: {lan_note}" if lan_note else "LAN link not connected"
     if feed:
-        return feed, {"id": "windows-telemetry", "label": "Windows", "state": "recorded", "ageSeconds": feed["ageSeconds"],
-                      "detail": f"Unsigned report from {feed['host'] or 'the PC'} in SharedChami status files "
-                                f"(not verified; {lan})"}
-    why = note or {"stuck": "share read did not finish (PC asleep or share dropped)", "error": "share status unreadable",
-                   "ok": "no fresh PC status on the share"}[outcome]
-    return None, {"id": "windows-telemetry", "label": "Windows", "state": "unavailable", "ageSeconds": None,
-                  "detail": f"Not linked: peer link not connected{f' ({lan_note})' if lan_note else ''}; {why}"}
+        return feed, {
+            "id": "windows-telemetry",
+            "label": "Windows",
+            "state": "recorded",
+            "ageSeconds": feed["ageSeconds"],
+            "detail": f"Unsigned report from {feed['host'] or 'the PC'} in SharedChami status files "
+            f"(not verified; {lan})",
+        }
+    why = (
+        note
+        or {
+            "stuck": "share read did not finish (PC asleep or share dropped)",
+            "error": "share status unreadable",
+            "ok": "no fresh PC status on the share",
+        }[outcome]
+    )
+    return None, {
+        "id": "windows-telemetry",
+        "label": "Windows",
+        "state": "unavailable",
+        "ageSeconds": None,
+        "detail": f"Not linked: peer link not connected{f' ({lan_note})' if lan_note else ''}; {why}",
+    }
 
 
 def _iso(ts: float) -> str:
@@ -833,8 +994,20 @@ def _strip_model_suffix(name: str) -> str:
 
 # First folders of a path, never of a registry id. Under a home folder the next name is an account name.
 _HOME_ROOTS = ("users", "home")
-_SYSTEM_ROOTS = _HOME_ROOTS + ("private", "var", "tmp", "volumes", "opt", "usr", "etc", "library", "system",
-                               "applications", "root", "mnt")
+_SYSTEM_ROOTS = _HOME_ROOTS + (
+    "private",
+    "var",
+    "tmp",
+    "volumes",
+    "opt",
+    "usr",
+    "etc",
+    "library",
+    "system",
+    "applications",
+    "root",
+    "mnt",
+)
 
 
 _TAG_ID = re.compile(r"^(?:[A-Za-z0-9][A-Za-z0-9._-]*/)?[A-Za-z0-9][A-Za-z0-9._-]*:[A-Za-z0-9][A-Za-z0-9._-]*$")
@@ -875,10 +1048,17 @@ def public_id(value: Any) -> str | None:
         return _final_name(text)
     unified = text.replace("\\", "/")
     parts = unified.split("/")
-    path_shaped = ("\\" in text or ":/" in unified or unified.startswith(("/", "~")) or len(parts) > 2
-                   or any(not part or part in (".", "..") or _strip_model_suffix(part) != part for part in parts)
-                   or (len(parts) == 2 and (parts[0].lower() in _SYSTEM_ROOTS
-                                            or not all(_REGISTRY_PART.match(part) for part in parts))))
+    path_shaped = (
+        "\\" in text
+        or ":/" in unified
+        or unified.startswith(("/", "~"))
+        or len(parts) > 2
+        or any(not part or part in (".", "..") or _strip_model_suffix(part) != part for part in parts)
+        or (
+            len(parts) == 2
+            and (parts[0].lower() in _SYSTEM_ROOTS or not all(_REGISTRY_PART.match(part) for part in parts))
+        )
+    )
     if not path_shaped:
         return text[:120]
     index = next((i for i in range(len(parts) - 1, -1, -1) if parts[i] not in ("", ".", "..")), None)
@@ -914,10 +1094,16 @@ def _mac_gpus(gpu: Any) -> list[dict[str, Any]]:
     if not isinstance(gpu, dict):
         return []
     in_use = _number(gpu.get("inUseBytes"), 0, 1 << 50)
-    return [{"index": 0, "name": _text(gpu.get("model"), 80),
-             "utilizationPercent": _number(gpu.get("utilizationPercent"), 0, 100),
-             "memoryUsedMiB": round(in_use / 1048576) if in_use is not None else None,
-             "memoryTotalMiB": None, "temperatureC": None}]
+    return [
+        {
+            "index": 0,
+            "name": _text(gpu.get("model"), 80),
+            "utilizationPercent": _number(gpu.get("utilizationPercent"), 0, 100),
+            "memoryUsedMiB": round(in_use / 1048576) if in_use is not None else None,
+            "memoryTotalMiB": None,
+            "temperatureC": None,
+        }
+    ]
 
 
 def mac_components(snapshot: dict) -> list[dict[str, Any]]:
@@ -936,8 +1122,9 @@ def mac_components(snapshot: dict) -> list[dict[str, Any]]:
     return out
 
 
-def mac_presence(snapshot: dict | None, host_name: str, *, version: str | None = None,
-                 dashboard_port: int | None = None) -> dict:
+def mac_presence(
+    snapshot: dict | None, host_name: str, *, version: str | None = None, dashboard_port: int | None = None
+) -> dict:
     """This Mac's status for peers, in the PC edition's presence shape (probes.peer_presence), built only from
     the observer's latest snapshot, plus this Mac's Nisi and Jev states. Model ids, states, versions and counts
     only; no paths, prompts or keys. An unavailable or incomplete inventory is refused (InventoryUnknown)
@@ -950,22 +1137,30 @@ def mac_presence(snapshot: dict | None, host_name: str, *, version: str | None =
     sources = {s.get("id"): s for s in snapshot.get("sources") or [] if isinstance(s, dict)}
     live = [sources[key] for key in ("lmstudio-api", "lms-ps") if sources.get(key, {}).get("state") == "live"]
     known = snapshot.get("activityKnown") is True
-    machine = next((row for row in snapshot.get('machines', [])
-                    if row.get('platform') == 'mac' and row.get('host') == 'mac'), None)
-    if machine is not None and (machine.get('state') != 'up' or machine.get('modelsComplete') is not True):
+    machine = next(
+        (row for row in snapshot.get("machines", []) if row.get("platform") == "mac" and row.get("host") == "mac"), None
+    )
+    if machine is not None and (machine.get("state") != "up" or machine.get("modelsComplete") is not True):
         raise InventoryUnknown("Mac model inventory incomplete")
     if not known and not live:
         # The PC counts loaded models from this list whatever the health says; an empty list would read as 0 loaded.
         raise InventoryUnknown("Mac model inventory unknown (LM Studio inventory and activity both unavailable)")
     if any(source.get("modelsComplete", True) is not True for source in live):
         raise InventoryUnknown("Mac model inventory incomplete")
-    rows = [row for key in ("models", "localInstanceObservations") for row in snapshot.get(key) or []
-            if isinstance(row, dict) and row.get("host") == "mac"]
+    rows = [
+        row
+        for key in ("models", "localInstanceObservations")
+        for row in snapshot.get(key) or []
+        if isinstance(row, dict) and row.get("host") == "mac"
+    ]
     groups = {}
     for row in rows:
         metadata = row.get("metadata")
-        if (isinstance(metadata, dict) and isinstance(metadata.get("loadedInstances"), list)
-                and metadata.get("loadedInstanceCount") != len(metadata["loadedInstances"])):
+        if (
+            isinstance(metadata, dict)
+            and isinstance(metadata.get("loadedInstances"), list)
+            and metadata.get("loadedInstanceCount") != len(metadata["loadedInstances"])
+        ):
             raise InventoryUnknown("Mac model instance inventory incomplete")
         if public_id(row.get("id")) is None:
             raise InventoryUnknown("Mac model inventory contains an unpublishable identifier")
@@ -974,7 +1169,9 @@ def mac_presence(snapshot: dict | None, host_name: str, *, version: str | None =
     models = []
     for key, group in groups.items():
         row = next((item for item in group if item.get("id") == key or item.get("source") == "lmstudio-api"), group[0])
-        model_id = (public_id(key) if all(item.get("source") == "lms-ps" for item in group) else None) or public_id(row["id"])
+        model_id = (public_id(key) if all(item.get("source") == "lms-ps" for item in group) else None) or public_id(
+            row["id"]
+        )
         loaded = [item for item in group if item.get("loaded") is True]
         state = "loaded" if loaded else "inactive" if all(item.get("loaded") is False for item in group) else "unknown"
         if state == "unknown":
@@ -984,54 +1181,99 @@ def mac_presence(snapshot: dict | None, host_name: str, *, version: str | None =
         activity = "unknown"
         if known and loaded:
             observed = cli or loaded
-            activity = next((word for word in ("generating", "busy", "queued")
-                             if any(item.get("state") == word for item in observed)), "unknown")
+            activity = next(
+                (
+                    word
+                    for word in ("generating", "busy", "queued")
+                    if any(item.get("state") == word for item in observed)
+                ),
+                "unknown",
+            )
             if activity == "unknown" and all(item.get("state") == "idle" for item in observed):
                 instances = {item.get("instanceId") or item.get("id") for item in cli}
-                covered = not cli or all((item.get("source") == "lms-ps" and item.get("loadedInstanceIds") is None)
-                    or (isinstance(item.get("loadedInstanceIds"), list) and bool(item["loadedInstanceIds"])
-                        and set(item["loadedInstanceIds"]) <= instances) for item in loaded)
+                covered = not cli or all(
+                    (item.get("source") == "lms-ps" and item.get("loadedInstanceIds") is None)
+                    or (
+                        isinstance(item.get("loadedInstanceIds"), list)
+                        and bool(item["loadedInstanceIds"])
+                        and set(item["loadedInstanceIds"]) <= instances
+                    )
+                    for item in loaded
+                )
                 if covered:
                     activity = "idle"
         parallel = row.get("parallel")
-        slots = parallel if loaded and isinstance(parallel, int) and not isinstance(parallel, bool) \
-            and 1 <= parallel <= 256 else None
+        slots = (
+            parallel
+            if loaded and isinstance(parallel, int) and not isinstance(parallel, bool) and 1 <= parallel <= 256
+            else None
+        )
         aliases = []
         for item in group:
-            for value in (item.get("id"), item.get("modelKey"), item.get("instanceId"), *(item.get("loadedInstanceIds") or [])):
+            for value in (
+                item.get("id"),
+                item.get("modelKey"),
+                item.get("instanceId"),
+                *(item.get("loadedInstanceIds") or []),
+            ):
                 alias = public_id(value)
                 if alias and alias != model_id and alias not in aliases:
                     aliases.append(alias)
-        models.append({"id": model_id, "aliases": aliases, "host": "mac",
-                       "loadedState": state, "activity": activity, "slotsBusy": None, "slotsTotal": slots})
+        models.append(
+            {
+                "id": model_id,
+                "aliases": aliases,
+                "host": "mac",
+                "loadedState": state,
+                "activity": activity,
+                "slotsBusy": None,
+                "slotsTotal": slots,
+            }
+        )
     models_total = len(models)
     models.sort(key=lambda model: model["loadedState"] != "loaded")
-    mac_rows = [row for row in rows if not row.get('representedByInstances')]
-    states = {key: value.get('state') for key, value in sources.items()}
-    inventory_complete = (all(row.get('inventoryComplete') is not False for row in mac_rows)
-                          and any(s.get('id') == 'lmstudio-api' and s.get('state') == 'live'
-                                  and s.get('route') == 'direct' for s in snapshot.get('sources') or []))
-    loaded_complete = (len(models) == len(groups)
-                       and all(type(row.get('loaded')) is bool and row.get('inventoryComplete') is not False
-                               for row in mac_rows)
-                       and (states.get('lms-ps') == 'live' or inventory_complete)
-                       and sum(model['loadedState'] == 'loaded' for model in models) <= peer_link.MAX_MODELS)
-    models = models[:peer_link.MAX_MODELS]
+    mac_rows = [row for row in rows if not row.get("representedByInstances")]
+    states = {key: value.get("state") for key, value in sources.items()}
+    inventory_complete = all(row.get("inventoryComplete") is not False for row in mac_rows) and any(
+        s.get("id") == "lmstudio-api" and s.get("state") == "live" and s.get("route") == "direct"
+        for s in snapshot.get("sources") or []
+    )
+    loaded_complete = (
+        len(models) == len(groups)
+        and all(type(row.get("loaded")) is bool and row.get("inventoryComplete") is not False for row in mac_rows)
+        and (states.get("lms-ps") == "live" or inventory_complete)
+        and sum(model["loadedState"] == "loaded" for model in models) <= peer_link.MAX_MODELS
+    )
+    models = models[: peer_link.MAX_MODELS]
     memory = snapshot.get("memory") if isinstance(snapshot.get("memory"), dict) else {}
-    port = dashboard_port if isinstance(dashboard_port, int) and not isinstance(dashboard_port, bool) \
-        and 1 <= dashboard_port <= 65535 else None
-    return {"schemaVersion": 1, "kind": "agiw-peer", "host": host_name[:63], "platform": "mac", "edition": "mac",
-            "version": version if isinstance(version, str) else None,
-            "observedAt": _iso(sampled), "observedUnix": round(sampled, 3),
-            # Inventory is known here; only unverified activity lowers health.
-            "health": "ok" if known else "degraded", "models": models,
-            **({"modelsTotal": models_total} if inventory_complete else {}),
-            "loadedListComplete": loaded_complete,
-            "gpus": _mac_gpus(snapshot.get("macGpu")),
-            "memory": {"level": memory.get("level") if memory.get("level") in MEMORY_LEVELS else None,
-                       "availablePercent": _number(memory.get("availablePercent"), 0, 100)},
-            "dashboard": {"bind": "loopback", "port": port}, "reads": list(PRESENCE_READS),
-            "components": mac_components(snapshot)}
+    port = (
+        dashboard_port
+        if isinstance(dashboard_port, int) and not isinstance(dashboard_port, bool) and 1 <= dashboard_port <= 65535
+        else None
+    )
+    return {
+        "schemaVersion": 1,
+        "kind": "agiw-peer",
+        "host": host_name[:63],
+        "platform": "mac",
+        "edition": "mac",
+        "version": version if isinstance(version, str) else None,
+        "observedAt": _iso(sampled),
+        "observedUnix": round(sampled, 3),
+        # Inventory is known here; only unverified activity lowers health.
+        "health": "ok" if known else "degraded",
+        "models": models,
+        **({"modelsTotal": models_total} if inventory_complete else {}),
+        "loadedListComplete": loaded_complete,
+        "gpus": _mac_gpus(snapshot.get("macGpu")),
+        "memory": {
+            "level": memory.get("level") if memory.get("level") in MEMORY_LEVELS else None,
+            "availablePercent": _number(memory.get("availablePercent"), 0, 100),
+        },
+        "dashboard": {"bind": "loopback", "port": port},
+        "reads": list(PRESENCE_READS),
+        "components": mac_components(snapshot),
+    }
 
 
 def _projection_keeps(doc: dict) -> None:
@@ -1045,8 +1287,12 @@ def _projection_keeps(doc: dict) -> None:
             if source.get(key) is not None and target.get(key) != source[key]:
                 raise ValueError(f"presence {where}{key} fails the link projection")
 
-    same(doc, projected, ("schemaVersion", "observedAt", "kind", "host", "platform", "edition", "health",
-                          "observedUnix"), "")
+    same(
+        doc,
+        projected,
+        ("schemaVersion", "observedAt", "kind", "host", "platform", "edition", "health", "observedUnix"),
+        "",
+    )
     if len(projected["models"]) != len(doc["models"]) or len(projected["gpus"]) != len(doc["gpus"]):
         raise ValueError("presence rows fail the link projection")
     for source, target in zip(doc["models"], projected["models"]):
@@ -1059,21 +1305,44 @@ def _projection_keeps(doc: dict) -> None:
 def pc_reader_accepts(doc: Any, host: str, now: float) -> bool:
     """The PC edition's own acceptance rules for a Mac presence file (probes._validate_peer + read_peers +
     collect.py's Mac link): the file name is the host, the host is new and fresh, and the platform is macos."""
-    if (not isinstance(doc, dict) or type(doc.get("schemaVersion")) is not int or doc["schemaVersion"] != 1
-            or doc.get("kind") != "agiw-peer"):
+    if (
+        not isinstance(doc, dict)
+        or type(doc.get("schemaVersion")) is not int
+        or doc["schemaVersion"] != 1
+        or doc.get("kind") != "agiw-peer"
+    ):
         return False
     observed = doc.get("observedUnix")
-    if (doc.get("host") != host or not isinstance(host, str) or not PEER_HOST.match(host)
-            or isinstance(observed, bool) or not isinstance(observed, (int, float)) or not math.isfinite(observed)
-            or observed > now + PEER_FUTURE_SKEW or now - observed > FRESH_SECONDS or doc.get("platform") != SHARE_PLATFORM
-            or not isinstance(doc.get("models"), list)):
+    if (
+        doc.get("host") != host
+        or not isinstance(host, str)
+        or not PEER_HOST.match(host)
+        or isinstance(observed, bool)
+        or not isinstance(observed, (int, float))
+        or not math.isfinite(observed)
+        or observed > now + PEER_FUTURE_SKEW
+        or now - observed > FRESH_SECONDS
+        or doc.get("platform") != SHARE_PLATFORM
+        or not isinstance(doc.get("models"), list)
+    ):
         return False
-    return all(isinstance(m, dict) and isinstance(m.get("id"), str) and m["id"].strip()
-               and m.get("loadedState") in LOADED_STATES for m in doc["models"][:32])
+    return all(
+        isinstance(m, dict)
+        and isinstance(m.get("id"), str)
+        and m["id"].strip()
+        and m.get("loadedState") in LOADED_STATES
+        for m in doc["models"][:32]
+    )
 
 
-def share_presence(snapshot: dict | None, host: str, *, version: str | None = None,
-                   dashboard_port: int | None = None, now: float | None = None) -> dict:
+def share_presence(
+    snapshot: dict | None,
+    host: str,
+    *,
+    version: str | None = None,
+    dashboard_port: int | None = None,
+    now: float | None = None,
+) -> dict:
     """The presence file for llm-lab/status/agiw-peers/<host>.json. It must pass the LAN link's status rules
     (validate_status as host kind "mac", project_status) and the PC reader's rules, or nothing is written."""
     if not isinstance(host, str) or not PEER_HOST.match(host):
@@ -1167,7 +1436,7 @@ def write_presence(doc: dict, share_root: Path = SHARE_ANCHOR, *, require_mount:
             try:
                 view = memoryview(payload)
                 while view:
-                    view = view[os.write(fd, view):]
+                    view = view[os.write(fd, view) :]
             finally:
                 os.close(fd)
             # A Windows share refuses to replace a file the PC holds open at that instant; its reader closes
@@ -1199,9 +1468,13 @@ def _failure(exc: BaseException) -> tuple[str, str]:
     if isinstance(exc, OSError):
         return "unavailable", f"share write failed ({errno.errorcode.get(exc.errno or 0, 'I/O error')})"
     if isinstance(exc, InventoryUnknown):
-        causes = {"Mac model inventory unknown (LM Studio inventory and activity both unavailable)",
-                  "Mac model inventory incomplete", "Mac model instance inventory incomplete",
-                  "Mac model loaded state unknown", "Mac model inventory contains an unpublishable identifier"}
+        causes = {
+            "Mac model inventory unknown (LM Studio inventory and activity both unavailable)",
+            "Mac model inventory incomplete",
+            "Mac model instance inventory incomplete",
+            "Mac model loaded state unknown",
+            "Mac model inventory contains an unpublishable identifier",
+        }
         cause = str(exc) if str(exc) in causes else "Mac model inventory unknown"
         return "unavailable", cause + ", so no model count is published; the last file ages out after 30 s"
     if isinstance(exc, ValueError):
@@ -1214,9 +1487,14 @@ def link_failure_source(exc: BaseException) -> dict[str, Any]:
     kind = type(exc).__name__[:40]
     if isinstance(exc, OSError) and exc.errno:
         kind += f" {errno.errorcode.get(exc.errno, 'I/O error')}"
-    return {"id": "agiw-peer-link", "label": "AGIW peer link (LAN)", "state": "error", "ageSeconds": None,
-            "detail": f"LAN peer link not started ({kind}); the observer and the share presence keep running. "
-                      "Check the peer-link state folder, then restart the monitor"}
+    return {
+        "id": "agiw-peer-link",
+        "label": "AGIW peer link (LAN)",
+        "state": "error",
+        "ageSeconds": None,
+        "detail": f"LAN peer link not started ({kind}); the observer and the share presence keep running. "
+        "Check the peer-link state folder, then restart the monitor",
+    }
 
 
 class PresencePublisher:
@@ -1226,11 +1504,21 @@ class PresencePublisher:
     running after PRESENCE_DEADLINE seconds (a hung SMB mount) is reported as stuck in the snapshot sources,
     and no second write is queued behind it. Off unless publishStatus or peerLink is on."""
 
-    def __init__(self, host: str, *, enabled: bool = True, share_root: Path = SHARE_ANCHOR,
-                 version: str | None = None, dashboard_port: int | None = None, enabled_by: str = "",
-                 config_source: dict | None = None, interval: float = PRESENCE_INTERVAL,
-                 deadline: float = PRESENCE_DEADLINE, require_mount: bool | None = None,
-                 clock: Callable[[], float] = time.monotonic):
+    def __init__(
+        self,
+        host: str,
+        *,
+        enabled: bool = True,
+        share_root: Path = SHARE_ANCHOR,
+        version: str | None = None,
+        dashboard_port: int | None = None,
+        enabled_by: str = "",
+        config_source: dict | None = None,
+        interval: float = PRESENCE_INTERVAL,
+        deadline: float = PRESENCE_DEADLINE,
+        require_mount: bool | None = None,
+        clock: Callable[[], float] = time.monotonic,
+    ):
         self.host, self.enabled, self.share_root = host, bool(enabled), Path(share_root)
         self.version, self.dashboard_port, self.enabled_by = version, dashboard_port, enabled_by
         self.config_source, self.interval, self.deadline = config_source, interval, deadline
@@ -1325,16 +1613,25 @@ class PresencePublisher:
         target = f"agiw-peers/{self.host}.json"
         row = {"id": "agiw-presence", "label": "AGIW presence (share)"}
         if busy is not None and now - busy > self.deadline:
-            row.update(state="unavailable", ageSeconds=None,
-                       detail=f"Stuck: the write of {target} has not finished in {int(now - busy)} s "
-                              "(PC asleep or share dropped); no new write is queued behind it")
+            row.update(
+                state="unavailable",
+                ageSeconds=None,
+                detail=f"Stuck: the write of {target} has not finished in {int(now - busy)} s "
+                "(PC asleep or share dropped); no new write is queued behind it",
+            )
         elif failure is not None:
-            row.update(state=failure[0], ageSeconds=None,
-                       detail=f"Not written: {failure[1]}; any earlier {target} is left as it was")
+            row.update(
+                state=failure[0],
+                ageSeconds=None,
+                detail=f"Not written: {failure[1]}; any earlier {target} is left as it was",
+            )
         elif last_ok is not None:
-            row.update(state="live", ageSeconds=round(max(0.0, now - last_ok), 1),
-                       detail=f"Writes {target} every {self.interval:g} s for AGIW peers (platform {SHARE_PLATFORM}, "
-                              f"unsigned share file){f'; on by {self.enabled_by}' if self.enabled_by else ''}")
+            row.update(
+                state="live",
+                ageSeconds=round(max(0.0, now - last_ok), 1),
+                detail=f"Writes {target} every {self.interval:g} s for AGIW peers (platform {SHARE_PLATFORM}, "
+                f"unsigned share file){f'; on by {self.enabled_by}' if self.enabled_by else ''}",
+            )
         else:
             row.update(state="unavailable", ageSeconds=None, detail=f"First write of {target} pending")
         return rows + [row]
@@ -1362,6 +1659,7 @@ def _fd_has_extended_acl(fd: int) -> bool:
     if not _acl_api:
         import ctypes
         import ctypes.util
+
         libc = ctypes.CDLL(ctypes.util.find_library("c") or "libSystem.dylib", use_errno=True)
         get_fd = libc.acl_get_fd_np
         get_fd.argtypes, get_fd.restype = [ctypes.c_int, ctypes.c_int], ctypes.c_void_p
@@ -1405,8 +1703,13 @@ def load_config(path: Path | str | None = None) -> tuple[dict[str, bool], dict |
     off = dict.fromkeys(CONFIG_KEYS, False)
 
     def bad(why: str) -> tuple[dict[str, bool], dict]:
-        return dict(off), {"id": "agiw-config", "label": "AGIW config", "state": "error", "ageSeconds": None,
-                           "detail": f"{path.name} ignored ({why}); publishStatus and peerLink stay off"}
+        return dict(off), {
+            "id": "agiw-config",
+            "label": "AGIW config",
+            "state": "error",
+            "ageSeconds": None,
+            "detail": f"{path.name} ignored ({why}); publishStatus and peerLink stay off",
+        }
 
     try:
         fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0))
@@ -1438,8 +1741,9 @@ def load_config(path: Path | str | None = None) -> tuple[dict[str, bool], dict |
     try:
         # utf-8-sig, as the PC's probes.read_json: a file saved with a BOM (PowerShell 5.1, or copied from the PC)
         # means the same options on both editions.
-        value = json.loads(raw.decode("utf-8-sig"), parse_constant=_reject_constant,
-                           object_pairs_hook=_no_duplicate_keys)
+        value = json.loads(
+            raw.decode("utf-8-sig"), parse_constant=_reject_constant, object_pairs_hook=_no_duplicate_keys
+        )
     except (UnicodeDecodeError, ValueError, RecursionError):
         return bad("not strict JSON")
     if not isinstance(value, dict):
@@ -1450,16 +1754,31 @@ def load_config(path: Path | str | None = None) -> tuple[dict[str, bool], dict |
     return {key: value.get(key) is True for key in CONFIG_KEYS}, None
 
 
-def link_options(publish_status: bool = False, peer_link_flag: bool = False,
-                 config_path: Path | str | None = None) -> dict[str, Any]:
+def link_options(
+    publish_status: bool = False, peer_link_flag: bool = False, config_path: Path | str | None = None
+) -> dict[str, Any]:
     """The PC's opt-in rule: a flag turns its option on whatever config.json says; config.json can only turn
     options on. On the Mac both options publish presence (mac-status.json belongs to the Mac status script);
     peerLink also starts the LAN peer link."""
     config, source = load_config(config_path)
-    on = {"publishStatus": bool(publish_status) or config["publishStatus"],
-          "peerLink": bool(peer_link_flag) or config["peerLink"]}
-    by = [label for label, flag in (("--publish-status", publish_status), ("--peer-link", peer_link_flag),
-                                    ("config.json publishStatus", config["publishStatus"]),
-                                    ("config.json peerLink", config["peerLink"])) if flag]
-    return {**on, "presence": on["publishStatus"] or on["peerLink"], "lanLink": on["peerLink"],
-            "enabledBy": ", ".join(by), "configSource": source}
+    on = {
+        "publishStatus": bool(publish_status) or config["publishStatus"],
+        "peerLink": bool(peer_link_flag) or config["peerLink"],
+    }
+    by = [
+        label
+        for label, flag in (
+            ("--publish-status", publish_status),
+            ("--peer-link", peer_link_flag),
+            ("config.json publishStatus", config["publishStatus"]),
+            ("config.json peerLink", config["peerLink"]),
+        )
+        if flag
+    ]
+    return {
+        **on,
+        "presence": on["publishStatus"] or on["peerLink"],
+        "lanLink": on["peerLink"],
+        "enabledBy": ", ".join(by),
+        "configSource": source,
+    }

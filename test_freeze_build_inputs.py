@@ -1,4 +1,5 @@
 """No-follow packaging checks with fixtures; never compile, sign or install."""
+
 import json
 import os
 from pathlib import Path
@@ -15,166 +16,177 @@ import bundle_nisi
 import freeze_build_inputs as freeze
 
 
-@unittest.skipUnless(os.name == 'posix', 'descriptor-relative POSIX source reads')
+@unittest.skipUnless(os.name == "posix", "descriptor-relative POSIX source reads")
 class FrozenInputTests(unittest.TestCase):
     def setUp(self):
-        self.temporary = tempfile.TemporaryDirectory(prefix='agiw-freeze-test-')
+        self.temporary = tempfile.TemporaryDirectory(prefix="agiw-freeze-test-")
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
-        self.source = self.root / 'source'
+        self.source = self.root / "source"
         self.source.mkdir()
-        self.destination = self.root / 'frozen'
+        self.destination = self.root / "frozen"
         self.root_fd = os.open(self.source, os.O_RDONLY | os.O_DIRECTORY)
         self.addCleanup(os.close, self.root_fd)
 
     def test_regular_inputs_are_frozen_independently(self):
-        source = self.source / 'pair_status.py'
-        source.write_bytes(b'checked source')
-        freeze.freeze_inputs(self.root_fd, self.destination, ['pair_status.py'])
-        source.write_bytes(b'changed source')
-        self.assertEqual((self.destination / source.name).read_bytes(), b'checked source')
+        source = self.source / "pair_status.py"
+        source.write_bytes(b"checked source")
+        freeze.freeze_inputs(self.root_fd, self.destination, ["pair_status.py"])
+        source.write_bytes(b"changed source")
+        self.assertEqual((self.destination / source.name).read_bytes(), b"checked source")
 
     def test_an_executable_input_stays_executable_and_a_plain_one_does_not(self):
-        runner = self.source / 'agiw-status'
-        runner.write_bytes(b'#!/usr/bin/env python3\n')
+        runner = self.source / "agiw-status"
+        runner.write_bytes(b"#!/usr/bin/env python3\n")
         runner.chmod(0o755)
-        plain = self.source / 'agiw_status.py'
-        plain.write_bytes(b'module')
+        plain = self.source / "agiw_status.py"
+        plain.write_bytes(b"module")
         plain.chmod(0o644)
-        freeze.freeze_inputs(self.root_fd, self.destination, ['agiw-status', 'agiw_status.py'])
-        self.assertEqual(stat.S_IMODE((self.destination / 'agiw-status').stat().st_mode), 0o755)
-        self.assertEqual(stat.S_IMODE((self.destination / 'agiw_status.py').stat().st_mode), 0o644)
+        freeze.freeze_inputs(self.root_fd, self.destination, ["agiw-status", "agiw_status.py"])
+        self.assertEqual(stat.S_IMODE((self.destination / "agiw-status").stat().st_mode), 0o755)
+        self.assertEqual(stat.S_IMODE((self.destination / "agiw_status.py").stat().st_mode), 0o644)
 
     def test_file_and_parent_symlinks_are_refused_before_copying(self):
-        outside = self.root / 'outside'
+        outside = self.root / "outside"
         outside.mkdir()
-        (outside / 'status.py').write_bytes(b'outside fixture')
-        for name in ('file', 'parent'):
+        (outside / "status.py").write_bytes(b"outside fixture")
+        for name in ("file", "parent"):
             with self.subTest(name=name):
                 link = self.source / name
-                link.symlink_to(outside / 'status.py' if name == 'file' else outside)
-                relative = name if name == 'file' else name + '/status.py'
+                link.symlink_to(outside / "status.py" if name == "file" else outside)
+                relative = name if name == "file" else name + "/status.py"
                 with self.assertRaises(OSError):
                     freeze.freeze_inputs(self.root_fd, self.destination, [relative])
                 self.assertFalse(self.destination.exists())
 
     def test_replaced_file_is_read_from_the_retained_descriptor(self):
-        source = self.source / 'pair_status.py'
-        source.write_bytes(b'checked source')
-        outside = self.root / 'outside.py'
-        outside.write_bytes(b'outside fixture')
+        source = self.source / "pair_status.py"
+        source.write_bytes(b"checked source")
+        outside = self.root / "outside.py"
+        outside.write_bytes(b"outside fixture")
         original_open = os.open
         swapped = []
 
         def replace_after_open(path, flags, *args, **kwargs):
             descriptor = original_open(path, flags, *args, **kwargs)
-            if path == 'pair_status.py' and not swapped:
+            if path == "pair_status.py" and not swapped:
                 source.unlink()
                 source.symlink_to(outside)
                 swapped.append(True)
             return descriptor
 
-        with patch.object(freeze.os, 'open', side_effect=replace_after_open):
-            freeze.freeze_inputs(self.root_fd, self.destination, ['pair_status.py'])
+        with patch.object(freeze.os, "open", side_effect=replace_after_open):
+            freeze.freeze_inputs(self.root_fd, self.destination, ["pair_status.py"])
         self.assertEqual(swapped, [True])
-        self.assertEqual((self.destination / source.name).read_bytes(), b'checked source')
+        self.assertEqual((self.destination / source.name).read_bytes(), b"checked source")
 
     def test_replaced_directory_keeps_the_checked_children(self):
-        web = self.source / 'web'
+        web = self.source / "web"
         web.mkdir()
-        (web / 'app.js').write_bytes(b'checked source')
-        outside = self.root / 'outside'
+        (web / "app.js").write_bytes(b"checked source")
+        outside = self.root / "outside"
         outside.mkdir()
-        (outside / 'app.js').write_bytes(b'outside fixture')
+        (outside / "app.js").write_bytes(b"outside fixture")
         original_open = os.open
         swapped = []
 
         def replace_after_open(path, flags, *args, **kwargs):
             descriptor = original_open(path, flags, *args, **kwargs)
-            if path == 'web' and not swapped:
-                web.rename(self.source / 'retained-web')
+            if path == "web" and not swapped:
+                web.rename(self.source / "retained-web")
                 web.symlink_to(outside, target_is_directory=True)
                 swapped.append(True)
             return descriptor
 
-        with patch.object(freeze.os, 'open', side_effect=replace_after_open):
-            freeze.freeze_inputs(self.root_fd, self.destination, ['web/app.js'])
+        with patch.object(freeze.os, "open", side_effect=replace_after_open):
+            freeze.freeze_inputs(self.root_fd, self.destination, ["web/app.js"])
         self.assertEqual(swapped, [True])
-        self.assertEqual((self.destination / 'web/app.js').read_bytes(), b'checked source')
+        self.assertEqual((self.destination / "web/app.js").read_bytes(), b"checked source")
 
     def test_nonregular_source_is_refused_without_blocking(self):
-        os.mkfifo(self.source / 'pair_status.py')
-        with self.assertRaisesRegex(ValueError, 'Nonregular build input'):
-            freeze.freeze_inputs(self.root_fd, self.destination, ['pair_status.py'])
+        os.mkfifo(self.source / "pair_status.py")
+        with self.assertRaisesRegex(ValueError, "Nonregular build input"):
+            freeze.freeze_inputs(self.root_fd, self.destination, ["pair_status.py"])
         self.assertFalse(self.destination.exists())
 
     def test_in_place_change_during_copy_aborts(self):
-        source = self.source / 'pair_status.py'
-        source.write_bytes(b'checked source')
+        source = self.source / "pair_status.py"
+        source.write_bytes(b"checked source")
         original_read = os.read
         changed = []
 
         def mutate_before_read(descriptor, length):
             if not changed:
-                source.write_bytes(b'changed fixture with different size')
+                source.write_bytes(b"changed fixture with different size")
                 changed.append(True)
             return original_read(descriptor, length)
 
-        with patch.object(freeze.os, 'read', side_effect=mutate_before_read):
-            with self.assertRaisesRegex(ValueError, 'changed while freezing'):
-                freeze.freeze_inputs(self.root_fd, self.destination, ['pair_status.py'])
+        with patch.object(freeze.os, "read", side_effect=mutate_before_read):
+            with self.assertRaisesRegex(ValueError, "changed while freezing"):
+                freeze.freeze_inputs(self.root_fd, self.destination, ["pair_status.py"])
 
     def test_unlisted_nisi_payload_is_refused_before_copying(self):
-        vendor = self.source / 'vendor/nisi'
-        (vendor / 'package').mkdir(parents=True)
-        (vendor / 'manifest.json').write_text(json.dumps({'files': {'index.mjs': 'fixture'}}))
-        (vendor / 'package/index.mjs').write_bytes(b'listed source')
-        extra = vendor / 'extra'
-        for kind in ('file', 'empty directory'):
+        vendor = self.source / "vendor/nisi"
+        (vendor / "package").mkdir(parents=True)
+        (vendor / "manifest.json").write_text(json.dumps({"files": {"index.mjs": "fixture"}}))
+        (vendor / "package/index.mjs").write_bytes(b"listed source")
+        extra = vendor / "extra"
+        for kind in ("file", "empty directory"):
             with self.subTest(kind=kind):
-                if kind == 'file':
-                    extra.write_bytes(b'unlisted fixture')
+                if kind == "file":
+                    extra.write_bytes(b"unlisted fixture")
                 else:
                     extra.mkdir()
-                with self.assertRaisesRegex(ValueError, 'Nisi payload file set mismatch'):
-                    freeze.freeze_inputs(self.root_fd, self.destination, ['vendor/nisi'])
+                with self.assertRaisesRegex(ValueError, "Nisi payload file set mismatch"):
+                    freeze.freeze_inputs(self.root_fd, self.destination, ["vendor/nisi"])
                 self.assertFalse(self.destination.exists())
-                if kind == 'file':
+                if kind == "file":
                     extra.unlink()
 
 
-@unittest.skipUnless(sys.platform == 'darwin', 'build entry points require macOS')
+@unittest.skipUnless(sys.platform == "darwin", "build entry points require macOS")
 class BuildInputTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.repo = Path(__file__).resolve().parent
-        cls.resources = shlex.split(re.search(
-            r'resources=\((.*?)\)', (cls.repo / 'package-release.sh').read_text(),
-            re.DOTALL).group(1))
+        cls.resources = shlex.split(
+            re.search(r"resources=\((.*?)\)", (cls.repo / "package-release.sh").read_text(), re.DOTALL).group(1)
+        )
         cls.nisi_inputs = [str(path.relative_to(cls.repo)) for path in bundle_nisi.resource_inputs()]
-        cls.names = cls.resources + cls.nisi_inputs + [
-            'Info.plist', 'Monitor.swift', 'JevKeychain.swift', 'LICENSE', 'NOTICE',
-            'freeze_build_inputs.py', 'build.sh', 'package-release.sh']
+        cls.names = (
+            cls.resources
+            + cls.nisi_inputs
+            + [
+                "Info.plist",
+                "Monitor.swift",
+                "JevKeychain.swift",
+                "LICENSE",
+                "NOTICE",
+                "freeze_build_inputs.py",
+                "build.sh",
+                "package-release.sh",
+            ]
+        )
         cls.inputs = {name: (cls.repo / name).read_bytes() for name in cls.names}
 
     def run_script(self, script, linked_input=None, replacement=False):
-        with tempfile.TemporaryDirectory(prefix='agiw-input-test-') as temporary:
+        with tempfile.TemporaryDirectory(prefix="agiw-input-test-") as temporary:
             root = Path(temporary)
-            source = root / 'source'
+            source = root / "source"
             for name, content in self.inputs.items():
                 path = source / name
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_bytes(content)
-            outside = root / 'outside-fixture'
-            outside.write_bytes(b'outside fixture must never be bundled')
+            outside = root / "outside-fixture"
+            outside.write_bytes(b"outside fixture must never be bundled")
             if linked_input:
                 target = source / linked_input
                 target.unlink()
                 target.symlink_to(outside)
-            tools = root / 'tools'
+            tools = root / "tools"
             tools.mkdir()
-            calls = root / 'calls.jsonl'
-            shim = '''#!/bin/bash
+            calls = root / "calls.jsonl"
+            shim = """#!/bin/bash
 name="${0##*/}"
 printf '%s\\n' "$name $*" >> "$INPUT_TEST_CALLS"
 case "$name" in
@@ -199,52 +211,75 @@ case "$name" in
         esac ;;
     *) exit 97 ;;
 esac
-'''
-            for name in ('uname', 'git', 'mktemp', 'xcrun', 'xcodebuild',
-                         'xcode-select', 'codesign', 'hdiutil', 'lipo', 'plutil'):
+"""
+            for name in (
+                "uname",
+                "git",
+                "mktemp",
+                "xcrun",
+                "xcodebuild",
+                "xcode-select",
+                "codesign",
+                "hdiutil",
+                "lipo",
+                "plutil",
+            ):
                 tool = tools / name
                 tool.write_text(shim)
                 tool.chmod(0o700)
             environment = dict(os.environ)
-            environment.update({
-                'PATH': str(tools) + ':/usr/bin:/bin:/usr/sbin:/sbin',
-                'HOME': str(root / 'home'), 'PYTHONDONTWRITEBYTECODE': '1',
-                'MONITOR_RELEASE_SIGN_IDENTITY': '0' * 40,
-                'MONITOR_RELEASE_ALLOW_DIRTY': '1',
-                'MONITOR_RELEASE_OUTPUT_DIR': str(root / 'output'),
-                'INPUT_TEST_CALLS': str(calls), 'INPUT_TEST_SOURCE': str(source),
-                'INPUT_TEST_OUTSIDE': str(outside),
-                'INPUT_TEST_REPLACE': '1' if replacement else '0',
-            })
-            result = subprocess.run(['/bin/bash', str(source / script)], cwd=source,
-                                    env=environment, capture_output=True, text=True,
-                                    timeout=20)
+            environment.update(
+                {
+                    "PATH": str(tools) + ":/usr/bin:/bin:/usr/sbin:/sbin",
+                    "HOME": str(root / "home"),
+                    "PYTHONDONTWRITEBYTECODE": "1",
+                    "MONITOR_RELEASE_SIGN_IDENTITY": "0" * 40,
+                    "MONITOR_RELEASE_ALLOW_DIRTY": "1",
+                    "MONITOR_RELEASE_OUTPUT_DIR": str(root / "output"),
+                    "INPUT_TEST_CALLS": str(calls),
+                    "INPUT_TEST_SOURCE": str(source),
+                    "INPUT_TEST_OUTSIDE": str(outside),
+                    "INPUT_TEST_REPLACE": "1" if replacement else "0",
+                }
+            )
+            result = subprocess.run(
+                ["/bin/bash", str(source / script)],
+                cwd=source,
+                env=environment,
+                capture_output=True,
+                text=True,
+                timeout=20,
+            )
             observed = [line.split() for line in calls.read_text().splitlines()]
             self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
-            self.assertFalse(any(call[0] in ('codesign', 'hdiutil') or
-                                 call[:3] == ['xcrun', 'swiftc', '-O']
-                                 for call in observed), (result.stderr, observed))
-            self.assertFalse((root / 'home/Applications/Inference Monitor.app').exists())
-            self.assertFalse((root / 'home/.local').exists())
+            self.assertFalse(
+                any(call[0] in ("codesign", "hdiutil") or call[:3] == ["xcrun", "swiftc", "-O"] for call in observed),
+                (result.stderr, observed),
+            )
+            self.assertFalse((root / "home/Applications/Inference Monitor.app").exists())
+            self.assertFalse((root / "home/.local").exists())
             if replacement:
-                self.assertTrue((source / 'pair_status.py').is_symlink())
-                self.assertIn('Too many levels of symbolic links', result.stderr)
+                self.assertTrue((source / "pair_status.py").is_symlink())
+                self.assertIn("Too many levels of symbolic links", result.stderr)
 
     def test_every_build_input_rejects_a_static_symlink(self):
-        for script in ('build.sh', 'package-release.sh'):
-            names = self.resources + self.nisi_inputs + [
-                'Info.plist', 'Monitor.swift', 'JevKeychain.swift', 'freeze_build_inputs.py']
-            if script == 'package-release.sh':
-                names += ['LICENSE', 'NOTICE']
+        for script in ("build.sh", "package-release.sh"):
+            names = (
+                self.resources
+                + self.nisi_inputs
+                + ["Info.plist", "Monitor.swift", "JevKeychain.swift", "freeze_build_inputs.py"]
+            )
+            if script == "package-release.sh":
+                names += ["LICENSE", "NOTICE"]
             for name in names:
                 with self.subTest(script=script, name=name):
                     self.run_script(script, linked_input=name)
 
     def test_source_replacement_after_preflight_cannot_redirect_copy(self):
-        for script in ('build.sh', 'package-release.sh'):
+        for script in ("build.sh", "package-release.sh"):
             with self.subTest(script=script):
                 self.run_script(script, replacement=True)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

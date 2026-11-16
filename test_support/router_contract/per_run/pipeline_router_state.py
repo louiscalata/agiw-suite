@@ -23,6 +23,7 @@ Journal layout written under ``root`` (all directories 0700, all files 0600, one
     checkpoints/          Created empty; the Monitor only requires that it exists.
     policy.json           Written by tests through _atomic.
 """
+
 import fcntl
 import itertools
 import json
@@ -90,8 +91,7 @@ def _policy_is_multi(root):
         value = json.loads((root / "policy.json").read_text())
     except (OSError, ValueError):
         return False
-    return (isinstance(value, dict) and value.get("kind") == POLICY_KIND
-            and value.get("concurrency") == "multi")
+    return isinstance(value, dict) and value.get("kind") == POLICY_KIND and value.get("concurrency") == "multi"
 
 
 class RouterOwner:
@@ -121,7 +121,7 @@ class RouterOwner:
             fd = getattr(self, name)
             setattr(self, name, None)
             if fd is not None:
-                os.close(fd)          # closing the description releases its flock
+                os.close(fd)  # closing the description releases its flock
         return False
 
     def claim(self, run_id, digest, until, meta=None):
@@ -158,19 +158,35 @@ class RouterOwner:
         if (run_id, digest) != (self._run, self._digest) or self._record is not None:
             raise RuntimeError("begin needs the claimed run")
         lock = os.fstat(self._l1)
-        self._record = {"schemaVersion": 1, "runId": run_id, "inputSha256": digest, "stage": "started",
-                        "checkpoint": None, "startedUnix": time.time(),
-                        "runLock": {"dev": lock.st_dev, "ino": lock.st_ino}}
-        self._publish()               # the record first: a run with a record has begun
+        self._record = {
+            "schemaVersion": 1,
+            "runId": run_id,
+            "inputSha256": digest,
+            "stage": "started",
+            "checkpoint": None,
+            "startedUnix": time.time(),
+            "runLock": {"dev": lock.st_dev, "ino": lock.st_ino},
+        }
+        self._publish()  # the record first: a run with a record has begun
         self.note("running", None, None, None)
 
     def checkpoint(self, stage, evidence):
         if self._record is None:
             raise RuntimeError("checkpoint needs a begun run")
         sequence = self._record.get("sequence", 0) + 1
-        self._record.update(stage=stage, sequence=sequence, checkpoint={
-            "schemaVersion": 1, "runId": self._run, "inputSha256": self._digest, "sequence": sequence,
-            "stage": stage, "evidence": dict(evidence), "recordedUnix": time.time()})
+        self._record.update(
+            stage=stage,
+            sequence=sequence,
+            checkpoint={
+                "schemaVersion": 1,
+                "runId": self._run,
+                "inputSha256": self._digest,
+                "sequence": sequence,
+                "stage": stage,
+                "evidence": dict(evidence),
+                "recordedUnix": time.time(),
+            },
+        )
         self._publish()
 
     def note(self, phase, resource, step, until):
@@ -178,23 +194,46 @@ class RouterOwner:
         if self._run is None:
             raise RuntimeError("note needs a claimed run")
         now = time.time()
-        _atomic(self.root / "notes" / (self._run + ".json"), {
-            "schemaVersion": 1, "kind": NOTE_KIND, "runId": self._run, "inputSha256": self._digest,
-            "operation": self._meta.get("operation"), "client": self._meta.get("client"),
-            "host": self._meta.get("host"), "admission": self._admission, "phase": phase,
-            "resource": resource, "step": step, "sinceUnix": now,
-            "untilUnix": None if until is None else now + (until - time.monotonic()),
-            "pid": os.getpid()}, 4096)
+        _atomic(
+            self.root / "notes" / (self._run + ".json"),
+            {
+                "schemaVersion": 1,
+                "kind": NOTE_KIND,
+                "runId": self._run,
+                "inputSha256": self._digest,
+                "operation": self._meta.get("operation"),
+                "client": self._meta.get("client"),
+                "host": self._meta.get("host"),
+                "admission": self._admission,
+                "phase": phase,
+                "resource": resource,
+                "step": step,
+                "sinceUnix": now,
+                "untilUnix": None if until is None else now + (until - time.monotonic()),
+                "pid": os.getpid(),
+            },
+            4096,
+        )
 
     def finish(self, result, exit_code):
         """Archive first, then clear the record and the note.  The locks stay held until
         the owner exits, and the lock file stays in place."""
         if self._record is None:
             raise RuntimeError("finish needs a begun run")
-        _atomic(self.root / "archive" / (self._run + ".json"), {
-            "schemaVersion": 1, "runId": self._run, "inputSha256": self._digest, "result": result,
-            "exitCode": exit_code, "stage": self._record["stage"],
-            "checkpoint": self._record["checkpoint"], "finishedUnix": time.time()}, 3 * 1024 * 1024)
+        _atomic(
+            self.root / "archive" / (self._run + ".json"),
+            {
+                "schemaVersion": 1,
+                "runId": self._run,
+                "inputSha256": self._digest,
+                "result": result,
+                "exitCode": exit_code,
+                "stage": self._record["stage"],
+                "checkpoint": self._record["checkpoint"],
+                "finishedUnix": time.time(),
+            },
+            3 * 1024 * 1024,
+        )
         for directory in ("active", "notes"):
             try:
                 os.unlink(str(self.root / directory / (self._run + ".json")))

@@ -1,4 +1,5 @@
 """Service observation contracts; temporary files and injected commands only."""
+
 import hashlib
 import io
 import json
@@ -26,15 +27,27 @@ class ObservationBase(unittest.TestCase):
                 return subprocess.CompletedProcess(argv, 0, f'"tester","{SID}"\n', "")
             return subprocess.CompletedProcess(argv, code, stdout, stderr)
 
-        return ServiceManager(kind, home=self.home, python="/opt/python3", runner=mock.Mock(side_effect=runner),
-                              env={"USERNAME": "tester", "USERDOMAIN": "WORKGROUP"}, uid=501,
-                              system_dir="C:\\Windows\\System32")
+        return ServiceManager(
+            kind,
+            home=self.home,
+            python="/opt/python3",
+            runner=mock.Mock(side_effect=runner),
+            env={"USERNAME": "tester", "USERDOMAIN": "WORKGROUP"},
+            uid=501,
+            system_dir="C:\\Windows\\System32",
+        )
 
     def assert_payload(self, manager, installed, loaded, running):
-        self.assertEqual(manager.status(), {
-            "kind": manager.kind, "definition": str(manager.definition_path()),
-            "installed": installed, "loaded": loaded, "running": running,
-        })
+        self.assertEqual(
+            manager.status(),
+            {
+                "kind": manager.kind,
+                "definition": str(manager.definition_path()),
+                "installed": installed,
+                "loaded": loaded,
+                "running": running,
+            },
+        )
 
     def assert_cli_status(self, manager, installed, loaded, running):
         definition = str(Path("~") / manager.definition_path().relative_to(self.home))
@@ -44,29 +57,31 @@ class ObservationBase(unittest.TestCase):
             f"loaded: {words[loaded]}, running: {words[running]}",
         ]
         literals = {True: "true", False: "false", None: "null"}
-        expected_json = ('{\n "definition": %s,\n "installed": %s,\n "kind": "%s",\n'
-                         ' "loaded": %s,\n "running": %s\n}') % (
-                             json.dumps(definition), literals[installed], manager.kind,
-                             literals[loaded], literals[running])
+        expected_json = (
+            '{\n "definition": %s,\n "installed": %s,\n "kind": "%s",\n "loaded": %s,\n "running": %s\n}'
+        ) % (json.dumps(definition), literals[installed], manager.kind, literals[loaded], literals[running])
         for options, expected in (([], expected_text), (["--json"], [expected_json])):
             with self.subTest(options=options), mock.patch.object(cli, "make_manager", return_value=manager):
                 lines, error = [], io.StringIO()
                 with mock.patch("sys.stderr", error):
-                    code = cli.main(["service", "status", *options], out=lines.append,
-                                    kind=manager.kind, home=self.home, env={})
+                    code = cli.main(
+                        ["service", "status", *options], out=lines.append, kind=manager.kind, home=self.home, env={}
+                    )
                 self.assertEqual((code, lines, error.getvalue()), (0, expected, ""))
 
 
 class ServiceObservationContracts(ObservationBase):
     def test_mac_payload_and_query_identity_with_and_without_definition(self):
-        cases = ((0, "\tstate = running\n", "", True, True),
-                 (0, "state = waiting\n", "", True, False),
-                 (0, "state = not running\n", "", True, False),
-                 (0, "", "", True, False),
-                 (0, "Could not find service\n", "", True, False),
-                 (113, "", "", False, False),
-                 (5, "Could not find service", "", False, False),
-                 (5, "", "COULD NOT FIND SERVICE", False, False))
+        cases = (
+            (0, "\tstate = running\n", "", True, True),
+            (0, "state = waiting\n", "", True, False),
+            (0, "state = not running\n", "", True, False),
+            (0, "", "", True, False),
+            (0, "Could not find service\n", "", True, False),
+            (113, "", "", False, False),
+            (5, "Could not find service", "", False, False),
+            (5, "", "COULD NOT FIND SERVICE", False, False),
+        )
         for code, stdout, stderr, loaded, running in cases:
             for installed in (False, True):
                 with self.subTest(code=code, stdout=stdout, stderr=stderr, installed=installed):
@@ -75,16 +90,21 @@ class ServiceObservationContracts(ObservationBase):
                     if installed:
                         manager._write_definition()
                     self.assert_payload(manager, installed, loaded, running)
-                    manager.runner.assert_called_once_with(
-                        ["/bin/launchctl", "print", f"gui/501/{LAUNCHD_LABEL}"])
+                    manager.runner.assert_called_once_with(["/bin/launchctl", "print", f"gui/501/{LAUNCHD_LABEL}"])
                     if installed:
                         path.unlink()
 
     def test_windows_payload_for_every_scheduler_state_and_query_failure(self):
-        cases = ((0, "Running\n", True, True), (0, "Ready\n", True, False),
-                 (0, "Queued\n", True, False), (0, "Disabled\n", True, False),
-                 (0, "Unknown\n", True, None), (3, "", False, False),
-                 (1, "Ready\n", None, None), (0, "invalid\n", None, None))
+        cases = (
+            (0, "Running\n", True, True),
+            (0, "Ready\n", True, False),
+            (0, "Queued\n", True, False),
+            (0, "Disabled\n", True, False),
+            (0, "Unknown\n", True, None),
+            (3, "", False, False),
+            (1, "Ready\n", None, None),
+            (0, "invalid\n", None, None),
+        )
         for code, stdout, loaded, running in cases:
             for installed in (False, True):
                 with self.subTest(code=code, stdout=stdout, installed=installed):
@@ -98,13 +118,15 @@ class ServiceObservationContracts(ObservationBase):
                         manager.definition_path().unlink()
 
     def test_cli_status_bytes_and_exit_codes(self):
-        cases = (("mac", 0, "state = running\n", True, True),
-                 ("mac", 0, "state = exited\n", True, False),
-                 ("mac", 113, "", False, False),
-                 ("windows", 0, "Running\n", True, True),
-                 ("windows", 0, "Ready\n", True, False),
-                 ("windows", 0, "Unknown\n", True, None),
-                 ("windows", 1, "", None, None))
+        cases = (
+            ("mac", 0, "state = running\n", True, True),
+            ("mac", 0, "state = exited\n", True, False),
+            ("mac", 113, "", False, False),
+            ("windows", 0, "Running\n", True, True),
+            ("windows", 0, "Ready\n", True, False),
+            ("windows", 0, "Unknown\n", True, None),
+            ("windows", 1, "", None, None),
+        )
         for kind, code, stdout, loaded, running in cases:
             for installed in (False, True):
                 with self.subTest(kind=kind, stdout=stdout, installed=installed):
@@ -116,8 +138,10 @@ class ServiceObservationContracts(ObservationBase):
                         manager.definition_path().unlink()
 
     def test_definition_bytes_and_status_are_read_only(self):
-        hashes = {"mac": "ab062fcda311d1534a736dd8b28b5fed3ca17e0115922e06c52eaf0b5f42274d",
-                  "windows": "0d26dc97e30c40c3b5de00dd8ebc0b433b352e624ba8a0e253a268e1e20de059"}
+        hashes = {
+            "mac": "ab062fcda311d1534a736dd8b28b5fed3ca17e0115922e06c52eaf0b5f42274d",
+            "windows": "0d26dc97e30c40c3b5de00dd8ebc0b433b352e624ba8a0e253a268e1e20de059",
+        }
         for kind, digest in hashes.items():
             with self.subTest(kind=kind):
                 manager = self.manager(kind, 0, "state = running\n" if kind == "mac" else "Running\n")
@@ -151,9 +175,12 @@ class ServiceObservationContracts(ObservationBase):
 
 class ServiceObservationRegressions(ObservationBase):
     def test_mac_failed_query_is_unknown_with_or_without_definition(self):
-        for code, stdout, stderr in ((5, "", "Operation not permitted"),
-                                     (1, "state = running\n", "query failed"),
-                                     (3, "", ""), (-9, "", "")):
+        for code, stdout, stderr in (
+            (5, "", "Operation not permitted"),
+            (1, "state = running\n", "query failed"),
+            (3, "", ""),
+            (-9, "", ""),
+        ):
             for installed in (False, True):
                 with self.subTest(code=code, installed=installed):
                     manager = self.manager("mac", code, stdout, stderr)

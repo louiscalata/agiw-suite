@@ -1,4 +1,5 @@
 """Execute the actual native startup and poll methods with an in-memory transport."""
+
 import json
 import os
 from pathlib import Path
@@ -9,17 +10,19 @@ import tempfile
 import unittest
 
 
-@unittest.skipUnless(platform.system() == 'Darwin' and shutil.which('xcrun'), 'Requires macOS Swift toolchain')
+@unittest.skipUnless(platform.system() == "Darwin" and shutil.which("xcrun"), "Requires macOS Swift toolchain")
 class NativePollTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.temp = tempfile.TemporaryDirectory(prefix='native-poll-')
+        cls.temp = tempfile.TemporaryDirectory(prefix="native-poll-")
         cls.addClassCleanup(cls.temp.cleanup)
         stage = Path(cls.temp.name)
-        source = Path('Monitor.swift').read_text()
-        methods = source[source.index('    private func consumeStartup('):source.index('    private func updateBadge(')]
-        methods = methods.replace('private func', 'func')
-        driver = r'''
+        source = Path("Monitor.swift").read_text()
+        methods = source[
+            source.index("    private func consumeStartup(") : source.index("    private func updateBadge(")
+        ]
+        methods = methods.replace("private func", "func")
+        driver = r"""
 import Foundation
 final class Child {
     let processIdentifier: Int32 = 123
@@ -64,8 +67,8 @@ final class Harness {
     func failService(_ reason: String) { serviceError = reason }
     func showUnknownBadge(_ reason: String) {}
     func updateBadge(_ snapshot: [String: Any]) {}
-'''
-        tail = r'''
+"""
+        tail = r"""
 }
 let harness = Harness()
 harness.session.status = Int(CommandLine.arguments[1])!
@@ -80,15 +83,31 @@ print(String(data: try JSONSerialization.data(withJSONObject: [
     "paths": harness.session.paths, "terminations": harness.observer!.terminations,
     "page": harness.popoverDashboard.loaded!.path, "healthy": harness.observerHealthy,
     "failures": harness.pollFailures]), encoding: .utf8)!)
-'''
-        swift = stage / 'main.swift'
+"""
+        swift = stage / "main.swift"
         swift.write_text(driver + methods + tail)
-        cls.executable = stage / 'poll-test'
-        environment = dict(os.environ, TMPDIR=str(stage), CLANG_MODULE_CACHE_PATH=str(stage / 'clang-cache'),
-                           SWIFT_MODULECACHE_PATH=str(stage / 'swift-cache'))
-        result = subprocess.run(['xcrun', 'swiftc', '-module-cache-path', str(stage / 'swift-cache'),
-                                 str(swift), '-o', str(cls.executable)], env=environment,
-                                capture_output=True, text=True, timeout=60)
+        cls.executable = stage / "poll-test"
+        environment = dict(
+            os.environ,
+            TMPDIR=str(stage),
+            CLANG_MODULE_CACHE_PATH=str(stage / "clang-cache"),
+            SWIFT_MODULECACHE_PATH=str(stage / "swift-cache"),
+        )
+        result = subprocess.run(
+            [
+                "xcrun",
+                "swiftc",
+                "-module-cache-path",
+                str(stage / "swift-cache"),
+                str(swift),
+                "-o",
+                str(cls.executable),
+            ],
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
         if result.returncode:
             raise AssertionError(result.stderr)
 
@@ -101,19 +120,20 @@ print(String(data: try JSONSerialization.data(withJSONObject: [
         from test_review_regressions import handler
         from test_server import snapshot
         from server import SnapshotStore
+
         result = self.run_poll(200)
         store = SnapshotStore()
         store.publish(snapshot())
-        self.assertEqual(result['page'], '/monitor')
-        self.assertTrue(all(handler(path, store).do_GET()[0] == 200 for path in result['paths']))
-        self.assertEqual(result['terminations'], 0)
-        self.assertTrue(result['healthy'])
+        self.assertEqual(result["page"], "/monitor")
+        self.assertTrue(all(handler(path, store).do_GET()[0] == 200 for path in result["paths"]))
+        self.assertEqual(result["terminations"], 0)
+        self.assertTrue(result["healthy"])
 
     def test_repeated_404_does_not_kill_observer(self):
         result = self.run_poll(404)
-        self.assertEqual(result['terminations'], 0)
-        self.assertEqual(result['failures'], 0)
-        self.assertFalse(result['healthy'])
+        self.assertEqual(result["terminations"], 0)
+        self.assertEqual(result["failures"], 0)
+        self.assertFalse(result["healthy"])
 
     def test_repeated_server_failures_still_trigger_recovery(self):
-        self.assertEqual(self.run_poll(503)['terminations'], 1)
+        self.assertEqual(self.run_poll(503)["terminations"], 1)

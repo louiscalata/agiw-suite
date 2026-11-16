@@ -13,12 +13,18 @@ import telemetry
 
 class ActivityTests(unittest.TestCase):
     def test_current_jev_decision_state_requires_matching_route_choice(self):
-        intake = {"model": "jev-1", "status": "JUDGED", "elapsed_ms": 4,
-                  "route": {"choice": "other", "confidence": .36},
-                  "decision": {"route": "other", "route_state": "UNRESOLVED_LOW_CONFIDENCE"},
-                  "usage": {"input_tokens": 2, "output_tokens": 3}}
-        record = {"runId": "route-test", "result": {"kind": "codemode.router.v1",
-                  "runId": "route-test", "status": "PARTIAL", "intake": intake}}
+        intake = {
+            "model": "jev-1",
+            "status": "JUDGED",
+            "elapsed_ms": 4,
+            "route": {"choice": "other", "confidence": 0.36},
+            "decision": {"route": "other", "route_state": "UNRESOLVED_LOW_CONFIDENCE"},
+            "usage": {"input_tokens": 2, "output_tokens": 3},
+        }
+        record = {
+            "runId": "route-test",
+            "result": {"kind": "codemode.router.v1", "runId": "route-test", "status": "PARTIAL", "intake": intake},
+        }
         projected = activity._project_archive(record, time.time())
         self.assertEqual(projected["routeState"], "UNRESOLVED_LOW_CONFIDENCE")
         self.assertEqual(projected["calls"][0]["decision"]["routeState"], "UNRESOLVED_LOW_CONFIDENCE")
@@ -47,14 +53,15 @@ class ActivityTests(unittest.TestCase):
         derived = activity._intake_usage({"input_tokens": 1342, "output_tokens": 213})
         self.assertEqual(derived["totalTokens"], 1555)
         self.assertEqual(derived["totalSource"], "sum_of_reported_input_output")
-        explicit = activity._intake_usage({"input_tokens": 1342, "output_tokens": 213,
-                                           "total_tokens": 1555})
+        explicit = activity._intake_usage({"input_tokens": 1342, "output_tokens": 213, "total_tokens": 1555})
         self.assertEqual(explicit["totalTokens"], 1555)
         self.assertEqual(explicit["totalSource"], "explicit_total")
-        self.assertIsNone(activity._intake_usage({"input_tokens": 1342, "output_tokens": 213,
-                                                  "total_tokens": 1554})["totalTokens"])
-        self.assertIsNone(activity._intake_usage({"input_tokens": 1342, "output_tokens": 213,
-                                                  "total_tokens": -1})["inputTokens"])
+        self.assertIsNone(
+            activity._intake_usage({"input_tokens": 1342, "output_tokens": 213, "total_tokens": 1554})["totalTokens"]
+        )
+        self.assertIsNone(
+            activity._intake_usage({"input_tokens": 1342, "output_tokens": 213, "total_tokens": -1})["inputTokens"]
+        )
         self.assertIsNone(activity._intake_usage({"input_tokens": 2**53 - 1, "output_tokens": 1})["outputTokens"])
         self.assertIsNone(activity._intake_usage({"input_tokens": 10})["totalTokens"])
 
@@ -66,41 +73,77 @@ class ActivityTests(unittest.TestCase):
     @staticmethod
     def _route(run_id, stage, started, recorded, evidence):
         """A whole legacy router record: the closed envelope the router writes."""
-        return {"schemaVersion": 1, "runId": run_id, "inputSha256": "a" * 64, "stage": stage, "sequence": 1,
-                "startedUnix": started,
-                "checkpoint": {"schemaVersion": 1, "runId": run_id, "inputSha256": "a" * 64, "sequence": 1,
-                               "stage": stage, "recordedUnix": recorded, "evidence": evidence}}
+        return {
+            "schemaVersion": 1,
+            "runId": run_id,
+            "inputSha256": "a" * 64,
+            "stage": stage,
+            "sequence": 1,
+            "startedUnix": started,
+            "checkpoint": {
+                "schemaVersion": 1,
+                "runId": run_id,
+                "inputSha256": "a" * 64,
+                "sequence": 1,
+                "stage": stage,
+                "recordedUnix": recorded,
+                "evidence": evidence,
+            },
+        }
 
     def _backend_with_calls(self):
         parent = "bound-route"
         candidate, author_task, review_task = "c" * 64, "a" * 64, "b" * 64
-        backend = {"candidateFingerprint": candidate,
-                   "selection": {"authorModel": "local/author", "reviewerModel": "local/reviewer"},
-                   "roleEvidence": {},
-                   "stages": {"prepare": {"taskFingerprint": author_task,
-                                             "reviewTaskFingerprint": review_task}}}
-        for role, stage, model, task in (("author", "draft", "local/author", author_task),
-                                         ("reviewer", "review", "local/reviewer", review_task)):
+        backend = {
+            "candidateFingerprint": candidate,
+            "selection": {"authorModel": "local/author", "reviewerModel": "local/reviewer"},
+            "roleEvidence": {},
+            "stages": {"prepare": {"taskFingerprint": author_task, "reviewTaskFingerprint": review_task}},
+        }
+        for role, stage, model, task in (
+            ("author", "draft", "local/author", author_task),
+            ("reviewer", "review", "local/reviewer", review_task),
+        ):
             call_run = parent + "." + stage
             call_id = "opencode.advisory:" + call_run
-            receipt = {"status": "RESPONSE_VALIDATED", "requestedModel": model,
-                       "reportedModel": model, "operation": stage, "taskFingerprint": task,
-                       "candidateFingerprint": candidate, "runId": call_id,
-                       "requestSha256": "1" * 64, "responseSha256": "2" * 64,
-                       "contentSha256": "3" * 64, "resultCandidateFingerprint": candidate,
-                       "elapsedMs": 100 if role == "author" else 200,
-                       "usage": {"promptTokens": 10, "completionTokens": 5, "totalTokens": 15},
-                       "lifecycle": {"transportSettlement": "settled"}}
+            receipt = {
+                "status": "RESPONSE_VALIDATED",
+                "requestedModel": model,
+                "reportedModel": model,
+                "operation": stage,
+                "taskFingerprint": task,
+                "candidateFingerprint": candidate,
+                "runId": call_id,
+                "requestSha256": "1" * 64,
+                "responseSha256": "2" * 64,
+                "contentSha256": "3" * 64,
+                "resultCandidateFingerprint": candidate,
+                "elapsedMs": 100 if role == "author" else 200,
+                "usage": {"promptTokens": 10, "completionTokens": 5, "totalTokens": 15},
+                "lifecycle": {"transportSettlement": "settled"},
+            }
             backend["roleEvidence"][role] = dict(receipt)
-            result = {"status": "RESPONSE_VALIDATED", "runId": call_run, "mode": stage,
-                      "accepted": False, "advisoryOnly": True, "outputMode": "json_schema",
-                      "checks": "NOT_RUN", "tests": "NOT_RUN", "certification": "NOT_RUN",
-                      "candidateFingerprint": candidate,
-                      "binding": {"runId": call_id, "taskFingerprint": task,
-                                  "candidateFingerprint": candidate},
-                      "receipts": [receipt], "candidate": {"files": [{"content": "private"}]}}
-            backend["stages"][stage] = {"status": "RETURNED", "operation": "work",
-                                         "recoveryRequired": False, "result": result}
+            result = {
+                "status": "RESPONSE_VALIDATED",
+                "runId": call_run,
+                "mode": stage,
+                "accepted": False,
+                "advisoryOnly": True,
+                "outputMode": "json_schema",
+                "checks": "NOT_RUN",
+                "tests": "NOT_RUN",
+                "certification": "NOT_RUN",
+                "candidateFingerprint": candidate,
+                "binding": {"runId": call_id, "taskFingerprint": task, "candidateFingerprint": candidate},
+                "receipts": [receipt],
+                "candidate": {"files": [{"content": "private"}]},
+            }
+            backend["stages"][stage] = {
+                "status": "RETURNED",
+                "operation": "work",
+                "recoveryRequired": False,
+                "result": result,
+            }
         return backend
 
     def test_nested_nisi_envelopes_enrich_identity_with_bound_usage_and_duration(self):
@@ -132,10 +175,20 @@ class ActivityTests(unittest.TestCase):
 
     def test_current_checkpoint_is_projected_without_evidence_text_or_fake_calls(self):
         with tempfile.TemporaryDirectory() as temp:
-            pointer = self._write(Path(temp) / "active.json", self._route(
-                "route-8", "backend_draft", time.time() - 10000, time.time() - 2,
-                {"prompt": "secret prompt", "model": "do-not-project"}))
-            with mock.patch.object(activity, "_ACTIVE", pointer), mock.patch.object(activity, "_archive_files", return_value=[]):
+            pointer = self._write(
+                Path(temp) / "active.json",
+                self._route(
+                    "route-8",
+                    "backend_draft",
+                    time.time() - 10000,
+                    time.time() - 2,
+                    {"prompt": "secret prompt", "model": "do-not-project"},
+                ),
+            )
+            with (
+                mock.patch.object(activity, "_ACTIVE", pointer),
+                mock.patch.object(activity, "_archive_files", return_value=[]),
+            ):
                 result = activity.collect_activity()
         self.assertEqual(len(result["runs"]), 1)
         run = result["runs"][0]
@@ -150,29 +203,52 @@ class ActivityTests(unittest.TestCase):
 
     def test_stale_checkpoint_not_active_generation(self):
         with tempfile.TemporaryDirectory() as temp:
-            pointer = self._write(Path(temp) / "active.json", self._route(
-                "route-old", "backend_answer", time.time() - 1000, time.time() - 900, {}))
-            with mock.patch.object(activity, "_ACTIVE", pointer), mock.patch.object(activity, "_archive_files", return_value=[]):
+            pointer = self._write(
+                Path(temp) / "active.json",
+                self._route("route-old", "backend_answer", time.time() - 1000, time.time() - 900, {}),
+            )
+            with (
+                mock.patch.object(activity, "_ACTIVE", pointer),
+                mock.patch.object(activity, "_archive_files", return_value=[]),
+            ):
                 result = activity.collect_activity()
             self.assertEqual(result["runs"][0]["status"], "stale")
             self.assertEqual(result["runs"][0]["activity"], "unknown")
             self.assertEqual(result["sources"][0]["state"], "stale")
             # A record outside the router's closed envelope (here: no digest, a partial
             # checkpoint) describes nothing: one unreadable row, none of its fields used.
-            self._write(pointer, {"runId": "route-old", "stage": "backend_answer", "startedUnix": time.time(),
-                                  "checkpoint": {"recordedUnix": time.time() - 900, "evidence": {}}})
-            with mock.patch.object(activity, "_ACTIVE", pointer), mock.patch.object(activity, "_archive_files", return_value=[]):
+            self._write(
+                pointer,
+                {
+                    "runId": "route-old",
+                    "stage": "backend_answer",
+                    "startedUnix": time.time(),
+                    "checkpoint": {"recordedUnix": time.time() - 900, "evidence": {}},
+                },
+            )
+            with (
+                mock.patch.object(activity, "_ACTIVE", pointer),
+                mock.patch.object(activity, "_archive_files", return_value=[]),
+            ):
                 loose = activity.collect_activity()
-        self.assertEqual([(r["runId"], r["status"], r["stage"], r["recordedAt"]) for r in loose["runs"]],
-                         [("route-old", "unreadable", None, None)])
+        self.assertEqual(
+            [(r["runId"], r["status"], r["stage"], r["recordedAt"]) for r in loose["runs"]],
+            [("route-old", "unreadable", None, None)],
+        )
 
     def test_absent_or_invalid_pointer_has_no_run(self):
         with tempfile.TemporaryDirectory() as temp:
             absent = Path(temp) / "absent.json"
-            with mock.patch.object(activity, "_ACTIVE", absent), mock.patch.object(activity, "_archive_files", return_value=[]):
+            with (
+                mock.patch.object(activity, "_ACTIVE", absent),
+                mock.patch.object(activity, "_archive_files", return_value=[]),
+            ):
                 missing = activity.collect_activity()
             invalid = self._write(Path(temp) / "invalid.json", {"runId": "../../secret", "stage": "x"})
-            with mock.patch.object(activity, "_ACTIVE", invalid), mock.patch.object(activity, "_archive_files", return_value=[]):
+            with (
+                mock.patch.object(activity, "_ACTIVE", invalid),
+                mock.patch.object(activity, "_archive_files", return_value=[]),
+            ):
                 malformed = activity.collect_activity()
         self.assertEqual(missing["runs"], [])
         self.assertEqual(malformed["runs"], [])
@@ -180,24 +256,45 @@ class ActivityTests(unittest.TestCase):
 
     def test_archive_projects_only_allowlisted_receipt_and_route_fields(self):
         record = {
-            "schemaVersion": 1, "runId": "route-12", "stage": "backend_response",
-            "finishedUnix": 1_800_000_000.0, "exitCode": 0, "inputSha256": "a" * 64,
+            "schemaVersion": 1,
+            "runId": "route-12",
+            "stage": "backend_response",
+            "finishedUnix": 1_800_000_000.0,
+            "exitCode": 0,
+            "inputSha256": "a" * 64,
             "result": {
-                "kind": "codemode.router.v1", "runId": "route-12", "status": "RESPONSE_VALIDATED",
+                "kind": "codemode.router.v1",
+                "runId": "route-12",
+                "status": "RESPONSE_VALIDATED",
                 "candidate": {"files": [{"path": "secret.py", "content": "private source"}]},
                 "stages": {
-                    "intake": {"route": {"choice": "edit", "route_state": "routed", "confidence": 0.8},
-                               "model": "jev-1", "status": "JUDGED", "elapsed_ms": 12,
-                               "usage": {"input_tokens": 13, "output_tokens": 7}},
-                    "backend": {"roleEvidence": {
-                        "author": {"runId": "opencode.advisory:route-12.draft",
-                                    "reportedModel": "local/author", "requestedModel": "local/author",
-                                    "operation": "draft", "status": "RESPONSE_VALIDATED", "prompt": "never expose"},
-                        "reviewer": {"runId": "opencode.advisory:route-12.review",
-                                     "reportedModel": "local/reviewer", "operation": "review",
-                                     "status": "RESPONSE_VALIDATED"}}}
-                }
-            }
+                    "intake": {
+                        "route": {"choice": "edit", "route_state": "routed", "confidence": 0.8},
+                        "model": "jev-1",
+                        "status": "JUDGED",
+                        "elapsed_ms": 12,
+                        "usage": {"input_tokens": 13, "output_tokens": 7},
+                    },
+                    "backend": {
+                        "roleEvidence": {
+                            "author": {
+                                "runId": "opencode.advisory:route-12.draft",
+                                "reportedModel": "local/author",
+                                "requestedModel": "local/author",
+                                "operation": "draft",
+                                "status": "RESPONSE_VALIDATED",
+                                "prompt": "never expose",
+                            },
+                            "reviewer": {
+                                "runId": "opencode.advisory:route-12.review",
+                                "reportedModel": "local/reviewer",
+                                "operation": "review",
+                                "status": "RESPONSE_VALIDATED",
+                            },
+                        }
+                    },
+                },
+            },
         }
         projected = activity._project_archive(record, 1_800_000_010.0)
         self.assertEqual(projected["routeChoice"], "edit")
@@ -205,9 +302,10 @@ class ActivityTests(unittest.TestCase):
         self.assertEqual(projected["calls"][0]["model"], "local/author")
         self.assertEqual(projected["calls"][0]["id"], "opencode.advisory:route-12.draft")
         self.assertEqual(projected["usage"], {"inputTokens": None, "outputTokens": None, "totalTokens": None})
-        self.assertEqual(projected["calls"][-1]["usage"],
-                         {"inputTokens": 13, "outputTokens": 7, "totalTokens": 20,
-                          "totalSource": "sum_of_reported_input_output"})
+        self.assertEqual(
+            projected["calls"][-1]["usage"],
+            {"inputTokens": 13, "outputTokens": 7, "totalTokens": 20, "totalSource": "sum_of_reported_input_output"},
+        )
         serialized = json.dumps(projected)
         self.assertNotIn("private source", serialized)
         self.assertNotIn("never expose", serialized)
@@ -222,19 +320,37 @@ class ActivityTests(unittest.TestCase):
         self.assertEqual((projected["client"], projected["host"]), (None, None))
 
     def test_archive_projects_bounded_review_consistency_from_the_first_reviewed_stage(self):
-        stages = {"backend": {"reviewConsistency": {"status": "SUMMARY_MAY_REPORT_DEFECT", "rule": "possible-defect",
-                                                    "evidence": "may\n\x07 miss " + "x" * 400}},
-                  "macReturn": {"reviewConsistency": {"status": "SUMMARY_REPORTS_DEFECT", "rule": "defect"}}}
-        record = {"runId": "route-13", "result": {"kind": "codemode.router.v1", "runId": "route-13",
-                                                  "status": "RESPONSE_VALIDATED", "stages": stages}}
+        stages = {
+            "backend": {
+                "reviewConsistency": {
+                    "status": "SUMMARY_MAY_REPORT_DEFECT",
+                    "rule": "possible-defect",
+                    "evidence": "may\n\x07 miss " + "x" * 400,
+                }
+            },
+            "macReturn": {"reviewConsistency": {"status": "SUMMARY_REPORTS_DEFECT", "rule": "defect"}},
+        }
+        record = {
+            "runId": "route-13",
+            "result": {
+                "kind": "codemode.router.v1",
+                "runId": "route-13",
+                "status": "RESPONSE_VALIDATED",
+                "stages": stages,
+            },
+        }
         value = activity._project_archive(record, time.time())["reviewConsistency"]
-        self.assertEqual((value["status"], value["rule"], value["stage"]),
-                         ("SUMMARY_MAY_REPORT_DEFECT", "possible-defect", "backend"))
+        self.assertEqual(
+            (value["status"], value["rule"], value["stage"]),
+            ("SUMMARY_MAY_REPORT_DEFECT", "possible-defect", "backend"),
+        )
         self.assertTrue(value["evidence"].startswith("may miss x"))
         self.assertEqual(len(value["evidence"]), 160)
         stages["backend"]["reviewConsistency"] = {"status": "OK", "rule": "x"}
         value = activity._project_archive(record, time.time())["reviewConsistency"]
-        self.assertEqual((value["status"], value["stage"], value["evidence"]), ("SUMMARY_REPORTS_DEFECT", "macReturn", None))
+        self.assertEqual(
+            (value["status"], value["stage"], value["evidence"]), ("SUMMARY_REPORTS_DEFECT", "macReturn", None)
+        )
         stages["macReturn"]["reviewConsistency"]["rule"] = "bad rule; rm -rf"
         self.assertIsNone(activity._project_archive(record, time.time())["reviewConsistency"]["rule"])
         stages["macReturn"] = "not a stage"
@@ -242,8 +358,10 @@ class ActivityTests(unittest.TestCase):
 
     def test_sanitized_monitor_receipt_keeps_reported_calls_separate_from_run_totals(self):
         receipt = {
-            "kind": "codemode.monitor.run-receipt.v1", "schemaVersion": 1,
-            "runId": "receipt-1", "startedAt": "2026-09-23T17:20:00+00:00",
+            "kind": "codemode.monitor.run-receipt.v1",
+            "schemaVersion": 1,
+            "runId": "receipt-1",
+            "startedAt": "2026-09-23T17:20:00+00:00",
             "finishedAt": "2026-09-23T17:21:00+00:00",
             "bindings": {"routerRequestSha256": "a" * 64},
             "route": {"status": "RESPONSE_VALIDATED", "elapsedMs": 60000},
@@ -252,15 +370,25 @@ class ActivityTests(unittest.TestCase):
             "review": {"structuredFindingCount": 0, "summaryContradictsEmptyFindings": True},
             "logicalCallCount": 2,
             "calls": [
-                {"role": "author", "reportedModel": "google/model-a", "requestedModel": "google/model-a",
-                 "status": "RESPONSE_VALIDATED", "elapsedMs": 10,
-                 "bindings": {"runId": "opencode.advisory:receipt-1.draft"},
-                 "usage": {"inputTokens": 3, "outputTokens": 4, "totalTokens": 7, "complete": True},
-                 "prompt": "no leak"},
-                {"role": "reviewer", "reportedModel": "google/model-b", "requestedModel": "google/model-b",
-                 "status": "RESPONSE_VALIDATED", "elapsedMs": 20,
-                 "bindings": {"runId": "opencode.advisory:receipt-1.review"},
-                 "usage": {"inputTokens": 5, "outputTokens": 6, "totalTokens": 11, "complete": True}},
+                {
+                    "role": "author",
+                    "reportedModel": "google/model-a",
+                    "requestedModel": "google/model-a",
+                    "status": "RESPONSE_VALIDATED",
+                    "elapsedMs": 10,
+                    "bindings": {"runId": "opencode.advisory:receipt-1.draft"},
+                    "usage": {"inputTokens": 3, "outputTokens": 4, "totalTokens": 7, "complete": True},
+                    "prompt": "no leak",
+                },
+                {
+                    "role": "reviewer",
+                    "reportedModel": "google/model-b",
+                    "requestedModel": "google/model-b",
+                    "status": "RESPONSE_VALIDATED",
+                    "elapsedMs": 20,
+                    "bindings": {"runId": "opencode.advisory:receipt-1.review"},
+                    "usage": {"inputTokens": 5, "outputTokens": 6, "totalTokens": 11, "complete": True},
+                },
             ],
             "usageTotals": {"inputTokens": 8, "outputTokens": 10, "totalTokens": 18, "complete": True},
             "privateText": "never project",
@@ -283,10 +411,20 @@ class ActivityTests(unittest.TestCase):
             archive = root / "archive"
             archive.mkdir(parents=True, mode=0o700)
             for index in range(15):
-                row = {"schemaVersion": 1, "runId": f"route-{index}", "stage": "done",
-                       "finishedUnix": 1000 + index, "exitCode": 0, "inputSha256": "b" * 64,
-                       "result": {"kind": "codemode.router.v1", "runId": f"route-{index}",
-                                  "status": "RESPONSE_VALIDATED", "stages": {}}}
+                row = {
+                    "schemaVersion": 1,
+                    "runId": f"route-{index}",
+                    "stage": "done",
+                    "finishedUnix": 1000 + index,
+                    "exitCode": 0,
+                    "inputSha256": "b" * 64,
+                    "result": {
+                        "kind": "codemode.router.v1",
+                        "runId": f"route-{index}",
+                        "status": "RESPONSE_VALIDATED",
+                        "stages": {},
+                    },
+                }
                 file = archive / f"route-{index}.json"
                 file.write_text(json.dumps(row))
                 file.chmod(0o600)
@@ -321,20 +459,23 @@ class DualReadActivityTests(unittest.TestCase):
 
     def setUp(self):
         from test_telemetry import _require_router_writer
+
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(os.path.realpath(self.temp.name)) / "router"
-        for target, name, value in ((activity, "_ACTIVE", self.root / "active.json"),
-                                    (activity, "_receipt_files", lambda: []),
-                                    (activity, "_archive_files", lambda: []),
-                                    (telemetry, "_ACTIVE_PATH", self.root / "active.json"),
-                                    (telemetry, "_ROUTER_ROOT", self.root),
-                                    (telemetry, "_router_openers", lambda root: None)):
+        for target, name, value in (
+            (activity, "_ACTIVE", self.root / "active.json"),
+            (activity, "_receipt_files", lambda: []),
+            (activity, "_archive_files", lambda: []),
+            (telemetry, "_ACTIVE_PATH", self.root / "active.json"),
+            (telemetry, "_ROUTER_ROOT", self.root),
+            (telemetry, "_router_openers", lambda root: None),
+        ):
             patcher = mock.patch.object(target, name, value)
             patcher.start()
             self.addCleanup(patcher.stop)
         self.addCleanup(telemetry._LAST_ROUTER_OBSERVATION.update, sampledAt=None, value=None)
-        per_run, legacy =_require_router_writer(self, "per-run"), _require_router_writer(self, "legacy")
+        per_run, legacy = _require_router_writer(self, "per-run"), _require_router_writer(self, "legacy")
         self.state, self.legacy = runpy.run_path(str(per_run)), runpy.run_path(str(legacy))
         self.owners = []
         self.addCleanup(lambda: [owner.__exit__(None, None, None) for owner in reversed(self.owners)])
@@ -342,8 +483,9 @@ class DualReadActivityTests(unittest.TestCase):
     def claim(self, run_id, digest, *, begin=True, keep=True, note=None):
         owner = self.state["RouterOwner"](self.root)
         owner.__enter__()
-        owner.claim(run_id, digest, until=time.monotonic() + 2,
-                    meta={"client": "codex", "host": "windows", "operation": "work"})
+        owner.claim(
+            run_id, digest, until=time.monotonic() + 2, meta={"client": "codex", "host": "windows", "operation": "work"}
+        )
         if begin:
             owner.begin(run_id, digest)
             owner.checkpoint("backend_draft", {"prompt": "PRIVATE_FIXTURE_TEXT"})
@@ -362,11 +504,14 @@ class DualReadActivityTests(unittest.TestCase):
         return activity.collect_activity(now)
 
     def test_one_row_per_run_of_both_layouts_live_only_by_the_observation(self):
-        with self.legacy["RouterOwner"](self.root) as owner:      # an old quarantined single-run record
+        with self.legacy["RouterOwner"](self.root) as owner:  # an old quarantined single-run record
             owner.begin("legacy-old", "e" * 64)
             owner.checkpoint("backend_review", {"recoveryRequired": True})
-        self.state["_atomic"](self.root / "policy.json", {"schemaVersion": 1, "kind": "codemode.router.policy.v1",
-                                                          "concurrency": "multi"}, 1024)
+        self.state["_atomic"](
+            self.root / "policy.json",
+            {"schemaVersion": 1, "kind": "codemode.router.policy.v1", "concurrency": "multi"},
+            1024,
+        )
         self.claim("run-dead", "d" * 64, keep=False)
         self.claim("run-live", "a" * 64)
         self.claim("run-queued", "b" * 64, begin=False, note=("waiting", "mac-pair", "pre-begin"))
@@ -376,11 +521,15 @@ class DualReadActivityTests(unittest.TestCase):
         self.assertTrue(all(row["activity"] == "unknown" for row in rows.values()))
         result = self.sample()
         rows = {row["runId"]: row for row in result["runs"]}
-        self.assertEqual({key: (row["status"], row["activity"], row["layout"]) for key, row in rows.items()},
-                         {"legacy-old": ("unresolved", "unknown", "legacy"),
-                          "run-dead": ("unresolved", "unknown", "per-run"),
-                          "run-live": ("running", "running", "per-run"),
-                          "run-queued": ("waiting", "queued", "note")})
+        self.assertEqual(
+            {key: (row["status"], row["activity"], row["layout"]) for key, row in rows.items()},
+            {
+                "legacy-old": ("unresolved", "unknown", "legacy"),
+                "run-dead": ("unresolved", "unknown", "per-run"),
+                "run-live": ("running", "running", "per-run"),
+                "run-queued": ("waiting", "queued", "note"),
+            },
+        )
         self.assertEqual((rows["run-live"]["client"], rows["run-live"]["host"]), ("codex", "windows"))
         self.assertEqual([row["runId"] for row in result["runs"]][:2], ["run-queued", "run-live"])
         self.assertIn("2 verified live", result["sources"][0]["detail"])
@@ -403,6 +552,7 @@ class DualReadActivityTests(unittest.TestCase):
         runId that is an object, or a time too large for a float is one unreadable row (or a
         reported problem); the other runs are still shown."""
         from test_telemetry import _HUGE, _private_write
+
         self.claim("run-ok", "a" * 64, keep=False)
         self.claim("run-bad", "b" * 64, keep=False)
         bad = self.root / "active" / "run-bad.json"
@@ -412,20 +562,35 @@ class DualReadActivityTests(unittest.TestCase):
         _private_write(bad, json.dumps(value))
         _private_write(self.root / "active.json", json.dumps({"runId": {}, "inputSha256": "c" * 64}))
         result = self.sample()
-        self.assertEqual({row["runId"]: row["status"] for row in result["runs"]},
-                         {"run-ok": "unresolved", "run-bad": "unreadable"})
+        self.assertEqual(
+            {row["runId"]: row["status"] for row in result["runs"]}, {"run-ok": "unresolved", "run-bad": "unreadable"}
+        )
         self.assertEqual(result["sources"][0]["state"], "error")
-        legacy = {"schemaVersion": 1, "runId": "legacy-huge", "inputSha256": "e" * 64, "stage": "backend_draft",
-                  "sequence": 1, "startedUnix": time.time() - 20,
-                  "checkpoint": {"schemaVersion": 1, "runId": "legacy-huge", "inputSha256": "e" * 64,
-                                 "sequence": 1, "stage": "backend_draft", "recordedUnix": "__HUGE__",
-                                 "evidence": {}}}
+        legacy = {
+            "schemaVersion": 1,
+            "runId": "legacy-huge",
+            "inputSha256": "e" * 64,
+            "stage": "backend_draft",
+            "sequence": 1,
+            "startedUnix": time.time() - 20,
+            "checkpoint": {
+                "schemaVersion": 1,
+                "runId": "legacy-huge",
+                "inputSha256": "e" * 64,
+                "sequence": 1,
+                "stage": "backend_draft",
+                "recordedUnix": "__HUGE__",
+                "evidence": {},
+            },
+        }
         os.unlink(self.root / "active.json")
         _private_write(self.root / "active.json", json.dumps(legacy).replace('"__HUGE__"', _HUGE))
         rows = {row["runId"]: row for row in self.sample()["runs"]}
         self.assertEqual((rows["legacy-huge"]["status"], rows["legacy-huge"]["recordedAt"]), ("unreadable", None))
-        archive = json.loads('{"runId": "r-1", "finishedUnix": ' + _HUGE + ', "result": {"kind": "codemode.router.v1", '
-                             '"runId": "r-1", "status": "PARTIAL"}}')
+        archive = json.loads(
+            '{"runId": "r-1", "finishedUnix": ' + _HUGE + ', "result": {"kind": "codemode.router.v1", '
+            '"runId": "r-1", "status": "PARTIAL"}}'
+        )
         item = activity._project_archive(archive, time.time())
         self.assertEqual((item["recordedAt"], item["ageSeconds"]), (None, None))
         self.assertIsNone(activity._confidence(json.loads(_HUGE)))
@@ -439,6 +604,7 @@ class DualReadActivityTests(unittest.TestCase):
         receipt (2 MB, under the 3 MiB cap); it escaped collect_activity, so server.py published no
         full snapshot while that archive stayed among the newest 12.  It is now skipped."""
         from test_telemetry import _private_write
+
         deep = '{"runId":"run-deep","result":' + "[" * 1000000 + "]" * 1000000 + "}"
         archive = self.root / "archive"
         receipts = self.root.parent / "receipts"
@@ -446,9 +612,12 @@ class DualReadActivityTests(unittest.TestCase):
         os.makedirs(receipts, mode=0o700)
         _private_write(archive / "run-deep.json", deep)
         _private_write(receipts / "run-deep.json", deep)
-        with mock.patch.object(activity, "_ROOT", self.root), mock.patch.object(activity, "_RECEIPTS", receipts), \
-             mock.patch.object(activity, "_archive_files", lambda: [archive / "run-deep.json"]), \
-             mock.patch.object(activity, "_receipt_files", lambda: [receipts / "run-deep.json"]):
+        with (
+            mock.patch.object(activity, "_ROOT", self.root),
+            mock.patch.object(activity, "_RECEIPTS", receipts),
+            mock.patch.object(activity, "_archive_files", lambda: [archive / "run-deep.json"]),
+            mock.patch.object(activity, "_receipt_files", lambda: [receipts / "run-deep.json"]),
+        ):
             result = activity.collect_activity()
         self.assertEqual(result["runs"], [])
         self.assertEqual(result["sources"][0]["detail"], "No unresolved router pointer; history is reported separately")
@@ -457,23 +626,37 @@ class DualReadActivityTests(unittest.TestCase):
         self.claim("run-live", "a" * 64)
         # p2-readers converge: rows shaped exactly like this journal's own (layout, input), plus a
         # live run this journal does not list, so only the root check can refuse them.
-        observed = [{"runId": "run-live", "layout": "per-run", "inputSha256": "a" * 64, "live": True, "state": "running"},
-                    {"runId": "run-other", "layout": "note", "live": True, "state": "waiting", "note": None}]
+        observed = [
+            {"runId": "run-live", "layout": "per-run", "inputSha256": "a" * 64, "live": True, "state": "running"},
+            {"runId": "run-other", "layout": "note", "live": True, "state": "waiting", "note": None},
+        ]
         with telemetry._LAST_ROUTER_OBSERVATION_LOCK:
-            telemetry._LAST_ROUTER_OBSERVATION.update(sampledAt=time.time(), value={"root": "/elsewhere", "rows": observed})
+            telemetry._LAST_ROUTER_OBSERVATION.update(
+                sampledAt=time.time(), value={"root": "/elsewhere", "rows": observed}
+            )
         rows = {row["runId"]: row for row in activity.collect_activity()["runs"]}
         self.assertEqual(set(rows), {"run-live"})
         self.assertEqual(rows["run-live"]["activity"], "unknown")
         # The same rows from this journal are used: the observation binds by run, layout and input.
         with telemetry._LAST_ROUTER_OBSERVATION_LOCK:
-            telemetry._LAST_ROUTER_OBSERVATION.update(sampledAt=time.time(), value={"root": str(self.root), "observedAt": time.time(), "rows": observed})
+            telemetry._LAST_ROUTER_OBSERVATION.update(
+                sampledAt=time.time(), value={"root": str(self.root), "observedAt": time.time(), "rows": observed}
+            )
         rows = {row["runId"]: row for row in activity.collect_activity()["runs"]}
-        self.assertEqual({key: (row["status"], row["activity"]) for key, row in rows.items()},
-                         {"run-live": ("running", "running"), "run-other": ("waiting", "queued")})
+        self.assertEqual(
+            {key: (row["status"], row["activity"]) for key, row in rows.items()},
+            {"run-live": ("running", "running"), "run-other": ("waiting", "queued")},
+        )
         # A row that says running but is not live (never written by telemetry; defensive) is not promoted.
         with telemetry._LAST_ROUTER_OBSERVATION_LOCK:
-            telemetry._LAST_ROUTER_OBSERVATION.update(sampledAt=time.time(), value={"root": str(self.root), "observedAt": time.time(), "rows": [
-                dict(observed[0], live=False), dict(observed[1], live=False)]})
+            telemetry._LAST_ROUTER_OBSERVATION.update(
+                sampledAt=time.time(),
+                value={
+                    "root": str(self.root),
+                    "observedAt": time.time(),
+                    "rows": [dict(observed[0], live=False), dict(observed[1], live=False)],
+                },
+            )
         rows = {row["runId"]: row for row in activity.collect_activity()["runs"]}
         self.assertEqual({key: row["activity"] for key, row in rows.items()}, {"run-live": "unknown"})
 
@@ -482,12 +665,21 @@ class DualReadActivityTests(unittest.TestCase):
         never promoted to running, even by an observation row that names no input (defensive:
         telemetry never marks such a row live)."""
         from test_telemetry import _private_write
+
         self.claim("run-bad", "b" * 64, keep=False)
         os.unlink(self.root / "active" / "run-bad.json")
         _private_write(self.root / "active" / "run-bad.json", "{not json")
         with telemetry._LAST_ROUTER_OBSERVATION_LOCK:
-            telemetry._LAST_ROUTER_OBSERVATION.update(sampledAt=time.time(), value={"root": str(self.root), "observedAt": time.time(), "rows": [
-                {"runId": "run-bad", "layout": "per-run", "inputSha256": None, "live": True, "state": "running"}]})
+            telemetry._LAST_ROUTER_OBSERVATION.update(
+                sampledAt=time.time(),
+                value={
+                    "root": str(self.root),
+                    "observedAt": time.time(),
+                    "rows": [
+                        {"runId": "run-bad", "layout": "per-run", "inputSha256": None, "live": True, "state": "running"}
+                    ],
+                },
+            )
         rows = [(row["runId"], row["status"], row["activity"]) for row in activity.collect_activity()["runs"]]
         self.assertEqual(rows, [("run-bad", "unreadable", "unknown")])
 
@@ -507,8 +699,7 @@ class RouteOrderActivityTests(unittest.TestCase):
             directory.mkdir(mode=0o700)
             directory.chmod(0o700)
         self.now = time.time()
-        for name, value in (("_ROOT", self.root), ("_ACTIVE", self.root / "active.json"),
-                            ("_RECEIPTS", self.receipts)):
+        for name, value in (("_ROOT", self.root), ("_ACTIVE", self.root / "active.json"), ("_RECEIPTS", self.receipts)):
             patcher = mock.patch.object(activity, name, value)
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -525,19 +716,39 @@ class RouteOrderActivityTests(unittest.TestCase):
 
     def receipt(self, run_id, finished, mtime=None, owner="REJECTED", contradiction=True):
         import datetime
+
         stamp = datetime.datetime.fromtimestamp(finished, datetime.timezone.utc).isoformat()
-        self._private(self.receipts / f"{run_id}.json", {
-            "kind": "codemode.monitor.run-receipt.v1", "schemaVersion": 1, "runId": run_id,
-            "startedAt": stamp, "finishedAt": stamp, "route": {"status": "RESPONSE_VALIDATED"},
-            "ownerDecision": {"status": owner}, "intakeDecision": {},
-            "review": {"structuredFindingCount": 0, "summaryContradictsEmptyFindings": contradiction}, "calls": []},
-            finished if mtime is None else mtime)
+        self._private(
+            self.receipts / f"{run_id}.json",
+            {
+                "kind": "codemode.monitor.run-receipt.v1",
+                "schemaVersion": 1,
+                "runId": run_id,
+                "startedAt": stamp,
+                "finishedAt": stamp,
+                "route": {"status": "RESPONSE_VALIDATED"},
+                "ownerDecision": {"status": owner},
+                "intakeDecision": {},
+                "review": {"structuredFindingCount": 0, "summaryContradictsEmptyFindings": contradiction},
+                "calls": [],
+            },
+            finished if mtime is None else mtime,
+        )
 
     def archived(self, run_id, finished, mtime):
-        self._private(self.archive / f"{run_id}.json", {
-            "schemaVersion": 1, "runId": run_id, "stage": "done", "finishedUnix": finished, "exitCode": 0,
-            "inputSha256": "b" * 64, "result": {"kind": "codemode.router.v1", "runId": run_id,
-                                                "status": "RESPONSE_VALIDATED", "stages": {}}}, mtime)
+        self._private(
+            self.archive / f"{run_id}.json",
+            {
+                "schemaVersion": 1,
+                "runId": run_id,
+                "stage": "done",
+                "finishedUnix": finished,
+                "exitCode": 0,
+                "inputSha256": "b" * 64,
+                "result": {"kind": "codemode.router.v1", "runId": run_id, "status": "RESPONSE_VALIDATED", "stages": {}},
+            },
+            mtime,
+        )
 
     def test_a_17_day_old_receipt_sorts_below_todays_router_routes(self):
         hour, day = 3600, 86400
@@ -548,12 +759,14 @@ class RouteOrderActivityTests(unittest.TestCase):
         result = activity.collect_activity(self.now)
         self.assertEqual([row["runId"] for row in result["runs"]], ["route-1h", "route-2h", "route-3h", "receipt-17d"])
         receipt = result["runs"][-1]
-        self.assertEqual((receipt["source"], receipt["hostAcceptance"], receipt["reviewSummaryContradiction"]),
-                         ("monitor-receipt", "REJECTED", True))
+        self.assertEqual(
+            (receipt["source"], receipt["hostAcceptance"], receipt["reviewSummaryContradiction"]),
+            ("monitor-receipt", "REJECTED", True),
+        )
 
     def test_twelve_old_receipts_never_cut_the_newer_router_routes(self):
         hour, day = 3600, 86400
-        receipts = [f"receipt-{index:02d}" for index in range(12)]     # 00 newest, 11 oldest
+        receipts = [f"receipt-{index:02d}" for index in range(12)]  # 00 newest, 11 oldest
         for index, run_id in enumerate(receipts):
             self.receipt(run_id, self.now - 10 * day - index * hour)
         self.archived("route-1h", self.now - hour, self.now - 200)
@@ -568,8 +781,11 @@ class RouteOrderActivityTests(unittest.TestCase):
         live_id, digest = "route-live-old", "a" * 64
         record = ActivityTests._route(live_id, "backend_draft", self.now - 31 * day, self.now - 30 * day, {})
         self._private(self.root / "active.json", record, self.now - 30 * day)
-        self.observation.return_value = {"root": str(self.root), "observedAt": self.now, "rows": [
-            {"runId": live_id, "layout": "legacy", "inputSha256": digest, "live": True, "state": "running"}]}
+        self.observation.return_value = {
+            "root": str(self.root),
+            "observedAt": self.now,
+            "rows": [{"runId": live_id, "layout": "legacy", "inputSha256": digest, "live": True, "state": "running"}],
+        }
         runs = activity.collect_activity(self.now)["runs"]
         self.assertEqual(len(runs), 12)
         self.assertEqual((runs[0]["runId"], runs[0]["activity"], runs[0]["status"]), (live_id, "running", "running"))
@@ -585,7 +801,7 @@ class RouteOrderActivityTests(unittest.TestCase):
         self.receipt("receipt-17d", self.now - 17 * day)
         self.receipt("receipt-18d-plain", self.now - 18 * day, owner="ACCEPTED", contradiction=False)
         self.receipt("receipt-19d-rejected", self.now - 19 * day, contradiction=False)
-        archives = [f"route-{hours:02d}h" for hours in range(1, 14)]     # 13 files: one past the read bound
+        archives = [f"route-{hours:02d}h" for hours in range(1, 14)]  # 13 files: one past the read bound
         for hours, run_id in enumerate(archives, start=1):
             self.archived(run_id, self.now - hours * hour, self.now - hours * hour)
         result = activity.collect_activity(self.now)
@@ -593,8 +809,10 @@ class RouteOrderActivityTests(unittest.TestCase):
         self.assertEqual(len(ids), 12)
         self.assertEqual(ids, archives[:10] + ["receipt-17d", "receipt-19d-rejected"])
         receipt = result["runs"][10]
-        self.assertEqual((receipt["source"], receipt["hostAcceptance"], receipt["reviewSummaryContradiction"]),
-                         ("monitor-receipt", "REJECTED", True))
+        self.assertEqual(
+            (receipt["source"], receipt["hostAcceptance"], receipt["reviewSummaryContradiction"]),
+            ("monitor-receipt", "REJECTED", True),
+        )
         self.assertEqual(result["runs"][11]["hostAcceptance"], "REJECTED")
         # Left out: the 11 h and 12 h archives (the newest-first cut), the plain older receipt, and
         # the 13 h archive (never read: past the 12-file read bound, its mtime 13 h old).
@@ -604,16 +822,20 @@ class RouteOrderActivityTests(unittest.TestCase):
         live_id, digest = "route-live", "a" * 64
         record = ActivityTests._route(live_id, "backend_draft", self.now - 2 * day, self.now - day, {})
         self._private(self.root / "active.json", record, self.now - day)
-        self.observation.return_value = {"root": str(self.root), "observedAt": self.now, "rows": [
-            {"runId": live_id, "layout": "legacy", "inputSha256": digest, "live": True, "state": "running"}]}
+        self.observation.return_value = {
+            "root": str(self.root),
+            "observedAt": self.now,
+            "rows": [{"runId": live_id, "layout": "legacy", "inputSha256": digest, "live": True, "state": "running"}],
+        }
         result = activity.collect_activity(self.now)
-        self.assertEqual([row["runId"] for row in result["runs"]],
-                         [live_id] + archives[:9] + ["receipt-17d", "receipt-19d-rejected"])
+        self.assertEqual(
+            [row["runId"] for row in result["runs"]], [live_id] + archives[:9] + ["receipt-17d", "receipt-19d-rejected"]
+        )
         self.assertEqual(result["historyBound"], {"truncated": True, "missingFromAgeSeconds": 10 * hour})
 
     def test_flagged_rows_kept_past_the_cut_are_bounded_and_the_newest_rows_keep_half(self):
         hour, day = 3600, 86400
-        flagged = [f"receipt-{index}" for index in range(6)]            # all REJECTED and review-flagged
+        flagged = [f"receipt-{index}" for index in range(6)]  # all REJECTED and review-flagged
         for index, run_id in enumerate(flagged):
             self.receipt(run_id, self.now - 17 * day - index * hour)
         archives = [f"route-{hours:02d}h" for hours in range(1, 13)]
@@ -625,13 +847,24 @@ class RouteOrderActivityTests(unittest.TestCase):
         self.assertEqual(ids, archives[:7] + flagged[:5])
 
         rows = [{"runId": f"r{index}", "source": "router-archive", "ageSeconds": index} for index in range(4)] + [
-            {"runId": "old-flag", "source": "monitor-receipt", "ageSeconds": 99, "hostAcceptance": "REJECTED"}]
-        for room, expected in ((-1, []), (0, []), (1, ["r0"]), (3, ["r0", "r1", "r2"]),
-                               (4, ["r0", "r1", "r2", "old-flag"]), (5, ["r0", "r1", "r2", "r3", "old-flag"])):
+            {"runId": "old-flag", "source": "monitor-receipt", "ageSeconds": 99, "hostAcceptance": "REJECTED"}
+        ]
+        for room, expected in (
+            (-1, []),
+            (0, []),
+            (1, ["r0"]),
+            (3, ["r0", "r1", "r2"]),
+            (4, ["r0", "r1", "r2", "old-flag"]),
+            (5, ["r0", "r1", "r2", "r3", "old-flag"]),
+        ):
             kept, dropped = activity._bounded_history(rows, room)
             self.assertEqual([row["runId"] for row in kept], expected, room)
             self.assertEqual(len(kept) + len(dropped), len(rows))
-        consistency = {"runId": "c", "source": "router-archive", "reviewConsistency": {"status": "SUMMARY_MAY_REPORT_DEFECT"}}
+        consistency = {
+            "runId": "c",
+            "source": "router-archive",
+            "reviewConsistency": {"status": "SUMMARY_MAY_REPORT_DEFECT"},
+        }
         self.assertTrue(activity._flagged(consistency))
         self.assertFalse(activity._flagged({**consistency, "reviewConsistency": {"status": "OK"}}))
         self.assertFalse(activity._flagged({"hostAcceptance": "ACCEPTED", "reviewSummaryContradiction": False}))
@@ -642,7 +875,9 @@ class RouteOrderActivityTests(unittest.TestCase):
         self.receipt("receipt-17d", self.now - 17 * day)
         for hours in range(1, 11):
             self.archived(f"route-{hours:02d}h", self.now - hours * hour, self.now - hours * hour)
-        self.assertEqual(activity.collect_activity(self.now)["historyBound"], {"truncated": False, "missingFromAgeSeconds": None})
+        self.assertEqual(
+            activity.collect_activity(self.now)["historyBound"], {"truncated": False, "missingFromAgeSeconds": None}
+        )
         # Exactly 12 archive files: none is left unread, and with the receipt the 12-row cut drops only an
         # undated archive, which might belong to any time window.
         self.archived("route-11h", self.now - 11 * hour, self.now - 11 * hour)
@@ -655,25 +890,30 @@ class RouteOrderActivityTests(unittest.TestCase):
         # A name scan cut short can miss a route of any age.
         with mock.patch.object(activity, "_MAX_ARCHIVE_SCAN", 3):
             self.assertTrue(activity._archive_files().scan_cut)
-            self.assertEqual(activity.collect_activity(self.now)["historyBound"], {"truncated": True, "missingFromAgeSeconds": 0.0})
+            self.assertEqual(
+                activity.collect_activity(self.now)["historyBound"], {"truncated": True, "missingFromAgeSeconds": 0.0}
+            )
         with mock.patch.object(activity, "_MAX_ARCHIVE_ENTRIES", 0):
             self.assertEqual(activity.collect_activity(self.now)["historyBound"]["missingFromAgeSeconds"], 0.0)
         # A 13th archive file also omits route-11h; the undated omitted row still
         # prevents establishing complete coverage of any dated time window.
         self.archived("route-new", self.now - 60, self.now - 60)
         self.assertEqual(activity._archive_files().cut_mtime, self.now - 11 * hour)
-        self.assertEqual(activity.collect_activity(self.now)["historyBound"], {"truncated": True, "missingFromAgeSeconds": 0.0})
+        self.assertEqual(
+            activity.collect_activity(self.now)["historyBound"], {"truncated": True, "missingFromAgeSeconds": 0.0}
+        )
 
     def test_a_row_without_a_recorded_time_sorts_last_and_equal_times_keep_read_order(self):
         hour, day = 3600, 86400
         self.receipt("receipt-17d", self.now - 17 * day)
-        self.archived("route-undated", None, self.now - 10)              # newest file, no finish time
+        self.archived("route-undated", None, self.now - 10)  # newest file, no finish time
         self.archived("route-1h", self.now - hour, self.now - 50)
         self.archived("route-tie-a", self.now - 2 * hour, self.now - 20)  # read before tie-b (newer mtime)
         self.archived("route-tie-b", self.now - 2 * hour, self.now - 30)
         runs = activity.collect_activity(self.now)["runs"]
-        self.assertEqual([row["runId"] for row in runs],
-                         ["route-1h", "route-tie-a", "route-tie-b", "receipt-17d", "route-undated"])
+        self.assertEqual(
+            [row["runId"] for row in runs], ["route-1h", "route-tie-a", "route-tie-b", "receipt-17d", "route-undated"]
+        )
         self.assertEqual((runs[-1]["recordedAt"], runs[-1]["ageSeconds"]), (None, None))
 
 

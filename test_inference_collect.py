@@ -27,25 +27,25 @@ llamacpp:tokens_predicted_seconds_total 2
 llamacpp:requests_deferred 0
 """
 
-SLOTS = json.dumps([
-    {"id": 0, "is_processing": True, "n_ctx": 65536, "n_past": 1200, "prompt": "SECRET-PROMPT"},
-    {"id": 1, "is_processing": False, "n_ctx": 65536, "n_past": 0, "prompt": "OTHER"},
-])
+SLOTS = json.dumps(
+    [
+        {"id": 0, "is_processing": True, "n_ctx": 65536, "n_past": 1200, "prompt": "SECRET-PROMPT"},
+        {"id": 1, "is_processing": False, "n_ctx": 65536, "n_past": 0, "prompt": "OTHER"},
+    ]
+)
 
-PROPS = json.dumps({"model_alias": "gpt-oss-20b", "model_path": "/models/secret.gguf",
-                    "default_generation_settings": {"n_ctx": 65536}})
+PROPS = json.dumps(
+    {"model_alias": "gpt-oss-20b", "model_path": "/models/secret.gguf", "default_generation_settings": {"n_ctx": 65536}}
+)
 
 
 # The collector has no built-in PC lanes. These isolated probe fixtures keep the
 # retired router and llama-server layout only to exercise the lane readers.
 LEGACY_FIXTURE_LANES = (
     {"id": "pc:router", "role": "router", "label": "Router", "port": 1234},
-    {"id": "pc:gpt-oss-20b", "role": "llama", "label": "gpt-oss-20b", "port": 1245,
-     "expectedModel": "gpt-oss-20b"},
-    {"id": "pc:qwen3.8-27b", "role": "llama", "label": "qwen3.8-27b", "port": 1236,
-     "expectedModel": "qwen3.8-27b"},
+    {"id": "pc:gpt-oss-20b", "role": "llama", "label": "gpt-oss-20b", "port": 1245, "expectedModel": "gpt-oss-20b"},
+    {"id": "pc:qwen3.8-27b", "role": "llama", "label": "qwen3.8-27b", "port": 1236, "expectedModel": "qwen3.8-27b"},
 )
-
 
 
 def route(table):
@@ -57,6 +57,7 @@ def route(table):
                 status, body = value
                 return status, body, 12.5
         raise ProbeError("refused")
+
     return fetch
 
 
@@ -74,30 +75,37 @@ class RateMemoryTests(unittest.TestCase):
         rates = RateMemory()
         rates.update("lane", {**self.COUNTERS, "tokens_predicted_seconds_total": 3.0}, 100.0)
         prompt, generation = rates.update(
-            "lane", {"prompt_tokens_total": 100.0, "tokens_predicted_total": 60.0,
-                     "tokens_predicted_seconds_total": 3.000001}, 102.0)
+            "lane",
+            {"prompt_tokens_total": 100.0, "tokens_predicted_total": 60.0, "tokens_predicted_seconds_total": 3.000001},
+            102.0,
+        )
         self.assertEqual(generation, 5.0)  # 10 tokens / 2 s, not 10 tokens / 1 microsecond
         self.assertEqual(prompt, 0.0)
 
     def test_counter_reset_is_no_rate(self):
         rates = RateMemory()
         rates.update("lane", self.COUNTERS, 100.0)
-        self.assertEqual(rates.update("lane", {"prompt_tokens_total": 3.0, "tokens_predicted_total": 1.0}, 102.0),
-                         (None, None))
+        self.assertEqual(
+            rates.update("lane", {"prompt_tokens_total": 3.0, "tokens_predicted_total": 1.0}, 102.0), (None, None)
+        )
 
 
 class CollectorDiagnosticTests(unittest.TestCase):
     def test_an_oversized_integer_clock_is_not_a_time(self):
         # math.isfinite(10**400) raises OverflowError; the diagnostic must not.
         with patch.object(inference_collect.time, "time", return_value=120.0):
-            diagnostic = inference_collect.collector_diagnostic("collect_snapshot", ValueError(),
-                                                                now=10**400, last_success=10**400)
-        self.assertEqual(diagnostic, {"stage": "collect_snapshot", "code": "invalid_value",
-                                      "failedAt": 120.0, "lastSuccessfulSampleAt": None})
+            diagnostic = inference_collect.collector_diagnostic(
+                "collect_snapshot", ValueError(), now=10**400, last_success=10**400
+            )
+        self.assertEqual(
+            diagnostic,
+            {"stage": "collect_snapshot", "code": "invalid_value", "failedAt": 120.0, "lastSuccessfulSampleAt": None},
+        )
 
 
-@patch.multiple(inference_collect, PC_LANES=LEGACY_FIXTURE_LANES,
-                _BY_ID={lane["id"]: lane for lane in LEGACY_FIXTURE_LANES})
+@patch.multiple(
+    inference_collect, PC_LANES=LEGACY_FIXTURE_LANES, _BY_ID={lane["id"]: lane for lane in LEGACY_FIXTURE_LANES}
+)
 class CollectorTests(unittest.TestCase):
     def test_llama_metrics_slots_and_a_second_sample_rate(self):
         rates = RateMemory()
@@ -141,8 +149,9 @@ class CollectorTests(unittest.TestCase):
         document = collect_map("pc", fetch=fetch, now=1000, veritas_url="")
         node = next(item for item in document["nodes"] if item["id"] == "pc:gpt-oss-20b")
         self.assertEqual((node["health"], node["reason"]), ("down", "refused"))
-        self.assertEqual([url for url in seen if url.endswith(":1245/metrics") or ":1245/" in url],
-                         ["http://127.0.0.1:1245/metrics"])
+        self.assertEqual(
+            [url for url in seen if url.endswith(":1245/metrics") or ":1245/" in url], ["http://127.0.0.1:1245/metrics"]
+        )
 
     def test_timeout_is_not_measured(self):
         def fetch(url):
@@ -170,10 +179,18 @@ class CollectorTests(unittest.TestCase):
     def test_router_reports_upstream_and_a_model_mismatch_is_degraded(self):
         def fetch(url):
             if url.endswith(":1234/v1/models"):
-                return 200, json.dumps({"data": [
-                    {"id": "gpt-oss-20b", "upstream": "http://127.0.0.1:1245"},
-                    {"id": "qwen3.8-27b", "upstream": "http://upstream.invalid/v1"},
-                ]}), 3
+                return (
+                    200,
+                    json.dumps(
+                        {
+                            "data": [
+                                {"id": "gpt-oss-20b", "upstream": "http://127.0.0.1:1245"},
+                                {"id": "qwen3.8-27b", "upstream": "http://upstream.invalid/v1"},
+                            ]
+                        }
+                    ),
+                    3,
+                )
             if url.endswith("/props"):
                 return 200, json.dumps({"model_alias": "other-model"}), 2
             if url.endswith("/metrics"):
@@ -188,8 +205,10 @@ class CollectorTests(unittest.TestCase):
         self.assertIsNone(router["models"][1]["upstream"])
         self.assertNotIn("upstream.invalid", json.dumps(router))
         mismatched = next(item for item in document["nodes"] if item["id"] == "pc:gpt-oss-20b")
-        self.assertEqual((mismatched["health"], mismatched["reason"], mismatched["modelId"]),
-                         ("degraded", "model_mismatch", "other-model"))
+        self.assertEqual(
+            (mismatched["health"], mismatched["reason"], mismatched["modelId"]),
+            ("degraded", "model_mismatch", "other-model"),
+        )
         upstreams = [edge for edge in document["edges"] if edge["kind"] == "upstream"]
         self.assertEqual(upstreams[0]["to"], "pc:gpt-oss-20b")
 
@@ -199,24 +218,52 @@ class CollectorTests(unittest.TestCase):
         def fetch(url):
             seen.append(url)
             if url.endswith("/api/v0/models"):
-                return 200, json.dumps({"data": [{
-                    "id": "gpt-oss-20b", "state": "loaded", "max_context_length": 131072,
-                    "note": "SECRET-NOTE"}]}), 6
+                return (
+                    200,
+                    json.dumps(
+                        {
+                            "data": [
+                                {
+                                    "id": "gpt-oss-20b",
+                                    "state": "loaded",
+                                    "max_context_length": 131072,
+                                    "note": "SECRET-NOTE",
+                                }
+                            ]
+                        }
+                    ),
+                    6,
+                )
             if url.endswith(":9/health"):
                 return 200, json.dumps({"status": "ok", "model": "qwen2.5-vl"}), 8
             raise AssertionError(url)
 
-        targets = [{"id": lane["id"], "service": f"127.0.0.1:{lane['port']}", "base": None}
-                   for lane in ({"id": "pc:router", "port": 1234},
-                                {"id": "pc:gpt-oss-20b", "port": 1245},
-                                {"id": "pc:qwen3.8-27b", "port": 1236})]
-        tunnel = pc_tunnel.describe({"user": "pc-user", "host": "pc.example", "identityFile": "/keys/k",
-                                     "forwards": [{"name": "router", "id": "pc:router",
-                                                   "localPort": 1334, "remotePort": 1234}]},
-                                    lambda _port: False)
-        document = collect_map("mac", fetch=fetch, now=1000, targets=targets, tunnel=tunnel,
-                               veritas_url="http://127.0.0.1:9/health",
-                               vram={"usedMiB": 1024, "totalMiB": 8192})
+        targets = [
+            {"id": lane["id"], "service": f"127.0.0.1:{lane['port']}", "base": None}
+            for lane in (
+                {"id": "pc:router", "port": 1234},
+                {"id": "pc:gpt-oss-20b", "port": 1245},
+                {"id": "pc:qwen3.8-27b", "port": 1236},
+            )
+        ]
+        tunnel = pc_tunnel.describe(
+            {
+                "user": "pc-user",
+                "host": "pc.example",
+                "identityFile": "/keys/k",
+                "forwards": [{"name": "router", "id": "pc:router", "localPort": 1334, "remotePort": 1234}],
+            },
+            lambda _port: False,
+        )
+        document = collect_map(
+            "mac",
+            fetch=fetch,
+            now=1000,
+            targets=targets,
+            tunnel=tunnel,
+            veritas_url="http://127.0.0.1:9/health",
+            vram={"usedMiB": 1024, "totalMiB": 8192},
+        )
         self.assertEqual(document["schema"], MAP_SCHEMA)
         # The map carries the listener reading as observed; it does not say SSH or the PC is down.
         self.assertEqual((document["tunnel"]["state"], document["tunnel"]["reason"]), ("down", "tunnel_down"))
@@ -235,10 +282,12 @@ class CollectorTests(unittest.TestCase):
         self.assertNotIn("http://127.0.0.1:1236", seen)
         self.assertNotIn("http://127.0.0.1:1334", "".join(seen))
 
-
     def test_pc_lanes_are_not_configured_only_when_no_ssh_host_is_set_up(self):
-        lanes = ({"id": "pc:router", "port": 1234}, {"id": "pc:gpt-oss-20b", "port": 1245},
-                 {"id": "pc:qwen3.8-27b", "port": 1236})
+        lanes = (
+            {"id": "pc:router", "port": 1234},
+            {"id": "pc:gpt-oss-20b", "port": 1245},
+            {"id": "pc:qwen3.8-27b", "port": 1236},
+        )
         targets = [{"id": lane["id"], "service": f"127.0.0.1:{lane['port']}", "base": None} for lane in lanes]
 
         def fetch(url):
@@ -275,8 +324,10 @@ class CollectorTests(unittest.TestCase):
         self.assertIsNone(parse_slots(json.dumps({"prompt": "SECRET"})))
 
     def test_direct_pc_targets_are_the_service_ports(self):
-        self.assertEqual([item["base"] for item in direct_targets()],
-                         ["http://127.0.0.1:1234", "http://127.0.0.1:1245", "http://127.0.0.1:1236"])
+        self.assertEqual(
+            [item["base"] for item in direct_targets()],
+            ["http://127.0.0.1:1234", "http://127.0.0.1:1245", "http://127.0.0.1:1236"],
+        )
 
 
 if __name__ == "__main__":

@@ -4,6 +4,7 @@ The sampler remains passive. Only an explicit same-origin HTTP POST can
 reach request(); an accepted action is checked against fresh observed inventory
 again in its worker before invoking the local CLI.
 """
+
 from __future__ import annotations
 
 import copy
@@ -47,6 +48,7 @@ class _Cancelled(ControlError):
 
 class _Operation:
     """One retained operation; cancellation also covers Popen/registration races."""
+
     def __init__(self, identifier: str):
         self.identifier = identifier
         self.cancelled = threading.Event()
@@ -78,8 +80,11 @@ class _Operation:
 
 
 def _source_live(snapshot: dict, source_id: str) -> bool:
-    return any(source.get("id") == source_id and source.get("state") == "live"
-               for source in snapshot.get("sources", []) if isinstance(source, dict))
+    return any(
+        source.get("id") == source_id and source.get("state") == "live"
+        for source in snapshot.get("sources", [])
+        if isinstance(source, dict)
+    )
 
 
 def _target(snapshot: dict | None, action: str, model_id: str) -> dict:
@@ -99,8 +104,7 @@ def _target(snapshot: dict | None, action: str, model_id: str) -> dict:
     rows = snapshot.get("models")
     if not isinstance(rows, list):
         raise ControlError(503, "Model inventory is unavailable.")
-    matches = [row for row in rows if isinstance(row, dict)
-               and row.get("host") == "mac" and row.get("id") == model_id]
+    matches = [row for row in rows if isinstance(row, dict) and row.get("host") == "mac" and row.get("id") == model_id]
     if len(matches) != 1:
         raise ControlError(404, "Selected model is not in the current Mac inventory.")
     row = matches[0]
@@ -126,10 +130,14 @@ def _target(snapshot: dict | None, action: str, model_id: str) -> dict:
             raise ControlError(503, "The selected row has no exact loaded-instance identifier.")
         if not isinstance(row.get("modelKey"), str) or not MODEL_ID.fullmatch(row["modelKey"]):
             raise ControlError(503, "The selected instance has no exact model key.")
-        matching_lists = [candidate["loadedInstanceIds"] for candidate in rows
-                          if isinstance(candidate, dict) and candidate.get("host") == "mac"
-                          and candidate.get("modelKey") == row["modelKey"]
-                          and isinstance(candidate.get("loadedInstanceIds"), list)]
+        matching_lists = [
+            candidate["loadedInstanceIds"]
+            for candidate in rows
+            if isinstance(candidate, dict)
+            and candidate.get("host") == "mac"
+            and candidate.get("modelKey") == row["modelKey"]
+            and isinstance(candidate.get("loadedInstanceIds"), list)
+        ]
         if len(matching_lists) != 1 or model_id not in matching_lists[0]:
             raise ControlError(503, "The selected instance is not confirmed by LM Studio inventory.")
         if row.get("state") != "idle":
@@ -181,13 +189,16 @@ def _find_lms() -> str:
     try:
         for directory in (fixed.parent.parent, fixed.parent):
             info = directory.lstat()
-            if (not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid()
-                    or info.st_mode & 0o022):
+            if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o022:
                 raise ValueError("unsafe CLI directory")
         info = fixed.lstat()
-        if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
-                or info.st_mode & 0o022 or info.st_nlink != 1
-                or not os.access(fixed, os.X_OK)):
+        if (
+            not stat.S_ISREG(info.st_mode)
+            or info.st_uid != os.getuid()
+            or info.st_mode & 0o022
+            or info.st_nlink != 1
+            or not os.access(fixed, os.X_OK)
+        ):
             raise ValueError("unsafe CLI executable")
     except (OSError, ValueError):
         raise ControlError(503, "The installed LM Studio CLI is unavailable or unsafe.")
@@ -198,8 +209,7 @@ def capability() -> dict:
     try:
         _find_lms()
     except ControlError:
-        return {"supported": False,
-                "reason": "The installed LM Studio CLI is unavailable or unsafe on this Mac."}
+        return {"supported": False, "reason": "The installed LM Studio CLI is unavailable or unsafe on this Mac."}
     return {"supported": True, "reason": "Explicit local LM Studio model controls are available."}
 
 
@@ -215,14 +225,18 @@ def _run_cli(action: str, model_id: str, *, operation: _Operation | None = None)
     if operation is not None:
         operation.check()
     executable = _find_lms()
-    command = ([executable, "load", model_id, "--yes"] if action == "load"
-               else [executable, "unload", model_id])
+    command = [executable, "load", model_id, "--yes"] if action == "load" else [executable, "unload", model_id]
     timeout = LOAD_TIMEOUT if action == "load" else UNLOAD_TIMEOUT
     if operation is not None:
         operation.check()
-    process = subprocess.Popen(command, stdin=subprocess.DEVNULL,
-                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                               close_fds=True, start_new_session=True)
+    process = subprocess.Popen(
+        command,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        close_fds=True,
+        start_new_session=True,
+    )
     if operation is not None:
         operation.register(process)
     output = bytearray()
@@ -305,8 +319,7 @@ def _run_cli(action: str, model_id: str, *, operation: _Operation | None = None)
                 operation.release(process)
 
 
-def _observed(snapshot: dict | None, action: str, model_id: str,
-              model_key: str, after: float) -> bool:
+def _observed(snapshot: dict | None, action: str, model_id: str, model_key: str, after: float) -> bool:
     if not isinstance(snapshot, dict):
         return False
     sampled = snapshot.get("sampledAt")
@@ -318,21 +331,34 @@ def _observed(snapshot: dict | None, action: str, model_id: str,
     if action == "load":
         if not (_source_live(snapshot, "lmstudio-api") or _source_live(snapshot, "lms-ps")):
             return False
-        return any(isinstance(row, dict) and row.get("host") == "mac"
-                   and row.get("id") == model_id and row.get("loaded") is True
-                   for row in rows)
+        return any(
+            isinstance(row, dict)
+            and row.get("host") == "mac"
+            and row.get("id") == model_id
+            and row.get("loaded") is True
+            for row in rows
+        )
     if not (_source_live(snapshot, "lms-ps") and _source_live(snapshot, "lmstudio-api")):
         return False
-    if any(isinstance(row, dict) and row.get("host") == "mac"
-           and row.get("id") == model_id and row.get("source") == "lms-ps"
-           and row.get("loaded") is True for row in rows):
+    if any(
+        isinstance(row, dict)
+        and row.get("host") == "mac"
+        and row.get("id") == model_id
+        and row.get("source") == "lms-ps"
+        and row.get("loaded") is True
+        for row in rows
+    ):
         return False
     # API instance IDs are projected only when every ID was safely captured.
     # A missing CLI row alone could be a transient omission, not an unload.
-    instance_lists = [row["loadedInstanceIds"] for row in rows
-                      if isinstance(row, dict) and row.get("host") == "mac"
-                      and row.get("modelKey") == model_key
-                      and isinstance(row.get("loadedInstanceIds"), list)]
+    instance_lists = [
+        row["loadedInstanceIds"]
+        for row in rows
+        if isinstance(row, dict)
+        and row.get("host") == "mac"
+        and row.get("modelKey") == model_key
+        and isinstance(row.get("loadedInstanceIds"), list)
+    ]
     return len(instance_lists) == 1 and model_id not in instance_lists[0]
 
 
@@ -342,50 +368,74 @@ def _exact_loaded_instance(rows: list, model_id: str, model_key: str) -> bool:
     LM Studio may assign an instance ID different from the requested model key.
     The API inventory supplies that ID; the CLI row must corroborate it.
     """
-    key_rows = [row for row in rows if isinstance(row, dict)
-                and row.get("host") == "mac" and row.get("modelKey") == model_key
-                and row.get("id") == model_id and row.get("loaded") is True]
+    key_rows = [
+        row
+        for row in rows
+        if isinstance(row, dict)
+        and row.get("host") == "mac"
+        and row.get("modelKey") == model_key
+        and row.get("id") == model_id
+        and row.get("loaded") is True
+    ]
     if len(key_rows) != 1:
         return False
     instances = key_rows[0].get("loadedInstanceIds")
-    if (not isinstance(instances, list) or len(instances) != 1
-            or not isinstance(instances[0], str) or not MODEL_ID.fullmatch(instances[0])):
+    if (
+        not isinstance(instances, list)
+        or len(instances) != 1
+        or not isinstance(instances[0], str)
+        or not MODEL_ID.fullmatch(instances[0])
+    ):
         return False
     instance_id = instances[0]
-    cli_rows = [row for row in rows if isinstance(row, dict)
-                and row.get("host") == "mac" and row.get("modelKey") == model_key
-                and row.get("source") == "lms-ps"]
-    return (len(cli_rows) == 1 and cli_rows[0].get("id") == instance_id
-            and cli_rows[0].get("instanceId") == instance_id
-            and cli_rows[0].get("loaded") is True)
+    cli_rows = [
+        row
+        for row in rows
+        if isinstance(row, dict)
+        and row.get("host") == "mac"
+        and row.get("modelKey") == model_key
+        and row.get("source") == "lms-ps"
+    ]
+    return (
+        len(cli_rows) == 1
+        and cli_rows[0].get("id") == instance_id
+        and cli_rows[0].get("instanceId") == instance_id
+        and cli_rows[0].get("loaded") is True
+    )
 
 
-def _positive_settlement(snapshot: dict | None, action: str, model_id: str,
-                         model_key: str, after: float) -> bool:
+def _positive_settlement(snapshot: dict | None, action: str, model_id: str, model_key: str, after: float) -> bool:
     """Fresh exact inventory evidence suitable for durable confirmation."""
     if not isinstance(snapshot, dict):
         return False
     sampled = snapshot.get("sampledAt")
-    if (type(sampled) not in (int, float) or not math.isfinite(sampled)
-            or sampled <= after or not -0.5 <= time.time() - sampled <= MAX_SNAPSHOT_AGE):
+    if (
+        type(sampled) not in (int, float)
+        or not math.isfinite(sampled)
+        or sampled <= after
+        or not -0.5 <= time.time() - sampled <= MAX_SNAPSHOT_AGE
+    ):
         return False
     if not (_source_live(snapshot, "lmstudio-api") and _source_live(snapshot, "lms-ps")):
         return False
     rows = snapshot.get("models")
     if not isinstance(rows, list):
         return False
-    relevant = [row for row in rows if isinstance(row, dict)
-                and row.get("host") == "mac" and row.get("modelKey") == model_key]
-    if not relevant or not all(type(row.get("ageSeconds")) in (int, float)
-                               and math.isfinite(row["ageSeconds"])
-                               and 0 <= row["ageSeconds"] <= MAX_SNAPSHOT_AGE for row in relevant):
+    relevant = [
+        row for row in rows if isinstance(row, dict) and row.get("host") == "mac" and row.get("modelKey") == model_key
+    ]
+    if not relevant or not all(
+        type(row.get("ageSeconds")) in (int, float)
+        and math.isfinite(row["ageSeconds"])
+        and 0 <= row["ageSeconds"] <= MAX_SNAPSHOT_AGE
+        for row in relevant
+    ):
         return False
     if action == "load":
         if not _exact_loaded_instance(rows, model_id, model_key):
             return False
     elif action == "unload":
-        lists = [row["loadedInstanceIds"] for row in relevant
-                 if isinstance(row.get("loadedInstanceIds"), list)]
+        lists = [row["loadedInstanceIds"] for row in relevant if isinstance(row.get("loadedInstanceIds"), list)]
         if len(lists) != 1 or model_id in lists[0]:
             return False
     else:
@@ -400,9 +450,15 @@ class ModelControl:
     When journal_path is provided, a private write-ahead record also holds this
     latch across Monitor restarts. Missing or invalid journals never self-heal.
     """
-    def __init__(self, store, *, runner: Callable[[str, str], None] = _run_cli,
-                 memory_config: Callable[[], dict] = _memory_config,
-                 journal_path: str | Path | None = None):
+
+    def __init__(
+        self,
+        store,
+        *,
+        runner: Callable[[str, str], None] = _run_cli,
+        memory_config: Callable[[], dict] = _memory_config,
+        journal_path: str | Path | None = None,
+    ):
         self.store = store
         self.runner = runner
         self.memory_config = memory_config
@@ -412,10 +468,17 @@ class ModelControl:
         self._durable_fault = None
         self._journal_generation = None
         self._recovery_started_at = time.time()
-        self.status = {"status": "idle", "operationId": None, "action": None,
-                       "modelId": None, "message": "No model operation has been requested.",
-                       "startedAt": None, "finishedAt": None,
-                       "settlement": "not-started", "cancellationRequested": False}
+        self.status = {
+            "status": "idle",
+            "operationId": None,
+            "action": None,
+            "modelId": None,
+            "message": "No model operation has been requested.",
+            "startedAt": None,
+            "finishedAt": None,
+            "settlement": "not-started",
+            "cancellationRequested": False,
+        }
         if self.journal is not None:
             try:
                 record = self.journal.read()
@@ -427,38 +490,49 @@ class ModelControl:
                     operation.attempted = True  # possible dispatch; never infer not-started after a crash
                     operation.cleanup_failed = not saved["cleanupConfirmed"]
                     self._operation = operation
-                    self.status = {"status": "failed", "operationId": saved["operationId"],
-                                   "action": saved["action"], "modelId": saved["modelId"],
-                                   "message": "Recovered an unconfirmed model operation; no command was repeated.",
-                                   "startedAt": saved["startedAt"],
-                                   "finishedAt": saved["finishedAt"] or saved["startedAt"],
-                                   "settlement": "unconfirmed", "cancellationRequested": False}
+                    self.status = {
+                        "status": "failed",
+                        "operationId": saved["operationId"],
+                        "action": saved["action"],
+                        "modelId": saved["modelId"],
+                        "message": "Recovered an unconfirmed model operation; no command was repeated.",
+                        "startedAt": saved["startedAt"],
+                        "finishedAt": saved["finishedAt"] or saved["startedAt"],
+                        "settlement": "unconfirmed",
+                        "cancellationRequested": False,
+                    }
             except JournalError as error:
                 self._durable_fault = str(error)
-                self.status.update(status="failed", settlement="unconfirmed",
-                                   message="Model operation journal is unavailable: " + str(error))
+                self.status.update(
+                    status="failed",
+                    settlement="unconfirmed",
+                    message="Model operation journal is unavailable: " + str(error),
+                )
 
     def read(self) -> dict:
         with self.lock:
             result = copy.deepcopy(self.status)
             result["workerActive"] = self._worker_active()
-            result["cleanupConfirmed"] = (self._durable_fault is None and
-                                          (self._operation is None or
-                                           (self._operation.process is None and not self._operation.cleanup_failed)))
+            result["cleanupConfirmed"] = self._durable_fault is None and (
+                self._operation is None or (self._operation.process is None and not self._operation.cleanup_failed)
+            )
             # Compatibility field above concerns only the CLI leader. A sent
             # group signal is evidence of the signal, not descendant exit.
             result["cleanupScope"] = "cli-leader"
             result["groupSignalSent"] = bool(self._operation and self._operation.group_signal_sent)
             if self.journal is not None:
-                result["durableJournal"] = {"enabled": True,
-                                            "blocked": self._durable_fault is not None,
-                                            "reason": self._durable_fault,
-                                            "generation": self._journal_generation}
+                result["durableJournal"] = {
+                    "enabled": True,
+                    "blocked": self._durable_fault is not None,
+                    "reason": self._durable_fault,
+                    "generation": self._journal_generation,
+                }
             return result
 
     def _worker_active(self):
-        return bool(self._operation is not None and self._operation.worker is not None
-                    and self._operation.worker.is_alive())
+        return bool(
+            self._operation is not None and self._operation.worker is not None and self._operation.worker.is_alive()
+        )
 
     def _check_available(self):
         if self._durable_fault is not None:
@@ -466,7 +540,9 @@ class ModelControl:
         if self.status["status"] == "running" or self._worker_active():
             raise ControlError(409, "A model operation is already running.")
         if self.status["settlement"] == "unconfirmed":
-            raise ControlError(409, "The previous model operation is unconfirmed; reconcile fresh inventory before another operation.")
+            raise ControlError(
+                409, "The previous model operation is unconfirmed; reconcile fresh inventory before another operation."
+            )
 
     def _selected_operation(self, operation_id):
         if operation_id is not None and operation_id != self.status["operationId"]:
@@ -530,51 +606,83 @@ class ModelControl:
                 raise ControlError(409, "The model operation changed during reconciliation; retry its status read.")
             sampled = snapshot.get("sampledAt") if isinstance(snapshot, dict) else None
             rows = snapshot.get("models") if isinstance(snapshot, dict) else None
-            relevant = ([row for row in rows if isinstance(row, dict) and row.get("host") == "mac"
-                         and row.get("modelKey") == operation.model_key] if isinstance(rows, list) else [])
-            fresh_rows = relevant and all(type(row.get("ageSeconds")) in (int, float)
-                                          and math.isfinite(row["ageSeconds"])
-                                          and 0 <= row["ageSeconds"] <= MAX_SNAPSHOT_AGE for row in relevant)
+            relevant = (
+                [
+                    row
+                    for row in rows
+                    if isinstance(row, dict) and row.get("host") == "mac" and row.get("modelKey") == operation.model_key
+                ]
+                if isinstance(rows, list)
+                else []
+            )
+            fresh_rows = relevant and all(
+                type(row.get("ageSeconds")) in (int, float)
+                and math.isfinite(row["ageSeconds"])
+                and 0 <= row["ageSeconds"] <= MAX_SNAPSHOT_AGE
+                for row in relevant
+            )
             if self.status["action"] == "load":
-                exact_instance = _exact_loaded_instance(rows, self.status["modelId"],
-                                                        operation.model_key)
+                exact_instance = _exact_loaded_instance(rows, self.status["modelId"], operation.model_key)
             else:
                 exact_instance = True  # _observed checks the exact API instance list for an unload.
-            if (type(sampled) not in (int, float) or not math.isfinite(sampled)
-                    or not -0.5 <= time.time() - sampled <= MAX_SNAPSHOT_AGE
-                    or not fresh_rows or not exact_instance
-                    or not (_source_live(snapshot, "lmstudio-api") and _source_live(snapshot, "lms-ps"))
-                    or not _observed(snapshot, self.status["action"], self.status["modelId"],
-                                     operation.model_key, self.status["finishedAt"])):
+            if (
+                type(sampled) not in (int, float)
+                or not math.isfinite(sampled)
+                or not -0.5 <= time.time() - sampled <= MAX_SNAPSHOT_AGE
+                or not fresh_rows
+                or not exact_instance
+                or not (_source_live(snapshot, "lmstudio-api") and _source_live(snapshot, "lms-ps"))
+                or not _observed(
+                    snapshot,
+                    self.status["action"],
+                    self.status["modelId"],
+                    operation.model_key,
+                    self.status["finishedAt"],
+                )
+            ):
                 raise ControlError(409, "Fresh inventory has not confirmed the selected model operation.")
             if self.journal is not None:
-                if not _positive_settlement(snapshot, self.status["action"],
-                                            self.status["modelId"], operation.model_key,
-                                            self.status["finishedAt"]):
+                if not _positive_settlement(
+                    snapshot,
+                    self.status["action"],
+                    self.status["modelId"],
+                    operation.model_key,
+                    self.status["finishedAt"],
+                ):
                     raise ControlError(409, "Exact fresh inventory has not confirmed the selected model operation.")
                 try:
                     saved = self.journal.read()
-                    if (saved["phase"] != "pending"
-                            or saved["generation"] != self._journal_generation
-                            or saved["operation"]["operationId"] != operation_id
-                            or saved["operation"]["action"] != self.status["action"]
-                            or saved["operation"]["modelId"] != self.status["modelId"]
-                            or saved["operation"]["modelKey"] != operation.model_key):
+                    if (
+                        saved["phase"] != "pending"
+                        or saved["generation"] != self._journal_generation
+                        or saved["operation"]["operationId"] != operation_id
+                        or saved["operation"]["action"] != self.status["action"]
+                        or saved["operation"]["modelId"] != self.status["modelId"]
+                        or saved["operation"]["modelKey"] != operation.model_key
+                    ):
                         raise JournalError("Exact journal operation identity changed.")
                     if sampled <= max(saved["operation"]["updatedAt"], self._recovery_started_at):
                         raise ControlError(409, "A fresh post-restart model observation is required.")
                     self.journal.confirm_recovered(
-                        operation_id=operation_id, action=self.status["action"],
-                        model_id=self.status["modelId"], model_key=operation.model_key,
-                        generation=self._journal_generation, observed_at=sampled,
-                        recovery_started_at=self._recovery_started_at)
+                        operation_id=operation_id,
+                        action=self.status["action"],
+                        model_id=self.status["modelId"],
+                        model_key=operation.model_key,
+                        generation=self._journal_generation,
+                        observed_at=sampled,
+                        recovery_started_at=self._recovery_started_at,
+                    )
                 except ControlError:
                     raise
                 except JournalError as error:
                     self._durable_fault = str(error)
                     raise ControlError(409, "Durable reconciliation failed; no new action can start.") from error
-            self.status.update(settlement="confirmed", message=(
-                "The interrupted model operation is now confirmed by fresh inventory; no command was repeated."))
+            self.status.update(
+                settlement="confirmed",
+                message=(
+                    "The interrupted model operation is now confirmed by fresh inventory; no command was repeated."
+                ),
+            )
         return self.read()
 
     def request(self, action: str, model_id: str, *, action_guard=None) -> dict:
@@ -594,25 +702,40 @@ class ModelControl:
             operation.model_key = model_key
             if self.journal is not None:
                 try:
-                    saved = self.journal.begin(operation_id=operation.identifier,
-                                               action=action, model_id=model_id,
-                                               model_key=model_key, started_at=started)
+                    saved = self.journal.begin(
+                        operation_id=operation.identifier,
+                        action=action,
+                        model_id=model_id,
+                        model_key=model_key,
+                        started_at=started,
+                    )
                     self._journal_generation = saved["generation"]
                 except JournalError as error:
                     self._durable_fault = str(error)
-                    self.status.update(status="failed", settlement="unconfirmed",
-                                       message="Durable model admission was refused: " + str(error))
-                    raise ControlError(409, "Durable model operation admission failed; no command was started.") from error
+                    self.status.update(
+                        status="failed",
+                        settlement="unconfirmed",
+                        message="Durable model admission was refused: " + str(error),
+                    )
+                    raise ControlError(
+                        409, "Durable model operation admission failed; no command was started."
+                    ) from error
             self._operation = operation
-            self.status = {"status": "running", "operationId": operation.identifier,
-                           "action": action, "modelId": model_id,
-                           "message": f"LM Studio {action} requested; checking current state.",
-                           "startedAt": started, "finishedAt": None,
-                           "settlement": "pending", "cancellationRequested": False}
+            self.status = {
+                "status": "running",
+                "operationId": operation.identifier,
+                "action": action,
+                "modelId": model_id,
+                "message": f"LM Studio {action} requested; checking current state.",
+                "startedAt": started,
+                "finishedAt": None,
+                "settlement": "pending",
+                "cancellationRequested": False,
+            }
             accepted = copy.deepcopy(self.status)
-            worker = threading.Thread(target=self._work,
-                                      args=(action, model_id, model_key, started, action_guard, operation),
-                                      daemon=True)
+            worker = threading.Thread(
+                target=self._work, args=(action, model_id, model_key, started, action_guard, operation), daemon=True
+            )
             operation.worker = worker
             # Start while holding admission so cancel/join never sees an
             # unstarted worker. The worker takes this lock only for status.
@@ -620,15 +743,18 @@ class ModelControl:
                 worker.start()
             except Exception:
                 operation.worker = None
-                self.status.update(status="failed",
-                                   settlement="unconfirmed" if self.journal else "not-started",
-                                   finishedAt=time.time(),
-                                   message="Model operation worker could not start; durable admission remains held.")
+                self.status.update(
+                    status="failed",
+                    settlement="unconfirmed" if self.journal else "not-started",
+                    finishedAt=time.time(),
+                    message="Model operation worker could not start; durable admission remains held.",
+                )
                 raise
         return accepted
 
-    def _work(self, action: str, model_id: str, model_key: str, started: float,
-              action_guard=None, operation=None) -> None:
+    def _work(
+        self, action: str, model_id: str, model_key: str, started: float, action_guard=None, operation=None
+    ) -> None:
         assert operation is not None
         confirmed = False
         observed_at = None
@@ -654,15 +780,18 @@ class ModelControl:
                 operation.check()
                 command_finished = time.time()
                 with self.lock:
-                    self.status["message"] = (f"LM Studio {action} command completed; "
-                                              "waiting for fresh inventory confirmation.")
+                    self.status["message"] = (
+                        f"LM Studio {action} command completed; waiting for fresh inventory confirmation."
+                    )
                 deadline = time.monotonic() + VERIFY_TIMEOUT
                 while time.monotonic() < deadline:
                     operation.check()
                     observed = self.store.read()
-                    positive = (_positive_settlement(observed, action, model_id, model_key,
-                                                     command_finished) if self.journal is not None else
-                                _observed(observed, action, model_id, model_key, command_finished))
+                    positive = (
+                        _positive_settlement(observed, action, model_id, model_key, command_finished)
+                        if self.journal is not None
+                        else _observed(observed, action, model_id, model_key, command_finished)
+                    )
                     if positive:
                         operation.check()
                         confirmed = True
@@ -671,7 +800,10 @@ class ModelControl:
                         break
                     operation.cancelled.wait(0.25)
                 else:
-                    result = ("failed", f"LM Studio {action} command completed, but fresh inventory did not confirm the change.")
+                    result = (
+                        "failed",
+                        f"LM Studio {action} command completed, but fresh inventory did not confirm the change.",
+                    )
         except ControlError as error:
             confirmed = False
             result = ("failed", error.message)
@@ -687,25 +819,38 @@ class ModelControl:
             if operation.cancelled.is_set():
                 confirmed = False
                 result = ("failed", "Model operation was cancelled.")
-            owner_cleanup_confirmed = (operation.attempted and not operation.cleanup_failed
-                                       and operation.process is None
-                                       and self.runner is _run_cli)
+            owner_cleanup_confirmed = (
+                operation.attempted
+                and not operation.cleanup_failed
+                and operation.process is None
+                and self.runner is _run_cli
+            )
             if confirmed and self.journal is not None and not owner_cleanup_confirmed:
                 confirmed = False
                 result = ("failed", "Model result was observed but command owner cleanup was not confirmed.")
             if self.journal is not None:
                 try:
                     self.journal.finish(
-                        operation_id=operation.identifier, action=action, model_id=model_id,
-                        model_key=model_key, generation=self._journal_generation,
-                        finished_at=time.time(), cleanup_confirmed=owner_cleanup_confirmed,
-                        observed_at=observed_at if confirmed and owner_cleanup_confirmed else None)
+                        operation_id=operation.identifier,
+                        action=action,
+                        model_id=model_id,
+                        model_key=model_key,
+                        generation=self._journal_generation,
+                        finished_at=time.time(),
+                        cleanup_confirmed=owner_cleanup_confirmed,
+                        observed_at=observed_at if confirmed and owner_cleanup_confirmed else None,
+                    )
                 except JournalError as error:
                     self._durable_fault = str(error)
                     confirmed = False
                     result = ("failed", "Durable model journal write failed; settlement remains unconfirmed.")
-            settlement = ("confirmed" if confirmed else
-                          "unconfirmed" if self.journal is not None or operation.attempted else "not-started")
+            settlement = (
+                "confirmed"
+                if confirmed
+                else "unconfirmed"
+                if self.journal is not None or operation.attempted
+                else "not-started"
+            )
             message = result[1]
             if settlement == "unconfirmed":
                 message += " LM Studio settlement is unconfirmed; no rollback or retry is claimed."
@@ -713,6 +858,10 @@ class ModelControl:
                 message += " No LM Studio command was started."
             if operation.cleanup_failed:
                 message += " The CLI process could not be confirmed terminated."
-            self.status.update(status=result[0], message=message, finishedAt=time.time(),
-                               settlement=settlement,
-                               cancellationRequested=operation.cancelled.is_set())
+            self.status.update(
+                status=result[0],
+                message=message,
+                finishedAt=time.time(),
+                settlement=settlement,
+                cancellationRequested=operation.cancelled.is_set(),
+            )

@@ -1,5 +1,6 @@
 """pair_status reads NVIDIA PAIR's files read-only: an allowlist, never node.key, a bounded log tail,
 and unknown (never down or 0) whenever the files cannot prove otherwise."""
+
 import json
 import os
 from pathlib import Path
@@ -27,31 +28,80 @@ def iso(seconds):
 
 
 def log_line(at, message, data=None, level="info"):
-    return json.dumps({"level": level, "time": iso(at), "source": "service-bridge",
-                       "sublevel": "engine-manager", "message": message, "data": data or {}})
+    return json.dumps(
+        {
+            "level": level,
+            "time": iso(at),
+            "source": "service-bridge",
+            "sublevel": "engine-manager",
+            "message": message,
+            "data": data or {},
+        }
+    )
 
 
 def discovery(now):
     return [
-        {"id": "mac-host.local", "name": "mac-host.local", "hostUuid": "77777777-7777-4777-8777-777777777777",
-         "ipAddress": ADDRESSES[0], "ipAddresses": [ADDRESSES[0]], "port": 14318, "lastSeen": int(now - 30),
-         "trusted": True, "clustered": True, "models": ["qwen/a", "gemma/b"],
-         "modelsByEngine": {"lmstudio": ["qwen/a", "gemma/b"], "llamacpp": []},
-         "loadedByEngine": {"lmstudio": ["qwen/a"], "llamacpp": []}},
-        {"id": "WinPc01", "name": "WinPc01", "hostUuid": HOST_PC, "ipAddress": ADDRESSES[1],
-         "port": 14318, "lastSeen": int(now - 4 * 3600), "trusted": True, "clustered": True,
-         "modelsByEngine": {"llamacpp": [], "ollama": []}, "loadedByEngine": {"llamacpp": [], "ollama": []}},
-        {"id": "linux-node-1", "name": "linux-node-1", "hostUuid": HOST_LINUX, "ipAddress": ADDRESSES[2],
-         "ipAddresses": [ADDRESSES[2], ADDRESSES[3]], "port": 14318, "lastSeen": int(now - 1),
-         "trusted": True, "clustered": True, "modelsByEngine": {"llamacpp": ["qwen35-0.5b", "coder-1.5b"]},
-         "loadedByEngine": {"llamacpp": []}},
+        {
+            "id": "mac-host.local",
+            "name": "mac-host.local",
+            "hostUuid": "77777777-7777-4777-8777-777777777777",
+            "ipAddress": ADDRESSES[0],
+            "ipAddresses": [ADDRESSES[0]],
+            "port": 14318,
+            "lastSeen": int(now - 30),
+            "trusted": True,
+            "clustered": True,
+            "models": ["qwen/a", "gemma/b"],
+            "modelsByEngine": {"lmstudio": ["qwen/a", "gemma/b"], "llamacpp": []},
+            "loadedByEngine": {"lmstudio": ["qwen/a"], "llamacpp": []},
+        },
+        {
+            "id": "WinPc01",
+            "name": "WinPc01",
+            "hostUuid": HOST_PC,
+            "ipAddress": ADDRESSES[1],
+            "port": 14318,
+            "lastSeen": int(now - 4 * 3600),
+            "trusted": True,
+            "clustered": True,
+            "modelsByEngine": {"llamacpp": [], "ollama": []},
+            "loadedByEngine": {"llamacpp": [], "ollama": []},
+        },
+        {
+            "id": "linux-node-1",
+            "name": "linux-node-1",
+            "hostUuid": HOST_LINUX,
+            "ipAddress": ADDRESSES[2],
+            "ipAddresses": [ADDRESSES[2], ADDRESSES[3]],
+            "port": 14318,
+            "lastSeen": int(now - 1),
+            "trusted": True,
+            "clustered": True,
+            "modelsByEngine": {"llamacpp": ["qwen35-0.5b", "coder-1.5b"]},
+            "loadedByEngine": {"llamacpp": []},
+        },
     ]
 
 
-ENGINES = [{"engine": "llamacpp", "display_name": "llama.cpp", "installed": True, "running": True,
-            "healthy": True, "port": 8081},
-           {"engine": "lmstudio", "display_name": "LM Studio", "installed": True, "running": False,
-            "healthy": False, "port": 1235}]
+ENGINES = [
+    {
+        "engine": "llamacpp",
+        "display_name": "llama.cpp",
+        "installed": True,
+        "running": True,
+        "healthy": True,
+        "port": 8081,
+    },
+    {
+        "engine": "lmstudio",
+        "display_name": "LM Studio",
+        "installed": True,
+        "running": False,
+        "healthy": False,
+        "port": 1235,
+    },
+]
 
 
 class Fixture:
@@ -66,26 +116,92 @@ class Fixture:
         (root / "cluster/trusted/peer.json").write_text(json.dumps({"cert": TRUST_SENTINEL}))
         (root / "cluster/identity.json").write_text(json.dumps({"secret": KEY_SENTINEL}))
         (root / "node-id.json").write_text(json.dumps({"id": KEY_SENTINEL}))
-        self.write("settings.json", {"force_ports": True, "cluster_auto_sync": False, "cluster_id": CLUSTER_ID,
-                                     "cluster_friendly_name": "linux-node-1"})
+        self.write(
+            "settings.json",
+            {
+                "force_ports": True,
+                "cluster_auto_sync": False,
+                "cluster_id": CLUSTER_ID,
+                "cluster_friendly_name": "linux-node-1",
+            },
+        )
         self.write("cluster/admission.json", {"counter": 3, "activated": 1, "clusterId": CLUSTER_ID, "epoch": 2})
-        self.write("cluster/members.json", [
-            {"id": "mac-host.local", "nodeUuid": MAC_UUID, "name": "mac-host.local", "ipAddress": ADDRESSES[0],
-             "port": 14321, "clusterId": CLUSTER_ID, "admissionEpoch": 2, "state": "member",
-             "joinedAt": int(now * 1000) - 10, "lastSeen": None},
-            {"id": "WinPc01", "nodeUuid": PC_UUID, "name": "WinPc01", "ipAddress": ADDRESSES[1],
-             "port": 14321, "clusterId": CLUSTER_ID, "admissionEpoch": 2, "state": "member",
-             "joinedAt": int(now * 1000) - 10, "lastSeen": None},
-            {"id": "linux-node-1", "nodeUuid": LINUX_UUID, "name": "linux-node-1", "ipAddress": ADDRESSES[2],
-             "port": 14321, "clusterId": CLUSTER_ID, "admissionEpoch": 2, "state": "member",
-             "joinedAt": int(now * 1000) - 10, "lastSeen": None}])
+        self.write(
+            "cluster/members.json",
+            [
+                {
+                    "id": "mac-host.local",
+                    "nodeUuid": MAC_UUID,
+                    "name": "mac-host.local",
+                    "ipAddress": ADDRESSES[0],
+                    "port": 14321,
+                    "clusterId": CLUSTER_ID,
+                    "admissionEpoch": 2,
+                    "state": "member",
+                    "joinedAt": int(now * 1000) - 10,
+                    "lastSeen": None,
+                },
+                {
+                    "id": "WinPc01",
+                    "nodeUuid": PC_UUID,
+                    "name": "WinPc01",
+                    "ipAddress": ADDRESSES[1],
+                    "port": 14321,
+                    "clusterId": CLUSTER_ID,
+                    "admissionEpoch": 2,
+                    "state": "member",
+                    "joinedAt": int(now * 1000) - 10,
+                    "lastSeen": None,
+                },
+                {
+                    "id": "linux-node-1",
+                    "nodeUuid": LINUX_UUID,
+                    "name": "linux-node-1",
+                    "ipAddress": ADDRESSES[2],
+                    "port": 14321,
+                    "clusterId": CLUSTER_ID,
+                    "admissionEpoch": 2,
+                    "state": "member",
+                    "joinedAt": int(now * 1000) - 10,
+                    "lastSeen": None,
+                },
+            ],
+        )
         ms = int((now - 7200) * 1000)
-        workloads = ([{"id": str(i), "engine": "lmstudio", "model": "qwen/a", "state": "completed", "error": None,
-                       "originatedFrom": MAC_UUID, "scheduledOn": MAC_UUID, "createdAt": ms, "startedAt": ms,
-                       "completedAt": ms + 500, "runId": "r", "seq": 4, "requesterId": None} for i in range(5)]
-                     + [{"id": "f", "engine": "llamacpp", "model": "coder", "state": "failed", "error": "boom",
-                         "originatedFrom": MAC_UUID, "scheduledOn": LINUX_UUID, "createdAt": ms, "startedAt": ms,
-                         "completedAt": ms + 100, "runId": "r", "seq": 5, "requesterId": None}])
+        workloads = [
+            {
+                "id": str(i),
+                "engine": "lmstudio",
+                "model": "qwen/a",
+                "state": "completed",
+                "error": None,
+                "originatedFrom": MAC_UUID,
+                "scheduledOn": MAC_UUID,
+                "createdAt": ms,
+                "startedAt": ms,
+                "completedAt": ms + 500,
+                "runId": "r",
+                "seq": 4,
+                "requesterId": None,
+            }
+            for i in range(5)
+        ] + [
+            {
+                "id": "f",
+                "engine": "llamacpp",
+                "model": "coder",
+                "state": "failed",
+                "error": "boom",
+                "originatedFrom": MAC_UUID,
+                "scheduledOn": LINUX_UUID,
+                "createdAt": ms,
+                "startedAt": ms,
+                "completedAt": ms + 100,
+                "runId": "r",
+                "seq": 5,
+                "requesterId": None,
+            }
+        ]
         self.write("workloads-history.json", workloads)
         old = now - 3600
         os.utime(root / "workloads-history.json", (old, old))
@@ -94,8 +210,9 @@ class Fixture:
             log_line(now - 20, "discovery:nodes-changed", discovery(now), level="verbose"),
             log_line(now - 10, f"remote engine status polled for {HOST_LINUX}", {"engines": ENGINES}),
             log_line(now - 9, f"remote engine status polled for {HOST_PC}", {"engines": ENGINES}),
-            log_line(now - 8, "remote engine status polled for 99999999-9999-4999-8999-999999999999",
-                     {"engines": ENGINES}),
+            log_line(
+                now - 8, "remote engine status polled for 99999999-9999-4999-8999-999999999999", {"engines": ENGINES}
+            ),
             log_line(now - log_age, "remote engine status sweep: 2 peer(s)", {"peerIds": [HOST_LINUX, HOST_PC]}),
         ]
         self.write_log()
@@ -135,6 +252,7 @@ class PairStatusTests(unittest.TestCase):
                 self.assertIn(kwargs.get("dir_fd"), directories)
                 opened.append(str(absolute))
             return descriptor
+
         directories = {}
         with mock.patch.object(pair_status.os, "open", side_effect=recording_open):
             doc = self.read()
@@ -147,8 +265,14 @@ class PairStatusTests(unittest.TestCase):
             self.assertFalse(any(forbidden in path for path in opened), forbidden)
 
     def test_forbidden_or_unlisted_names_cannot_be_requested(self):
-        for rel in ("cluster/node.key", "cluster/node.crt", "cluster/../cluster/node.key",
-                    "cluster/trusted/peer.json", "node-id.json", "/etc/passwd"):
+        for rel in (
+            "cluster/node.key",
+            "cluster/node.crt",
+            "cluster/../cluster/node.key",
+            "cluster/trusted/peer.json",
+            "node-id.json",
+            "/etc/passwd",
+        ):
             with self.subTest(rel=rel), self.assertRaises(ValueError):
                 pair_status._read(self.root, rel, 4096)
 
@@ -196,12 +320,14 @@ class PairStatusTests(unittest.TestCase):
 
     def test_root_replacement_before_file_open_keeps_original_directory(self):
         doc = self._assert_directory_replacement_does_not_redirect(
-            "", "settings.json", '{"cluster_friendly_name":"redirected"}')
+            "", "settings.json", '{"cluster_friendly_name":"redirected"}'
+        )
         self.assertEqual(doc["cluster"]["name"], "linux-node-1")
 
     def test_cluster_replacement_before_file_open_keeps_original_directory(self):
         doc = self._assert_directory_replacement_does_not_redirect(
-            "cluster", "cluster/members.json", '[{"name":"redirected"}]')
+            "cluster", "cluster/members.json", '[{"name":"redirected"}]'
+        )
         self.assertEqual(doc["cluster"]["memberCount"], 3)
 
     def test_logs_replacement_before_file_open_keeps_original_directory(self):
@@ -212,13 +338,16 @@ class PairStatusTests(unittest.TestCase):
     def test_remote_engine_ports_have_no_local_port_claim(self):
         for age in (1, 86400):
             with self.subTest(age=age):
-                self.fixture.lines = [log_line(self.now - age,
-                    f"remote engine status polled for {HOST_PC}", {"engines": ENGINES})]
+                self.fixture.lines = [
+                    log_line(self.now - age, f"remote engine status polled for {HOST_PC}", {"engines": ENGINES})
+                ]
                 self.fixture.write_log()
                 doc = self.read()
                 self.assertEqual(doc["pairSays"]["engines"][0]["engines"][1]["port"], 1235)
-                self.assertFalse(hasattr(pair_status, "lmstudio_port_claim"),
-                                 "remote engine reports must not supply a native LM Studio port")
+                self.assertFalse(
+                    hasattr(pair_status, "lmstudio_port_claim"),
+                    "remote engine reports must not supply a native LM Studio port",
+                )
 
     def test_stale_node_residency_is_unknown_not_zero(self):
         nodes = discovery(self.now)
@@ -245,26 +374,32 @@ class PairStatusTests(unittest.TestCase):
                 self.assertIsNone(result["pairClaimLoadedCount"])
                 self.assertIsNone(result["pairClaimLoadedModels"])
                 self.assertIsNone(result["pairClaimModelCount"])
-                self.assertEqual(result["residencyReason"],
-                                 "future-last-seen" if isinstance(last_seen, int) else "unknown-last-seen")
+                self.assertEqual(
+                    result["residencyReason"], "future-last-seen" if isinstance(last_seen, int) else "unknown-last-seen"
+                )
 
     def test_node_freshness_uses_unrounded_age_at_thirty_second_boundary(self):
         node = discovery(self.now)[0]
         node["lastSeen"] = int(self.now - 30)
         self.fixture.lines = [log_line(self.now - 1, "discovery:nodes-changed", [node])]
         self.fixture.write_log()
-        for offset, expected in ((0, (2, 1, ["qwen/a"], None)),
-                                 (0.001, (None, None, None, "stale-last-seen"))):
+        for offset, expected in ((0, (2, 1, ["qwen/a"], None)), (0.001, (None, None, None, "stale-last-seen"))):
             with self.subTest(offset=offset):
                 result = self.read(now=self.now + offset)["nodes"][0]
                 self.assertEqual(result["lastSeenAgeSeconds"], 30.0)
-                self.assertEqual((result["pairClaimModelCount"], result["pairClaimLoadedCount"], result["pairClaimLoadedModels"],
-                                  result["residencyReason"]), expected)
+                self.assertEqual(
+                    (
+                        result["pairClaimModelCount"],
+                        result["pairClaimLoadedCount"],
+                        result["pairClaimLoadedModels"],
+                        result["residencyReason"],
+                    ),
+                    expected,
+                )
 
     def test_invalid_history_without_logs_cannot_mark_pair_up(self):
         (self.root / "logs/nvpair.jsonl").unlink()
-        for data in (b"not json", b'{}', b'["not a row"]',
-                     b"[" + b"{}," * pair_status.MAX_WORKLOAD_ROWS + b"{}]"):
+        for data in (b"not json", b"{}", b'["not a row"]', b"[" + b"{}," * pair_status.MAX_WORKLOAD_ROWS + b"{}]"):
             with self.subTest(size=len(data)):
                 (self.root / "workloads-history.json").write_bytes(data)
                 os.utime(self.root / "workloads-history.json", (self.now - 1, self.now - 1))
@@ -287,10 +422,17 @@ class PairStatusTests(unittest.TestCase):
     def test_incomplete_workload_rows_without_logs_cannot_mark_pair_up(self):
         (self.root / "logs/nvpair.jsonl").unlink()
         valid = {"state": "completed", "engine": "lmstudio", "createdAt": int(self.now - 10) * 1000}
-        rows = [{}, {k: v for k, v in valid.items() if k != "state"}, dict(valid, state=""),
-                {k: v for k, v in valid.items() if k != "engine"}, dict(valid, engine="bad engine"),
-                {k: v for k, v in valid.items() if k != "createdAt"}, dict(valid, createdAt="invalid"),
-                dict(valid, createdAt=0), dict(valid, createdAt=True)]
+        rows = [
+            {},
+            {k: v for k, v in valid.items() if k != "state"},
+            dict(valid, state=""),
+            {k: v for k, v in valid.items() if k != "engine"},
+            dict(valid, engine="bad engine"),
+            {k: v for k, v in valid.items() if k != "createdAt"},
+            dict(valid, createdAt="invalid"),
+            dict(valid, createdAt=0),
+            dict(valid, createdAt=True),
+        ]
         for row in rows:
             with self.subTest(row=row):
                 self.fixture.write("workloads-history.json", [row])
@@ -308,23 +450,36 @@ class PairStatusTests(unittest.TestCase):
         doc = self.read()
         self.assertEqual(doc["files"]["workloads-history.json"], "ok")
         self.assertEqual(doc["workloads"]["total"], 0)
-        self.assertEqual((doc["state"], doc["reason"], doc["evidence"]["historyAgeSeconds"]),
-                         ("up", None, 1.0))
+        self.assertEqual((doc["state"], doc["reason"], doc["evidence"]["historyAgeSeconds"]), ("up", None, 1.0))
 
     def test_live_fixture_is_up_with_members_nodes_and_workloads(self):
         doc = self.read()
         self.assertEqual((doc["state"], doc["reason"], doc["installed"]), ("up", None, True))
         self.assertAlmostEqual(doc["evidence"]["logAgeSeconds"], 3.0, delta=1.0)
-        self.assertEqual(doc["cluster"], {
-            "name": "linux-node-1", "epoch": 2, "memberCount": 3,
-            "members": [{"name": "mac-host.local", "state": "member", "admissionEpoch": 2},
-                        {"name": "WinPc01", "state": "member", "admissionEpoch": 2},
-                        {"name": "linux-node-1", "state": "member", "admissionEpoch": 2}]})
+        self.assertEqual(
+            doc["cluster"],
+            {
+                "name": "linux-node-1",
+                "epoch": 2,
+                "memberCount": 3,
+                "members": [
+                    {"name": "mac-host.local", "state": "member", "admissionEpoch": 2},
+                    {"name": "WinPc01", "state": "member", "admissionEpoch": 2},
+                    {"name": "linux-node-1", "state": "member", "admissionEpoch": 2},
+                ],
+            },
+        )
         nodes = {node["name"]: node for node in doc["nodes"]}
         self.assertAlmostEqual(nodes["linux-node-1"]["lastSeenAgeSeconds"], 1.0, delta=1.0)
         self.assertGreater(nodes["WinPc01"]["lastSeenAgeSeconds"], 3 * 3600)
-        self.assertEqual((nodes["mac-host.local"]["pairClaimModelCount"], nodes["mac-host.local"]["pairClaimLoadedCount"],
-                          nodes["mac-host.local"]["pairClaimLoadedModels"]), (2, 1, ["qwen/a"]))
+        self.assertEqual(
+            (
+                nodes["mac-host.local"]["pairClaimModelCount"],
+                nodes["mac-host.local"]["pairClaimLoadedCount"],
+                nodes["mac-host.local"]["pairClaimLoadedModels"],
+            ),
+            (2, 1, ["qwen/a"]),
+        )
         self.assertAlmostEqual(doc["discoveryAgeSeconds"], 20.0, delta=1.0)  # the newest discovery entry wins
         self.assertEqual(doc["workloads"]["total"], 6)
         self.assertEqual(doc["workloads"]["byState"], {"completed": 5, "failed": 1})
@@ -337,8 +492,10 @@ class PairStatusTests(unittest.TestCase):
         self.assertNotIn("engines", {k for k in doc if k != "pairSays"})
         reports = {report["node"]: report for report in doc["pairSays"]["engines"]}
         self.assertEqual(set(reports), {"linux-node-1", "WinPc01", "unidentified peer"})
-        self.assertEqual(reports["linux-node-1"]["engines"][1],
-                         {"engine": "lmstudio", "installed": True, "running": False, "healthy": False, "port": 1235})
+        self.assertEqual(
+            reports["linux-node-1"]["engines"][1],
+            {"engine": "lmstudio", "installed": True, "running": False, "healthy": False, "port": 1235},
+        )
         self.assertIn("not verified", doc["pairSays"]["note"])
         dumped = json.dumps(doc)
         for value in ADDRESSES + (MAC_UUID, PC_UUID, LINUX_UUID, HOST_LINUX, HOST_PC, CLUSTER_ID):
@@ -362,23 +519,31 @@ class PairStatusTests(unittest.TestCase):
         self.assertEqual(first["nodes"][0]["pairClaimLoadedCount"], 1)
         self.assertIsNone(later["nodes"][0]["pairClaimLoadedCount"])
         self.assertEqual(later["nodes"][0]["residencyReason"], "stale-last-seen")
-        self.assertEqual(first["nodes"][0]["lastSeenAgeSeconds"], later["nodes"][0]["lastSeenAgeSeconds"],
-                         "rounded display ages must not extend the precise residency deadline")
+        self.assertEqual(
+            first["nodes"][0]["lastSeenAgeSeconds"],
+            later["nodes"][0]["lastSeenAgeSeconds"],
+            "rounded display ages must not extend the precise residency deadline",
+        )
         self.assertEqual(expired["state"], "unknown")
         self.assertEqual(expired["evidence"]["logAgeSeconds"], first["evidence"]["logAgeSeconds"] + 1000)
         self.assertEqual(expired["discoveryAgeSeconds"], first["discoveryAgeSeconds"] + 1000)
-        self.assertEqual(expired["pairSays"]["engines"][0]["reportedAgeSeconds"],
-                         first["pairSays"]["engines"][0]["reportedAgeSeconds"] + 1000)
+        self.assertEqual(
+            expired["pairSays"]["engines"][0]["reportedAgeSeconds"],
+            first["pairSays"]["engines"][0]["reportedAgeSeconds"] + 1000,
+        )
         self.assertEqual(first["state"], "up", "reprojection must not mutate previous public snapshots")
 
     def test_conflicting_lmstudio_ports_remain_separate_peer_claims(self):
         other = [dict(ENGINES[1], port=1236)]
-        self.fixture.lines.append(log_line(self.now - 2, f"remote engine status polled for {HOST_PC}",
-                                           {"engines": other}))
+        self.fixture.lines.append(
+            log_line(self.now - 2, f"remote engine status polled for {HOST_PC}", {"engines": other})
+        )
         self.fixture.write_log()
         reports = self.read()["pairSays"]["engines"]
-        ports = {row["node"]: next(engine["port"] for engine in row["engines"]
-                                  if engine["engine"] == "lmstudio") for row in reports}
+        ports = {
+            row["node"]: next(engine["port"] for engine in row["engines"] if engine["engine"] == "lmstudio")
+            for row in reports
+        }
         self.assertEqual(ports, {"WinPc01": 1236, "linux-node-1": 1235, "unidentified peer": 1235})
 
     def test_tail_is_bounded_and_drops_the_partial_first_line(self):
@@ -391,6 +556,7 @@ class PairStatusTests(unittest.TestCase):
         def recording_pread(fd, size, offset):
             sizes.append(size)
             return real_pread(fd, size, offset)
+
         with mock.patch.object(pair_status.os, "pread", side_effect=recording_pread):
             doc = self.read()
         self.assertLessEqual(max(sizes), pair_status.MAX_WORKLOADS + 1)
@@ -431,8 +597,9 @@ class PairStatusTests(unittest.TestCase):
 
     def test_log_freshness_uses_unrounded_age_at_cutoff(self):
         at = self.now - pair_status.LOG_FRESH_SECONDS
-        self.fixture.lines = [json.dumps({"time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(at)),
-                                         "message": "engine sweep"})]
+        self.fixture.lines = [
+            json.dumps({"time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(at)), "message": "engine sweep"})
+        ]
         self.fixture.write_log()
         for offset, state in ((0, "up"), (0.04, "unknown")):
             with self.subTest(offset=offset):
@@ -452,9 +619,15 @@ class PairStatusTests(unittest.TestCase):
 
     def test_malformed_members_are_incomplete_not_an_exact_count(self):
         valid = json.loads((self.root / "cluster/members.json").read_text())[0]
-        for rows in ([None], [valid, None], [{}], [dict(valid, name="")],
-                     [dict(valid, state=None)], [dict(valid, admissionEpoch=True)],
-                     [dict(valid, nodeUuid="not-a-uuid")]):
+        for rows in (
+            [None],
+            [valid, None],
+            [{}],
+            [dict(valid, name="")],
+            [dict(valid, state=None)],
+            [dict(valid, admissionEpoch=True)],
+            [dict(valid, nodeUuid="not-a-uuid")],
+        ):
             with self.subTest(rows=rows):
                 self.fixture.write("cluster/members.json", rows)
                 doc = self.read()
@@ -466,8 +639,9 @@ class PairStatusTests(unittest.TestCase):
         member = json.loads((self.root / "cluster/members.json").read_text())[0]
         for count in (pair_status.MAX_MEMBERS, pair_status.MAX_MEMBERS + 1):
             with self.subTest(count=count):
-                self.fixture.write("cluster/members.json", [dict(member, nodeUuid=f"{i:08x}" + MAC_UUID[8:])
-                                                            for i in range(count)])
+                self.fixture.write(
+                    "cluster/members.json", [dict(member, nodeUuid=f"{i:08x}" + MAC_UUID[8:]) for i in range(count)]
+                )
                 doc = self.read()
                 if count <= pair_status.MAX_MEMBERS:
                     self.assertEqual(doc["cluster"]["memberCount"], count)

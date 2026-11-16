@@ -15,18 +15,28 @@ from unittest import mock
 
 import online_code_repair as repair
 import windows_probe
-from test_online_code_repair import (ScriptedRunner, bridge, idle, nisi, reply,
-                                     windows)
+from test_online_code_repair import ScriptedRunner, bridge, idle, nisi, reply, windows
 
 PROBE_JOB = "mac-20260925-081500-" + "d" * 32
-SHARE_ENV = {"AGIW_SHARE_HOSTS": "10.222.33.10,10.222.33.20,pc.example.invalid",
-             "AGIW_SHARE_USERNAME": "suiteuser"}
+SHARE_ENV = {"AGIW_SHARE_HOSTS": "10.222.33.10,10.222.33.20,pc.example.invalid", "AGIW_SHARE_USERNAME": "suiteuser"}
 
 
 class FakeShare:
-    def __init__(self, *, mounted=True, stuck=0, dispatch="ok", open_jobs=0, owner_idle=True,
-                 host="10.222.33.10", unmount_ok=True, mount_ok=True, after_mount="ok", dispatch_sequence=None,
-                 router_free=True):
+    def __init__(
+        self,
+        *,
+        mounted=True,
+        stuck=0,
+        dispatch="ok",
+        open_jobs=0,
+        owner_idle=True,
+        host="10.222.33.10",
+        unmount_ok=True,
+        mount_ok=True,
+        after_mount="ok",
+        dispatch_sequence=None,
+        router_free=True,
+    ):
         self.router_free = router_free
         self.state = {"mounted": mounted, "stuck": stuck, "dispatch": dispatch}
         self.sequence = list(dispatch_sequence or [])
@@ -92,8 +102,15 @@ def success_probe(**extra):
 
     def probe():
         calls.append(1)
-        return {"status": "success", "jobId": PROBE_JOB, "model": "gpt-oss-20b",
-                "elapsedSeconds": 6.25, "answered": True, **extra}
+        return {
+            "status": "success",
+            "jobId": PROBE_JOB,
+            "model": "gpt-oss-20b",
+            "elapsedSeconds": 6.25,
+            "answered": True,
+            **extra,
+        }
+
     return probe, calls
 
 
@@ -111,14 +128,18 @@ def blocked_network():
         if not name.startswith("registry-"):
             calls.append((name, args, kwargs))
         return mock.DEFAULT
+
     with mock.patch.object(repair.socket, "create_connection", side_effect=record):
         yield calls
 
 
 FULL_ROUTE = [
-    (repair.ROUTE_STATUS, idle()), (repair.WINDOWS_STATUS, windows()),
-    (repair.NISI_STATUS, nisi()), (repair.READINESS, reply(None)),
-    (repair.NISI_STATUS, nisi()), (repair.WINDOWS_STATUS, windows()),
+    (repair.ROUTE_STATUS, idle()),
+    (repair.WINDOWS_STATUS, windows()),
+    (repair.NISI_STATUS, nisi()),
+    (repair.READINESS, reply(None)),
+    (repair.NISI_STATUS, nisi()),
+    (repair.WINDOWS_STATUS, windows()),
     (repair.ROUTE_STATUS, idle()),
 ]
 
@@ -132,14 +153,20 @@ class FixRouteShareAndProbeTests(unittest.TestCase):
 
     def controller(self, script, share, probe, binding="VERIFIED"):
         runner = ScriptedRunner(script, self.receipt)
-        return repair.OnlineCodeRepair(runner, nisi_pending_path=self.marker,
-                                       readiness_path=self.receipt,
-                                       bridge_probe=lambda _: bridge(binding=binding),
-                                       share=share, inference_probe=probe, l2_open=True), runner
+        return repair.OnlineCodeRepair(
+            runner,
+            nisi_pending_path=self.marker,
+            readiness_path=self.receipt,
+            bridge_probe=lambda _: bridge(binding=binding),
+            share=share,
+            inference_probe=probe,
+            l2_open=True,
+        ), runner
 
     def finish(self, controller, action="fix-route"):
-        started = (controller.request_fix(action.removeprefix("fix-")) if action.startswith("fix-")
-                   else controller.request())
+        started = (
+            controller.request_fix(action.removeprefix("fix-")) if action.startswith("fix-") else controller.request()
+        )
         self.assertEqual(started["status"], "running")
         deadline = time.monotonic() + 2
         while time.monotonic() < deadline:
@@ -171,9 +198,11 @@ class FixRouteShareAndProbeTests(unittest.TestCase):
             share = repair.ShareControl()
         probe, calls = success_probe()
         controller, runner = self.controller([(repair.ROUTE_STATUS, idle())], share, probe)
-        with mock.patch.object(repair, "_bounded_command") as bounded, \
-             mock.patch.object(repair, "_run_bounded") as run, \
-             blocked_network() as connects:
+        with (
+            mock.patch.object(repair, "_bounded_command") as bounded,
+            mock.patch.object(repair, "_run_bounded") as run,
+            blocked_network() as connects,
+        ):
             state = self.finish(controller)
         self.assertEqual(state["status"], "needs-action")
         self.assertIn("AGIW_SHARE_HOSTS", state["message"])
@@ -186,30 +215,38 @@ class FixRouteShareAndProbeTests(unittest.TestCase):
         self.assertEqual(connects, [])
 
     def test_every_unhealthy_share_requires_manual_recovery_without_mount_or_owner_calls(self):
-        cases = ({"stuck": 3, "dispatch": "timeout"},
-                 {"mounted": False, "dispatch": "trusted SharedChami mount unavailable"},
-                 {"stuck": 2, "dispatch": "timeout", "open_jobs": 1},
-                 {"stuck": 2, "dispatch": "timeout", "open_jobs": None},
-                 {"stuck": 2, "dispatch": "timeout", "owner_idle": False},
-                 {"stuck": 2, "dispatch": "timeout", "host": None},
-                 {"stuck": 2, "dispatch": "timeout", "router_free": False},
-                 {"dispatch": "other"})
+        cases = (
+            {"stuck": 3, "dispatch": "timeout"},
+            {"mounted": False, "dispatch": "trusted SharedChami mount unavailable"},
+            {"stuck": 2, "dispatch": "timeout", "open_jobs": 1},
+            {"stuck": 2, "dispatch": "timeout", "open_jobs": None},
+            {"stuck": 2, "dispatch": "timeout", "owner_idle": False},
+            {"stuck": 2, "dispatch": "timeout", "host": None},
+            {"stuck": 2, "dispatch": "timeout", "router_free": False},
+            {"dispatch": "other"},
+        )
         for options in cases:
             with self.subTest(options=options):
                 share = FakeShare(**options)
                 probe, calls = success_probe()
                 controller, runner = self.controller([(repair.ROUTE_STATUS, idle())], share, probe)
-                with mock.patch.object(share, "force_unmount", side_effect=AssertionError("force unmount")), \
-                     mock.patch.object(share, "mount", side_effect=AssertionError("mount")), \
-                     mock.patch.object(share, "reachable_host", side_effect=AssertionError("network reachability")):
+                with (
+                    mock.patch.object(share, "force_unmount", side_effect=AssertionError("force unmount")),
+                    mock.patch.object(share, "mount", side_effect=AssertionError("mount")),
+                    mock.patch.object(share, "reachable_host", side_effect=AssertionError("network reachability")),
+                ):
                     state = self.finish(controller)
                 self.assertEqual(state["status"], "needs-action", state)
                 self.assertIn("manual recovery", state["message"])
                 self.assertIn("Finder", state["message"])
                 self.assertIn("Nothing was unmounted or remounted", state["message"])
                 self.assertIn(("share-recovery", "manual-only"), self.steps(state))
-                self.assertFalse(any(event in ("unmount", "router", "hold", "reach")
-                                     or event.startswith("mount:") for event in share.events))
+                self.assertFalse(
+                    any(
+                        event in ("unmount", "router", "hold", "reach") or event.startswith("mount:")
+                        for event in share.events
+                    )
+                )
                 self.assertEqual(calls, [])
                 self.assertEqual(runner.script, [])
 
@@ -236,12 +273,15 @@ class FixRouteShareAndProbeTests(unittest.TestCase):
         def probe():
             calls.append(1)
             return {"status": "unresolved", "code": "TIMEOUT", "jobId": PROBE_JOB}
+
         controller, _ = self.controller(list(FULL_ROUTE), share, probe)
         state = self.finish(controller)
         self.assertEqual(state["status"], "needs-action")
         self.assertIn("not resent", state["message"])
-        self.assertIn({"name": "windows-inference", "result": "unresolved",
-                       "evidence": "code=TIMEOUT", "jobId": PROBE_JOB}, state["steps"])
+        self.assertIn(
+            {"name": "windows-inference", "result": "unresolved", "evidence": "code=TIMEOUT", "jobId": PROBE_JOB},
+            state["steps"],
+        )
         self.assertEqual(len(calls), 1)
 
     def test_open_job_skips_probe(self):
@@ -255,8 +295,10 @@ class FixRouteShareAndProbeTests(unittest.TestCase):
         self.assertEqual(calls, [])
 
     def test_worker_error_and_unsent_probe_need_action(self):
-        for evidence, text in (({"status": "error", "jobId": PROBE_JOB, "model": "gpt-oss-20b"}, "returned an error"),
-                               ({"status": "not-run", "code": "WORKER_NOT_READY"}, "No job was published")):
+        for evidence, text in (
+            ({"status": "error", "jobId": PROBE_JOB, "model": "gpt-oss-20b"}, "returned an error"),
+            ({"status": "not-run", "code": "WORKER_NOT_READY"}, "No job was published"),
+        ):
             controller, _ = self.controller(list(FULL_ROUTE), FakeShare(), lambda e=evidence: e)
             state = self.finish(controller)
             self.assertEqual(state["status"], "needs-action")
@@ -266,10 +308,12 @@ class FixRouteShareAndProbeTests(unittest.TestCase):
         """Spec R2.9 rule 6 (Sol #12): a transport that refused to load under the router's install
         fence is a probe not-run: needs-action, no job published, one probe, and the message tells
         a transition (press again later) from a fence the owner must repair."""
-        for code, words in (("ROUTER_INSTALL_IN_PROGRESS", "router install in progress. No job was published."),
-                            ("ROUTER_INSTALL_CHANGED", "router install in progress. No job was published."),
-                            ("ROUTER_INSTALL_FENCE_MISSING", "refused to load (ROUTER_INSTALL_FENCE_MISSING)"),
-                            ("ROUTER_INSTALL_GENERATION_MISMATCH", "finish or roll back the router install")):
+        for code, words in (
+            ("ROUTER_INSTALL_IN_PROGRESS", "router install in progress. No job was published."),
+            ("ROUTER_INSTALL_CHANGED", "router install in progress. No job was published."),
+            ("ROUTER_INSTALL_FENCE_MISSING", "refused to load (ROUTER_INSTALL_FENCE_MISSING)"),
+            ("ROUTER_INSTALL_GENERATION_MISMATCH", "finish or roll back the router install"),
+        ):
             with self.subTest(code=code):
                 calls = []
                 probe = lambda c=code: calls.append(c) or {"status": "not-run", "code": c}
@@ -278,8 +322,9 @@ class FixRouteShareAndProbeTests(unittest.TestCase):
                 self.assertEqual(state["status"], "needs-action")
                 self.assertIn(words, state["message"])
                 self.assertIn("No job was published", state["message"])
-                self.assertIn({"name": "windows-inference", "result": "not-run", "evidence": f"code={code}"},
-                              state["steps"])
+                self.assertIn(
+                    {"name": "windows-inference", "result": "not-run", "evidence": f"code={code}"}, state["steps"]
+                )
                 self.assertEqual(calls, [code])
 
     def test_p2conv_a_huge_elapsed_never_hides_the_install_refusal(self):
@@ -300,8 +345,13 @@ class FixRouteShareAndProbeTests(unittest.TestCase):
         self.assertNotIn("verified end to end", state["message"])
 
     def test_probe_evidence_is_sanitized(self):
-        probe = lambda: {"status": "success", "jobId": "../../x", "model": "evil\nmodel; rm",
-                         "elapsedSeconds": float("nan"), "answered": True}
+        probe = lambda: {
+            "status": "success",
+            "jobId": "../../x",
+            "model": "evil\nmodel; rm",
+            "elapsedSeconds": float("nan"),
+            "answered": True,
+        }
         controller, _ = self.controller(list(FULL_ROUTE), FakeShare(), probe)
         state = self.finish(controller)
         self.assertEqual(state["status"], "needs-action")
@@ -326,7 +376,6 @@ class FixRouteShareAndProbeTests(unittest.TestCase):
         self.assertIn("No model inference was run", state["message"])
         self.assertEqual(share.events, [])
         self.assertEqual(calls, [])
-
 
     def test_one_contended_sample_is_not_a_wedge(self):
         share = FakeShare(dispatch_sequence=["queue I/O unavailable or timed out", "ok"])
@@ -354,7 +403,6 @@ class FixRouteShareAndProbeTests(unittest.TestCase):
         self.assertIn("not the expected READY", state["message"])
         self.assertIn(("windows-inference", "returned"), self.steps(state))
 
-
     def test_busy_router_defers_inference_probe_on_a_healthy_share(self):
         share = FakeShare(router_free=False)
         probe, calls = success_probe()
@@ -366,6 +414,7 @@ class FixRouteShareAndProbeTests(unittest.TestCase):
 
     def test_pre_existing_stuck_readers_are_tolerated_after_a_verified_read(self):
         import telemetry
+
         self.addCleanup(telemetry.set_windows_worker_tolerance, 0)
         share = FakeShare(stuck=3)
         probe, _ = success_probe()
@@ -376,14 +425,27 @@ class FixRouteShareAndProbeTests(unittest.TestCase):
                 self.assertEqual(telemetry._windows_worker_reader_blocked(), blocked, count)
 
     def test_degraded_worker_message_names_the_pc_side_fix(self):
-        degraded = reply({"kind": "codemode.windows.status.v1", "pending": None, "readyForWork": False,
-                          "inventory": {"ok": False, "reason": "worker status degraded"},
-                          "code": "WINDOWS_EXACT_LANES_UNAVAILABLE"}, 3)
-        script = [(repair.ROUTE_STATUS, idle()), (repair.WINDOWS_STATUS, degraded),
-                  (repair.NISI_STATUS, nisi()), (repair.READINESS, reply(None)),
-                  (repair.NISI_STATUS, nisi()), (repair.WINDOWS_STATUS, degraded),
-                  (repair.ROUTE_STATUS, idle()), (repair.WINDOWS_STATUS, degraded),
-                  (repair.WINDOWS_STATUS, degraded)]
+        degraded = reply(
+            {
+                "kind": "codemode.windows.status.v1",
+                "pending": None,
+                "readyForWork": False,
+                "inventory": {"ok": False, "reason": "worker status degraded"},
+                "code": "WINDOWS_EXACT_LANES_UNAVAILABLE",
+            },
+            3,
+        )
+        script = [
+            (repair.ROUTE_STATUS, idle()),
+            (repair.WINDOWS_STATUS, degraded),
+            (repair.NISI_STATUS, nisi()),
+            (repair.READINESS, reply(None)),
+            (repair.NISI_STATUS, nisi()),
+            (repair.WINDOWS_STATUS, degraded),
+            (repair.ROUTE_STATUS, idle()),
+            (repair.WINDOWS_STATUS, degraded),
+            (repair.WINDOWS_STATUS, degraded),
+        ]
         probe, calls = success_probe()
         controller, _ = self.controller(script, FakeShare(dispatch="pc-state"), probe)
         controller._sleep = lambda _: None
@@ -400,14 +462,16 @@ class ShareControlTests(unittest.TestCase):
         guest = good.replace("suiteuser", "guest")
         with mock.patch.dict(os.environ, SHARE_ENV):
             control = repair.ShareControl()
-        for listing, expected in ((good, True),
-                                  (good.replace("suiteuser:@", "suiteuser@"), True),
-                                  (good.replace("pc.example.invalid", "10.222.33.10"), True),
-                                  (good.replace("pc.example.invalid", "evil.example"), None),
-                                  (guest, None),
-                                  (good + guest, None),
-                                  (good + good, None),
-                                  (good.replace("/Volumes/SharedChami (", "/Volumes/Other ("), False)):
+        for listing, expected in (
+            (good, True),
+            (good.replace("suiteuser:@", "suiteuser@"), True),
+            (good.replace("pc.example.invalid", "10.222.33.10"), True),
+            (good.replace("pc.example.invalid", "evil.example"), None),
+            (guest, None),
+            (good + guest, None),
+            (good + good, None),
+            (good.replace("/Volumes/SharedChami (", "/Volumes/Other ("), False),
+        ):
             with mock.patch.object(repair, "_bounded_command", return_value=listing):
                 self.assertEqual(control.mounted(), expected, listing)
 
@@ -418,17 +482,23 @@ class ShareControlTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             receipt = root / "readiness.json"
-            controller = repair.OnlineCodeRepair(ScriptedRunner([(repair.ROUTE_STATUS, idle())], receipt),
-                                                 nisi_pending_path=root / "pending.json",
-                                                 readiness_path=receipt,
-                                                 bridge_probe=lambda _: bridge(binding="VERIFIED"),
-                                                 share=share, inference_probe=probe, l2_open=True)
+            controller = repair.OnlineCodeRepair(
+                ScriptedRunner([(repair.ROUTE_STATUS, idle())], receipt),
+                nisi_pending_path=root / "pending.json",
+                readiness_path=receipt,
+                bridge_probe=lambda _: bridge(binding="VERIFIED"),
+                share=share,
+                inference_probe=probe,
+                l2_open=True,
+            )
             listing = "//guest:@pc.example.invalid/SharedChami on /Volumes/SharedChami (smbfs, nodev)\n"
-            with mock.patch.object(repair, "_bounded_command", return_value=listing), \
-                 mock.patch.object(repair, "_windows_worker_stuck_readers", return_value=0), \
-                 mock.patch.object(repair, "_run_bounded") as run, \
-                 mock.patch.object(share, "reachable_host", wraps=share.reachable_host) as reach, \
-                 blocked_network() as connects:
+            with (
+                mock.patch.object(repair, "_bounded_command", return_value=listing),
+                mock.patch.object(repair, "_windows_worker_stuck_readers", return_value=0),
+                mock.patch.object(repair, "_run_bounded") as run,
+                mock.patch.object(share, "reachable_host", wraps=share.reachable_host) as reach,
+                blocked_network() as connects,
+            ):
                 self.assertEqual(controller.request_fix("route")["status"], "running")
                 deadline = time.monotonic() + 2
                 while time.monotonic() < deadline:
@@ -455,26 +525,32 @@ class ShareControlTests(unittest.TestCase):
         with mock.patch.object(repair, "_run_bounded", return_value=repair.CommandResult(0, b"")) as run:
             self.assertTrue(control.mount("10.222.33.10"))
             self.assertTrue(control.force_unmount())
-        self.assertEqual(run.call_args_list[0].args[0],
-                         ["/usr/bin/osascript", "-e", 'mount volume "smb://suiteuser:@10.222.33.10/SharedChami"'])
+        self.assertEqual(
+            run.call_args_list[0].args[0],
+            ["/usr/bin/osascript", "-e", 'mount volume "smb://suiteuser:@10.222.33.10/SharedChami"'],
+        )
         self.assertEqual(run.call_args_list[1].args[0], ["/sbin/umount", "-f", "/Volumes/SharedChami"])
 
     def test_missing_or_malformed_share_config_cannot_touch_mount_or_network(self):
-        for hosts, username in (("", ""), ("10.222.33.10", ""),
-                                ("10.222.33.10", "guest"),
-                                ("10.222.33.10", 'bad"name'),
-                                ('10.222.33.10,x".invalid', "suiteuser"),
-                                ('10.222.33.10,10.222.33.20,bad".invalid', "suiteuser"),
-                                ("127.0.0.1", "suiteuser"),
-                                ("8.8.8.8", "suiteuser"),
-                                ("192.0.2.10", "suiteuser"),
-                                ("169.254.1.1", "suiteuser")):
-            with mock.patch.dict(os.environ, {"AGIW_SHARE_HOSTS": hosts,
-                                           "AGIW_SHARE_USERNAME": username}):
+        for hosts, username in (
+            ("", ""),
+            ("10.222.33.10", ""),
+            ("10.222.33.10", "guest"),
+            ("10.222.33.10", 'bad"name'),
+            ('10.222.33.10,x".invalid', "suiteuser"),
+            ('10.222.33.10,10.222.33.20,bad".invalid', "suiteuser"),
+            ("127.0.0.1", "suiteuser"),
+            ("8.8.8.8", "suiteuser"),
+            ("192.0.2.10", "suiteuser"),
+            ("169.254.1.1", "suiteuser"),
+        ):
+            with mock.patch.dict(os.environ, {"AGIW_SHARE_HOSTS": hosts, "AGIW_SHARE_USERNAME": username}):
                 control = repair.ShareControl()
-            with mock.patch.object(repair, "_bounded_command") as bounded, \
-                 mock.patch.object(repair, "_run_bounded") as run, \
-                 blocked_network() as connects:
+            with (
+                mock.patch.object(repair, "_bounded_command") as bounded,
+                mock.patch.object(repair, "_run_bounded") as run,
+                blocked_network() as connects,
+            ):
                 self.assertIsNone(control.mounted())
                 self.assertIsNone(control.reachable_host())
                 self.assertFalse(control.force_unmount())
@@ -487,6 +563,7 @@ class ShareControlTests(unittest.TestCase):
     def test_hold_owner_ignores_retained_pending_but_respects_a_live_owner(self):
         import fcntl
         import os
+
         with tempfile.TemporaryDirectory() as temp:
             state = Path(temp)
             with mock.patch.object(repair, "WINDOWS_OWNER_STATE", state):
@@ -514,35 +591,38 @@ class ShareControlTests(unittest.TestCase):
 
     def test_dispatch_status_classifies_without_leaking_reasons(self):
         control = repair.ShareControl()
-        cases = [({"ok": True}, "ok"),
-                 ({"ok": False, "reason": "BridgeError: trusted SharedChami mount unavailable"},
-                  "trusted SharedChami mount unavailable"),
-                 ({"ok": False, "reason": "queue I/O unavailable or timed out"}, "queue I/O unavailable or timed out"),
-                 ({"ok": False, "reason": "/Users/secret path"}, "other"),
-                 ({"ok": False, "reason": "OSError: [Errno 6] Device not configured: '/Volumes/SharedChami'"}, "other"),
-                 ({"ok": False, "reason": "worker status degraded"}, "pc-state"),
-                 ({"ok": False, "reason": "heartbeat stale or future-dated"}, "pc-state"),
-                 ({"ok": False, "reason": None}, "other"),
-                 ({"ok": False, "reason": "BridgeError: JSONDecodeError: Expecting value: line 1"}, "pc-state"),
-                 ({"ok": False, "reason": "BridgeError: queue evidence exceeds bounded limit"}, "pc-state"),
-                 ({"ok": False, "reason": "BridgeError: duplicate JSON evidence key"}, "pc-state")]
+        cases = [
+            ({"ok": True}, "ok"),
+            (
+                {"ok": False, "reason": "BridgeError: trusted SharedChami mount unavailable"},
+                "trusted SharedChami mount unavailable",
+            ),
+            ({"ok": False, "reason": "queue I/O unavailable or timed out"}, "queue I/O unavailable or timed out"),
+            ({"ok": False, "reason": "/Users/secret path"}, "other"),
+            ({"ok": False, "reason": "OSError: [Errno 6] Device not configured: '/Volumes/SharedChami'"}, "other"),
+            ({"ok": False, "reason": "worker status degraded"}, "pc-state"),
+            ({"ok": False, "reason": "heartbeat stale or future-dated"}, "pc-state"),
+            ({"ok": False, "reason": None}, "other"),
+            ({"ok": False, "reason": "BridgeError: JSONDecodeError: Expecting value: line 1"}, "pc-state"),
+            ({"ok": False, "reason": "BridgeError: queue evidence exceeds bounded limit"}, "pc-state"),
+            ({"ok": False, "reason": "BridgeError: duplicate JSON evidence key"}, "pc-state"),
+        ]
         for value, expected in cases:
-            with mock.patch.object(repair, "_run_bounded",
-                                   return_value=repair.CommandResult(2, json.dumps(value).encode())):
+            with mock.patch.object(
+                repair, "_run_bounded", return_value=repair.CommandResult(2, json.dumps(value).encode())
+            ):
                 self.assertEqual(control.dispatch_status(), expected)
-        with mock.patch.object(repair, "_run_bounded",
-                               side_effect=repair.subprocess.TimeoutExpired("x", 10)):
+        with mock.patch.object(repair, "_run_bounded", side_effect=repair.subprocess.TimeoutExpired("x", 10)):
             self.assertEqual(control.dispatch_status(), "timeout")
 
     def test_probe_runner_timeout_maps_to_timeout(self):
-        with mock.patch.object(repair, "_run_bounded",
-                               side_effect=repair.subprocess.TimeoutExpired("x", 1)) as run:
+        with mock.patch.object(repair, "_run_bounded", side_effect=repair.subprocess.TimeoutExpired("x", 1)) as run:
             self.assertEqual(repair.windows_inference_probe(), {"status": "timeout"})
         self.assertGreaterEqual(run.call_args.args[2], repair.PROBE_MODEL_SECONDS + 30)
 
-
     def test_kill_group_treats_macos_eperm_on_a_reaped_leader_as_stopped(self):
         import subprocess as sp
+
         child = sp.Popen(["/bin/sleep", "30"], start_new_session=True)
         os_kill = repair.os.killpg
         calls = []
@@ -553,6 +633,7 @@ class ShareControlTests(unittest.TestCase):
                 os_kill(pid, sig)
                 raise PermissionError(1, "Operation not permitted")
             return os_kill(pid, sig)
+
         with mock.patch.object(repair.os, "killpg", side_effect=fake_killpg):
             self.assertTrue(repair._kill_private_group(child))
         self.assertIsNotNone(child.poll())
@@ -560,6 +641,7 @@ class ShareControlTests(unittest.TestCase):
     def test_router_and_owner_locks_are_separate_and_non_blocking(self):
         import fcntl
         import os
+
         with tempfile.TemporaryDirectory() as temp:
             router = Path(temp) / "router.lock"
             router.write_bytes(b"")
@@ -582,6 +664,7 @@ class WindowsProbeScriptTests(unittest.TestCase):
             def __init__(self, code, message, job_id=None):
                 super().__init__(message)
                 self.code, self.job_id = code, job_id
+
         module = types.SimpleNamespace(Owner=owner_cls(TransportError), TransportError=TransportError)
         out = io.StringIO()
         with mock.patch.dict(sys.modules, {"windows_queue_transport": module}), redirect_stdout(out):
@@ -607,16 +690,30 @@ class WindowsProbeScriptTests(unittest.TestCase):
                     Owner.requests.append((prompt, model, timeout))
                     if raise_code:
                         raise TransportError(raise_code, "x", job)
-                    return result or {"status": "success", "id": PROBE_JOB, "model": model,
-                                      "output": "READY", "elapsed_seconds": 4.5}
+                    return result or {
+                        "status": "success",
+                        "id": PROBE_JOB,
+                        "model": model,
+                        "output": "READY",
+                        "elapsed_seconds": 4.5,
+                    }
+
             return Owner
+
         return factory
 
     def test_router_concurrency_transport_codes_are_named_not_generic(self):
         """Spec R2.9 rule 6: lane tokens, the job binding and the owner identity refuse with
         their own codes (no job published), and the Fix controller accepts each of them."""
-        for code in ("LANE_BUSY", "LANE_UNKNOWN", "PUBLICATION_INTERRUPTED", "PUBLICATION_BINDING_FAILED",
-                     "PUBLICATION_BUDGET_EXHAUSTED", "OWNER_LOCK_REPLACED", "PENDING_CHANGED"):
+        for code in (
+            "LANE_BUSY",
+            "LANE_UNKNOWN",
+            "PUBLICATION_INTERRUPTED",
+            "PUBLICATION_BINDING_FAILED",
+            "PUBLICATION_BUDGET_EXHAUSTED",
+            "OWNER_LOCK_REPLACED",
+            "PENDING_CHANGED",
+        ):
             with self.subTest(code=code):
                 exit_code, value = self.run_probe(self.owner(raise_code=code))
                 self.assertEqual(exit_code, 3)
@@ -626,6 +723,7 @@ class WindowsProbeScriptTests(unittest.TestCase):
     def test_a_transport_refusing_to_load_mid_install_is_a_probe_not_run(self):
         """Spec R2.9 rule 6: the transport is a router generation file; during an install or a
         rollback it refuses to load (ROUTER_INSTALL_*), which is a not-run, not an error."""
+
         class FenceError(RuntimeError):
             def __init__(self, code):
                 super().__init__(code)
@@ -638,13 +736,14 @@ class WindowsProbeScriptTests(unittest.TestCase):
             def __getattr__(self, name):
                 raise FenceError(self.refusal)
 
-        for code, expected in (("ROUTER_INSTALL_IN_PROGRESS", "ROUTER_INSTALL_IN_PROGRESS"),
-                               ("ROUTER_INSTALL_ROLLED_BACK", "ROUTER_INSTALL_ROLLED_BACK"),
-                               ("SOMETHING_ELSE", "OWNER_UNAVAILABLE")):
+        for code, expected in (
+            ("ROUTER_INSTALL_IN_PROGRESS", "ROUTER_INSTALL_IN_PROGRESS"),
+            ("ROUTER_INSTALL_ROLLED_BACK", "ROUTER_INSTALL_ROLLED_BACK"),
+            ("SOMETHING_ELSE", "OWNER_UNAVAILABLE"),
+        ):
             with self.subTest(code=code):
                 out = io.StringIO()
-                with mock.patch.dict(sys.modules, {"windows_queue_transport": Refusing(code)}), \
-                        redirect_stdout(out):
+                with mock.patch.dict(sys.modules, {"windows_queue_transport": Refusing(code)}), redirect_stdout(out):
                     exit_code = windows_probe.main(["windows_probe.py", "60"])
                 self.assertEqual(exit_code, 3)
                 self.assertEqual(json.loads(out.getvalue()), {"status": "not-run", "code": expected})
@@ -659,9 +758,17 @@ class WindowsProbeScriptTests(unittest.TestCase):
     def test_not_ready_is_not_a_verification(self):
         for output in ("NOT READY", "not ready", "Not Ready.", "I am NOT READY today"):
             with self.subTest(output=output):
-                code, value = self.run_probe(self.owner(result={
-                    "status": "success", "id": PROBE_JOB, "model": "gpt-oss-20b",
-                    "output": output, "elapsed_seconds": 4.5}))
+                code, value = self.run_probe(
+                    self.owner(
+                        result={
+                            "status": "success",
+                            "id": PROBE_JOB,
+                            "model": "gpt-oss-20b",
+                            "output": output,
+                            "elapsed_seconds": 4.5,
+                        }
+                    )
+                )
                 self.assertEqual(code, 0)
                 self.assertIs(value["answered"], False)
                 self.assertNotIn(output, json.dumps(value))
@@ -669,19 +776,37 @@ class WindowsProbeScriptTests(unittest.TestCase):
     def test_ready_word_still_counts_when_extra_text_is_hidden(self):
         for output in ("READY", "ready", "READY secret"):
             with self.subTest(output=output):
-                _, value = self.run_probe(self.owner(result={
-                    "status": "success", "id": PROBE_JOB, "model": "gpt-oss-20b",
-                    "output": output, "elapsed_seconds": 4.5}))
+                _, value = self.run_probe(
+                    self.owner(
+                        result={
+                            "status": "success",
+                            "id": PROBE_JOB,
+                            "model": "gpt-oss-20b",
+                            "output": output,
+                            "elapsed_seconds": 4.5,
+                        }
+                    )
+                )
                 self.assertIs(value["answered"], True)
                 self.assertNotIn("secret", json.dumps(value))
 
     def test_success_prefers_small_model_and_hides_output(self):
-        code, value = self.run_probe(self.owner(result={"status": "success", "id": PROBE_JOB,
-                                                        "model": "gpt-oss-20b", "output": "READY secret",
-                                                        "elapsed_seconds": 4.5}))
+        code, value = self.run_probe(
+            self.owner(
+                result={
+                    "status": "success",
+                    "id": PROBE_JOB,
+                    "model": "gpt-oss-20b",
+                    "output": "READY secret",
+                    "elapsed_seconds": 4.5,
+                }
+            )
+        )
         self.assertEqual(code, 0)
-        self.assertEqual(value, {"status": "success", "jobId": PROBE_JOB, "model": "gpt-oss-20b",
-                                 "elapsedSeconds": 4.5, "answered": True})
+        self.assertEqual(
+            value,
+            {"status": "success", "jobId": PROBE_JOB, "model": "gpt-oss-20b", "elapsedSeconds": 4.5, "answered": True},
+        )
 
     def test_timeout_reports_unresolved_job(self):
         code, value = self.run_probe(self.owner(raise_code="TIMEOUT", job=PROBE_JOB))
@@ -696,7 +821,6 @@ class WindowsProbeScriptTests(unittest.TestCase):
     def test_invalid_timeout_is_refused(self):
         code, value = self.run_probe(self.owner(), ("windows_probe.py", "9999"))
         self.assertEqual(value, {"status": "not-run", "code": "INVALID_TIMEOUT"})
-
 
     def test_no_fallback_to_a_slow_model(self):
         owner = self.owner(models=("Qwen3.8-27B Q4_K_M",))
@@ -720,7 +844,9 @@ class WindowsProbeScriptTests(unittest.TestCase):
 
                 def pending(self):
                     return {"id": PROBE_JOB, "model": "gpt-oss-20b"}
+
             return Owner
+
         code, value = self.run_probe(factory)
         self.assertEqual(value, {"status": "unresolved", "code": "PROBE_FAILED", "jobId": PROBE_JOB})
 

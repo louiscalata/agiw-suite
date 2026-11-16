@@ -22,6 +22,7 @@ level.json (written by a process that can read the sysctls: the monitor's sample
 `mem-guard status`; owner-checked, 0600, at most `level_file_max_age_seconds` old), then from
 `memory_pressure -Q` (availability only).
 """
+
 from __future__ import annotations
 
 import argparse
@@ -76,8 +77,17 @@ _OUTPUT_MAX = 8 << 20
 _PS_ENV = {"LC_ALL": "C", "TZ": "UTC0", "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"}
 _MEMBERS_MAX = 512  # processes per paused job (root included): the writer and the reader share it
 
-STATE_KEYS = ("pressure", "availablePercent", "ramBytes", "swapUsedBytes", "swapTotalBytes",
-              "compressedBytes", "wiredBytes", "vmFreeBytes", "gpuAllocBytes")
+STATE_KEYS = (
+    "pressure",
+    "availablePercent",
+    "ramBytes",
+    "swapUsedBytes",
+    "swapTotalBytes",
+    "compressedBytes",
+    "wiredBytes",
+    "vmFreeBytes",
+    "gpuAllocBytes",
+)
 
 # ---------------------------------------------------------------------------------------------
 # Small helpers
@@ -149,13 +159,21 @@ DEFAULTS: dict[str, Any] = {
     "level_file_max_age_seconds": 3.0,
 }
 _BOUNDS = {
-    "critical_available_percent": (0, 100), "tight_available_percent": (0, 100),
+    "critical_available_percent": (0, 100),
+    "tight_available_percent": (0, 100),
     "watch_available_percent": (0, 100),
-    "critical_swap_fraction": (0, 4), "tight_swap_fraction": (0, 4), "watch_swap_fraction": (0, 4),
-    "tight_compressor_fraction": (0, 1), "watch_compressor_fraction": (0, 1),
-    "critical_vm_free_gib": (0, 1024), "floor_gib": (0, 1024), "floor_fraction": (0, 0.9),
-    "pause_after_seconds": (1, 3600), "resume_after_seconds": (1, 3600),
-    "max_pause_seconds": (60, 86400), "notify_cooldown_seconds": (0, 86400),
+    "critical_swap_fraction": (0, 4),
+    "tight_swap_fraction": (0, 4),
+    "watch_swap_fraction": (0, 4),
+    "tight_compressor_fraction": (0, 1),
+    "watch_compressor_fraction": (0, 1),
+    "critical_vm_free_gib": (0, 1024),
+    "floor_gib": (0, 1024),
+    "floor_fraction": (0, 0.9),
+    "pause_after_seconds": (1, 3600),
+    "resume_after_seconds": (1, 3600),
+    "max_pause_seconds": (60, 86400),
+    "notify_cooldown_seconds": (0, 86400),
     "level_file_max_age_seconds": (1, 600),
 }
 
@@ -254,9 +272,14 @@ def parse_vm_stat(text: str, page_size: Optional[int] = None) -> dict[str, Optio
         count = pages.get(name)
         return count * page if count is not None and count < 1 << 40 else None
 
-    return {"pageSize": page, "compressedBytes": as_bytes("Pages occupied by compressor"),
-            "wiredBytes": as_bytes("Pages wired down"), "freeBytes": as_bytes("Pages free"),
-            "swapInBytes": as_bytes("Swapins"), "swapOutBytes": as_bytes("Swapouts")}
+    return {
+        "pageSize": page,
+        "compressedBytes": as_bytes("Pages occupied by compressor"),
+        "wiredBytes": as_bytes("Pages wired down"),
+        "freeBytes": as_bytes("Pages free"),
+        "swapInBytes": as_bytes("Swapins"),
+        "swapOutBytes": as_bytes("Swapouts"),
+    }
 
 
 _SWAP_TEXT = re.compile(r"total\s*=\s*([\d.]+)([KMGT]?)\s+used\s*=\s*([\d.]+)([KMGT]?)")
@@ -315,8 +338,13 @@ def parse_simctl_booted(text: str) -> list[str]:
 # Consumer grouping
 
 
-GROUP_LABELS = {"ios-simulator": "iOS Simulators", "llm-server": "Local LLM server", "codex": "Codex",
-                "claude": "Claude", "browser": "Browsers"}
+GROUP_LABELS = {
+    "ios-simulator": "iOS Simulators",
+    "llm-server": "Local LLM server",
+    "codex": "Codex",
+    "claude": "Claude",
+    "browser": "Browsers",
+}
 _LLM_TOKENS = ("lm studio", "lmstudio", "bionic", "llama", "mlx")
 _BROWSER_TOKENS = ("safari", "webkit", "chrome", "firefox")
 
@@ -344,8 +372,12 @@ def _weight(row: dict) -> int:
 def _loaded_model_ids(models: Optional[Iterable[dict]]) -> list[str]:
     ids = []
     for model in models or []:
-        if (isinstance(model, dict) and model.get("loaded") is True
-                and not model.get("representedByInstances") and model.get("host", "mac") == "mac"):
+        if (
+            isinstance(model, dict)
+            and model.get("loaded") is True
+            and not model.get("representedByInstances")
+            and model.get("host", "mac") == "mac"
+        ):
             name = _clean_text(model.get("id"), 120)
             if name:
                 ids.append(name)
@@ -357,25 +389,40 @@ def _loaded_mac_models(models: Iterable[dict]) -> tuple[int, Optional[int]]:
     valid size: LM Studio inventory file sizes, never a measured amount of memory."""
     count, total = 0, 0
     for model in models or []:
-        if (isinstance(model, dict) and model.get("loaded") is True
-                and not model.get("representedByInstances") and model.get("host", "mac") == "mac"):
+        if (
+            isinstance(model, dict)
+            and model.get("loaded") is True
+            and not model.get("representedByInstances")
+            and model.get("host", "mac") == "mac"
+        ):
             count += 1
             size = _bytes_or_none(model.get("sizeBytes"))
             total = total + size if total is not None and size else None
     return count, total
 
 
-def group_consumers(rows: list[tuple[int, int, str]], *, models: Optional[list] = None,
-                    simulators: Optional[list[str]] = None, gpu_alloc_bytes: Optional[int] = None,
-                    top_other: int = 3) -> list[dict]:
+def group_consumers(
+    rows: list[tuple[int, int, str]],
+    *,
+    models: Optional[list] = None,
+    simulators: Optional[list[str]] = None,
+    gpu_alloc_bytes: Optional[int] = None,
+    top_other: int = 3,
+) -> list[dict]:
     """Processes grouped into named consumers, largest first. residentBytes is approximate:
     shared pages are counted once per process."""
-    return decorate_consumers(_group_rows(rows, top_other), models=models, simulators=simulators,
-                              gpu_alloc_bytes=gpu_alloc_bytes)
+    return decorate_consumers(
+        _group_rows(rows, top_other), models=models, simulators=simulators, gpu_alloc_bytes=gpu_alloc_bytes
+    )
 
 
-def decorate_consumers(base: list[dict], *, models: Optional[list] = None, simulators: Optional[list[str]] = None,
-                       gpu_alloc_bytes: Optional[int] = None) -> list[dict]:
+def decorate_consumers(
+    base: list[dict],
+    *,
+    models: Optional[list] = None,
+    simulators: Optional[list[str]] = None,
+    gpu_alloc_bytes: Optional[int] = None,
+) -> list[dict]:
     """Grouped rows (from _group_rows, never modified) plus simulator names and loaded models,
     largest first. Cheap: it touches only the few group rows.
 
@@ -415,11 +462,12 @@ def _group_rows(rows: list[tuple[int, int, str]], top_other: int = 3) -> list[di
             name = _clean_text(comm.rsplit("/", 1)[-1], 60) or "unknown"
             row = others.setdefault(name, {"group": "other", "label": name, "residentBytes": 0, "processCount": 0})
         else:
-            row = groups.setdefault(group, {"group": group, "label": GROUP_LABELS[group],
-                                            "residentBytes": 0, "processCount": 0})
+            row = groups.setdefault(
+                group, {"group": group, "label": GROUP_LABELS[group], "residentBytes": 0, "processCount": 0}
+            )
         row["residentBytes"] += rss
         row["processCount"] += 1
-    top = sorted(others.values(), key=lambda r: r["residentBytes"], reverse=True)[:max(0, top_other)]
+    top = sorted(others.values(), key=lambda r: r["residentBytes"], reverse=True)[: max(0, top_other)]
     return sorted(list(groups.values()) + top, key=_weight, reverse=True)
 
 
@@ -458,16 +506,26 @@ def _route_candidates(models: Optional[Iterable[dict]]) -> set[str]:
     are loaded; with a third, unloading one of the pair makes the router pick a new pair instead."""
     ids: set[str] = set()
     for model in models or []:
-        if (isinstance(model, dict) and model.get("loaded") is True
-                and not model.get("representedByInstances") and model.get("host", "mac") == "mac"):
+        if (
+            isinstance(model, dict)
+            and model.get("loaded") is True
+            and not model.get("representedByInstances")
+            and model.get("host", "mac") == "mac"
+        ):
             model_id = model.get("modelKey") or model.get("id")
             if "embed" not in str(model_id).lower():
                 ids.add(str(model_id))
     return ids
 
 
-def suggestions(consumers: Optional[list], models: Optional[list] = None, paused_count: int = 0, *,
-                route_pair: Optional[dict] = None, route_live: bool = False) -> list[str]:
+def suggestions(
+    consumers: Optional[list],
+    models: Optional[list] = None,
+    paused_count: int = 0,
+    *,
+    route_pair: Optional[dict] = None,
+    route_live: bool = False,
+) -> list[str]:
     """Text only, never executed. Untagged tips come first, ordered by the size of what each would
     free: the iOS Simulators and idle Mac models outside the Nisi pair. Then the pair's own idle
     models (route_pair maps a model id to 'author' or 'reviewer'; ids match exactly, ignoring case),
@@ -485,9 +543,13 @@ def suggestions(consumers: Optional[list], models: Optional[list] = None, paused
         if row.get("group") == "ios-simulator":
             untagged.append((_weight(row), "Shut down unused iOS Simulators (`xcrun simctl shutdown all`)"))
     for model in models or []:
-        if (isinstance(model, dict) and model.get("loaded") is True
-                and not model.get("representedByInstances") and model.get("host", "mac") == "mac"
-                and model.get("state") == "idle"):
+        if (
+            isinstance(model, dict)
+            and model.get("loaded") is True
+            and not model.get("representedByInstances")
+            and model.get("host", "mac") == "mac"
+            and model.get("state") == "idle"
+        ):
             name = _clean_text(model.get("id"), 120)
             if name:
                 size = _bytes_or_none(model.get("sizeBytes")) or 0
@@ -497,7 +559,7 @@ def suggestions(consumers: Optional[list], models: Optional[list] = None, paused
                     tagged.append((size, text + _ROUTE_LIVE_TAG))
                 elif role:
                     remaining = _route_candidates(other for other in models or [] if other is not model)
-                    effect = (_ROUTE_SWITCH if len(remaining) >= 2 else _ROUTE_STOP)
+                    effect = _ROUTE_SWITCH if len(remaining) >= 2 else _ROUTE_STOP
                     tagged.append((size, f"{text} ({_ROUTE_ROLES[role]}: {effect})"))
                 else:
                     untagged.append((size, text))
@@ -524,14 +586,20 @@ def _ctypes_sysctl(name: str, size: int) -> Optional[bytes]:
     try:
         if _LIBC is None:
             import ctypes
+
             try:
                 lib = ctypes.CDLL(None, use_errno=True)
                 fn = lib.sysctlbyname
             except (OSError, AttributeError):
                 lib = ctypes.CDLL("/usr/lib/libSystem.B.dylib", use_errno=True)
                 fn = lib.sysctlbyname
-            fn.argtypes = [ctypes.c_char_p, ctypes.c_void_p, ctypes.POINTER(ctypes.c_size_t),
-                           ctypes.c_void_p, ctypes.c_size_t]
+            fn.argtypes = [
+                ctypes.c_char_p,
+                ctypes.c_void_p,
+                ctypes.POINTER(ctypes.c_size_t),
+                ctypes.c_void_p,
+                ctypes.c_size_t,
+            ]
             fn.restype = ctypes.c_int
             _LIBC = (ctypes, fn)
         ctypes, fn = _LIBC
@@ -561,6 +629,7 @@ class LibProc:
 
     def __init__(self, path: str = "/usr/lib/libproc.dylib"):
         import ctypes
+
         lib = ctypes.CDLL(path, use_errno=True)
         lib.proc_listallpids.argtypes = [ctypes.c_void_p, ctypes.c_int]
         lib.proc_listallpids.restype = ctypes.c_int
@@ -571,16 +640,47 @@ class LibProc:
         u32 = ctypes.c_uint32
 
         class Short(ctypes.Structure):  # struct proc_bsdshortinfo
-            _fields_ = [("pid", u32), ("ppid", u32), ("pgid", u32), ("status", u32), ("comm", ctypes.c_char * 16),
-                        ("flags", u32), ("uid", u32), ("gid", u32), ("ruid", u32), ("rgid", u32),
-                        ("svuid", u32), ("svgid", u32), ("rfu", u32)]
+            _fields_ = [
+                ("pid", u32),
+                ("ppid", u32),
+                ("pgid", u32),
+                ("status", u32),
+                ("comm", ctypes.c_char * 16),
+                ("flags", u32),
+                ("uid", u32),
+                ("gid", u32),
+                ("ruid", u32),
+                ("rgid", u32),
+                ("svuid", u32),
+                ("svgid", u32),
+                ("rfu", u32),
+            ]
 
         class Bsd(ctypes.Structure):  # struct proc_bsdinfo
-            _fields_ = [("flags", u32), ("status", u32), ("xstatus", u32), ("pid", u32), ("ppid", u32),
-                        ("uid", u32), ("gid", u32), ("ruid", u32), ("rgid", u32), ("svuid", u32), ("svgid", u32),
-                        ("rfu", u32), ("comm", ctypes.c_char * 16), ("name", ctypes.c_char * 32),
-                        ("nfiles", u32), ("pgid", u32), ("pjobc", u32), ("tdev", u32), ("tpgid", u32),
-                        ("nice", ctypes.c_int32), ("start_sec", ctypes.c_uint64), ("start_usec", ctypes.c_uint64)]
+            _fields_ = [
+                ("flags", u32),
+                ("status", u32),
+                ("xstatus", u32),
+                ("pid", u32),
+                ("ppid", u32),
+                ("uid", u32),
+                ("gid", u32),
+                ("ruid", u32),
+                ("rgid", u32),
+                ("svuid", u32),
+                ("svgid", u32),
+                ("rfu", u32),
+                ("comm", ctypes.c_char * 16),
+                ("name", ctypes.c_char * 32),
+                ("nfiles", u32),
+                ("pgid", u32),
+                ("pjobc", u32),
+                ("tdev", u32),
+                ("tpgid", u32),
+                ("nice", ctypes.c_int32),
+                ("start_sec", ctypes.c_uint64),
+                ("start_usec", ctypes.c_uint64),
+            ]
 
         if ctypes.sizeof(Short) != 64 or ctypes.sizeof(Bsd) != 136:
             raise OSError("unexpected proc_bsdinfo layout")
@@ -661,8 +761,14 @@ class LevelFile:
     opened without following a symlink, written from sysctl readings (never from another level
     file) and at most `max_age` seconds old. write() and read() never raise."""
 
-    def __init__(self, path: Optional[os.PathLike] = None, *, max_age: float = DEFAULTS["level_file_max_age_seconds"],
-                 clock: Optional[Callable[[], float]] = None, uid: Optional[int] = None):
+    def __init__(
+        self,
+        path: Optional[os.PathLike] = None,
+        *,
+        max_age: float = DEFAULTS["level_file_max_age_seconds"],
+        clock: Optional[Callable[[], float]] = None,
+        uid: Optional[int] = None,
+    ):
         self.path = Path(path) if path is not None else STATE_ROOT / "level.json"
         self.max_age = float(max_age)
         self._clock = clock or time.time
@@ -673,8 +779,12 @@ class LevelFile:
         try:
             if not isinstance(state, dict) or state.get("levelSource") != "sysctl":
                 return False
-            record: dict[str, Any] = {"schemaVersion": 1, "source": "sysctl", "writtenAt": round(self._clock(), 3),
-                                      "pid": os.getpid()}
+            record: dict[str, Any] = {
+                "schemaVersion": 1,
+                "source": "sysctl",
+                "writtenAt": round(self._clock(), 3),
+                "pid": os.getpid(),
+            }
             record.update(_level_fields(state))
             if record["pressure"] is None and record["availablePercent"] is None:
                 return False
@@ -703,8 +813,12 @@ class LevelFile:
             return None
         try:
             info = os.fstat(fd)
-            if (not stat.S_ISREG(info.st_mode) or info.st_uid != self._uid or info.st_mode & 0o077
-                    or info.st_size > LEVEL_FILE_MAX):
+            if (
+                not stat.S_ISREG(info.st_mode)
+                or info.st_uid != self._uid
+                or info.st_mode & 0o077
+                or info.st_size > LEVEL_FILE_MAX
+            ):
                 return None
             data = os.read(fd, LEVEL_FILE_MAX + 1)
             if len(data) > LEVEL_FILE_MAX:
@@ -731,11 +845,13 @@ class LevelFile:
 
 def _level_fields(source: dict) -> dict[str, Any]:
     pressure = _int_in(source.get("pressure"), 1, 4)
-    return {"pressure": pressure if pressure in PRESSURE_LABEL else None,
-            "availablePercent": _int_in(source.get("availablePercent"), 0, 100),
-            "ramBytes": _int_in(source.get("ramBytes"), GiB // 4, 1 << 50),
-            "swapUsedBytes": _bytes_or_none(source.get("swapUsedBytes")),
-            "swapTotalBytes": _bytes_or_none(source.get("swapTotalBytes"))}
+    return {
+        "pressure": pressure if pressure in PRESSURE_LABEL else None,
+        "availablePercent": _int_in(source.get("availablePercent"), 0, 100),
+        "ramBytes": _int_in(source.get("ramBytes"), GiB // 4, 1 << 50),
+        "swapUsedBytes": _bytes_or_none(source.get("swapUsedBytes")),
+        "swapTotalBytes": _bytes_or_none(source.get("swapTotalBytes")),
+    }
 
 
 _MEMORY_PRESSURE = re.compile(r"System-wide memory free percentage:\s*(\d{1,3})%")
@@ -760,11 +876,19 @@ class Probes:
     SIMULATORS_EVERY = 30.0
     CLI_RETRY = 30.0
 
-    def __init__(self, *, sysctl: Optional[Callable[[str, int], Optional[bytes]]] = None,
-                 runner: Optional[Callable[..., Any]] = None, statvfs: Optional[Callable[[str], Any]] = None,
-                 clock: Optional[Callable[[], float]] = None, wall: Optional[Callable[[], float]] = None,
-                 vm_path: str = VM_PATH, background: bool = False, level_file: Optional[LevelFile] = None,
-                 memory_pressure: bool = False):
+    def __init__(
+        self,
+        *,
+        sysctl: Optional[Callable[[str, int], Optional[bytes]]] = None,
+        runner: Optional[Callable[..., Any]] = None,
+        statvfs: Optional[Callable[[str], Any]] = None,
+        clock: Optional[Callable[[], float]] = None,
+        wall: Optional[Callable[[], float]] = None,
+        vm_path: str = VM_PATH,
+        background: bool = False,
+        level_file: Optional[LevelFile] = None,
+        memory_pressure: bool = False,
+    ):
         self._level_file = level_file
         self._memory_pressure = memory_pressure
         self._sysctl = sysctl if sysctl is not None else _ctypes_sysctl
@@ -873,6 +997,7 @@ class Probes:
             with self._pending_lock:
                 self._cache[key] = (self._clock(), value)
                 self._pending.discard(key)
+
         try:
             threading.Thread(target=run, name=f"mem-guard-{key}", daemon=True).start()
         except Exception:
@@ -896,6 +1021,7 @@ class Probes:
                 return None
             fallback = None if _VM_PAGE.search(out) else self.page_size()
             return parse_vm_stat(out, fallback)
+
         return self._cached("vm_stat", self.VM_STAT_EVERY, read)
 
     def vm_free(self) -> Optional[int]:
@@ -907,6 +1033,7 @@ class Probes:
                 except Exception:
                     continue
             return None
+
         return self._cached("vm_free", self.VM_FREE_EVERY, read)
 
     def _ps_rows(self) -> Optional[list]:
@@ -917,6 +1044,7 @@ class Probes:
         def read() -> Optional[list[str]]:
             out = _run(self._runner, ["/usr/bin/xcrun", "simctl", "list", "devices", "booted", "-j"], 5.0)
             return parse_simctl_booted(out) if out is not None else None
+
         return self._cached("simulators", self.SIMULATORS_EVERY, read)
 
     def consumers(self, models: Optional[list] = None, gpu_alloc_bytes: Optional[int] = None) -> Optional[list]:
@@ -949,7 +1077,9 @@ class Probes:
 
         state["pressure"] = safe(self.pressure)
         state["availablePercent"] = safe(self.available_percent)
-        state["levelSource"] = "sysctl" if state["pressure"] is not None or state["availablePercent"] is not None else None
+        state["levelSource"] = (
+            "sysctl" if state["pressure"] is not None or state["availablePercent"] is not None else None
+        )
         state["ramBytes"] = safe(self.ram_bytes)
         swap = safe(self.swap)
         if swap:
@@ -1008,6 +1138,7 @@ class Probes:
 @dataclasses.dataclass(frozen=True)
 class SwapEvidence:
     """Two samples taken by one caller. A prior CLI status or level file cannot supply this."""
+
     first: dict
     second: dict
     windowSeconds: float
@@ -1022,17 +1153,24 @@ def _swap_sample_eligible(state: Any, cfg: dict) -> bool:
     swap = _bytes_or_none(state.get("swapUsedBytes"))
     avail = _number_in(state.get("availablePercent"), 0, 100)
     vm_free = _bytes_or_none(state.get("vmFreeBytes"))
-    if (_int_in(state.get("pressure"), 1, 4) != 1 or ram is None or swap is None
-            or avail is None or vm_free is None
-            or avail < max(SWAP_TREND_MIN_AVAILABLE_PERCENT, cfg["watch_available_percent"])
-            or vm_free < max(SWAP_TREND_MIN_VM_FREE_GIB, 2 * cfg["critical_vm_free_gib"]) * GiB):
+    if (
+        _int_in(state.get("pressure"), 1, 4) != 1
+        or ram is None
+        or swap is None
+        or avail is None
+        or vm_free is None
+        or avail < max(SWAP_TREND_MIN_AVAILABLE_PERCENT, cfg["watch_available_percent"])
+        or vm_free < max(SWAP_TREND_MIN_VM_FREE_GIB, 2 * cfg["critical_vm_free_gib"]) * GiB
+    ):
         return False
     fraction = swap / ram
     if not cfg["tight_swap_fraction"] <= fraction < cfg["critical_swap_fraction"]:
         return False
-    return (_bytes_or_none(state.get("swapInBytes")) is not None
-            and _bytes_or_none(state.get("swapOutBytes")) is not None
-            and _number_in(state.get("vmStatSampledAt"), 0, 1 << 40) is not None)
+    return (
+        _bytes_or_none(state.get("swapInBytes")) is not None
+        and _bytes_or_none(state.get("swapOutBytes")) is not None
+        and _number_in(state.get("vmStatSampledAt"), 0, 1 << 40) is not None
+    )
 
 
 def _swap_only_tight(state: dict, cfg: dict) -> bool:
@@ -1044,12 +1182,16 @@ def _swap_only_tight(state: dict, cfg: dict) -> bool:
 
 
 def _quiet_swap_evidence(state: dict, cfg: dict, evidence: Any) -> bool:
-    if (not isinstance(evidence, SwapEvidence) or evidence.second is not state
-            or _number_in(evidence.windowSeconds, SWAP_TREND_MIN_SECONDS, SWAP_TREND_MAX_SECONDS) is None
-            or _number_in(evidence.ageSeconds, 0, SWAP_TREND_MAX_AGE_SECONDS) is None
-            or not _swap_sample_eligible(evidence.first, cfg) or not _swap_only_tight(state, cfg)
-            or evidence.first["ramBytes"] != state["ramBytes"]
-            or state["vmStatSampledAt"] <= evidence.first["vmStatSampledAt"]):
+    if (
+        not isinstance(evidence, SwapEvidence)
+        or evidence.second is not state
+        or _number_in(evidence.windowSeconds, SWAP_TREND_MIN_SECONDS, SWAP_TREND_MAX_SECONDS) is None
+        or _number_in(evidence.ageSeconds, 0, SWAP_TREND_MAX_AGE_SECONDS) is None
+        or not _swap_sample_eligible(evidence.first, cfg)
+        or not _swap_only_tight(state, cfg)
+        or evidence.first["ramBytes"] != state["ramBytes"]
+        or state["vmStatSampledAt"] <= evidence.first["vmStatSampledAt"]
+    ):
         return False
     first, second = evidence.first, state
     if second["swapUsedBytes"] > first["swapUsedBytes"]:
@@ -1059,8 +1201,9 @@ def _quiet_swap_evidence(state: dict, cfg: dict, evidence: Any) -> bool:
     return 0 <= swapins <= SWAP_TREND_MAX_SWAPINS_BYTES and swapouts == 0
 
 
-def classify(state: Optional[dict], cfg: Optional[dict] = None, *,
-             swap_evidence: Optional[SwapEvidence] = None) -> tuple[str, list[str]]:
+def classify(
+    state: Optional[dict], cfg: Optional[dict] = None, *, swap_evidence: Optional[SwapEvidence] = None
+) -> tuple[str, list[str]]:
     """(level, reasons): ok < watch < tight < critical, or 'unknown' when neither the kernel's
     pressure level nor its available percentage is readable. Missing inputs never raise the
     level by themselves."""
@@ -1106,7 +1249,8 @@ def classify(state: Optional[dict], cfg: Optional[dict] = None, *,
         # raises the level only to watch; it counts toward tight when the kernel agrees memory is
         # short (pressure warning or worse, or availability already below the watch threshold).
         corroborated = (pressure is not None and pressure >= 2) or (
-            avail is not None and avail < cfg["watch_available_percent"])
+            avail is not None and avail < cfg["watch_available_percent"]
+        )
         if fraction >= cfg["tight_compressor_fraction"] and corroborated:
             hits["tight"].append(text)
         elif fraction >= cfg["tight_compressor_fraction"]:
@@ -1126,11 +1270,16 @@ def classify(state: Optional[dict], cfg: Optional[dict] = None, *,
     source = s.get("levelSource")
     if level != "unknown" and source == "level-file":
         age = _number_in(s.get("levelAgeSeconds"), 0, 86400)
-        reasons.append("read from the monitor's level file" + (f" ({age:.0f} s old)" if age is not None else "")
-                       + ": this process cannot read the kernel's memory sysctls")
+        reasons.append(
+            "read from the monitor's level file"
+            + (f" ({age:.0f} s old)" if age is not None else "")
+            + ": this process cannot read the kernel's memory sysctls"
+        )
     elif level != "unknown" and source == "memory_pressure":
-        reasons.append("availability from memory_pressure -Q: this process cannot read the kernel's "
-                       "pressure level or swap (no fresh level file)")
+        reasons.append(
+            "availability from memory_pressure -Q: this process cannot read the kernel's "
+            "pressure level or swap (no fresh level file)"
+        )
     return level, reasons
 
 
@@ -1162,8 +1311,14 @@ def _kind_and_need(need_bytes: Any, kind: Optional[str]) -> tuple[str, int]:
     return ("heavy" if kind == "heavy" else derived), size
 
 
-def admit(need_bytes: Any, kind: Optional[str] = None, state: Optional[dict] = None,
-          cfg: Optional[dict] = None, *, swap_evidence: Optional[SwapEvidence] = None) -> Decision:
+def admit(
+    need_bytes: Any,
+    kind: Optional[str] = None,
+    state: Optional[dict] = None,
+    cfg: Optional[dict] = None,
+    *,
+    swap_evidence: Optional[SwapEvidence] = None,
+) -> Decision:
     """May this work start? Never raises: on any internal failure light work is admitted
     (fail-open) and heavy work refused (fail-closed)."""
     try:
@@ -1179,8 +1334,9 @@ def admit(need_bytes: Any, kind: Optional[str] = None, state: Optional[dict] = N
         return Decision(False, "unknown", f"memory state unknown; heavy work ({gb(need)}) refused", None, k, need)
 
 
-def _admit(need_bytes: Any, kind: Optional[str], state: dict, cfg: dict,
-           swap_evidence: Optional[SwapEvidence] = None) -> Decision:
+def _admit(
+    need_bytes: Any, kind: Optional[str], state: dict, cfg: dict, swap_evidence: Optional[SwapEvidence] = None
+) -> Decision:
     k, need = _kind_and_need(need_bytes, kind)
     level, reasons = classify(state, cfg, swap_evidence=swap_evidence)
     ram = _int_in(state.get("ramBytes"), 1, 1 << 52)
@@ -1226,8 +1382,14 @@ def _admit(need_bytes: Any, kind: Optional[str], state: dict, cfg: dict,
     return decide(False, f"{headroom()}; refused")
 
 
-def check(need_bytes: Any, kind: Optional[str] = None, *, probes: Optional[Probes] = None,
-          cfg: Optional[dict] = None, models: Optional[list] = None) -> Decision:
+def check(
+    need_bytes: Any,
+    kind: Optional[str] = None,
+    *,
+    probes: Optional[Probes] = None,
+    cfg: Optional[dict] = None,
+    models: Optional[list] = None,
+) -> Decision:
     """admit() against a fresh probe read; a refusal carries the top suggestion. Never raises."""
     try:
         probes = probes or Probes()
@@ -1278,9 +1440,7 @@ class Journal:
 # Notifications
 
 
-_APPLESCRIPT = ("on run argv",
-                "display notification (item 2 of argv) with title (item 1 of argv)",
-                "end run")
+_APPLESCRIPT = ("on run argv", "display notification (item 2 of argv) with title (item 1 of argv)", "end run")
 
 
 class OsascriptNotifier:
@@ -1326,6 +1486,7 @@ class BackgroundNotifier:
                 pass
             finally:
                 self._slots.release()
+
         try:
             threading.Thread(target=run, name="mem-guard-notify", daemon=True).start()
             return True
@@ -1351,8 +1512,9 @@ def _ensure_private_dir(path: Path, uid: Optional[int] = None) -> None:
         os.chmod(path, 0o700)
 
 
-def _read_small_json(path: Any, limit: int, uid: int, *, dir_fd: Optional[int] = None,
-                     inode: Optional[list] = None) -> Any:
+def _read_small_json(
+    path: Any, limit: int, uid: int, *, dir_fd: Optional[int] = None, inode: Optional[list] = None
+) -> Any:
     """A small regular JSON file owned by `uid`, or None (missing, symlink, oversize, invalid).
     `inode`, when given, receives the file's inode number (to unlink exactly what was read)."""
     try:
@@ -1439,8 +1601,10 @@ def _start_epoch(text: str) -> Optional[int]:
 
 
 def _lstart_text(moment: time.struct_time) -> str:
-    return (f"{_WDAYS[moment.tm_wday]} {_MONTHS[moment.tm_mon - 1]} {moment.tm_mday} "
-            f"{moment.tm_hour:02d}:{moment.tm_min:02d}:{moment.tm_sec:02d} {moment.tm_year}")
+    return (
+        f"{_WDAYS[moment.tm_wday]} {_MONTHS[moment.tm_mon - 1]} {moment.tm_mday} "
+        f"{moment.tm_hour:02d}:{moment.tm_min:02d}:{moment.tm_sec:02d} {moment.tm_year}"
+    )
 
 
 def same_start(recorded: Any, current: Any) -> bool:
@@ -1457,6 +1621,8 @@ def same_start(recorded: Any, current: Any) -> bool:
         return recorded == _lstart_text(time.localtime(epoch))
     except (OverflowError, OSError, ValueError):
         return False
+
+
 _TREE_ROW = re.compile(r"^\s*(\d{1,10})\s+(\d{1,10})\s+(\d{1,10})\s*$")
 _ENTRY_NAME = re.compile(r"^(\d{1,10})\.json$")
 _PID_MAX = (1 << 31) - 1
@@ -1479,9 +1645,17 @@ class Registry:
     (libproc: proc_pidpath; ps: the comm column); a process that renamed its argv[0] reads
     differently under the two and is then treated as a different process (dropped, never signalled)."""
 
-    def __init__(self, root: Optional[os.PathLike] = None, *, runner: Optional[Callable[..., Any]] = None,
-                 kill: Optional[Callable[[int, int], None]] = None, uid: Optional[int] = None,
-                 pid: Optional[int] = None, clock: Optional[Callable[[], float]] = None, procs: Any = None):
+    def __init__(
+        self,
+        root: Optional[os.PathLike] = None,
+        *,
+        runner: Optional[Callable[..., Any]] = None,
+        kill: Optional[Callable[[int, int], None]] = None,
+        uid: Optional[int] = None,
+        pid: Optional[int] = None,
+        clock: Optional[Callable[[], float]] = None,
+        procs: Any = None,
+    ):
         self.root = Path(root) if root is not None else STATE_ROOT
         self.pausable_dir = self.root / "pausable"
         self.paused_path = self.root / "paused.json"
@@ -1550,8 +1724,14 @@ class Registry:
 
     def _identities_ps(self, wanted: list[int]) -> Optional[dict[int, dict]]:
         try:
-            result = self._runner(["/bin/ps", "-o", "pid=,ppid=,uid=,lstart=,comm=", "-p", ",".join(map(str, wanted))],
-                                  capture_output=True, text=True, timeout=2.0, check=False, env=_PS_ENV)
+            result = self._runner(
+                ["/bin/ps", "-o", "pid=,ppid=,uid=,lstart=,comm=", "-p", ",".join(map(str, wanted))],
+                capture_output=True,
+                text=True,
+                timeout=2.0,
+                check=False,
+                env=_PS_ENV,
+            )
         except Exception:
             return None
         out = result.stdout if isinstance(result.stdout, str) else ""
@@ -1564,9 +1744,13 @@ class Registry:
             if match and int(match.group(1)) in wanted:
                 path = _clean_text(match.group(5) or "", 1024)
                 comm = _clean_text(path.rsplit("/", 1)[-1], 255) or path[-255:] or "?"
-                found[int(match.group(1))] = {"ppid": int(match.group(2)), "uid": int(match.group(3)),
-                                              "startTime": " ".join(match.group(4).split()),
-                                              "comm": comm, "path": path}
+                found[int(match.group(1))] = {
+                    "ppid": int(match.group(2)),
+                    "uid": int(match.group(3)),
+                    "startTime": " ".join(match.group(4).split()),
+                    "comm": comm,
+                    "path": path,
+                }
         return found
 
     def tree(self) -> Optional[dict[int, tuple[int, int]]]:
@@ -1667,11 +1851,21 @@ class Registry:
         pid, start, comm = obj.get("pid"), obj.get("startTime"), obj.get("comm")
         if type(pid) is not int or not 1 < pid <= _PID_MAX:
             return None
-        if not isinstance(start, str) or not 0 < len(start) <= 64 or not isinstance(comm, str) or not 0 < len(comm) <= 255:
+        if (
+            not isinstance(start, str)
+            or not 0 < len(start) <= 64
+            or not isinstance(comm, str)
+            or not 0 < len(comm) <= 255
+        ):
             return None
-        entry = {"schemaVersion": 1, "pid": pid, "startTime": start, "comm": comm,
-                 "label": _clean_text(obj.get("label"), 80) or f"pid {pid}",
-                 "registeredAt": obj.get("registeredAt") if type(obj.get("registeredAt")) in (int, float) else None}
+        entry = {
+            "schemaVersion": 1,
+            "pid": pid,
+            "startTime": start,
+            "comm": comm,
+            "label": _clean_text(obj.get("label"), 80) or f"pid {pid}",
+            "registeredAt": obj.get("registeredAt") if type(obj.get("registeredAt")) in (int, float) else None,
+        }
         hold = obj.get("noRepauseUntil")
         if type(hold) in (int, float) and math.isfinite(hold):
             entry["noRepauseUntil"] = hold
@@ -1751,21 +1945,37 @@ class Registry:
             entry = self._valid_entry({**job, "schemaVersion": 1}) if isinstance(job, dict) else None
             members = job.get("members") if isinstance(job, dict) else None
             paused_at = job.get("pausedAt") if isinstance(job, dict) else None
-            if (entry is None or not isinstance(members, list) or type(paused_at) not in (int, float)
-                    or not math.isfinite(paused_at)):
+            if (
+                entry is None
+                or not isinstance(members, list)
+                or type(paused_at) not in (int, float)
+                or not math.isfinite(paused_at)
+            ):
                 continue
             clean_members = [m for m in (self._valid_member(member) for member in members[:_MEMBERS_MAX]) if m]
             resume_by = job.get("resumeBy")
             if type(resume_by) not in (int, float) or not math.isfinite(resume_by):
                 resume_by = float(paused_at) + DEFAULTS["max_pause_seconds"]  # records from before resumeBy
             pauser = job.get("pauser")
-            if not (isinstance(pauser, dict) and type(pauser.get("pid")) is int and isinstance(pauser.get("startTime"), str)
-                    and 0 < len(pauser["startTime"]) <= 64):
+            if not (
+                isinstance(pauser, dict)
+                and type(pauser.get("pid")) is int
+                and isinstance(pauser.get("startTime"), str)
+                and 0 < len(pauser["startTime"]) <= 64
+            ):
                 pauser = None
-            jobs.append({"pid": entry["pid"], "startTime": entry["startTime"], "comm": entry["comm"],
-                         "label": entry["label"], "pausedAt": float(paused_at), "resumeBy": float(resume_by),
-                         "pauser": {"pid": pauser["pid"], "startTime": pauser["startTime"]} if pauser else None,
-                         "members": clean_members})
+            jobs.append(
+                {
+                    "pid": entry["pid"],
+                    "startTime": entry["startTime"],
+                    "comm": entry["comm"],
+                    "label": entry["label"],
+                    "pausedAt": float(paused_at),
+                    "resumeBy": float(resume_by),
+                    "pauser": {"pid": pauser["pid"], "startTime": pauser["startTime"]} if pauser else None,
+                    "members": clean_members,
+                }
+            )
         return jobs
 
     def _write_paused(self, jobs: list[dict]) -> None:
@@ -1807,8 +2017,10 @@ class Registry:
         if caller <= 1:
             raise RegistryError("run `mem-guard register` from the job's own script")
         if not self._descends_from(tree, pid, caller):
-            raise RegistryError(f"process {pid} was not started by the calling script; a job may register "
-                                "only itself ($$) or what it started ($!)")
+            raise RegistryError(
+                f"process {pid} was not started by the calling script; a job may register "
+                "only itself ($$) or what it started ($!)"
+            )
         if pid != caller and pid in self._protected(tree):
             raise RegistryError("refusing to register mem-guard or one of its ancestors")
         if tree[pid][0] <= 1:
@@ -1823,14 +2035,24 @@ class Registry:
             raise RegistryError(f"process {pid} belongs to another user")
         if ".app/Contents/MacOS/" in ident["path"]:
             raise RegistryError(f"process {pid} is an app ({ident['comm']}); refusing")
-        entry = {"schemaVersion": 1, "pid": pid, "startTime": ident["startTime"], "comm": ident["comm"],
-                 "label": _clean_text(label, 80) or f"pid {pid}", "registeredAt": round(self._clock(), 3)}
+        entry = {
+            "schemaVersion": 1,
+            "pid": pid,
+            "startTime": ident["startTime"],
+            "comm": ident["comm"],
+            "label": _clean_text(label, 80) or f"pid {pid}",
+            "registeredAt": round(self._clock(), 3),
+        }
         with self._lock():
             _ensure_private_dir(self.pausable_dir, self._uid)
             path = self.pausable_dir / f"{pid}.json"
             if os.path.lexists(path):
                 existing = self._valid_entry(_read_small_json(path, _ENTRY_MAX, self._uid))
-                if existing and same_start(existing["startTime"], entry["startTime"]) and existing["comm"] == entry["comm"]:
+                if (
+                    existing
+                    and same_start(existing["startTime"], entry["startTime"])
+                    and existing["comm"] == entry["comm"]
+                ):
                     return existing
                 os.unlink(path)  # stale entry from a reused pid, or an invalid file
             try:
@@ -1881,8 +2103,13 @@ class Registry:
             valid = []
             for name, entry, inode in entries:
                 current = ids.get(entry["pid"]) if entry else None
-                if (entry is None or current is None or current["uid"] != self._uid
-                        or not same_start(entry["startTime"], current["startTime"]) or current["comm"] != entry["comm"]):
+                if (
+                    entry is None
+                    or current is None
+                    or current["uid"] != self._uid
+                    or not same_start(entry["startTime"], current["startTime"])
+                    or current["comm"] != entry["comm"]
+                ):
                     self._unlink_if_same(fd, name, inode)
                     continue
                 valid.append(entry)
@@ -1905,14 +2132,23 @@ class Registry:
 
     def paused(self) -> list[dict]:
         """What is paused now (read-only)."""
-        return [{"pid": j["pid"], "label": j["label"], "comm": j["comm"], "pausedAt": j["pausedAt"],
-                 "members": len(j["members"])} for j in self._read_paused()]
+        return [
+            {
+                "pid": j["pid"],
+                "label": j["label"],
+                "comm": j["comm"],
+                "pausedAt": j["pausedAt"],
+                "members": len(j["members"]),
+            }
+            for j in self._read_paused()
+        ]
 
     def paused_jobs(self) -> list[dict]:
         return self._read_paused()
 
-    def pause_all(self, exclude: Iterable[tuple[int, str]] = (), *,
-                  max_pause_seconds: Optional[float] = None) -> list[dict]:
+    def pause_all(
+        self, exclude: Iterable[tuple[int, str]] = (), *, max_pause_seconds: Optional[float] = None
+    ) -> list[dict]:
         """SIGSTOP every registered job not yet paused (and its live same-user descendants).
         The process table is read before taking the lock (ps can be slow on a loaded Mac). Under
         the lock paused.json is re-read, then written and verified before any signal, so a crash
@@ -1924,9 +2160,13 @@ class Registry:
         now = self._clock()
         limit = max_pause_seconds if max_pause_seconds is not None else DEFAULTS["max_pause_seconds"]
         already = {(job["pid"], job["startTime"]) for job in self._read_paused()}
-        todo = [e for e in self.list_pausable()
-                if (e["pid"], e["startTime"]) not in already and (e["pid"], e["startTime"]) not in skip
-                and not e.get("noRepauseUntil", 0) > now]
+        todo = [
+            e
+            for e in self.list_pausable()
+            if (e["pid"], e["startTime"]) not in already
+            and (e["pid"], e["startTime"]) not in skip
+            and not e.get("noRepauseUntil", 0) > now
+        ]
         if not todo:
             return []
         tree = self.tree()
@@ -1951,8 +2191,12 @@ class Registry:
         jobs = []
         for entry, pids in plans:
             root = ids.get(entry["pid"])
-            if (root is None or root["uid"] != self._uid or not same_start(entry["startTime"], root["startTime"])
-                    or root["comm"] != entry["comm"]):
+            if (
+                root is None
+                or root["uid"] != self._uid
+                or not same_start(entry["startTime"], root["startTime"])
+                or root["comm"] != entry["comm"]
+            ):
                 continue
             members = []
             for p in pids:
@@ -1962,9 +2206,18 @@ class Registry:
                 if p != entry["pid"] and ident["ppid"] != tree[p][0]:
                     continue
                 members.append({"pid": p, "startTime": ident["startTime"], "comm": ident["comm"]})
-            jobs.append({"pid": entry["pid"], "startTime": entry["startTime"], "comm": entry["comm"],
-                         "label": entry["label"], "pausedAt": round(now, 3), "resumeBy": round(now + limit, 3),
-                         "pauser": pauser, "members": members[:_MEMBERS_MAX]})
+            jobs.append(
+                {
+                    "pid": entry["pid"],
+                    "startTime": entry["startTime"],
+                    "comm": entry["comm"],
+                    "label": entry["label"],
+                    "pausedAt": round(now, 3),
+                    "resumeBy": round(now + limit, 3),
+                    "pauser": pauser,
+                    "members": members[:_MEMBERS_MAX],
+                }
+            )
         if not jobs:
             return []
         with self._lock():
@@ -2064,17 +2317,25 @@ class Registry:
 # Snapshot block
 
 
-def memory_block(state: dict, cfg: Optional[dict] = None, *, consumers: Optional[list] = None,
-                 paused: Optional[list] = None, models: Optional[list] = None,
-                 route_pair: Optional[dict] = None, route_live: bool = False) -> dict[str, Any]:
+def memory_block(
+    state: dict,
+    cfg: Optional[dict] = None,
+    *,
+    consumers: Optional[list] = None,
+    paused: Optional[list] = None,
+    models: Optional[list] = None,
+    route_pair: Optional[dict] = None,
+    route_live: bool = False,
+) -> dict[str, Any]:
     level, reasons = classify(state, cfg)
     block: dict[str, Any] = {"level": level, "reasons": reasons}
     for key in STATE_KEYS:
         block[key] = state.get(key)
     block["consumers"] = list(consumers or [])
     block["paused"] = list(paused or [])
-    block["suggestions"] = suggestions(block["consumers"], models, len(block["paused"]),
-                                       route_pair=route_pair, route_live=route_live)
+    block["suggestions"] = suggestions(
+        block["consumers"], models, len(block["paused"]), route_pair=route_pair, route_live=route_live
+    )
     block["sampledAt"] = state.get("sampledAt")
     return block
 
@@ -2105,9 +2366,16 @@ class Watchdog:
 
     TITLE = "AGIW memory"
 
-    def __init__(self, clock: Optional[Callable[[], float]] = None, probes: Any = None,
-                 notifier: Optional[Callable[[str, str], Any]] = None, registry: Optional[Registry] = None,
-                 cfg: Optional[dict] = None, *, journal: Optional[Journal] = None):
+    def __init__(
+        self,
+        clock: Optional[Callable[[], float]] = None,
+        probes: Any = None,
+        notifier: Optional[Callable[[str, str], Any]] = None,
+        registry: Optional[Registry] = None,
+        cfg: Optional[dict] = None,
+        *,
+        journal: Optional[Journal] = None,
+    ):
         self.clock = clock or time.time
         self.probes = probes
         self.notifier = notifier
@@ -2209,8 +2477,9 @@ class Watchdog:
             pass
         return events
 
-    def _notifications(self, level: str, previous: Optional[str], reasons: list[str], state: dict,
-                       now: float, events: list[dict]) -> None:
+    def _notifications(
+        self, level: str, previous: Optional[str], reasons: list[str], state: dict, now: float, events: list[dict]
+    ) -> None:
         if level in ("tight", "critical") and _RANK[level] > _RANK.get(previous or "ok", 0):
             last = self._last_notice.get(level)
             if last is None or now - last >= self.cfg["notify_cooldown_seconds"]:
@@ -2226,10 +2495,13 @@ class Watchdog:
 
     def _relief(self, level: str, now: float, events: list[dict]) -> None:
         cfg = self.cfg
-        if (level == "critical" and self._critical_since is not None
-                and now - self._critical_since >= cfg["pause_after_seconds"]
-                and (self._last_pause_try is None or now - self._last_pause_try >= 5.0)
-                and self.registry.has_entries()):
+        if (
+            level == "critical"
+            and self._critical_since is not None
+            and now - self._critical_since >= cfg["pause_after_seconds"]
+            and (self._last_pause_try is None or now - self._last_pause_try >= 5.0)
+            and self.registry.has_entries()
+        ):
             self._last_pause_try = now
             try:
                 jobs = self.registry.pause_all(exclude=self._exempt, max_pause_seconds=cfg["max_pause_seconds"])
@@ -2266,8 +2538,10 @@ class Watchdog:
             with contextlib.suppress(Exception):
                 self.registry.hold(held, limit)
             count = len(resumed[0]["jobs"])
-            body = (f"{count} paused job{'s' if count != 1 else ''} resumed after the {limit / 60:.0f}-minute limit; "
-                    f"memory is still {level}.")
+            body = (
+                f"{count} paused job{'s' if count != 1 else ''} resumed after the {limit / 60:.0f}-minute limit; "
+                f"memory is still {level}."
+            )
             self._notify(body)
             events.extend(resumed)
             events.append({"type": "notify", "level": level, "body": body})
@@ -2280,9 +2554,17 @@ class Watchdog:
 class Guard:
     """What the Inference Monitor holds: sample() -> (memory block, source row), never raises."""
 
-    def __init__(self, *, cfg: Optional[dict] = None, probes: Any = None, registry: Optional[Registry] = None,
-                 notifier: Optional[Callable[[str, str], Any]] = None, clock: Optional[Callable[[], float]] = None,
-                 watchdog: bool = True, level_file: Optional[LevelFile] = None):
+    def __init__(
+        self,
+        *,
+        cfg: Optional[dict] = None,
+        probes: Any = None,
+        registry: Optional[Registry] = None,
+        notifier: Optional[Callable[[str, str], Any]] = None,
+        clock: Optional[Callable[[], float]] = None,
+        watchdog: bool = True,
+        level_file: Optional[LevelFile] = None,
+    ):
         # level_file: when given, every sample's kernel reading is published there for sandboxed
         # mem-guard callers (the monitor's sampler passes LevelFile(); off by default).
         self.level_file = level_file
@@ -2295,17 +2577,32 @@ class Guard:
         self._closed = False
         if watchdog:
             # Notifications run off the sampler thread (osascript can take up to 5 s).
-            self.watchdog = Watchdog(clock, self.probes,
-                                     BackgroundNotifier(notifier if notifier is not None else OsascriptNotifier()),
-                                     self.registry, self.cfg)
+            self.watchdog = Watchdog(
+                clock,
+                self.probes,
+                BackgroundNotifier(notifier if notifier is not None else OsascriptNotifier()),
+                self.registry,
+                self.cfg,
+            )
 
     @staticmethod
     def _source(state: str, detail: str) -> dict:
-        return {"id": "mem-guard", "label": "Memory guard", "state": state,
-                "ageSeconds": 0.0 if state == "live" else None, "detail": detail}
+        return {
+            "id": "mem-guard",
+            "label": "Memory guard",
+            "state": state,
+            "ageSeconds": 0.0 if state == "live" else None,
+            "detail": detail,
+        }
 
-    def sample(self, gpu_alloc_bytes: Optional[int] = None, models: Optional[list] = None, *,
-               route_pair: Optional[dict] = None, route_live: bool = False) -> tuple[dict, dict]:
+    def sample(
+        self,
+        gpu_alloc_bytes: Optional[int] = None,
+        models: Optional[list] = None,
+        *,
+        route_pair: Optional[dict] = None,
+        route_live: bool = False,
+    ) -> tuple[dict, dict]:
         """route_pair / route_live: the Nisi edit pair and whether a route is running (see suggestions)."""
         try:
             state = self.probes.read(gpu_alloc_bytes)
@@ -2315,15 +2612,23 @@ class Guard:
             consumers = None
             if level != "ok":
                 consumers = self.probes.consumers(models=models, gpu_alloc_bytes=state.get("gpuAllocBytes"))
-            block = memory_block(state, self.cfg, consumers=consumers, paused=self.registry.paused(), models=models,
-                                 route_pair=route_pair, route_live=route_live)
+            block = memory_block(
+                state,
+                self.cfg,
+                consumers=consumers,
+                paused=self.registry.paused(),
+                models=models,
+                route_pair=route_pair,
+                route_live=route_live,
+            )
             if self.watchdog is not None:
                 with self._tick_lock:
                     events = [] if self._closed else self.watchdog.tick(block)
                 if any(event.get("type") in ("pause", "resume") for event in events):
                     block["paused"] = self.registry.paused()
-                    block["suggestions"] = suggestions(block["consumers"], models, len(block["paused"]),
-                                                       route_pair=route_pair, route_live=route_live)
+                    block["suggestions"] = suggestions(
+                        block["consumers"], models, len(block["paused"]), route_pair=route_pair, route_live=route_live
+                    )
             if block["level"] == "unknown":
                 return block, self._source("unavailable", "macOS memory pressure is unreadable")
             return block, self._source("live", f"Memory {block['level']}")
@@ -2351,20 +2656,78 @@ class Guard:
 # Claude Code hook
 
 
-HOOK_TRIGGER_SUBSTRINGS = ("lms", "simctl", "Simulator", "iphonesimulator", "xcodebuild", "docker", "npm",
-                           "astra-review", "codex", "ollama", "mlx_lm", "Workflow", "Agent")
-HOOK_NEEDS = {"model": (8 * GiB, "heavy"), "simulator": (4 * GiB, "heavy"), "build": (4 * GiB, "heavy"),
-              "docker": (4 * GiB, "heavy"), "review": (1 * GiB, "light"), "agent": (1 * GiB, "light")}
-_WRAPPERS = {"sudo", "env", "nohup", "time", "command", "exec", "nice", "caffeinate", "stdbuf", "then", "do",
-             "else", "elif", "if", "while", "until", "!", "{", "}", "timeout", "gtimeout", "xargs"}
+HOOK_TRIGGER_SUBSTRINGS = (
+    "lms",
+    "simctl",
+    "Simulator",
+    "iphonesimulator",
+    "xcodebuild",
+    "docker",
+    "npm",
+    "astra-review",
+    "codex",
+    "ollama",
+    "mlx_lm",
+    "Workflow",
+    "Agent",
+)
+HOOK_NEEDS = {
+    "model": (8 * GiB, "heavy"),
+    "simulator": (4 * GiB, "heavy"),
+    "build": (4 * GiB, "heavy"),
+    "docker": (4 * GiB, "heavy"),
+    "review": (1 * GiB, "light"),
+    "agent": (1 * GiB, "light"),
+}
+_WRAPPERS = {
+    "sudo",
+    "env",
+    "nohup",
+    "time",
+    "command",
+    "exec",
+    "nice",
+    "caffeinate",
+    "stdbuf",
+    "then",
+    "do",
+    "else",
+    "elif",
+    "if",
+    "while",
+    "until",
+    "!",
+    "{",
+    "}",
+    "timeout",
+    "gtimeout",
+    "xargs",
+}
 # Wrapper options that take a separate value (`nice -n 10 xcodebuild`): the value is skipped too.
 _WRAPPER_VALUE_OPTIONS = {
-    "sudo": {"-u", "-g", "-h", "-p", "-C", "-D", "-r", "-t", "-T", "-U"}, "env": {"-u", "-C", "-P", "-S"},
-    "nice": {"-n"}, "timeout": {"-s", "-k"}, "gtimeout": {"-s", "-k"}, "caffeinate": {"-t", "-w"},
-    "stdbuf": {"-i", "-o", "-e"}, "xargs": {"-n", "-I", "-L", "-P", "-s", "-E", "-J", "-R", "-S"}, "exec": {"-a"}}
+    "sudo": {"-u", "-g", "-h", "-p", "-C", "-D", "-r", "-t", "-T", "-U"},
+    "env": {"-u", "-C", "-P", "-S"},
+    "nice": {"-n"},
+    "timeout": {"-s", "-k"},
+    "gtimeout": {"-s", "-k"},
+    "caffeinate": {"-t", "-w"},
+    "stdbuf": {"-i", "-o", "-e"},
+    "xargs": {"-n", "-I", "-L", "-P", "-s", "-E", "-J", "-R", "-S"},
+    "exec": {"-a"},
+}
 # xcodebuild invocations that only print information and never build.
-_XCODEBUILD_INFO = {"-version", "-list", "-showsdks", "-showBuildSettings", "-showdestinations", "-showTestPlans",
-                    "-help", "-usage", "-h", "--help"}
+_XCODEBUILD_INFO = {
+    "-version",
+    "-list",
+    "-showsdks",
+    "-showBuildSettings",
+    "-showdestinations",
+    "-showTestPlans",
+    "-help",
+    "-usage",
+    "-h",
+    "--help",
+}
 _SHELLS = {"bash", "sh", "zsh", "dash"}
 _ASSIGN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 _OPERATOR_CHARS = set("();<>|&")
@@ -2392,7 +2755,7 @@ def _shell_text(command: str) -> str:
         if quote:  # '"' or "$'": a backslash escapes the next character
             if ch == "\\" and i + 1 < n:
                 if not (quote == '"' and command[i + 1] == "\n"):
-                    out.append(command[i:i + 2])
+                    out.append(command[i : i + 2])
                 i += 2
                 continue
             out.append(ch)
@@ -2402,7 +2765,7 @@ def _shell_text(command: str) -> str:
             continue
         if ch == "\\" and i + 1 < n:
             if command[i + 1] != "\n":
-                out.append(command[i:i + 2])
+                out.append(command[i : i + 2])
                 word_start = False
             i += 2
             continue
@@ -2494,7 +2857,7 @@ def _match_simple(tokens: list[str], depth: int) -> Optional[tuple[str, str]]:
     if i >= len(tokens):
         return None
     base = tokens[i].lstrip("`$").rstrip("`").rsplit("/", 1)[-1]
-    args = [arg.rstrip("`") for arg in tokens[i + 1: i + 24]]
+    args = [arg.rstrip("`") for arg in tokens[i + 1 : i + 24]]
     plain = [arg for arg in args if not arg.startswith("-")]
     shown = _clean_text(" ".join([base] + args[:3]), 60)
     if base in _SHELLS and depth < 3:
@@ -2515,13 +2878,15 @@ def _match_simple(tokens: list[str], depth: int) -> Optional[tuple[str, str]]:
         for flag, value in zip(args, args[1:]):
             app = value.rstrip("/").rsplit("/", 1)[-1]
             if (flag == "-a" and app in ("Simulator", "Simulator.app")) or (
-                    flag == "-b" and value == "com.apple.iphonesimulator"):
+                flag == "-b" and value == "com.apple.iphonesimulator"
+            ):
                 return shown, "simulator"
         return None
     if base == "xcodebuild":
         return shown, "build"
     if (base == "docker" and (plain[:1] == ["run"] or plain[:2] == ["compose", "up"])) or (
-            base == "docker-compose" and plain[:1] == ["up"]):
+        base == "docker-compose" and plain[:1] == ["up"]
+    ):
         return shown, "docker"
     if base == "npm" and plain[:1] == ["ci"]:
         return shown, "build"
@@ -2564,9 +2929,13 @@ def hook_match(payload: Any) -> Optional[tuple[str, str]]:
     return None
 
 
-def hook_decide(payload: Any, probes: Any, cfg: Optional[dict] = None,
-                gpu: Optional[Callable[[], Optional[int]]] = None,
-                publish: Optional[Callable[[dict], Any]] = None) -> Optional[tuple[Decision, str, list]]:
+def hook_decide(
+    payload: Any,
+    probes: Any,
+    cfg: Optional[dict] = None,
+    gpu: Optional[Callable[[], Optional[int]]] = None,
+    publish: Optional[Callable[[dict], Any]] = None,
+) -> Optional[tuple[Decision, str, list]]:
     """None to allow silently, else (refused decision, what, consumers). The GPU allocation is
     read only on the refusal path. The hook has no model list, so the local LLM server ranks by
     that Mac-wide figure, and describe_consumer labels it as every app's allocation, not the server's.
@@ -2597,8 +2966,10 @@ def hook_message(decision: Decision, what: str, consumers: list) -> str:
     tops = ", ".join(describe_consumer(row) for row in consumers[:3]) or "unknown (process list unreadable)"
     tips = suggestions(consumers)
     todo = tips[0] if tips else "quit or shut down something large you are not using"
-    return (f"mem-guard refused `{what}` because {decision.reason}. Top consumers: {tops}. "
-            f"What to do: {todo}, then retry; `mem-guard status` shows the details. Nothing was stopped or killed.")
+    return (
+        f"mem-guard refused `{what}` because {decision.reason}. Top consumers: {tops}. "
+        f"What to do: {todo}, then retry; `mem-guard status` shows the details. Nothing was stopped or killed."
+    )
 
 
 # ---------------------------------------------------------------------------------------------
@@ -2608,6 +2979,7 @@ def hook_message(decision: Decision, what: str, consumers: list) -> str:
 def _default_gpu() -> Optional[int]:
     try:
         import gpu_probe
+
         gpu, _source = gpu_probe.mac_gpu()
         return _bytes_or_none((gpu or {}).get("allocatedBytes"))
     except Exception:
@@ -2617,11 +2989,22 @@ def _default_gpu() -> Optional[int]:
 class Context:
     """Everything the CLI touches, injectable for tests."""
 
-    def __init__(self, *, state_root: Optional[os.PathLike] = None, config_path: Optional[os.PathLike] = None,
-                 cfg: Optional[dict] = None, probes: Any = None, registry: Optional[Registry] = None,
-                 notifier: Optional[Callable[[str, str], Any]] = None, clock: Optional[Callable[[], float]] = None,
-                 sleep: Optional[Callable[[float], None]] = None, gpu: Optional[Callable[[], Optional[int]]] = None,
-                 stdin: Any = None, stdout: Any = None, stderr: Any = None):
+    def __init__(
+        self,
+        *,
+        state_root: Optional[os.PathLike] = None,
+        config_path: Optional[os.PathLike] = None,
+        cfg: Optional[dict] = None,
+        probes: Any = None,
+        registry: Optional[Registry] = None,
+        notifier: Optional[Callable[[str, str], Any]] = None,
+        clock: Optional[Callable[[], float]] = None,
+        sleep: Optional[Callable[[float], None]] = None,
+        gpu: Optional[Callable[[], Optional[int]]] = None,
+        stdin: Any = None,
+        stdout: Any = None,
+        stderr: Any = None,
+    ):
         self.state_root = Path(state_root) if state_root is not None else STATE_ROOT
         self._config_path = config_path
         self._cfg = cfg
@@ -2685,12 +3068,15 @@ def _status_text(block: dict) -> str:
     lines = [f"Memory: {block['level'].upper()}"]
     lines += [f"  - {reason}" for reason in block["reasons"]]
     pressure = block.get("pressure")
-    numbers = [f"RAM {gb(block.get('ramBytes'))}",
-               f"pressure {PRESSURE_LABEL.get(pressure, '?')}",
-               f"available {block['availablePercent']}%" if block.get("availablePercent") is not None else "available ?",
-               f"swap {gb(block.get('swapUsedBytes'))} of {gb(block.get('swapTotalBytes'))}",
-               f"compressor {gb(block.get('compressedBytes'))}", f"wired {gb(block.get('wiredBytes'))}",
-               f"VM volume free {gb(block.get('vmFreeBytes'))}"]
+    numbers = [
+        f"RAM {gb(block.get('ramBytes'))}",
+        f"pressure {PRESSURE_LABEL.get(pressure, '?')}",
+        f"available {block['availablePercent']}%" if block.get("availablePercent") is not None else "available ?",
+        f"swap {gb(block.get('swapUsedBytes'))} of {gb(block.get('swapTotalBytes'))}",
+        f"compressor {gb(block.get('compressedBytes'))}",
+        f"wired {gb(block.get('wiredBytes'))}",
+        f"VM volume free {gb(block.get('vmFreeBytes'))}",
+    ]
     if block.get("gpuAllocBytes") is not None:
         numbers.append(f"GPU allocation {gb(block['gpuAllocBytes'])}")
     lines.append(" | ".join(numbers))
@@ -2698,7 +3084,9 @@ def _status_text(block: dict) -> str:
         lines.append("Consumers (approximate: shared pages count once per process):")
         lines += [f"  {describe_consumer(row)} in {row.get('processCount')} processes" for row in block["consumers"]]
     paused = block["paused"]
-    lines.append("Paused jobs: " + (", ".join(f"{job['label']} (pid {job['pid']})" for job in paused) if paused else "none"))
+    lines.append(
+        "Paused jobs: " + (", ".join(f"{job['label']} (pid {job['pid']})" for job in paused) if paused else "none")
+    )
     if block["suggestions"]:
         lines.append("Suggestions:")
         lines += [f"  - {tip}" for tip in block["suggestions"]]
@@ -2740,7 +3128,9 @@ def _source_note(state: dict) -> str:
     source = state.get("levelSource") if isinstance(state, dict) else None
     if source == "level-file":
         age = _number_in(state.get("levelAgeSeconds"), 0, 86400)
-        return f" [level from level.json{f', {age:.0f} s old' if age is not None else ''}; the sysctls are refused here]"
+        return (
+            f" [level from level.json{f', {age:.0f} s old' if age is not None else ''}; the sysctls are refused here]"
+        )
     if source == "memory_pressure":
         return " [availability from memory_pressure -Q only; the sysctls are refused here and level.json is not fresh]"
     return ""
@@ -2769,8 +3159,17 @@ def _cmd_admit(ctx: Context, need_gb: float, kind: Optional[str], wait: float, l
         if remaining <= 0:
             break
         ctx.sleep(min(2.0, remaining))
-    ctx.journal.write({"type": "refusal", "via": "admit", "label": label, "kind": decision.kind,
-                       "needBytes": decision.needBytes, "level": decision.level, "reason": decision.reason})
+    ctx.journal.write(
+        {
+            "type": "refusal",
+            "via": "admit",
+            "label": label,
+            "kind": decision.kind,
+            "needBytes": decision.needBytes,
+            "level": decision.level,
+            "reason": decision.reason,
+        }
+    )
     ctx.out(f"refused: {decision.reason}{_source_note(state)}")
     return EXIT_REFUSED
 
@@ -2817,8 +3216,17 @@ def _cmd_hook(ctx: Context) -> int:
         if found is None:
             return 0
         decision, what, consumers = found
-        ctx.journal.write({"type": "refusal", "via": "hook", "label": what, "kind": decision.kind,
-                           "needBytes": decision.needBytes, "level": decision.level, "reason": decision.reason})
+        ctx.journal.write(
+            {
+                "type": "refusal",
+                "via": "hook",
+                "label": what,
+                "kind": decision.kind,
+                "needBytes": decision.needBytes,
+                "level": decision.level,
+                "reason": decision.reason,
+            }
+        )
         ctx.stderr.write(hook_message(decision, what, consumers) + "\n")
         return 2
     except (Exception, KeyboardInterrupt):
@@ -2877,8 +3285,17 @@ def main(argv: Optional[list[str]] = None, ctx: Optional[Context] = None) -> int
                 ctx.out(json.dumps({"ok": False, "error": _clean_text(str(error), 300)}))
             return 1
         if args.json:
-            ctx.out(json.dumps({"ok": True, "pid": entry["pid"], "startTime": entry["startTime"],
-                                "comm": entry["comm"], "label": entry["label"]}))
+            ctx.out(
+                json.dumps(
+                    {
+                        "ok": True,
+                        "pid": entry["pid"],
+                        "startTime": entry["startTime"],
+                        "comm": entry["comm"],
+                        "label": entry["label"],
+                    }
+                )
+            )
         else:
             ctx.out(f"registered pid {entry['pid']} ({entry['label']})")
         return 0
@@ -2901,8 +3318,10 @@ def main(argv: Optional[list[str]] = None, ctx: Optional[Context] = None) -> int
         ctx.out(f"resumed {len(resumed)} paused job{'s' if len(resumed) != 1 else ''}")
         stuck = [pid for job in resumed for pid in job.get("failed") or []]
         if stuck:
-            ctx.stderr.write(f"mem-guard: could not continue {len(stuck)} process{'es' if len(stuck) != 1 else ''} "
-                             f"({', '.join(map(str, stuck[:10]))}); they stay recorded, run resume-all again\n")
+            ctx.stderr.write(
+                f"mem-guard: could not continue {len(stuck)} process{'es' if len(stuck) != 1 else ''} "
+                f"({', '.join(map(str, stuck[:10]))}); they stay recorded, run resume-all again\n"
+            )
             return 1
         return 0
     if args.command == "watch":

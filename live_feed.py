@@ -8,6 +8,7 @@ LiveFeed checks their fingerprints every tick and re-reads just the groups that
 changed, so a PC job, a route stage or a switch flip reaches the page in a
 fraction of a second instead of up to two.
 """
+
 from __future__ import annotations
 
 import copy
@@ -28,9 +29,17 @@ def _paths() -> dict[str, list[os.PathLike]]:
         "headless": [telemetry._WINDOWS_HEADLESS_PATH],
         # Both journal layouts (router concurrency, spec 6.12): a per-run record, note or lock
         # appears or is replaced inside active/, notes/ or locks/, which moves that directory.
-        "router": [telemetry._ACTIVE_PATH, router / "archive", router / "checkpoints",
-                   telemetry._PENDING_PATH, router / "active", router / "notes", router / "locks",
-                   router / "policy.json", router / "install-fence.json"],
+        "router": [
+            telemetry._ACTIVE_PATH,
+            router / "archive",
+            router / "checkpoints",
+            telemetry._PENDING_PATH,
+            router / "active",
+            router / "notes",
+            router / "locks",
+            router / "policy.json",
+            router / "install-fence.json",
+        ],
     }
 
 
@@ -99,11 +108,18 @@ class LiveFeed:
             if pair is None:
                 # No exact cached timestamps: keep shifted evidence, but withdraw current claims.
                 pair = data["pair"]
-                pair.update(state="unknown", reason="cache-unavailable",
-                            detail="Cached PAIR readings are unavailable; current state unknown")
+                pair.update(
+                    state="unknown",
+                    reason="cache-unavailable",
+                    detail="Cached PAIR readings are unavailable; current state unknown",
+                )
                 for node in pair.get("nodes") or []:
-                    node.update(residencyReason="cache-unavailable", pairClaimModelCount=None,
-                                pairClaimLoadedCount=None, pairClaimLoadedModels=None)
+                    node.update(
+                        residencyReason="cache-unavailable",
+                        pairClaimModelCount=None,
+                        pairClaimLoadedCount=None,
+                        pairClaimLoadedModels=None,
+                    )
             data["pair"] = pair
             if telemetry.pair_status is not None:
                 sources = _replace_sources(sources, [telemetry.pair_status.source_row(pair)])
@@ -122,8 +138,11 @@ class LiveFeed:
             telemetry._mark_live_route(pipeline, router_source, mode)
             data["pipeline"], data["onlineCodeMode"] = pipeline, mode
             activity = collect_activity()
-            data["activity"] = {"runs": activity["runs"], "historyBound": activity.get("historyBound"),
-                                "complete": activity.get("complete", False)}
+            data["activity"] = {
+                "runs": activity["runs"],
+                "historyBound": activity.get("historyBound"),
+                "complete": activity.get("complete", False),
+            }
             sources = _replace_sources(sources, [router_source, *activity["sources"]])
         data["sources"] = sources
         data["liveGroups"] = sorted(groups)

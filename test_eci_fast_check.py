@@ -48,18 +48,14 @@ STAMP = "2026-11-12T12:00:00+00:00"
 def datasets(n=200):
     return {
         "arc": {
-            "items": [
-                dict(id=str(i), answer="A", question="fixture") for i in range(n)
-            ],
+            "items": [dict(id=str(i), answer="A", question="fixture") for i in range(n)],
             "revision": None,
         }
     }
 
 
 def rehash(record):
-    record["record_id"] = f.digest(
-        {k: v for k, v in record.items() if k != "record_id"}
-    )
+    record["record_id"] = f.digest({k: v for k, v in record.items() if k != "record_id"})
     return record
 
 
@@ -84,13 +80,7 @@ def run(data=None, plan=None, answer=None, **kwargs):
         prediction, tokens, seconds = supplied
         if "answer" not in item:
             raise ValueError("fixture reference answer absent")
-        outcome = (
-            "unparsed"
-            if prediction is None
-            else "correct"
-            if prediction == item["answer"]
-            else "wrong"
-        )
+        outcome = "unparsed" if prediction is None else "correct" if prediction == item["answer"] else "wrong"
         return dict(
             observation(
                 outcome,
@@ -108,9 +98,7 @@ def run(data=None, plan=None, answer=None, **kwargs):
         model=model,
         hardware=kwargs.pop("hardware", copy.deepcopy(HARDWARE)),
         runtime_settings=kwargs.pop("runtime_settings", copy.deepcopy(SETTINGS)),
-        pre=kwargs.pop(
-            "pre", f.pre_check(model["file_size_bytes"], model["quantization"], 800)
-        ),
+        pre=kwargs.pop("pre", f.pre_check(model["file_size_bytes"], model["quantization"], 800)),
         clock=kwargs.pop("clock", FakeClock()),
         created_at=kwargs.pop("created_at", STAMP),
         **kwargs,
@@ -124,12 +112,8 @@ class PlanTests(unittest.TestCase):
         data["arc"]["items"].reverse()
         self.assertEqual(f.make_plan(data), plan)
         self.assertEqual(len(plan["benchmarks"][0]["item_ids"]), 200)
-        self.assertEqual(
-            plan["benchmarks"][0]["seed"], f.digest(["arc", f.PLAN_VERSION])
-        )
-        self.assertNotEqual(
-            f.make_plan(data, version="next")["plan_id"], plan["plan_id"]
-        )
+        self.assertEqual(plan["benchmarks"][0]["seed"], f.digest(["arc", f.PLAN_VERSION]))
+        self.assertNotEqual(f.make_plan(data, version="next")["plan_id"], plan["plan_id"])
         self.assertNotEqual(f.make_plan(data, count=199)["plan_id"], plan["plan_id"])
         self.assertEqual(plan["benchmarks"][0]["dataset_revision"], None)
         self.assertEqual(len(plan["benchmarks"][0]["dataset_sha256"]), 64)
@@ -141,9 +125,7 @@ class PlanTests(unittest.TestCase):
         spec = f.make_plan(data, count=10)["benchmarks"][0]
         self.assertEqual(spec["stratum_key"], "subject")
         self.assertEqual(sum(s["selected"] for s in spec["strata"]), 10)
-        self.assertEqual(
-            len(f.make_plan(data, count=1)["benchmarks"][0]["item_ids"]), 1
-        )
+        self.assertEqual(len(f.make_plan(data, count=1)["benchmarks"][0]["item_ids"]), 1)
 
     def test_task_strata_missing_label_and_small_dataset(self):
         data = datasets(3)
@@ -186,9 +168,7 @@ class StatisticsTests(unittest.TestCase):
                 lo, hi = result["interval95"]
                 self.assertTrue(0 <= lo <= result["accuracy"] <= hi <= 1)
                 self.assertEqual(lo if correct == 0 else hi, 0 if correct == 0 else 1)
-                self.assertTrue(
-                    all(math.isfinite(v) for v in result["normalized_interval95"])
-                )
+                self.assertTrue(all(math.isfinite(v) for v in result["normalized_interval95"]))
         self.assertTrue(all(v is None for v in f.statistics(0, 0, 0.25).values()))
 
     def test_admit_formula_decimal_boundaries_and_interval_transform(self):
@@ -239,17 +219,15 @@ class StatisticsTests(unittest.TestCase):
             a = {str(i): i < b for i in range(b + c)}
             result = f.mcnemar(a, {k: not v for k, v in a.items()})
             self.assertEqual(result["p_exact"], exact)
-        result = f.mcnemar(
-            {str(i): True for i in range(2000)}, {str(i): False for i in range(2000)}
-        )
+        result = f.mcnemar({str(i): True for i in range(2000)}, {str(i): False for i in range(2000)})
         self.assertEqual(result["verdict"], "BETTER")
         self.assertEqual(result["p_exact"][0], "1")
 
     def test_equal_counts_do_not_substitute_for_matching_item_ids(self):
-        result = f.mcnemar({"a": True, "b": True}, {"a": False, "c": False},
-                           expected_ids=["a", "b", "c"])
-        self.assertEqual((result["n_candidate"], result["n_baseline"], result["n_shared"],
-                          result["n_expected"]), (2, 2, 1, 3))
+        result = f.mcnemar({"a": True, "b": True}, {"a": False, "c": False}, expected_ids=["a", "b", "c"])
+        self.assertEqual(
+            (result["n_candidate"], result["n_baseline"], result["n_shared"], result["n_expected"]), (2, 2, 1, 3)
+        )
         self.assertEqual(result["verdict"], "INCONCLUSIVE")
         self.assertEqual(result["reason"], "incomplete pairs")
 
@@ -296,15 +274,13 @@ class DecisionTests(unittest.TestCase):
             f.post_check([dict(evidence, attempted=199, parsed=199)])["decision"],
             "UNKNOWN",
         )
-        self.assertEqual(
-            f.post_check([evidence], max_interval_width="0.001")["decision"], "REJECT"
-        )
+        self.assertEqual(f.post_check([evidence], max_interval_width="0.001")["decision"], "REJECT")
         self.assertEqual(f.post_check([dict(evidence, errors=3, parsed=197)])["decision"], "UNKNOWN")
         self.assertEqual(f.post_check([])["decision"], "UNKNOWN")
         for errors, local in ((0, "ADMIT"), (3, "UNKNOWN")):
             for advice in ("ADMIT", "UNKNOWN", "REJECT"):
                 result = f.post_check(
-                    [dict(evidence, errors=errors, parsed=200-errors)],
+                    [dict(evidence, errors=errors, parsed=200 - errors)],
                     advisory=dict(decision=advice, reasons=[]),
                 )
                 self.assertGreaterEqual(
@@ -319,9 +295,7 @@ class RunnerTests(unittest.TestCase):
     def test_fake_callable_record_counts_statistics_and_journal(self):
         record = run(journal="synthetic-nisi-journal")
         bench = record["benchmarks"][0]
-        self.assertEqual(
-            (bench["planned"], bench["completed"], bench["correct"]), (200, 200, 200)
-        )
+        self.assertEqual((bench["planned"], bench["completed"], bench["correct"]), (200, 200, 200))
         self.assertEqual(bench["tokens"], 800)
         self.assertEqual(bench["tokens_per_s"], 2)
         self.assertEqual(record["pre"]["decision"], "CHECK")
@@ -399,9 +373,7 @@ class RunnerTests(unittest.TestCase):
             )
 
     def test_paired_baseline_and_custom_parsed_scorer(self):
-        baseline = run(
-            answer=lambda item: ("B", 1, 1), model=dict(MODEL, name="baseline")
-        )
+        baseline = run(answer=lambda item: ("B", 1, 1), model=dict(MODEL, name="baseline"))
         candidate = run(
             baseline=baseline,
             score=lambda prediction, item: prediction.lower() == item["answer"].lower(),
@@ -427,9 +399,7 @@ class RunnerTests(unittest.TestCase):
     def test_bad_post_options_refuse_before_answer(self):
         calls = []
         with self.assertRaises(f.ValidationError):
-            run(
-                answer=lambda item: calls.append(item), post_options={"min_coverage": 2}
-            )
+            run(answer=lambda item: calls.append(item), post_options={"min_coverage": 2})
         self.assertEqual(calls, [])
 
     def test_rehashed_false_claims_and_wrong_types_are_rejected(self):
@@ -489,9 +459,7 @@ class IntegrationTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory(dir=ROOT)
         self.addCleanup(self.temp.cleanup)
         self.path = Path(self.temp.name)
-        override = patch.dict(
-            os.environ, {"AGIW_ECI_TUNING_CONFIG": str(self.path / "policy.json")}
-        )
+        override = patch.dict(os.environ, {"AGIW_ECI_TUNING_CONFIG": str(self.path / "policy.json")})
         override.start()
         self.addCleanup(override.stop)
 
@@ -501,9 +469,7 @@ class IntegrationTests(unittest.TestCase):
         return p
 
     def test_ingest_round_trip_separation_no_policy_promotion_and_status(self):
-        path = self.file(
-            "fast.json", dict(schema_version=1, runs=[], items=[], fast_checks=[run()])
-        )
+        path = self.file("fast.json", dict(schema_version=1, runs=[], items=[], fast_checks=[run()]))
         data = e.ingest([path])
         self.assertEqual(data["runs"], [])
         self.assertEqual(data["items"], [])
@@ -512,17 +478,11 @@ class IntegrationTests(unittest.TestCase):
             self.assertEqual(e.rank(data)[group]["eci"], [])
             self.assertEqual(e.rank(data)[group]["components"], {})
         self.assertIsNone(e.recommend(data)["routes"]["general"]["model"])
-        self.assertEqual(
-            len(e.status(data)["rankings"]["fast_check"]["hardware_views"]), 1
-        )
+        self.assertEqual(len(e.status(data)["rankings"]["fast_check"]["hardware_views"]), 1)
         with self.assertRaises(e.ValidationError):
             e.apply_policy(data, self.path / "policy.json", write=True)
         with self.assertRaises(e.ValidationError):
-            e.normalize_run(
-                dict(
-                    run_id="bad", model="bad", protocol_id=f.PROTOCOL, status="COMPUTED"
-                )
-            )
+            e.normalize_run(dict(run_id="bad", model="bad", protocol_id=f.PROTOCOL, status="COMPUTED"))
         with self.assertRaises(e.ValidationError):
             e.ingest([path, path])
 
@@ -577,8 +537,7 @@ class IntegrationTests(unittest.TestCase):
     def test_screening_reports_pair_ids_intervals_and_mismatch_reasons(self):
         first = run(model=dict(MODEL, name="first"))
         second = run(model=dict(MODEL, name="second"), baseline=first)
-        different_hardware = run(model=dict(MODEL, name="other"),
-                                 hardware=dict(HARDWARE, machine_label="other"))
+        different_hardware = run(model=dict(MODEL, name="other"), hardware=dict(HARDWARE, machine_label="other"))
         groups = f.rank([first, second, different_hardware])
         group = next(g for g in groups if len(g["rows"]) == 2)
         self.assertIn("Screening", group["title"])
@@ -604,6 +563,7 @@ class IntegrationTests(unittest.TestCase):
             if item["id"] == "1":
                 return observation("correct", cut_off=True, finish_reason="length")
             return observation("unparsed")
+
         data = datasets(5)
         baseline = run(data, model=dict(MODEL, name="baseline"))
         record = run(data, answer=answer, baseline=baseline)
@@ -711,16 +671,12 @@ class IntegrationTests(unittest.TestCase):
         self.assertEqual(verdict, "INCONCLUSIVE")
         self.assertEqual(details["arc"]["verdict"], "BETTER")
         self.assertEqual(details["winogrande"]["verdict"], "WORSE")
-        self.assertTrue(
-            all(row["tie_with"] for row in f.rank([candidate, baseline])[0]["rows"])
-        )
+        self.assertTrue(all(row["tie_with"] for row in f.rank([candidate, baseline])[0]["rows"]))
 
     def test_cli_plan_validate_ingest_rank_and_exclusive_output(self):
         data = self.file("datasets.json", datasets(5))
         plan = self.path / "plan.json"
-        self.assertEqual(
-            f.main(["plan", str(data), "--count", "3", "--output", str(plan)]), 0
-        )
+        self.assertEqual(f.main(["plan", str(data), "--count", "3", "--output", str(plan)]), 0)
         self.assertEqual(len(f.load(plan)["benchmarks"][0]["item_ids"]), 3)
         with contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(f.main(["plan", str(data), "--output", str(plan)]), 2)
@@ -780,9 +736,7 @@ class IntegrationTests(unittest.TestCase):
         self.assertIn({"$ref": "#/$defs/decimal"}, budget_schema["anyOf"])
         self.assertTrue(schema["$defs"]["hardware"]["additionalProperties"])
         self.assertEqual(schema["$defs"]["decimal"]["type"], "string")
-        self.assertEqual(
-            schema["$defs"]["record"]["properties"]["alpha"]["$ref"], "#/$defs/decimal"
-        )
+        self.assertEqual(schema["$defs"]["record"]["properties"]["alpha"]["$ref"], "#/$defs/decimal")
         outer = f.load(ROOT / "eci_tuning.schema.json")
         self.assertEqual(
             outer["properties"]["fast_checks"]["items"]["$ref"],
@@ -840,14 +794,10 @@ class FixRoundRegressions(unittest.TestCase):
         for outcome in ("truncated_empty", "unparsed", "wrong"):
             record = run(
                 data,
-                answer=lambda item: observation(
-                    outcome, completion_tokens=70000, seconds=1
-                ),
+                answer=lambda item: observation(outcome, completion_tokens=70000, seconds=1),
             )
             self.assertEqual(record["post"]["decision"], "REJECT")
-            self.assertIn(
-                "runtime/model incompatibility suspected", record["post"]["reasons"]
-            )
+            self.assertIn("runtime/model incompatibility suspected", record["post"]["reasons"])
             self.assertEqual(f.rank([record])[0]["rows"], [])
         calls = []
 
@@ -867,9 +817,7 @@ class FixRoundRegressions(unittest.TestCase):
         baseline = run()
         candidate = run(baseline=baseline)
         binding = candidate["baseline"]
-        self.assertEqual(
-            binding["outcomes_sha256"], f.digest(f.baseline_outcomes(baseline))
-        )
+        self.assertEqual(binding["outcomes_sha256"], f.digest(f.baseline_outcomes(baseline)))
         self.assertEqual(binding["record"], baseline)
         bad = copy.deepcopy(candidate)
         bad["baseline"]["outcomes_sha256"] = "0" * 64
@@ -881,9 +829,7 @@ class FixRoundRegressions(unittest.TestCase):
             f.validate_record(rehash(bad))
         unresolved = copy.deepcopy(candidate)
         unresolved["baseline"]["record"] = None
-        unresolved["comparison"] = f.comparisons(
-            unresolved, unresolved["baseline"], unresolved["alpha"]
-        )
+        unresolved["comparison"] = f.comparisons(unresolved, unresolved["baseline"], unresolved["alpha"])
         f.validate_record(rehash(unresolved))
         self.assertEqual(unresolved["comparison"]["arc"]["verification"], "UNVERIFIED")
         self.assertEqual(unresolved["comparison"]["arc"]["verdict"], "INCONCLUSIVE")
@@ -1043,16 +989,10 @@ class FixRoundRegressions(unittest.TestCase):
         )
         b.update(attempted=199, correct=199, parsed=199, errors=0)
         self.assertEqual(f.post_check([b], min_coverage="0.995")["decision"], "UNKNOWN")
+        self.assertEqual(f.post_check([b], min_coverage="0.995000000000000001")["decision"], "UNKNOWN")
+        self.assertEqual(f.pre_check(75, "Q4", 100, safety_margin="0.25")["decision"], "CHECK")
         self.assertEqual(
-            f.post_check([b], min_coverage="0.995000000000000001")["decision"], "UNKNOWN"
-        )
-        self.assertEqual(
-            f.pre_check(75, "Q4", 100, safety_margin="0.25")["decision"], "CHECK"
-        )
-        self.assertEqual(
-            f.pre_check(75, "Q4", 100, safety_margin="0.250000000000000001")[
-                "decision"
-            ],
+            f.pre_check(75, "Q4", 100, safety_margin="0.250000000000000001")["decision"],
             "SKIP",
         )
         result = run(
@@ -1060,9 +1000,7 @@ class FixRoundRegressions(unittest.TestCase):
             post_options={"max_unparsed_rate": "0.100000000000000001"},
         )
         self.assertEqual(result["alpha"], "0.050000000000000001")
-        self.assertEqual(
-            result["post"]["inputs"]["max_unparsed_rate"], "0.100000000000000001"
-        )
+        self.assertEqual(result["post"]["inputs"]["max_unparsed_rate"], "0.100000000000000001")
         for options in (
             {"min_coverage": 1.0},
             {"max_interval_width": 0.2},
@@ -1094,17 +1032,11 @@ class FixRoundRegressions(unittest.TestCase):
         lower = "0.13727828079221626630"
         upper = "0.13727828079221626631"
         self.assertEqual(float(lower), float(upper))
-        self.assertEqual(
-            f.post_check([evidence], max_interval_width=lower)["decision"], "REJECT"
-        )
-        self.assertEqual(
-            f.post_check([evidence], max_interval_width=upper)["decision"], "ADMIT"
-        )
+        self.assertEqual(f.post_check([evidence], max_interval_width=lower)["decision"], "REJECT")
+        self.assertEqual(f.post_check([evidence], max_interval_width=upper)["decision"], "ADMIT")
 
     def test_unparsed_answers_count_as_wrong_but_errors_are_missing_pairs(self):
-        baseline = run(
-            answer=lambda item: ("A" if int(item["id"]) < 130 else "B", 1, 1)
-        )
+        baseline = run(answer=lambda item: ("A" if int(item["id"]) < 130 else "B", 1, 1))
         for quality in ("truncated_empty", "unparsed", "error"):
             calls = []
 
@@ -1210,9 +1142,7 @@ class FixRoundRegressions(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir=ROOT) as temp:
             path = Path(temp) / "checkpoint.jsonl"
             first = run(datasets(3), checkpoint=path)
-            resumed = run(
-                datasets(3), checkpoint=path, answer=lambda i: self.fail("must reuse")
-            )
+            resumed = run(datasets(3), checkpoint=path, answer=lambda i: self.fail("must reuse"))
             self.assertEqual(first["wall_time_s"], 0)
             self.assertEqual(resumed["wall_time_s"], 0)
             self.assertEqual(resumed["benchmarks"][0]["wall_time_s"], 0)
@@ -1256,11 +1186,7 @@ def observation(outcome="correct", **updates):
         parsed=outcome in ("correct", "wrong"),
         finish_reason="length" if outcome == "truncated_empty" else "stop",
         cut_off=outcome == "truncated_empty",
-        answer_value="A"
-        if outcome == "correct"
-        else "B"
-        if outcome == "wrong"
-        else None,
+        answer_value="A" if outcome == "correct" else "B" if outcome == "wrong" else None,
         prompt_tokens=8,
         completion_tokens=4,
         seconds=2,
@@ -1287,11 +1213,12 @@ class AuditCorrectnessTests(unittest.TestCase):
     def test_incomplete_budget_and_pre_stay_unknown(self):
         data = datasets()
         clock = FakeClock()
+
         def answer(item):
             clock.now += 1
             return observation()
-        stopped = run(data=data, plan=f.make_plan(data, wall_budget_s="1"),
-                      answer=answer, clock=clock)
+
+        stopped = run(data=data, plan=f.make_plan(data, wall_budget_s="1"), answer=answer, clock=clock)
         skipped = run(pre=f.pre_check(100, "Q4_K_M", None))
         for record in (stopped, skipped):
             with self.subTest(stop=record["benchmarks"][0]["stop_reason"]):
@@ -1323,7 +1250,9 @@ class AuditCorrectnessTests(unittest.TestCase):
         for reason in ("pre", "budget"):
             record = run(plan=f.make_plan(datasets(), wall_budget_s="10"))
             bench = record["benchmarks"][0]
-            record["benchmarks"][0] = f.summarize(record["plan"]["benchmarks"][0], bench["observations"], bench["wall_time_s"], reason)
+            record["benchmarks"][0] = f.summarize(
+                record["plan"]["benchmarks"][0], bench["observations"], bench["wall_time_s"], reason
+            )
             rehash(record)
             with self.subTest(reason=reason), self.assertRaises(f.ValidationError):
                 f.validate_record(record)
@@ -1340,9 +1269,11 @@ class AuditCorrectnessTests(unittest.TestCase):
         data = datasets(10)
         data["winogrande"] = copy.deepcopy(data["arc"])
         calls = []
+
         def answer(item):
             calls.append(item["id"])
             raise TimeoutError("fixture")
+
         record = run(data=data, answer=answer)
         self.assertEqual(len(calls), 3)
         self.assertEqual([b["attempted"] for b in record["benchmarks"]], [3, 0])
@@ -1350,8 +1281,9 @@ class AuditCorrectnessTests(unittest.TestCase):
         self.assertEqual(record["post"]["decision"], "UNKNOWN")
 
     def test_provenance_and_parsed_unit_are_hashed_but_not_comparison_settings(self):
-        record = run(provenance={"origin": "caller supplied"},
-                     answer=lambda item: dict(observation(), parsed_unit=None))
+        record = run(
+            provenance={"origin": "caller supplied"}, answer=lambda item: dict(observation(), parsed_unit=None)
+        )
         self.assertEqual(record["provenance"], {"origin": "caller supplied"})
         self.assertIsNone(record["benchmarks"][0]["observations"][0]["parsed_unit"])
         other = run(provenance={"origin": "server reported"})

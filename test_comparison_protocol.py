@@ -1,4 +1,5 @@
 """Shape checks for the two-machine full-suite comparison protocol (design only)."""
+
 import itertools
 import json
 from pathlib import Path
@@ -21,8 +22,9 @@ class ComparisonProtocolTests(unittest.TestCase):
         self.assertNotIn("Linux", json.dumps(self.p["results"]))
 
     def test_full_factorial_twelve_conditions(self):
-        expected = set(itertools.product(self.p["client_hosts"], self.p["workflows"],
-                                         self.p["jev_treatment"]["settings"]))
+        expected = set(
+            itertools.product(self.p["client_hosts"], self.p["workflows"], self.p["jev_treatment"]["settings"])
+        )
         got = [(r["client_host"], r["workflow"], r["jev"]) for r in self.p["results"]]
         self.assertEqual(len(got), len(set(got)), "duplicate condition")
         self.assertEqual(set(got), expected)

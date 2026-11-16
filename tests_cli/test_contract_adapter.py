@@ -4,6 +4,7 @@ All 12 M0 producer fixtures for the CLI, Linux and Windows are expressible.
 Their core host becomes status.host; only id changes to the paired node UUID
 (or local node UUID). Display names are omitted to compare the whole row.
 """
+
 import copy
 import datetime as dt
 import json
@@ -21,9 +22,11 @@ NOW = 1700000000.0
 NODE = "11111111-1111-4111-8111-111111111111"
 LOCAL_NODE = "22222222-2222-4222-8222-222222222222"
 OTHER_NODE = "33333333-3333-4333-8333-333333333333"
-PRODUCERS = {"cli_peer_link": "agiw-peer-link lmstudio",
-             "linux_observer": "agiw-linux-observer",
-             "windows_observer": "agiw-win-observer 0.2.0"}
+PRODUCERS = {
+    "cli_peer_link": "agiw-peer-link lmstudio",
+    "linux_observer": "agiw-linux-observer",
+    "windows_observer": "agiw-win-observer 0.2.0",
+}
 
 
 def iso(at):
@@ -31,21 +34,48 @@ def iso(at):
 
 
 def document(platform="windows", health="ok", age=1, **fields):
-    return dict({"schemaVersion": 1, "kind": "agiw-peer", "host": "reported-machine",
-                 "platform": platform, "health": health, "observedAt": iso(NOW - age),
-                 "producer": "agiw-peer-link lmstudio", "models": []}, **fields)
+    return dict(
+        {
+            "schemaVersion": 1,
+            "kind": "agiw-peer",
+            "host": "reported-machine",
+            "platform": platform,
+            "health": health,
+            "observedAt": iso(NOW - age),
+            "producer": "agiw-peer-link lmstudio",
+            "models": [],
+        },
+        **fields,
+    )
 
 
 def peer(status=None, state="connected", platform="windows", node=NODE, **fields):
-    return dict({"node": node, "host": platform, "paired": True, "state": state,
-                 "lastHello": NOW, "error": None, "status": status}, **fields)
+    return dict(
+        {
+            "node": node,
+            "host": platform,
+            "paired": True,
+            "state": state,
+            "lastHello": NOW,
+            "error": None,
+            "status": status,
+        },
+        **fields,
+    )
 
 
 def snapshot(peers=(), self_status=None, platform="mac", **fields):
-    return dict({"protocol": pl.PROTOCOL, "observedAt": iso(NOW),
-                 "self": {"node": LOCAL_NODE, "host": platform},
-                 "selfStatus": self_status if self_status is not None else {"error": "not available"},
-                 "peers": list(peers), "pollError": None}, **fields)
+    return dict(
+        {
+            "protocol": pl.PROTOCOL,
+            "observedAt": iso(NOW),
+            "self": {"node": LOCAL_NODE, "host": platform},
+            "selfStatus": self_status if self_status is not None else {"error": "not available"},
+            "peers": list(peers),
+            "pollError": None,
+        },
+        **fields,
+    )
 
 
 class ContractAdapter(unittest.TestCase):
@@ -63,8 +93,7 @@ class ContractAdapter(unittest.TestCase):
         self.assertIs(output["signed"], True)
         self.assertIs(output["encrypted"], False)
         self.assertIsInstance(output["observedAt"], str)
-        self.assertLessEqual({"mac", "windows"},
-                             {row["platform"] for row in output["machines"] if row["platform"]})
+        self.assertLessEqual({"mac", "windows"}, {row["platform"] for row in output["machines"] if row["platform"]})
         for row in output["machines"]:
             validate_row(row)
         return output
@@ -102,11 +131,13 @@ class ContractAdapter(unittest.TestCase):
     def test_reason_follows_the_monitor_rule_whatever_the_error_text_says(self):
         # peer_feed.from_peer_link_hosts picks the word from the peer's state and lastHello only. A peer's last
         # fetch error and the link's sticky pollError are diagnostics: they never change the word.
-        for state, last_hello, expected in (("connected", NOW, "unavailable"),  # connected, status rejected
-                                            ("stale", NOW, "not_connected"),
-                                            ("offline", NOW, "not_connected"),   # heard before, now silent
-                                            ("offline", None, "not_observed"),   # never heard
-                                            ("connecting", NOW, "not_observed")):  # hellos, no status yet
+        for state, last_hello, expected in (
+            ("connected", NOW, "unavailable"),  # connected, status rejected
+            ("stale", NOW, "not_connected"),
+            ("offline", NOW, "not_connected"),  # heard before, now silent
+            ("offline", None, "not_observed"),  # never heard
+            ("connecting", NOW, "not_observed"),
+        ):  # hellos, no status yet
             for fields in ({"error": "read failed"}, {"error": None}):
                 for poll_error in (None, "poll failed"):
                     source = snapshot([peer(None, state, lastHello=last_hello, **fields)], pollError=poll_error)
@@ -119,16 +150,25 @@ class ContractAdapter(unittest.TestCase):
                 self.assertEqual(row["reasonCode"], "unavailable")
 
     def test_a_peer_chosen_host_is_printed_only_when_it_looks_like_a_host_name(self):
-        for host, expected in (("example-pc.test", "example-pc.test"), ("pc_1", "pc_1"),
-                               ("/Users/someone/secret", NODE), ("x" * 64, NODE), ("a b", NODE),
-                               ("\x1b[31mred", NODE), ("", NODE), (7, NODE)):
+        for host, expected in (
+            ("example-pc.test", "example-pc.test"),
+            ("pc_1", "pc_1"),
+            ("/Users/someone/secret", NODE),
+            ("x" * 64, NODE),
+            ("a b", NODE),
+            ("\x1b[31mred", NODE),
+            ("", NODE),
+            (7, NODE),
+        ):
             with self.subTest(host=str(host)[:30]):
                 row = self.row(snapshot([peer(document(host=host))]))
                 self.assertEqual(row["host"], expected)
 
     def test_a_status_with_an_oversized_number_does_not_crash_any_mode(self):
-        doc = document(models=[{"id": "m", "loadedState": "loaded", "slotsTotal": 10 ** 400}],
-                       gpus=[{"name": "g", "utilizationPercent": 10 ** 400}])
+        doc = document(
+            models=[{"id": "m", "loadedState": "loaded", "slotsTotal": 10**400}],
+            gpus=[{"name": "g", "utilizationPercent": 10**400}],
+        )
         for full in (False, True):
             with self.subTest(full=full):
                 output = self.adapt(snapshot([peer(doc)]), full=full)
@@ -153,8 +193,11 @@ class ContractAdapter(unittest.TestCase):
         # Words a table does not list are refused, not guessed: UP/serving/ok-for-linux, and the wrong
         # table's words (the Linux observer says "up", never "ok").
         refused = [("agiw-peer-link lmstudio", word) for word in ("UP", "serving", "up", "", "OK")]
-        refused += [("agiw-win-observer 0.2.0", "up"), ("agiw-linux-observer", "ok"),
-                    ("agiw-linux-observer", "degraded")]
+        refused += [
+            ("agiw-win-observer 0.2.0", "up"),
+            ("agiw-linux-observer", "ok"),
+            ("agiw-linux-observer", "degraded"),
+        ]
         for (producer, word), (state, reason) in cells.items():
             platform = "linux" if "linux" in producer else "windows"
             with self.subTest(producer=producer, word=word):
@@ -174,12 +217,16 @@ class ContractAdapter(unittest.TestCase):
 
     def test_completeness_is_explicit_and_total_must_match(self):
         models = [{"id": "loaded", "loadedState": "loaded", "activity": "idle"}]
-        for fields in ({}, {"modelsComplete": True}, {"loadedListComplete": False},
-                       {"loadedListComplete": 1},
-                       {"loadedListComplete": True, "modelsTotal": 2},
-                       {"loadedListComplete": True, "modelsTotal": None},
-                       {"loadedListComplete": True, "modelsTotal": True},
-                       {"loadedListComplete": True, "modelsTotal": 1.0}):
+        for fields in (
+            {},
+            {"modelsComplete": True},
+            {"loadedListComplete": False},
+            {"loadedListComplete": 1},
+            {"loadedListComplete": True, "modelsTotal": 2},
+            {"loadedListComplete": True, "modelsTotal": None},
+            {"loadedListComplete": True, "modelsTotal": True},
+            {"loadedListComplete": True, "modelsTotal": 1.0},
+        ):
             with self.subTest(fields=fields):
                 row = self.row(snapshot([peer(document(models=models, **fields))]))
                 self.assertEqual(row["state"], "up")
@@ -197,8 +244,11 @@ class ContractAdapter(unittest.TestCase):
     def test_unknown_residency_and_unknown_activity_are_distinct(self):
         for residency, activity, loaded in (("unknown", "idle", None), ("loaded", "unknown", 1)):
             with self.subTest(residency=residency, activity=activity):
-                doc = document(loadedListComplete=True, modelsTotal=1,
-                               models=[{"id": "a", "loadedState": residency, "activity": activity}])
+                doc = document(
+                    loadedListComplete=True,
+                    modelsTotal=1,
+                    models=[{"id": "a", "loadedState": residency, "activity": activity}],
+                )
                 row = self.row(snapshot([peer(doc)]))
                 self.assertEqual(row["state"], "up")
                 self.assertEqual(row["loadedCount"], loaded)
@@ -228,10 +278,16 @@ class ContractAdapter(unittest.TestCase):
                 self.assertEqual((row["trust"], row["reasonCode"], row["freshForSeconds"]), ("local", reason, 3.0))
 
     def test_original_timestamp_and_core_freshness_windows(self):
-        for platform, age, reason in (("mac", 30, "observed"), ("mac", 30.001, "stale"),
-                                      ("windows", 30, "observed"), ("windows", 30.001, "stale"),
-                                      ("linux", 30, "observed"), ("linux", 30.001, "stale"),
-                                      ("windows", -2, "observed"), ("windows", -2.001, "clock_skew")):
+        for platform, age, reason in (
+            ("mac", 30, "observed"),
+            ("mac", 30.001, "stale"),
+            ("windows", 30, "observed"),
+            ("windows", 30.001, "stale"),
+            ("linux", 30, "observed"),
+            ("linux", 30.001, "stale"),
+            ("windows", -2, "observed"),
+            ("windows", -2.001, "clock_skew"),
+        ):
             with self.subTest(platform=platform, age=age):
                 doc = document(platform, age=age)
                 row = self.row(snapshot([peer(doc, platform=platform, lastHello=NOW)]))
@@ -240,8 +296,7 @@ class ContractAdapter(unittest.TestCase):
                 self.assertAlmostEqual(row["ageSeconds"], max(0, age), places=5)
 
     def test_health_unknown_and_unlisted_keep_timestamp_and_null_counts(self):
-        for health, reason in (("unknown", "unavailable"), ("UP", "schema_invalid"),
-                               ("serving", "schema_invalid")):
+        for health, reason in (("unknown", "unavailable"), ("UP", "schema_invalid"), ("serving", "schema_invalid")):
             with self.subTest(health=health):
                 doc = document(health=health, loadedListComplete=True, modelsTotal=0)
                 row = self.row(snapshot([peer(doc)]))
@@ -257,8 +312,7 @@ class ContractAdapter(unittest.TestCase):
         for error in ({"error": "provider failed"}, None):
             with self.subTest(error=error):
                 row = self.row(snapshot(self_status=error), LOCAL_NODE)
-                self.assertEqual((row["trust"], row["state"], row["reasonCode"]),
-                                 ("local", "unknown", "unavailable"))
+                self.assertEqual((row["trust"], row["state"], row["reasonCode"]), ("local", "unknown", "unavailable"))
         source = snapshot(self_status=document("macos"), platform="macos")
         self.assertEqual(self.row(source, LOCAL_NODE)["platform"], "mac")
 
@@ -271,8 +325,10 @@ class ContractAdapter(unittest.TestCase):
         self.assertNotIn("linux", {row["platform"] for row in rows})
         missing = self.adapt(snapshot())["machines"]
         row = next(row for row in missing if row["id"] == "windows")
-        self.assertEqual((row["host"], row["state"], row["reasonCode"], row["trust"]),
-                         ("windows", "unknown", "not_observed", "unverified"))
+        self.assertEqual(
+            (row["host"], row["state"], row["reasonCode"], row["trust"]),
+            ("windows", "unknown", "not_observed", "unverified"),
+        )
 
     def test_labels_and_legacy_identity(self):
         source = snapshot([peer(document(host="reported-host"), name="Friendly")])
@@ -311,9 +367,11 @@ class ContractAdapter(unittest.TestCase):
         for full in (False, True):
             lines = []
             argv = ["--state-dir", "unused", "status", "--json"] + (["--full"] if full else [])
-            with mock.patch.object(cli, "control", side_effect=cli.CliError(cli.NOT_RUNNING, cli.EXIT_NOT_RUNNING)), \
-                    mock.patch.object(cli.pl, "detect_host_kind", return_value="mac"), \
-                    mock.patch("sys.stderr") as err:
+            with (
+                mock.patch.object(cli, "control", side_effect=cli.CliError(cli.NOT_RUNNING, cli.EXIT_NOT_RUNNING)),
+                mock.patch.object(cli.pl, "detect_host_kind", return_value="mac"),
+                mock.patch("sys.stderr") as err,
+            ):
                 code = cli.main(argv, out=lines.append)
             self.assertEqual(code, 0)
             err.write.assert_not_called()
@@ -325,9 +383,11 @@ class ContractAdapter(unittest.TestCase):
                 self.assertEqual(row["state"], "unknown")
             self.assertEqual("documents" in output, full)
         for code in (cli.EXIT_FAILED, cli.EXIT_USAGE):
-            with self.subTest(code=code), \
-                    mock.patch.object(cli, "control", side_effect=cli.CliError("control failure", code)), \
-                    mock.patch("sys.stderr"):
+            with (
+                self.subTest(code=code),
+                mock.patch.object(cli, "control", side_effect=cli.CliError("control failure", code)),
+                mock.patch("sys.stderr"),
+            ):
                 self.assertEqual(cli.main(["--state-dir", "unused", "status", "--json"], out=lambda line: None), code)
 
     def test_not_running_returns_two_unknown_rows(self):
@@ -341,10 +401,12 @@ class ContractAdapter(unittest.TestCase):
             self.assertEqual(row["state"], "unknown")
             self.assertIsNone(row["loadedCount"])
         local_row = next(row for row in output["machines"] if row["id"] == LOCAL_NODE)
-        self.assertEqual((local_row["platform"], local_row["trust"], local_row["reasonCode"]),
-                         ("mac", "local", "unavailable"))
-        self.assertTrue(all(row["reasonCode"] == "not_observed" for row in output["machines"]
-                            if row["id"] != LOCAL_NODE))
+        self.assertEqual(
+            (local_row["platform"], local_row["trust"], local_row["reasonCode"]), ("mac", "local", "unavailable")
+        )
+        self.assertTrue(
+            all(row["reasonCode"] == "not_observed" for row in output["machines"] if row["id"] != LOCAL_NODE)
+        )
 
 
 if __name__ == "__main__":

@@ -104,9 +104,7 @@ class RuntimeRound2Tests(unittest.TestCase):
             worker.start()
             try:
                 self.assertTrue(entered.wait(5))
-                with self.assertRaisesRegex(
-                    f.ValidationError, "checkpoint.*writer|checkpoint.*lock"
-                ):
+                with self.assertRaisesRegex(f.ValidationError, "checkpoint.*writer|checkpoint.*lock"):
                     run(
                         answer=lambda row: self.fail("second writer called adapter"),
                         checkpoint=path,
@@ -117,9 +115,7 @@ class RuntimeRound2Tests(unittest.TestCase):
             self.assertFalse(worker.is_alive())
             self.assertEqual(failures, [])
             self.assertEqual(len(path.read_text().splitlines()), 1)
-            resumed = run(
-                answer=lambda row: self.fail("completed item repeated"), checkpoint=path
-            )
+            resumed = run(answer=lambda row: self.fail("completed item repeated"), checkpoint=path)
             self.assertEqual(resumed["benchmarks"][0]["correct"], 1)
 
     def test_resume_requires_stable_artifact_identity(self):
@@ -127,9 +123,7 @@ class RuntimeRound2Tests(unittest.TestCase):
             path = Path(temp) / "checkpoint.jsonl"
             unknown = dict(MODEL, file_sha256=None)
             run(checkpoint=path, model=unknown)
-            with self.assertRaisesRegex(
-                f.ValidationError, "artifact.*hash|file_sha256"
-            ):
+            with self.assertRaisesRegex(f.ValidationError, "artifact.*hash|file_sha256"):
                 run(
                     checkpoint=path,
                     model=unknown,
@@ -194,9 +188,7 @@ class RuntimeRound2Tests(unittest.TestCase):
 
         result = run(answer=broken)
         self.assertEqual(calls, ["arc"])
-        self.assertEqual(
-            result["benchmarks"][0]["observations"][0]["error"], "TypeError"
-        )
+        self.assertEqual(result["benchmarks"][0]["observations"][0]["error"], "TypeError")
 
     def test_legacy_callback_signature_is_preserved(self):
         result = run(answer=lambda row: evidence(), score=lambda prediction, row: True)

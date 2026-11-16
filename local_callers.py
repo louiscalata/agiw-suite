@@ -3,6 +3,7 @@
 Only process names and ids are kept, never arguments. lsof runs only while a
 local model is busy or has queued requests, and at most every 2 s per listener.
 """
+
 from __future__ import annotations
 
 import time
@@ -57,8 +58,9 @@ def parse(output: str, server_pids: set[int], port: int, *, wildcard=False) -> l
                 key = (local, peer)
                 clients.setdefault(key, {})[pid] = name or "unknown"
     # Either missing half can mean permissions, a partial listing or a socket race.
-    local_clients = {key for key in clients
-                     if wildcard or ip_address(key[1][0]).is_loopback or key[1][0] in local_addresses}
+    local_clients = {
+        key for key in clients if wildcard or ip_address(key[1][0]).is_loopback or key[1][0] in local_addresses
+    }
     if any(len(clients.get(key, {})) != 1 for key in accepted) or local_clients - accepted:
         return None
     callers: dict[int, dict[str, Any]] = {}
@@ -76,8 +78,11 @@ def _listeners(output: str, port: int) -> set[int]:
             pid = int(line[1:]) if line[1:].isascii() and line[1:].isdigit() else None
         elif line.startswith("n"):
             endpoint = _endpoint(line[1:])
-            matches = line == f"n*:{port}" or (endpoint is not None and endpoint[1] == port
-                       and (ip_address(endpoint[0]).is_loopback or ip_address(endpoint[0]).is_unspecified))
+            matches = line == f"n*:{port}" or (
+                endpoint is not None
+                and endpoint[1] == port
+                and (ip_address(endpoint[0]).is_loopback or ip_address(endpoint[0]).is_unspecified)
+            )
             if matches and pid is not None and pid > 0:
                 pids.add(pid)
     return pids
@@ -86,16 +91,25 @@ def _listeners(output: str, port: int) -> set[int]:
 class LocalCallers:
     def __init__(self, runner=None, clock=time.monotonic, executable=None):
         from telemetry import _listener_executable
+
         self._runner, self._clock = runner, clock
         self._executable = executable or _listener_executable
         self._last_run = None
         self._last_identity = None
-        self._last: tuple[list[dict[str, Any]] | None, dict[str, Any]] = (None, self._source("unavailable", "Local callers not checked yet"))
+        self._last: tuple[list[dict[str, Any]] | None, dict[str, Any]] = (
+            None,
+            self._source("unavailable", "Local callers not checked yet"),
+        )
 
     @staticmethod
     def _source(state: str, detail: str) -> dict[str, Any]:
-        return {"id": "local-callers", "label": "Local callers", "state": state,
-                "ageSeconds": 0.0 if state == "live" else None, "detail": detail}
+        return {
+            "id": "local-callers",
+            "label": "Local callers",
+            "state": state,
+            "ageSeconds": 0.0 if state == "live" else None,
+            "detail": detail,
+        }
 
     def _pids(self, state: str, port: int, deadline: float) -> str:
         remaining = deadline - self._clock()
@@ -104,20 +118,26 @@ class LocalCallers:
         args = [_LSOF, "-nP", "-b", "-w", f"-iTCP:{port}", f"-sTCP:{state}", "-a", "-F", "pcn"]
         if self._runner is None:
             from telemetry import _bounded_command
-            output = _bounded_command(args, limit=_MAX_OUTPUT, timeout=remaining, ok_codes=(0, 1),
-                                      merge_stderr=True)
+
+            output = _bounded_command(args, limit=_MAX_OUTPUT, timeout=remaining, ok_codes=(0, 1), merge_stderr=True)
         else:
-            result = self._runner(args, capture_output=True, text=True, timeout=remaining, check=False,
-                                  start_new_session=True)
-            if (result.returncode not in (0, 1) or result.stderr.strip()
-                    or (result.returncode == 1 and result.stdout.strip()) or len(result.stdout) > _MAX_OUTPUT):
+            result = self._runner(
+                args, capture_output=True, text=True, timeout=remaining, check=False, start_new_session=True
+            )
+            if (
+                result.returncode not in (0, 1)
+                or result.stderr.strip()
+                or (result.returncode == 1 and result.stdout.strip())
+                or len(result.stdout) > _MAX_OUTPUT
+            ):
                 raise ValueError("lsof unavailable")
             output = result.stdout
-        if any(line.strip() and line[0] not in 'pcnf' for line in output.split('\n')):
+        if any(line.strip() and line[0] not in "pcnf" for line in output.split("\n")):
             raise ValueError("lsof diagnostic or partial output")
         # A malformed/partial process envelope cannot establish an empty list.
-        if output.strip() and (not output.endswith('\n') or
-                any(line.strip() and line[0] not in 'pcnf' for line in output.splitlines())):
+        if output.strip() and (
+            not output.endswith("\n") or any(line.strip() and line[0] not in "pcnf" for line in output.splitlines())
+        ):
             raise ValueError("lsof output incomplete")
         pid = None
         named = False
@@ -125,67 +145,102 @@ class LocalCallers:
             if not line.strip():
                 continue
             tag, value = line[0], line[1:]
-            if tag == 'p':
+            if tag == "p":
                 if pid is not None and not named:
                     raise ValueError("lsof process incomplete")
-                if not re.fullmatch(r'[0-9]{1,10}', value) or not 0 < int(value) < 2**31:
+                if not re.fullmatch(r"[0-9]{1,10}", value) or not 0 < int(value) < 2**31:
                     raise ValueError("lsof PID invalid")
                 pid, named = int(value), False
-            elif tag == 'c':
+            elif tag == "c":
                 if pid is None or named or not value:
                     raise ValueError("lsof command without process")
                 named = True
-            elif tag == 'n':
+            elif tag == "n":
                 if pid is None or not named or not value:
                     raise ValueError("lsof socket without process")
-                if state == 'LISTEN' and value != f'*:{port}' and _endpoint(value) is None:
+                if state == "LISTEN" and value != f"*:{port}" and _endpoint(value) is None:
                     raise ValueError("lsof listener endpoint malformed")
         if pid is not None and not named:
             raise ValueError("lsof process incomplete")
         return output
 
-    def sample(self, models: list[dict[str, Any]], *, port: int | None = None,
-               listener: tuple[int, str] | None = None,
-               activity_known: bool = False) -> tuple[list[dict[str, Any]] | None, dict[str, Any]]:
-        if (type(port) is not int or not 1 <= port <= 65535 or not isinstance(listener, tuple)
-                or len(listener) != 2 or type(listener[0]) is not int or listener[0] <= 0
-                or not isinstance(listener[1], str) or not listener[1]):
+    def sample(
+        self,
+        models: list[dict[str, Any]],
+        *,
+        port: int | None = None,
+        listener: tuple[int, str] | None = None,
+        activity_known: bool = False,
+    ) -> tuple[list[dict[str, Any]] | None, dict[str, Any]]:
+        if (
+            type(port) is not int
+            or not 1 <= port <= 65535
+            or not isinstance(listener, tuple)
+            or len(listener) != 2
+            or type(listener[0]) is not int
+            or listener[0] <= 0
+            or not isinstance(listener[1], str)
+            or not listener[1]
+        ):
             self._last_run = self._last_identity = None
-            self._last = (None, self._source("unavailable", "Direct model-server port and listener identity are not verified"))
+            self._last = (
+                None,
+                self._source("unavailable", "Direct model-server port and listener identity are not verified"),
+            )
             return self._last
-        busy = any(row.get("host") == "mac" and (row.get("state") in ("busy", "generating")
-                                                 or (type(row.get("queued")) is int and row["queued"] > 0))
-                   for row in models)
+        busy = any(
+            row.get("host") == "mac"
+            and (row.get("state") in ("busy", "generating") or (type(row.get("queued")) is int and row["queued"] > 0))
+            for row in models
+        )
         if not busy:
             self._last_run = self._last_identity = None
             complete = all(type(row.get("loaded")) is bool for row in models if row.get("host") == "mac")
-            source = (self._source("not-checked", "Not sampled; no local model requests observed")
-                      if activity_known is True and complete else
-                      self._source("unavailable", "Not checked while local model activity is unknown"))
+            source = (
+                self._source("not-checked", "Not sampled; no local model requests observed")
+                if activity_known is True and complete
+                else self._source("unavailable", "Not checked while local model activity is unknown")
+            )
             self._last = (None, source)
             return self._last
         now = self._clock()
         identity = (port, *listener)
         if self._last_identity == identity and self._last_run is not None and now - self._last_run < _MIN_INTERVAL:
             callers, source = self._last
-            return callers, {**source, "ageSeconds": max(0.0, now - self._last_run) if source["state"] == "live" else None}
+            return callers, {
+                **source,
+                "ageSeconds": max(0.0, now - self._last_run) if source["state"] == "live" else None,
+            }
         self._last_run = now
         self._last_identity = identity
         try:
             listener_output = self._pids("LISTEN", port, now + _PROBE_BUDGET)
             listeners = _listeners(listener_output, port)
             if listeners != {listener[0]} or self._executable(listener[0]) != listener[1]:
-                self._last = (None, self._source("unavailable", "Model-server listener changed or is ambiguous; local callers unknown"))
+                self._last = (
+                    None,
+                    self._source("unavailable", "Model-server listener changed or is ambiguous; local callers unknown"),
+                )
                 return self._last
-            wildcard = any(line in (f'n*:{port}', f'n0.0.0.0:{port}', f'n[::]:{port}')
-                           for line in listener_output.splitlines())
+            wildcard = any(
+                line in (f"n*:{port}", f"n0.0.0.0:{port}", f"n[::]:{port}") for line in listener_output.splitlines()
+            )
             callers = parse(self._pids("ESTABLISHED", port, now + _PROBE_BUDGET), listeners, port, wildcard=wildcard)
             if self._executable(listener[0]) != listener[1]:
-                self._last = (None, self._source("unavailable", "Model-server executable changed; local callers unknown"))
+                self._last = (
+                    None,
+                    self._source("unavailable", "Model-server executable changed; local callers unknown"),
+                )
             elif callers is None:
-                self._last = (None, self._source("unavailable", "Some caller socket ends are not visible; local callers unknown"))
+                self._last = (
+                    None,
+                    self._source("unavailable", "Some caller socket ends are not visible; local callers unknown"),
+                )
             else:
-                self._last = (callers, self._source("live", f"{len(callers)} local process(es) connected to the model server"))
+                self._last = (
+                    callers,
+                    self._source("live", f"{len(callers)} local process(es) connected to the model server"),
+                )
         except Exception:
             self._last = (None, self._source("unavailable", "Could not list local callers or verify listener"))
         return self._last

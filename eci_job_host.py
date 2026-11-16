@@ -24,8 +24,9 @@ MAX_SAMPLE_SETS = 8
 MAX_SAMPLE_FILES = 16
 MAX_TARGETS = 64
 MAX_PATH_CHARS = 1024
-FIELDS = frozenset({"state_dir", "dataset_dir", "sample_sets", "allowed_targets",
-                    "max_wall_budget_s", "default_wall_budget_s"})
+FIELDS = frozenset(
+    {"state_dir", "dataset_dir", "sample_sets", "allowed_targets", "max_wall_budget_s", "default_wall_budget_s"}
+)
 _SAMPLE_SET = re.compile(r"[a-z][a-z0-9_-]{0,31}\Z")
 UNREADABLE = "The check-job configuration cannot be read safely."
 INVALID = "The check-job configuration is not valid."
@@ -62,8 +63,12 @@ def _read_bytes(path):
         raise ConfigError(UNREADABLE) from None
     try:
         info = os.fstat(descriptor)
-        if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
-                or info.st_mode & (stat.S_IWGRP | stat.S_IWOTH) or info.st_size > MAX_CONFIG_BYTES):
+        if (
+            not stat.S_ISREG(info.st_mode)
+            or info.st_uid != os.getuid()
+            or info.st_mode & (stat.S_IWGRP | stat.S_IWOTH)
+            or info.st_size > MAX_CONFIG_BYTES
+        ):
             raise ConfigError(UNREADABLE)
         raw = bytearray()
         while len(raw) <= MAX_CONFIG_BYTES:
@@ -93,8 +98,7 @@ def read_config(path):
     """The validated config at ``path``, exactly as written. Raises ``ConfigError``."""
     raw = _read_bytes(path)
     try:
-        value = json.loads(raw.decode("utf-8"), object_pairs_hook=_unique,
-                           parse_constant=_reject_constant)
+        value = json.loads(raw.decode("utf-8"), object_pairs_hook=_unique, parse_constant=_reject_constant)
     except (ValueError, UnicodeError, RecursionError):
         raise ConfigError(INVALID) from None
     if not isinstance(value, dict) or set(value) != FIELDS:
@@ -106,21 +110,28 @@ def read_config(path):
     if not isinstance(sets, dict) or not sets or len(sets) > MAX_SAMPLE_SETS:
         raise ConfigError(INVALID)
     for name, files in sets.items():
-        if (not _SAMPLE_SET.fullmatch(name) or not isinstance(files, list) or not files
-                or len(files) > MAX_SAMPLE_FILES or len(set(map(str, files))) != len(files)):
+        if (
+            not _SAMPLE_SET.fullmatch(name)
+            or not isinstance(files, list)
+            or not files
+            or len(files) > MAX_SAMPLE_FILES
+            or len(set(map(str, files))) != len(files)
+        ):
             raise ConfigError(INVALID)
         for item in files:
             _directory(item)
     targets = value["allowed_targets"]
-    if (not isinstance(targets, list) or len(targets) > MAX_TARGETS
-            or len(set(map(str, targets))) != len(targets)):
+    if not isinstance(targets, list) or len(targets) > MAX_TARGETS or len(set(map(str, targets))) != len(targets):
         raise ConfigError(INVALID)
     if not isinstance(value["max_wall_budget_s"], str) or not isinstance(value["default_wall_budget_s"], str):
         raise ConfigError(INVALID)
     try:
         # Policy checks the lane ids and both budgets with the engine's own rules.
-        eci_jobs.Policy(allowed_targets=targets, max_wall_budget_s=value["max_wall_budget_s"],
-                        default_wall_budget_s=value["default_wall_budget_s"])
+        eci_jobs.Policy(
+            allowed_targets=targets,
+            max_wall_budget_s=value["max_wall_budget_s"],
+            default_wall_budget_s=value["default_wall_budget_s"],
+        )
     except (ValueError, TypeError):
         raise ConfigError(INVALID) from None
     return value
@@ -139,8 +150,14 @@ class Unavailable:
 
     def __call__(self, path, query):
         if path == eci_job_routes.STATUS_PATH:
-            return 200, {"status": "unknown", "reason": self.reason, "owner": False,
-                         "gate": "closed", "jobs": [], "active": None}
+            return 200, {
+                "status": "unknown",
+                "reason": self.reason,
+                "owner": False,
+                "gate": "closed",
+                "jobs": [],
+                "active": None,
+            }
         return 503, {"status": "unknown", "reason": self.reason}
 
 
@@ -170,13 +187,17 @@ def open_host(path, *, registry=None):
         engine = eci_jobs.Engine(
             config["state_dir"],
             # The submission gate stays closed until owner decision D1 says what opens it.
-            policy=eci_jobs.Policy(gate=lambda: False, allowed_targets=config["allowed_targets"],
-                                   max_wall_budget_s=config["max_wall_budget_s"],
-                                   default_wall_budget_s=config["default_wall_budget_s"]),
+            policy=eci_jobs.Policy(
+                gate=lambda: False,
+                allowed_targets=config["allowed_targets"],
+                max_wall_budget_s=config["max_wall_budget_s"],
+                default_wall_budget_s=config["default_wall_budget_s"],
+            ),
             targets=_registry_targets(loader),
             sample_sets=config["sample_sets"],
             runner=eci_jobs.adapter_runner,
-            sink=eci_jobs.DatasetSink(config["dataset_dir"]))
+            sink=eci_jobs.DatasetSink(config["dataset_dir"]),
+        )
     except Exception:
         return Host(Unavailable(ENGINE_FAILED))
     return Host(eci_job_routes.ReadOnlyRoutes(engine), engine)

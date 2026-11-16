@@ -40,10 +40,20 @@ MAX_REQUEST_TIMEOUT_S = 600
 MAX_BUDGET_CHARS = 32
 DEFAULT_COUNT = 200
 DEFAULT_REQUEST_TIMEOUT_S = 180
-REQUEST_FIELDS = frozenset({
-    "submission_id", "target", "model_id", "sample_set", "count", "max_tokens",
-    "wall_budget_s", "request_timeout_s", "disable_thinking", "facts",
-})
+REQUEST_FIELDS = frozenset(
+    {
+        "submission_id",
+        "target",
+        "model_id",
+        "sample_set",
+        "count",
+        "max_tokens",
+        "wall_budget_s",
+        "request_timeout_s",
+        "disable_thinking",
+        "facts",
+    }
+)
 TEXT_FACTS = ("model_label", "machine_label", "cpu", "gpu", "runtime_build_id")
 INTEGER_FACTS = ("file_size_bytes", "available_memory_bytes", "memory_bytes")
 FACT_FIELDS = frozenset(("model_sha256", "quantization") + TEXT_FACTS + INTEGER_FACTS)
@@ -99,8 +109,7 @@ class Policy:
     Both are exact positive decimal strings of at most 32 characters.
     """
 
-    def __init__(self, gate=_closed, allowed_targets=(), max_wall_budget_s=None,
-                 default_wall_budget_s=None):
+    def __init__(self, gate=_closed, allowed_targets=(), max_wall_budget_s=None, default_wall_budget_s=None):
         if not callable(gate):
             raise ValueError("gate must be callable")
         targets = frozenset(allowed_targets)
@@ -110,8 +119,8 @@ class Policy:
             if value is not None and _budget(value) is None:
                 raise ValueError("a wall budget must be a short exact positive decimal string")
         if default_wall_budget_s is not None and (
-                max_wall_budget_s is None
-                or _budget(default_wall_budget_s) > _budget(max_wall_budget_s)):
+            max_wall_budget_s is None or _budget(default_wall_budget_s) > _budget(max_wall_budget_s)
+        ):
             raise ValueError("default wall budget must not exceed the maximum")
         self.gate = gate
         self.allowed_targets = targets
@@ -190,12 +199,20 @@ def normalize_request(request, policy=CLOSED):
                 raise fast.ValidationError("fact")
             facts[key] = value
     except fast.ValidationError:
-        raise _invalid("facts must be short public descriptors, a public model label, sizes and a lowercase SHA-256.") from None
+        raise _invalid(
+            "facts must be short public descriptors, a public model label, sizes and a lowercase SHA-256."
+        ) from None
     return {
-        "submission_id": request["submission_id"], "target": request["target"],
-        "model_id": request["model_id"], "sample_set": request["sample_set"],
-        "count": count, "max_tokens": max_tokens, "wall_budget_s": budget,
-        "request_timeout_s": timeout, "disable_thinking": thinking, "facts": facts,
+        "submission_id": request["submission_id"],
+        "target": request["target"],
+        "model_id": request["model_id"],
+        "sample_set": request["sample_set"],
+        "count": count,
+        "max_tokens": max_tokens,
+        "wall_budget_s": budget,
+        "request_timeout_s": timeout,
+        "disable_thinking": thinking,
+        "facts": facts,
     }
 
 
@@ -206,8 +223,7 @@ def job_id_for(request):
 
 def review_digest(job_id, attempt, request):
     """What a reviewer approves: this exact request, for this attempt only."""
-    return fast.digest({"kind": "agiw_check_job_review", "job_id": job_id,
-                        "attempt": attempt, "request": request})
+    return fast.digest({"kind": "agiw_check_job_review", "job_id": job_id, "attempt": attempt, "request": request})
 
 
 def default_plan_size(files, count):
@@ -233,11 +249,17 @@ def adapter_runner(spec, should_stop, progress):
         raise Stopped()
     facts = spec["facts"]
     return adapter.run(
-        spec["base_url"], spec["model_id"], [Path(p) for p in spec["sample_files"]],
-        Path(spec["output_dir"]), count=spec["count"], max_tokens=spec["max_tokens"],
-        timeout=spec["request_timeout_s"], wall_budget_s=spec["wall_budget_s"],
+        spec["base_url"],
+        spec["model_id"],
+        [Path(p) for p in spec["sample_files"]],
+        Path(spec["output_dir"]),
+        count=spec["count"],
+        max_tokens=spec["max_tokens"],
+        timeout=spec["request_timeout_s"],
+        wall_budget_s=spec["wall_budget_s"],
         disable_thinking=spec["disable_thinking"],
-        **{key: facts.get(key) for key in sorted(FACT_FIELDS)})
+        **{key: facts.get(key) for key in sorted(FACT_FIELDS)},
+    )
 
 
 def _bound(record, request):
@@ -253,11 +275,14 @@ def _bound(record, request):
     declared = facts.get("model_sha256")
     settings = record["runtime_settings"]
     tokens = settings.get("max_tokens") if isinstance(settings, dict) else None
-    return (record["plan"]["items_per_benchmark"] == request["count"]
-            and record["plan"]["wall_budget_s"] == request["wall_budget_s"]
-            and record["model"]["name"] == facts.get("model_label", request["model_id"])
-            and type(tokens) is int and tokens == request["max_tokens"]
-            and (declared is None or record["model"]["file_sha256"] == declared))
+    return (
+        record["plan"]["items_per_benchmark"] == request["count"]
+        and record["plan"]["wall_budget_s"] == request["wall_budget_s"]
+        and record["model"]["name"] == facts.get("model_label", request["model_id"])
+        and type(tokens) is int
+        and tokens == request["max_tokens"]
+        and (declared is None or record["model"]["file_sha256"] == declared)
+    )
 
 
 def _utc_now():
@@ -279,10 +304,12 @@ def _lock_file(stream):
     try:
         if os.name == "nt":
             import msvcrt
+
             stream.seek(0)
             msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
         else:
             import fcntl
+
             fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
         return False
@@ -290,6 +317,7 @@ def _lock_file(stream):
 
 
 # ---------------------------------------------------------------- journal
+
 
 def _entry_line(body):
     entry = dict(body)
@@ -324,23 +352,35 @@ def _parse_entry(line):
 
 
 def _in_sequence(entry, seq, prev):
-    return (type(entry["v"]) is int and entry["v"] == JOURNAL_VERSION
-            and type(entry["seq"]) is int and entry["seq"] == seq and entry["prev"] == prev)
+    return (
+        type(entry["v"]) is int
+        and entry["v"] == JOURNAL_VERSION
+        and type(entry["seq"]) is int
+        and entry["seq"] == seq
+        and entry["prev"] == prev
+    )
 
 
 def _result_ok(value, nullable):
     if value is None:
         return nullable
-    return (isinstance(value, dict)
-            and set(value) == {"record_id", "post_decision", "benchmarks"}
-            and isinstance(value["benchmarks"], list))
+    return (
+        isinstance(value, dict)
+        and set(value) == {"record_id", "post_decision", "benchmarks"}
+        and isinstance(value["benchmarks"], list)
+    )
 
 
 def _apply(jobs, entry):
     """Fold one job entry into ``jobs``; any unknown shape or move is corruption."""
     job_id, attempt, state, detail = (entry[key] for key in ("job_id", "attempt", "state", "detail"))
-    if (not isinstance(job_id, str) or not _JOB_ID.fullmatch(job_id) or type(attempt) is not int
-            or state not in STATES or not isinstance(detail, dict)):
+    if (
+        not isinstance(job_id, str)
+        or not _JOB_ID.fullmatch(job_id)
+        or type(attempt) is not int
+        or state not in STATES
+        or not isinstance(detail, dict)
+    ):
         raise _Corrupt()
     job = jobs.get(job_id)
     at = entry["at"]
@@ -352,15 +392,24 @@ def _apply(jobs, entry):
             if not isinstance(request, dict) or job_id_for(request) != job_id:
                 raise _Corrupt()
             job = jobs[job_id] = {
-                "job_id": job_id, "request": request, "submitted_at": at, "entries": 0,
+                "job_id": job_id,
+                "request": request,
+                "submitted_at": at,
+                "entries": 0,
             }
-        elif (job["state"] not in RESUMABLE or attempt != job["attempt"] + 1
-              or set(detail) != {"review_sha256"}):
+        elif job["state"] not in RESUMABLE or attempt != job["attempt"] + 1 or set(detail) != {"review_sha256"}:
             raise _Corrupt()
         if detail["review_sha256"] != review_digest(job_id, attempt, job["request"]):
             raise _Corrupt()
-        job.update(attempt=attempt, review_sha256=detail["review_sha256"], started_at=None,
-                   ended_at=None, cancel_requested=False, reason=None, result=None)
+        job.update(
+            attempt=attempt,
+            review_sha256=detail["review_sha256"],
+            started_at=None,
+            ended_at=None,
+            cancel_requested=False,
+            reason=None,
+            result=None,
+        )
     else:
         if job is None or attempt != job["attempt"]:
             raise _Corrupt()
@@ -375,10 +424,18 @@ def _apply(jobs, entry):
             job["cancel_requested"] = detail["cancel_requested"]
         else:
             # A queued job fails only when it is refused at start; it never ran.
-            allowed = {"finished": ("running",), "failed": ("queued", "running"),
-                       "cancelled": ("queued", "running"), "interrupted": ("queued", "running")}
-            fields = {"finished": {"result"}, "failed": {"reason", "result"},
-                      "cancelled": {"reason"}, "interrupted": {"reason"}}
+            allowed = {
+                "finished": ("running",),
+                "failed": ("queued", "running"),
+                "cancelled": ("queued", "running"),
+                "interrupted": ("queued", "running"),
+            }
+            fields = {
+                "finished": {"result"},
+                "failed": {"reason", "result"},
+                "cancelled": {"reason"},
+                "interrupted": {"reason"},
+            }
             if before not in allowed[state] or set(detail) != fields[state]:
                 raise _Corrupt()
             if "reason" in detail and _reason(detail["reason"]) != detail["reason"]:
@@ -400,15 +457,20 @@ def replay(raw):
     A self-consistent entry that is out of sequence is damage, never a tail:
     a crash leaves a cut line, not a whole entry in the wrong place.
     """
-    damaged = {"jobs": OrderedDict(), "seq": 0, "prev": None, "tail": b"",
-               "problem": "The job journal is damaged; no job state is trusted."}
+    damaged = {
+        "jobs": OrderedDict(),
+        "seq": 0,
+        "prev": None,
+        "tail": b"",
+        "problem": "The job journal is damaged; no job state is trusted.",
+    }
     jobs, seq, prev, bad, offset = OrderedDict(), 0, None, b"", 0
     while offset < len(raw):
         end = raw.find(b"\n", offset)
         if end < 0:
             bad += raw[offset:]
             break
-        line, chunk = raw[offset:end], raw[offset:end + 1]
+        line, chunk = raw[offset:end], raw[offset : end + 1]
         offset = end + 1
         try:
             entry = _parse_entry(line)
@@ -453,9 +515,24 @@ def _read_journal(path):
 
 
 def _view(job, progress=None):
-    view = copy.deepcopy({key: job[key] for key in (
-        "job_id", "state", "attempt", "request", "submitted_at", "updated_at", "started_at",
-        "ended_at", "cancel_requested", "reason", "result")})
+    view = copy.deepcopy(
+        {
+            key: job[key]
+            for key in (
+                "job_id",
+                "state",
+                "attempt",
+                "request",
+                "submitted_at",
+                "updated_at",
+                "started_at",
+                "ended_at",
+                "cancel_requested",
+                "reason",
+                "result",
+            )
+        }
+    )
     view["progress"] = dict(progress) if progress and job["state"] == "running" else None
     view["resumable"] = job["state"] in RESUMABLE and job["attempt"] < MAX_ATTEMPTS
     return view
@@ -468,11 +545,16 @@ def read_status(state_dir):
     if state["problem"]:
         return {"status": "unknown", "reason": state["problem"], "jobs": [], "active": None}
     jobs = [_view(job) for job in state["jobs"].values()]
-    return {"status": "ok", "reason": None, "jobs": jobs,
-            "active": next((job["job_id"] for job in jobs if job["state"] == "running"), None)}
+    return {
+        "status": "ok",
+        "reason": None,
+        "jobs": jobs,
+        "active": next((job["job_id"] for job in jobs if job["state"] == "running"), None),
+    }
 
 
 # ----------------------------------------------------------------- engine
+
 
 class Engine:
     """Owns one job state directory. A second engine on the same directory is refused.
@@ -484,9 +566,19 @@ class Engine:
     ``now`` returns an aware datetime; ``clock`` is monotonic seconds.
     """
 
-    def __init__(self, state_dir, *, policy=CLOSED, targets=None, sample_sets=None,
-                 runner=None, sink=None, now=_utc_now, clock=time.monotonic,
-                 plan_size=default_plan_size):
+    def __init__(
+        self,
+        state_dir,
+        *,
+        policy=CLOSED,
+        targets=None,
+        sample_sets=None,
+        runner=None,
+        sink=None,
+        now=_utc_now,
+        clock=time.monotonic,
+        plan_size=default_plan_size,
+    ):
         if not isinstance(policy, Policy):
             raise ValueError("policy must be a Policy")
         self._dir = Path(state_dir)
@@ -495,8 +587,12 @@ class Engine:
         self._sets = {}
         for name, files in (sample_sets or {}).items():
             paths = [Path(item) for item in files]
-            if (not isinstance(name, str) or not _SAMPLE_SET.fullmatch(name) or not paths
-                    or any(not path.is_absolute() or ".." in path.parts for path in paths)):
+            if (
+                not isinstance(name, str)
+                or not _SAMPLE_SET.fullmatch(name)
+                or not paths
+                or any(not path.is_absolute() or ".." in path.parts for path in paths)
+            ):
                 raise ValueError("sample sets map an id to absolute file paths")
             self._sets[name] = [str(path) for path in paths]
         self._policy, self._targets = policy, targets
@@ -531,8 +627,7 @@ class Engine:
             self._problem = problem
             return
         try:
-            flags = (os.O_WRONLY | os.O_APPEND | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
-                     | getattr(os, "O_BINARY", 0))
+            flags = os.O_WRONLY | os.O_APPEND | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
             self._journal = os.open(path, flags, 0o600)
         except OSError:
             self._problem = "The job journal cannot be opened for appending."
@@ -553,19 +648,22 @@ class Engine:
             # The lock proves no engine is running these jobs. Nothing resumes by itself.
             for job in list(self._jobs.values()):
                 if job["state"] == "running":
-                    self._append(job, "interrupted",
-                                 {"reason": "The engine stopped while the job was running."})
+                    self._append(job, "interrupted", {"reason": "The engine stopped while the job was running."})
                 elif job["state"] == "queued":
-                    self._append(job, "interrupted",
-                                 {"reason": "The engine stopped before the job started."})
+                    self._append(job, "interrupted", {"reason": "The engine stopped before the job started."})
         except Refused:
             pass
 
     def _repair(self, tail):
         """Supersede an invalid tail left by a crash; the bytes stay in the file."""
-        body = {"v": JOURNAL_VERSION, "seq": self._seq + 1, "prev": self._prev,
-                "at": _stamp(self._now), "kind": "repair",
-                "skipped_sha256": hashlib.sha256(tail).hexdigest()}
+        body = {
+            "v": JOURNAL_VERSION,
+            "seq": self._seq + 1,
+            "prev": self._prev,
+            "at": _stamp(self._now),
+            "kind": "repair",
+            "skipped_sha256": hashlib.sha256(tail).hexdigest(),
+        }
         line, entry = _entry_line(body)
         self._write(line)
         self._seq, self._prev = entry["seq"], entry["sha256"]
@@ -585,9 +683,17 @@ class Engine:
         job_id = job["job_id"] if job is not None else job_id_for(request)
         if attempt is None:
             attempt = job["attempt"] if job is not None else 1
-        body = {"v": JOURNAL_VERSION, "seq": self._seq + 1, "prev": self._prev,
-                "at": _stamp(self._now), "kind": "job", "job_id": job_id,
-                "attempt": attempt, "state": state, "detail": detail}
+        body = {
+            "v": JOURNAL_VERSION,
+            "seq": self._seq + 1,
+            "prev": self._prev,
+            "at": _stamp(self._now),
+            "kind": "job",
+            "job_id": job_id,
+            "attempt": attempt,
+            "state": state,
+            "detail": detail,
+        }
         line, entry = _entry_line(body)
         # Fold into a copy first: an entry replay would reject is never written.
         scratch = {} if job is None else {job_id: copy.deepcopy(job)}
@@ -617,12 +723,23 @@ class Engine:
     def status(self):
         with self._lock:
             if self._problem:
-                return {"status": "unknown", "reason": self._problem, "owner": self._owner,
-                        "gate": "closed", "jobs": [], "active": None}
+                return {
+                    "status": "unknown",
+                    "reason": self._problem,
+                    "owner": self._owner,
+                    "gate": "closed",
+                    "jobs": [],
+                    "active": None,
+                }
             jobs = [_view(job, self._progress.get(job["job_id"])) for job in self._jobs.values()]
-            return {"status": "ok", "reason": None, "owner": True,
-                    "gate": "open" if self._policy.gate_open() else "closed", "jobs": jobs,
-                    "active": next((j["job_id"] for j in jobs if j["state"] == "running"), None)}
+            return {
+                "status": "ok",
+                "reason": None,
+                "owner": True,
+                "gate": "open" if self._policy.gate_open() else "closed",
+                "jobs": jobs,
+                "active": next((j["job_id"] for j in jobs if j["state"] == "running"), None),
+            }
 
     def job(self, job_id):
         with self._lock:
@@ -645,11 +762,15 @@ class Engine:
 
     def _preview(self, job_id, attempt, request):
         refusals = []
-        for check in (self._usable, self._require_gate,
-                      lambda: normalize_request(request, self._policy),
-                      lambda: self._target(request),
-                      lambda: self._context(request),
-                      lambda: self._samples(request), self._require_parts):
+        for check in (
+            self._usable,
+            self._require_gate,
+            lambda: normalize_request(request, self._policy),
+            lambda: self._target(request),
+            lambda: self._context(request),
+            lambda: self._samples(request),
+            self._require_parts,
+        ):
             try:
                 check()
             except Refused as refusal:
@@ -661,22 +782,25 @@ class Engine:
                 fast.numeric(planned, 1, integer=True)
             except Exception:
                 planned = None
-                refusals.append({"code": "samples_unreadable",
-                                 "message": "The sample set cannot be read or planned."})
+                refusals.append({"code": "samples_unreadable", "message": "The sample set cannot be read or planned."})
         return {
-            "job_id": job_id, "attempt": attempt, "request": copy.deepcopy(request),
+            "job_id": job_id,
+            "attempt": attempt,
+            "request": copy.deepcopy(request),
             "review_sha256": review_digest(job_id, attempt, request),
             "refusals": refusals,
             "effects": {
-                "target": request["target"], "sample_set": request["sample_set"],
-                "items_per_benchmark": request["count"], "planned_requests": planned,
+                "target": request["target"],
+                "sample_set": request["sample_set"],
+                "items_per_benchmark": request["count"],
+                "planned_requests": planned,
                 # The adapter retries one transient failure per item.
                 "max_requests": None if planned is None else planned * 2,
-                "wall_budget_s": request["wall_budget_s"], "starts_model": False,
+                "wall_budget_s": request["wall_budget_s"],
+                "starts_model": False,
                 # What the registry says, not a measurement; ``None`` is unknown.
                 "lane_context_tokens": self._advertised_context(request),
-                "writes": ["job journal", "job output directory",
-                           "dataset, only for a valid complete record"],
+                "writes": ["job journal", "job output directory", "dataset, only for a valid complete record"],
             },
         }
 
@@ -726,8 +850,7 @@ class Engine:
             listed = list(self._targets()) if callable(self._targets) else []
         except Exception:
             listed = []
-        matches = [item for item in listed
-                   if isinstance(item, dict) and item.get("id") == request["target"]]
+        matches = [item for item in listed if isinstance(item, dict) and item.get("id") == request["target"]]
         return matches[0] if len(matches) == 1 else None
 
     def _advertised_context(self, request):
@@ -752,9 +875,10 @@ class Engine:
         advertised = lane["contextTokens"]
         # A negative value is below every allowed max_tokens, so it refuses as well.
         if type(advertised) is not int or request["max_tokens"] > advertised:
-            raise Refused("context_exceeded",
-                          "The reviewed max_tokens exceeds the lane's advertised context, "
-                          "or that context is not a valid number.")
+            raise Refused(
+                "context_exceeded",
+                "The reviewed max_tokens exceeds the lane's advertised context, or that context is not a valid number.",
+            )
 
     def _samples(self, request):
         if request["sample_set"] not in self._sets:
@@ -762,8 +886,11 @@ class Engine:
         return list(self._sets[request["sample_set"]])
 
     def _reviewed(self, review, job_id, attempt, request):
-        if not isinstance(review, dict) or set(review) != {"reviewed", "review_sha256"} \
-                or review["reviewed"] is not True:
+        if (
+            not isinstance(review, dict)
+            or set(review) != {"reviewed", "review_sha256"}
+            or review["reviewed"] is not True
+        ):
             raise Refused("not_reviewed", "A reviewed submission is required.")
         if review["review_sha256"] != review_digest(job_id, attempt, request):
             raise Refused("review_mismatch", "The review does not match this exact request and attempt.")
@@ -805,8 +932,9 @@ class Engine:
                 self._reviewed(review, job_id, job["attempt"] + 1, job["request"])
                 normalize_request(job["request"], self._policy)
                 self._admit(job["request"])
-                return _view(self._append(job, "queued", {"review_sha256": review["review_sha256"]},
-                                          attempt=job["attempt"] + 1))
+                return _view(
+                    self._append(job, "queued", {"review_sha256": review["review_sha256"]}, attempt=job["attempt"] + 1)
+                )
             if job["attempt"] > 1:
                 # The same reviewed resume again: already applied, nothing to write.
                 self._reviewed(review, job_id, job["attempt"], job["request"])
@@ -851,8 +979,9 @@ class Engine:
                     self._context(job["request"])
                     files = self._samples(job["request"])
                 except Refused as refusal:
-                    return _view(self._append(job, "failed", {
-                        "reason": "Refused at start: " + refusal.code, "result": None}))
+                    return _view(
+                        self._append(job, "failed", {"reason": "Refused at start: " + refusal.code, "result": None})
+                    )
                 job_id, request = job["job_id"], copy.deepcopy(job["request"])
                 output = self._dir / "runs" / job_id
                 job = self._append(job, "running", {"cancel_requested": False})
@@ -868,12 +997,18 @@ class Engine:
                 return None
 
             def progress(completed, planned):
-                if (type(completed) is int and type(planned) is int and 0 <= completed <= planned):
+                if type(completed) is int and type(planned) is int and 0 <= completed <= planned:
                     with self._lock:
                         self._progress[job_id] = {"completed": completed, "planned": planned}
 
-            spec = dict(request, base_url=base, sample_files=files, output_dir=str(output),
-                        job_id=job_id, attempt=job["attempt"])
+            spec = dict(
+                request,
+                base_url=base,
+                sample_files=files,
+                output_dir=str(output),
+                job_id=job_id,
+                attempt=job["attempt"],
+            )
             record = failure = None
             stopped = False
             try:
@@ -883,13 +1018,11 @@ class Engine:
                 stopped = True
             except Exception as error:
                 message = str(error) if isinstance(error, fast.ValidationError) else ""
-                failure = "Runner failed: " + (message if _reason(message) == message
-                                               else type(error).__name__)
+                failure = "Runner failed: " + (message if _reason(message) == message else type(error).__name__)
             except BaseException:
                 with self._lock:
                     self._progress.pop(job_id, None)
-                    self._append(self._jobs[job_id], "interrupted",
-                                 {"reason": "The runner was interrupted."})
+                    self._append(self._jobs[job_id], "interrupted", {"reason": "The runner was interrupted."})
                 raise
             with self._lock:
                 self._progress.pop(job_id, None)
@@ -910,31 +1043,42 @@ class Engine:
         try:
             record = fast.validate_record(copy.deepcopy(record))
         except Exception:
-            return self._append(job, "failed", {
-                "reason": "The runner returned an invalid record.", "result": None})
+            return self._append(job, "failed", {"reason": "The runner returned an invalid record.", "result": None})
         request = job["request"]
         result = {
-            "record_id": record["record_id"], "post_decision": record["post"]["decision"],
-            "benchmarks": [{"benchmark": b["benchmark"], "planned": b["planned"],
-                            "attempted": b["attempted"], "stop_reason": b["stop_reason"]}
-                           for b in record["benchmarks"]],
+            "record_id": record["record_id"],
+            "post_decision": record["post"]["decision"],
+            "benchmarks": [
+                {
+                    "benchmark": b["benchmark"],
+                    "planned": b["planned"],
+                    "attempted": b["attempted"],
+                    "stop_reason": b["stop_reason"],
+                }
+                for b in record["benchmarks"]
+            ],
         }
         if not _bound(record, request):
-            return self._append(job, "failed", {
-                "reason": "The record does not match the reviewed request.", "result": result})
+            return self._append(
+                job, "failed", {"reason": "The record does not match the reviewed request.", "result": result}
+            )
         if any(b["attempted"] < b["planned"] for b in record["benchmarks"]):
-            return self._append(job, "failed", {
-                "reason": "The check is incomplete; the checkpoint is kept.", "result": result})
+            return self._append(
+                job, "failed", {"reason": "The check is incomplete; the checkpoint is kept.", "result": result}
+            )
         try:
             self._sink(copy.deepcopy(record))
         except Exception:
-            return self._append(job, "failed", {
-                "reason": "The record could not be ingested; the dataset is unchanged.",
-                "result": result})
+            return self._append(
+                job,
+                "failed",
+                {"reason": "The record could not be ingested; the dataset is unchanged.", "result": result},
+            )
         return self._append(job, "finished", {"result": result})
 
 
 # ------------------------------------------------------------ dataset sink
+
 
 class DatasetSink:
     """Add one validated fast-check record to ``dataset.json`` in a chosen folder.
@@ -964,16 +1108,17 @@ class DatasetSink:
             except FileNotFoundError:
                 document = {"schema_version": 1, "runs": [], "items": [], "fast_checks": []}
             else:
-                if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1
-                        or info.st_size > tuning.MAX_DATASET_BYTES):
+                if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_size > tuning.MAX_DATASET_BYTES:
                     raise tuning.ValidationError("dataset.json must be a bounded regular file")
                 before = (info.st_size, info.st_mtime_ns)
-                document = json.loads(path.read_bytes().decode("utf-8"),
-                                      object_pairs_hook=fast.unique_object)
-                if (not isinstance(document, dict) or type(document.get("schema_version")) is not int
-                        or document["schema_version"] != 1
-                        or not all(isinstance(document.get(key), list) for key in ("runs", "items"))
-                        or not isinstance(document.get("fast_checks", []), list)):
+                document = json.loads(path.read_bytes().decode("utf-8"), object_pairs_hook=fast.unique_object)
+                if (
+                    not isinstance(document, dict)
+                    or type(document.get("schema_version")) is not int
+                    or document["schema_version"] != 1
+                    or not all(isinstance(document.get(key), list) for key in ("runs", "items"))
+                    or not isinstance(document.get("fast_checks", []), list)
+                ):
                     raise tuning.ValidationError("expected normalized dataset version 1")
             checks = list(document.get("fast_checks", []))
             for row in checks:
@@ -982,11 +1127,12 @@ class DatasetSink:
                         return "present"
                     raise tuning.ValidationError("a different record already uses this record id")
             checks.append(record)
-            computed = sum(isinstance(row, dict) and row.get("status") == "COMPUTED"
-                           for row in document["runs"])
+            computed = sum(isinstance(row, dict) and row.get("status") == "COMPUTED" for row in document["runs"])
             pairs = computed * (computed - 1) // 2 + len(checks) * (len(checks) - 1) // 2
-            if (len(document["runs"]) + len(checks) > tuning.MAX_DATASET_RUNS
-                    or pairs > tuning.MAX_DATASET_COMPARISON_PAIRS):
+            if (
+                len(document["runs"]) + len(checks) > tuning.MAX_DATASET_RUNS
+                or pairs > tuning.MAX_DATASET_COMPARISON_PAIRS
+            ):
                 raise tuning.ValidationError("the dataset would exceed the comparison limit")
             document = dict(document, fast_checks=checks, ingested_at=_stamp(self._now))
             payload = (json.dumps(document, indent=2, allow_nan=False) + "\n").encode("utf-8")
@@ -994,8 +1140,9 @@ class DatasetSink:
                 raise tuning.ValidationError("the dataset would exceed the size limit")
             temporary = None
             try:
-                with tempfile.NamedTemporaryFile(dir=directory, prefix=".dataset-", suffix=".json",
-                                                 delete=False) as stream:
+                with tempfile.NamedTemporaryFile(
+                    dir=directory, prefix=".dataset-", suffix=".json", delete=False
+                ) as stream:
                     temporary = Path(stream.name)
                     stream.write(payload)
                     stream.flush()

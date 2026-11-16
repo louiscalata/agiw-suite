@@ -8,6 +8,7 @@ never sent).
 The review-regression tests at the end spawn up to two more `/bin/sleep 60` children of their own
 (also killed in cleanup) and use virtual pids for everything else.
 """
+
 import errno
 import io
 import json
@@ -77,23 +78,43 @@ PS_SAMPLE = f"""  612  1843200 {SIM}/usr/libexec/backboardd
  1801    51200 /usr/sbin/cfprefsd
 garbage line
 """
-SIMCTL_JSON = json.dumps({"devices": {
-    "com.apple.CoreSimulator.SimRuntime.iOS-26-0": [
-        {"name": "iPhone 18 Pro", "state": "Booted", "udid": "A"},
-        {"name": "iPhone 17 Pro", "state": "Booted", "udid": "B"}],
-    "com.apple.CoreSimulator.SimRuntime.watchOS-12-0": [{"name": "Watch", "state": "Shutdown"}]}})
+SIMCTL_JSON = json.dumps(
+    {
+        "devices": {
+            "com.apple.CoreSimulator.SimRuntime.iOS-26-0": [
+                {"name": "iPhone 18 Pro", "state": "Booted", "udid": "A"},
+                {"name": "iPhone 17 Pro", "state": "Booted", "udid": "B"},
+            ],
+            "com.apple.CoreSimulator.SimRuntime.watchOS-12-0": [{"name": "Watch", "state": "Shutdown"}],
+        }
+    }
+)
 
 
 def mem_state(pressure=1, avail=50, swap=0, compressed=0, vm_free=200 * GiB, ram=RAM):
-    return {"pressure": pressure, "availablePercent": avail, "ramBytes": ram, "swapUsedBytes": swap,
-            "swapTotalBytes": SWAP_TOTAL, "compressedBytes": compressed, "wiredBytes": 5 * GiB,
-            "vmFreeBytes": vm_free, "gpuAllocBytes": None, "sampledAt": 1000.0}
+    return {
+        "pressure": pressure,
+        "availablePercent": avail,
+        "ramBytes": ram,
+        "swapUsedBytes": swap,
+        "swapTotalBytes": SWAP_TOTAL,
+        "compressedBytes": compressed,
+        "wiredBytes": 5 * GiB,
+        "vmFreeBytes": vm_free,
+        "gpuAllocBytes": None,
+        "sampledAt": 1000.0,
+    }
 
 
 def swap_trend_state(**changes):
     state = mem_state(pressure=1, avail=90, swap=18 * GiB, compressed=GiB, vm_free=100 * GiB)
-    state.update(swapTotalBytes=20 * GiB, swapInBytes=100 * GiB,
-                 swapOutBytes=200 * GiB, vmStatSampledAt=100.0, levelSource="sysctl")
+    state.update(
+        swapTotalBytes=20 * GiB,
+        swapInBytes=100 * GiB,
+        swapOutBytes=200 * GiB,
+        vmStatSampledAt=100.0,
+        levelSource="sysctl",
+    )
     state.update(changes)
     return state
 
@@ -222,8 +243,10 @@ class ConsumerTests(unittest.TestCase):
     def test_groups_on_ps_output(self):
         rows = {(r["group"], r["label"]): r for r in CONSUMERS}
         sim = rows[("ios-simulator", "iOS Simulators (iPhone 18 Pro, iPhone 17 Pro)")]
-        self.assertEqual((sim["residentBytes"], sim["processCount"], sim["devices"]),
-                         ((1843200 + 2457600 + 409600) * 1024, 3, ["iPhone 18 Pro", "iPhone 17 Pro"]))
+        self.assertEqual(
+            (sim["residentBytes"], sim["processCount"], sim["devices"]),
+            ((1843200 + 2457600 + 409600) * 1024, 3, ["iPhone 18 Pro", "iPhone 17 Pro"]),
+        )
         self.assertEqual(rows[("llm-server", "Local LLM server")]["processCount"], 2)
         self.assertEqual(rows[("claude", "Claude")]["residentBytes"], (655360 + 524288) * 1024)
         self.assertEqual(rows[("codex", "Codex")]["processCount"], 2)
@@ -234,13 +257,17 @@ class ConsumerTests(unittest.TestCase):
         weights = [r["residentBytes"] for r in CONSUMERS]
         self.assertEqual(weights, sorted(weights, reverse=True))
         for row in CONSUMERS:
-            self.assertLessEqual(set(row), {"group", "label", "residentBytes", "processCount", "devices",
-                                            "models", "gpuAllocBytes"})
+            self.assertLessEqual(
+                set(row), {"group", "label", "residentBytes", "processCount", "devices", "models", "gpuAllocBytes"}
+            )
 
     def test_llm_row_carries_loaded_models_and_gpu_allocation(self):
-        models = [{"id": "gemma-4-26b", "loaded": True, "host": "mac", "state": "idle"},
-                  {"id": "qwen3.8-27b", "loaded": True, "host": "mac", "state": "generating"},
-                  {"id": "remote", "loaded": True, "host": "pc"}, {"id": "cold", "loaded": False}]
+        models = [
+            {"id": "gemma-4-26b", "loaded": True, "host": "mac", "state": "idle"},
+            {"id": "qwen3.8-27b", "loaded": True, "host": "mac", "state": "generating"},
+            {"id": "remote", "loaded": True, "host": "pc"},
+            {"id": "cold", "loaded": False},
+        ]
         # Without a model list (the CLI and the hook) the Mac-wide allocation still ranks the server, and the
         # text says it is the whole Mac's (every app's), not the server's.
         rows = mem_guard.group_consumers(mem_guard.parse_ps(PS_SAMPLE), gpu_alloc_bytes=40 * GiB)
@@ -252,37 +279,54 @@ class ConsumerTests(unittest.TestCase):
         llm = next(row for row in rows if row["group"] == "llm-server")
         self.assertEqual(llm["models"], ["gemma-4-26b", "qwen3.8-27b"])
         self.assertNotIn("gpuAllocBytes", llm)
-        self.assertEqual((llm["loadedModelCount"], llm["loadedModelBytes"]), (2, None), "no sizes: the total is unknown")
-        self.assertEqual(mem_guard.describe_consumer(llm), "Local LLM server about 1.9 GB (2 loaded models, size unknown)")
+        self.assertEqual(
+            (llm["loadedModelCount"], llm["loadedModelBytes"]), (2, None), "no sizes: the total is unknown"
+        )
+        self.assertEqual(
+            mem_guard.describe_consumer(llm), "Local LLM server about 1.9 GB (2 loaded models, size unknown)"
+        )
 
     # The live snapshot of 2026-10-10T21:18:56Z: the Nisi pair, idle, with LM Studio inventory sizes.
     QWEN = {"id": "qwen/qwen3.8-27b", "loaded": True, "host": "mac", "state": "idle", "sizeBytes": 16081678492}
-    GEMMA = {"id": "google/gemma-4-26b-a4b-qat", "loaded": True, "host": "mac", "state": "idle",
-             "sizeBytes": 15641332573}
+    GEMMA = {
+        "id": "google/gemma-4-26b-a4b-qat",
+        "loaded": True,
+        "host": "mac",
+        "state": "idle",
+        "sizeBytes": 15641332573,
+    }
     LIVE_GPU = 45795885056  # macGpu.allocatedBytes: IOGPU's figure for every app on the Mac
 
     def live_base(self):
-        return [{"group": "llm-server", "label": "Local LLM server", "residentBytes": 887668736, "processCount": 8},
-                {"group": "codex", "label": "Codex", "residentBytes": 3750576128, "processCount": 26}]
+        return [
+            {"group": "llm-server", "label": "Local LLM server", "residentBytes": 887668736, "processCount": 8},
+            {"group": "codex", "label": "Codex", "residentBytes": 3750576128, "processCount": 26},
+        ]
 
     def test_observer_llm_row_counts_loaded_model_file_sizes_never_the_mac_gpu_allocation(self):
         base = self.live_base()
-        models = [self.QWEN, self.GEMMA, {"id": "remote", "loaded": True, "host": "pc", "sizeBytes": 60 * GiB},
-                  {"id": "cold", "loaded": False, "host": "mac", "sizeBytes": 40 * GiB}]
+        models = [
+            self.QWEN,
+            self.GEMMA,
+            {"id": "remote", "loaded": True, "host": "pc", "sizeBytes": 60 * GiB},
+            {"id": "cold", "loaded": False, "host": "mac", "sizeBytes": 40 * GiB},
+        ]
         rows = mem_guard.decorate_consumers(base, models=models, gpu_alloc_bytes=self.LIVE_GPU)
         llm = rows[0]
         self.assertEqual(llm["group"], "llm-server", "29.5 GB of loaded models outrank Codex's 3.5 GB")
         self.assertEqual((llm["loadedModelBytes"], llm["loadedModelCount"]), (31723011065, 2))
         self.assertNotIn("gpuAllocBytes", llm, "the whole Mac's GPU allocation is never the server's")
         self.assertEqual(mem_guard._weight(llm), 31723011065)
-        self.assertEqual(mem_guard.describe_consumer(llm),
-                         "Local LLM server about 0.8 GB (2 loaded models, 29.5 GB file size)")
+        self.assertEqual(
+            mem_guard.describe_consumer(llm), "Local LLM server about 0.8 GB (2 loaded models, 29.5 GB file size)"
+        )
         self.assertEqual(base, self.live_base(), "the grouped rows are never modified")
         # One loaded model without a valid size: the total is unknown, never a partial sum.
         for bad in (None, -1, 0, 1.5, True, "16081678492", 1 << 53):
             with self.subTest(sizeBytes=bad):
-                rows = mem_guard.decorate_consumers(base, models=[{**self.QWEN, "sizeBytes": bad}, self.GEMMA],
-                                                    gpu_alloc_bytes=self.LIVE_GPU)
+                rows = mem_guard.decorate_consumers(
+                    base, models=[{**self.QWEN, "sizeBytes": bad}, self.GEMMA], gpu_alloc_bytes=self.LIVE_GPU
+                )
                 llm = next(row for row in rows if row["group"] == "llm-server")
                 self.assertEqual(llm["loadedModelCount"], 2)
                 self.assertIsNone(llm["loadedModelBytes"])
@@ -303,33 +347,50 @@ class ConsumerTests(unittest.TestCase):
         self.assertEqual((rows[0]["group"], rows[0]["gpuAllocBytes"]), ("llm-server", self.LIVE_GPU))
         self.assertNotIn("loadedModelCount", rows[0])
         self.assertNotIn("loadedModelBytes", rows[0])
-        self.assertEqual(mem_guard.describe_consumer(rows[0]),
-                         "Local LLM server about 0.8 GB (+ Mac GPU allocation 42.7 GB, all apps)")
+        self.assertEqual(
+            mem_guard.describe_consumer(rows[0]),
+            "Local LLM server about 0.8 GB (+ Mac GPU allocation 42.7 GB, all apps)",
+        )
 
     def test_group_of(self):
-        cases = {"/opt/homebrew/bin/llama-server": "llm-server", "/usr/local/bin/ollama": "llm-server",
-                 "/Applications/Bionic.app/Contents/MacOS/Bionic": "llm-server",
-                 "/Users/x/.local/share/claude/versions/2.1/claude": "claude",
-                 "/Applications/ChatGPT.app/Contents/Resources/codex": "codex",
-                 "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome": "browser",
-                 "/Applications/Firefox.app/Contents/MacOS/firefox": "browser", "/usr/sbin/cfprefsd": "other"}
+        cases = {
+            "/opt/homebrew/bin/llama-server": "llm-server",
+            "/usr/local/bin/ollama": "llm-server",
+            "/Applications/Bionic.app/Contents/MacOS/Bionic": "llm-server",
+            "/Users/x/.local/share/claude/versions/2.1/claude": "claude",
+            "/Applications/ChatGPT.app/Contents/Resources/codex": "codex",
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome": "browser",
+            "/Applications/Firefox.app/Contents/MacOS/firefox": "browser",
+            "/usr/sbin/cfprefsd": "other",
+        }
         for comm, group in cases.items():
             self.assertEqual(mem_guard.group_of(comm), group, comm)
 
     def test_suggestions_are_text_ordered_by_size(self):
-        models = [{"id": "small", "loaded": True, "state": "idle", "sizeBytes": 2 * GiB},
-                  {"id": "big", "loaded": True, "state": "idle", "sizeBytes": 16 * GiB},
-                  {"id": "busy", "loaded": True, "state": "generating", "sizeBytes": 30 * GiB}]
+        models = [
+            {"id": "small", "loaded": True, "state": "idle", "sizeBytes": 2 * GiB},
+            {"id": "big", "loaded": True, "state": "idle", "sizeBytes": 16 * GiB},
+            {"id": "busy", "loaded": True, "state": "generating", "sizeBytes": 30 * GiB},
+        ]
         tips = mem_guard.suggestions(CONSUMERS, models, paused_count=2)
-        self.assertEqual(tips, ["Unload idle model big from the monitor",
-                                "Shut down unused iOS Simulators (`xcrun simctl shutdown all`)",
-                                "Unload idle model small from the monitor", "2 background jobs paused"])
+        self.assertEqual(
+            tips,
+            [
+                "Unload idle model big from the monitor",
+                "Shut down unused iOS Simulators (`xcrun simctl shutdown all`)",
+                "Unload idle model small from the monitor",
+                "2 background jobs paused",
+            ],
+        )
         self.assertEqual(mem_guard.suggestions([], None, 0), [])
 
-    REVIEWER_TIP = ("Unload idle model qwen/qwen3.8-27b from the monitor "
-                    "(Nisi reviewer: Mac edit routes stop until it is reloaded)")
-    AUTHOR_TIP = ("Unload idle model google/gemma-4-26b-a4b-qat from the monitor "
-                  "(Nisi author: Mac edit routes stop until it is reloaded)")
+    REVIEWER_TIP = (
+        "Unload idle model qwen/qwen3.8-27b from the monitor (Nisi reviewer: Mac edit routes stop until it is reloaded)"
+    )
+    AUTHOR_TIP = (
+        "Unload idle model google/gemma-4-26b-a4b-qat from the monitor "
+        "(Nisi author: Mac edit routes stop until it is reloaded)"
+    )
     PAIR = {"qwen/qwen3.8-27b": "reviewer", "google/gemma-4-26b-a4b-qat": "author"}
 
     def test_suggestions_tag_the_nisi_pair_after_everything_else(self):
@@ -339,42 +400,74 @@ class ConsumerTests(unittest.TestCase):
         small = {"id": "mistral/small-8b", "loaded": True, "host": "mac", "state": "idle", "sizeBytes": 4 * GiB}
         models = [self.QWEN, self.GEMMA, small]
         pair = {"google/gemma-4-26b-a4b-qat": "author", "mistral/small-8b": "reviewer"}
-        author_switch = ("Unload idle model google/gemma-4-26b-a4b-qat from the monitor "
-                         "(Nisi author: Mac edit routes switch to another loaded model)")
-        reviewer_switch = ("Unload idle model mistral/small-8b from the monitor "
-                           "(Nisi reviewer: Mac edit routes switch to another loaded model)")
-        self.assertEqual(mem_guard.suggestions([], models, 0, route_pair=pair),
-                         ["Unload idle model qwen/qwen3.8-27b from the monitor", author_switch, reviewer_switch])
+        author_switch = (
+            "Unload idle model google/gemma-4-26b-a4b-qat from the monitor "
+            "(Nisi author: Mac edit routes switch to another loaded model)"
+        )
+        reviewer_switch = (
+            "Unload idle model mistral/small-8b from the monitor "
+            "(Nisi reviewer: Mac edit routes switch to another loaded model)"
+        )
+        self.assertEqual(
+            mem_guard.suggestions([], models, 0, route_pair=pair),
+            ["Unload idle model qwen/qwen3.8-27b from the monitor", author_switch, reviewer_switch],
+        )
         # Untagged tips (the non-pair model, 15 GB, and the simulators, 4.5 GB) by size, then the pair by size,
         # paused last.
-        self.assertEqual(mem_guard.suggestions(CONSUMERS, models, 2, route_pair=pair),
-                         ["Unload idle model qwen/qwen3.8-27b from the monitor",
-                          "Shut down unused iOS Simulators (`xcrun simctl shutdown all`)",
-                          author_switch, reviewer_switch, "2 background jobs paused"])
+        self.assertEqual(
+            mem_guard.suggestions(CONSUMERS, models, 2, route_pair=pair),
+            [
+                "Unload idle model qwen/qwen3.8-27b from the monitor",
+                "Shut down unused iOS Simulators (`xcrun simctl shutdown all`)",
+                author_switch,
+                reviewer_switch,
+                "2 background jobs paused",
+            ],
+        )
         # Ids match exactly, ignoring case; a different instance (":2") or another model is not the pair's.
         folded = {"QWEN/Qwen3.8-27B": "reviewer", "google/gemma-4-26b-a4b-qat:2": "author"}
-        self.assertEqual(mem_guard.suggestions([], [self.QWEN, self.GEMMA], 0, route_pair=folded),
-                         ["Unload idle model google/gemma-4-26b-a4b-qat from the monitor", self.REVIEWER_TIP])
+        self.assertEqual(
+            mem_guard.suggestions([], [self.QWEN, self.GEMMA], 0, route_pair=folded),
+            ["Unload idle model google/gemma-4-26b-a4b-qat from the monitor", self.REVIEWER_TIP],
+        )
         # A generating pair model is never suggested at all.
         busy = {**self.QWEN, "state": "generating"}
         self.assertEqual(mem_guard.suggestions([], [busy, self.GEMMA], 0, route_pair=self.PAIR), [self.AUTHOR_TIP])
 
     def test_routes_stop_only_when_the_pair_are_the_only_two_loaded_non_embedding_mac_models(self):
         stop = [self.REVIEWER_TIP, self.AUTHOR_TIP]
-        switch = [tip.replace("Mac edit routes stop until it is reloaded", "Mac edit routes switch to another loaded model")
-                  for tip in stop]
+        switch = [
+            tip.replace("Mac edit routes stop until it is reloaded", "Mac edit routes switch to another loaded model")
+            for tip in stop
+        ]
         third = {"id": "zeta-7b", "loaded": True, "host": "mac", "state": "idle", "sizeBytes": 1 * GiB}
         # Models that the router does not pick a pair from leave the pair the only two: the routes stop.
-        for extra in ([], [{"id": "text-embedding-nomic-embed-text-v1.5", "loaded": True, "host": "mac", "state": "idle",
-                            "sizeBytes": 2 * GiB}],
-                      [{**third, "host": "pc"}], [{**third, "loaded": False}], [{**third, "loaded": "true"}],
-                      ["zeta-7b", None]):
+        for extra in (
+            [],
+            [
+                {
+                    "id": "text-embedding-nomic-embed-text-v1.5",
+                    "loaded": True,
+                    "host": "mac",
+                    "state": "idle",
+                    "sizeBytes": 2 * GiB,
+                }
+            ],
+            [{**third, "host": "pc"}],
+            [{**third, "loaded": False}],
+            [{**third, "loaded": "true"}],
+            ["zeta-7b", None],
+        ):
             with self.subTest(extra=extra):
                 tips = mem_guard.suggestions([], [self.QWEN, self.GEMMA, *extra], 0, route_pair=self.PAIR)
                 self.assertEqual([tip for tip in tips if "Nisi" in tip], stop)
         # A third loaded Mac model, idle or busy (a busy one is never suggested, but it still counts): routes switch.
-        for extra in ([third], [{**third, "state": "generating"}], [{**third, "state": "busy"}],
-                      [{key: value for key, value in third.items() if key != "host"}]):
+        for extra in (
+            [third],
+            [{**third, "state": "generating"}],
+            [{**third, "state": "busy"}],
+            [{key: value for key, value in third.items() if key != "host"}],
+        ):
             with self.subTest(extra=extra):
                 tips = mem_guard.suggestions([], [self.QWEN, self.GEMMA, *extra], 0, route_pair=self.PAIR)
                 self.assertEqual([tip for tip in tips if "Nisi" in tip], switch)
@@ -384,33 +477,52 @@ class ConsumerTests(unittest.TestCase):
         running = " (a Nisi route is running: unloading can stop it)"
         for pair in (self.PAIR, None):
             with self.subTest(route_pair=pair):
-                tips = mem_guard.suggestions(CONSUMERS, [self.QWEN, self.GEMMA, small], 1, route_pair=pair,
-                                             route_live=True)
-                self.assertEqual(tips, ["Shut down unused iOS Simulators (`xcrun simctl shutdown all`)",
-                                        f"Unload idle model mistral/small-8b from the monitor{running}",
-                                        f"Unload idle model qwen/qwen3.8-27b from the monitor{running}",
-                                        f"Unload idle model google/gemma-4-26b-a4b-qat from the monitor{running}",
-                                        "1 background job paused"])
+                tips = mem_guard.suggestions(
+                    CONSUMERS, [self.QWEN, self.GEMMA, small], 1, route_pair=pair, route_live=True
+                )
+                self.assertEqual(
+                    tips,
+                    [
+                        "Shut down unused iOS Simulators (`xcrun simctl shutdown all`)",
+                        f"Unload idle model mistral/small-8b from the monitor{running}",
+                        f"Unload idle model qwen/qwen3.8-27b from the monitor{running}",
+                        f"Unload idle model google/gemma-4-26b-a4b-qat from the monitor{running}",
+                        "1 background job paused",
+                    ],
+                )
 
     def test_suggestions_without_route_context_are_unchanged(self):
         models = [self.QWEN, self.GEMMA, {"id": "small", "loaded": True, "state": "idle", "sizeBytes": 2 * GiB}]
-        plain = ["Unload idle model qwen/qwen3.8-27b from the monitor",
-                 "Unload idle model google/gemma-4-26b-a4b-qat from the monitor",
-                 "Shut down unused iOS Simulators (`xcrun simctl shutdown all`)",
-                 "Unload idle model small from the monitor", "3 background jobs paused"]
+        plain = [
+            "Unload idle model qwen/qwen3.8-27b from the monitor",
+            "Unload idle model google/gemma-4-26b-a4b-qat from the monitor",
+            "Shut down unused iOS Simulators (`xcrun simctl shutdown all`)",
+            "Unload idle model small from the monitor",
+            "3 background jobs paused",
+        ]
         self.assertEqual(mem_guard.suggestions(CONSUMERS, models, 3), plain)
         # A malformed route_pair is no context at all.
-        for pair in (None, {}, [("qwen/qwen3.8-27b", "reviewer")], "qwen/qwen3.8-27b", {"qwen/qwen3.8-27b": "boss"},
-                     {"qwen/qwen3.8-27b": ["reviewer"]}, {7: "author"}, {"": "author"}):
+        for pair in (
+            None,
+            {},
+            [("qwen/qwen3.8-27b", "reviewer")],
+            "qwen/qwen3.8-27b",
+            {"qwen/qwen3.8-27b": "boss"},
+            {"qwen/qwen3.8-27b": ["reviewer"]},
+            {7: "author"},
+            {"": "author"},
+        ):
             with self.subTest(route_pair=pair):
                 self.assertEqual(mem_guard.suggestions(CONSUMERS, models, 3, route_pair=pair), plain)
 
 
 class ProbeTests(unittest.TestCase):
-    SYSCTL = {"kern.memorystatus_vm_pressure_level": struct.pack("=i", 2),
-              "kern.memorystatus_level": struct.pack("=i", 18),
-              "hw.memsize": struct.pack("=Q", RAM),
-              "vm.swapusage": struct.pack("=QQQIi", SWAP_TOTAL, SWAP_TOTAL - SWAP_USED, SWAP_USED, 16384, 1)}
+    SYSCTL = {
+        "kern.memorystatus_vm_pressure_level": struct.pack("=i", 2),
+        "kern.memorystatus_level": struct.pack("=i", 18),
+        "hw.memsize": struct.pack("=Q", RAM),
+        "vm.swapusage": struct.pack("=QQQIi", SWAP_TOTAL, SWAP_TOTAL - SWAP_USED, SWAP_USED, 16384, 1),
+    }
 
     class StatVfs:
         def __init__(self, fail_vm=False):
@@ -426,32 +538,63 @@ class ProbeTests(unittest.TestCase):
     def probes(self, sysctl=None, table=None, statvfs=None, clock=None):
         runner = Runner(table if table is not None else {"/usr/bin/vm_stat": completed(VM_STAT_INCIDENT)})
         clock = clock or Clock()
-        probes = mem_guard.Probes(sysctl=sysctl if sysctl is not None else self.SYSCTL.get, runner=runner,
-                                  statvfs=statvfs or self.StatVfs(), clock=clock, wall=lambda: 5.0)
+        probes = mem_guard.Probes(
+            sysctl=sysctl if sysctl is not None else self.SYSCTL.get,
+            runner=runner,
+            statvfs=statvfs or self.StatVfs(),
+            clock=clock,
+            wall=lambda: 5.0,
+        )
         return probes, runner, clock
 
     def test_read_decodes_every_probe(self):
         probes, runner, _ = self.probes()
         state = probes.read(gpu_alloc_bytes=40 * GiB)
-        self.assertEqual({k: state[k] for k in ("pressure", "availablePercent", "ramBytes", "swapTotalBytes",
-                                                "swapUsedBytes", "compressedBytes", "wiredBytes", "vmFreeBytes",
-                                                "gpuAllocBytes", "sampledAt")},
-                         {"pressure": 2, "availablePercent": 18, "ramBytes": RAM, "swapTotalBytes": SWAP_TOTAL,
-                          "swapUsedBytes": SWAP_USED, "compressedBytes": 1595121 * 16384,
-                          "wiredBytes": 360443 * 16384, "vmFreeBytes": 25 * GiB, "gpuAllocBytes": 40 * GiB,
-                          "sampledAt": 5.0})
+        self.assertEqual(
+            {
+                k: state[k]
+                for k in (
+                    "pressure",
+                    "availablePercent",
+                    "ramBytes",
+                    "swapTotalBytes",
+                    "swapUsedBytes",
+                    "compressedBytes",
+                    "wiredBytes",
+                    "vmFreeBytes",
+                    "gpuAllocBytes",
+                    "sampledAt",
+                )
+            },
+            {
+                "pressure": 2,
+                "availablePercent": 18,
+                "ramBytes": RAM,
+                "swapTotalBytes": SWAP_TOTAL,
+                "swapUsedBytes": SWAP_USED,
+                "compressedBytes": 1595121 * 16384,
+                "wiredBytes": 360443 * 16384,
+                "vmFreeBytes": 25 * GiB,
+                "gpuAllocBytes": 40 * GiB,
+                "sampledAt": 5.0,
+            },
+        )
         self.assertEqual(runner.calls, ["/usr/bin/vm_stat"], "ctypes answered, so no sysctl subprocess")
 
     def test_cli_fallback_when_ctypes_fails_and_backoff_after_cli_failure(self):
-        table = {"/usr/bin/vm_stat": completed(VM_STAT_INCIDENT),
-                 "/usr/sbin/sysctl -n kern.memorystatus_vm_pressure_level": completed("4\n"),
-                 "/usr/sbin/sysctl -n kern.memorystatus_level": completed("", 1),
-                 "/usr/sbin/sysctl -n hw.memsize": completed(f"{RAM}\n"),
-                 "/usr/sbin/sysctl -n vm.swapusage": completed(SWAP_TEXT + "\n")}
+        table = {
+            "/usr/bin/vm_stat": completed(VM_STAT_INCIDENT),
+            "/usr/sbin/sysctl -n kern.memorystatus_vm_pressure_level": completed("4\n"),
+            "/usr/sbin/sysctl -n kern.memorystatus_level": completed("", 1),
+            "/usr/sbin/sysctl -n hw.memsize": completed(f"{RAM}\n"),
+            "/usr/sbin/sysctl -n vm.swapusage": completed(SWAP_TEXT + "\n"),
+        }
         probes, runner, clock = self.probes(sysctl=lambda name, size: None, table=table)
         state = probes.read()
-        self.assertEqual((state["pressure"], state["availablePercent"], state["ramBytes"], state["swapUsedBytes"]),
-                         (4, None, RAM, SWAP_USED))
+        self.assertEqual(
+            (state["pressure"], state["availablePercent"], state["ramBytes"], state["swapUsedBytes"]),
+            (4, None, RAM, SWAP_USED),
+        )
         probes.read()
         self.assertEqual(runner.count("/usr/sbin/sysctl -n kern.memorystatus_level"), 1, "failed CLI backs off")
         clock.advance(31)
@@ -493,19 +636,22 @@ class ProbeTests(unittest.TestCase):
 
     def test_swap_counter_generation_requires_a_refreshed_vm_stat(self):
         clock = Clock()
-        outputs = iter((VM_STAT_INCIDENT + "Swapins: 100.\nSwapouts: 200.\n",
-                        VM_STAT_INCIDENT + "Swapins: 100.\nSwapouts: 201.\n"))
+        outputs = iter(
+            (VM_STAT_INCIDENT + "Swapins: 100.\nSwapouts: 200.\n", VM_STAT_INCIDENT + "Swapins: 100.\nSwapouts: 201.\n")
+        )
 
         def runner(args, **kwargs):
             self.assertEqual(args, ["/usr/bin/vm_stat"])
             return completed(next(outputs))
 
-        probes = mem_guard.Probes(sysctl=self.SYSCTL.get, runner=runner,
-                                  statvfs=self.StatVfs(), clock=clock, wall=clock)
+        probes = mem_guard.Probes(
+            sysctl=self.SYSCTL.get, runner=runner, statvfs=self.StatVfs(), clock=clock, wall=clock
+        )
         first = probes.read()
         cached = probes.read()
-        self.assertEqual((first["swapOutBytes"], first["vmStatSampledAt"]),
-                         (cached["swapOutBytes"], cached["vmStatSampledAt"]))
+        self.assertEqual(
+            (first["swapOutBytes"], first["vmStatSampledAt"]), (cached["swapOutBytes"], cached["vmStatSampledAt"])
+        )
         clock.advance(5.1)
         refreshed = probes.read()
         self.assertEqual(refreshed["swapOutBytes"] - first["swapOutBytes"], 16384)
@@ -514,6 +660,7 @@ class ProbeTests(unittest.TestCase):
     def test_every_probe_failing_yields_unknown_without_raising(self):
         def boom(*_a, **_k):
             raise PermissionError("sandbox")
+
         probes = mem_guard.Probes(sysctl=boom, runner=boom, statvfs=boom, clock=Clock(), wall=lambda: 1.0)
         state = probes.read()
         self.assertEqual({k: state[k] for k in mem_guard.STATE_KEYS}, dict.fromkeys(mem_guard.STATE_KEYS))
@@ -521,9 +668,11 @@ class ProbeTests(unittest.TestCase):
         self.assertIsNone(probes.consumers())
 
     def test_consumers_ps_every_10s_and_simulators_every_30s(self):
-        table = {"/usr/bin/vm_stat": completed(VM_STAT_INCIDENT),
-                 "/bin/ps -axo pid=,rss=,comm=": completed(PS_SAMPLE),
-                 "/usr/bin/xcrun simctl list devices booted -j": completed(SIMCTL_JSON)}
+        table = {
+            "/usr/bin/vm_stat": completed(VM_STAT_INCIDENT),
+            "/bin/ps -axo pid=,rss=,comm=": completed(PS_SAMPLE),
+            "/usr/bin/xcrun simctl list devices booted -j": completed(SIMCTL_JSON),
+        }
         probes, runner, clock = self.probes(table=table)
         rows = probes.consumers(models=[{"id": "gemma", "loaded": True}])
         self.assertEqual(rows[0]["devices"], ["iPhone 18 Pro", "iPhone 17 Pro"])
@@ -562,8 +711,9 @@ class ClassifyTests(unittest.TestCase):
     def test_swap_boundaries(self):
         cases = {0.50: "critical", 0.4999: "tight", 0.25: "tight", 0.2499: "watch", 0.10: "watch", 0.0999: "ok"}
         for fraction, level in cases.items():
-            self.assertEqual(self.level(swap=int(RAM * fraction + (1 if fraction in (0.5, 0.25, 0.1) else 0))),
-                             level, fraction)
+            self.assertEqual(
+                self.level(swap=int(RAM * fraction + (1 if fraction in (0.5, 0.25, 0.1) else 0))), level, fraction
+            )
 
     def test_high_swap_with_one_normal_sample_remains_tight(self):
         state = swap_trend_state()
@@ -577,8 +727,10 @@ class ClassifyTests(unittest.TestCase):
         decision = mem_guard.admit(6 * GiB, "heavy", second, swap_evidence=evidence)
         self.assertTrue(decision.allowed)
         self.assertIn("fresh confirmation", decision.reason)
-        self.assertFalse(mem_guard.admit(52 * GiB, "heavy", second, swap_evidence=evidence).allowed,
-                         "the estimated headroom floor still applies after the swap cap")
+        self.assertFalse(
+            mem_guard.admit(52 * GiB, "heavy", second, swap_evidence=evidence).allowed,
+            "the estimated headroom floor still applies after the swap cap",
+        )
 
     def test_swap_cap_fails_closed_for_missing_stale_or_active_evidence(self):
         cases = {
@@ -614,27 +766,32 @@ class ClassifyTests(unittest.TestCase):
         tight_cfg = mem_guard.default_config()
         tight_cfg["tight_available_percent"] = 95.0
         self.assertEqual(mem_guard.classify(second, tight_cfg, swap_evidence=evidence)[0], "tight")
-        self.assertFalse(mem_guard.admit(6 * GiB, "heavy", second, tight_cfg,
-                                         swap_evidence=evidence).allowed)
+        self.assertFalse(mem_guard.admit(6 * GiB, "heavy", second, tight_cfg, swap_evidence=evidence).allowed)
         critical_cfg = mem_guard.default_config()
         critical_cfg["critical_available_percent"] = 95.0
         self.assertEqual(mem_guard.classify(second, critical_cfg, swap_evidence=evidence)[0], "critical")
-        self.assertFalse(mem_guard.admit(6 * GiB, "heavy", second, critical_cfg,
-                                         swap_evidence=evidence).allowed)
-        self.assertEqual(mem_guard.classify(dict(second), swap_evidence=evidence)[0], "tight",
-                         "evidence for another state object must not be reused")
+        self.assertFalse(mem_guard.admit(6 * GiB, "heavy", second, critical_cfg, swap_evidence=evidence).allowed)
+        self.assertEqual(
+            mem_guard.classify(dict(second), swap_evidence=evidence)[0],
+            "tight",
+            "evidence for another state object must not be reused",
+        )
 
     def test_compressor_boundaries(self):
         # Corroborated (availability below the watch threshold): the full tight/watch ladder.
         cases = {0.40: "tight", 0.3999: "watch", 0.25: "watch", 0.2499: "watch"}
         for fraction, level in cases.items():
-            self.assertEqual(self.level(avail=34, compressed=int(RAM * fraction + (1 if fraction in (0.4, 0.25) else 0))),
-                             level, fraction)
+            self.assertEqual(
+                self.level(avail=34, compressed=int(RAM * fraction + (1 if fraction in (0.4, 0.25) else 0))),
+                level,
+                fraction,
+            )
         # Uncorroborated (pressure normal, 50% available): the compressor alone reaches watch only.
         cases = {0.40: "watch", 0.3999: "watch", 0.25: "watch", 0.2499: "ok"}
         for fraction, level in cases.items():
-            self.assertEqual(self.level(compressed=int(RAM * fraction + (1 if fraction in (0.4, 0.25) else 0))),
-                             level, fraction)
+            self.assertEqual(
+                self.level(compressed=int(RAM * fraction + (1 if fraction in (0.4, 0.25) else 0))), level, fraction
+            )
 
     def test_compressor_alone_never_makes_tight(self):
         """Review finding (spec deviation): this Mac sat at compressor 51% of RAM with pressure normal
@@ -654,8 +811,9 @@ class ClassifyTests(unittest.TestCase):
         state = mem_state(pressure=2, avail=None, swap=SWAP_USED, compressed=1595121 * 16384, vm_free=None)
         level, reasons = mem_guard.classify(state)
         self.assertEqual(level, "tight")
-        self.assertEqual(reasons, ["macOS memory pressure: warning", "swap 15.3 GB (24% of RAM)",
-                                   "compressor 24.3 GB (38% of RAM)"])
+        self.assertEqual(
+            reasons, ["macOS memory pressure: warning", "swap 15.3 GB (24% of RAM)", "compressor 24.3 GB (38% of RAM)"]
+        )
 
     def test_unknown_when_pressure_and_availability_both_missing(self):
         level, reasons = mem_guard.classify(mem_state(None, None, swap=RAM))
@@ -676,8 +834,10 @@ class ClassifyTests(unittest.TestCase):
         cfg = mem_guard.default_config()
         cfg["watch_available_percent"] = 60.0
         cfg["notes"] = ["config value floor_gib ignored (out of range)"]
-        self.assertEqual(mem_guard.classify(mem_state(1, 50), cfg),
-                         ("watch", ["only 50% of memory available", "config value floor_gib ignored (out of range)"]))
+        self.assertEqual(
+            mem_guard.classify(mem_state(1, 50), cfg),
+            ("watch", ["only 50% of memory available", "config value floor_gib ignored (out of range)"]),
+        )
 
 
 class ConfigTests(unittest.TestCase):
@@ -705,11 +865,26 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(cfg["notes"], [])
 
     def test_out_of_range_or_wrong_type_keeps_the_default(self):
-        self.write({"floor_gib": 5000, "watch_swap_fraction": -1, "critical_available_percent": True,
-                    "notifications": "yes", "pause_after_seconds": 30})
+        self.write(
+            {
+                "floor_gib": 5000,
+                "watch_swap_fraction": -1,
+                "critical_available_percent": True,
+                "notifications": "yes",
+                "pause_after_seconds": 30,
+            }
+        )
         cfg = mem_guard.load_config(self.path)
-        self.assertEqual((cfg["floor_gib"], cfg["watch_swap_fraction"], cfg["critical_available_percent"],
-                          cfg["notifications"], cfg["pause_after_seconds"]), (4.0, 0.10, 10.0, True, 30.0))
+        self.assertEqual(
+            (
+                cfg["floor_gib"],
+                cfg["watch_swap_fraction"],
+                cfg["critical_available_percent"],
+                cfg["notifications"],
+                cfg["pause_after_seconds"],
+            ),
+            (4.0, 0.10, 10.0, True, 30.0),
+        )
         self.assertEqual(len(cfg["notes"]), 4)
 
     def test_symlink_oversize_wrong_owner_and_non_object_are_ignored(self):
@@ -720,9 +895,12 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(cfg["floor_gib"], 4.0)
         self.assertTrue(cfg["notes"][0].startswith("config ignored"), cfg["notes"])
         self.path.unlink()
-        for content, uid in ((json.dumps({"floor_gib": 8, "pad": "x" * (17 << 10)}), None),
-                             (json.dumps({"floor_gib": 8}), os.getuid() + 1),
-                             ("[1, 2]", None), ("{not json", None)):
+        for content, uid in (
+            (json.dumps({"floor_gib": 8, "pad": "x" * (17 << 10)}), None),
+            (json.dumps({"floor_gib": 8}), os.getuid() + 1),
+            ("[1, 2]", None),
+            ("{not json", None),
+        ):
             self.write(content)
             cfg = mem_guard.load_config(self.path, uid=uid)
             self.assertEqual(cfg["floor_gib"], 4.0, content[:20])
@@ -748,21 +926,30 @@ class AdmitTests(unittest.TestCase):
         return decision
 
     def test_matrix(self):
-        roomy_tight = mem_state(2, 30)            # 19.2 GiB available
-        cramped_tight = mem_state(2, 10.5)        # 6.72 GiB available
-        watch_cramped = mem_state(1, 21)          # 13.44 GiB available
+        roomy_tight = mem_state(2, 30)  # 19.2 GiB available
+        cramped_tight = mem_state(2, 10.5)  # 6.72 GiB available
+        watch_cramped = mem_state(1, 21)  # 13.44 GiB available
         cases = [
-            (CRITICAL, GiB, None, False), (CRITICAL, 8 * GiB, None, False),
+            (CRITICAL, GiB, None, False),
+            (CRITICAL, 8 * GiB, None, False),
             (mem_state(4, 90), GiB // 2, "light", False),
-            (roomy_tight, 8 * GiB, None, False), (roomy_tight, GiB, None, True),
-            (cramped_tight, GiB, None, False), (mem_state(2, None), GiB, None, True),
+            (roomy_tight, 8 * GiB, None, False),
+            (roomy_tight, GiB, None, True),
+            (cramped_tight, GiB, None, False),
+            (mem_state(2, None), GiB, None, True),
             (mem_state(2, None), 4 * GiB, None, False),
-            (WATCH, GiB, None, True), (WATCH, 8 * GiB, None, True), (watch_cramped, 8 * GiB, None, False),
+            (WATCH, GiB, None, True),
+            (WATCH, 8 * GiB, None, True),
+            (watch_cramped, 8 * GiB, None, False),
             (watch_cramped, GiB, None, True),
-            (UNKNOWN, GiB, None, True), (UNKNOWN, 8 * GiB, None, False),
-            (OK, 8 * GiB, None, True), (OK, 30 * GiB, None, False), (OK, GiB, None, True),
+            (UNKNOWN, GiB, None, True),
+            (UNKNOWN, 8 * GiB, None, False),
+            (OK, 8 * GiB, None, True),
+            (OK, 30 * GiB, None, False),
+            (OK, GiB, None, True),
             (mem_state(1, 11), GiB, None, False),  # ok level is not checked here: 11% -> tight
-            (mem_state(1, None), GiB, None, True), (mem_state(1, None), 8 * GiB, None, False),
+            (mem_state(1, None), GiB, None, True),
+            (mem_state(1, None), 8 * GiB, None, False),
         ]
         for state, need, kind, allowed in cases:
             decision = self.check(state, need, kind)
@@ -790,12 +977,15 @@ class AdmitTests(unittest.TestCase):
 
     def test_decision_fields_and_reasons(self):
         decision = self.check(mem_state(2, 30), 8 * GiB)
-        self.assertEqual((decision.allowed, decision.level, decision.availableBytes, decision.needBytes),
-                         (False, "tight", int(0.30 * RAM), 8 * GiB))
+        self.assertEqual(
+            (decision.allowed, decision.level, decision.availableBytes, decision.needBytes),
+            (False, "tight", int(0.30 * RAM), 8 * GiB),
+        )
         self.assertIn("memory is tight (macOS memory pressure: warning)", decision.reason)
         self.assertIn("memory state unknown", self.check(UNKNOWN, GiB).reason)
-        self.assertEqual(set(decision.to_dict()), {"allowed", "level", "reason", "availableBytes", "kind",
-                                                   "needBytes", "suggestion"})
+        self.assertEqual(
+            set(decision.to_dict()), {"allowed", "level", "reason", "availableBytes", "kind", "needBytes", "suggestion"}
+        )
 
     def test_never_raises(self):
         for state in ("not a dict", 42, {"ramBytes": "x", "availablePercent": float("nan")}):
@@ -840,13 +1030,23 @@ class JournalAndNotifierTests(unittest.TestCase):
         def capture(args, **kwargs):
             seen.append((args, kwargs))
             return completed()
+
         evil = '" & do shell script "touch /tmp/pwned" & "'
         notifier = mem_guard.OsascriptNotifier(runner=capture)
         self.assertTrue(notifier("AGIW memory", evil))
         args, kwargs = seen[0]
-        self.assertEqual(args[:7], ["/usr/bin/osascript", "-e", "on run argv", "-e",
-                                    "display notification (item 2 of argv) with title (item 1 of argv)",
-                                    "-e", "end run"])
+        self.assertEqual(
+            args[:7],
+            [
+                "/usr/bin/osascript",
+                "-e",
+                "on run argv",
+                "-e",
+                "display notification (item 2 of argv) with title (item 1 of argv)",
+                "-e",
+                "end run",
+            ],
+        )
         self.assertEqual(args[7:], ["AGIW memory", evil])
         self.assertTrue(all(evil not in part for part in args[:7]))
         self.assertEqual(kwargs["timeout"], 5)
@@ -857,6 +1057,7 @@ class JournalAndNotifierTests(unittest.TestCase):
     def test_notifier_failure_is_swallowed(self):
         def boom(*_a, **_k):
             raise subprocess.TimeoutExpired("osascript", 5)
+
         self.assertFalse(mem_guard.OsascriptNotifier(runner=boom)("t", "b"))
 
 
@@ -871,8 +1072,7 @@ START = "Sat Sep 26 13:39:02 2026"
 class FakePs:
     def __init__(self, me, uid):
         self.me, self.uid = me, uid
-        self.procs = {me: (FAKE_PARENT, uid, START, "/usr/bin/python3"),
-                      FAKE_PARENT: (1, uid, START, "/bin/zsh")}
+        self.procs = {me: (FAKE_PARENT, uid, START, "/usr/bin/python3"), FAKE_PARENT: (1, uid, START, "/bin/zsh")}
         self.fail = False
         self.calls = []
 
@@ -892,8 +1092,12 @@ class FakePs:
             return completed("".join(f"{pid:>7} {p[0]:>7} {p[1]:>5}\n" for pid, p in self.procs.items()))
         if args[:3] == ["/bin/ps", "-o", "pid=,ppid=,uid=,lstart=,comm="] and args[3] == "-p":
             wanted = [int(x) for x in args[4].split(",")]
-            rows = "".join(f"{pid:>7} {self.procs[pid][0]:>7} {self.procs[pid][1]:>5} {self.lstart(pid)}     "
-                           f"{self.procs[pid][3]}\n" for pid in wanted if pid in self.procs)
+            rows = "".join(
+                f"{pid:>7} {self.procs[pid][0]:>7} {self.procs[pid][1]:>5} {self.lstart(pid)}     "
+                f"{self.procs[pid][3]}\n"
+                for pid in wanted
+                if pid in self.procs
+            )
             return completed(rows, 0 if all(pid in self.procs for pid in wanted) else 1)
         raise AssertionError(f"unexpected command {args}")
 
@@ -961,8 +1165,10 @@ class RegistryTests(ChildCase):
         path = self.root / "pausable" / f"{self.child.pid}.json"
         on_disk = json.loads(path.read_text())
         self.assertEqual(on_disk, entry)
-        self.assertEqual((entry["schemaVersion"], entry["pid"], entry["startTime"], entry["comm"]),
-                         (1, self.child.pid, START, "sleep"))
+        self.assertEqual(
+            (entry["schemaVersion"], entry["pid"], entry["startTime"], entry["comm"]),
+            (1, self.child.pid, START, "sleep"),
+        )
         self.assertEqual(len(entry["label"]), 80)
         self.assertTrue(entry["label"].isprintable())
         self.assertEqual(stat.S_IMODE(os.stat(path).st_mode), 0o600)
@@ -1001,8 +1207,8 @@ class RegistryTests(ChildCase):
         self.assertEqual(self.kill.calls, [])
 
     def test_pause_stops_the_job_and_same_user_descendants_then_resume_continues_them(self):
-        self.ps.add(VIRTUAL, self.child.pid)                      # a descendant
-        self.ps.add(VIRTUAL + 1, VIRTUAL, uid=0)                  # another user's: never signalled
+        self.ps.add(VIRTUAL, self.child.pid)  # a descendant
+        self.ps.add(VIRTUAL + 1, VIRTUAL, uid=0)  # another user's: never signalled
         self.registry.register(self.child.pid, "job")
         jobs = self.registry.pause_all()
         self.assertEqual([m["pid"] for m in jobs[0]["members"]], [self.child.pid, VIRTUAL])
@@ -1011,10 +1217,14 @@ class RegistryTests(ChildCase):
         paused_path = self.root / "paused.json"
         self.assertEqual(stat.S_IMODE(os.stat(paused_path).st_mode), 0o600)
         record = json.loads(paused_path.read_text())["jobs"][0]
-        self.assertEqual((record["pid"], record["startTime"], record["comm"], record["pausedAt"]),
-                         (self.child.pid, START, "sleep", 0.0))
-        self.assertEqual(self.registry.paused(), [{"pid": self.child.pid, "label": "job", "comm": "sleep",
-                                                   "pausedAt": 0.0, "members": 2}])
+        self.assertEqual(
+            (record["pid"], record["startTime"], record["comm"], record["pausedAt"]),
+            (self.child.pid, START, "sleep", 0.0),
+        )
+        self.assertEqual(
+            self.registry.paused(),
+            [{"pid": self.child.pid, "label": "job", "comm": "sleep", "pausedAt": 0.0, "members": 2}],
+        )
         self.assertEqual(self.registry.pause_all(), [], "already paused")
         resumed = self.registry.resume()
         self.assertEqual(resumed[0]["resumed"], [VIRTUAL, self.child.pid])
@@ -1051,16 +1261,32 @@ class RegistryTests(ChildCase):
         self.assertFalse(self.registry.unregister(self.child.pid))
 
     def test_nothing_to_do_stays_read_only(self):
-        self.assertEqual((self.registry.resume(), self.registry.unregister(self.child.pid),
-                          self.registry.paused(), self.registry.list_pausable()), ([], False, [], []))
+        self.assertEqual(
+            (
+                self.registry.resume(),
+                self.registry.unregister(self.child.pid),
+                self.registry.paused(),
+                self.registry.list_pausable(),
+            ),
+            ([], False, [], []),
+        )
         self.assertFalse(self.root.exists(), "no state directory is created when there is nothing to do")
 
     def test_protects_own_process_and_ancestors_even_if_an_entry_names_them(self):
         (self.root / "pausable").mkdir(parents=True, mode=0o700)
         for pid in (self.me, FAKE_PARENT):
             path = self.root / "pausable" / f"{pid}.json"
-            path.write_text(json.dumps({"schemaVersion": 1, "pid": pid, "startTime": START,
-                                        "comm": self.ps.procs[pid][3].rsplit("/", 1)[-1], "label": "x"}))
+            path.write_text(
+                json.dumps(
+                    {
+                        "schemaVersion": 1,
+                        "pid": pid,
+                        "startTime": START,
+                        "comm": self.ps.procs[pid][3].rsplit("/", 1)[-1],
+                        "label": "x",
+                    }
+                )
+            )
             os.chmod(path, 0o600)
         self.assertEqual(self.registry.pause_all(), [])
         self.assertEqual(self.kill.calls, [])
@@ -1150,8 +1376,10 @@ class WatchdogTests(ChildCase):
         events = dog.tick(self.critical())
         self.assertEqual([(e["type"], e.get("why")) for e in events], [("resume", "limit"), ("notify", None)])
         self.assertTrue(continued(self.child.pid))
-        self.assertEqual(self.notes.sent[-1],
-                         ("AGIW memory", "1 paused job resumed after the 20-minute limit; memory is still critical."))
+        self.assertEqual(
+            self.notes.sent[-1],
+            ("AGIW memory", "1 paused job resumed after the 20-minute limit; memory is still critical."),
+        )
         for _ in range(6):
             self.clock.advance(5)
             dog.tick(self.critical())
@@ -1203,7 +1431,9 @@ class WatchdogTests(ChildCase):
         title, body = self.notes.sent[0]
         self.assertEqual(title, "AGIW memory")
         self.assertTrue(body.startswith("Memory is tight: macOS memory pressure: warning."), body)
-        self.assertIn("Top: iOS Simulators (iPhone 18 Pro, iPhone 17 Pro) about 4.5 GB, Local LLM server about 1.9 GB.", body)
+        self.assertIn(
+            "Top: iOS Simulators (iPhone 18 Pro, iPhone 17 Pro) about 4.5 GB, Local LLM server about 1.9 GB.", body
+        )
         self.assertIn("Shut down unused iOS Simulators (`xcrun simctl shutdown all`).", body)
         dog.tick(TIGHT)
         self.clock.advance(60)
@@ -1238,6 +1468,7 @@ class WatchdogTests(ChildCase):
 
         def bad_notifier(title, body):
             raise RuntimeError("osascript exploded")
+
         dog = mem_guard.Watchdog(self.clock, Broken(), bad_notifier, self.registry, None)
         self.assertEqual(dog.tick(), [])
         self.assertEqual([e["type"] for e in dog.tick(self.critical())], ["level", "notify"])
@@ -1245,20 +1476,36 @@ class WatchdogTests(ChildCase):
 
 
 class GuardTests(unittest.TestCase):
-    KEYS = {"level", "reasons", "pressure", "availablePercent", "ramBytes", "swapUsedBytes", "swapTotalBytes",
-            "compressedBytes", "wiredBytes", "vmFreeBytes", "gpuAllocBytes", "consumers", "paused", "suggestions",
-            "sampledAt"}
+    KEYS = {
+        "level",
+        "reasons",
+        "pressure",
+        "availablePercent",
+        "ramBytes",
+        "swapUsedBytes",
+        "swapTotalBytes",
+        "compressedBytes",
+        "wiredBytes",
+        "vmFreeBytes",
+        "gpuAllocBytes",
+        "consumers",
+        "paused",
+        "suggestions",
+        "sampledAt",
+    }
 
     def guard(self, probes, tmp):
         registry = mem_guard.Registry(Path(tmp) / "state", runner=Runner({}), kill=SafeKill([]))
-        return mem_guard.Guard(cfg=mem_guard.default_config(), probes=probes, registry=registry,
-                               notifier=Notes(), clock=Clock())
+        return mem_guard.Guard(
+            cfg=mem_guard.default_config(), probes=probes, registry=registry, notifier=Notes(), clock=Clock()
+        )
 
     def test_sample_is_a_well_formed_block(self):
         with tempfile.TemporaryDirectory() as tmp:
             probes = FakeProbes(TIGHT, CONSUMERS)
-            block, source = self.guard(probes, tmp).sample(gpu_alloc_bytes=40 * GiB,
-                                                          models=[{"id": "m", "loaded": True, "state": "idle"}])
+            block, source = self.guard(probes, tmp).sample(
+                gpu_alloc_bytes=40 * GiB, models=[{"id": "m", "loaded": True, "state": "idle"}]
+            )
             self.assertEqual(set(block), self.KEYS)
             self.assertEqual((block["level"], block["consumers"], block["paused"]), ("tight", CONSUMERS, []))
             self.assertEqual(block["suggestions"][0], "Shut down unused iOS Simulators (`xcrun simctl shutdown all`)")
@@ -1286,19 +1533,28 @@ class GuardTests(unittest.TestCase):
             block, _ = guard.sample(gpu_alloc_bytes=40 * GiB, models=[qwen, gemma], route_pair=pair)
             self.assertEqual(block["suggestions"], [ConsumerTests.REVIEWER_TIP, ConsumerTests.AUTHOR_TIP])
             block, _ = guard.sample(gpu_alloc_bytes=40 * GiB, models=[qwen, gemma], route_pair=pair, route_live=True)
-            self.assertTrue(all(tip.endswith(" (a Nisi route is running: unloading can stop it)")
-                                for tip in block["suggestions"]), block["suggestions"])
+            self.assertTrue(
+                all(tip.endswith(" (a Nisi route is running: unloading can stop it)") for tip in block["suggestions"]),
+                block["suggestions"],
+            )
             # Without context: the plain size order, as before.
             block, _ = guard.sample(gpu_alloc_bytes=40 * GiB, models=[qwen, gemma])
-            self.assertEqual(block["suggestions"], ["Unload idle model qwen/qwen3.8-27b from the monitor",
-                                                    "Unload idle model google/gemma-4-26b-a4b-qat from the monitor"])
+            self.assertEqual(
+                block["suggestions"],
+                [
+                    "Unload idle model qwen/qwen3.8-27b from the monitor",
+                    "Unload idle model google/gemma-4-26b-a4b-qat from the monitor",
+                ],
+            )
 
     def test_probe_exception_or_unknown_state_is_unavailable_not_a_crash(self):
         with tempfile.TemporaryDirectory() as tmp:
             for probes in (FakeProbes(RuntimeError("probe exploded")), FakeProbes(UNKNOWN)):
                 block, source = self.guard(probes, tmp).sample()
                 self.assertEqual(set(block), self.KEYS)
-                self.assertEqual((block["level"], source["id"], source["state"]), ("unknown", "mem-guard", "unavailable"))
+                self.assertEqual(
+                    (block["level"], source["id"], source["state"]), ("unknown", "mem-guard", "unavailable")
+                )
 
     def test_close_is_bounded_when_a_tick_is_stuck(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1316,8 +1572,13 @@ class GuardTests(unittest.TestCase):
 class GuardCloseTests(ChildCase):
     def test_close_resumes_and_later_samples_never_pause_again(self):
         self.registry.register(self.child.pid, "astra-review repo")
-        guard = mem_guard.Guard(cfg=mem_guard.default_config(), probes=FakeProbes(CRITICAL, CONSUMERS),
-                                registry=self.registry, notifier=Notes(), clock=self.clock)
+        guard = mem_guard.Guard(
+            cfg=mem_guard.default_config(),
+            probes=FakeProbes(CRITICAL, CONSUMERS),
+            registry=self.registry,
+            notifier=Notes(),
+            clock=self.clock,
+        )
         guard.sample()
         self.clock.advance(10)
         block, _source = guard.sample()
@@ -1349,10 +1610,19 @@ class CliCase(unittest.TestCase):
     def run_cli(self, argv, state=OK, consumers=CONSUMERS, stdin=b"", registry=None, sleep=None, notes=None):
         self.stdout, self.stderr = io.StringIO(), io.StringIO()
         probes = state if isinstance(state, FakeProbes) else FakeProbes(state, consumers)
-        ctx = mem_guard.Context(state_root=self.root, cfg=mem_guard.default_config(), probes=probes,
-                                registry=registry, notifier=notes or Notes(), clock=self.clock,
-                                sleep=sleep or self.clock.advance, gpu=lambda: None,
-                                stdin=io.BytesIO(stdin), stdout=self.stdout, stderr=self.stderr)
+        ctx = mem_guard.Context(
+            state_root=self.root,
+            cfg=mem_guard.default_config(),
+            probes=probes,
+            registry=registry,
+            notifier=notes or Notes(),
+            clock=self.clock,
+            sleep=sleep or self.clock.advance,
+            gpu=lambda: None,
+            stdin=io.BytesIO(stdin),
+            stdout=self.stdout,
+            stderr=self.stderr,
+        )
         return mem_guard.main(argv, ctx)
 
     def journal(self):
@@ -1379,8 +1649,10 @@ class StatusAndAdmitCliTests(CliCase):
         self.assertTrue(self.stdout.getvalue().startswith("refused: memory is tight"))
         self.assertEqual(len(self.stdout.getvalue().strip().splitlines()), 1)
         refusal = self.journal()[-1]
-        self.assertEqual((refusal["type"], refusal["via"], refusal["label"], refusal["kind"], refusal["level"]),
-                         ("refusal", "admit", "sim boot", "heavy", "tight"))
+        self.assertEqual(
+            (refusal["type"], refusal["via"], refusal["label"], refusal["kind"], refusal["level"]),
+            ("refusal", "admit", "sim boot", "heavy", "tight"),
+        )
         self.assertEqual(self.run_cli(["admit", "--need-gb", "-1"], OK), 2)
 
     def test_wait_zero_confirms_quiet_swap_with_two_in_process_samples(self):
@@ -1391,8 +1663,9 @@ class StatusAndAdmitCliTests(CliCase):
             sleeps.append(seconds)
             self.clock.advance(seconds)
 
-        self.assertEqual(self.run_cli(["admit", "--need-gb", "6", "--kind", "heavy", "--wait", "0"],
-                                      probes, sleep=sleep), 0)
+        self.assertEqual(
+            self.run_cli(["admit", "--need-gb", "6", "--kind", "heavy", "--wait", "0"], probes, sleep=sleep), 0
+        )
         self.assertEqual((probes.reads, sleeps), (2, [mem_guard.SWAP_CONFIRM_SECONDS]))
         self.assertIn("fresh confirmation", self.stdout.getvalue())
         record = json.loads((self.root / "level.json").read_text())
@@ -1400,27 +1673,30 @@ class StatusAndAdmitCliTests(CliCase):
         self.assertNotIn("swapOutBytes", record)
 
     def test_wait_zero_refuses_swap_growth_during_confirmation(self):
-        probes = SequenceProbes([swap_trend_state(),
-                                 swap_trend_state(swapUsedBytes=18 * GiB + 1, vmStatSampledAt=105.1)])
+        probes = SequenceProbes(
+            [swap_trend_state(), swap_trend_state(swapUsedBytes=18 * GiB + 1, vmStatSampledAt=105.1)]
+        )
         sleeps = []
 
         def sleep(seconds):
             sleeps.append(seconds)
             self.clock.advance(seconds)
 
-        self.assertEqual(self.run_cli(["admit", "--need-gb", "6", "--wait", "0"],
-                                      probes, sleep=sleep), 75)
+        self.assertEqual(self.run_cli(["admit", "--need-gb", "6", "--wait", "0"], probes, sleep=sleep), 75)
         self.assertEqual((probes.reads, sleeps), (2, [mem_guard.SWAP_CONFIRM_SECONDS]))
         self.assertIn("memory is tight (swap", self.stdout.getvalue())
 
     def test_wait_zero_refuses_missing_or_sandbox_swap_trend_without_waiting(self):
-        for first in (swap_trend_state(swapInBytes=None),
-                      swap_trend_state(levelSource="level-file")):
+        for first in (swap_trend_state(swapInBytes=None), swap_trend_state(levelSource="level-file")):
             with self.subTest(source=first["levelSource"], counter=first["swapInBytes"]):
                 probes = SequenceProbes([first, swap_trend_state(vmStatSampledAt=105.1)])
                 sleeps = []
-                self.assertEqual(self.run_cli(["admit", "--need-gb", "6", "--wait", "0"], probes,
-                                              sleep=lambda seconds: sleeps.append(seconds)), 75)
+                self.assertEqual(
+                    self.run_cli(
+                        ["admit", "--need-gb", "6", "--wait", "0"], probes, sleep=lambda seconds: sleeps.append(seconds)
+                    ),
+                    75,
+                )
                 self.assertEqual((probes.reads, sleeps), (1, []))
 
     def test_admit_waits_polling_every_2s(self):
@@ -1432,12 +1708,19 @@ class StatusAndAdmitCliTests(CliCase):
             self.clock.advance(seconds)
             if len(sleeps) == 3:
                 probes.state = OK
+
         self.assertEqual(self.run_cli(["admit", "--need-gb", "1", "--wait", "600"], probes, sleep=sleep), 0)
         self.assertEqual((sleeps, probes.reads), ([2.0, 2.0, 2.0], 4))
         probes.state = CRITICAL
         sleeps.clear()
-        self.assertEqual(self.run_cli(["admit", "--need-gb", "1", "--wait", "5"], probes,
-                                      sleep=lambda s: (sleeps.append(s), self.clock.advance(s))), 75)
+        self.assertEqual(
+            self.run_cli(
+                ["admit", "--need-gb", "1", "--wait", "5"],
+                probes,
+                sleep=lambda s: (sleeps.append(s), self.clock.advance(s)),
+            ),
+            75,
+        )
         self.assertEqual(sleeps, [2.0, 2.0, 1.0])
 
 
@@ -1452,11 +1735,14 @@ class RegistryCliTests(CliCase, ChildCase):
 
     def test_register_unregister_resume_all_and_watch(self):
         pid = str(self.child.pid)
-        self.assertEqual(self.run_cli(["register", "--pid", pid, "--label", "astra-review repo"], registry=self.registry), 0)
+        self.assertEqual(
+            self.run_cli(["register", "--pid", pid, "--label", "astra-review repo"], registry=self.registry), 0
+        )
         self.assertEqual(self.run_cli(["register", "--pid", str(self.me), "--label", "x"], registry=self.registry), 1)
         self.assertIn("register failed", self.stderr.getvalue())
-        self.assertEqual(self.run_cli(["watch", "--interval", "5", "--ticks", "4"], CRITICAL,
-                                      registry=self.registry), 0)
+        self.assertEqual(
+            self.run_cli(["watch", "--interval", "5", "--ticks", "4"], CRITICAL, registry=self.registry), 0
+        )
         out = [json.loads(line) for line in self.stdout.getvalue().splitlines()]
         self.assertEqual([e["type"] for e in out], ["level", "notify", "pause", "resume"])
         self.assertEqual(out[-1]["why"], "shutdown", "watch resumes what it paused when it exits")
@@ -1472,8 +1758,9 @@ class RegistryCliTests(CliCase, ChildCase):
 
 
 def hook_payload(tool, **tool_input):
-    return json.dumps({"session_id": "s", "hook_event_name": "PreToolUse", "tool_name": tool,
-                       "tool_input": tool_input}).encode()
+    return json.dumps(
+        {"session_id": "s", "hook_event_name": "PreToolUse", "tool_name": tool, "tool_input": tool_input}
+    ).encode()
 
 
 class HookTests(CliCase):
@@ -1506,7 +1793,9 @@ class HookTests(CliCase):
                     self.assertEqual((self.stdout.getvalue(), self.stderr.getvalue()), ("", ""))
 
     def test_refusal_paragraph_names_level_consumers_and_what_to_do(self):
-        self.assertEqual(self.run_cli(["hook"], TIGHT, stdin=hook_payload("Bash", command="cd ios && xcodebuild test")), 2)
+        self.assertEqual(
+            self.run_cli(["hook"], TIGHT, stdin=hook_payload("Bash", command="cd ios && xcodebuild test")), 2
+        )
         message = self.stderr.getvalue()
         self.assertEqual(message.count("\n"), 1, "one paragraph")
         self.assertIn("refused `xcodebuild test`", message)
@@ -1519,7 +1808,9 @@ class HookTests(CliCase):
     def test_internal_errors_and_bad_input_fail_open(self):
         heavy = hook_payload("Bash", command="xcodebuild")
         self.assertEqual(self.run_cli(["hook"], FakeProbes(RuntimeError("probe exploded")), stdin=heavy), 0)
-        self.assertEqual(self.run_cli(["hook"], FakeProbes(CRITICAL, None), stdin=heavy), 2, "no consumers still refuses")
+        self.assertEqual(
+            self.run_cli(["hook"], FakeProbes(CRITICAL, None), stdin=heavy), 2, "no consumers still refuses"
+        )
         self.assertIn("Top consumers: unknown", self.stderr.getvalue())
         self.assertEqual(self.run_cli(["hook"], CRITICAL, stdin=b" " * (mem_guard.HOOK_MAX + 1)), 0)
         self.assertEqual(self.run_cli(["hook", "--bogus"], CRITICAL, stdin=heavy), 2, "extra args are ignored")
@@ -1527,38 +1818,79 @@ class HookTests(CliCase):
 
     def test_command_matcher(self):
         cases = {
-            "xcodebuild -scheme X build": "build", "cd ios && xcodebuild test": "build",
-            "(cd ios; /usr/bin/xcodebuild)": "build", "npm ci": "build", "timeout 600 npm ci --silent": "build",
-            "lms load gemma-4-26b --context-length 65536": "model", "~/.lmstudio/bin/lms load x": "model",
-            "lms server start": "model", "ollama pull llama3": "model", "ollama run qwen": "model",
-            "python3 -m mlx_lm.generate --model m": "model", "mlx_lm.server --port 8080": "model",
-            "bash -lc 'lms load qwen'": "model", "FOO=1 sudo -E xcodebuild": "build",
-            "xcrun simctl boot 'iPhone 17 Pro'": "simulator", "open -a Simulator": "simulator",
+            "xcodebuild -scheme X build": "build",
+            "cd ios && xcodebuild test": "build",
+            "(cd ios; /usr/bin/xcodebuild)": "build",
+            "npm ci": "build",
+            "timeout 600 npm ci --silent": "build",
+            "lms load gemma-4-26b --context-length 65536": "model",
+            "~/.lmstudio/bin/lms load x": "model",
+            "lms server start": "model",
+            "ollama pull llama3": "model",
+            "ollama run qwen": "model",
+            "python3 -m mlx_lm.generate --model m": "model",
+            "mlx_lm.server --port 8080": "model",
+            "bash -lc 'lms load qwen'": "model",
+            "FOO=1 sudo -E xcodebuild": "build",
+            "xcrun simctl boot 'iPhone 17 Pro'": "simulator",
+            "open -a Simulator": "simulator",
             "open -a /Applications/Xcode.app/Contents/Developer/Applications/Simulator.app": "simulator",
             "open -b com.apple.iphonesimulator": "simulator",
-            "docker run --rm img": "docker", "docker compose up -d": "docker", "docker-compose up": "docker",
-            "astra-review /repo": "review", "codex exec 'review this'": "review", "codex -m gpt exec x": "review",
-            "echo hi; codex exec x": "review", "echo $(lms load x)": "model",
+            "docker run --rm img": "docker",
+            "docker compose up -d": "docker",
+            "docker-compose up": "docker",
+            "astra-review /repo": "review",
+            "codex exec 'review this'": "review",
+            "codex -m gpt exec x": "review",
+            "echo hi; codex exec x": "review",
+            "echo $(lms load x)": "model",
         }
         for command, category in cases.items():
             found = mem_guard.hook_match({"tool_name": "Bash", "tool_input": {"command": command}})
             self.assertEqual(found and found[1], category, command)
-            self.assertTrue(any(s in command for s in mem_guard.HOOK_TRIGGER_SUBSTRINGS),
-                            f"the bash prefilter must pass {command!r}")
-        for command in ("ls -la", "grep -r xcodebuild .", "echo 'lms load x'", "lms ps", "lms unload x",
-                        "xcrun simctl shutdown all", "xcrun simctl list", "docker ps", "npm install", "npm test",
-                        "codex review", "ollama list", "open README.md", "cat Simulator.log", "git commit -m 'npm ci'",
-                        "echo 'unbalanced", ""):
-            self.assertIsNone(mem_guard.hook_match({"tool_name": "Bash", "tool_input": {"command": command}}),
-                              command)
-        for payload in ({"tool_name": "mcp__Claude_Code_iOS_Simulator__control", "tool_input": {"action": "launch"}},
-                        {"tool_name": "mcp__Claude_Code_iOS_Simulator__build"}, {"tool_name": "Workflow"},
-                        {"tool_name": "Agent"}):
+            self.assertTrue(
+                any(s in command for s in mem_guard.HOOK_TRIGGER_SUBSTRINGS),
+                f"the bash prefilter must pass {command!r}",
+            )
+        for command in (
+            "ls -la",
+            "grep -r xcodebuild .",
+            "echo 'lms load x'",
+            "lms ps",
+            "lms unload x",
+            "xcrun simctl shutdown all",
+            "xcrun simctl list",
+            "docker ps",
+            "npm install",
+            "npm test",
+            "codex review",
+            "ollama list",
+            "open README.md",
+            "cat Simulator.log",
+            "git commit -m 'npm ci'",
+            "echo 'unbalanced",
+            "",
+        ):
+            self.assertIsNone(mem_guard.hook_match({"tool_name": "Bash", "tool_input": {"command": command}}), command)
+        for payload in (
+            {"tool_name": "mcp__Claude_Code_iOS_Simulator__control", "tool_input": {"action": "launch"}},
+            {"tool_name": "mcp__Claude_Code_iOS_Simulator__build"},
+            {"tool_name": "Workflow"},
+            {"tool_name": "Agent"},
+        ):
             self.assertIsNotNone(mem_guard.hook_match(payload))
             self.assertTrue(any(s in json.dumps(payload) for s in mem_guard.HOOK_TRIGGER_SUBSTRINGS))
-        self.assertEqual({k: v[1] for k, v in mem_guard.HOOK_NEEDS.items()},
-                         {"model": "heavy", "simulator": "heavy", "build": "heavy", "docker": "heavy",
-                          "review": "light", "agent": "light"})
+        self.assertEqual(
+            {k: v[1] for k, v in mem_guard.HOOK_NEEDS.items()},
+            {
+                "model": "heavy",
+                "simulator": "heavy",
+                "build": "heavy",
+                "docker": "heavy",
+                "review": "light",
+                "agent": "light",
+            },
+        )
 
 
 # -------------------------------------------------------------------------------------------------
@@ -1572,6 +1904,7 @@ def spawn_sleeper(case):
     def reap():
         proc.kill()
         proc.wait()
+
     case.addCleanup(reap)
     return proc
 
@@ -1584,8 +1917,9 @@ def write_entry(root, pid, comm, start=START, **extra):
     directory = root / "pausable"
     directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     path = directory / f"{pid}.json"
-    path.write_text(json.dumps({"schemaVersion": 1, "pid": pid, "startTime": start, "comm": comm, "label": "x",
-                                **extra}))
+    path.write_text(
+        json.dumps({"schemaVersion": 1, "pid": pid, "startTime": start, "comm": comm, "label": "x", **extra})
+    )
     os.chmod(path, 0o600)
 
 
@@ -1593,8 +1927,10 @@ def lstart_text(moment):
     """`ps -o lstart` as LC_ALL=C prints it (normalised to single spaces)."""
     days = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
     months = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
-    return (f"{days[moment.tm_wday]} {months[moment.tm_mon - 1]} {moment.tm_mday} "
-            f"{moment.tm_hour:02d}:{moment.tm_min:02d}:{moment.tm_sec:02d} {moment.tm_year}")
+    return (
+        f"{days[moment.tm_wday]} {months[moment.tm_mon - 1]} {moment.tm_mday} "
+        f"{moment.tm_hour:02d}:{moment.tm_min:02d}:{moment.tm_sec:02d} {moment.tm_year}"
+    )
 
 
 class TzPs(FakePs):
@@ -1631,6 +1967,7 @@ class IdentityReviewTests(ChildCase):
             if sig == signal.SIGSTOP and pid == grandchild.pid:
                 self.ps.add(grandchild.pid, self.child.pid, comm="/usr/local/bin/node")  # the exec lands here
             forward(pid, sig)
+
         self.registry._kill = kill
         self.registry.pause_all()
         self.assertTrue(stopped(grandchild.pid))
@@ -1687,9 +2024,14 @@ class IdentityReviewTests(ChildCase):
         def swapping(args, **kwargs):
             result = tree_call(ps, args, **kwargs)
             if args[:2] == ["/bin/ps", "-axo"]:
-                ps.add(VIRTUAL, 1, comm="/System/Applications/Notes.app/Contents/MacOS/Notes",
-                       start="Sat Sep 26 13:40:00 2026")
+                ps.add(
+                    VIRTUAL,
+                    1,
+                    comm="/System/Applications/Notes.app/Contents/MacOS/Notes",
+                    start="Sat Sep 26 13:40:00 2026",
+                )
             return result
+
         self.registry._runner = swapping
         self.registry.pause_all()
         self.assertIn((self.child.pid, signal.SIGSTOP), self.kill.calls)
@@ -1700,7 +2042,14 @@ class RegistrationReviewTests(ChildCase):
     """[medium] any same-user pid could be registered (apps included) while a script could not
     register itself."""
 
-    SCRIPT, SHELL, TERMINAL, APP, APP_CHILD, OTHER_JOB = 4_000_100, 4_000_101, 4_000_102, 4_000_200, 4_000_201, 4_000_300
+    SCRIPT, SHELL, TERMINAL, APP, APP_CHILD, OTHER_JOB = (
+        4_000_100,
+        4_000_101,
+        4_000_102,
+        4_000_200,
+        4_000_201,
+        4_000_300,
+    )
 
     def setUp(self):
         super().setUp()
@@ -1709,7 +2058,7 @@ class RegistrationReviewTests(ChildCase):
         ps.add(self.SCRIPT, self.SHELL, comm="/bin/bash")
         ps.add(self.SHELL, self.TERMINAL, comm="-zsh")
         ps.add(self.TERMINAL, 1, comm="/System/Applications/Utilities/Terminal.app/Contents/MacOS/Terminal")
-        ps.add(self.child.pid, self.SCRIPT)                       # the script's `$!`
+        ps.add(self.child.pid, self.SCRIPT)  # the script's `$!`
         ps.add(self.APP, 1, comm="/Applications/ChatGPT.app/Contents/MacOS/ChatGPT")
         ps.add(self.APP_CHILD, self.SCRIPT, comm="/Applications/Foo.app/Contents/MacOS/Foo")
         ps.add(self.OTHER_JOB, self.SHELL, comm="/usr/bin/python3")
@@ -1719,10 +2068,13 @@ class RegistrationReviewTests(ChildCase):
         self.assertEqual(self.registry.register(self.child.pid, "codex")["pid"], self.child.pid)
 
     def test_apps_and_unrelated_processes_are_refused(self):
-        for pid, why in ((self.APP, "not started by the calling script"), (self.APP_CHILD, "is an app"),
-                         (self.OTHER_JOB, "not started by the calling script"),
-                         (self.SHELL, "not started by the calling script"),
-                         (self.TERMINAL, "not started by the calling script")):
+        for pid, why in (
+            (self.APP, "not started by the calling script"),
+            (self.APP_CHILD, "is an app"),
+            (self.OTHER_JOB, "not started by the calling script"),
+            (self.SHELL, "not started by the calling script"),
+            (self.TERMINAL, "not started by the calling script"),
+        ):
             with self.subTest(pid=pid), self.assertRaises(mem_guard.RegistryError) as caught:
                 self.registry.register(pid, "x")
             self.assertIn(why, str(caught.exception))
@@ -1746,14 +2098,23 @@ class ResumeReviewTests(ChildCase):
             if sig == signal.SIGCONT and refuse["on"]:
                 raise PermissionError(errno.EPERM, "Operation not permitted")
             self.kill(pid, sig)
+
         sandboxed = mem_guard.Registry(self.root, runner=self.ps, kill=kill, clock=self.clock)
         result = sandboxed.resume()
         self.assertEqual([job["members"] for job in self.registry.paused()], [1], "still recorded")
         self.assertEqual((result[0]["resumed"], result[0]["failed"]), ([], [self.child.pid]))
         out, err = io.StringIO(), io.StringIO()
-        ctx = mem_guard.Context(state_root=self.root, cfg=mem_guard.default_config(), probes=FakeProbes(OK),
-                                registry=sandboxed, notifier=Notes(), clock=self.clock, gpu=lambda: None,
-                                stdout=out, stderr=err)
+        ctx = mem_guard.Context(
+            state_root=self.root,
+            cfg=mem_guard.default_config(),
+            probes=FakeProbes(OK),
+            registry=sandboxed,
+            notifier=Notes(),
+            clock=self.clock,
+            gpu=lambda: None,
+            stdout=out,
+            stderr=err,
+        )
         self.assertEqual(mem_guard.main(["resume-all"], ctx), 1)
         self.assertIn("could not continue 1 process", err.getvalue())
         refuse["on"] = False
@@ -1799,6 +2160,7 @@ class ResumeReviewTests(ChildCase):
             if target.get("fd") == fd:
                 raise OSError(errno.ENOSPC, "No space left on device")
             return real_write(fd, data)
+
         with mock.patch.object(mem_guard.os, "write", disk_full):
             with self.assertRaises(OSError):
                 self.registry.pause_all()
@@ -1808,6 +2170,7 @@ class ResumeReviewTests(ChildCase):
         def halves(fd, data):
             data = bytes(data)
             return real_write(fd, data[: max(1, len(data) // 2)])
+
         with mock.patch.object(mem_guard.os, "write", halves):
             self.registry.pause_all()
         self.assertTrue(stopped(self.child.pid))
@@ -1849,9 +2212,15 @@ class CloseReviewTests(ChildCase):
                 entered.set()
                 gate.wait(5)
             return runner(args, **kwargs)
+
         self.registry._runner = slow_ps
-        guard = mem_guard.Guard(cfg=mem_guard.default_config(), probes=FakeProbes(CRITICAL), registry=self.registry,
-                                notifier=Notes(), clock=self.clock)
+        guard = mem_guard.Guard(
+            cfg=mem_guard.default_config(),
+            probes=FakeProbes(CRITICAL),
+            registry=self.registry,
+            notifier=Notes(),
+            clock=self.clock,
+        )
         worker = threading.Thread(target=self.registry.pause_all)
         worker.start()
         self.assertTrue(entered.wait(2))
@@ -1875,9 +2244,15 @@ class CloseReviewTests(ChildCase):
             entered.set()
             gate.wait(5)
             write(jobs)
+
         self.registry._write_paused = slow_write
-        guard = mem_guard.Guard(cfg=mem_guard.default_config(), probes=FakeProbes(CRITICAL), registry=self.registry,
-                                notifier=Notes(), clock=self.clock)
+        guard = mem_guard.Guard(
+            cfg=mem_guard.default_config(),
+            probes=FakeProbes(CRITICAL),
+            registry=self.registry,
+            notifier=Notes(),
+            clock=self.clock,
+        )
         worker = threading.Thread(target=self.registry.pause_all)
         worker.start()
         self.assertTrue(entered.wait(2))
@@ -1896,8 +2271,13 @@ class CloseReviewTests(ChildCase):
         """[medium] osascript (5 s timeout) ran inside the tick on the sampler thread."""
         release = threading.Event()
         self.addCleanup(release.set)
-        guard = mem_guard.Guard(cfg=mem_guard.default_config(), probes=FakeProbes(CRITICAL, CONSUMERS),
-                                registry=self.registry, notifier=lambda title, body: release.wait(5), clock=self.clock)
+        guard = mem_guard.Guard(
+            cfg=mem_guard.default_config(),
+            probes=FakeProbes(CRITICAL, CONSUMERS),
+            registry=self.registry,
+            notifier=lambda title, body: release.wait(5),
+            clock=self.clock,
+        )
         started = time.monotonic()
         block, _source = guard.sample()
         self.assertEqual(block["level"], "critical")
@@ -1938,8 +2318,15 @@ class PauseLimitReviewTests(CliCase, ChildCase):
     def test_hook_slow_path_resumes_a_job_past_its_limit(self):
         self.pause_with_a_watchdog_that_then_dies()
         self.clock.advance(25 * 60)
-        self.assertEqual(self.run_cli(["hook"], TIGHT, registry=self.registry,
-                                      stdin=hook_payload("Bash", command="xcodebuild -scheme App build")), 2)
+        self.assertEqual(
+            self.run_cli(
+                ["hook"],
+                TIGHT,
+                registry=self.registry,
+                stdin=hook_payload("Bash", command="xcodebuild -scheme App build"),
+            ),
+            2,
+        )
         self.assertTrue(continued(self.child.pid))
 
     def test_a_gone_pauser_is_resumed_by_any_cli_call(self):
@@ -1976,8 +2363,13 @@ class ProbeCostReviewTests(unittest.TestCase):
     def test_consumers_group_the_process_table_once_per_ps_read(self):
         table = {"/bin/ps -axo pid=,rss=,comm=": completed(self.ROWS)}
         clock = Clock()
-        probes = mem_guard.Probes(sysctl=ProbeTests.SYSCTL.get, runner=Runner(table), statvfs=ProbeTests.StatVfs(),
-                                  clock=clock, wall=lambda: 1.0)
+        probes = mem_guard.Probes(
+            sysctl=ProbeTests.SYSCTL.get,
+            runner=Runner(table),
+            statvfs=ProbeTests.StatVfs(),
+            clock=clock,
+            wall=lambda: 1.0,
+        )
         counted = []
         real = mem_guard.group_of
         with mock.patch.object(mem_guard, "group_of", side_effect=lambda comm: counted.append(1) or real(comm)):
@@ -1988,17 +2380,26 @@ class ProbeCostReviewTests(unittest.TestCase):
         self.assertEqual(len(rows), 3)
 
     def test_background_probes_never_wait_on_a_subprocess(self):
-        answers = {"/usr/bin/vm_stat": completed(VM_STAT_INCIDENT),
-                   "/bin/ps -axo pid=,rss=,comm=": completed(PS_SAMPLE),
-                   "/usr/bin/xcrun simctl list devices booted -j": completed(SIMCTL_JSON)}
+        answers = {
+            "/usr/bin/vm_stat": completed(VM_STAT_INCIDENT),
+            "/bin/ps -axo pid=,rss=,comm=": completed(PS_SAMPLE),
+            "/usr/bin/xcrun simctl list devices booted -j": completed(SIMCTL_JSON),
+        }
         threads = []
 
         def slow(args, **kwargs):
             threads.append(threading.current_thread())
             time.sleep(0.2)
             return answers[" ".join(args)]
-        probes = mem_guard.Probes(sysctl=ProbeTests.SYSCTL.get, runner=slow, statvfs=ProbeTests.StatVfs(),
-                                  clock=Clock(), wall=lambda: 1.0, background=True)
+
+        probes = mem_guard.Probes(
+            sysctl=ProbeTests.SYSCTL.get,
+            runner=slow,
+            statvfs=ProbeTests.StatVfs(),
+            clock=Clock(),
+            wall=lambda: 1.0,
+            background=True,
+        )
         started = time.monotonic()
         state = probes.read()
         self.assertIsNone(probes.consumers())
@@ -2032,15 +2433,17 @@ class HookReviewTests(CliCase):
 
     def test_comments_hide_nothing_after_their_line(self):
         """[medium] newlines became ' ; ' before shlex, so a '#' swallowed the rest of the command."""
-        cases = {"# Build the app\nxcodebuild -scheme Foo build": "build",
-                 "cd ~/proj  # go there\nlms load qwen3.8-27b": "model",
-                 "# boot the phone\nxcrun simctl boot 'iPhone 17 Pro'": "simulator",
-                 "echo $#; xcodebuild -scheme App build": "build",
-                 "[ ${#x} -gt 0 ] && xcodebuild -scheme App build": "build",
-                 "curl -s localhost:1234/v1/models#x; lms load q": "model",
-                 "echo a#b; xcodebuild build": "build",
-                 "echo '# not a comment' && npm ci": "build",
-                 "xcodebuild \\\n  -scheme App build": "build"}
+        cases = {
+            "# Build the app\nxcodebuild -scheme Foo build": "build",
+            "cd ~/proj  # go there\nlms load qwen3.8-27b": "model",
+            "# boot the phone\nxcrun simctl boot 'iPhone 17 Pro'": "simulator",
+            "echo $#; xcodebuild -scheme App build": "build",
+            "[ ${#x} -gt 0 ] && xcodebuild -scheme App build": "build",
+            "curl -s localhost:1234/v1/models#x; lms load q": "model",
+            "echo a#b; xcodebuild build": "build",
+            "echo '# not a comment' && npm ci": "build",
+            "xcodebuild \\\n  -scheme App build": "build",
+        }
         for command, category in cases.items():
             self.assertEqual(self.match(command), category, command)
         for command in ("# xcodebuild build", "ls  # then npm ci", "echo hi # lms load x"):
@@ -2051,11 +2454,13 @@ class HookReviewTests(CliCase):
     def test_heredoc_bodies_are_not_commands(self):
         """[medium/low] heredoc bodies were lexed as commands: writing a script that mentions npm ci
         was refused as a build."""
-        for command in ("cat > ci.sh <<'EOF'\nset -e\nnpm ci\nEOF",
-                        "cat > BUILDING.md <<'EOF'\nxcodebuild -scheme Foo\nnpm ci\nEOF",
-                        "git commit -F - <<EOF\nnpm ci: don't run it here\nEOF",
-                        "cat <<-EOF > x\n\tlms load big\n\tEOF\nls",
-                        'python3 - <<"PY"\nprint("xcodebuild build")\nPY'):
+        for command in (
+            "cat > ci.sh <<'EOF'\nset -e\nnpm ci\nEOF",
+            "cat > BUILDING.md <<'EOF'\nxcodebuild -scheme Foo\nnpm ci\nEOF",
+            "git commit -F - <<EOF\nnpm ci: don't run it here\nEOF",
+            "cat <<-EOF > x\n\tlms load big\n\tEOF\nls",
+            'python3 - <<"PY"\nprint("xcodebuild build")\nPY',
+        ):
             self.assertIsNone(self.match(command), command)
             self.assertEqual(self.run_cli(["hook"], TIGHT, stdin=hook_payload("Bash", command=command)), 0)
         self.assertEqual(self.match("python3 - <<'EOF'\nprint('hi')\nEOF\nxcodebuild -scheme X build"), "build")
@@ -2064,37 +2469,69 @@ class HookReviewTests(CliCase):
 
     def test_wrapper_option_values_are_skipped(self):
         """[low] `nice -n 10 xcodebuild` took '10' as the command name."""
-        for command in ("nice -n 10 xcodebuild build", "timeout -s KILL 600 xcodebuild build",
-                        "sudo -u louis xcodebuild build", "env -u FOO npm ci", "caffeinate -t 60 xcodebuild build",
-                        "xargs -n 1 lms load", "nice -n 5 -- npm ci"):
+        for command in (
+            "nice -n 10 xcodebuild build",
+            "timeout -s KILL 600 xcodebuild build",
+            "sudo -u louis xcodebuild build",
+            "env -u FOO npm ci",
+            "caffeinate -t 60 xcodebuild build",
+            "xargs -n 1 lms load",
+            "nice -n 5 -- npm ci",
+        ):
             self.assertIsNotNone(self.match(command), command)
 
     def test_information_only_commands_are_not_heavy(self):
         """[low] xcodebuild -version / -list and --help invocations were refused as 4 GB builds."""
-        for command in ("xcodebuild -version", "xcodebuild -list -project A.xcodeproj", "xcodebuild -showsdks",
-                        "xcodebuild -showBuildSettings -scheme X", "lms load --help", "docker run --help",
-                        "codex exec --help", "npm ci -h"):
+        for command in (
+            "xcodebuild -version",
+            "xcodebuild -list -project A.xcodeproj",
+            "xcodebuild -showsdks",
+            "xcodebuild -showBuildSettings -scheme X",
+            "lms load --help",
+            "docker run --help",
+            "codex exec --help",
+            "npm ci -h",
+        ):
             self.assertIsNone(self.match(command), command)
         for command in ("xcodebuild -scheme X build", "docker run -h myhost img", "xcodebuild test"):
             self.assertIsNotNone(self.match(command), command)
 
     def test_refusal_names_the_llm_server_by_its_gpu_allocation(self):
         """[low] the hook ranked the LLM server by RSS alone, so its 40 GB of GPU memory was missing."""
-        ps_text = (f"  612 {52 << 20} {SIM}/usr/libexec/backboardd\n"
-                   f"  982 {800 << 10} /Applications/LM Studio.app/Contents/MacOS/LM Studio\n"
-                   f" 1301 {3600 << 10} /Applications/Codex.app/Contents/MacOS/Codex\n"
-                   f" 1201 {3500 << 10} /Applications/Claude.app/Contents/MacOS/Claude\n")
-        table = {"/usr/bin/vm_stat": completed(VM_STAT_INCIDENT), "/bin/ps -axo pid=,rss=,comm=": completed(ps_text),
-                 "/usr/bin/xcrun simctl list devices booted -j": completed(SIMCTL_JSON)}
-        probes = mem_guard.Probes(sysctl=ProbeTests.SYSCTL.get, runner=Runner(table), statvfs=ProbeTests.StatVfs(),
-                                  clock=Clock(), wall=lambda: 1.0)
+        ps_text = (
+            f"  612 {52 << 20} {SIM}/usr/libexec/backboardd\n"
+            f"  982 {800 << 10} /Applications/LM Studio.app/Contents/MacOS/LM Studio\n"
+            f" 1301 {3600 << 10} /Applications/Codex.app/Contents/MacOS/Codex\n"
+            f" 1201 {3500 << 10} /Applications/Claude.app/Contents/MacOS/Claude\n"
+        )
+        table = {
+            "/usr/bin/vm_stat": completed(VM_STAT_INCIDENT),
+            "/bin/ps -axo pid=,rss=,comm=": completed(ps_text),
+            "/usr/bin/xcrun simctl list devices booted -j": completed(SIMCTL_JSON),
+        }
+        probes = mem_guard.Probes(
+            sysctl=ProbeTests.SYSCTL.get,
+            runner=Runner(table),
+            statvfs=ProbeTests.StatVfs(),
+            clock=Clock(),
+            wall=lambda: 1.0,
+        )
         err = io.StringIO()
-        ctx = mem_guard.Context(state_root=self.root, cfg=mem_guard.default_config(), probes=probes, notifier=Notes(),
-                                clock=self.clock, gpu=lambda: 40 * GiB,
-                                stdin=io.BytesIO(hook_payload("Bash", command="xcodebuild -scheme App build")),
-                                stdout=io.StringIO(), stderr=err)
+        ctx = mem_guard.Context(
+            state_root=self.root,
+            cfg=mem_guard.default_config(),
+            probes=probes,
+            notifier=Notes(),
+            clock=self.clock,
+            gpu=lambda: 40 * GiB,
+            stdin=io.BytesIO(hook_payload("Bash", command="xcodebuild -scheme App build")),
+            stdout=io.StringIO(),
+            stderr=err,
+        )
         self.assertEqual(mem_guard.main(["hook"], ctx), 2)
         self.assertIn("Local LLM server about 0.8 GB (+ Mac GPU allocation 40.0 GB, all apps)", err.getvalue())
+
+
 # -------------------------------------------------------------------------------------------------
 # Row 5 (2026-09-27): mem-guard inside agent sandboxes. /bin/ps and the memorystatus/swap sysctls
 # are refused there, so the registry reads the process table through libproc and the memory level
@@ -2105,6 +2542,7 @@ class HookReviewTests(CliCase):
 def start_epoch(text):
     """The inverse of lstart_text for a UTC moment."""
     import calendar
+
     return calendar.timegm(time.strptime(text, "%a %b %d %H:%M:%S %Y"))
 
 
@@ -2151,7 +2589,9 @@ class LibProcRegistryTests(ChildCase):
     def setUp(self):
         super().setUp()
         self.procs = FakeProcs(self.ps)
-        self.registry = mem_guard.Registry(self.root, runner=self.ps, kill=self.kill, clock=self.clock, procs=self.procs)
+        self.registry = mem_guard.Registry(
+            self.root, runner=self.ps, kill=self.kill, clock=self.clock, procs=self.procs
+        )
 
     def ps_calls(self):
         return [call for call in self.ps.calls if call[0] == "/bin/ps"]
@@ -2168,11 +2608,15 @@ class LibProcRegistryTests(ChildCase):
         self.assertEqual(self.ps_calls(), [], "libproc answered everything: ps never ran")
 
     def test_identity_rules_are_unchanged(self):
-        self.ps.add(VIRTUAL, 1, uid=self.uid + 1)                                   # another user's
+        self.ps.add(VIRTUAL, 1, uid=self.uid + 1)  # another user's
         self.ps.add(VIRTUAL + 1, self.me, comm="/Applications/X.app/Contents/MacOS/X")  # an app
         self.procs.denied.add(VIRTUAL)  # libproc may not read another user's process in full
-        for pid, why in ((VIRTUAL, "no process|another user|launchd|not started"), (VIRTUAL + 1, "is an app"),
-                         (self.me, "mem-guard itself"), (FAKE_PARENT, "ancestors|launchd|own script")):
+        for pid, why in (
+            (VIRTUAL, "no process|another user|launchd|not started"),
+            (VIRTUAL + 1, "is an app"),
+            (self.me, "mem-guard itself"),
+            (FAKE_PARENT, "ancestors|launchd|own script"),
+        ):
             with self.assertRaisesRegex(mem_guard.RegistryError, why, msg=str(pid)):
                 self.registry.register(pid, "x")
         self.ps.add(VIRTUAL + 2, self.me, uid=self.uid + 1)
@@ -2262,8 +2706,7 @@ class LibProcRegistryTests(ChildCase):
         registry = mem_guard.Registry(self.root, runner=self.ps, kill=self.kill, clock=self.clock)
         self.assertIsNone(registry._procs)
         default = mem_guard.Registry(self.root)
-        self.assertIs(default._procs, mem_guard.default_procs(),
-                      "the default uses libproc only where it is available")
+        self.assertIs(default._procs, mem_guard.default_procs(), "the default uses libproc only where it is available")
 
 
 class LibProcRealTests(unittest.TestCase):
@@ -2281,6 +2724,7 @@ class LibProcRealTests(unittest.TestCase):
             if proc.poll() is None:
                 proc.kill()
             proc.wait()
+
         self.addCleanup(reap)
         return proc
 
@@ -2308,7 +2752,7 @@ class LibProcRealTests(unittest.TestCase):
         self.assertEqual(self.procs.short(proc.pid), ("gone", None), "a zombie reads as gone")
         proc.wait()
         self.assertEqual(self.procs.bsd(proc.pid), ("gone", None))
-        self.assertEqual(self.procs.short(2 ** 31 - 1)[0], "gone")
+        self.assertEqual(self.procs.short(2**31 - 1)[0], "gone")
 
     def test_another_users_process_reads_denied_not_gone(self):
         """launchd (root): SHORTBSDINFO answers, BSDINFO is refused. Denied must never read as gone,
@@ -2325,9 +2769,11 @@ class LibProcRealTests(unittest.TestCase):
 
         def refused(*_a, **_k):
             raise PermissionError("operation not permitted: /bin/ps")
+
         with tempfile.TemporaryDirectory() as tmp:
-            registry = mem_guard.Registry(Path(tmp) / "state", runner=refused, procs=self.procs,
-                                          kill=SafeKill([proc.pid]))
+            registry = mem_guard.Registry(
+                Path(tmp) / "state", runner=refused, procs=self.procs, kill=SafeKill([proc.pid])
+            )
             entry = registry.register(proc.pid, "sandboxed review")
             self.assertEqual((entry["pid"], entry["comm"]), (proc.pid, "sleep"))
             self.assertEqual(entry["startTime"], lstart_text(time.gmtime(self.procs.bsd(proc.pid)[1][2])))
@@ -2346,6 +2792,7 @@ class LibProcRealTests(unittest.TestCase):
         def reap():
             proc.kill()
             proc.wait()
+
         self.addCleanup(reap)
         deadline = time.monotonic() + 3
         path = ""
@@ -2373,9 +2820,16 @@ class LevelFileTests(unittest.TestCase):
         self.assertEqual(stat.S_IMODE(os.stat(self.path).st_mode), 0o600)
         self.assertEqual(stat.S_IMODE(os.stat(self.path.parent).st_mode), 0o700)
         got = self.level.read()
-        self.assertEqual({k: got[k] for k in ("pressure", "availablePercent", "ramBytes", "swapUsedBytes", "swapTotalBytes")},
-                         {"pressure": 2, "availablePercent": 18, "ramBytes": RAM, "swapUsedBytes": 5 * GiB,
-                          "swapTotalBytes": SWAP_TOTAL})
+        self.assertEqual(
+            {k: got[k] for k in ("pressure", "availablePercent", "ramBytes", "swapUsedBytes", "swapTotalBytes")},
+            {
+                "pressure": 2,
+                "availablePercent": 18,
+                "ramBytes": RAM,
+                "swapUsedBytes": 5 * GiB,
+                "swapTotalBytes": SWAP_TOTAL,
+            },
+        )
         self.clock.advance(3.0)
         self.assertIsNotNone(self.level.read(), "exactly max_age old is still fresh")
         self.clock.advance(0.1)
@@ -2400,6 +2854,7 @@ class LevelFileTests(unittest.TestCase):
                 os.unlink(self.path)
             self.path.write_bytes(data)
             os.chmod(self.path, mode)
+
         for mode in (0o640, 0o604, 0o660):
             reset(mode=mode)
             self.assertIsNone(self.level.read(), oct(mode))
@@ -2412,11 +2867,16 @@ class LevelFileTests(unittest.TestCase):
         os.symlink(target, self.path)
         self.assertIsNone(self.level.read(), "a symlink is never followed")
         record = json.loads(good)
-        for bad in (b"[1]", b"{", b"x" * 5000, json.dumps(dict(record, schemaVersion=2)).encode(),
-                    json.dumps(dict(record, source="level-file")).encode(),
-                    json.dumps(dict(record, writtenAt="now")).encode(),
-                    json.dumps(dict(record, pressure=None, availablePercent=None)).encode(),
-                    b"[" * 100000 + b"]" * 100000):
+        for bad in (
+            b"[1]",
+            b"{",
+            b"x" * 5000,
+            json.dumps(dict(record, schemaVersion=2)).encode(),
+            json.dumps(dict(record, source="level-file")).encode(),
+            json.dumps(dict(record, writtenAt="now")).encode(),
+            json.dumps(dict(record, pressure=None, availablePercent=None)).encode(),
+            b"[" * 100000 + b"]" * 100000,
+        ):
             reset(bad)
             self.assertIsNone(self.level.read(), bad[:40])
         reset(json.dumps(dict(record, pressure=3, availablePercent=140, swapUsedBytes=-1)).encode())
@@ -2450,15 +2910,27 @@ class SandboxFallbackTests(unittest.TestCase):
         self.level = mem_guard.LevelFile(Path(self.tmp.name) / "level.json", max_age=3.0, clock=self.clock)
 
     def probes(self, table=None, sysctl=None, level=True, memory_pressure=True):
-        table = table if table is not None else {
-            "/usr/bin/vm_stat": completed(VM_STAT_INCIDENT),
-            "/usr/bin/memory_pressure -Q": completed(
-                "The system has 68719476736 (4194304 pages with a page size of 16384).\n"
-                "System-wide memory free percentage: 45%\n")}
+        table = (
+            table
+            if table is not None
+            else {
+                "/usr/bin/vm_stat": completed(VM_STAT_INCIDENT),
+                "/usr/bin/memory_pressure -Q": completed(
+                    "The system has 68719476736 (4194304 pages with a page size of 16384).\n"
+                    "System-wide memory free percentage: 45%\n"
+                ),
+            }
+        )
         runner = Runner(table)
-        probes = mem_guard.Probes(sysctl=(sysctl or self.SANDBOX_SYSCTL).get, runner=runner,
-                                  statvfs=ProbeTests.StatVfs(), clock=self.clock, wall=self.clock,
-                                  level_file=self.level if level else None, memory_pressure=memory_pressure)
+        probes = mem_guard.Probes(
+            sysctl=(sysctl or self.SANDBOX_SYSCTL).get,
+            runner=runner,
+            statvfs=ProbeTests.StatVfs(),
+            clock=self.clock,
+            wall=self.clock,
+            level_file=self.level if level else None,
+            memory_pressure=memory_pressure,
+        )
         return probes, runner
 
     def publish(self, pressure=4, avail=8, swap=9 * GiB):
@@ -2469,8 +2941,16 @@ class SandboxFallbackTests(unittest.TestCase):
         self.clock.advance(1.5)
         probes, runner = self.probes()
         state = probes.read()
-        self.assertEqual((state["pressure"], state["availablePercent"], state["swapUsedBytes"], state["levelSource"],
-                          state["levelAgeSeconds"]), (4, 8, 9 * GiB, "level-file", 1.5))
+        self.assertEqual(
+            (
+                state["pressure"],
+                state["availablePercent"],
+                state["swapUsedBytes"],
+                state["levelSource"],
+                state["levelAgeSeconds"],
+            ),
+            (4, 8, 9 * GiB, "level-file", 1.5),
+        )
         self.assertEqual(runner.count("/usr/bin/memory_pressure"), 0)
         level, reasons = mem_guard.classify(state)
         self.assertEqual(level, "critical")
@@ -2483,7 +2963,9 @@ class SandboxFallbackTests(unittest.TestCase):
         self.clock.advance(10)
         probes, runner = self.probes()
         state = probes.read()
-        self.assertEqual((state["pressure"], state["availablePercent"], state["levelSource"]), (None, 45, "memory_pressure"))
+        self.assertEqual(
+            (state["pressure"], state["availablePercent"], state["levelSource"]), (None, 45, "memory_pressure")
+        )
         level, reasons = mem_guard.classify(state)
         self.assertEqual(level, "watch", "45% available; the incident's 38% compressor alone reads watch")
         self.assertIn("compressor", reasons[0])
@@ -2491,8 +2973,9 @@ class SandboxFallbackTests(unittest.TestCase):
         self.assertTrue(mem_guard.admit(1 * GiB, "light", state).allowed)
 
     def test_memory_pressure_failure_is_unknown_and_backs_off(self):
-        probes, runner = self.probes(table={"/usr/bin/vm_stat": completed(VM_STAT_INCIDENT),
-                                            "/usr/bin/memory_pressure -Q": completed("garbage")})
+        probes, runner = self.probes(
+            table={"/usr/bin/vm_stat": completed(VM_STAT_INCIDENT), "/usr/bin/memory_pressure -Q": completed("garbage")}
+        )
         state = probes.read()
         self.assertEqual((mem_guard.classify(state)[0], state["levelSource"]), ("unknown", None))
         probes.read()
@@ -2559,17 +3042,29 @@ class LevelFilePublishingTests(CliCase):
         os.unlink(level)
         self.assertEqual(self.run_cli(["hook"], sysctl_ok, stdin=hook_payload("Bash", command="ls -la")), 0)
         self.assertFalse(level.exists(), "an unrelated tool call never reads or publishes")
-        self.assertEqual(self.run_cli(["hook"], dict(TIGHT, levelSource="sysctl"),
-                                      stdin=hook_payload("Bash", command="xcodebuild -scheme App build")), 2)
-        self.assertEqual(json.loads(level.read_text())["availablePercent"], TIGHT["availablePercent"],
-                         "a refusal publishes the reading it refused on")
+        self.assertEqual(
+            self.run_cli(
+                ["hook"],
+                dict(TIGHT, levelSource="sysctl"),
+                stdin=hook_payload("Bash", command="xcodebuild -scheme App build"),
+            ),
+            2,
+        )
+        self.assertEqual(
+            json.loads(level.read_text())["availablePercent"],
+            TIGHT["availablePercent"],
+            "a refusal publishes the reading it refused on",
+        )
 
     def test_admit_says_where_a_sandboxed_level_came_from(self):
-        self.assertEqual(self.run_cli(["admit", "--need-gb", "1"], dict(OK, levelSource="level-file",
-                                                                         levelAgeSeconds=1.4)), 0)
-        self.assertEqual(self.stdout.getvalue(),
-                         "admitted: memory ok; 32.0 GB available, light work (1.0 GB) would leave 31.0 GB "
-                         "(floor 6.4 GB); admitted [level from level.json, 1 s old; the sysctls are refused here]\n")
+        self.assertEqual(
+            self.run_cli(["admit", "--need-gb", "1"], dict(OK, levelSource="level-file", levelAgeSeconds=1.4)), 0
+        )
+        self.assertEqual(
+            self.stdout.getvalue(),
+            "admitted: memory ok; 32.0 GB available, light work (1.0 GB) would leave 31.0 GB "
+            "(floor 6.4 GB); admitted [level from level.json, 1 s old; the sysctls are refused here]\n",
+        )
         self.assertEqual(self.run_cli(["admit", "--need-gb", "1"], dict(CRITICAL, levelSource="memory_pressure")), 75)
         self.assertTrue(self.stdout.getvalue().startswith("refused: memory is critical"))
         self.assertIn("[availability from memory_pressure -Q only;", self.stdout.getvalue())
@@ -2580,44 +3075,70 @@ class LevelFilePublishingTests(CliCase):
     def test_a_failing_publish_never_changes_the_hook_decision(self):
         def boom(_state):
             raise OSError("disk full")
+
         payload = {"tool_name": "Bash", "tool_input": {"command": "xcodebuild -scheme App build"}}
-        found = mem_guard.hook_decide(payload, FakeProbes(dict(TIGHT, levelSource="sysctl"), CONSUMERS), None,
-                                      publish=boom)
+        found = mem_guard.hook_decide(
+            payload, FakeProbes(dict(TIGHT, levelSource="sysctl"), CONSUMERS), None, publish=boom
+        )
         self.assertIsNotNone(found)
-        self.assertIsNone(mem_guard.hook_decide(payload, FakeProbes(dict(OK, levelSource="sysctl")), None,
-                                                publish=boom))
+        self.assertIsNone(
+            mem_guard.hook_decide(payload, FakeProbes(dict(OK, levelSource="sysctl")), None, publish=boom)
+        )
         blocked = self.root / "blocked"
         self.root.mkdir(parents=True, exist_ok=True)
         blocked.write_text("a file where the state directory should be")
         self.stdout, self.stderr = io.StringIO(), io.StringIO()
-        ctx = mem_guard.Context(state_root=blocked, cfg=mem_guard.default_config(),
-                                probes=FakeProbes(dict(OK, levelSource="sysctl")), notifier=Notes(), clock=self.clock,
-                                gpu=lambda: None, stdin=io.BytesIO(hook_payload("Bash", command="astra-review . p")),
-                                stdout=self.stdout, stderr=self.stderr)
+        ctx = mem_guard.Context(
+            state_root=blocked,
+            cfg=mem_guard.default_config(),
+            probes=FakeProbes(dict(OK, levelSource="sysctl")),
+            notifier=Notes(),
+            clock=self.clock,
+            gpu=lambda: None,
+            stdin=io.BytesIO(hook_payload("Bash", command="astra-review . p")),
+            stdout=self.stdout,
+            stderr=self.stderr,
+        )
         self.assertEqual(mem_guard.main(["hook"], ctx), 0, "an unwritable level file never blocks a tool call")
 
     def test_the_monitor_guard_publishes_when_given_a_level_file(self):
         level = mem_guard.LevelFile(self.root / "level.json", clock=self.clock)
-        guard = mem_guard.Guard(cfg=mem_guard.default_config(), probes=FakeProbes(dict(WATCH, levelSource="sysctl")),
-                                registry=mem_guard.Registry(self.root / "r"), notifier=Notes(), clock=self.clock,
-                                level_file=level)
+        guard = mem_guard.Guard(
+            cfg=mem_guard.default_config(),
+            probes=FakeProbes(dict(WATCH, levelSource="sysctl")),
+            registry=mem_guard.Registry(self.root / "r"),
+            notifier=Notes(),
+            clock=self.clock,
+            level_file=level,
+        )
         block, source = guard.sample()
         self.assertEqual((block["level"], source["state"]), ("watch", "live"))
         self.assertEqual(level.read()["availablePercent"], 30)
         self.assertNotIn("levelSource", block, "the snapshot block keeps its exact key set")
-        plain = mem_guard.Guard(cfg=mem_guard.default_config(), probes=FakeProbes(dict(OK, levelSource="sysctl")),
-                                registry=mem_guard.Registry(self.root / "r2"), notifier=Notes(), clock=self.clock)
+        plain = mem_guard.Guard(
+            cfg=mem_guard.default_config(),
+            probes=FakeProbes(dict(OK, levelSource="sysctl")),
+            registry=mem_guard.Registry(self.root / "r2"),
+            notifier=Notes(),
+            clock=self.clock,
+        )
         self.assertIsNone(plain.level_file)
 
 
 class RegisterReceiptTests(RegistryCliTests):
     def test_register_json_carries_pid_start_time_and_the_real_error(self):
         pid = str(self.child.pid)
-        self.assertEqual(self.run_cli(["register", "--pid", pid, "--label", "lane", "--json"], registry=self.registry), 0)
+        self.assertEqual(
+            self.run_cli(["register", "--pid", pid, "--label", "lane", "--json"], registry=self.registry), 0
+        )
         receipt = json.loads(self.stdout.getvalue())
-        self.assertEqual(receipt, {"ok": True, "pid": self.child.pid, "startTime": START, "comm": "sleep", "label": "lane"})
+        self.assertEqual(
+            receipt, {"ok": True, "pid": self.child.pid, "startTime": START, "comm": "sleep", "label": "lane"}
+        )
         self.ps.fail = True
-        self.assertEqual(self.run_cli(["register", "--pid", pid, "--label", "lane", "--json"], registry=self.registry), 1)
+        self.assertEqual(
+            self.run_cli(["register", "--pid", pid, "--label", "lane", "--json"], registry=self.registry), 1
+        )
         failure = json.loads(self.stdout.getvalue())
         self.assertEqual(failure, {"ok": False, "error": "cannot read the process table (ps failed)"})
         self.assertIn("mem-guard: register failed: cannot read the process table (ps failed)", self.stderr.getvalue())
