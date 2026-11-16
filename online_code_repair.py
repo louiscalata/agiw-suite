@@ -1615,6 +1615,60 @@ class OnlineCodeRepair:
             return _RepairWorkerState.RUNNING
         return _RepairWorkerState.FINISHED
 
+    def _transition_requested(self, action: str | None) -> None:
+        if self._worker_state() in (_RepairWorkerState.RUNNING, _RepairWorkerState.STOPPED):
+            return
+        self._operation_id += 1
+        operation_id = self._operation_id
+        self._state = {
+            "status": "running",
+            "message": "Checking router and host owner state.",
+            "steps": [],
+            "operationId": operation_id,
+            "action": action,
+        }
+        # Keep equality and prefix checks ordered; actions need not be hashable.
+        messages = (
+            ("readiness", "Invoking the computer-wide readiness entry."),
+            ("fix-all", "Checking local runtime, Nisi Inference and the Windows route under their owner guards."),
+            ("fix-nisi", "Checking the router, Nisi owner and model server before any Nisi recovery."),
+            ("fix-", "Checking the selected inference scope."),
+            ("headless-on", "Probing the PC before turning headless on."),
+            ("headless-off", "Turning PC headless off."),
+        )
+        for candidate, selected_message in messages:
+            if action.startswith("fix-") if candidate == "fix-" else action == candidate:
+                self._state["message"] = selected_message
+                break
+        try:
+            self._worker = threading.Thread(
+                target=self._work, args=(operation_id, action), name="online-code-repair", daemon=True
+            )
+            self._worker.start()
+        except Exception:
+            self._transition("worker-start-failed")
+            raise
+
+    def _transition_cancel_requested(self, groups_stopped: bool) -> None:
+        # _OwnerChildren has already latched STOPPED and signalled children.
+        # Retain any finished outcome; only a running payload needs settling.
+        if self._state["status"] == "running":
+            self._state["status"] = "needs-action"
+            self._state["message"] = (
+                "Monitor stopped while pc-llm was probing the PC; check the headless switch before retrying."
+                + ("" if groups_stopped else " An owner process group could not be confirmed terminated.")
+                if self._state["action"] == "headless-on"
+                else FIX_NISI_CANCELLED
+                + ("" if groups_stopped else " An owner process group could not be confirmed terminated.")
+                if self._state["action"] == "fix-nisi"
+                else FIX_ALL_CANCELLED
+                + ("" if groups_stopped else " An owner process group could not be confirmed terminated.")
+                if self._state["action"] == "fix-all"
+                else "Monitor stopped before this check completed. No model inference was run."
+                if groups_stopped
+                else "Monitor stopped; an owner process group could not be confirmed terminated. Inspect owner processes before retrying. No model inference was run."
+            )
+
     def _transition(
         self,
         event: str,
@@ -1645,62 +1699,13 @@ class OnlineCodeRepair:
         elif event == "l2-closed":
             self._state = read_only_diagnosis(action, snapshot, now=self._clock())
         elif event == "requested":
-            if self._worker_state() in (_RepairWorkerState.RUNNING, _RepairWorkerState.STOPPED):
-                return
-            self._operation_id += 1
-            operation_id = self._operation_id
-            self._state = {
-                "status": "running",
-                "message": "Checking router and host owner state.",
-                "steps": [],
-                "operationId": operation_id,
-                "action": action,
-            }
-            if action == "readiness":
-                self._state["message"] = "Invoking the computer-wide readiness entry."
-            elif action == "fix-all":
-                self._state["message"] = (
-                    "Checking local runtime, Nisi Inference and the Windows route under their owner guards."
-                )
-            elif action == "fix-nisi":
-                self._state["message"] = "Checking the router, Nisi owner and model server before any Nisi recovery."
-            elif action.startswith("fix-"):
-                self._state["message"] = "Checking the selected inference scope."
-            elif action == "headless-on":
-                self._state["message"] = "Probing the PC before turning headless on."
-            elif action == "headless-off":
-                self._state["message"] = "Turning PC headless off."
-            try:
-                self._worker = threading.Thread(
-                    target=self._work, args=(operation_id, action), name="online-code-repair", daemon=True
-                )
-                self._worker.start()
-            except Exception:
-                self._transition("worker-start-failed")
-                raise
+            self._transition_requested(action)
         elif event == "worker-start-failed":
             self._worker = None
             self._state["status"] = "error"
             self._state["message"] = "Repair worker could not start; no maintenance action was run."
         elif event == "cancel-requested":
-            # _OwnerChildren has already latched STOPPED and signalled children.
-            # Retain any finished outcome; only a running payload needs settling.
-            if self._state["status"] == "running":
-                self._state["status"] = "needs-action"
-                self._state["message"] = (
-                    "Monitor stopped while pc-llm was probing the PC; check the headless switch before retrying."
-                    + ("" if groups_stopped else " An owner process group could not be confirmed terminated.")
-                    if self._state["action"] == "headless-on"
-                    else FIX_NISI_CANCELLED
-                    + ("" if groups_stopped else " An owner process group could not be confirmed terminated.")
-                    if self._state["action"] == "fix-nisi"
-                    else FIX_ALL_CANCELLED
-                    + ("" if groups_stopped else " An owner process group could not be confirmed terminated.")
-                    if self._state["action"] == "fix-all"
-                    else "Monitor stopped before this check completed. No model inference was run."
-                    if groups_stopped
-                    else "Monitor stopped; an owner process group could not be confirmed terminated. Inspect owner processes before retrying. No model inference was run."
-                )
+            self._transition_cancel_requested(groups_stopped)
         elif event == "step-recorded":
             self._state["steps"].append(step)
         elif event == "finished":
