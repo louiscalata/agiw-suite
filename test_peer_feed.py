@@ -803,6 +803,18 @@ class Feed(unittest.TestCase):
 
 
 class MacPresence(unittest.TestCase):
+    def test_pc_reader_mirror_agrees_with_windows_future_boundary(self):
+        now = 1000.0
+        # A protocol-role fixture supplies the required host field without machine identity.
+        host = "macos"
+        for ahead, accepted in ((0.0, True), (2.0, True), (2.1, False),
+                                (3.0, False), (5.0, False), (5.1, False)):
+            with self.subTest(ahead=ahead):
+                doc = {"schemaVersion": 1, "kind": "agiw-peer", "host": host,
+                       "platform": "macos", "observedUnix": now + ahead, "models": []}
+                self.assertEqual(pc_probes()._validate_peer(doc, now) is not None, accepted)
+                self.assertEqual(peer_feed.pc_reader_accepts(doc, host, now), accepted)
+
     def test_incomplete_inventory_diagnostic_does_not_claim_sources_are_unavailable(self):
         now = time.time()
         snap = {"sampledAt": now, "activityKnown": False,

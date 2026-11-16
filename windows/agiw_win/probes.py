@@ -29,6 +29,15 @@ from . import buildinfo
 from . import winsys
 from .jsonutil import JSON_MAX_DEPTH, loads_strict
 
+# Shared modules sit beside agiw_win in an install and above windows in a checkout.
+# Append so the shared root does not shadow the Windows test package.
+for _root in (Path(__file__).resolve().parents[1], Path(__file__).resolve().parents[2]):
+    if (_root / "machine_state.py").is_file():
+        if str(_root) not in sys.path:
+            sys.path.append(str(_root))
+        break
+from machine_state import PEER_FUTURE_SKEW
+
 IS_WINDOWS = os.name == "nt"
 CREATE_NO_WINDOW = 0x08000000 if IS_WINDOWS else 0
 
@@ -1900,9 +1909,7 @@ def write_json_atomic(path: Path, value: Any, max_bytes: int | None = None, stop
 # here opens a listener, and a peer file is evidence of what that host observed, not a live connection.
 PEER_DIR = ("llm-lab", "status", "agiw-peers")
 PEER_FRESH_SECONDS = 30.0
-# A report dated further ahead than this is a clock mismatch, never freshness. The Mac reader
-# (peer_feed, machine_state) uses the same 2 s, so both editions refuse the same reports.
-PEER_FUTURE_SKEW = 2.0
+# Both editions use machine_state.PEER_FUTURE_SKEW as the clock-lead limit for presence reports.
 PEER_MAX_FILES = 16
 PEER_MAX_BYTES = 65536
 PEER_SCAN_LIMIT = 256

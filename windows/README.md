@@ -21,7 +21,7 @@ observer that serves **the same dashboard** as the Mac edition, in its `host: "w
 ## Run
 
 Double-click **`AGIW Monitor.vbs`** (or `AGIW Monitor.cmd`). The tray icon appears and the dashboard opens in an
-Edge app window at `http://127.0.0.1:8767/monitor`; **Full dashboard** opens the earlier view at `/`. The same server also serves
+Edge app window at `http://127.0.0.1:8767/monitor`; **Overview** opens the earlier view at `/`. The same server also serves
 `/machines` (one tile per machine), `/setup` (this edition's own steps), `/components` (the Mac app's components, answered here with "Not available in the
 Windows edition yet") and `/identity` and `/eci-tuning`. If 8767 is held by something else the observer stops and the tray
 says so, rather than moving to another address.
@@ -34,9 +34,11 @@ AGIW app icon (`agiw.ico` in the install folder).
 One-shot check without the tray:
 
 ```powershell
-python agiw_observer.py --once           # one snapshot as JSON
-python agiw_observer.py --port 8767      # observer only; open the URL it prints
+python -B agiw_observer.py --once           # one snapshot as JSON
+python -B agiw_observer.py --port 8767      # observer only; open /monitor at the loopback address above
 ```
+
+Use `-B` (or set `PYTHONDONTWRITEBYTECODE=1`) to avoid writing bytecode caches into the install folder.
 
 ## Requirements
 
@@ -57,7 +59,7 @@ python agiw_observer.py --port 8767      # observer only; open the URL it prints
 
 ## Model tuning dataset (optional)
 
-Set the local `AGIW_ECI_TUNING_DATASET_DIR` environment variable before starting the observer to an absolute local directory containing `dataset.json` (the file itself must not be a symlink). Create that normalized file with `python -m eci_tuning ingest <input files> --output <directory>/dataset.json`. The observer reads and validates the file; it does not write to the dataset directory. Without the variable, the page uses the bundled catalog. A missing, unreadable or invalid configured dataset is reported as unknown with a reason instead of silently displaying the bundled catalog. Fast screening remains separate from full ECI results.
+Set the local `AGIW_ECI_TUNING_DATASET_DIR` environment variable before starting the observer to an absolute local directory containing `dataset.json` (the file itself must not be a symlink). Create that normalized file with `python -B -m eci_tuning ingest <input files> --output <directory>/dataset.json`. The observer reads and validates the file; it does not write to the dataset directory. Without the variable, the page uses the bundled catalog. A missing, unreadable or invalid configured dataset is reported as unknown with a reason instead of silently displaying the bundled catalog. Fast screening remains separate from full ECI results.
 
 ## Options (`config.json` beside the observer)
 
@@ -112,8 +114,8 @@ for the LAN pairing service, `peer_link.py` (agiw-peer/2), which the installer s
 it starts nothing. To run it after pairing approval and the 8768/8769 firewall rules:
 
 ```powershell
-python peer_link.py run --status-file state\peer-link-status.json   # announce and serve signed read-only status
-python peer_link.py peers                                            # list machines; then invite / accept with the PIN
+python -B peer_link.py run --status-file state\peer-link-status.json   # announce and serve signed read-only status
+python -B peer_link.py peers                                            # list machines; then invite / accept with the PIN
 ```
 
 The pairing service reduces that file to its own allowlist before anything leaves the PC. The file is never written
@@ -122,7 +124,7 @@ to the share, which other machines can write.
 ## Install from a checkout
 
 ```powershell
-powershell -NoProfile -File windows\install.ps1 -Destination $HOME\bin\agiw-win [-StartAtSignIn] [-Launch]
+powershell -NoProfile -ExecutionPolicy Bypass -File windows\install.ps1 -Destination $HOME\bin\agiw-win [-StartAtSignIn] [-Launch]
 ```
 
 The destination must be a private local folder: network paths, mapped drives, SharedChami and any path under a
@@ -132,6 +134,11 @@ the swap. Updates are staged. Every file is copied into a hidden staging folder 
 swapped in one at a time with the previous copy kept. If any step fails, every previous file is restored and the
 installer reports that it rolled back. `state\` (logs and observer state) is never touched, so a running tray can
 be updated in place.
+
+Ordinary generated `.pyc` files in `__pycache__` beside shipped Python modules are preserved and do not block an
+update, but an install that holds any is recorded in `build.json` as `unverified`, not `signed-head`. Hash-based
+caches, which Python can load without checking the source, stop the update like other unexpected code.
+Unexpected source files, binary modules, recovery folders and links still require inspection before retrying.
 
 The installer also writes `build.json` (version, commit, dirty state, signature and byte-verification results).
 A clean `+<commit>` producer requires successful scoped status, signed-commit verification and a complete staged
@@ -155,12 +162,11 @@ python -B -m unittest discover -s windows/tests -t windows   # the same suite fr
 node --test (Get-ChildItem test_*.mjs).Name              # dashboard view logic (repo root)
 ```
 
-## Known limits (0.2)
+## Known limits (1.1.0)
 
 - The shared dashboard now uses the Mac presence reasons (`unconfigured`, `no-report`, `stale`). Legacy positive
   LAN observations retain their evidence wording only while fresh. A5 still owns the combined-view integration.
-- Linux relay origin and expected identity are not authenticated here; canonical Linux stays `unknown` with
-  `relay-unverified` when a share file claims a Mac relay. The claim remains visible only in the peer diagnostics.
+- Linux share reports remain visible only in the peer diagnostics. Linux is retired and never becomes a machine row.
 - Native Windows acceptance is still required before D3: run `windows/tests`, including `InstallerOnWindows`, and
   verify process/listener ownership, PDH GPU counters and `SHQueryUserNotificationState` on the PC. Portable mocked
   tests cover logic and cleanup; they do not verify these Windows APIs or a native installation.
