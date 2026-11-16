@@ -3961,15 +3961,10 @@ def _route_components(
     return [{"id": "nisi", "label": "Nisi route adapter", **nisi}, {"id": "jev", "label": "Jev", **jev}]
 
 
-def collect_snapshot() -> dict[str, Any]:
-    """Collect bounded local status without touching inference or queue state."""
-    sampled = time.time()
-    observed = _dt.datetime.fromtimestamp(sampled, _dt.timezone.utc).isoformat().replace("+00:00", "Z")
-    sources: list[dict[str, Any]] = []
-    models_by_id: dict[str, dict[str, Any]] = {}
-    instance_observations: list[dict[str, Any]] = []
-
-    pair = None
+def _collect_lmstudio_inventory(
+    sampled: float, sources: list[dict[str, Any]], models_by_id: dict[str, dict[str, Any]]
+) -> None:
+    """Append native LM Studio inventory evidence to the current sample."""
     lms_status = _lms_server_status()
     try:
         endpoint = _native_api_endpoint(lms_status)
@@ -4095,6 +4090,18 @@ def collect_snapshot() -> dict[str, Any]:
                     "detail": "Local inventory invalid or unavailable" + suffix,
                 }
             )
+
+
+def collect_snapshot() -> dict[str, Any]:
+    """Collect bounded local status without touching inference or queue state."""
+    sampled = time.time()
+    observed = _dt.datetime.fromtimestamp(sampled, _dt.timezone.utc).isoformat().replace("+00:00", "Z")
+    sources: list[dict[str, Any]] = []
+    models_by_id: dict[str, dict[str, Any]] = {}
+    instance_observations: list[dict[str, Any]] = []
+
+    pair = None
+    _collect_lmstudio_inventory(sampled, sources, models_by_id)
 
     try:
         cli_payload = _bounded_lms()
