@@ -11,6 +11,22 @@ from inference_stats import expire_map, machine_node, make_node
 from server import SnapshotStore
 
 
+# The collector has no built-in PC lanes. These isolated probe fixtures keep the
+# retired router and llama-server layout only to exercise the lane readers.
+LEGACY_FIXTURE_LANES = (
+    {"id": "pc:router", "role": "router", "label": "Router", "port": 1234},
+    {"id": "pc:gpt-oss-20b", "role": "llama", "label": "gpt-oss-20b", "port": 1245,
+     "expectedModel": "gpt-oss-20b"},
+    {"id": "pc:qwen3.8-27b", "role": "llama", "label": "qwen3.8-27b", "port": 1236,
+     "expectedModel": "qwen3.8-27b"},
+)
+
+
+def legacy_fixture_lanes():
+    return patch.multiple(inference_collect, PC_LANES=LEGACY_FIXTURE_LANES,
+                          _BY_ID={lane["id"]: lane for lane in LEGACY_FIXTURE_LANES})
+
+
 def stamp(seconds):
     return dt.datetime.fromtimestamp(seconds, dt.timezone.utc).isoformat().replace('+00:00', 'Z')
 
@@ -49,7 +65,8 @@ class CollectionReviewFixes(unittest.TestCase):
             return 200, body, 150
 
         for host in ('mac', 'pc'):
-            with self.subTest(host=host), patch('inference_collect.loopback_get', side_effect=slow_get):
+            with self.subTest(host=host), patch('inference_collect.loopback_get', side_effect=slow_get), \
+                    legacy_fixture_lanes():
                 started = time.monotonic()
                 document = inference_collect.collect_map(
                     host, targets=inference_collect.direct_targets(), veritas_url='http://127.0.0.1:9/health')

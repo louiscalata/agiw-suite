@@ -7,15 +7,14 @@ const nodes = [
   {id: 'mac', label: 'Mac', health: 'ok', generationTokensPerSecond: 3},
   {id: 'mac:lmstudio', label: 'LM Studio', health: 'ok', modelId: 'gpt-oss-20b', generationTokensPerSecond: 3},
   {id: 'pc', label: 'PC', health: 'not_measured'},
-  {id: 'pc:router', label: 'Router', health: 'not_measured', reason: 'tunnel_down'},
-  {id: 'pc:router:caller:codex', label: 'Codex', role: 'client', health: 'ok'},
+  {id: 'mac:lmstudio:caller:codex', label: 'Codex', role: 'client', health: 'ok'},
 ];
 
 test('known lanes keep a stable place and a caller is still drawn', () => {
   const placed = place(nodes);
   assert.equal(placed.find(node => node.id === 'mac:lmstudio').x, 120);
-  assert.equal(placed.find(node => node.id === 'pc:router').y, 160);
-  assert.equal(placed.find(node => node.id === 'pc:router:caller:codex').y, 390);
+  assert.equal(placed.find(node => node.id === 'pc').y, 48);
+  assert.equal(placed.find(node => node.id === 'mac:lmstudio:caller:codex').y, 390);
 });
 
 test('a node shows health, the reported model and tok/s', () => {
