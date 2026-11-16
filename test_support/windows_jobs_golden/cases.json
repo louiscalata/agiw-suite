@@ -4933,6 +4933,3986 @@
           "complete": true
         }
       ]
+    },
+    {
+      "name": "boundary_enqueue_timeout_599_age_5_0",
+      "journal_base64": "eyJ2IjoxLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMDEiLCJldmVudCI6ImVucXVldWVkIiwidW5peCI6OTk5NS4wLCJ0aW1lb3V0Ijo1OTksInBpZCI6MTIzNDUsIm1vZGVsIjoiZ3B0LW9zcy0yMGIifQo=",
+      "reader_kind": "complete-tuple",
+      "pid_alive": true,
+      "now": 10000.0,
+      "expected": [
+        {
+          "schemaVersion": 1,
+          "journal": "recorded",
+          "complete": true,
+          "inFlight": [
+            {
+              "id": "mac-boundary-000000000001",
+              "model": "gpt-oss-20b",
+              "ageSeconds": 5.0,
+              "timeoutSeconds": 599,
+              "cancelRequested": false,
+              "client": null,
+              "lane": "fast",
+              "predictedPerSecond": null,
+              "completionTokens": null,
+              "promptPerSecond": null,
+              "promptTokens": null,
+              "flags": []
+            }
+          ],
+          "recent": [],
+          "lastSuccess": null,
+          "unsettled": 1,
+          "clientsRecent": {},
+          "observationAgeSeconds": 0.0,
+          "availability": {
+            "state": "available"
+          },
+          "liveAvailable": true,
+          "projectionComplete": true,
+          "truncated": false,
+          "inFlightTruncated": false,
+          "recentTruncated": false
+        },
+        {
+          "id": "windows-jobs",
+          "label": "Windows jobs",
+          "state": "live",
+          "ageSeconds": 5.0,
+          "detail": "1 Windows job in flight",
+          "observationAgeSeconds": 0.0,
+          "observedAgeSeconds": 0.0,
+          "complete": true
+        }
+      ]
+    },
+    {
+      "name": "boundary_enqueue_timeout_599_age_630_0",
+      "journal_base64": "eyJ2IjoxLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMDEiLCJldmVudCI6ImVucXVldWVkIiwidW5peCI6OTM3MC4wLCJ0aW1lb3V0Ijo1OTksInBpZCI6MTIzNDUsIm1vZGVsIjoiZ3B0LW9zcy0yMGIifQo=",
+      "reader_kind": "complete-tuple",
+      "pid_alive": true,
+      "now": 10000.0,
+      "expected": [
+        {
+          "schemaVersion": 1,
+          "journal": "recorded",
+          "complete": true,
+          "inFlight": [],
+          "recent": [
+            {
+              "id": "mac-boundary-000000000001",
+              "state": "unresolved",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": null,
+              "ageSeconds": 630.0,
+              "client": null,
+              "lane": "fast",
+              "predictedPerSecond": null,
+              "completionTokens": null,
+              "promptPerSecond": null,
+              "promptTokens": null,
+              "flags": []
+            }
+          ],
+          "lastSuccess": null,
+          "unsettled": 0,
+          "clientsRecent": {
+            "unknown": 1
+          },
+          "observationAgeSeconds": 0.0,
+          "availability": {
+            "state": "available"
+          },
+          "liveAvailable": true,
+          "projectionComplete": true,
+          "truncated": false,
+          "inFlightTruncated": false,
+          "recentTruncated": false
+        },
+        {
+          "id": "windows-jobs",
+          "label": "Windows jobs",
+          "state": "recorded",
+          "ageSeconds": 630.0,
+          "detail": "Windows jobs journaled; no validated result yet",
+          "observationAgeSeconds": 0.0,
+          "observedAgeSeconds": 0.0,
+          "complete": true
+        }
+      ]
+    },
+    {
+      "name": "boundary_enqueue_timeout_599_age_630_5",
+      "journal_base64": "eyJ2IjoxLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMDEiLCJldmVudCI6ImVucXVldWVkIiwidW5peCI6OTM2OS41LCJ0aW1lb3V0Ijo1OTksInBpZCI6MTIzNDUsIm1vZGVsIjoiZ3B0LW9zcy0yMGIifQo=",
+      "reader_kind": "complete-tuple",
+      "pid_alive": true,
+      "now": 10000.0,
+      "expected": [
+        {
+          "schemaVersion": 1,
+          "journal": "recorded",
+          "complete": true,
+          "inFlight": [],
+          "recent": [
+            {
+              "id": "mac-boundary-000000000001",
+              "state": "unresolved",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": null,
+              "ageSeconds": 630.5,
+              "client": null,
+              "lane": "fast",
+              "predictedPerSecond": null,
+              "completionTokens": null,
+              "promptPerSecond": null,
+              "promptTokens": null,
+              "flags": []
+            }
+          ],
+          "lastSuccess": null,
+          "unsettled": 0,
+          "clientsRecent": {
+            "unknown": 1
+          },
+          "observationAgeSeconds": 0.0,
+          "availability": {
+            "state": "available"
+          },
+          "liveAvailable": true,
+          "projectionComplete": true,
+          "truncated": false,
+          "inFlightTruncated": false,
+          "recentTruncated": false
+        },
+        {
+          "id": "windows-jobs",
+          "label": "Windows jobs",
+          "state": "recorded",
+          "ageSeconds": 630.5,
+          "detail": "Windows jobs journaled; no validated result yet",
+          "observationAgeSeconds": 0.0,
+          "observedAgeSeconds": 0.0,
+          "complete": true
+        }
+      ]
+    },
+    {
+      "name": "boundary_enqueue_timeout_599_age_631_0",
+      "journal_base64": "eyJ2IjoxLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMDEiLCJldmVudCI6ImVucXVldWVkIiwidW5peCI6OTM2OS4wLCJ0aW1lb3V0Ijo1OTksInBpZCI6MTIzNDUsIm1vZGVsIjoiZ3B0LW9zcy0yMGIifQo=",
+      "reader_kind": "complete-tuple",
+      "pid_alive": true,
+      "now": 10000.0,
+      "expected": [
+        {
+          "schemaVersion": 1,
+          "journal": "recorded",
+          "complete": true,
+          "inFlight": [],
+          "recent": [
+            {
+              "id": "mac-boundary-000000000001",
+              "state": "unresolved",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": null,
+              "ageSeconds": 631.0,
+              "client": null,
+              "lane": "fast",
+              "predictedPerSecond": null,
+              "completionTokens": null,
+              "promptPerSecond": null,
+              "promptTokens": null,
+              "flags": []
+            }
+          ],
+          "lastSuccess": null,
+          "unsettled": 0,
+          "clientsRecent": {
+            "unknown": 1
+          },
+          "observationAgeSeconds": 0.0,
+          "availability": {
+            "state": "available"
+          },
+          "liveAvailable": true,
+          "projectionComplete": true,
+          "truncated": false,
+          "inFlightTruncated": false,
+          "recentTruncated": false
+        },
+        {
+          "id": "windows-jobs",
+          "label": "Windows jobs",
+          "state": "recorded",
+          "ageSeconds": 631.0,
+          "detail": "Windows jobs journaled; no validated result yet",
+          "observationAgeSeconds": 0.0,
+          "observedAgeSeconds": 0.0,
+          "complete": true
+        }
+      ]
+    },
+    {
+      "name": "boundary_enqueue_timeout_600_age_5_0",
+      "journal_base64": "eyJ2IjoxLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMDEiLCJldmVudCI6ImVucXVldWVkIiwidW5peCI6OTk5NS4wLCJ0aW1lb3V0Ijo2MDAsInBpZCI6MTIzNDUsIm1vZGVsIjoiZ3B0LW9zcy0yMGIifQo=",
+      "reader_kind": "complete-tuple",
+      "pid_alive": true,
+      "now": 10000.0,
+      "expected": [
+        {
+          "schemaVersion": 1,
+          "journal": "recorded",
+          "complete": true,
+          "inFlight": [
+            {
+              "id": "mac-boundary-000000000001",
+              "model": "gpt-oss-20b",
+              "ageSeconds": 5.0,
+              "timeoutSeconds": 600,
+              "cancelRequested": false,
+              "client": null,
+              "lane": "fast",
+              "predictedPerSecond": null,
+              "completionTokens": null,
+              "promptPerSecond": null,
+              "promptTokens": null,
+              "flags": []
+            }
+          ],
+          "recent": [],
+          "lastSuccess": null,
+          "unsettled": 1,
+          "clientsRecent": {},
+          "observationAgeSeconds": 0.0,
+          "availability": {
+            "state": "available"
+          },
+          "liveAvailable": true,
+          "projectionComplete": true,
+          "truncated": false,
+          "inFlightTruncated": false,
+          "recentTruncated": false
+        },
+        {
+          "id": "windows-jobs",
+          "label": "Windows jobs",
+          "state": "live",
+          "ageSeconds": 5.0,
+          "detail": "1 Windows job in flight",
+          "observationAgeSeconds": 0.0,
+          "observedAgeSeconds": 0.0,
+          "complete": true
+        }
+      ]
+    },
+    {
+      "name": "boundary_enqueue_timeout_600_age_630_0",
+      "journal_base64": "eyJ2IjoxLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMDEiLCJldmVudCI6ImVucXVldWVkIiwidW5peCI6OTM3MC4wLCJ0aW1lb3V0Ijo2MDAsInBpZCI6MTIzNDUsIm1vZGVsIjoiZ3B0LW9zcy0yMGIifQo=",
+      "reader_kind": "complete-tuple",
+      "pid_alive": true,
+      "now": 10000.0,
+      "expected": [
+        {
+          "schemaVersion": 1,
+          "journal": "recorded",
+          "complete": true,
+          "inFlight": [
+            {
+              "id": "mac-boundary-000000000001",
+              "model": "gpt-oss-20b",
+              "ageSeconds": 630.0,
+              "timeoutSeconds": 600,
+              "cancelRequested": false,
+              "client": null,
+              "lane": "fast",
+              "predictedPerSecond": null,
+              "completionTokens": null,
+              "promptPerSecond": null,
+              "promptTokens": null,
+              "flags": []
+            }
+          ],
+          "recent": [],
+          "lastSuccess": null,
+          "unsettled": 1,
+          "clientsRecent": {},
+          "observationAgeSeconds": 0.0,
+          "availability": {
+            "state": "available"
+          },
+          "liveAvailable": true,
+          "projectionComplete": true,
+          "truncated": false,
+          "inFlightTruncated": false,
+          "recentTruncated": false
+        },
+        {
+          "id": "windows-jobs",
+          "label": "Windows jobs",
+          "state": "live",
+          "ageSeconds": 630.0,
+          "detail": "1 Windows job in flight",
+          "observationAgeSeconds": 0.0,
+          "observedAgeSeconds": 0.0,
+          "complete": true
+        }
+      ]
+    },
+    {
+      "name": "boundary_enqueue_timeout_600_age_630_5",
+      "journal_base64": "eyJ2IjoxLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMDEiLCJldmVudCI6ImVucXVldWVkIiwidW5peCI6OTM2OS41LCJ0aW1lb3V0Ijo2MDAsInBpZCI6MTIzNDUsIm1vZGVsIjoiZ3B0LW9zcy0yMGIifQo=",
+      "reader_kind": "complete-tuple",
+      "pid_alive": true,
+      "now": 10000.0,
+      "expected": [
+        {
+          "schemaVersion": 1,
+          "journal": "recorded",
+          "complete": true,
+          "inFlight": [],
+          "recent": [
+            {
+              "id": "mac-boundary-000000000001",
+              "state": "unresolved",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": null,
+              "ageSeconds": 630.5,
+              "client": null,
+              "lane": "fast",
+              "predictedPerSecond": null,
+              "completionTokens": null,
+              "promptPerSecond": null,
+              "promptTokens": null,
+              "flags": []
+            }
+          ],
+          "lastSuccess": null,
+          "unsettled": 0,
+          "clientsRecent": {
+            "unknown": 1
+          },
+          "observationAgeSeconds": 0.0,
+          "availability": {
+            "state": "available"
+          },
+          "liveAvailable": true,
+          "projectionComplete": true,
+          "truncated": false,
+          "inFlightTruncated": false,
+          "recentTruncated": false
+        },
+        {
+          "id": "windows-jobs",
+          "label": "Windows jobs",
+          "state": "recorded",
+          "ageSeconds": 630.5,
+          "detail": "Windows jobs journaled; no validated result yet",
+          "observationAgeSeconds": 0.0,
+          "observedAgeSeconds": 0.0,
+          "complete": true
+        }
+      ]
+    },
+    {
+      "name": "boundary_enqueue_timeout_600_age_631_0",
+      "journal_base64": "eyJ2IjoxLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMDEiLCJldmVudCI6ImVucXVldWVkIiwidW5peCI6OTM2OS4wLCJ0aW1lb3V0Ijo2MDAsInBpZCI6MTIzNDUsIm1vZGVsIjoiZ3B0LW9zcy0yMGIifQo=",
+      "reader_kind": "complete-tuple",
+      "pid_alive": true,
+      "now": 10000.0,
+      "expected": [
+        {
+          "schemaVersion": 1,
+          "journal": "recorded",
+          "complete": true,
+          "inFlight": [],
+          "recent": [
+            {
+              "id": "mac-boundary-000000000001",
+              "state": "unresolved",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": null,
+              "ageSeconds": 631.0,
+              "client": null,
+              "lane": "fast",
+              "predictedPerSecond": null,
+              "completionTokens": null,
+              "promptPerSecond": null,
+              "promptTokens": null,
+              "flags": []
+            }
+          ],
+          "lastSuccess": null,
+          "unsettled": 0,
+          "clientsRecent": {
+            "unknown": 1
+          },
+          "observationAgeSeconds": 0.0,
+          "availability": {
+            "state": "available"
+          },
+          "liveAvailable": true,
+          "projectionComplete": true,
+          "truncated": false,
+          "inFlightTruncated": false,
+          "recentTruncated": false
+        },
+        {
+          "id": "windows-jobs",
+          "label": "Windows jobs",
+          "state": "recorded",
+          "ageSeconds": 631.0,
+          "detail": "Windows jobs journaled; no validated result yet",
+          "observationAgeSeconds": 0.0,
+          "observedAgeSeconds": 0.0,
+          "complete": true
+        }
+      ]
+    },
+    {
+      "name": "boundary_enqueue_timeout_601_age_5_0",
+      "journal_base64": "eyJ2IjoxLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMDEiLCJldmVudCI6ImVucXVldWVkIiwidW5peCI6OTk5NS4wLCJ0aW1lb3V0Ijo2MDEsInBpZCI6MTIzNDUsIm1vZGVsIjoiZ3B0LW9zcy0yMGIifQo=",
+      "reader_kind": "complete-tuple",
+      "pid_alive": true,
+      "now": 10000.0,
+      "expected": [
+        {
+          "schemaVersion": 1,
+          "journal": "recorded",
+          "complete": true,
+          "inFlight": [
+            {
+              "id": "mac-boundary-000000000001",
+              "model": "gpt-oss-20b",
+              "ageSeconds": 5.0,
+              "timeoutSeconds": 600,
+              "cancelRequested": false,
+              "client": null,
+              "lane": "fast",
+              "predictedPerSecond": null,
+              "completionTokens": null,
+              "promptPerSecond": null,
+              "promptTokens": null,
+              "flags": []
+            }
+          ],
+          "recent": [],
+          "lastSuccess": null,
+          "unsettled": 1,
+          "clientsRecent": {},
+          "observationAgeSeconds": 0.0,
+          "availability": {
+            "state": "available"
+          },
+          "liveAvailable": true,
+          "projectionComplete": true,
+          "truncated": false,
+          "inFlightTruncated": false,
+          "recentTruncated": false
+        },
+        {
+          "id": "windows-jobs",
+          "label": "Windows jobs",
+          "state": "live",
+          "ageSeconds": 5.0,
+          "detail": "1 Windows job in flight",
+          "observationAgeSeconds": 0.0,
+          "observedAgeSeconds": 0.0,
+          "complete": true
+        }
+      ]
+    },
+    {
+      "name": "boundary_enqueue_timeout_601_age_630_0",
+      "journal_base64": "eyJ2IjoxLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMDEiLCJldmVudCI6ImVucXVldWVkIiwidW5peCI6OTM3MC4wLCJ0aW1lb3V0Ijo2MDEsInBpZCI6MTIzNDUsIm1vZGVsIjoiZ3B0LW9zcy0yMGIifQo=",
+      "reader_kind": "complete-tuple",
+      "pid_alive": true,
+      "now": 10000.0,
+      "expected": [
+        {
+          "schemaVersion": 1,
+          "journal": "recorded",
+          "complete": true,
+          "inFlight": [
+            {
+              "id": "mac-boundary-000000000001",
+              "model": "gpt-oss-20b",
+              "ageSeconds": 630.0,
+              "timeoutSeconds": 600,
+              "cancelRequested": false,
+              "client": null,
+              "lane": "fast",
+              "predictedPerSecond": null,
+              "completionTokens": null,
+              "promptPerSecond": null,
+              "promptTokens": null,
+              "flags": []
+            }
+          ],
+          "recent": [],
+          "lastSuccess": null,
+          "unsettled": 1,
+          "clientsRecent": {},
+          "observationAgeSeconds": 0.0,
+          "availability": {
+            "state": "available"
+          },
+          "liveAvailable": true,
+          "projectionComplete": true,
+          "truncated": false,
+          "inFlightTruncated": false,
+          "recentTruncated": false
+        },
+        {
+          "id": "windows-jobs",
+          "label": "Windows jobs",
+          "state": "live",
+          "ageSeconds": 630.0,
+          "detail": "1 Windows job in flight",
+          "observationAgeSeconds": 0.0,
+          "observedAgeSeconds": 0.0,
+          "complete": true
+        }
+      ]
+    },
+    {
+      "name": "boundary_enqueue_timeout_601_age_630_5",
+      "journal_base64": "eyJ2IjoxLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMDEiLCJldmVudCI6ImVucXVldWVkIiwidW5peCI6OTM2OS41LCJ0aW1lb3V0Ijo2MDEsInBpZCI6MTIzNDUsIm1vZGVsIjoiZ3B0LW9zcy0yMGIifQo=",
+      "reader_kind": "complete-tuple",
+      "pid_alive": true,
+      "now": 10000.0,
+      "expected": [
+        {
+          "schemaVersion": 1,
+          "journal": "recorded",
+          "complete": true,
+          "inFlight": [],
+          "recent": [
+            {
+              "id": "mac-boundary-000000000001",
+              "state": "unresolved",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": null,
+              "ageSeconds": 630.5,
+              "client": null,
+              "lane": "fast",
+              "predictedPerSecond": null,
+              "completionTokens": null,
+              "promptPerSecond": null,
+              "promptTokens": null,
+              "flags": []
+            }
+          ],
+          "lastSuccess": null,
+          "unsettled": 0,
+          "clientsRecent": {
+            "unknown": 1
+          },
+          "observationAgeSeconds": 0.0,
+          "availability": {
+            "state": "available"
+          },
+          "liveAvailable": true,
+          "projectionComplete": true,
+          "truncated": false,
+          "inFlightTruncated": false,
+          "recentTruncated": false
+        },
+        {
+          "id": "windows-jobs",
+          "label": "Windows jobs",
+          "state": "recorded",
+          "ageSeconds": 630.5,
+          "detail": "Windows jobs journaled; no validated result yet",
+          "observationAgeSeconds": 0.0,
+          "observedAgeSeconds": 0.0,
+          "complete": true
+        }
+      ]
+    },
+    {
+      "name": "boundary_enqueue_timeout_601_age_631_0",
+      "journal_base64": "eyJ2IjoxLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMDEiLCJldmVudCI6ImVucXVldWVkIiwidW5peCI6OTM2OS4wLCJ0aW1lb3V0Ijo2MDEsInBpZCI6MTIzNDUsIm1vZGVsIjoiZ3B0LW9zcy0yMGIifQo=",
+      "reader_kind": "complete-tuple",
+      "pid_alive": true,
+      "now": 10000.0,
+      "expected": [
+        {
+          "schemaVersion": 1,
+          "journal": "recorded",
+          "complete": true,
+          "inFlight": [],
+          "recent": [
+            {
+              "id": "mac-boundary-000000000001",
+              "state": "unresolved",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": null,
+              "ageSeconds": 631.0,
+              "client": null,
+              "lane": "fast",
+              "predictedPerSecond": null,
+              "completionTokens": null,
+              "promptPerSecond": null,
+              "promptTokens": null,
+              "flags": []
+            }
+          ],
+          "lastSuccess": null,
+          "unsettled": 0,
+          "clientsRecent": {
+            "unknown": 1
+          },
+          "observationAgeSeconds": 0.0,
+          "availability": {
+            "state": "available"
+          },
+          "liveAvailable": true,
+          "projectionComplete": true,
+          "truncated": false,
+          "inFlightTruncated": false,
+          "recentTruncated": false
+        },
+        {
+          "id": "windows-jobs",
+          "label": "Windows jobs",
+          "state": "recorded",
+          "ageSeconds": 631.0,
+          "detail": "Windows jobs journaled; no validated result yet",
+          "observationAgeSeconds": 0.0,
+          "observedAgeSeconds": 0.0,
+          "complete": true
+        }
+      ]
+    },
+    {
+      "name": "boundary_enqueue_timeout_602_age_5_0",
+      "journal_base64": "eyJ2IjoxLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMDEiLCJldmVudCI6ImVucXVldWVkIiwidW5peCI6OTk5NS4wLCJ0aW1lb3V0Ijo2MDIsInBpZCI6MTIzNDUsIm1vZGVsIjoiZ3B0LW9zcy0yMGIifQo=",
+      "reader_kind": "complete-tuple",
+      "pid_alive": true,
+      "now": 10000.0,
+      "expected": [
+        {
+          "schemaVersion": 1,
+          "journal": "recorded",
+          "complete": true,
+          "inFlight": [
+            {
+              "id": "mac-boundary-000000000001",
+              "model": "gpt-oss-20b",
+              "ageSeconds": 5.0,
+              "timeoutSeconds": 600,
+              "cancelRequested": false,
+              "client": null,
+              "lane": "fast",
+              "predictedPerSecond": null,
+              "completionTokens": null,
+              "promptPerSecond": null,
+              "promptTokens": null,
+              "flags": []
+            }
+          ],
+          "recent": [],
+          "lastSuccess": null,
+          "unsettled": 1,
+          "clientsRecent": {},
+          "observationAgeSeconds": 0.0,
+          "availability": {
+            "state": "available"
+          },
+          "liveAvailable": true,
+          "projectionComplete": true,
+          "truncated": false,
+          "inFlightTruncated": false,
+          "recentTruncated": false
+        },
+        {
+          "id": "windows-jobs",
+          "label": "Windows jobs",
+          "state": "live",
+          "ageSeconds": 5.0,
+          "detail": "1 Windows job in flight",
+          "observationAgeSeconds": 0.0,
+          "observedAgeSeconds": 0.0,
+          "complete": true
+        }
+      ]
+    },
+    {
+      "name": "boundary_enqueue_timeout_602_age_630_0",
+      "journal_base64": "eyJ2IjoxLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMDEiLCJldmVudCI6ImVucXVldWVkIiwidW5peCI6OTM3MC4wLCJ0aW1lb3V0Ijo2MDIsInBpZCI6MTIzNDUsIm1vZGVsIjoiZ3B0LW9zcy0yMGIifQo=",
+      "reader_kind": "complete-tuple",
+      "pid_alive": true,
+      "now": 10000.0,
+      "expected": [
+        {
+          "schemaVersion": 1,
+          "journal": "recorded",
+          "complete": true,
+          "inFlight": [
+            {
+              "id": "mac-boundary-000000000001",
+              "model": "gpt-oss-20b",
+              "ageSeconds": 630.0,
+              "timeoutSeconds": 600,
+              "cancelRequested": false,
+              "client": null,
+              "lane": "fast",
+              "predictedPerSecond": null,
+              "completionTokens": null,
+              "promptPerSecond": null,
+              "promptTokens": null,
+              "flags": []
+            }
+          ],
+          "recent": [],
+          "lastSuccess": null,
+          "unsettled": 1,
+          "clientsRecent": {},
+          "observationAgeSeconds": 0.0,
+          "availability": {
+            "state": "available"
+          },
+          "liveAvailable": true,
+          "projectionComplete": true,
+          "truncated": false,
+          "inFlightTruncated": false,
+          "recentTruncated": false
+        },
+        {
+          "id": "windows-jobs",
+          "label": "Windows jobs",
+          "state": "live",
+          "ageSeconds": 630.0,
+          "detail": "1 Windows job in flight",
+          "observationAgeSeconds": 0.0,
+          "observedAgeSeconds": 0.0,
+          "complete": true
+        }
+      ]
+    },
+    {
+      "name": "boundary_enqueue_timeout_602_age_630_5",
+      "journal_base64": "eyJ2IjoxLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMDEiLCJldmVudCI6ImVucXVldWVkIiwidW5peCI6OTM2OS41LCJ0aW1lb3V0Ijo2MDIsInBpZCI6MTIzNDUsIm1vZGVsIjoiZ3B0LW9zcy0yMGIifQo=",
+      "reader_kind": "complete-tuple",
+      "pid_alive": true,
+      "now": 10000.0,
+      "expected": [
+        {
+          "schemaVersion": 1,
+          "journal": "recorded",
+          "complete": true,
+          "inFlight": [],
+          "recent": [
+            {
+              "id": "mac-boundary-000000000001",
+              "state": "unresolved",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": null,
+              "ageSeconds": 630.5,
+              "client": null,
+              "lane": "fast",
+              "predictedPerSecond": null,
+              "completionTokens": null,
+              "promptPerSecond": null,
+              "promptTokens": null,
+              "flags": []
+            }
+          ],
+          "lastSuccess": null,
+          "unsettled": 0,
+          "clientsRecent": {
+            "unknown": 1
+          },
+          "observationAgeSeconds": 0.0,
+          "availability": {
+            "state": "available"
+          },
+          "liveAvailable": true,
+          "projectionComplete": true,
+          "truncated": false,
+          "inFlightTruncated": false,
+          "recentTruncated": false
+        },
+        {
+          "id": "windows-jobs",
+          "label": "Windows jobs",
+          "state": "recorded",
+          "ageSeconds": 630.5,
+          "detail": "Windows jobs journaled; no validated result yet",
+          "observationAgeSeconds": 0.0,
+          "observedAgeSeconds": 0.0,
+          "complete": true
+        }
+      ]
+    },
+    {
+      "name": "boundary_enqueue_timeout_602_age_631_0",
+      "journal_base64": "eyJ2IjoxLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMDEiLCJldmVudCI6ImVucXVldWVkIiwidW5peCI6OTM2OS4wLCJ0aW1lb3V0Ijo2MDIsInBpZCI6MTIzNDUsIm1vZGVsIjoiZ3B0LW9zcy0yMGIifQo=",
+      "reader_kind": "complete-tuple",
+      "pid_alive": true,
+      "now": 10000.0,
+      "expected": [
+        {
+          "schemaVersion": 1,
+          "journal": "recorded",
+          "complete": true,
+          "inFlight": [],
+          "recent": [
+            {
+              "id": "mac-boundary-000000000001",
+              "state": "unresolved",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": null,
+              "ageSeconds": 631.0,
+              "client": null,
+              "lane": "fast",
+              "predictedPerSecond": null,
+              "completionTokens": null,
+              "promptPerSecond": null,
+              "promptTokens": null,
+              "flags": []
+            }
+          ],
+          "lastSuccess": null,
+          "unsettled": 0,
+          "clientsRecent": {
+            "unknown": 1
+          },
+          "observationAgeSeconds": 0.0,
+          "availability": {
+            "state": "available"
+          },
+          "liveAvailable": true,
+          "projectionComplete": true,
+          "truncated": false,
+          "inFlightTruncated": false,
+          "recentTruncated": false
+        },
+        {
+          "id": "windows-jobs",
+          "label": "Windows jobs",
+          "state": "recorded",
+          "ageSeconds": 631.0,
+          "detail": "Windows jobs journaled; no validated result yet",
+          "observationAgeSeconds": 0.0,
+          "observedAgeSeconds": 0.0,
+          "complete": true
+        }
+      ]
+    },
+    {
+      "name": "boundary_recent_distinct_clients_9",
+      "journal_base64": "eyJ2IjoxLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMDAiLCJldmVudCI6InJlc3VsdCIsInVuaXgiOjk5ODAuMCwic3RhdHVzIjoic3VjY2VzcyIsIm1vZGVsIjoiZ3B0LW9zcy0yMGIiLCJlbGFwc2VkU2Vjb25kcyI6MS4wLCJjb21wbGV0aW9uVG9rZW5zIjo1LCJwcmVkaWN0ZWRQZXJTZWNvbmQiOjIuMCwicHJvbXB0VG9rZW5zIjo1LCJwcm9tcHRQZXJTZWNvbmQiOjMuMCwiY2xpZW50IjoiY2xpZW50MCJ9CnsidiI6MSwiaWQiOiJtYWMtYm91bmRhcnktMDAwMDAwMDAwMDAyIiwiZXZlbnQiOiJyZXN1bHQiLCJ1bml4Ijo5OTgyLjAsInN0YXR1cyI6InN1Y2Nlc3MiLCJtb2RlbCI6ImdwdC1vc3MtMjBiIiwiZWxhcHNlZFNlY29uZHMiOjEuMCwiY29tcGxldGlvblRva2VucyI6NSwicHJlZGljdGVkUGVyU2Vjb25kIjoyLjAsInByb21wdFRva2VucyI6NSwicHJvbXB0UGVyU2Vjb25kIjozLjAsImNsaWVudCI6ImNsaWVudDIifQp7InYiOjEsImlkIjoibWFjLWJvdW5kYXJ5LTAwMDAwMDAwMDAwNCIsImV2ZW50IjoicmVzdWx0IiwidW5peCI6OTk4NC4wLCJzdGF0dXMiOiJzdWNjZXNzIiwibW9kZWwiOiJncHQtb3NzLTIwYiIsImVsYXBzZWRTZWNvbmRzIjoxLjAsImNvbXBsZXRpb25Ub2tlbnMiOjUsInByZWRpY3RlZFBlclNlY29uZCI6Mi4wLCJwcm9tcHRUb2tlbnMiOjUsInByb21wdFBlclNlY29uZCI6My4wLCJjbGllbnQiOiJjbGllbnQ0In0KeyJ2IjoxLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMDYiLCJldmVudCI6InJlc3VsdCIsInVuaXgiOjk5ODYuMCwic3RhdHVzIjoic3VjY2VzcyIsIm1vZGVsIjoiZ3B0LW9zcy0yMGIiLCJlbGFwc2VkU2Vjb25kcyI6MS4wLCJjb21wbGV0aW9uVG9rZW5zIjo1LCJwcmVkaWN0ZWRQZXJTZWNvbmQiOjIuMCwicHJvbXB0VG9rZW5zIjo1LCJwcm9tcHRQZXJTZWNvbmQiOjMuMCwiY2xpZW50IjoiY2xpZW50NiJ9CnsidiI6MSwiaWQiOiJtYWMtYm91bmRhcnktMDAwMDAwMDAwMDA4IiwiZXZlbnQiOiJyZXN1bHQiLCJ1bml4Ijo5OTg4LjAsInN0YXR1cyI6InN1Y2Nlc3MiLCJtb2RlbCI6ImdwdC1vc3MtMjBiIiwiZWxhcHNlZFNlY29uZHMiOjEuMCwiY29tcGxldGlvblRva2VucyI6NSwicHJlZGljdGVkUGVyU2Vjb25kIjoyLjAsInByb21wdFRva2VucyI6NSwicHJvbXB0UGVyU2Vjb25kIjozLjAsImNsaWVudCI6ImNsaWVudDgifQp7InYiOjEsImlkIjoibWFjLWJvdW5kYXJ5LTAwMDAwMDAwMDAwMSIsImV2ZW50IjoicmVzdWx0IiwidW5peCI6OTk4MS4wLCJzdGF0dXMiOiJzdWNjZXNzIiwibW9kZWwiOiJncHQtb3NzLTIwYiIsImVsYXBzZWRTZWNvbmRzIjoxLjAsImNvbXBsZXRpb25Ub2tlbnMiOjUsInByZWRpY3RlZFBlclNlY29uZCI6Mi4wLCJwcm9tcHRUb2tlbnMiOjUsInByb21wdFBlclNlY29uZCI6My4wLCJjbGllbnQiOiJjbGllbnQxIn0KeyJ2IjoxLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMDMiLCJldmVudCI6InJlc3VsdCIsInVuaXgiOjk5ODMuMCwic3RhdHVzIjoic3VjY2VzcyIsIm1vZGVsIjoiZ3B0LW9zcy0yMGIiLCJlbGFwc2VkU2Vjb25kcyI6MS4wLCJjb21wbGV0aW9uVG9rZW5zIjo1LCJwcmVkaWN0ZWRQZXJTZWNvbmQiOjIuMCwicHJvbXB0VG9rZW5zIjo1LCJwcm9tcHRQZXJTZWNvbmQiOjMuMCwiY2xpZW50IjoiY2xpZW50MyJ9CnsidiI6MSwiaWQiOiJtYWMtYm91bmRhcnktMDAwMDAwMDAwMDA1IiwiZXZlbnQiOiJyZXN1bHQiLCJ1bml4Ijo5OTg1LjAsInN0YXR1cyI6InN1Y2Nlc3MiLCJtb2RlbCI6ImdwdC1vc3MtMjBiIiwiZWxhcHNlZFNlY29uZHMiOjEuMCwiY29tcGxldGlvblRva2VucyI6NSwicHJlZGljdGVkUGVyU2Vjb25kIjoyLjAsInByb21wdFRva2VucyI6NSwicHJvbXB0UGVyU2Vjb25kIjozLjAsImNsaWVudCI6ImNsaWVudDUifQp7InYiOjEsImlkIjoibWFjLWJvdW5kYXJ5LTAwMDAwMDAwMDAwNyIsImV2ZW50IjoicmVzdWx0IiwidW5peCI6OTk4Ny4wLCJzdGF0dXMiOiJzdWNjZXNzIiwibW9kZWwiOiJncHQtb3NzLTIwYiIsImVsYXBzZWRTZWNvbmRzIjoxLjAsImNvbXBsZXRpb25Ub2tlbnMiOjUsInByZWRpY3RlZFBlclNlY29uZCI6Mi4wLCJwcm9tcHRUb2tlbnMiOjUsInByb21wdFBlclNlY29uZCI6My4wLCJjbGllbnQiOiJjbGllbnQ3In0K",
+      "reader_kind": "complete-tuple",
+      "pid_alive": true,
+      "now": 10000.0,
+      "expected": [
+        {
+          "schemaVersion": 1,
+          "journal": "recorded",
+          "complete": true,
+          "inFlight": [],
+          "recent": [
+            {
+              "id": "mac-boundary-000000000008",
+              "state": "success",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": 1.0,
+              "ageSeconds": 12.0,
+              "client": "client8",
+              "lane": "fast",
+              "predictedPerSecond": 2.0,
+              "completionTokens": 5,
+              "promptPerSecond": 3.0,
+              "promptTokens": 5,
+              "flags": []
+            },
+            {
+              "id": "mac-boundary-000000000007",
+              "state": "success",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": 1.0,
+              "ageSeconds": 13.0,
+              "client": "client7",
+              "lane": "fast",
+              "predictedPerSecond": 2.0,
+              "completionTokens": 5,
+              "promptPerSecond": 3.0,
+              "promptTokens": 5,
+              "flags": []
+            },
+            {
+              "id": "mac-boundary-000000000006",
+              "state": "success",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": 1.0,
+              "ageSeconds": 14.0,
+              "client": "client6",
+              "lane": "fast",
+              "predictedPerSecond": 2.0,
+              "completionTokens": 5,
+              "promptPerSecond": 3.0,
+              "promptTokens": 5,
+              "flags": []
+            },
+            {
+              "id": "mac-boundary-000000000005",
+              "state": "success",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": 1.0,
+              "ageSeconds": 15.0,
+              "client": "client5",
+              "lane": "fast",
+              "predictedPerSecond": 2.0,
+              "completionTokens": 5,
+              "promptPerSecond": 3.0,
+              "promptTokens": 5,
+              "flags": []
+            },
+            {
+              "id": "mac-boundary-000000000004",
+              "state": "success",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": 1.0,
+              "ageSeconds": 16.0,
+              "client": "client4",
+              "lane": "fast",
+              "predictedPerSecond": 2.0,
+              "completionTokens": 5,
+              "promptPerSecond": 3.0,
+              "promptTokens": 5,
+              "flags": []
+            },
+            {
+              "id": "mac-boundary-000000000003",
+              "state": "success",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": 1.0,
+              "ageSeconds": 17.0,
+              "client": "client3",
+              "lane": "fast",
+              "predictedPerSecond": 2.0,
+              "completionTokens": 5,
+              "promptPerSecond": 3.0,
+              "promptTokens": 5,
+              "flags": []
+            },
+            {
+              "id": "mac-boundary-000000000002",
+              "state": "success",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": 1.0,
+              "ageSeconds": 18.0,
+              "client": "client2",
+              "lane": "fast",
+              "predictedPerSecond": 2.0,
+              "completionTokens": 5,
+              "promptPerSecond": 3.0,
+              "promptTokens": 5,
+              "flags": []
+            },
+            {
+              "id": "mac-boundary-000000000001",
+              "state": "success",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": 1.0,
+              "ageSeconds": 19.0,
+              "client": "client1",
+              "lane": "fast",
+              "predictedPerSecond": 2.0,
+              "completionTokens": 5,
+              "promptPerSecond": 3.0,
+              "promptTokens": 5,
+              "flags": []
+            },
+            {
+              "id": "mac-boundary-000000000000",
+              "state": "success",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": 1.0,
+              "ageSeconds": 20.0,
+              "client": "client0",
+              "lane": "fast",
+              "predictedPerSecond": 2.0,
+              "completionTokens": 5,
+              "promptPerSecond": 3.0,
+              "promptTokens": 5,
+              "flags": []
+            }
+          ],
+          "lastSuccess": {
+            "id": "mac-boundary-000000000008",
+            "state": "success",
+            "model": "gpt-oss-20b",
+            "elapsedSeconds": 1.0,
+            "ageSeconds": 12.0,
+            "client": "client8",
+            "lane": "fast",
+            "predictedPerSecond": 2.0,
+            "completionTokens": 5,
+            "promptPerSecond": 3.0,
+            "promptTokens": 5,
+            "flags": []
+          },
+          "unsettled": 0,
+          "clientsRecent": {
+            "client8": 1,
+            "client7": 1,
+            "client6": 1,
+            "client5": 1,
+            "client4": 1,
+            "client3": 1,
+            "client2": 1,
+            "client1": 1,
+            "client0": 1
+          },
+          "observationAgeSeconds": 0.0,
+          "availability": {
+            "state": "available"
+          },
+          "liveAvailable": true,
+          "projectionComplete": true,
+          "truncated": false,
+          "inFlightTruncated": false,
+          "recentTruncated": false
+        },
+        {
+          "id": "windows-jobs",
+          "label": "Windows jobs",
+          "state": "recorded",
+          "ageSeconds": 12.0,
+          "detail": "Last journaled Windows result validated; no job in flight",
+          "observationAgeSeconds": 0.0,
+          "observedAgeSeconds": 0.0,
+          "complete": true
+        }
+      ]
+    },
+    {
+      "name": "boundary_recent_distinct_clients_10",
+      "journal_base64": "eyJ2IjoxLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMDAiLCJldmVudCI6InJlc3VsdCIsInVuaXgiOjk5ODAuMCwic3RhdHVzIjoic3VjY2VzcyIsIm1vZGVsIjoiZ3B0LW9zcy0yMGIiLCJlbGFwc2VkU2Vjb25kcyI6MS4wLCJjb21wbGV0aW9uVG9rZW5zIjo1LCJwcmVkaWN0ZWRQZXJTZWNvbmQiOjIuMCwicHJvbXB0VG9rZW5zIjo1LCJwcm9tcHRQZXJTZWNvbmQiOjMuMCwiY2xpZW50IjoiY2xpZW50MCJ9CnsidiI6MSwiaWQiOiJtYWMtYm91bmRhcnktMDAwMDAwMDAwMDAyIiwiZXZlbnQiOiJyZXN1bHQiLCJ1bml4Ijo5OTgyLjAsInN0YXR1cyI6InN1Y2Nlc3MiLCJtb2RlbCI6ImdwdC1vc3MtMjBiIiwiZWxhcHNlZFNlY29uZHMiOjEuMCwiY29tcGxldGlvblRva2VucyI6NSwicHJlZGljdGVkUGVyU2Vjb25kIjoyLjAsInByb21wdFRva2VucyI6NSwicHJvbXB0UGVyU2Vjb25kIjozLjAsImNsaWVudCI6ImNsaWVudDIifQp7InYiOjEsImlkIjoibWFjLWJvdW5kYXJ5LTAwMDAwMDAwMDAwNCIsImV2ZW50IjoicmVzdWx0IiwidW5peCI6OTk4NC4wLCJzdGF0dXMiOiJzdWNjZXNzIiwibW9kZWwiOiJncHQtb3NzLTIwYiIsImVsYXBzZWRTZWNvbmRzIjoxLjAsImNvbXBsZXRpb25Ub2tlbnMiOjUsInByZWRpY3RlZFBlclNlY29uZCI6Mi4wLCJwcm9tcHRUb2tlbnMiOjUsInByb21wdFBlclNlY29uZCI6My4wLCJjbGllbnQiOiJjbGllbnQ0In0KeyJ2IjoxLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMDYiLCJldmVudCI6InJlc3VsdCIsInVuaXgiOjk5ODYuMCwic3RhdHVzIjoic3VjY2VzcyIsIm1vZGVsIjoiZ3B0LW9zcy0yMGIiLCJlbGFwc2VkU2Vjb25kcyI6MS4wLCJjb21wbGV0aW9uVG9rZW5zIjo1LCJwcmVkaWN0ZWRQZXJTZWNvbmQiOjIuMCwicHJvbXB0VG9rZW5zIjo1LCJwcm9tcHRQZXJTZWNvbmQiOjMuMCwiY2xpZW50IjoiY2xpZW50NiJ9CnsidiI6MSwiaWQiOiJtYWMtYm91bmRhcnktMDAwMDAwMDAwMDA4IiwiZXZlbnQiOiJyZXN1bHQiLCJ1bml4Ijo5OTg4LjAsInN0YXR1cyI6InN1Y2Nlc3MiLCJtb2RlbCI6ImdwdC1vc3MtMjBiIiwiZWxhcHNlZFNlY29uZHMiOjEuMCwiY29tcGxldGlvblRva2VucyI6NSwicHJlZGljdGVkUGVyU2Vjb25kIjoyLjAsInByb21wdFRva2VucyI6NSwicHJvbXB0UGVyU2Vjb25kIjozLjAsImNsaWVudCI6ImNsaWVudDgifQp7InYiOjEsImlkIjoibWFjLWJvdW5kYXJ5LTAwMDAwMDAwMDAwMSIsImV2ZW50IjoicmVzdWx0IiwidW5peCI6OTk4MS4wLCJzdGF0dXMiOiJzdWNjZXNzIiwibW9kZWwiOiJncHQtb3NzLTIwYiIsImVsYXBzZWRTZWNvbmRzIjoxLjAsImNvbXBsZXRpb25Ub2tlbnMiOjUsInByZWRpY3RlZFBlclNlY29uZCI6Mi4wLCJwcm9tcHRUb2tlbnMiOjUsInByb21wdFBlclNlY29uZCI6My4wLCJjbGllbnQiOiJjbGllbnQxIn0KeyJ2IjoxLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMDMiLCJldmVudCI6InJlc3VsdCIsInVuaXgiOjk5ODMuMCwic3RhdHVzIjoic3VjY2VzcyIsIm1vZGVsIjoiZ3B0LW9zcy0yMGIiLCJlbGFwc2VkU2Vjb25kcyI6MS4wLCJjb21wbGV0aW9uVG9rZW5zIjo1LCJwcmVkaWN0ZWRQZXJTZWNvbmQiOjIuMCwicHJvbXB0VG9rZW5zIjo1LCJwcm9tcHRQZXJTZWNvbmQiOjMuMCwiY2xpZW50IjoiY2xpZW50MyJ9CnsidiI6MSwiaWQiOiJtYWMtYm91bmRhcnktMDAwMDAwMDAwMDA1IiwiZXZlbnQiOiJyZXN1bHQiLCJ1bml4Ijo5OTg1LjAsInN0YXR1cyI6InN1Y2Nlc3MiLCJtb2RlbCI6ImdwdC1vc3MtMjBiIiwiZWxhcHNlZFNlY29uZHMiOjEuMCwiY29tcGxldGlvblRva2VucyI6NSwicHJlZGljdGVkUGVyU2Vjb25kIjoyLjAsInByb21wdFRva2VucyI6NSwicHJvbXB0UGVyU2Vjb25kIjozLjAsImNsaWVudCI6ImNsaWVudDUifQp7InYiOjEsImlkIjoibWFjLWJvdW5kYXJ5LTAwMDAwMDAwMDAwNyIsImV2ZW50IjoicmVzdWx0IiwidW5peCI6OTk4Ny4wLCJzdGF0dXMiOiJzdWNjZXNzIiwibW9kZWwiOiJncHQtb3NzLTIwYiIsImVsYXBzZWRTZWNvbmRzIjoxLjAsImNvbXBsZXRpb25Ub2tlbnMiOjUsInByZWRpY3RlZFBlclNlY29uZCI6Mi4wLCJwcm9tcHRUb2tlbnMiOjUsInByb21wdFBlclNlY29uZCI6My4wLCJjbGllbnQiOiJjbGllbnQ3In0KeyJ2IjoxLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMDkiLCJldmVudCI6InJlc3VsdCIsInVuaXgiOjk5ODkuMCwic3RhdHVzIjoic3VjY2VzcyIsIm1vZGVsIjoiZ3B0LW9zcy0yMGIiLCJlbGFwc2VkU2Vjb25kcyI6MS4wLCJjb21wbGV0aW9uVG9rZW5zIjo1LCJwcmVkaWN0ZWRQZXJTZWNvbmQiOjIuMCwicHJvbXB0VG9rZW5zIjo1LCJwcm9tcHRQZXJTZWNvbmQiOjMuMCwiY2xpZW50IjoiY2xpZW50OSJ9Cg==",
+      "reader_kind": "complete-tuple",
+      "pid_alive": true,
+      "now": 10000.0,
+      "expected": [
+        {
+          "schemaVersion": 1,
+          "journal": "recorded",
+          "complete": true,
+          "inFlight": [],
+          "recent": [
+            {
+              "id": "mac-boundary-000000000009",
+              "state": "success",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": 1.0,
+              "ageSeconds": 11.0,
+              "client": "client9",
+              "lane": "fast",
+              "predictedPerSecond": 2.0,
+              "completionTokens": 5,
+              "promptPerSecond": 3.0,
+              "promptTokens": 5,
+              "flags": []
+            },
+            {
+              "id": "mac-boundary-000000000008",
+              "state": "success",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": 1.0,
+              "ageSeconds": 12.0,
+              "client": "client8",
+              "lane": "fast",
+              "predictedPerSecond": 2.0,
+              "completionTokens": 5,
+              "promptPerSecond": 3.0,
+              "promptTokens": 5,
+              "flags": []
+            },
+            {
+              "id": "mac-boundary-000000000007",
+              "state": "success",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": 1.0,
+              "ageSeconds": 13.0,
+              "client": "client7",
+              "lane": "fast",
+              "predictedPerSecond": 2.0,
+              "completionTokens": 5,
+              "promptPerSecond": 3.0,
+              "promptTokens": 5,
+              "flags": []
+            },
+            {
+              "id": "mac-boundary-000000000006",
+              "state": "success",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": 1.0,
+              "ageSeconds": 14.0,
+              "client": "client6",
+              "lane": "fast",
+              "predictedPerSecond": 2.0,
+              "completionTokens": 5,
+              "promptPerSecond": 3.0,
+              "promptTokens": 5,
+              "flags": []
+            },
+            {
+              "id": "mac-boundary-000000000005",
+              "state": "success",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": 1.0,
+              "ageSeconds": 15.0,
+              "client": "client5",
+              "lane": "fast",
+              "predictedPerSecond": 2.0,
+              "completionTokens": 5,
+              "promptPerSecond": 3.0,
+              "promptTokens": 5,
+              "flags": []
+            },
+            {
+              "id": "mac-boundary-000000000004",
+              "state": "success",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": 1.0,
+              "ageSeconds": 16.0,
+              "client": "client4",
+              "lane": "fast",
+              "predictedPerSecond": 2.0,
+              "completionTokens": 5,
+              "promptPerSecond": 3.0,
+              "promptTokens": 5,
+              "flags": []
+            },
+            {
+              "id": "mac-boundary-000000000003",
+              "state": "success",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": 1.0,
+              "ageSeconds": 17.0,
+              "client": "client3",
+              "lane": "fast",
+              "predictedPerSecond": 2.0,
+              "completionTokens": 5,
+              "promptPerSecond": 3.0,
+              "promptTokens": 5,
+              "flags": []
+            },
+            {
+              "id": "mac-boundary-000000000002",
+              "state": "success",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": 1.0,
+              "ageSeconds": 18.0,
+              "client": "client2",
+              "lane": "fast",
+              "predictedPerSecond": 2.0,
+              "completionTokens": 5,
+              "promptPerSecond": 3.0,
+              "promptTokens": 5,
+              "flags": []
+            },
+            {
+              "id": "mac-boundary-000000000001",
+              "state": "success",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": 1.0,
+              "ageSeconds": 19.0,
+              "client": "client1",
+              "lane": "fast",
+              "predictedPerSecond": 2.0,
+              "completionTokens": 5,
+              "promptPerSecond": 3.0,
+              "promptTokens": 5,
+              "flags": []
+            },
+            {
+              "id": "mac-boundary-000000000000",
+              "state": "success",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": 1.0,
+              "ageSeconds": 20.0,
+              "client": "client0",
+              "lane": "fast",
+              "predictedPerSecond": 2.0,
+              "completionTokens": 5,
+              "promptPerSecond": 3.0,
+              "promptTokens": 5,
+              "flags": []
+            }
+          ],
+          "lastSuccess": {
+            "id": "mac-boundary-000000000009",
+            "state": "success",
+            "model": "gpt-oss-20b",
+            "elapsedSeconds": 1.0,
+            "ageSeconds": 11.0,
+            "client": "client9",
+            "lane": "fast",
+            "predictedPerSecond": 2.0,
+            "completionTokens": 5,
+            "promptPerSecond": 3.0,
+            "promptTokens": 5,
+            "flags": []
+          },
+          "unsettled": 0,
+          "clientsRecent": {
+            "client9": 1,
+            "client8": 1,
+            "client7": 1,
+            "client6": 1,
+            "client5": 1,
+            "client4": 1,
+            "client3": 1,
+            "client2": 1,
+            "client1": 1,
+            "client0": 1
+          },
+          "observationAgeSeconds": 0.0,
+          "availability": {
+            "state": "available"
+          },
+          "liveAvailable": true,
+          "projectionComplete": true,
+          "truncated": false,
+          "inFlightTruncated": false,
+          "recentTruncated": false
+        },
+        {
+          "id": "windows-jobs",
+          "label": "Windows jobs",
+          "state": "recorded",
+          "ageSeconds": 11.0,
+          "detail": "Last journaled Windows result validated; no job in flight",
+          "observationAgeSeconds": 0.0,
+          "observedAgeSeconds": 0.0,
+          "complete": true
+        }
+      ]
+    },
+    {
+      "name": "boundary_recent_distinct_clients_11",
+      "journal_base64": "eyJ2IjoxLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMDAiLCJldmVudCI6InJlc3VsdCIsInVuaXgiOjk5ODAuMCwic3RhdHVzIjoic3VjY2VzcyIsIm1vZGVsIjoiZ3B0LW9zcy0yMGIiLCJlbGFwc2VkU2Vjb25kcyI6MS4wLCJjb21wbGV0aW9uVG9rZW5zIjo1LCJwcmVkaWN0ZWRQZXJTZWNvbmQiOjIuMCwicHJvbXB0VG9rZW5zIjo1LCJwcm9tcHRQZXJTZWNvbmQiOjMuMCwiY2xpZW50IjoiY2xpZW50MCJ9CnsidiI6MSwiaWQiOiJtYWMtYm91bmRhcnktMDAwMDAwMDAwMDAyIiwiZXZlbnQiOiJyZXN1bHQiLCJ1bml4Ijo5OTgyLjAsInN0YXR1cyI6InN1Y2Nlc3MiLCJtb2RlbCI6ImdwdC1vc3MtMjBiIiwiZWxhcHNlZFNlY29uZHMiOjEuMCwiY29tcGxldGlvblRva2VucyI6NSwicHJlZGljdGVkUGVyU2Vjb25kIjoyLjAsInByb21wdFRva2VucyI6NSwicHJvbXB0UGVyU2Vjb25kIjozLjAsImNsaWVudCI6ImNsaWVudDIifQp7InYiOjEsImlkIjoibWFjLWJvdW5kYXJ5LTAwMDAwMDAwMDAwNCIsImV2ZW50IjoicmVzdWx0IiwidW5peCI6OTk4NC4wLCJzdGF0dXMiOiJzdWNjZXNzIiwibW9kZWwiOiJncHQtb3NzLTIwYiIsImVsYXBzZWRTZWNvbmRzIjoxLjAsImNvbXBsZXRpb25Ub2tlbnMiOjUsInByZWRpY3RlZFBlclNlY29uZCI6Mi4wLCJwcm9tcHRUb2tlbnMiOjUsInByb21wdFBlclNlY29uZCI6My4wLCJjbGllbnQiOiJjbGllbnQ0In0KeyJ2IjoxLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMDYiLCJldmVudCI6InJlc3VsdCIsInVuaXgiOjk5ODYuMCwic3RhdHVzIjoic3VjY2VzcyIsIm1vZGVsIjoiZ3B0LW9zcy0yMGIiLCJlbGFwc2VkU2Vjb25kcyI6MS4wLCJjb21wbGV0aW9uVG9rZW5zIjo1LCJwcmVkaWN0ZWRQZXJTZWNvbmQiOjIuMCwicHJvbXB0VG9rZW5zIjo1LCJwcm9tcHRQZXJTZWNvbmQiOjMuMCwiY2xpZW50IjoiY2xpZW50NiJ9CnsidiI6MSwiaWQiOiJtYWMtYm91bmRhcnktMDAwMDAwMDAwMDA4IiwiZXZlbnQiOiJyZXN1bHQiLCJ1bml4Ijo5OTg4LjAsInN0YXR1cyI6InN1Y2Nlc3MiLCJtb2RlbCI6ImdwdC1vc3MtMjBiIiwiZWxhcHNlZFNlY29uZHMiOjEuMCwiY29tcGxldGlvblRva2VucyI6NSwicHJlZGljdGVkUGVyU2Vjb25kIjoyLjAsInByb21wdFRva2VucyI6NSwicHJvbXB0UGVyU2Vjb25kIjozLjAsImNsaWVudCI6ImNsaWVudDgifQp7InYiOjEsImlkIjoibWFjLWJvdW5kYXJ5LTAwMDAwMDAwMDAxMCIsImV2ZW50IjoicmVzdWx0IiwidW5peCI6OTk5MC4wLCJzdGF0dXMiOiJzdWNjZXNzIiwibW9kZWwiOiJncHQtb3NzLTIwYiIsImVsYXBzZWRTZWNvbmRzIjoxLjAsImNvbXBsZXRpb25Ub2tlbnMiOjUsInByZWRpY3RlZFBlclNlY29uZCI6Mi4wLCJwcm9tcHRUb2tlbnMiOjUsInByb21wdFBlclNlY29uZCI6My4wLCJjbGllbnQiOiJjbGllbnQxMCJ9CnsidiI6MSwiaWQiOiJtYWMtYm91bmRhcnktMDAwMDAwMDAwMDAxIiwiZXZlbnQiOiJyZXN1bHQiLCJ1bml4Ijo5OTgxLjAsInN0YXR1cyI6InN1Y2Nlc3MiLCJtb2RlbCI6ImdwdC1vc3MtMjBiIiwiZWxhcHNlZFNlY29uZHMiOjEuMCwiY29tcGxldGlvblRva2VucyI6NSwicHJlZGljdGVkUGVyU2Vjb25kIjoyLjAsInByb21wdFRva2VucyI6NSwicHJvbXB0UGVyU2Vjb25kIjozLjAsImNsaWVudCI6ImNsaWVudDEifQp7InYiOjEsImlkIjoibWFjLWJvdW5kYXJ5LTAwMDAwMDAwMDAwMyIsImV2ZW50IjoicmVzdWx0IiwidW5peCI6OTk4My4wLCJzdGF0dXMiOiJzdWNjZXNzIiwibW9kZWwiOiJncHQtb3NzLTIwYiIsImVsYXBzZWRTZWNvbmRzIjoxLjAsImNvbXBsZXRpb25Ub2tlbnMiOjUsInByZWRpY3RlZFBlclNlY29uZCI6Mi4wLCJwcm9tcHRUb2tlbnMiOjUsInByb21wdFBlclNlY29uZCI6My4wLCJjbGllbnQiOiJjbGllbnQzIn0KeyJ2IjoxLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMDUiLCJldmVudCI6InJlc3VsdCIsInVuaXgiOjk5ODUuMCwic3RhdHVzIjoic3VjY2VzcyIsIm1vZGVsIjoiZ3B0LW9zcy0yMGIiLCJlbGFwc2VkU2Vjb25kcyI6MS4wLCJjb21wbGV0aW9uVG9rZW5zIjo1LCJwcmVkaWN0ZWRQZXJTZWNvbmQiOjIuMCwicHJvbXB0VG9rZW5zIjo1LCJwcm9tcHRQZXJTZWNvbmQiOjMuMCwiY2xpZW50IjoiY2xpZW50NSJ9CnsidiI6MSwiaWQiOiJtYWMtYm91bmRhcnktMDAwMDAwMDAwMDA3IiwiZXZlbnQiOiJyZXN1bHQiLCJ1bml4Ijo5OTg3LjAsInN0YXR1cyI6InN1Y2Nlc3MiLCJtb2RlbCI6ImdwdC1vc3MtMjBiIiwiZWxhcHNlZFNlY29uZHMiOjEuMCwiY29tcGxldGlvblRva2VucyI6NSwicHJlZGljdGVkUGVyU2Vjb25kIjoyLjAsInByb21wdFRva2VucyI6NSwicHJvbXB0UGVyU2Vjb25kIjozLjAsImNsaWVudCI6ImNsaWVudDcifQp7InYiOjEsImlkIjoibWFjLWJvdW5kYXJ5LTAwMDAwMDAwMDAwOSIsImV2ZW50IjoicmVzdWx0IiwidW5peCI6OTk4OS4wLCJzdGF0dXMiOiJzdWNjZXNzIiwibW9kZWwiOiJncHQtb3NzLTIwYiIsImVsYXBzZWRTZWNvbmRzIjoxLjAsImNvbXBsZXRpb25Ub2tlbnMiOjUsInByZWRpY3RlZFBlclNlY29uZCI6Mi4wLCJwcm9tcHRUb2tlbnMiOjUsInByb21wdFBlclNlY29uZCI6My4wLCJjbGllbnQiOiJjbGllbnQ5In0K",
+      "reader_kind": "complete-tuple",
+      "pid_alive": true,
+      "now": 10000.0,
+      "expected": [
+        {
+          "schemaVersion": 1,
+          "journal": "recorded",
+          "complete": true,
+          "inFlight": [],
+          "recent": [
+            {
+              "id": "mac-boundary-000000000010",
+              "state": "success",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": 1.0,
+              "ageSeconds": 10.0,
+              "client": "client10",
+              "lane": "fast",
+              "predictedPerSecond": 2.0,
+              "completionTokens": 5,
+              "promptPerSecond": 3.0,
+              "promptTokens": 5,
+              "flags": []
+            },
+            {
+              "id": "mac-boundary-000000000009",
+              "state": "success",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": 1.0,
+              "ageSeconds": 11.0,
+              "client": "client9",
+              "lane": "fast",
+              "predictedPerSecond": 2.0,
+              "completionTokens": 5,
+              "promptPerSecond": 3.0,
+              "promptTokens": 5,
+              "flags": []
+            },
+            {
+              "id": "mac-boundary-000000000008",
+              "state": "success",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": 1.0,
+              "ageSeconds": 12.0,
+              "client": "client8",
+              "lane": "fast",
+              "predictedPerSecond": 2.0,
+              "completionTokens": 5,
+              "promptPerSecond": 3.0,
+              "promptTokens": 5,
+              "flags": []
+            },
+            {
+              "id": "mac-boundary-000000000007",
+              "state": "success",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": 1.0,
+              "ageSeconds": 13.0,
+              "client": "client7",
+              "lane": "fast",
+              "predictedPerSecond": 2.0,
+              "completionTokens": 5,
+              "promptPerSecond": 3.0,
+              "promptTokens": 5,
+              "flags": []
+            },
+            {
+              "id": "mac-boundary-000000000006",
+              "state": "success",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": 1.0,
+              "ageSeconds": 14.0,
+              "client": "client6",
+              "lane": "fast",
+              "predictedPerSecond": 2.0,
+              "completionTokens": 5,
+              "promptPerSecond": 3.0,
+              "promptTokens": 5,
+              "flags": []
+            },
+            {
+              "id": "mac-boundary-000000000005",
+              "state": "success",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": 1.0,
+              "ageSeconds": 15.0,
+              "client": "client5",
+              "lane": "fast",
+              "predictedPerSecond": 2.0,
+              "completionTokens": 5,
+              "promptPerSecond": 3.0,
+              "promptTokens": 5,
+              "flags": []
+            },
+            {
+              "id": "mac-boundary-000000000004",
+              "state": "success",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": 1.0,
+              "ageSeconds": 16.0,
+              "client": "client4",
+              "lane": "fast",
+              "predictedPerSecond": 2.0,
+              "completionTokens": 5,
+              "promptPerSecond": 3.0,
+              "promptTokens": 5,
+              "flags": []
+            },
+            {
+              "id": "mac-boundary-000000000003",
+              "state": "success",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": 1.0,
+              "ageSeconds": 17.0,
+              "client": "client3",
+              "lane": "fast",
+              "predictedPerSecond": 2.0,
+              "completionTokens": 5,
+              "promptPerSecond": 3.0,
+              "promptTokens": 5,
+              "flags": []
+            },
+            {
+              "id": "mac-boundary-000000000002",
+              "state": "success",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": 1.0,
+              "ageSeconds": 18.0,
+              "client": "client2",
+              "lane": "fast",
+              "predictedPerSecond": 2.0,
+              "completionTokens": 5,
+              "promptPerSecond": 3.0,
+              "promptTokens": 5,
+              "flags": []
+            },
+            {
+              "id": "mac-boundary-000000000001",
+              "state": "success",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": 1.0,
+              "ageSeconds": 19.0,
+              "client": "client1",
+              "lane": "fast",
+              "predictedPerSecond": 2.0,
+              "completionTokens": 5,
+              "promptPerSecond": 3.0,
+              "promptTokens": 5,
+              "flags": []
+            }
+          ],
+          "lastSuccess": {
+            "id": "mac-boundary-000000000010",
+            "state": "success",
+            "model": "gpt-oss-20b",
+            "elapsedSeconds": 1.0,
+            "ageSeconds": 10.0,
+            "client": "client10",
+            "lane": "fast",
+            "predictedPerSecond": 2.0,
+            "completionTokens": 5,
+            "promptPerSecond": 3.0,
+            "promptTokens": 5,
+            "flags": []
+          },
+          "unsettled": 0,
+          "clientsRecent": {
+            "client10": 1,
+            "client9": 1,
+            "client8": 1,
+            "client7": 1,
+            "client6": 1,
+            "client5": 1,
+            "client4": 1,
+            "client3": 1,
+            "client2": 1,
+            "client1": 1
+          },
+          "observationAgeSeconds": 0.0,
+          "availability": {
+            "state": "available"
+          },
+          "liveAvailable": true,
+          "projectionComplete": false,
+          "truncated": true,
+          "inFlightTruncated": false,
+          "recentTruncated": true
+        },
+        {
+          "id": "windows-jobs",
+          "label": "Windows jobs",
+          "state": "recorded",
+          "ageSeconds": 10.0,
+          "detail": "Last journaled Windows result validated; no job in flight",
+          "observationAgeSeconds": 0.0,
+          "observedAgeSeconds": 0.0,
+          "complete": true
+        }
+      ]
+    },
+    {
+      "name": "boundary_recent_distinct_clients_12",
+      "journal_base64": "eyJ2IjoxLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMDAiLCJldmVudCI6InJlc3VsdCIsInVuaXgiOjk5ODAuMCwic3RhdHVzIjoic3VjY2VzcyIsIm1vZGVsIjoiZ3B0LW9zcy0yMGIiLCJlbGFwc2VkU2Vjb25kcyI6MS4wLCJjb21wbGV0aW9uVG9rZW5zIjo1LCJwcmVkaWN0ZWRQZXJTZWNvbmQiOjIuMCwicHJvbXB0VG9rZW5zIjo1LCJwcm9tcHRQZXJTZWNvbmQiOjMuMCwiY2xpZW50IjoiY2xpZW50MCJ9CnsidiI6MSwiaWQiOiJtYWMtYm91bmRhcnktMDAwMDAwMDAwMDAyIiwiZXZlbnQiOiJyZXN1bHQiLCJ1bml4Ijo5OTgyLjAsInN0YXR1cyI6InN1Y2Nlc3MiLCJtb2RlbCI6ImdwdC1vc3MtMjBiIiwiZWxhcHNlZFNlY29uZHMiOjEuMCwiY29tcGxldGlvblRva2VucyI6NSwicHJlZGljdGVkUGVyU2Vjb25kIjoyLjAsInByb21wdFRva2VucyI6NSwicHJvbXB0UGVyU2Vjb25kIjozLjAsImNsaWVudCI6ImNsaWVudDIifQp7InYiOjEsImlkIjoibWFjLWJvdW5kYXJ5LTAwMDAwMDAwMDAwNCIsImV2ZW50IjoicmVzdWx0IiwidW5peCI6OTk4NC4wLCJzdGF0dXMiOiJzdWNjZXNzIiwibW9kZWwiOiJncHQtb3NzLTIwYiIsImVsYXBzZWRTZWNvbmRzIjoxLjAsImNvbXBsZXRpb25Ub2tlbnMiOjUsInByZWRpY3RlZFBlclNlY29uZCI6Mi4wLCJwcm9tcHRUb2tlbnMiOjUsInByb21wdFBlclNlY29uZCI6My4wLCJjbGllbnQiOiJjbGllbnQ0In0KeyJ2IjoxLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMDYiLCJldmVudCI6InJlc3VsdCIsInVuaXgiOjk5ODYuMCwic3RhdHVzIjoic3VjY2VzcyIsIm1vZGVsIjoiZ3B0LW9zcy0yMGIiLCJlbGFwc2VkU2Vjb25kcyI6MS4wLCJjb21wbGV0aW9uVG9rZW5zIjo1LCJwcmVkaWN0ZWRQZXJTZWNvbmQiOjIuMCwicHJvbXB0VG9rZW5zIjo1LCJwcm9tcHRQZXJTZWNvbmQiOjMuMCwiY2xpZW50IjoiY2xpZW50NiJ9CnsidiI6MSwiaWQiOiJtYWMtYm91bmRhcnktMDAwMDAwMDAwMDA4IiwiZXZlbnQiOiJyZXN1bHQiLCJ1bml4Ijo5OTg4LjAsInN0YXR1cyI6InN1Y2Nlc3MiLCJtb2RlbCI6ImdwdC1vc3MtMjBiIiwiZWxhcHNlZFNlY29uZHMiOjEuMCwiY29tcGxldGlvblRva2VucyI6NSwicHJlZGljdGVkUGVyU2Vjb25kIjoyLjAsInByb21wdFRva2VucyI6NSwicHJvbXB0UGVyU2Vjb25kIjozLjAsImNsaWVudCI6ImNsaWVudDgifQp7InYiOjEsImlkIjoibWFjLWJvdW5kYXJ5LTAwMDAwMDAwMDAxMCIsImV2ZW50IjoicmVzdWx0IiwidW5peCI6OTk5MC4wLCJzdGF0dXMiOiJzdWNjZXNzIiwibW9kZWwiOiJncHQtb3NzLTIwYiIsImVsYXBzZWRTZWNvbmRzIjoxLjAsImNvbXBsZXRpb25Ub2tlbnMiOjUsInByZWRpY3RlZFBlclNlY29uZCI6Mi4wLCJwcm9tcHRUb2tlbnMiOjUsInByb21wdFBlclNlY29uZCI6My4wLCJjbGllbnQiOiJjbGllbnQxMCJ9CnsidiI6MSwiaWQiOiJtYWMtYm91bmRhcnktMDAwMDAwMDAwMDAxIiwiZXZlbnQiOiJyZXN1bHQiLCJ1bml4Ijo5OTgxLjAsInN0YXR1cyI6InN1Y2Nlc3MiLCJtb2RlbCI6ImdwdC1vc3MtMjBiIiwiZWxhcHNlZFNlY29uZHMiOjEuMCwiY29tcGxldGlvblRva2VucyI6NSwicHJlZGljdGVkUGVyU2Vjb25kIjoyLjAsInByb21wdFRva2VucyI6NSwicHJvbXB0UGVyU2Vjb25kIjozLjAsImNsaWVudCI6ImNsaWVudDEifQp7InYiOjEsImlkIjoibWFjLWJvdW5kYXJ5LTAwMDAwMDAwMDAwMyIsImV2ZW50IjoicmVzdWx0IiwidW5peCI6OTk4My4wLCJzdGF0dXMiOiJzdWNjZXNzIiwibW9kZWwiOiJncHQtb3NzLTIwYiIsImVsYXBzZWRTZWNvbmRzIjoxLjAsImNvbXBsZXRpb25Ub2tlbnMiOjUsInByZWRpY3RlZFBlclNlY29uZCI6Mi4wLCJwcm9tcHRUb2tlbnMiOjUsInByb21wdFBlclNlY29uZCI6My4wLCJjbGllbnQiOiJjbGllbnQzIn0KeyJ2IjoxLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMDUiLCJldmVudCI6InJlc3VsdCIsInVuaXgiOjk5ODUuMCwic3RhdHVzIjoic3VjY2VzcyIsIm1vZGVsIjoiZ3B0LW9zcy0yMGIiLCJlbGFwc2VkU2Vjb25kcyI6MS4wLCJjb21wbGV0aW9uVG9rZW5zIjo1LCJwcmVkaWN0ZWRQZXJTZWNvbmQiOjIuMCwicHJvbXB0VG9rZW5zIjo1LCJwcm9tcHRQZXJTZWNvbmQiOjMuMCwiY2xpZW50IjoiY2xpZW50NSJ9CnsidiI6MSwiaWQiOiJtYWMtYm91bmRhcnktMDAwMDAwMDAwMDA3IiwiZXZlbnQiOiJyZXN1bHQiLCJ1bml4Ijo5OTg3LjAsInN0YXR1cyI6InN1Y2Nlc3MiLCJtb2RlbCI6ImdwdC1vc3MtMjBiIiwiZWxhcHNlZFNlY29uZHMiOjEuMCwiY29tcGxldGlvblRva2VucyI6NSwicHJlZGljdGVkUGVyU2Vjb25kIjoyLjAsInByb21wdFRva2VucyI6NSwicHJvbXB0UGVyU2Vjb25kIjozLjAsImNsaWVudCI6ImNsaWVudDcifQp7InYiOjEsImlkIjoibWFjLWJvdW5kYXJ5LTAwMDAwMDAwMDAwOSIsImV2ZW50IjoicmVzdWx0IiwidW5peCI6OTk4OS4wLCJzdGF0dXMiOiJzdWNjZXNzIiwibW9kZWwiOiJncHQtb3NzLTIwYiIsImVsYXBzZWRTZWNvbmRzIjoxLjAsImNvbXBsZXRpb25Ub2tlbnMiOjUsInByZWRpY3RlZFBlclNlY29uZCI6Mi4wLCJwcm9tcHRUb2tlbnMiOjUsInByb21wdFBlclNlY29uZCI6My4wLCJjbGllbnQiOiJjbGllbnQ5In0KeyJ2IjoxLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMTEiLCJldmVudCI6InJlc3VsdCIsInVuaXgiOjk5OTEuMCwic3RhdHVzIjoic3VjY2VzcyIsIm1vZGVsIjoiZ3B0LW9zcy0yMGIiLCJlbGFwc2VkU2Vjb25kcyI6MS4wLCJjb21wbGV0aW9uVG9rZW5zIjo1LCJwcmVkaWN0ZWRQZXJTZWNvbmQiOjIuMCwicHJvbXB0VG9rZW5zIjo1LCJwcm9tcHRQZXJTZWNvbmQiOjMuMCwiY2xpZW50IjoiY2xpZW50MTEifQo=",
+      "reader_kind": "complete-tuple",
+      "pid_alive": true,
+      "now": 10000.0,
+      "expected": [
+        {
+          "schemaVersion": 1,
+          "journal": "recorded",
+          "complete": true,
+          "inFlight": [],
+          "recent": [
+            {
+              "id": "mac-boundary-000000000011",
+              "state": "success",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": 1.0,
+              "ageSeconds": 9.0,
+              "client": "client11",
+              "lane": "fast",
+              "predictedPerSecond": 2.0,
+              "completionTokens": 5,
+              "promptPerSecond": 3.0,
+              "promptTokens": 5,
+              "flags": []
+            },
+            {
+              "id": "mac-boundary-000000000010",
+              "state": "success",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": 1.0,
+              "ageSeconds": 10.0,
+              "client": "client10",
+              "lane": "fast",
+              "predictedPerSecond": 2.0,
+              "completionTokens": 5,
+              "promptPerSecond": 3.0,
+              "promptTokens": 5,
+              "flags": []
+            },
+            {
+              "id": "mac-boundary-000000000009",
+              "state": "success",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": 1.0,
+              "ageSeconds": 11.0,
+              "client": "client9",
+              "lane": "fast",
+              "predictedPerSecond": 2.0,
+              "completionTokens": 5,
+              "promptPerSecond": 3.0,
+              "promptTokens": 5,
+              "flags": []
+            },
+            {
+              "id": "mac-boundary-000000000008",
+              "state": "success",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": 1.0,
+              "ageSeconds": 12.0,
+              "client": "client8",
+              "lane": "fast",
+              "predictedPerSecond": 2.0,
+              "completionTokens": 5,
+              "promptPerSecond": 3.0,
+              "promptTokens": 5,
+              "flags": []
+            },
+            {
+              "id": "mac-boundary-000000000007",
+              "state": "success",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": 1.0,
+              "ageSeconds": 13.0,
+              "client": "client7",
+              "lane": "fast",
+              "predictedPerSecond": 2.0,
+              "completionTokens": 5,
+              "promptPerSecond": 3.0,
+              "promptTokens": 5,
+              "flags": []
+            },
+            {
+              "id": "mac-boundary-000000000006",
+              "state": "success",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": 1.0,
+              "ageSeconds": 14.0,
+              "client": "client6",
+              "lane": "fast",
+              "predictedPerSecond": 2.0,
+              "completionTokens": 5,
+              "promptPerSecond": 3.0,
+              "promptTokens": 5,
+              "flags": []
+            },
+            {
+              "id": "mac-boundary-000000000005",
+              "state": "success",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": 1.0,
+              "ageSeconds": 15.0,
+              "client": "client5",
+              "lane": "fast",
+              "predictedPerSecond": 2.0,
+              "completionTokens": 5,
+              "promptPerSecond": 3.0,
+              "promptTokens": 5,
+              "flags": []
+            },
+            {
+              "id": "mac-boundary-000000000004",
+              "state": "success",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": 1.0,
+              "ageSeconds": 16.0,
+              "client": "client4",
+              "lane": "fast",
+              "predictedPerSecond": 2.0,
+              "completionTokens": 5,
+              "promptPerSecond": 3.0,
+              "promptTokens": 5,
+              "flags": []
+            },
+            {
+              "id": "mac-boundary-000000000003",
+              "state": "success",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": 1.0,
+              "ageSeconds": 17.0,
+              "client": "client3",
+              "lane": "fast",
+              "predictedPerSecond": 2.0,
+              "completionTokens": 5,
+              "promptPerSecond": 3.0,
+              "promptTokens": 5,
+              "flags": []
+            },
+            {
+              "id": "mac-boundary-000000000002",
+              "state": "success",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": 1.0,
+              "ageSeconds": 18.0,
+              "client": "client2",
+              "lane": "fast",
+              "predictedPerSecond": 2.0,
+              "completionTokens": 5,
+              "promptPerSecond": 3.0,
+              "promptTokens": 5,
+              "flags": []
+            }
+          ],
+          "lastSuccess": {
+            "id": "mac-boundary-000000000011",
+            "state": "success",
+            "model": "gpt-oss-20b",
+            "elapsedSeconds": 1.0,
+            "ageSeconds": 9.0,
+            "client": "client11",
+            "lane": "fast",
+            "predictedPerSecond": 2.0,
+            "completionTokens": 5,
+            "promptPerSecond": 3.0,
+            "promptTokens": 5,
+            "flags": []
+          },
+          "unsettled": 0,
+          "clientsRecent": {
+            "client11": 1,
+            "client10": 1,
+            "client9": 1,
+            "client8": 1,
+            "client7": 1,
+            "client6": 1,
+            "client5": 1,
+            "client4": 1,
+            "client3": 1,
+            "client2": 1
+          },
+          "observationAgeSeconds": 0.0,
+          "availability": {
+            "state": "available"
+          },
+          "liveAvailable": true,
+          "projectionComplete": false,
+          "truncated": true,
+          "inFlightTruncated": false,
+          "recentTruncated": true
+        },
+        {
+          "id": "windows-jobs",
+          "label": "Windows jobs",
+          "state": "recorded",
+          "ageSeconds": 9.0,
+          "detail": "Last journaled Windows result validated; no job in flight",
+          "observationAgeSeconds": 0.0,
+          "observedAgeSeconds": 0.0,
+          "complete": true
+        }
+      ]
+    },
+    {
+      "name": "boundary_recent_distinct_clients_15",
+      "journal_base64": "eyJ2IjoxLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMDAiLCJldmVudCI6InJlc3VsdCIsInVuaXgiOjk5ODAuMCwic3RhdHVzIjoic3VjY2VzcyIsIm1vZGVsIjoiZ3B0LW9zcy0yMGIiLCJlbGFwc2VkU2Vjb25kcyI6MS4wLCJjb21wbGV0aW9uVG9rZW5zIjo1LCJwcmVkaWN0ZWRQZXJTZWNvbmQiOjIuMCwicHJvbXB0VG9rZW5zIjo1LCJwcm9tcHRQZXJTZWNvbmQiOjMuMCwiY2xpZW50IjoiY2xpZW50MCJ9CnsidiI6MSwiaWQiOiJtYWMtYm91bmRhcnktMDAwMDAwMDAwMDAyIiwiZXZlbnQiOiJyZXN1bHQiLCJ1bml4Ijo5OTgyLjAsInN0YXR1cyI6InN1Y2Nlc3MiLCJtb2RlbCI6ImdwdC1vc3MtMjBiIiwiZWxhcHNlZFNlY29uZHMiOjEuMCwiY29tcGxldGlvblRva2VucyI6NSwicHJlZGljdGVkUGVyU2Vjb25kIjoyLjAsInByb21wdFRva2VucyI6NSwicHJvbXB0UGVyU2Vjb25kIjozLjAsImNsaWVudCI6ImNsaWVudDIifQp7InYiOjEsImlkIjoibWFjLWJvdW5kYXJ5LTAwMDAwMDAwMDAwNCIsImV2ZW50IjoicmVzdWx0IiwidW5peCI6OTk4NC4wLCJzdGF0dXMiOiJzdWNjZXNzIiwibW9kZWwiOiJncHQtb3NzLTIwYiIsImVsYXBzZWRTZWNvbmRzIjoxLjAsImNvbXBsZXRpb25Ub2tlbnMiOjUsInByZWRpY3RlZFBlclNlY29uZCI6Mi4wLCJwcm9tcHRUb2tlbnMiOjUsInByb21wdFBlclNlY29uZCI6My4wLCJjbGllbnQiOiJjbGllbnQ0In0KeyJ2IjoxLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMDYiLCJldmVudCI6InJlc3VsdCIsInVuaXgiOjk5ODYuMCwic3RhdHVzIjoic3VjY2VzcyIsIm1vZGVsIjoiZ3B0LW9zcy0yMGIiLCJlbGFwc2VkU2Vjb25kcyI6MS4wLCJjb21wbGV0aW9uVG9rZW5zIjo1LCJwcmVkaWN0ZWRQZXJTZWNvbmQiOjIuMCwicHJvbXB0VG9rZW5zIjo1LCJwcm9tcHRQZXJTZWNvbmQiOjMuMCwiY2xpZW50IjoiY2xpZW50NiJ9CnsidiI6MSwiaWQiOiJtYWMtYm91bmRhcnktMDAwMDAwMDAwMDA4IiwiZXZlbnQiOiJyZXN1bHQiLCJ1bml4Ijo5OTg4LjAsInN0YXR1cyI6InN1Y2Nlc3MiLCJtb2RlbCI6ImdwdC1vc3MtMjBiIiwiZWxhcHNlZFNlY29uZHMiOjEuMCwiY29tcGxldGlvblRva2VucyI6NSwicHJlZGljdGVkUGVyU2Vjb25kIjoyLjAsInByb21wdFRva2VucyI6NSwicHJvbXB0UGVyU2Vjb25kIjozLjAsImNsaWVudCI6ImNsaWVudDgifQp7InYiOjEsImlkIjoibWFjLWJvdW5kYXJ5LTAwMDAwMDAwMDAxMCIsImV2ZW50IjoicmVzdWx0IiwidW5peCI6OTk5MC4wLCJzdGF0dXMiOiJzdWNjZXNzIiwibW9kZWwiOiJncHQtb3NzLTIwYiIsImVsYXBzZWRTZWNvbmRzIjoxLjAsImNvbXBsZXRpb25Ub2tlbnMiOjUsInByZWRpY3RlZFBlclNlY29uZCI6Mi4wLCJwcm9tcHRUb2tlbnMiOjUsInByb21wdFBlclNlY29uZCI6My4wLCJjbGllbnQiOiJjbGllbnQxMCJ9CnsidiI6MSwiaWQiOiJtYWMtYm91bmRhcnktMDAwMDAwMDAwMDEyIiwiZXZlbnQiOiJyZXN1bHQiLCJ1bml4Ijo5OTkyLjAsInN0YXR1cyI6InN1Y2Nlc3MiLCJtb2RlbCI6ImdwdC1vc3MtMjBiIiwiZWxhcHNlZFNlY29uZHMiOjEuMCwiY29tcGxldGlvblRva2VucyI6NSwicHJlZGljdGVkUGVyU2Vjb25kIjoyLjAsInByb21wdFRva2VucyI6NSwicHJvbXB0UGVyU2Vjb25kIjozLjAsImNsaWVudCI6ImNsaWVudDEyIn0KeyJ2IjoxLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMTQiLCJldmVudCI6InJlc3VsdCIsInVuaXgiOjk5OTQuMCwic3RhdHVzIjoic3VjY2VzcyIsIm1vZGVsIjoiZ3B0LW9zcy0yMGIiLCJlbGFwc2VkU2Vjb25kcyI6MS4wLCJjb21wbGV0aW9uVG9rZW5zIjo1LCJwcmVkaWN0ZWRQZXJTZWNvbmQiOjIuMCwicHJvbXB0VG9rZW5zIjo1LCJwcm9tcHRQZXJTZWNvbmQiOjMuMCwiY2xpZW50IjoiY2xpZW50MTQifQp7InYiOjEsImlkIjoibWFjLWJvdW5kYXJ5LTAwMDAwMDAwMDAwMSIsImV2ZW50IjoicmVzdWx0IiwidW5peCI6OTk4MS4wLCJzdGF0dXMiOiJzdWNjZXNzIiwibW9kZWwiOiJncHQtb3NzLTIwYiIsImVsYXBzZWRTZWNvbmRzIjoxLjAsImNvbXBsZXRpb25Ub2tlbnMiOjUsInByZWRpY3RlZFBlclNlY29uZCI6Mi4wLCJwcm9tcHRUb2tlbnMiOjUsInByb21wdFBlclNlY29uZCI6My4wLCJjbGllbnQiOiJjbGllbnQxIn0KeyJ2IjoxLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMDMiLCJldmVudCI6InJlc3VsdCIsInVuaXgiOjk5ODMuMCwic3RhdHVzIjoic3VjY2VzcyIsIm1vZGVsIjoiZ3B0LW9zcy0yMGIiLCJlbGFwc2VkU2Vjb25kcyI6MS4wLCJjb21wbGV0aW9uVG9rZW5zIjo1LCJwcmVkaWN0ZWRQZXJTZWNvbmQiOjIuMCwicHJvbXB0VG9rZW5zIjo1LCJwcm9tcHRQZXJTZWNvbmQiOjMuMCwiY2xpZW50IjoiY2xpZW50MyJ9CnsidiI6MSwiaWQiOiJtYWMtYm91bmRhcnktMDAwMDAwMDAwMDA1IiwiZXZlbnQiOiJyZXN1bHQiLCJ1bml4Ijo5OTg1LjAsInN0YXR1cyI6InN1Y2Nlc3MiLCJtb2RlbCI6ImdwdC1vc3MtMjBiIiwiZWxhcHNlZFNlY29uZHMiOjEuMCwiY29tcGxldGlvblRva2VucyI6NSwicHJlZGljdGVkUGVyU2Vjb25kIjoyLjAsInByb21wdFRva2VucyI6NSwicHJvbXB0UGVyU2Vjb25kIjozLjAsImNsaWVudCI6ImNsaWVudDUifQp7InYiOjEsImlkIjoibWFjLWJvdW5kYXJ5LTAwMDAwMDAwMDAwNyIsImV2ZW50IjoicmVzdWx0IiwidW5peCI6OTk4Ny4wLCJzdGF0dXMiOiJzdWNjZXNzIiwibW9kZWwiOiJncHQtb3NzLTIwYiIsImVsYXBzZWRTZWNvbmRzIjoxLjAsImNvbXBsZXRpb25Ub2tlbnMiOjUsInByZWRpY3RlZFBlclNlY29uZCI6Mi4wLCJwcm9tcHRUb2tlbnMiOjUsInByb21wdFBlclNlY29uZCI6My4wLCJjbGllbnQiOiJjbGllbnQ3In0KeyJ2IjoxLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMDkiLCJldmVudCI6InJlc3VsdCIsInVuaXgiOjk5ODkuMCwic3RhdHVzIjoic3VjY2VzcyIsIm1vZGVsIjoiZ3B0LW9zcy0yMGIiLCJlbGFwc2VkU2Vjb25kcyI6MS4wLCJjb21wbGV0aW9uVG9rZW5zIjo1LCJwcmVkaWN0ZWRQZXJTZWNvbmQiOjIuMCwicHJvbXB0VG9rZW5zIjo1LCJwcm9tcHRQZXJTZWNvbmQiOjMuMCwiY2xpZW50IjoiY2xpZW50OSJ9CnsidiI6MSwiaWQiOiJtYWMtYm91bmRhcnktMDAwMDAwMDAwMDExIiwiZXZlbnQiOiJyZXN1bHQiLCJ1bml4Ijo5OTkxLjAsInN0YXR1cyI6InN1Y2Nlc3MiLCJtb2RlbCI6ImdwdC1vc3MtMjBiIiwiZWxhcHNlZFNlY29uZHMiOjEuMCwiY29tcGxldGlvblRva2VucyI6NSwicHJlZGljdGVkUGVyU2Vjb25kIjoyLjAsInByb21wdFRva2VucyI6NSwicHJvbXB0UGVyU2Vjb25kIjozLjAsImNsaWVudCI6ImNsaWVudDExIn0KeyJ2IjoxLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMTMiLCJldmVudCI6InJlc3VsdCIsInVuaXgiOjk5OTMuMCwic3RhdHVzIjoic3VjY2VzcyIsIm1vZGVsIjoiZ3B0LW9zcy0yMGIiLCJlbGFwc2VkU2Vjb25kcyI6MS4wLCJjb21wbGV0aW9uVG9rZW5zIjo1LCJwcmVkaWN0ZWRQZXJTZWNvbmQiOjIuMCwicHJvbXB0VG9rZW5zIjo1LCJwcm9tcHRQZXJTZWNvbmQiOjMuMCwiY2xpZW50IjoiY2xpZW50MTMifQo=",
+      "reader_kind": "complete-tuple",
+      "pid_alive": true,
+      "now": 10000.0,
+      "expected": [
+        {
+          "schemaVersion": 1,
+          "journal": "recorded",
+          "complete": true,
+          "inFlight": [],
+          "recent": [
+            {
+              "id": "mac-boundary-000000000014",
+              "state": "success",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": 1.0,
+              "ageSeconds": 6.0,
+              "client": "client14",
+              "lane": "fast",
+              "predictedPerSecond": 2.0,
+              "completionTokens": 5,
+              "promptPerSecond": 3.0,
+              "promptTokens": 5,
+              "flags": []
+            },
+            {
+              "id": "mac-boundary-000000000013",
+              "state": "success",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": 1.0,
+              "ageSeconds": 7.0,
+              "client": "client13",
+              "lane": "fast",
+              "predictedPerSecond": 2.0,
+              "completionTokens": 5,
+              "promptPerSecond": 3.0,
+              "promptTokens": 5,
+              "flags": []
+            },
+            {
+              "id": "mac-boundary-000000000012",
+              "state": "success",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": 1.0,
+              "ageSeconds": 8.0,
+              "client": "client12",
+              "lane": "fast",
+              "predictedPerSecond": 2.0,
+              "completionTokens": 5,
+              "promptPerSecond": 3.0,
+              "promptTokens": 5,
+              "flags": []
+            },
+            {
+              "id": "mac-boundary-000000000011",
+              "state": "success",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": 1.0,
+              "ageSeconds": 9.0,
+              "client": "client11",
+              "lane": "fast",
+              "predictedPerSecond": 2.0,
+              "completionTokens": 5,
+              "promptPerSecond": 3.0,
+              "promptTokens": 5,
+              "flags": []
+            },
+            {
+              "id": "mac-boundary-000000000010",
+              "state": "success",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": 1.0,
+              "ageSeconds": 10.0,
+              "client": "client10",
+              "lane": "fast",
+              "predictedPerSecond": 2.0,
+              "completionTokens": 5,
+              "promptPerSecond": 3.0,
+              "promptTokens": 5,
+              "flags": []
+            },
+            {
+              "id": "mac-boundary-000000000009",
+              "state": "success",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": 1.0,
+              "ageSeconds": 11.0,
+              "client": "client9",
+              "lane": "fast",
+              "predictedPerSecond": 2.0,
+              "completionTokens": 5,
+              "promptPerSecond": 3.0,
+              "promptTokens": 5,
+              "flags": []
+            },
+            {
+              "id": "mac-boundary-000000000008",
+              "state": "success",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": 1.0,
+              "ageSeconds": 12.0,
+              "client": "client8",
+              "lane": "fast",
+              "predictedPerSecond": 2.0,
+              "completionTokens": 5,
+              "promptPerSecond": 3.0,
+              "promptTokens": 5,
+              "flags": []
+            },
+            {
+              "id": "mac-boundary-000000000007",
+              "state": "success",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": 1.0,
+              "ageSeconds": 13.0,
+              "client": "client7",
+              "lane": "fast",
+              "predictedPerSecond": 2.0,
+              "completionTokens": 5,
+              "promptPerSecond": 3.0,
+              "promptTokens": 5,
+              "flags": []
+            },
+            {
+              "id": "mac-boundary-000000000006",
+              "state": "success",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": 1.0,
+              "ageSeconds": 14.0,
+              "client": "client6",
+              "lane": "fast",
+              "predictedPerSecond": 2.0,
+              "completionTokens": 5,
+              "promptPerSecond": 3.0,
+              "promptTokens": 5,
+              "flags": []
+            },
+            {
+              "id": "mac-boundary-000000000005",
+              "state": "success",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": 1.0,
+              "ageSeconds": 15.0,
+              "client": "client5",
+              "lane": "fast",
+              "predictedPerSecond": 2.0,
+              "completionTokens": 5,
+              "promptPerSecond": 3.0,
+              "promptTokens": 5,
+              "flags": []
+            }
+          ],
+          "lastSuccess": {
+            "id": "mac-boundary-000000000014",
+            "state": "success",
+            "model": "gpt-oss-20b",
+            "elapsedSeconds": 1.0,
+            "ageSeconds": 6.0,
+            "client": "client14",
+            "lane": "fast",
+            "predictedPerSecond": 2.0,
+            "completionTokens": 5,
+            "promptPerSecond": 3.0,
+            "promptTokens": 5,
+            "flags": []
+          },
+          "unsettled": 0,
+          "clientsRecent": {
+            "client14": 1,
+            "client13": 1,
+            "client12": 1,
+            "client11": 1,
+            "client10": 1,
+            "client9": 1,
+            "client8": 1,
+            "client7": 1,
+            "client6": 1,
+            "client5": 1
+          },
+          "observationAgeSeconds": 0.0,
+          "availability": {
+            "state": "available"
+          },
+          "liveAvailable": true,
+          "projectionComplete": false,
+          "truncated": true,
+          "inFlightTruncated": false,
+          "recentTruncated": true
+        },
+        {
+          "id": "windows-jobs",
+          "label": "Windows jobs",
+          "state": "recorded",
+          "ageSeconds": 6.0,
+          "detail": "Last journaled Windows result validated; no job in flight",
+          "observationAgeSeconds": 0.0,
+          "observedAgeSeconds": 0.0,
+          "complete": true
+        }
+      ]
+    },
+    {
+      "name": "boundary_success_elapsedSeconds_minus_1_0",
+      "journal_base64": "eyJ2IjoxLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMDEiLCJldmVudCI6InJlc3VsdCIsInVuaXgiOjk5OTUuMCwic3RhdHVzIjoic3VjY2VzcyIsIm1vZGVsIjoiZ3B0LW9zcy0yMGIiLCJlbGFwc2VkU2Vjb25kcyI6LTEuMCwiY29tcGxldGlvblRva2VucyI6NSwicHJlZGljdGVkUGVyU2Vjb25kIjoyLjAsInByb21wdFRva2VucyI6NSwicHJvbXB0UGVyU2Vjb25kIjozLjB9Cg==",
+      "reader_kind": "complete-tuple",
+      "pid_alive": true,
+      "now": 10000.0,
+      "expected": [
+        {
+          "schemaVersion": 1,
+          "journal": "recorded",
+          "complete": true,
+          "inFlight": [],
+          "recent": [
+            {
+              "id": "mac-boundary-000000000001",
+              "state": "success",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": null,
+              "ageSeconds": 5.0,
+              "client": null,
+              "lane": "fast",
+              "predictedPerSecond": null,
+              "completionTokens": 5,
+              "promptPerSecond": null,
+              "promptTokens": 5,
+              "flags": []
+            }
+          ],
+          "lastSuccess": {
+            "id": "mac-boundary-000000000001",
+            "state": "success",
+            "model": "gpt-oss-20b",
+            "elapsedSeconds": null,
+            "ageSeconds": 5.0,
+            "client": null,
+            "lane": "fast",
+            "predictedPerSecond": null,
+            "completionTokens": 5,
+            "promptPerSecond": null,
+            "promptTokens": 5,
+            "flags": []
+          },
+          "unsettled": 0,
+          "clientsRecent": {
+            "unknown": 1
+          },
+          "observationAgeSeconds": 0.0,
+          "availability": {
+            "state": "available"
+          },
+          "liveAvailable": true,
+          "projectionComplete": true,
+          "truncated": false,
+          "inFlightTruncated": false,
+          "recentTruncated": false
+        },
+        {
+          "id": "windows-jobs",
+          "label": "Windows jobs",
+          "state": "recorded",
+          "ageSeconds": 5.0,
+          "detail": "Last journaled Windows result validated; no job in flight",
+          "observationAgeSeconds": 0.0,
+          "observedAgeSeconds": 0.0,
+          "complete": true
+        }
+      ]
+    },
+    {
+      "name": "boundary_success_elapsedSeconds_minus_0_001",
+      "journal_base64": "eyJ2IjoxLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMDEiLCJldmVudCI6InJlc3VsdCIsInVuaXgiOjk5OTUuMCwic3RhdHVzIjoic3VjY2VzcyIsIm1vZGVsIjoiZ3B0LW9zcy0yMGIiLCJlbGFwc2VkU2Vjb25kcyI6LTAuMDAxLCJjb21wbGV0aW9uVG9rZW5zIjo1LCJwcmVkaWN0ZWRQZXJTZWNvbmQiOjIuMCwicHJvbXB0VG9rZW5zIjo1LCJwcm9tcHRQZXJTZWNvbmQiOjMuMH0K",
+      "reader_kind": "complete-tuple",
+      "pid_alive": true,
+      "now": 10000.0,
+      "expected": [
+        {
+          "schemaVersion": 1,
+          "journal": "recorded",
+          "complete": true,
+          "inFlight": [],
+          "recent": [
+            {
+              "id": "mac-boundary-000000000001",
+              "state": "success",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": null,
+              "ageSeconds": 5.0,
+              "client": null,
+              "lane": "fast",
+              "predictedPerSecond": null,
+              "completionTokens": 5,
+              "promptPerSecond": null,
+              "promptTokens": 5,
+              "flags": []
+            }
+          ],
+          "lastSuccess": {
+            "id": "mac-boundary-000000000001",
+            "state": "success",
+            "model": "gpt-oss-20b",
+            "elapsedSeconds": null,
+            "ageSeconds": 5.0,
+            "client": null,
+            "lane": "fast",
+            "predictedPerSecond": null,
+            "completionTokens": 5,
+            "promptPerSecond": null,
+            "promptTokens": 5,
+            "flags": []
+          },
+          "unsettled": 0,
+          "clientsRecent": {
+            "unknown": 1
+          },
+          "observationAgeSeconds": 0.0,
+          "availability": {
+            "state": "available"
+          },
+          "liveAvailable": true,
+          "projectionComplete": true,
+          "truncated": false,
+          "inFlightTruncated": false,
+          "recentTruncated": false
+        },
+        {
+          "id": "windows-jobs",
+          "label": "Windows jobs",
+          "state": "recorded",
+          "ageSeconds": 5.0,
+          "detail": "Last journaled Windows result validated; no job in flight",
+          "observationAgeSeconds": 0.0,
+          "observedAgeSeconds": 0.0,
+          "complete": true
+        }
+      ]
+    },
+    {
+      "name": "boundary_success_elapsedSeconds_0_0",
+      "journal_base64": "eyJ2IjoxLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMDEiLCJldmVudCI6InJlc3VsdCIsInVuaXgiOjk5OTUuMCwic3RhdHVzIjoic3VjY2VzcyIsIm1vZGVsIjoiZ3B0LW9zcy0yMGIiLCJlbGFwc2VkU2Vjb25kcyI6MC4wLCJjb21wbGV0aW9uVG9rZW5zIjo1LCJwcmVkaWN0ZWRQZXJTZWNvbmQiOjIuMCwicHJvbXB0VG9rZW5zIjo1LCJwcm9tcHRQZXJTZWNvbmQiOjMuMH0K",
+      "reader_kind": "complete-tuple",
+      "pid_alive": true,
+      "now": 10000.0,
+      "expected": [
+        {
+          "schemaVersion": 1,
+          "journal": "recorded",
+          "complete": true,
+          "inFlight": [],
+          "recent": [
+            {
+              "id": "mac-boundary-000000000001",
+              "state": "success",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": 0.0,
+              "ageSeconds": 5.0,
+              "client": null,
+              "lane": "fast",
+              "predictedPerSecond": null,
+              "completionTokens": 5,
+              "promptPerSecond": null,
+              "promptTokens": 5,
+              "flags": []
+            }
+          ],
+          "lastSuccess": {
+            "id": "mac-boundary-000000000001",
+            "state": "success",
+            "model": "gpt-oss-20b",
+            "elapsedSeconds": 0.0,
+            "ageSeconds": 5.0,
+            "client": null,
+            "lane": "fast",
+            "predictedPerSecond": null,
+            "completionTokens": 5,
+            "promptPerSecond": null,
+            "promptTokens": 5,
+            "flags": []
+          },
+          "unsettled": 0,
+          "clientsRecent": {
+            "unknown": 1
+          },
+          "observationAgeSeconds": 0.0,
+          "availability": {
+            "state": "available"
+          },
+          "liveAvailable": true,
+          "projectionComplete": true,
+          "truncated": false,
+          "inFlightTruncated": false,
+          "recentTruncated": false
+        },
+        {
+          "id": "windows-jobs",
+          "label": "Windows jobs",
+          "state": "recorded",
+          "ageSeconds": 5.0,
+          "detail": "Last journaled Windows result validated; no job in flight",
+          "observationAgeSeconds": 0.0,
+          "observedAgeSeconds": 0.0,
+          "complete": true
+        }
+      ]
+    },
+    {
+      "name": "boundary_success_elapsedSeconds_0_001",
+      "journal_base64": "eyJ2IjoxLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMDEiLCJldmVudCI6InJlc3VsdCIsInVuaXgiOjk5OTUuMCwic3RhdHVzIjoic3VjY2VzcyIsIm1vZGVsIjoiZ3B0LW9zcy0yMGIiLCJlbGFwc2VkU2Vjb25kcyI6MC4wMDEsImNvbXBsZXRpb25Ub2tlbnMiOjUsInByZWRpY3RlZFBlclNlY29uZCI6Mi4wLCJwcm9tcHRUb2tlbnMiOjUsInByb21wdFBlclNlY29uZCI6My4wfQo=",
+      "reader_kind": "complete-tuple",
+      "pid_alive": true,
+      "now": 10000.0,
+      "expected": [
+        {
+          "schemaVersion": 1,
+          "journal": "recorded",
+          "complete": true,
+          "inFlight": [],
+          "recent": [
+            {
+              "id": "mac-boundary-000000000001",
+              "state": "success",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": 0.001,
+              "ageSeconds": 5.0,
+              "client": null,
+              "lane": "fast",
+              "predictedPerSecond": 2.0,
+              "completionTokens": 5,
+              "promptPerSecond": 3.0,
+              "promptTokens": 5,
+              "flags": []
+            }
+          ],
+          "lastSuccess": {
+            "id": "mac-boundary-000000000001",
+            "state": "success",
+            "model": "gpt-oss-20b",
+            "elapsedSeconds": 0.001,
+            "ageSeconds": 5.0,
+            "client": null,
+            "lane": "fast",
+            "predictedPerSecond": 2.0,
+            "completionTokens": 5,
+            "promptPerSecond": 3.0,
+            "promptTokens": 5,
+            "flags": []
+          },
+          "unsettled": 0,
+          "clientsRecent": {
+            "unknown": 1
+          },
+          "observationAgeSeconds": 0.0,
+          "availability": {
+            "state": "available"
+          },
+          "liveAvailable": true,
+          "projectionComplete": true,
+          "truncated": false,
+          "inFlightTruncated": false,
+          "recentTruncated": false
+        },
+        {
+          "id": "windows-jobs",
+          "label": "Windows jobs",
+          "state": "recorded",
+          "ageSeconds": 5.0,
+          "detail": "Last journaled Windows result validated; no job in flight",
+          "observationAgeSeconds": 0.0,
+          "observedAgeSeconds": 0.0,
+          "complete": true
+        }
+      ]
+    },
+    {
+      "name": "boundary_success_elapsedSeconds_1_0",
+      "journal_base64": "eyJ2IjoxLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMDEiLCJldmVudCI6InJlc3VsdCIsInVuaXgiOjk5OTUuMCwic3RhdHVzIjoic3VjY2VzcyIsIm1vZGVsIjoiZ3B0LW9zcy0yMGIiLCJlbGFwc2VkU2Vjb25kcyI6MS4wLCJjb21wbGV0aW9uVG9rZW5zIjo1LCJwcmVkaWN0ZWRQZXJTZWNvbmQiOjIuMCwicHJvbXB0VG9rZW5zIjo1LCJwcm9tcHRQZXJTZWNvbmQiOjMuMH0K",
+      "reader_kind": "complete-tuple",
+      "pid_alive": true,
+      "now": 10000.0,
+      "expected": [
+        {
+          "schemaVersion": 1,
+          "journal": "recorded",
+          "complete": true,
+          "inFlight": [],
+          "recent": [
+            {
+              "id": "mac-boundary-000000000001",
+              "state": "success",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": 1.0,
+              "ageSeconds": 5.0,
+              "client": null,
+              "lane": "fast",
+              "predictedPerSecond": 2.0,
+              "completionTokens": 5,
+              "promptPerSecond": 3.0,
+              "promptTokens": 5,
+              "flags": []
+            }
+          ],
+          "lastSuccess": {
+            "id": "mac-boundary-000000000001",
+            "state": "success",
+            "model": "gpt-oss-20b",
+            "elapsedSeconds": 1.0,
+            "ageSeconds": 5.0,
+            "client": null,
+            "lane": "fast",
+            "predictedPerSecond": 2.0,
+            "completionTokens": 5,
+            "promptPerSecond": 3.0,
+            "promptTokens": 5,
+            "flags": []
+          },
+          "unsettled": 0,
+          "clientsRecent": {
+            "unknown": 1
+          },
+          "observationAgeSeconds": 0.0,
+          "availability": {
+            "state": "available"
+          },
+          "liveAvailable": true,
+          "projectionComplete": true,
+          "truncated": false,
+          "inFlightTruncated": false,
+          "recentTruncated": false
+        },
+        {
+          "id": "windows-jobs",
+          "label": "Windows jobs",
+          "state": "recorded",
+          "ageSeconds": 5.0,
+          "detail": "Last journaled Windows result validated; no job in flight",
+          "observationAgeSeconds": 0.0,
+          "observedAgeSeconds": 0.0,
+          "complete": true
+        }
+      ]
+    },
+    {
+      "name": "boundary_success_predictedPerSecond_minus_1_0",
+      "journal_base64": "eyJ2IjoxLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMDEiLCJldmVudCI6InJlc3VsdCIsInVuaXgiOjk5OTUuMCwic3RhdHVzIjoic3VjY2VzcyIsIm1vZGVsIjoiZ3B0LW9zcy0yMGIiLCJlbGFwc2VkU2Vjb25kcyI6MS4wLCJjb21wbGV0aW9uVG9rZW5zIjo1LCJwcmVkaWN0ZWRQZXJTZWNvbmQiOi0xLjAsInByb21wdFRva2VucyI6NSwicHJvbXB0UGVyU2Vjb25kIjozLjB9Cg==",
+      "reader_kind": "complete-tuple",
+      "pid_alive": true,
+      "now": 10000.0,
+      "expected": [
+        {
+          "schemaVersion": 1,
+          "journal": "recorded",
+          "complete": true,
+          "inFlight": [],
+          "recent": [
+            {
+              "id": "mac-boundary-000000000001",
+              "state": "success",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": 1.0,
+              "ageSeconds": 5.0,
+              "client": null,
+              "lane": "fast",
+              "predictedPerSecond": null,
+              "completionTokens": 5,
+              "promptPerSecond": 3.0,
+              "promptTokens": 5,
+              "flags": []
+            }
+          ],
+          "lastSuccess": {
+            "id": "mac-boundary-000000000001",
+            "state": "success",
+            "model": "gpt-oss-20b",
+            "elapsedSeconds": 1.0,
+            "ageSeconds": 5.0,
+            "client": null,
+            "lane": "fast",
+            "predictedPerSecond": null,
+            "completionTokens": 5,
+            "promptPerSecond": 3.0,
+            "promptTokens": 5,
+            "flags": []
+          },
+          "unsettled": 0,
+          "clientsRecent": {
+            "unknown": 1
+          },
+          "observationAgeSeconds": 0.0,
+          "availability": {
+            "state": "available"
+          },
+          "liveAvailable": true,
+          "projectionComplete": true,
+          "truncated": false,
+          "inFlightTruncated": false,
+          "recentTruncated": false
+        },
+        {
+          "id": "windows-jobs",
+          "label": "Windows jobs",
+          "state": "recorded",
+          "ageSeconds": 5.0,
+          "detail": "Last journaled Windows result validated; no job in flight",
+          "observationAgeSeconds": 0.0,
+          "observedAgeSeconds": 0.0,
+          "complete": true
+        }
+      ]
+    },
+    {
+      "name": "boundary_success_predictedPerSecond_minus_0_001",
+      "journal_base64": "eyJ2IjoxLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMDEiLCJldmVudCI6InJlc3VsdCIsInVuaXgiOjk5OTUuMCwic3RhdHVzIjoic3VjY2VzcyIsIm1vZGVsIjoiZ3B0LW9zcy0yMGIiLCJlbGFwc2VkU2Vjb25kcyI6MS4wLCJjb21wbGV0aW9uVG9rZW5zIjo1LCJwcmVkaWN0ZWRQZXJTZWNvbmQiOi0wLjAwMSwicHJvbXB0VG9rZW5zIjo1LCJwcm9tcHRQZXJTZWNvbmQiOjMuMH0K",
+      "reader_kind": "complete-tuple",
+      "pid_alive": true,
+      "now": 10000.0,
+      "expected": [
+        {
+          "schemaVersion": 1,
+          "journal": "recorded",
+          "complete": true,
+          "inFlight": [],
+          "recent": [
+            {
+              "id": "mac-boundary-000000000001",
+              "state": "success",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": 1.0,
+              "ageSeconds": 5.0,
+              "client": null,
+              "lane": "fast",
+              "predictedPerSecond": null,
+              "completionTokens": 5,
+              "promptPerSecond": 3.0,
+              "promptTokens": 5,
+              "flags": []
+            }
+          ],
+          "lastSuccess": {
+            "id": "mac-boundary-000000000001",
+            "state": "success",
+            "model": "gpt-oss-20b",
+            "elapsedSeconds": 1.0,
+            "ageSeconds": 5.0,
+            "client": null,
+            "lane": "fast",
+            "predictedPerSecond": null,
+            "completionTokens": 5,
+            "promptPerSecond": 3.0,
+            "promptTokens": 5,
+            "flags": []
+          },
+          "unsettled": 0,
+          "clientsRecent": {
+            "unknown": 1
+          },
+          "observationAgeSeconds": 0.0,
+          "availability": {
+            "state": "available"
+          },
+          "liveAvailable": true,
+          "projectionComplete": true,
+          "truncated": false,
+          "inFlightTruncated": false,
+          "recentTruncated": false
+        },
+        {
+          "id": "windows-jobs",
+          "label": "Windows jobs",
+          "state": "recorded",
+          "ageSeconds": 5.0,
+          "detail": "Last journaled Windows result validated; no job in flight",
+          "observationAgeSeconds": 0.0,
+          "observedAgeSeconds": 0.0,
+          "complete": true
+        }
+      ]
+    },
+    {
+      "name": "boundary_success_predictedPerSecond_0_0",
+      "journal_base64": "eyJ2IjoxLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMDEiLCJldmVudCI6InJlc3VsdCIsInVuaXgiOjk5OTUuMCwic3RhdHVzIjoic3VjY2VzcyIsIm1vZGVsIjoiZ3B0LW9zcy0yMGIiLCJlbGFwc2VkU2Vjb25kcyI6MS4wLCJjb21wbGV0aW9uVG9rZW5zIjo1LCJwcmVkaWN0ZWRQZXJTZWNvbmQiOjAuMCwicHJvbXB0VG9rZW5zIjo1LCJwcm9tcHRQZXJTZWNvbmQiOjMuMH0K",
+      "reader_kind": "complete-tuple",
+      "pid_alive": true,
+      "now": 10000.0,
+      "expected": [
+        {
+          "schemaVersion": 1,
+          "journal": "recorded",
+          "complete": true,
+          "inFlight": [],
+          "recent": [
+            {
+              "id": "mac-boundary-000000000001",
+              "state": "success",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": 1.0,
+              "ageSeconds": 5.0,
+              "client": null,
+              "lane": "fast",
+              "predictedPerSecond": 0.0,
+              "completionTokens": 5,
+              "promptPerSecond": 3.0,
+              "promptTokens": 5,
+              "flags": []
+            }
+          ],
+          "lastSuccess": {
+            "id": "mac-boundary-000000000001",
+            "state": "success",
+            "model": "gpt-oss-20b",
+            "elapsedSeconds": 1.0,
+            "ageSeconds": 5.0,
+            "client": null,
+            "lane": "fast",
+            "predictedPerSecond": 0.0,
+            "completionTokens": 5,
+            "promptPerSecond": 3.0,
+            "promptTokens": 5,
+            "flags": []
+          },
+          "unsettled": 0,
+          "clientsRecent": {
+            "unknown": 1
+          },
+          "observationAgeSeconds": 0.0,
+          "availability": {
+            "state": "available"
+          },
+          "liveAvailable": true,
+          "projectionComplete": true,
+          "truncated": false,
+          "inFlightTruncated": false,
+          "recentTruncated": false
+        },
+        {
+          "id": "windows-jobs",
+          "label": "Windows jobs",
+          "state": "recorded",
+          "ageSeconds": 5.0,
+          "detail": "Last journaled Windows result validated; no job in flight",
+          "observationAgeSeconds": 0.0,
+          "observedAgeSeconds": 0.0,
+          "complete": true
+        }
+      ]
+    },
+    {
+      "name": "boundary_success_predictedPerSecond_0_001",
+      "journal_base64": "eyJ2IjoxLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMDEiLCJldmVudCI6InJlc3VsdCIsInVuaXgiOjk5OTUuMCwic3RhdHVzIjoic3VjY2VzcyIsIm1vZGVsIjoiZ3B0LW9zcy0yMGIiLCJlbGFwc2VkU2Vjb25kcyI6MS4wLCJjb21wbGV0aW9uVG9rZW5zIjo1LCJwcmVkaWN0ZWRQZXJTZWNvbmQiOjAuMDAxLCJwcm9tcHRUb2tlbnMiOjUsInByb21wdFBlclNlY29uZCI6My4wfQo=",
+      "reader_kind": "complete-tuple",
+      "pid_alive": true,
+      "now": 10000.0,
+      "expected": [
+        {
+          "schemaVersion": 1,
+          "journal": "recorded",
+          "complete": true,
+          "inFlight": [],
+          "recent": [
+            {
+              "id": "mac-boundary-000000000001",
+              "state": "success",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": 1.0,
+              "ageSeconds": 5.0,
+              "client": null,
+              "lane": "fast",
+              "predictedPerSecond": 0.001,
+              "completionTokens": 5,
+              "promptPerSecond": 3.0,
+              "promptTokens": 5,
+              "flags": []
+            }
+          ],
+          "lastSuccess": {
+            "id": "mac-boundary-000000000001",
+            "state": "success",
+            "model": "gpt-oss-20b",
+            "elapsedSeconds": 1.0,
+            "ageSeconds": 5.0,
+            "client": null,
+            "lane": "fast",
+            "predictedPerSecond": 0.001,
+            "completionTokens": 5,
+            "promptPerSecond": 3.0,
+            "promptTokens": 5,
+            "flags": []
+          },
+          "unsettled": 0,
+          "clientsRecent": {
+            "unknown": 1
+          },
+          "observationAgeSeconds": 0.0,
+          "availability": {
+            "state": "available"
+          },
+          "liveAvailable": true,
+          "projectionComplete": true,
+          "truncated": false,
+          "inFlightTruncated": false,
+          "recentTruncated": false
+        },
+        {
+          "id": "windows-jobs",
+          "label": "Windows jobs",
+          "state": "recorded",
+          "ageSeconds": 5.0,
+          "detail": "Last journaled Windows result validated; no job in flight",
+          "observationAgeSeconds": 0.0,
+          "observedAgeSeconds": 0.0,
+          "complete": true
+        }
+      ]
+    },
+    {
+      "name": "boundary_success_predictedPerSecond_1_0",
+      "journal_base64": "eyJ2IjoxLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMDEiLCJldmVudCI6InJlc3VsdCIsInVuaXgiOjk5OTUuMCwic3RhdHVzIjoic3VjY2VzcyIsIm1vZGVsIjoiZ3B0LW9zcy0yMGIiLCJlbGFwc2VkU2Vjb25kcyI6MS4wLCJjb21wbGV0aW9uVG9rZW5zIjo1LCJwcmVkaWN0ZWRQZXJTZWNvbmQiOjEuMCwicHJvbXB0VG9rZW5zIjo1LCJwcm9tcHRQZXJTZWNvbmQiOjMuMH0K",
+      "reader_kind": "complete-tuple",
+      "pid_alive": true,
+      "now": 10000.0,
+      "expected": [
+        {
+          "schemaVersion": 1,
+          "journal": "recorded",
+          "complete": true,
+          "inFlight": [],
+          "recent": [
+            {
+              "id": "mac-boundary-000000000001",
+              "state": "success",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": 1.0,
+              "ageSeconds": 5.0,
+              "client": null,
+              "lane": "fast",
+              "predictedPerSecond": 1.0,
+              "completionTokens": 5,
+              "promptPerSecond": 3.0,
+              "promptTokens": 5,
+              "flags": []
+            }
+          ],
+          "lastSuccess": {
+            "id": "mac-boundary-000000000001",
+            "state": "success",
+            "model": "gpt-oss-20b",
+            "elapsedSeconds": 1.0,
+            "ageSeconds": 5.0,
+            "client": null,
+            "lane": "fast",
+            "predictedPerSecond": 1.0,
+            "completionTokens": 5,
+            "promptPerSecond": 3.0,
+            "promptTokens": 5,
+            "flags": []
+          },
+          "unsettled": 0,
+          "clientsRecent": {
+            "unknown": 1
+          },
+          "observationAgeSeconds": 0.0,
+          "availability": {
+            "state": "available"
+          },
+          "liveAvailable": true,
+          "projectionComplete": true,
+          "truncated": false,
+          "inFlightTruncated": false,
+          "recentTruncated": false
+        },
+        {
+          "id": "windows-jobs",
+          "label": "Windows jobs",
+          "state": "recorded",
+          "ageSeconds": 5.0,
+          "detail": "Last journaled Windows result validated; no job in flight",
+          "observationAgeSeconds": 0.0,
+          "observedAgeSeconds": 0.0,
+          "complete": true
+        }
+      ]
+    },
+    {
+      "name": "boundary_success_promptPerSecond_minus_1_0",
+      "journal_base64": "eyJ2IjoxLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMDEiLCJldmVudCI6InJlc3VsdCIsInVuaXgiOjk5OTUuMCwic3RhdHVzIjoic3VjY2VzcyIsIm1vZGVsIjoiZ3B0LW9zcy0yMGIiLCJlbGFwc2VkU2Vjb25kcyI6MS4wLCJjb21wbGV0aW9uVG9rZW5zIjo1LCJwcmVkaWN0ZWRQZXJTZWNvbmQiOjIuMCwicHJvbXB0VG9rZW5zIjo1LCJwcm9tcHRQZXJTZWNvbmQiOi0xLjB9Cg==",
+      "reader_kind": "complete-tuple",
+      "pid_alive": true,
+      "now": 10000.0,
+      "expected": [
+        {
+          "schemaVersion": 1,
+          "journal": "recorded",
+          "complete": true,
+          "inFlight": [],
+          "recent": [
+            {
+              "id": "mac-boundary-000000000001",
+              "state": "success",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": 1.0,
+              "ageSeconds": 5.0,
+              "client": null,
+              "lane": "fast",
+              "predictedPerSecond": 2.0,
+              "completionTokens": 5,
+              "promptPerSecond": null,
+              "promptTokens": 5,
+              "flags": []
+            }
+          ],
+          "lastSuccess": {
+            "id": "mac-boundary-000000000001",
+            "state": "success",
+            "model": "gpt-oss-20b",
+            "elapsedSeconds": 1.0,
+            "ageSeconds": 5.0,
+            "client": null,
+            "lane": "fast",
+            "predictedPerSecond": 2.0,
+            "completionTokens": 5,
+            "promptPerSecond": null,
+            "promptTokens": 5,
+            "flags": []
+          },
+          "unsettled": 0,
+          "clientsRecent": {
+            "unknown": 1
+          },
+          "observationAgeSeconds": 0.0,
+          "availability": {
+            "state": "available"
+          },
+          "liveAvailable": true,
+          "projectionComplete": true,
+          "truncated": false,
+          "inFlightTruncated": false,
+          "recentTruncated": false
+        },
+        {
+          "id": "windows-jobs",
+          "label": "Windows jobs",
+          "state": "recorded",
+          "ageSeconds": 5.0,
+          "detail": "Last journaled Windows result validated; no job in flight",
+          "observationAgeSeconds": 0.0,
+          "observedAgeSeconds": 0.0,
+          "complete": true
+        }
+      ]
+    },
+    {
+      "name": "boundary_success_promptPerSecond_minus_0_001",
+      "journal_base64": "eyJ2IjoxLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMDEiLCJldmVudCI6InJlc3VsdCIsInVuaXgiOjk5OTUuMCwic3RhdHVzIjoic3VjY2VzcyIsIm1vZGVsIjoiZ3B0LW9zcy0yMGIiLCJlbGFwc2VkU2Vjb25kcyI6MS4wLCJjb21wbGV0aW9uVG9rZW5zIjo1LCJwcmVkaWN0ZWRQZXJTZWNvbmQiOjIuMCwicHJvbXB0VG9rZW5zIjo1LCJwcm9tcHRQZXJTZWNvbmQiOi0wLjAwMX0K",
+      "reader_kind": "complete-tuple",
+      "pid_alive": true,
+      "now": 10000.0,
+      "expected": [
+        {
+          "schemaVersion": 1,
+          "journal": "recorded",
+          "complete": true,
+          "inFlight": [],
+          "recent": [
+            {
+              "id": "mac-boundary-000000000001",
+              "state": "success",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": 1.0,
+              "ageSeconds": 5.0,
+              "client": null,
+              "lane": "fast",
+              "predictedPerSecond": 2.0,
+              "completionTokens": 5,
+              "promptPerSecond": null,
+              "promptTokens": 5,
+              "flags": []
+            }
+          ],
+          "lastSuccess": {
+            "id": "mac-boundary-000000000001",
+            "state": "success",
+            "model": "gpt-oss-20b",
+            "elapsedSeconds": 1.0,
+            "ageSeconds": 5.0,
+            "client": null,
+            "lane": "fast",
+            "predictedPerSecond": 2.0,
+            "completionTokens": 5,
+            "promptPerSecond": null,
+            "promptTokens": 5,
+            "flags": []
+          },
+          "unsettled": 0,
+          "clientsRecent": {
+            "unknown": 1
+          },
+          "observationAgeSeconds": 0.0,
+          "availability": {
+            "state": "available"
+          },
+          "liveAvailable": true,
+          "projectionComplete": true,
+          "truncated": false,
+          "inFlightTruncated": false,
+          "recentTruncated": false
+        },
+        {
+          "id": "windows-jobs",
+          "label": "Windows jobs",
+          "state": "recorded",
+          "ageSeconds": 5.0,
+          "detail": "Last journaled Windows result validated; no job in flight",
+          "observationAgeSeconds": 0.0,
+          "observedAgeSeconds": 0.0,
+          "complete": true
+        }
+      ]
+    },
+    {
+      "name": "boundary_success_promptPerSecond_0_0",
+      "journal_base64": "eyJ2IjoxLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMDEiLCJldmVudCI6InJlc3VsdCIsInVuaXgiOjk5OTUuMCwic3RhdHVzIjoic3VjY2VzcyIsIm1vZGVsIjoiZ3B0LW9zcy0yMGIiLCJlbGFwc2VkU2Vjb25kcyI6MS4wLCJjb21wbGV0aW9uVG9rZW5zIjo1LCJwcmVkaWN0ZWRQZXJTZWNvbmQiOjIuMCwicHJvbXB0VG9rZW5zIjo1LCJwcm9tcHRQZXJTZWNvbmQiOjAuMH0K",
+      "reader_kind": "complete-tuple",
+      "pid_alive": true,
+      "now": 10000.0,
+      "expected": [
+        {
+          "schemaVersion": 1,
+          "journal": "recorded",
+          "complete": true,
+          "inFlight": [],
+          "recent": [
+            {
+              "id": "mac-boundary-000000000001",
+              "state": "success",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": 1.0,
+              "ageSeconds": 5.0,
+              "client": null,
+              "lane": "fast",
+              "predictedPerSecond": 2.0,
+              "completionTokens": 5,
+              "promptPerSecond": 0.0,
+              "promptTokens": 5,
+              "flags": []
+            }
+          ],
+          "lastSuccess": {
+            "id": "mac-boundary-000000000001",
+            "state": "success",
+            "model": "gpt-oss-20b",
+            "elapsedSeconds": 1.0,
+            "ageSeconds": 5.0,
+            "client": null,
+            "lane": "fast",
+            "predictedPerSecond": 2.0,
+            "completionTokens": 5,
+            "promptPerSecond": 0.0,
+            "promptTokens": 5,
+            "flags": []
+          },
+          "unsettled": 0,
+          "clientsRecent": {
+            "unknown": 1
+          },
+          "observationAgeSeconds": 0.0,
+          "availability": {
+            "state": "available"
+          },
+          "liveAvailable": true,
+          "projectionComplete": true,
+          "truncated": false,
+          "inFlightTruncated": false,
+          "recentTruncated": false
+        },
+        {
+          "id": "windows-jobs",
+          "label": "Windows jobs",
+          "state": "recorded",
+          "ageSeconds": 5.0,
+          "detail": "Last journaled Windows result validated; no job in flight",
+          "observationAgeSeconds": 0.0,
+          "observedAgeSeconds": 0.0,
+          "complete": true
+        }
+      ]
+    },
+    {
+      "name": "boundary_success_promptPerSecond_0_001",
+      "journal_base64": "eyJ2IjoxLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMDEiLCJldmVudCI6InJlc3VsdCIsInVuaXgiOjk5OTUuMCwic3RhdHVzIjoic3VjY2VzcyIsIm1vZGVsIjoiZ3B0LW9zcy0yMGIiLCJlbGFwc2VkU2Vjb25kcyI6MS4wLCJjb21wbGV0aW9uVG9rZW5zIjo1LCJwcmVkaWN0ZWRQZXJTZWNvbmQiOjIuMCwicHJvbXB0VG9rZW5zIjo1LCJwcm9tcHRQZXJTZWNvbmQiOjAuMDAxfQo=",
+      "reader_kind": "complete-tuple",
+      "pid_alive": true,
+      "now": 10000.0,
+      "expected": [
+        {
+          "schemaVersion": 1,
+          "journal": "recorded",
+          "complete": true,
+          "inFlight": [],
+          "recent": [
+            {
+              "id": "mac-boundary-000000000001",
+              "state": "success",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": 1.0,
+              "ageSeconds": 5.0,
+              "client": null,
+              "lane": "fast",
+              "predictedPerSecond": 2.0,
+              "completionTokens": 5,
+              "promptPerSecond": 0.001,
+              "promptTokens": 5,
+              "flags": []
+            }
+          ],
+          "lastSuccess": {
+            "id": "mac-boundary-000000000001",
+            "state": "success",
+            "model": "gpt-oss-20b",
+            "elapsedSeconds": 1.0,
+            "ageSeconds": 5.0,
+            "client": null,
+            "lane": "fast",
+            "predictedPerSecond": 2.0,
+            "completionTokens": 5,
+            "promptPerSecond": 0.001,
+            "promptTokens": 5,
+            "flags": []
+          },
+          "unsettled": 0,
+          "clientsRecent": {
+            "unknown": 1
+          },
+          "observationAgeSeconds": 0.0,
+          "availability": {
+            "state": "available"
+          },
+          "liveAvailable": true,
+          "projectionComplete": true,
+          "truncated": false,
+          "inFlightTruncated": false,
+          "recentTruncated": false
+        },
+        {
+          "id": "windows-jobs",
+          "label": "Windows jobs",
+          "state": "recorded",
+          "ageSeconds": 5.0,
+          "detail": "Last journaled Windows result validated; no job in flight",
+          "observationAgeSeconds": 0.0,
+          "observedAgeSeconds": 0.0,
+          "complete": true
+        }
+      ]
+    },
+    {
+      "name": "boundary_success_promptPerSecond_1_0",
+      "journal_base64": "eyJ2IjoxLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMDEiLCJldmVudCI6InJlc3VsdCIsInVuaXgiOjk5OTUuMCwic3RhdHVzIjoic3VjY2VzcyIsIm1vZGVsIjoiZ3B0LW9zcy0yMGIiLCJlbGFwc2VkU2Vjb25kcyI6MS4wLCJjb21wbGV0aW9uVG9rZW5zIjo1LCJwcmVkaWN0ZWRQZXJTZWNvbmQiOjIuMCwicHJvbXB0VG9rZW5zIjo1LCJwcm9tcHRQZXJTZWNvbmQiOjEuMH0K",
+      "reader_kind": "complete-tuple",
+      "pid_alive": true,
+      "now": 10000.0,
+      "expected": [
+        {
+          "schemaVersion": 1,
+          "journal": "recorded",
+          "complete": true,
+          "inFlight": [],
+          "recent": [
+            {
+              "id": "mac-boundary-000000000001",
+              "state": "success",
+              "model": "gpt-oss-20b",
+              "elapsedSeconds": 1.0,
+              "ageSeconds": 5.0,
+              "client": null,
+              "lane": "fast",
+              "predictedPerSecond": 2.0,
+              "completionTokens": 5,
+              "promptPerSecond": 1.0,
+              "promptTokens": 5,
+              "flags": []
+            }
+          ],
+          "lastSuccess": {
+            "id": "mac-boundary-000000000001",
+            "state": "success",
+            "model": "gpt-oss-20b",
+            "elapsedSeconds": 1.0,
+            "ageSeconds": 5.0,
+            "client": null,
+            "lane": "fast",
+            "predictedPerSecond": 2.0,
+            "completionTokens": 5,
+            "promptPerSecond": 1.0,
+            "promptTokens": 5,
+            "flags": []
+          },
+          "unsettled": 0,
+          "clientsRecent": {
+            "unknown": 1
+          },
+          "observationAgeSeconds": 0.0,
+          "availability": {
+            "state": "available"
+          },
+          "liveAvailable": true,
+          "projectionComplete": true,
+          "truncated": false,
+          "inFlightTruncated": false,
+          "recentTruncated": false
+        },
+        {
+          "id": "windows-jobs",
+          "label": "Windows jobs",
+          "state": "recorded",
+          "ageSeconds": 5.0,
+          "detail": "Last journaled Windows result validated; no job in flight",
+          "observationAgeSeconds": 0.0,
+          "observedAgeSeconds": 0.0,
+          "complete": true
+        }
+      ]
+    },
+    {
+      "name": "boundary_cancelled_elapsed_minus_1_0",
+      "journal_base64": "eyJ2IjoxLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMDEiLCJldmVudCI6InJlc3VsdCIsInVuaXgiOjk5OTUuMCwic3RhdHVzIjoiY2FuY2VsbGVkIiwiZWxhcHNlZFNlY29uZHMiOi0xLjB9Cg==",
+      "reader_kind": "complete-tuple",
+      "pid_alive": true,
+      "now": 10000.0,
+      "expected": [
+        {
+          "schemaVersion": 1,
+          "journal": "recorded",
+          "complete": true,
+          "inFlight": [],
+          "recent": [
+            {
+              "id": "mac-boundary-000000000001",
+              "state": "cancelled",
+              "model": null,
+              "elapsedSeconds": null,
+              "ageSeconds": 5.0,
+              "client": null,
+              "lane": null,
+              "predictedPerSecond": null,
+              "completionTokens": null,
+              "promptPerSecond": null,
+              "promptTokens": null,
+              "flags": []
+            }
+          ],
+          "lastSuccess": null,
+          "unsettled": 0,
+          "clientsRecent": {
+            "unknown": 1
+          },
+          "observationAgeSeconds": 0.0,
+          "availability": {
+            "state": "available"
+          },
+          "liveAvailable": true,
+          "projectionComplete": true,
+          "truncated": false,
+          "inFlightTruncated": false,
+          "recentTruncated": false
+        },
+        {
+          "id": "windows-jobs",
+          "label": "Windows jobs",
+          "state": "recorded",
+          "ageSeconds": 5.0,
+          "detail": "Windows jobs journaled; no validated result yet",
+          "observationAgeSeconds": 0.0,
+          "observedAgeSeconds": 0.0,
+          "complete": true
+        }
+      ]
+    },
+    {
+      "name": "boundary_cancelled_elapsed_minus_0_001",
+      "journal_base64": "eyJ2IjoxLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMDEiLCJldmVudCI6InJlc3VsdCIsInVuaXgiOjk5OTUuMCwic3RhdHVzIjoiY2FuY2VsbGVkIiwiZWxhcHNlZFNlY29uZHMiOi0wLjAwMX0K",
+      "reader_kind": "complete-tuple",
+      "pid_alive": true,
+      "now": 10000.0,
+      "expected": [
+        {
+          "schemaVersion": 1,
+          "journal": "recorded",
+          "complete": true,
+          "inFlight": [],
+          "recent": [
+            {
+              "id": "mac-boundary-000000000001",
+              "state": "cancelled",
+              "model": null,
+              "elapsedSeconds": null,
+              "ageSeconds": 5.0,
+              "client": null,
+              "lane": null,
+              "predictedPerSecond": null,
+              "completionTokens": null,
+              "promptPerSecond": null,
+              "promptTokens": null,
+              "flags": []
+            }
+          ],
+          "lastSuccess": null,
+          "unsettled": 0,
+          "clientsRecent": {
+            "unknown": 1
+          },
+          "observationAgeSeconds": 0.0,
+          "availability": {
+            "state": "available"
+          },
+          "liveAvailable": true,
+          "projectionComplete": true,
+          "truncated": false,
+          "inFlightTruncated": false,
+          "recentTruncated": false
+        },
+        {
+          "id": "windows-jobs",
+          "label": "Windows jobs",
+          "state": "recorded",
+          "ageSeconds": 5.0,
+          "detail": "Windows jobs journaled; no validated result yet",
+          "observationAgeSeconds": 0.0,
+          "observedAgeSeconds": 0.0,
+          "complete": true
+        }
+      ]
+    },
+    {
+      "name": "boundary_cancelled_elapsed_0_0",
+      "journal_base64": "eyJ2IjoxLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMDEiLCJldmVudCI6InJlc3VsdCIsInVuaXgiOjk5OTUuMCwic3RhdHVzIjoiY2FuY2VsbGVkIiwiZWxhcHNlZFNlY29uZHMiOjAuMH0K",
+      "reader_kind": "complete-tuple",
+      "pid_alive": true,
+      "now": 10000.0,
+      "expected": [
+        {
+          "schemaVersion": 1,
+          "journal": "recorded",
+          "complete": true,
+          "inFlight": [],
+          "recent": [
+            {
+              "id": "mac-boundary-000000000001",
+              "state": "cancelled",
+              "model": null,
+              "elapsedSeconds": 0.0,
+              "ageSeconds": 5.0,
+              "client": null,
+              "lane": null,
+              "predictedPerSecond": null,
+              "completionTokens": null,
+              "promptPerSecond": null,
+              "promptTokens": null,
+              "flags": []
+            }
+          ],
+          "lastSuccess": null,
+          "unsettled": 0,
+          "clientsRecent": {
+            "unknown": 1
+          },
+          "observationAgeSeconds": 0.0,
+          "availability": {
+            "state": "available"
+          },
+          "liveAvailable": true,
+          "projectionComplete": true,
+          "truncated": false,
+          "inFlightTruncated": false,
+          "recentTruncated": false
+        },
+        {
+          "id": "windows-jobs",
+          "label": "Windows jobs",
+          "state": "recorded",
+          "ageSeconds": 5.0,
+          "detail": "Windows jobs journaled; no validated result yet",
+          "observationAgeSeconds": 0.0,
+          "observedAgeSeconds": 0.0,
+          "complete": true
+        }
+      ]
+    },
+    {
+      "name": "boundary_cancelled_elapsed_0_001",
+      "journal_base64": "eyJ2IjoxLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMDEiLCJldmVudCI6InJlc3VsdCIsInVuaXgiOjk5OTUuMCwic3RhdHVzIjoiY2FuY2VsbGVkIiwiZWxhcHNlZFNlY29uZHMiOjAuMDAxfQo=",
+      "reader_kind": "complete-tuple",
+      "pid_alive": true,
+      "now": 10000.0,
+      "expected": [
+        {
+          "schemaVersion": 1,
+          "journal": "recorded",
+          "complete": true,
+          "inFlight": [],
+          "recent": [
+            {
+              "id": "mac-boundary-000000000001",
+              "state": "cancelled",
+              "model": null,
+              "elapsedSeconds": 0.001,
+              "ageSeconds": 5.0,
+              "client": null,
+              "lane": null,
+              "predictedPerSecond": null,
+              "completionTokens": null,
+              "promptPerSecond": null,
+              "promptTokens": null,
+              "flags": []
+            }
+          ],
+          "lastSuccess": null,
+          "unsettled": 0,
+          "clientsRecent": {
+            "unknown": 1
+          },
+          "observationAgeSeconds": 0.0,
+          "availability": {
+            "state": "available"
+          },
+          "liveAvailable": true,
+          "projectionComplete": true,
+          "truncated": false,
+          "inFlightTruncated": false,
+          "recentTruncated": false
+        },
+        {
+          "id": "windows-jobs",
+          "label": "Windows jobs",
+          "state": "recorded",
+          "ageSeconds": 5.0,
+          "detail": "Windows jobs journaled; no validated result yet",
+          "observationAgeSeconds": 0.0,
+          "observedAgeSeconds": 0.0,
+          "complete": true
+        }
+      ]
+    },
+    {
+      "name": "boundary_cancelled_elapsed_1_0",
+      "journal_base64": "eyJ2IjoxLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMDEiLCJldmVudCI6InJlc3VsdCIsInVuaXgiOjk5OTUuMCwic3RhdHVzIjoiY2FuY2VsbGVkIiwiZWxhcHNlZFNlY29uZHMiOjEuMH0K",
+      "reader_kind": "complete-tuple",
+      "pid_alive": true,
+      "now": 10000.0,
+      "expected": [
+        {
+          "schemaVersion": 1,
+          "journal": "recorded",
+          "complete": true,
+          "inFlight": [],
+          "recent": [
+            {
+              "id": "mac-boundary-000000000001",
+              "state": "cancelled",
+              "model": null,
+              "elapsedSeconds": 1.0,
+              "ageSeconds": 5.0,
+              "client": null,
+              "lane": null,
+              "predictedPerSecond": null,
+              "completionTokens": null,
+              "promptPerSecond": null,
+              "promptTokens": null,
+              "flags": []
+            }
+          ],
+          "lastSuccess": null,
+          "unsettled": 0,
+          "clientsRecent": {
+            "unknown": 1
+          },
+          "observationAgeSeconds": 0.0,
+          "availability": {
+            "state": "available"
+          },
+          "liveAvailable": true,
+          "projectionComplete": true,
+          "truncated": false,
+          "inFlightTruncated": false,
+          "recentTruncated": false
+        },
+        {
+          "id": "windows-jobs",
+          "label": "Windows jobs",
+          "state": "recorded",
+          "ageSeconds": 5.0,
+          "detail": "Windows jobs journaled; no validated result yet",
+          "observationAgeSeconds": 0.0,
+          "observedAgeSeconds": 0.0,
+          "complete": true
+        }
+      ]
+    },
+    {
+      "name": "complete_flag_malformed_json_none",
+      "journal_base64": "bm90IGpzb24K",
+      "reader_kind": "complete-tuple",
+      "complete_value": "none",
+      "pid_alive": true,
+      "now": 10000.0,
+      "expected": [
+        {
+          "schemaVersion": 1,
+          "journal": "invalid",
+          "complete": false,
+          "inFlight": [],
+          "recent": [],
+          "lastSuccess": null,
+          "unsettled": null,
+          "clientsRecent": {},
+          "observationAgeSeconds": 0.0,
+          "availability": {
+            "state": "unknown"
+          },
+          "liveAvailable": false,
+          "projectionComplete": true,
+          "truncated": false,
+          "inFlightTruncated": false,
+          "recentTruncated": false
+        },
+        {
+          "id": "windows-jobs",
+          "label": "Windows jobs",
+          "state": "error",
+          "ageSeconds": null,
+          "detail": "Journal read incomplete or contains invalid records",
+          "observationAgeSeconds": 0.0,
+          "observedAgeSeconds": 0.0,
+          "complete": false
+        }
+      ]
+    },
+    {
+      "name": "complete_flag_malformed_json_integer_zero",
+      "journal_base64": "bm90IGpzb24K",
+      "reader_kind": "complete-tuple",
+      "complete_value": "integer-zero",
+      "pid_alive": true,
+      "now": 10000.0,
+      "expected": [
+        {
+          "schemaVersion": 1,
+          "journal": "invalid",
+          "complete": false,
+          "inFlight": [],
+          "recent": [],
+          "lastSuccess": null,
+          "unsettled": null,
+          "clientsRecent": {},
+          "observationAgeSeconds": 0.0,
+          "availability": {
+            "state": "unknown"
+          },
+          "liveAvailable": false,
+          "projectionComplete": true,
+          "truncated": false,
+          "inFlightTruncated": false,
+          "recentTruncated": false
+        },
+        {
+          "id": "windows-jobs",
+          "label": "Windows jobs",
+          "state": "error",
+          "ageSeconds": null,
+          "detail": "Journal read incomplete or contains invalid records",
+          "observationAgeSeconds": 0.0,
+          "observedAgeSeconds": 0.0,
+          "complete": false
+        }
+      ]
+    },
+    {
+      "name": "complete_flag_malformed_json_float_zero",
+      "journal_base64": "bm90IGpzb24K",
+      "reader_kind": "complete-tuple",
+      "complete_value": "float-zero",
+      "pid_alive": true,
+      "now": 10000.0,
+      "expected": [
+        {
+          "schemaVersion": 1,
+          "journal": "invalid",
+          "complete": false,
+          "inFlight": [],
+          "recent": [],
+          "lastSuccess": null,
+          "unsettled": null,
+          "clientsRecent": {},
+          "observationAgeSeconds": 0.0,
+          "availability": {
+            "state": "unknown"
+          },
+          "liveAvailable": false,
+          "projectionComplete": true,
+          "truncated": false,
+          "inFlightTruncated": false,
+          "recentTruncated": false
+        },
+        {
+          "id": "windows-jobs",
+          "label": "Windows jobs",
+          "state": "error",
+          "ageSeconds": null,
+          "detail": "Journal read incomplete or contains invalid records",
+          "observationAgeSeconds": 0.0,
+          "observedAgeSeconds": 0.0,
+          "complete": false
+        }
+      ]
+    },
+    {
+      "name": "complete_flag_malformed_json_empty_text",
+      "journal_base64": "bm90IGpzb24K",
+      "reader_kind": "complete-tuple",
+      "complete_value": "empty-text",
+      "pid_alive": true,
+      "now": 10000.0,
+      "expected": [
+        {
+          "schemaVersion": 1,
+          "journal": "invalid",
+          "complete": false,
+          "inFlight": [],
+          "recent": [],
+          "lastSuccess": null,
+          "unsettled": null,
+          "clientsRecent": {},
+          "observationAgeSeconds": 0.0,
+          "availability": {
+            "state": "unknown"
+          },
+          "liveAvailable": false,
+          "projectionComplete": true,
+          "truncated": false,
+          "inFlightTruncated": false,
+          "recentTruncated": false
+        },
+        {
+          "id": "windows-jobs",
+          "label": "Windows jobs",
+          "state": "error",
+          "ageSeconds": null,
+          "detail": "Journal read incomplete or contains invalid records",
+          "observationAgeSeconds": 0.0,
+          "observedAgeSeconds": 0.0,
+          "complete": false
+        }
+      ]
+    },
+    {
+      "name": "complete_flag_malformed_json_empty_bytes",
+      "journal_base64": "bm90IGpzb24K",
+      "reader_kind": "complete-tuple",
+      "complete_value": "empty-bytes",
+      "pid_alive": true,
+      "now": 10000.0,
+      "expected": [
+        {
+          "schemaVersion": 1,
+          "journal": "invalid",
+          "complete": false,
+          "inFlight": [],
+          "recent": [],
+          "lastSuccess": null,
+          "unsettled": null,
+          "clientsRecent": {},
+          "observationAgeSeconds": 0.0,
+          "availability": {
+            "state": "unknown"
+          },
+          "liveAvailable": false,
+          "projectionComplete": true,
+          "truncated": false,
+          "inFlightTruncated": false,
+          "recentTruncated": false
+        },
+        {
+          "id": "windows-jobs",
+          "label": "Windows jobs",
+          "state": "error",
+          "ageSeconds": null,
+          "detail": "Journal read incomplete or contains invalid records",
+          "observationAgeSeconds": 0.0,
+          "observedAgeSeconds": 0.0,
+          "complete": false
+        }
+      ]
+    },
+    {
+      "name": "complete_flag_malformed_json_empty_list",
+      "journal_base64": "bm90IGpzb24K",
+      "reader_kind": "complete-tuple",
+      "complete_value": "empty-list",
+      "pid_alive": true,
+      "now": 10000.0,
+      "expected": [
+        {
+          "schemaVersion": 1,
+          "journal": "invalid",
+          "complete": false,
+          "inFlight": [],
+          "recent": [],
+          "lastSuccess": null,
+          "unsettled": null,
+          "clientsRecent": {},
+          "observationAgeSeconds": 0.0,
+          "availability": {
+            "state": "unknown"
+          },
+          "liveAvailable": false,
+          "projectionComplete": true,
+          "truncated": false,
+          "inFlightTruncated": false,
+          "recentTruncated": false
+        },
+        {
+          "id": "windows-jobs",
+          "label": "Windows jobs",
+          "state": "error",
+          "ageSeconds": null,
+          "detail": "Journal read incomplete or contains invalid records",
+          "observationAgeSeconds": 0.0,
+          "observedAgeSeconds": 0.0,
+          "complete": false
+        }
+      ]
+    },
+    {
+      "name": "complete_flag_malformed_json_false",
+      "journal_base64": "bm90IGpzb24K",
+      "reader_kind": "complete-tuple",
+      "complete_value": "false",
+      "pid_alive": true,
+      "now": 10000.0,
+      "expected": [
+        {
+          "schemaVersion": 1,
+          "journal": "invalid",
+          "complete": false,
+          "inFlight": [],
+          "recent": [],
+          "lastSuccess": null,
+          "unsettled": null,
+          "clientsRecent": {},
+          "observationAgeSeconds": 0.0,
+          "availability": {
+            "state": "unknown"
+          },
+          "liveAvailable": false,
+          "projectionComplete": true,
+          "truncated": false,
+          "inFlightTruncated": false,
+          "recentTruncated": false
+        },
+        {
+          "id": "windows-jobs",
+          "label": "Windows jobs",
+          "state": "error",
+          "ageSeconds": null,
+          "detail": "Journal read incomplete or contains invalid records",
+          "observationAgeSeconds": 0.0,
+          "observedAgeSeconds": 0.0,
+          "complete": false
+        }
+      ]
+    },
+    {
+      "name": "complete_flag_invalid_record_none",
+      "journal_base64": "eyJ2IjoyLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMDEiLCJldmVudCI6ImVucXVldWVkIiwidW5peCI6OTk5NX0K",
+      "reader_kind": "complete-tuple",
+      "complete_value": "none",
+      "pid_alive": true,
+      "now": 10000.0,
+      "expected": [
+        {
+          "schemaVersion": 1,
+          "journal": "invalid",
+          "complete": false,
+          "inFlight": [],
+          "recent": [],
+          "lastSuccess": null,
+          "unsettled": null,
+          "clientsRecent": {},
+          "observationAgeSeconds": 0.0,
+          "availability": {
+            "state": "unknown"
+          },
+          "liveAvailable": false,
+          "projectionComplete": true,
+          "truncated": false,
+          "inFlightTruncated": false,
+          "recentTruncated": false
+        },
+        {
+          "id": "windows-jobs",
+          "label": "Windows jobs",
+          "state": "error",
+          "ageSeconds": null,
+          "detail": "Journal read incomplete or contains invalid records",
+          "observationAgeSeconds": 0.0,
+          "observedAgeSeconds": 0.0,
+          "complete": false
+        }
+      ]
+    },
+    {
+      "name": "complete_flag_invalid_record_integer_zero",
+      "journal_base64": "eyJ2IjoyLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMDEiLCJldmVudCI6ImVucXVldWVkIiwidW5peCI6OTk5NX0K",
+      "reader_kind": "complete-tuple",
+      "complete_value": "integer-zero",
+      "pid_alive": true,
+      "now": 10000.0,
+      "expected": [
+        {
+          "schemaVersion": 1,
+          "journal": "invalid",
+          "complete": false,
+          "inFlight": [],
+          "recent": [],
+          "lastSuccess": null,
+          "unsettled": null,
+          "clientsRecent": {},
+          "observationAgeSeconds": 0.0,
+          "availability": {
+            "state": "unknown"
+          },
+          "liveAvailable": false,
+          "projectionComplete": true,
+          "truncated": false,
+          "inFlightTruncated": false,
+          "recentTruncated": false
+        },
+        {
+          "id": "windows-jobs",
+          "label": "Windows jobs",
+          "state": "error",
+          "ageSeconds": null,
+          "detail": "Journal read incomplete or contains invalid records",
+          "observationAgeSeconds": 0.0,
+          "observedAgeSeconds": 0.0,
+          "complete": false
+        }
+      ]
+    },
+    {
+      "name": "complete_flag_invalid_record_float_zero",
+      "journal_base64": "eyJ2IjoyLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMDEiLCJldmVudCI6ImVucXVldWVkIiwidW5peCI6OTk5NX0K",
+      "reader_kind": "complete-tuple",
+      "complete_value": "float-zero",
+      "pid_alive": true,
+      "now": 10000.0,
+      "expected": [
+        {
+          "schemaVersion": 1,
+          "journal": "invalid",
+          "complete": false,
+          "inFlight": [],
+          "recent": [],
+          "lastSuccess": null,
+          "unsettled": null,
+          "clientsRecent": {},
+          "observationAgeSeconds": 0.0,
+          "availability": {
+            "state": "unknown"
+          },
+          "liveAvailable": false,
+          "projectionComplete": true,
+          "truncated": false,
+          "inFlightTruncated": false,
+          "recentTruncated": false
+        },
+        {
+          "id": "windows-jobs",
+          "label": "Windows jobs",
+          "state": "error",
+          "ageSeconds": null,
+          "detail": "Journal read incomplete or contains invalid records",
+          "observationAgeSeconds": 0.0,
+          "observedAgeSeconds": 0.0,
+          "complete": false
+        }
+      ]
+    },
+    {
+      "name": "complete_flag_invalid_record_empty_text",
+      "journal_base64": "eyJ2IjoyLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMDEiLCJldmVudCI6ImVucXVldWVkIiwidW5peCI6OTk5NX0K",
+      "reader_kind": "complete-tuple",
+      "complete_value": "empty-text",
+      "pid_alive": true,
+      "now": 10000.0,
+      "expected": [
+        {
+          "schemaVersion": 1,
+          "journal": "invalid",
+          "complete": false,
+          "inFlight": [],
+          "recent": [],
+          "lastSuccess": null,
+          "unsettled": null,
+          "clientsRecent": {},
+          "observationAgeSeconds": 0.0,
+          "availability": {
+            "state": "unknown"
+          },
+          "liveAvailable": false,
+          "projectionComplete": true,
+          "truncated": false,
+          "inFlightTruncated": false,
+          "recentTruncated": false
+        },
+        {
+          "id": "windows-jobs",
+          "label": "Windows jobs",
+          "state": "error",
+          "ageSeconds": null,
+          "detail": "Journal read incomplete or contains invalid records",
+          "observationAgeSeconds": 0.0,
+          "observedAgeSeconds": 0.0,
+          "complete": false
+        }
+      ]
+    },
+    {
+      "name": "complete_flag_invalid_record_empty_bytes",
+      "journal_base64": "eyJ2IjoyLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMDEiLCJldmVudCI6ImVucXVldWVkIiwidW5peCI6OTk5NX0K",
+      "reader_kind": "complete-tuple",
+      "complete_value": "empty-bytes",
+      "pid_alive": true,
+      "now": 10000.0,
+      "expected": [
+        {
+          "schemaVersion": 1,
+          "journal": "invalid",
+          "complete": false,
+          "inFlight": [],
+          "recent": [],
+          "lastSuccess": null,
+          "unsettled": null,
+          "clientsRecent": {},
+          "observationAgeSeconds": 0.0,
+          "availability": {
+            "state": "unknown"
+          },
+          "liveAvailable": false,
+          "projectionComplete": true,
+          "truncated": false,
+          "inFlightTruncated": false,
+          "recentTruncated": false
+        },
+        {
+          "id": "windows-jobs",
+          "label": "Windows jobs",
+          "state": "error",
+          "ageSeconds": null,
+          "detail": "Journal read incomplete or contains invalid records",
+          "observationAgeSeconds": 0.0,
+          "observedAgeSeconds": 0.0,
+          "complete": false
+        }
+      ]
+    },
+    {
+      "name": "complete_flag_invalid_record_empty_list",
+      "journal_base64": "eyJ2IjoyLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMDEiLCJldmVudCI6ImVucXVldWVkIiwidW5peCI6OTk5NX0K",
+      "reader_kind": "complete-tuple",
+      "complete_value": "empty-list",
+      "pid_alive": true,
+      "now": 10000.0,
+      "expected": [
+        {
+          "schemaVersion": 1,
+          "journal": "invalid",
+          "complete": false,
+          "inFlight": [],
+          "recent": [],
+          "lastSuccess": null,
+          "unsettled": null,
+          "clientsRecent": {},
+          "observationAgeSeconds": 0.0,
+          "availability": {
+            "state": "unknown"
+          },
+          "liveAvailable": false,
+          "projectionComplete": true,
+          "truncated": false,
+          "inFlightTruncated": false,
+          "recentTruncated": false
+        },
+        {
+          "id": "windows-jobs",
+          "label": "Windows jobs",
+          "state": "error",
+          "ageSeconds": null,
+          "detail": "Journal read incomplete or contains invalid records",
+          "observationAgeSeconds": 0.0,
+          "observedAgeSeconds": 0.0,
+          "complete": false
+        }
+      ]
+    },
+    {
+      "name": "complete_flag_invalid_record_false",
+      "journal_base64": "eyJ2IjoyLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMDEiLCJldmVudCI6ImVucXVldWVkIiwidW5peCI6OTk5NX0K",
+      "reader_kind": "complete-tuple",
+      "complete_value": "false",
+      "pid_alive": true,
+      "now": 10000.0,
+      "expected": [
+        {
+          "schemaVersion": 1,
+          "journal": "invalid",
+          "complete": false,
+          "inFlight": [],
+          "recent": [],
+          "lastSuccess": null,
+          "unsettled": null,
+          "clientsRecent": {},
+          "observationAgeSeconds": 0.0,
+          "availability": {
+            "state": "unknown"
+          },
+          "liveAvailable": false,
+          "projectionComplete": true,
+          "truncated": false,
+          "inFlightTruncated": false,
+          "recentTruncated": false
+        },
+        {
+          "id": "windows-jobs",
+          "label": "Windows jobs",
+          "state": "error",
+          "ageSeconds": null,
+          "detail": "Journal read incomplete or contains invalid records",
+          "observationAgeSeconds": 0.0,
+          "observedAgeSeconds": 0.0,
+          "complete": false
+        }
+      ]
+    },
+    {
+      "name": "complete_flag_invalid_status_none",
+      "journal_base64": "eyJ2IjoxLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMDEiLCJldmVudCI6InJlc3VsdCIsInVuaXgiOjk5OTUsInN0YXR1cyI6ImJvZ3VzIn0K",
+      "reader_kind": "complete-tuple",
+      "complete_value": "none",
+      "pid_alive": true,
+      "now": 10000.0,
+      "expected": [
+        {
+          "schemaVersion": 1,
+          "journal": "invalid",
+          "complete": false,
+          "inFlight": [],
+          "recent": [],
+          "lastSuccess": null,
+          "unsettled": null,
+          "clientsRecent": {},
+          "observationAgeSeconds": 0.0,
+          "availability": {
+            "state": "unknown"
+          },
+          "liveAvailable": false,
+          "projectionComplete": true,
+          "truncated": false,
+          "inFlightTruncated": false,
+          "recentTruncated": false
+        },
+        {
+          "id": "windows-jobs",
+          "label": "Windows jobs",
+          "state": "error",
+          "ageSeconds": 5.0,
+          "detail": "Journal read incomplete or contains invalid records",
+          "observationAgeSeconds": 0.0,
+          "observedAgeSeconds": 0.0,
+          "complete": false
+        }
+      ]
+    },
+    {
+      "name": "complete_flag_invalid_status_integer_zero",
+      "journal_base64": "eyJ2IjoxLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMDEiLCJldmVudCI6InJlc3VsdCIsInVuaXgiOjk5OTUsInN0YXR1cyI6ImJvZ3VzIn0K",
+      "reader_kind": "complete-tuple",
+      "complete_value": "integer-zero",
+      "pid_alive": true,
+      "now": 10000.0,
+      "expected": [
+        {
+          "schemaVersion": 1,
+          "journal": "invalid",
+          "complete": false,
+          "inFlight": [],
+          "recent": [],
+          "lastSuccess": null,
+          "unsettled": null,
+          "clientsRecent": {},
+          "observationAgeSeconds": 0.0,
+          "availability": {
+            "state": "unknown"
+          },
+          "liveAvailable": false,
+          "projectionComplete": true,
+          "truncated": false,
+          "inFlightTruncated": false,
+          "recentTruncated": false
+        },
+        {
+          "id": "windows-jobs",
+          "label": "Windows jobs",
+          "state": "error",
+          "ageSeconds": 5.0,
+          "detail": "Journal read incomplete or contains invalid records",
+          "observationAgeSeconds": 0.0,
+          "observedAgeSeconds": 0.0,
+          "complete": false
+        }
+      ]
+    },
+    {
+      "name": "complete_flag_invalid_status_float_zero",
+      "journal_base64": "eyJ2IjoxLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMDEiLCJldmVudCI6InJlc3VsdCIsInVuaXgiOjk5OTUsInN0YXR1cyI6ImJvZ3VzIn0K",
+      "reader_kind": "complete-tuple",
+      "complete_value": "float-zero",
+      "pid_alive": true,
+      "now": 10000.0,
+      "expected": [
+        {
+          "schemaVersion": 1,
+          "journal": "invalid",
+          "complete": false,
+          "inFlight": [],
+          "recent": [],
+          "lastSuccess": null,
+          "unsettled": null,
+          "clientsRecent": {},
+          "observationAgeSeconds": 0.0,
+          "availability": {
+            "state": "unknown"
+          },
+          "liveAvailable": false,
+          "projectionComplete": true,
+          "truncated": false,
+          "inFlightTruncated": false,
+          "recentTruncated": false
+        },
+        {
+          "id": "windows-jobs",
+          "label": "Windows jobs",
+          "state": "error",
+          "ageSeconds": 5.0,
+          "detail": "Journal read incomplete or contains invalid records",
+          "observationAgeSeconds": 0.0,
+          "observedAgeSeconds": 0.0,
+          "complete": false
+        }
+      ]
+    },
+    {
+      "name": "complete_flag_invalid_status_empty_text",
+      "journal_base64": "eyJ2IjoxLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMDEiLCJldmVudCI6InJlc3VsdCIsInVuaXgiOjk5OTUsInN0YXR1cyI6ImJvZ3VzIn0K",
+      "reader_kind": "complete-tuple",
+      "complete_value": "empty-text",
+      "pid_alive": true,
+      "now": 10000.0,
+      "expected": [
+        {
+          "schemaVersion": 1,
+          "journal": "invalid",
+          "complete": false,
+          "inFlight": [],
+          "recent": [],
+          "lastSuccess": null,
+          "unsettled": null,
+          "clientsRecent": {},
+          "observationAgeSeconds": 0.0,
+          "availability": {
+            "state": "unknown"
+          },
+          "liveAvailable": false,
+          "projectionComplete": true,
+          "truncated": false,
+          "inFlightTruncated": false,
+          "recentTruncated": false
+        },
+        {
+          "id": "windows-jobs",
+          "label": "Windows jobs",
+          "state": "error",
+          "ageSeconds": 5.0,
+          "detail": "Journal read incomplete or contains invalid records",
+          "observationAgeSeconds": 0.0,
+          "observedAgeSeconds": 0.0,
+          "complete": false
+        }
+      ]
+    },
+    {
+      "name": "complete_flag_invalid_status_empty_bytes",
+      "journal_base64": "eyJ2IjoxLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMDEiLCJldmVudCI6InJlc3VsdCIsInVuaXgiOjk5OTUsInN0YXR1cyI6ImJvZ3VzIn0K",
+      "reader_kind": "complete-tuple",
+      "complete_value": "empty-bytes",
+      "pid_alive": true,
+      "now": 10000.0,
+      "expected": [
+        {
+          "schemaVersion": 1,
+          "journal": "invalid",
+          "complete": false,
+          "inFlight": [],
+          "recent": [],
+          "lastSuccess": null,
+          "unsettled": null,
+          "clientsRecent": {},
+          "observationAgeSeconds": 0.0,
+          "availability": {
+            "state": "unknown"
+          },
+          "liveAvailable": false,
+          "projectionComplete": true,
+          "truncated": false,
+          "inFlightTruncated": false,
+          "recentTruncated": false
+        },
+        {
+          "id": "windows-jobs",
+          "label": "Windows jobs",
+          "state": "error",
+          "ageSeconds": 5.0,
+          "detail": "Journal read incomplete or contains invalid records",
+          "observationAgeSeconds": 0.0,
+          "observedAgeSeconds": 0.0,
+          "complete": false
+        }
+      ]
+    },
+    {
+      "name": "complete_flag_invalid_status_empty_list",
+      "journal_base64": "eyJ2IjoxLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMDEiLCJldmVudCI6InJlc3VsdCIsInVuaXgiOjk5OTUsInN0YXR1cyI6ImJvZ3VzIn0K",
+      "reader_kind": "complete-tuple",
+      "complete_value": "empty-list",
+      "pid_alive": true,
+      "now": 10000.0,
+      "expected": [
+        {
+          "schemaVersion": 1,
+          "journal": "invalid",
+          "complete": false,
+          "inFlight": [],
+          "recent": [],
+          "lastSuccess": null,
+          "unsettled": null,
+          "clientsRecent": {},
+          "observationAgeSeconds": 0.0,
+          "availability": {
+            "state": "unknown"
+          },
+          "liveAvailable": false,
+          "projectionComplete": true,
+          "truncated": false,
+          "inFlightTruncated": false,
+          "recentTruncated": false
+        },
+        {
+          "id": "windows-jobs",
+          "label": "Windows jobs",
+          "state": "error",
+          "ageSeconds": 5.0,
+          "detail": "Journal read incomplete or contains invalid records",
+          "observationAgeSeconds": 0.0,
+          "observedAgeSeconds": 0.0,
+          "complete": false
+        }
+      ]
+    },
+    {
+      "name": "complete_flag_invalid_status_false",
+      "journal_base64": "eyJ2IjoxLCJpZCI6Im1hYy1ib3VuZGFyeS0wMDAwMDAwMDAwMDEiLCJldmVudCI6InJlc3VsdCIsInVuaXgiOjk5OTUsInN0YXR1cyI6ImJvZ3VzIn0K",
+      "reader_kind": "complete-tuple",
+      "complete_value": "false",
+      "pid_alive": true,
+      "now": 10000.0,
+      "expected": [
+        {
+          "schemaVersion": 1,
+          "journal": "invalid",
+          "complete": false,
+          "inFlight": [],
+          "recent": [],
+          "lastSuccess": null,
+          "unsettled": null,
+          "clientsRecent": {},
+          "observationAgeSeconds": 0.0,
+          "availability": {
+            "state": "unknown"
+          },
+          "liveAvailable": false,
+          "projectionComplete": true,
+          "truncated": false,
+          "inFlightTruncated": false,
+          "recentTruncated": false
+        },
+        {
+          "id": "windows-jobs",
+          "label": "Windows jobs",
+          "state": "error",
+          "ageSeconds": 5.0,
+          "detail": "Journal read incomplete or contains invalid records",
+          "observationAgeSeconds": 0.0,
+          "observedAgeSeconds": 0.0,
+          "complete": false
+        }
+      ]
     }
   ]
 }
