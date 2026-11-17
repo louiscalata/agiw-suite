@@ -1767,20 +1767,20 @@ class HookTests(CliCase):
     TABLE = [
         (hook_payload("Bash", command="xcodebuild -scheme App test"), TIGHT, 2),
         (hook_payload("Bash", command="ls -la"), CRITICAL, 0),
-        (b"{not json", CRITICAL, 0),
-        (b"", CRITICAL, 0),
+        (b"{not json", CRITICAL, 2),
+        (b"", CRITICAL, 2),
         (hook_payload("Workflow", script="x"), CRITICAL, 2),
         (hook_payload("Workflow", script="x"), TIGHT, 0),
         (hook_payload("Agent", prompt="x"), CRITICAL, 2),
         (hook_payload("Bash", command="xcodebuild test"), OK, 0),
         (hook_payload("Bash", command="lms load qwen3.8-27b"), WATCH, 0),
         (hook_payload("Bash", command="lms load qwen3.8-27b"), mem_state(1, 21), 2),
-        (hook_payload("Bash", command="xcodebuild test"), UNKNOWN, 0),
+        (hook_payload("Bash", command="xcodebuild test"), UNKNOWN, 2),
         (hook_payload("mcp__Claude_Code_iOS_Simulator__control", action="launch", app_path="/x.app"), TIGHT, 2),
         (hook_payload("mcp__Claude_Code_iOS_Simulator__control", action="screenshot"), CRITICAL, 0),
         (hook_payload("mcp__Claude_Code_iOS_Simulator__build", scheme="App"), TIGHT, 2),
         (hook_payload("Read", file_path="/x"), CRITICAL, 0),
-        (json.dumps(["Bash"]).encode(), CRITICAL, 0),
+        (json.dumps(["Bash"]).encode(), CRITICAL, 2),
         (hook_payload("Bash", command="astra-review ."), CRITICAL, 2),
         (hook_payload("Bash", command="astra-review ."), TIGHT, 0),
     ]
@@ -1798,23 +1798,23 @@ class HookTests(CliCase):
         )
         message = self.stderr.getvalue()
         self.assertEqual(message.count("\n"), 1, "one paragraph")
-        self.assertIn("refused `xcodebuild test`", message)
+        self.assertIn("refused `xcodebuild`", message)
         self.assertIn("memory is tight (macOS memory pressure: warning)", message)
         self.assertIn("iOS Simulators (iPhone 18 Pro, iPhone 17 Pro) about 4.5 GB", message)
         self.assertIn("What to do: Shut down unused iOS Simulators (`xcrun simctl shutdown all`)", message)
         refusal = self.journal()[-1]
         self.assertEqual((refusal["type"], refusal["via"], refusal["level"]), ("refusal", "hook", "tight"))
 
-    def test_internal_errors_and_bad_input_fail_open(self):
+    def test_internal_errors_and_bad_input_refuse(self):
         heavy = hook_payload("Bash", command="xcodebuild")
-        self.assertEqual(self.run_cli(["hook"], FakeProbes(RuntimeError("probe exploded")), stdin=heavy), 0)
+        self.assertEqual(self.run_cli(["hook"], FakeProbes(RuntimeError("probe exploded")), stdin=heavy), 2)
         self.assertEqual(
             self.run_cli(["hook"], FakeProbes(CRITICAL, None), stdin=heavy), 2, "no consumers still refuses"
         )
         self.assertIn("Top consumers: unknown", self.stderr.getvalue())
-        self.assertEqual(self.run_cli(["hook"], CRITICAL, stdin=b" " * (mem_guard.HOOK_MAX + 1)), 0)
+        self.assertEqual(self.run_cli(["hook"], CRITICAL, stdin=b" " * (mem_guard.HOOK_MAX + 1)), 2)
         self.assertEqual(self.run_cli(["hook", "--bogus"], CRITICAL, stdin=heavy), 2, "extra args are ignored")
-        self.assertEqual(self.run_cli(["hook"], CRITICAL, stdin=b"\xff\xfe"), 0)
+        self.assertEqual(self.run_cli(["hook"], CRITICAL, stdin=b"\xff\xfe"), 2)
 
     def test_command_matcher(self):
         cases = {
@@ -1868,10 +1868,11 @@ class HookTests(CliCase):
             "open README.md",
             "cat Simulator.log",
             "git commit -m 'npm ci'",
-            "echo 'unbalanced",
             "",
         ):
             self.assertIsNone(mem_guard.hook_match({"tool_name": "Bash", "tool_input": {"command": command}}), command)
+        with self.assertRaises(ValueError):
+            mem_guard.hook_match({"tool_name": "Bash", "tool_input": {"command": "echo 'unbalanced"}})
         for payload in (
             {"tool_name": "mcp__Claude_Code_iOS_Simulator__control", "tool_input": {"action": "launch"}},
             {"tool_name": "mcp__Claude_Code_iOS_Simulator__build"},

@@ -177,8 +177,8 @@ PROBE_CODES = frozenset(
         "WORKER_NOT_READY",
         "PROBE_FAILED",
         "TRANSPORT_ERROR",
-        # Router-concurrency transport (spec R2.9 rule 6): lane tokens, the job binding and the
-        # Windows owner's lock and pending identity; none of them publishes a job.
+        # Router-concurrency diagnostics. A transport code alone does not establish
+        # whether publication occurred; the probe's pre-request returns are distinguished below.
         "LANE_BUSY",
         "LANE_UNKNOWN",
         "LANE_UNAVAILABLE",
@@ -196,6 +196,12 @@ PROBE_CODES = frozenset(
         "ROUTER_INSTALL_CHANGED",
         "ROUTER_INSTALL_FENCE_MISSING",
     }
+)
+# These codes identify explicit pre-request returns in windows_probe.py.
+# Other transport errors may follow publication even when no job ID is returned.
+PROBE_PREPUBLICATION_CODES = frozenset(
+    {"INVALID_TIMEOUT", "OWNER_UNAVAILABLE", "WORKER_NOT_READY"}
+    | {code for code in PROBE_CODES if code.startswith("ROUTER_INSTALL_")}
 )
 # Dispatcher answers that mean the SMB I/O itself failed. A stale heartbeat or a
 # stopped worker is PC-side state that no share repair can change.
@@ -320,6 +326,10 @@ FIX_JOURNAL_MAX_LINE = 16384
 FIX_NISI_CANCELLED = (
     "Monitor stopped before Fix Nisi Inference completed. If its recover step had started, "
     "check Nisi status before retrying. No model inference was run."
+)
+FIX_ROUTE_CANCELLED = (
+    "Monitor stopped before the route check completed. Inspect the recorded steps and "
+    "Windows owner state before retrying; an inference probe may have started."
 )
 FIX_ALL_CANCELLED = (
     "Monitor stopped before Fix inference completed. Inspect the recorded steps, "
@@ -657,12 +667,25 @@ def _run_bounded(command: list[str], data: bytes | None, timeout: float) -> Comm
 def _pipe_json(result: CommandResult, limit: int = 65536) -> dict:
     if len(result.stdout) > limit:
         raise ValueError("owner output exceeded limit")
-    value = json.loads(
-        result.stdout.decode("utf-8") or "{}", parse_constant=lambda _: (_ for _ in ()).throw(ValueError("bad number"))
-    )
+    value = _strict_json(result.stdout or b"{}")
     if not isinstance(value, dict):
         raise ValueError("expected object")
     return value
+
+
+def _lock_matches_path(fd: int, path: Path) -> bool:
+    """A flock excludes an owner only while its pathname names the opened inode."""
+    try:
+        opened = os.fstat(fd)
+        current = os.stat(path, follow_symlinks=False)
+        return (
+            stat.S_ISREG(opened.st_mode)
+            and stat.S_ISREG(current.st_mode)
+            and opened.st_nlink == current.st_nlink == 1
+            and (opened.st_dev, opened.st_ino) == (current.st_dev, current.st_ino)
+        )
+    except OSError:
+        return False
 
 
 class ShareControl:
@@ -733,7 +756,7 @@ class ShareControl:
     def _hold_lock(path: Path):
         """Hold an existing owner flock without blocking; yield False if busy."""
         try:
-            fd = os.open(path, os.O_RDWR | os.O_NOFOLLOW)
+            fd = os.open(path, os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK)
         except FileNotFoundError:
             # A missing owner lock cannot exclude an older or changing owner.
             yield False
@@ -748,7 +771,7 @@ class ShareControl:
                 yield False
                 return
             try:
-                yield True
+                yield _lock_matches_path(fd, path)
             finally:
                 fcntl.flock(fd, fcntl.LOCK_UN)
         finally:
@@ -843,10 +866,15 @@ def windows_inference_probe() -> dict:
             ["/usr/bin/python3", "-I", "-S", str(PROBE_SCRIPT), str(PROBE_MODEL_SECONDS)], None, PROBE_TIMEOUT
         )
         value = _pipe_json(reply, 4096)
+        if value.get("status") not in ("success", "error", "not-run", "unresolved"):
+            raise ValueError("unknown probe status")
+        if reply.returncode != (0 if value.get("status") == "success" else 3):
+            raise ValueError("probe exit contradicts its evidence")
     except subprocess.TimeoutExpired:
         return {"status": "timeout"}
     except (OSError, ValueError, UnicodeError, subprocess.SubprocessError):
-        return {"status": "not-run", "code": "PROBE_FAILED"}
+        # Invocation or parsing failed after dispatch; publication is unknown.
+        return {"status": "unresolved", "code": "PROBE_FAILED"}
     return value
 
 
@@ -1399,11 +1427,25 @@ def _hold_router_owner(path: Path | None):
                 yield "busy"
                 return
             try:
+                if not _lock_matches_path(fd, path):
+                    mark.release()
+                    yield "busy"
+                    return
                 yield "held"
             finally:
                 fcntl.flock(fd, fcntl.LOCK_UN)
     finally:
         os.close(fd)
+
+
+def _write_all(fd: int, data: bytes) -> None:
+    """Finish short writes, refusing a record when the descriptor makes no progress."""
+    remaining = memoryview(data)
+    while remaining:
+        written = os.write(fd, remaining)
+        if not 0 < written <= len(remaining):
+            raise OSError(errno.EIO, "journal write made no progress")
+        remaining = remaining[written:]
 
 
 def _append_journal(path: Path, record: dict, max_bytes: int = FIX_JOURNAL_MAX_BYTES) -> bool:
@@ -1438,8 +1480,12 @@ def _append_journal(path: Path, record: dict, max_bytes: int = FIX_JOURNAL_MAX_B
                 or info.st_nlink != 1
             ):
                 return False
+            # An earlier failed append may have left an unacknowledged partial
+            # record. Preserve it rather than join a new JSON object to its tail.
+            if info.st_size and os.pread(fd, 1, info.st_size - 1) != b"\n":
+                return False
             if info.st_size + len(line) <= max_bytes:
-                os.write(fd, line)
+                _write_all(fd, line)
                 return True
             # Keep the newest whole lines within half the cap, then append.
             keep = max_bytes // 2
@@ -1450,7 +1496,7 @@ def _append_journal(path: Path, record: dict, max_bytes: int = FIX_JOURNAL_MAX_B
             temporary = f".{path.name}.{os.getpid()}.tmp"
             out = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=dir_fd)
             try:
-                os.write(out, tail + line)
+                _write_all(out, tail + line)
                 os.fsync(out)
             finally:
                 os.close(out)
@@ -1619,6 +1665,7 @@ class OnlineCodeRepair:
         if self._worker_state() in (_RepairWorkerState.RUNNING, _RepairWorkerState.STOPPED):
             return
         self._operation_id += 1
+        self._inference_started = False
         operation_id = self._operation_id
         self._state = {
             "status": "running",
@@ -1664,6 +1711,9 @@ class OnlineCodeRepair:
                 else FIX_ALL_CANCELLED
                 + ("" if groups_stopped else " An owner process group could not be confirmed terminated.")
                 if self._state["action"] == "fix-all"
+                else FIX_ROUTE_CANCELLED
+                + ("" if groups_stopped else " An owner process group could not be confirmed terminated.")
+                if self._inference_started or self._state["action"] in ("fix-route", "fix-both")
                 else "Monitor stopped before this check completed. No model inference was run."
                 if groups_stopped
                 else "Monitor stopped; an owner process group could not be confirmed terminated. Inspect owner processes before retrying. No model inference was run."
@@ -1689,6 +1739,7 @@ class OnlineCodeRepair:
         if event == "initialize":
             self._worker: threading.Thread | None = None
             self._operation_id = 0
+            self._inference_started = False
             self._state = {
                 "status": "idle",
                 "message": "No check requested yet.",
@@ -1950,17 +2001,26 @@ class OnlineCodeRepair:
         ):
             self._step("windows-status", "unavailable", evidence=evidence)
             raise _Stop("error", "Windows owner status is unavailable; no job was reconciled.")
+        ready = (
+            value["readyForWork"]
+            and inventory_ok is True
+            and pending is None
+            and "pending" in value
+            and code == 0
+            and "code" not in value
+            and inventory_reason is None
+        )
         if pending is not None:
             job_id = pending.get("id")
             if not isinstance(job_id, str) or not JOB_ID.fullmatch(job_id):
                 self._step("windows-status", "invalid")
                 raise _Stop("error", "Windows pending identity is invalid; no job was reconciled.")
             self._step("windows-status", "pending", jobId=job_id)
-        elif value["readyForWork"]:
+        elif ready:
             self._step("windows-status", "clear")
         else:
             self._step("windows-status", "unavailable", evidence=evidence)
-        return pending, value["readyForWork"]
+        return pending, ready
 
     def _windows_heartbeat_grace(self) -> bool:
         """Two read-only status checks; no inventory repeat or job replay."""
@@ -2117,6 +2177,10 @@ class OnlineCodeRepair:
                     "Route checks passed, but a route task started, so no probe was sent. "
                     "Press Fix again when it finishes.",
                 )
+            # Publish dispatch intent before a callback can be cancelled or fail.
+            with self._lock:
+                _raise_if_cancelled(self._owner_children)
+                self._inference_started = True
             evidence = self._inference_probe()
         status = evidence.get("status") if isinstance(evidence, dict) else None
         job_id = evidence.get("jobId") if isinstance(evidence, dict) else None
@@ -2131,7 +2195,14 @@ class OnlineCodeRepair:
         code = evidence.get("code") if isinstance(evidence, dict) else None
         code = code if isinstance(code, str) and code in PROBE_CODES else None
         ids = {"jobId": job_id} if job_id else {}
-        if status == "success" and model and elapsed is not None:
+        if (
+            status == "success"
+            and job_id
+            and model
+            and elapsed is not None
+            and type(evidence.get("answered")) is bool
+            and "code" not in evidence
+        ):
             answered = evidence.get("answered") is True
             self._step(
                 "windows-inference",
@@ -2146,18 +2217,34 @@ class OnlineCodeRepair:
                     "to the probe was not the expected READY. Check the model on the PC.",
                 )
             return f"Windows inference verified end to end: {model} answered in {elapsed:.1f} s."
-        if status == "error":
+        if status == "success":
+            self._step("windows-inference", "unverified", **ids)
+            raise _Stop(
+                "needs-action",
+                "The Windows probe returned inconsistent evidence. Its inference result is unverified; "
+                "inspect Windows owner state before retrying.",
+            )
+        if status == "error" and job_id and model and "code" not in evidence:
             self._step("windows-inference", "worker-error", evidence=f"model={model or 'unknown'}", **ids)
             raise _Stop(
                 "needs-action",
                 "Route checks passed, but the Windows worker returned an error for the probe. "
                 "Check the model runtime on the PC.",
             )
-        if status == "timeout" or code in ("TIMEOUT", "PUBLICATION_UNCERTAIN") or job_id:
-            self._step("windows-inference", "unresolved", evidence=f"code={code or 'outer-timeout'}", **ids)
+        prepublication = (
+            status == "not-run"
+            and code in PROBE_PREPUBLICATION_CODES
+            and evidence.get("jobId") is None
+            and "model" not in evidence
+            and "answered" not in evidence
+        )
+        if not prepublication:
+            reason = code or ("outer-timeout" if status == "timeout" else "unknown")
+            self._step("windows-inference", "unresolved", evidence=f"code={reason}", **ids)
             raise _Stop(
                 "needs-action",
-                "The Windows probe did not return a result. It was not resent; if the owner "
+                "The Windows probe did not return conclusive evidence. Publication and inference are uncertain. "
+                "It was not resent; if the owner "
                 "recorded it as pending, the next Fix reconciles it.",
             )
         self._step("windows-inference", "not-run", evidence=f"code={code or 'invalid'}")
@@ -2499,6 +2586,8 @@ class OnlineCodeRepair:
                         "the recovery; Nisi recovery was not attempted. Check the router "
                         "state with --route status.",
                     )
+                # A route may have left unresolved state since the first status read.
+                self._fix_nisi_route_idle()
                 self._fix_nisi_owner_lock(router=router)  # 4 owner-lock
                 self._fix_nisi_server_idle()  # 5 server-idle
                 self._fix_nisi_recover(marker)  # 6 recover
@@ -2681,6 +2770,9 @@ class OnlineCodeRepair:
                 raise _Stop(
                     "needs-action", "The Nisi owner lock could not be checked; Nisi recovery was not attempted."
                 )
+            if not _lock_matches_path(fd, self._nisi_pending_path.parent / "owner.lock"):
+                self._step("owner-lock", "changed")
+                raise _Stop("needs-action", "The Nisi owner lock changed; Nisi recovery was not attempted.")
             fcntl.flock(fd, fcntl.LOCK_UN)
         finally:
             os.close(fd)
@@ -3012,6 +3104,8 @@ class OnlineCodeRepair:
                     if action == "fix-nisi"
                     else FIX_ALL_CANCELLED
                     if action == "fix-all"
+                    else FIX_ROUTE_CANCELLED
+                    if self._inference_started or action in ("fix-route", "fix-both")
                     else "Monitor stopped before this check completed. No model inference was run."
                 ),
             )
