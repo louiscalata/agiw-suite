@@ -1,0 +1,31 @@
+"""Recorded helper order and ownership checks for the fleet projection."""
+
+import unittest
+
+import fleet_state
+from test_fleet_state_golden import _canonical, _load_cases, _run_case
+
+
+class FleetStateGoldenProtocolTests(unittest.TestCase):
+    """Freeze call order, caller inputs, and mutable output ownership."""
+
+
+def _protocol_test(case):
+    def test(self):
+        actual = _run_case(fleet_state, case)
+        for key in ("events", "inputsAfter", "sharedMutablePaths"):
+            with self.subTest(field=key):
+                self.assertEqual(_canonical(actual[key]), _canonical(case["expected"][key]))
+
+    return test
+
+
+for _case in _load_cases():
+    _name = "test_" + _case["name"]
+    if hasattr(FleetStateGoldenProtocolTests, _name):
+        raise ValueError(f"Duplicate golden case: {_name}")
+    setattr(FleetStateGoldenProtocolTests, _name, _protocol_test(_case))
+
+
+if __name__ == "__main__":
+    unittest.main()
