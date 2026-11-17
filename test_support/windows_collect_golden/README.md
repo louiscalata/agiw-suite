@@ -1,6 +1,7 @@
 # Windows snapshot golden corpus
 
-`cases.json` records the observable behavior of `Collector.collect` from the
+`windows/tests/fixtures/windows_collect_golden/cases.json` records the observable
+behavior of `Collector.collect` from the
 unmodified revision named in `generated_from`. Inputs are synthetic; no machine
 state was copied into this corpus. The canonical project plan remains
 `roadmap.md`.
@@ -24,7 +25,7 @@ fixture replay also runs on Python 3.9. From the repository root:
 
 ```sh
 python3.12 -B test_support/windows_collect_golden/record.py --output reproduced.json
-cmp test_support/windows_collect_golden/cases.json reproduced.json
+cmp windows/tests/fixtures/windows_collect_golden/cases.json reproduced.json
 ```
 
 The generated file must compare byte for byte with `cases.json`. To record a new

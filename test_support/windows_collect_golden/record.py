@@ -60,7 +60,9 @@ def main():
     if sys.version_info < (3, 12):
         parser.error("Recording requires Python 3.12 or later for safe archive extraction")
     repo = Path(__file__).resolve().parents[2]
-    document = json.loads(Path(__file__).with_name("cases.json").read_text(encoding="utf-8"))
+    document = json.loads(
+        (repo / "windows/tests/fixtures/windows_collect_golden/cases.json").read_text(encoding="utf-8")
+    )
     revision = _git(repo, "rev-parse", args.revision or document["generated_from"]["revision"]).decode().strip()
     document = _record(repo, document, revision)
     args.output.write_text(json.dumps(document, indent=2, ensure_ascii=True, allow_nan=False) + "\n", encoding="utf-8")

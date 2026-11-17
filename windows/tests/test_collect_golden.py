@@ -15,10 +15,10 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+sys.path.append(str(Path(__file__).resolve().parents[2]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 collect = importlib.import_module("agiw_win.collect")
-CASES_PATH = Path(__file__).resolve().parents[2] / "test_support/windows_collect_golden/cases.json"
+CASES_PATH = Path(__file__).resolve().parent / "fixtures/windows_collect_golden/cases.json"
 
 
 def _decode(value):
