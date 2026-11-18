@@ -16,6 +16,7 @@ Skipped means explicitly disabled; not_run means the job blocked before that pha
 Unavailable means no analyzer or a failed analysis; patching and diff reporting proceed
 without a plan or verdict from that phase. Analyzers are injected, not auto-discovered:
 repo-patch does not invoke a CLI, a hosted service, or a personal ledger for analysis.
+The fleet worker may inject the optional jev-task CLI adapter from `agiw.fleet_jev_task`.
 Analysis input is limited to 12,000 characters (first/last 6,000); receipts record
 its size, hash and truncation flag, not the input. Plans are capped at 4,000 characters
 and verdicts at 64.
