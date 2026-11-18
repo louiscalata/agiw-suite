@@ -9,10 +9,36 @@ from support import NISI_AVAILABLE
 
 from agiw.fleet_local_pilot import execute
 
+SCHEMA_FORMAT = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "arithmetic_answer",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "properties": {"answer": {"type": "integer"}},
+            "required": ["answer"],
+            "additionalProperties": False,
+        },
+    },
+}
+
 
 @unittest.skipUnless(NISI_AVAILABLE, "pinned Nisi vendor or node missing")
 class TinyTests(unittest.TestCase):
-    def run_case(self, content, finish="stop", served="fixture-model", worker="m5-macbook-pro", want_tokens=64):
+    def run_case(
+        self,
+        content,
+        finish="stop",
+        served="fixture-model",
+        worker="m5-macbook-pro",
+        want_tokens=64,
+        want_format=None,
+        reject_schema=None,
+    ):
+        want_format = want_format or {"type": "json_object"}
+        seen = self.seen = []
+
         class Handler(BaseHTTPRequestHandler):
             def log_message(self, *a):
                 pass
@@ -35,7 +61,16 @@ class TinyTests(unittest.TestCase):
 
             def do_POST(self):
                 req = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
-                assert req["max_tokens"] == want_tokens and req["response_format"] == {"type": "json_object"}
+                seen.append(req["response_format"])
+                assert req["max_tokens"] == want_tokens
+                if reject_schema and req["response_format"]["type"] == "json_schema":
+                    b = json.dumps({"error": {"code": reject_schema, "message": "failed to parse grammar"}}).encode()
+                    self.send_response(reject_schema)
+                    self.send_header("Content-Length", str(len(b)))
+                    self.end_headers()
+                    self.wfile.write(b)
+                    return
+                assert req["response_format"] == want_format, req["response_format"]
                 self.send(
                     {
                         "model": served,
@@ -102,10 +137,45 @@ class TinyTests(unittest.TestCase):
         self.assertEqual(r["report"]["outcome"], "BLOCKED")
         self.assertIn("Sure!", r["authorEvidence"][0]["outputSample"])
 
-    def test_monterey_lane_uses_512_tokens(self):
-        self.assertEqual(
-            self.run_case('{"answer":42}', worker="monterey-mac-pro", want_tokens=512)["report"]["outcome"], "COMPLETED"
+    def test_monterey_lane_uses_512_tokens_and_strict_schema(self):
+        r = self.run_case('{"answer":42}', worker="monterey-mac-pro", want_tokens=512, want_format=SCHEMA_FORMAT)
+        self.assertEqual(r["report"]["outcome"], "COMPLETED")
+        self.assertEqual(r["responseFormat"], "json-schema")
+        self.assertEqual(self.seen, [SCHEMA_FORMAT])
+        ev = r["authorEvidence"][0]
+        self.assertEqual((ev["responseFormat"], ev["attempts"]), ("json_schema", 1))
+        self.assertNotIn("responseFormatFallback", ev)
+
+    def test_schema_rejected_falls_back_to_json_object_and_is_recorded(self):
+        r = self.run_case('{"answer":42}', worker="monterey-mac-pro", want_tokens=512, reject_schema=400)
+        self.assertEqual(r["report"]["outcome"], "COMPLETED")
+        self.assertEqual(self.seen, [SCHEMA_FORMAT, {"type": "json_object"}])
+        ev = r["authorEvidence"][0]
+        self.assertEqual(ev["responseFormatFallback"], "json_schema->json_object")
+        self.assertEqual((ev["fallbackHttpStatus"], ev["attempts"], ev["responseFormat"]), (400, 2, "json_object"))
+        self.assertEqual(ev["fallbackServerMessage"], "failed to parse grammar")
+        self.assertEqual(r["modelCalls"], 1)
+
+    def test_schema_length_still_fails_closed(self):
+        # Even with a grammar, a truncated answer is never accepted, though the JSON inside parses.
+        r = self.run_case(
+            '{"answer":42}', "length", worker="monterey-mac-pro", want_tokens=512, want_format=SCHEMA_FORMAT
         )
+        self.assertEqual(r["report"]["outcome"], "BLOCKED")
+        self.assertEqual(r["authorEvidence"][0]["finishReason"], "length")
+
+    def test_echoed_reasoning_with_answers_is_not_salvaged(self):
+        c = 'What is 6 multiplied by 7? Let me think. {"answer":42} so the answer is {"answer":42} and'
+        r = self.run_case(c, "length", worker="monterey-mac-pro", want_tokens=512, want_format=SCHEMA_FORMAT)
+        self.assertEqual(r["report"]["outcome"], "BLOCKED")
+        self.assertIn("6 multiplied by 7", r["authorEvidence"][0]["outputSample"])
+
+    def test_no_fallback_without_opt_in(self):
+        # Default lanes keep json_object; a server error is a failure, never retried.
+        r = self.run_case('{"answer":42}', reject_schema=400)
+        self.assertEqual(r["report"]["outcome"], "COMPLETED")
+        self.assertEqual(self.seen, [{"type": "json_object"}])
+        self.assertEqual(r["authorEvidence"][0]["attempts"], 1)
 
 
 if __name__ == "__main__":

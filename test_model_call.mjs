@@ -84,3 +84,79 @@ test('extraction fails closed on anything else', () => {
   ]) assert.throws(() => extractFinalJSON(bad, strict), /CONTENT_REFUSED/, bad);
   assert.throws(() => extractFinalJSON(null, strict), /CONTENT_REFUSED/);
 });
+
+import {responseFormatMode, responseFormatFor, chatCompletion} from './preview-pilot/model-call.mjs';
+import {EventEmitter} from 'node:events';
+
+const SCHEMA = {type: 'object', properties: {answer: {type: 'integer'}}, required: ['answer'], additionalProperties: false};
+
+// Fake http.request: answers each call from the list; records the request bodies. No network.
+function fakeRequest(answers, bodies) {
+  return (opts, onResponse) => {
+    const req = new EventEmitter();
+    req.end = text => {
+      bodies.push(JSON.parse(text));
+      const [status, body] = answers.shift();
+      const res = new EventEmitter();
+      res.statusCode = status;
+      onResponse(res);
+      res.emit('data', JSON.stringify(body));
+      res.emit('end');
+    };
+    return req;
+  };
+}
+
+test('response_format: strict json_schema only when opted in', () => {
+  assert.equal(responseFormatMode({}), null);
+  assert.equal(responseFormatMode({responseFormat: 'json-schema'}), 'json-schema');
+  for (const bad of ['json_schema', 'grammar', true, 1]) assert.throws(() => responseFormatMode({responseFormat: bad}), /RESPONSE_FORMAT_INVALID/);
+  assert.deepEqual(responseFormatFor('json-schema', {name: 'arithmetic_answer', schema: SCHEMA, fallback: {type: 'json_object'}}),
+    {type: 'json_schema', json_schema: {name: 'arithmetic_answer', strict: true, schema: SCHEMA}});
+  assert.deepEqual(responseFormatFor('json-object', {name: 'x', schema: SCHEMA, fallback: null}), {type: 'json_object'});
+  assert.deepEqual(responseFormatFor(null, {name: 'x', schema: SCHEMA, fallback: {type: 'json_object'}}), {type: 'json_object'});
+});
+
+const schemaPayload = () => ({model: 'm', max_tokens: 512, response_format: responseFormatFor('json-schema', {name: 'arithmetic_answer', schema: SCHEMA})});
+const OK = [200, {choices: [{finish_reason: 'stop', message: {content: '{"answer":42}'}}]}];
+
+test('schema request body is sent once when the server accepts it', async () => {
+  const bodies = [], receipt = {};
+  const raw = await chatCompletion({port: 1, path: '/v1/chat/completions', payload: schemaPayload(), timeoutMs: 5000, receipt,
+    allowFallback: true, request: fakeRequest([OK], bodies)});
+  assert.match(raw, /answer/);
+  assert.equal(bodies.length, 1);
+  assert.deepEqual(bodies[0].response_format.json_schema, {name: 'arithmetic_answer', strict: true, schema: SCHEMA});
+  assert.deepEqual(receipt, {responseFormat: 'json_schema', attempts: 1, httpStatus: 200});
+});
+
+test('a rejected schema falls back once to json_object and is recorded', async () => {
+  const bodies = [], receipt = {};
+  await chatCompletion({port: 1, path: '/p', payload: schemaPayload(), timeoutMs: 5000, receipt, allowFallback: true,
+    request: fakeRequest([[400, {error: {message: 'JSON schema conversion failed key=abcdefabcdefabcdefabcdefabcd'}}], OK], bodies)});
+  assert.deepEqual(bodies.map(b => b.response_format.type), ['json_schema', 'json_object']);
+  assert.equal(bodies[1].max_tokens, 512);
+  assert.equal(receipt.responseFormatFallback, 'json_schema->json_object');
+  assert.equal(receipt.fallbackHttpStatus, 400);
+  assert.equal(receipt.attempts, 2);
+  assert.equal(receipt.responseFormat, 'json_object');
+  assert.doesNotMatch(receipt.fallbackServerMessage, /abcdefabcdef/);
+});
+
+test('no fallback without opt-in, on other statuses, or when the fallback is also rejected', async () => {
+  for (const [allowFallback, answers, calls] of [[false, [[400, {error: 'bad'}]], 1], [true, [[401, {error: 'auth'}]], 1],
+    [true, [[400, {error: 'bad'}], [400, {error: 'bad'}]], 2]]) {
+    const bodies = [], receipt = {};
+    await assert.rejects(chatCompletion({port: 1, path: '/p', payload: schemaPayload(), timeoutMs: 5000, receipt, allowFallback,
+      request: fakeRequest(answers, bodies)}), /HTTP_REFUSED/);
+    assert.equal(bodies.length, calls);
+  }
+});
+
+test('no fallback when the time budget is spent', async () => {
+  const bodies = [], receipt = {};
+  let t = 0;
+  await assert.rejects(chatCompletion({port: 1, path: '/p', payload: schemaPayload(), timeoutMs: 5000, receipt, allowFallback: true,
+    now: () => (t += 4500), request: fakeRequest([[400, {error: 'bad'}], OK], bodies)}), /HTTP_REFUSED/);
+  assert.equal(bodies.length, 1);
+});

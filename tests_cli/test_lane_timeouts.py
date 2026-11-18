@@ -29,6 +29,28 @@ class TimeoutTests(unittest.TestCase):
             with self.subTest(bad=bad), self.assertRaises(pilot.Refused):
                 pilot.max_tokens("m5-macbook-pro", bad)
 
+    def test_lane_response_format(self):
+        self.assertEqual(pilot.response_format("monterey-mac-pro"), "json-schema")
+        self.assertIsNone(pilot.response_format("m5-macbook-pro"))
+        self.assertIsNone(pilot.response_format("dual-gpu-pc"))
+        self.assertEqual(pilot.response_format("m5-macbook-pro", "json-schema"), "json-schema")
+        for bad in ("json_schema", "grammar", True, 1, ""):
+            with self.subTest(bad=bad), self.assertRaises(pilot.Refused):
+                pilot.response_format("m5-macbook-pro", bad)
+        rows = pilot.author_evidence(
+            [
+                {
+                    "responseFormat": "json_object",
+                    "attempts": 2,
+                    "responseFormatFallback": "json_schema->json_object",
+                    "fallbackHttpStatus": 400,
+                    "fallbackServerMessage": "bad schema token=abcdefabcdefabcdefabcdefabcd",
+                }
+            ]
+        )
+        self.assertEqual(rows[0]["fallbackHttpStatus"], 400)
+        self.assertNotIn("abcdefabcdefabcdef", rows[0]["fallbackServerMessage"])
+
     def test_output_sample_whitelisted_and_truncated(self):
         rows = pilot.author_evidence(
             [{"outputSample": "<|channel|>analysis " + "x " * 400, "preambleStripped": "harmony"}]
@@ -119,6 +141,7 @@ class SanitizeTests(unittest.TestCase):
 class WorkerTimeoutTests(unittest.TestCase):
     def test_worker_uses_lane_default_job_override_and_records_evidence(self):
         seen = []
+        formats = []
 
         def execute(
             mode,
@@ -131,8 +154,10 @@ class WorkerTimeoutTests(unittest.TestCase):
             timeout_s=None,
             disable_thinking=False,
             max_output_tokens=None,
+            response_format_mode=None,
         ):
             seen.append((timeout_s, disable_thinking, max_output_tokens))
+            formats.append(response_format_mode)
             return {
                 "reportStored": True,
                 "reportPath": "/r.json",
@@ -156,13 +181,18 @@ class WorkerTimeoutTests(unittest.TestCase):
             worker = ww.Worker("monterey-mac-pro", "m", ENDPOINT, td, execute=execute)
             receipt = worker.run_job(dict(job))
             worker.run_job(dict(job, model_timeout_s=600, disable_thinking=True, max_tokens=256))
+            worker.run_job(dict(job, response_format="json-object"))
+            with self.assertRaises(ww.Refused):
+                worker.run_job(dict(job, response_format="grammar"))
             with self.assertRaises(ww.Refused):
                 worker.run_job(dict(job, max_tokens=8))
             with self.assertRaises(ww.Refused):
                 worker.run_job(dict(job, model_timeout_s=5000))
             with self.assertRaises(ww.Refused):
                 ww.Worker("m5-macbook-pro", "m", ENDPOINT, td, model_timeout_s=0)
-        self.assertEqual(seen, [(840, False, 512), (600, True, 256)])
+        self.assertEqual(seen, [(840, False, 512), (600, True, 256), (840, False, 512)])
+        self.assertEqual(formats, ["json-schema", "json-schema", "json-object"])
+        self.assertEqual(receipt["responseFormat"], "json-schema")
         self.assertEqual(receipt["code"], "ADAPTER_EXCEPTION")
         self.assertEqual(receipt["modelTimeoutS"], 840)
         self.assertEqual(receipt["maxTokens"], 512)
@@ -178,6 +208,33 @@ class RouterTimeoutTests(unittest.TestCase):
         self.assertEqual(rc.job_timeout("dual-gpu-pc", 120), 120)
         with self.assertRaises(rc.Refused):
             rc.job_timeout("dual-gpu-pc", 0)
+
+    def test_router_forwards_validated_response_format(self):
+        import os
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as td:
+            token = Path(td) / "t"
+            token.write_bytes(b"x" * 40)
+            os.chmod(str(token), 0o600)
+
+            def load(extra):
+                rows = {
+                    "monterey-mac-pro": {"url": "http://127.0.0.1:18791", "token_file": str(token)},
+                    "m5-macbook-pro": dict({"url": "http://127.0.0.1:18790", "token_file": str(token)}, **extra),
+                }
+                cfg = Path(td) / "c.json"
+                cfg.write_text(json.dumps({"workers": rows}))
+                return rc.load_workers(str(cfg))[0]
+
+            workers = load({})
+            self.assertEqual(workers["monterey-mac-pro"]["response_format"], "json-schema")
+            self.assertIsNone(workers["m5-macbook-pro"]["response_format"])
+            self.assertEqual(
+                load({"response_format": "json-schema"})["m5-macbook-pro"]["response_format"], "json-schema"
+            )
+            with self.assertRaises(rc.Refused):
+                load({"response_format": "regex"})
 
 
 if __name__ == "__main__":

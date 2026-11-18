@@ -187,6 +187,19 @@ def max_tokens(worker_id, value=None):
     return chosen
 
 
+RESPONSE_FORMATS = ("json-object", "json-schema")
+
+
+def response_format(worker_id, value=None):
+    """Opt-in structured output: job/worker value, else the lane default, else None (program default)."""
+    chosen = lane_defaults(worker_id).get("response_format") if value is None else value
+    if chosen is None:
+        return None
+    if chosen not in RESPONSE_FORMATS:
+        raise Refused("RESPONSE_FORMAT_INVALID")
+    return chosen
+
+
 _EVIDENCE_KEYS = {
     "httpStatus": int,
     "finishReason": str,
@@ -204,6 +217,11 @@ _EVIDENCE_KEYS = {
     "outputSample": str,
     "preambleStripped": str,
     "maxOutputTokens": int,
+    "responseFormat": str,
+    "attempts": int,
+    "responseFormatFallback": str,
+    "fallbackHttpStatus": int,
+    "fallbackServerMessage": str,
 }
 _REDACT = [
     (re.compile(r"(bearer|token|api[_-]?key|authorization|password|secret)\s*[:=]?\s*\S+", re.I), r"\1 [redacted]"),
@@ -432,12 +450,14 @@ def execute(
     timeout_s=None,
     disable_thinking=False,
     max_output_tokens=None,
+    response_format_mode=None,
 ):
     if program not in PROGRAMS:
         raise Refused("PROGRAM_REFUSED")
     check_worker_id(worker_id)
     timeout_s = model_timeout_s(worker_id, timeout_s)
     max_output_tokens = max_tokens(worker_id, max_output_tokens)
+    response_format_mode = response_format(worker_id, response_format_mode)
     if disable_thinking not in (True, False):
         raise Refused("DISABLE_THINKING_INVALID")
     endpoint(url)
@@ -458,6 +478,7 @@ def execute(
             "modelTimeoutMs": timeout_s * 1000,
             "disableThinking": disable_thinking,
             **({"maxTokens": max_output_tokens} if max_output_tokens else {}),
+            **({"responseFormat": response_format_mode} if response_format_mode else {}),
             "route": route(ev, source, worker_id=worker_id),
             "reportStore": str(store),
         }
@@ -492,6 +513,7 @@ def execute(
         data["modelTimeoutS"] = timeout_s
         data["disableThinking"] = disable_thinking
         data["maxTokens"] = max_output_tokens
+        data["responseFormat"] = response_format_mode
         data["netPermission"] = ("allow-net+" if net else "none+") + f"guard:127.0.0.1:{urlsplit(url).port or 0}"
         if r.returncode and r.stderr:
             data["childStderr"] = sanitize_text(r.stderr[:300])

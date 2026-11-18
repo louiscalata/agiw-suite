@@ -109,6 +109,7 @@ class Worker:
         model_timeout_s=None,
         disable_thinking=False,
         max_tokens=None,
+        response_format=None,
     ):
         if not isinstance(worker_id, str) or not worker_id:
             raise Refused("WORKER_ID_REQUIRED")
@@ -128,6 +129,10 @@ class Worker:
         self.disable_thinking = disable_thinking is True
         try:
             self.max_tokens = pilot.max_tokens(worker_id, max_tokens)
+        except pilot.Refused as exc:
+            raise Refused(str(exc)) from exc
+        try:
+            self.response_format = pilot.response_format(worker_id, response_format)
         except pilot.Refused as exc:
             raise Refused(str(exc)) from exc
         self.report_store = report_store
@@ -172,6 +177,11 @@ class Worker:
                 pilot.max_tokens(self.worker_id, job["max_tokens"])
             except pilot.Refused as exc:
                 raise Refused(str(exc)) from exc
+        if job.get("response_format") is not None:
+            try:
+                pilot.response_format(self.worker_id, job["response_format"])
+            except pilot.Refused as exc:
+                raise Refused(str(exc)) from exc
         if job.get("disable_thinking") not in (None, True, False):
             raise Refused("DISABLE_THINKING_INVALID")
         return job_id
@@ -188,6 +198,7 @@ class Worker:
             job["disable_thinking"] if job.get("disable_thinking") in (True, False) else self.disable_thinking
         )
         tokens = job.get("max_tokens") if job.get("max_tokens") is not None else self.max_tokens
+        fmt = job.get("response_format") if job.get("response_format") is not None else self.response_format
         failure = None
         report = {}
         result = None
@@ -203,6 +214,7 @@ class Worker:
                 timeout_s=timeout_s,
                 disable_thinking=disable_thinking,
                 max_output_tokens=tokens,
+                response_format_mode=fmt,
             )
             report = result.get("report") if isinstance(result, dict) and isinstance(result.get("report"), dict) else {}
             outcome = report.get("outcome")
@@ -231,6 +243,7 @@ class Worker:
                 "modelTimeoutS": timeout_s,
                 "disableThinking": disable_thinking,
                 "maxTokens": tokens,
+                "responseFormat": fmt,
                 "authorEvidence": result.get("authorEvidence", []) if isinstance(result, dict) else [],
                 "childExitCode": result.get("childExitCode") if isinstance(result, dict) else None,
                 "failure": failure,
@@ -262,6 +275,33 @@ class Handler(BaseHTTPRequestHandler):
     def _authorized(self):
         return authorized(self.headers.get("Authorization"), self.token)
 
+    def _reject(self, code, payload):
+        """Refuse a POST before reading its body. Drain a bounded amount of the declared body first, so
+        Windows does not reset the connection (unread data on close sends RST and the client loses the
+        response), then close the connection instead of reusing it."""
+        self.close_connection = True
+        try:
+            declared = int(self.headers.get("Content-Length", "0"))
+        except (TypeError, ValueError):
+            declared = 0
+        remaining = min(max(declared, 0), BODY_LIMIT)
+        try:
+            self.connection.settimeout(2)
+            while remaining > 0:
+                chunk = self.rfile.read(min(remaining, 65536))
+                if not chunk:
+                    break
+                remaining -= len(chunk)
+        except OSError:
+            pass  # the client went away; nothing more to drain
+        body = json.dumps(payload).encode("utf-8")
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.wfile.write(body)
+
     def do_GET(self):
         if not self._authorized():
             return self._send(401, {"error": "UNAUTHORIZED"})
@@ -271,15 +311,15 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         if not self._authorized():
-            return self._send(401, {"error": "UNAUTHORIZED"})
+            return self._reject(401, {"error": "UNAUTHORIZED"})
         if self.path != "/v1/jobs":
-            return self._send(404, {"error": "NOT_FOUND"})
+            return self._reject(404, {"error": "NOT_FOUND"})
         try:
             length = int(self.headers.get("Content-Length", "0"))
         except (TypeError, ValueError):
-            return self._send(400, {"error": "LENGTH_INVALID"})
+            return self._reject(400, {"error": "LENGTH_INVALID"})
         if length <= 0 or length > BODY_LIMIT:
-            return self._send(413, {"error": "BODY_TOO_LARGE"})
+            return self._reject(413, {"error": "BODY_TOO_LARGE"})
         try:
             job = json.loads(self.rfile.read(length))
         except ValueError:
@@ -331,6 +371,13 @@ def main(argv=None):
         action="store_true",
         help="Ask llama-server to skip reasoning per request (chat_template_kwargs/reasoning_format)",
     )
+    p.add_argument(
+        "--response-format",
+        choices=pilot.RESPONSE_FORMATS,
+        default=None,
+        help="Opt-in structured output: json-schema sends a strict schema (grammar-constrained, falls back to "
+        "json_object if the server rejects it); lane default from fleet-workers.json",
+    )
     args = p.parse_args(argv)
     try:
         validate_bind(args.bind, args.allow_lan)
@@ -344,6 +391,7 @@ def main(argv=None):
             model_timeout_s=args.model_timeout_s,
             disable_thinking=args.disable_thinking,
             max_tokens=args.max_tokens,
+            response_format=args.response_format,
         )
         server = create_server(worker, token, args.bind, args.port, args.allow_lan)
     except (Refused, OSError, ValueError) as exc:

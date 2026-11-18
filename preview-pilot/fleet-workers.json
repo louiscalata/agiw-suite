@@ -6,7 +6,8 @@
       "max_tokens": 512,
       "model_timeout_s": 840,
       "job_timeout_s": 900,
-      "note": "~0.68 tok/s: 512 tokens ~750 s plus ~60 s prompt"
+      "note": "~0.68 tok/s: 512 tokens ~750 s plus ~60 s prompt; json-schema grammar forces EOS after the answer object",
+      "response_format": "json-schema"
     }
   }
 }

@@ -92,3 +92,76 @@ export function extractFinalJSON(content, parse) {
   }
   throw Error('CONTENT_REFUSED');
 }
+
+// Opt-in structured output per lane/worker/job. 'json-schema' sends an OpenAI-style strict
+// json_schema (llama-server compiles it to a grammar, which also forces EOS after the object).
+export const RESPONSE_FORMATS = ['json-object', 'json-schema'];
+export function responseFormatMode(cfg) {
+  const value = cfg?.responseFormat;
+  if (value === undefined || value === null) return null;
+  if (!RESPONSE_FORMATS.includes(value)) throw Error('RESPONSE_FORMAT_INVALID');
+  return value;
+}
+
+export function responseFormatFor(mode, {name, schema, fallback}) {
+  if (mode === 'json-schema') return {type: 'json_schema', json_schema: {name, strict: true, schema}};
+  if (mode === 'json-object') return {type: 'json_object'};
+  return fallback;
+}
+
+// Statuses with which a server rejects an unsupported or uncompilable schema.
+export const SCHEMA_REJECT_STATUSES = new Set([400, 422, 500, 501]);
+
+// One loopback POST. Errors carry httpStatus and the server's own error text (sanitized later).
+export function postJSON({port, path, body, timeoutMs, maxBytes = 16384, request}) {
+  return new Promise((resolve, reject) => {
+    const req = request({hostname: '127.0.0.1', port, path, method: 'POST', headers: {'Content-Type': 'application/json'},
+      signal: AbortSignal.timeout(timeoutMs)}, res => {
+      if (res.statusCode !== 200) {
+        let b = '';
+        res.on('data', c => { if (b.length < 2048) b += c; });
+        res.on('end', () => {
+          const e = Object.assign(Error('HTTP_REFUSED'), {httpStatus: res.statusCode});
+          try { const j = JSON.parse(b); e.serverMessage = typeof j?.error?.message === 'string' ? j.error.message : (typeof j?.error === 'string' ? j.error : null); } catch { e.serverMessage = b.slice(0, 200); }
+          reject(e);
+        });
+        res.on('error', reject);
+        return;
+      }
+      let s = '';
+      res.on('data', c => { s += c; if (Buffer.byteLength(s) > maxBytes) { res.destroy(); reject(Error('RESPONSE_CAP')); } });
+      res.on('end', () => resolve(s));
+      res.on('error', reject);
+    });
+    req.on('error', reject);
+    req.end(JSON.stringify(body));
+  });
+}
+
+// Chat call with the json_schema -> json_object fallback. The fallback happens at most once, only when
+// the schema was opted in and the server rejected the request with an HTTP error (never on timeouts or
+// on a model answer), within the same overall time budget. It is recorded on the receipt.
+export async function chatCompletion({port, path, payload, timeoutMs, receipt, allowFallback, request, now = Date.now}) {
+  const started = now();
+  receipt.responseFormat = payload.response_format?.type ?? null;
+  receipt.attempts = 1;
+  try {
+    const raw = await postJSON({port, path, body: payload, timeoutMs, request});
+    receipt.httpStatus = 200;
+    return raw;
+  } catch (e) {
+    if (e?.httpStatus) receipt.httpStatus = e.httpStatus;
+    if (!allowFallback || payload.response_format?.type !== 'json_schema' || !SCHEMA_REJECT_STATUSES.has(e?.httpStatus)) throw e;
+    const remaining = timeoutMs - (now() - started);
+    if (remaining < 1000) throw e;
+    receipt.responseFormatFallback = 'json_schema->json_object';
+    receipt.fallbackHttpStatus = e.httpStatus;
+    const why = sanitizeMessage(e.serverMessage);
+    if (why) receipt.fallbackServerMessage = why;
+    receipt.responseFormat = 'json_object';
+    receipt.attempts = 2;
+    const raw = await postJSON({port, path, body: {...payload, response_format: {type: 'json_object'}}, timeoutMs: remaining, request});
+    receipt.httpStatus = 200;
+    return raw;
+  }
+}

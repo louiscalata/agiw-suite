@@ -68,6 +68,13 @@ def job_timeout(name, value=None):
     return value
 
 
+def _response_format(name, value):
+    try:
+        return pilot.response_format(name, value)
+    except pilot.Refused as exc:
+        raise Refused(str(exc)) from exc
+
+
 def load_workers(path):
     """Read and validate the per-worker config. Tokens stay out of returned logs."""
     config = json.loads(Path(path).read_text())
@@ -94,6 +101,7 @@ def load_workers(path):
             "model_timeout_s": row.get("model_timeout_s"),
             "disable_thinking": row.get("disable_thinking") is True,
             "max_tokens": row.get("max_tokens"),
+            "response_format": _response_format(name, row.get("response_format")),
         }
     return workers, config
 
@@ -159,6 +167,8 @@ class FleetRouterClient:
             body["max_tokens"] = row["max_tokens"]
         if row.get("disable_thinking") is True:
             body["disable_thinking"] = True
+        if row.get("response_format") is not None:
+            body["response_format"] = row["response_format"]
         try:
             status, receipt = self.request(name, "POST", "/v1/jobs", body)
         except pilot.PROBE_ERRORS:

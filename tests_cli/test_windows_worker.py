@@ -89,6 +89,33 @@ class WorkerTests(unittest.TestCase):
         self.assertEqual(self.call(base, "/v1/jobs", self.job(), token="w" * 40)[0], 401)
         self.assertEqual(self.call(base, "/v1/jobs", self.job())[0], 401)
 
+    def test_rejected_post_drains_body_and_closes(self):
+        # Early refusals must still deliver their response; on Windows an unread body resets the socket.
+        import socket
+        from urllib.parse import urlsplit
+
+        base = self.start_server(self.worker())
+        port = urlsplit(base).port
+        body = json.dumps(self.job()).encode() + b" " * 12000
+        for _ in range(5):
+            with socket.create_connection(("127.0.0.1", port), timeout=3) as s:
+                s.sendall(
+                    b"POST /v1/jobs HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer "
+                    + b"w" * 40
+                    + b"\r\nContent-Type: application/json\r\nContent-Length: "
+                    + str(len(body)).encode()
+                    + b"\r\n\r\n"
+                    + body
+                )
+                data = b""
+                while True:
+                    chunk = s.recv(4096)
+                    if not chunk:
+                        break
+                    data += chunk
+            self.assertTrue(data.startswith(b"HTTP/1.1 401"), data[:40])
+            self.assertIn(b"Connection: close", data)
+
     def test_ready_endpoint(self):
         worker = self.worker(probe=lambda: (["fixture-model", "other"], "llama-server"))
         base = self.start_server(worker)
