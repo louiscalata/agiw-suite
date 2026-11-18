@@ -187,6 +187,9 @@ class RepairWorkerCharacterizationTests(LifecycleFixture):
             "fix-nisi": "Monitor stopped before Fix Nisi Inference completed. If its recover step had started, check Nisi status before retrying. No model inference was run.",
             "fix-all": "Monitor stopped before Fix inference completed. Inspect the recorded steps, Nisi status and Windows owner state before retrying; a probe or recovery may have started.",
         }
+        # A route check may already have sent an inference probe, so it never claims none was run.
+        route = "Monitor stopped before the route check completed. Inspect the recorded steps and Windows owner state before retrying; an inference probe may have started."
+        messages.update({"fix-route": route, "fix-both": route})
         for method, args, action, _ in REQUESTS:
             for cleanup_ok in (False, True):
                 with self.subTest(action=action, cleanup_ok=cleanup_ok):

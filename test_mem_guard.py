@@ -2234,9 +2234,9 @@ class CloseReviewTests(ChildCase):
         self.assertNotIn((self.child.pid, signal.SIGSTOP), self.kill.calls)
         self.assertEqual(self.registry.paused(), [])
 
-    def test_a_pause_already_writing_its_record_is_resumed_by_close(self):
-        """The other side of the race: a pause past its last check, still writing paused.json,
-        must be seen (and resumed) by close, not missed because the file was not there yet."""
+    def test_a_pause_already_writing_its_record_never_stops_the_job_after_close(self):
+        """The other side of the race: a pause past its closing check, still writing paused.json,
+        must not leave the job stopped after close (the per-member fence refuses the SIGSTOP)."""
         self.registry.register(self.child.pid, "job")
         entered, gate = threading.Event(), threading.Event()
         write = self.registry._write_paused
@@ -2260,12 +2260,18 @@ class CloseReviewTests(ChildCase):
         closed = []
         closer = threading.Thread(target=lambda: closed.append(guard.close()))
         closer.start()
-        time.sleep(0.1)
+        deadline = time.monotonic() + 2
+        while not self.registry._closing.is_set() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertTrue(self.registry._closing.is_set(), "close fenced SIGSTOP before the write finished")
         gate.set()
         worker.join(5)
         closer.join(5)
-        self.assertTrue(continued(self.child.pid))
-        self.assertEqual([event["why"] for event in closed[0]], ["shutdown"])
+        # close() fences SIGSTOP before it waits for the record lock, so the pause that was still
+        # writing its record never signals: nothing is left stopped and nothing needs resuming.
+        self.assertTrue(not_stopped(self.child.pid))
+        self.assertNotIn((self.child.pid, signal.SIGSTOP), self.kill.calls)
+        self.assertEqual(closed, [[]])
         self.assertEqual(self.registry.paused(), [])
 
     def test_a_slow_notifier_never_blocks_the_sampler_or_close(self):

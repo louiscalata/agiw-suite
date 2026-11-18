@@ -300,7 +300,10 @@ class MemGuardSecurityTests(unittest.TestCase):
             "docker " + "--context fixture " * 16 + "run image",
         ):
             with self.subTest(command=command):
-                found = mem_guard.hook_match(bash(command))
+                try:
+                    found = mem_guard.hook_match(bash(command))
+                except ValueError as exc:
+                    self.fail(f"Docker global options hid the command instead of classifying it: {exc}")
                 self.assertIsNotNone(found)
                 self.assertEqual(found[1], "docker")
 

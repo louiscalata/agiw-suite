@@ -8193,6 +8193,44 @@
               },
               "counter": 7
             }
+          ],
+          [
+            "equal",
+            "fix-route",
+            {
+              "state": {
+                "status": "needs-action",
+                "message": "keep",
+                "steps": [],
+                "operationId": 1,
+                "action": {
+                  "$kind": "probe",
+                  "matches": [
+                    "missing"
+                  ]
+                }
+              },
+              "counter": 7
+            }
+          ],
+          [
+            "equal",
+            "fix-both",
+            {
+              "state": {
+                "status": "needs-action",
+                "message": "keep",
+                "steps": [],
+                "operationId": 1,
+                "action": {
+                  "$kind": "probe",
+                  "matches": [
+                    "missing"
+                  ]
+                }
+              },
+              "counter": 7
+            }
           ]
         ],
         "workers": []
