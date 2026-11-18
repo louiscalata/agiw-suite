@@ -33,7 +33,11 @@ class LaneEvidence(unittest.TestCase):
                 machine = rows([record("second-pc", "windows", health="degraded", models=models)])[-1]
                 self.assertEqual((machine["state"], machine["reason"], machine["health"]),
                                  ("unknown", "reported-service-unknown", "degraded"))
+        # An unsigned, unverified report never claims up, even while serving.
         machine = rows([record("second-pc", "windows", health="degraded", complete=False)])[-1]
+        self.assertEqual((machine["state"], machine["reason"]), ("unknown", "unverified-report"))
+        self.assertIsNone(machine["loadedCount"])
+        machine = rows([record("second-pc", "windows", health="degraded", complete=False, verified=True)])[-1]
         self.assertEqual((machine["state"], machine["reason"]), ("up", "reported-partly-serving"))
         self.assertIsNone(machine["loadedCount"])
 
