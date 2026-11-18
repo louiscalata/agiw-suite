@@ -1,6 +1,6 @@
-import json
 import hashlib
 import hmac
+import json
 import time
 import unittest
 from types import SimpleNamespace
@@ -82,13 +82,11 @@ class ComponentDetailStaysLocal(unittest.TestCase):
         keys = pl.Subkeys(key)
         path = pl.PREFIX + "/status"
         request = "\n".join(("GET", path, requester, node, ts, nonce)).encode()
-        link = SimpleNamespace(
-            node=node,
-            host="windows",
-            status_provider=lambda: doc,
-            trusted=lambda: {requester: {"key": key}},
-            nonces_for=lambda peer: pl.NonceCache(),
-        )
+        link = pl.PeerLink.__new__(pl.PeerLink)
+        link.node, link.host, link._lock = node, "windows", pl.threading.RLock()
+        link.status_provider = lambda: doc
+        link.trusted = lambda: {requester: {"key": key}}
+        link.nonces_for = lambda peer: pl.NonceCache()
         handler = pl.LinkHandler.__new__(pl.LinkHandler)
         handler.server = SimpleNamespace(link=link)
         handler.headers = {
