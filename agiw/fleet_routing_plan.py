@@ -1,4 +1,5 @@
 """Dry-run policy for the proposed AGIW private fleet. Never dispatches a job."""
+
 from dataclasses import dataclass
 from math import isfinite
 from typing import Optional
