@@ -110,6 +110,7 @@ class Worker:
         disable_thinking=False,
         max_tokens=None,
         response_format=None,
+        request_mode=None,
     ):
         if not isinstance(worker_id, str) or not worker_id:
             raise Refused("WORKER_ID_REQUIRED")
@@ -133,6 +134,12 @@ class Worker:
             raise Refused(str(exc)) from exc
         try:
             self.response_format = pilot.response_format(worker_id, response_format)
+        except pilot.Refused as exc:
+            raise Refused(str(exc)) from exc
+        try:
+            self.request_mode = pilot.request_mode(worker_id, request_mode)
+            if self.request_mode != "chat":
+                pilot.completion_settings(worker_id)
         except pilot.Refused as exc:
             raise Refused(str(exc)) from exc
         self.report_store = report_store
@@ -182,6 +189,11 @@ class Worker:
                 pilot.response_format(self.worker_id, job["response_format"])
             except pilot.Refused as exc:
                 raise Refused(str(exc)) from exc
+        if job.get("request_mode") is not None:
+            try:
+                pilot.request_mode(self.worker_id, job["request_mode"])
+            except pilot.Refused as exc:
+                raise Refused(str(exc)) from exc
         if job.get("disable_thinking") not in (None, True, False):
             raise Refused("DISABLE_THINKING_INVALID")
         return job_id
@@ -199,6 +211,7 @@ class Worker:
         )
         tokens = job.get("max_tokens") if job.get("max_tokens") is not None else self.max_tokens
         fmt = job.get("response_format") if job.get("response_format") is not None else self.response_format
+        req_mode = job.get("request_mode") if job.get("request_mode") is not None else self.request_mode
         failure = None
         report = {}
         result = None
@@ -215,6 +228,7 @@ class Worker:
                 disable_thinking=disable_thinking,
                 max_output_tokens=tokens,
                 response_format_mode=fmt,
+                request_mode_value=req_mode,
             )
             report = result.get("report") if isinstance(result, dict) and isinstance(result.get("report"), dict) else {}
             outcome = report.get("outcome")
@@ -244,6 +258,7 @@ class Worker:
                 "disableThinking": disable_thinking,
                 "maxTokens": tokens,
                 "responseFormat": fmt,
+                "requestMode": req_mode,
                 "authorEvidence": result.get("authorEvidence", []) if isinstance(result, dict) else [],
                 "childExitCode": result.get("childExitCode") if isinstance(result, dict) else None,
                 "failure": failure,
@@ -378,6 +393,13 @@ def main(argv=None):
         help="Opt-in structured output: json-schema sends a strict schema (grammar-constrained, falls back to "
         "json_object if the server rejects it); lane default from fleet-workers.json",
     )
+    p.add_argument(
+        "--request-mode",
+        choices=pilot.REQUEST_MODES,
+        default=None,
+        help="chat (default) or completion-grammar: /apply-template + lane prefill + grammar-constrained "
+        "/completion on the same 127.0.0.1 port; lane default from fleet-workers.json",
+    )
     args = p.parse_args(argv)
     try:
         validate_bind(args.bind, args.allow_lan)
@@ -392,6 +414,7 @@ def main(argv=None):
             disable_thinking=args.disable_thinking,
             max_tokens=args.max_tokens,
             response_format=args.response_format,
+            request_mode=args.request_mode,
         )
         server = create_server(worker, token, args.bind, args.port, args.allow_lan)
     except (Refused, OSError, ValueError) as exc:

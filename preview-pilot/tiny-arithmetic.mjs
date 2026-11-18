@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {checkRoute} from './fleet-route.mjs';
 import {installNetGuard} from './net-guard.mjs';
-import {modelTimeoutMs,workflowDeadlineMs,reasoningFields,errorEvidence,maxTokens,outputSample,extractFinalJSON,responseFormatMode,responseFormatFor,chatCompletion} from './model-call.mjs';
+import {modelTimeoutMs,workflowDeadlineMs,reasoningFields,errorEvidence,maxTokens,outputSample,extractFinalJSON,responseFormatMode,responseFormatFor,requestMode,completionSettings,completionGrammarCall,chatCall,modelMatches} from './model-call.mjs';
 import {runWorkflow,createCandidate} from './vendor/nisi-0.3.1/workflow/engine.mjs';
 import {strictJSON} from './vendor/nisi-0.3.1/adapters/local-chat.mjs';
 import {sha256Text,stableStringify} from './vendor/nisi-0.3.1/workflow/contracts.mjs';
@@ -13,7 +13,7 @@ const cfg=JSON.parse(input),u=new URL(cfg.endpoint);
 if(cfg.mode!=='live')throw Error('MODE_REFUSED');
 checkRoute(cfg);
 installNetGuard(cfg.endpoint);
-const MODEL_TIMEOUT_MS=modelTimeoutMs(cfg),REASONING=reasoningFields(cfg),MAX_TOKENS=maxTokens(cfg,64),FORMAT_MODE=responseFormatMode(cfg);
+const MODEL_TIMEOUT_MS=modelTimeoutMs(cfg),REASONING=reasoningFields(cfg),MAX_TOKENS=maxTokens(cfg,64),FORMAT_MODE=responseFormatMode(cfg),REQUEST_MODE=requestMode(cfg),COMPLETION=REQUEST_MODE==='chat'?null:completionSettings(cfg);
 const SCHEMA={type:'object',properties:{answer:{type:'integer'}},required:['answer'],additionalProperties:false};
 if(typeof cfg.reportStore!=='string'||!path.isAbsolute(cfg.reportStore))throw Error('REPORT_STORE_PATH_REFUSED');
 if(!(await fs.stat(cfg.reportStore)).isDirectory())throw Error('REPORT_STORE_DIR_REFUSED');
@@ -23,12 +23,12 @@ const author={id:'preview.tiny-arithmetic-author',async draft({binding}){
  const payload={model:cfg.model,messages:[{role:'system',content:'Answer the arithmetic question. Return only a JSON object with one key answer and an integer value.'},{role:'user',content:'What is 6 multiplied by 7?'}],temperature:0,max_tokens:MAX_TOKENS,stream:false,...REASONING,response_format:responseFormatFor(FORMAT_MODE,{name:'arithmetic_answer',schema:SCHEMA,fallback:{type:'json_object'}})};
  const started=Date.now();const receipt={requestedModel:cfg.model,maxOutputTokens:MAX_TOKENS,timeoutMs:MODEL_TIMEOUT_MS,disableThinking:cfg.disableThinking===true,finishReason:null,usage:null};receipts.push(receipt);
  try{
- const raw=await chatCompletion({port:u.port,path:u.pathname,payload,timeoutMs:MODEL_TIMEOUT_MS,receipt,allowFallback:FORMAT_MODE==='json-schema',request:http.request});
- const envelope=strictJSON(raw);receipt.elapsedMs=Date.now()-started;receipt.reportedModel=envelope.model;receipt.usage=envelope.usage??null;
- if(!Array.isArray(envelope.choices)||envelope.choices.length!==1)throw Error('CHOICES_REFUSED');const c=envelope.choices[0];receipt.finishReason=c.finish_reason;
- if(c.finish_reason!=='stop')receipt.outputSample=outputSample(c.message?.content);
- if(c.finish_reason!=='stop'||envelope.model!==cfg.model||c.message?.tool_calls?.length||c.message?.refusal)throw Error('FINISH_OR_MODEL_REFUSED');
- const rawContent=c.message?.content;if(typeof rawContent!=='string')throw Error('CONTENT_REFUSED');let content;
+ const r=REQUEST_MODE==='chat'?await chatCall({endpoint:cfg.endpoint,payload,timeoutMs:MODEL_TIMEOUT_MS,receipt,allowFallback:FORMAT_MODE==='json-schema',parse:strictJSON,request:http.request})
+  :await completionGrammarCall({endpoint:cfg.endpoint,messages:payload.messages,schema:SCHEMA,maxTokens:MAX_TOKENS,timeoutMs:MODEL_TIMEOUT_MS,receipt,settings:COMPLETION,parse:strictJSON,request:http.request});
+ receipt.elapsedMs=Date.now()-started;receipt.reportedModel=r.model;receipt.usage=r.usage;receipt.finishReason=r.finishReason;
+ if(r.finishReason!=='stop')receipt.outputSample=outputSample(r.content);
+ if(r.finishReason!=='stop'||!modelMatches(r,REQUEST_MODE,cfg.model)||r.toolCalls||r.refusal)throw Error('FINISH_OR_MODEL_REFUSED');
+ const rawContent=r.content;if(typeof rawContent!=='string')throw Error('CONTENT_REFUSED');let content;
  try{const x=extractFinalJSON(rawContent,strictJSON);content=x.content;if(x.stripped)receipt.preambleStripped=x.stripped;}catch(e){receipt.outputSample=outputSample(rawContent);throw e;}
  const candidate={files:[{path:'answer.json',content}]};receipt.status='RESPONSE_VALIDATED';
  return {candidate,evidence:{...binding,candidateFingerprint:createCandidate(candidate,{authorId:author.id}).fingerprint,note:'Actual local model output; host did not supply or correct its answer.'}};

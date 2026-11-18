@@ -75,6 +75,13 @@ def _response_format(name, value):
         raise Refused(str(exc)) from exc
 
 
+def _request_mode(name, value):
+    try:
+        return pilot.request_mode(name, value)
+    except pilot.Refused as exc:
+        raise Refused(str(exc)) from exc
+
+
 def load_workers(path):
     """Read and validate the per-worker config. Tokens stay out of returned logs."""
     config = json.loads(Path(path).read_text())
@@ -102,6 +109,7 @@ def load_workers(path):
             "disable_thinking": row.get("disable_thinking") is True,
             "max_tokens": row.get("max_tokens"),
             "response_format": _response_format(name, row.get("response_format")),
+            "request_mode": _request_mode(name, row.get("request_mode")),
         }
     return workers, config
 
@@ -169,6 +177,8 @@ class FleetRouterClient:
             body["disable_thinking"] = True
         if row.get("response_format") is not None:
             body["response_format"] = row["response_format"]
+        if row.get("request_mode") not in (None, "chat"):
+            body["request_mode"] = row["request_mode"]
         try:
             status, receipt = self.request(name, "POST", "/v1/jobs", body)
         except pilot.PROBE_ERRORS:

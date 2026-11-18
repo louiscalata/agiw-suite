@@ -200,6 +200,43 @@ def response_format(worker_id, value=None):
     return chosen
 
 
+REQUEST_MODES = ("chat", "completion-grammar")
+COMPLETION_CONSTRAINTS = ("grammar", "json-schema")
+_TEMPLATE_TEXT = re.compile(r"[\x20-\x7e\n]{0,160}")
+
+
+def request_mode(worker_id, value=None):
+    """'chat' (default) or the opt-in 'completion-grammar': job/worker value, else the lane default."""
+    chosen = lane_defaults(worker_id).get("request_mode") if value is None else value
+    if chosen is None:
+        return "chat"
+    if chosen not in REQUEST_MODES:
+        raise Refused("REQUEST_MODE_INVALID")
+    return chosen
+
+
+def completion_settings(worker_id):
+    """Lane-only completion-grammar settings, validated; None means the program default."""
+    lane = lane_defaults(worker_id)
+    out = {}
+    for key, cfg_key, code in (
+        ("completion_prefill", "completionPrefill", "COMPLETION_PREFILL_INVALID"),
+        ("prompt_suffix", "promptSuffix", "PROMPT_SUFFIX_INVALID"),
+    ):
+        value = lane.get(key)
+        if value is None:
+            continue
+        if not isinstance(value, str) or not _TEMPLATE_TEXT.fullmatch(value):
+            raise Refused(code)
+        out[cfg_key] = value
+    constraint = lane.get("completion_constraint")
+    if constraint is not None:
+        if constraint not in COMPLETION_CONSTRAINTS:
+            raise Refused("COMPLETION_CONSTRAINT_INVALID")
+        out["completionConstraint"] = constraint
+    return out
+
+
 _EVIDENCE_KEYS = {
     "httpStatus": int,
     "finishReason": str,
@@ -222,6 +259,12 @@ _EVIDENCE_KEYS = {
     "responseFormatFallback": str,
     "fallbackHttpStatus": int,
     "fallbackServerMessage": str,
+    "requestMode": str,
+    "templateRender": str,
+    "stopType": str,
+    "tokensPredicted": int,
+    "constraint": str,
+    "constraintFallback": str,
 }
 _REDACT = [
     (re.compile(r"(bearer|token|api[_-]?key|authorization|password|secret)\s*[:=]?\s*\S+", re.I), r"\1 [redacted]"),
@@ -451,6 +494,7 @@ def execute(
     disable_thinking=False,
     max_output_tokens=None,
     response_format_mode=None,
+    request_mode_value=None,
 ):
     if program not in PROGRAMS:
         raise Refused("PROGRAM_REFUSED")
@@ -458,6 +502,8 @@ def execute(
     timeout_s = model_timeout_s(worker_id, timeout_s)
     max_output_tokens = max_tokens(worker_id, max_output_tokens)
     response_format_mode = response_format(worker_id, response_format_mode)
+    mode_of_request = request_mode(worker_id, request_mode_value)
+    completion = completion_settings(worker_id) if mode_of_request != "chat" else {}
     if disable_thinking not in (True, False):
         raise Refused("DISABLE_THINKING_INVALID")
     endpoint(url)
@@ -479,6 +525,8 @@ def execute(
             "disableThinking": disable_thinking,
             **({"maxTokens": max_output_tokens} if max_output_tokens else {}),
             **({"responseFormat": response_format_mode} if response_format_mode else {}),
+            "requestMode": mode_of_request,
+            **completion,
             "route": route(ev, source, worker_id=worker_id),
             "reportStore": str(store),
         }
@@ -514,6 +562,7 @@ def execute(
         data["disableThinking"] = disable_thinking
         data["maxTokens"] = max_output_tokens
         data["responseFormat"] = response_format_mode
+        data["requestMode"] = mode_of_request
         data["netPermission"] = ("allow-net+" if net else "none+") + f"guard:127.0.0.1:{urlsplit(url).port or 0}"
         if r.returncode and r.stderr:
             data["childStderr"] = sanitize_text(r.stderr[:300])

@@ -35,6 +35,7 @@ class TinyTests(unittest.TestCase):
         want_tokens=64,
         want_format=None,
         reject_schema=None,
+        request_mode="chat",
     ):
         want_format = want_format or {"type": "json_object"}
         seen = self.seen = []
@@ -89,6 +90,7 @@ class TinyTests(unittest.TestCase):
                 "fixture-model",
                 program="tiny-arithmetic.mjs",
                 worker_id=worker,
+                request_mode_value=request_mode,
             )
         finally:
             server.shutdown()

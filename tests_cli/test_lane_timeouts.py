@@ -155,6 +155,7 @@ class WorkerTimeoutTests(unittest.TestCase):
             disable_thinking=False,
             max_output_tokens=None,
             response_format_mode=None,
+            request_mode_value=None,
         ):
             seen.append((timeout_s, disable_thinking, max_output_tokens))
             formats.append(response_format_mode)
