@@ -5,6 +5,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- The fleet job worker can use a local `jev-task` CLI as the repo-patch analyzer: pass `--jev-task PATH|auto` or set `AGIW_JEV_TASK`. It stays off by default, runs with `--driver never` and a stripped environment, and passes the projected text through a 0600 temp file.
 - Repo-patch records bounded, advisory Jev pre/post analysis by default. Set `jev_analysis: false` to skip it; without an injected analyzer, both phases report unavailable when reached.
 
 Merged on 14 November 2026:
