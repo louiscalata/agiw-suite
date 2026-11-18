@@ -17,9 +17,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from . import fleet_local_pilot as pilot
+from . import fleet_repo_patch
 from . import windows_worker_receipt_check as receipt_check
 
-PROGRAMS = pilot.PROGRAMS
+PROGRAMS = pilot.PROGRAMS + (fleet_repo_patch.PROGRAM,)
 BODY_LIMIT = 16 * 1024
 
 
@@ -111,6 +112,8 @@ class Worker:
         max_tokens=None,
         response_format=None,
         request_mode=None,
+        repo_patch=None,
+        allow_local_source=False,
     ):
         if not isinstance(worker_id, str) or not worker_id:
             raise Refused("WORKER_ID_REQUIRED")
@@ -144,6 +147,8 @@ class Worker:
             raise Refused(str(exc)) from exc
         self.report_store = report_store
         self._execute = execute or pilot.execute
+        self._repo_patch = repo_patch or fleet_repo_patch.execute_job
+        self.allow_local_source = allow_local_source  # tests only: local fixture repos
         self._probe = probe or (lambda: pilot.detect_models(pilot.endpoint(model_endpoint)))
         self._lock = threading.Lock()
         self.busy = False
@@ -163,6 +168,16 @@ class Worker:
             "observed_at": time.time(),
         }
 
+    def _validate_repo_patch_job(self, job):
+        if job.get("program") != fleet_repo_patch.PROGRAM:
+            return
+        if not isinstance(job.get("payload"), dict):
+            raise Refused("PAYLOAD_REFUSED")
+        try:
+            fleet_repo_patch.validate_spec(job["payload"], allow_local_source=self.allow_local_source)
+        except fleet_repo_patch.Refused as exc:
+            raise Refused(str(exc)) from None
+
     def validate_job(self, job):
         if not isinstance(job, dict):
             raise Refused("BODY_INVALID")
@@ -174,6 +189,7 @@ class Worker:
             raise Refused("ROUTE_REFUSED")
         if job.get("program") not in PROGRAMS:
             raise Refused("PROGRAM_REFUSED")
+        self._validate_repo_patch_job(job)
         if job.get("model_timeout_s") is not None:
             try:
                 pilot.model_timeout_s(self.worker_id, job["model_timeout_s"])
@@ -216,20 +232,29 @@ class Worker:
         report = {}
         result = None
         try:
-            result = self._execute(
-                "live",
-                self.model_endpoint,
-                self.model,
-                "agent",
-                job["program"],
-                report_store=self.report_store,
-                worker_id=self.worker_id,
-                timeout_s=timeout_s,
-                disable_thinking=disable_thinking,
-                max_output_tokens=tokens,
-                response_format_mode=fmt,
-                request_mode_value=req_mode,
-            )
+            if job["program"] == fleet_repo_patch.PROGRAM:
+                result = self._repo_patch(
+                    job["payload"],
+                    model_endpoint=self.model_endpoint,
+                    model=self.model,
+                    report_store=self.report_store,
+                    allow_local_source=self.allow_local_source,
+                )
+            else:
+                result = self._execute(
+                    "live",
+                    self.model_endpoint,
+                    self.model,
+                    "agent",
+                    job["program"],
+                    report_store=self.report_store,
+                    worker_id=self.worker_id,
+                    timeout_s=timeout_s,
+                    disable_thinking=disable_thinking,
+                    max_output_tokens=tokens,
+                    response_format_mode=fmt,
+                    request_mode_value=req_mode,
+                )
             report = result.get("report") if isinstance(result, dict) and isinstance(result.get("report"), dict) else {}
             outcome = report.get("outcome")
             if outcome not in receipt_check.OUTCOMES:
@@ -265,6 +290,8 @@ class Worker:
                 "started_unix": started,
                 "finished_unix": finished,
             }
+            if job.get("program") == fleet_repo_patch.PROGRAM:
+                receipt["artifact"] = result.get("artifact") if isinstance(result, dict) else None
             write_receipt(self.receipt_dir, receipt)
             self.busy = False
             self._lock.release()
