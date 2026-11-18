@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "workers": ["m5-macbook-pro", "dual-gpu-pc", "monterey-mac-pro"],
+  "lanes": {
+    "monterey-mac-pro": {
+      "max_tokens": 512,
+      "model_timeout_s": 840,
+      "job_timeout_s": 900,
+      "note": "~0.68 tok/s: 512 tokens ~750 s plus ~60 s prompt; json-schema grammar forces EOS after the answer object",
+      "response_format": "json-schema",
+      "request_mode": "completion-grammar",
+      "completion_prefill": " to=self<|message|><|eom|><|start|>assistant to=user<|message|>",
+      "prompt_suffix": "<|start|>assistant",
+      "completion_constraint": "grammar"
+    }
+  }
+}
