@@ -10,6 +10,8 @@ import time
 
 LIMIT = 65536
 SOURCE_LIMIT = 4 * 1024 * 1024
+JOB_KIND = 'agiw.windows.job-receipt.v1'
+OUTCOMES = ('COMPLETED', 'FAILED', 'BLOCKED')
 
 
 def read_regular(path, limit):
@@ -98,6 +100,69 @@ def evaluate(receipt, *, expected_model, now, actual_digest=None, expected_diges
         and expected_model in models)
     version = receipt.get('worker_version')
     result['workerVersionClaimPresent'] = isinstance(version, str) and bool(re.fullmatch(r'[0-9A-Za-z._+-]{1,16}', version))
+    return result
+
+
+def validate_job_receipt(receipt, *, expected_worker, expected_model=None, job_id=None, now=None):
+    """Check an untrusted job receipt. This is evidence validation, never dispatch authorization.
+
+    Local hash and path matching are claims from a worker we cannot independently attest;
+    it never proves native execution, a lease, or that report bytes are genuine.
+    """
+    result = {'kind': JOB_KIND, 'valid': False, 'reason': None}
+    if not isinstance(receipt, dict):
+        result['reason'] = 'not-object'
+        return result
+    if receipt.get('kind') != JOB_KIND or type(receipt.get('schema_version')) is not int or receipt['schema_version'] != 1:
+        result['reason'] = 'schema'
+        return result
+    if not isinstance(expected_worker, str) or not expected_worker or receipt.get('worker_id') != expected_worker:
+        result['reason'] = 'worker-mismatch'
+        return result
+    rid = receipt.get('job_id')
+    if not isinstance(rid, str) or not rid or len(rid) > 200:
+        result['reason'] = 'job-invalid'
+        return result
+    if job_id is not None and rid != job_id:
+        result['reason'] = 'job-mismatch'
+        return result
+    model = receipt.get('model')
+    if not isinstance(model, str) or not model or len(model) > 200:
+        result['reason'] = 'model-invalid'
+        return result
+    if expected_model is not None and model != expected_model:
+        result['reason'] = 'model-mismatch'
+        return result
+    if receipt.get('outcome') not in OUTCOMES:
+        result['reason'] = 'outcome-invalid'
+        return result
+    if receipt.get('reportStored') is not True:
+        result['reason'] = 'report-not-stored'
+        return result
+    run_id = receipt.get('runId')
+    if not isinstance(run_id, str) or not re.fullmatch('[0-9A-Fa-f-]{36}', run_id):
+        result['reason'] = 'run-id-invalid'
+        return result
+    digest = receipt.get('reportSha256')
+    if not isinstance(digest, str) or not re.fullmatch('[0-9a-f]{64}', digest):
+        result['reason'] = 'sha-invalid'
+        return result
+    path = receipt.get('reportPath')
+    if not isinstance(path, str) or not path or len(path) > 4096:
+        result['reason'] = 'report-path-invalid'
+        return result
+    started, finished = receipt.get('started_unix'), receipt.get('finished_unix')
+    if not number(started) or not number(finished) or finished < started:
+        result['reason'] = 'timestamps-invalid'
+        return result
+    if now is not None and number(now):
+        age = now - finished
+        if age < -1 or age > 300:
+            result['reason'] = 'stale'
+            return result
+    result['valid'] = True
+    result['outcome'] = receipt['outcome']
+    result['report_path'] = path
     return result
 
 

@@ -2,6 +2,8 @@
 import json,threading,unittest
 from http.server import HTTPServer,BaseHTTPRequestHandler
 from agiw.fleet_local_pilot import execute
+from support import NISI_AVAILABLE
+@unittest.skipUnless(NISI_AVAILABLE,'pinned Nisi vendor or node missing')
 class TinyTests(unittest.TestCase):
  def run_case(self,content,finish='stop',served='fixture-model'):
   class Handler(BaseHTTPRequestHandler):

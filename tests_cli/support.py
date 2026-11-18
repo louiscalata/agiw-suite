@@ -18,6 +18,14 @@ if str(ROOT) not in sys.path:
 import agiw.cli as cli  # noqa: E402
 import peer_link as pl  # noqa: E402
 
+# The pinned Nisi checkout is gitignored and the Node runtime is optional on CI.
+# Integration cases must skip (never fail) when either is absent.
+NISI_AVAILABLE = (
+    (ROOT / "preview-pilot" / "vendor" / "nisi-0.3.1" / "workflow" / "engine.mjs").is_file()
+    and shutil.which("node") is not None
+)
+SKIP_NO_NISI = "pinned Nisi 0.3.1 or node is not available"
+
 
 def temp_dir(case: unittest.TestCase, prefix: str = "agiw-") -> Path:
     path = Path(tempfile.mkdtemp(prefix=prefix))

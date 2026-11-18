@@ -2,6 +2,7 @@ import time
 import unittest
 from agiw.fleet_local_pilot import endpoint, readiness, route, execute, Refused, clean_env
 from agiw.fleet_routing_plan import WorkerEvidence
+from support import NISI_AVAILABLE
 class PilotTests(unittest.TestCase):
     def test_loopback_only(self):
         for u in ['https://127.0.0.1:8081/v1/chat/completions','http://localhost:8081/v1/chat/completions','http://example.com:80/v1/chat/completions','http://u:p@127.0.0.1:80/v1/chat/completions','http://127.0.0.1:80/v1/chat/completions?q=x','http://127.0.0.1:80/v1/chat/completions#x','http://127.0.0.1:80/other']:
@@ -26,9 +27,11 @@ class PilotTests(unittest.TestCase):
         with self.assertRaises(Refused):route(WorkerEvidence(time.time()-31,True,True,True,False))
     def test_environment_allowlist(self):
         self.assertEqual(set(clean_env()),{'PATH','HOME','TMPDIR','PYTHONDONTWRITEBYTECODE'})
+    @unittest.skipUnless(NISI_AVAILABLE,'pinned Nisi vendor or node missing')
     def test_actual_nisi_fixture_integration(self):
         r=execute('fixture','http://127.0.0.1:8081/v1/chat/completions','fixture-only')
         self.assertEqual(r['report']['outcome'],'COMPLETED');self.assertEqual(r['modelCalls'],0);self.assertFalse(r['independentLLMReview']);self.assertEqual(len(r['authorReceipts']),1)
+        self.assertTrue(r['reportStored']);self.assertTrue(r['reportPath'])
     def test_online_mode_refused(self):
         with self.assertRaises(Refused):execute('online','http://127.0.0.1:8081/v1/chat/completions','x')
 if __name__=='__main__':unittest.main()
