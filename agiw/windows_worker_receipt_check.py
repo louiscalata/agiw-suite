@@ -14,6 +14,15 @@ JOB_KIND = 'agiw.windows.job-receipt.v1'
 OUTCOMES = ('COMPLETED', 'FAILED', 'BLOCKED')
 
 
+def identity(s, windows=None):
+    """File identity for change detection. On Windows (Py3.13+) st_ctime_ns differs between
+    path and handle stats for the same unchanged file, so it is left out there only."""
+    if windows is None:
+        windows = os.name == 'nt'
+    base = (s.st_dev, s.st_ino, s.st_size, s.st_mtime_ns)
+    return base if windows else base + (s.st_ctime_ns,)
+
+
 def read_regular(path, limit):
     """Refuse symlinks in every component; bound reads and detect concurrent edits."""
     p = os.path.abspath(path)
@@ -36,7 +45,6 @@ def read_regular(path, limit):
             if not chunk: break
             raw += chunk
         end = os.fstat(fd)
-        identity = lambda s: (s.st_dev, s.st_ino, s.st_size, s.st_mtime_ns, s.st_ctime_ns)
         if (not stat.S_ISREG(start.st_mode) or len(raw) > limit
                 or identity(before) != identity(start) or identity(start) != identity(end)
                 or identity(end) != identity(os.lstat(p))):
@@ -168,11 +176,28 @@ def validate_job_receipt(receipt, *, expected_worker, expected_model=None, job_i
 
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument('--receipt', required=True, help='Explicit saved heartbeat file, never a live queue')
+    p.add_argument('--mode', choices=['heartbeat', 'job'], default='heartbeat',
+                   help='heartbeat (default) or a saved job receipt from agiw.windows_worker')
+    p.add_argument('--receipt', required=True, help='Explicit saved heartbeat or job receipt file, never a live queue')
     p.add_argument('--expected-model', required=True)
+    p.add_argument('--expected-worker', help='Required in job mode: worker id the receipt must name')
+    p.add_argument('--job-id', help='Optional job id the receipt must name (job mode)')
     p.add_argument('--worker-source', help='Optional explicit local worker source file')
     p.add_argument('--expected-sha256', help='Independent trusted baseline digest, not a receipt value')
     args = p.parse_args(argv)
+    if args.mode == 'job':
+        if not args.expected_worker:
+            p.error('--expected-worker is required with --mode job')
+        try:
+            receipt = json.loads(read_regular(args.receipt, LIMIT))
+        except (OSError, ValueError, TypeError):
+            print(json.dumps({'kind': JOB_KIND, 'valid': False, 'reason': 'input-unreadable-unsafe-or-malformed'}))
+            return 2
+        # Saved receipts are checked for shape and identity only; freshness is a dispatch-time check.
+        result = validate_job_receipt(receipt, expected_worker=args.expected_worker,
+                                      expected_model=args.expected_model, job_id=args.job_id)
+        print(json.dumps(result, sort_keys=True))
+        return 0 if result['valid'] else 1
     try:
         receipt = parse_receipt(read_regular(args.receipt, LIMIT))
         actual = hashlib.sha256(read_regular(args.worker_source, SOURCE_LIMIT)).hexdigest() if args.worker_source else None

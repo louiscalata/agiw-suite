@@ -24,7 +24,7 @@ class RouterClientTests(unittest.TestCase):
         os.chmod(str(self.token_file), 0o600)
 
     def fake_execute(self, stored=True):
-        def execute(mode, url, model, source, program='nisi-smoke.mjs', report_store=None):
+        def execute(mode, url, model, source, program='nisi-smoke.mjs', report_store=None, worker_id=None, **_):
             rid = str(uuid.uuid4())
             path = self.root / (rid + '.json')
             return {

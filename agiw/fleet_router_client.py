@@ -36,6 +36,15 @@ def worker_url(value, allow_lan=False):
     return 'http://127.0.0.1:%d' % parts.port if parts.hostname == '127.0.0.1' else value.rstrip('/')
 
 
+def job_timeout(name, value=None):
+    """HTTP wait for one dispatched job: the lane's model timeout plus margin, unless configured."""
+    if value is None:
+        return 460 if name == 'monterey-mac-pro' else 90
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not 1 <= value <= 1200:
+        raise Refused('JOB_TIMEOUT_INVALID')
+    return value
+
+
 def load_workers(path):
     """Read and validate the per-worker config. Tokens stay out of returned logs."""
     config = json.loads(Path(path).read_text())
@@ -46,6 +55,8 @@ def load_workers(path):
     for name, row in rows.items():
         if not isinstance(name, str) or not name or not isinstance(row, dict):
             raise Refused('WORKER_CONFIG_INVALID')
+        if name not in routing.WORKERS:
+            raise Refused('UNKNOWN_WORKER_ID')
         token_file = row.get('token_file')
         if not isinstance(token_file, str) or not token_file:
             raise Refused('TOKEN_REQUIRED')
@@ -54,6 +65,9 @@ def load_workers(path):
             'url': worker_url(row.get('url'), row.get('allow_lan') is True),
             'token': token,
             'model': row.get('model'),
+            'job_timeout_s': job_timeout(name, row.get('job_timeout_s')),
+            'model_timeout_s': row.get('model_timeout_s'),
+            'disable_thinking': row.get('disable_thinking') is True,
         }
     return workers, config
 
@@ -72,7 +86,7 @@ class FleetRouterClient:
         if data is not None:
             headers['Content-Type'] = 'application/json'
         req = urllib.request.Request(row['url'] + path, data=data, headers=headers, method=method)
-        timeout = JOB_TIMEOUT if method == 'POST' else TIMEOUT
+        timeout = row.get('job_timeout_s', JOB_TIMEOUT) if method == 'POST' else TIMEOUT
         with self.opener.open(req, timeout=timeout) as response:
             return response.status, json.loads(response.read(65537))
 
@@ -113,6 +127,11 @@ class FleetRouterClient:
                 'program': program}
         if payload is not None:
             body['payload'] = payload
+        row = self.workers[name]
+        if row.get('model_timeout_s') is not None:
+            body['model_timeout_s'] = row['model_timeout_s']
+        if row.get('disable_thinking') is True:
+            body['disable_thinking'] = True
         try:
             status, receipt = self.request(name, 'POST', '/v1/jobs', body)
         except Exception:

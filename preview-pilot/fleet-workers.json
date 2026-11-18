@@ -1,0 +1,4 @@
+{
+  "schemaVersion": 1,
+  "workers": ["m5-macbook-pro", "dual-gpu-pc", "monterey-mac-pro"]
+}

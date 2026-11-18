@@ -96,14 +96,23 @@ class Worker:
     """Holds the single job slot and exposes handler-friendly operations."""
 
     def __init__(self, worker_id, model, model_endpoint, receipt_dir, report_store=None,
-                 execute=None, probe=None):
+                 execute=None, probe=None, model_timeout_s=None, disable_thinking=False):
         if not isinstance(worker_id, str) or not worker_id:
             raise Refused('WORKER_ID_REQUIRED')
+        try:
+            pilot.check_worker_id(worker_id)  # only ids the router config knows
+        except pilot.Refused as exc:
+            raise Refused(str(exc))
         self.worker_id = worker_id
         self.model = model
         self.model_endpoint = model_endpoint
         pilot.endpoint(model_endpoint)
         self.receipt_dir = Path(receipt_dir)
+        try:
+            self.model_timeout_s = pilot.model_timeout_s(worker_id, model_timeout_s)
+        except pilot.Refused as exc:
+            raise Refused(str(exc))
+        self.disable_thinking = disable_thinking is True
         self.report_store = report_store
         self._execute = execute or pilot.execute
         self._probe = probe or (lambda: pilot.detect_models(pilot.endpoint(model_endpoint)))
@@ -136,6 +145,13 @@ class Worker:
             raise Refused('ROUTE_REFUSED')
         if job.get('program') not in PROGRAMS:
             raise Refused('PROGRAM_REFUSED')
+        if job.get('model_timeout_s') is not None:
+            try:
+                pilot.model_timeout_s(self.worker_id, job['model_timeout_s'])
+            except pilot.Refused as exc:
+                raise Refused(str(exc))
+        if job.get('disable_thinking') not in (None, True, False):
+            raise Refused('DISABLE_THINKING_INVALID')
         return job_id
 
     def run_job(self, job):
@@ -145,12 +161,16 @@ class Worker:
         self.busy = True
         started = time.time()
         outcome = 'BLOCKED'
+        timeout_s = pilot.model_timeout_s(self.worker_id, job.get('model_timeout_s', self.model_timeout_s))
+        disable_thinking = job['disable_thinking'] if job.get('disable_thinking') in (True, False) else self.disable_thinking
+        failure = None
         report = {}
         result = None
         try:
             result = self._execute(
                 'live', self.model_endpoint, self.model, 'agent', job['program'],
-                report_store=self.report_store,
+                report_store=self.report_store, worker_id=self.worker_id,
+                timeout_s=timeout_s, disable_thinking=disable_thinking,
             )
             report = result.get('report') if isinstance(result, dict) and isinstance(result.get('report'), dict) else {}
             outcome = report.get('outcome')
@@ -158,8 +178,9 @@ class Worker:
                 outcome = 'BLOCKED'
             if report.get('reportStored') is not True or result.get('reportStored') is False:
                 outcome = 'BLOCKED'
-        except Exception:
+        except Exception as exc:
             outcome = 'BLOCKED'  # a failure is never COMPLETED; no retries
+            failure = pilot.sanitize_text('%s: %s' % (type(exc).__name__, exc))
         finally:
             finished = time.time()
             receipt = {
@@ -174,6 +195,12 @@ class Worker:
                 'runId': report.get('runId'),
                 'reportPath': result.get('reportPath') if isinstance(result, dict) else None,
                 'reportSha256': report.get('storedReportSha256'),
+                'code': pilot.sanitize_text(report.get('code')) if isinstance(report.get('code'), str) else None,
+                'modelTimeoutS': timeout_s,
+                'disableThinking': disable_thinking,
+                'authorEvidence': result.get('authorEvidence', []) if isinstance(result, dict) else [],
+                'childExitCode': result.get('childExitCode') if isinstance(result, dict) else None,
+                'failure': failure,
                 'started_unix': started,
                 'finished_unix': finished,
             }
@@ -254,12 +281,17 @@ def main(argv=None):
     p.add_argument('--model', required=True)
     p.add_argument('--receipt-dir', default=str(pilot.PILOT / 'worker-receipts'))
     p.add_argument('--report-store', default=None)
+    p.add_argument('--model-timeout-s', type=int, default=None,
+                   help='Per-lane model-call timeout (default 30s; 400s for monterey-mac-pro; max 900)')
+    p.add_argument('--disable-thinking', action='store_true',
+                   help='Ask llama-server to skip reasoning per request (chat_template_kwargs/reasoning_format)')
     args = p.parse_args(argv)
     try:
         validate_bind(args.bind, args.allow_lan)
         token = load_token(args.token_file)
         worker = Worker(args.worker_id, args.model, args.model_endpoint,
-                        args.receipt_dir, args.report_store)
+                        args.receipt_dir, args.report_store,
+                        model_timeout_s=args.model_timeout_s, disable_thinking=args.disable_thinking)
         server = create_server(worker, token, args.bind, args.port, args.allow_lan)
     except (Refused, OSError, ValueError) as exc:
         print(json.dumps({'outcome': 'BLOCKED', 'reason': str(exc)}))

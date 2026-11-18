@@ -46,3 +46,7 @@ A second explicitly authorized, settled isolated run asked the same tiny model w
 ## Final distinct route acceptance smoke, 2026-11-17 20:01:48–49 UTC
 
 The same verified tiny model extracted a color from the synthetic sentence “The car is red.” The server JSON schema restricted only the object key and string type, with no enum, constant or desired answer. Model generated `{"color":"red"}`. HTTP200; finish_reason stop;51 prompt+16 completion tokens;105ms adapter time. Actual AGIW policy→Nisi0.3.1→local CPU model→static shape→exact-value test→deterministic check COMPLETED, all six stages PASS. Exactly one request in this distinct third job, no retry, no replacement/correction of output. PID17688 reaped and listener closed. Two earlier failed jobs remain preserved. This establishes a small real route smoke only, not general coding quality, independent LLM review, production AGIW integration or fleet readiness. Five extraction fixture tests additionally verify wrong semantic value is rejected despite valid schema. No more live requests authorized in this sequence.
+
+## Worker ids
+
+The pilot and its programs accept any worker id listed in `preview-pilot/fleet-workers.json` (router config: m5-macbook-pro, dual-gpu-pc, monterey-mac-pro). Tests keep it equal to `agiw.fleet_routing_plan.WORKERS`. Unknown ids are refused by the pilot, the worker, the router client and the Node route check.

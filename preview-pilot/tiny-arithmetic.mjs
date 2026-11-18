@@ -2,30 +2,36 @@
 import http from 'node:http';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import {checkRoute} from './fleet-route.mjs';
+import {modelTimeoutMs,workflowDeadlineMs,reasoningFields,errorEvidence} from './model-call.mjs';
 import {runWorkflow,createCandidate} from './vendor/nisi-0.3.1/workflow/engine.mjs';
 import {strictJSON} from './vendor/nisi-0.3.1/adapters/local-chat.mjs';
 import {sha256Text,stableStringify} from './vendor/nisi-0.3.1/workflow/contracts.mjs';
 let input='';for await(const c of process.stdin){input+=c;if(input.length>8192)throw Error('INPUT_CAP');}
 const cfg=JSON.parse(input),u=new URL(cfg.endpoint);
-if(cfg.mode!=='live'||cfg.route?.worker!=='m5-macbook-pro'||cfg.route?.preanalysis!=='local'||cfg.route?.reason!=='strict-local')throw Error('ROUTE_REFUSED');
+if(cfg.mode!=='live')throw Error('MODE_REFUSED');
+checkRoute(cfg);
+const MODEL_TIMEOUT_MS=modelTimeoutMs(cfg),REASONING=reasoningFields(cfg);
 if(typeof cfg.reportStore!=='string'||!path.isAbsolute(cfg.reportStore))throw Error('REPORT_STORE_PATH_REFUSED');
 if(!(await fs.stat(cfg.reportStore)).isDirectory())throw Error('REPORT_STORE_DIR_REFUSED');
 if(u.protocol!=='http:'||u.hostname!=='127.0.0.1'||u.username||u.password||u.search||u.hash||u.pathname!=='/v1/chat/completions')throw Error('ENDPOINT_REFUSED');
 const receipts=[];
 const author={id:'preview.tiny-arithmetic-author',async draft({binding}){
- const payload={model:cfg.model,messages:[{role:'system',content:'Answer the arithmetic question. Return only a JSON object with one key answer and an integer value.'},{role:'user',content:'What is 6 multiplied by 7?'}],temperature:0,max_tokens:64,stream:false,response_format:{type:'json_object'}};
- const started=Date.now();const receipt={requestedModel:cfg.model,maxOutputTokens:64,finishReason:null,usage:null};receipts.push(receipt);
- const raw=await new Promise((resolve,reject)=>{const req=http.request({hostname:'127.0.0.1',port:u.port,path:u.pathname,method:'POST',headers:{'Content-Type':'application/json'},signal:AbortSignal.timeout(5000)},res=>{receipt.httpStatus=res.statusCode;if(res.statusCode!==200){res.destroy();reject(Error('HTTP_REFUSED'));return;}let s='';res.on('data',c=>{s+=c;if(Buffer.byteLength(s)>16384){res.destroy();reject(Error('RESPONSE_CAP'));}});res.on('end',()=>resolve(s));res.on('error',reject);});req.on('error',reject);req.end(JSON.stringify(payload));});
+ const payload={model:cfg.model,messages:[{role:'system',content:'Answer the arithmetic question. Return only a JSON object with one key answer and an integer value.'},{role:'user',content:'What is 6 multiplied by 7?'}],temperature:0,max_tokens:64,stream:false,...REASONING,response_format:{type:'json_object'}};
+ const started=Date.now();const receipt={requestedModel:cfg.model,maxOutputTokens:64,timeoutMs:MODEL_TIMEOUT_MS,disableThinking:cfg.disableThinking===true,finishReason:null,usage:null};receipts.push(receipt);
+ try{
+ const raw=await new Promise((resolve,reject)=>{const req=http.request({hostname:'127.0.0.1',port:u.port,path:u.pathname,method:'POST',headers:{'Content-Type':'application/json'},signal:AbortSignal.timeout(MODEL_TIMEOUT_MS)},res=>{receipt.httpStatus=res.statusCode;if(res.statusCode!==200){let b='';res.on('data',c=>{if(b.length<2048)b+=c;});res.on('end',()=>{const e=Error('HTTP_REFUSED');try{const j=JSON.parse(b);e.serverMessage=typeof j?.error?.message==='string'?j.error.message:(typeof j?.error==='string'?j.error:null);}catch{e.serverMessage=b.slice(0,200);}reject(e);});res.on('error',reject);return;}let s='';res.on('data',c=>{s+=c;if(Buffer.byteLength(s)>16384){res.destroy();reject(Error('RESPONSE_CAP'));}});res.on('end',()=>resolve(s));res.on('error',reject);});req.on('error',reject);req.end(JSON.stringify(payload));});
  const envelope=strictJSON(raw);receipt.elapsedMs=Date.now()-started;receipt.reportedModel=envelope.model;receipt.usage=envelope.usage??null;
  if(!Array.isArray(envelope.choices)||envelope.choices.length!==1)throw Error('CHOICES_REFUSED');const c=envelope.choices[0];receipt.finishReason=c.finish_reason;
  if(c.finish_reason!=='stop'||envelope.model!==cfg.model||c.message?.tool_calls?.length||c.message?.refusal)throw Error('FINISH_OR_MODEL_REFUSED');
  const content=c.message?.content;if(typeof content!=='string')throw Error('CONTENT_REFUSED');strictJSON(content);
  const candidate={files:[{path:'answer.json',content}]};receipt.status='RESPONSE_VALIDATED';
  return {candidate,evidence:{...binding,candidateFingerprint:createCandidate(candidate,{authorId:author.id}).fingerprint,note:'Actual local model output; host did not supply or correct its answer.'}};
+ }catch(e){Object.assign(receipt,errorEvidence(e));receipt.status='FAILED';throw e;}
 }};
 const valid=c=>{try{const o=strictJSON(c.files[0].content);return c.files.length===1&&c.files[0].path==='answer.json'&&Object.keys(o).length===1&&Number.isInteger(o.answer)&&o.answer===6*7;}catch{return false;}};
 const finding={code:'ARITHMETIC_INCORRECT',message:'Expected exactly integer answer equal to 6 times 7.'};
-const task={taskId:'agiw.preview.tiny-arithmetic',mode:'edit',language:'json',allowedFiles:['answer.json'],protectedFiles:[],protectedSnapshots:{},acceptanceCriteria:['Exactly one integer answer field equal to six multiplied by seven.'],policy:{repairBudget:0,totalDeadlineMs:10000,requiredReviewers:1,requireReportStore:true}};
+const task={taskId:'agiw.preview.tiny-arithmetic',mode:'edit',language:'json',allowedFiles:['answer.json'],protectedFiles:[],protectedSnapshots:{},acceptanceCriteria:['Exactly one integer answer field equal to six multiplied by seven.'],policy:{repairBudget:0,totalDeadlineMs:workflowDeadlineMs(cfg),requiredReviewers:1,requireReportStore:true}};
 let reportStorePath=null;
 const reportStore={async store({report,reportSha256,binding}){
  const target=path.join(cfg.reportStore,`${report.runId}.json`);

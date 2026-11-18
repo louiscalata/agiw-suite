@@ -64,7 +64,7 @@ class WorkerTests(unittest.TestCase):
                 'program': program}
 
     def fake_success(self, **overrides):
-        def execute(mode, url, model, source, program='nisi-smoke.mjs', report_store=None):
+        def execute(mode, url, model, source, program='nisi-smoke.mjs', report_store=None, worker_id=None, **_):
             result = {
                 'reportStored': True,
                 'reportPath': str(self.root / 'report.json'),
@@ -105,7 +105,7 @@ class WorkerTests(unittest.TestCase):
     def test_busy_is_409(self):
         entered, release = threading.Event(), threading.Event()
 
-        def blocking(mode, url, model, source, program='nisi-smoke.mjs', report_store=None):
+        def blocking(mode, url, model, source, program='nisi-smoke.mjs', report_store=None, worker_id=None, **_):
             entered.set()
             release.wait(3)
 
@@ -136,7 +136,7 @@ class WorkerTests(unittest.TestCase):
         self.assertTrue(validate_job_receipt(saved, expected_worker='m5-macbook-pro')['valid'])
 
     def test_failed_job_receipt_is_not_completed(self):
-        def failing(mode, url, model, source, program='nisi-smoke.mjs', report_store=None):
+        def failing(mode, url, model, source, program='nisi-smoke.mjs', report_store=None, worker_id=None, **_):
             raise RuntimeError('fixture failure')
 
         base = self.start_server(self.worker(execute=failing))
