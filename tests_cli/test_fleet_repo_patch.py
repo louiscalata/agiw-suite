@@ -2,9 +2,11 @@ import hashlib
 import json
 import os
 import shutil
+import socket
 import subprocess
 import tempfile
 import threading
+import time
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -246,11 +248,33 @@ class RepoPatchTests(unittest.TestCase):
             def log_message(self, fmt, *args):
                 pass
 
-        server = ThreadingHTTPServer(("127.0.0.1", 0), H)
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        host = "127.0.0.1"
+        server = ThreadingHTTPServer((host, 0), H)
+        server.address_family = socket.AF_INET
+        ready = threading.Event()
+
+        def serve():
+            ready.set()
+            server.serve_forever()
+
+        thread = threading.Thread(target=serve, daemon=True)
         thread.start()
         try:
-            patcher = rp.chat_patcher(f"http://127.0.0.1:{server.server_address[1]}/v1/chat/completions", "m", 2)
+            self.assertTrue(ready.wait(2), "loopback test server failed to start")
+            port = server.server_address[1]
+            deadline = time.monotonic() + 2
+            while time.monotonic() < deadline:
+                probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                probe.settimeout(0.2)
+                try:
+                    if probe.connect_ex((host, port)) == 0:
+                        break
+                finally:
+                    probe.close()
+                time.sleep(0.02)
+            else:
+                self.fail("loopback test server did not accept 127.0.0.1")
+            patcher = rp.chat_patcher(f"http://{host}:{port}/v1/chat/completions", "m", 2)
             out = patcher({"README.md": "old\n"}, "edit", self.root)
             self.assertEqual(out, {"README.md": "hi\n"})
         finally:

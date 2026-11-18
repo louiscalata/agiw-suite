@@ -14,7 +14,9 @@ import re
 import shutil
 import stat
 import subprocess
+import sys
 import tempfile
+import time
 import urllib.request
 import uuid
 from pathlib import Path, PurePosixPath
@@ -121,6 +123,19 @@ def validate_spec(payload, allow_local_source=False):
     }
 
 
+# Keep git from launching background helpers that lock the temp checkout on Windows.
+_GIT_FLAGS = (
+    "-c",
+    "gc.auto=0",
+    "-c",
+    "core.fsmonitor=false",
+    "-c",
+    "core.untrackedCache=false",
+    "-c",
+    "maintenance.auto=false",
+)
+
+
 def _env(tmp):
     return {
         "PATH": os.environ.get("PATH", ""),
@@ -129,12 +144,13 @@ def _env(tmp):
         "GIT_CONFIG_GLOBAL": os.devnull,
         "GIT_TERMINAL_PROMPT": "0",
         "GIT_ASKPASS": shutil.which("false") or "false",
+        "GIT_OPTIONAL_LOCKS": "0",
     }
 
 
 def _git(args, cwd, tmp, timeout):
     subprocess.run(
-        ["git"] + args,
+        ["git"] + list(_GIT_FLAGS) + list(args),
         cwd=str(cwd),
         env=_env(tmp),
         capture_output=True,
@@ -145,7 +161,7 @@ def _git(args, cwd, tmp, timeout):
 
 def _git_out(args, cwd, tmp, timeout):
     r = subprocess.run(
-        ["git"] + args,
+        ["git"] + list(_GIT_FLAGS) + list(args),
         cwd=str(cwd),
         env=_env(tmp),
         capture_output=True,
@@ -153,6 +169,77 @@ def _git_out(args, cwd, tmp, timeout):
         timeout=timeout,
     )
     return r.stdout
+
+
+def _chmod_writable(path):
+    try:
+        st = os.lstat(path)
+        mode = stat.S_IMODE(st.st_mode) | stat.S_IWRITE
+        if stat.S_ISDIR(st.st_mode):
+            mode |= stat.S_IREAD | stat.S_IEXEC  # keep the dir searchable after adding write
+        os.chmod(path, mode)
+    except OSError:
+        # Windows read-only files may still accept the classic S_IWRITE-only chmod.
+        try:
+            os.chmod(path, stat.S_IWRITE)
+        except OSError:
+            pass
+
+
+def _chmod_tree_writable(path):
+    """Clear read-only bits before rmtree. Does not follow symlinks."""
+    _chmod_writable(path)
+    try:
+        if os.path.islink(path) or not os.path.isdir(path):
+            return
+    except OSError:
+        return
+    try:
+        entries = list(os.scandir(path))
+    except OSError:
+        return
+    for entry in entries:
+        _chmod_tree_writable(entry.path)
+
+
+def _clear_readonly_and_retry(func, path, _exc):
+    """Clear the Windows read-only bit and retry unlink/rmdir. Do not retry os.open (fd rmtree)."""
+    _chmod_writable(path)
+    if func in (os.unlink, os.remove, os.rmdir):
+        try:
+            func(path)
+        except OSError:
+            pass
+
+
+def _rmtree_onerror(func, path, exc_info):
+    _clear_readonly_and_retry(func, path, exc_info[1] if exc_info else None)
+
+
+def _rmtree(path):
+    """Remove a temp checkout. Git objects are often read-only; Windows may also hold a lock briefly."""
+    path = str(path)
+    if sys.version_info >= (3, 12):
+        kwargs = {"onexc": _clear_readonly_and_retry}
+    else:
+        kwargs = {"onerror": _rmtree_onerror}
+    delays = (0.05, 0.15, 0.4)
+    for attempt, delay in enumerate((0,) + delays):
+        if delay:
+            time.sleep(delay)
+        if not os.path.lexists(path):
+            return
+        _chmod_tree_writable(path)
+        try:
+            shutil.rmtree(path, **kwargs)
+        except OSError:
+            if attempt == len(delays):
+                shutil.rmtree(path, ignore_errors=True)
+                return
+            continue
+        if not os.path.lexists(path):
+            return
+    shutil.rmtree(path, ignore_errors=True)
 
 
 def _inside(root, path):
@@ -248,6 +335,9 @@ def _clone(spec, tmp):
     _git(["-c", "advice.detachedHead=false", "checkout", "--quiet", "--detach", spec["commit"]], workdir, tmp, t)
     if _git_out(["rev-parse", "HEAD"], workdir, tmp, t).decode().strip().lower() != spec["commit"]:
         _ref("COMMIT_NOT_FOUND")
+    _git(["config", "gc.auto", "0"], workdir, tmp, t)
+    _git(["config", "core.fsmonitor", "false"], workdir, tmp, t)
+    _git(["config", "maintenance.auto", "false"], workdir, tmp, t)
     _git(["config", "protocol.allow", "never"], workdir, tmp, t)
     _git(["remote", "set-url", "--push", "origin", "no-push://disabled"], workdir, tmp, t)
     hooks = workdir / ".git" / "hooks"
@@ -327,7 +417,7 @@ def run(spec, patcher, *, allow_local_source=False, tmp_root=None):
     except Refused as exc:
         return _blocked(spec, str(exc))
     finally:
-        shutil.rmtree(tmp, ignore_errors=True)
+        _rmtree(tmp)
 
 
 def _strip_fences(text):
@@ -361,8 +451,10 @@ def chat_patcher(model_endpoint, model, timeout):
         try:
             with opener.open(req, timeout=timeout) as resp:
                 raw = resp.read(1024 * 1024 + 1)
-        except (HTTPError, URLError, OSError, ValueError):
-            raise Refused("PATCH_OUTPUT_INVALID") from None
+        except (HTTPError, URLError, OSError, ValueError) as exc:
+            # Keep the refused code unchanged; chain the cause for debugging without putting
+            # response or URL text into the exception message.
+            raise Refused("PATCH_OUTPUT_INVALID") from exc
         if len(raw) > 1024 * 1024:
             raise Refused("PATCH_OUTPUT_INVALID")
         try:
