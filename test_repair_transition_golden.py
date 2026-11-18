@@ -74,6 +74,8 @@ def observe_case(module, case):
     previous_worker = object()
     controller._worker = previous_worker
     controller._operation_id = case.get("counter", 7)
+    # Mirrors the "initialize" transition: no inference probe has been dispatched yet.
+    controller._inference_started = case.get("inference_started", False)
 
     def observe():
         return {"state": _freeze(controller._state), "counter": controller._operation_id}

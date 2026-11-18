@@ -341,6 +341,8 @@ class Worker:
             }
             if job.get("program") == fleet_repo_patch.PROGRAM:
                 receipt["artifact"] = result.get("artifact") if isinstance(result, dict) else None
+                if isinstance(result, dict) and "git_stderr" in result:
+                    receipt["git_stderr"] = result["git_stderr"]
             write_receipt(self.receipt_dir, receipt)
             self.busy = False
             self._lock.release()

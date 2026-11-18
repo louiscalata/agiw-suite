@@ -204,7 +204,7 @@ const NISI_STEP_RESULTS = {
   'owner-lock': { free: ['ok', 'Free: no Nisi call is running'], busy: ['warn', 'A Nisi call is still running; not recovering'],
     'router-busy': ['warn', 'A route task started; stopped'], 'router-absent': ['bad', 'Router owner lock missing; stopped'],
     missing: ['bad', 'Nisi owner lock missing; stopped'], unsafe: ['bad', 'Nisi owner lock is not private; stopped'],
-    unavailable: ['bad', 'Could not be checked; stopped'] },
+    unavailable: ['bad', 'Could not be checked; stopped'], changed: ['bad', 'Nisi owner lock changed during the check; stopped'] },
   'server-idle': { idle: ['ok', 'Idle in two samples 2 s apart'], busy: ['warn', 'Busy; try again when it is idle'],
     unknown: ['warn', 'State unknown; stopped'] },
   recover: { acknowledged: ['ok', 'The launcher recovered the pending record'], 'marker-changed': ['warn', 'The record changed first; nothing recovered'],

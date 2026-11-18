@@ -1374,7 +1374,8 @@ def _router_observation(now: float) -> dict[str, Any]:
     """Read both journal layouts once: every listed run with its liveness and state.
 
     Row ``state``: a live run shows its note phase ('running', 'waiting', 'admitting';
-    'running' without a readable note); a dead run with a record is 'unresolved', or
+    'running' without a readable note); an incomplete checkpoint stays 'unresolved' even
+    while its bound lock is held; a dead run with a record is 'unresolved', or
     'archived-uncleared' when its archive also exists; 'unverified' when a per-run run lock
     is missing, replaced, unsafe or could not be probed, or is held while the record that
     binds it was not read (liveness cannot be proven, so never idle); 'unreadable' when the
@@ -1454,8 +1455,9 @@ def _router_observation(now: float) -> dict[str, Any]:
         # A held lock proves this run live only on the inode its valid record bound (the probe
         # checked it).  A held lock beside a record that is unreadable, fails the envelope or
         # was not read proves nothing about this run: never live, never running, never idle.
-        row["live"] = row["lockHeld"] and row["valid"] and row["runLock"] is not None
-        row["lockBound"] = row["live"]
+        row["lockBound"] = row["lockHeld"] and row["valid"] and row["runLock"] is not None
+        # An incomplete checkpoint records stopped work, even before the owner releases L1.
+        row["live"] = row["lockBound"] and row["stage"] != "incomplete"
         if not row["live"] and status in ("ok", "unread") and not os.path.lexists(str(path)):
             if os.path.lexists(str(archive)):
                 # The run finished (archive, clear the record, release L1) between the listing
@@ -1519,7 +1521,7 @@ def _router_observation(now: float) -> dict[str, Any]:
             row["state"] = "unverified"
         elif not row["readable"]:
             row["state"] = "unreadable"
-        elif row["lockHeld"]:
+        elif row["lockHeld"] and not row["lockBound"]:
             row["state"] = "unverified"  # held, but the record binding it was not read
         else:
             row["state"] = "archived-uncleared" if row["archived"] else "unresolved"
@@ -1908,7 +1910,8 @@ def _online_code_mode_primary(mode: dict[str, Any], primary: dict[str, Any]) -> 
         + ("; its run lock is held, so it may still be live" if held else ""),
     }.get(
         primary["state"],
-        f"Router run {primary['runId']} is unresolved (its run lock is free); settle it with an exact reconcile gate",
+        f"Router run {primary['runId']} is unresolved (its run lock is {'held' if held else 'free'}); "
+        "settle it with an exact reconcile gate",
     )
     return mode
 
@@ -3912,7 +3915,7 @@ def _route_components(
             "state": "in-use",
             "detail": f"Nisi call in flight for live route {pipeline['pendingMarkerAttributedTo']}",
         }
-    elif pipeline.get("pendingMarkerObserved"):
+    elif pipeline.get("pendingMarkerObserved") or pipeline.get("pendingMarkerUnreadable"):
         nisi = {"state": "unresolved", "detail": "Nisi pending marker present; the owner must recover it"}
     elif nisi_v02.get("runtimeIntegrity") == "VERIFIED" and nisi_v02.get("hostBinding") == "VERIFIED":
         if not inventory_complete or not models_complete:

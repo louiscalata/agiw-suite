@@ -147,19 +147,30 @@ _GIT_FLAGS = (
     "core.untrackedCache=false",
     "-c",
     "maintenance.auto=false",
+    "-c",
+    "credential.helper=",
 )
 
 
-def _env(tmp):
-    return {
-        "PATH": os.environ.get("PATH", ""),
-        "HOME": str(tmp / "home"),
+def _env(tmp, name=os.name, environ=os.environ):
+    home = str(tmp / "home")
+    env = {
+        "PATH": environ.get("PATH", ""),
+        "HOME": home,
         "GIT_CONFIG_NOSYSTEM": "1",
         "GIT_CONFIG_GLOBAL": os.devnull,
         "GIT_TERMINAL_PROMPT": "0",
-        "GIT_ASKPASS": shutil.which("false") or "false",
         "GIT_OPTIONAL_LOCKS": "0",
     }
+    if name == "nt":
+        root = environ.get("SYSTEMROOT") or r"C:\Windows"
+        env.update(SYSTEMROOT=root, WINDIR=environ.get("WINDIR") or root, TEMP=home, TMP=home, USERPROFILE=home)
+        for key in ("COMSPEC", "PATHEXT"):
+            if key in environ:
+                env[key] = environ[key]
+    else:
+        env["GIT_ASKPASS"] = shutil.which("false") or "false"
+    return env
 
 
 def _git(args, cwd, tmp, timeout):
@@ -328,8 +339,8 @@ def _parse_diff_limits(diff_text, max_changed_lines):
         _ref("DIFF_TOO_MANY_LINES")
 
 
-def _blocked(spec, code, analysis):
-    return {
+def _blocked(spec, code, analysis, stderr=None):
+    result = {
         "outcome": "BLOCKED",
         "code": code,
         "repo": spec["repo"],
@@ -340,6 +351,14 @@ def _blocked(spec, code, analysis):
         "diffBytes": 0,
         **analysis,
     }
+    if isinstance(stderr, bytes):
+        stderr = stderr.decode("utf-8", "replace")
+    if stderr:
+        stderr = re.sub(r"://[^\s/?#]*@", "://[redacted]@", stderr)
+        stderr = pilot.sanitize_text(stderr, limit=2048)
+        if stderr:
+            result["git_stderr"] = stderr.encode("utf-8", "replace")[:2048].decode("utf-8", "ignore")
+    return result
 
 
 def _clone(spec, tmp):
@@ -507,9 +526,10 @@ def run(spec, patcher, *, allow_local_source=False, tmp_root=None, jev_pre=None,
             **analysis,
         }
     except subprocess.CalledProcessError as exc:
-        return _blocked(spec, "COMMIT_NOT_FOUND" if "checkout" in exc.cmd else "GIT_FAILED", analysis)
-    except subprocess.TimeoutExpired:
-        return _blocked(spec, "GIT_TIMEOUT", analysis)
+        code = "COMMIT_NOT_FOUND" if "checkout" in exc.cmd else "GIT_FAILED"
+        return _blocked(spec, code, analysis, exc.stderr)
+    except subprocess.TimeoutExpired as exc:
+        return _blocked(spec, "GIT_TIMEOUT", analysis, exc.stderr)
     except OSError:
         return _blocked(spec, "IO_FAILED", analysis)
     except Refused as exc:
@@ -598,6 +618,7 @@ def execute_job(
     analysis = {key: result[key] for key in ("jevPre", "jevPost")}
     run_id = str(uuid.uuid4())
     store = pilot.report_store_dir(report_store)
+    diagnostics = {"git_stderr": result["git_stderr"]} if "git_stderr" in result else {}
     report = {
         "runId": run_id,
         "outcome": result["outcome"],
@@ -608,6 +629,7 @@ def execute_job(
         "diffSha256": result["diffSha256"],
         "diff": result["diff"],
         **analysis,
+        **diagnostics,
     }
     data = json.dumps(report, sort_keys=True).encode("utf-8") + b"\n"
     fd, tmp = tempfile.mkstemp(prefix="repo-patch-", suffix=".json", dir=str(store))
@@ -637,6 +659,7 @@ def execute_job(
         **analysis,
         "reportStored": True,
         "reportPath": str(final),
+        **diagnostics,
         "artifact": {
             "name": "patch.diff",
             "mediaType": "text/x-diff",

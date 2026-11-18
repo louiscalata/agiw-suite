@@ -5,16 +5,15 @@ sampler. Network probes ignore machine proxy settings and refuse redirects, so a
 lane or peer cannot turn a status read into an external fetch. Subprocesses run
 with CREATE_NO_WINDOW so a windowless observer never flashes a console.
 """
+
 from __future__ import annotations
 
 import ctypes
-from contextlib import contextmanager
 import datetime as dt
 import http.client
 import json
 import math
 import os
-from pathlib import Path
 import secrets
 import socket
 import stat
@@ -22,11 +21,13 @@ import subprocess
 import sys
 import threading
 import time
+from contextlib import contextmanager
+from importlib import import_module
+from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import urlsplit
 
-from . import buildinfo
-from . import winsys
+from . import buildinfo, winsys
 from .jsonutil import loads_strict
 
 # Shared modules sit beside agiw_win in an install and above windows in a checkout.
@@ -36,7 +37,7 @@ for _root in (Path(__file__).resolve().parents[1], Path(__file__).resolve().pare
         if str(_root) not in sys.path:
             sys.path.append(str(_root))
         break
-from machine_state import PEER_FUTURE_SKEW
+PEER_FUTURE_SKEW = import_module("machine_state").PEER_FUTURE_SKEW
 
 IS_WINDOWS = os.name == "nt"
 CREATE_NO_WINDOW = 0x08000000 if IS_WINDOWS else 0
@@ -61,8 +62,14 @@ LANE_IDS = ("fast", "deep")
 def unconfigured_lane(lane_id: str, reason: str = "missing") -> dict[str, Any]:
     """A required lane with no declaration: shown as an explicit unknown row, never probed (fail closed)."""
     label = {"unreadable": "config unreadable", "ambiguous": "config ambiguous"}.get(reason, "not configured")
-    return {"id": lane_id, "port": None, "alias": f"{lane_id} lane ({label})", "device": "unknown",
-            "undeclared": True, "configReason": reason}
+    return {
+        "id": lane_id,
+        "port": None,
+        "alias": f"{lane_id} lane ({label})",
+        "device": "unknown",
+        "undeclared": True,
+        "configReason": reason,
+    }
 
 
 def ambiguous_lane_ids(specs: list[dict[str, Any]]) -> list[str]:
@@ -79,9 +86,15 @@ def ambiguous_lane_ids(specs: list[dict[str, Any]]) -> list[str]:
         clash.update(spec["id"] for spec in declared if spec.get(key) is not None and counts[spec[key]] > 1)
     return [spec["id"] for spec in declared if spec["id"] in clash]
 
-class OwnerUnverified(RuntimeError):
+
+class OwnerUnverifiedError(RuntimeError):
     """The listener owner changed or could not be rechecked before an endpoint read."""
 
+
+# Preserve the public exception used by callers.
+OwnerUnverifiedError.__name__ = "OwnerUnverified"
+OwnerUnverifiedError.__qualname__ = "OwnerUnverified"
+OwnerUnverified = OwnerUnverifiedError
 
 Fetch = Callable[[str, float, int], Any]
 
@@ -103,8 +116,13 @@ def _number(value: Any, low: float = -1e12, high: float = 1e12) -> int | float |
 
 
 def _source(source_id: str, label: str, state: str, detail: str, age: float | None = 0.0) -> dict[str, Any]:
-    return {"id": source_id, "label": label, "state": state,
-            "ageSeconds": age if state == "live" else None, "detail": detail}
+    return {
+        "id": source_id,
+        "label": label,
+        "state": state,
+        "ageSeconds": age if state == "live" else None,
+        "detail": detail,
+    }
 
 
 def http_get_json(url: str, timeout: float = HTTP_TIMEOUT, max_bytes: int = HTTP_MAX_BYTES) -> Any:
@@ -121,12 +139,16 @@ def http_get_json(url: str, timeout: float = HTTP_TIMEOUT, max_bytes: int = HTTP
     port = parts.port or 80
     conn = http.client.HTTPConnection(parts.hostname, port, timeout=timeout)
     expired = threading.Event()
+    response_socket = None
+    response = None
 
     def expire() -> None:
         # A blocking recv cannot see a deadline; shutting the socket down makes it return at once,
         # whether the peer is stalling the headers or trickling the body.
         expired.set()
         sock = conn.sock
+        if sock is None:
+            sock = response_socket
         if sock is not None:
             try:
                 sock.shutdown(socket.SHUT_RDWR)
@@ -140,6 +162,8 @@ def http_get_json(url: str, timeout: float = HTTP_TIMEOUT, max_bytes: int = HTTP
         host = f"[{parts.hostname}]" if ":" in parts.hostname else parts.hostname
         target = (parts.path or "/") + (f"?{parts.query}" if parts.query else "")
         conn.request("GET", target, headers={"Accept": "application/json", "Host": f"{host}:{port}"})
+        # A closing response detaches conn.sock while its body still owns the socket.
+        response_socket = conn.sock
         response = conn.getresponse()  # http.client never follows redirects
         if response.status >= 300:
             raise OSError(f"HTTP Error {response.status}")
@@ -150,6 +174,8 @@ def http_get_json(url: str, timeout: float = HTTP_TIMEOUT, max_bytes: int = HTTP
         raise
     finally:
         timer.cancel()
+        if response is not None:
+            response.close()
         conn.close()
     if expired.is_set():
         raise TimeoutError("HTTP response exceeded its total deadline")
@@ -177,9 +203,16 @@ def read_json(path: Path, max_bytes: int = 256_000) -> Any:
 
 def run_quiet(args: list[str], timeout: float) -> str:
     """Run a fixed command without a console window; stdout text or an exception."""
-    completed = subprocess.run(args, capture_output=True, text=True, timeout=timeout,
-                               stdin=subprocess.DEVNULL, creationflags=CREATE_NO_WINDOW,
-                               encoding="utf-8", errors="replace")
+    completed = subprocess.run(
+        args,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        stdin=subprocess.DEVNULL,
+        creationflags=CREATE_NO_WINDOW,
+        encoding="utf-8",
+        errors="replace",
+    )
     if completed.returncode != 0:
         raise RuntimeError(f"exit {completed.returncode}")
     return completed.stdout
@@ -204,11 +237,23 @@ def lane_specs(share_root: Path = DEFAULT_SHARE_ROOT) -> tuple[list[dict[str, An
                 missing.append(lane_id)
                 continue
             port, alias = lane.get("port"), _string(lane.get("alias"), 80)
-            if isinstance(port, int) and not isinstance(port, bool) and 1 <= port <= 65535 and alias and alias == lane.get("alias"):
-                specs.append({"id": lane_id, "port": port, "alias": alias,
-                              "device": _string(lane.get("device"), 32) or "unknown",
-                              "context": _number(lane.get("context"), 1, 1 << 24),
-                              "parallel": _number(lane.get("parallel"), 1, 256)})
+            if (
+                isinstance(port, int)
+                and not isinstance(port, bool)
+                and 1 <= port <= 65535
+                and alias
+                and alias == lane.get("alias")
+            ):
+                specs.append(
+                    {
+                        "id": lane_id,
+                        "port": port,
+                        "alias": alias,
+                        "device": _string(lane.get("device"), 32) or "unknown",
+                        "context": _number(lane.get("context"), 1, 1 << 24),
+                        "parallel": _number(lane.get("parallel"), 1, 256),
+                    }
+                )
             else:
                 missing.append(lane_id)
         # Two lanes may not share a port or an alias: ownership is attributed by port and models are keyed by
@@ -229,17 +274,23 @@ def lane_specs(share_root: Path = DEFAULT_SHARE_ROOT) -> tuple[list[dict[str, An
             if missing:
                 problems.append(f"{', '.join(missing)} lane missing or malformed (shown as unknown, not probed)")
             if ambiguous:
-                problems.append(f"{', '.join(ambiguous)} lane port or alias declared more than once "
-                                "(ambiguous; shown as unknown, not probed)")
+                problems.append(
+                    f"{', '.join(ambiguous)} lane port or alias declared more than once "
+                    "(ambiguous; shown as unknown, not probed)"
+                )
             if problems:
                 return specs, _source("lane-config", "Lane layout", "error", detail + " · " + " · ".join(problems))
             return specs, _source("lane-config", "Lane layout", "live", detail)
         return [unconfigured_lane(lane_id) for lane_id in LANE_IDS], _source(
-            "lane-config", "Lane layout", "error", "Required lanes missing or malformed in pipeline config; not probed")
+            "lane-config", "Lane layout", "error", "Required lanes missing or malformed in pipeline config; not probed"
+        )
     except (OSError, ValueError, KeyError, TypeError, AttributeError, json.JSONDecodeError):
         return [unconfigured_lane(lane_id, "unreadable") for lane_id in LANE_IDS], _source(
-            "lane-config", "Lane layout", "unavailable",
-            "Pipeline config unreadable; no lane is probed until windows-llm-pipeline/config.json declares it")
+            "lane-config",
+            "Lane layout",
+            "unavailable",
+            "Pipeline config unreadable; no lane is probed until windows-llm-pipeline/config.json declares it",
+        )
 
 
 # ------------------------------------------------------------------ lane probe
@@ -247,8 +298,9 @@ def _model_ids(payload: Any) -> list[str | None]:
     data = payload.get("data") if isinstance(payload, dict) else None
     if not isinstance(data, list):
         return []
-    return [item.get("id") if isinstance(item, dict) and isinstance(item.get("id"), str) else None
-            for item in data[:33]]
+    return [
+        item.get("id") if isinstance(item, dict) and isinstance(item.get("id"), str) else None for item in data[:33]
+    ]
 
 
 def _slot(raw: Any) -> dict[str, Any] | None:
@@ -256,20 +308,61 @@ def _slot(raw: Any) -> dict[str, Any] | None:
         return None
     task = raw.get("id_task")
     slot_id = raw.get("id")
-    slot = {"id": slot_id if isinstance(slot_id, int) and not isinstance(slot_id, bool) and 0 <= slot_id <= 4096 else None,
-            "isProcessing": raw["is_processing"],
-            "nCtx": _number(raw.get("n_ctx"), 0, 1 << 24),
-            "taskId": task if isinstance(task, int) and not isinstance(task, bool) and task >= 0 else None}
+    slot = {
+        "id": slot_id if isinstance(slot_id, int) and not isinstance(slot_id, bool) and 0 <= slot_id <= 4096 else None,
+        "isProcessing": raw["is_processing"],
+        "nCtx": _number(raw.get("n_ctx"), 0, 1 << 24),
+        "taskId": task if isinstance(task, int) and not isinstance(task, bool) and task >= 0 else None,
+    }
     if slot["isProcessing"]:
         next_token = raw.get("next_token")
-        current = next_token[0] if isinstance(next_token, list) and next_token and isinstance(next_token[0], dict) else {}
+        current = (
+            next_token[0] if isinstance(next_token, list) and next_token and isinstance(next_token[0], dict) else {}
+        )
         decoded = current.get("n_decoded") if "n_decoded" in current else raw.get("n_decoded")
         slot["decodedTokens"] = _number(decoded, 0, 1 << 30)
     return slot
 
 
-def probe_lane(spec: dict[str, Any], fetch: Fetch = http_get_json, host: str = "127.0.0.1",
-               slots_timeout: float = SLOTS_TIMEOUT) -> dict[str, Any]:
+def _apply_lane_slots(lane: dict[str, Any], payload: Any) -> dict[str, Any]:
+    raw_slots = payload.get("slots") if isinstance(payload, dict) else payload
+    if isinstance(payload, dict) and (payload.get("complete") is False or payload.get("truncated") is True):
+        lane["status"], lane["detail"] = "slots_unknown", "Slot list incomplete or truncated"
+        return lane
+    if not isinstance(raw_slots, list) or not raw_slots or len(raw_slots) > MAX_SLOTS:
+        lane["status"], lane["detail"] = "slots_unknown", "Slot list malformed or too long"
+        return lane
+    slots = [_slot(raw) for raw in raw_slots]
+    ids = [slot["id"] if slot else None for slot in slots]
+    # Complete evidence only: every slot has a distinct integer id, so none can hide behind a duplicate.
+    if (
+        any(slot is None for slot in slots)
+        or any(not isinstance(i, int) or isinstance(i, bool) for i in ids)
+        or len(set(ids)) != len(ids)
+    ):
+        lane["status"], lane["detail"] = "slots_unknown", "Slot state incomplete or ambiguous"
+        return lane
+    busy = [slot for slot in slots if slot["isProcessing"]]
+    lane.update(slots=slots, slotsBusy=len(busy), slotsTotal=len(slots), status="busy" if busy else "idle")
+    if busy:
+        # Decoded tokens > 0 on any busy slot means output is being generated; exactly 0 on every busy
+        # slot means the lane is still evaluating a prompt (the Mac edition's "busy" phase).
+        decoded = [slot.get("decodedTokens") for slot in busy]
+        if any(type(count) in (int, float) and count > 0 for count in decoded):
+            lane["phase"] = "generating"
+        elif all(type(count) in (int, float) and count == 0 for count in decoded):
+            lane["phase"] = "busy"
+        else:
+            # A busy slot without a decode count could be reading its prompt or generating: say unknown.
+            lane["phase"] = "unknown"
+    else:
+        lane["phase"] = "idle"
+    return lane
+
+
+def probe_lane(
+    spec: dict[str, Any], fetch: Fetch = http_get_json, host: str = "127.0.0.1", slots_timeout: float = SLOTS_TIMEOUT
+) -> dict[str, Any]:
     """One llama-server lane: health, served identity (must equal the declared alias) and slot activity.
 
     status: unreachable | loading | identity_mismatch | no_identity | slots_unknown | idle | busy.
@@ -278,16 +371,29 @@ def probe_lane(spec: dict[str, Any], fetch: Fetch = http_get_json, host: str = "
     """
     undeclared = spec.get("undeclared") or spec.get("port") is None
     endpoint = None if undeclared else f"http://{host}:{spec['port']}"
-    lane = {"id": spec["id"], "port": spec.get("port"), "endpoint": endpoint, "expectedModel": spec["alias"],
-            "servedModel": None, "modelBytes": None, "status": "unknown", "slots": [], "slotsBusy": None, "slotsTotal": None,
-            "phase": None, "detail": None, "device": spec.get("device")}
+    lane = {
+        "id": spec["id"],
+        "port": spec.get("port"),
+        "endpoint": endpoint,
+        "expectedModel": spec["alias"],
+        "servedModel": None,
+        "modelBytes": None,
+        "status": "unknown",
+        "slots": [],
+        "slotsBusy": None,
+        "slotsTotal": None,
+        "phase": None,
+        "detail": None,
+        "device": spec.get("device"),
+    }
     if undeclared:
         lane["status"] = "undeclared"
         lane["configReason"] = spec.get("configReason", "missing")
-        lane["detail"] = {"unreadable": "Lane config unreadable; lane unknown, not probed",
-                          "ambiguous": "Lane port or alias declared more than once in windows-llm-pipeline/config.json; "
-                                       "lane ambiguous, not probed"}.get(
-            lane["configReason"], "Lane missing or malformed in windows-llm-pipeline/config.json; not probed")
+        lane["detail"] = {
+            "unreadable": "Lane config unreadable; lane unknown, not probed",
+            "ambiguous": "Lane port or alias declared more than once in windows-llm-pipeline/config.json; "
+            "lane ambiguous, not probed",
+        }.get(lane["configReason"], "Lane missing or malformed in windows-llm-pipeline/config.json; not probed")
         return lane
     try:
         health = fetch(endpoint + "/health", HTTP_TIMEOUT, HTTP_MAX_BYTES)
@@ -303,7 +409,9 @@ def probe_lane(spec: dict[str, Any], fetch: Fetch = http_get_json, host: str = "
     if health_status != "ok":
         loading = isinstance(health_status, str) and health_status in ("loading", "loading model")
         lane["status"] = "loading" if loading else "health_unknown"
-        lane["detail"] = f"Health reports {health_status}" if loading else "Lane health response invalid or unrecognised"
+        lane["detail"] = (
+            f"Health reports {health_status}" if loading else "Lane health response invalid or unrecognised"
+        )
         return lane
     try:
         payload = fetch(endpoint + "/v1/models", HTTP_TIMEOUT, HTTP_MAX_BYTES)
@@ -318,7 +426,7 @@ def probe_lane(spec: dict[str, Any], fetch: Fetch = http_get_json, host: str = "
     if len(models) == 1 and isinstance(payload["data"][0], dict):
         meta = payload["data"][0].get("meta")
         size = meta.get("size") if isinstance(meta, dict) else None
-        if isinstance(size, int) and not isinstance(size, bool) and 1 <= size <= 2 ** 52:
+        if isinstance(size, int) and not isinstance(size, bool) and 1 <= size <= 2**52:
             lane["modelBytes"] = size
     if not models or any(not isinstance(model, str) or not model.strip() for model in models):
         lane["status"], lane["detail"] = "no_identity", "Lane returned no valid model identity"
@@ -337,37 +445,7 @@ def probe_lane(spec: dict[str, Any], fetch: Fetch = http_get_json, host: str = "
     except Exception:  # noqa: BLE001
         lane["status"], lane["detail"] = "slots_unknown", "Slot endpoint unavailable (start llama-server with --slots)"
         return lane
-    raw_slots = payload.get("slots") if isinstance(payload, dict) else payload
-    if isinstance(payload, dict) and (payload.get("complete") is False or payload.get("truncated") is True):
-        lane["status"], lane["detail"] = "slots_unknown", "Slot list incomplete or truncated"
-        return lane
-    if not isinstance(raw_slots, list) or not raw_slots or len(raw_slots) > MAX_SLOTS:
-        lane["status"], lane["detail"] = "slots_unknown", "Slot list malformed or too long"
-        return lane
-    slots = [_slot(raw) for raw in raw_slots]
-    ids = [slot["id"] if slot else None for slot in slots]
-    # Complete evidence only: every slot has a distinct integer id, so none can hide behind a duplicate.
-    if any(slot is None for slot in slots) or any(not isinstance(i, int) or isinstance(i, bool) for i in ids) \
-            or len(set(ids)) != len(ids):
-        lane["status"], lane["detail"] = "slots_unknown", "Slot state incomplete or ambiguous"
-        return lane
-    busy = [slot for slot in slots if slot["isProcessing"]]
-    lane.update(slots=slots, slotsBusy=len(busy), slotsTotal=len(slots),
-                status="busy" if busy else "idle")
-    if busy:
-        # Decoded tokens > 0 on any busy slot means output is being generated; exactly 0 on every busy
-        # slot means the lane is still evaluating a prompt (the Mac edition's "busy" phase).
-        decoded = [slot.get("decodedTokens") for slot in busy]
-        if any(type(count) in (int, float) and count > 0 for count in decoded):
-            lane["phase"] = "generating"
-        elif all(type(count) in (int, float) and count == 0 for count in decoded):
-            lane["phase"] = "busy"
-        else:
-            # A busy slot without a decode count could be reading its prompt or generating: say unknown.
-            lane["phase"] = "unknown"
-    else:
-        lane["phase"] = "idle"
-    return lane
+    return _apply_lane_slots(lane, payload)
 
 
 LANE_UP = {"idle", "busy", "slots_unknown"}
@@ -378,10 +456,20 @@ LANE_NO_EVIDENCE = {"unknown", "stale", "undeclared", "unreachable", "no_identit
 def lane_health(lane: dict[str, Any]) -> dict[str, str]:
     """Serving, affirmative non-serving evidence, or unknown, with the observation's reason."""
     status = lane.get("status")
-    state = "up" if status in LANE_UP else "down" if status in ("loading", "identity_mismatch", "not_agiw") else "unknown"
-    return {"state": state, "reason": lane.get("detail") or
-            ("Lane serving the declared model" if state == "up" else "Lane state unknown" if state == "unknown"
-             else "Lane not serving the declared model")}
+    state = (
+        "up" if status in LANE_UP else "down" if status in ("loading", "identity_mismatch", "not_agiw") else "unknown"
+    )
+    return {
+        "state": state,
+        "reason": lane.get("detail")
+        or (
+            "Lane serving the declared model"
+            if state == "up"
+            else "Lane state unknown"
+            if state == "unknown"
+            else "Lane not serving the declared model"
+        ),
+    }
 
 
 def mark_foreign_lanes(lanes: list[dict[str, Any]]) -> list[str]:
@@ -392,9 +480,16 @@ def mark_foreign_lanes(lanes: list[dict[str, Any]]) -> list[str]:
         process = lane.get("process")
         if isinstance(process, dict) and process.get("owner") == "pair":
             name = process.get("name") if isinstance(process.get("name"), str) else "a PAIR process"
-            lane.update(status="not_agiw", phase=None, slots=[], slotsBusy=None, slotsTotal=None, modelBytes=None,
-                        liveTokensPerSecond=None,
-                        detail=f"Port :{lane.get('port')} is held by NVIDIA PAIR ({name}), not an AGIW lane; not counted")
+            lane.update(
+                status="not_agiw",
+                phase=None,
+                slots=[],
+                slotsBusy=None,
+                slotsTotal=None,
+                modelBytes=None,
+                liveTokensPerSecond=None,
+                detail=f"Port :{lane.get('port')} is held by NVIDIA PAIR ({name}), not an AGIW lane; not counted",
+            )
             foreign.append(lane["id"])
     return foreign
 
@@ -440,26 +535,48 @@ def lane_model_row(lane: dict[str, Any], spec: dict[str, Any], now: float) -> di
         contexts = [slot["nCtx"] for slot in lane["slots"] if isinstance(slot.get("nCtx"), (int, float))]
         context = int(sum(contexts)) if contexts else None
     return {
-        "id": spec["alias"], "name": spec["alias"].split("/")[-1], "host": "windows",
-        "state": state, "loaded": loaded, "queued": None,
+        "id": spec["alias"],
+        "name": spec["alias"].split("/")[-1],
+        "host": "windows",
+        "state": state,
+        "loaded": loaded,
+        "queued": None,
         "parallel": total if total else spec.get("parallel"),
-        "context": context or spec.get("context"), "sizeBytes": None,
-        "source": source, "ageSeconds": 0.0, "role": f"{spec['id']} lane",
-        "metadata": {"lane": spec["id"], "port": spec["port"], "device": spec.get("device"),
-                     "laneStatus": status, "servedModel": lane["servedModel"],
-                     "slotsBusy": lane["slotsBusy"], "slotsTotal": total, "detail": lane["detail"]},
-        "modelKey": None, "loadedInstanceIds": None, "instanceId": None,
+        "context": context or spec.get("context"),
+        "sizeBytes": None,
+        "source": source,
+        "ageSeconds": 0.0,
+        "role": f"{spec['id']} lane",
+        "metadata": {
+            "lane": spec["id"],
+            "port": spec["port"],
+            "device": spec.get("device"),
+            "laneStatus": status,
+            "servedModel": lane["servedModel"],
+            "slotsBusy": lane["slotsBusy"],
+            "slotsTotal": total,
+            "detail": lane["detail"],
+        },
+        "modelKey": None,
+        "loadedInstanceIds": None,
+        "instanceId": None,
         "observedAt": now,
     }
 
 
 # ---------------------------------------------------------------------- memory
 class _MemoryStatusEx(ctypes.Structure):
-    _fields_ = [("dwLength", ctypes.c_ulong), ("dwMemoryLoad", ctypes.c_ulong),
-                ("ullTotalPhys", ctypes.c_ulonglong), ("ullAvailPhys", ctypes.c_ulonglong),
-                ("ullTotalPageFile", ctypes.c_ulonglong), ("ullAvailPageFile", ctypes.c_ulonglong),
-                ("ullTotalVirtual", ctypes.c_ulonglong), ("ullAvailVirtual", ctypes.c_ulonglong),
-                ("ullAvailExtendedVirtual", ctypes.c_ulonglong)]
+    _fields_ = [
+        ("dwLength", ctypes.c_ulong),
+        ("dwMemoryLoad", ctypes.c_ulong),
+        ("ullTotalPhys", ctypes.c_ulonglong),
+        ("ullAvailPhys", ctypes.c_ulonglong),
+        ("ullTotalPageFile", ctypes.c_ulonglong),
+        ("ullAvailPageFile", ctypes.c_ulonglong),
+        ("ullTotalVirtual", ctypes.c_ulonglong),
+        ("ullAvailVirtual", ctypes.c_ulonglong),
+        ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+    ]
 
 
 def _memory_status() -> dict[str, int]:
@@ -467,8 +584,12 @@ def _memory_status() -> dict[str, int]:
     status.dwLength = ctypes.sizeof(_MemoryStatusEx)
     if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):  # type: ignore[attr-defined]
         raise OSError("GlobalMemoryStatusEx failed")
-    return {"totalPhys": status.ullTotalPhys, "availPhys": status.ullAvailPhys,
-            "commitLimit": status.ullTotalPageFile, "commitAvail": status.ullAvailPageFile}
+    return {
+        "totalPhys": status.ullTotalPhys,
+        "availPhys": status.ullAvailPhys,
+        "commitLimit": status.ullTotalPageFile,
+        "commitAvail": status.ullAvailPageFile,
+    }
 
 
 # Fixed thresholds on available physical memory. Windows has no kernel "pressure"
@@ -499,10 +620,14 @@ def lane_server_pids(lanes: list[dict[str, Any]] | None) -> frozenset[int]:
     return frozenset(pids)
 
 
-def memory_block(status_fn: Callable[[], dict[str, int]] | None = None,
-                 consumers_fn: Callable[[], list[dict[str, Any]]] | None = None, *,
-                 lanes: list[dict[str, Any]] | None = None, nisi: dict[str, Any] | None = None,
-                 route_live: bool = False) -> tuple[dict[str, Any], dict[str, Any]]:
+def memory_block(
+    status_fn: Callable[[], dict[str, int]] | None = None,
+    consumers_fn: Callable[[], list[dict[str, Any]]] | None = None,
+    *,
+    lanes: list[dict[str, Any]] | None = None,
+    nisi: dict[str, Any] | None = None,
+    route_live: bool = False,
+) -> tuple[dict[str, Any], dict[str, Any]]:
     """snapshot.memory in the shape the dashboard's memoryView reads, and its source row.
 
     The "Local LLM server" row is built only from consumer rows flagged ``lane`` (processes that own a declared
@@ -515,12 +640,15 @@ def memory_block(status_fn: Callable[[], dict[str, int]] | None = None,
             raise ValueError("implausible memory reading")
         available = avail * 100 / total
         limit, commit_avail = raw.get("commitLimit"), raw.get("commitAvail")
-        commit = ((limit - commit_avail) * 100 / limit
-                  if type(limit) is int and limit > 0 and type(commit_avail) is int and 0 <= commit_avail <= limit else None)
+        commit = (
+            (limit - commit_avail) * 100 / limit
+            if type(limit) is int and limit > 0 and type(commit_avail) is int and 0 <= commit_avail <= limit
+            else None
+        )
         level = memory_level(available, commit)
         available = round(available, 1)
         commit = round(commit, 1) if commit is not None else None
-        gib = 2 ** 30
+        gib = 2**30
         reasons = [f"{available:.0f}% of {total / gib:.0f} GB RAM available"]
         if commit is not None:
             reasons.append(f"commit charge {commit:.0f}% of limit")
@@ -529,14 +657,24 @@ def memory_block(status_fn: Callable[[], dict[str, int]] | None = None,
         consumers_known = level == "ok"
         if level != "ok":
             try:
-                consumers = [dict(row) for row in (consumers_fn() if consumers_fn else
-                                                   top_processes(limit=8, lane_pids=lane_server_pids(lanes)))]
+                consumers = [
+                    dict(row)
+                    for row in (
+                        consumers_fn() if consumers_fn else top_processes(limit=8, lane_pids=lane_server_pids(lanes))
+                    )
+                ]
                 consumers_known = True
                 residency_known = bool(lanes) and len(up) == len(lanes)
                 sizes = [lane.get("modelBytes") for lane in up]
-                loaded_bytes = (sum(sizes) if sizes and all(isinstance(size, int) and not isinstance(size, bool)
-                                                           and 1 <= size <= 2 ** 52 for size in sizes) else None)
-                if loaded_bytes is not None and loaded_bytes > 2 ** 52:
+                loaded_bytes = (
+                    sum(sizes)
+                    if sizes
+                    and all(
+                        isinstance(size, int) and not isinstance(size, bool) and 1 <= size <= 2**52 for size in sizes
+                    )
+                    else None
+                )
+                if loaded_bytes is not None and loaded_bytes > 2**52:
                     # The dashboard drops a row whose size is past its byte bound; keep the row and its count instead.
                     loaded_bytes = None
                 # Only lane-port owners (rows flagged lane) become the one server row: the lane total is claimed once.
@@ -544,9 +682,12 @@ def memory_block(status_fn: Callable[[], dict[str, int]] | None = None,
                 consumers = [row for row in consumers if row.get("lane") is not True]
                 server = None
                 if servers:
-                    server = {**servers[0], "label": LANE_SERVER_LABEL,
-                              "residentBytes": sum(row["residentBytes"] for row in servers),
-                              "processCount": sum(row["processCount"] for row in servers)}
+                    server = {
+                        **servers[0],
+                        "label": LANE_SERVER_LABEL,
+                        "residentBytes": sum(row["residentBytes"] for row in servers),
+                        "processCount": sum(row["processCount"] for row in servers),
+                    }
                     if residency_known:
                         server["loadedModelCount"] = len(up)
                         # Tensor sizes from /v1/models are not measured RAM or VRAM use.
@@ -554,40 +695,76 @@ def memory_block(status_fn: Callable[[], dict[str, int]] | None = None,
                             server["loadedModelBytes"] = loaded_bytes
                 # As the Mac guard does: the named server row always, plus the three largest others, largest first.
                 others = sorted(consumers, key=lambda row: row.get("residentBytes") or 0, reverse=True)[:3]
-                consumers = sorted(([server] if server is not None else []) + others,
-                                   key=lambda row: max(row.get("residentBytes") or 0,
-                                                       row.get("loadedModelBytes") or 0), reverse=True)
+                consumers = sorted(
+                    ([server] if server is not None else []) + others,
+                    key=lambda row: max(row.get("residentBytes") or 0, row.get("loadedModelBytes") or 0),
+                    reverse=True,
+                )
             except Exception:  # noqa: BLE001 - consumers are optional detail
                 consumers = []
                 consumers_known = False
         suggestions = []
         if level in ("tight", "critical"):
             if route_live:
-                suggestions.append("Close apps you are not using before stopping a model lane "
-                                   "(a Nisi route is running: stopping a lane can stop it)")
+                suggestions.append(
+                    "Close apps you are not using before stopping a model lane "
+                    "(a Nisi route is running: stopping a lane can stop it)"
+                )
             elif up and (nisi or {}).get("state") == "ready":
-                suggestions.append("Close apps you are not using before stopping a model lane "
-                                   "(Nisi pair: PC edit routes stop while either lane is down)")
+                suggestions.append(
+                    "Close apps you are not using before stopping a model lane "
+                    "(Nisi pair: PC edit routes stop while either lane is down)"
+                )
             else:
                 suggestions.append("Close apps you are not using before loading another model")
-        block = {"level": level, "availablePercent": available, "totalBytes": total, "availableBytes": avail,
-                 "commitPercent": commit, "swapUsedBytes": None, "compressedBytes": None, "gpuAllocBytes": None,
-                 "consumers": consumers, "consumersKnown": consumers_known, "suggestions": suggestions, "reasons": reasons, "paused": []}
+        block = {
+            "level": level,
+            "availablePercent": available,
+            "totalBytes": total,
+            "availableBytes": avail,
+            "commitPercent": commit,
+            "swapUsedBytes": None,
+            "compressedBytes": None,
+            "gpuAllocBytes": None,
+            "consumers": consumers,
+            "consumersKnown": consumers_known,
+            "suggestions": suggestions,
+            "reasons": reasons,
+            "paused": [],
+        }
         return block, _source("mem-guard", "Memory", "live", "Windows physical memory and commit charge sampled")
     except Exception:  # noqa: BLE001
-        return ({"level": "unknown", "consumers": [], "consumersKnown": False, "suggestions": [], "reasons": [], "paused": []},
-                _source("mem-guard", "Memory", "unavailable", "Windows memory status unreadable"))
+        return (
+            {
+                "level": "unknown",
+                "consumers": [],
+                "consumersKnown": False,
+                "suggestions": [],
+                "reasons": [],
+                "paused": [],
+            },
+            _source("mem-guard", "Memory", "unavailable", "Windows memory status unreadable"),
+        )
 
 
 class _ProcessMemoryCounters(ctypes.Structure):
-    _fields_ = [("cb", ctypes.c_ulong), ("PageFaultCount", ctypes.c_ulong),
-                ("PeakWorkingSetSize", ctypes.c_size_t), ("WorkingSetSize", ctypes.c_size_t),
-                ("QuotaPeakPagedPoolUsage", ctypes.c_size_t), ("QuotaPagedPoolUsage", ctypes.c_size_t),
-                ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t), ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
-                ("PagefileUsage", ctypes.c_size_t), ("PeakPagefileUsage", ctypes.c_size_t)]
+    _fields_ = [
+        ("cb", ctypes.c_ulong),
+        ("PageFaultCount", ctypes.c_ulong),
+        ("PeakWorkingSetSize", ctypes.c_size_t),
+        ("WorkingSetSize", ctypes.c_size_t),
+        ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
+        ("QuotaPagedPoolUsage", ctypes.c_size_t),
+        ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+        ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+        ("PagefileUsage", ctypes.c_size_t),
+        ("PeakPagefileUsage", ctypes.c_size_t),
+    ]
 
 
-def top_processes(limit: int = 3, max_pids: int = 4096, lane_pids: frozenset[int] = frozenset()) -> list[dict[str, Any]]:
+def top_processes(
+    limit: int = 3, max_pids: int = 4096, lane_pids: frozenset[int] = frozenset()
+) -> list[dict[str, Any]]:
     """Largest working sets grouped by executable name; names and sizes only, never arguments or paths.
     ``lane_pids`` (owners of declared lane ports) form the "Local LLM server" group; NVIDIA PAIR's processes,
     recognised by their install folder, form one "NVIDIA PAIR" group."""
@@ -599,13 +776,13 @@ def top_processes(limit: int = 3, max_pids: int = 4096, lane_pids: frozenset[int
         pids = (ctypes.c_ulong * max_pids)()
         needed = ctypes.c_ulong()
         if not psapi.EnumProcesses(ctypes.byref(pids), ctypes.sizeof(pids), ctypes.byref(needed)):
-            return []
+            raise OSError("EnumProcesses failed")
         if needed.value < ctypes.sizeof(pids) or max_pids == 65536:
             break
         max_pids = min(max_pids * 2, 65536)
     samples: list[tuple[str, int, int, str | None]] = []
     query = 0x1000  # PROCESS_QUERY_LIMITED_INFORMATION
-    for pid in pids[:needed.value // ctypes.sizeof(ctypes.c_ulong)]:
+    for pid in pids[: needed.value // ctypes.sizeof(ctypes.c_ulong)]:
         if not pid:
             continue
         handle = kernel32.OpenProcess(query, False, pid)
@@ -635,7 +812,9 @@ PAIR_LABEL = "NVIDIA PAIR"
 image_owner = winsys.image_owner
 
 
-def group_processes(samples: list[tuple], limit: int = 3, lane_pids: frozenset[int] = frozenset()) -> list[dict[str, Any]]:
+def group_processes(
+    samples: list[tuple], limit: int = 3, lane_pids: frozenset[int] = frozenset()
+) -> list[dict[str, Any]]:
     """Process samples (name, working set[, pid[, owner]]) as rows grouped by name, ignoring case as Windows does (the
     first spelling seen labels the group).
 
@@ -658,9 +837,13 @@ def group_processes(samples: list[tuple], limit: int = 3, lane_pids: frozenset[i
         group[1] += size
         group[2] += 1
     ranked = sorted(groups.values(), key=lambda group: group[1], reverse=True)
-    kept = [group for group in ranked if group[3] == "lane" or (group[3] is None and group[0].casefold() in SERVER_EXECUTABLES)]
+    kept = [
+        group
+        for group in ranked
+        if group[3] == "lane" or (group[3] is None and group[0].casefold() in SERVER_EXECUTABLES)
+    ]
     kept_ids = {id(group) for group in kept}
-    others = [group for group in ranked if id(group) not in kept_ids][:max(0, limit)]
+    others = [group for group in ranked if id(group) not in kept_ids][: max(0, limit)]
     rows = []
     for label, size, count, kind in sorted(kept + others, key=lambda group: group[1], reverse=True):
         row: dict[str, Any] = {"label": label, "residentBytes": size, "processCount": count, "gpuAllocBytes": None}
@@ -678,8 +861,10 @@ _NVIDIA_QUERY = "index,name,utilization.gpu,memory.used,memory.total,temperature
 
 def nvidia_smi_path() -> str | None:
     """Only run the driver copy, never a user-writable PATH replacement."""
-    for candidate in (Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "nvidia-smi.exe",
-                      Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "NVIDIA Corporation" / "NVSMI" / "nvidia-smi.exe"):
+    for candidate in (
+        Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "nvidia-smi.exe",
+        Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "NVIDIA Corporation" / "NVSMI" / "nvidia-smi.exe",
+    ):
         if candidate.is_file():
             return str(candidate)
     return None
@@ -693,6 +878,7 @@ def parse_nvidia_csv(text: str) -> list[dict[str, Any]]:
         if len(parts) != 7:
             raise ValueError("unexpected nvidia-smi columns")
         index, name, util, used, total, temp, power = parts
+
         def number(value: str) -> float | None:
             if value in ("[N/A]", "N/A", "[Not Supported]"):
                 return None
@@ -700,16 +886,30 @@ def parse_nvidia_csv(text: str) -> list[dict[str, Any]]:
             if not math.isfinite(parsed):
                 raise ValueError("non-finite reading")
             return parsed
-        row = {"index": int(index), "name": name[:64], "utilizationPercent": number(util),
-               "memoryUsedMiB": number(used), "memoryTotalMiB": number(total),
-               "temperatureC": number(temp), "powerW": number(power),
-               "vendor": "nvidia"}
-        limits = (("utilizationPercent", 0, 100), ("memoryUsedMiB", 0, 1048576), ("memoryTotalMiB", 1, 1048576),
-                  ("temperatureC", 0, 150), ("powerW", 0, 2000))
+
+        row = {
+            "index": int(index),
+            "name": name[:64],
+            "utilizationPercent": number(util),
+            "memoryUsedMiB": number(used),
+            "memoryTotalMiB": number(total),
+            "temperatureC": number(temp),
+            "powerW": number(power),
+            "vendor": "nvidia",
+        }
+        limits = (
+            ("utilizationPercent", 0, 100),
+            ("memoryUsedMiB", 0, 1048576),
+            ("memoryTotalMiB", 1, 1048576),
+            ("temperatureC", 0, 150),
+            ("powerW", 0, 2000),
+        )
         if row["memoryTotalMiB"] is None or row["memoryUsedMiB"] is None:
             raise ValueError("memory not reported")
-        if any(row[key] is not None and not low <= row[key] <= high for key, low, high in limits) \
-                or row["memoryUsedMiB"] > row["memoryTotalMiB"]:
+        if (
+            any(row[key] is not None and not low <= row[key] <= high for key, low, high in limits)
+            or row["memoryUsedMiB"] > row["memoryTotalMiB"]
+        ):
             raise ValueError("implausible GPU reading")
         gpus.append(row)
     return gpus
@@ -722,8 +922,9 @@ def nvidia_gpus(runner: Callable[[list[str], float], str] = run_quiet) -> tuple[
     try:
         text = runner([path, f"--query-gpu={_NVIDIA_QUERY}", "--format=csv,noheader,nounits"], 2.5)
         gpus = parse_nvidia_csv(text)
-        return gpus, _source("pc-gpu", "PC GPU", "live",
-                             "NVIDIA load sampled with nvidia-smi; other adapters are listed without load")
+        return gpus, _source(
+            "pc-gpu", "PC GPU", "live", "NVIDIA load sampled with nvidia-smi; other adapters are listed without load"
+        )
     except Exception:  # noqa: BLE001
         return [], _source("pc-gpu", "PC GPU", "error", "nvidia-smi failed or returned an unexpected reading")
 
@@ -739,7 +940,8 @@ def display_adapters() -> list[dict[str, Any]]:
     """
     if not IS_WINDOWS:
         return []
-    import winreg  # noqa: PLC0415 - Windows only
+    import winreg
+
     adapters = []
     with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, _ADAPTER_CLASS) as root:
         for index in range(32):
@@ -761,7 +963,9 @@ def display_adapters() -> list[dict[str, Any]]:
             label = _string(name, 64)
             if not label or "basic display" in label.lower() or "remote" in label.lower():
                 continue
-            size = int.from_bytes(vram, "little") if isinstance(vram, bytes) else vram if isinstance(vram, int) else None
+            size = (
+                int.from_bytes(vram, "little") if isinstance(vram, bytes) else vram if isinstance(vram, int) else None
+            )
             adapters.append({"name": label, "memoryBytes": size if isinstance(size, int) and size > 0 else None})
     seen, unique = set(), []
     for adapter in adapters:
@@ -772,6 +976,108 @@ def display_adapters() -> list[dict[str, Any]]:
 
 
 # ------------------------------------------------------------------ route queue
+def _queue_state_entries(directory: Path, state: str, now: float):
+    complete = True
+    oldest_pending = None
+    stale_claims = stale_pending = 0
+    total = 0
+    capped = False
+    if not directory.is_dir() and state in ("pending", "claimed"):
+        raise FileNotFoundError("required queue folder missing")
+    if directory.is_dir():
+        with os.scandir(directory) as entries:
+            for examined, entry in enumerate(entries):
+                if examined >= QUEUE_MAX_ENTRIES:
+                    complete = False
+                    capped = True
+                    break
+                if not entry.name.endswith(".json"):
+                    continue
+                if not entry.is_file(follow_symlinks=False):
+                    complete = False
+                    continue
+                if total >= QUEUE_MAX_ENTRIES:
+                    capped = True
+                    complete = False
+                    break
+                total += 1
+                age = now - entry.stat(follow_symlinks=False).st_mtime
+                if age < -FILE_FUTURE_SKEW or not isinstance(read_json(Path(entry.path)), dict):
+                    raise ValueError("queue entry future-dated or malformed")
+                age = max(age, 0.0)
+                if state == "pending":
+                    oldest_pending = age if oldest_pending is None else max(oldest_pending, age)
+                    if age > STALE_PENDING_SECONDS:
+                        stale_pending += 1
+                elif state == "claimed" and age > STALE_CLAIM_SECONDS:
+                    stale_claims += 1
+    return total, capped, complete, oldest_pending, stale_claims, stale_pending
+
+
+def _route_queue_projection(counts, truncated, oldest_pending, stale_claims, stale_pending, complete):
+    pending = counts.get("pending", 0)
+    claimed_live = counts.get("claimed", 0) - stale_claims
+    # A job nobody has picked up for a day is a leftover, not work waiting for a lane.
+    pending_live = pending - stale_pending
+    # A claim file says a worker took a job, not that it is still executing (it may have crashed), so
+    # recent claims read "claimed" (execution unknown) and never "running".
+    status = "unknown" if not complete else "claimed" if claimed_live > 0 else "queued" if pending_live else "idle"
+    pipeline = {
+        "status": status,
+        "stage": None,
+        "runId": None,
+        "pipelines": [],
+        # Counts alone cannot certify the empty per-route projection.
+        "pipelinesComplete": complete and not any(counts.values()),
+        "queue": {
+            "complete": complete,
+            "pending": pending,
+            "stalePending": stale_pending,
+            "claimed": counts.get("claimed", 0),
+            "staleClaimed": stale_claims,
+            "completed": counts.get("completed", 0),
+            "oldestPendingSeconds": round(oldest_pending, 1) if oldest_pending is not None else None,
+            "staleAfterSeconds": STALE_CLAIM_SECONDS,
+        },
+    }
+    detail = f"{pending} pending · {counts.get('claimed', 0)} claimed · {counts.get('completed', 0)} completed"
+    if any(truncated.values()):
+        pipeline["status"] = None
+        queue = pipeline["queue"]
+        queue["truncated"] = truncated
+        for state, capped in truncated.items():
+            if capped:
+                queue[state] = None
+        if truncated["pending"]:
+            queue["stalePending"] = queue["oldestPendingSeconds"] = None
+        if truncated["claimed"]:
+            queue["staleClaimed"] = None
+        detail = (
+            " · ".join(
+                f"{counts[state]}{'+' if truncated[state] else ''} {state}"
+                for state in ("pending", "claimed", "completed")
+            )
+            + "; queue scan incomplete"
+        )
+        return pipeline, _source("route-queue", "Route queue", "unavailable", detail)
+    if not complete:
+        # A skipped matching entry may contain work. Preserve the explicit scan
+        # failure and withhold exact queue totals, including apparent zeroes.
+        for key in ("pending", "claimed", "completed", "stalePending", "staleClaimed", "oldestPendingSeconds"):
+            pipeline["queue"][key] = None
+        detail = "Queue entry could not be inspected; counts unknown"
+    if stale_claims:
+        detail += f" · {stale_claims} claim{'s' if stale_claims != 1 else ''} older than 15 min (likely abandoned)"
+    if stale_pending:
+        detail += (
+            f" · {stale_pending} pending untouched for over a day (stale, not queued; oldest "
+            f"{oldest_pending / 86400:.0f} d)"
+        )
+    if claimed_live > 0:
+        detail += f" · {claimed_live} recent claim{'s' if claimed_live != 1 else ''}; execution unknown"
+    return pipeline, _source("route-queue", "Route queue", "live" if complete else "incomplete", detail)
+
+
 def route_queue(root: Path, now: float | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
     """Counts of the jev/nisi online-code route queue, with claims that have outlived any run."""
     now = time.time() if now is None else now
@@ -788,84 +1094,22 @@ def route_queue(root: Path, now: float | None = None) -> tuple[dict[str, Any], d
             directory = root / state
             if is_link_or_junction(directory):
                 raise OSError("queue state folder is linked")
-            total = 0
-            truncated[state] = False
-            if not directory.is_dir() and state in ("pending", "claimed"):
-                raise FileNotFoundError("required queue folder missing")
-            if directory.is_dir():
-                with os.scandir(directory) as entries:
-                    for examined, entry in enumerate(entries):
-                        if examined >= QUEUE_MAX_ENTRIES:
-                            complete = False
-                            truncated[state] = True
-                            break
-                        if not entry.name.endswith(".json"):
-                            continue
-                        if not entry.is_file(follow_symlinks=False):
-                            complete = False
-                            continue
-                        if total >= QUEUE_MAX_ENTRIES:
-                            truncated[state] = True
-                            complete = False
-                            break
-                        total += 1
-                        age = now - entry.stat(follow_symlinks=False).st_mtime
-                        if age < -FILE_FUTURE_SKEW or not isinstance(read_json(Path(entry.path)), dict):
-                            raise ValueError("queue entry future-dated or malformed")
-                        age = max(age, 0.0)
-                        if state == "pending":
-                            oldest_pending = age if oldest_pending is None else max(oldest_pending, age)
-                            if age > STALE_PENDING_SECONDS:
-                                stale_pending += 1
-                        elif state == "claimed" and age > STALE_CLAIM_SECONDS:
-                            stale_claims += 1
+            total, capped, state_complete, oldest, claims, pending = _queue_state_entries(directory, state, now)
+            truncated[state] = capped
+            complete = complete and state_complete
+            if oldest is not None:
+                oldest_pending = oldest if oldest_pending is None else max(oldest_pending, oldest)
+            stale_claims += claims
+            stale_pending += pending
             counts[state] = total
     except (OSError, ValueError):
-        return ({"status": None, "runId": None, "pipelines": [], "pipelinesComplete": False, "queue": None},
-                _source("route-queue", "Route queue", "unavailable", "Route queue unreadable, hidden, malformed or future-dated"))
-    pending = counts.get("pending", 0)
-    claimed_live = counts.get("claimed", 0) - stale_claims
-    # A job nobody has picked up for a day is a leftover, not work waiting for a lane.
-    pending_live = pending - stale_pending
-    # A claim file says a worker took a job, not that it is still executing (it may have crashed), so
-    # recent claims read "claimed" (execution unknown) and never "running".
-    status = "unknown" if not complete else "claimed" if claimed_live > 0 else "queued" if pending_live else "idle"
-    pipeline = {"status": status, "stage": None, "runId": None, "pipelines": [],
-                # Counts alone cannot certify the empty per-route projection.
-                "pipelinesComplete": complete and not any(counts.values()),
-                "queue": {"complete": complete, "pending": pending, "stalePending": stale_pending, "claimed": counts.get("claimed", 0), "staleClaimed": stale_claims,
-                          "completed": counts.get("completed", 0),
-                          "oldestPendingSeconds": round(oldest_pending, 1) if oldest_pending is not None else None,
-                          "staleAfterSeconds": STALE_CLAIM_SECONDS}}
-    detail = f"{pending} pending · {counts.get('claimed', 0)} claimed · {counts.get('completed', 0)} completed"
-    if any(truncated.values()):
-        pipeline["status"] = None
-        queue = pipeline["queue"]
-        queue["truncated"] = truncated
-        for state, capped in truncated.items():
-            if capped:
-                queue[state] = None
-        if truncated["pending"]:
-            queue["stalePending"] = queue["oldestPendingSeconds"] = None
-        if truncated["claimed"]:
-            queue["staleClaimed"] = None
-        detail = " · ".join(f"{counts[state]}{'+' if truncated[state] else ''} {state}"
-                            for state in ("pending", "claimed", "completed")) + "; queue scan incomplete"
-        return pipeline, _source("route-queue", "Route queue", "unavailable", detail)
-    if not complete:
-        # A skipped matching entry may contain work. Preserve the explicit scan
-        # failure and withhold exact queue totals, including apparent zeroes.
-        for key in ('pending', 'claimed', 'completed', 'stalePending', 'staleClaimed', 'oldestPendingSeconds'):
-            pipeline['queue'][key] = None
-        detail = 'Queue entry could not be inspected; counts unknown'
-    if stale_claims:
-        detail += f" · {stale_claims} claim{'s' if stale_claims != 1 else ''} older than 15 min (likely abandoned)"
-    if stale_pending:
-        detail += (f" · {stale_pending} pending untouched for over a day (stale, not queued; oldest "
-                   f"{oldest_pending / 86400:.0f} d)")
-    if claimed_live > 0:
-        detail += f" · {claimed_live} recent claim{'s' if claimed_live != 1 else ''}; execution unknown"
-    return pipeline, _source("route-queue", "Route queue", "live" if complete else "incomplete", detail)
+        return (
+            {"status": None, "runId": None, "pipelines": [], "pipelinesComplete": False, "queue": None},
+            _source(
+                "route-queue", "Route queue", "unavailable", "Route queue unreadable, hidden, malformed or future-dated"
+            ),
+        )
+    return _route_queue_projection(counts, truncated, oldest_pending, stale_claims, stale_pending, complete)
 
 
 # ------------------------------------------------------------------- share
@@ -877,8 +1121,10 @@ def share_health(share_root: Path) -> tuple[dict[str, Any], dict[str, Any]]:
         present = False
     except OSError:
         detail = "Share unreadable; presence unknown"
-        return ({"state": "unknown", "root": str(share_root), "detail": detail},
-                _source("sharedchami", "SharedChami", "unavailable", detail))
+        return (
+            {"state": "unknown", "root": str(share_root), "detail": detail},
+            _source("sharedchami", "SharedChami", "unavailable", detail),
+        )
     config_ok = False
     if present:
         try:
@@ -886,11 +1132,15 @@ def share_health(share_root: Path) -> tuple[dict[str, Any], dict[str, Any]]:
         except (OSError, ValueError, json.JSONDecodeError):
             config_ok = False
     state = "ready" if present and config_ok else "degraded" if present else "missing"
-    detail = {"ready": f"{share_root} present; llm-lab/config.json readable",
-              "degraded": f"{share_root} present but llm-lab/config.json is unreadable",
-              "missing": f"{share_root} is missing or empty; this PC serves the share"}[state]
-    return ({"state": state, "root": str(share_root), "detail": detail},
-            _source("sharedchami", "SharedChami", "live" if state == "ready" else "error", detail))
+    detail = {
+        "ready": f"{share_root} present; llm-lab/config.json readable",
+        "degraded": f"{share_root} present but llm-lab/config.json is unreadable",
+        "missing": f"{share_root} is missing or empty; this PC serves the share",
+    }[state]
+    return (
+        {"state": state, "root": str(share_root), "detail": detail},
+        _source("sharedchami", "SharedChami", "live" if state == "ready" else "error", detail),
+    )
 
 
 # ---------------------------------------------------------------- components
@@ -906,25 +1156,58 @@ def nisi_component(lanes: list[dict[str, Any]], bin_root: Path) -> dict[str, Any
     up = [lane for lane in lanes if lane["status"] in LANE_UP]
     mismatched = [lane["id"] for lane in lanes if lane["status"] == "identity_mismatch"]
     if not gate.is_file():
-        return {"id": "nisi", "label": "Nisi gate", "state": "unknown",
-                "detail": "Nisi v0.2 gate adapter not found in the bin folder", "version": version}
+        return {
+            "id": "nisi",
+            "label": "Nisi gate",
+            "state": "unknown",
+            "detail": "Nisi v0.2 gate adapter not found in the bin folder",
+            "version": version,
+        }
     if mismatched:
-        return {"id": "nisi", "label": "Nisi gate", "state": "needs-action", "version": version,
-                "detail": f"Lane identity mismatch on {', '.join(mismatched)}; the gate would review with the wrong model"}
+        return {
+            "id": "nisi",
+            "label": "Nisi gate",
+            "state": "needs-action",
+            "version": version,
+            "detail": f"Lane identity mismatch on {', '.join(mismatched)}; the gate would review with the wrong model",
+        }
     if len(up) == len(lanes) and len(lanes) >= 2:
         names = {lane["id"]: public_id(lane["expectedModel"]) for lane in up}
-        return {"id": "nisi", "label": "Nisi gate", "state": "ready", "version": version,
-                "authorModel": names.get("deep"), "reviewerModel": names.get("fast"),
-                "detail": "Gate installed; author and reviewer lanes answering as declared"}
-    unknown = [lane["id"] for lane in lanes if lane["status"] not in LANE_UP | {"loading", "identity_mismatch", "not_agiw"}]
+        return {
+            "id": "nisi",
+            "label": "Nisi gate",
+            "state": "ready",
+            "version": version,
+            "authorModel": names.get("deep"),
+            "reviewerModel": names.get("fast"),
+            "detail": "Gate installed; author and reviewer lanes answering as declared",
+        }
+    unknown = [
+        lane["id"] for lane in lanes if lane["status"] not in LANE_UP | {"loading", "identity_mismatch", "not_agiw"}
+    ]
     if unknown or not lanes:
-        return {"id": "nisi", "label": "Nisi gate", "state": "unknown", "version": version,
-                "detail": "Gate installed; lane readiness unknown" + (" on " + ", ".join(unknown) if unknown else "")}
+        return {
+            "id": "nisi",
+            "label": "Nisi gate",
+            "state": "unknown",
+            "version": version,
+            "detail": "Gate installed; lane readiness unknown" + (" on " + ", ".join(unknown) if unknown else ""),
+        }
     if up:
-        return {"id": "nisi", "label": "Nisi gate", "state": "partial", "version": version,
-                "detail": f"Only the {up[0]['id']} lane answers; the gate needs both"}
-    return {"id": "nisi", "label": "Nisi gate", "state": "partial", "version": version,
-            "detail": "Gate installed; no lane answers"}
+        return {
+            "id": "nisi",
+            "label": "Nisi gate",
+            "state": "partial",
+            "version": version,
+            "detail": f"Only the {up[0]['id']} lane answers; the gate needs both",
+        }
+    return {
+        "id": "nisi",
+        "label": "Nisi gate",
+        "state": "partial",
+        "version": version,
+        "detail": "Gate installed; no lane answers",
+    }
 
 
 # --------------------------------------------------------------- Mac identity
@@ -994,14 +1277,26 @@ def pair_component(census: dict[str, Any] | None) -> dict[str, Any]:
     """
     base = {"id": "pair", "label": "NVIDIA PAIR", "evidence": "process+listener"}
     if not isinstance(census, dict) or census.get("ok") is not True:
-        return {**base, "state": "unknown", "processCount": None, "engineCount": None, "listeners": [],
-                "unattributedPorts": [], "lanExposed": None, "uninspected": None,
-                "detail": "NVIDIA PAIR presence unknown (process list unavailable)"}
-    processes = [p for p in census.get("processes") or []
-                 if isinstance(p, dict) and p.get("owner") == "pair" and type(p.get("pid")) is int]
+        return {
+            **base,
+            "state": "unknown",
+            "processCount": None,
+            "engineCount": None,
+            "listeners": [],
+            "unattributedPorts": [],
+            "lanExposed": None,
+            "uninspected": None,
+            "detail": "NVIDIA PAIR presence unknown (process list unavailable)",
+        }
+    processes = [
+        p
+        for p in census.get("processes") or []
+        if isinstance(p, dict) and p.get("owner") == "pair" and type(p.get("pid")) is int
+    ]
     pids = {p["pid"] for p in processes}
-    engine_pids = {p["pid"] for p in processes
-                   if isinstance(p.get("name"), str) and p["name"].casefold() in SERVER_EXECUTABLES}
+    engine_pids = {
+        p["pid"] for p in processes if isinstance(p.get("name"), str) and p["name"].casefold() in SERVER_EXECUTABLES
+    }
     listeners: list[dict[str, Any]] = []
     unattributed: list[dict[str, Any]] = []
     seen: set[tuple] = set()
@@ -1015,8 +1310,9 @@ def pair_component(census: dict[str, Any] | None) -> dict[str, Any]:
             continue
         seen.add(key)
         if owned:
-            listeners.append({"port": row["port"], "bind": scope,
-                              "role": "engine" if row["pid"] in engine_pids else "pair"})
+            listeners.append(
+                {"port": row["port"], "bind": scope, "role": "engine" if row["pid"] in engine_pids else "pair"}
+            )
         else:
             unattributed.append({"port": row["port"], "bind": scope})
     listeners.sort(key=lambda item: (item["port"], item["bind"]))
@@ -1025,26 +1321,41 @@ def pair_component(census: dict[str, Any] | None) -> dict[str, Any]:
     uninspected = census.get("uninspected") if type(census.get("uninspected")) is int else 0
     if processes:
         state = "running"
-        where = ", ".join(f":{item['port']}" + (" (loopback)" if item["bind"] == "loopback" else "")
-                          for item in listeners[:8]) or "no listener seen"
+        where = (
+            ", ".join(
+                f":{item['port']}" + (" (loopback)" if item["bind"] == "loopback" else "") for item in listeners[:8]
+            )
+            or "no listener seen"
+        )
         qualifier = "at least " if uninspected else ""
-        detail = (f"{qualifier}{len(processes)} PAIR process{'es' if len(processes) != 1 else ''}, {qualifier}{len(engine_pids)} "
-                  f"engine{'s' if len(engine_pids) != 1 else ''} (not AGIW lanes); listening on {where}")
+        detail = (
+            f"{qualifier}{len(processes)} PAIR process{'es' if len(processes) != 1 else ''}, {qualifier}{len(engine_pids)} "
+            f"engine{'s' if len(engine_pids) != 1 else ''} (not AGIW lanes); listening on {where}"
+        )
         if lan:
             detail += "; open to the LAN on " + ", ".join(f":{port}" for port in lan[:8]) + " (PAIR serves plain HTTP)"
     else:
         state = "unknown" if uninspected or unattributed else "not-seen"
-        detail = "No NVIDIA PAIR process seen" + (f" ({uninspected} process{'es' if uninspected != 1 else ''} "
-                                                  "could not be inspected)" if uninspected else "")
+        detail = "No NVIDIA PAIR process seen" + (
+            f" ({uninspected} process{'es' if uninspected != 1 else ''} could not be inspected)" if uninspected else ""
+        )
     if unattributed:
         detail += "; PAIR's usual ports held by unidentified processes: " + ", ".join(
-            f":{item['port']}" for item in unattributed[:8])
-    return {**base, "state": state, "processCount": len(processes) if state != "unknown" and not uninspected else None,
-            "engineCount": len(engine_pids) if state != "unknown" and not uninspected else None,
-            "processCountAtLeast": len(processes) if uninspected else None,
-            "engineCountAtLeast": len(engine_pids) if uninspected else None, "uninspected": uninspected,
-            "listeners": listeners[:PAIR_MAX_ROWS], "unattributedPorts": unattributed[:PAIR_MAX_ROWS],
-            "lanExposed": True if lan else None if uninspected or unattributed else False, "detail": detail}
+            f":{item['port']}" for item in unattributed[:8]
+        )
+    return {
+        **base,
+        "state": state,
+        "processCount": len(processes) if state != "unknown" and not uninspected else None,
+        "engineCount": len(engine_pids) if state != "unknown" and not uninspected else None,
+        "processCountAtLeast": len(processes) if uninspected else None,
+        "engineCountAtLeast": len(engine_pids) if uninspected else None,
+        "uninspected": uninspected,
+        "listeners": listeners[:PAIR_MAX_ROWS],
+        "unattributedPorts": unattributed[:PAIR_MAX_ROWS],
+        "lanExposed": True if lan else None if uninspected or unattributed else False,
+        "detail": detail,
+    }
 
 
 def pair_public(component: Any) -> dict[str, Any] | None:
@@ -1054,19 +1365,34 @@ def pair_public(component: Any) -> dict[str, Any] | None:
     state = component.get("state") if component.get("state") in ("running", "not-seen", "unknown") else "unknown"
     rows = component.get("listeners") if isinstance(component.get("listeners"), list) else []
     unattributed = component.get("unattributedPorts") if isinstance(component.get("unattributedPorts"), list) else []
-    return {"state": state,
-            "uninspected": component.get("uninspected") if type(component.get("uninspected")) is int else None,
-            "processCount": component.get("processCount") if type(component.get("processCount")) is int else None,
-            "engineCount": component.get("engineCount") if type(component.get("engineCount")) is int else None,
-            "processCountAtLeast": component.get("processCountAtLeast") if type(component.get("processCountAtLeast")) is int else None,
-            "engineCountAtLeast": component.get("engineCountAtLeast") if type(component.get("engineCountAtLeast")) is int else None,
-            "listeners": [{"port": row["port"], "bind": row["bind"]} for row in rows[:PAIR_MAX_ROWS]
-                          if isinstance(row, dict) and type(row.get("port")) is int
-                          and row.get("bind") in ("loopback", "all", "address")],
-            "unattributedPorts": [{"port": row["port"], "bind": row["bind"]} for row in unattributed[:PAIR_MAX_ROWS]
-                                  if isinstance(row, dict) and type(row.get("port")) is int
-                                  and 1 <= row["port"] <= 65535 and row.get("bind") in ("loopback", "all", "address")],
-            "lanExposed": component.get("lanExposed") if isinstance(component.get("lanExposed"), bool) else None}
+    return {
+        "state": state,
+        "uninspected": component.get("uninspected") if type(component.get("uninspected")) is int else None,
+        "processCount": component.get("processCount") if type(component.get("processCount")) is int else None,
+        "engineCount": component.get("engineCount") if type(component.get("engineCount")) is int else None,
+        "processCountAtLeast": component.get("processCountAtLeast")
+        if type(component.get("processCountAtLeast")) is int
+        else None,
+        "engineCountAtLeast": component.get("engineCountAtLeast")
+        if type(component.get("engineCountAtLeast")) is int
+        else None,
+        "listeners": [
+            {"port": row["port"], "bind": row["bind"]}
+            for row in rows[:PAIR_MAX_ROWS]
+            if isinstance(row, dict)
+            and type(row.get("port")) is int
+            and row.get("bind") in ("loopback", "all", "address")
+        ],
+        "unattributedPorts": [
+            {"port": row["port"], "bind": row["bind"]}
+            for row in unattributed[:PAIR_MAX_ROWS]
+            if isinstance(row, dict)
+            and type(row.get("port")) is int
+            and 1 <= row["port"] <= 65535
+            and row.get("bind") in ("loopback", "all", "address")
+        ],
+        "lanExposed": component.get("lanExposed") if isinstance(component.get("lanExposed"), bool) else None,
+    }
 
 
 # ------------------------------------------------------------------- hands off
@@ -1089,8 +1415,14 @@ def _gpu_split(gpu: dict[str, Any], lane_pids: frozenset[int] | None) -> tuple[f
     readings = gpu.get("utilizationReadings")
     if isinstance(readings, dict) and _number(readings.get("windows-gpu-counters"), 0, 100) != utilization:
         return None, None  # PDH shares cannot explain a higher reading from another source.
-    if lane_pids is None or utilization is None or not isinstance(shares, list) or not shares \
-            or len(shares) > 64 or gpu.get("engineSharesComplete") is False:
+    if (
+        lane_pids is None
+        or utilization is None
+        or not isinstance(shares, list)
+        or not shares
+        or len(shares) > 64
+        or gpu.get("engineSharesComplete") is False
+    ):
         return None, None
     lane = other = 0.0
     for share in shares[:64]:
@@ -1108,35 +1440,32 @@ def _gpu_split(gpu: dict[str, Any], lane_pids: frozenset[int] | None) -> tuple[f
     return round(utilization * lane / total, 1), round(utilization * other / total, 1)
 
 
-def hands_off(gpus: list[dict[str, Any]] | None, *, gpu_live: bool, lane_pids: frozenset[int] | None,
-              notification_state: Any, gpu_complete: bool = True) -> dict[str, Any]:
-    """The hands-off flag (critic correction 3: ``handsOff``, never ``gaming``).
-
-    active True: a GPU is above 40 % or a game/app/presentation suppresses notifications. active False: every GPU has a live
-    reading at or below 40 % and the session reports no full-screen app. Anything unread makes it None (unknown);
-    unknown is never shown as clear.
-    """
-    reasons: list[str] = []
-    unknown: list[str] = []
-    rows: list[dict[str, Any]] = []
-    readable = gpu_live is True and isinstance(gpus, list) and bool(gpus)
-    if not readable or not gpu_complete:
-        unknown.append("gpu-load-unknown")
+def _hands_off_gpu_rows(gpus, readable, lane_pids, unknown):
+    rows = []
     causes = []
-    for gpu in (gpus if readable else []):
+    for gpu in gpus if readable else []:
         if not isinstance(gpu, dict):
             unknown.append("gpu-load-unknown")
             continue
         utilization = _number(gpu.get("utilizationPercent"), 0, 100)
         readings = gpu.get("utilizationReadings")
-        readings = {key: _number(readings.get(key), 0, 100) for key in ("nvidia-smi", "windows-gpu-counters")} \
-            if isinstance(readings, dict) else {}
+        readings = (
+            {key: _number(readings.get(key), 0, 100) for key in ("nvidia-smi", "windows-gpu-counters")}
+            if isinstance(readings, dict)
+            else {}
+        )
         known = [value for value in (utilization, *readings.values()) if value is not None]
         utilization = max(known) if known else None
         agiw, other = _gpu_split({**gpu, "utilizationPercent": utilization}, lane_pids)
         engine = _string(gpu.get("busiestEngine"), 32)
-        row = {"index": gpu.get("index") if type(gpu.get("index")) is int else None, "name": _string(gpu.get("name"), 64),
-               "utilizationPercent": utilization, "agiwPercent": agiw, "otherPercent": other, "cause": None}
+        row = {
+            "index": gpu.get("index") if type(gpu.get("index")) is int else None,
+            "name": _string(gpu.get("name"), 64),
+            "utilizationPercent": utilization,
+            "agiwPercent": agiw,
+            "otherPercent": other,
+            "cause": None,
+        }
         if readings:
             row["utilizationReadings"] = readings
         if utilization is None:
@@ -1156,18 +1485,10 @@ def hands_off(gpus: list[dict[str, Any]] | None, *, gpu_live: bool, lane_pids: f
                 row["graphics"] = True
             causes.append(cause)
         rows.append(row)
-    if causes:
-        reasons.append("gpu-busy")
-    fullscreen = None
-    if type(notification_state) is int and notification_state in FULLSCREEN_REASONS:
-        fullscreen = FULLSCREEN_REASONS[notification_state]
-        reasons.append(fullscreen)
-    elif type(notification_state) is int and notification_state in QUIET_NOTIFICATION_STATES:
-        fullscreen = "none"
-    else:
-        unknown.append("fullscreen-unknown")
-    unknown = list(dict.fromkeys(unknown))
-    active = True if reasons else None if unknown else False
+    return rows, causes
+
+
+def _hands_off_cause(fullscreen, reasons, causes, unknown):
     if fullscreen == "fullscreen-game":
         cause = "game"
     elif not causes:
@@ -1180,52 +1501,144 @@ def hands_off(gpus: list[dict[str, Any]] | None, *, gpu_live: bool, lane_pids: f
         cause = "other-processes"
     else:
         cause = "agiw-lanes" if fullscreen == "none" and not unknown else "unknown"
+    return cause
+
+
+def hands_off(
+    gpus: list[dict[str, Any]] | None,
+    *,
+    gpu_live: bool,
+    lane_pids: frozenset[int] | None,
+    notification_state: Any,
+    gpu_complete: bool = True,
+) -> dict[str, Any]:
+    """The hands-off flag (critic correction 3: ``handsOff``, never ``gaming``).
+
+    active True: a GPU is above 40 % or a game/app/presentation suppresses notifications. active False: every GPU has a live
+    reading at or below 40 % and the session reports no full-screen app. Anything unread makes it None (unknown);
+    unknown is never shown as clear.
+    """
+    reasons: list[str] = []
+    unknown: list[str] = []
+    rows: list[dict[str, Any]] = []
+    readable = gpu_live is True and isinstance(gpus, list) and bool(gpus)
+    if not readable or not gpu_complete:
+        unknown.append("gpu-load-unknown")
+    rows, causes = _hands_off_gpu_rows(gpus, readable, lane_pids, unknown)
+    if causes:
+        reasons.append("gpu-busy")
+    fullscreen = None
+    if type(notification_state) is int and notification_state in FULLSCREEN_REASONS:
+        fullscreen = FULLSCREEN_REASONS[notification_state]
+        reasons.append(fullscreen)
+    elif type(notification_state) is int and notification_state in QUIET_NOTIFICATION_STATES:
+        fullscreen = "none"
+    else:
+        unknown.append("fullscreen-unknown")
+    unknown = list(dict.fromkeys(unknown))
+    active = True if reasons else None if unknown else False
+    cause = _hands_off_cause(fullscreen, reasons, causes, unknown)
     busy = [row for row in rows if row["cause"]]
     if active is True:
-        parts = [f"{row['name'] or 'GPU'} at {row['utilizationPercent']:.0f}%"
-                 + (f" (AGIW lanes {row['agiwPercent']:.0f}%, other {row['otherPercent']:.0f}%)"
-                    if row["agiwPercent"] is not None else " (cause unknown)") for row in busy[:8]]
+        parts = [
+            f"{row['name'] or 'GPU'} at {row['utilizationPercent']:.0f}%"
+            + (
+                f" (AGIW lanes {row['agiwPercent']:.0f}%, other {row['otherPercent']:.0f}%)"
+                if row["agiwPercent"] is not None
+                else " (cause unknown)"
+            )
+            for row in busy[:8]
+        ]
         if len(busy) > 8:
             parts.append(f"{len(busy) - 8} more busy GPUs")
         if fullscreen in FULLSCREEN_REASONS.values():
-            parts.append({"fullscreen-game": "a full-screen game is running", "fullscreen-app": "a full-screen app is running",
-                          "store-app": "a Windows Store app is running", "presentation-mode": "presentation mode is on"}[fullscreen])
+            parts.append(
+                {
+                    "fullscreen-game": "a full-screen game is running",
+                    "fullscreen-app": "a full-screen app is running",
+                    "store-app": "a Windows Store app is running",
+                    "presentation-mode": "presentation mode is on",
+                }[fullscreen]
+            )
         detail = "Hands off: " + "; ".join(parts)
         if cause == "agiw-lanes":
             detail += " (AGIW's own lane work)"
     elif active is False:
         detail = f"Clear: every GPU at or below {HANDS_OFF_GPU_PERCENT:.0f}% and no full-screen app"
     else:
-        detail = "Unknown: " + ", ".join({"gpu-load-unknown": "GPU load not read",
-                                          "fullscreen-unknown": "full-screen state not read"}[u] for u in unknown)
-    return {"active": active, "state": {True: "hands-off", False: "clear", None: "unknown"}[active],
-            "reasons": reasons, "unknown": unknown, "cause": cause,
-            "agiwOnly": (cause == "agiw-lanes") if active is True and cause != "unknown" else None,
-            "thresholdPercent": HANDS_OFF_GPU_PERCENT, "fullscreen": fullscreen,
-            "gpus": sorted(rows, key=lambda row: row["cause"] is None)[:8], "detail": detail}
+        detail = "Unknown: " + ", ".join(
+            {"gpu-load-unknown": "GPU load not read", "fullscreen-unknown": "full-screen state not read"}[u]
+            for u in unknown
+        )
+    return {
+        "active": active,
+        "state": {True: "hands-off", False: "clear", None: "unknown"}[active],
+        "reasons": reasons,
+        "unknown": unknown,
+        "cause": cause,
+        "agiwOnly": (cause == "agiw-lanes") if active is True and cause != "unknown" else None,
+        "thresholdPercent": HANDS_OFF_GPU_PERCENT,
+        "fullscreen": fullscreen,
+        "gpus": sorted(rows, key=lambda row: row["cause"] is None)[:8],
+        "detail": detail,
+    }
 
 
 def hands_off_public(value: Any) -> dict[str, Any]:
     """handsOff as published in presence and status: categories and percentages only, never process names."""
     if not isinstance(value, dict) or value.get("active") not in (True, False, None):
-        return {"active": None, "state": "unknown", "reasons": [], "unknown": [], "cause": None, "agiwOnly": None,
-                "thresholdPercent": HANDS_OFF_GPU_PERCENT, "gpus": []}
-    words = lambda items: [item for item in items if isinstance(item, str) and item.isprintable()][:8] \
-        if isinstance(items, list) else []  # noqa: E731
+        return {
+            "active": None,
+            "state": "unknown",
+            "reasons": [],
+            "unknown": [],
+            "cause": None,
+            "agiwOnly": None,
+            "thresholdPercent": HANDS_OFF_GPU_PERCENT,
+            "gpus": [],
+        }
+
+    def words(items):
+        return (
+            [item for item in items if isinstance(item, str) and item.isprintable()][:8]
+            if isinstance(items, list)
+            else []
+        )
+
     gpus = []
     for row in (value.get("gpus") if isinstance(value.get("gpus"), list) else [])[:8]:
         if isinstance(row, dict):
-            gpus.append({key: row.get(key) for key in ("index", "name", "utilizationPercent", "agiwPercent",
-                                                       "otherPercent", "cause", "utilizationReadings")})
+            gpus.append(
+                {
+                    key: row.get(key)
+                    for key in (
+                        "index",
+                        "name",
+                        "utilizationPercent",
+                        "agiwPercent",
+                        "otherPercent",
+                        "cause",
+                        "utilizationReadings",
+                    )
+                }
+            )
     active = value.get("active")
-    return {"active": active, "state": {True: "hands-off", False: "clear", None: "unknown"}[active],
-            "reasons": words(value.get("reasons")), "unknown": words(value.get("unknown")), "cause": _string(value.get("cause"), 24),
-            "agiwOnly": value.get("agiwOnly") if isinstance(value.get("agiwOnly"), bool) else None,
-            "thresholdPercent": HANDS_OFF_GPU_PERCENT, "gpus": gpus}
+    return {
+        "active": active,
+        "state": {True: "hands-off", False: "clear", None: "unknown"}[active],
+        "reasons": words(value.get("reasons")),
+        "unknown": words(value.get("unknown")),
+        "cause": _string(value.get("cause"), 24),
+        "agiwOnly": value.get("agiwOnly") if isinstance(value.get("agiwOnly"), bool) else None,
+        "thresholdPercent": HANDS_OFF_GPU_PERCENT,
+        "gpus": gpus,
+    }
 
 
 # ------------------------------------------------------------- live decode rate
-def live_decode_rate(previous: dict[tuple[int, int], tuple[float, float]], lane: dict[str, Any], now: float) -> tuple[float | None, dict]:
+def live_decode_rate(
+    previous: dict[tuple[int, int], tuple[float, float]], lane: dict[str, Any], now: float
+) -> tuple[float | None, dict]:
     """Tokens per second generated across a lane's busy slots, from the change in each slot's decoded count
     between two polls of the same request. If any busy slot cannot be measured this poll (no prior sample,
     a new request, a long gap, an odd count), the lane rate is None rather than a partial sum."""
@@ -1237,8 +1650,13 @@ def live_decode_rate(previous: dict[tuple[int, int], tuple[float, float]], lane:
         decoded, slot_id, task = slot.get("decodedTokens"), slot.get("id"), slot.get("taskId")
         # Keyed by (slot, task): without llama-server's task id, two requests in one slot are
         # indistinguishable, so no rate is shown rather than a difference across requests.
-        if (type(decoded) not in (int, float) or not math.isfinite(decoded) or decoded < 0
-                or type(slot_id) is not int or type(task) is not int):
+        if (
+            type(decoded) not in (int, float)
+            or not math.isfinite(decoded)
+            or decoded < 0
+            or type(slot_id) is not int
+            or type(task) is not int
+        ):
             partial = True
             continue
         key = (slot_id, task)
@@ -1260,6 +1678,36 @@ CODEMODE_RUNS_MAX = 20
 CODEMODE_MANIFEST_MAX = 128_000
 
 
+def _codemode_run_paths(runs_root: Path):
+    complete = True
+    unreadable = without_manifest = 0
+    if is_link_or_junction(runs_root) or not runs_root.is_dir():
+        raise OSError("code-runs root is not a real directory")
+    runs = []
+    with os.scandir(runs_root) as entries:
+        for examined, entry in enumerate(entries):
+            if examined >= QUEUE_MAX_ENTRIES:
+                complete = False
+                unreadable += 1
+                break
+            if len(entry.name) >= 15 and entry.name[:8].isdigit():
+                if not entry.is_dir(follow_symlinks=False) or is_link_or_junction(Path(entry.path)):
+                    complete = False
+                    unreadable += 1
+                    continue
+                manifest = Path(entry.path) / "manifest.json"
+                try:
+                    runs.append((manifest.stat().st_mtime, manifest))
+                except FileNotFoundError:
+                    without_manifest += 1
+                    continue
+                except OSError:
+                    complete = False
+                    unreadable += 1
+                    continue
+    return runs, complete, unreadable, without_manifest
+
+
 def codemode_jobs(runs_root: Path, specs: list[dict[str, Any]], now: float) -> tuple[dict[str, Any], dict[str, Any]]:
     """Recent codemode stage calls as dashboard job rows (schemaVersion 1, journal codemode-runs).
 
@@ -1267,36 +1715,21 @@ def codemode_jobs(runs_root: Path, specs: list[dict[str, Any]], now: float) -> t
     so it is published as approxPerSecond, never as a decode rate (predictedPerSecond stays null).
     """
     ports = {spec["port"]: spec["id"] for spec in specs}
-    empty = {"schemaVersion": 1, "journal": "codemode-runs", "complete": False, "inFlight": [], "recent": [], "lastSuccess": None,
-             "clientsRecent": {}, "availability": {"state": "unknown", "reason": "code-runs folder unreadable"},
-             "liveAvailable": False}
+    empty = {
+        "schemaVersion": 1,
+        "journal": "codemode-runs",
+        "complete": False,
+        "inFlight": [],
+        "recent": [],
+        "lastSuccess": None,
+        "clientsRecent": {},
+        "availability": {"state": "unknown", "reason": "code-runs folder unreadable"},
+        "liveAvailable": False,
+    }
     unreadable = without_manifest = 0
     complete = True
     try:
-        if is_link_or_junction(runs_root) or not runs_root.is_dir():
-            raise OSError("code-runs root is not a real directory")
-        runs = []
-        with os.scandir(runs_root) as entries:
-            for examined, entry in enumerate(entries):
-                if examined >= QUEUE_MAX_ENTRIES:
-                    complete = False
-                    unreadable += 1
-                    break
-                if len(entry.name) >= 15 and entry.name[:8].isdigit():
-                    if not entry.is_dir(follow_symlinks=False) or is_link_or_junction(Path(entry.path)):
-                        complete = False
-                        unreadable += 1
-                        continue
-                    manifest = Path(entry.path) / "manifest.json"
-                    try:
-                        runs.append((manifest.stat().st_mtime, manifest))
-                    except FileNotFoundError:
-                        without_manifest += 1
-                        continue
-                    except OSError:
-                        complete = False
-                        unreadable += 1
-                        continue
+        runs, complete, unreadable, without_manifest = _codemode_run_paths(runs_root)
     except OSError:
         return empty, _source("codemode-runs", "codemode runs", "unavailable", "code-runs folder unreadable")
     runs.sort(reverse=True)
@@ -1340,37 +1773,71 @@ def codemode_jobs(runs_root: Path, specs: list[dict[str, Any]], now: float) -> t
                 continue
             mismatch = metric.get("served_mismatch") is True
             finish = metric.get("finish")
-            state = "success" if finish == "stop" else "error" if finish in ("length", "error", "content_filter") else "unknown"
-            if state == 'unknown':
+            state = (
+                "success"
+                if finish == "stop"
+                else "error"
+                if finish in ("length", "error", "content_filter")
+                else "unknown"
+            )
+            if state == "unknown":
                 complete = False
-            recent.append({"id": f"{manifest.parent.name}:{run_id}:{stage}:{index}", "lane": lane, "client": "codemode", "stage": stage,
-                           "model": _string(metric.get("served") or metric.get("model"), 80),
-                           "state": "invalid-result" if mismatch else state,
-                           "completionTokens": tokens, "elapsedSeconds": seconds,
-                           "approxPerSecond": round(tokens / seconds, 1) if seconds > 0 else None,
-                           "predictedPerSecond": None, "promptPerSecond": None,
-                           "flags": ["hit-token-limit"] if metric.get("finish") == "length" else [],
-                           "runVerification": _string(data.get("verification"), 24), "certified": certified,
-                           "ageSeconds": round(max(0.0, now - mtime), 1)})
+            recent.append(
+                {
+                    "id": f"{manifest.parent.name}:{run_id}:{stage}:{index}",
+                    "lane": lane,
+                    "client": "codemode",
+                    "stage": stage,
+                    "model": _string(metric.get("served") or metric.get("model"), 80),
+                    "state": "invalid-result" if mismatch else state,
+                    "completionTokens": tokens,
+                    "elapsedSeconds": seconds,
+                    "approxPerSecond": round(tokens / seconds, 1) if seconds > 0 else None,
+                    "predictedPerSecond": None,
+                    "promptPerSecond": None,
+                    "flags": ["hit-token-limit"] if metric.get("finish") == "length" else [],
+                    "runVerification": _string(data.get("verification"), 24),
+                    "certified": certified,
+                    "ageSeconds": round(max(0.0, now - mtime), 1),
+                }
+            )
     complete = complete and not malformed and len(recent) <= 40
     recent = recent[:40]
-    success = next((row for row in recent if row["state"] == "success" and row["model"] and row["elapsedSeconds"] is not None), None)
+    success = next(
+        (row for row in recent if row["state"] == "success" and row["model"] and row["elapsedSeconds"] is not None),
+        None,
+    )
     available = complete and not (unreadable or malformed or truncated or without_manifest)
-    jobs = {**empty, "recent": recent, "complete": available, "observationAgeSeconds": 0.0,
-            "availability": {"state": "available" if available else "unknown",
-                             "reason": "Completed run manifests read; live jobs not observed" if available else
-                                       "Run history incomplete; a manifest was unreadable, malformed or beyond the scan limit"},
-            "truncated": bool(truncated),
-            "lastSuccess": ({key: success[key] for key in ("id", "lane", "model", "elapsedSeconds", "ageSeconds", "client")}
-                            if success else None)}
+    jobs = {
+        **empty,
+        "recent": recent,
+        "complete": available,
+        "observationAgeSeconds": 0.0,
+        "availability": {
+            "state": "available" if available else "unknown",
+            "reason": "Completed run manifests read; live jobs not observed"
+            if available
+            else "Run history incomplete; a manifest was unreadable, malformed or beyond the scan limit",
+        },
+        "truncated": bool(truncated),
+        "lastSuccess": (
+            {key: success[key] for key in ("id", "lane", "model", "elapsedSeconds", "ageSeconds", "client")}
+            if success
+            else None
+        ),
+    }
     newest = f"; newest run {recent[0]['ageSeconds'] / 86400:.1f} d ago" if recent else ""
     skipped = f"; {malformed} malformed manifest{'s' if malformed != 1 else ''} skipped" if malformed else ""
     if without_manifest:
         skipped += f"; {without_manifest} runs without manifest"
     if truncated:
         skipped += f"; {truncated} manifests exceeded the stage limit"
-    return jobs, _source("codemode-runs", "codemode runs", "live" if available else "unavailable",
-                         f"{len(runs[:CODEMODE_RUNS_MAX])} recent run manifests read{newest}{skipped}; rates are whole-request, not decode")
+    return jobs, _source(
+        "codemode-runs",
+        "codemode runs",
+        "live" if available else "unavailable",
+        f"{len(runs[:CODEMODE_RUNS_MAX])} recent run manifests read{newest}{skipped}; rates are whole-request, not decode",
+    )
 
 
 # ------------------------------------------------------------ status publisher
@@ -1395,23 +1862,12 @@ def source_current(source: Any) -> bool:
     if not isinstance(source, dict) or source.get("state") not in ("live", "recorded"):
         return False
     age = source.get("ageSeconds", 0)  # older source rows omitted the age
-    return (_number(age, 0, 30) is not None and source.get("complete") is not False
-            and source.get("truncated") is not True)
+    return (
+        _number(age, 0, 30) is not None and source.get("complete") is not False and source.get("truncated") is not True
+    )
 
 
-def enforce_snapshot_evidence(snapshot: dict[str, Any]) -> dict[str, Any]:
-    """Fail closed at publication, including cached payloads whose reader lost coverage.
-
-    Legacy direct projections without a source envelope retain their old contract;
-    the collector always provides the envelope. Work on a copy, not a probe cache.
-    """
-    import copy
-    data = copy.deepcopy(snapshot)
-    if "sources" not in data:
-        return data
-    sources = {s["id"]: s for s in data.get("sources") or [] if isinstance(s, dict) and "id" in s}
-    known = lambda sid: source_current(sources.get(sid))
-    inventory = known("lane-inventory") and known("lane-config")
+def _snapshot_invalid_lanes(data):
     invalid_lanes, unknown_lanes = set(), set()
     lane_by_id = {lane.get("id"): lane for lane in data.get("lanes") or []}
     for row in data.get("models") or []:
@@ -1423,24 +1879,50 @@ def enforce_snapshot_evidence(snapshot: dict[str, Any]) -> dict[str, Any]:
             # Residency unknown is compatible with affirmative non-serving evidence
             # (loading, a different model, or a pinned PAIR owner). Preserve that reason.
             status = lane_by_id.get(lane_id, {}).get("status")
-            if _number(age, 0, data.get("laneFreshSeconds", 11.8)) is None or status not in ("loading", "identity_mismatch", "not_agiw"):
+            if _number(age, 0, data.get("laneFreshSeconds", 11.8)) is None or status not in (
+                "loading",
+                "identity_mismatch",
+                "not_agiw",
+            ):
                 unknown_lanes.add(lane_id)
-    activity = inventory and known("llama-slots") and not invalid_lanes
+    return invalid_lanes, unknown_lanes
+
+
+def _snapshot_lane_evidence(data, inventory, activity, unknown_lanes):
     if "lanes" in data:
         for lane in data.get("lanes") or []:
             if lane.get("status") == "undeclared":
                 continue
             if not inventory or lane.get("id") in unknown_lanes:
-                lane.update(status="unknown", phase=None, slots=[], slotsBusy=None, slotsTotal=None,
-                            liveTokensPerSecond=None, detail="Lane inventory unavailable or incomplete")
+                lane.update(
+                    status="unknown",
+                    phase=None,
+                    slots=[],
+                    slotsBusy=None,
+                    slotsTotal=None,
+                    liveTokensPerSecond=None,
+                    detail="Lane inventory unavailable or incomplete",
+                )
             elif not activity and lane.get("status") in ("idle", "busy"):
-                lane.update(status="slots_unknown", phase=None, slots=[], slotsBusy=None, slotsTotal=None,
-                            liveTokensPerSecond=None, detail="Slot activity unavailable or incomplete")
+                lane.update(
+                    status="slots_unknown",
+                    phase=None,
+                    slots=[],
+                    slotsBusy=None,
+                    slotsTotal=None,
+                    liveTokensPerSecond=None,
+                    detail="Slot activity unavailable or incomplete",
+                )
         for row in data.get("models") or []:
             if not activity:
                 row.update(parallel=None, context=None)
-                row.setdefault("metadata", {}).update(slotsBusy=None, slotsTotal=None, liveTokensPerSecond=None,
-                    laneStatus="unknown", detail="Slot activity unavailable or incomplete")
+                row.setdefault("metadata", {}).update(
+                    slotsBusy=None,
+                    slotsTotal=None,
+                    liveTokensPerSecond=None,
+                    laneStatus="unknown",
+                    detail="Slot activity unavailable or incomplete",
+                )
             if not inventory:
                 row.update(loaded=None, state="unknown", queued=None)
             elif not activity:
@@ -1450,6 +1932,9 @@ def enforce_snapshot_evidence(snapshot: dict[str, Any]) -> dict[str, Any]:
                 lane.update(up=None, health={"state": "unknown", "reason": "Lane inventory unavailable or incomplete"})
             if not activity:
                 lane.update(slotsBusy=None, slotsTotal=None)
+
+
+def _snapshot_optional_evidence(data, known):
     if not known("lane-processes"):
         data["localCallers"] = None
         for lane in data.get("lanes") or []:
@@ -1457,18 +1942,34 @@ def enforce_snapshot_evidence(snapshot: dict[str, Any]) -> dict[str, Any]:
         for row in data.get("models") or []:
             row.setdefault("metadata", {})["callers"] = None
     if not known("route-queue"):
-        data["pipeline"] = {"status": None, "pipelines": [], "queue": None,
-                            "reason": "Route queue unavailable or incomplete"}
+        data["pipeline"] = {
+            "status": None,
+            "pipelines": [],
+            "queue": None,
+            "reason": "Route queue unavailable or incomplete",
+        }
     if not known("codemode-runs") and isinstance(data.get("windowsJobs"), dict):
-        data["windowsJobs"].update(availability={"state": "unknown", "reason": "Job history unavailable or incomplete"}, liveAvailable=False)
+        data["windowsJobs"].update(
+            availability={"state": "unknown", "reason": "Job history unavailable or incomplete"}, liveAvailable=False
+        )
     hands = data.get("handsOff")
     # A fresh positive signal is independent of attribution: a busy GPU or
     # full-screen notification can each establish hands-off on its own. Clear
     # requires the complete GPU and notification census, but never lane owners.
-    if not known("hands-off") or (not known("pc-gpu") and not (isinstance(hands, dict) and hands.get("active") is True)):
-        data["handsOff"] = {"state": "unknown", "active": None, "cause": None,
-                            "detail": "GPU load or process attribution unavailable or incomplete"}
-    elif not known("lane-processes") and isinstance(hands, dict) and hands.get("cause") in ("agiw-lanes", "other-processes", "mixed"):
+    if not known("hands-off") or (
+        not known("pc-gpu") and not (isinstance(hands, dict) and hands.get("active") is True)
+    ):
+        data["handsOff"] = {
+            "state": "unknown",
+            "active": None,
+            "cause": None,
+            "detail": "GPU load or process attribution unavailable or incomplete",
+        }
+    elif (
+        not known("lane-processes")
+        and isinstance(hands, dict)
+        and hands.get("cause") in ("agiw-lanes", "other-processes", "mixed")
+    ):
         hands.update(cause="unknown", agiwOnly=None)
         hands["detail"] = "Hands off: load detected; process attribution unknown"
         for gpu in hands.get("gpus") or []:
@@ -1478,38 +1979,95 @@ def enforce_snapshot_evidence(snapshot: dict[str, Any]) -> dict[str, Any]:
         if isinstance(data.get("windowsWorker"), dict):
             data["windowsWorker"]["gpus"] = []
     if not known("nvidia-pair") and isinstance(data.get("components"), list):
-        data["components"] = [pair_component(None) if component.get("id") == "pair" else component
-                              for component in data["components"]]
+        data["components"] = [
+            pair_component(None) if component.get("id") == "pair" else component for component in data["components"]
+        ]
     if not known("mem-guard"):
-        data["memory"] = {"level": "unknown", "consumersKnown": False,
-                          "reasons": ["Memory source unavailable or incomplete"]}
+        data["memory"] = {
+            "level": "unknown",
+            "consumersKnown": False,
+            "reasons": ["Memory source unavailable or incomplete"],
+        }
+
+
+def _snapshot_machine_evidence(data, known, inventory, unknown_lanes, activity):
     mac = data.get("macPeer")
     if isinstance(mac, dict) and mac.get("via") == "sharedchami" and "peers" in data:
         want = short_host(mac.get("configuredName") or mac.get("name"))
-        matching = next((peer for peer in data.get("peers") or []
-                         if peer.get("platform") == "macos" and short_host(peer.get("host")) == want), None)
+        matching = next(
+            (
+                peer
+                for peer in data.get("peers") or []
+                if peer.get("platform") == "macos" and short_host(peer.get("host")) == want
+            ),
+            None,
+        )
         if not matching or matching.get("modelsComplete") is not True or matching.get("fresh") is not True:
             mac.update(loadedCount=None, models=[], detail="Mac model inventory unavailable or incomplete")
     if not known("agiw-peers"):
         if isinstance(data.get("macPeer"), dict):
-            data["macPeer"].update(state="unknown", via=None, models=[], loadedCount=None, ageSeconds=None,
-                reason="report-unreadable", detail="Mac presence source unavailable or incomplete")
+            data["macPeer"].update(
+                state="unknown",
+                via=None,
+                models=[],
+                loadedCount=None,
+                ageSeconds=None,
+                reason="report-unreadable",
+                detail="Mac presence source unavailable or incomplete",
+            )
         for peer in data.get("peers") or []:
             peer.update(modelsComplete=False, fresh=False)
     for machine in data.get("machines") or []:
         local = machine.get("role") == "this-machine"
-        if local and (not inventory or unknown_lanes) or (
-                not local and not known("agiw-peers") and machine.get("state") != "unknown"):
+        if (
+            local
+            and (not inventory or unknown_lanes)
+            or (not local and not known("agiw-peers") and machine.get("state") != "unknown")
+        ):
             # A peer row that already reads unknown (for example a stale report) claims nothing the missing evidence
             # could contradict; it keeps its own reason instead of becoming "evidence incomplete".
-            machine.update(state="unknown", health="unknown", loadedCount=None,
-                           reason="evidence-incomplete", detail="Machine evidence unavailable or incomplete",
-                           reasonCode=MACHINE_REASON_CODES["evidence-incomplete"], modelsComplete=False,
-                           busyCount=None, promptTokensPerSecond=None, generationTokensPerSecond=None)
+            machine.update(
+                state="unknown",
+                health="unknown",
+                loadedCount=None,
+                reason="evidence-incomplete",
+                detail="Machine evidence unavailable or incomplete",
+                reasonCode=MACHINE_REASON_CODES["evidence-incomplete"],
+                modelsComplete=False,
+                busyCount=None,
+                promptTokensPerSecond=None,
+                generationTokensPerSecond=None,
+            )
             if not local:
                 machine["handsOff"] = None
         if local:
+            if not activity:
+                machine.update(busyCount=None, promptTokensPerSecond=None, generationTokensPerSecond=None)
             machine["handsOff"] = (data.get("handsOff") or {}).get("active")
+
+
+def enforce_snapshot_evidence(snapshot: dict[str, Any]) -> dict[str, Any]:
+    """Fail closed at publication, including cached payloads whose reader lost coverage.
+
+    Legacy direct projections without a source envelope retain their old contract;
+    the collector always provides the envelope. Work on a copy, not a probe cache.
+    """
+    import copy
+
+    data = copy.deepcopy(snapshot)
+    if "sources" not in data:
+        return data
+    sources = {s["id"]: s for s in data.get("sources") or [] if isinstance(s, dict) and "id" in s}
+
+    def known(sid):
+        return source_current(sources.get(sid))
+
+    inventory = known("lane-inventory") and known("lane-config")
+    invalid_lanes, unknown_lanes = _snapshot_invalid_lanes(data)
+    activity = inventory and known("llama-slots") and not invalid_lanes
+    _snapshot_lane_evidence(data, inventory, activity, unknown_lanes)
+    _snapshot_optional_evidence(data, known)
+    _snapshot_machine_evidence(data, known, inventory, unknown_lanes, activity)
     # Publish invalid source states as unknown as well, so consumers cannot reuse a live flag.
     for source in data.get("sources") or []:
         if source.get("state") == "live" and not source_current(source):
@@ -1517,29 +2075,8 @@ def enforce_snapshot_evidence(snapshot: dict[str, Any]) -> dict[str, Any]:
     return data
 
 
-def pc_status(snapshot: dict[str, Any]) -> dict[str, Any]:
-    """llm-lab/status/windows-status.json for the Mac's status reader (schema 1, host windows), built from one
-    snapshot. ``id`` is the inventory name the reader expects; the lane alias and served name ride along as
-    ``aliases``/``servedModel``. Model ids, lane states, versions and counts only; no paths, prompts or keys."""
-    snapshot = enforce_snapshot_evidence(snapshot)
-    lanes = snapshot.get("lanes") or []
-    mismatch = [lane["id"] for lane in lanes if lane.get("status") == "identity_mismatch"]
-    foreign = [lane["id"] for lane in lanes if lane.get("status") == "not_agiw"]
-    # Failed reads are unknown; only affirmative non-serving evidence can say down (lanes_health).
-    health = lanes_health(lanes)
-    models = [{"id": public_id(INVENTORY_IDS.get(lane.get("expectedModel"), lane.get("expectedModel"))) or "unknown",
-               "aliases": [public_id(lane.get("expectedModel"))], "host": "windows", "lane": lane.get("id"), "port": lane.get("port"),
-               # Only an answering lane is evidence of residency; no answer (or a stale one) is unknown, never inactive.
-               "loadedState": "loaded" if lane.get("status") in LANE_UP else "unknown",
-               "activity": lane.get("phase") if lane.get("status") in ("idle", "busy") else "unknown",
-               "servedModel": public_id(lane.get("servedModel")), "slotsBusy": lane.get("slotsBusy"), "slotsTotal": lane.get("slotsTotal"),
-               "liveTokensPerSecond": lane.get("liveTokensPerSecond")} for lane in lanes if lane.get("status") != "undeclared"]
-    gpus = [{key: gpu.get(key) for key in ("index", "name", "utilizationPercent", "memoryUsedMiB", "memoryTotalMiB", "temperatureC")}
-            for gpu in snapshot.get("pcGpus") or []]
-    memory = snapshot.get("memory") or {}
-    queue = (snapshot.get("pipeline") or {}).get("queue") or {}
+def _pc_status_components(raw_components):
     components = []
-    raw_components = snapshot.get("components")
     for component in raw_components if isinstance(raw_components, (list, tuple)) else []:
         if not isinstance(component, dict):
             continue
@@ -1555,16 +2092,68 @@ def pc_status(snapshot: dict[str, Any]) -> dict[str, Any]:
             if age is not None:
                 row["lastJudgedAgeSeconds"] = age
         components.append(row)
+    return components
+
+
+def pc_status(snapshot: dict[str, Any]) -> dict[str, Any]:
+    """llm-lab/status/windows-status.json for the Mac's status reader (schema 1, host windows), built from one
+    snapshot. ``id`` is the inventory name the reader expects; the lane alias and served name ride along as
+    ``aliases``/``servedModel``. Model ids, lane states, versions and counts only; no paths, prompts or keys."""
+    snapshot = enforce_snapshot_evidence(snapshot)
+    lanes = snapshot.get("lanes") or []
+    mismatch = [lane["id"] for lane in lanes if lane.get("status") == "identity_mismatch"]
+    foreign = [lane["id"] for lane in lanes if lane.get("status") == "not_agiw"]
+    # Failed reads are unknown; only affirmative non-serving evidence can say down (lanes_health).
+    health = lanes_health(lanes)
+    models = [
+        {
+            "id": public_id(INVENTORY_IDS.get(lane.get("expectedModel"), lane.get("expectedModel"))) or "unknown",
+            "aliases": [public_id(lane.get("expectedModel"))],
+            "host": "windows",
+            "lane": lane.get("id"),
+            "port": lane.get("port"),
+            # Only an answering lane is evidence of residency; no answer (or a stale one) is unknown, never inactive.
+            "loadedState": "loaded" if lane.get("status") in LANE_UP else "unknown",
+            "activity": lane.get("phase") if lane.get("status") in ("idle", "busy") else "unknown",
+            "servedModel": public_id(lane.get("servedModel")),
+            "slotsBusy": lane.get("slotsBusy"),
+            "slotsTotal": lane.get("slotsTotal"),
+            "liveTokensPerSecond": lane.get("liveTokensPerSecond"),
+        }
+        for lane in lanes
+        if lane.get("status") != "undeclared"
+    ]
+    gpus = [
+        {
+            key: gpu.get(key)
+            for key in ("index", "name", "utilizationPercent", "memoryUsedMiB", "memoryTotalMiB", "temperatureC")
+        }
+        for gpu in snapshot.get("pcGpus") or []
+    ]
+    memory = snapshot.get("memory") or {}
+    queue = (snapshot.get("pipeline") or {}).get("queue") or {}
+    raw_components = snapshot.get("components")
+    components = _pc_status_components(raw_components)
     limitations = []
     undeclared = [lane["id"] for lane in lanes if lane.get("status") == "undeclared"]
     if undeclared:
-        unreadable = [lane["id"] for lane in lanes if lane.get("status") == "undeclared" and lane.get("configReason") == "unreadable"]
-        ambiguous = [lane["id"] for lane in lanes if lane.get("status") == "undeclared" and lane.get("configReason") == "ambiguous"]
+        unreadable = [
+            lane["id"]
+            for lane in lanes
+            if lane.get("status") == "undeclared" and lane.get("configReason") == "unreadable"
+        ]
+        ambiguous = [
+            lane["id"]
+            for lane in lanes
+            if lane.get("status") == "undeclared" and lane.get("configReason") == "ambiguous"
+        ]
         missing = [lane_id for lane_id in undeclared if lane_id not in unreadable and lane_id not in ambiguous]
         if unreadable:
             limitations.append("lane config unreadable; lane unknown: " + ", ".join(unreadable))
         if ambiguous:
-            limitations.append("lane port or alias declared more than once; lane ambiguous, not probed: " + ", ".join(ambiguous))
+            limitations.append(
+                "lane port or alias declared more than once; lane ambiguous, not probed: " + ", ".join(ambiguous)
+            )
         if missing:
             limitations.append("lanes not configured: " + ", ".join(missing))
     if mismatch:
@@ -1575,26 +2164,44 @@ def pc_status(snapshot: dict[str, Any]) -> dict[str, Any]:
     mac_peer = mac_peer if isinstance(mac_peer, dict) else {}
     if mac_peer.get("state") != "linked":
         # 0.2.0 has no LAN probe: the Mac is known only from its own fresh presence on the share.
-        limitations.append("no Mac configured in hosts.json; Mac reports not attributed"
-                           if mac_peer.get("reason") == "unconfigured" else
-                           "Mac identity unknown; hosts.json unreadable or invalid"
-                           if mac_peer.get("reason") == "config-unreadable" else
-                           "mac presence on SharedChami not fresh; Mac state unknown")
+        limitations.append(
+            "no Mac configured in hosts.json; Mac reports not attributed"
+            if mac_peer.get("reason") == "unconfigured"
+            else "Mac identity unknown; hosts.json unreadable or invalid"
+            if mac_peer.get("reason") == "config-unreadable"
+            else "mac presence on SharedChami not fresh; Mac state unknown"
+        )
     if mac_peer.get("lanObservationAvailable") is True:
         failure = mac_peer.get("lanFailure")
-        limitations.append(f"mac LM Studio LAN check failed ({failure}); cause unknown" if failure
-                           else "mac LM Studio LAN reachability unknown")
-    pair = pair_public(next((c for c in raw_components if isinstance(c, dict) and c.get("id") == "pair"), None)
-                       if isinstance(raw_components, (list, tuple)) else None)
-    status = {"schemaVersion": 1, "observedAt": snapshot.get("observedAt"), "host": "windows",
-              "producer": buildinfo.producer(snapshot.get("build"), snapshot.get("observerVersion")),
-              "health": health, "tasks": [],
-              "models": models, "modelsComplete": len(models) == len(lanes), "gpus": gpus, "adapters": [a.get("name") for a in snapshot.get("pcAdapters") or []],
-              "memory": {"level": memory.get("level"), "availablePercent": memory.get("availablePercent")},
-              "routeQueue": {key: queue.get(key) for key in ("pending", "claimed", "staleClaimed", "completed")} if queue else None,
-              "components": components,
-              "limitations": limitations,
-              "handsOff": hands_off_public(snapshot.get("handsOff"))}
+        limitations.append(
+            f"mac LM Studio LAN check failed ({failure}); cause unknown"
+            if failure
+            else "mac LM Studio LAN reachability unknown"
+        )
+    pair = pair_public(
+        next((c for c in raw_components if isinstance(c, dict) and c.get("id") == "pair"), None)
+        if isinstance(raw_components, (list, tuple))
+        else None
+    )
+    status = {
+        "schemaVersion": 1,
+        "observedAt": snapshot.get("observedAt"),
+        "host": "windows",
+        "producer": buildinfo.producer(snapshot.get("build"), snapshot.get("observerVersion")),
+        "health": health,
+        "tasks": [],
+        "models": models,
+        "modelsComplete": len(models) == len(lanes),
+        "gpus": gpus,
+        "adapters": [a.get("name") for a in snapshot.get("pcAdapters") or []],
+        "memory": {"level": memory.get("level"), "availablePercent": memory.get("availablePercent")},
+        "routeQueue": {key: queue.get(key) for key in ("pending", "claimed", "staleClaimed", "completed")}
+        if queue
+        else None,
+        "components": components,
+        "limitations": limitations,
+        "handsOff": hands_off_public(snapshot.get("handsOff")),
+    }
     if pair is not None:
         status["pair"] = pair
     return status
@@ -1603,11 +2210,20 @@ def pc_status(snapshot: dict[str, Any]) -> dict[str, Any]:
 def validate_status(value: dict[str, Any]) -> None:
     """The reader's own rules, checked before writing so a bad file never replaces a good one."""
     models = value.get("models")
-    if value.get("schemaVersion") != 1 or value.get("host") != "windows" or not isinstance(models, list) or len(models) > 32:
+    if (
+        value.get("schemaVersion") != 1
+        or value.get("host") != "windows"
+        or not isinstance(models, list)
+        or len(models) > 32
+    ):
         raise ValueError("status header invalid")
     for model in models:
-        if not isinstance(model.get("id"), str) or not model["id"] or model.get("host") != "windows" \
-                or model.get("loadedState") not in STATUS_LOADED_STATES:
+        if (
+            not isinstance(model.get("id"), str)
+            or not model["id"]
+            or model.get("host") != "windows"
+            or model.get("loadedState") not in STATUS_LOADED_STATES
+        ):
             raise ValueError("status model row invalid")
 
 
@@ -1670,6 +2286,36 @@ def _publish_anchor(path: Path, top: Path) -> tuple[Path, list[tuple[Path, str]]
 
 
 @contextmanager
+def _locked_posix_publish_parent(path, anchor, steps):
+    # Hold each parent while opening its child. All creation, replacement and cleanup
+    # below use the retained final descriptor, never the checked absolute pathname.
+    if not hasattr(os, "O_NOFOLLOW") or not hasattr(os, "O_DIRECTORY"):
+        raise ValueError("descriptor-anchored publication unavailable")
+    handles = []
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    try:
+        handles.append(os.open(anchor, flags))
+        for logical, name in steps:
+            if is_link_or_junction(logical) and not _platform_directory_symlink(logical):
+                raise ValueError("linked status directory refused")
+            try:
+                os.mkdir(name, dir_fd=handles[-1])
+            except FileExistsError:
+                pass
+            handles.append(os.open(name, flags, dir_fd=handles[-1]))
+        try:
+            target = os.stat(path.name, dir_fd=handles[-1], follow_symlinks=False)
+        except FileNotFoundError:
+            target = None
+        if target is not None and stat.S_ISLNK(target.st_mode):
+            raise ValueError("linked status directory refused")
+        yield handles[-1]
+    finally:
+        for handle in reversed(handles):
+            os.close(handle)
+
+
+@contextmanager
 def _locked_publish_parent(path: Path, stop_at: Path | None):
     """Open the target's parent by handle, never following a directory reparse point."""
     path = Path(os.path.abspath(path))
@@ -1678,38 +2324,21 @@ def _locked_publish_parent(path: Path, stop_at: Path | None):
         raise ValueError("publish target is outside its root")
     anchor, steps = _publish_anchor(path, top)
     if not IS_WINDOWS:
-        # Hold each parent while opening its child. All creation, replacement and cleanup
-        # below use the retained final descriptor, never the checked absolute pathname.
-        if not hasattr(os, "O_NOFOLLOW") or not hasattr(os, "O_DIRECTORY"):
-            raise ValueError("descriptor-anchored publication unavailable")
-        handles = []
-        flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
-        try:
-            handles.append(os.open(anchor, flags))
-            for logical, name in steps:
-                if is_link_or_junction(logical) and not _platform_directory_symlink(logical):
-                    raise ValueError("linked status directory refused")
-                try:
-                    os.mkdir(name, dir_fd=handles[-1])
-                except FileExistsError:
-                    pass
-                handles.append(os.open(name, flags, dir_fd=handles[-1]))
-            try:
-                target = os.stat(path.name, dir_fd=handles[-1], follow_symlinks=False)
-            except FileNotFoundError:
-                target = None
-            if target is not None and stat.S_ISLNK(target.st_mode):
-                raise ValueError("linked status directory refused")
-            yield handles[-1]
-        finally:
-            for handle in reversed(handles):
-                os.close(handle)
+        with _locked_posix_publish_parent(path, anchor, steps) as handle:
+            yield handle
         return
 
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     create = kernel32.CreateFileW
-    create.argtypes = (ctypes.c_wchar_p, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_void_p,
-                       ctypes.c_uint32, ctypes.c_uint32, ctypes.c_void_p)
+    create.argtypes = (
+        ctypes.c_wchar_p,
+        ctypes.c_uint32,
+        ctypes.c_uint32,
+        ctypes.c_void_p,
+        ctypes.c_uint32,
+        ctypes.c_uint32,
+        ctypes.c_void_p,
+    )
     create.restype = ctypes.c_void_p
     close = kernel32.CloseHandle
     close.argtypes = (ctypes.c_void_p,)
@@ -1746,9 +2375,14 @@ class _UnicodeString(ctypes.Structure):
 
 
 class _ObjectAttributes(ctypes.Structure):
-    _fields_ = [("Length", ctypes.c_ulong), ("RootDirectory", ctypes.c_void_p),
-                ("ObjectName", ctypes.POINTER(_UnicodeString)), ("Attributes", ctypes.c_ulong),
-                ("SecurityDescriptor", ctypes.c_void_p), ("SecurityQualityOfService", ctypes.c_void_p)]
+    _fields_ = [
+        ("Length", ctypes.c_ulong),
+        ("RootDirectory", ctypes.c_void_p),
+        ("ObjectName", ctypes.POINTER(_UnicodeString)),
+        ("Attributes", ctypes.c_ulong),
+        ("SecurityDescriptor", ctypes.c_void_p),
+        ("SecurityQualityOfService", ctypes.c_void_p),
+    ]
 
 
 class _IoStatusBlock(ctypes.Structure):
@@ -1772,7 +2406,7 @@ def _nt_error(status: int, call: str) -> OSError:
     """An OSError with the Win32 code, so a sharing or access refusal surfaces as PermissionError."""
     to_dos = ctypes.WinDLL("ntdll").RtlNtStatusToDosError
     to_dos.argtypes, to_dos.restype = (ctypes.c_ulong,), ctypes.c_ulong
-    status &= 0xffffffff
+    status &= 0xFFFFFFFF
     return OSError(0, f"{call} failed (0x{status:08x})", None, to_dos(status))
 
 
@@ -1781,22 +2415,43 @@ def _nt_create_relative(parent: int, name: str, directory: bool) -> int:
     buffer = ctypes.create_unicode_buffer(name)
     chars = len(name.encode("utf-16-le"))
     unicode_name = _UnicodeString(chars, chars + 2, ctypes.cast(buffer, ctypes.c_wchar_p))
-    attributes = _ObjectAttributes(ctypes.sizeof(_ObjectAttributes), parent, ctypes.pointer(unicode_name),
-                                   0x40, None, None)  # OBJ_CASE_INSENSITIVE
+    attributes = _ObjectAttributes(
+        ctypes.sizeof(_ObjectAttributes), parent, ctypes.pointer(unicode_name), 0x40, None, None
+    )  # OBJ_CASE_INSENSITIVE
     iosb = _IoStatusBlock()
     handle = ctypes.c_void_p()
     nt_create = ctypes.WinDLL("ntdll").NtCreateFile
-    nt_create.argtypes = (ctypes.POINTER(ctypes.c_void_p), ctypes.c_ulong, ctypes.POINTER(_ObjectAttributes),
-                          ctypes.POINTER(_IoStatusBlock), ctypes.c_void_p, ctypes.c_ulong, ctypes.c_ulong,
-                          ctypes.c_ulong, ctypes.c_ulong, ctypes.c_void_p, ctypes.c_ulong)
+    nt_create.argtypes = (
+        ctypes.POINTER(ctypes.c_void_p),
+        ctypes.c_ulong,
+        ctypes.POINTER(_ObjectAttributes),
+        ctypes.POINTER(_IoStatusBlock),
+        ctypes.c_void_p,
+        ctypes.c_ulong,
+        ctypes.c_ulong,
+        ctypes.c_ulong,
+        ctypes.c_ulong,
+        ctypes.c_void_p,
+        ctypes.c_ulong,
+    )
     nt_create.restype = ctypes.c_long
     # FILE_READ_ATTRIBUTES for directories; WRITE_DATA, READ_ATTRIBUTES and DELETE for a temp file.
     access = 0x80 if directory else 0x110082  # file also needs SYNCHRONIZE for CRT writes
     disposition = 3 if directory else 2  # FILE_OPEN_IF / FILE_CREATE (exclusive)
     options = 0x200000 | (0x1 if directory else 0x60)  # file adds SYNCHRONOUS_IO_NONALERT
-    status = nt_create(ctypes.byref(handle), access, ctypes.byref(attributes), ctypes.byref(iosb),
-                       None, 0x10 if directory else 0x80, 0x7 if directory else 0,
-                       disposition, options, None, 0)
+    status = nt_create(
+        ctypes.byref(handle),
+        access,
+        ctypes.byref(attributes),
+        ctypes.byref(iosb),
+        None,
+        0x10 if directory else 0x80,
+        0x7 if directory else 0,
+        disposition,
+        options,
+        None,
+        0,
+    )
     if status < 0:
         raise _nt_error(status, "NtCreateFile")
     return handle.value
@@ -1804,7 +2459,7 @@ def _nt_create_relative(parent: int, name: str, directory: bool) -> int:
 
 def _nt_replace_relative(parent: int, temp: str, target: str, payload: bytes) -> None:
     """Write and replace one file relative to the same checked parent handle."""
-    import msvcrt  # noqa: PLC0415 - Windows only
+    import msvcrt
 
     handle = _nt_create_relative(parent, temp, directory=False)
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -1826,17 +2481,27 @@ def _nt_replace_relative(parent: int, temp: str, target: str, payload: bytes) ->
         if not mark_for_delete(False):  # a delete-pending file cannot be renamed
             raise ctypes.WinError(ctypes.get_last_error())
         encoded = target.encode("utf-16-le")
+
         # FILE_RENAME_INFORMATION and its _EX form share this layout: a 4-byte first field (BOOLEAN
         # ReplaceIfExists plus padding, or ULONG Flags), the root handle, then the name length and name.
         class RenameInfo(ctypes.Structure):
-            _fields_ = [("Flags", ctypes.c_ulong), ("RootDirectory", ctypes.c_void_p),
-                        ("FileNameLength", ctypes.c_ulong)]
+            _fields_ = [
+                ("Flags", ctypes.c_ulong),
+                ("RootDirectory", ctypes.c_void_p),
+                ("FileNameLength", ctypes.c_ulong),
+            ]
+
         prefix = RenameInfo(0, parent, len(encoded))
         name_offset = RenameInfo.FileNameLength.offset + ctypes.sizeof(ctypes.c_ulong)
         raw = ctypes.create_string_buffer(name_offset + len(encoded))
         set_info = ctypes.WinDLL("ntdll").NtSetInformationFile
-        set_info.argtypes = (ctypes.c_void_p, ctypes.POINTER(_IoStatusBlock), ctypes.c_void_p,
-                             ctypes.c_ulong, ctypes.c_int)
+        set_info.argtypes = (
+            ctypes.c_void_p,
+            ctypes.POINTER(_IoStatusBlock),
+            ctypes.c_void_p,
+            ctypes.c_ulong,
+            ctypes.c_int,
+        )
         set_info.restype = ctypes.c_long
         # POSIX semantics replace the name even while a reader holds the old file open with delete
         # sharing, as the SMB server does for a Mac that keeps the status file open; that reader keeps the
@@ -1851,7 +2516,7 @@ def _nt_replace_relative(parent: int, temp: str, target: str, payload: bytes) ->
             status = set_info(handle, ctypes.byref(iosb), raw, len(raw), info_class)
             if status >= 0:
                 return
-            code = status & 0xffffffff
+            code = status & 0xFFFFFFFF
             if info_class == 65 and code in (0xC0000003, 0xC00000BB, 0xC000000D):
                 info_class, flags = 10, 1  # FileRenameInformation, ReplaceIfExists
                 continue
@@ -1945,20 +2610,33 @@ def peer_presence(snapshot: dict[str, Any], host: str) -> dict[str, Any]:
         if rate is not None:
             row["liveTokensPerSecond"] = rate
         models.append(row)
-    presence = {"schemaVersion": 1, "kind": "agiw-peer", "host": host, "platform": "windows",
-                "edition": "windows", "version": snapshot.get("observerVersion"), "producer": status["producer"],
-                "build": buildinfo.build_public(snapshot.get("build")),
-                "observedAt": snapshot.get("observedAt"),
-                "observedUnix": snapshot.get("sampledAt"), "health": status["health"],
-                "modelsTotal": models_total, "models": models,
-                # Complete only when every lane is listed (none cut off) and each one has a known residency.
-                "loadedListComplete": (models_total <= 32 and len(models) == models_total
-                                       and all(model["loadedState"] in ("loaded", "inactive") for model in models)),
-                "gpus": status["gpus"], "memory": status["memory"],
-                # D5 hands-off flag: the Mac shows "PC: hands off" with its cause (AGIW lanes vs other processes).
-                "handsOff": status["handsOff"],
-                "dashboard": {"bind": "loopback", "port": snapshot.get("dashboardPort")},
-                "reads": ["agiw-peers", "mac-status.json"]}
+    presence = {
+        "schemaVersion": 1,
+        "kind": "agiw-peer",
+        "host": host,
+        "platform": "windows",
+        "edition": "windows",
+        "version": snapshot.get("observerVersion"),
+        "producer": status["producer"],
+        "build": buildinfo.build_public(snapshot.get("build")),
+        "observedAt": snapshot.get("observedAt"),
+        "observedUnix": snapshot.get("sampledAt"),
+        "health": status["health"],
+        "modelsTotal": models_total,
+        "models": models,
+        # Complete only when every lane is listed (none cut off) and each one has a known residency.
+        "loadedListComplete": (
+            models_total <= 32
+            and len(models) == models_total
+            and all(model["loadedState"] in ("loaded", "inactive") for model in models)
+        ),
+        "gpus": status["gpus"],
+        "memory": status["memory"],
+        # D5 hands-off flag: the Mac shows "PC: hands off" with its cause (AGIW lanes vs other processes).
+        "handsOff": status["handsOff"],
+        "dashboard": {"bind": "loopback", "port": snapshot.get("dashboardPort")},
+        "reads": ["agiw-peers", "mac-status.json"],
+    }
     if "pair" in status:
         presence["pair"] = status["pair"]
     return presence
@@ -1983,8 +2661,13 @@ def _peer_models(raw_models: Any, legacy: bool = False) -> tuple[list[dict[str, 
     models, seen = [], set()
     valid = True
     for model in raw_models[:32]:
-        if not isinstance(model, dict) or not isinstance(model.get("id"), str) or not model["id"].strip() \
-                or legacy and model.get("host") != "mac":
+        if (
+            not isinstance(model, dict)
+            or not isinstance(model.get("id"), str)
+            or not model["id"].strip()
+            or legacy
+            and model.get("host") != "mac"
+        ):
             continue
         model_id = model["id"][:120]
         if model_id in seen:
@@ -1994,9 +2677,9 @@ def _peer_models(raw_models: Any, legacy: bool = False) -> tuple[list[dict[str, 
         if loaded not in STATUS_LOADED_STATES:
             valid = False
             loaded = "unknown"
-        models.append({"id": model_id,
-                       "loadedState": loaded,
-                       "activity": _string(model.get("activity"), 24) or "unknown"})
+        models.append(
+            {"id": model_id, "loadedState": loaded, "activity": _string(model.get("activity"), 24) or "unknown"}
+        )
     complete = valid and len(raw_models) <= 32 and len(models) == len(raw_models)
     return models, complete
 
@@ -2005,8 +2688,12 @@ RELAYED_PLATFORMS = {"mac": ("linux",)}  # relayer -> platforms it may relay (PL
 
 
 def _validate_peer(value: Any, now: float) -> dict[str, Any] | None:
-    if not isinstance(value, dict) or type(value.get("schemaVersion")) is not int \
-            or value["schemaVersion"] != 1 or value.get("kind") != "agiw-peer":
+    if (
+        not isinstance(value, dict)
+        or type(value.get("schemaVersion")) is not int
+        or value["schemaVersion"] != 1
+        or value.get("kind") != "agiw-peer"
+    ):
         return None
     host = value.get("host")
     observed = _number(value.get("observedUnix"))
@@ -2016,22 +2703,43 @@ def _validate_peer(value: Any, now: float) -> dict[str, Any] | None:
     # A relayed report (Linux, written by the Mac) keeps the source machine's observedUnix, so its age is the age of
     # the observation itself, never of the relay. Only a known relayer for a platform it may relay is accepted.
     relayed_by = value.get("relayedBy")
-    if relayed_by is not None and (not isinstance(relayed_by, str) or relayed_by not in RELAYED_PLATFORMS
-                                   or platform not in RELAYED_PLATFORMS[relayed_by]):
+    if relayed_by is not None and (
+        not isinstance(relayed_by, str)
+        or relayed_by not in RELAYED_PLATFORMS
+        or platform not in RELAYED_PLATFORMS[relayed_by]
+    ):
         return None
     raw_models = value.get("models")
     models, complete = _peer_models(raw_models)
-    loaded_complete = (complete and value.get("loadedListComplete") is True
-                       and all(model["loadedState"] in ("loaded", "inactive") for model in models))
+    loaded_complete = (
+        complete
+        and value.get("loadedListComplete") is True
+        and all(model["loadedState"] in ("loaded", "inactive") for model in models)
+    )
     # Complete only when the peer sent a model list and every entry survived: a missing list, a dropped row or a cut at
     # 32 is not evidence of fewer loaded models, so the dashboard makes no count claim from it.
-    complete = complete and value.get("modelsComplete") is not False and type(value.get("modelsTotal")) is int and value["modelsTotal"] == len(models)
+    complete = (
+        complete
+        and value.get("modelsComplete") is not False
+        and type(value.get("modelsTotal")) is int
+        and value["modelsTotal"] == len(models)
+    )
     age = max(0.0, now - observed)
-    return {"host": host, "platform": platform,
-            "edition": _string(value.get("edition"), 24), "version": _string(value.get("version"), 24),
-            "health": _string(value.get("health"), 16) or "unknown", "models": models, "modelsComplete": complete,
-            "loadedListComplete": loaded_complete, "ageSeconds": age, "fresh": age <= PEER_FRESH_SECONDS, "source": "agiw-peers",
-            "observedUnix": observed, "relayedBy": relayed_by}
+    return {
+        "host": host,
+        "platform": platform,
+        "edition": _string(value.get("edition"), 24),
+        "version": _string(value.get("version"), 24),
+        "health": _string(value.get("health"), 16) or "unknown",
+        "models": models,
+        "modelsComplete": complete,
+        "loadedListComplete": loaded_complete,
+        "ageSeconds": age,
+        "fresh": age <= PEER_FRESH_SECONDS,
+        "source": "agiw-peers",
+        "observedUnix": observed,
+        "relayedBy": relayed_by,
+    }
 
 
 def _legacy_mac_status(share_root: Path, now: float, *, on_refusal=None) -> dict[str, Any] | None:
@@ -2045,7 +2753,10 @@ def _legacy_mac_status(share_root: Path, now: float, *, on_refusal=None) -> dict
 
     try:
         value = read_json(path, PEER_MAX_BYTES)
-        observed = __import__("datetime").datetime.fromisoformat(str(value["observedAt"]).replace("Z", "+00:00")).timestamp()
+        observed_at = dt.datetime.fromisoformat(str(value["observedAt"]).replace("Z", "+00:00"))
+        if observed_at.tzinfo is None:
+            observed_at = observed_at.replace(tzinfo=dt.timezone.utc)
+        observed = observed_at.timestamp()
     except FileNotFoundError:
         return None
     except OSError:
@@ -2058,25 +2769,25 @@ def _legacy_mac_status(share_root: Path, now: float, *, on_refusal=None) -> dict
         return refused("clock-ahead")
     models, complete = _peer_models(value.get("models"), legacy=True)
     age = max(0.0, now - observed)
-    return {"host": "mac", "platform": "macos", "edition": "mac-status", "version": None, "verified": False,
-            "health": _string(value.get("health"), 16) or "unknown", "models": models, "modelsComplete": complete,
-            "ageSeconds": age,
-            "fresh": age <= PEER_FRESH_SECONDS, "source": "mac-status.json", "observedUnix": observed, "relayedBy": None}
+    return {
+        "host": "mac",
+        "platform": "macos",
+        "edition": "mac-status",
+        "version": None,
+        "verified": False,
+        "health": _string(value.get("health"), 16) or "unknown",
+        "models": models,
+        "modelsComplete": complete,
+        "ageSeconds": age,
+        "fresh": age <= PEER_FRESH_SECONDS,
+        "source": "mac-status.json",
+        "observedUnix": observed,
+        "relayedBy": None,
+    }
 
 
-def read_peers(share_root: Path, self_host: str, now: float) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """Every other AGIW instance that has published presence, newest first, plus the Mac's status file."""
-    peers: list[dict[str, Any]] = []
-    directory = peer_dir(share_root)
+def _peer_report_entries(directory: Path, refused):
     entries, examined, truncated = [], 0, False
-    refusals: dict[str, int] = {}
-    refusal_hosts: dict[str, str] = {}
-
-    def refused(reason: str, host: str | None = None) -> None:
-        refusals[reason] = refusals.get(reason, 0) + 1
-        if host:
-            refusal_hosts[host.casefold()] = reason
-
     scan_complete = False
     try:
         if is_link_or_junction(directory):
@@ -2112,6 +2823,84 @@ def read_peers(share_root: Path, self_host: str, now: float) -> tuple[list[dict[
         truncated = True
     scan_complete = scan_complete and not truncated and len(dated_entries) <= PEER_MAX_FILES
     entries = [entry for _, entry in sorted(dated_entries, key=lambda pair: pair[0], reverse=True)[:PEER_MAX_FILES]]
+    return entries, scan_complete, truncated
+
+
+def _peer_presence_summary(peers, scan_complete, truncated, refused, refusals, refusal_hosts):
+    peers.sort(key=lambda p: p["ageSeconds"])
+    fresh = [p for p in peers if p["fresh"]]
+    detail = (
+        f"{len(fresh)} reported ({', '.join(p['host'] for p in fresh)}; unsigned share files, not verified)"
+        if fresh
+        else "No AGIW peer has published in the last 30 s"
+        if scan_complete
+        else "Peer presence unknown; folder scan unavailable or incomplete"
+    )
+    if truncated:
+        refused("scan-truncated")
+    detail = (
+        f"{'at least ' if refusals else ''}{len(fresh)} reported ({', '.join(p['host'] + (' claims relay by ' + p['relayedBy'] if p.get('relayedBy') else '') for p in fresh)}; "
+        "unsigned share files, not verified)"
+        if fresh
+        else "Peer presence unknown; reports could not be fully read"
+        if refusals
+        else "No AGIW peer has published in the last 30 s"
+        if scan_complete
+        else "Peer presence unknown; no complete folder scan"
+    )
+    if truncated:
+        detail += f"; folder scan limited to {PEER_SCAN_LIMIT} entries and {PEER_MAX_FILES} reports"
+    if refusals:
+        detail += "; " + ", ".join(f"{reason}: {count}" for reason, count in refusals.items())
+    stale = [p for p in peers if not p["fresh"]]
+    if stale:
+        detail += f"; {len(stale)} stale ({', '.join(p['host'] + ' ' + str(int(p['ageSeconds'] // 3600)) + ' h' for p in stale)})"
+    reason = (
+        "peers-unreadable"
+        if "peers-unreadable" in refusals or "linked-folder" in refusals
+        else "clock-ahead"
+        if "clock-ahead" in refusals
+        else "report-unreadable"
+        if "report-unreadable" in refusals
+        else "report-refused"
+        if "report-refused" in refusals
+        else "scan-truncated"
+        if "scan-truncated" in refusals
+        else "available"
+        if fresh
+        else "no-report"
+    )
+    scan_complete = scan_complete and not bool(refusals)
+    return peers, {
+        **_source(
+            "agiw-peers",
+            "AGIW peers",
+            "live" if fresh else "recorded" if scan_complete and not peers else "unavailable",
+            detail,
+        ),
+        "scanComplete": scan_complete,
+        "observedAgeSeconds": 0,
+        "reason": reason,
+        "complete": not bool(refusals),
+        "truncated": truncated,
+        "refusals": refusals,
+        "refusalHosts": refusal_hosts,
+    }
+
+
+def read_peers(share_root: Path, self_host: str, now: float) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Every other AGIW instance that has published presence, newest first, plus the Mac's status file."""
+    peers: list[dict[str, Any]] = []
+    directory = peer_dir(share_root)
+    refusals: dict[str, int] = {}
+    refusal_hosts: dict[str, str] = {}
+
+    def refused(reason: str, host: str | None = None) -> None:
+        refusals[reason] = refusals.get(reason, 0) + 1
+        if host:
+            refusal_hosts[host.casefold()] = reason
+
+    entries, scan_complete, truncated = _peer_report_entries(directory, refused)
     seen_hosts: set[str] = set()
     for entry in entries:
         try:
@@ -2119,7 +2908,10 @@ def read_peers(share_root: Path, self_host: str, now: float) -> tuple[list[dict[
             peer = _validate_peer(value, now)
             if peer is None:
                 observed = _number(value.get("observedUnix")) if isinstance(value, dict) else None
-                refused("clock-ahead" if observed is not None and observed > now + PEER_FUTURE_SKEW else "report-refused", entry.name[:-5])
+                refused(
+                    "clock-ahead" if observed is not None and observed > now + PEER_FUTURE_SKEW else "report-refused",
+                    entry.name[:-5],
+                )
         except OSError:
             refused("report-unreadable", entry.name[:-5])
             peer = None
@@ -2132,8 +2924,13 @@ def read_peers(share_root: Path, self_host: str, now: float) -> tuple[list[dict[
             refused("report-refused", entry.name[:-5])
             scan_complete = False
         # The file name must be the host it claims, and each host counts once (newest wins).
-        if (peer and entry.name[:-5].lower() == peer["host"].lower() and peer["host"].lower() not in seen_hosts
-                and peer["host"] != self_host and peer["host"] != host_id()):
+        if (
+            peer
+            and entry.name[:-5].lower() == peer["host"].lower()
+            and peer["host"].lower() not in seen_hosts
+            and peer["host"] != self_host
+            and peer["host"] != host_id()
+        ):
             seen_hosts.add(peer["host"].lower())
             peer["verified"] = False  # unsigned share report; authenticated peers arrive with the pairing protocol
             peers.append(peer)
@@ -2145,34 +2942,7 @@ def read_peers(share_root: Path, self_host: str, now: float) -> tuple[list[dict[
             if all(legacy["ageSeconds"] <= peer["ageSeconds"] for peer in same):
                 peers = [peer for peer in peers if peer not in same]
                 peers.append(legacy)
-    peers.sort(key=lambda p: p["ageSeconds"])
-    fresh = [p for p in peers if p["fresh"]]
-    detail = (f"{len(fresh)} reported ({', '.join(p['host'] for p in fresh)}; unsigned share files, not verified)" if fresh
-              else "No AGIW peer has published in the last 30 s" if scan_complete
-              else "Peer presence unknown; folder scan unavailable or incomplete")
-    if truncated:
-        refused("scan-truncated")
-    detail = (f"{'at least ' if refusals else ''}{len(fresh)} reported ({', '.join(p['host'] + (' claims relay by ' + p['relayedBy'] if p.get('relayedBy') else '') for p in fresh)}; "
-              "unsigned share files, not verified)" if fresh
-              else "Peer presence unknown; reports could not be fully read" if refusals else
-              "No AGIW peer has published in the last 30 s" if scan_complete else "Peer presence unknown; no complete folder scan")
-    if truncated:
-        detail += f"; folder scan limited to {PEER_SCAN_LIMIT} entries and {PEER_MAX_FILES} reports"
-    if refusals:
-        detail += "; " + ", ".join(f"{reason}: {count}" for reason, count in refusals.items())
-    stale = [p for p in peers if not p["fresh"]]
-    if stale:
-        detail += f"; {len(stale)} stale ({', '.join(p['host'] + ' ' + str(int(p['ageSeconds'] // 3600)) + ' h' for p in stale)})"
-    reason = ("peers-unreadable" if "peers-unreadable" in refusals or "linked-folder" in refusals else
-              "clock-ahead" if "clock-ahead" in refusals else
-              "report-unreadable" if "report-unreadable" in refusals else
-              "report-refused" if "report-refused" in refusals else
-              "scan-truncated" if "scan-truncated" in refusals else
-              "available" if fresh else "no-report")
-    scan_complete = scan_complete and not bool(refusals)
-    return peers, {**_source("agiw-peers", "AGIW peers", "live" if fresh else "recorded" if scan_complete and not peers else "unavailable", detail),
-                   "scanComplete": scan_complete, "observedAgeSeconds": 0, "reason": reason, "complete": not bool(refusals), "truncated": truncated,
-                   "refusals": refusals, "refusalHosts": refusal_hosts}
+    return _peer_presence_summary(peers, scan_complete, truncated, refused, refusals, refusal_hosts)
 
 
 # ------------------------------------------------------------------- machines
@@ -2180,9 +2950,12 @@ def read_peers(share_root: Path, self_host: str, now: float) -> tuple[list[dict[
 # arrived. A missing, stale or unattributable report is unknown, never down; "down" comes only from a fresh report
 # that says nothing is serving, and a share report is labelled share-reported (unsigned) rather than verified.
 MACHINE_REASONS = {
-    ("local", "ok"): ("up", "serving"), ("local", "degraded"): ("up", "partly-serving"),
-    ("local", "down"): ("down", "no-lane-serving"), ("local", "unknown"): ("unknown", "lane-state-unknown"),
-    ("peer", "ok"): ("up", "reported-serving"), ("peer", "degraded"): ("up", "reported-partly-serving"),
+    ("local", "ok"): ("up", "serving"),
+    ("local", "degraded"): ("up", "partly-serving"),
+    ("local", "down"): ("down", "no-lane-serving"),
+    ("local", "unknown"): ("unknown", "lane-state-unknown"),
+    ("peer", "ok"): ("up", "reported-serving"),
+    ("peer", "degraded"): ("up", "reported-partly-serving"),
     ("peer", "down"): ("down", "reported-down"),
 }
 MACHINE_LABELS = {"windows": "PC", "macos": "Mac", "linux": "Linux"}
@@ -2190,14 +2963,26 @@ MACHINE_LABELS = {"windows": "PC", "macos": "Mac", "linux": "Linux"}
 # row schema that web/machines.mjs, the peer map and the setup page read: host, reasonCode, observedAt,
 # freshForSeconds, modelsComplete, busyCount and the token rates. reasonCode comes from the PC's own reason word.
 MACHINE_REASON_CODES = {
-    "serving": "observed", "partly-serving": "reported_degraded", "no-lane-serving": "reported_down",
+    "serving": "observed",
+    "partly-serving": "reported_degraded",
+    "no-lane-serving": "reported_down",
     "lane-state-unknown": "unavailable",
-    "reported-serving": "observed", "reported-partly-serving": "reported_degraded", "reported-down": "reported_down",
-    "reported-service-unknown": "unavailable", "health-unknown": "unavailable",
-    "stale": "stale", "no-report": "not_observed", "unconfigured": "not_configured",
-    "config-unreadable": "unavailable", "clock-ahead": "clock_skew", "report-refused": "schema_invalid",
-    "peers-unreadable": "read_error", "report-unreadable": "read_error", "scan-truncated": "unavailable",
+    "reported-serving": "observed",
+    "reported-partly-serving": "reported_degraded",
+    "reported-down": "reported_down",
+    "reported-service-unknown": "unavailable",
+    "health-unknown": "unavailable",
+    "stale": "stale",
+    "no-report": "not_observed",
+    "unconfigured": "not_configured",
+    "config-unreadable": "unavailable",
+    "clock-ahead": "clock_skew",
+    "report-refused": "schema_invalid",
+    "peers-unreadable": "read_error",
+    "report-unreadable": "read_error",
+    "scan-truncated": "unavailable",
     "evidence-incomplete": "unavailable",
+    "unverified-report": "unavailable",
 }
 # This PC's own row is judged by the sample cadence (1 Hz) like the Mac's own row; a peer's report is judged by
 # PEER_FRESH_SECONDS. Without a fresh sample the row's slot activity is not live, so it turns unknown.
@@ -2209,15 +2994,24 @@ def _machine_platform(platform: str) -> str:
     return "mac" if platform == "macos" else platform
 
 
-def _shared_row_fields(host: Any, reason: str, observed_unix: Any, loaded_count: Any, busy_count: Any,
-                       fresh: float = PEER_FRESH_SECONDS) -> dict[str, Any]:
+def _shared_row_fields(
+    host: Any, reason: str, observed_unix: Any, loaded_count: Any, busy_count: Any, fresh: float = PEER_FRESH_SECONDS
+) -> dict[str, Any]:
     """The shared-schema fields of one machines[] row. Counts stay null unless the PC knows them (callers pass None
     for a row that is not up); the PC reads no token rates for a machine, so those are null too."""
     complete = loaded_count is not None
-    return {"host": host, "reasonCode": MACHINE_REASON_CODES.get(reason, "unavailable"),
-            "observedAt": _iso_utc(observed_unix, millis=True), "freshForSeconds": fresh,
-            "modelsComplete": complete, "busyCount": busy_count if complete else None,
-            "promptTokensPerSecond": None, "generationTokensPerSecond": None}
+    return {
+        "host": host,
+        "reasonCode": MACHINE_REASON_CODES.get(reason, "unavailable"),
+        "observedAt": _iso_utc(observed_unix, millis=True),
+        "freshForSeconds": fresh,
+        "modelsComplete": complete,
+        "busyCount": busy_count if complete else None,
+        "promptTokensPerSecond": None,
+        "generationTokensPerSecond": None,
+    }
+
+
 RELAYER_LABELS = {"mac": "Mac"}
 
 
@@ -2237,62 +3031,119 @@ def _age_words(age: float) -> str:
 
 def _peer_machine(record: dict[str, Any], platform: str, paired: list[dict[str, Any]] | None) -> dict[str, Any]:
     relayed = record.get("relayedBy")
-    trust = ("relayed" if relayed else "legacy-share" if record.get("source") == "mac-status.json" else "share-reported")
+    trust = "relayed" if relayed else "legacy-share" if record.get("source") == "mac-status.json" else "share-reported"
     age = record.get("ageSeconds")
     observed = record.get("observedUnix")
     health = record.get("health") if record.get("health") in ("ok", "degraded", "down") else "unknown"
     models = record.get("models") if isinstance(record.get("models"), list) else []
     # As everywhere else: a count only from a complete, non-empty list with every residency known.
-    known = record.get("modelsComplete") is True and bool(models) and all(
-        isinstance(m, dict) and m.get("loadedState") in ("loaded", "inactive") for m in models)
-    how = (f"relayed by the {RELAYER_LABELS.get(relayed, relayed)} (unsigned share file, not verified)" if relayed
-           else f"reported through SharedChami ({record.get('source')}; unsigned, not verified)")
+    known = (
+        record.get("modelsComplete") is True
+        and bool(models)
+        and all(isinstance(m, dict) and m.get("loadedState") in ("loaded", "inactive") for m in models)
+    )
+    how = (
+        f"relayed by the {RELAYER_LABELS.get(relayed, relayed)} (unsigned share file, not verified)"
+        if relayed
+        else f"reported through SharedChami ({record.get('source')}; unsigned, not verified)"
+    )
     if record.get("fresh") is True:
         state, reason = MACHINE_REASONS.get(("peer", health), ("unknown", "health-unknown"))
         detail = f"{MACHINE_LABELS.get(platform, platform)} {how}, observed {_age_words(age)} ago; health {health}"
         if health == "degraded" and not any(isinstance(m, dict) and m.get("loadedState") == "loaded" for m in models):
             state, reason = "unknown", "reported-service-unknown"
             detail += "; no model reported serving"
+        if state == "up" and record.get("verified") is not True:
+            state, reason = "unknown", "unverified-report"
+            detail += "; machine health unverified"
     else:
         state, reason = "unknown", "stale"
         since = _iso_utc(observed)
-        detail = (f"Not observed since {since} ({_age_words(age)}); state unknown" if since and isinstance(age, (int, float))
-                  else "Last report too old; state unknown")
+        detail = (
+            f"Not observed since {since} ({_age_words(age)}); state unknown"
+            if since and isinstance(age, (int, float))
+            else "Last report too old; state unknown"
+        )
     # The paired link names only a host kind, so it can annotate the one Mac and the one Linux row, not other PCs.
     kind = {"macos": "mac", "linux": "linux"}.get(platform)
-    link = next((row for row in paired or [] if isinstance(row, dict) and kind and row.get("host") == kind
-                 and row.get("paired") is True), None)
+    link = next(
+        (
+            row
+            for row in paired or []
+            if isinstance(row, dict) and kind and row.get("host") == kind and row.get("paired") is True
+        ),
+        None,
+    )
     loaded_count = sum(m["loadedState"] == "loaded" for m in models) if known and record.get("fresh") is True else None
     if state != "up":
         loaded_count = None  # as on the Mac: a down or unknown machine makes no count claim
     loaded = [m for m in models if isinstance(m, dict) and m.get("loadedState") == "loaded"]
-    busy_count = (sum(m.get("activity") in ("busy", "generating") for m in loaded)
-                  if loaded_count is not None and all(m.get("activity") in ("idle", "busy", "generating") for m in loaded)
-                  else None)
-    return {"id": record.get("host"), "name": record.get("host"), "platform": _machine_platform(platform),
-            "label": MACHINE_LABELS.get(platform, platform), "role": "peer", "state": state, "reason": reason,
-            "detail": detail, "trust": trust, "relayedBy": relayed, "source": record.get("source"),
-            "ageSeconds": age if isinstance(age, (int, float)) else None, "observedUnix": observed,
-            "health": health if record.get("fresh") is True else "unknown",
-            "loadedCount": loaded_count,
-            "version": record.get("version"), "handsOff": None,
-            "peerLink": link.get("state") if link else None,
-            **_shared_row_fields(record.get("host"), reason, observed, loaded_count, busy_count)}
+    busy_count = (
+        sum(m.get("activity") in ("busy", "generating") for m in loaded)
+        if loaded_count is not None and all(m.get("activity") in ("idle", "busy", "generating") for m in loaded)
+        else None
+    )
+    return {
+        "id": record.get("host"),
+        "name": record.get("host"),
+        "platform": _machine_platform(platform),
+        "label": MACHINE_LABELS.get(platform, platform),
+        "role": "peer",
+        "state": state,
+        "reason": reason,
+        "detail": detail,
+        "trust": trust,
+        "relayedBy": relayed,
+        "source": record.get("source"),
+        "ageSeconds": age if isinstance(age, (int, float)) else None,
+        "observedUnix": observed,
+        "health": health if record.get("fresh") is True else "unknown",
+        "loadedCount": loaded_count,
+        "version": record.get("version"),
+        "handsOff": None,
+        "peerLink": link.get("state") if link else None,
+        **_shared_row_fields(record.get("host"), reason, observed, loaded_count, busy_count),
+    }
 
 
 def _missing_machine(platform: str, name: str | None, reason: str, detail: str) -> dict[str, Any]:
     row_id = short_host(name) or {"macos": "mac"}.get(platform, platform)
-    return {"id": row_id, "name": name, "platform": _machine_platform(platform),
-            "label": MACHINE_LABELS.get(platform, platform), "role": "peer", "state": "unknown", "reason": reason,
-            "detail": detail, "trust": None, "relayedBy": None, "source": None, "ageSeconds": None,
-            "observedUnix": None, "health": "unknown", "loadedCount": None, "version": None, "handsOff": None,
-            "peerLink": None, **_shared_row_fields(row_id, reason, None, None, None)}
+    return {
+        "id": row_id,
+        "name": name,
+        "platform": _machine_platform(platform),
+        "label": MACHINE_LABELS.get(platform, platform),
+        "role": "peer",
+        "state": "unknown",
+        "reason": reason,
+        "detail": detail,
+        "trust": None,
+        "relayedBy": None,
+        "source": None,
+        "ageSeconds": None,
+        "observedUnix": None,
+        "health": "unknown",
+        "loadedCount": None,
+        "version": None,
+        "handsOff": None,
+        "peerLink": None,
+        **_shared_row_fields(row_id, reason, None, None, None),
+    }
 
 
-def machine_rows(*, host: str, sampled_at: Any, lanes: list[dict[str, Any]], hands: dict[str, Any] | None,
-                 version: str, peers: list[dict[str, Any]], mac_name: str | None,
-                 paired: list[dict[str, Any]] | None = None, peers_source: dict[str, Any] | None = None,
-                 mac_config_reason: str | None = None) -> list[dict[str, Any]]:
+def machine_rows(
+    *,
+    host: str,
+    sampled_at: Any,
+    lanes: list[dict[str, Any]],
+    hands: dict[str, Any] | None,
+    version: str,
+    peers: list[dict[str, Any]],
+    mac_name: str | None,
+    paired: list[dict[str, Any]] | None = None,
+    peers_source: dict[str, Any] | None = None,
+    mac_config_reason: str | None = None,
+) -> list[dict[str, Any]]:
     """machines[]: this PC and the configured Mac, then any other PCs.
 
     Linux is retired. A share file that claims to be Linux stays in peers[] for
@@ -2307,35 +3158,65 @@ def machine_rows(*, host: str, sampled_at: Any, lanes: list[dict[str, Any]], han
     if state != "up":
         loaded_count = None
     # Busy lanes are counted only when every lane's slot activity is known.
-    busy_count = sum(status == "busy" for status in statuses) if lanes and all(
-        status in ("idle", "busy") for status in statuses) else None
-    rows = [{"id": host, "name": host, "platform": "windows", "label": "This PC", "role": "this-machine",
-             "state": state, "reason": reason,
-             "detail": {"serving": "Every lane answers as declared", "partly-serving": f"{serving} of {len(lanes)} lanes answer as declared",
-                        "no-lane-serving": "No lane serves as declared (loading, identity mismatch or port held by PAIR)",
-                        "lane-state-unknown": "Lane state unknown (not configured, pending, stale or unreadable)"}[reason],
-             "trust": "local", "relayedBy": None, "source": "local", "ageSeconds": 0.0, "observedUnix": _number(sampled_at, low=0),
-             "health": health,
-             # Residency is known only when every lane answered; otherwise a count would hide unknown lanes.
-             "loadedCount": loaded_count,
-             "version": version, "handsOff": hands.get("active") if isinstance(hands, dict) else None, "peerLink": None,
-             **_shared_row_fields(host, reason, _number(sampled_at, low=0), loaded_count, busy_count,
-                                  LOCAL_ROW_FRESH_SECONDS)}]
+    busy_count = (
+        sum(status == "busy" for status in statuses)
+        if lanes and all(status in ("idle", "busy") for status in statuses)
+        else None
+    )
+    rows = [
+        {
+            "id": host,
+            "name": host,
+            "platform": "windows",
+            "label": "This PC",
+            "role": "this-machine",
+            "state": state,
+            "reason": reason,
+            "detail": {
+                "serving": "Every lane answers as declared",
+                "partly-serving": f"{serving} of {len(lanes)} lanes answer as declared",
+                "no-lane-serving": "No lane serves as declared (loading, identity mismatch or port held by PAIR)",
+                "lane-state-unknown": "Lane state unknown (not configured, pending, stale or unreadable)",
+            }[reason],
+            "trust": "local",
+            "relayedBy": None,
+            "source": "local",
+            "ageSeconds": 0.0,
+            "observedUnix": _number(sampled_at, low=0),
+            "health": health,
+            # Residency is known only when every lane answered; otherwise a count would hide unknown lanes.
+            "loadedCount": loaded_count,
+            "version": version,
+            "handsOff": hands.get("active") if isinstance(hands, dict) else None,
+            "peerLink": None,
+            **_shared_row_fields(
+                host, reason, _number(sampled_at, low=0), loaded_count, busy_count, LOCAL_ROW_FRESH_SECONDS
+            ),
+        }
+    ]
     records = sorted((p for p in peers or [] if isinstance(p, dict)), key=lambda p: p.get("ageSeconds") or 0)
     want = short_host(mac_name)
     if want is None:
         reason = "config-unreadable" if mac_config_reason == "config-unreadable" else "unconfigured"
-        detail = ("Mac identity unknown; hosts.json unreadable or invalid" if reason == "config-unreadable" else
-                  "No Mac configured in llm-lab/mac-reach/hosts.json; Mac reports are not attributed")
+        detail = (
+            "Mac identity unknown; hosts.json unreadable or invalid"
+            if reason == "config-unreadable"
+            else "No Mac configured in llm-lab/mac-reach/hosts.json; Mac reports are not attributed"
+        )
         rows.append(_missing_machine("macos", None, reason, detail))
     else:
         mac = next((p for p in records if p.get("platform") == "macos" and short_host(p.get("host")) == want), None)
-        reason = (peers_source or {}).get("refusalHosts", {}).get(want) or (peers_source or {}).get("reason", "no-report")
+        reason = (peers_source or {}).get("refusalHosts", {}).get(want) or (peers_source or {}).get(
+            "reason", "no-report"
+        )
         if reason not in ("clock-ahead", "report-refused", "peers-unreadable", "report-unreadable", "scan-truncated"):
             reason = "no-report"
-        detail = ((peers_source or {}).get("detail") or "Mac presence report could not be read") if reason != "no-report" else "No report from the configured Mac on SharedChami; state unknown"
-        rows.append(_peer_machine(mac, "macos", paired) if mac else _missing_machine(
-            "macos", mac_name, reason, detail))
+        detail = (
+            ((peers_source or {}).get("detail") or "Mac presence report could not be read")
+            if reason != "no-report"
+            else "No report from the configured Mac on SharedChami; state unknown"
+        )
+        rows.append(_peer_machine(mac, "macos", paired) if mac else _missing_machine("macos", mac_name, reason, detail))
     for record in records:
         if record.get("platform") == "windows" and short_host(record.get("host")) != short_host(host):
             rows.append(_peer_machine(record, "windows", paired))
@@ -2359,7 +3240,7 @@ def _peer_link_opened_path(stream, path: Path) -> None:
         raise ValueError("not a regular file")
     if not IS_WINDOWS:
         return
-    import msvcrt  # noqa: PLC0415 - Windows only
+    import msvcrt
 
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     handle = msvcrt.get_osfhandle(stream.fileno())
@@ -2411,19 +3292,34 @@ def _peer_link_age(value: Any, now: float) -> float | None:
 
 
 def _peer_link_status(value: Any, host: str, now: float) -> dict[str, Any] | None:
-    if host not in ("mac", "windows", "linux") or not isinstance(value, dict) \
-            or type(value.get("schemaVersion")) is not int or value["schemaVersion"] != 1:
+    if (
+        host not in ("mac", "windows", "linux")
+        or not isinstance(value, dict)
+        or type(value.get("schemaVersion")) is not int
+        or value["schemaVersion"] != 1
+    ):
         return None
     kind = value.get("platform") if value.get("kind") == "agiw-peer" else value.get("host")
     age = _peer_link_age(value.get("observedAt"), now)
     models = value.get("models")
-    if kind != host or age is None or not -PEER_FUTURE_SKEW <= age <= 30 or not isinstance(models, list) or len(models) > 32:
+    if (
+        kind != host
+        or age is None
+        or not -PEER_FUTURE_SKEW <= age <= 30
+        or not isinstance(models, list)
+        or len(models) > 32
+    ):
         return None
     rows = []
     for model in models:
-        if not isinstance(model, dict) or not isinstance(model.get("id"), str) or not model["id"].strip() \
-                or not model["id"].isprintable() or model.get("loadedState") not in STATUS_LOADED_STATES \
-                or model.get("host") not in (None, host):
+        if (
+            not isinstance(model, dict)
+            or not isinstance(model.get("id"), str)
+            or not model["id"].strip()
+            or not model["id"].isprintable()
+            or model.get("loadedState") not in STATUS_LOADED_STATES
+            or model.get("host") not in (None, host)
+        ):
             return None
         row = {"id": model["id"][:256], "loadedState": model["loadedState"]}
         if model.get("activity") in ("idle", "busy", "generating", "unknown"):
@@ -2455,17 +3351,29 @@ def read_peer_link(now: float, *, enabled: bool = False) -> tuple[list[dict[str,
             return [], unknown
         doc = _read_peer_link_file(peer_link_status_path())
         identity = doc.get("self") if isinstance(doc, dict) else None
-        if not isinstance(doc, dict) or type(doc.get("schemaVersion")) is not int or doc["schemaVersion"] != 1 \
-                or doc.get("protocol") != "agiw-peer/2" or not isinstance(doc.get("peers"), list) \
-                or not isinstance(identity, dict) or identity.get("host") != "windows" \
-                or not isinstance(identity.get("node"), str) or not PEER_LINK_UUID.fullmatch(identity["node"]):
+        if (
+            not isinstance(doc, dict)
+            or type(doc.get("schemaVersion")) is not int
+            or doc["schemaVersion"] != 1
+            or doc.get("protocol") != "agiw-peer/2"
+            or not isinstance(doc.get("peers"), list)
+            or not isinstance(identity, dict)
+            or identity.get("host") != "windows"
+            or not isinstance(identity.get("node"), str)
+            or not PEER_LINK_UUID.fullmatch(identity["node"])
+        ):
             return [], unknown
         age = _peer_link_age(doc.get("observedAt"), now)
         fresh = age is not None and -5 <= age <= 30
+        omitted_rows = max(0, len(doc["peers"]) - PEER_LINK_MAX_ROWS)
         rows, seen = [], set()
         for item in doc["peers"][:PEER_LINK_MAX_ROWS]:
-            if not isinstance(item, dict) or not isinstance(item.get("node"), str) \
-                    or not PEER_LINK_UUID.fullmatch(item["node"]) or item["node"] == identity["node"]:
+            if (
+                not isinstance(item, dict)
+                or not isinstance(item.get("node"), str)
+                or not PEER_LINK_UUID.fullmatch(item["node"])
+                or item["node"] == identity["node"]
+            ):
                 continue
             if item["node"] in seen:
                 for row in rows:
@@ -2481,20 +3389,42 @@ def read_peer_link(now: float, *, enabled: bool = False) -> tuple[list[dict[str,
                 status = _peer_link_status(item.get("status"), host, now) if paired is True else None
                 if status is None:
                     state = "unknown"
-            rows.append({"node": item["node"], "name": _string(item.get("name"), 64), "host": host,
-                         "paired": paired, "state": state, "status": status})
+            rows.append(
+                {
+                    "node": item["node"],
+                    "name": _string(item.get("name"), 64),
+                    "host": host,
+                    "paired": paired,
+                    "state": state,
+                    "status": status,
+                }
+            )
         if not fresh:
-            detail = (f"Pairing service report stale ({age:.1f} s); status unknown" if age is not None and age > 30
-                      else "Pairing service report clock unknown; status unknown")
-            return rows, _source("peer-link", "Peer link", "unavailable", detail)
-        paired_count = sum(row["paired"] is True for row in rows)
-        connected_count = sum(row["state"] == "connected" for row in rows)
-        return rows, _source("peer-link", "Peer link", "live",
-                             f"Pairing service reports {paired_count} paired, {connected_count} connected "
-                             "(local pairing service file; not independently verified)",
-                             round(max(0.0, age), 1))
+            detail = (
+                f"Pairing service report stale ({age:.1f} s); status unknown"
+                if age is not None and age > 30
+                else "Pairing service report clock unknown; status unknown"
+            )
+            source = _source("peer-link", "Peer link", "unavailable", detail)
+        else:
+            paired_count = sum(row["paired"] is True for row in rows)
+            connected_count = sum(row["state"] == "connected" for row in rows)
+            source = _source(
+                "peer-link",
+                "Peer link",
+                "unavailable" if omitted_rows else "live",
+                f"Pairing service reports {paired_count} paired, {connected_count} connected "
+                "(local pairing service file; not independently verified)",
+                round(max(0.0, age), 1),
+            )
+        if omitted_rows:
+            source.update(truncated=True, complete=False, omittedRows=omitted_rows)
+            source["detail"] += f"; counts among {len(rows)} retained peers; {omitted_rows} omitted"
+        return rows, source
     except FileNotFoundError:
-        return [], _source("peer-link", "Peer link", "unavailable", "Pairing service status unavailable (no peers.json)")
+        return [], _source(
+            "peer-link", "Peer link", "unavailable", "Pairing service status unavailable (no peers.json)"
+        )
     except (OSError, ValueError, TypeError, RecursionError):
         return [], unknown
 
