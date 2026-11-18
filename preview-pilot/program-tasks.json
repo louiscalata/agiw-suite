@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "tasks": {
+    "tiny-arithmetic.mjs": {
+      "taskId": "agiw.preview.tiny-arithmetic",
+      "mode": "edit",
+      "language": "json",
+      "allowedFiles": ["answer.json"],
+      "acceptanceCriteria": ["Exactly one integer answer field equal to six multiplied by seven."]
+    },
+    "tiny-extraction.mjs": {
+      "taskId": "agiw.preview.tiny-extraction",
+      "mode": "edit",
+      "language": "json",
+      "allowedFiles": ["answer.json"],
+      "acceptanceCriteria": ["Exactly one string color field matching the car color in the input sentence."]
+    },
+    "nisi-smoke.mjs": {
+      "taskId": "agiw.preview.synthetic",
+      "mode": "edit",
+      "language": "json",
+      "allowedFiles": ["retry-config.json"],
+      "acceptanceCriteria": ["Create retry-config.json with exactly backoff exponential, maxRetries 3 and retryDelayMs 250."]
+    }
+  }
+}

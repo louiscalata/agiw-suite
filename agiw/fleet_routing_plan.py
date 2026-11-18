@@ -49,6 +49,12 @@ class RoutePlan:
     preanalysis: str
     reason: str
 
+    @classmethod
+    def for_local(cls, worker, *, jev_preanalyzed=False):
+        if jev_preanalyzed is True:
+            return cls(worker, "jev", "jev-preanalyzed")
+        return cls(worker, "local", "strict-local")
+
 
 def plan(
     mode: str,
@@ -58,6 +64,7 @@ def plan(
     *,
     now: float,
     source: str = "agent",
+    jev_preanalyzed: bool = False,
 ) -> RoutePlan:
     """Return a candidate route, not an authorization, receipt, lease or cost guarantee."""
     if source == "notion":
@@ -72,7 +79,7 @@ def plan(
     if selected is None:
         return RoutePlan(None, "none", "no-verified-local-worker")
     if mode == "local":
-        return RoutePlan(selected, "local", "strict-local")
+        return RoutePlan.for_local(selected, jev_preanalyzed=jev_preanalyzed)
     if hosted.online_opt_in is not True or hosted.summary_redacted is not True:
         return RoutePlan(selected, "local", "hosted-not-authorized")
     if hosted.jev_ready is True:

@@ -67,7 +67,7 @@ class RouterClientTests(unittest.TestCase):
 
     def client(self, path):
         workers, _ = rc.load_workers(path)
-        return rc.FleetRouterClient(workers)
+        return rc.FleetRouterClient(workers, jev_preanalysis="off")
 
     def test_picks_forwarded_loopback_worker(self):
         port = self.start_worker()

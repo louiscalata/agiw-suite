@@ -93,8 +93,8 @@ def _resolve_commit(lookup):
     return value if receipt_check.valid_commit(value) else None
 
 
-def _validated_route(route, worker_id):
-    if not receipt_check.valid_route(route, worker_id):
+def _validated_route(route, worker_id, program):
+    if not receipt_check.valid_route(route, worker_id, program):
         raise Refused("ROUTE_REFUSED")
     saved = {field: route[field] for field in receipt_check.ROUTE_FIELDS}
     if "jev" in route:
@@ -233,7 +233,7 @@ class Worker:
         job_id = job.get("job_id")
         if not isinstance(job_id, str) or not job_id or len(job_id) > 200:
             raise Refused("JOB_ID_REQUIRED")
-        route = _validated_route(job.get("route"), self.worker_id)
+        route = _validated_route(job.get("route"), self.worker_id, job.get("program"))
         if job.get("program") not in PROGRAMS:
             raise Refused("PROGRAM_REFUSED")
         self._validate_repo_patch_job(job)
@@ -301,6 +301,7 @@ class Worker:
                     max_output_tokens=tokens,
                     response_format_mode=fmt,
                     request_mode_value=req_mode,
+                    route=route,
                 )
             report = result.get("report") if isinstance(result, dict) and isinstance(result.get("report"), dict) else {}
             outcome = report.get("outcome")
@@ -414,8 +415,8 @@ class Handler(BaseHTTPRequestHandler):
         if length <= 0 or length > BODY_LIMIT:
             return self._reject(413, {"error": "BODY_TOO_LARGE"})
         try:
-            job = json.loads(self.rfile.read(length))
-        except ValueError:
+            job = receipt_check.parse_receipt(self.rfile.read(length))
+        except (ValueError, RecursionError):
             return self._send(400, {"error": "BODY_INVALID"})
         try:
             self.worker.validate_job(job)

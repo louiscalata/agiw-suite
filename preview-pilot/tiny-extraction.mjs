@@ -3,6 +3,7 @@ import http from 'node:http';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import {checkRoute} from './fleet-route.mjs';
+import {programTask} from './program-task.mjs';
 import {installNetGuard} from './net-guard.mjs';
 import {modelTimeoutMs,workflowDeadlineMs,reasoningFields,errorEvidence,maxTokens,outputSample,extractFinalJSON,responseFormatMode,responseFormatFor,requestMode,completionSettings,completionGrammarCall,chatCall,modelMatches} from './model-call.mjs';
 import {runWorkflow,createCandidate} from './vendor/nisi-0.3.1/workflow/engine.mjs';
@@ -36,7 +37,7 @@ const author={id:'preview.tiny-extraction-author',async draft({binding}){
 }};
 const valid=c=>{try{const o=strictJSON(c.files[0].content);return c.files.length===1&&c.files[0].path==='answer.json'&&Object.keys(o).length===1&&typeof o.color==='string'&&o.color==='red';}catch{return false;}};
 const finding={code:'EXTRACTION_INCORRECT',message:'Expected exactly the color stated in the input sentence.'};
-const task={taskId:'agiw.preview.tiny-extraction',mode:'edit',language:'json',allowedFiles:['answer.json'],protectedFiles:[],protectedSnapshots:{},acceptanceCriteria:['Exactly one string color field matching the car color in the input sentence.'],policy:{repairBudget:0,totalDeadlineMs:workflowDeadlineMs(cfg),requiredReviewers:1,requireReportStore:true}};
+const task={...programTask(import.meta.url),protectedFiles:[],protectedSnapshots:{},policy:{repairBudget:0,totalDeadlineMs:workflowDeadlineMs(cfg),requiredReviewers:1,requireReportStore:true}};
 let reportStorePath=null;
 const reportStore={async store({report,reportSha256,binding}){
  const target=path.join(cfg.reportStore,`${report.runId}.json`);

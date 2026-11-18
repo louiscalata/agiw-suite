@@ -14,6 +14,7 @@ from unittest.mock import Mock, patch
 from urllib.error import HTTPError
 from urllib.request import ProxyHandler, Request, build_opener
 
+from agiw import fleet_jev
 from agiw import windows_worker as ww
 from agiw.fleet_local_pilot import NoRedirect
 from agiw.windows_worker_receipt_check import validate_job_receipt
@@ -188,12 +189,27 @@ class WorkerTests(unittest.TestCase):
 
     def test_jev_limit_is_encoded_byte_count(self):
         worker = self.worker()
+        job = self.judged_job()
+        size = len(json.dumps(job["route"]["jev"]).encode())
+        with patch.object(ww, "JEV_LIMIT", size):
+            self.assertEqual(worker.validate_job(job), job["job_id"])
+        with patch.object(ww, "JEV_LIMIT", size - 1), self.assertRaisesRegex(ww.Refused, "^ROUTE_REFUSED$"):
+            worker.validate_job(job)
+
+    def judged_job(self):
         job = self.job()
-        jev = {"x": "é" * 681 + "a"}
-        self.assertEqual(len(json.dumps(jev).encode("utf-8")), 4096)
-        job["route"].update(preanalysis="a" * 64, reason="0._:/-", jev=jev)
-        self.assertEqual(worker.validate_job(job), job["job_id"])
-        jev["x"] += "a"
+        answers = {"plan": {"choice": "reason"}, "underspecified": {"noul": 0}}
+        evidence = fleet_jev.preanalyze(job["program"], Mock(return_value={"model": "jev-test", "answers": answers}))
+        evidence.pop("status")
+        job["route"].update(preanalysis="jev", reason="jev-preanalyzed", jev=evidence)
+        return job
+
+    def test_jev_must_match_job_and_questions(self):
+        worker = self.worker()
+        job = self.judged_job()
+        with self.assertRaisesRegex(ww.Refused, "^ROUTE_REFUSED$"):
+            worker.validate_job(dict(job, program="tiny-extraction.mjs"))
+        job["route"]["jev"]["request"]["questions"]["plan"]["instructions"] = "Something else?"
         with self.assertRaisesRegex(ww.Refused, "^ROUTE_REFUSED$"):
             worker.validate_job(job)
 
@@ -242,12 +258,13 @@ class WorkerTests(unittest.TestCase):
         self.assertTrue(validate_job_receipt(saved, expected_worker="m5-macbook-pro")["valid"])
 
     def test_receipt_copies_only_validated_route_fields_and_jev(self):
-        job = self.job()
-        job["route"].update(jev={"decision": {"status": "local"}}, extra="not-for-receipt")
-        worker = self.worker(execute=self.fake_success(), commit=lambda: None)
+        job = self.judged_job()
+        expected = self.judged_job()["route"]
+        execute = Mock(side_effect=self.fake_success())
+        worker = self.worker(execute=execute, commit=lambda: None)
         receipt = worker.run_job(job)
-        job["route"]["jev"]["decision"]["status"] = "changed"
-        expected = dict(self.job()["route"], jev={"decision": {"status": "local"}})
+        job["route"]["jev"]["request"].clear()
+        self.assertEqual(execute.call_args.kwargs["route"], expected)
         self.assertEqual(receipt["route"], expected)
         self.assertIsNone(receipt["workerCommit"])
         saved = json.loads(Path(receipt["receiptPath"]).read_text())

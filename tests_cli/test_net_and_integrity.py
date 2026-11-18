@@ -7,6 +7,7 @@ import uuid
 from types import SimpleNamespace
 from unittest import mock
 
+from agiw import fleet_jev
 from agiw import fleet_local_pilot as pilot
 
 ENDPOINT = "http://127.0.0.1:1237/v1/chat/completions"
@@ -34,11 +35,13 @@ class NetFlagTests(unittest.TestCase):
                 pilot.node_major("/fake/node-c")
         pilot._NODE_MAJOR.clear()
 
-    def run_execute(self, mode, major):
+    def run_execute(self, mode, major, route=None):
         seen = {}
 
         def run(cmd, input=None, **kw):
             seen["cmd"] = cmd
+            if route is not None:
+                self.assertEqual(json.loads(input)["route"], route)
             return SimpleNamespace(stdout=json.dumps({"report": {"outcome": "BLOCKED"}}), stderr="", returncode=1)
 
         ev = pilot.WorkerEvidence(0, True, True, True, False)
@@ -53,8 +56,16 @@ class NetFlagTests(unittest.TestCase):
             import tempfile
 
             with tempfile.TemporaryDirectory() as td:
-                data = pilot.execute(mode, ENDPOINT, "m", report_store=td)
+                data = pilot.execute(mode, ENDPOINT, "m", report_store=td, route=route)
         return seen["cmd"], data
+
+    def test_judged_route_reaches_child_cfg(self):
+        answers = {"plan": {"choice": "reason", "confidence": 1}, "underspecified": {"noul": 0}}
+        judge = mock.Mock(return_value={"model": "jev-test", "answers": answers})
+        jev = fleet_jev.preanalyze("nisi-smoke.mjs", judge)
+        jev.pop("status")
+        route = {"worker": "m5-macbook-pro", "reason": "jev-preanalyzed", "preanalysis": "jev", "jev": jev}
+        self.run_execute("live", 26, route)
 
     def test_live_on_node26_gets_bare_allow_net_and_guard(self):
         cmd, data = self.run_execute("live", 26)
