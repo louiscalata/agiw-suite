@@ -47,47 +47,81 @@ def states(doc):
 
 class LlamaServerModels(unittest.TestCase):
     def test_lm_studio_listing_is_used_first(self):
-        base, hits = serve(self, {
-            "/api/v0/models": (200, {"data": [
-                {"id": "qwen", "type": "llm", "state": "loaded"},
-                {"id": "gemma", "type": "vlm", "state": "not-loaded"},
-                {"id": "nomic", "type": "embeddings", "state": "loaded"},
-            ]}),
-            "/v1/models": (200, {"data": [{"id": "should-not-be-read"}]}),
-        })
+        base, hits = serve(
+            self,
+            {
+                "/api/v0/models": (
+                    200,
+                    {
+                        "data": [
+                            {"id": "qwen", "type": "llm", "state": "loaded"},
+                            {"id": "gemma", "type": "vlm", "state": "not-loaded"},
+                            {"id": "nomic", "type": "embeddings", "state": "loaded"},
+                        ]
+                    },
+                ),
+                "/v1/models": (200, {"data": [{"id": "should-not-be-read"}]}),
+            },
+        )
         doc = pl.lmstudio_status(base, "mac")()
         self.assertEqual(states(doc), [("qwen", "mac", "loaded"), ("gemma", "mac", "inactive")])
         self.assertEqual(hits, ["/api/v0/models"])
         self.assertEqual(doc["producer"], "agiw-peer-link lmstudio")
 
     def test_llama_server_v1_models_is_detected_when_lm_studio_endpoint_is_absent(self):
-        base, hits = serve(self, {
-            "/v1/models": (200, {"object": "list", "data": [
-                {"id": "muse-glimmer-30b", "object": "model", "created": 1763400000, "owned_by": "llamacpp"},
-            ]}),
-        })
+        base, hits = serve(
+            self,
+            {
+                "/v1/models": (
+                    200,
+                    {
+                        "object": "list",
+                        "data": [
+                            {
+                                "id": "muse-glimmer-30b",
+                                "object": "model",
+                                "created": 1763400000,
+                                "owned_by": "llamacpp",
+                            },
+                        ],
+                    },
+                ),
+            },
+        )
         doc = pl.lmstudio_status(base, "mac")()
         self.assertEqual(states(doc), [("muse-glimmer-30b", "mac", "loaded")])
         self.assertEqual(hits, ["/api/v0/models", "/v1/models"])
         self.assertEqual(doc["health"], "ok")
 
     def test_llama_server_router_status_values_map_to_loaded_states(self):
-        base, _ = serve(self, {
-            "/v1/models": (200, {"object": "list", "data": [
-                {"id": "a", "status": {"value": "loaded"}},
-                {"id": "b", "status": {"value": "unloaded"}},
-                {"id": "c", "status": {"value": "loading"}},
-                {"no-id": True},
-            ]}),
-        })
+        base, _ = serve(
+            self,
+            {
+                "/v1/models": (
+                    200,
+                    {
+                        "object": "list",
+                        "data": [
+                            {"id": "a", "status": {"value": "loaded"}},
+                            {"id": "b", "status": {"value": "unloaded"}},
+                            {"id": "c", "status": {"value": "loading"}},
+                            {"no-id": True},
+                        ],
+                    },
+                ),
+            },
+        )
         doc = pl.lmstudio_status(base, "mac")()
         self.assertEqual(states(doc), [("a", "mac", "loaded"), ("b", "mac", "inactive"), ("c", "mac", "unknown")])
 
     def test_lm_studio_payload_without_a_model_list_falls_back(self):
-        base, _ = serve(self, {
-            "/api/v0/models": (200, {"error": "unexpected"}),
-            "/v1/models": (200, {"object": "list", "data": [{"id": "glimmer"}]}),
-        })
+        base, _ = serve(
+            self,
+            {
+                "/api/v0/models": (200, {"error": "unexpected"}),
+                "/v1/models": (200, {"object": "list", "data": [{"id": "glimmer"}]}),
+            },
+        )
         self.assertEqual(states(pl.lmstudio_status(base, "mac")()), [("glimmer", "mac", "loaded")])
 
     def test_both_endpoints_missing_raises_instead_of_reporting_no_models(self):

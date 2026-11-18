@@ -1302,7 +1302,11 @@ def lmstudio_status(base: str = "http://127.0.0.1:1234", host: str = "mac") -> S
             data = None
         if data is not None:
             for item in data[:MAX_MODELS]:
-                if isinstance(item, dict) and isinstance(item.get("id"), str) and item.get("type") in (None, "llm", "vlm"):
+                if (
+                    isinstance(item, dict)
+                    and isinstance(item.get("id"), str)
+                    and item.get("type") in (None, "llm", "vlm")
+                ):
                     state = {"loaded": "loaded", "not-loaded": "inactive"}.get(item.get("state"), "unknown")
                     models.append({"id": item["id"][:256], "host": host, "loadedState": state})
         else:
