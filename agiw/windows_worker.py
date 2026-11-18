@@ -1,7 +1,9 @@
 """Token-authenticated, loopback-first Jev job worker. Single slot, zero retries.
 
 No hosted routes, no model loads, no credential discovery and no token logging.
-Executes one routed Nisi job at a time through the isolated local pilot.
+Executes one routed Nisi job at a time through the isolated local pilot. Repo-patch jobs may
+inject the local jev-task CLI for advisory pre/post analysis when --jev-task or AGIW_JEV_TASK
+is set; without it, analysis stays unavailable/no_analyzer and no binary is discovered.
 """
 
 import argparse
@@ -16,8 +18,8 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from . import fleet_jev_task, fleet_repo_patch
 from . import fleet_local_pilot as pilot
-from . import fleet_repo_patch
 from . import windows_worker_receipt_check as receipt_check
 
 PROGRAMS = pilot.PROGRAMS + (fleet_repo_patch.PROGRAM,)
@@ -114,6 +116,8 @@ class Worker:
         request_mode=None,
         repo_patch=None,
         allow_local_source=False,
+        jev_task=None,
+        jev_task_timeout=None,
     ):
         if not isinstance(worker_id, str) or not worker_id:
             raise Refused("WORKER_ID_REQUIRED")
@@ -149,6 +153,13 @@ class Worker:
         self._execute = execute or pilot.execute
         self._repo_patch = repo_patch or fleet_repo_patch.execute_job
         self.allow_local_source = allow_local_source  # tests only: local fixture repos
+        self.jev_task = jev_task
+        self.jev_task_timeout = jev_task_timeout
+        self._jev_analyzers = None
+        if jev_task is not None:
+            jev_bin = fleet_jev_task.resolve_jev_task_bin(jev_task)
+            if jev_bin is not None:
+                self._jev_analyzers = fleet_jev_task.make_analyzers(jev_bin, timeout=jev_task_timeout)
         self._probe = probe or (lambda: pilot.detect_models(pilot.endpoint(model_endpoint)))
         self._lock = threading.Lock()
         self.busy = False
@@ -233,12 +244,16 @@ class Worker:
         result = None
         try:
             if job["program"] == fleet_repo_patch.PROGRAM:
+                analysis_kwargs = {}
+                if self._jev_analyzers is not None:
+                    analysis_kwargs["jev_pre"], analysis_kwargs["jev_post"] = self._jev_analyzers
                 result = self._repo_patch(
                     job["payload"],
                     model_endpoint=self.model_endpoint,
                     model=self.model,
                     report_store=self.report_store,
                     allow_local_source=self.allow_local_source,
+                    **analysis_kwargs,
                     disable_thinking=disable_thinking,
                     max_tokens=tokens,
                 )
@@ -437,7 +452,14 @@ def main(argv=None):
         help="chat (default) or completion-grammar: /apply-template + lane prefill + grammar-constrained "
         "/completion on the same 127.0.0.1 port; lane default from fleet-workers.json",
     )
+    p.add_argument(
+        "--jev-task",
+        default=None,
+        help="Repo-patch Jev analyzer: a path to the jev-task CLI or 'auto' (PATH lookup). Omit to read "
+        "AGIW_JEV_TASK; unset or off keeps analysis unavailable/no_analyzer. The tool's personal ledger is unused.",
+    )
     args = p.parse_args(argv)
+    jev_task = args.jev_task if args.jev_task is not None else os.environ.get("AGIW_JEV_TASK")
     try:
         validate_bind(args.bind, args.allow_lan)
         token = load_token(args.token_file)
@@ -452,6 +474,7 @@ def main(argv=None):
             max_tokens=args.max_tokens,
             response_format=args.response_format,
             request_mode=args.request_mode,
+            jev_task=jev_task,
         )
         server = create_server(worker, token, args.bind, args.port, args.allow_lan)
     except (Refused, OSError, ValueError) as exc:
