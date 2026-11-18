@@ -40,6 +40,13 @@ test('child accepts the pre-analyzed route but refuses a missing judgment', () =
     response: {model: 'jev-test', answers: {plan: {choice: 'direct'}, underspecified: {noul: 0}}},
   };
   assert.equal(checkRoute(config), config.workerId);
+  for (const mutate of [j => { j.request.questions = []; }, j => { j.response.answers.plan.confidence = null; },
+    j => { j.response.answers.extra = {}; }, j => { j.underspecified = j.response.answers.underspecified.noul = -1; },
+    j => { j.request.state.task = true; }, j => { j.response.model = 'wrong'; }]) {
+    const invalid = structuredClone(config);
+    mutate(invalid.route.jev);
+    assert.throws(() => checkRoute(invalid), /ROUTE_REFUSED/);
+  }
 });
 
 test('unknown worker ids are rejected', () => {

@@ -335,6 +335,7 @@ class Worker:
                 "responseFormat": fmt,
                 "requestMode": req_mode,
                 "authorEvidence": result.get("authorEvidence", []) if isinstance(result, dict) else [],
+                "jevPlan": result.get("jevPlan") if isinstance(result, dict) else None,
                 "childExitCode": result.get("childExitCode") if isinstance(result, dict) else None,
                 "failure": failure,
                 "started_unix": started,
