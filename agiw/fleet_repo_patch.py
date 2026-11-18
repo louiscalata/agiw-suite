@@ -4,6 +4,13 @@ Clones one public GitHub repo at one commit into a fresh temp dir, asks a patche
 worker's loopback model) for new contents of allowlisted files only, and returns the staged unified
 diff. It never pushes, never writes outside the temp clone and always removes it.
 
+The default patcher asks the loopback model for SEARCH/REPLACE blocks: a path line, a `<<<<<<< SEARCH`
+marker, the exact current lines, `=======`, the replacement and `>>>>>>> REPLACE`. Several blocks may
+touch one or several allowlisted files, so a small model edits a few lines instead of rewriting a whole
+document. Each SEARCH must occur exactly once, with one whitespace-tolerant retry. A reply that is JSON
+`{"files": {"<path>": "<content>"}}` keeps the older full-file behaviour. Either way git judges what
+lands on disk and the staged diff limits still apply.
+
 Jev pre/post analysis is on by default; set jev_analysis=false to skip both phases.
 Skipped means explicitly disabled; not_run means the job blocked before that phase.
 Unavailable means no analyzer or a failed analysis; patching and diff reporting proceed
@@ -339,7 +346,7 @@ def _parse_diff_limits(diff_text, max_changed_lines):
         _ref("DIFF_TOO_MANY_LINES")
 
 
-def _blocked(spec, code, analysis, stderr=None):
+def _blocked(spec, code, analysis, stderr=None, patch=None):
     result = {
         "outcome": "BLOCKED",
         "code": code,
@@ -358,6 +365,8 @@ def _blocked(spec, code, analysis, stderr=None):
         stderr = pilot.sanitize_text(stderr, limit=2048)
         if stderr:
             result["git_stderr"] = stderr.encode("utf-8", "replace")[:2048].decode("utf-8", "ignore")
+    if isinstance(patch, dict):
+        result["patch"] = patch
     return result
 
 
@@ -467,18 +476,31 @@ def _analyze(analyzer, text, phase, field):
     return {"status": "ok", field: value, **metadata}
 
 
-def _accepts_analysis(patcher):
+def _accepts(patcher, name):
     try:
         params = inspect.signature(patcher).parameters.values()
     except (TypeError, ValueError):
         return False
     return any(
         p.kind == inspect.Parameter.VAR_KEYWORD
-        or (
-            p.name == "analysis" and p.kind in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)
-        )
+        or (p.name == name and p.kind in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY))
         for p in params
     )
+
+
+def _accepts_analysis(patcher):
+    return _accepts(patcher, "analysis")
+
+
+def _last_patch(patcher):
+    """Patch diagnostics recorded by the closure, when the patcher keeps any."""
+    patch = getattr(patcher, "last", None)
+    return patch if isinstance(patch, dict) else None
+
+
+def _patch_field(patcher):
+    patch = _last_patch(patcher)
+    return {"patch": patch} if patch else {}
 
 
 def run(spec, patcher, *, allow_local_source=False, tmp_root=None, jev_pre=None, jev_post=None):
@@ -504,11 +526,13 @@ def run(spec, patcher, *, allow_local_source=False, tmp_root=None, jev_pre=None,
             plan = analysis["jevPre"].get("plan")
             if plan is not None and _accepts_analysis(patcher):
                 kwargs["analysis"] = plan
+            if _accepts(patcher, "allowlist"):
+                kwargs["allowlist"] = list(spec["allowlist"])
             out = patcher(**kwargs)
         except Refused:
             raise
         except Exception:  # noqa: BLE001 - any patcher failure is a BLOCKED job, never a crash
-            return _blocked(spec, "PATCH_FAILED", analysis)
+            return _blocked(spec, "PATCH_FAILED", analysis, patch=_last_patch(patcher))
         _apply(workdir, spec["allowlist"], out)
         changed_files, diff = _staged_diff(spec, workdir, tmp)
         diff_text = diff.decode("utf-8", "surrogateescape")
@@ -524,6 +548,7 @@ def run(spec, patcher, *, allow_local_source=False, tmp_root=None, jev_pre=None,
             "diffSha256": hashlib.sha256(diff).hexdigest(),
             "diffBytes": len(diff),
             **analysis,
+            **_patch_field(patcher),
         }
     except subprocess.CalledProcessError as exc:
         code = "COMMIT_NOT_FOUND" if "checkout" in exc.cmd else "GIT_FAILED"
@@ -533,12 +558,13 @@ def run(spec, patcher, *, allow_local_source=False, tmp_root=None, jev_pre=None,
     except OSError:
         return _blocked(spec, "IO_FAILED", analysis)
     except Refused as exc:
-        return _blocked(spec, str(exc), analysis)
+        return _blocked(spec, str(exc), analysis, patch=_last_patch(patcher))
     finally:
         _rmtree(tmp)
 
 
 def _strip_fences(text):
+    """Strip one enclosing code fence; kept for callers of the old JSON-only patcher."""
     t = text.strip()
     if t.startswith("```"):
         t = "\n".join(t.splitlines()[1:])
@@ -547,26 +573,313 @@ def _strip_fences(text):
     return t.strip()
 
 
-def chat_patcher(model_endpoint, model, timeout):
+_SEARCH_MARK = re.compile(r"^<{5,9}\s*(?:SEARCH)?\s*$", re.I)
+_DIVIDER_MARK = re.compile(r"^={5,9}\s*$")
+_REPLACE_MARK = re.compile(r"^>{5,9}\s*(?:REPLACE)?\s*$", re.I)
+_FENCE_LINE = re.compile(r"^\s*```")
+_THINKING = re.compile(r"(?is)<think[^>]*>.*?</think[^>]*>")
+_THINKING_OPEN = re.compile(r"(?is)<think[^>]*>")
+_PATH_PREFIX = re.compile(r"^(?:file|path)\s*:\s*", re.I)
+
+
+class _EditRefused(Refused):
+    """A refusal plus the machine reason recorded on the patch diagnostics."""
+
+    def __init__(self, code, reason):
+        super().__init__(code)
+        self.reason = reason
+
+
+def _refused(code, reason):
+    raise _EditRefused(code, reason)
+
+
+def _lf(text):
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _first_non_blank(lines, start=0):
+    for index in range(start, len(lines)):
+        if lines[index].strip():
+            return index
+    return None
+
+
+def _last_non_blank(lines, stop=None):
+    for index in range((len(lines) if stop is None else stop) - 1, -1, -1):
+        if lines[index].strip():
+            return index
+    return None
+
+
+def _clean_edit_text(text):
+    """Normalize newlines, drop reasoning and remove one enclosing code fence."""
+    if not isinstance(text, str) or not text.strip():
+        _refused("PATCH_OUTPUT_INVALID", "NO_EDITS")
+    cleaned = _THINKING.sub(" ", _lf(text))
+    unclosed = _THINKING_OPEN.search(cleaned)
+    if unclosed:
+        cleaned = cleaned[: unclosed.start()]
+    lines = cleaned.split("\n")
+    first = _first_non_blank(lines)
+    if first is not None and _FENCE_LINE.match(lines[first]):
+        del lines[first]
+        last = _last_non_blank(lines)
+        if last is not None and _FENCE_LINE.match(lines[last]):
+            del lines[last]
+    return "\n".join(lines)
+
+
+def _legacy_json_files(text):
+    """The old full-file reply, or None when this is not a JSON files object."""
+    try:
+        data = json.loads(_clean_edit_text(text))
+    except ValueError:
+        return None
+    if isinstance(data, dict) and isinstance(data.get("files"), dict):
+        return data["files"]
+    _refused("PATCH_OUTPUT_INVALID", "INVALID_JSON")
+
+
+def _edit_path(line):
+    value = line.strip().strip("`").strip()
+    if len(value) > 4 and value.startswith("**") and value.endswith("**"):
+        value = value[2:-2].strip()
+    value = _PATH_PREFIX.sub("", value.lstrip("#").strip()).strip("`*").strip()
+    return value or None
+
+
+def _path_before(lines, index):
+    """The path is the last non-empty line before the SEARCH marker, skipping fences."""
+    for position in range(index - 1, -1, -1):
+        line = lines[position]
+        if not line.strip() or _FENCE_LINE.match(line):
+            continue
+        if _SEARCH_MARK.match(line) or _DIVIDER_MARK.match(line) or _REPLACE_MARK.match(line):
+            return None
+        return _edit_path(line)
+    return None
+
+
+def _next_mark(lines, start, pattern):
+    for index in range(start, len(lines)):
+        if pattern.match(lines[index]):
+            return index
+        if pattern is not _SEARCH_MARK and _SEARCH_MARK.match(lines[index]):
+            return None
+    return None
+
+
+def _sole_allowlisted(allowlist):
+    paths = [path for path in (allowlist or []) if isinstance(path, str) and path]
+    return paths[0] if len(paths) == 1 else None
+
+
+def parse_edits(text, allowlist=None):
+    """Parse SEARCH/REPLACE blocks into (path, search, replace) triples."""
+    lines = _clean_edit_text(text).split("\n")
+    edits = []
+    position = 0
+    while position < len(lines):
+        if not _SEARCH_MARK.match(lines[position]):
+            position += 1
+            continue
+        divider = _next_mark(lines, position + 1, _DIVIDER_MARK)
+        end = None if divider is None else _next_mark(lines, divider + 1, _REPLACE_MARK)
+        if divider is None or end is None:
+            _refused("PATCH_OUTPUT_INVALID", "MALFORMED_BLOCK")
+        search = "\n".join(lines[position + 1 : divider])
+        replace = "\n".join(lines[divider + 1 : end])
+        edits.append((_path_before(lines, position), search, replace))
+        position = end + 1
+    if not edits:
+        _refused("PATCH_OUTPUT_INVALID", "NO_EDITS")
+    resolved = []
+    for path, search, replace in edits:
+        if path is None:
+            path = _sole_allowlisted(allowlist)
+            if path is None:
+                _refused("PATCH_OUTPUT_INVALID", "MALFORMED_BLOCK")
+        resolved.append((path, search, replace))
+    return resolved
+
+
+def _trimmed_lines(lines):
+    out = [line.strip() for line in lines]
+    while out and not out[0]:
+        out.pop(0)
+    while out and not out[-1]:
+        out.pop()
+    return out
+
+
+def _line_hits(haystack, needle):
+    if not needle or len(needle) > len(haystack):
+        return []
+    return [at for at in range(len(haystack) - len(needle) + 1) if haystack[at : at + len(needle)] == needle]
+
+
+def _replace_lines(lines, at, count, replace):
+    body = [] if replace == "" else replace.split("\n")
+    return "\n".join(lines[:at] + body + lines[at + count :])
+
+
+def _replace_once(content, search, replace):
+    """Replace the one place SEARCH names; refuse when it is missing or ambiguous.
+
+    Tried in order, each only when the previous found nothing: whole lines exactly, whole lines
+    with surrounding whitespace (and SEARCH's leading/trailing blank lines) ignored, then a raw
+    substring for a SEARCH that quotes part of a line. Any step with several hits refuses.
+    """
+    lines = content.split("\n")
+    exact = _line_hits(lines, search.split("\n"))
+    if len(exact) > 1:
+        _refused("PATCH_OUTPUT_INVALID", "SEARCH_NOT_UNIQUE")
+    if exact:
+        return _replace_lines(lines, exact[0], len(search.split("\n")), replace)
+    needle = _trimmed_lines(search.split("\n"))
+    trimmed = _line_hits([line.strip() for line in lines], needle)
+    if len(trimmed) > 1:
+        _refused("PATCH_OUTPUT_INVALID", "SEARCH_NOT_UNIQUE")
+    if trimmed:
+        return _replace_lines(lines, trimmed[0], len(needle), replace)
+    hits = content.count(search) if search.strip() else 0
+    if hits > 1:
+        _refused("PATCH_OUTPUT_INVALID", "SEARCH_NOT_UNIQUE")
+    if hits == 1:
+        at = content.index(search)
+        return content[:at] + replace + content[at + len(search) :]
+    _refused("PATCH_OUTPUT_INVALID", "SEARCH_NOT_FOUND")
+
+
+def apply_edits(files, edits, allowlist):
+    """Apply edits in order; return the full new content of each edited path."""
+    if not isinstance(edits, list) or not edits:
+        _refused("PATCH_OUTPUT_INVALID", "NO_EDITS")
+    allowed = {path for path in (allowlist or []) if isinstance(path, str)}
+    current = {}
+    crlf = {}
+    for path, content in (files or {}).items():
+        if not isinstance(content, str):
+            _refused("PATCH_OUTPUT_INVALID", "INVALID_JSON")
+        current[path] = _lf(content)
+        crlf[path] = "\r\n" in content
+    out = {}
+    for edit in edits:
+        if not isinstance(edit, (list, tuple)) or len(edit) != 3:
+            _refused("PATCH_OUTPUT_INVALID", "MALFORMED_BLOCK")
+        path, search, replace = edit
+        if not isinstance(path, str) or path not in allowed:
+            _ref("ALLOWLIST_VIOLATION")
+        if not isinstance(search, str) or not isinstance(replace, str):
+            _refused("PATCH_OUTPUT_INVALID", "MALFORMED_BLOCK")
+        existing = current.get(path)
+        if search:
+            if existing is None:
+                _refused("PATCH_OUTPUT_INVALID", "SEARCH_NOT_FOUND")
+            updated = _replace_once(existing, _lf(search), _lf(replace))
+        else:
+            if existing is not None:
+                _refused("PATCH_OUTPUT_INVALID", "EMPTY_SEARCH_EXISTING_FILE")
+            updated = _lf(replace)
+        current[path] = updated
+        out[path] = updated.replace("\n", "\r\n") if crlf.get(path) else updated
+    return out
+
+
+_SYSTEM_PROMPT = """You edit files by returning SEARCH/REPLACE blocks.
+
+Format, repeated once per edit, for one or several files:
+
+path/to/file.md
+<<<<<<< SEARCH
+lines copied exactly from the current file
+=======
+replacement lines
+>>>>>>> REPLACE
+
+Rules:
+- Make the smallest edits that complete the task. Never rewrite a whole file.
+- Copy every SEARCH line exactly from the file, keeping the same whitespace.
+- Keep each SEARCH short but unique: a few lines that appear once in the file.
+- Put the file path on its own line directly above <<<<<<< SEARCH.
+- To create a missing file, leave SEARCH empty and put the new content in REPLACE.
+- Output only the blocks. No commentary, no JSON, no whole-file rewrites.
+
+Example. The current file greeting.txt contains:
+
+```
+hi
+bye
+```
+
+One edit that changes its first line:
+
+greeting.txt
+<<<<<<< SEARCH
+hi
+=======
+hello
+>>>>>>> REPLACE"""
+
+
+def _auto_max_tokens(files, task):
+    total = sum(len(content) for content in (files or {}).values() if isinstance(content, str))
+    estimate = 512 + len(task) // 4 + total // 6
+    return max(1024, min(pilot.MAX_MAX_TOKENS, estimate))
+
+
+def _user_prompt(files, task, allowlist, analysis):
+    parts = []
+    for path, content in files.items():
+        body = content if content.endswith("\n") else content + "\n"
+        runs = re.findall(r"`{3,}", content)
+        fence = "`" * (max(len(run) for run in runs) + 1) if runs else "```"
+        parts.append(f"### {path}\n{fence}\n{body}{fence}")
+    missing = [path for path in (allowlist or []) if path not in files]
+    if missing:
+        listed = "\n".join(f"- {path}" for path in missing)
+        parts.append("### Paths that do not exist yet (create them with an empty SEARCH)\n" + listed)
+    parts.append(f"### Task\n{task}")
+    if analysis:
+        parts.append("Jev pre-plan (advisory):\n" + _bound_plan(analysis))
+    return "\n\n".join(parts)
+
+
+def chat_patcher(model_endpoint, model, timeout, *, max_tokens=None, disable_thinking=False):
     pilot.endpoint(model_endpoint)  # loopback /v1/chat/completions only
     endpoint = model_endpoint
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), pilot.NoRedirect())
+    thinking_off = disable_thinking is True
 
-    def patcher(files, task, workdir, *, analysis=None):
-        user = {"files": files, "task": task}
-        if analysis:
-            user["jevPrePlan"] = _bound_plan(analysis)
+    def patcher(files, task, workdir, *, analysis=None, allowlist=None):
+        if max_tokens is None:
+            tokens = _auto_max_tokens(files, task)
+        else:
+            tokens = max(pilot.MIN_MAX_TOKENS, min(pilot.MAX_MAX_TOKENS, int(max_tokens)))
+        last = {
+            "format": None,
+            "edits": 0,
+            "maxTokens": tokens,
+            "finishReason": None,
+            "error": None,
+            "outputChars": 0,
+            "outputExcerpt": None,
+        }
+        patcher.last = last
         prompt = {
             "model": model,
             "temperature": 0,
+            "max_tokens": tokens,
             "messages": [
-                {
-                    "role": "system",
-                    "content": 'Return ONLY JSON {"files":{"<path>":"<full new content>"}} for allowlisted paths.',
-                },
-                {"role": "user", "content": json.dumps(user, sort_keys=True)},
+                {"role": "system", "content": _SYSTEM_PROMPT},
+                {"role": "user", "content": _user_prompt(files, task, allowlist, analysis)},
             ],
         }
+        if thinking_off:
+            prompt["chat_template_kwargs"] = {"enable_thinking": False}
+            prompt["reasoning_format"] = "none"
+            prompt["reasoning_effort"] = "none"
         body = json.dumps(prompt).encode("utf-8")
         req = urllib.request.Request(endpoint, data=body, headers={"Content-Type": "application/json"})
         try:
@@ -575,19 +888,39 @@ def chat_patcher(model_endpoint, model, timeout):
         except (HTTPError, URLError, OSError, ValueError) as exc:
             # Keep the refused code unchanged; chain the cause for debugging without putting
             # response or URL text into the exception message.
+            last["error"] = "HTTP_ERROR"
             raise Refused("PATCH_OUTPUT_INVALID") from exc
         if len(raw) > 1024 * 1024:
+            last["error"] = "BAD_ENVELOPE"
             raise Refused("PATCH_OUTPUT_INVALID")
         try:
             envelope = json.loads(raw.decode("utf-8"))
-            content = envelope["choices"][0]["message"]["content"]
-            data = json.loads(_strip_fences(content))
-            files_out = data["files"]
-            if not isinstance(files_out, dict):
-                raise ValueError
-            return files_out
+            choice = envelope["choices"][0]
+            content = choice["message"]["content"]
         except (ValueError, KeyError, IndexError, TypeError, AttributeError):
+            last["error"] = "BAD_ENVELOPE"
             raise Refused("PATCH_OUTPUT_INVALID") from None
+        if not isinstance(content, str):
+            last["error"] = "BAD_ENVELOPE"
+            raise Refused("PATCH_OUTPUT_INVALID")
+        finish = choice.get("finish_reason") if isinstance(choice, dict) else None
+        last["finishReason"] = finish if isinstance(finish, str) else None
+        last["outputChars"] = len(content)
+        try:
+            files_out = _legacy_json_files(content)
+            if files_out is not None:
+                last["format"] = "json-files"
+                last["edits"] = len(files_out)
+                return files_out
+            last["format"] = "search-replace"
+            edits = parse_edits(content, allowlist)
+            out = apply_edits(files, edits, allowlist or [])
+        except Refused as exc:
+            last["error"] = getattr(exc, "reason", None)
+            last["outputExcerpt"] = pilot.sanitize_text(content, limit=2048)
+            raise
+        last["edits"] = len(edits)
+        return out
 
     return patcher
 
@@ -603,10 +936,12 @@ def execute_job(
     tmp_root=None,
     jev_pre=None,
     jev_post=None,
+    max_tokens=None,
+    disable_thinking=False,
 ):
     if patcher is None:
         timeout = validate_spec(payload, allow_local_source=allow_local_source)["timeout_seconds"]
-        patcher = chat_patcher(model_endpoint, model, timeout)
+        patcher = chat_patcher(model_endpoint, model, timeout, max_tokens=max_tokens, disable_thinking=disable_thinking)
     result = run(
         payload,
         patcher,
@@ -619,6 +954,8 @@ def execute_job(
     run_id = str(uuid.uuid4())
     store = pilot.report_store_dir(report_store)
     diagnostics = {"git_stderr": result["git_stderr"]} if "git_stderr" in result else {}
+    if isinstance(result.get("patch"), dict):
+        diagnostics["patch"] = result["patch"]
     report = {
         "runId": run_id,
         "outcome": result["outcome"],

@@ -5,6 +5,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Repo-patch asks the loopback model for SEARCH/REPLACE blocks instead of whole files, so a small model can edit one passage of a large document without exceeding `max_diff_bytes`; a JSON `files` reply is still accepted. Requests now always carry a sized `max_tokens`, honour `disable_thinking` per request, and record `patch` diagnostics (format, edits, effective token cap, finish reason, short error) on the report and the worker receipt.
+
 - Repo-patch records bounded, advisory Jev pre/post analysis by default. Set `jev_analysis: false` to skip it; without an injected analyzer, both phases report unavailable when reached.
 
 Merged on 14 November 2026:
