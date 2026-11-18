@@ -5,6 +5,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Repo-patch prompts tell the model the file contents are in the message, require at least one block and show how to insert new text (dropping a sentence that let a small model refuse insertion tasks). Large-file excerpts rank rare task keywords on whole-word matches, add matching headings and their sections, and use a 16,000-character budget. A reply with no blocks is retried once whether it stopped or ran out of tokens, with a reminder naming the allowed paths. `patch.promptChars` and `patch.fileChars` record how much text and of which files reached the prompt.
+
 - The fleet job worker can use a local `jev-task` CLI as the repo-patch analyzer: pass `--jev-task PATH|auto` or set `AGIW_JEV_TASK`. It stays off by default, runs with `--driver never` and a stripped environment, and passes the projected text through a 0600 temp file.
 - Repo-patch asks the loopback model for SEARCH/REPLACE blocks instead of whole files, so a small model can edit one passage of a large document without exceeding `max_diff_bytes`; a JSON `files` reply is still accepted. Requests now always carry a sized `max_tokens`, honour `disable_thinking` per request, and record `patch` diagnostics (format, edits, effective token cap, finish reason, short error) on the report and the worker receipt.
 

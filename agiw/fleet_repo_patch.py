@@ -827,13 +827,22 @@ def apply_edits(files, edits, allowlist):
     return out
 
 
-_SYSTEM_PROMPT = """You edit files by returning SEARCH/REPLACE blocks.
+_NO_TOOLS = (
+    "You have no tools. You cannot run commands, browse, or open other files. "
+    "The current contents of each file are included in the user message under "
+    "its ### <path> heading (as excerpts for large files)."
+)
 
-You have no tools. You cannot run commands, browse, or open other files. Use only the text shown in
-this message. If something cannot be verified from the shown text, edit only what the shown text
-supports.
+_EDIT_GUIDANCE = (
+    "Always return at least one SEARCH/REPLACE block. Do the parts of the task "
+    "the shown text supports and skip parts that need outside information.\n"
+    "To ADD new text, SEARCH one or two existing lines next to where the text "
+    "belongs and REPLACE them with those same lines plus the new lines."
+)
 
-Format, repeated once per edit, for one or several files:
+_RESPOND_ONLY = "Respond only with SEARCH/REPLACE blocks, no explanation."
+
+_FORMAT_BLOCK = f"""Format, repeated once per edit, for one or several files:
 
 path/to/file.md
 <<<<<<< SEARCH
@@ -842,7 +851,15 @@ lines copied exactly from the current file
 replacement lines
 >>>>>>> REPLACE
 
-Respond only with SEARCH/REPLACE blocks, no explanation.
+{_RESPOND_ONLY}"""
+
+_SYSTEM_PROMPT = f"""You edit files by returning SEARCH/REPLACE blocks.
+
+{_NO_TOOLS}
+
+{_EDIT_GUIDANCE}
+
+{_FORMAT_BLOCK}
 
 Rules:
 - Make the smallest edits that complete the task. Never rewrite a whole file.
@@ -866,73 +883,93 @@ greeting.txt
 hi
 =======
 hello
->>>>>>> REPLACE"""
-
-_NO_TOOLS = (
-    "You have no tools. You cannot run commands, browse, or open other files. "
-    "Use only the text shown in this message. If something cannot be verified "
-    "from the shown text, edit only what the shown text supports."
-)
-
-_RESPOND_ONLY = "Respond only with SEARCH/REPLACE blocks, no explanation."
-
-_FORMAT_BLOCK = f"""Format, repeated once per edit, for one or several files:
-
-path/to/file.md
-<<<<<<< SEARCH
-lines copied exactly from the current file
-=======
-replacement lines
 >>>>>>> REPLACE
 
-{_RESPOND_ONLY}"""
+Insertion example. The current file notes.md contains:
+
+```
+# Notes
+## Usage
+```
+
+Add a paragraph under the heading:
+
+notes.md
+<<<<<<< SEARCH
+## Usage
+=======
+## Usage
+
+Open the notes before starting.
+>>>>>>> REPLACE"""
 
 _RETRY_REMINDER = (
-    "Your previous reply contained no SEARCH/REPLACE blocks. Reply again with ONLY SEARCH/REPLACE "
-    "blocks for the task above. No explanation."
+    "Your previous reply contained no SEARCH/REPLACE blocks. "
+    "The file contents are in the message above. "
+    "Make the best minimal edit for the task now. "
+    "To add text, SEARCH an existing line near where it belongs and REPLACE it "
+    "with that line plus the new text. "
+    "Allowed paths: {paths}. " + _RESPOND_ONLY
 )
 
-_EXCERPT_THRESHOLD = 12000
-_EXCERPT_BUDGET = 8000
-_EXCERPT_CONTEXT = 8
-_EXCERPT_HEAD = 15
+_EXCERPT_THRESHOLD = 16000
+_EXCERPT_BUDGET = 16000
+_EXCERPT_CONTEXT = 4
+_EXCERPT_HEAD = 10
+_EXCERPT_SECTION = 40
 
 _EXCERPT_STOPWORDS = frozenset(
-    {
-        "this",
-        "that",
-        "with",
-        "from",
-        "make",
-        "only",
-        "docs",
-        "file",
-        "each",
-        "must",
-        "should",
-        "into",
-        "than",
-        "then",
-        "there",
-        "their",
-        "they",
-        "have",
-        "match",
-        "exactly",
-        "check",
-        "first",
-        "same",
-        "class",
-        "against",
-        "correct",
-        "any",
-    }
+    """
+    this that with from make only docs file each must should into than then
+    there their they have match exactly check first same class against correct any
+    the and for not all are but its about also when what which while where will
+    would could just made docs-only pass finding stale task edit edits files doc
+    one two per via use used
+    """.split()
 )
+
+_EXCERPT_SPELLINGS = {
+    "licence": "license",
+    "license": "licence",
+    "colour": "color",
+    "color": "colour",
+    "behaviour": "behavior",
+    "behavior": "behaviour",
+}
 
 
 def _task_keywords(task):
-    words = re.findall(r"[A-Za-z0-9_.-]{4,}", (task or "").lower())
-    return {word for word in words if word not in _EXCERPT_STOPWORDS}
+    tokens = re.findall(r"[a-z0-9][a-z0-9_./-]*[a-z0-9]|[a-z0-9]", (task or "").lower())
+    words = set()
+
+    def add(word):
+        if len(word) >= 3 and word not in _EXCERPT_STOPWORDS:
+            words.add(word)
+
+    for token in tokens:
+        token = token.rstrip(".,;:!?)")
+        if len(token) < 3 or token in _EXCERPT_STOPWORDS:
+            continue
+        add(token)
+        if "." in token or "/" in token:
+            basename = token.rsplit("/", 1)[-1]
+            add(basename)
+            add(basename.rsplit(".", 1)[0])
+
+    # Work from a snapshot so plural and spelling expansion is bounded.
+    for word in tuple(words):
+        base = word
+        if len(word) >= 5 and word.isalpha():
+            if word.endswith("s"):
+                base = word[:-1]
+                add(base)
+            else:
+                add(word + "s")
+        alternate = _EXCERPT_SPELLINGS.get(base)
+        if alternate:
+            add(alternate)
+            add(alternate + "s")
+    return tuple(sorted(words))
 
 
 def _merge_ranges(ranges):
@@ -950,50 +987,97 @@ def _window_text(lines, window):
     return "\n".join(lines[start - 1 : end])
 
 
-def _window_cost(lines, window):
+def _window_cost(lines, window, prefix=None):
     start, end = window
-    return len(_window_text(lines, window)) + len(f"[lines {start}-{end}]") + 2
+    if prefix is None:
+        text_chars = len(_window_text(lines, window))
+    else:
+        # Each prefix entry counts one separator per line; omit the last one.
+        text_chars = prefix[end] - prefix[start - 1] - 1
+    return text_chars + len(f"[lines {start}-{end}]") + 2
 
 
-def _windows_cost(lines, windows):
-    return sum(_window_cost(lines, window) for window in windows)
+def _windows_cost(lines, windows, prefix=None):
+    return sum(_window_cost(lines, window, prefix) for window in windows)
+
+
+def _line_index(lines):
+    """Per-line lookups: char prefix sums, heading levels and the nearest heading above."""
+    prefix = [0]
+    levels = [0] * (len(lines) + 1)
+    above = [0] * (len(lines) + 1)
+    nearest = 0
+    for number, line in enumerate(lines, start=1):
+        prefix.append(prefix[-1] + len(line) + 1)
+        above[number] = nearest
+        heading = re.match(r"^ {0,3}(#{1,6})(?=\s|$)", line)
+        if heading:
+            levels[number] = len(heading.group(1))
+            nearest = number
+    return prefix, levels, above
+
+
+def _keyword_scores(lines, task):
+    """Line number -> sum of rarity weights (1 / lines hit) of the task keywords on that line."""
+    lowered = [line.lower() for line in lines]
+    scores = {}
+    for keyword in _task_keywords(task):
+        pattern = re.compile(r"(?<![a-z0-9])" + re.escape(keyword) + r"(?![a-z0-9])")
+        matches = [number for number, line in enumerate(lowered, 1) if pattern.search(line)]
+        for number in matches:
+            scores[number] = scores.get(number, 0.0) + 1.0 / len(matches)
+    return scores
+
+
+def _section(levels, number, count):
+    """A matched heading through the line before the next same-or-higher heading, capped."""
+    end = min(count, number + _EXCERPT_SECTION - 1)
+    for following in range(number + 1, end + 1):
+        if 0 < levels[following] <= levels[number]:
+            return number, following - 1
+    return number, end
 
 
 def _select_windows(content, task):
-    """Deterministic 1-based inclusive line ranges: a head window plus keyword hits.
+    """Select deterministic, merged, 1-based inclusive excerpt ranges.
 
-    Hit lines are taken in order of (-distinct keyword score, line number), expanded by
-    _EXCERPT_CONTEXT lines either side and merged. The head window always stays; further
-    windows are added only while the rendered window text stays within _EXCERPT_BUDGET.
+    Lines are scored by rare task keywords (word-boundary matches; a matching heading counts
+    double) and taken best first, each with a little context and its nearest heading; a
+    matching heading brings its section. The head always stays. With no matches, the head
+    grows to fill the budget. Ties go to the earlier line.
     """
     lines = content.splitlines()
     count = len(lines)
     if not count:
         return []
-    head = (1, min(_EXCERPT_HEAD, count))
-    keywords = _task_keywords(task)
-    hits = []
-    for index, line in enumerate(lines, start=1):
-        lowered = line.lower()
-        score = sum(1 for keyword in keywords if keyword in lowered)
-        if score:
-            hits.append((-score, index))
-    hits.sort()
-    if not hits:
-        end = head[1]
-        while end < count and _window_cost(lines, (1, end + 1)) <= _EXCERPT_BUDGET:
-            end += 1
-        return [(1, end)]
-    windows = [head]
-    for _score, line_number in hits:
-        candidate = (
-            max(1, line_number - _EXCERPT_CONTEXT),
-            min(count, line_number + _EXCERPT_CONTEXT),
-        )
+    prefix, levels, above = _line_index(lines)
+    scores = _keyword_scores(lines, task)
+
+    def add(windows, candidate, force=False):
         merged = _merge_ranges(windows + [candidate])
-        if _windows_cost(lines, merged) > _EXCERPT_BUDGET:
-            continue
-        windows = merged
+        if force or _windows_cost(lines, merged, prefix) <= _EXCERPT_BUDGET:
+            return merged
+        return windows
+
+    windows = [(1, min(_EXCERPT_HEAD, count))]
+    ranked = sorted(scores, key=lambda number: (-scores[number] * (2 if levels[number] else 1), number))
+    for number in ranked:
+        if levels[number]:
+            windows = add(windows, _section(levels, number, count))
+        if len(lines[number - 1]) > _EXCERPT_BUDGET:
+            # Keep the exact SEARCH anchor, but don't add context around an oversized line.
+            windows = add(windows, (number, number), force=True)
+        else:
+            context = (max(1, number - _EXCERPT_CONTEXT), min(count, number + _EXCERPT_CONTEXT))
+            windows = add(windows, context)
+        if above[number]:
+            windows = add(windows, (above[number], above[number]))
+    if not scores:
+        while windows[0][1] < count:
+            extended = add(windows, (1, windows[0][1] + 1))
+            if extended == windows:
+                break
+            windows = extended
     return windows
 
 
@@ -1002,41 +1086,61 @@ def _fence_for(text):
     return "`" * (max(len(run) for run in runs) + 1) if runs else "```"
 
 
+def _file_excerpt(content, task):
+    if len(content) <= _EXCERPT_THRESHOLD:
+        return None
+    return content.splitlines(), _select_windows(content, task)
+
+
+def _estimate_max_tokens(task, visible_file_chars):
+    estimate = 512 + len(task) // 4 + visible_file_chars // 6
+    return max(1024, min(pilot.MAX_MAX_TOKENS, estimate))
+
+
 def _auto_max_tokens(files, task):
-    """Estimate from the text the model will see, using excerpts for large files."""
+    """Estimate from the same file text used by the user prompt."""
     total = 0
     for content in (files or {}).values():
         if not isinstance(content, str):
             continue
-        if len(content) <= _EXCERPT_THRESHOLD:
+        excerpt = _file_excerpt(content, task)
+        if excerpt is None:
             total += len(content)
-            continue
-        lines = content.splitlines()
-        total += sum(len(_window_text(lines, window)) for window in _select_windows(content, task))
-    estimate = 512 + len(task) // 4 + total // 6
-    return max(1024, min(pilot.MAX_MAX_TOKENS, estimate))
+        else:
+            lines, windows = excerpt
+            total += sum(len(_window_text(lines, window)) for window in windows)
+    return _estimate_max_tokens(task, total)
 
 
-def _user_prompt(files, task, allowlist, analysis, excerpts=None):
-    parts = [_NO_TOOLS, _FORMAT_BLOCK]
+def _user_prompt(files, task, allowlist, analysis, excerpts=None, *, file_chars=None):
+    parts = [_NO_TOOLS, _EDIT_GUIDANCE, _FORMAT_BLOCK]
     for path, content in files.items():
-        if isinstance(content, str) and len(content) > _EXCERPT_THRESHOLD:
-            lines = content.splitlines()
-            windows = _select_windows(content, task)
+        if file_chars is not None:
+            file_chars[path] = 0
+        if not isinstance(content, str):
+            continue
+        excerpt = _file_excerpt(content, task)
+        if excerpt is not None:
+            lines, windows = excerpt
             if excerpts is not None:
                 excerpts[path] = [[start, end] for start, end in windows]
             heading = f"### {path} (excerpt of {len(lines)} lines; copy SEARCH lines exactly from these excerpts)"
             blocks = [heading]
             for start, end in windows:
                 text = _window_text(lines, (start, end))
-                body = text if text.endswith("\n") else text + "\n"
                 fence = _fence_for(text)
-                blocks.append(f"[lines {start}-{end}]\n{fence}\n{body}{fence}")
+                blocks.append(f"[lines {start}-{end}]\n{fence}\n{text}\n{fence}")
+                if file_chars is not None:
+                    file_chars[path] += len(text)
             parts.append("\n\n".join(blocks))
             continue
+
         body = content if content.endswith("\n") else content + "\n"
         fence = _fence_for(content)
         parts.append(f"### {path}\n{fence}\n{body}{fence}")
+        if file_chars is not None:
+            file_chars[path] = len(content)
+
     missing = [path for path in (allowlist or []) if path not in files]
     if missing:
         listed = "\n".join(f"- {path}" for path in missing)
@@ -1044,7 +1148,6 @@ def _user_prompt(files, task, allowlist, analysis, excerpts=None):
     parts.append(f"### Task\n{task}")
     if analysis:
         parts.append("Jev pre-plan (advisory):\n" + _bound_plan(analysis))
-    # Repeat the format after the task so the last thing the model reads is the output contract.
     parts.append(_FORMAT_BLOCK)
     return "\n\n".join(parts)
 
@@ -1066,8 +1169,6 @@ def _chat_reply(opener, endpoint, prompt, timeout, last):
         with opener.open(req, timeout=timeout) as resp:
             raw = resp.read(1024 * 1024 + 1)
     except (HTTPError, URLError, OSError, ValueError) as exc:
-        # Keep the refused code unchanged; chain the cause for debugging without putting
-        # response or URL text into the exception message.
         last["error"] = "HTTP_ERROR"
         raise Refused("PATCH_OUTPUT_INVALID") from exc
     if len(raw) > 1024 * 1024:
@@ -1094,8 +1195,11 @@ def chat_patcher(model_endpoint, model, timeout, *, max_tokens=None, disable_thi
     thinking_off = disable_thinking is True
 
     def patcher(files, task, workdir, *, analysis=None, allowlist=None):
+        excerpts = {}
+        file_chars = {}
+        user = _user_prompt(files, task, allowlist, analysis, excerpts, file_chars=file_chars)
         if max_tokens is None:
-            tokens = _auto_max_tokens(files, task)
+            tokens = _estimate_max_tokens(task, sum(file_chars.values()))
         else:
             tokens = max(pilot.MIN_MAX_TOKENS, min(pilot.MAX_MAX_TOKENS, int(max_tokens)))
         last = {
@@ -1107,10 +1211,10 @@ def chat_patcher(model_endpoint, model, timeout, *, max_tokens=None, disable_thi
             "outputChars": 0,
             "outputExcerpt": None,
             "retries": 0,
+            "promptChars": len(_SYSTEM_PROMPT) + len(user),
+            "fileChars": file_chars,
         }
         patcher.last = last
-        excerpts = {}
-        user = _user_prompt(files, task, allowlist, analysis, excerpts)
         if excerpts:
             last["excerpts"] = excerpts
 
@@ -1133,6 +1237,7 @@ def chat_patcher(model_endpoint, model, timeout, *, max_tokens=None, disable_thi
                 if files_out is not None:
                     last["format"] = "json-files"
                     last["edits"] = len(files_out)
+                    last["error"] = None
                     return {path: _match_line_endings(files.get(path), value) for path, value in files_out.items()}
                 last["format"] = "search-replace"
                 edits = parse_edits(content, allowlist)
@@ -1150,15 +1255,19 @@ def chat_patcher(model_endpoint, model, timeout, *, max_tokens=None, disable_thi
             {"role": "user", "content": user},
         ]
         result = attempt(messages)
-        # One bounded retry: only a reply that ran out of tokens with no blocks at all.
-        if isinstance(result, _EditRefused) and result.reason == "NO_EDITS" and last["finishReason"] == "length":
+        if (
+            isinstance(result, _EditRefused)
+            and result.reason == "NO_EDITS"
+            and last["finishReason"] in ("length", "stop")
+        ):
             last["retries"] = 1
             last["firstAttempt"] = {
                 "error": "NO_EDITS",
-                "finishReason": "length",
+                "finishReason": last["finishReason"],
                 "outputChars": last["outputChars"],
             }
-            result = attempt(messages + [{"role": "user", "content": _RETRY_REMINDER}])
+            reminder = _RETRY_REMINDER.format(paths=", ".join(allowlist or files.keys()))
+            result = attempt(messages + [{"role": "user", "content": reminder}])
         if isinstance(result, Refused):
             raise result
         return result
