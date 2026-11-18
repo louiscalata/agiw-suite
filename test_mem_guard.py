@@ -1767,20 +1767,20 @@ class HookTests(CliCase):
     TABLE = [
         (hook_payload("Bash", command="xcodebuild -scheme App test"), TIGHT, 2),
         (hook_payload("Bash", command="ls -la"), CRITICAL, 0),
-        (b"{not json", CRITICAL, 0),
-        (b"", CRITICAL, 0),
+        (b"{not json", CRITICAL, 2),
+        (b"", CRITICAL, 2),
         (hook_payload("Workflow", script="x"), CRITICAL, 2),
         (hook_payload("Workflow", script="x"), TIGHT, 0),
         (hook_payload("Agent", prompt="x"), CRITICAL, 2),
         (hook_payload("Bash", command="xcodebuild test"), OK, 0),
         (hook_payload("Bash", command="lms load qwen3.8-27b"), WATCH, 0),
         (hook_payload("Bash", command="lms load qwen3.8-27b"), mem_state(1, 21), 2),
-        (hook_payload("Bash", command="xcodebuild test"), UNKNOWN, 0),
+        (hook_payload("Bash", command="xcodebuild test"), UNKNOWN, 2),
         (hook_payload("mcp__Claude_Code_iOS_Simulator__control", action="launch", app_path="/x.app"), TIGHT, 2),
         (hook_payload("mcp__Claude_Code_iOS_Simulator__control", action="screenshot"), CRITICAL, 0),
         (hook_payload("mcp__Claude_Code_iOS_Simulator__build", scheme="App"), TIGHT, 2),
         (hook_payload("Read", file_path="/x"), CRITICAL, 0),
-        (json.dumps(["Bash"]).encode(), CRITICAL, 0),
+        (json.dumps(["Bash"]).encode(), CRITICAL, 2),
         (hook_payload("Bash", command="astra-review ."), CRITICAL, 2),
         (hook_payload("Bash", command="astra-review ."), TIGHT, 0),
     ]
@@ -1798,23 +1798,23 @@ class HookTests(CliCase):
         )
         message = self.stderr.getvalue()
         self.assertEqual(message.count("\n"), 1, "one paragraph")
-        self.assertIn("refused `xcodebuild test`", message)
+        self.assertIn("refused `xcodebuild`", message)
         self.assertIn("memory is tight (macOS memory pressure: warning)", message)
         self.assertIn("iOS Simulators (iPhone 18 Pro, iPhone 17 Pro) about 4.5 GB", message)
         self.assertIn("What to do: Shut down unused iOS Simulators (`xcrun simctl shutdown all`)", message)
         refusal = self.journal()[-1]
         self.assertEqual((refusal["type"], refusal["via"], refusal["level"]), ("refusal", "hook", "tight"))
 
-    def test_internal_errors_and_bad_input_fail_open(self):
+    def test_internal_errors_and_bad_input_refuse(self):
         heavy = hook_payload("Bash", command="xcodebuild")
-        self.assertEqual(self.run_cli(["hook"], FakeProbes(RuntimeError("probe exploded")), stdin=heavy), 0)
+        self.assertEqual(self.run_cli(["hook"], FakeProbes(RuntimeError("probe exploded")), stdin=heavy), 2)
         self.assertEqual(
             self.run_cli(["hook"], FakeProbes(CRITICAL, None), stdin=heavy), 2, "no consumers still refuses"
         )
         self.assertIn("Top consumers: unknown", self.stderr.getvalue())
-        self.assertEqual(self.run_cli(["hook"], CRITICAL, stdin=b" " * (mem_guard.HOOK_MAX + 1)), 0)
+        self.assertEqual(self.run_cli(["hook"], CRITICAL, stdin=b" " * (mem_guard.HOOK_MAX + 1)), 2)
         self.assertEqual(self.run_cli(["hook", "--bogus"], CRITICAL, stdin=heavy), 2, "extra args are ignored")
-        self.assertEqual(self.run_cli(["hook"], CRITICAL, stdin=b"\xff\xfe"), 0)
+        self.assertEqual(self.run_cli(["hook"], CRITICAL, stdin=b"\xff\xfe"), 2)
 
     def test_command_matcher(self):
         cases = {
@@ -1868,10 +1868,11 @@ class HookTests(CliCase):
             "open README.md",
             "cat Simulator.log",
             "git commit -m 'npm ci'",
-            "echo 'unbalanced",
             "",
         ):
             self.assertIsNone(mem_guard.hook_match({"tool_name": "Bash", "tool_input": {"command": command}}), command)
+        with self.assertRaises(ValueError):
+            mem_guard.hook_match({"tool_name": "Bash", "tool_input": {"command": "echo 'unbalanced"}})
         for payload in (
             {"tool_name": "mcp__Claude_Code_iOS_Simulator__control", "tool_input": {"action": "launch"}},
             {"tool_name": "mcp__Claude_Code_iOS_Simulator__build"},
@@ -2233,9 +2234,9 @@ class CloseReviewTests(ChildCase):
         self.assertNotIn((self.child.pid, signal.SIGSTOP), self.kill.calls)
         self.assertEqual(self.registry.paused(), [])
 
-    def test_a_pause_already_writing_its_record_is_resumed_by_close(self):
-        """The other side of the race: a pause past its last check, still writing paused.json,
-        must be seen (and resumed) by close, not missed because the file was not there yet."""
+    def test_a_pause_already_writing_its_record_never_stops_the_job_after_close(self):
+        """The other side of the race: a pause past its closing check, still writing paused.json,
+        must not leave the job stopped after close (the per-member fence refuses the SIGSTOP)."""
         self.registry.register(self.child.pid, "job")
         entered, gate = threading.Event(), threading.Event()
         write = self.registry._write_paused
@@ -2259,12 +2260,18 @@ class CloseReviewTests(ChildCase):
         closed = []
         closer = threading.Thread(target=lambda: closed.append(guard.close()))
         closer.start()
-        time.sleep(0.1)
+        deadline = time.monotonic() + 2
+        while not self.registry._closing.is_set() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertTrue(self.registry._closing.is_set(), "close fenced SIGSTOP before the write finished")
         gate.set()
         worker.join(5)
         closer.join(5)
-        self.assertTrue(continued(self.child.pid))
-        self.assertEqual([event["why"] for event in closed[0]], ["shutdown"])
+        # close() fences SIGSTOP before it waits for the record lock, so the pause that was still
+        # writing its record never signals: nothing is left stopped and nothing needs resuming.
+        self.assertTrue(not_stopped(self.child.pid))
+        self.assertNotIn((self.child.pid, signal.SIGSTOP), self.kill.calls)
+        self.assertEqual(closed, [[]])
         self.assertEqual(self.registry.paused(), [])
 
     def test_a_slow_notifier_never_blocks_the_sampler_or_close(self):

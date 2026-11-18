@@ -9,7 +9,7 @@
   mem-guard resume-all               SIGCONT everything it paused (identity-checked); always safe
   mem-guard resume-overdue           SIGCONT paused jobs past their limit or whose pauser is gone
   mem-guard watch [--interval 2]     foreground watchdog (for use without the monitor)
-  mem-guard hook                     Claude Code PreToolUse hook: exit 2 refuses, everything else 0
+  mem-guard hook                     Claude Code PreToolUse hook: exit 2 refuses, 0 allows
 
 It never kills a process, never unloads a model and only pauses (SIGSTOP) work that registered
 itself; everything it stopped is recorded so it can be resumed after a crash.
@@ -1428,14 +1428,16 @@ def check(
         probes = probes or Probes()
         state = probes.read()
         decision = admit(need_bytes, kind, state, cfg)
-        if not decision.allowed:
+    except Exception:
+        return admit(need_bytes, kind, None, cfg)
+    if not decision.allowed:
+        # Optional diagnostics cannot replace a decision from an established memory reading.
+        with contextlib.suppress(Exception):
             consumers = probes.consumers(models=models) or []
             tips = suggestions(consumers, models)
             if tips:
                 decision = dataclasses.replace(decision, suggestion=tips[0])
-        return decision
-    except Exception:
-        return admit(need_bytes, kind, None, cfg)
+    return decision
 
 
 # ---------------------------------------------------------------------------------------------
@@ -1698,15 +1700,16 @@ class Registry:
         self._uid = os.getuid() if uid is None else uid
         self._pid = os.getpid() if pid is None else pid
         self._clock = clock or time.time
-        # Set by stop_pausing() (monitor shutdown); pause_all checks it under the lock just
-        # before it signals, so a pause racing the shutdown's resume never lands.
+        # The signal fence covers the callback itself, including an in-flight shutdown race.
         self._closing = threading.Event()
+        self._signal_lock = threading.Lock()
 
     def stop_pausing(self, timeout: float = 2.0) -> None:
-        """No pause lands after this returns: the flag stops any pause that has not reached its
-        locked section, and taking the lock once waits out one that already has, so its record is
-        in paused.json when the shutdown resume reads it."""
+        """Fence SIGSTOP callbacks before waiting for the recovery record's file lock.
+        A file-lock timeout cannot permit a later signal; a started callback finishes first."""
         self._closing.set()
+        with self._signal_lock:
+            pass
         if os.path.isdir(self.root):  # no state directory: no pause can be inside the lock
             with contextlib.suppress(Exception):
                 with self._lock(timeout):
@@ -2183,10 +2186,10 @@ class Registry:
         self, exclude: Iterable[tuple[int, str]] = (), *, max_pause_seconds: Optional[float] = None
     ) -> list[dict]:
         """SIGSTOP every registered job not yet paused (and its live same-user descendants).
-        The process table is read before taking the lock (ps can be slow on a loaded Mac). Under
-        the lock paused.json is re-read, then written and verified before any signal, so a crash
-        can always be resumed; nothing is signalled once stop_pausing() was called, and a job whose
-        record would not fit paused.json's read limit is not paused at all."""
+        The initial process table is read before taking the lock. Under the lock paused.json is
+        re-read, written and verified before each member's identity is refreshed and signalled.
+        Shutdown fences later signals even on a file-lock timeout. A job whose recovery record
+        would not fit the reader's limit is never paused."""
         if self._closing.is_set():
             return []
         skip = set(exclude)
@@ -2271,10 +2274,32 @@ class Registry:
             if not added:
                 return []
             self._write_paused(record)
+            pruned = False
             for job in added:
-                for member in job["members"]:
-                    self._signal(member["pid"], signal.SIGSTOP)
-            return added
+                stopped = [member for member in job["members"] if self._stop_member(member, job["pid"], tree)]
+                pruned = pruned or len(stopped) != len(job["members"])
+                job["members"] = stopped
+            if pruned:
+                self._write_paused([job for job in record if job["members"]])
+            return [job for job in added if job["members"]]
+
+    def _stop_member(self, member: dict, root_pid: int, tree: dict[int, tuple[int, int]]) -> bool:
+        with self._signal_lock:
+            if self._closing.is_set():
+                return False
+            fresh = self.identities([member["pid"]])
+            current = fresh.get(member["pid"]) if fresh is not None else None
+            if (
+                self._closing.is_set()
+                or current is None
+                or current["uid"] != self._uid
+                or not same_start(member["startTime"], current["startTime"])
+                or current["comm"] != member["comm"]
+                or (member["pid"] != root_pid and current["ppid"] != tree[member["pid"]][0])
+            ):
+                return False
+            # Retain recovery intent after a refused/uncertain attempt; only proven exit is gone.
+            return self._signal(member["pid"], signal.SIGSTOP) != "gone"
 
     def resume(self, pids: Optional[Iterable[int]] = None, *, timeout: float = 2.0) -> list[dict]:
         """SIGCONT paused jobs (all, or those whose root pid is in `pids`), re-checking every
@@ -2669,11 +2694,10 @@ class Guard:
             return unknown_block(), self._source("unavailable", "Memory probes failed")
 
     def close(self, timeout: float = 1.0) -> list[dict]:
-        """Stop ticking and resume everything the watchdog paused; never raises. It does not wait
-        for a tick in progress: the registry refuses to signal once stop_pausing() is set (checked
-        under its lock just before SIGSTOP), so a pause racing this close either lands before the
-        resume below, which then continues it, or not at all. `timeout` bounds the wait for the
-        registry lock."""
+        """Stop ticking and resume everything the watchdog paused; never raises.
+        The registry fences new SIGSTOP callbacks and waits for any started callback to finish.
+        `timeout` bounds each recovery file-lock wait, not an in-flight signal callback. Recovery
+        records remain available if shutdown cannot finish resuming them."""
         self._closed = True
         try:
             self.registry.stop_pausing(timeout)
@@ -2762,6 +2786,58 @@ _XCODEBUILD_INFO = {
     "--help",
 }
 _SHELLS = {"bash", "sh", "zsh", "dash"}
+_DOCKER_VALUE_OPTIONS = {
+    "--config",
+    "--context",
+    "-c",
+    "--host",
+    "-H",
+    "--log-level",
+    "-l",
+    "--tlscacert",
+    "--tlscert",
+    "--tlskey",
+}
+_COMPOSE_VALUE_OPTIONS = {
+    "--ansi",
+    "--env-file",
+    "--file",
+    "-f",
+    "--parallel",
+    "--profile",
+    "--project-directory",
+    "--project-name",
+    "-p",
+    "--progress",
+}
+_DOCKER_FLAG_OPTIONS = {"--debug", "-D", "--tls", "--tlsverify", "--version", "-v"}
+_COMPOSE_FLAG_OPTIONS = {"--all-resources", "--compatibility", "--dry-run", "--verbose", "--version"}
+_DOCKER_RUN_VALUE_OPTIONS = set(
+    "--add-host --annotation --attach -a --blkio-weight --blkio-weight-device --cap-add --cap-drop "
+    "--cgroup-parent --cgroupns --cidfile --cpu-period --cpu-quota --cpu-rt-period --cpu-rt-runtime "
+    "--cpu-shares -c --cpus --cpuset-cpus --cpuset-mems --device --device-cgroup-rule --device-read-bps "
+    "--device-read-iops --device-write-bps --device-write-iops --dns --dns-option --dns-search --domainname "
+    "--entrypoint --env -e --env-file --expose --gpus --group-add --health-cmd --health-interval "
+    "--health-retries --health-start-interval --health-start-period --health-timeout --hostname -h "
+    "--init-path --ip --ip6 --ipc --isolation --label -l --label-file --link --link-local-ip --log-driver "
+    "--log-opt --mac-address --memory -m --memory-reservation --memory-swap --memory-swappiness --mount "
+    "--name --network --network-alias --oom-score-adj --pid --pids-limit --platform --publish -p --pull "
+    "--restart --runtime --security-opt --shm-size --stop-signal --stop-timeout --storage-opt --sysctl "
+    "--tmpfs --ulimit --user -u --userns --uts --volume -v --volume-driver --volumes-from --workdir -w".split()
+)
+_DOCKER_RUN_FLAG_OPTIONS = set(
+    "--detach -d --disable-content-trust --init --interactive -i --no-healthcheck --oom-kill-disable "
+    "--privileged --publish-all -P --quiet -q --read-only --rm --sig-proxy --tty -t".split()
+)
+_COMPOSE_UP_VALUE_OPTIONS = set(
+    "--attach --exit-code-from --no-attach --pull --scale --timeout -t --wait-timeout".split()
+)
+_COMPOSE_UP_FLAG_OPTIONS = set(
+    "--abort-on-container-exit --abort-on-container-failure --always-recreate-deps --attach-dependencies "
+    "--build --detach -d --force-recreate --menu --no-build --no-color --no-deps --no-log-prefix "
+    "--no-recreate --no-start --quiet-build --quiet-pull --remove-orphans --renew-anon-volumes -V "
+    "--timestamps --wait --watch -w --yes -y".split()
+)
 _ASSIGN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 _OPERATOR_CHARS = set("();<>|&")
 _HEREDOC = re.compile(r"<<(-?)[ \t]*(?:'([^'\n]*)'|\"([^\"\n]*)\"|\\?([A-Za-z_][A-Za-z0-9_.-]*))")
@@ -2842,17 +2918,14 @@ def _shell_text(command: str) -> str:
 
 def _simple_commands(command: str) -> Iterator[list[str]]:
     text = _shell_text(command).replace("\n", " ; ")
-    try:
-        lexer = shlex.shlex(text, posix=True, punctuation_chars=True)
-        lexer.whitespace_split = True
-        lexer.commenters = ""  # comments were removed above, the way bash reads them
-        tokens = []
-        for token in lexer:
-            tokens.append(token)
-            if len(tokens) > 4096:
-                break
-    except ValueError:
-        tokens = re.sub(r"[;&|()]", " ; ", text).split()[:4096]
+    lexer = shlex.shlex(text, posix=True, punctuation_chars=True)
+    lexer.whitespace_split = True
+    lexer.commenters = ""  # comments were removed above, the way bash reads them
+    tokens = []
+    for token in lexer:
+        tokens.append(token)
+        if len(tokens) > 4096:
+            raise ValueError("hook command exceeds token limit")
     current: list[str] = []
     for token in tokens:
         if token and all(ch in _OPERATOR_CHARS for ch in token):
@@ -2863,6 +2936,99 @@ def _simple_commands(command: str) -> Iterator[list[str]]:
             current.append(token)
     if current:
         yield current
+
+
+def _command_args(args: list[str], value_options: set[str]) -> list[str]:
+    """Skip global options and their values, retaining the subcommand and its arguments."""
+    index = 0
+    while index < len(args) and args[index].startswith("-"):
+        option = args[index]
+        index += 1
+        if option == "--":
+            break
+        if option in value_options:
+            index += 1
+        elif option.startswith("-") and not option.startswith("--"):
+            for offset, char in enumerate(option[1:], 1):
+                if "-" + char in value_options:
+                    if offset == len(option) - 1:
+                        index += 1
+                    break
+    return args[index:]
+
+
+def _docker_client_help(
+    args: list[str], value_options: set[str], flag_options: set[str], *, interspersed: bool = False
+) -> bool:
+    """Recognize declared client help roles; run operands begin container arguments."""
+    index = 0
+    while index < len(args):
+        option = args[index]
+        if option == "--":
+            return False
+        if not option.startswith("-"):
+            if not interspersed:
+                return False
+            index += 1
+            continue
+        if option == "--help":
+            return True
+        name = option.split("=", 1)[0]
+        if name in value_options:
+            if "=" not in option:
+                index += 1
+                if index >= len(args):
+                    raise ValueError("missing Docker option value")
+        elif name in flag_options:
+            pass
+        elif option.startswith("-") and not option.startswith("--") and len(option) > 2:
+            # Short flag clusters may end in a value flag with an attached value.
+            for offset, char in enumerate(option[1:], 1):
+                if "-" + char in value_options:
+                    if offset == len(option) - 1:
+                        index += 1
+                        if index >= len(args):
+                            raise ValueError("missing Docker option value")
+                    break
+                if "-" + char not in flag_options:
+                    raise ValueError("unknown Docker option")
+        else:
+            # Unknown arity cannot establish that a later token is client help.
+            raise ValueError("unknown Docker option")
+        index += 1
+    return False
+
+
+def _docker_match(base: str, args: list[str]) -> Optional[tuple[str, str]]:
+    values = _DOCKER_VALUE_OPTIONS if base == "docker" else _COMPOSE_VALUE_OPTIONS
+    flags = _DOCKER_FLAG_OPTIONS if base == "docker" else _COMPOSE_FLAG_OPTIONS
+    if _docker_client_help(args, values, flags):
+        return None
+    remaining = _command_args(args, _DOCKER_VALUE_OPTIONS if base == "docker" else _COMPOSE_VALUE_OPTIONS)
+    if base == "docker" and remaining[:1] == ["run"]:
+        if _docker_client_help(
+            remaining[1:],
+            _DOCKER_RUN_VALUE_OPTIONS | _DOCKER_VALUE_OPTIONS,
+            _DOCKER_RUN_FLAG_OPTIONS | _DOCKER_FLAG_OPTIONS,
+        ):
+            return None
+        return "docker run", "docker"
+    if base == "docker":
+        if remaining[:1] != ["compose"]:
+            return None
+        if _docker_client_help(remaining[1:], _COMPOSE_VALUE_OPTIONS, _COMPOSE_FLAG_OPTIONS):
+            return None
+        remaining = _command_args(remaining[1:], _COMPOSE_VALUE_OPTIONS)
+    if remaining[:1] == ["up"]:
+        if _docker_client_help(
+            remaining[1:],
+            _COMPOSE_UP_VALUE_OPTIONS | _COMPOSE_VALUE_OPTIONS | _DOCKER_VALUE_OPTIONS,
+            _COMPOSE_UP_FLAG_OPTIONS | _COMPOSE_FLAG_OPTIONS | _DOCKER_FLAG_OPTIONS,
+            interspersed=True,
+        ):
+            return None
+        return ("docker compose up" if base == "docker" else "docker-compose up"), "docker"
+    return None
 
 
 def _match_simple(tokens: list[str], depth: int) -> Optional[tuple[str, str]]:
@@ -2890,58 +3056,61 @@ def _match_simple(tokens: list[str], depth: int) -> Optional[tuple[str, str]]:
     if i >= len(tokens):
         return None
     base = tokens[i].lstrip("`$").rstrip("`").rsplit("/", 1)[-1]
-    args = [arg.rstrip("`") for arg in tokens[i + 1 : i + 24]]
+    args = [arg.rstrip("`") for arg in tokens[i + 1 :]]
     plain = [arg for arg in args if not arg.startswith("-")]
-    shown = _clean_text(" ".join([base] + args[:3]), 60)
-    if base in _SHELLS and depth < 3:
+    # Refusal labels contain known commands/actions only, never arbitrary arguments.
+    if base in _SHELLS:
         for index, arg in enumerate(args[:-1]):
             if arg.startswith("-") and not arg.startswith("--") and "c" in arg:
+                if depth >= 3:
+                    raise ValueError("hook command exceeds shell depth limit")
                 return _match_command(args[index + 1], depth + 1)
         return None
-    # Asking for help never starts heavy work (docker's -h is --hostname, so only --help there).
-    if "--help" in args or ("-h" in args and base not in ("docker", "docker-compose")):
+    if base in ("docker", "docker-compose"):
+        return _docker_match(base, args)
+    # Other supported clients use help only to print information and exit.
+    if "--help" in args or "-h" in args:
         return None
     if base == "xcodebuild" and any(arg in _XCODEBUILD_INFO for arg in args):
         return None  # -version, -list, -showsdks, -showBuildSettings ... print and exit
     if base == "lms" and (args[:1] == ["load"] or args[:2] == ["server", "start"]):
-        return shown, "model"
+        return ("lms load" if args[:1] == ["load"] else "lms server start"), "model"
     if (base == "xcrun" and args[:2] == ["simctl", "boot"]) or (base == "simctl" and args[:1] == ["boot"]):
-        return shown, "simulator"
+        return "simctl boot", "simulator"
     if base == "open":
         for flag, value in zip(args, args[1:]):
             app = value.rstrip("/").rsplit("/", 1)[-1]
             if (flag == "-a" and app in ("Simulator", "Simulator.app")) or (
                 flag == "-b" and value == "com.apple.iphonesimulator"
             ):
-                return shown, "simulator"
+                return "open Simulator", "simulator"
         return None
     if base == "xcodebuild":
-        return shown, "build"
-    if (base == "docker" and (plain[:1] == ["run"] or plain[:2] == ["compose", "up"])) or (
-        base == "docker-compose" and plain[:1] == ["up"]
-    ):
-        return shown, "docker"
+        return "xcodebuild", "build"
     if base == "npm" and plain[:1] == ["ci"]:
-        return shown, "build"
+        return "npm ci", "build"
     if base == "astra-review":
-        return shown, "review"
+        return "astra-review", "review"
     if base == "codex" and "exec" in plain[:3]:
-        return shown, "review"
+        return "codex exec", "review"
     if base == "ollama" and plain[:1] in (["run"], ["pull"]):
-        return shown, "model"
+        return ("ollama run" if plain[:1] == ["run"] else "ollama pull"), "model"
     if base.startswith("mlx_lm") or (base.startswith("python") and any(a.startswith("mlx_lm") for a in args[:4])):
-        return shown, "model"
+        return "mlx_lm", "model"
     return None
 
 
 def _match_command(command: Any, depth: int = 0) -> Optional[tuple[str, str]]:
-    if not isinstance(command, str) or len(command) > 64 << 10:
+    if not isinstance(command, str):
         return None
+    if len(command) > 64 << 10:
+        raise ValueError("hook command exceeds size limit")
+    strongest = None
     for tokens in _simple_commands(command):
         found = _match_simple(tokens, depth)
-        if found is not None:
-            return found
-    return None
+        if found is not None and (strongest is None or HOOK_NEEDS[found[1]][0] > HOOK_NEEDS[strongest[1]][0]):
+            strongest = found
+    return strongest
 
 
 def hook_match(payload: Any) -> Optional[tuple[str, str]]:
@@ -2984,14 +3153,17 @@ def hook_decide(
         with contextlib.suppress(Exception):
             publish(state)
     decision = admit(need, kind, state, cfg)
-    # An unknown level never refuses from the hook: a hook must not wedge the session.
-    if decision.allowed or decision.level == "unknown":
+    if decision.level == "unknown":
+        decision = dataclasses.replace(decision, allowed=False, reason="memory state unknown; guarded work refused")
+    if decision.allowed:
         return None
     gpu_bytes = None
     if gpu is not None:
         with contextlib.suppress(Exception):
             gpu_bytes = _bytes_or_none(gpu())
-    consumers = probes.consumers(gpu_alloc_bytes=gpu_bytes) or []
+    consumers = []
+    with contextlib.suppress(Exception):
+        consumers = probes.consumers(gpu_alloc_bytes=gpu_bytes) or []
     return decision, what, consumers
 
 
@@ -3126,12 +3298,15 @@ def _status_text(block: dict) -> str:
     return "\n".join(lines)
 
 
-def _resume_overdue(ctx: Context) -> list[dict]:
+def _resume_overdue(ctx: Context, *, strict: bool = False) -> list[dict]:
     """Every CLI entry point enforces the pause limit itself: jobs past their deadline, or whose
-    pauser (the monitor or `watch`) is gone, are resumed. Best effort; never raises."""
+    pauser (the monitor or `watch`) is gone, are resumed. Registry errors are best effort unless
+    `strict` is set by the hook, where failed recovery must refuse guarded work."""
     try:
         resumed = ctx.registry.resume_overdue()
     except Exception:
+        if strict:
+            raise
         return []
     if resumed:
         ctx.journal.write({"type": "resume", "why": "overdue", "jobs": [_job_summary(job) for job in resumed]})
@@ -3240,11 +3415,18 @@ def _cmd_hook(ctx: Context) -> int:
     try:
         raw = _read_stdin(ctx.stdin, HOOK_MAX)
         if raw is None:
-            return 0
+            raise ValueError("hook input exceeds limit")
         payload = json.loads(raw.decode("utf-8"))
+        if not isinstance(payload, dict) or not isinstance(payload.get("tool_name"), str) or not payload["tool_name"]:
+            raise ValueError("invalid hook payload")
+        if payload["tool_name"] == "Bash":
+            tool_input = payload.get("tool_input")
+            command = tool_input.get("command") if isinstance(tool_input, dict) else None
+            if not isinstance(command, str) or not command.strip():
+                raise ValueError("invalid hook command")
         if hook_match(payload) is None:
             return 0
-        _resume_overdue(ctx)  # the slow path only: unrelated calls never touch the registry
+        _resume_overdue(ctx, strict=True)  # unrelated calls never touch the registry
         found = hook_decide(payload, ctx.probes, ctx.cfg, ctx.gpu, publish=ctx.level_file.write)
         if found is None:
             return 0
@@ -3263,7 +3445,10 @@ def _cmd_hook(ctx: Context) -> int:
         ctx.stderr.write(hook_message(decision, what, consumers) + "\n")
         return 2
     except (Exception, KeyboardInterrupt):
-        return 0
+        # Exception text can contain arguments or credentials; report only the failed boundary.
+        with contextlib.suppress(Exception):
+            ctx.stderr.write("mem-guard refused: hook check unavailable; check memory status and retry.\n")
+        return 2
 
 
 def _parser() -> argparse.ArgumentParser:
