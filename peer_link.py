@@ -1275,16 +1275,43 @@ def project_status(doc: dict) -> dict:
 
 
 def lmstudio_status(base: str = "http://127.0.0.1:1234", host: str = "mac") -> StatusProvider:
-    """Status straight from a local LM Studio REST listing."""
+    """Status straight from a local model server's REST listing.
+
+    LM Studio's GET /api/v0/models is tried first. When it fails or carries no `data` list, the
+    OpenAI-style GET /v1/models that llama-server serves is read instead. llama-server lists only
+    the models it serves, so an entry is loaded unless router mode reports another `status.value`.
+    When neither endpoint answers, the error propagates: a missing reading is unknown, never empty.
+    """
+
+    def fetch(path: str) -> list:
+        with urllib.request.urlopen(base + path, timeout=2) as response:
+            payload = json.loads(response.read(MAX_STATUS_BYTES + 1)[:MAX_STATUS_BYTES])
+        data = payload.get("data") if isinstance(payload, dict) else None
+        if not isinstance(data, list):
+            raise ValueError(f"{path} has no model list")
+        return data
 
     def provide() -> dict:
-        with urllib.request.urlopen(base + "/api/v0/models", timeout=2) as response:
-            payload = json.loads(response.read(MAX_STATUS_BYTES + 1)[:MAX_STATUS_BYTES])
         models = []
-        for item in (payload.get("data") or [])[:MAX_MODELS]:
-            if isinstance(item, dict) and isinstance(item.get("id"), str) and item.get("type") in (None, "llm", "vlm"):
-                state = {"loaded": "loaded", "not-loaded": "inactive"}.get(item.get("state"), "unknown")
-                models.append({"id": item["id"][:256], "host": host, "loadedState": state})
+        try:
+            data = fetch("/api/v0/models")
+        except (OSError, ValueError) as exc:
+            close = getattr(exc, "close", None)  # an HTTPError holds the response open
+            if callable(close):
+                close()
+            data = None
+        if data is not None:
+            for item in data[:MAX_MODELS]:
+                if isinstance(item, dict) and isinstance(item.get("id"), str) and item.get("type") in (None, "llm", "vlm"):
+                    state = {"loaded": "loaded", "not-loaded": "inactive"}.get(item.get("state"), "unknown")
+                    models.append({"id": item["id"][:256], "host": host, "loadedState": state})
+        else:
+            for item in fetch("/v1/models")[:MAX_MODELS]:
+                if isinstance(item, dict) and isinstance(item.get("id"), str):
+                    status = item.get("status")
+                    value = status.get("value") if isinstance(status, dict) else "loaded"
+                    state = {"loaded": "loaded", "unloaded": "inactive"}.get(value, "unknown")
+                    models.append({"id": item["id"][:256], "host": host, "loadedState": state})
         now = time.time()
         return {
             "schemaVersion": 1,
