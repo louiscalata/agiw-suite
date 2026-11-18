@@ -953,7 +953,7 @@ class PromptAndDiagnosticsTests(unittest.TestCase):
         sentence = "Respond only with SEARCH/REPLACE blocks, no explanation."
         prompt = rp._user_prompt({"README.md": "hello\n"}, "edit readme", ["README.md"], None)
         self.assertIn(sentence, rp._SYSTEM_PROMPT)
-        self.assertLess(prompt.index(sentence), prompt.index("### "))
+        self.assertLess(prompt.index(sentence), prompt.index("### README.md"))
         self.assertTrue(prompt.endswith(sentence))
         self.assertIn("### README.md", prompt)
         self.assertIn("### Task\nedit readme", prompt)
@@ -962,13 +962,18 @@ class PromptAndDiagnosticsTests(unittest.TestCase):
         self.assertTrue(analysis.endswith(sentence))
         self.assertLess(analysis.index("### Task"), analysis.index("plan text"))
 
-    def test_prompt_says_no_tools_and_to_use_shown_text(self):
+    def test_prompt_says_no_tools_and_how_to_insert(self):
         prompts = [rp._SYSTEM_PROMPT, rp._user_prompt({"a.md": "x\n"}, "t", ["a.md"], None)]
         for prompt in prompts:
             lowered = prompt.lower()
             self.assertIn("no tools", lowered)
             self.assertIn("cannot run commands", lowered)
-            self.assertIn("only the text shown", lowered)
+            self.assertIn("current contents of each file are included", lowered)
+            self.assertIn("always return at least one search/replace block", lowered)
+            self.assertIn("to add new text", lowered)
+            # Q003: this sentence let the model refuse an insertion task outright.
+            self.assertNotIn("cannot be verified", lowered)
+        self.assertIn("Insertion example", rp._SYSTEM_PROMPT)
 
     def test_select_windows_finds_keyword_hits_deterministically(self):
         lines = [f"filler line {index} about nothing in particular" for index in range(1, 2001)]
@@ -976,8 +981,8 @@ class PromptAndDiagnosticsTests(unittest.TestCase):
         doc = "\n".join(lines) + "\n"
         first = rp._select_windows(doc, "make the licence wording match LICENSE")
         self.assertEqual(first, rp._select_windows(doc, "make the licence wording match LICENSE"))
-        self.assertIn((1, 15), first)
-        self.assertIn((1492, 1508), first)
+        self.assertIn((1, rp._EXCERPT_HEAD), first)
+        self.assertTrue(any(start <= 1500 <= end for start, end in first))
         self.assertEqual(first, sorted(first))
 
     def test_select_windows_without_hits_keeps_head_within_budget(self):
@@ -1111,17 +1116,32 @@ class RepoPatchDiagnosticsTests(unittest.TestCase):
         first, second = model.requests
         self.assertEqual(second["max_tokens"], first["max_tokens"])
         self.assertEqual(second["messages"][1], first["messages"][1])
-        self.assertEqual(second["messages"][-1], {"role": "user", "content": rp._RETRY_REMINDER})
+        reminder = second["messages"][-1]
+        self.assertEqual(reminder["role"], "user")
+        self.assertIn("Allowed paths: README.md.", reminder["content"])
+        self.assertIn("Make the best minimal edit", reminder["content"])
 
-    def test_no_retry_when_finish_reason_is_stop(self):
-        model = _FakeModel([("no blocks here", "stop")])
+    def test_retry_once_when_finish_reason_is_stop(self):
+        reply = "README.md\n<<<<<<< SEARCH\nhello\n=======\nhi\n>>>>>>> REPLACE\n"
+        model = _FakeModel([("I cannot see any file contents.", "stop"), (reply, "stop")])
+        self.addCleanup(model.close)
+        out = self.run_patch(rp.chat_patcher(model.url, "m", 5), allowlist=["README.md", "docs/new.md"])
+        self.assertEqual(out["outcome"], "COMPLETED")
+        self.assertEqual(len(model.requests), 2)
+        self.assertEqual(out["patch"]["retries"], 1)
+        self.assertEqual(out["patch"]["firstAttempt"]["finishReason"], "stop")
+        self.assertIn("Allowed paths: README.md, docs/new.md.", model.requests[1]["messages"][-1]["content"])
+
+    def test_no_retry_for_other_errors(self):
+        bad = "README.md\n<<<<<<< SEARCH\nnot in the file\n=======\nx\n>>>>>>> REPLACE\n"
+        model = _FakeModel([(bad, "stop")])
         self.addCleanup(model.close)
         out = self.run_patch(rp.chat_patcher(model.url, "m", 5))
         self.assertEqual(out["outcome"], "BLOCKED")
         self.assertEqual(out["code"], "PATCH_OUTPUT_INVALID")
         self.assertEqual(len(model.requests), 1)
         self.assertEqual(out["patch"]["retries"], 0)
-        self.assertEqual(out["patch"]["error"], "NO_EDITS")
+        self.assertEqual(out["patch"]["error"], "SEARCH_NOT_FOUND")
         self.assertNotIn("firstAttempt", out["patch"])
 
     def test_only_one_retry(self):
@@ -1213,3 +1233,146 @@ class LineEndingIOTests(unittest.TestCase):
         changed = [line for line in out["diff"].splitlines() if line[:1] in "+-" and line[:3] not in ("+++", "---")]
         self.assertEqual(len(changed), 2)
         self.assertNotIn("No newline at end of file", out["diff"])
+
+
+def _q003_doc(newline="\n"):
+    """~10 KB markdown shaped like nisi docs/architecture.md: headings, a code fence, non-ASCII."""
+    lines = ["# Architecture", "", "Overview of the engine \u2014 how runs flow.", ""]
+    index = 0
+    while len(newline.join(lines)) < 9700:
+        if index % 15 == 0:
+            lines += [f"## Stage {index // 15}", ""]
+        elif index == 40:
+            lines += ["```js", "const report = run(workflow);", "```"]
+        else:
+            lines.append(f"Paragraph {index}: the engine writes a run report and the store keeps it.")
+        index += 1
+    return newline.join(lines) + newline
+
+
+def _q001_doc():
+    """~28 KB README shaped like old-phone-os: 259 lines, some over 1,000 chars, noisy near-misses."""
+    lines = ["<!-- SPDX-License-Identifier: GPL-3.0-or-later -->", "# Old Phone Demo", ""]
+    filler = "Your account password report is reported publicly in the repository overview; " * 14
+    while len(lines) < 254:
+        number = len(lines) + 1
+        if number % 25 == 0:
+            lines.append(f"## Section {number}")
+        elif number % 7 == 0:
+            lines.append(f"Line {number}: " + filler)
+        else:
+            lines.append(f"Line {number}: setup notes for the simulator and the battery features.")
+    lines += ["## Contributions and license", "", "Issues and pull requests are welcome.", ""]
+    lines.append("GPL-3.0-or-later; [LICENSE](LICENSE) is retained verbatim.")
+    return "\n".join(lines) + "\n"
+
+
+Q001_TASK = (
+    "Docs-only consistency pass on README.md: correct any stale commit count and make the licence wording "
+    "match LICENSE exactly. Same finding class as audit draft 04; check it against the public repo first."
+)
+Q003_TASK = (
+    "Docs-only: in docs/ (README or architecture), document that reportSha256 = "
+    "sha256('nisi/run-report/v1\\0' + stableStringify(report)), not a hash of the stored file's bytes."
+)
+
+
+class PromptContentTests(unittest.TestCase):
+    """Q003/Q001 reruns: the file text must reach the user message, and excerpts must hit the target."""
+
+    def test_q003_doc_is_in_the_user_message_and_counted(self):
+        doc = _q003_doc()
+        self.assertGreater(len(doc), 9500)
+        model = _FakeModel([("no blocks", "stop"), ("still none", "stop")])
+        self.addCleanup(model.close)
+        patcher = rp.chat_patcher(model.url, "m", 5, disable_thinking=True)
+        with self.assertRaises(rp.Refused):
+            patcher(
+                files={"docs/architecture.md": doc}, task=Q003_TASK, workdir=None, allowlist=["docs/architecture.md"]
+            )
+        system, user = (message["content"] for message in model.requests[0]["messages"])
+        self.assertIn(doc, user)
+        self.assertNotIn("b'", user[:200])
+        self.assertEqual(patcher.last["fileChars"], {"docs/architecture.md": len(doc)})
+        self.assertEqual(patcher.last["promptChars"], len(system) + len(user))
+        self.assertNotIn("excerpts", patcher.last)
+        self.assertEqual(patcher.last["retries"], 1)
+
+    def test_q003_crlf_doc_through_run_reaches_prompt_under_windows_text_mode(self):
+        fixture = RepoPatchTests("setUp")
+        fixture.setUp()
+        self.addCleanup(fixture.tearDown)
+        doc = _q003_doc("\r\n")
+        (fixture.work / "docs").mkdir()
+        (fixture.work / "docs" / "architecture.md").write_bytes(doc.encode("utf-8"))
+        git(["-c", "core.autocrlf=false", "add", "-A"], fixture.work)
+        git(["commit", "-m", "doc"], fixture.work)
+        git(["push", "origin", "main"], fixture.work)
+        commit = git(["rev-parse", "HEAD"], fixture.work).stdout.strip()
+        reply = "docs/architecture.md\n<<<<<<< SEARCH\n## Stage 1\n=======\n## Stage 1\n\nreportSha256 note.\n>>>>>>> REPLACE"
+        model = _FakeModel([(reply, "stop")])
+        self.addCleanup(model.close)
+
+        def windows_write_text(path, data, encoding=None, errors=None, newline=None):
+            return path.write_bytes(data.replace("\n", "\r\n").encode(encoding or "utf-8", errors or "strict"))
+
+        with mock.patch.object(Path, "write_text", windows_write_text):
+            out = rp.run(
+                fixture.spec(commit=commit, allowlist=["docs/architecture.md"], max_diff_bytes=6144),
+                rp.chat_patcher(model.url, "m", 5),
+                allow_local_source=True,
+                tmp_root=fixture.tmp_root,
+            )
+        user = model.requests[0]["messages"][1]["content"]
+        self.assertIn(doc, user)
+        self.assertEqual(out["outcome"], "COMPLETED", out.get("code"))
+        self.assertLess(out["diffBytes"], 1024)
+        self.assertEqual(out["patch"]["fileChars"], {"docs/architecture.md": len(doc)})
+
+    def test_q001_excerpts_cover_licence_heading_and_sentence(self):
+        doc = _q001_doc()
+        self.assertGreater(len(doc), rp._EXCERPT_THRESHOLD)
+        lines = doc.splitlines()
+        heading = lines.index("## Contributions and license") + 1
+        sentence = len(lines)
+        windows = rp._select_windows(doc, Q001_TASK)
+        self.assertEqual(windows, rp._select_windows(doc, Q001_TASK))
+        self.assertTrue(any(start <= heading <= end for start, end in windows), windows)
+        self.assertTrue(any(start <= sentence <= end for start, end in windows), windows)
+        excerpts, file_chars = {}, {}
+        prompt = rp._user_prompt({"README.md": doc}, Q001_TASK, ["README.md"], None, excerpts, file_chars=file_chars)
+        self.assertIn("GPL-3.0-or-later; [LICENSE](LICENSE) is retained verbatim.", prompt)
+        self.assertEqual(excerpts["README.md"], [list(window) for window in windows])
+        self.assertGreater(file_chars["README.md"], 0)
+        self.assertLessEqual(file_chars["README.md"], rp._EXCERPT_BUDGET)
+
+    def test_keywords_strip_punctuation_and_match_whole_words(self):
+        keywords = rp._task_keywords(Q001_TASK)
+        for expected in ("licence", "license", "commit", "count", "readme.md", "readme"):
+            self.assertIn(expected, keywords)
+        for dropped in ("exactly.", "first.", "the", "pass", "check"):
+            self.assertNotIn(dropped, keywords)
+        self.assertEqual(rp._keyword_scores(["your account details", "commit count: 12"], "commit count"), {2: 2.0})
+        self.assertIn("architecture", rp._task_keywords("edit docs/architecture.md"))
+
+    def test_rare_keywords_outrank_common_ones(self):
+        lines = ["the public repo"] * 30 + ["## License", "MIT licence text"]
+        scores = rp._keyword_scores(lines, "public repo licence")
+        self.assertGreater(scores[32], scores[1])
+
+    def test_no_match_falls_back_to_head_within_budget(self):
+        doc = "\n".join(f"filler line {index} about nothing in particular" for index in range(1, 2001)) + "\n"
+        windows = rp._select_windows(doc, "zzz-unmatched-token")
+        self.assertEqual(len(windows), 1)
+        start, end = windows[0]
+        self.assertEqual(start, 1)
+        self.assertLessEqual(len("\n".join(doc.splitlines()[:end])), rp._EXCERPT_BUDGET)
+        self.assertGreater(end, 200)
+
+    def test_matching_heading_brings_its_section(self):
+        lines = ["# Title"] + [f"filler {index}" for index in range(500)] + ["## Licence"]
+        lines += [f"term {index}" for index in range(12)] + ["## Next"] + [f"tail {index}" for index in range(500)]
+        doc = "\n".join(lines) + "\n"
+        heading = lines.index("## Licence") + 1
+        windows = rp._select_windows(doc + "x" * rp._EXCERPT_THRESHOLD, "licence")
+        self.assertTrue(any(start <= heading and heading + 12 <= end for start, end in windows), windows)
