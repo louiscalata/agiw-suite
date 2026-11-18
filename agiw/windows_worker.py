@@ -237,8 +237,8 @@ class Handler(BaseHTTPRequestHandler):
         self._send(200, receipt)
 
 
-def create_server(worker, token, bind='127.0.0.1', port=0):
-    validate_bind(bind)
+def create_server(worker, token, bind='127.0.0.1', port=0, allow_lan=False):
+    validate_bind(bind, allow_lan)
     handler = type('BoundWorkerHandler', (Handler,), {'worker': worker, 'token': token})
     return ThreadingHTTPServer((bind, port), handler)
 
@@ -260,7 +260,7 @@ def main(argv=None):
         token = load_token(args.token_file)
         worker = Worker(args.worker_id, args.model, args.model_endpoint,
                         args.receipt_dir, args.report_store)
-        server = create_server(worker, token, args.bind, args.port)
+        server = create_server(worker, token, args.bind, args.port, args.allow_lan)
     except (Refused, OSError, ValueError) as exc:
         print(json.dumps({'outcome': 'BLOCKED', 'reason': str(exc)}))
         return 2

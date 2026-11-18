@@ -19,6 +19,8 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, *args): raise Refused('REDIRECT_REFUSED')
 
 TIMEOUT = 3
+# A dispatched job may run up to the pilot's 25s child wall timeout plus store/receipt time.
+JOB_TIMEOUT = 45
 
 
 def worker_url(value, allow_lan=False):
@@ -70,7 +72,8 @@ class FleetRouterClient:
         if data is not None:
             headers['Content-Type'] = 'application/json'
         req = urllib.request.Request(row['url'] + path, data=data, headers=headers, method=method)
-        with self.opener.open(req, timeout=TIMEOUT) as response:
+        timeout = JOB_TIMEOUT if method == 'POST' else TIMEOUT
+        with self.opener.open(req, timeout=timeout) as response:
             return response.status, json.loads(response.read(65537))
 
     def probe(self):
