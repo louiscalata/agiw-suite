@@ -13,6 +13,7 @@ from urllib.parse import urlsplit
 from . import fleet_routing_plan as routing
 from . import windows_worker as worker_module
 from . import windows_worker_receipt_check as receipts
+from . import fleet_local_pilot as pilot
 
 class Refused(RuntimeError): pass
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -39,7 +40,13 @@ def worker_url(value, allow_lan=False):
 def job_timeout(name, value=None):
     """HTTP wait for one dispatched job: the lane's model timeout plus margin, unless configured."""
     if value is None:
-        return 460 if name == 'monterey-mac-pro' else 90
+        lane = pilot.lane_defaults(name)
+        if 'job_timeout_s' in lane:
+            value = lane['job_timeout_s']
+        elif 'model_timeout_s' in lane:
+            value = lane['model_timeout_s'] + 60
+        else:
+            return 90
     if isinstance(value, bool) or not isinstance(value, (int, float)) or not 1 <= value <= 1200:
         raise Refused('JOB_TIMEOUT_INVALID')
     return value
@@ -68,6 +75,7 @@ def load_workers(path):
             'job_timeout_s': job_timeout(name, row.get('job_timeout_s')),
             'model_timeout_s': row.get('model_timeout_s'),
             'disable_thinking': row.get('disable_thinking') is True,
+            'max_tokens': row.get('max_tokens'),
         }
     return workers, config
 
@@ -130,6 +138,8 @@ class FleetRouterClient:
         row = self.workers[name]
         if row.get('model_timeout_s') is not None:
             body['model_timeout_s'] = row['model_timeout_s']
+        if row.get('max_tokens') is not None:
+            body['max_tokens'] = row['max_tokens']
         if row.get('disable_thinking') is True:
             body['disable_thinking'] = True
         try:

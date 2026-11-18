@@ -46,9 +46,19 @@ class ModelSelectionTests(unittest.TestCase):
 
     def test_missing_node_is_refused(self):
         with patch.dict(os.environ, {}, clear=True), patch.object(
-                pilot.shutil, 'which', return_value=None):
+                pilot.shutil, 'which', return_value=None), patch.object(pilot, 'NODE_FALLBACK_DIRS', ()):
             with self.assertRaises(pilot.Refused):
                 pilot.node_binary()
+
+    def test_node_found_in_user_bin_when_path_is_minimal(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            node = Path(td) / 'node'
+            node.write_text('#!/bin/sh\n')
+            node.chmod(0o755)
+            with patch.dict(os.environ, {}, clear=True), patch.object(pilot.shutil, 'which', return_value=None), \
+                    patch.object(pilot, 'NODE_FALLBACK_DIRS', (td,)), patch.object(pilot.os, 'name', 'posix'):
+                self.assertEqual(pilot.node_binary(), str(node))
 
     def test_node_from_env(self):
         with patch.dict(os.environ, {'AGIW_NODE': '/fixture/node'}):

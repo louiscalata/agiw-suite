@@ -49,3 +49,46 @@ export function errorEvidence(error) {
   if (server) evidence.serverMessage = server;
   return evidence;
 }
+
+export const MIN_MAX_TOKENS = 16;
+export const MAX_MAX_TOKENS = 4096;
+
+// Output-token cap for one model call, from the job/worker/lane config; programs keep their own default.
+export function maxTokens(cfg, fallback) {
+  const value = cfg?.maxTokens ?? fallback;
+  if (!Number.isSafeInteger(value) || value < MIN_MAX_TOKENS || value > MAX_MAX_TOKENS) throw Error('MAX_TOKENS_INVALID');
+  return value;
+}
+
+// Sanitized, truncated sample of raw model output for diagnosing refused or unparsable answers.
+export function outputSample(value, limit = 300) {
+  if (typeof value !== 'string' || !value) return null;
+  let text = value.replace(/[\u0000-\u001f\u007f]+/g, ' ');
+  for (const [pattern, replacement] of REDACTIONS) text = text.replace(pattern, replacement);
+  return text.trim().slice(0, limit) || null;
+}
+
+const HARMONY_FINAL = /^(?:<\|start\|>assistant)?<\|channel\|>analysis<\|message\|>[\s\S]*?<\|end\|>\s*<\|start\|>assistant<\|channel\|>final<\|message\|>([\s\S]*?)(?:<\|return\|>|<\|end\|>)?$/;
+const HARMONY_FINAL_ONLY = /^(?:<\|start\|>assistant)?<\|channel\|>final<\|message\|>([\s\S]*?)(?:<\|return\|>|<\|end\|>)?$/;
+const THINK_BLOCK = /^<think>[\s\S]*?<\/think>\s*([\s\S]*)$/;
+
+// Strict, fail-closed final-answer extraction. Plain JSON is used as is. Otherwise only a known
+// preamble (harmony analysis->final channels, or one leading <think> block) followed by exactly one
+// JSON object is accepted; the object text is returned unchanged. Anything else is refused.
+export function extractFinalJSON(content, parse) {
+  if (typeof content !== 'string') throw Error('CONTENT_REFUSED');
+  const isObject = text => { const v = parse(text); return v !== null && typeof v === 'object' && !Array.isArray(v); };
+  try { parse(content); return {content, stripped: null}; } catch { /* try known preambles */ }
+  const trimmed = content.trim();
+  for (const [kind, pattern] of [['harmony', HARMONY_FINAL], ['harmony', HARMONY_FINAL_ONLY], ['think', THINK_BLOCK]]) {
+    const match = pattern.exec(trimmed);
+    if (!match) continue;
+    const inner = match[1].trim();
+    if (!inner || /<\||<\/?think>/.test(inner)) throw Error('CONTENT_REFUSED');
+    let ok = false;
+    try { ok = isObject(inner); } catch { ok = false; }
+    if (!ok) throw Error('CONTENT_REFUSED');
+    return {content: inner, stripped: kind};
+  }
+  throw Error('CONTENT_REFUSED');
+}

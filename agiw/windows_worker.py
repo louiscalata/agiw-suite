@@ -96,7 +96,7 @@ class Worker:
     """Holds the single job slot and exposes handler-friendly operations."""
 
     def __init__(self, worker_id, model, model_endpoint, receipt_dir, report_store=None,
-                 execute=None, probe=None, model_timeout_s=None, disable_thinking=False):
+                 execute=None, probe=None, model_timeout_s=None, disable_thinking=False, max_tokens=None):
         if not isinstance(worker_id, str) or not worker_id:
             raise Refused('WORKER_ID_REQUIRED')
         try:
@@ -113,6 +113,10 @@ class Worker:
         except pilot.Refused as exc:
             raise Refused(str(exc))
         self.disable_thinking = disable_thinking is True
+        try:
+            self.max_tokens = pilot.max_tokens(worker_id, max_tokens)
+        except pilot.Refused as exc:
+            raise Refused(str(exc))
         self.report_store = report_store
         self._execute = execute or pilot.execute
         self._probe = probe or (lambda: pilot.detect_models(pilot.endpoint(model_endpoint)))
@@ -150,6 +154,11 @@ class Worker:
                 pilot.model_timeout_s(self.worker_id, job['model_timeout_s'])
             except pilot.Refused as exc:
                 raise Refused(str(exc))
+        if job.get('max_tokens') is not None:
+            try:
+                pilot.max_tokens(self.worker_id, job['max_tokens'])
+            except pilot.Refused as exc:
+                raise Refused(str(exc))
         if job.get('disable_thinking') not in (None, True, False):
             raise Refused('DISABLE_THINKING_INVALID')
         return job_id
@@ -163,6 +172,7 @@ class Worker:
         outcome = 'BLOCKED'
         timeout_s = pilot.model_timeout_s(self.worker_id, job.get('model_timeout_s', self.model_timeout_s))
         disable_thinking = job['disable_thinking'] if job.get('disable_thinking') in (True, False) else self.disable_thinking
+        tokens = job.get('max_tokens') if job.get('max_tokens') is not None else self.max_tokens
         failure = None
         report = {}
         result = None
@@ -170,7 +180,7 @@ class Worker:
             result = self._execute(
                 'live', self.model_endpoint, self.model, 'agent', job['program'],
                 report_store=self.report_store, worker_id=self.worker_id,
-                timeout_s=timeout_s, disable_thinking=disable_thinking,
+                timeout_s=timeout_s, disable_thinking=disable_thinking, max_output_tokens=tokens,
             )
             report = result.get('report') if isinstance(result, dict) and isinstance(result.get('report'), dict) else {}
             outcome = report.get('outcome')
@@ -198,6 +208,7 @@ class Worker:
                 'code': pilot.sanitize_text(report.get('code')) if isinstance(report.get('code'), str) else None,
                 'modelTimeoutS': timeout_s,
                 'disableThinking': disable_thinking,
+                'maxTokens': tokens,
                 'authorEvidence': result.get('authorEvidence', []) if isinstance(result, dict) else [],
                 'childExitCode': result.get('childExitCode') if isinstance(result, dict) else None,
                 'failure': failure,
@@ -283,6 +294,8 @@ def main(argv=None):
     p.add_argument('--report-store', default=None)
     p.add_argument('--model-timeout-s', type=int, default=None,
                    help='Per-lane model-call timeout (default 30s; 400s for monterey-mac-pro; max 900)')
+    p.add_argument('--max-tokens', type=int, default=None,
+                   help='Per-lane output-token cap (program default 64/256; lane default from fleet-workers.json)')
     p.add_argument('--disable-thinking', action='store_true',
                    help='Ask llama-server to skip reasoning per request (chat_template_kwargs/reasoning_format)')
     args = p.parse_args(argv)
@@ -291,7 +304,8 @@ def main(argv=None):
         token = load_token(args.token_file)
         worker = Worker(args.worker_id, args.model, args.model_endpoint,
                         args.receipt_dir, args.report_store,
-                        model_timeout_s=args.model_timeout_s, disable_thinking=args.disable_thinking)
+                        model_timeout_s=args.model_timeout_s, disable_thinking=args.disable_thinking,
+                        max_tokens=args.max_tokens)
         server = create_server(worker, token, args.bind, args.port, args.allow_lan)
     except (Refused, OSError, ValueError) as exc:
         print(json.dumps({'outcome': 'BLOCKED', 'reason': str(exc)}))

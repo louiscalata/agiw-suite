@@ -50,3 +50,24 @@ The same verified tiny model extracted a color from the synthetic sentence “Th
 ## Worker ids
 
 The pilot and its programs accept any worker id listed in `preview-pilot/fleet-workers.json` (router config: m5-macbook-pro, dual-gpu-pc, monterey-mac-pro). Tests keep it equal to `agiw.fleet_routing_plan.WORKERS`. Unknown ids are refused by the pilot, the worker, the router client and the Node route check.
+
+## Lane settings and the worker LaunchAgent
+
+`preview-pilot/fleet-workers.json` `lanes` holds per-lane defaults. Monterey has `max_tokens` 512 and `model_timeout_s` 840: at about 0.68 tok/s, 512 tokens take about 750 s, plus about 60 s for the prompt. Its `job_timeout_s` (the router's wait) is 900. Other lanes use the program defaults (64 tokens for the tiny programs, 256 for nisi-smoke) and a 30 s timeout. A worker can override these with `--max-tokens` and `--model-timeout-s`. A job overrides them with `max_tokens` and `model_timeout_s`, which can come from the router config's per-worker `max_tokens`, `model_timeout_s`, `disable_thinking` and `job_timeout_s`.
+
+When the finish reason isn't `stop`, or the content won't parse, the receipt's `authorEvidence` includes `outputSample`: up to 300 sanitized characters of the raw model output. A known preamble is stripped only if it is followed by exactly one valid JSON object, which is used unchanged; `preambleStripped` records which kind. The known preambles are a harmony `analysis`→`final` channel pair, a `final` channel alone, or one leading `<think>` block. Anything else is refused.
+
+launchd gives agents a minimal PATH, so node in `~/.local/bin` or Homebrew isn't found when a job runs. Generate the worker LaunchAgent from the resolved binaries:
+
+```sh
+python3 -B -m agiw.worker_service render -- --worker-id monterey-mac-pro --bind 127.0.0.1 --port 18791 --token-file /path/worker.token --model-endpoint http://127.0.0.1:PORT/v1/chat/completions --model EXACT_ID --disable-thinking
+python3 -B -m agiw.worker_service install -- <same worker arguments>   # writes ~/Library/LaunchAgents/...plist and prints the launchctl command
+```
+
+The plist sets `AGIW_NODE`, `AGIW_GIT` and a minimal `PATH` in `EnvironmentVariables`. It runs from the repo checkout and never contains a token value. `--load` also runs `launchctl bootstrap`; leave it off to load the agent yourself.
+
+## Network permission and the pin check
+
+Node 25 and later deny network access under `--permission` unless `--allow-net` is given. That flag can't be scoped: Node accepts a host value but ignores it. In live mode, on Node 25 or later, the pilot passes a bare `--allow-net`. In every mode, each program installs `net-guard.mjs`, which refuses any socket other than the configured literal `127.0.0.1:<port>`. Node 22–24 doesn't gate the network and rejects `--allow-net`, so only the guard applies there. Fixture mode never gets network access. Node older than 22, or a Node version that can't be read, is refused.
+
+The pinned Nisi checkout is checked under the pilot lock. `git status` runs read-only (`GIT_OPTIONAL_LOCKS=0`, so there are no `index.lock` races) and includes untracked files. On Windows it runs with `core.autocrlf=true`, matching Git for Windows' default checkout, because system config is disabled. Refusals are now specific: `NISI_PIN_MISMATCH`, `NISI_CHECKOUT_DIRTY: <first entries>` or `NISI_GIT_FAILED: <sanitized git error>`.

@@ -72,7 +72,9 @@ class PilotWindowsTests(unittest.TestCase):
                     mock.patch.object(pilot.os, 'name', 'nt'):
                 self.assertEqual(pilot.integrity(), pilot.PIN)
         self.assertEqual([argv[0] for argv, _ in seen], [git, git])
-        self.assertEqual(seen[0][0][1:3], ['-C', str(pilot.PILOT / 'vendor/nisi-0.3.1')])
+        self.assertEqual(seen[0][0][1:3], ['-c', 'core.autocrlf=true'])
+        self.assertEqual(seen[0][0][3:5], ['-C', str(pilot.PILOT / 'vendor/nisi-0.3.1')])
+        self.assertEqual(seen[0][1]['GIT_OPTIONAL_LOCKS'], '0')
         env = seen[0][1]
         self.assertNotIn('/usr/bin', env['PATH'])
         self.assertIn('SYSTEMROOT', env)

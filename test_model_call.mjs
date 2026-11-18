@@ -43,3 +43,44 @@ test('no pilot program hardcodes a model timeout or deadline', () => {
     assert.match(src, /errorEvidence\(e\)/);
   }
 });
+
+import {maxTokens, outputSample, extractFinalJSON} from './preview-pilot/model-call.mjs';
+const strict = text => JSON.parse(text);
+
+test('max tokens come from config within bounds', () => {
+  assert.equal(maxTokens({}, 64), 64);
+  assert.equal(maxTokens({maxTokens: 512}, 64), 512);
+  for (const bad of [8, 5000, 1.5, '64']) assert.throws(() => maxTokens({maxTokens: bad}, 64), /MAX_TOKENS_INVALID/);
+});
+
+test('output sample is sanitized and truncated', () => {
+  const s = outputSample('<|channel|>analysis ' + 'y'.repeat(10) + ' secret=hunter2hunter2 ' + 'z '.repeat(400));
+  assert.ok(s.length <= 300);
+  assert.doesNotMatch(s, /hunter2/);
+});
+
+test('plain JSON is returned unchanged', () => {
+  assert.deepEqual(extractFinalJSON('{"answer":42}', strict), {content: '{"answer":42}', stripped: null});
+});
+
+test('known harmony and think preambles yield the final JSON only', () => {
+  const h = '<|channel|>analysis<|message|>6*7<|end|><|start|>assistant<|channel|>final<|message|>{"answer":42}<|return|>';
+  assert.deepEqual(extractFinalJSON(h, strict), {content: '{"answer":42}', stripped: 'harmony'});
+  assert.deepEqual(extractFinalJSON('<|channel|>final<|message|>{"answer":42}', strict), {content: '{"answer":42}', stripped: 'harmony'});
+  assert.deepEqual(extractFinalJSON('<think>multiply</think>\n{"answer":42}', strict), {content: '{"answer":42}', stripped: 'think'});
+});
+
+test('extraction fails closed on anything else', () => {
+  for (const bad of [
+    'Sure: {"answer":42}',
+    '<|channel|>analysis<|message|>no final channel',
+    '<|channel|>analysis<|message|>x<|end|><|start|>assistant<|channel|>final<|message|>not json',
+    '<|channel|>final<|message|>[42]',
+    '<|channel|>final<|message|>{"answer":42} trailing',
+    '<|channel|>final<|message|>{"answer":42}<|end|><|start|>assistant<|channel|>final<|message|>{"answer":1}',
+    '<think>a</think>{"answer":42}<think>b</think>',
+    'prefix <think>a</think>{"answer":42}',
+    '',
+  ]) assert.throws(() => extractFinalJSON(bad, strict), /CONTENT_REFUSED/, bad);
+  assert.throws(() => extractFinalJSON(null, strict), /CONTENT_REFUSED/);
+});

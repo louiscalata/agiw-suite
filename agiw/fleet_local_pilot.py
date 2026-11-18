@@ -30,8 +30,17 @@ class Refused(RuntimeError): pass
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, *args): raise Refused('REDIRECT_REFUSED')
 
+NODE_FALLBACK_DIRS = ('~/.local/bin', '/opt/homebrew/bin', '/usr/local/bin')
+
 def node_binary():
+    """AGIW_NODE, else PATH, else common user/Homebrew dirs (launchd's PATH is minimal). Fail closed."""
     chosen = os.environ.get('AGIW_NODE') or shutil.which('node')
+    if not chosen and os.name != 'nt':
+        for folder in NODE_FALLBACK_DIRS:
+            candidate = os.path.join(os.path.expanduser(folder), 'node')
+            if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+                chosen = candidate
+                break
     if not chosen: raise Refused('NODE_NOT_FOUND')
     return chosen
 
@@ -93,29 +102,50 @@ def readiness(url, model, getter=get):
 
 ROUTER_CONFIG = PILOT / 'fleet-workers.json'
 # Per-lane model-call timeout (seconds). Monterey generates at ~1 tok/s, so it needs far longer.
+# Lane defaults (max_tokens, model_timeout_s, job_timeout_s) live in fleet-workers.json "lanes".
 DEFAULT_MODEL_TIMEOUT_S = 30
-WORKER_MODEL_TIMEOUT_S = {'monterey-mac-pro': 400}
 MAX_MODEL_TIMEOUT_S = 900
+MIN_MAX_TOKENS, MAX_MAX_TOKENS = 16, 4096
+
+def lane_defaults(worker_id, path=None):
+    config = json.loads(Path(path or ROUTER_CONFIG).read_text())
+    lanes = config.get('lanes', {}) if isinstance(config, dict) else {}
+    if not isinstance(lanes, dict): raise Refused('ROUTER_CONFIG_INVALID')
+    lane = lanes.get(worker_id, {})
+    if not isinstance(lane, dict): raise Refused('ROUTER_CONFIG_INVALID')
+    return lane
+
+def _number(value):
+    return not isinstance(value, bool) and isinstance(value, (int, float)) and value == value
 
 def model_timeout_s(worker_id, value=None):
-    chosen = WORKER_MODEL_TIMEOUT_S.get(worker_id, DEFAULT_MODEL_TIMEOUT_S) if value is None else value
-    if isinstance(chosen, bool) or not isinstance(chosen, (int, float)) or not 1 <= chosen <= MAX_MODEL_TIMEOUT_S:
+    chosen = lane_defaults(worker_id).get('model_timeout_s', DEFAULT_MODEL_TIMEOUT_S) if value is None else value
+    if not _number(chosen) or not 1 <= chosen <= MAX_MODEL_TIMEOUT_S:
         raise Refused('MODEL_TIMEOUT_INVALID')
     return int(chosen)
 
+def max_tokens(worker_id, value=None):
+    """Output-token cap: job/worker value, else the lane default, else None (program default)."""
+    chosen = lane_defaults(worker_id).get('max_tokens') if value is None else value
+    if chosen is None: return None
+    if isinstance(chosen, bool) or not isinstance(chosen, int) or not MIN_MAX_TOKENS <= chosen <= MAX_MAX_TOKENS:
+        raise Refused('MAX_TOKENS_INVALID')
+    return chosen
+
 _EVIDENCE_KEYS = {'httpStatus': int, 'finishReason': str, 'errorName': str, 'errorCode': str, 'errorMessage': str,
                   'serverMessage': str, 'elapsedMs': (int, float), 'reportedModel': str, 'requestedModel': str,
-                  'status': str, 'timeoutMs': int, 'disableThinking': bool, 'code': str}
+                  'status': str, 'timeoutMs': int, 'disableThinking': bool, 'code': str,
+                  'outputSample': str, 'preambleStripped': str, 'maxOutputTokens': int}
 _REDACT = [(re.compile(r'(bearer|token|api[_-]?key|authorization|password|secret)\s*[:=]?\s*\S+', re.I), r'\1 [redacted]'),
            (re.compile(r'[A-Za-z]:\\[^\s\'"]+'), '[path]'),
            (re.compile(r'(^|[\s\'"(=])/[^\s\'"]+'), r'\1[path]'),
            (re.compile(r'[A-Za-z0-9+/_=-]{24,}'), '[redacted]')]
 
-def sanitize_text(value):
+def sanitize_text(value, limit=200):
     if not isinstance(value, str) or not value: return None
     text = re.sub(r'[\x00-\x1f\x7f]+', ' ', value)
     for pattern, repl in _REDACT: text = pattern.sub(repl, text)
-    return text.strip()[:200] or None
+    return text.strip()[:limit] or None
 
 def author_evidence(receipts):
     """Whitelisted, sanitized per-call evidence for receipts: no payloads, tokens or paths."""
@@ -126,7 +156,7 @@ def author_evidence(receipts):
         for key, kind in _EVIDENCE_KEYS.items():
             value = item.get(key)
             if isinstance(value, kind) and not (kind is int and isinstance(value, bool)):
-                row[key] = sanitize_text(value) if isinstance(value, str) else value
+                row[key] = sanitize_text(value, 300 if key == 'outputSample' else 200) if isinstance(value, str) else value
         out.append(row)
     return out
 
@@ -187,13 +217,54 @@ def clean_env():
         env['PATH'] = '/usr/bin:/bin:/usr/local/bin'
     return env
 
+def _dirty_summary(porcelain):
+    entries = [line[:3] + (sanitize_text(line[3:], 80) or '') for line in porcelain.splitlines()[:3]]
+    more = len(porcelain.splitlines()) - len(entries)
+    return '; '.join(entries) + (' (+%d more)' % more if more > 0 else '')
+
 def integrity():
+    """Pinned Nisi checkout must be at PIN with no tracked or untracked changes. Called under the pilot lock.
+
+    GIT_OPTIONAL_LOCKS=0 keeps `git status` read-only (no index.lock races with a concurrent git).
+    On Windows the checkout is normally made with Git for Windows' system core.autocrlf=true; with
+    system config disabled, a stale index stat cache made `git status` content-compare CRLF files as
+    modified until something else refreshed the index. Pin autocrlf=true there so only real changes count.
+    """
     vendor=PILOT/'vendor/nisi-0.3.1'
     git_bin=git_binary()
-    env=dict(clean_env(),GIT_CONFIG_NOSYSTEM='1',GIT_CONFIG_GLOBAL=os.devnull)
-    def git(*a):return subprocess.check_output([git_bin,'-C',str(vendor),*a],env=env,text=True,timeout=5).strip()
-    if git('rev-parse','HEAD') != PIN or git('status','--porcelain'):raise Refused('NISI_PIN_OR_CLEANLINESS')
+    env=dict(clean_env(),GIT_CONFIG_NOSYSTEM='1',GIT_CONFIG_GLOBAL=os.devnull,GIT_OPTIONAL_LOCKS='0')
+    eol=['-c','core.autocrlf=true'] if _is_windows() else []
+    def git(*a):
+        try:
+            return subprocess.check_output([git_bin,*eol,'-C',str(vendor),*a],env=env,text=True,timeout=10,stderr=subprocess.PIPE).strip()
+        except subprocess.CalledProcessError as exc:
+            raise Refused('NISI_GIT_FAILED: '+(sanitize_text(exc.stderr or '', 160) or str(exc.returncode)))
+    head=git('rev-parse','HEAD')
+    if head != PIN: raise Refused('NISI_PIN_MISMATCH')
+    dirty=git('status','--porcelain','--untracked-files=all','--ignore-submodules=none')
+    if dirty: raise Refused('NISI_CHECKOUT_DIRTY: '+_dirty_summary(dirty))
     return PIN
+
+_NODE_MAJOR = {}
+
+def node_major(node_bin):
+    if node_bin not in _NODE_MAJOR:
+        try:
+            out = subprocess.check_output([node_bin, '--version'], text=True, timeout=10, env=clean_env()).strip()
+        except (OSError, subprocess.SubprocessError):
+            raise Refused('NODE_VERSION_UNKNOWN')
+        m = re.fullmatch(r'v(\d+)\.\d+\.\d+.*', out)
+        if not m: raise Refused('NODE_VERSION_UNKNOWN')
+        _NODE_MAJOR[node_bin] = int(m.group(1))
+    return _NODE_MAJOR[node_bin]
+
+def net_flags(major, mode):
+    """Node >=25 denies network under --permission unless --allow-net, which cannot be scoped (values are
+    ignored), so live mode passes bare --allow-net and the in-process net guard (net-guard.mjs) limits sockets
+    to the configured 127.0.0.1:port. Node 22-24 does not gate network and rejects --allow-net, so only the
+    guard applies. Fixture mode never gets network. Older Node is refused."""
+    if major < 22: raise Refused('NODE_TOO_OLD')
+    return ['--allow-net'] if (mode == 'live' and major >= 25) else []
 
 def report_store_dir(path=None):
     directory = Path(path) if path else (PILOT / 'report-store')
@@ -222,24 +293,26 @@ def _verify_stored(store, data):
     return None
 
 def execute(mode, url, model, source='agent', program='nisi-smoke.mjs', report_store=None, node=None, worker_id='m5-macbook-pro',
-            timeout_s=None, disable_thinking=False):
+            timeout_s=None, disable_thinking=False, max_output_tokens=None):
     if program not in PROGRAMS: raise Refused('PROGRAM_REFUSED')
     check_worker_id(worker_id)
     timeout_s = model_timeout_s(worker_id, timeout_s)
+    max_output_tokens = max_tokens(worker_id, max_output_tokens)
     if disable_thinking not in (True, False): raise Refused('DISABLE_THINKING_INVALID')
     endpoint(url)
     if mode not in ('fixture','live'): raise Refused('MODE_REFUSED')
-    integrity()
     store = report_store_dir(report_store)
     node_bin = node or node_binary()
+    net = net_flags(node_major(node_bin), mode)
     with (PILOT/'pilot.lock').open('a+') as lock:
         try_lock(lock)
+        integrity()
         ev = WorkerEvidence(time.time(),True,True,True,False) if mode=='fixture' else readiness(url,model)
-        cfg={'mode':mode,'endpoint':url,'model':model,'workerId':worker_id,'modelTimeoutMs':timeout_s*1000,'disableThinking':disable_thinking,'route':route(ev,source,worker_id=worker_id),'reportStore':str(store)}
+        cfg={'mode':mode,'endpoint':url,'model':model,'workerId':worker_id,'modelTimeoutMs':timeout_s*1000,'disableThinking':disable_thinking,**({'maxTokens':max_output_tokens} if max_output_tokens else {}),'route':route(ev,source,worker_id=worker_id),'reportStore':str(store)}
         # Node permission mode confines writes to the report store and reads to the
         # isolated preview plus that store. No provider env, HOME, child processes,
         # addons or worker permissions are supplied.
-        cmd=[node_bin,'--permission','--allow-fs-read='+str(PILOT),
+        cmd=[node_bin,'--permission',*net,'--allow-fs-read='+str(PILOT),
              '--allow-fs-read='+str(store),'--allow-fs-write='+str(store),str(PILOT/program)]
         r=subprocess.run(cmd,input=json.dumps(cfg),capture_output=True,text=True,env=clean_env(),cwd=PILOT,timeout=timeout_s+30)
         if not r.stdout: raise Refused('NISI_CHILD_FAILED: '+(sanitize_text(r.stderr[:300]) or ''))
@@ -250,6 +323,8 @@ def execute(mode, url, model, source='agent', program='nisi-smoke.mjs', report_s
         data['authorEvidence'] = author_evidence(data.get('authorReceipts'))
         data['modelTimeoutS'] = timeout_s
         data['disableThinking'] = disable_thinking
+        data['maxTokens'] = max_output_tokens
+        data['netPermission'] = ('allow-net+' if net else 'none+') + 'guard:127.0.0.1:%d' % (urlsplit(url).port or 0)
         if r.returncode and r.stderr: data['childStderr'] = sanitize_text(r.stderr[:300])
         failure = _verify_stored(store, data)
         data['reportStored'] = report.get('reportStored') is True and failure is None
