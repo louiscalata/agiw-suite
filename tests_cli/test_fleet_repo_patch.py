@@ -10,6 +10,7 @@ import time
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from unittest import mock
 
 if not shutil.which("git"):
     raise unittest.SkipTest("git not available")
@@ -41,6 +42,65 @@ def git(args, cwd, check=True):
         text=True,
         env=env,
     )
+
+
+class GitEnvTests(unittest.TestCase):
+    def test_windows_env(self):
+        tmp = Path("tmp")
+        home = str(tmp / "home")
+        env = rp._env(
+            tmp,
+            name="nt",
+            environ={
+                "PATH": r"C:\Git\cmd",
+                "SYSTEMROOT": r"D:\Windows",
+                "WINDIR": r"D:\WINDOWS",
+                "COMSPEC": r"D:\Windows\System32\cmd.exe",
+                "PATHEXT": ".EXE;.CMD",
+                "HOME": r"C:\User",
+                "USERPROFILE": r"C:\User",
+                "TEMP": r"C:\User\Temp",
+                "TMP": r"C:\User\Temp",
+                "HOMEPATH": r"\User",
+                "GITHUB_TOKEN": "fixture",
+                "HTTPS_PROXY": "fixture",
+                "GIT_ASKPASS": "fixture",
+            },
+        )
+        self.assertEqual(
+            env,
+            {
+                "PATH": r"C:\Git\cmd",
+                "HOME": home,
+                "GIT_CONFIG_NOSYSTEM": "1",
+                "GIT_CONFIG_GLOBAL": os.devnull,
+                "GIT_TERMINAL_PROMPT": "0",
+                "GIT_OPTIONAL_LOCKS": "0",
+                "SYSTEMROOT": r"D:\Windows",
+                "WINDIR": r"D:\WINDOWS",
+                "COMSPEC": r"D:\Windows\System32\cmd.exe",
+                "PATHEXT": ".EXE;.CMD",
+                "USERPROFILE": home,
+                "TEMP": home,
+                "TMP": home,
+            },
+        )
+
+    def test_unix_env(self):
+        tmp = Path("tmp")
+        env = rp._env(tmp, name="posix", environ={"PATH": "/bin", "HOME": "/user", "USERPROFILE": "/user"})
+        self.assertEqual(
+            env,
+            {
+                "PATH": "/bin",
+                "HOME": str(tmp / "home"),
+                "GIT_CONFIG_NOSYSTEM": "1",
+                "GIT_CONFIG_GLOBAL": os.devnull,
+                "GIT_TERMINAL_PROMPT": "0",
+                "GIT_ASKPASS": shutil.which("false") or "false",
+                "GIT_OPTIONAL_LOCKS": "0",
+            },
+        )
 
 
 class RepoPatchTests(unittest.TestCase):
@@ -330,6 +390,53 @@ class RepoPatchTests(unittest.TestCase):
                 receipt, expected_worker="m5-macbook-pro", expected_model="fixture-model", job_id="job-rp"
             )["valid"]
         )
+
+    def test_git_failure_stderr_reaches_receipt(self):
+        payload = self.spec(repo="https://github.com/example-owner/example-repo")
+        token = "ghp_" + "x" * 32
+        stderr = (
+            b"fatal: Could not resolve host: github.com \xff\n"
+            b"https://fixture-user:fixture-pass@example.invalid/repo\n" + token.encode("ascii") + b" detail" * 400
+        )
+        patcher = mock.Mock()
+        with mock.patch.object(
+            rp, "_git", side_effect=subprocess.CalledProcessError(128, ["git", "clone"], stderr=stderr)
+        ):
+            result = rp.run(payload, patcher, tmp_root=self.tmp_root)
+            receipt = ww.Worker(
+                "m5-macbook-pro",
+                "fixture-model",
+                "http://127.0.0.1:9/v1/chat/completions",
+                str(self.root / "receipts"),
+                repo_patch=lambda payload, **kw: rp.execute_job(
+                    payload,
+                    patcher=patcher,
+                    tmp_root=self.tmp_root,
+                    model_endpoint=kw["model_endpoint"],
+                    model=kw["model"],
+                    report_store=str(self.store),
+                ),
+            ).run_job(
+                {
+                    "job_id": "job-git-failed",
+                    "route": {"worker": "m5-macbook-pro"},
+                    "program": "repo-patch",
+                    "payload": payload,
+                }
+            )
+        patcher.assert_not_called()
+        self.assertEqual(result["code"], "GIT_FAILED")
+        self.assertEqual(receipt["code"], "GIT_FAILED")
+        diagnostic = result["git_stderr"]
+        self.assertIn("Could not resolve host: github.com \ufffd", diagnostic)
+        self.assertIn("https://[redacted]@example.invalid/repo", diagnostic)
+        for secret in ("fixture-user", "fixture-pass", token):
+            self.assertNotIn(secret, diagnostic)
+        self.assertEqual(len(diagnostic.encode("utf-8")), 2048)
+        self.assertEqual(receipt["git_stderr"], diagnostic)
+        stored = json.loads(Path(receipt["reportPath"]).read_text(encoding="utf-8"))
+        self.assertEqual(stored["git_stderr"], diagnostic)
+        self.assertTrue(validate_job_receipt(receipt, expected_worker="m5-macbook-pro")["valid"])
 
     def test_fixed_program_receipt_has_no_artifact(self):
         def execute(mode, url, model, source, program="nisi-smoke.mjs", report_store=None, **_):
