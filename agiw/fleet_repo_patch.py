@@ -548,7 +548,9 @@ def run(spec, patcher, *, allow_local_source=False, tmp_root=None, jev_pre=None,
         workdir = _clone(spec, tmp)
         files = _read_files(workdir, spec["allowlist"])
         if spec["jev_analysis"]:
-            text = "\n\n".join([spec["task"]] + [f"--- {path} ---\n{content}" for path, content in files.items()])
+            text = "\n\n".join(
+                [spec["task"]] + [f"--- {path} ---\n{content}".replace("\r\n", "\n") for path, content in files.items()]
+            )
             analysis["jevPre"] = _analyze(jev_pre, text, "pre", "plan")
         try:
             kwargs = {"files": dict(files), "task": spec["task"], "workdir": workdir}
