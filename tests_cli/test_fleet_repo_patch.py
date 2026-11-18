@@ -104,6 +104,176 @@ class GitEnvTests(unittest.TestCase):
         )
 
 
+class EditFormatTests(unittest.TestCase):
+    """Pure SEARCH/REPLACE parser and applier; no git, no model."""
+
+    def reason(self, files, text, allowlist):
+        with self.assertRaises(rp.Refused) as ctx:
+            rp.apply_edits(files, rp.parse_edits(text, allowlist), allowlist)
+        return str(ctx.exception), getattr(ctx.exception, "reason", None)
+
+    def test_parse_two_blocks_two_files(self):
+        text = (
+            "README.md\n<<<<<<< SEARCH\nhello\n=======\nhi\n>>>>>>> REPLACE\n\n"
+            "src/a.py\n<<<<<<< SEARCH\nprint outward\n=======\nprint in\n>>>>>>> REPLACE\n"
+        )
+        edits = rp.parse_edits(text)
+        self.assertEqual(
+            edits,
+            [("README.md", "hello", "hi"), ("src/a.py", "print outward", "print in")],
+        )
+
+    def test_path_line_tolerates_wrappers(self):
+        for line in ("`docs/a.md`", "**docs/a.md**", "File: docs/a.md", "Path: docs/a.md", "### docs/a.md"):
+            with self.subTest(line=line):
+                edits = rp.parse_edits(f"{line}\n<<<<<<< SEARCH\nold\n=======\nnew\n>>>>>>> REPLACE\n")
+                self.assertEqual(edits[0][0], "docs/a.md")
+
+    def test_single_allowlisted_path_used_when_path_missing(self):
+        text = "<<<<<<< SEARCH\nold\n=======\nnew\n>>>>>>> REPLACE\n"
+        self.assertEqual(rp.parse_edits(text, ["README.md"])[0][0], "README.md")
+        self.assertEqual(
+            rp.parse_edits("<<<<<<<  SEARCH  \nold\n=====  \nnew\n>>>>>> REPLACE\n", ["README.md"])[0][1],
+            "old",
+        )
+        with self.assertRaises(rp.Refused):
+            rp.parse_edits(text, ["README.md", "src/a.py"])
+
+    def test_fenced_reply_and_per_block_fences(self):
+        text = (
+            "```text\n"
+            "docs/a.md\n<<<<<<< SEARCH\nold\n=======\nnew\n>>>>>>> REPLACE\n"
+            "```\n"
+            "docs/b.md\n```text\n<<<<<<< SEARCH\nx\n=======\ny\n>>>>>>> REPLACE\n```\n"
+            "```\n"
+        )
+        self.assertEqual(
+            rp.parse_edits(text),
+            [("docs/a.md", "old", "new"), ("docs/b.md", "x", "y")],
+        )
+
+    def test_thinking_is_stripped(self):
+        closed = "<thinking>let me plan this out</thinking>\nREADME.md\n<<<<<<< SEARCH\na\n=======\nb\n>>>>>>> REPLACE"
+        self.assertEqual(rp.parse_edits(closed), [("README.md", "a", "b")])
+        unclosed = "<think_events>I should not finish\nREADME.md\n<<<<<<< SEARCH\na\n=======\nb\n>>>>>>> REPLACE"
+        with self.assertRaises(rp.Refused):
+            rp.parse_edits(unclosed)
+
+    def test_missing_path_and_blocks_are_malformed(self):
+        self.assertEqual(
+            self.reason({}, "just some prose about the task", ["README.md"])[1],
+            "NO_EDITS",
+        )
+        self.assertEqual(
+            self.reason({}, "README.md\n<<<<<<< SEARCH\nold\n", ["README.md"]),
+            ("PATCH_OUTPUT_INVALID", "MALFORMED_BLOCK"),
+        )
+
+    def test_search_must_be_unique(self):
+        files = {"README.md": "same\nother\nsame\n"}
+        self.assertEqual(
+            self.reason(files, "README.md\n<<<<<<< SEARCH\nsame\n=======\nnew\n>>>>>>> REPLACE\n", ["README.md"]),
+            ("PATCH_OUTPUT_INVALID", "SEARCH_NOT_UNIQUE"),
+        )
+
+    def test_search_must_be_found(self):
+        files = {"README.md": "hello\n"}
+        self.assertEqual(
+            self.reason(files, "README.md\n<<<<<<< SEARCH\nabsent\n=======\nnew\n>>>>>>> REPLACE\n", ["README.md"]),
+            ("PATCH_OUTPUT_INVALID", "SEARCH_NOT_FOUND"),
+        )
+
+    def test_path_outside_allowlist(self):
+        files = {"README.md": "hello\n"}
+        self.assertEqual(
+            self.reason(files, "src/a.py\n<<<<<<< SEARCH\nhello\n=======\nnew\n>>>>>>> REPLACE\n", ["README.md"]),
+            ("ALLOWLIST_VIOLATION", None),
+        )
+
+    def test_crlf_model_output_into_lf_file(self):
+        files = {"README.md": "one\ntwo\nthree\n"}
+        text = "README.md\r\n<<<<<<< SEARCH\r\ntwo\r\n=======\nTWO\r\n>>>>>>> REPLACE\r\n"
+        self.assertEqual(rp.apply_edits(files, rp.parse_edits(text), ["README.md"]), {"README.md": "one\nTWO\nthree\n"})
+
+    def test_lf_model_output_into_crlf_file_keeps_crlf(self):
+        files = {"README.md": "one\r\ntwo\r\nthree\r\n"}
+        text = "README.md\n<<<<<<< SEARCH\ntwo\n=======\nTWO\n>>>>>>> REPLACE\n"
+        self.assertEqual(
+            rp.apply_edits(files, rp.parse_edits(text), ["README.md"]),
+            {"README.md": "one\r\nTWO\r\nthree\r\n"},
+        )
+
+    def test_whitespace_fallback_covers_indentation(self):
+        files = {"src/a.py": "def f():\n    value = 1\n    return value\n"}
+        text = "src/a.py\n<<<<<<< SEARCH\nvalue = 1\nreturn value\n=======\nvalue = 2\nreturn value\n>>>>>>> REPLACE\n"
+        self.assertEqual(
+            rp.apply_edits(files, rp.parse_edits(text), ["src/a.py"]),
+            {"src/a.py": "def f():\nvalue = 2\nreturn value\n"},
+        )
+
+    def test_whitespace_fallback_refuses_ambiguity(self):
+        files = {"src/a.py": "if x:\n    return 1\nif y:\n    return 1\n"}
+        text = "src/a.py\n<<<<<<< SEARCH\nreturn 1\n=======\nreturn 2\n>>>>>>> REPLACE\n"
+        self.assertEqual(
+            self.reason(files, text, ["src/a.py"]),
+            ("PATCH_OUTPUT_INVALID", "SEARCH_NOT_UNIQUE"),
+        )
+
+    def test_empty_search_creates_missing_file_only(self):
+        text = "docs/new.md\n<<<<<<< SEARCH\n=======\nfresh body\n>>>>>>> REPLACE\n"
+        self.assertEqual(
+            rp.apply_edits({"README.md": "hi\n"}, rp.parse_edits(text), ["README.md", "docs/new.md"]),
+            {"docs/new.md": "fresh body"},
+        )
+        self.assertEqual(
+            self.reason({"docs/new.md": "already here\n"}, text, ["docs/new.md"]),
+            ("PATCH_OUTPUT_INVALID", "EMPTY_SEARCH_EXISTING_FILE"),
+        )
+
+    def test_edits_apply_sequentially(self):
+        files = {"README.md": "alpha\nbeta\n"}
+        text = (
+            "README.md\n<<<<<<< SEARCH\nalpha\n=======\nbeta\n>>>>>>> REPLACE\n"
+            "README.md\n<<<<<<< SEARCH\nbeta\nbeta\n=======\ndone\n>>>>>>> REPLACE\n"
+        )
+        self.assertEqual(rp.apply_edits(files, rp.parse_edits(text), ["README.md"]), {"README.md": "done\n"})
+
+    def test_whole_line_match_beats_substring_hits(self):
+        files = {"README.md": "Version 1\nVersion 10\nVersion 11\n"}
+        text = "README.md\n<<<<<<< SEARCH\nVersion 1\n=======\nVersion 2\n>>>>>>> REPLACE"
+        self.assertEqual(
+            rp.apply_edits(files, rp.parse_edits(text), ["README.md"]),
+            {"README.md": "Version 2\nVersion 10\nVersion 11\n"},
+        )
+
+    def test_partial_line_search_used_only_when_unique(self):
+        files = {"README.md": "Install with pip and run it.\nThen read the docs.\n"}
+        text = "README.md\n<<<<<<< SEARCH\nwith pip\n=======\nwith pipx\n>>>>>>> REPLACE"
+        self.assertEqual(
+            rp.apply_edits(files, rp.parse_edits(text), ["README.md"]),
+            {"README.md": "Install with pipx and run it.\nThen read the docs.\n"},
+        )
+        twice = {"README.md": "the docs\nmore of the docs\n"}
+        text = "README.md\n<<<<<<< SEARCH\nthe do\n=======\nx\n>>>>>>> REPLACE"
+        with self.assertRaises(rp.Refused) as ctx:
+            rp.apply_edits(twice, rp.parse_edits(text), ["README.md"])
+        self.assertEqual(str(ctx.exception), "PATCH_OUTPUT_INVALID")
+        self.assertEqual(ctx.exception.reason, "SEARCH_NOT_UNIQUE")
+
+    def test_prompt_fence_outlasts_backticks_in_file(self):
+        prompt = rp._user_prompt({"README.md": "```sh\nmake\n```\n"}, "t", ["README.md"], None)
+        self.assertIn("### README.md\n````\n```sh\nmake\n```\n````", prompt)
+
+    def test_legacy_json_files_reply(self):
+        self.assertEqual(
+            rp._legacy_json_files('```json\n{"files":{"README.md":"hi\\n"}}\n```'),
+            {"README.md": "hi\n"},
+        )
+        self.assertIsNone(rp._legacy_json_files("README.md\n<<<<<<< SEARCH\na\n=======\nb\n>>>>>>> REPLACE"))
+        with self.assertRaises(rp.Refused):
+            rp._legacy_json_files('{"task": "no files key"}')
+
+
 class RepoPatchTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -425,8 +595,14 @@ class RepoPatchTests(unittest.TestCase):
             plan = out["jevPre"]["plan"]
             self.assertEqual(len(plan), 4000)
             self.assertTrue(plan.endswith("\n[truncated]"))
-            user = json.loads(requests[0]["messages"][1]["content"])
-            self.assertEqual(user["jevPrePlan"], plan)
+            user = requests[0]["messages"][1]["content"]
+            self.assertIn(plan, user)
+            self.assertIn("### README.md", user)
+            self.assertIn("### Task\nedit readme", user)
+            self.assertEqual(out["patch"]["format"], "json-files")
+            self.assertEqual(out["patch"]["edits"], 1)
+            self.assertGreaterEqual(requests[0]["max_tokens"], 1024)
+            self.assertIsNone(out["patch"]["outputExcerpt"])
         finally:
             server.shutdown()
             thread.join(timeout=2)
@@ -434,6 +610,142 @@ class RepoPatchTests(unittest.TestCase):
 
         with self.assertRaises(fleet_local_pilot.Refused):
             rp.chat_patcher("http://example.com/v1/chat/completions", "m", 1)
+
+    def chat_server(self, reply):
+        requests = []
+
+        class H(BaseHTTPRequestHandler):
+            def do_POST(self):
+                requests.append(json.loads(self.rfile.read(int(self.headers["Content-Length"]))))
+                body = json.dumps({"choices": [{"message": {"content": reply}, "finish_reason": "stop"}]}).encode(
+                    "utf-8"
+                )
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, fmt, *args):
+                pass
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), H)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(lambda: (server.shutdown(), server.server_close(), thread.join(timeout=2)))
+        return f"http://127.0.0.1:{server.server_address[1]}/v1/chat/completions", requests
+
+    def add_doc(self, name="docs/guide.md", lines=240):
+        path = self.work / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        text = "".join(f"line {index:04d} of the guide with distinct content\n" for index in range(lines))
+        path.write_text(text, encoding="utf-8")
+        git(["add", "-A"], self.work)
+        git(["commit", "-m", "doc"], self.work)
+        git(["push", "origin", "main"], self.work)
+        self.commit = git(["rev-parse", "HEAD"], self.work).stdout.strip()
+        return name, text
+
+    def test_large_doc_small_edit_stays_under_diff_cap(self):
+        name, text = self.add_doc()
+        self.assertGreaterEqual(len(text), 10000)
+        target = "line 0100 of the guide with distinct content"
+        reply = f"{name}\n<<<<<<< SEARCH\n{target}\n=======\nline 0100 of the guide, now corrected\n>>>>>>> REPLACE\n"
+        base, _requests = self.chat_server(reply)
+        patcher = rp.chat_patcher(base, "m", 5)
+        out = rp.run(
+            self.spec(allowlist=[name], max_diff_bytes=6144, task="fix the typo on line 100"),
+            patcher,
+            allow_local_source=True,
+            tmp_root=self.tmp_root,
+        )
+        self.assertEqual(out["outcome"], "COMPLETED")
+        self.assertEqual(out["changedFiles"], [name])
+        self.assertLess(out["diffBytes"], 6144)
+        self.assertIn("now corrected", out["diff"])
+        self.assertEqual(out["patch"]["format"], "search-replace")
+        self.assertEqual(out["patch"]["edits"], 1)
+
+    def test_request_carries_max_tokens_and_thinking_flag(self):
+        reply = "README.md\n<<<<<<< SEARCH\nhello\n=======\nhi\n>>>>>>> REPLACE\n"
+        base, requests = self.chat_server(reply)
+        for disable in (False, True):
+            with self.subTest(disable_thinking=disable):
+                patcher = rp.chat_patcher(base, "m", 5, disable_thinking=disable)
+                out = rp.run(self.spec(), patcher, allow_local_source=True, tmp_root=self.tmp_root)
+                self.assertEqual(out["outcome"], "COMPLETED")
+                body = requests[-1]
+                self.assertGreaterEqual(body["max_tokens"], 1024)
+                self.assertLessEqual(body["max_tokens"], 4096)
+                self.assertEqual(body["max_tokens"], out["patch"]["maxTokens"])
+                self.assertEqual(body["temperature"], 0)
+                if disable:
+                    self.assertEqual(body["chat_template_kwargs"], {"enable_thinking": False})
+                    self.assertEqual(body["reasoning_format"], "none")
+                else:
+                    self.assertNotIn("chat_template_kwargs", body)
+
+    def test_malformed_reply_blocks_with_diagnostics(self):
+        base, _requests = self.chat_server("README.md\n<<<<<<< SEARCH\nhello\n")
+        patcher = rp.chat_patcher(base, "m", 5)
+        out = rp.run(self.spec(), patcher, allow_local_source=True, tmp_root=self.tmp_root)
+        self.assertEqual(out["outcome"], "BLOCKED")
+        self.assertEqual(out["code"], "PATCH_OUTPUT_INVALID")
+        self.assertEqual(out["patch"]["error"], "MALFORMED_BLOCK")
+        self.assertEqual(out["patch"]["format"], "search-replace")
+        self.assertIsNotNone(out["patch"]["outputExcerpt"])
+        self.assertLessEqual(len(out["patch"]["outputExcerpt"]), 2048)
+        result = rp.execute_job(
+            self.spec(),
+            patcher=patcher,
+            allow_local_source=True,
+            tmp_root=self.tmp_root,
+            report_store=str(self.store),
+            model_endpoint="http://127.0.0.1:9/v1/chat/completions",
+            model="m",
+        )
+        self.assertEqual(result["patch"]["error"], "MALFORMED_BLOCK")
+        stored = json.loads(Path(result["reportPath"]).read_text(encoding="utf-8"))
+        self.assertEqual(stored["patch"]["error"], "MALFORMED_BLOCK")
+
+    def test_worker_passes_thinking_and_tokens_to_repo_patch(self):
+        seen = {}
+
+        def repo_patch(payload, **kw):
+            seen.update(kw)
+            return {
+                "reportStored": True,
+                "reportPath": str(self.root / "report.json"),
+                "report": {
+                    "outcome": "COMPLETED",
+                    "reportStored": True,
+                    "runId": "00000000-0000-4000-8000-000000000000",
+                    "storedReportSha256": "a" * 64,
+                },
+                "patch": {"format": "search-replace", "edits": 1, "maxTokens": 900},
+            }
+
+        receipt = ww.Worker(
+            "m5-macbook-pro",
+            "fixture-model",
+            "http://127.0.0.1:9/v1/chat/completions",
+            str(self.root / "receipts-patch"),
+            repo_patch=repo_patch,
+            disable_thinking=True,
+            max_tokens=900,
+            allow_local_source=True,
+        ).run_job(
+            {
+                "job_id": "job-patch",
+                "route": {"worker": "m5-macbook-pro"},
+                "program": "repo-patch",
+                "payload": self.spec(),
+            }
+        )
+        self.assertIs(seen["disable_thinking"], True)
+        self.assertEqual(seen["max_tokens"], 900)
+        self.assertEqual(receipt["maxTokens"], 900)
+        self.assertEqual(receipt["patch"]["format"], "search-replace")
 
     def test_execute_job_and_worker(self):
         payload = self.spec()

@@ -239,6 +239,8 @@ class Worker:
                     model=self.model,
                     report_store=self.report_store,
                     allow_local_source=self.allow_local_source,
+                    disable_thinking=disable_thinking,
+                    max_tokens=tokens,
                 )
             else:
                 result = self._execute(
@@ -292,8 +294,14 @@ class Worker:
             }
             if job.get("program") == fleet_repo_patch.PROGRAM:
                 receipt["artifact"] = result.get("artifact") if isinstance(result, dict) else None
-                if isinstance(result, dict) and "git_stderr" in result:
-                    receipt["git_stderr"] = result["git_stderr"]
+                if isinstance(result, dict):
+                    if "git_stderr" in result:
+                        receipt["git_stderr"] = result["git_stderr"]
+                    patch = result.get("patch")
+                    if isinstance(patch, dict):
+                        receipt["patch"] = patch
+                        if patch.get("maxTokens") is not None:
+                            receipt["maxTokens"] = patch["maxTokens"]
             write_receipt(self.receipt_dir, receipt)
             self.busy = False
             self._lock.release()
