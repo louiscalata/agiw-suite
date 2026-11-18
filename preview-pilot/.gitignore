@@ -1,0 +1,11 @@
+# Local-only pilot artifacts: model weights, the pinned Nisi checkout (its own git repo,
+# verified by agiw.fleet_local_pilot.integrity), run evidence with machine paths, locks.
+tiny-model/*.gguf
+models/
+vendor/
+evidence/
+report-store/
+empty-home/
+pilot.lock
+*.zip
+worker-receipts/
