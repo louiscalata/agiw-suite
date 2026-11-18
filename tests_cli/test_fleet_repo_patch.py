@@ -11,6 +11,7 @@ import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest import mock
+from unittest.mock import Mock
 
 if not shutil.which("git"):
     raise unittest.SkipTest("git not available")
@@ -155,6 +156,10 @@ class RepoPatchTests(unittest.TestCase):
         self.assertEqual(out["outcome"], "COMPLETED")
         self.assertEqual(out["changedFiles"], ["README.md"])
         self.assertIn("+new line", out["diff"])
+        self.assertEqual(out["jevPre"]["status"], "unavailable")
+        self.assertEqual(out["jevPre"]["errorCode"], "JEV_UNAVAILABLE")
+        self.assertEqual(out["jevPre"]["stage"], "no_analyzer")
+        self.assertEqual(out["jevPost"]["status"], "unavailable")
         self.assertEqual(out["diffSha256"], hashlib.sha256(out["diff"].encode("utf-8", "surrogateescape")).hexdigest())
 
     def test_allowlist_violation_return_and_disk(self):
@@ -264,6 +269,9 @@ class RepoPatchTests(unittest.TestCase):
             with self.assertRaises(rp.Refused):
                 rp.validate_spec(payload, allow_local_source=True)
 
+        with self.assertRaisesRegex(rp.Refused, "^JEV_ANALYSIS_REFUSED$"):
+            rp.validate_spec(self.spec(jev_analysis=1), allow_local_source=True)
+
     def test_project_queue_entry_shape(self):
         entry = {
             "repo": "github.com/example-owner/example-repo (PUBLIC, default branch main)",
@@ -287,11 +295,79 @@ class RepoPatchTests(unittest.TestCase):
         )
         self.assertEqual(out["outcome"], "BLOCKED")
         self.assertEqual(out["code"], "COMMIT_NOT_FOUND")
+        self.assertEqual(out["jevPre"]["status"], "not_run")
+        self.assertEqual(out["jevPost"]["status"], "not_run")
         self.assertEqual(os.listdir(self.tmp_root), [])
 
+    def test_jev_failures_are_advisory(self):
+        for pre, code in (
+            (Mock(side_effect=RuntimeError("not recorded")), "JEV_ANALYZER_ERROR"),
+            (Mock(return_value={"status": "unavailable"}), "JEV_UNAVAILABLE"),
+            (Mock(return_value={"status": "ok", "plan": None}), "JEV_INVALID_OUTPUT"),
+        ):
+            with self.subTest(code=code):
+                patcher = Mock(return_value={"README.md": "changed\n"})
+                post = Mock(side_effect=TimeoutError)
+                out = rp.run(
+                    self.spec(),
+                    patcher,
+                    allow_local_source=True,
+                    tmp_root=self.tmp_root,
+                    jev_pre=pre,
+                    jev_post=post,
+                )
+                self.assertEqual(out["outcome"], "COMPLETED")
+                self.assertIn("+changed", out["diff"])
+                self.assertEqual(out["jevPre"]["status"], "unavailable")
+                self.assertEqual(out["jevPre"]["stage"], "pre")
+                self.assertEqual(out["jevPre"]["errorCode"], code)
+                self.assertNotIn("plan", out["jevPre"])
+                self.assertNotIn("analysis", patcher.call_args.kwargs)
+                self.assertEqual(patcher.call_args.kwargs["task"], "edit readme")
+                self.assertEqual(out["jevPost"]["errorCode"], "JEV_TIMEOUT")
+                self.assertNotIn("verdict", out["jevPost"])
+
+    def test_jev_disabled(self):
+        analyzer = Mock()
+        out = rp.run(
+            self.spec(jev_analysis=False),
+            lambda files, task, workdir: {},
+            allow_local_source=True,
+            tmp_root=self.tmp_root,
+            jev_pre=analyzer,
+            jev_post=analyzer,
+        )
+        self.assertEqual(out["code"], "NO_CHANGE")
+        self.assertEqual(out["jevPre"]["status"], "skipped")
+        self.assertEqual(out["jevPost"]["status"], "skipped")
+        analyzer.assert_not_called()
+
+    def test_jev_post_projection_and_empty_diff(self):
+        for content in ({}, {"README.md": "x" * 15000 + "\n"}):
+            with self.subTest(empty=not content):
+                post = Mock(return_value={"status": "ok", "verdict": "V" * 100})
+                out = rp.run(
+                    self.spec(max_diff_bytes=40000),
+                    lambda files, task, workdir, content=content: content,
+                    allow_local_source=True,
+                    tmp_root=self.tmp_root,
+                    jev_post=post,
+                )
+                self.assertEqual(out["outcome"], "COMPLETED" if content else "FAILED")
+                self.assertEqual(out["jevPost"]["verdict"], "V" * 64)
+                diff = out["diff"]
+                projected = diff[:6000] + diff[-6000:] if content else ""
+                post.assert_called_once_with(projected)
+                self.assertEqual(out["jevPost"]["truncated"], bool(content))
+                self.assertEqual(out["jevPost"]["inputChars"], len(diff))
+                self.assertEqual(out["jevPost"]["inputSha256"], hashlib.sha256(diff.encode("utf-8")).hexdigest())
+
     def test_chat_patcher(self):
+        requests = []
+
         class H(BaseHTTPRequestHandler):
             def do_POST(self):
+                requests.append(json.loads(self.rfile.read(int(self.headers["Content-Length"]))))
                 body = json.dumps(
                     {
                         "choices": [
@@ -335,8 +411,22 @@ class RepoPatchTests(unittest.TestCase):
             else:
                 self.fail("loopback test server did not accept 127.0.0.1")
             patcher = rp.chat_patcher(f"http://{host}:{port}/v1/chat/completions", "m", 2)
-            out = patcher({"README.md": "old\n"}, "edit", self.root)
-            self.assertEqual(out, {"README.md": "hi\n"})
+            pre = Mock(return_value={"status": "ok", "plan": "review the greeting " + "p" * 5000})
+            out = rp.run(
+                self.spec(),
+                patcher,
+                allow_local_source=True,
+                tmp_root=self.tmp_root,
+                jev_pre=pre,
+            )
+            self.assertEqual(out["outcome"], "COMPLETED")
+            self.assertIn("+hi", out["diff"])
+            pre.assert_called_once_with("edit readme\n\n--- README.md ---\nhello\n")
+            plan = out["jevPre"]["plan"]
+            self.assertEqual(len(plan), 4000)
+            self.assertTrue(plan.endswith("\n[truncated]"))
+            user = json.loads(requests[0]["messages"][1]["content"])
+            self.assertEqual(user["jevPrePlan"], plan)
         finally:
             server.shutdown()
             thread.join(timeout=2)
@@ -355,10 +445,21 @@ class RepoPatchTests(unittest.TestCase):
             report_store=str(self.store),
             model_endpoint="http://127.0.0.1:9/v1/chat/completions",
             model="m",
+            jev_pre=Mock(return_value={"status": "ok", "plan": "check README"}),
+            jev_post=Mock(return_value={"status": "ok", "verdict": "PROCEED-WITH-CHANGES"}),
         )
         self.assertTrue(result["reportStored"])
         report_path = Path(result["reportPath"])
         self.assertTrue(report_path.exists())
+        stored = json.loads(report_path.read_text(encoding="utf-8"))
+        for key, field, value in (
+            ("jevPre", "plan", "check README"),
+            ("jevPost", "verdict", "PROCEED-WITH-CHANGES"),
+        ):
+            self.assertEqual(stored[key]["status"], "ok")
+            self.assertEqual(stored[key][field], value)
+            self.assertEqual(result["report"][key], stored[key])
+            self.assertEqual(result[key], stored[key])
         receipt = ww.Worker(
             "m5-macbook-pro",
             "fixture-model",

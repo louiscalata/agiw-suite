@@ -3,11 +3,21 @@
 Clones one public GitHub repo at one commit into a fresh temp dir, asks a patcher (by default the
 worker's loopback model) for new contents of allowlisted files only, and returns the staged unified
 diff. It never pushes, never writes outside the temp clone and always removes it.
+
+Jev pre/post analysis is on by default; set jev_analysis=false to skip both phases.
+Skipped means explicitly disabled; not_run means the job blocked before that phase.
+Unavailable means no analyzer or a failed analysis; patching and diff reporting proceed
+without a plan or verdict from that phase. Analyzers are injected, not auto-discovered:
+repo-patch does not invoke a CLI, a hosted service, or a personal ledger for analysis.
+Analysis input is limited to 12,000 characters (first/last 6,000); receipts record
+its size, hash and truncation flag, not the input. Plans are capped at 4,000 characters
+and verdicts at 64.
 """
 
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
 import os
 import re
@@ -112,6 +122,9 @@ def validate_spec(payload, allow_local_source=False):
     timeout_seconds = payload.get("timeout_seconds", 600)
     if type(timeout_seconds) is not int or not (1 <= timeout_seconds <= 900):
         _ref("TIMEOUT_REFUSED")
+    jev_analysis = payload.get("jev_analysis", True)
+    if not isinstance(jev_analysis, bool):
+        _ref("JEV_ANALYSIS_REFUSED")
     return {
         "repo": repo,
         "commit": commit.lower(),
@@ -120,6 +133,7 @@ def validate_spec(payload, allow_local_source=False):
         "max_diff_bytes": max_diff_bytes,
         "max_changed_lines": max_changed_lines,
         "timeout_seconds": timeout_seconds,
+        "jev_analysis": jev_analysis,
     }
 
 
@@ -325,7 +339,7 @@ def _parse_diff_limits(diff_text, max_changed_lines):
         _ref("DIFF_TOO_MANY_LINES")
 
 
-def _blocked(spec, code, stderr=None):
+def _blocked(spec, code, analysis, stderr=None):
     result = {
         "outcome": "BLOCKED",
         "code": code,
@@ -335,6 +349,7 @@ def _blocked(spec, code, stderr=None):
         "diff": "",
         "diffSha256": hashlib.sha256(b"").hexdigest(),
         "diffBytes": 0,
+        **analysis,
     }
     if isinstance(stderr, bytes):
         stderr = stderr.decode("utf-8", "replace")
@@ -399,9 +414,81 @@ def _staged_diff(spec, workdir, tmp):
     return changed_files, diff
 
 
-def run(spec, patcher, *, allow_local_source=False, tmp_root=None):
-    """Clone, patch and diff inside a fresh temp dir that is always removed. Never pushes."""
+def _pending_analysis(enabled, phase):
+    if not enabled:
+        return {"status": "skipped", "reason": "jev_analysis=false"}
+    return {"status": "not_run", "reason": f"job blocked before {phase}-analysis"}
+
+
+def _bound_plan(plan):
+    marker = "\n[truncated]"
+    return plan if len(plan) <= 4000 else plan[: 4000 - len(marker)] + marker
+
+
+def _analyze(analyzer, text, phase, field):
+    metadata = {
+        "truncated": len(text) > 12000,
+        "inputChars": len(text),
+        "inputSha256": hashlib.sha256(text.encode("utf-8", "surrogateescape")).hexdigest(),
+    }
+    if metadata["truncated"]:
+        text = text[:6000] + text[-6000:]
+
+    def unavailable(code, stage=phase):
+        return {"status": "unavailable", "stage": stage, "errorCode": code, **metadata}
+
+    if analyzer is None:
+        return unavailable("JEV_UNAVAILABLE", "no_analyzer")
+    try:
+        result = analyzer(text)
+        if not isinstance(result, dict):
+            return unavailable("JEV_INVALID_OUTPUT")
+        if result.get("status") == "unavailable":
+            code = result.get("errorCode")
+            reported_stage = result.get("stage")
+            if not isinstance(code, str) or not code.strip():
+                code = "JEV_UNAVAILABLE"
+            if not isinstance(reported_stage, str) or not reported_stage.strip():
+                reported_stage = phase
+            return unavailable(code.strip(), reported_stage.strip())
+        value = result.get(field)
+        if result.get("status") != "ok" or not isinstance(value, str) or not value.strip():
+            return unavailable("JEV_INVALID_OUTPUT")
+        if field == "plan":
+            value = _bound_plan(value)
+        else:
+            value = value.strip()[:64]
+            if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", value):
+                return unavailable("JEV_INVALID_OUTPUT")
+    except (TimeoutError, subprocess.TimeoutExpired):
+        return unavailable("JEV_TIMEOUT")
+    except Exception:  # noqa: BLE001 - advisory only; never retain exception text or raw analyzer output
+        return unavailable("JEV_ANALYZER_ERROR")
+    return {"status": "ok", field: value, **metadata}
+
+
+def _accepts_analysis(patcher):
+    try:
+        params = inspect.signature(patcher).parameters.values()
+    except (TypeError, ValueError):
+        return False
+    return any(
+        p.kind == inspect.Parameter.VAR_KEYWORD
+        or (
+            p.name == "analysis" and p.kind in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)
+        )
+        for p in params
+    )
+
+
+def run(spec, patcher, *, allow_local_source=False, tmp_root=None, jev_pre=None, jev_post=None):
+    """Clone, patch and diff in a temp dir that is always removed. Never pushes.
+
+    Optional offline analyzers take one projected string and return a dict with status
+    and, on success, a plan (pre: task/files) or verdict (post: diff). Do not echo input.
+    """
     spec = validate_spec(spec, allow_local_source=allow_local_source)
+    analysis = {f"jev{phase.title()}": _pending_analysis(spec["jev_analysis"], phase) for phase in ("pre", "post")}
     if tmp_root is not None:
         Path(tmp_root).mkdir(mode=0o700, parents=True, exist_ok=True)
     tmp = Path(tempfile.mkdtemp(dir=tmp_root)).resolve()
@@ -409,33 +496,44 @@ def run(spec, patcher, *, allow_local_source=False, tmp_root=None):
         (tmp / "home").mkdir()
         workdir = _clone(spec, tmp)
         files = _read_files(workdir, spec["allowlist"])
+        if spec["jev_analysis"]:
+            text = "\n\n".join([spec["task"]] + [f"--- {path} ---\n{content}" for path, content in files.items()])
+            analysis["jevPre"] = _analyze(jev_pre, text, "pre", "plan")
         try:
-            out = patcher(files=dict(files), task=spec["task"], workdir=workdir)
+            kwargs = {"files": dict(files), "task": spec["task"], "workdir": workdir}
+            plan = analysis["jevPre"].get("plan")
+            if plan is not None and _accepts_analysis(patcher):
+                kwargs["analysis"] = plan
+            out = patcher(**kwargs)
         except Refused:
             raise
         except Exception:  # noqa: BLE001 - any patcher failure is a BLOCKED job, never a crash
-            return _blocked(spec, "PATCH_FAILED")
+            return _blocked(spec, "PATCH_FAILED", analysis)
         _apply(workdir, spec["allowlist"], out)
         changed_files, diff = _staged_diff(spec, workdir, tmp)
+        diff_text = diff.decode("utf-8", "surrogateescape")
+        if spec["jev_analysis"]:
+            analysis["jevPost"] = _analyze(jev_post, diff_text, "post", "verdict")
         return {
             "outcome": "COMPLETED" if diff else "FAILED",
             "code": None if diff else "NO_CHANGE",
             "repo": spec["repo"],
             "commit": spec["commit"],
             "changedFiles": changed_files,
-            "diff": diff.decode("utf-8", "surrogateescape"),
+            "diff": diff_text,
             "diffSha256": hashlib.sha256(diff).hexdigest(),
             "diffBytes": len(diff),
+            **analysis,
         }
     except subprocess.CalledProcessError as exc:
         code = "COMMIT_NOT_FOUND" if "checkout" in exc.cmd else "GIT_FAILED"
-        return _blocked(spec, code, exc.stderr)
+        return _blocked(spec, code, analysis, exc.stderr)
     except subprocess.TimeoutExpired as exc:
-        return _blocked(spec, "GIT_TIMEOUT", exc.stderr)
+        return _blocked(spec, "GIT_TIMEOUT", analysis, exc.stderr)
     except OSError:
-        return _blocked(spec, "IO_FAILED")
+        return _blocked(spec, "IO_FAILED", analysis)
     except Refused as exc:
-        return _blocked(spec, str(exc))
+        return _blocked(spec, str(exc), analysis)
     finally:
         _rmtree(tmp)
 
@@ -454,7 +552,10 @@ def chat_patcher(model_endpoint, model, timeout):
     endpoint = model_endpoint
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), pilot.NoRedirect())
 
-    def patcher(files, task, workdir):
+    def patcher(files, task, workdir, *, analysis=None):
+        user = {"files": files, "task": task}
+        if analysis:
+            user["jevPrePlan"] = _bound_plan(analysis)
         prompt = {
             "model": model,
             "temperature": 0,
@@ -463,7 +564,7 @@ def chat_patcher(model_endpoint, model, timeout):
                     "role": "system",
                     "content": 'Return ONLY JSON {"files":{"<path>":"<full new content>"}} for allowlisted paths.',
                 },
-                {"role": "user", "content": json.dumps({"files": files, "task": task}, sort_keys=True)},
+                {"role": "user", "content": json.dumps(user, sort_keys=True)},
             ],
         }
         body = json.dumps(prompt).encode("utf-8")
@@ -492,12 +593,29 @@ def chat_patcher(model_endpoint, model, timeout):
 
 
 def execute_job(
-    payload, *, model_endpoint, model, report_store=None, patcher=None, allow_local_source=False, tmp_root=None
+    payload,
+    *,
+    model_endpoint,
+    model,
+    report_store=None,
+    patcher=None,
+    allow_local_source=False,
+    tmp_root=None,
+    jev_pre=None,
+    jev_post=None,
 ):
     if patcher is None:
         timeout = validate_spec(payload, allow_local_source=allow_local_source)["timeout_seconds"]
         patcher = chat_patcher(model_endpoint, model, timeout)
-    result = run(payload, patcher, allow_local_source=allow_local_source, tmp_root=tmp_root)
+    result = run(
+        payload,
+        patcher,
+        allow_local_source=allow_local_source,
+        tmp_root=tmp_root,
+        jev_pre=jev_pre,
+        jev_post=jev_post,
+    )
+    analysis = {key: result[key] for key in ("jevPre", "jevPost")}
     run_id = str(uuid.uuid4())
     store = pilot.report_store_dir(report_store)
     diagnostics = {"git_stderr": result["git_stderr"]} if "git_stderr" in result else {}
@@ -510,6 +628,7 @@ def execute_job(
         "changedFiles": result["changedFiles"],
         "diffSha256": result["diffSha256"],
         "diff": result["diff"],
+        **analysis,
         **diagnostics,
     }
     data = json.dumps(report, sort_keys=True).encode("utf-8") + b"\n"
@@ -535,7 +654,9 @@ def execute_job(
             "reportStored": True,
             "runId": run_id,
             "storedReportSha256": hashlib.sha256(data).hexdigest(),
+            **analysis,
         },
+        **analysis,
         "reportStored": True,
         "reportPath": str(final),
         **diagnostics,

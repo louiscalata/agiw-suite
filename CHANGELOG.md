@@ -5,6 +5,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Repo-patch records bounded, advisory Jev pre/post analysis by default. Set `jev_analysis: false` to skip it; without an injected analyzer, both phases report unavailable when reached.
+
 Merged on 14 November 2026:
 
 - #160 (`0315afb`) re-running `agiw service install` on Windows ends a Running or Queued peer-link task with `schtasks /End` before `/Run`, so the new code starts. A task that does not stop, or a State that is Unknown or cannot be read, starts nothing and exits 1 with the `/End` command to run.
