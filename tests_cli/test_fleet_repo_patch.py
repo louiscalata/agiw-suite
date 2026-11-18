@@ -520,7 +520,7 @@ class RepoPatchTests(unittest.TestCase):
             ).run_job(
                 {
                     "job_id": "job-git-failed",
-                    "route": {"worker": "m5-macbook-pro"},
+                    "route": {"worker": "m5-macbook-pro", "preanalysis": "local", "reason": "strict-local"},
                     "program": "repo-patch",
                     "payload": payload,
                 }
