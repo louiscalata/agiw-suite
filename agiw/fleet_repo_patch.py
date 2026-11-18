@@ -53,6 +53,31 @@ def _ref(code):
     raise Refused(code)
 
 
+class _DiffRefused(Refused):
+    """A diff-limit refusal that also carries the facts needed to explain it."""
+
+    def __init__(self, code, diff_bytes, changed_lines, excerpt):
+        super().__init__(code)
+        self.diff_bytes = diff_bytes
+        self.changed_lines = changed_lines
+        self.excerpt = excerpt
+
+
+def _diff_excerpt(diff_text):
+    return pilot.sanitize_text(diff_text[:4096], limit=2048)
+
+
+def _changed_line_count(diff_text):
+    """Count + and - lines, but not the +++/--- file headers."""
+    count = 0
+    for line in diff_text.splitlines():
+        if line.startswith("+++") or line.startswith("---"):
+            continue
+        if line.startswith("+") or line.startswith("-"):
+            count += 1
+    return count
+
+
 def _is_git_repo(path):
     try:
         r = subprocess.run(
@@ -329,21 +354,20 @@ def _read_files(workdir, allowlist):
         total += st.st_size
         if total > 262144:
             _ref("FILE_REFUSED")
-        files[rel] = p.read_text(encoding="utf-8", errors="surrogateescape")
+        # Bytes, not text mode: universal-newline reads turn CRLF into LF, so writing back would
+        # rewrite every line of a CRLF file.
+        files[rel] = p.read_bytes().decode("utf-8", "surrogateescape")
     return files
 
 
-def _parse_diff_limits(diff_text, max_changed_lines):
+def _parse_diff_limits(diff_text, max_changed_lines, diff_bytes=None):
     if max_changed_lines is None:
         return
-    count = 0
-    for line in diff_text.splitlines():
-        if line.startswith("+++") or line.startswith("---"):
-            continue
-        if line.startswith("+") or line.startswith("-"):
-            count += 1
+    count = _changed_line_count(diff_text)
     if count > max_changed_lines:
-        _ref("DIFF_TOO_MANY_LINES")
+        if diff_bytes is None:
+            diff_bytes = len(diff_text.encode("utf-8", "surrogateescape"))
+        raise _DiffRefused("DIFF_TOO_MANY_LINES", diff_bytes, count, _diff_excerpt(diff_text))
 
 
 def _blocked(spec, code, analysis, stderr=None, patch=None):
@@ -405,7 +429,9 @@ def _apply(workdir, allowlist, out):
             if target.exists() or target.is_symlink():
                 target.unlink()
         else:
-            target.write_text(content, encoding="utf-8")
+            # Bytes, not text mode: on Windows write_text turns every LF into CRLF, and with no
+            # eol attribute git then stages a whole-file rewrite (Q003: 1 edit, 262 changed lines).
+            target.write_bytes(content.encode("utf-8", "surrogateescape"))
 
 
 def _staged_diff(spec, workdir, tmp):
@@ -417,9 +443,11 @@ def _staged_diff(spec, workdir, tmp):
     if any(path not in spec["allowlist"] for path in changed_files):
         _ref("ALLOWLIST_VIOLATION")
     diff = _git_out(["diff", "--cached", "--binary", "--no-color", "--no-ext-diff"], workdir, tmp, t)
+    diff_text = diff.decode("utf-8", "surrogateescape")
+    changed_lines = _changed_line_count(diff_text)
     if len(diff) > spec["max_diff_bytes"]:
-        _ref("DIFF_TOO_LARGE")
-    _parse_diff_limits(diff.decode("utf-8", "surrogateescape"), spec["max_changed_lines"])
+        raise _DiffRefused("DIFF_TOO_LARGE", len(diff), changed_lines, _diff_excerpt(diff_text))
+    _parse_diff_limits(diff_text, spec["max_changed_lines"], len(diff))
     return changed_files, diff
 
 
@@ -557,6 +585,15 @@ def run(spec, patcher, *, allow_local_source=False, tmp_root=None, jev_pre=None,
         return _blocked(spec, "GIT_TIMEOUT", analysis, exc.stderr)
     except OSError:
         return _blocked(spec, "IO_FAILED", analysis)
+    except _DiffRefused as exc:
+        code = str(exc)
+        patch = dict(_last_patch(patcher) or {})
+        patch["error"] = code
+        patch["diffBytes"] = exc.diff_bytes
+        patch["maxDiffBytes"] = spec["max_diff_bytes"]
+        patch["changedLines"] = exc.changed_lines
+        patch["diffExcerpt"] = exc.excerpt
+        return _blocked(spec, code, analysis, patch=patch)
     except Refused as exc:
         return _blocked(spec, str(exc), analysis, patch=_last_patch(patcher))
     finally:
@@ -789,6 +826,10 @@ def apply_edits(files, edits, allowlist):
 
 _SYSTEM_PROMPT = """You edit files by returning SEARCH/REPLACE blocks.
 
+You have no tools. You cannot run commands, browse, or open other files. Use only the text shown in
+this message. If something cannot be verified from the shown text, edit only what the shown text
+supports.
+
 Format, repeated once per edit, for one or several files:
 
 path/to/file.md
@@ -797,6 +838,8 @@ lines copied exactly from the current file
 =======
 replacement lines
 >>>>>>> REPLACE
+
+Respond only with SEARCH/REPLACE blocks, no explanation.
 
 Rules:
 - Make the smallest edits that complete the task. Never rewrite a whole file.
@@ -822,19 +865,174 @@ hi
 hello
 >>>>>>> REPLACE"""
 
+_NO_TOOLS = (
+    "You have no tools. You cannot run commands, browse, or open other files. "
+    "Use only the text shown in this message. If something cannot be verified "
+    "from the shown text, edit only what the shown text supports."
+)
+
+_RESPOND_ONLY = "Respond only with SEARCH/REPLACE blocks, no explanation."
+
+_FORMAT_BLOCK = f"""Format, repeated once per edit, for one or several files:
+
+path/to/file.md
+<<<<<<< SEARCH
+lines copied exactly from the current file
+=======
+replacement lines
+>>>>>>> REPLACE
+
+{_RESPOND_ONLY}"""
+
+_RETRY_REMINDER = (
+    "Your previous reply contained no SEARCH/REPLACE blocks. Reply again with ONLY SEARCH/REPLACE "
+    "blocks for the task above. No explanation."
+)
+
+_EXCERPT_THRESHOLD = 12000
+_EXCERPT_BUDGET = 8000
+_EXCERPT_CONTEXT = 8
+_EXCERPT_HEAD = 15
+
+_EXCERPT_STOPWORDS = frozenset(
+    {
+        "this",
+        "that",
+        "with",
+        "from",
+        "make",
+        "only",
+        "docs",
+        "file",
+        "each",
+        "must",
+        "should",
+        "into",
+        "than",
+        "then",
+        "there",
+        "their",
+        "they",
+        "have",
+        "match",
+        "exactly",
+        "check",
+        "first",
+        "same",
+        "class",
+        "against",
+        "correct",
+        "any",
+    }
+)
+
+
+def _task_keywords(task):
+    words = re.findall(r"[A-Za-z0-9_.-]{4,}", (task or "").lower())
+    return {word for word in words if word not in _EXCERPT_STOPWORDS}
+
+
+def _merge_ranges(ranges):
+    merged = []
+    for start, end in sorted(ranges):
+        if merged and start <= merged[-1][1] + 1:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append((start, end))
+    return merged
+
+
+def _window_text(lines, window):
+    start, end = window
+    return "\n".join(lines[start - 1 : end])
+
+
+def _window_cost(lines, window):
+    start, end = window
+    return len(_window_text(lines, window)) + len(f"[lines {start}-{end}]") + 2
+
+
+def _windows_cost(lines, windows):
+    return sum(_window_cost(lines, window) for window in windows)
+
+
+def _select_windows(content, task):
+    """Deterministic 1-based inclusive line ranges: a head window plus keyword hits.
+
+    Hit lines are taken in order of (-distinct keyword score, line number), expanded by
+    _EXCERPT_CONTEXT lines either side and merged. The head window always stays; further
+    windows are added only while the rendered window text stays within _EXCERPT_BUDGET.
+    """
+    lines = content.splitlines()
+    count = len(lines)
+    if not count:
+        return []
+    head = (1, min(_EXCERPT_HEAD, count))
+    keywords = _task_keywords(task)
+    hits = []
+    for index, line in enumerate(lines, start=1):
+        lowered = line.lower()
+        score = sum(1 for keyword in keywords if keyword in lowered)
+        if score:
+            hits.append((-score, index))
+    hits.sort()
+    if not hits:
+        end = head[1]
+        while end < count and _window_cost(lines, (1, end + 1)) <= _EXCERPT_BUDGET:
+            end += 1
+        return [(1, end)]
+    windows = [head]
+    for _score, line_number in hits:
+        candidate = (
+            max(1, line_number - _EXCERPT_CONTEXT),
+            min(count, line_number + _EXCERPT_CONTEXT),
+        )
+        merged = _merge_ranges(windows + [candidate])
+        if _windows_cost(lines, merged) > _EXCERPT_BUDGET:
+            continue
+        windows = merged
+    return windows
+
+
+def _fence_for(text):
+    runs = re.findall(r"`{3,}", text)
+    return "`" * (max(len(run) for run in runs) + 1) if runs else "```"
+
 
 def _auto_max_tokens(files, task):
-    total = sum(len(content) for content in (files or {}).values() if isinstance(content, str))
+    """Estimate from the text the model will see, using excerpts for large files."""
+    total = 0
+    for content in (files or {}).values():
+        if not isinstance(content, str):
+            continue
+        if len(content) <= _EXCERPT_THRESHOLD:
+            total += len(content)
+            continue
+        lines = content.splitlines()
+        total += sum(len(_window_text(lines, window)) for window in _select_windows(content, task))
     estimate = 512 + len(task) // 4 + total // 6
     return max(1024, min(pilot.MAX_MAX_TOKENS, estimate))
 
 
-def _user_prompt(files, task, allowlist, analysis):
-    parts = []
+def _user_prompt(files, task, allowlist, analysis, excerpts=None):
+    parts = [_NO_TOOLS, _FORMAT_BLOCK]
     for path, content in files.items():
+        if isinstance(content, str) and len(content) > _EXCERPT_THRESHOLD:
+            lines = content.splitlines()
+            windows = _select_windows(content, task)
+            if excerpts is not None:
+                excerpts[path] = [[start, end] for start, end in windows]
+            heading = f"### {path} (excerpt of {len(lines)} lines; copy SEARCH lines exactly from these excerpts)"
+            blocks = [heading]
+            for start, end in windows:
+                text = _window_text(lines, (start, end))
+                body = text if text.endswith("\n") else text + "\n"
+                fence = _fence_for(text)
+                blocks.append(f"[lines {start}-{end}]\n{fence}\n{body}{fence}")
+            parts.append("\n\n".join(blocks))
+            continue
         body = content if content.endswith("\n") else content + "\n"
-        runs = re.findall(r"`{3,}", content)
-        fence = "`" * (max(len(run) for run in runs) + 1) if runs else "```"
+        fence = _fence_for(content)
         parts.append(f"### {path}\n{fence}\n{body}{fence}")
     missing = [path for path in (allowlist or []) if path not in files]
     if missing:
@@ -843,7 +1041,47 @@ def _user_prompt(files, task, allowlist, analysis):
     parts.append(f"### Task\n{task}")
     if analysis:
         parts.append("Jev pre-plan (advisory):\n" + _bound_plan(analysis))
+    # Repeat the format after the task so the last thing the model reads is the output contract.
+    parts.append(_FORMAT_BLOCK)
     return "\n\n".join(parts)
+
+
+def _match_line_endings(original, new):
+    """Keep a CRLF file CRLF when a legacy full-file reply arrives with LF-only content."""
+    if not isinstance(original, str) or not isinstance(new, str):
+        return new
+    if "\r\n" in original and "\r" not in new:
+        return new.replace("\n", "\r\n")
+    return new
+
+
+def _chat_reply(opener, endpoint, prompt, timeout, last):
+    """POST one chat completion and return (content, finish_reason). Refusals record `last`."""
+    body = json.dumps(prompt).encode("utf-8")
+    req = urllib.request.Request(endpoint, data=body, headers={"Content-Type": "application/json"})
+    try:
+        with opener.open(req, timeout=timeout) as resp:
+            raw = resp.read(1024 * 1024 + 1)
+    except (HTTPError, URLError, OSError, ValueError) as exc:
+        # Keep the refused code unchanged; chain the cause for debugging without putting
+        # response or URL text into the exception message.
+        last["error"] = "HTTP_ERROR"
+        raise Refused("PATCH_OUTPUT_INVALID") from exc
+    if len(raw) > 1024 * 1024:
+        last["error"] = "BAD_ENVELOPE"
+        raise Refused("PATCH_OUTPUT_INVALID")
+    try:
+        envelope = json.loads(raw.decode("utf-8"))
+        choice = envelope["choices"][0]
+        content = choice["message"]["content"]
+    except (ValueError, KeyError, IndexError, TypeError, AttributeError):
+        last["error"] = "BAD_ENVELOPE"
+        raise Refused("PATCH_OUTPUT_INVALID") from None
+    if not isinstance(content, str):
+        last["error"] = "BAD_ENVELOPE"
+        raise Refused("PATCH_OUTPUT_INVALID")
+    finish = choice.get("finish_reason") if isinstance(choice, dict) else None
+    return content, (finish if isinstance(finish, str) else None)
 
 
 def chat_patcher(model_endpoint, model, timeout, *, max_tokens=None, disable_thinking=False):
@@ -865,62 +1103,62 @@ def chat_patcher(model_endpoint, model, timeout, *, max_tokens=None, disable_thi
             "error": None,
             "outputChars": 0,
             "outputExcerpt": None,
+            "retries": 0,
         }
         patcher.last = last
-        prompt = {
-            "model": model,
-            "temperature": 0,
-            "max_tokens": tokens,
-            "messages": [
-                {"role": "system", "content": _SYSTEM_PROMPT},
-                {"role": "user", "content": _user_prompt(files, task, allowlist, analysis)},
-            ],
-        }
-        if thinking_off:
-            prompt["chat_template_kwargs"] = {"enable_thinking": False}
-            prompt["reasoning_format"] = "none"
-            prompt["reasoning_effort"] = "none"
-        body = json.dumps(prompt).encode("utf-8")
-        req = urllib.request.Request(endpoint, data=body, headers={"Content-Type": "application/json"})
-        try:
-            with opener.open(req, timeout=timeout) as resp:
-                raw = resp.read(1024 * 1024 + 1)
-        except (HTTPError, URLError, OSError, ValueError) as exc:
-            # Keep the refused code unchanged; chain the cause for debugging without putting
-            # response or URL text into the exception message.
-            last["error"] = "HTTP_ERROR"
-            raise Refused("PATCH_OUTPUT_INVALID") from exc
-        if len(raw) > 1024 * 1024:
-            last["error"] = "BAD_ENVELOPE"
-            raise Refused("PATCH_OUTPUT_INVALID")
-        try:
-            envelope = json.loads(raw.decode("utf-8"))
-            choice = envelope["choices"][0]
-            content = choice["message"]["content"]
-        except (ValueError, KeyError, IndexError, TypeError, AttributeError):
-            last["error"] = "BAD_ENVELOPE"
-            raise Refused("PATCH_OUTPUT_INVALID") from None
-        if not isinstance(content, str):
-            last["error"] = "BAD_ENVELOPE"
-            raise Refused("PATCH_OUTPUT_INVALID")
-        finish = choice.get("finish_reason") if isinstance(choice, dict) else None
-        last["finishReason"] = finish if isinstance(finish, str) else None
-        last["outputChars"] = len(content)
-        try:
-            files_out = _legacy_json_files(content)
-            if files_out is not None:
-                last["format"] = "json-files"
-                last["edits"] = len(files_out)
-                return files_out
-            last["format"] = "search-replace"
-            edits = parse_edits(content, allowlist)
-            out = apply_edits(files, edits, allowlist or [])
-        except Refused as exc:
-            last["error"] = getattr(exc, "reason", None)
-            last["outputExcerpt"] = pilot.sanitize_text(content, limit=2048)
-            raise
-        last["edits"] = len(edits)
-        return out
+        excerpts = {}
+        user = _user_prompt(files, task, allowlist, analysis, excerpts)
+        if excerpts:
+            last["excerpts"] = excerpts
+
+        def ask(messages):
+            prompt = {"model": model, "temperature": 0, "max_tokens": tokens, "messages": messages}
+            if thinking_off:
+                prompt["chat_template_kwargs"] = {"enable_thinking": False}
+                prompt["reasoning_format"] = "none"
+                prompt["reasoning_effort"] = "none"
+            return _chat_reply(opener, endpoint, prompt, timeout, last)
+
+        def attempt(messages):
+            """Return the parsed files dict, or the Refused instance that stopped this reply."""
+            content, finish = ask(messages)
+            last["finishReason"] = finish
+            last["outputChars"] = len(content)
+            last["outputExcerpt"] = None
+            try:
+                files_out = _legacy_json_files(content)
+                if files_out is not None:
+                    last["format"] = "json-files"
+                    last["edits"] = len(files_out)
+                    return {path: _match_line_endings(files.get(path), value) for path, value in files_out.items()}
+                last["format"] = "search-replace"
+                edits = parse_edits(content, allowlist)
+                out = apply_edits(files, edits, allowlist or [])
+            except Refused as exc:
+                last["error"] = getattr(exc, "reason", None)
+                last["outputExcerpt"] = pilot.sanitize_text(content, limit=2048)
+                return exc
+            last["edits"] = len(edits)
+            last["error"] = None
+            return out
+
+        messages = [
+            {"role": "system", "content": _SYSTEM_PROMPT},
+            {"role": "user", "content": user},
+        ]
+        result = attempt(messages)
+        # One bounded retry: only a reply that ran out of tokens with no blocks at all.
+        if isinstance(result, _EditRefused) and result.reason == "NO_EDITS" and last["finishReason"] == "length":
+            last["retries"] = 1
+            last["firstAttempt"] = {
+                "error": "NO_EDITS",
+                "finishReason": "length",
+                "outputChars": last["outputChars"],
+            }
+            result = attempt(messages + [{"role": "user", "content": _RETRY_REMINDER}])
+        if isinstance(result, Refused):
+            raise result
+        return result
 
     return patcher
 

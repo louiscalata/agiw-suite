@@ -905,3 +905,311 @@ class RepoPatchTests(unittest.TestCase):
                 }
             )
         self.assertEqual(str(ctx.exception), "REPO_REFUSED")
+
+
+class _FakeModel:
+    """Loopback chat-completions stub: records request bodies, replies from a queue."""
+
+    def __init__(self, replies):
+        self.replies = list(replies)
+        self.requests = []
+        outer = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_POST(self):
+                length = int(self.headers["Content-Length"])
+                outer.requests.append(json.loads(self.rfile.read(length)))
+                content, finish = outer.replies.pop(0)
+                body = json.dumps({"choices": [{"message": {"content": content}, "finish_reason": finish}]}).encode(
+                    "utf-8"
+                )
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, fmt, *args):
+                pass
+
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+
+    @property
+    def url(self):
+        return f"http://127.0.0.1:{self.server.server_address[1]}/v1/chat/completions"
+
+    def close(self):
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join(timeout=2)
+
+
+class PromptAndDiagnosticsTests(unittest.TestCase):
+    """Pure prompt, excerpt and line-ending helpers; no git, no model."""
+
+    def test_output_contract_sentence_sits_before_files_and_after_task(self):
+        sentence = "Respond only with SEARCH/REPLACE blocks, no explanation."
+        prompt = rp._user_prompt({"README.md": "hello\n"}, "edit readme", ["README.md"], None)
+        self.assertIn(sentence, rp._SYSTEM_PROMPT)
+        self.assertLess(prompt.index(sentence), prompt.index("### "))
+        self.assertTrue(prompt.endswith(sentence))
+        self.assertIn("### README.md", prompt)
+        self.assertIn("### Task\nedit readme", prompt)
+        analysis = rp._user_prompt({"README.md": "hello\n"}, "edit readme", ["README.md"], "plan text")
+        self.assertIn("Jev pre-plan (advisory):\nplan text", analysis)
+        self.assertTrue(analysis.endswith(sentence))
+        self.assertLess(analysis.index("### Task"), analysis.index("plan text"))
+
+    def test_prompt_says_no_tools_and_to_use_shown_text(self):
+        prompts = [rp._SYSTEM_PROMPT, rp._user_prompt({"a.md": "x\n"}, "t", ["a.md"], None)]
+        for prompt in prompts:
+            lowered = prompt.lower()
+            self.assertIn("no tools", lowered)
+            self.assertIn("cannot run commands", lowered)
+            self.assertIn("only the text shown", lowered)
+
+    def test_select_windows_finds_keyword_hits_deterministically(self):
+        lines = [f"filler line {index} about nothing in particular" for index in range(1, 2001)]
+        lines[1499] = "Licensed under the MIT licence."
+        doc = "\n".join(lines) + "\n"
+        first = rp._select_windows(doc, "make the licence wording match LICENSE")
+        self.assertEqual(first, rp._select_windows(doc, "make the licence wording match LICENSE"))
+        self.assertIn((1, 15), first)
+        self.assertIn((1492, 1508), first)
+        self.assertEqual(first, sorted(first))
+
+    def test_select_windows_without_hits_keeps_head_within_budget(self):
+        doc = "\n".join(f"filler line {index} about nothing in particular" for index in range(1, 401)) + "\n"
+        windows = rp._select_windows(doc, "make the licence wording match LICENSE")
+        self.assertEqual(len(windows), 1)
+        start, end = windows[0]
+        self.assertEqual(start, 1)
+        self.assertGreater(end, rp._EXCERPT_HEAD)
+        rendered = "\n".join(doc.splitlines()[start - 1 : end])
+        self.assertLessEqual(len(rendered), rp._EXCERPT_BUDGET)
+
+    def test_small_files_are_not_excerpted(self):
+        excerpts = {}
+        prompt = rp._user_prompt({"README.md": "hello\n"}, "licence", ["README.md"], None, excerpts)
+        self.assertEqual(excerpts, {})
+        self.assertIn("### README.md\n```\nhello\n```", prompt)
+
+    def test_match_line_endings(self):
+        self.assertEqual(rp._match_line_endings("a\r\nb\r\n", "a\nb\n"), "a\r\nb\r\n")
+        self.assertEqual(rp._match_line_endings("a\nb\n", "a\nb\n"), "a\nb\n")
+        self.assertEqual(rp._match_line_endings("a\r\nb\r\n", "a\r\nb\r\n"), "a\r\nb\r\n")
+        self.assertEqual(rp._match_line_endings("a\r\nb\r\n", "a\rb\r"), "a\rb\r")
+        self.assertEqual(rp._match_line_endings(None, "a\n"), "a\n")
+
+
+class RepoPatchDiagnosticsTests(unittest.TestCase):
+    """Diff limits, excerpts and the bounded retry, using the RepoPatchTests fixtures."""
+
+    def setUp(self):
+        RepoPatchTests.setUp(self)
+
+    def tearDown(self):
+        RepoPatchTests.tearDown(self)
+
+    spec = RepoPatchTests.spec
+
+    def commit_file(self, name, text):
+        path = self.work / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(text.encode("utf-8"))
+        git(["add", "-A"], self.work)
+        git(["commit", "-m", f"update {name}"], self.work)
+        git(["push", "origin", "main"], self.work)
+        self.commit = git(["rev-parse", "HEAD"], self.work).stdout.strip()
+
+    def run_patch(self, patcher, **kw):
+        return rp.run(
+            self.spec(**kw),
+            patcher,
+            allow_local_source=True,
+            tmp_root=self.tmp_root,
+        )
+
+    def test_diff_too_large_records_diff_facts(self):
+        out = self.run_patch(
+            lambda files, task, workdir: {"README.md": "x\n" * 3000},
+            max_diff_bytes=200,
+        )
+        self.assertEqual(out["outcome"], "BLOCKED")
+        self.assertEqual(out["code"], "DIFF_TOO_LARGE")
+        patch = out["patch"]
+        self.assertEqual(patch["error"], "DIFF_TOO_LARGE")
+        self.assertGreater(patch["diffBytes"], 200)
+        self.assertEqual(patch["maxDiffBytes"], 200)
+        self.assertGreater(patch["changedLines"], 0)
+        self.assertGreaterEqual(patch["changedLines"], 3000)
+        self.assertTrue(patch["diffExcerpt"])
+        self.assertLessEqual(len(patch["diffExcerpt"]), 2048)
+        # A stub patcher has no .last, so the diff facts are the whole patch dict.
+        self.assertEqual(set(patch), {"error", "diffBytes", "maxDiffBytes", "changedLines", "diffExcerpt"})
+
+    def test_diff_too_many_lines_records_diff_facts(self):
+        out = self.run_patch(
+            lambda files, task, workdir: {"README.md": "a\nb\nc\n"},
+            max_changed_lines=1,
+        )
+        self.assertEqual(out["outcome"], "BLOCKED")
+        self.assertEqual(out["code"], "DIFF_TOO_MANY_LINES")
+        patch = out["patch"]
+        self.assertEqual(patch["error"], "DIFF_TOO_MANY_LINES")
+        self.assertEqual(patch["changedLines"], 4)
+        self.assertGreater(patch["diffBytes"], 0)
+        self.assertEqual(patch["maxDiffBytes"], 10000)
+        self.assertTrue(patch["diffExcerpt"])
+
+    def test_excerpted_file_round_trip(self):
+        filler = [f"Filler paragraph {index} about nothing in particular." for index in range(1, 701)]
+        filler.append("Licensed under the MIT licence.")
+        self.commit_file("README.md", "\n".join(filler) + "\n")
+        reply = (
+            "README.md\n<<<<<<< SEARCH\nLicensed under the MIT licence.\n=======\n"
+            "Licensed under the Apache License, Version 2.0.\n>>>>>>> REPLACE\n"
+        )
+        model = _FakeModel([(reply, "stop")])
+        self.addCleanup(model.close)
+        out = self.run_patch(
+            rp.chat_patcher(model.url, "m", 5),
+            task="make the licence wording match LICENSE",
+        )
+        self.assertEqual(out["outcome"], "COMPLETED")
+        self.assertEqual(out["changedFiles"], ["README.md"])
+        self.assertLessEqual(out["diffBytes"], 10000)
+        self.assertIn("README.md", out["patch"]["excerpts"])
+        self.assertTrue(out["patch"]["excerpts"]["README.md"])
+        self.assertEqual(len(model.requests), 1)
+        user = model.requests[0]["messages"][1]["content"]
+        self.assertIn("(excerpt of 701 lines", user)
+        self.assertIn("[lines ", user)
+        self.assertNotIn("Filler paragraph 400 about nothing in particular.", user)
+        self.assertIn("Filler paragraph 2 about nothing in particular.", user)
+
+    def test_retry_after_length_reply_without_blocks(self):
+        prose = "Let me search for files with README in the name..."
+        reply = "README.md\n<<<<<<< SEARCH\nhello\n=======\nhi\n>>>>>>> REPLACE\n"
+        model = _FakeModel([(prose, "length"), (reply, "stop")])
+        self.addCleanup(model.close)
+        out = self.run_patch(rp.chat_patcher(model.url, "m", 5))
+        self.assertEqual(out["outcome"], "COMPLETED")
+        self.assertEqual(len(model.requests), 2)
+        patch = out["patch"]
+        self.assertEqual(patch["retries"], 1)
+        self.assertEqual(
+            patch["firstAttempt"],
+            {"error": "NO_EDITS", "finishReason": "length", "outputChars": len(prose)},
+        )
+        self.assertEqual(patch["format"], "search-replace")
+        self.assertEqual(patch["edits"], 1)
+        self.assertEqual(patch["finishReason"], "stop")
+        self.assertIsNone(patch["error"])
+        first, second = model.requests
+        self.assertEqual(second["max_tokens"], first["max_tokens"])
+        self.assertEqual(second["messages"][1], first["messages"][1])
+        self.assertEqual(second["messages"][-1], {"role": "user", "content": rp._RETRY_REMINDER})
+
+    def test_no_retry_when_finish_reason_is_stop(self):
+        model = _FakeModel([("no blocks here", "stop")])
+        self.addCleanup(model.close)
+        out = self.run_patch(rp.chat_patcher(model.url, "m", 5))
+        self.assertEqual(out["outcome"], "BLOCKED")
+        self.assertEqual(out["code"], "PATCH_OUTPUT_INVALID")
+        self.assertEqual(len(model.requests), 1)
+        self.assertEqual(out["patch"]["retries"], 0)
+        self.assertEqual(out["patch"]["error"], "NO_EDITS")
+        self.assertNotIn("firstAttempt", out["patch"])
+
+    def test_only_one_retry(self):
+        model = _FakeModel([("Let me search for files...", "length"), ("Still searching for files...", "length")])
+        self.addCleanup(model.close)
+        out = self.run_patch(rp.chat_patcher(model.url, "m", 5))
+        self.assertEqual(out["outcome"], "BLOCKED")
+        self.assertEqual(out["code"], "PATCH_OUTPUT_INVALID")
+        self.assertEqual(len(model.requests), 2)
+        patch = out["patch"]
+        self.assertEqual(patch["retries"], 1)
+        self.assertEqual(patch["error"], "NO_EDITS")
+        self.assertEqual(patch["finishReason"], "length")
+        self.assertEqual(patch["outputChars"], len("Still searching for files..."))
+
+
+class LineEndingIOTests(unittest.TestCase):
+    """Q003: one small edit to a ~10 KB LF markdown doc must stage a small diff on every OS."""
+
+    def setUp(self):
+        RepoPatchTests.setUp(self)
+
+    def tearDown(self):
+        RepoPatchTests.tearDown(self)
+
+    spec = RepoPatchTests.spec
+
+    def _commit_doc(self, data):
+        (self.work / "docs").mkdir(exist_ok=True)
+        (self.work / "docs" / "architecture.md").write_bytes(data)
+        git(["-c", "core.autocrlf=false", "add", "-A"], self.work)
+        git(["commit", "-m", "doc"], self.work)
+        git(["push", "origin", "main"], self.work)
+        return git(["rev-parse", "HEAD"], self.work).stdout.strip()
+
+    @staticmethod
+    def _doc(newline):
+        # Shaped like nisi docs/architecture.md at the Q003 commit: ~10 KB, LF, no BOM,
+        # trailing newline, a few non-ASCII characters, no eol attribute.
+        lines = ["# Architecture", ""]
+        i = 0
+        while len(newline.join(lines)) < 9800:
+            lines.append(f"Section {i} \u2014 the engine stores a run report and hashes it, paragraph {i}.")
+            i += 1
+        return (newline.join(lines) + newline).encode("utf-8")
+
+    def _run(self, commit):
+        search = "Section 3 \u2014 the engine stores a run report and hashes it, paragraph 3."
+        text = f"docs/architecture.md\n<<<<<<< SEARCH\n{search}\n=======\nSection 3 documents reportSha256.\n>>>>>>> REPLACE"
+
+        def patcher(files, task, workdir):
+            return rp.apply_edits(files, rp.parse_edits(text), ["docs/architecture.md"])
+
+        return rp.run(
+            self.spec(commit=commit, allowlist=["docs/architecture.md"], max_diff_bytes=6144),
+            patcher,
+            allow_local_source=True,
+            tmp_root=self.tmp_root,
+        )
+
+    def test_windows_text_mode_write_does_not_rewrite_the_file(self):
+        commit = self._commit_doc(self._doc("\n"))
+
+        def windows_write_text(path, data, encoding=None, errors=None, newline=None):
+            # What text mode does on Windows: every "\n" becomes os.linesep ("\r\n").
+            raw = data.replace("\n", "\r\n").encode(encoding or "utf-8", errors or "strict")
+            return path.write_bytes(raw)
+
+        with mock.patch.object(Path, "write_text", windows_write_text):
+            out = self._run(commit)
+        self.assertEqual(out["outcome"], "COMPLETED", out.get("code"))
+        self.assertLess(out["diffBytes"], 1024)
+        changed = [line for line in out["diff"].splitlines() if line[:1] in "+-" and line[:3] not in ("+++", "---")]
+        self.assertEqual(len(changed), 2)
+        self.assertNotIn("\r", out["diff"])
+
+    def test_crlf_file_keeps_crlf_and_small_diff(self):
+        commit = self._commit_doc(self._doc("\r\n"))
+        out = self._run(commit)
+        self.assertEqual(out["outcome"], "COMPLETED", out.get("code"))
+        self.assertLess(out["diffBytes"], 1024)
+        self.assertIn("+Section 3 documents reportSha256.\r", out["diff"])
+
+    def test_bom_and_missing_final_newline_survive(self):
+        data = b"\xef\xbb\xbf" + self._doc("\n").rstrip(b"\n")
+        commit = self._commit_doc(data)
+        out = self._run(commit)
+        self.assertEqual(out["outcome"], "COMPLETED", out.get("code"))
+        changed = [line for line in out["diff"].splitlines() if line[:1] in "+-" and line[:3] not in ("+++", "---")]
+        self.assertEqual(len(changed), 2)
+        self.assertNotIn("No newline at end of file", out["diff"])

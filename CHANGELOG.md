@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Repo-patch asks the loopback model for SEARCH/REPLACE blocks instead of whole files, so a small model can edit one passage of a large document without exceeding `max_diff_bytes`; a JSON `files` reply is still accepted. Requests now always carry a sized `max_tokens`, honour `disable_thinking` per request, and record `patch` diagnostics (format, edits, effective token cap, finish reason, short error) on the report and the worker receipt.
 
+- Repo-patch now puts the output format and "Respond only with SEARCH/REPLACE blocks, no explanation." before the files and again after the task, says it has no tools, and sends only deterministic excerpts (`[lines start-end]`) for files over 12,000 characters. A `DIFF_TOO_LARGE`/`DIFF_TOO_MANY_LINES` block now records `diffBytes`, `maxDiffBytes`, `changedLines` and a bounded `diffExcerpt` on `patch`; one retry follows a `length` reply that contained no blocks; and a legacy JSON full-file reply keeps a CRLF file's line endings.
+
 - Repo-patch records bounded, advisory Jev pre/post analysis by default. Set `jev_analysis: false` to skip it; without an injected analyzer, both phases report unavailable when reached.
 
 Merged on 14 November 2026:
