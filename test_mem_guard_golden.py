@@ -1,6 +1,7 @@
 """Full-output main/classify cases recorded from unmodified origin/main."""
 
 import json
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -13,10 +14,22 @@ class MemGuardGoldenTests(unittest.TestCase):
     """Pin complete results, streams, exit codes and ordered side effects."""
 
 
+def _normalize_usage_wrap(value):
+    if isinstance(value, str):
+        return re.sub(r"\}\n +\.\.\.\n", "} ...\n", value)
+    if isinstance(value, dict):
+        return {key: _normalize_usage_wrap(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_normalize_usage_wrap(item) for item in value]
+    return value
+
+
 def _golden_test(case):
     def test(self):
         actual = classify_result(mem_guard, case) if case["kind"] == "classify" else main_result(mem_guard, case)
         expected = case.get("expected_py39", case["expected"]) if sys.version_info[:2] == (3, 9) else case["expected"]
+        if (3, 10) <= sys.version_info[:2] < (3, 13):
+            actual = _normalize_usage_wrap(actual)
         self.assertEqual(actual, expected)
 
     return test
