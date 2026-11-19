@@ -17,7 +17,8 @@ from test_support.exception_outcome import comparable, pinned_exception
 
 def _plain(value):
     if isinstance(value, Path):
-        return str(value)
+        # The corpus was recorded on POSIX; compare paths the same way on Windows (LOU-97).
+        return value.as_posix()
     if isinstance(value, (list, tuple)):
         return [_plain(item) for item in value]
     if isinstance(value, dict):
