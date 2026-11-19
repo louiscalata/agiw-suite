@@ -6,7 +6,14 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from agiw.windows_worker_receipt_check import evaluate, main, parse_receipt, read_regular
+from agiw.windows_worker_receipt_check import (
+    JOB_KIND,
+    evaluate,
+    main,
+    parse_receipt,
+    read_regular,
+    validate_job_receipt,
+)
 
 
 class ReceiptCheckTests(unittest.TestCase):
@@ -109,6 +116,65 @@ class ReceiptCheckTests(unittest.TestCase):
             with contextlib.redirect_stdout(out):
                 self.assertEqual(main(["--receipt", str(p), "--expected-model", "x"]), 2)
             self.assertNotIn(td, out.getvalue())
+
+
+class JobReceiptCheckTests(unittest.TestCase):
+    def setUp(self):
+        self.receipt = {
+            "kind": JOB_KIND,
+            "schema_version": 2,
+            "job_id": "job-1",
+            "worker_id": "dual-gpu-pc",
+            "workerCommit": "a" * 40,
+            "route": {"worker": "dual-gpu-pc", "preanalysis": "local", "reason": "strict-local"},
+            "model": "fixture-model",
+            "outcome": "COMPLETED",
+            "reportStored": True,
+            "runId": "0017efb7-de84-4fc5-95ba-3ea152847ffd",
+            "reportSha256": "b" * 64,
+            "reportPath": "C:/AGIW/report-store/x.json",
+            "started_unix": 98,
+            "finished_unix": 99,
+        }
+
+    def check(self):
+        return validate_job_receipt(self.receipt, expected_worker="dual-gpu-pc", now=100)
+
+    def assert_refused(self, reason):
+        verdict = self.check()
+        self.assertFalse(verdict["valid"])
+        self.assertEqual(verdict["reason"], reason)
+
+    def test_missing_route(self):
+        del self.receipt["route"]
+        self.assert_refused("ROUTE_MISSING")
+
+    def test_invalid_route(self):
+        route = self.receipt["route"]
+        for invalid in (None, dict(route, worker="m5-macbook-pro"), dict(route, preanalysis="not local")):
+            with self.subTest(route=invalid):
+                self.receipt["route"] = invalid
+                self.assert_refused("ROUTE_INVALID")
+
+    def test_missing_worker_commit(self):
+        del self.receipt["workerCommit"]
+        self.assert_refused("WORKER_COMMIT_INVALID")
+
+    def test_invalid_worker_commit(self):
+        for commit in ("g" * 40, "A" * 40, "a" * 39, "a" * 40 + "\n", 123):
+            with self.subTest(commit=commit):
+                self.receipt["workerCommit"] = commit
+                self.assert_refused("WORKER_COMMIT_INVALID")
+
+    def test_null_worker_commit(self):
+        self.receipt["workerCommit"] = None
+        self.assertTrue(self.check()["valid"])
+
+    def test_legacy_or_malformed_schema(self):
+        for version in (1, "2", 2.0):
+            with self.subTest(version=version):
+                self.receipt["schema_version"] = version
+                self.assert_refused("SCHEMA_INVALID")
 
 
 if __name__ == "__main__":

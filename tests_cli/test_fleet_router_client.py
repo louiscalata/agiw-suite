@@ -49,6 +49,7 @@ class RouterClientTests(unittest.TestCase):
             str(self.root / "receipts"),
             execute=self.fake_execute(stored),
             probe=lambda: (["fixture-model"], "llama-server"),
+            commit=lambda: "a" * 40,
         )
         server = ww.create_server(worker, TOKEN)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -66,7 +67,7 @@ class RouterClientTests(unittest.TestCase):
 
     def client(self, path):
         workers, _ = rc.load_workers(path)
-        return rc.FleetRouterClient(workers)
+        return rc.FleetRouterClient(workers, jev_preanalysis="off")
 
     def test_picks_forwarded_loopback_worker(self):
         port = self.start_worker()
@@ -77,7 +78,11 @@ class RouterClientTests(unittest.TestCase):
         self.assertEqual(result["job_id"], "job-1")
         self.assertTrue(result["reportStored"])
         self.assertTrue(result["report_path"].endswith(".json"))
-        self.assertTrue(Path(result["receipt_path"]).is_file())
+        receipt = json.loads(Path(result["receipt_path"]).read_text())
+        self.assertEqual(
+            receipt["route"], {"worker": "m5-macbook-pro", "preanalysis": "local", "reason": "strict-local"}
+        )
+        self.assertEqual(receipt["workerCommit"], "a" * 40)
 
     def test_unreachable_worker_not_selected(self):
         # Reserve then release a port so nothing is listening there.

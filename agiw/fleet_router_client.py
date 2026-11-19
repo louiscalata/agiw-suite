@@ -1,16 +1,18 @@
-"""Local-only Jev router client: probe forwarded workers, plan, dispatch one job.
+"""Probe forwarded workers, pre-analyze the fixed program task, dispatch one local job.
 
-Hosted routes are never used. Every worker keeps its bearer token over the
+Worker credentials are never sent to Jev. Every worker keeps its bearer token over the
 tunnel; readiness and dispatch are both authenticated and bounded.
 """
 
 import argparse
 import json
+import os
 import time
 import urllib.request
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from . import fleet_jev
 from . import fleet_local_pilot as pilot
 from . import fleet_routing_plan as routing
 from . import windows_worker as worker_module
@@ -82,11 +84,21 @@ def _request_mode(name, value):
         raise Refused(str(exc)) from exc
 
 
+def _jev_mode(mode):
+    if mode not in ("required", "off"):
+        raise Refused("JEV_PREANALYSIS_INVALID")
+    return mode
+
+
 def load_workers(path):
     """Read and validate the per-worker config. Tokens stay out of returned logs."""
-    config = json.loads(Path(path).read_text())
+    try:
+        config = receipts.parse_receipt(Path(path).read_bytes())
+    except (ValueError, RecursionError):
+        raise Refused("CONFIG_INVALID") from None
     if not isinstance(config, dict):
         raise Refused("CONFIG_INVALID")
+    _jev_mode(config.get("jev_preanalysis", "required"))
     rows = config.get("workers")
     if not isinstance(rows, dict) or not rows:
         raise Refused("WORKERS_REQUIRED")
@@ -115,8 +127,10 @@ def load_workers(path):
 
 
 class FleetRouterClient:
-    def __init__(self, workers, opener=None, now_fn=None):
+    def __init__(self, workers, opener=None, now_fn=None, *, judge=None, jev_preanalysis="required"):
         self.workers = workers
+        self.judge = judge
+        self.jev_preanalysis = _jev_mode(jev_preanalysis)
         self.opener = opener or urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
         self.now_fn = now_fn or time.time
 
@@ -129,7 +143,7 @@ class FleetRouterClient:
         req = urllib.request.Request(row["url"] + path, data=data, headers=headers, method=method)
         timeout = row.get("job_timeout_s", JOB_TIMEOUT) if method == "POST" else TIMEOUT
         with self.opener.open(req, timeout=timeout) as response:
-            return response.status, json.loads(response.read(65537))
+            return response.status, receipts.parse_receipt(response.read(65537))
 
     def probe(self):
         now = self.now_fn()
@@ -153,6 +167,17 @@ class FleetRouterClient:
             )
         return workers, now
 
+    def _dispatch_route(self, program, decision):
+        route = {"worker": decision.worker, "preanalysis": decision.preanalysis, "reason": decision.reason}
+        if program == worker_module.fleet_repo_patch.PROGRAM:
+            return dict(route, reason="jev-not-applicable")
+        if self.jev_preanalysis == "off":
+            return route
+        evidence = fleet_jev.preanalyze(program, self.judge)
+        evidence.pop("status")
+        decision = routing.RoutePlan.for_local(decision.worker, jev_preanalyzed=True)
+        return dict(route, preanalysis=decision.preanalysis, reason=decision.reason, jev=evidence)
+
     def run(self, job_id, program="nisi-smoke.mjs", workload="routine", payload=None):
         if program not in worker_module.PROGRAMS:
             raise Refused("PROGRAM_REFUSED")
@@ -161,9 +186,14 @@ class FleetRouterClient:
         if decision.worker is None:
             return {"outcome": "BLOCKED", "reason": decision.reason, "worker": None, "job_id": job_id}
         name = decision.worker
+        try:
+            route = self._dispatch_route(program, decision)
+        except fleet_jev.JevError as exc:
+            reason = "JEV_PREANALYSIS_FAILED:" + exc.code
+            return {"outcome": "BLOCKED", "reason": reason, "worker": name, "job_id": job_id}
         body = {
             "job_id": job_id,
-            "route": {"worker": name, "preanalysis": decision.preanalysis, "reason": decision.reason},
+            "route": route,
             "program": program,
         }
         if payload is not None:
@@ -199,6 +229,8 @@ class FleetRouterClient:
                 "worker": name,
                 "job_id": job_id,
             }
+        if receipt["route"] != route:
+            return {"outcome": "BLOCKED", "reason": "RECEIPT_INVALID:ROUTE_MISMATCH", "worker": name, "job_id": job_id}
         return {
             "outcome": receipt["outcome"],
             "worker": name,
@@ -219,9 +251,16 @@ def main(argv=None):
     job_id = a.job_id or f"agiw-route-{time.time_ns()}"
     try:
         workers, config = load_workers(a.config)
-        result = FleetRouterClient(workers).run(job_id, a.program, workload=config.get("workload", a.workload))
-    except (Refused, OSError, ValueError, KeyError, TypeError) as exc:
+        client = FleetRouterClient(
+            workers,
+            judge=fleet_jev.JevJudge(os.environ.get(fleet_jev.KEY_ENV)),
+            jev_preanalysis=config.get("jev_preanalysis", "required"),
+        )
+        result = client.run(job_id, a.program, workload=config.get("workload", a.workload))
+    except (Refused, worker_module.Refused) as exc:
         result = {"outcome": "BLOCKED", "reason": str(exc), "job_id": job_id}
+    except (OSError, ValueError, KeyError, TypeError, RecursionError):
+        result = {"outcome": "BLOCKED", "reason": "ROUTER_INPUT_INVALID", "job_id": job_id}
     pilot.emit(json.dumps(result, sort_keys=True))
     return 0 if result["outcome"] != "BLOCKED" else 2
 

@@ -12,6 +12,7 @@ import json
 import os
 import re
 import stat
+import subprocess
 import tempfile
 import threading
 import time
@@ -24,6 +25,7 @@ from . import windows_worker_receipt_check as receipt_check
 
 PROGRAMS = pilot.PROGRAMS + (fleet_repo_patch.PROGRAM,)
 BODY_LIMIT = 16 * 1024
+JEV_LIMIT = 4096
 
 
 class RefusedError(RuntimeError):
@@ -73,6 +75,44 @@ def _safe_name(value):
     return re.sub("[^A-Za-z0-9._-]", "_", value)[:80] or "job"
 
 
+def _git_commit():
+    result = subprocess.run(
+        ["git", "-C", str(pilot.ROOT), "rev-parse", "HEAD"],
+        env=dict(os.environ, GIT_OPTIONAL_LOCKS="0"),
+        capture_output=True,
+        encoding="ascii",
+        timeout=5,
+        check=True,
+    )
+    return result.stdout.removesuffix("\n")
+
+
+def _resolve_commit(lookup):
+    try:
+        value = lookup()
+    except Exception:  # noqa: BLE001 - optional startup metadata, including injected lookup failures
+        return None
+    return value if receipt_check.valid_commit(value) else None
+
+
+def _validated_route(route, worker_id, program):
+    if not receipt_check.valid_route(route, worker_id, program):
+        raise Refused("ROUTE_REFUSED")
+    saved = {field: route[field] for field in receipt_check.ROUTE_FIELDS}
+    if "jev" in route:
+        jev = route["jev"]
+        if not isinstance(jev, dict):
+            raise Refused("ROUTE_REFUSED")
+        try:
+            encoded = json.dumps(jev, ensure_ascii=True, allow_nan=False)
+            if len(encoded) > JEV_LIMIT:
+                raise Refused("ROUTE_REFUSED")
+            saved["jev"] = receipt_check.parse_receipt(encoded)
+        except (TypeError, ValueError, RecursionError):
+            raise Refused("ROUTE_REFUSED") from None
+    return saved
+
+
 def write_receipt(directory, receipt):
     """Atomically publish a 0600 receipt. No token or private payload is included."""
     target_dir = Path(directory)
@@ -118,6 +158,8 @@ class Worker:
         allow_local_source=False,
         jev_task=None,
         jev_task_timeout=None,
+        *,
+        commit=None,
     ):
         if not isinstance(worker_id, str) or not worker_id:
             raise Refused("WORKER_ID_REQUIRED")
@@ -161,6 +203,7 @@ class Worker:
             if jev_bin is not None:
                 self._jev_analyzers = fleet_jev_task.make_analyzers(jev_bin, timeout=jev_task_timeout)
         self._probe = probe or (lambda: pilot.detect_models(pilot.endpoint(model_endpoint)))
+        self._commit = _resolve_commit(_git_commit if commit is None else commit)
         self._lock = threading.Lock()
         self.busy = False
 
@@ -173,6 +216,8 @@ class Worker:
             models = []
         return {
             "worker_id": self.worker_id,
+            "commit": self._commit,
+            "commit_source": "git" if self._commit is not None else "unavailable",
             "model_ready": self.model in models,
             "models": models,
             "busy": self.busy,
@@ -190,14 +235,16 @@ class Worker:
             raise Refused(str(exc)) from None
 
     def validate_job(self, job):
+        job_id, _route = self._validate_job(job)
+        return job_id
+
+    def _validate_job(self, job):
         if not isinstance(job, dict):
             raise Refused("BODY_INVALID")
         job_id = job.get("job_id")
         if not isinstance(job_id, str) or not job_id or len(job_id) > 200:
             raise Refused("JOB_ID_REQUIRED")
-        route = job.get("route")
-        if not isinstance(route, dict) or route.get("worker") != self.worker_id:
-            raise Refused("ROUTE_REFUSED")
+        route = _validated_route(job.get("route"), self.worker_id, job.get("program"))
         if job.get("program") not in PROGRAMS:
             raise Refused("PROGRAM_REFUSED")
         self._validate_repo_patch_job(job)
@@ -223,10 +270,10 @@ class Worker:
                 raise Refused(str(exc)) from exc
         if job.get("disable_thinking") not in (None, True, False):
             raise Refused("DISABLE_THINKING_INVALID")
-        return job_id
+        return job_id, route
 
     def run_job(self, job):
-        job_id = self.validate_job(job)
+        job_id, route = self._validate_job(job)
         if not self._lock.acquire(False):
             raise Busy("BUSY")
         self.busy = True
@@ -271,6 +318,7 @@ class Worker:
                     max_output_tokens=tokens,
                     response_format_mode=fmt,
                     request_mode_value=req_mode,
+                    route=route,
                 )
             report = result.get("report") if isinstance(result, dict) and isinstance(result.get("report"), dict) else {}
             outcome = report.get("outcome")
@@ -285,9 +333,11 @@ class Worker:
             finished = time.time()
             receipt = {
                 "kind": receipt_check.JOB_KIND,
-                "schema_version": 1,
+                "schema_version": receipt_check.JOB_SCHEMA_VERSION,
                 "job_id": job_id,
                 "worker_id": self.worker_id,
+                "workerCommit": self._commit,
+                "route": route,
                 "model": self.model,
                 "program": job.get("program"),
                 "outcome": outcome,
@@ -302,6 +352,7 @@ class Worker:
                 "responseFormat": fmt,
                 "requestMode": req_mode,
                 "authorEvidence": result.get("authorEvidence", []) if isinstance(result, dict) else [],
+                "jevPlan": result.get("jevPlan") if isinstance(result, dict) else None,
                 "childExitCode": result.get("childExitCode") if isinstance(result, dict) else None,
                 "failure": failure,
                 "started_unix": started,
@@ -388,8 +439,8 @@ class Handler(BaseHTTPRequestHandler):
         if length <= 0 or length > BODY_LIMIT:
             return self._reject(413, {"error": "BODY_TOO_LARGE"})
         try:
-            job = json.loads(self.rfile.read(length))
-        except ValueError:
+            job = receipt_check.parse_receipt(self.rfile.read(length))
+        except (ValueError, RecursionError):
             return self._send(400, {"error": "BODY_INVALID"})
         try:
             self.worker.validate_job(job)

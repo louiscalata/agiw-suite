@@ -6,6 +6,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {checkRoute, loadKnownWorkers} from './preview-pilot/fleet-route.mjs';
+import {programTask} from './preview-pilot/program-task.mjs';
 
 const cfg = (worker, workerId = worker) => ({workerId, route: {worker, preanalysis: 'local', reason: 'strict-local'}});
 
@@ -15,6 +16,37 @@ test('router config lists the three fleet workers', () => {
 
 test('every known worker id is accepted', () => {
   for (const worker of loadKnownWorkers()) assert.equal(checkRoute(cfg(worker)), worker);
+});
+
+test('each pilot uses its own manifest task', () => {
+  const manifest = JSON.parse(readFileSync(new URL('./preview-pilot/program-tasks.json', import.meta.url), 'utf8'));
+  for (const name of ['tiny-arithmetic.mjs', 'tiny-extraction.mjs', 'nisi-smoke.mjs']) {
+    const url = new URL('./preview-pilot/' + name, import.meta.url);
+    const source = readFileSync(url, 'utf8');
+    assert.match(source, /const task=\{\.\.\.programTask\(import\.meta\.url\)/);
+    assert.deepEqual(programTask(url), manifest.tasks[name]);
+  }
+  assert.throws(() => programTask(import.meta.url), /JEV_TASK_INVALID/);
+});
+
+test('child accepts the pre-analyzed route but refuses a missing judgment', () => {
+  const config = cfg('dual-gpu-pc');
+  Object.assign(config.route, {preanalysis: 'jev', reason: 'jev-preanalyzed'});
+  assert.throws(() => checkRoute(config), /ROUTE_REFUSED/);
+  const task = programTask(new URL('./preview-pilot/nisi-smoke.mjs', import.meta.url));
+  config.route.jev = {
+    plan: 'direct', confidence: null, underspecified: 0, jevModel: 'jev-test',
+    request: {state: {task}, questions: {plan: {type: 'choice'}, underspecified: {type: 'noul'}}},
+    response: {model: 'jev-test', answers: {plan: {choice: 'direct'}, underspecified: {noul: 0}}},
+  };
+  assert.equal(checkRoute(config), config.workerId);
+  for (const mutate of [j => { j.request.questions = []; }, j => { j.response.answers.plan.confidence = null; },
+    j => { j.response.answers.extra = {}; }, j => { j.underspecified = j.response.answers.underspecified.noul = -1; },
+    j => { j.request.state.task = true; }, j => { j.response.model = 'wrong'; }]) {
+    const invalid = structuredClone(config);
+    mutate(invalid.route.jev);
+    assert.throws(() => checkRoute(invalid), /ROUTE_REFUSED/);
+  }
 });
 
 test('unknown worker ids are rejected', () => {

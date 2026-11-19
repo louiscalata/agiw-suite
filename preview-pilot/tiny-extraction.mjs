@@ -3,6 +3,8 @@ import http from 'node:http';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import {checkRoute} from './fleet-route.mjs';
+import {programPlan} from './jev-replay.mjs';
+import {programTask} from './program-task.mjs';
 import {installNetGuard} from './net-guard.mjs';
 import {modelTimeoutMs,workflowDeadlineMs,reasoningFields,errorEvidence,maxTokens,outputSample,extractFinalJSON,responseFormatMode,responseFormatFor,requestMode,completionSettings,completionGrammarCall,chatCall,modelMatches} from './model-call.mjs';
 import {runWorkflow,createCandidate} from './vendor/nisi-0.3.1/workflow/engine.mjs';
@@ -13,7 +15,7 @@ const cfg=JSON.parse(input),u=new URL(cfg.endpoint);
 if(cfg.mode!=='live')throw Error('MODE_REFUSED');
 checkRoute(cfg);
 installNetGuard(cfg.endpoint);
-const MODEL_TIMEOUT_MS=modelTimeoutMs(cfg),REASONING=reasoningFields(cfg),MAX_TOKENS=maxTokens(cfg,64),FORMAT_MODE=responseFormatMode(cfg),REQUEST_MODE=requestMode(cfg),COMPLETION=REQUEST_MODE==='chat'?null:completionSettings(cfg);
+const MODEL_TIMEOUT_MS=modelTimeoutMs(cfg),REASONING=reasoningFields(cfg),FORMAT_MODE=responseFormatMode(cfg),REQUEST_MODE=requestMode(cfg),COMPLETION=REQUEST_MODE==='chat'?null:completionSettings(cfg);
 const SCHEMA={type:'object',properties:{color:{type:'string'}},required:['color'],additionalProperties:false};
 if(typeof cfg.reportStore!=='string'||!path.isAbsolute(cfg.reportStore))throw Error('REPORT_STORE_PATH_REFUSED');
 if(!(await fs.stat(cfg.reportStore)).isDirectory())throw Error('REPORT_STORE_DIR_REFUSED');
@@ -36,7 +38,8 @@ const author={id:'preview.tiny-extraction-author',async draft({binding}){
 }};
 const valid=c=>{try{const o=strictJSON(c.files[0].content);return c.files.length===1&&c.files[0].path==='answer.json'&&Object.keys(o).length===1&&typeof o.color==='string'&&o.color==='red';}catch{return false;}};
 const finding={code:'EXTRACTION_INCORRECT',message:'Expected exactly the color stated in the input sentence.'};
-const task={taskId:'agiw.preview.tiny-extraction',mode:'edit',language:'json',allowedFiles:['answer.json'],protectedFiles:[],protectedSnapshots:{},acceptanceCriteria:['Exactly one string color field matching the car color in the input sentence.'],policy:{repairBudget:0,totalDeadlineMs:workflowDeadlineMs(cfg),requiredReviewers:1,requireReportStore:true}};
+const task={...programTask(import.meta.url),protectedFiles:[],protectedSnapshots:{},policy:{repairBudget:0,totalDeadlineMs:workflowDeadlineMs(cfg),requiredReviewers:1,requireReportStore:true}};
+const {maxTokens:MAX_TOKENS,jevPlan}=await programPlan(cfg,task,maxTokens(cfg,64));
 let reportStorePath=null;
 const reportStore={async store({report,reportSha256,binding}){
  const target=path.join(cfg.reportStore,`${report.runId}.json`);
@@ -52,4 +55,4 @@ const reportStore={async store({report,reportSha256,binding}){
  return {status:'PASS',evidence:{...binding,outcome:report.outcome,reportSha256}};
 }};
 const report=await runWorkflow(task,{adapters:{author,authorizeContext:{authorize:({binding})=>({status:'PASS',evidence:{...binding,reason:''}})},staticChecks:{check({candidate,binding}){let ok;try{const o=strictJSON(candidate.files[0].content);ok=Object.keys(o).length===1&&typeof o.color==='string';}catch{ok=false;}return {status:ok?'PASS':'FAIL',evidence:{...binding,findings:ok?[]:[finding],reason:ok?'':'Invalid JSON shape.'}};}},tests:{run({candidate,binding}){const ok=valid(candidate);return {status:ok?'PASS':'FAIL',evidence:{...binding,assertionsExecuted:1,assertionsPassed:ok?1:0,failures:ok?[]:[finding],reason:ok?'':'Incorrect answer.'}};}},reviewers:[{id:'preview.deterministic-extraction-check',review({candidate,checks,tests,binding,reviewerId}){const ok=valid(candidate)&&checks.status==='PASS'&&tests.status==='PASS';return {status:ok?'PASS':'FAIL',evidence:{...binding,reviewerId,findings:ok?[]:[finding],reason:ok?'':'Rejected candidate.',summary:'Deterministic extraction check, not independent LLM review.'}};}}]},reportStore});
-console.log(JSON.stringify({mode:'live',nisiVersion:'0.3.1',route:cfg.route,independentLLMReview:false,modelCalls:receipts.length,report,reportStorePath,authorReceipts:receipts}));process.exitCode=report.outcome==='COMPLETED'?0:1;
+console.log(JSON.stringify({mode:'live',nisiVersion:'0.3.1',route:cfg.route,jevPlan,independentLLMReview:false,modelCalls:receipts.length,report,reportStorePath,authorReceipts:receipts}));process.exitCode=report.outcome==='COMPLETED'?0:1;

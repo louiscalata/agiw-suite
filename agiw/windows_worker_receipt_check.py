@@ -10,10 +10,34 @@ import stat
 import sys
 import time
 
+from . import fleet_jev
+
 LIMIT = 65536
 SOURCE_LIMIT = 4 * 1024 * 1024
 JOB_KIND = "agiw.windows.job-receipt.v1"
+JOB_SCHEMA_VERSION = 2
 OUTCOMES = ("COMPLETED", "FAILED", "BLOCKED")
+ROUTE_FIELDS = ("worker", "preanalysis", "reason")
+
+
+def valid_route(route, expected_worker, program=None):
+    if not isinstance(route, dict) or route.get("worker") != expected_worker:
+        return False
+    if route.get("preanalysis") == "local":
+        return set(route) == set(ROUTE_FIELDS) and (
+            route.get("reason") == "strict-local"
+            or (route.get("reason") == "jev-not-applicable" and program == "repo-patch")
+        )
+    return (
+        route.get("preanalysis") == "jev"
+        and route.get("reason") == "jev-preanalyzed"
+        and set(route) == {*ROUTE_FIELDS, "jev"}
+        and fleet_jev.valid_evidence(route["jev"], program)
+    )
+
+
+def valid_commit(value):
+    return isinstance(value, str) and bool(re.fullmatch(r"[0-9a-f]{40}", value))
 
 
 def identity(s, windows=None):
@@ -145,9 +169,9 @@ def _job_identity_problem(receipt, expected_worker, expected_model, job_id):
     if (
         receipt.get("kind") != JOB_KIND
         or type(receipt.get("schema_version")) is not int
-        or receipt["schema_version"] != 1
+        or receipt["schema_version"] != JOB_SCHEMA_VERSION
     ):
-        return "schema"
+        return "SCHEMA_INVALID"
     if not isinstance(expected_worker, str) or not expected_worker or receipt.get("worker_id") != expected_worker:
         return "worker-mismatch"
     rid = receipt.get("job_id")
@@ -162,6 +186,17 @@ def _job_identity_problem(receipt, expected_worker, expected_model, job_id):
         return "model-mismatch"
     if receipt.get("outcome") not in OUTCOMES:
         return "outcome-invalid"
+    return None
+
+
+def _job_provenance_problem(receipt, expected_worker):
+    if "route" not in receipt:
+        return "ROUTE_MISSING"
+    if not valid_route(receipt["route"], expected_worker, receipt.get("program")):
+        return "ROUTE_INVALID"
+    commit = receipt.get("workerCommit")
+    if "workerCommit" not in receipt or (commit is not None and not valid_commit(commit)):
+        return "WORKER_COMMIT_INVALID"
     return None
 
 
@@ -197,8 +232,10 @@ def validate_job_receipt(receipt, *, expected_worker, expected_model=None, job_i
     if not isinstance(receipt, dict):
         result["reason"] = "not-object"
         return result
-    reason = _job_identity_problem(receipt, expected_worker, expected_model, job_id) or _job_evidence_problem(
-        receipt, now
+    reason = (
+        _job_identity_problem(receipt, expected_worker, expected_model, job_id)
+        or _job_provenance_problem(receipt, expected_worker)
+        or _job_evidence_problem(receipt, now)
     )
     if reason:
         result["reason"] = reason
@@ -233,8 +270,8 @@ def main(argv=None):
         if not args.expected_worker:
             p.error("--expected-worker is required with --mode job")
         try:
-            receipt = json.loads(read_regular(args.receipt, LIMIT))
-        except (OSError, ValueError, TypeError):
+            receipt = parse_receipt(read_regular(args.receipt, LIMIT))
+        except (OSError, ValueError, TypeError, RecursionError):
             _emit(json.dumps({"kind": JOB_KIND, "valid": False, "reason": "input-unreadable-unsafe-or-malformed"}))
             return 2
         # Saved receipts are checked for shape and identity only; freshness is a dispatch-time check.

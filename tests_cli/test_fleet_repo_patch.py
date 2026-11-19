@@ -737,7 +737,7 @@ class RepoPatchTests(unittest.TestCase):
         ).run_job(
             {
                 "job_id": "job-patch",
-                "route": {"worker": "m5-macbook-pro"},
+                "route": {"worker": "m5-macbook-pro", "preanalysis": "local", "reason": "strict-local"},
                 "program": "repo-patch",
                 "payload": self.spec(),
             }
@@ -790,7 +790,7 @@ class RepoPatchTests(unittest.TestCase):
         ).run_job(
             {
                 "job_id": "job-rp",
-                "route": {"worker": "m5-macbook-pro"},
+                "route": {"worker": "m5-macbook-pro", "preanalysis": "local", "reason": "strict-local"},
                 "program": "repo-patch",
                 "payload": payload,
             }
@@ -832,7 +832,7 @@ class RepoPatchTests(unittest.TestCase):
             ).run_job(
                 {
                     "job_id": "job-git-failed",
-                    "route": {"worker": "m5-macbook-pro"},
+                    "route": {"worker": "m5-macbook-pro", "preanalysis": "local", "reason": "strict-local"},
                     "program": "repo-patch",
                     "payload": payload,
                 }
@@ -871,7 +871,13 @@ class RepoPatchTests(unittest.TestCase):
             str(self.root / "receipts4"),
             execute=execute,
         )
-        receipt = w.run_job({"job_id": "job-3", "route": {"worker": "m5-macbook-pro"}, "program": "nisi-smoke.mjs"})
+        receipt = w.run_job(
+            {
+                "job_id": "job-3",
+                "route": {"worker": "m5-macbook-pro", "preanalysis": "local", "reason": "strict-local"},
+                "program": "nisi-smoke.mjs",
+            }
+        )
         self.assertEqual(receipt["outcome"], "COMPLETED")
         self.assertNotIn("artifact", receipt)
 
@@ -884,7 +890,13 @@ class RepoPatchTests(unittest.TestCase):
             allow_local_source=True,
         )
         with self.assertRaises(ww.Refused) as ctx:
-            w.validate_job({"job_id": "job-1", "route": {"worker": "m5-macbook-pro"}, "program": "repo-patch"})
+            w.validate_job(
+                {
+                    "job_id": "job-1",
+                    "route": {"worker": "m5-macbook-pro", "preanalysis": "local", "reason": "strict-local"},
+                    "program": "repo-patch",
+                }
+            )
         self.assertEqual(str(ctx.exception), "PAYLOAD_REFUSED")
 
     def test_worker_refusal_http_repo(self):
@@ -899,7 +911,7 @@ class RepoPatchTests(unittest.TestCase):
             w.validate_job(
                 {
                     "job_id": "job-2",
-                    "route": {"worker": "m5-macbook-pro"},
+                    "route": {"worker": "m5-macbook-pro", "preanalysis": "local", "reason": "strict-local"},
                     "program": "repo-patch",
                     "payload": self.spec(repo="http://github.com/a/b"),
                 }
@@ -973,7 +985,33 @@ class PromptAndDiagnosticsTests(unittest.TestCase):
             self.assertIn("to add new text", lowered)
             # Q003: this sentence let the model refuse an insertion task outright.
             self.assertNotIn("cannot be verified", lowered)
-        self.assertIn("Insertion example", rp._SYSTEM_PROMPT)
+        self.assertIn("To insert text, SEARCH <one existing line near the spot>", rp._SYSTEM_PROMPT)
+
+    def test_prompt_example_is_placeholders_only(self):
+        user = rp._user_prompt({"a.md": "x\n"}, "t", ["a.md"], None)
+        for prompt in (rp._SYSTEM_PROMPT, user):
+            self.assertIn("Never output the example itself.", prompt)
+            self.assertIn("<path/from/allowlist>\n<<<<<<< SEARCH\n<exact existing lines", prompt)
+            # Q002: the model returned this old worked example as its answer.
+            self.assertNotIn("greeting.txt", prompt.lower())
+            self.assertNotIn("path/to/file.md", prompt)
+        self.assertIn("Allowed paths: a.md", user)
+
+    def test_misdirected_edits_are_classified(self):
+        self.assertEqual(rp._misdirected([("Greeting.txt", "hi\nbye", "hello\nbye")], ["a.md"]), "EXAMPLE_COPY")
+        self.assertEqual(
+            rp._misdirected([("<path/from/allowlist>", "<exact existing lines>", "x")], ["a.md"]), "EXAMPLE_COPY"
+        )
+        self.assertEqual(rp._misdirected([("b.md", "x", "y")], ["a.md"]), "OFF_ALLOWLIST")
+        self.assertIsNone(rp._misdirected([("a.md", "x", "y"), ("b.md", "x", "y")], ["a.md"]))
+        self.assertIsNone(rp._misdirected([], ["a.md"]))
+
+    def test_noop_retry_note_quotes_search_text(self):
+        note = rp._retry_note("NOOP_EDITS", ["README.md"], ["GPL-3.0-or-later; LICENSE kept"])
+        self.assertIn("identical to this SEARCH text:\nGPL-3.0-or-later; LICENSE kept\n", note)
+        self.assertIn("The REPLACE must differ from that SEARCH.", note)
+        self.assertIn("Allowed paths: README.md.", note)
+        self.assertLess(len(rp._retry_note("NOOP_EDITS", ["a"], ["x" * 5000])), 1500)
 
     def test_select_windows_finds_keyword_hits_deterministically(self):
         lines = [f"filler line {index} about nothing in particular" for index in range(1, 2001)]
@@ -1163,6 +1201,57 @@ class RepoPatchDiagnosticsTests(unittest.TestCase):
         self.assertEqual(patch["outputChars"], len("Still searching for files..."))
 
     NOOP_REPLY = "README.md\n<<<<<<< SEARCH\nhello\n=======\nhello\n>>>>>>> REPLACE\n"
+    EXAMPLE_REPLY = "Greeting.txt\n<<<<<<< SEARCH\nhi\nbye\n=======\nhello\nbye\n>>>>>>> REPLACE\n"
+    REAL_REPLY = "README.md\n<<<<<<< SEARCH\nhello\n=======\nhi\n>>>>>>> REPLACE\n"
+
+    def test_example_copy_is_retried_with_allowed_paths(self):
+        model = _FakeModel([(self.EXAMPLE_REPLY, "stop"), (self.REAL_REPLY, "stop")])
+        self.addCleanup(model.close)
+        out = self.run_patch(rp.chat_patcher(model.url, "m", 5), allowlist=["README.md", "docs/new.md"])
+        self.assertEqual(out["outcome"], "COMPLETED")
+        self.assertEqual(len(model.requests), 2)
+        patch = out["patch"]
+        self.assertEqual(patch["retries"], 1)
+        self.assertEqual(patch["firstAttempt"]["error"], "EXAMPLE_COPY")
+        self.assertIn("Greeting.txt", patch["firstAttempt"]["outputExcerpt"])
+        note = model.requests[1]["messages"][-1]["content"]
+        self.assertIn("copied the format example", note)
+        self.assertIn("Never output the example itself.", note)
+        self.assertIn("Allowed paths: README.md, docs/new.md.", note)
+        self.assertIsNone(patch["error"])
+
+    def test_off_allowlist_twice_ends_allowlist_violation(self):
+        off = "docs/other.md\n<<<<<<< SEARCH\n\n=======\nnew\n>>>>>>> REPLACE\n"
+        model = _FakeModel([(off, "stop"), (off, "stop")])
+        self.addCleanup(model.close)
+        out = self.run_patch(rp.chat_patcher(model.url, "m", 5))
+        self.assertEqual(out["outcome"], "BLOCKED")
+        self.assertEqual(out["code"], "ALLOWLIST_VIOLATION")
+        self.assertEqual(len(model.requests), 2)
+        patch = out["patch"]
+        self.assertEqual(patch["retries"], 1)
+        self.assertEqual(patch["firstAttempt"]["error"], "OFF_ALLOWLIST")
+        self.assertEqual(patch["error"], "OFF_ALLOWLIST")
+        note = model.requests[1]["messages"][-1]["content"]
+        self.assertIn("edited paths that are not allowed", note)
+        self.assertIn("Allowed paths: README.md.", note)
+
+    def test_partly_off_allowlist_is_refused_without_retry(self):
+        mixed = self.REAL_REPLY + "docs/other.md\n<<<<<<< SEARCH\n\n=======\nnew\n>>>>>>> REPLACE\n"
+        model = _FakeModel([(mixed, "stop")])
+        self.addCleanup(model.close)
+        out = self.run_patch(rp.chat_patcher(model.url, "m", 5))
+        self.assertEqual(out["code"], "ALLOWLIST_VIOLATION")
+        self.assertEqual(len(model.requests), 1)
+        self.assertEqual(out["patch"]["retries"], 0)
+
+    def test_noop_retry_note_quotes_unchanged_search(self):
+        model = _FakeModel([(self.NOOP_REPLY, "stop"), (self.NOOP_REPLY, "stop")])
+        self.addCleanup(model.close)
+        self.run_patch(rp.chat_patcher(model.url, "m", 5))
+        note = model.requests[1]["messages"][-1]["content"]
+        self.assertIn("identical to this SEARCH text:\nhello\n", note)
+        self.assertIn("The REPLACE must differ from that SEARCH.", note)
 
     def test_no_change_records_excerpt_after_no_edits_then_noop_retry(self):
         model = _FakeModel([("no blocks", "stop"), (self.NOOP_REPLY, "stop")])

@@ -208,7 +208,7 @@ class CompletionConfigTests(unittest.TestCase):
             workers = rc.load_workers(str(cfg))[0]
             self.assertEqual(workers["monterey-mac-pro"]["request_mode"], "completion-grammar")
             self.assertEqual(workers["m5-macbook-pro"]["request_mode"], "chat")
-            client = rc.FleetRouterClient({"monterey-mac-pro": workers["monterey-mac-pro"]})
+            client = rc.FleetRouterClient({"monterey-mac-pro": workers["monterey-mac-pro"]}, jev_preanalysis="off")
             now = 1000.0
             evidence = {"monterey-mac-pro": rc.routing.WorkerEvidence(now, True, True, True, False)}
             bodies = []

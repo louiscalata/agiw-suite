@@ -17,6 +17,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from .fleet_routing_plan import WORKERS, HostedEvidence, WorkerEvidence, plan
+from .windows_worker_receipt_check import valid_route
 
 try:  # POSIX lock; Windows has no fcntl and uses msvcrt.locking instead.
     import fcntl
@@ -300,6 +301,27 @@ def author_evidence(receipts):
     return out
 
 
+def _check_child_plan(data, route):
+    """Project evidence against the validated router summary; never persist extra child fields."""
+    evidence = data.pop("jevPlan", None)
+    if route["preanalysis"] == "local":
+        if evidence is not None:
+            raise Refused("JEV_PLAN_INVALID")
+        return
+    if data.get("code") == "JEV_PLAN_REFUSED" and data.get("report") is None and data["childExitCode"] == 1:
+        return "JEV_PLAN_REFUSED"
+    fields = ("plan", "confidence", "underspecified", "jevModel")
+    if not isinstance(evidence, dict) or not all(
+        k in evidence and not isinstance(evidence[k], bool) and evidence[k] == route["jev"][k] for k in fields
+    ):
+        raise Refused("JEV_PLAN_INVALID")
+    digest = evidence.get("requestSha256")
+    if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+        raise Refused("JEV_PLAN_INVALID")
+    data["jevPlan"] = {k: evidence[k] for k in fields}
+    data["jevPlan"].update(jevModel=sanitize_text(evidence["jevModel"]), requestSha256=digest)
+
+
 def known_workers(path=None):
     """Worker ids the router config knows. Must equal fleet_routing_plan.WORKERS."""
     config = json.loads(Path(path or ROUTER_CONFIG).read_text())
@@ -324,7 +346,7 @@ def check_worker_id(worker_id):
     return worker_id
 
 
-def route(evidence, source="agent", now=None, worker_id="m5-macbook-pro"):
+def _local_route(evidence, source="agent", now=None, worker_id="m5-macbook-pro"):
     check_worker_id(worker_id)
     result = plan(
         "local",
@@ -337,6 +359,9 @@ def route(evidence, source="agent", now=None, worker_id="m5-macbook-pro"):
     if result.worker != worker_id or result.preanalysis != "local":
         raise Refused(result.reason)
     return asdict(result)
+
+
+route = _local_route  # Public standalone planner.
 
 
 def _is_windows():
@@ -495,9 +520,12 @@ def execute(
     max_output_tokens=None,
     response_format_mode=None,
     request_mode_value=None,
+    route=None,
 ):
     if program not in PROGRAMS:
         raise Refused("PROGRAM_REFUSED")
+    if route is not None and not valid_route(route, worker_id, program):
+        raise Refused("ROUTE_REFUSED")
     check_worker_id(worker_id)
     timeout_s = model_timeout_s(worker_id, timeout_s)
     max_output_tokens = max_tokens(worker_id, max_output_tokens)
@@ -516,6 +544,7 @@ def execute(
         try_lock(lock)
         integrity()
         ev = WorkerEvidence(time.time(), True, True, True, False) if mode == "fixture" else readiness(url, model)
+        local = _local_route(ev, source, worker_id=worker_id)
         cfg = {
             "mode": mode,
             "endpoint": url,
@@ -527,7 +556,7 @@ def execute(
             **({"responseFormat": response_format_mode} if response_format_mode else {}),
             "requestMode": mode_of_request,
             **completion,
-            "route": route(ev, source, worker_id=worker_id),
+            "route": local if route is None else route,
             "reportStore": str(store),
         }
         # Node permission mode confines writes to the report store and reads to the
@@ -554,9 +583,12 @@ def execute(
         if not r.stdout:
             raise Refused("NISI_CHILD_FAILED: " + (sanitize_text(r.stderr[:300]) or ""))
         data = json.loads(r.stdout)
+        if not isinstance(data, dict):
+            raise Refused("NISI_OUTPUT_INVALID")
         data["childExitCode"] = r.returncode
+        plan_failure = _check_child_plan(data, cfg["route"])
         data.update(pin=PIN, observedAt=time.time(), leaseScope="preview-only; not a backend reservation")
-        report = data.get("report") if isinstance(data, dict) else {}
+        report = data.get("report")
         data["authorEvidence"] = author_evidence(data.get("authorReceipts"))
         data["modelTimeoutS"] = timeout_s
         data["disableThinking"] = disable_thinking
@@ -566,7 +598,9 @@ def execute(
         data["netPermission"] = ("allow-net+" if net else "none+") + f"guard:127.0.0.1:{urlsplit(url).port or 0}"
         if r.returncode and r.stderr:
             data["childStderr"] = sanitize_text(r.stderr[:300])
-        failure = _verify_stored(store, data)
+        failure = plan_failure or _verify_stored(store, data)
+        if not isinstance(report, dict):
+            report = data["report"] = {}
         data["reportStored"] = report.get("reportStored") is True and failure is None
         data["reportPath"] = data.get("reportStorePath")
         data["runId"] = report.get("runId")
