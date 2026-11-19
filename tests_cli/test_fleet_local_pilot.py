@@ -54,9 +54,11 @@ class PilotTests(unittest.TestCase):
             if url.endswith("/api/v0/models"):
                 if raise_catalog:
                     raise OSError("down")
-                return catalog if catalog is not None else {
-                    "data": [{"id": "local", "state": "loaded", "loaded_context_length": 32768}]
-                }
+                return (
+                    catalog
+                    if catalog is not None
+                    else {"data": [{"id": "local", "state": "loaded", "loaded_context_length": 32768}]}
+                )
             raise AssertionError("unexpected url " + url)
 
         return g
@@ -69,7 +71,9 @@ class PilotTests(unittest.TestCase):
     def test_lmstudio_not_loaded_or_missing_catalog_is_refused(self):
         cases = (
             self.lmstudio_getter(catalog={"data": [{"id": "local", "state": "not-loaded"}]}),
-            self.lmstudio_getter(catalog={"data": [{"id": "other", "state": "loaded", "loaded_context_length": 32768}]}),
+            self.lmstudio_getter(
+                catalog={"data": [{"id": "other", "state": "loaded", "loaded_context_length": 32768}]}
+            ),
             self.lmstudio_getter(catalog={"data": [{"id": "local", "state": "loaded", "loaded_context_length": 0}]}),
             self.lmstudio_getter(catalog={"data": []}),
             self.lmstudio_getter(catalog={"models": []}),
