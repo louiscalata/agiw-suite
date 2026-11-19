@@ -880,17 +880,21 @@ _EDIT_GUIDANCE = (
 
 _RESPOND_ONLY = "Respond only with SEARCH/REPLACE blocks, no explanation."
 
-_FORMAT_BLOCK = f"""Format, repeated once per edit, for one or several files:
+_FORMAT_BLOCK = f"""Format, repeated once per edit, for one or several files (angle brackets mark placeholders):
 
-path/to/file.md
+<path/from/allowlist>
 <<<<<<< SEARCH
-lines copied exactly from the current file
+<exact existing lines copied from that file>
 =======
-replacement lines
+<those lines with your change applied>
 >>>>>>> REPLACE
 
 {_RESPOND_ONLY}"""
 
+_NEVER_EXAMPLE = "Never output the example itself. Use only the allowed paths and lines copied from the files shown."
+
+# Q002: a small model returned the prompt's old worked example (greeting.txt hi -> hello) as its
+# answer, so the prompt shows only the shape, with placeholders that cannot be a real edit.
 _SYSTEM_PROMPT = f"""You edit files by returning SEARCH/REPLACE blocks.
 
 {_NO_TOOLS}
@@ -904,45 +908,28 @@ Rules:
 - Copy every SEARCH line exactly from the file, keeping the same whitespace.
 - Keep each SEARCH short but unique: a few lines that appear once in the file.
 - Put the file path on its own line directly above <<<<<<< SEARCH.
+- To insert text, SEARCH <one existing line near the spot> and REPLACE it with <that same line>
+  followed by <the new lines>.
 - To create a missing file, leave SEARCH empty and put the new content in REPLACE.
+- The REPLACE text must differ from the SEARCH text.
 - Output only the blocks. No commentary, no JSON, no whole-file rewrites.
+- {_NEVER_EXAMPLE}"""
 
-Example. The current file greeting.txt contains:
+# Paths from this and earlier prompt examples; a reply naming one (outside the allowlist) copied
+# the example instead of editing the job's files.
+_EXAMPLE_PATHS = frozenset({"path/to/file.md", "greeting.txt", "notes.md", "path/from/allowlist"})
+_PLACEHOLDER = re.compile(r"<[^<>\n]*(?:path|lines|exact|change|allowlist)[^<>\n]*>", re.I)
 
-```
-hi
-bye
-```
-
-One edit that changes its first line:
-
-greeting.txt
-<<<<<<< SEARCH
-hi
-=======
-hello
->>>>>>> REPLACE
-
-Insertion example. The current file notes.md contains:
-
-```
-# Notes
-## Usage
-```
-
-Add a paragraph under the heading:
-
-notes.md
-<<<<<<< SEARCH
-## Usage
-=======
-## Usage
-
-Open the notes before starting.
->>>>>>> REPLACE"""
+_RETRY_NOTES = {
+    "NO_EDITS": "Your previous reply contained no SEARCH/REPLACE blocks.",
+    "EXAMPLE_COPY": (
+        "Your previous reply copied the format example instead of editing the files. Never output the example itself."
+    ),
+    "OFF_ALLOWLIST": "Your previous reply edited paths that are not allowed.",
+}
 
 _RETRY_REMINDER = (
-    "Your previous reply contained no SEARCH/REPLACE blocks. "
+    "{note} "
     "The file contents are in the message above. "
     "Make the best minimal edit for the task now. "
     "To add text, SEARCH an existing line near where it belongs and REPLACE it "
@@ -950,6 +937,35 @@ _RETRY_REMINDER = (
     "The REPLACE text must differ from the SEARCH text. "
     "Allowed paths: {paths}. " + _RESPOND_ONLY
 )
+
+_NOOP_QUOTE_LIMIT = 600
+
+
+def _retry_note(reason, paths, noop_searches=()):
+    """The one corrective message sent before the single retry."""
+    if reason == "NOOP_EDITS":
+        quoted = "\n---\n".join(text[:_NOOP_QUOTE_LIMIT] for text in noop_searches[:3])
+        note = (
+            "Your previous reply changed nothing: its REPLACE text was identical to this SEARCH text:\n"
+            f"{quoted}\n"
+            "The REPLACE must differ from that SEARCH. If the shown text needs no change for one part of "
+            "the task, edit another part it supports."
+        )
+    else:
+        note = _RETRY_NOTES.get(reason, _RETRY_NOTES["NO_EDITS"])
+    return _RETRY_REMINDER.format(note=note, paths=", ".join(paths))
+
+
+def _misdirected(edits, allowlist):
+    """EXAMPLE_COPY or OFF_ALLOWLIST when no parsed edit targets an allowed path, else None."""
+    allowed = set(allowlist or [])
+    if not edits or any(path in allowed for path, _search, _replace in edits):
+        return None
+    for path, search, replace in edits:
+        if path.lower() in _EXAMPLE_PATHS or _PLACEHOLDER.search(path + "\n" + search + "\n" + replace):
+            return "EXAMPLE_COPY"
+    return "OFF_ALLOWLIST"
+
 
 _EXCERPT_THRESHOLD = 16000
 _EXCERPT_BUDGET = 16000
@@ -1152,7 +1168,8 @@ def _auto_max_tokens(files, task):
 
 
 def _user_prompt(files, task, allowlist, analysis, excerpts=None, *, file_chars=None):
-    parts = [_NO_TOOLS, _EDIT_GUIDANCE, _FORMAT_BLOCK]
+    allowed = ", ".join(allowlist or list(files))
+    parts = [_NO_TOOLS, _EDIT_GUIDANCE, _FORMAT_BLOCK, f"Allowed paths: {allowed}"]
     for path, content in files.items():
         if file_chars is not None:
             file_chars[path] = 0
@@ -1187,6 +1204,7 @@ def _user_prompt(files, task, allowlist, analysis, excerpts=None, *, file_chars=
     parts.append(f"### Task\n{task}")
     if analysis:
         parts.append("Jev pre-plan (advisory):\n" + _bound_plan(analysis))
+    parts.append(f"Allowed paths: {allowed}. {_NEVER_EXAMPLE}")
     parts.append(_FORMAT_BLOCK)
     return "\n\n".join(parts)
 
@@ -1256,6 +1274,7 @@ def chat_patcher(model_endpoint, model, timeout, *, max_tokens=None, disable_thi
         }
         patcher.last = last
         patcher.last_output_excerpt = None
+        noop_searches = []
         if excerpts:
             last["excerpts"] = excerpts
 
@@ -1289,8 +1308,19 @@ def chat_patcher(model_endpoint, model, timeout, *, max_tokens=None, disable_thi
                     return merged
                 last["format"] = "search-replace"
                 edits = parse_edits(content, allowlist)
+                misdirected = _misdirected(edits, allowlist)
+                if misdirected:
+                    # Same code as before so receipts stay valid; the reason drives the one retry.
+                    raise _EditRefused("ALLOWLIST_VIOLATION", misdirected)
                 out = apply_edits(files, edits, allowlist or [])
                 noops = _noop_edit_count(files, edits, out)
+                same = [
+                    search
+                    for _path, search, replace in edits
+                    if _normalize_edit_text(search) == _normalize_edit_text(replace)
+                ]
+                # Edits that cancel out are no-ops too; quote their SEARCH text instead.
+                noop_searches[:] = same or ([search for _path, search, _replace in edits] if noops else [])
             except Refused as exc:
                 last["error"] = getattr(exc, "reason", None)
                 last["outputExcerpt"] = excerpt
@@ -1306,8 +1336,8 @@ def chat_patcher(model_endpoint, model, timeout, *, max_tokens=None, disable_thi
         ]
         result = attempt(messages)
         waste = None
-        if isinstance(result, _EditRefused) and result.reason == "NO_EDITS":
-            waste = "NO_EDITS"
+        if isinstance(result, _EditRefused) and result.reason in ("NO_EDITS", "EXAMPLE_COPY", "OFF_ALLOWLIST"):
+            waste = result.reason
         elif not isinstance(result, Refused) and last["edits"] > 0 and last["noopEdits"] == last["edits"]:
             waste = "NOOP_EDITS"
         if waste and last["finishReason"] in ("length", "stop"):
@@ -1319,7 +1349,7 @@ def chat_patcher(model_endpoint, model, timeout, *, max_tokens=None, disable_thi
                 "outputChars": last["outputChars"],
                 "outputExcerpt": first_excerpt,
             }
-            reminder = _RETRY_REMINDER.format(paths=", ".join(allowlist or files.keys()))
+            reminder = _retry_note(waste, list(allowlist or files.keys()), noop_searches)
             result = attempt(messages + [{"role": "user", "content": reminder}])
         if isinstance(result, Refused):
             raise result
