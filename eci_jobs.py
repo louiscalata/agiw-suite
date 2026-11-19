@@ -130,7 +130,7 @@ class Policy:
     def gate_open(self):
         try:
             return self.gate() is True
-        except Exception:
+        except Exception:  # fail closed: a gate that cannot answer is a closed gate
             return False
 
 

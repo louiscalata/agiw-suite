@@ -497,7 +497,7 @@ class AutoUnloader:
                 with self._lock:
                     self._blocked = f"internal error ({type(error).__name__}); nothing was unloaded"
             except Exception:
-                pass
+                pass  # tick() never raises; state() below still reports the last known state
         return self.state()
 
     def state(self) -> dict:
