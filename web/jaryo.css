@@ -1977,7 +1977,7 @@ body.jaryo-app .j-machine-facts dd, body.jaryo-app .j-machine-lane > * { min-wid
 body.jaryo-app .j-machine-host, body.jaryo-app .j-lane-model, body.jaryo-app code,
 body.jaryo-app .fleet-table { font-family:var(--j-mono) !important; overflow-wrap:anywhere; }
 body.jaryo-app button, body.jaryo-app select, body.jaryo-app summary { min-height:44px; }
-body.jaryo-app .evidence-rail .panel-head .panel-close { width:44px; height:44px; }
+body.jaryo-app .evidence-rail .panel-head .panel-close { width:auto; min-width:44px; height:44px; padding:0 12px; }
 body.jaryo-app .evidence-rail .panel-body p, body.jaryo-app .evidence-rail .panel-body dd,
 body.jaryo-app .evidence-rail .panel-body dt, body.jaryo-app .evidence-rail .panel-actions button { font-size:14px !important; }
 body.jaryo-app .evidence-rail .inspect-id, body.jaryo-app .evidence-rail small { font-size:13px !important; }

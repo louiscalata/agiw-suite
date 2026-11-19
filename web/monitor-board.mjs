@@ -81,7 +81,7 @@ export function peerMap({machines, self, feedFresh}) {
     if (state === 'UNKNOWN') parts.push(reasonWords(row.reasonCode));
     else if (state === 'DOWN') parts.push('reported down');
     else if (row.modelsComplete === true && Number.isInteger(row.loadedCount)) {
-      parts.push(`${row.loadedCount} loaded / ${Number.isInteger(row.busyCount) ? row.busyCount : '?'} busy`);
+      parts.push(`${row.loadedCount} loaded / ${Number.isInteger(row.busyCount) ? `${row.busyCount} busy` : 'busy Not measured'}`);
     } else parts.push('model list incomplete');
     if (typeof row.trust === 'string' && /^[a-z-]{1,20}$/.test(row.trust)) parts.push(row.trust);
     if (typeof row.ageSeconds === 'number' && Number.isFinite(row.ageSeconds)) parts.push(`${Math.round(row.ageSeconds)} s`);

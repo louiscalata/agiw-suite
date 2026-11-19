@@ -9,6 +9,8 @@ const here = dirname(fileURLToPath(import.meta.url));
 export const KIT_FILES = [
   'tokens.json',
   'choices.json',
+  'vendor/jaryo.tokens.json',
+  'vendor/SOURCE.md',
   'generate.mjs',
   'contrast.mjs',
   'patterns.css',

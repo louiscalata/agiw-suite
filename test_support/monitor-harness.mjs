@@ -63,9 +63,9 @@ class FakeElement {
 /** Expected endpoint tiles from the canonical selector, independently of model activity. */
 export function fleetTileExpectations(snapshot, now) {
   const summary = fleet.fleetSummary(snapshot, {now});
-  return {activeCount: summary.state === 'unknown' || summary.counts.answering === null ? '—' : String(summary.counts.answering),
-    loadedCount: summary.state === 'unknown' ? '—' : String(summary.counts.lanes),
-    queuedCount: summary.state === 'unknown' ? '—' : String(summary.counts.unknown + summary.counts.stale)};
+  return {activeCount: summary.state === 'unknown' || summary.counts.answering === null ? 'Not measured' : String(summary.counts.answering),
+    loadedCount: summary.state === 'unknown' ? 'Not measured' : String(summary.counts.lanes),
+    queuedCount: summary.state === 'unknown' ? 'Not measured' : String(summary.counts.unknown + summary.counts.stale)};
 }
 
 export function harness({ width = 1150, extra = {}, legacyDetails = false } = {}) {

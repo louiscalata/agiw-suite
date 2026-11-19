@@ -161,7 +161,7 @@ for (const offset of [0, 4, 7, 31]) {
       assert.match($('headline').textContent, /Answering count unknown; 4 lanes configured/);
       assert.doesNotMatch($('headline').textContent, /0 of 4 lanes answering/);
     } else assert.match($('headline').textContent, new RegExp(`${expected.counts.answering} of 4 lanes answering`));
-    assert.equal($('activeCount').textContent, expected.counts.answering === null ? '—' : String(expected.counts.answering));
+    assert.equal($('activeCount').textContent, expected.counts.answering === null ? 'Not measured' : String(expected.counts.answering));
     assert.equal($('loadedCount').textContent, '4');
     assert.match($('attentionReasons').textContent, /Mac Pro.*deep/i);
     assert.doesNotMatch($('headline').textContent, /idle|quiet|blocked|healthy/i);
@@ -171,9 +171,9 @@ test('summary without a fleet contract keeps coverage and absence unknown', () =
   const {api, $} = harness();
   api.setFeed({host: 'mac', sampledAt: nowSeconds(), models: [], sources: [], activityKnown: true});
   api.renderSummary();
-  assert.equal($('activeCount').textContent, '—');
-  assert.equal($('loadedCount').textContent, '—');
-  assert.equal($('queuedCount').textContent, '—');
+  assert.equal($('activeCount').textContent, 'Not measured');
+  assert.equal($('loadedCount').textContent, 'Not measured');
+  assert.equal($('queuedCount').textContent, 'Not measured');
   assert.match($('headline').textContent, /Endpoint coverage unknown/);
 });
 
@@ -673,7 +673,7 @@ test('F5: shown captions select their node; hidden ones never take clicks', () =
 });
 
 test('F10: About stays reachable in the popover through a map-controls button', () => {
-  assert.match(html, /<div class="map-controls">[^\n]*<button id="aboutCompact" class="about-compact" type="button" aria-expanded="false" aria-controls="aboutPanel" aria-label="About this map" title="About this map">\?<\/button><\/div>/);
+  assert.match(html, /<div class="map-controls">[^\n]*<button id="aboutCompact" class="about-compact" type="button" aria-expanded="false" aria-controls="aboutPanel" aria-label="About this map" title="About this map">About<\/button><\/div>/);
   const rules = cssRules(css);
   // Round 3 review: page-footer rules are scoped to the page footer (body>footer), never a panel's <footer>.
   const footerHidden = rules.find(([, head, body]) => head === 'body>footer' && /display:none/.test(body))[0];
@@ -1670,9 +1670,9 @@ test('Mac runtime: incomplete residency stays unknown in summary, callers and ev
       macGpu: { utilizationPercent: 40, ageSeconds: 0 } });
     api.renderSummary(); api.select('runtime'); api.renderInspector();
     assert.equal($('headline').textContent, '? Endpoint coverage unknown', state);
-    assert.equal($('activeCount').textContent, '—', state);
-    assert.equal($('loadedCount').textContent, '—', state);
-    assert.equal($('queuedCount').textContent, '—', state);
+    assert.equal($('activeCount').textContent, 'Not measured', state);
+    assert.equal($('loadedCount').textContent, 'Not measured', state);
+    assert.equal($('queuedCount').textContent, 'Not measured', state);
     assert.match(body.textContent, /Local callersUnknown/, state);
     assert.doesNotMatch(body.textContent + $('sources').textContent, /idle|quiet|None connected|not sampled|no local model requests/i, state);
     assert.match($('sources').textContent, /Local callersunavailableLocal model activity could not be verified/, state);
@@ -1703,8 +1703,8 @@ test('Runtime inspector: partial model activity stays a detail lower bound witho
   assert.equal(body.querySelector('.panel-summary').querySelector('strong').textContent, 'At least 1 model working');
   assert.equal(tiles(body).find(([label]) => label === 'Working')[1], 'at least 1');
   assert.match(body.textContent, /Working modelsat least 1/);
-  assert.equal($('activeCount').textContent, '—', 'partial model rows do not supply fleet endpoint totals');
-  assert.equal($('queuedCount').textContent, '—');
+  assert.equal($('activeCount').textContent, 'Not measured', 'partial model rows do not supply fleet endpoint totals');
+  assert.equal($('queuedCount').textContent, 'Not measured');
 });
 
 test('Runtime counts: catalog aggregates do not count alongside loaded alias instances', () => {
@@ -1714,9 +1714,9 @@ test('Runtime counts: catalog aggregates do not count alongside loaded alias ins
     models: [{ id: 'provider/model', host: 'mac', loaded: true, state: 'generating', queued: 5, representedByInstances: true, ageSeconds: 0 },
       { id: 'alias-1', host: 'mac', loaded: true, state: 'generating', queued: 2, ageSeconds: 0 }] });
   api.renderSummary(); api.select('runtime'); api.renderInspector();
-  assert.equal($('loadedCount').textContent, '—');
-  assert.equal($('activeCount').textContent, '—');
-  assert.equal($('queuedCount').textContent, '—');
+  assert.equal($('loadedCount').textContent, 'Not measured');
+  assert.equal($('activeCount').textContent, 'Not measured');
+  assert.equal($('queuedCount').textContent, 'Not measured');
   assert.equal(tiles(body).find(([label]) => label === 'Loaded')[1], 'Unknown');
   assert.equal(tiles(body).find(([label]) => label === 'Working')[1], 'at least 1');
   assert.equal(body.querySelector('.panel-summary').querySelector('strong').textContent, 'At least 1 model working');
@@ -2519,8 +2519,8 @@ test('partial local inventory stays unknown in the summary, inspector and vitals
         ...(withMachine ? {machines: [{host: 'mac', platform: 'mac', state: 'up', trust: 'local', ageSeconds: 0,
           modelsComplete: false, loadedCount: null, busyCount: null}]} : {})});
       api.renderSummary();
-      assert.equal($('loadedCount').textContent, '—');
-      assert.equal($('activeCount').textContent, '—');
+      assert.equal($('loadedCount').textContent, 'Not measured');
+      assert.equal($('activeCount').textContent, 'Not measured');
       assert.doesNotMatch($('headline').textContent + $('subline').textContent, /quiet|\b\d+ loaded\b/i);
       assert.match(api.vitalsInput().vitals.mac.detail, /Loaded unknown · activity unknown/);
       api.select('runtime');
@@ -2549,7 +2549,7 @@ test('a null or expired canonical count never falls back to an empty parsed mode
       machines: [{host: 'mac', platform: 'mac', state: 'up', trust: 'local', ageSeconds: 0,
         modelsComplete: true, loadedCount: 0, busyCount: 0, ...change}]});
     api.renderSummary();
-    assert.equal($('loadedCount').textContent, '—');
+    assert.equal($('loadedCount').textContent, 'Not measured');
     assert.match(api.vitalsInput().vitals.mac.detail, /Loaded unknown · activity unknown/);
     api.select('runtime');
     api.renderInspector();
@@ -2562,8 +2562,8 @@ test('an empty legacy inventory cannot establish absent fleet evidence', () => {
   api.setFeed({host: 'mac', sampledAt: nowSeconds(), models: [], activityKnown: true,
     sources: [{id: 'lms-ps', state: 'live', modelsComplete: true}]});
   api.renderSummary();
-  assert.equal($('loadedCount').textContent, '—');
-  assert.equal($('activeCount').textContent, '—');
+  assert.equal($('loadedCount').textContent, 'Not measured');
+  assert.equal($('activeCount').textContent, 'Not measured');
   api.select('runtime'); api.renderInspector();
   assert.equal(tiles(body).find(row => row[0] === 'Loaded')[1], 'Unknown');
 });
@@ -2681,7 +2681,7 @@ test('pass 8: aged activity cannot leave the runtime headline or inspector quiet
     models: [laneModel(8)], clients: [], laneFreshSeconds: 11.8, activityKnown: true,
     sources: [{ id: 'lane-inventory', state: 'live' }], pipeline: { status: 'idle' } });
   api.renderSummary();
-  assert.equal($('activeCount').textContent, '—');
+  assert.equal($('activeCount').textContent, 'Not measured');
   assert.equal($('headline').textContent, '? Endpoint coverage unknown');
   $('drawer').append($('inspector'));
   $('drawer').hidden = false;

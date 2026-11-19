@@ -23,7 +23,7 @@ function fail(item,field,actual){
 }
 function tiles(body){return Object.fromEntries(body.querySelectorAll('.tile').map(tile=>
   [tile.querySelector('.tile-label')?.textContent,tile.querySelector('.tile-value')?.textContent]));}
-const unknown=value=>value==null||/unknown|unavailable|stale|at least|last report|—|not reported|incomplete|clock/i.test(String(value));
+const unknown=value=>value==null||/unknown|unavailable|stale|at least|last report|—|not reported|incomplete|not measured|clock/i.test(String(value));
 let rendered=0;
 for(const item of cases){
   const property=item.property||'no-false-certainty';

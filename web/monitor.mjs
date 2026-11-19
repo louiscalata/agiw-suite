@@ -79,26 +79,31 @@ export function displayModelId(value) {
 
 const caption = value => String(value || '').length > 38 ? `${String(value).slice(0, 35)}…` : String(value || '');
 
+/** The one word for a reading that is missing or unavailable (LOU-59). */
+export const NOT_MEASURED = 'Not measured';
+
 function number(value, suffix) {
-  return typeof value === 'number' && Number.isFinite(value) ? `${value}${suffix}` : '—';
+  return typeof value === 'number' && Number.isFinite(value) ? `${value}${suffix}` : NOT_MEASURED;
 }
 
 export function detailRows(node) {
   const slots = node.slotsBusy == null && node.slotsTotal == null
-    ? '—' : `${node.slotsBusy ?? '—'}/${node.slotsTotal ?? '—'}`;
+    ? NOT_MEASURED : `${node.slotsBusy ?? NOT_MEASURED}/${node.slotsTotal ?? NOT_MEASURED}`;
   const context = node.contextUsed == null && node.contextLimit == null
-    ? '—' : `${node.contextUsed ?? '—'}/${node.contextLimit ?? '—'}`;
+    ? NOT_MEASURED : `${node.contextUsed ?? NOT_MEASURED}/${node.contextLimit ?? NOT_MEASURED}`;
   const vram = node.vramUsedMiB == null && node.vramTotalMiB == null
-    ? '—' : `${node.vramUsedMiB ?? '—'}/${node.vramTotalMiB ?? '—'} MiB`;
+    ? NOT_MEASURED : node.vramUsedMiB != null && node.vramTotalMiB != null
+      ? `${node.vramUsedMiB}/${node.vramTotalMiB} MiB`
+      : `${node.vramUsedMiB == null ? NOT_MEASURED : `${node.vramUsedMiB} MiB`}/${node.vramTotalMiB == null ? NOT_MEASURED : `${node.vramTotalMiB} MiB`}`;
   const rows = [
-    [node.scope ? 'State' : 'Health', node.factState || node.health || '—'],
-    [node.scope ? (node.factState === 'stale' ? 'Last reported model' : 'Reported model') : 'Model', (node.observationSource === 'registry' || node.scope ? displayModelId(node.modelId) : node.modelId) || '—'],
-    ['Upstream', node.upstream || '—'],
-    [node.scope ? 'Configured endpoint' : 'Endpoint', node.endpoint || '—'],
+    [node.scope ? 'State' : 'Health', node.factState || node.health || NOT_MEASURED],
+    [node.scope ? (node.factState === 'stale' ? 'Last reported model' : 'Reported model') : 'Model', (node.observationSource === 'registry' || node.scope ? displayModelId(node.modelId) : node.modelId) || NOT_MEASURED],
+    ['Upstream', node.upstream || NOT_MEASURED],
+    [node.scope ? 'Configured endpoint' : 'Endpoint', node.endpoint || NOT_MEASURED],
     ['Prompt tok/s', number(node.promptTokensPerSecond, '')],
     ['Generation tok/s', number(node.generationTokensPerSecond, '')],
     ['Latency', number(node.latencyMs, ' ms')],
-    ['Queue', node.queueDepth == null ? '—' : String(node.queueDepth)],
+    ['Queue', node.queueDepth == null ? NOT_MEASURED : String(node.queueDepth)],
     ['Slots', slots],
     ['Context', context],
     ['VRAM', vram],
@@ -116,7 +121,7 @@ export function detailRows(node) {
   }
   if (node.observationSource === 'registry' || node.scope) {
     rows.push(['Observation age', typeof node.ageSeconds === 'number' && Number.isFinite(node.ageSeconds)
-      ? `${node.ageSeconds.toFixed(1)} s` : '—']);
+      ? `${node.ageSeconds.toFixed(1)} s` : NOT_MEASURED]);
   }
   if (node.detail) rows.push(['Detail', node.detail]);
   if (node.reason) rows.push(['Reason', node.reason]);

@@ -5,7 +5,10 @@ import { join } from 'node:path';
 import { KIT_FILES } from './install.mjs';
 import { isDeepStrictEqual } from 'node:util';
 import { CHOICE_FILE, CHOSEN, OVERRIDES, IMPLEMENTATION } from './decision.mjs';
-import { primitives as renderPrimitives, outputs, TOKEN_START, TOKEN_END } from './generate.mjs';
+import { primitives as renderPrimitives, outputs, TOKEN_START, TOKEN_END, kitVars, readKit } from './generate.mjs';
+
+/** Pinned copy of the Jaryo kit repository's tokens/jaryo.tokens.json (see vendor/SOURCE.md). */
+export const KIT_TOKENS_SHA256 = '7d23cf27ee6eac5d322263cb929f6fe72c5b9a4a3bd8e10e10ffe64919fead22';
 import { contrastRatio, checkContrast } from './contrast.mjs';
 export { contrastRatio } from './contrast.mjs';
 
@@ -146,8 +149,15 @@ export function checkKit(root) {
     if (!primitives.includes(`${token}:`)) fail(`primitives.css lost ${token}`);
   }
   if (!primitives.includes('#000000') || !primitives.includes('#FFFFFF')) fail('primitives.css lost black or white');
+  let kit = {};
+  try {
+    if (sha256(root, 'vendor/jaryo.tokens.json') !== KIT_TOKENS_SHA256) fail('vendor/jaryo.tokens.json does not match the pinned SHA-256');
+    kit = kitVars(readKit(root));
+  } catch (_) { fail('vendor/jaryo.tokens.json is missing or invalid'); }
   for (const [name, value] of Object.entries(SCALE)) {
-    if (!primitives.includes(`${name}: ${value};`)) fail(`primitives.css missing ${name}: ${value}`);
+    // A step may read a Jaryo kit token (LOU-59) only when that token has the same value.
+    const viaKit = Object.entries(kit).some(([kitName, kitValue]) => kitValue === value && primitives.includes(`${name}: var(${kitName});`));
+    if (!primitives.includes(`${name}: ${value};`) && !viaKit) fail(`primitives.css missing ${name}: ${value}`);
   }
   if (scale && scale.motion !== '240ms') fail('scale motion is not 240ms');
   if (!primitives.includes('--j-motion: 0ms')) fail('primitives.css motion duration drifted');
