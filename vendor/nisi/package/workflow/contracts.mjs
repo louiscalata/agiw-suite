@@ -33,14 +33,24 @@ const isPlainObject = value => value !== null && typeof value === 'object' && !A
 const isId = value => typeof value === 'string' && /^[a-z][a-z0-9_.-]{0,95}$/u.test(value);
 const isHex64 = value => typeof value === 'string' && /^[0-9a-f]{64}$/u.test(value);
 
-export function cloneFreeze(value, seen = new WeakSet(), depth = 0) {
+// Bounds the copied tree, not the input graph: an object reached by two paths
+// is copied (and later hashed) twice, so shared references can grow the work
+// exponentially with depth. The budget stops that before any hashing starts.
+export const MAX_SNAPSHOT_VALUES = 1_000_000;
+
+export function cloneFreeze(value, seen = new WeakSet(), depth = 0, budget = { values: 0 }) {
   if (depth > 64) reject('INPUT_DEPTH_LIMIT');
+  budget.values += 1;
+  if (budget.values > MAX_SNAPSHOT_VALUES) reject('INPUT_SIZE_LIMIT');
   if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
   if (typeof value === 'number') {
     if (!Number.isFinite(value)) reject('INPUT_NUMBER_INVALID');
     return value;
   }
   if (typeof value !== 'object') reject('INPUT_VALUE_INVALID');
+  // Check the shape before listing own properties: typed arrays, Buffers and
+  // String objects expose one property per element.
+  if (!Array.isArray(value) && !isPlainObject(value)) reject('INPUT_OBJECT_INVALID');
   if (seen.has(value)) reject('INPUT_CYCLE');
   seen.add(value);
   let copy;
@@ -52,13 +62,13 @@ export function cloneFreeze(value, seen = new WeakSet(), depth = 0) {
     copy = [];
     for (let index = 0; index < value.length; index += 1) {
       if (!Object.hasOwn(descriptors, index)) reject('INPUT_ARRAY_INVALID');
-      copy.push(cloneFreeze(descriptors[index].value, seen, depth + 1));
+      copy.push(cloneFreeze(descriptors[index].value, seen, depth + 1, budget));
     }
   } else if (isPlainObject(value)) {
     copy = Object.create(null);
     for (const key of Object.keys(descriptors)) {
       if (!descriptors[key].enumerable) reject('INPUT_PROPERTY_INVALID');
-      copy[key] = cloneFreeze(descriptors[key].value, seen, depth + 1);
+      copy[key] = cloneFreeze(descriptors[key].value, seen, depth + 1, budget);
     }
   } else reject('INPUT_OBJECT_INVALID');
   seen.delete(value);
@@ -156,7 +166,14 @@ export function createTaskSpecification(value) {
 }
 
 export function validateCandidateForTask(candidate, task, authorId) {
-  const normalized = createCandidate(candidate, { authorId });
+  candidate = cloneFreeze(candidate);
+  const supplied = isPlainObject(candidate) && Object.hasOwn(candidate, 'schemaVersion');
+  if (supplied) {
+    exactObject(candidate, ['schemaVersion', 'authorId', 'files', 'fingerprint'], 'CANDIDATE_SCHEMA');
+    if (candidate.schemaVersion !== CANDIDATE_SCHEMA_VERSION || candidate.authorId !== authorId) reject('CANDIDATE_IDENTITY_INVALID');
+  }
+  const normalized = createCandidate(supplied ? { files: candidate.files } : candidate, { authorId });
+  if (supplied && candidate.fingerprint !== normalized.fingerprint) reject('CANDIDATE_FINGERPRINT_INVALID');
   for (const file of normalized.files) {
     if (!task.allowedFiles.includes(file.path)) reject('CANDIDATE_FILE_OUT_OF_SCOPE');
     if (task.protectedFiles.includes(file.path) &&

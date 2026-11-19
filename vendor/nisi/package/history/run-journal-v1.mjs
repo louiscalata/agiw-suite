@@ -10,6 +10,7 @@ const ID = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
 const SEG = /^(?:[A-Za-z_][A-Za-z0-9_]*|0|[1-9][0-9]*)$/;
 const BAD = new Set(['__proto__','prototype','constructor']);
 const MARK = '[REDACTED]';
+const MAX_RECORDS = 10000;
 
 const err = (code, message = code) => { const e = new Error(message); e.code = code; return e; };
 const own = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
@@ -17,7 +18,17 @@ const exact = (o, keys) => o && typeof o === 'object' && !Array.isArray(o) &&
   Object.keys(o).length === keys.length && keys.every(k => own(o, k));
 const safe = n => Number.isSafeInteger(n) && n >= 0 && !Object.is(n, -0);
 
-function copy(x, stack = new Set()) {
+// Bounds the copied tree. An object reached by two paths is copied and hashed
+// twice, so shared references can otherwise grow the work exponentially. Count
+// string length too: one large string reached by many paths is small in memory
+// but is scanned and serialized once per path.
+const MAX_COPY_VALUES = 1000000;
+const MAX_COPY_STRING_UNITS = 64 * 1024 * 1024;
+
+function copy(x, stack = new Set(), budget = { values: 0, units: 0 }) {
+  if (stack.size > 64) throw err('ENTRY');
+  if (++budget.values > MAX_COPY_VALUES) throw err('ENTRY');
+  if (typeof x === 'string' && (budget.units += x.length) > MAX_COPY_STRING_UNITS) throw err('ENTRY');
   // Reject ordinary and revoked Proxies before reflection, including nested data.
   if (nodeTypes.isProxy(x)) throw err('ENTRY');
   if (x === null || typeof x === 'string' || typeof x === 'boolean') {
@@ -36,7 +47,7 @@ function copy(x, stack = new Set()) {
     for (let i=0;i<x.length;i++) {
       const d = Object.getOwnPropertyDescriptor(x, String(i));
       if (!d || !d.enumerable || !('value' in d)) throw err('ENTRY');
-      out.push(copy(d.value, stack));
+      out.push(copy(d.value, stack, budget));
     }
   } else {
     const names = Object.getOwnPropertyNames(x), keys = Object.keys(x);
@@ -46,7 +57,7 @@ function copy(x, stack = new Set()) {
       if (BAD.has(k) || !k.isWellFormed()) throw err('ENTRY');
       const d = Object.getOwnPropertyDescriptor(x, k);
       if (!d || !d.enumerable || !('value' in d)) throw err('ENTRY');
-      out[k] = copy(d.value, stack);
+      out[k] = copy(d.value, stack, budget);
     }
   }
   stack.delete(x); return out;
@@ -90,21 +101,29 @@ function entryOf(input, now) {
 }
 function redact(e, paths) {
   for (const path of paths) {
-    let cur = e; for (let i=0;i<path.length-1;i++) { const k=path[i]; if (!cur || typeof cur !== 'object' || !own(cur,k) || Array.isArray(cur) && !/^(0|[1-9][0-9]*)$/.test(k)) throw err('REDACTION'); cur=cur[k]; }
-    const k=path.at(-1); if (!cur || typeof cur !== 'object' || !own(cur,k) || Array.isArray(cur) && !/^(0|[1-9][0-9]*)$/.test(k)) throw err('REDACTION'); cur[k]=MARK;
+    let cur = e;
+    for (const k of path.slice(0, -1)) {
+      if (!cur || typeof cur !== 'object' || !own(cur,k) || Array.isArray(cur) && !/^(0|[1-9][0-9]*)$/.test(k)) { cur=null; break; }
+      cur=cur[k];
+    }
+    const k=path.at(-1);
+    if (cur && typeof cur === 'object' && own(cur,k) && (!Array.isArray(cur) || /^(0|[1-9][0-9]*)$/.test(k))) cur[k]=MARK;
   }
 }
+const fingerprint = e => H('nisi-run-journal/input/v1\n'+C(e));
+const retryKey = e => e.retryOf+'\0'+e.attempt;
 function expired(r, now) { return now >= r.entry.createdAt + r.entry.ttlMs; }
 
 function build(config, watermark = 0, initial = [], sealed = false) {
-  const records = initial.slice(), byId = new Map(), revoked = new Set();
-  for (const r of records) { byId.set(r.entry.id, r); if (r.entry.revokes !== null) revoked.add(r.entry.revokes); }
+  const records = initial.slice(), byId = new Map(), revoked = new Set(), active = new Map(), retries = new Set();
+  for (const r of records) { byId.set(r.entry.id, r); if (r.retained) active.set(r.entry.id,r); if (r.entry.retryOf!==null) retries.add(retryKey(r.entry)); if (r.entry.revokes !== null) revoked.add(r.entry.revokes); }
   let mark = watermark;
   const prune = now => {
-    const out=[]; for (const r of records) if (r.retained && expired(r,now)) { r.retained=false; r.entry.payload=null; out.push(r.entry.id); }
-    let n=records.filter(r=>r.retained).length;
-    for (const r of records) if (n>config.maxEntries && r.retained) { r.retained=false; r.entry.payload=null; n--; out.push(r.entry.id); }
-    const pruned = new Set(out); return records.filter(r=>pruned.has(r.entry.id)).map(r=>r.entry.id);
+    const retained = [...active.values()];
+    const retire = r => { r.retained=false; r.entry.payload=null; r.fingerprint=fingerprint(r.entry); active.delete(r.entry.id); };
+    for (const r of retained) if (expired(r,now)) retire(r);
+    for (const r of active.values()) { if (active.size<=config.maxEntries) break; retire(r); }
+    return retained.filter(r=>!r.retained).map(r=>r.entry.id);
   };
   const time = now => { if (!safe(now) || now < mark) throw err('TIME'); mark=now; };
   const view = (r, now) => {
@@ -121,26 +140,29 @@ function build(config, watermark = 0, initial = [], sealed = false) {
     // Never persist a digest of fields that the caller asked to redact.
     // Identity is intentionally defined over the retained projection.
     redact(e,config._paths);
-    const fp=H('nisi-run-journal/input/v1\n'+C(e)), old=byId.get(e.id);
+    const fp=fingerprint(e), old=byId.get(e.id);
     if (old) return freeze(old.fingerprint===fp ? {status:'DUPLICATE',id:e.id} : {status:'CONFLICT',id:e.id,reason:'ID_CONTENT_MISMATCH'});
+    if (records.length>=MAX_RECORDS) return freeze({status:'REFUSED',id:e.id,reason:'HISTORY_LIMIT'});
     if (e.retryOf !== null) {
+      if (retries.has(retryKey(e))) return freeze({status:'REFUSED',id:e.id,reason:'RETRY_DUPLICATE'});
       const t=byId.get(e.retryOf); if (!t || e.state!=='QUEUED' || t.entry.runId!==e.runId || e.attempt<=t.entry.attempt || e.createdAt<t.entry.createdAt ||
         !(new Set(['SUCCEEDED','FAILED','CANCELLED','REVOKED'])).has(t.entry.state) && !expired(t,now) && !revoked.has(t.entry.id)) return freeze({status:'REFUSED',id:e.id,reason:'RETRY'});
     }
     if (e.revokes !== null) { const t=byId.get(e.revokes); if (!t || t.entry.runId!==e.runId || t.entry.attempt!==e.attempt || t.entry.candidateId!==e.candidateId || t.entry.createdAt>e.createdAt) return freeze({status:'REFUSED',id:e.id,reason:'REVOCATION'}); }
-    const r={entry:e,fingerprint:fp,retained:true,historical:false}; records.push(r); byId.set(e.id,r); if (e.revokes!==null) revoked.add(e.revokes);
+    const r={entry:e,fingerprint:fp,retained:true,historical:false}; records.push(r); byId.set(e.id,r); active.set(e.id,r); if(e.retryOf!==null) retries.add(retryKey(e)); if (e.revokes!==null) revoked.add(e.revokes);
     mark=now; prune(now); return freeze({status:'APPENDED',id:e.id});
   };
   const list = now => { time(now); prune(now); return freeze(records.map(r=>view(r,now))); };
   const retain = now => { time(now); return freeze(prune(now)); };
-  const serialize = () => {
+  const serialize = (now = mark) => {
     if (sealed) throw err('SEALED');
+    time(now); prune(now);
     const header={type:'header',schema:'nisi-run-journal-v1',config:{projectId:config.projectId,maxEntries:config.maxEntries,heartbeatTtlMs:config.heartbeatTtlMs,redactPaths:config.redactPaths.slice()},now:mark};
     let prev=H('nisi-run-journal/header/v1\n'+C(header)), lines=[C(header)];
     records.forEach((r,i)=>{ const record={entry:r.entry,fingerprint:r.fingerprint,retained:r.retained}, env={type:'entry',seq:i+1,previousHash:prev,record,hash:H('nisi-run-journal/record/v1\n'+C({seq:i+1,previousHash:prev,record}))}; lines.push(C(env)); prev=env.hash; });
     lines.push(C({type:'footer',count:records.length,lastHash:prev})); return lines.join('\n')+'\n';
   };
-  return {api:freeze({append,list,retain,serialize}), records, byId, revoked, get watermark(){return mark;}};
+  return {api:freeze({append,list,retain,serialize}), records, byId, revoked, active, retries, get watermark(){return mark;}};
 }
 
 function parseLine(raw) {
@@ -168,13 +190,15 @@ function reopenData(serialized) {
     if (!exact(v,['type','seq','previousHash','record','hash']) || v.type!=='entry' || v.seq!==n || v.previousHash!==prev || typeof v.hash!=='string' || !/^[0-9a-f]{64}$/.test(v.hash) ||
         H('nisi-run-journal/record/v1\n'+C({seq:v.seq,previousHash:v.previousHash,record:v.record}))!==v.hash || !exact(v.record,RECORD_KEYS) || typeof v.record.fingerprint!=='string' || !/^[0-9a-f]{64}$/.test(v.record.fingerprint) || typeof v.record.retained!=='boolean') { failAt(n+1); break; }
     let e; try { e=entryOf(v.record.entry,h.now); } catch (_) { failAt(n+1); break; }
-    if (e.projectId!==c.projectId || b.byId.has(e.id) || (!v.record.retained && e.payload!==null)) { failAt(n+1); break; }
-    if (v.record.retained) { try { for(const p of c._paths){let x=e;for(const k of p){if(!x||typeof x!=='object'||!own(x,k)||Array.isArray(x)&&!/^(0|[1-9][0-9]*)$/.test(k))throw 0;x=x[k];}if(x!==MARK)throw 0;} } catch (_) { failAt(n+1); break; }
-      if (v.record.fingerprint!==H('nisi-run-journal/input/v1\n'+C(e)) || expired({entry:e},h.now)) { failAt(n+1); break; }
+    if (ids.length>=MAX_RECORDS || e.projectId!==c.projectId || b.byId.has(e.id) || (!v.record.retained && e.payload!==null)) { failAt(n+1); break; }
+    if (v.record.fingerprint!==fingerprint(e)) { failAt(n+1); break; }
+    if (v.record.retained) {
+      const redacted=copy(e); redact(redacted,c._paths);
+      if (C(redacted)!==C(e) || expired({entry:e},h.now)) { failAt(n+1); break; }
       retained++; if(retained>c.maxEntries){failAt(n+1);break;} }
-    if (e.retryOf!==null) { const t=b.byId.get(e.retryOf); if(!t || e.state!=='QUEUED' || t.entry.runId!==e.runId || e.attempt<=t.entry.attempt || e.createdAt<t.entry.createdAt || !(new Set(['SUCCEEDED','FAILED','CANCELLED','REVOKED'])).has(t.entry.state) && !expired(t,h.now) && !b.revoked.has(t.entry.id)) { failAt(n+1); break; } }
+    if (e.retryOf!==null) { if(b.retries.has(retryKey(e))){failAt(n+1);break;} const t=b.byId.get(e.retryOf); if(!t || e.state!=='QUEUED' || t.entry.runId!==e.runId || e.attempt<=t.entry.attempt || e.createdAt<t.entry.createdAt || !(new Set(['SUCCEEDED','FAILED','CANCELLED','REVOKED'])).has(t.entry.state) && !expired(t,h.now) && !b.revoked.has(t.entry.id)) { failAt(n+1); break; } }
     if (e.revokes!==null) { const t=b.byId.get(e.revokes); if(!t || t.entry.runId!==e.runId || t.entry.attempt!==e.attempt || t.entry.candidateId!==e.candidateId || t.entry.createdAt>e.createdAt){failAt(n+1);break;} }
-    const r={entry:e,fingerprint:v.record.fingerprint,retained:v.record.retained,historical:true}; b.records.push(r); b.byId.set(e.id,r); if(e.revokes!==null)b.revoked.add(e.revokes); prev=v.hash; ids.push(e.id);
+    const r={entry:e,fingerprint:v.record.fingerprint,retained:v.record.retained,historical:true}; b.records.push(r); b.byId.set(e.id,r); if(r.retained)b.active.set(e.id,r); if(e.retryOf!==null)b.retries.add(retryKey(e)); if(e.revokes!==null)b.revoked.add(e.revokes); prev=v.hash; ids.push(e.id);
   }
   if (!bad && !footer) bad={line:ls.length+1,reason:trailing?'TRUNCATED':'MISSING_FOOTER',status:'INCOMPLETE'};
   if (bad) { const sealed=build(c,h.now,b.records,true); return {journal:sealed.api,report:report(bad.status,ids,bad.line,bad.reason)}; }
