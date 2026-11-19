@@ -78,15 +78,34 @@ function configOf(input) {
   let c; try { c = copy(input); } catch (_) { throw err('CONFIG'); }
   if (!exact(c, ['projectId','maxEntries','heartbeatTtlMs','redactPaths']) || !id(c.projectId) ||
       !Number.isSafeInteger(c.maxEntries) || c.maxEntries < 1 || c.maxEntries > 10000 ||
-      !Number.isSafeInteger(c.heartbeatTtlMs) || c.heartbeatTtlMs < 1 || !Array.isArray(c.redactPaths)) throw err('CONFIG');
-  const paths = []; for (const p of c.redactPaths) {
-    if (typeof p !== 'string' || !p.startsWith('payload.') || p.length < 9) throw err('CONFIG');
-    const a = p.split('.'); if (a.some(s => !SEG.test(s) || BAD.has(s))) throw err('CONFIG');
+      !Number.isSafeInteger(c.heartbeatTtlMs) || c.heartbeatTtlMs < 1) throw err('CONFIG');
+  c._paths = pathsOf(c.redactPaths, 'CONFIG'); c.redactPaths = c.redactPaths.slice(); return c;
+}
+// Parses redaction paths. Rejects duplicates and paths that contain one another.
+function pathsOf(list, code) {
+  if (!Array.isArray(list)) throw err(code);
+  const paths = []; for (const p of list) {
+    if (typeof p !== 'string' || !p.startsWith('payload.') || p.length < 9) throw err(code);
+    const a = p.split('.'); if (a.some(s => !SEG.test(s) || BAD.has(s))) throw err(code);
     for (const q of paths) if (a.length === q.length ? a.every((s,i)=>s===q[i]) :
-      (a.length < q.length ? a.every((s,i)=>s===q[i]) : q.every((s,i)=>s===a[i]))) throw err('CONFIG');
+      (a.length < q.length ? a.every((s,i)=>s===q[i]) : q.every((s,i)=>s===a[i]))) throw err(code);
     paths.push(a);
   }
-  c.redactPaths = c.redactPaths.slice(); c._paths = paths; return c;
+  return paths;
+}
+// Host-supplied values for reopen. All three keys are required.
+function expectationsOf(input) {
+  let x; try { x = copy(input); } catch (_) { throw err('EXPECTATIONS'); }
+  if (!exact(x, ['projectId','redactPaths','maxNow']) || !id(x.projectId) || !safe(x.maxNow)) throw err('EXPECTATIONS');
+  pathsOf(x.redactPaths, 'EXPECTATIONS'); return x;
+}
+// redactPaths compare as a set. pathsOf rejects duplicates, so sorted lists suffice.
+function expectationProblem(c, now, x) {
+  if (c.projectId !== x.projectId) return 'PROJECT_MISMATCH';
+  const a = c.redactPaths.slice().sort(), b = x.redactPaths.slice().sort();
+  if (a.length !== b.length || a.some((p,i) => p !== b[i])) return 'REDACTION_MISMATCH';
+  if (now > x.maxNow) return 'CLOCK_AHEAD';
+  return null;
 }
 function entryOf(input, now) {
   let e; try { e = copy(input); } catch (_) { throw err('ENTRY'); }
@@ -172,13 +191,14 @@ function report(status, ids, line, reason) { return freeze({status,recoveredIds:
 
 export function createRunJournal(input) { const c=configOf(input), b=build(c); return b.api; }
 
-function reopenData(serialized) {
+function reopenData(serialized, expected) {
   if (typeof serialized !== 'string' || !serialized.includes('\n')) return {journal:null,report:report('INVALID',[],1,'HEADER')};
   const trailing=!serialized.endsWith('\n'); let ls=serialized.split('\n'); let tail=null; if (trailing) tail=ls.pop(); else ls.pop();
   const h=parseLine(ls[0]);
   if (!h || !exact(h,['type','schema','config','now']) || h.type!=='header' || h.schema!=='nisi-run-journal-v1' || !safe(h.now)) return {journal:null,report:report('INVALID',[],1,'HEADER')};
   let c; try { c=configOf(h.config); } catch (_) { return {journal:null,report:report('INVALID',[],1,'HEADER')}; }
-  const b=build(c,h.now), ids=[]; let prev=H('nisi-run-journal/header/v1\n'+C(h)), footer=false, bad=null, retained=0;
+  if (expected) { const problem=expectationProblem(c,h.now,expected); if (problem) return {journal:null,report:report('INVALID',[],1,problem)}; }
+  const b=build(c,h.now), ids=[]; let prev=H('nisi-run-journal/header/v1\n'+C(h)), footer=false, bad=null, retained=0, legacy=null;
   const failAt=(line,reason='RECORD',status='INVALID')=>{bad={line,reason,status};};
   for(let n=1;n<ls.length&&!bad;n++) {
     const v=parseLine(ls[n]); if (!v) { failAt(n+1); break; }
@@ -191,7 +211,13 @@ function reopenData(serialized) {
         H('nisi-run-journal/record/v1\n'+C({seq:v.seq,previousHash:v.previousHash,record:v.record}))!==v.hash || !exact(v.record,RECORD_KEYS) || typeof v.record.fingerprint!=='string' || !/^[0-9a-f]{64}$/.test(v.record.fingerprint) || typeof v.record.retained!=='boolean') { failAt(n+1); break; }
     let e; try { e=entryOf(v.record.entry,h.now); } catch (_) { failAt(n+1); break; }
     if (ids.length>=MAX_RECORDS || e.projectId!==c.projectId || b.byId.has(e.id) || (!v.record.retained && e.payload!==null)) { failAt(n+1); break; }
-    if (v.record.fingerprint!==fingerprint(e)) { failAt(n+1); break; }
+    // A writer before 4fc09e7 cleared a retired payload and left the old fingerprint.
+    // The record hash still matches. That file stays unauthorized. A retained-row
+    // mismatch, or any other failure in the same file, stays a generic RECORD.
+    if (v.record.fingerprint!==fingerprint(e)) {
+      if (v.record.retained) { failAt(n+1); break; }
+      if (!legacy) legacy={line:n+1,prefix:ids.length};
+    }
     if (v.record.retained) {
       const redacted=copy(e); redact(redacted,c._paths);
       if (C(redacted)!==C(e) || expired({entry:e},h.now)) { failAt(n+1); break; }
@@ -202,7 +228,13 @@ function reopenData(serialized) {
   }
   if (!bad && !footer) bad={line:ls.length+1,reason:trailing?'TRUNCATED':'MISSING_FOOTER',status:'INCOMPLETE'};
   if (bad) { const sealed=build(c,h.now,b.records,true); return {journal:sealed.api,report:report(bad.status,ids,bad.line,bad.reason)}; }
+  if (legacy) { const prefix=b.records.slice(0,legacy.prefix), sealed=build(c,h.now,prefix,true); return {journal:sealed.api,report:report('INVALID',ids.slice(0,legacy.prefix),legacy.line,'LEGACY_UNRETAINED_FINGERPRINT')}; }
   return {journal:b.api,report:report('COMPLETE',ids,null,null)};
 }
 
-export function reopen(serialized) { return freeze(reopenData(serialized)); }
+// expectations, when given, is {projectId, redactPaths, maxNow}. A header that differs
+// is refused before any record is read. Omitting it keeps the one-argument behaviour.
+export function reopen(serialized, expectations = undefined) {
+  const expected = expectations === undefined ? null : expectationsOf(expectations);
+  return freeze(reopenData(serialized, expected));
+}

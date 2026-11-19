@@ -9,8 +9,8 @@ import bundle_nisi as bundle
 
 class BundleNisiTests(unittest.TestCase):
     def test_exact_payload_and_copy(self):
-        self.assertEqual(bundle.verify()["version"], "0.3.1")
-        self.assertEqual(len(bundle.resource_inputs()), 22)
+        self.assertEqual(bundle.verify()["version"], "0.3.2")
+        self.assertEqual(len(bundle.resource_inputs()), 23)
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory).resolve() / "nisi"
             self.assertEqual(bundle.copy_bundle(target)["status"], "PASS")
@@ -42,7 +42,7 @@ class BundleNisiTests(unittest.TestCase):
             ["python3", str(Path(bundle.__file__)), "--list-inputs"], capture_output=True, text=True, timeout=15
         )
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(len(result.stdout.splitlines()), 22)
+        self.assertEqual(len(result.stdout.splitlines()), 23)
         self.assertIn("vendor/nisi/manifest.json", result.stdout.splitlines())
 
     def test_destination_symlink_refused(self):
@@ -62,7 +62,7 @@ class BundleNisiTests(unittest.TestCase):
             cli = target / "package" / "bin" / "nisi.mjs"
             version = subprocess.run([node, str(cli), "--version"], capture_output=True, text=True, timeout=15)
             self.assertEqual(version.returncode, 0, version.stderr)
-            self.assertEqual(version.stdout.strip(), "0.3.1")
+            self.assertEqual(version.stdout.strip(), "0.3.2")
             demo = subprocess.run([node, str(cli), "demo"], cwd=directory, capture_output=True, text=True, timeout=30)
             self.assertEqual(demo.returncode, 0, demo.stderr)
             result = json.loads(demo.stdout)

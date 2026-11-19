@@ -2,22 +2,38 @@
 // SPDX-License-Identifier: Apache-2.0
 // Jev (TypeSafe System One) pre- and post-analysis for Nisi runs.
 //
-// The host supplies `judge({ state, questions })`, which sends one System One
-// request and resolves to `{ model, answers }`; when it does not, and the
-// TYPESAFE_API_KEY environment variable is set, the built-in client in
-// jev-client.mjs is used. This
-// module frames the questions, validates every typed answer and turns it into
-// either adapter settings (pre) or a reviewer verdict (post). Jev's answers are
-// judgments, not proof: the pre-analysis only picks settings, and the reviewer
-// is one reviewer among the ones the task requires.
+// The host supplies `judge`. A function receives `{ state, questions }` and
+// resolves to `{ model, answers }`. The string `typesafe` selects the built-in
+// client in jev-client.mjs, which reads TYPESAFE_API_KEY and sends `state`.
+// A set key with no judge does not: one line goes to stderr and the call stays
+// on the no-judge path. This module frames the questions, validates every typed
+// answer and turns it into either adapter settings (pre) or a reviewer verdict
+// (post). Jev's answers are judgments, not proof: the pre-analysis only picks
+// settings, and the reviewer is one reviewer among the ones the task requires.
 
 import { cloneFreeze, sha256Text, stableStringify } from '../workflow/contracts.mjs';
 import { createJevJudge, JEV_API_KEY_ENV } from './jev-client.mjs';
 
 const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const fail = code => { const error = new Error(code); error.code = code; throw error; };
-// The judge the caller passed, else the built-in client when TYPESAFE_API_KEY is set.
-const resolveJudge = judge => judge ?? (process.env[JEV_API_KEY_ENV] ? createJevJudge() : undefined);
+// Opt in to the hosted client. The same word is the harder runner's `--judge typesafe`.
+export const REMOTE_JUDGE_OPT_IN = 'typesafe';
+export const REMOTE_JUDGE_NOTICE = "TYPESAFE_API_KEY is set; the remote judge is off. Opt in with --judge typesafe or judge: 'typesafe'.";
+// A function is the caller's judge. `typesafe` builds the client and forwards
+// `fetchImpl` and `timeoutMs` only to that client. Any other value is refused.
+// A set key with no judge prints one line and returns no judge, so nothing is sent.
+const resolveJudge = (judge, fetchImpl, timeoutMs) => {
+  if (typeof judge === 'function') return judge;
+  if (judge === REMOTE_JUDGE_OPT_IN) {
+    return createJevJudge({
+      ...(fetchImpl ? { fetch: fetchImpl } : {}),
+      ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+    });
+  }
+  if (judge !== undefined) fail('JEV_JUDGE_INVALID');
+  if (process.env[JEV_API_KEY_ENV]) console.error(REMOTE_JUDGE_NOTICE);
+  return undefined;
+};
 const probability = value => typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1;
 
 export const JEV_PLAN_CHOICES = Object.freeze({
@@ -60,13 +76,14 @@ const taskState = task => {
 };
 
 // Pre-analysis: does this task need the model to reason, and is it answerable as written?
-export async function planWithJev(task, { judge, policy = DEFAULT_JEV_PLAN_POLICY } = {}) {
+export async function planWithJev(task, { judge, policy = DEFAULT_JEV_PLAN_POLICY, fetch: fetchImpl, timeoutMs } = {}) {
+  if (fetchImpl !== undefined && typeof fetchImpl !== 'function') fail('JEV_UNAVAILABLE');
   if (!isRecord(policy) || !isRecord(policy.direct) || !isRecord(policy.reason)) fail('JEV_POLICY_INVALID');
   const questions = {
     plan: { type: 'choice', instructions: 'How much working-through does a careful model need to answer `task` correctly?', criteria: { ...JEV_PLAN_CHOICES } },
     underspecified: { type: 'noul', instructions: 'Is `task` missing information needed to produce exactly one correct answer?' },
   };
-  const { model, answers, requestSha256 } = await ask(resolveJudge(judge), taskState(task), questions);
+  const { model, answers, requestSha256 } = await ask(resolveJudge(judge, fetchImpl, timeoutMs), taskState(task), questions);
   const plan = answers.plan.choice;
   return cloneFreeze({ plan, settings: { ...policy[plan] }, confidence: answers.plan.confidence ?? null,
     underspecified: answers.underspecified.noul, evidence: { jevModel: model, requestSha256 } });
@@ -79,9 +96,10 @@ export async function planWithJev(task, { judge, policy = DEFAULT_JEV_PLAN_POLIC
 // and failed 7 of 18 right ones; at the default 0.5 it caught 13 of 13 and
 // failed 14 of 18. Pass `gate: true` to FAIL below `threshold`,
 // which sends the candidate to repair.
-export function createJevReviewer({ id, judge: given, gate = false, threshold = 0.5 } = {}) {
+export function createJevReviewer({ id, judge: given, gate = false, threshold = 0.5, fetch: fetchImpl, timeoutMs } = {}) {
   if (typeof id !== 'string' || !/^[a-z][a-z0-9_.-]{0,95}$/u.test(id)) fail('JEV_ID_INVALID');
-  const judge = resolveJudge(given);
+  if (fetchImpl !== undefined && typeof fetchImpl !== 'function') fail('JEV_UNAVAILABLE');
+  const judge = resolveJudge(given, fetchImpl, timeoutMs);
   if (typeof judge !== 'function') fail('JEV_JUDGE_REQUIRED');
   if (typeof gate !== 'boolean') fail('JEV_GATE_INVALID');
   if (!probability(threshold)) fail('JEV_THRESHOLD_INVALID');

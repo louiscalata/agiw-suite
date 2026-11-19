@@ -51,12 +51,12 @@ class BundledComponents:
                 node = candidate
         return {
             "nisi": {
-                "version": "0.3.1",
+                "version": "0.3.2",
                 "integrity": integrity,
                 "license": "Apache-2.0",
                 "includedByDefault": integrity == "verified",
                 "entry": str(payload_path() / "package" / "bin" / "nisi.mjs"),
-                "source": "https://github.com/louiscalata/nisi/releases/tag/v0.3.1",
+                "source": "https://github.com/louiscalata/nisi/releases/tag/v0.3.2",
             },
             "node": {
                 "found": node is not None,
@@ -145,7 +145,7 @@ class BundledComponents:
                     raise ValueError("Unexpected deterministic demo result")
                 result = {
                     "state": "passed",
-                    "message": "Nisi 0.3.1 passed its fixed workflow self-check. No model was called.",
+                    "message": "Nisi 0.3.2 passed its fixed workflow self-check. No model was called.",
                     "nodeVersion": version,
                     "nodePath": str(node),
                     "modelCalls": 0,

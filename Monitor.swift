@@ -1007,7 +1007,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
                  decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
         let documentation = Set(["https://nodejs.org/en/download", "https://docs.typesafe.ai/",
                                  "https://typesafe.ai/legal/privacy-policy",
-                                 "https://github.com/louiscalata/nisi/tree/v0.3.1#command-line",
+                                 "https://github.com/louiscalata/nisi/tree/v0.3.2#command-line",
                                  "https://github.com/andududu/jeview"])
         if navigationAction.navigationType == .linkActivated,
            let url = navigationAction.request.url, documentation.contains(url.absoluteString) {

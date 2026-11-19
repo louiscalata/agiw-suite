@@ -1,6 +1,6 @@
 {
   "name": "nisi",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "private": false,
   "description": "A Node.js CLI and library for bounded AI-assisted coding workflows and validated run reports.",
   "license": "Apache-2.0",
@@ -45,6 +45,7 @@
     "gate/*.mjs",
     "history/run-journal-v1.mjs",
     "history/run-journal-store-v1.mjs",
+    "history/run-journal-anchor-v1.mjs",
     "history/validate-data.mjs",
     "policy/*.mjs",
     "serialization/*.mjs",
@@ -73,6 +74,7 @@
     "./adapters/jev-client": "./adapters/jev-client.mjs",
     "./history/run-journal": "./history/run-journal-v1.mjs",
     "./history/run-journal-store": "./history/run-journal-store-v1.mjs",
+    "./history/run-journal-anchor": "./history/run-journal-anchor-v1.mjs",
     "./index.mjs": "./index.mjs",
     "./package.json": "./package.json",
     "./workflow/engine.mjs": "./workflow/engine.mjs",
@@ -87,7 +89,8 @@
     "./gate/content-consent.mjs": "./gate/content-consent.mjs",
     "./gate/afm-content-executor.mjs": "./gate/afm-content-executor.mjs",
     "./history/run-journal-v1.mjs": "./history/run-journal-v1.mjs",
-    "./history/run-journal-store-v1.mjs": "./history/run-journal-store-v1.mjs"
+    "./history/run-journal-store-v1.mjs": "./history/run-journal-store-v1.mjs",
+    "./history/run-journal-anchor-v1.mjs": "./history/run-journal-anchor-v1.mjs"
   },
   "devEngines": {
     "runtime": {
