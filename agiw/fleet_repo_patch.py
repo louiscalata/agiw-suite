@@ -527,9 +527,17 @@ def _last_patch(patcher):
     return patch if isinstance(patch, dict) else None
 
 
-def _patch_field(patcher):
+def _patch_field(patcher, *, no_change=False):
     patch = _last_patch(patcher)
-    return {"patch": patch} if patch else {}
+    if not patch:
+        return {}
+    if not no_change:
+        return {"patch": patch}
+    # An empty diff is the only way to see what a successful reply wrote: keep the excerpt here
+    # and nowhere else, so a COMPLETED receipt still shows outputExcerpt None.
+    patch = dict(patch)
+    patch["outputExcerpt"] = getattr(patcher, "last_output_excerpt", None)
+    return {"patch": patch}
 
 
 def run(spec, patcher, *, allow_local_source=False, tmp_root=None, jev_pre=None, jev_post=None):
@@ -579,7 +587,7 @@ def run(spec, patcher, *, allow_local_source=False, tmp_root=None, jev_pre=None,
             "diffSha256": hashlib.sha256(diff).hexdigest(),
             "diffBytes": len(diff),
             **analysis,
-            **_patch_field(patcher),
+            **_patch_field(patcher, no_change=not diff),
         }
     except subprocess.CalledProcessError as exc:
         code = "COMMIT_NOT_FOUND" if "checkout" in exc.cmd else "GIT_FAILED"
@@ -827,6 +835,36 @@ def apply_edits(files, edits, allowlist):
     return out
 
 
+def _normalize_edit_text(text):
+    """Compare SEARCH and REPLACE as text: LF only, no trailing spaces, no edge blank lines."""
+    lines = [line.rstrip() for line in _lf(text).split("\n")]
+    while lines and not lines[0].strip():
+        lines.pop(0)
+    while lines and not lines[-1].strip():
+        lines.pop()
+    return "\n".join(lines)
+
+
+def _noop_edit_count(files, edits, out):
+    """Count applied edits that changed nothing, so a receipt can name a reply that did no work."""
+    count = 0
+    for edit in edits:
+        _path, search, replace = edit
+        if _normalize_edit_text(search) == _normalize_edit_text(replace):
+            count += 1
+    originals = {path: _lf(content) for path, content in (files or {}).items() if isinstance(content, str)}
+    if all(isinstance(content, str) and originals.get(path) == _lf(content) for path, content in out.items()):
+        # Nothing on disk moved, so every edit that produced this result was a no-op.
+        return len(edits)
+    return count
+
+
+def _noop_file_count(files, out):
+    """The legacy full-file reply: a file whose new content equals the old one changed nothing."""
+    originals = {path: _lf(content) for path, content in (files or {}).items() if isinstance(content, str)}
+    return sum(1 for path, content in out.items() if isinstance(content, str) and originals.get(path) == _lf(content))
+
+
 _NO_TOOLS = (
     "You have no tools. You cannot run commands, browse, or open other files. "
     "The current contents of each file are included in the user message under "
@@ -909,6 +947,7 @@ _RETRY_REMINDER = (
     "Make the best minimal edit for the task now. "
     "To add text, SEARCH an existing line near where it belongs and REPLACE it "
     "with that line plus the new text. "
+    "The REPLACE text must differ from the SEARCH text. "
     "Allowed paths: {paths}. " + _RESPOND_ONLY
 )
 
@@ -1205,6 +1244,7 @@ def chat_patcher(model_endpoint, model, timeout, *, max_tokens=None, disable_thi
         last = {
             "format": None,
             "edits": 0,
+            "noopEdits": 0,
             "maxTokens": tokens,
             "finishReason": None,
             "error": None,
@@ -1215,6 +1255,7 @@ def chat_patcher(model_endpoint, model, timeout, *, max_tokens=None, disable_thi
             "fileChars": file_chars,
         }
         patcher.last = last
+        patcher.last_output_excerpt = None
         if excerpts:
             last["excerpts"] = excerpts
 
@@ -1232,21 +1273,30 @@ def chat_patcher(model_endpoint, model, timeout, *, max_tokens=None, disable_thi
             last["finishReason"] = finish
             last["outputChars"] = len(content)
             last["outputExcerpt"] = None
+            last["noopEdits"] = 0
+            excerpt = pilot.sanitize_text(content, limit=2048)
+            # Remembered on the patcher, not in `last`: a successful reply keeps outputExcerpt None
+            # unless run() needs it to explain an empty diff.
+            patcher.last_output_excerpt = excerpt
             try:
                 files_out = _legacy_json_files(content)
                 if files_out is not None:
+                    merged = {path: _match_line_endings(files.get(path), value) for path, value in files_out.items()}
                     last["format"] = "json-files"
                     last["edits"] = len(files_out)
+                    last["noopEdits"] = _noop_file_count(files, merged)
                     last["error"] = None
-                    return {path: _match_line_endings(files.get(path), value) for path, value in files_out.items()}
+                    return merged
                 last["format"] = "search-replace"
                 edits = parse_edits(content, allowlist)
                 out = apply_edits(files, edits, allowlist or [])
+                noops = _noop_edit_count(files, edits, out)
             except Refused as exc:
                 last["error"] = getattr(exc, "reason", None)
-                last["outputExcerpt"] = pilot.sanitize_text(content, limit=2048)
+                last["outputExcerpt"] = excerpt
                 return exc
             last["edits"] = len(edits)
+            last["noopEdits"] = noops
             last["error"] = None
             return out
 
@@ -1255,16 +1305,19 @@ def chat_patcher(model_endpoint, model, timeout, *, max_tokens=None, disable_thi
             {"role": "user", "content": user},
         ]
         result = attempt(messages)
-        if (
-            isinstance(result, _EditRefused)
-            and result.reason == "NO_EDITS"
-            and last["finishReason"] in ("length", "stop")
-        ):
+        waste = None
+        if isinstance(result, _EditRefused) and result.reason == "NO_EDITS":
+            waste = "NO_EDITS"
+        elif not isinstance(result, Refused) and last["edits"] > 0 and last["noopEdits"] == last["edits"]:
+            waste = "NOOP_EDITS"
+        if waste and last["finishReason"] in ("length", "stop"):
+            first_excerpt = patcher.last_output_excerpt
             last["retries"] = 1
             last["firstAttempt"] = {
-                "error": "NO_EDITS",
+                "error": waste,
                 "finishReason": last["finishReason"],
                 "outputChars": last["outputChars"],
+                "outputExcerpt": first_excerpt,
             }
             reminder = _RETRY_REMINDER.format(paths=", ".join(allowlist or files.keys()))
             result = attempt(messages + [{"role": "user", "content": reminder}])
