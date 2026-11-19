@@ -43,6 +43,24 @@ from pc_tunnel import load_config, port_accepts, targets as tunnel_targets
 import eci_tuning
 import remote_machines
 
+
+_SUPPRESSED_SEEN = set()
+_SUPPRESSED_LOCK = threading.Lock()
+
+
+def note_suppressed(where, exc):
+    """Record a deliberately swallowed error once per (where, type) on stderr; never raises."""
+    key = (where, type(exc).__name__)
+    with _SUPPRESSED_LOCK:
+        if key in _SUPPRESSED_SEEN:
+            return
+        _SUPPRESSED_SEEN.add(key)
+    try:
+        print(json.dumps({'suppressed': where, 'reason': key[1]}), file=sys.stderr, flush=True)
+    except Exception:  # stderr itself may be closed during shutdown
+        pass
+
+
 ROOT = Path(__file__).resolve().parent / 'web'
 ASSETS = {'/': ('index.html', 'text/html; charset=utf-8'),
           '/eci-tuning': ('eci-tuning.html', 'text/html; charset=utf-8'),
@@ -909,7 +927,8 @@ def memory_guard(**options):
     """The memory safeguard rail (mem_guard.Guard), or None if it cannot be built."""
     try:
         return Guard(**options)
-    except Exception:
+    except Exception as exc:
+        note_suppressed('memory_guard', exc)
         return None
 
 
@@ -938,14 +957,15 @@ def memory_route_context(data):
                         pair.pop(key)
                         pair.update({alias: role for alias in aliases})
             live = state == 'in-use'
-    except Exception:
+    except Exception as exc:
+        note_suppressed('memory_route_context.pair', exc)
         pair, live = None, False
     try:
         pipeline = data.get('pipeline')
         if isinstance(pipeline, dict) and pipeline.get('status') == 'running':
             live = True
-    except Exception:
-        pass
+    except Exception as exc:
+        note_suppressed('memory_route_context.pipeline', exc)
     return pair, live
 
 
@@ -1210,8 +1230,8 @@ def sample(store, stop, feed=None, tick=0.15, full_interval=1.0, guard=None, aut
             if publisher is not None:
                 try:
                     publisher.offer(store.read)  # due every 10 s; hands over the snapshot, never waits on the share
-                except Exception:
-                    pass
+                except Exception as exc:
+                    note_suppressed('publisher.offer', exc)
             if prints is not None:
                 stage = 'fingerprint_baseline'
                 feed.set_baseline(prints)
@@ -1266,8 +1286,8 @@ def start_peer_link(store, report=None):
         if report is not None:
             try:
                 report(exc)
-            except Exception:
-                pass
+            except Exception as report_exc:
+                note_suppressed('peer_link.report', report_exc)
         return None
 
 
@@ -1275,8 +1295,8 @@ def stop_peer_link(link):
     """Best effort: a link that fails to stop never skips the rest of shutdown."""
     try:
         link.stop()
-    except Exception:
-        pass
+    except Exception as exc:
+        note_suppressed('peer_link.stop', exc)
 
 
 def peer_options(publish_status=False, peer_link=False, config=None, port=None):
