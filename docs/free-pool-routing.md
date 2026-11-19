@@ -17,15 +17,23 @@ See `agiw/free_pool_machine.example.json`. Machine files hold paths only; the ke
 ## Groups
 | Group | Models enabled | Daily cap | Fleet ceiling used |
 | --- | --- | --- | --- |
-| official_1M | gpt-6.1-sol, gpt-6-astra, gpt-6-sol, gpt-6-luna, gpt-5.6-sol, gpt-5.5, gpt-5.4, gpt-5.2 | 1M | 800k |
+| official_1M | gpt-6.1-sol, gpt-6-astra, gpt-6-sol, gpt-6-luna, gpt-5.6-sol (gpt-5.5, gpt-5.4, gpt-5.2 listed but off, see below) | 1M | 800k |
 | official_10M | gpt-5.6-terra, gpt-5.6-luna, gpt-5.4-mini | 10M | 9M |
 | empirical_6.2 | gpt-6.2-astra (--hard, small only); gpt-6.2-sol off | none (not listed) | 200k |
 
 Listed but blocked: deprecated (gpt-5.1, gpt-5, gpt-4.1, gpt-4o, o3, gpt-5.4-nano, gpt-5-mini, gpt-5-nano,
 gpt-4.1-mini, gpt-4o-mini) and shut down (gpt-5.1-codex, gpt-5-codex, gpt-5-chat-latest, gpt-4.5-preview, o1,
 o1-preview, gpt-5.1-codex-mini, gpt-4.1-nano, o4-mini, o1-mini, codex-mini-latest). Any `-pro` id and
-gpt-5.3-codex are hard-blocked. Requests are sent with the listed snapshot id (for example
-`gpt-5.4-mini-2026-03-17`); other dated snapshots are refused, and dated ids map to their base model's group.
+gpt-5.3-codex are hard-blocked. Requests use the alias; the served snapshot must be the listed one
+(for example `gpt-5.4-mini-2026-03-17`). Other dated snapshots are refused, and dated ids map to their base model's group.
+
+## Probe results (2026-11-19, M5, public toy snippets, <=140 tokens each)
+- payer=openai and both code probes passed: gpt-6.1-sol, gpt-6-sol, gpt-6-astra, gpt-5.6-sol, gpt-6-luna,
+  gpt-5.6-terra, gpt-5.6-luna. gpt-5.4-mini passed text and the trivial fix but stays off code routes (LOU-100).
+- gpt-5.5: the first call was payer=openai (65 tokens) and the second came back payer=developer (136 tokens). The tripwire
+  disabled it and stopped the run. gpt-5.5 is off, and gpt-5.4 and gpt-5.2 stay off until a probe shows payer=openai.
+- The Free Pool project returns 403 model_not_found for dated ids, so requests use the alias (`request_id`) and the
+  served snapshot must equal the listed one (`listed_id`). Otherwise the response is treated as billed.
 
 ## Request size caps
 Every enabled model has `max_total_tokens` / `max_output_tokens`. The default is 2,900 / 1,000 until a payer=openai
@@ -35,12 +43,12 @@ estimate is UTF-8 bytes / 3 plus 64 tokens of overhead, then plus `--max-output`
 ## Routing by task kind (`--kind`)
 | Kind | Order | Why |
 | --- | --- | --- |
-| small_patch | 6.1 Sol, 6 Sol, 5.4, 5.5, 5.6 Terra, 6.2 Astra | Docs list 6.1 Sol and 6 Sol for complex coding and 5.4 as the affordable coding model. Mini is excluded (LOU-100). |
-| large_change | 6 Astra, 6.1 Sol, 5.5, 6 Sol, 6.2 Astra | 6 Astra is the listed reasoning model for complex coding. |
-| review | 6.1 Sol, 6 Astra, 5.5, 5.6 Sol, 5.6 Terra | Quality-sensitive reading; 10M fallback last. |
+| small_patch | 6.1 Sol, 6 Sol, 5.4 (off), 5.5 (off), 5.6 Terra, 6.2 Astra | Docs list 6.1 Sol and 6 Sol for complex coding and 5.4 as the affordable coding model. Mini is excluded (LOU-100). |
+| large_change | 6 Astra, 6.1 Sol, 5.5 (off), 6 Sol, 6.2 Astra | 6 Astra is the listed reasoning model for complex coding. |
+| review | 6.1 Sol, 6 Astra, 5.5 (off), 5.6 Sol, 5.6 Terra | Quality-sensitive reading; 10M fallback last. |
 | docs_text | 5.6 Terra, 5.6 Sol, 5.6 Luna, 5.4 mini, 6 Luna | Writing is cheap to verify, so 10M first. |
 | extraction | 5.6 Luna, 5.4 mini, 5.6 Terra, 6 Luna | Nano and mini tiers are documented for focused, high-volume work. |
-| long_context | 5.6 Terra, 5.6 Luna, 5.4 mini, 5.4, 6 Luna | 1.05M-context 10M models first, so long input doesn't drain the 1M group. |
+| long_context | 5.6 Terra, 5.6 Luna, 5.4 mini, 5.4 (off), 6 Luna | 1.05M-context 10M models first, so long input doesn't drain the 1M group. |
 
 Code kinds only use models with `code_trusted: true`, which is set after the model passes a public probe. When a model
 is blocked (disabled, over its size cap, near its group's cap, over the $1 cap, or tripped today), the next model in

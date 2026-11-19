@@ -609,7 +609,7 @@ def _credit_error(status, body):
     return status == 402 or "insufficient_quota" in text or "billing" in text or "credit" in text
 
 
-def post(machine, model_id, prompt, max_out, timeout):
+def post(machine, model_id, prompt, max_out, timeout, effort=None):
     key = load_api_key(machine)
     if not key:
         raise Refused("KEY_UNAVAILABLE", EXIT_USAGE)
@@ -618,7 +618,10 @@ def post(machine, model_id, prompt, max_out, timeout):
         headers["OpenAI-Project"] = machine["openai_project"]
     if machine.get("openai_org"):
         headers["OpenAI-Organization"] = machine["openai_org"]
-    body = json.dumps({"model": model_id, "input": prompt, "max_output_tokens": max_out, "store": False})
+    payload = {"model": model_id, "input": prompt, "max_output_tokens": max_out, "store": False}
+    if effort:
+        payload["reasoning"] = {"effort": effort}
+    body = json.dumps(payload)
     req = urlrequest.Request(ENDPOINT, data=body.encode("utf-8"), method="POST", headers=headers)
     del key, headers
     try:
@@ -631,7 +634,10 @@ def post(machine, model_id, prompt, max_out, timeout):
             parsed = {}
         if _credit_error(exc.code, parsed):
             raise Refused("CREDIT_EXHAUSTED", EXIT_CREDIT, http_status=exc.code) from None
-        raise Refused("API_ERROR", EXIT_API, http_status=exc.code) from None
+        err = parsed.get("error") if isinstance(parsed, dict) else None
+        code = str((err or {}).get("code") or "") if isinstance(err, dict) else ""
+        code = code if re.fullmatch(r"[a-z0-9_]{1,40}", code) else "unknown"
+        raise Refused("API_ERROR", EXIT_API, http_status=exc.code, error_code=code) from None
     except (socket.timeout, TimeoutError):
         raise Refused("CLIENT_TIMEOUT", EXIT_TIMEOUT) from None
     except urlerror.URLError as exc:
@@ -665,7 +671,8 @@ def _base_row(cfg, machine, req, key):
         "task_kind": req["kind"],
         "project": req["project"],
         "model": key,
-        "request_id_model": entry.get("listed_id", key),
+        "request_id_model": entry.get("request_id", key),
+        "listed_id": entry.get("listed_id", key),
         "group": entry["group"],
         "prompt_sha256": req["prompt_sha256"],
         "via": "free_pool_call.py",
@@ -713,7 +720,14 @@ def call(cfg, machine, req):
     key, route, reservation_id = _reserve(cfg, machine, req)
     entry = cfg["models"][key]
     try:
-        data = post(machine, entry.get("listed_id", key), req["prompt"], req["max_out"], req["timeout"])
+        data = post(
+            machine,
+            entry.get("request_id", key),
+            req["prompt"],
+            req["max_out"],
+            req["timeout"],
+            entry.get("reasoning_effort"),
+        )
     except Refused as exc:
         possibly_billed = exc.exit_code == EXIT_TIMEOUT
         tokens = req["est_in"] + req["max_out"] if possibly_billed else 0
@@ -753,6 +767,7 @@ def _record_response(cfg, machine, req, key, reservation_id, route, data):
         input_tokens=usage.get("input_tokens"),
         output_tokens=usage.get("output_tokens"),
         payer=payer,
+        service_tier=data.get("service_tier"),
         served_model_ok=_served_ok(cfg["models"][key], data.get("model")),
         outcome="COMPLETED",
     )
@@ -761,7 +776,7 @@ def _record_response(cfg, machine, req, key, reservation_id, route, data):
         "status": "ok",
         "model": data.get("model"),
         "model_key": key,
-        "requested_model": cfg["models"][key].get("listed_id", key),
+        "requested_model": cfg["models"][key].get("request_id", key),
         "response_id": data.get("id"),
         "usage": usage,
         "payer": payer,
@@ -770,6 +785,9 @@ def _record_response(cfg, machine, req, key, reservation_id, route, data):
         "receipt": row,
         "output_text": text,
     }
+    if not row["served_model_ok"]:
+        # The alias moved to a snapshot that is not on the complimentary list: treat it like a billed response.
+        payer = payer if payer != "openai" else "unlisted-snapshot"
     if payer != "openai":
         _append(os.path.join(machine["receipts_dir"], CREDIT_LEDGER_NAME), row)
         disable_for_day(machine, key, {"response_id": data.get("id"), "source": req["source"], "lane": req["lane"]})

@@ -143,13 +143,16 @@ class ConfigTests(RoutingBase):
 
     def test_code_kinds_need_a_code_trusted_model(self):
         code, out = self.run_cli(str(self.prompt), "--kind", "small_patch", "--dry-run")
-        self.assertEqual(code, fpc.EXIT_BUDGET)
-        self.assertTrue(
-            all("trusted" in r.get("skipped", "") or "--hard" in r.get("skipped", "") for r in out["route"])
-        )
+        self.assertEqual((code, out["model"]), (0, "gpt-6.1-sol"))
         cfg = json.loads(ROUTING.read_text(encoding="utf-8"))
-        cfg["models"]["gpt-6-sol"]["code_trusted"] = True
+        for key in cfg["models"]:
+            cfg["models"][key]["code_trusted"] = key == "gpt-5.4-mini"
         routing = self.root / "routing.json"
+        routing.write_text(json.dumps(cfg), encoding="utf-8")
+        code, out = self.run_cli(str(self.prompt), "--kind", "small_patch", "--dry-run", routing=routing)
+        self.assertEqual(code, fpc.EXIT_BUDGET)
+        self.assertTrue(all(r.get("skipped") for r in out["route"]))
+        cfg["models"]["gpt-6-sol"]["code_trusted"] = True
         routing.write_text(json.dumps(cfg), encoding="utf-8")
         code, out = self.run_cli(str(self.prompt), "--kind", "small_patch", "--dry-run", routing=routing)
         self.assertEqual((code, out["model"]), (0, "gpt-6-sol"))
@@ -246,9 +249,16 @@ class GuardTests(RoutingBase):
             self.assertEqual((row["source"], row["lane"]), ("code", "unit-test"))
         with self.opener(api_payload(model="gpt-5.4-mini-2026-03-17")):
             self.run_cli(*self.real("--model", "gpt-5.4-mini"))
-        self.assertEqual(self.calls[-1]["model"], "gpt-5.4-mini-2026-03-17")
+        self.assertEqual(self.calls[-1]["model"], "gpt-5.4-mini")
         self.assertFalse(self.calls[-1]["store"])
         self.assertNotIn("tools", self.calls[-1])
+
+    def test_served_snapshot_must_be_the_listed_one(self):
+        with self.opener(api_payload(model="gpt-5.4-mini-2027-01-01")):
+            code, out = self.run_cli(*self.real("--model", "gpt-5.4-mini"))
+        self.assertEqual(code, fpc.EXIT_PAYER)
+        self.assertFalse(out["receipt"]["served_model_ok"])
+        self.assertIn("gpt-5.4-mini", json.loads((self.root / "free-pool-disabled.json").read_text(encoding="utf-8")))
 
     def test_real_calls_need_source_and_lane(self):
         with self.opener():
