@@ -23,8 +23,8 @@ from pathlib import Path
 from typing import Callable
 
 import mem_guard
-from durable_model_journal import DurableModelJournal, JournalError
 import speculative_launch
+from durable_model_journal import DurableModelJournal, JournalError
 
 MODEL_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/+-]{0,159}\Z")
 MAX_OUTPUT = 64 * 1024
