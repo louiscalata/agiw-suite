@@ -504,6 +504,10 @@ def candidates(cfg, kind=None, model=None):
     if kind:
         if kind not in cfg["routes"]:
             raise Refused("KIND_REFUSED", EXIT_USAGE, reason=f"unknown task kind {kind}")
+        if kind in cfg.get("local_lanes_only", []) or not cfg["routes"][kind]:
+            raise Refused(
+                "LOCAL_LANES_ONLY", EXIT_BUDGET, reason=f"{kind}: no free-pool model is trusted; use local lanes"
+            )
         return list(cfg["routes"][kind])
     key = resolve_model(cfg, model)
     return [key, *cfg.get("legacy_model_fallback", {}).get(key, [])]
@@ -517,8 +521,13 @@ def block_reason(cfg, key, req, state):
         return hard
     if entry.get("doc_status") in cfg.get("doc_status_blocked", []):
         return f"{entry.get('doc_status')} per OpenAI docs"
+    if cfg["groups"][group].get("disabled"):
+        return f"{group} disabled: {cfg['groups'][group].get('disabled_reason', 'see config')}"
     if not entry.get("enabled"):
         return entry.get("disabled_reason") or "disabled in config"
+    verified = entry.get("verified_machines")
+    if verified is not None and state.get("machine_id") not in verified:
+        return "not yet probed with payer=openai on this machine"
     if key in state["disabled"]:
         return "disabled until 00:00 UTC after a payer other than openai"
     if entry.get("requires_hard") and not req["hard"]:
@@ -694,6 +703,7 @@ def _reserve(cfg, machine, req):
     with _Lock(machine["receipts_dir"]):
         used, billed = usage_today(cfg, machine)
         state = {
+            "machine_id": machine["machine_id"],
             "used": used,
             "billed": billed,
             "share": machine["share"],
@@ -975,6 +985,7 @@ def _check_real_call(args, req):
 def _offline(cfg, machine, args, req):
     used, billed = usage_today(cfg, machine)
     state = {"used": used, "billed": billed, "share": machine["share"], "disabled": load_disabled(machine)}
+    state["machine_id"] = machine["machine_id"]
     state["spent_usd"] = 0.0
     key, route = plan(cfg, req, state)
     if args.precheck_only and not args.json:

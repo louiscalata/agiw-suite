@@ -14,25 +14,41 @@ See `agiw/free_pool_machine.example.json`. Machine files hold paths only; the ke
 - Our evidence: LOU-100 (gpt-5.4-mini 0/3 with corrupt patches; gpt-6.2-sol passed but took shortcuts) and the
   M5 receipts of Nov 17-19 (Grok's Bot 1): on the unlisted 6.2 models, billing depends on request size.
 
-## Groups
-| Group | Models enabled | Daily cap | Fleet ceiling used |
+## Groups (as shipped 2026-11-19)
+| Group | State | Daily cap | Fleet ceiling used |
 | --- | --- | --- | --- |
-| official_1M | gpt-6.1-sol, gpt-6-astra, gpt-6-sol, gpt-6-luna, gpt-5.6-sol (gpt-5.5, gpt-5.4, gpt-5.2 listed but off, see below) | 1M | 800k |
-| official_10M | gpt-5.6-terra, gpt-5.6-luna, gpt-5.4-mini | 10M | 9M |
-| empirical_6.2 | gpt-6.2-astra (--hard, small only); gpt-6.2-sol off | none (not listed) | 200k |
+| official_10M | **enabled**: gpt-5.6-terra, gpt-5.6-luna, gpt-5.4-mini (each probed payer=openai on M5, PC and Mac Pro) | 10M | 9M |
+| official_1M | **disabled**: billing unexplained (gpt-5.5 136 tokens payer=developer 2026-11-19) | 1M | 800k |
+| empirical_6.2 | **disabled**: same note; counts toward official_1M when re-enabled | none (not listed) | 200k |
 
-Listed but blocked: deprecated (gpt-5.1, gpt-5, gpt-4.1, gpt-4o, o3, gpt-5.4-nano, gpt-5-mini, gpt-5-nano,
-gpt-4.1-mini, gpt-4o-mini) and shut down (gpt-5.1-codex, gpt-5-codex, gpt-5-chat-latest, gpt-4.5-preview, o1,
-o1-preview, gpt-5.1-codex-mini, gpt-4.1-nano, o4-mini, o1-mini, codex-mini-latest). Any `-pro` id and
-gpt-5.3-codex are hard-blocked. Requests use the alias; the served snapshot must be the listed one
-(for example `gpt-5.4-mini-2026-03-17`). Other dated snapshots are refused, and dated ids map to their base model's group.
+The other listed 10M models are blocked as deprecated (gpt-5.4-nano, gpt-5-mini, gpt-5-nano, gpt-4.1-mini, gpt-4o-mini)
+or shut down (gpt-5.1-codex-mini, gpt-4.1-nano, o4-mini, o1-mini, codex-mini-latest) per the model pages.
+Deprecated 1M models (gpt-5.1, gpt-5, gpt-4.1, gpt-4o, o3) and shut-down ones (gpt-5.1-codex, gpt-5-codex, gpt-5-chat-latest,
+gpt-4.5-preview, o1, o1-preview) stay blocked. Any `-pro` id and gpt-5.3-codex are hard-blocked. A model is used on a
+machine only if that machine is in its `verified_machines`, meaning a tiny public probe there returned payer=openai.
+Requests use the alias, and the served snapshot must be the listed one (for example `gpt-5.4-mini-2026-03-17`).
+Otherwise the response is treated as billed. Dated ids map to their base model's group.
+
+## Routing by task kind (`--kind`), as shipped
+| Kind | Order | Why |
+| --- | --- | --- |
+| small_patch | 5.6 Terra, 5.6 Luna | Only 10M models that passed the code probes. Mini is excluded (LOU-100). |
+| large_change | local lanes only | No free-pool model is trusted for larger changes. |
+| review | 5.6 Terra, 5.4 mini, 5.6 Luna | Terra is the mini tier and balances quality and cost. Mini is fine for reading. |
+| docs_text | 5.6 Terra, 5.6 Luna, 5.4 mini | Writing is cheap to verify. |
+| extraction | 5.6 Luna, 5.4 mini, 5.6 Terra | Nano and mini tiers are documented for focused, high-volume work. |
+| long_context | 5.6 Terra, 5.6 Luna, 5.4 mini | 1.05M-context models first. |
+
+`routes_1m_when_reenabled` keeps the strength order for the 1M group (6.1 Sol and 6 Sol for patches, 6 Astra for larger
+changes, and so on) for when its billing is explained.
 
 ## Probe results (2026-11-19, public toy snippets, <=140 tokens each)
-- M5, all payer=openai and passing both code probes: gpt-6.1-sol, gpt-6-sol, gpt-6-astra, gpt-5.6-sol, gpt-6-luna,
-  gpt-5.6-terra and gpt-5.6-luna. gpt-5.4-mini passed text and the trivial fix but stays off code routes (LOU-100).
-- After those, gpt-5.5 was free at 65 tokens and then billed (payer=developer) at 136 tokens on the M5. On the Mac Pro,
-  gpt-6.1-sol and gpt-6.2-astra were each billed at 65 tokens, while gpt-5.6-terra (10M) stayed free. Each time the
-  tripwire stopped the run.
+- 10M group, payer=openai on every machine: gpt-5.6-terra (M5, PC, Mac Pro; code probes passed on all three),
+  gpt-5.6-luna (M5 code probes passed, PC and Mac Pro), gpt-5.4-mini (M5, PC, Mac Pro; text only, kept off code routes).
+  Response ids are in `probes_2026_11_19` in the config.
+- 1M and empirical groups: on the M5, gpt-6.1-sol, gpt-6-sol, gpt-6-astra, gpt-5.6-sol and gpt-6-luna were free, and then
+  gpt-5.5 was billed at 136 tokens. On the Mac Pro, gpt-6.1-sol and gpt-6.2-astra were each billed at 65 tokens. The
+  tripwire stopped each run, and no more 1M or 6.2 calls were sent.
 - The Free Pool project returns 403 model_not_found for dated ids, so requests use the alias (`request_id`) and the
   served snapshot must equal the listed one (`listed_id`). Otherwise the response is treated as billed.
 
@@ -40,20 +56,6 @@ gpt-5.3-codex are hard-blocked. Requests use the alias; the served snapshot must
 Every enabled model has `max_total_tokens` / `max_output_tokens`. The default is 2,900 / 1,000 until a payer=openai
 receipt shows a larger request was free. gpt-5.4-mini is 12,000 / 4,000 (free at 7,874 in / 3,072 out). The input
 estimate is UTF-8 bytes / 3 plus 64 tokens of overhead, then plus `--max-output`.
-
-## Routing by task kind (`--kind`)
-| Kind | Order | Why |
-| --- | --- | --- |
-| small_patch | 6.1 Sol, 6 Sol, 5.4 (off), 5.5 (off), 5.6 Terra, 6.2 Astra | Docs list 6.1 Sol and 6 Sol for complex coding and 5.4 as the affordable coding model. Mini is excluded (LOU-100). |
-| large_change | 6 Astra, 6.1 Sol, 5.5 (off), 6 Sol, 6.2 Astra | 6 Astra is the listed reasoning model for complex coding. |
-| review | 6.1 Sol, 6 Astra, 5.5 (off), 5.6 Sol, 5.6 Terra | Quality-sensitive reading; 10M fallback last. |
-| docs_text | 5.6 Terra, 5.6 Sol, 5.6 Luna, 5.4 mini, 6 Luna | Writing is cheap to verify, so 10M first. |
-| extraction | 5.6 Luna, 5.4 mini, 5.6 Terra, 6 Luna | Nano and mini tiers are documented for focused, high-volume work. |
-| long_context | 5.6 Terra, 5.6 Luna, 5.4 mini, 5.4 (off), 6 Luna | 1.05M-context 10M models first, so long input doesn't drain the 1M group. |
-
-Code kinds only use models with `code_trusted: true`, which is set after the model passes a public probe. When a model
-is blocked (disabled, over its size cap, near its group's cap, over the $1 cap, or tripped today), the next model in
-the same kind is tried. `--model` still works for older callers and falls back through `legacy_model_fallback`.
 
 ## Guards
 - Pre-call: the content gate (no Linear/Notion/Granola, secrets, .env, raw logs or security work), the per-request size
@@ -70,15 +72,18 @@ the same kind is tried. `--model` still works for older callers and falls back t
 - Real calls need `--source` and `--lane`. Both are written to every ledger row and to the stdout receipt.
 
 ## Root cause of the developer-billed calls
-The org's 1M complimentary pool is shared with the unlisted gpt-6.2 models and was full. That is the help article's rule
-("a request that would cross the cap is billed in full"): while the pool is almost full, small requests still fit and
-come back payer=openai, and larger ones cross and are billed. It fits all the evidence:
-- The Sol calls billed on Nov 18 3:39 PM and Nov 19 7:00 AM and 10:19 AM PST were 9,998, 18,738 and 3,145 tokens, while
-  calls of at most 2,989 tokens stayed free.
-- On Nov 19, gpt-5.5 (officially 1M) was free at 65 tokens and billed at 136. Then gpt-6.1-sol and gpt-6.2-astra were billed at
-  65 tokens, and the 10M group stayed free.
-- About 4.6M Astra and 4.5M Sol tokens went out that week, about 1.3M a day, which is more than the 1M pool.
-Our ledgers can't see all org traffic (Agents sessions, OpenCode, other lanes), so the guard now counts 6.2 usage toward
-official_1M, blocks a whole group for the UTC day after any payer=developer row, and carries a shipped
-`blocked_utc_days` list for fleet-wide blocks. Earlier, the old M5 guard checked only a daily soft cap, `--hard`
-skipped the size reroute, and payer=developer was logged without disabling anything.
+The billed gpt-5.5 probe was response `resp_0fe0b3c17f46e2ed016aff4d202b7087d09d20c6959e867b68` at 19:25:21 UTC
+(11:25:21 AM PST) on lane `lou101-probe-m5`: 66 in, 70 out, and the served snapshot was the listed `gpt-5.5-2026-04-23`. It
+used the free-pool key and project. The M5 shell had no OPENAI_API_KEY, OPENAI_FREE_POOL_API_KEY or CODEX_API_FREE_POOL_ENV
+set, so the loader read `~/.config/agiw/codex-api-free-pool.env`. The request sent the Free Pool project header
+`proj_qng3FHr6sJqG9BhXZkNBXb0Z` and the org header. The same key and project returned payer=openai for every 10M call
+before and after it. So it was not a wrong key or project. The billing is on OpenAI's side of the 1M group.
+
+The most likely explanation is that the org's 1M complimentary pool, which is shared with the unlisted gpt-6.2 models, was
+already full. The help article's rule is that "a request that would cross the cap is billed in full". About 4.6M Astra and
+4.5M Sol tokens went out that week (about 1.3M a day), and the Sol calls billed on Nov 18 and 19 were the larger ones.
+Our ledgers can't see all org traffic (Agents sessions, OpenCode, other lanes), so this can't be proven from here. It is
+recorded as "billing unexplained". The 1M and empirical groups ship disabled until someone checks the dashboard and
+explains it. The guard also counts 6.2 usage toward official_1M and blocks a whole group for the UTC day after any
+payer=developer row. Earlier, the old M5 guard checked only a daily soft cap, `--hard` skipped the size reroute, and
+payer=developer was logged without disabling anything.

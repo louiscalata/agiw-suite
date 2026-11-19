@@ -40,17 +40,31 @@ def api_payload(model="gpt-5.6-terra", payer="openai", text="def add(a, b): retu
     }
 
 
+def mechanics_config():
+    cfg = json.loads(SHIPPED.read_text(encoding="utf-8"))
+    for group in cfg["groups"].values():
+        group.pop("disabled", None)
+        group.pop("blocked_utc_days", None)
+    for key, entry in cfg["models"].items():
+        entry.pop("verified_machines", None)
+        if entry.get("doc_status") == "active" and entry["group"] != "official_10M":
+            entry["enabled"] = key != "gpt-6.2-sol"
+            entry["code_trusted"] = key in ("gpt-6.1-sol", "gpt-6-sol", "gpt-6-astra")
+    cfg["routes"].update(cfg["routes_1m_when_reenabled"])
+    cfg["routes"]["large_change"] = ["gpt-6-astra", "gpt-6.1-sol", "gpt-5.5", "gpt-6-sol", "gpt-6.2-astra"]
+    cfg["local_lanes_only"] = []
+    return cfg
+
+
 class RoutingBase(unittest.TestCase):
     def setUp(self):
         self.tmp = TemporaryDirectory()
         self.root = Path(self.tmp.name)
         self.machine_path = self.root / "free_pool_machine.json"
-        # Tests use the shipped config minus any dated fleet-wide day blocks, so they do not depend on today's date.
-        shipped = json.loads(SHIPPED.read_text(encoding="utf-8"))
-        for group in shipped["groups"].values():
-            group.pop("blocked_utc_days", None)
-        self.routing = self.root / "shipped-routing.json"
-        self.routing.write_text(json.dumps(shipped), encoding="utf-8")
+        # Guard mechanics are tested on the shipped config with the 1M and empirical groups switched back on (as they
+        # would be once their billing is explained). ShippedConfigTests checks the config exactly as shipped.
+        self.routing = self.root / "mechanics-routing.json"
+        self.routing.write_text(json.dumps(mechanics_config()), encoding="utf-8")
         self.write_machine("m5")
         self.cfg = fpc.load_routing(self.routing)
         self.calls = []
@@ -316,6 +330,54 @@ class GuardTests(RoutingBase):
         with patch.object(fpc, "_row_day", side_effect=lambda row: fpc.utc_day()):
             used, _ = fpc.usage_today(self.cfg, self.machine())
         self.assertEqual(used["empirical_6.2"], 990)
+
+
+class ShippedConfigTests(RoutingBase):
+    def use_shipped(self, machine_id):
+        self.write_machine(machine_id)
+        return SHIPPED
+
+    def test_only_the_10m_group_is_enabled_and_1m_is_disabled_with_the_note(self):
+        cfg = fpc.load_routing(SHIPPED)
+        note = "billing unexplained (gpt-5.5 136 tokens payer=developer 2026-11-19)"
+        for name in ("official_1M", "empirical_6.2"):
+            self.assertTrue(cfg["groups"][name]["disabled"])
+            self.assertEqual(cfg["groups"][name]["disabled_reason"], note)
+        for key, entry in cfg["models"].items():
+            if entry.get("enabled"):
+                self.assertEqual(entry["group"], "official_10M", key)
+            if entry["group"] != "official_10M" and entry.get("doc_status") == "active":
+                self.assertIn(note, entry["disabled_reason"], key)
+        for order in cfg["routes"].values():
+            for key in order:
+                self.assertEqual(cfg["models"][key]["group"], "official_10M")
+
+    def test_1m_and_empirical_models_are_refused_on_every_machine(self):
+        for machine_id in ("m5", "pc", "macpro"):
+            routing = self.use_shipped(machine_id)
+            for model in ("gpt-5.5", "gpt-6.1-sol", "gpt-6-luna", "gpt-6.2-astra"):
+                code, out = self.run_cli(
+                    str(self.prompt), "--model", model, "--hard", "--no-reroute", "--dry-run", routing=routing
+                )
+                self.assertEqual(code, fpc.EXIT_BUDGET, (machine_id, model))
+                self.assertIn("billing unexplained", out["route"][0]["skipped"])
+
+    def test_large_change_is_local_lanes_only(self):
+        code, out = self.run_cli(
+            str(self.prompt), "--kind", "large_change", "--dry-run", routing=self.use_shipped("m5")
+        )
+        self.assertEqual((code, out["refused"]), (fpc.EXIT_BUDGET, "LOCAL_LANES_ONLY"))
+
+    def test_models_need_a_probe_on_this_machine(self):
+        cfg = fpc.load_routing(SHIPPED)
+        routing = self.use_shipped("m5")
+        code, out = self.run_cli(str(self.prompt), "--kind", "small_patch", "--dry-run", routing=routing)
+        self.assertEqual((code, out["model"]), (0, "gpt-5.6-terra"))
+        self.write_machine("lab-box")
+        code, out = self.run_cli(str(self.prompt), "--kind", "docs_text", "--dry-run", routing=routing)
+        self.assertEqual(code, fpc.EXIT_BUDGET)
+        self.assertTrue(all("not yet probed" in r["skipped"] for r in out["route"]))
+        self.assertNotIn("gpt-5.4-mini", cfg["routes"]["small_patch"])
 
 
 class PoolTests(RoutingBase):
