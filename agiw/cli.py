@@ -67,9 +67,9 @@ def control(state_dir: Path, port: int, method: str, path: str, body: Optional[d
     try:
         status, doc = pl.control_request(state_dir, port, method, path, body)
     except PermissionError as exc:
-        raise CliError(str(exc))
-    except (ConnectionRefusedError, FileNotFoundError):
-        raise CliError(NOT_RUNNING, EXIT_NOT_RUNNING)
+        raise CliError(str(exc)) from exc
+    except (ConnectionRefusedError, FileNotFoundError) as err:
+        raise CliError(NOT_RUNNING, EXIT_NOT_RUNNING) from err
     except (OSError, ValueError, http.client.HTTPException) as exc:
         reason = "timeout" if isinstance(exc, (TimeoutError, socket.timeout)) else "read_error"
         raise ControlUnreachable(reason, may_have_applied=method != "GET") from exc

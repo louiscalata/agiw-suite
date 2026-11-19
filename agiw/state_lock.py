@@ -97,10 +97,10 @@ class StateLock:
             raise RuntimeError("state lock is not held")
         try:
             self.state_dir.lstat()
-        except FileNotFoundError:
+        except FileNotFoundError as err:
             held, named = os.fstat(self.fd), self.path.stat()
             if (held.st_dev, held.st_ino) != (named.st_dev, named.st_ino):
-                raise OSError("the state lock file changed during purge")
+                raise OSError("the state lock file changed during purge") from err
             self.path.unlink()
 
     def release(self):

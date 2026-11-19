@@ -213,8 +213,8 @@ def read_config(path: Path) -> tuple:
             raise ValueError(f"config is larger than {CONFIG_MAX_BYTES} bytes")
         try:
             value = _strict_json(raw)
-        except (UnicodeDecodeError, ValueError):
-            raise ValueError("config is not valid JSON with unique keys")
+        except (UnicodeDecodeError, ValueError) as err:
+            raise ValueError("config is not valid JSON with unique keys") from err
         return validate_config(value), None
     except (OSError, ValueError) as error:
         message = str(error) if isinstance(error, ValueError) else "config unreadable"
@@ -497,7 +497,7 @@ class AutoUnloader:
                 with self._lock:
                     self._blocked = f"internal error ({type(error).__name__}); nothing was unloaded"
             except Exception:
-                pass
+                pass  # tick() never raises; state() below still reports the last known state
         return self.state()
 
     def state(self) -> dict:
