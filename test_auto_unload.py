@@ -977,6 +977,8 @@ class SingleOwnerTests(Base):
                 self.state_dir()
                 lock = self.journal.parent / au.LOCK_NAME
                 if name == "fifo":
+                    if not hasattr(os, "mkfifo"):
+                        self.skipTest("POSIX FIFO check")
                     os.mkfifo(lock, 0o600)
                 elif name == "symlink":
                     (self.root / "elsewhere.lock").write_text("")
@@ -1145,6 +1147,7 @@ class JournalTests(Base):
         self.assertIn("journal unavailable", unloader.state()["blocked"])
         self.assertEqual(unloader.state()["journalError"], "journal is not a private regular file")
 
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "POSIX FIFO check")
     def test_fifo_journal_never_blocks_the_constructor_or_the_attempt(self):
         self.state_dir()
         os.mkfifo(self.journal, 0o600)
@@ -1156,6 +1159,7 @@ class JournalTests(Base):
         self.assertEqual(self.control.calls, [])
         self.assertIn("journal unavailable", state["blocked"])
 
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "POSIX FIFO check")
     def test_fifo_planted_after_startup_never_blocks_the_attempt(self):
         unloader = self.make()
         os.mkfifo(self.journal, 0o600)
@@ -1166,6 +1170,7 @@ class JournalTests(Base):
         self.assertIn("journal unavailable", state["blocked"])
         self.assertTrue(stat.S_ISFIFO(os.lstat(self.journal).st_mode))
 
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "POSIX FIFO check")
     def test_compaction_refuses_a_fifo_swapped_in(self):
         unloader = self.make()
         os.mkfifo(self.journal, 0o600)
@@ -1310,6 +1315,8 @@ class ConfigTests(Base):
         state = self.make().state()
         self.assertFalse(state["enabled"])
         self.assertIsNotNone(state["configError"])
+        if not hasattr(os, "mkfifo"):
+            self.skipTest("POSIX FIFO check")
         self.setUp()
         self.config.parent.mkdir(parents=True)
         os.mkfifo(self.config, 0o600)

@@ -103,6 +103,7 @@ class FrozenInputTests(unittest.TestCase):
         self.assertEqual(swapped, [True])
         self.assertEqual((self.destination / "web/app.js").read_bytes(), b"checked source")
 
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "POSIX FIFO check")
     def test_nonregular_source_is_refused_without_blocking(self):
         os.mkfifo(self.source / "pair_status.py")
         with self.assertRaisesRegex(ValueError, "Nonregular build input"):
