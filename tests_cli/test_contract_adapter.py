@@ -11,12 +11,10 @@ import json
 import unittest
 from unittest import mock
 
-from support import forbid_real_commands
+from support import forbid_real_commands, validate_row
 
 import peer_link as pl
 from agiw import cli, contract
-from support import validate_row
-
 
 NOW = 1700000000.0
 NODE = "11111111-1111-4111-8111-111111111111"

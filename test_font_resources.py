@@ -1,11 +1,11 @@
 """Source-only distribution parity: never run build, install, or release scripts."""
 
 import ast
-from http.client import HTTPConnection
-import threading
-from pathlib import Path
 import re
+import threading
 import unittest
+from http.client import HTTPConnection
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 LICENSE = "fonts/OFL-IBM-Plex.txt"

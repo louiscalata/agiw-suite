@@ -2,7 +2,6 @@
 
 import io
 import json
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
@@ -10,10 +9,11 @@ import threading
 import time
 import unittest
 from contextlib import contextmanager
+from pathlib import Path
 from unittest.mock import patch
 
 from model_control import ControlError, ModelControl, _Operation, _run_cli
-from test_model_control import MutableStore, inventory, unloaded, memory
+from test_model_control import MutableStore, inventory, memory, unloaded
 
 
 class FakeProcess:

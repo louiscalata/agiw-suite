@@ -4,20 +4,20 @@ import io
 import json
 import os
 import socket
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
 import sys
 import tempfile
 import threading
 import time
 import unittest
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from agiw_win import probes  # noqa: E402
-from agiw_win.collect import Collector, LANE_FRESH_SECONDS  # noqa: E402
-from agiw_win.server import MonitorServer, SnapshotStore, activity_is_known, find_web_root, sample  # noqa: E402
 from agiw_win import server as observer_server  # noqa: E402
+from agiw_win.collect import LANE_FRESH_SECONDS, Collector  # noqa: E402
+from agiw_win.server import MonitorServer, SnapshotStore, activity_is_known, find_web_root, sample  # noqa: E402
 
 
 def lane_server(model, state):
@@ -815,6 +815,7 @@ class EndToEnd(unittest.TestCase):
 
     def test_observer_log_escapes_and_rate_limits(self):
         import io
+
         from agiw_win.server import RateLimitedLog
         sink = io.StringIO()
         log = RateLimitedLog(sink)
@@ -843,6 +844,7 @@ class EndToEnd(unittest.TestCase):
 
     def test_observer_log_keeps_writing_when_rotation_is_blocked(self):
         from unittest import mock
+
         from agiw_win.server import RateLimitedLog
         path = Path(self.tmp.name) / "observer.log"
         log = RateLimitedLog(open(path, "a", encoding="utf-8", buffering=1), path, max_bytes=100)

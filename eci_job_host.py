@@ -11,12 +11,12 @@ lane. See ``docs/eci-check-jobs.md``.
 
 import json
 import os
-from pathlib import Path
 import re
 import stat
+from pathlib import Path
 
-import eci_jobs
 import eci_job_routes
+import eci_jobs
 import remote_machines
 
 MAX_CONFIG_BYTES = 65536

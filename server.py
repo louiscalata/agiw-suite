@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
 """Loopback monitor with a passive sampler and explicit local model controls."""
 from __future__ import annotations
+
 import argparse
 import copy
 import datetime as dt
-from contextlib import contextmanager
 import fcntl
 import hmac
 import json
 import math
 import os
-from pathlib import Path
 import re
 import signal
 import socket
@@ -18,31 +17,46 @@ import stat
 import sys
 import threading
 import time
+from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from urllib.parse import urlsplit
-from telemetry import (collect_snapshot, cancel_windows_worker_probe,
-                       stop_windows_worker_probe)
-import telemetry
-from activity import collect_activity
-from client_models import collect_clients
-from model_control import ControlError, ModelControl, capability as model_control_capability
-from auto_unload import AutoUnloader, router_problem
-from online_code_repair import (OnlineCodeRepair, read_only_diagnosis, REVIEWED_FIX_SCOPES,
-                                HEADLESS_COMMANDS, FULL_SAMPLE_MAX_AGE)
-from live_feed import LiveFeed
-from gpu_probe import mac_gpu
-from local_callers import LocalCallers
-from mem_guard import Guard, LevelFile, unknown_block
-from bundled_components import BundledComponents
-from jev_connection import JevConnection
-from machine_state import CLOCK_SKEW_SECONDS, FRESH_SECONDS, expire_machines, find_jaryo_root, finite_number, platform_name
-from inference_collect import RateMemory, attach, vram_from_reading, collector_diagnostic
-from inference_stats import expire_map
-from fleet_state import build_fleet_state
-from pc_tunnel import load_config, port_accepts, targets as tunnel_targets
+
 import eci_tuning
 import remote_machines
-
+import telemetry
+from activity import collect_activity
+from auto_unload import AutoUnloader, router_problem
+from bundled_components import BundledComponents
+from client_models import collect_clients
+from fleet_state import build_fleet_state
+from gpu_probe import mac_gpu
+from inference_collect import RateMemory, attach, collector_diagnostic, vram_from_reading
+from inference_stats import expire_map
+from jev_connection import JevConnection
+from live_feed import LiveFeed
+from local_callers import LocalCallers
+from machine_state import (
+    CLOCK_SKEW_SECONDS,
+    FRESH_SECONDS,
+    expire_machines,
+    find_jaryo_root,
+    finite_number,
+    platform_name,
+)
+from mem_guard import Guard, LevelFile, unknown_block
+from model_control import ControlError, ModelControl
+from model_control import capability as model_control_capability
+from online_code_repair import (
+    FULL_SAMPLE_MAX_AGE,
+    HEADLESS_COMMANDS,
+    REVIEWED_FIX_SCOPES,
+    OnlineCodeRepair,
+    read_only_diagnosis,
+)
+from pc_tunnel import load_config, port_accepts
+from pc_tunnel import targets as tunnel_targets
+from telemetry import cancel_windows_worker_probe, collect_snapshot, stop_windows_worker_probe
 
 _SUPPRESSED_SEEN = set()
 _SUPPRESSED_LOCK = threading.Lock()
@@ -1007,6 +1021,7 @@ def monitor_busy(server):
 def fresh_route():
     """Read the router again immediately before an auto-unload request."""
     import datetime
+
     import telemetry
 
     now = time.time()
@@ -1270,6 +1285,7 @@ def start_peer_link(store, report=None):
     'agiw-peer-link' error row under Sources). The observer keeps running either way."""
     try:
         import socket
+
         import peer_feed
         import peer_link
         name = socket.gethostname().split('.')[0]

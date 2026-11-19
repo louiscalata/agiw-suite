@@ -1,23 +1,22 @@
 """The monitor cannot reach owner actions until L2 is explicitly opened."""
 
 import ast
+import inspect
+import io
+import json
+import re
+import sys
+import unittest
 from contextlib import ExitStack
 from email.message import Message
 from functools import lru_cache
-import io
-import inspect
 from itertools import product
-import json
 from pathlib import Path
-import re
-import sys
 from types import SimpleNamespace
-import unittest
 from unittest import mock
 
 import online_code_repair as repair
 import server
-
 
 ROOT = Path(__file__).resolve().parent
 

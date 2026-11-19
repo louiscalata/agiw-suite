@@ -5,11 +5,11 @@ import copy
 import io
 import json
 import os
-from pathlib import Path
 import tempfile
 import threading
 import time
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import eci_tuning as e

@@ -7,19 +7,19 @@ only after the record validates. Every unreviewed, unknown or undecided state
 refuses. The submission gate ships closed. See ``docs/eci-check-jobs.md``.
 """
 
-from collections import OrderedDict
 import copy
-from datetime import datetime, timezone
-from fractions import Fraction
 import hashlib
 import json
 import os
-from pathlib import Path
 import re
 import stat
 import tempfile
 import threading
 import time
+from collections import OrderedDict
+from datetime import datetime, timezone
+from fractions import Fraction
+from pathlib import Path
 from urllib.parse import urlsplit
 
 import eci_fast_check as fast

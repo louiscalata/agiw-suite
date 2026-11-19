@@ -1,10 +1,10 @@
 """Passive readiness uses cached Windows observations without a socket or owner."""
+import sys
+import unittest
 from contextlib import ExitStack
 from email.message import Message
 from pathlib import Path
-import sys
 from types import SimpleNamespace
-import unittest
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))

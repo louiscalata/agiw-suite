@@ -10,16 +10,16 @@ import argparse
 import copy
 import csv
 import difflib
-from datetime import datetime, timezone
 import json
 import math
 import os
 import re
 import stat
-import threading
-from pathlib import Path
 import sys
 import tempfile
+import threading
+from datetime import datetime, timezone
+from pathlib import Path
 
 import eci_fast_check as fast
 

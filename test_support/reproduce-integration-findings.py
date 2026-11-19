@@ -2,9 +2,9 @@
 
 import json
 import os
-from pathlib import Path
 import sys
 import tempfile
+from pathlib import Path
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -12,7 +12,7 @@ sys.path.insert(0, str(ROOT))
 import activity
 import server
 import telemetry
-from windows.agiw_win import probes, collect
+from windows.agiw_win import collect, probes
 
 NOW = 1_800_000_000.0
 results = []

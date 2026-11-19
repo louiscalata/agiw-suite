@@ -1,7 +1,7 @@
 import unittest
 from unittest import mock
 
-from inference_stats import apply_rates, edges_for, expire_map, make_node, machine_node, public_map, MAP_SCHEMA
+from inference_stats import MAP_SCHEMA, apply_rates, edges_for, expire_map, machine_node, make_node, public_map
 
 
 def lane(**extra):

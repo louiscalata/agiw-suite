@@ -18,8 +18,8 @@ import stat
 import time
 from pathlib import Path
 
-from inference_stats import public_map
 from fleet_state import build_fleet_state
+from inference_stats import public_map
 from machine_state import FRESH_SECONDS, TRUST_LEVELS, expire_machines, machine_summary, observation_age
 from machine_state import finite_number as _number
 

@@ -1,15 +1,15 @@
 """Mock-only tests for the native Jev helper boundary and manual check action."""
 
-import json
 import io
-from email.message import Message
-from pathlib import Path
+import json
 import subprocess
 import tempfile
 import threading
 import time
 import unittest
+from email.message import Message
 from http.client import HTTPConnection
+from pathlib import Path
 from unittest import mock
 
 import jev_connection

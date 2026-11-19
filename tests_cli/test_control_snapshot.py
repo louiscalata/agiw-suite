@@ -16,7 +16,6 @@ from unittest import mock
 
 from support import ROOT, pl
 
-
 NOW = 1700000000.0
 
 

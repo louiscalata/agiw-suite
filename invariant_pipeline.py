@@ -57,12 +57,12 @@ def collect(*, api=None, cli=None, peers=None):
 # that depend on damaged evidence; unrelated healthy sources remain observable.
 import datetime as dt
 import fcntl
-import os
 import itertools
 import json
-from pathlib import Path
+import os
 import subprocess
 import tempfile
+from pathlib import Path
 
 import activity
 import local_callers

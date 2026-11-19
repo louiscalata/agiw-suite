@@ -5,11 +5,11 @@ loopback port chosen by the system. Nothing here contacts a lane.
 """
 
 import ast
-from http.client import HTTPConnection
 import json
-from pathlib import Path
 import threading
 import unittest
+from http.client import HTTPConnection
+from pathlib import Path
 from urllib.parse import urlencode
 
 import eci_job_routes as routes

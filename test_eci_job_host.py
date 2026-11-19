@@ -6,15 +6,15 @@ port chosen by the system.
 """
 
 import ast
-from http.client import HTTPConnection
 import json
 import os
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import threading
 import unittest
+from http.client import HTTPConnection
+from pathlib import Path
 from unittest import mock
 from urllib.parse import urlencode
 

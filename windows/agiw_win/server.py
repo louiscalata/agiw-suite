@@ -6,19 +6,19 @@ import copy
 import json
 import math
 import os
-from pathlib import Path
 import signal
 import socket
 import sys
 import threading
 import time
-from typing import Any
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from typing import Any
 from urllib.parse import urlsplit
 
-from . import SERVICE, VERSION
-from . import probes, winsys
-from .collect import Collector, LANE_FRESH_SECONDS, LANE_ACTIVITY_FRESH_SECONDS
+from . import SERVICE, VERSION, probes, winsys
+from .collect import LANE_ACTIVITY_FRESH_SECONDS, LANE_FRESH_SECONDS, Collector
+
 
 def _inference_root():
     here = Path(__file__).resolve()
@@ -32,11 +32,11 @@ _INFERENCE_ROOT = _inference_root()
 if _INFERENCE_ROOT is not None and str(_INFERENCE_ROOT) not in sys.path:
     # Append. Putting the repo root first shadows windows/tests with the root test_*.py modules.
     sys.path.append(str(_INFERENCE_ROOT))
-from inference_collect import RateMemory, attach, vram_from_gpus, collector_diagnostic
-from inference_stats import expire_map
-from fleet_state import build_fleet_state
-from machine_state import CLOCK_SKEW_SECONDS, expire_machines, find_jaryo_root, finite_number
 import eci_tuning
+from fleet_state import build_fleet_state
+from inference_collect import RateMemory, attach, collector_diagnostic, vram_from_gpus
+from inference_stats import expire_map
+from machine_state import CLOCK_SKEW_SECONDS, expire_machines, find_jaryo_root, finite_number
 
 AGED_REASONS = {"stale": "stale", "clock_skew": "clock-ahead", "schema_invalid": "report-refused"}
 FULL_SAMPLE_MAX_AGE = 3.0  # same as the Mac server and the UI: a sample older than this is not live activity

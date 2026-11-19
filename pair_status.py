@@ -30,10 +30,10 @@ import datetime as _dt
 import errno
 import json
 import os
-from pathlib import Path
 import re
 import stat
 import time
+from pathlib import Path
 from typing import Any
 
 SCHEMA = "agiw.pair-status.v1"

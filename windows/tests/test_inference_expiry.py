@@ -1,12 +1,13 @@
 """PR 07: Windows inference observations expire on copies at both read boundaries."""
 import copy
-from pathlib import Path
 import sys
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from agiw_win.server import SnapshotStore
+
 from inference_stats import machine_node, make_node
 
 

@@ -3,10 +3,10 @@ and unknown (never down or 0) whenever the files cannot prove otherwise."""
 
 import json
 import os
-from pathlib import Path
 import tempfile
 import time
 import unittest
+from pathlib import Path
 from unittest import mock
 
 import pair_status

@@ -8,9 +8,9 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from support import forbid_real_commands, pl
+from support import forbid_real_commands, pl, validate_row
+
 from agiw import cli
-from support import validate_row
 
 
 class ControlFailures(unittest.TestCase):

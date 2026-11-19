@@ -6,7 +6,6 @@ import math
 import time
 from pathlib import Path
 
-
 CLOCK_SKEW_SECONDS = 1.0  # matches the browser run-evidence views; never extends the expiry window
 FRESH_SECONDS = {"mac": 3.0, "windows": 30.0, "linux": 30.0}
 # Shared presence readers tolerate at most this much clock lead, in seconds.

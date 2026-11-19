@@ -1,9 +1,9 @@
 """Linked queue directories cannot establish exact queue activity."""
 import os
-from pathlib import Path
 import tempfile
-from types import SimpleNamespace
 import unittest
+from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 from agiw_win import probes

@@ -2,15 +2,15 @@
 
 import copy
 import json
-from pathlib import Path
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import eci_fast_check as fast
 import eci_fast_check_adapter as adapter
-from test_eci_fast_check import SETTINGS, datasets, run
 import test_eci_fast_check_adapter as fixtures
-from test_eci_fast_check_adapter import Stub, completion, MODEL_ID
+from test_eci_fast_check import SETTINGS, datasets, run
+from test_eci_fast_check_adapter import MODEL_ID, Stub, completion
 
 
 class NumericScreeningTests(unittest.TestCase):

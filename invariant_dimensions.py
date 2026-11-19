@@ -10,10 +10,10 @@ import errno
 import itertools
 import json
 import os
-from pathlib import Path
-import subprocess
 import stat
+import subprocess
 import tempfile
+from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
@@ -21,7 +21,8 @@ import activity
 import local_callers
 import telemetry
 from invariant_pipeline import NOW, collect
-from windows.agiw_win import collect as win_collect, probes as win
+from windows.agiw_win import collect as win_collect
+from windows.agiw_win import probes as win
 
 
 def base():

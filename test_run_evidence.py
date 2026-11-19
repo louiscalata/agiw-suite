@@ -4,10 +4,10 @@ import copy
 import datetime
 import json
 import os
-from pathlib import Path
-import tempfile
 import sys
+import tempfile
 import unittest
+from pathlib import Path
 from unittest import mock
 
 import activity

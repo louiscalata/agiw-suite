@@ -1,8 +1,8 @@
 """Portable fixture checks; native PowerShell assertions remain in their original tests."""
 import os
-from pathlib import Path
 import subprocess
 import unittest
+from pathlib import Path
 from unittest import mock
 
 from tests import test_build_and_feed as build_tests

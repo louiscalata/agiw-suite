@@ -3,8 +3,8 @@
 import contextlib
 import io
 import json
-from pathlib import Path
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import eci_fast_check as fast

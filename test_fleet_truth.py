@@ -2,14 +2,14 @@
 
 import copy
 import json
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import agiw_status
-from fleet_state import build_fleet_state
 import remote_machines as remote
+from fleet_state import build_fleet_state
 from test_fleet_servers import MacStore, WindowsStore
 
 ROOT = Path(__file__).resolve().parent

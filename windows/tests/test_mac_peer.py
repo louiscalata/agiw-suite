@@ -1,9 +1,9 @@
 """Mac share evidence in complete Windows samples, using only a temporary share."""
 import json
-from pathlib import Path
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import Mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))

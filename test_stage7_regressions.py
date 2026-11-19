@@ -5,11 +5,11 @@ import unittest
 from unittest import mock
 
 import activity
+import invariant_pipeline
 import server
 import telemetry
-import invariant_pipeline
-from windows.tests.test_run_evidence import NOW, windows_collector_read
 from windows.agiw_win.server import SnapshotStore as WindowsStore
+from windows.tests.test_run_evidence import NOW, windows_collector_read
 
 
 class Stage7Regressions(unittest.TestCase):

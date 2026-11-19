@@ -9,10 +9,11 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from support import ROOT, pl, temp_dir
-from agiw import cli, contract, doctor, service
-from test_contract_adapter import LOCAL_NODE, NODE, NOW, document, peer, snapshot
 import test_loopback_pairing as pairing
+from support import ROOT, pl, temp_dir
+from test_contract_adapter import LOCAL_NODE, NODE, NOW, document, peer, snapshot
+
+from agiw import cli, contract, doctor, service
 
 
 class Fix5(unittest.TestCase):

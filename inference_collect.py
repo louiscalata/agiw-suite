@@ -10,9 +10,9 @@ not kept.
 
 from __future__ import annotations
 
-import datetime as dt
 import copy
-from concurrent.futures import ThreadPoolExecutor
+import datetime as dt
+import http.client
 import json
 import math
 import os
@@ -20,13 +20,13 @@ import re
 import socket
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlsplit
-import http.client
 
+import remote_machines
+from inference_stats import MAP_SCHEMA, apply_rates, client_nodes, edges_for, machine_node, make_node
 from machine_state import finite_number as _finite
 from machine_state import utc_iso
-from inference_stats import MAP_SCHEMA, apply_rates, client_nodes, edges_for, machine_node, make_node
-import remote_machines
 
 # No built-in PC lane layout. Lane membership comes from the machine registry
 # (remote_machines.py; a machine with "replaces": "legacy-pc" takes the PC's place).

@@ -1,12 +1,11 @@
 """Import the Windows observer from only the installer's staged Python inventory."""
-from pathlib import Path
 import re
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
-
+from pathlib import Path
 
 WINDOWS = Path(__file__).resolve().parents[1]
 REPO = WINDOWS.parent

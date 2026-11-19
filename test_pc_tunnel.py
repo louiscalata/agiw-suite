@@ -1,8 +1,8 @@
 import json
-from pathlib import Path
 import tempfile
 import threading
 import unittest
+from pathlib import Path
 
 import pc_tunnel
 

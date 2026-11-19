@@ -34,15 +34,13 @@ to a private, bounded monitor journal.
 
 from __future__ import annotations
 
-from contextlib import contextmanager, nullcontext
-from dataclasses import dataclass
-from enum import Enum
 import copy
+import errno
+import fcntl
 import ipaddress
 import json
 import math
 import os
-from pathlib import Path
 import re
 import selectors
 import signal
@@ -51,33 +49,33 @@ import stat
 import subprocess
 import threading
 import time
+from contextlib import contextmanager, nullcontext
+from dataclasses import dataclass
+from enum import Enum
+from pathlib import Path
 from typing import Callable
 
-import errno
-import fcntl
-
 from model_control import ControlError, _find_lms
+from nisi_v02 import probe_nisi_v02_bridge
 from telemetry import (
+    _WINDOWS_WORKER_IO_LOCK,
     _bounded_command,
     _bounded_http,
     _bounded_lms,
     _finite,
-    _parse_api,
     _inventory_listener,
-    _lmstudio_route,
     _lms_server_status,
+    _lmstudio_route,
     _native_api_endpoint,
+    _parse_api,
     _parse_lms,
     _windows_jobs,
     _windows_worker_reader_blocked,
     _windows_worker_stuck_readers,
-    _WINDOWS_WORKER_IO_LOCK,
     hold_windows_worker_probe,
     monitor_router_hold,
     set_windows_worker_tolerance,
 )
-from nisi_v02 import probe_nisi_v02_bridge
-
 
 LAUNCHER = Path.home() / "bin" / "initiate-online-code-mode"
 ENTRY = Path.home() / "bin" / "online-code-entry"

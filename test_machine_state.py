@@ -1,13 +1,11 @@
 import copy
 import datetime as dt
-from pathlib import Path
 import unittest
+from pathlib import Path
 from unittest import mock
 
 import machine_state
-
 from machine_state import expire_machines, finite_number, machine_summary, machines_summary
-
 
 NOW = 1800000000.0
 
@@ -605,6 +603,7 @@ class SharedHelperTests(unittest.TestCase):
 
     def test_copies_now_reference_the_shared_helpers(self):
         import sys
+
         import agiw_status
         import fleet_state
         import remote_machines

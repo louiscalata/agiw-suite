@@ -1,12 +1,12 @@
 """Repair lifecycle contracts, using deferred workers and no owner or model I/O."""
 
+import json
+import tempfile
+import unittest
 from email.message import Message
 from io import BytesIO
-import json
 from pathlib import Path
-import tempfile
 from types import SimpleNamespace
-import unittest
 from unittest import mock
 
 import online_code_repair as repair

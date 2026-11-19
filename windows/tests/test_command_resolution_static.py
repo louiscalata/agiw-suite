@@ -6,9 +6,9 @@ reason unrelated to what it verifies (native PC run, 2026-10-18: twelve provenan
 Production pipes through `Select-Object -First 1`; this check keeps every script and embedded test script doing the same.
 A line that genuinely wants every match carries the marker `allow-multiple-commands` with the reason next to it.
 """
-from pathlib import Path
 import re
 import unittest
+from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 SKIP_DIRS = {'.git', 'node_modules', 'integration-evidence', '.scratch', '__pycache__'}

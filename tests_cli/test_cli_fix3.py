@@ -10,6 +10,7 @@ from unittest import mock
 from xml.etree import ElementTree as ET
 
 from support import FakeRunner, forbid_real_commands, temp_dir
+
 from agiw import cli, service
 from agiw.state_lock import StateLockBusy
 

@@ -19,9 +19,8 @@ import time
 from pathlib import Path
 from typing import Any
 
-from machine_state import CLOCK_SKEW_SECONDS
-
 import telemetry
+from machine_state import CLOCK_SKEW_SECONDS
 from telemetry import _finite, _json_object
 
 ROUTER_READER_CONTRACT = "codemode.router.readers.v2"

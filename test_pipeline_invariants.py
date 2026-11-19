@@ -8,20 +8,19 @@ The 5,938 original cases and 339 pass-9 cases are retained. Pass 10 adds
 """
 
 import copy
-from contextlib import ExitStack
 import itertools
 import json
-from pathlib import Path
 import subprocess
 import sys
-import unittest
-from unittest import mock
 import time
-
-import pair_status
+import unittest
+from contextlib import ExitStack
+from pathlib import Path
+from unittest import mock
 
 import local_callers
 import machine_state
+import pair_status
 import peer_feed
 import server
 import telemetry

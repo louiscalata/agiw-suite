@@ -1,6 +1,7 @@
 """Ambiguous lane declarations must never select a process owner."""
 import unittest
 from unittest.mock import patch
+
 from agiw_win import probes
 
 

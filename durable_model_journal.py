@@ -7,16 +7,15 @@ alone. Provisioning is an explicit clean-install action, never a startup repair.
 
 from __future__ import annotations
 
-from contextlib import contextmanager
 import fcntl
 import json
 import math
 import os
-from pathlib import Path
 import re
 import stat
 import uuid
-
+from contextlib import contextmanager
+from pathlib import Path
 
 SCHEMA = 1
 MAX_BYTES = 4096

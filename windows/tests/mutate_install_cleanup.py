@@ -6,10 +6,10 @@ No production file is edited, and no native signature verdict is implied.
 """
 import io
 import json
-from pathlib import Path
 import shutil
 import sys
 import unittest
+from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))

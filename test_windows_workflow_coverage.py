@@ -2,9 +2,9 @@
 
 import ast
 import fnmatch
-from pathlib import Path
 import re
 import unittest
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 

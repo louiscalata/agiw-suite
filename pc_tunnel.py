@@ -14,12 +14,12 @@ from __future__ import annotations
 
 import json
 import os
-from pathlib import Path
 import re
 import signal
 import socket
 import subprocess
 import threading
+from pathlib import Path
 
 DEFAULT_FORWARDS = ()
 _NAME = re.compile(r"[A-Za-z0-9._-]{1,64}\Z")

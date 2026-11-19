@@ -1,18 +1,17 @@
 """Crash/restart safety checks using fake runners and synthetic inventory only."""
 
 import os
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import threading
 import time
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from durable_model_journal import DurableModelJournal, JournalError
 from model_control import ControlError, ModelControl
-
 
 MODEL = "publisher/model"
 

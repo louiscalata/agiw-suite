@@ -12,14 +12,13 @@ import hashlib
 import json
 import math
 import os
-from pathlib import Path
 import re
 import selectors
 import signal
 import stat
 import subprocess
 import time
-
+from pathlib import Path
 
 _COMMIT = re.compile(r"[0-9a-f]{40}\Z")
 _SHA = re.compile(r"[0-9a-f]{64}\Z")

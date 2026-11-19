@@ -2,16 +2,15 @@ import datetime as dt
 import hashlib
 import json
 import os
-from pathlib import Path
 import signal
 import sys
 import tempfile
 import time
 import unittest
+from pathlib import Path
 from unittest import mock
 
 import nisi_v02
-
 
 COMMIT = "a1e3ca5aa42ddf65c8314b3a1de5f22ff069a71f"
 NOW = dt.datetime(2026, 9, 25, 12, tzinfo=dt.timezone.utc).timestamp()

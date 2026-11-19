@@ -10,6 +10,7 @@ import unittest
 from unittest import mock
 
 from support import forbid_real_commands, temp_dir
+
 from agiw import cli
 from agiw.service import ServiceError, ServiceManager
 

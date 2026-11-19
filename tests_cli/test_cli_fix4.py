@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 from support import FakeRunner, forbid_real_commands, isolate_windows_registry, temp_dir
+
 from agiw import cli
 from agiw.state_lock import StateLockBusy
 

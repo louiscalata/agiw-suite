@@ -6,9 +6,9 @@ commit is unknown and the producer string carries only the version. Nothing here
 from __future__ import annotations
 
 import os
-from pathlib import Path
 import re
 import stat
+from pathlib import Path
 from typing import Any
 
 from . import SERVICE, VERSION

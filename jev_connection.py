@@ -8,12 +8,12 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass
-from enum import Enum, auto
-from pathlib import Path
 import re
 import subprocess
 import threading
+from dataclasses import dataclass
+from enum import Enum, auto
+from pathlib import Path
 from typing import Any
 
 _MAX_STATUS = 1024

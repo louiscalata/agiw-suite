@@ -2,17 +2,17 @@
 
 import copy
 import errno
-import itertools
 import importlib.util
-import os
+import itertools
 import json
+import os
 import tempfile
 from pathlib import Path
 from unittest import mock
 
 import telemetry
-from windows.agiw_win import probes
 from test_support.pipeline_dimensions import record
+from windows.agiw_win import probes
 
 if os.environ.get("A4_RENDER_ROOT"):
     spec = importlib.util.spec_from_file_location(

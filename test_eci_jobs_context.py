@@ -1,7 +1,7 @@
 """Lane-context pre-check: registry facts only, fake runner, no socket, no model call."""
 
-from pathlib import Path
 import unittest
+from pathlib import Path
 
 from test_eci_jobs import LANE, OTHER, EngineCase, request, targets
 

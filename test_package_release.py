@@ -1,11 +1,11 @@
 """Black-box legal-input refusal checks; never compile, sign, or create a DMG."""
 
 import os
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 
 
 @unittest.skipUnless(sys.platform == "darwin", "release packaging requires macOS")

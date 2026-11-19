@@ -13,10 +13,10 @@ import hashlib
 import json
 import math
 import os
-from pathlib import Path
 import re
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import eci_fast_check as fast

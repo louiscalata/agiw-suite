@@ -1,11 +1,11 @@
 """Probe behaviour with fakes; runs on any OS."""
 import json
 import os
-from pathlib import Path
 import sys
 import tempfile
 import time
 import unittest
+from pathlib import Path
 from urllib.error import HTTPError
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -1279,10 +1279,11 @@ class PCPresenceModels(unittest.TestCase):
 
     def test_legacy_status_over_32_models_still_refuses_and_keeps_previous_file(self):
         import contextlib
-        from copy import deepcopy
         import io
+        from copy import deepcopy
         from types import SimpleNamespace
         from unittest import mock
+
         from agiw_win.server import SnapshotStore, sample
 
         snapshot = self.mixed_snapshot(33)

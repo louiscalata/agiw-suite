@@ -1,11 +1,11 @@
 """Production main -> real Collector -> real LaneProcesses; only OS and HTTP boundaries are faked."""
-from contextlib import ExitStack, redirect_stdout
 import io
 import json
-from pathlib import Path
 import sys
 import tempfile
 import unittest
+from contextlib import ExitStack, redirect_stdout
+from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))

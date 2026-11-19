@@ -6,12 +6,13 @@ JSON writer and browser renderer remain in the path; no service or socket is use
 
 import itertools
 import math
-from pathlib import Path
 import tempfile
+from pathlib import Path
 from unittest import mock
 
-import activity
 from agiw_win import collect, probes
+
+import activity
 
 NOW = 1_800_000_000.0
 ROUTE_SOURCES = ("router-active", "monitor-receipts", "router-archive")

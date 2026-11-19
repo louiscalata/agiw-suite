@@ -4,16 +4,16 @@ import contextlib
 import copy
 import io
 import json
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import eci_fast_check as f
 import eci_fast_check_adapter as a
-from test_eci_fast_check import datasets, run, observation, rehash, FakeClock
 import test_eci_fast_check_adapter as adapter_fixtures
-from test_eci_fast_check_adapter import Stub, completion, props, MODEL_ID
+from test_eci_fast_check import FakeClock, datasets, observation, rehash, run
+from test_eci_fast_check_adapter import MODEL_ID, Stub, completion, props
 
 
 class ReviewFixTests(unittest.TestCase):

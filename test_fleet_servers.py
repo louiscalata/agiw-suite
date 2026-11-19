@@ -2,9 +2,9 @@
 
 import copy
 import json
-from pathlib import Path
 import sys
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from fleet_state import build_fleet_state
@@ -30,8 +30,9 @@ class FleetStoreTests(unittest.TestCase):
                     self.assertNotIn("fleetState", store.snapshot)
 
     def test_both_servers_ship_the_selector_module(self):
-        from server import ASSETS as mac_assets
         from agiw_win.server import ASSETS as windows_assets
+
+        from server import ASSETS as mac_assets
 
         for assets in (mac_assets, windows_assets):
             self.assertEqual(assets["/fleet-state.mjs"], ("fleet-state.mjs", "text/javascript; charset=utf-8"))

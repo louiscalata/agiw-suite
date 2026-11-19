@@ -1,6 +1,6 @@
-import json
 import fcntl
 import io
+import json
 import os
 import signal
 import socket
@@ -12,14 +12,16 @@ import tempfile
 import threading
 import time
 import unittest
+from contextlib import ExitStack, redirect_stdout
+from http.client import HTTPConnection
 from pathlib import Path
 from unittest.mock import patch
-from http.client import HTTPConnection
-from contextlib import ExitStack, redirect_stdout
+
+import peer_feed
 
 # LIVE_ENDPOINT is the installed monitor's endpoint.json (agiw-status reads it); no test may write it.
-from server import ENDPOINT_PATH as LIVE_ENDPOINT, MonitorServer, SnapshotStore, enforce_snapshot_evidence, sample
-import peer_feed
+from server import ENDPOINT_PATH as LIVE_ENDPOINT
+from server import MonitorServer, SnapshotStore, enforce_snapshot_evidence, sample
 
 # The real AGIW config.json (main() reads it by default); no test may read it.
 LIVE_CONFIG = peer_feed.CONFIG_PATH
@@ -287,7 +289,7 @@ class StoreTest(unittest.TestCase):
 
     def test_incomplete_cli_roster_never_claims_idle_or_zero_activity(self):
         from machine_state import local_summary
-        from telemetry import _parse_lms, _IncompleteInventoryError
+        from telemetry import _IncompleteInventoryError, _parse_lms
 
         for valid in ([], [{"identifier": "model-a", "status": "idle"}]):
             with self.subTest(valid=valid):
@@ -307,7 +309,7 @@ class StoreTest(unittest.TestCase):
 
     def test_incomplete_api_inventory_keeps_loaded_history_unknown(self):
         from machine_state import local_summary
-        from telemetry import _parse_api, _IncompleteInventoryError
+        from telemetry import _IncompleteInventoryError, _parse_api
 
         for valid in ([], [{"key": "model-a", "loaded_instances": [{"id": "model-a"}]}]):
             for cli_complete in (False, True):
@@ -1330,6 +1332,7 @@ class MemoryGuardSampleTest(unittest.TestCase):
     def test_real_guard_with_a_raising_probe_reads_unknown(self):
         import tempfile
         from pathlib import Path
+
         import mem_guard
 
         class RaisingProbes:
@@ -2113,14 +2116,15 @@ class TransportTest(unittest.TestCase):
         self.server.l2_open = True
         import tempfile
         from pathlib import Path
-        from online_code_repair import OnlineCodeRepair, NISI_RECOVER
+
+        from online_code_repair import NISI_RECOVER, OnlineCodeRepair
         from test_online_code_repair import (
-            NisiLauncher,
             GEMMA,
-            QWEN,
             MARKER_SHA,
             NOW,
+            QWEN,
             SERVER_PID,
+            NisiLauncher,
             lms_row,
             lsof_listing,
             private_file,

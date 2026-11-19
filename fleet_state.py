@@ -12,7 +12,8 @@ import datetime as dt
 import math
 import time
 
-from machine_state import finite_number as _number, utc_iso as _iso
+from machine_state import finite_number as _number
+from machine_state import utc_iso as _iso
 
 # Only explicit probe failures establish unavailable endpoint evidence. New or
 # unrecognised producer reasons fail closed to unknown.

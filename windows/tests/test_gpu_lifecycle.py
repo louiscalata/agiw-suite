@@ -1,10 +1,10 @@
 """PDH ownership and structural checks, runnable without a Windows GPU."""
 import ast
 import ctypes
-from pathlib import Path
 import sys
-from types import SimpleNamespace
 import unittest
+from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 WINDOWS = Path(__file__).resolve().parents[1]

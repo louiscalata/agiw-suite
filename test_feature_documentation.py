@@ -2,9 +2,8 @@
 
 import json
 import subprocess
-from pathlib import Path
 import unittest
-
+from pathlib import Path
 
 REPO = Path(__file__).resolve().parent
 

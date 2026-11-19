@@ -12,7 +12,6 @@ from unittest import mock
 import telemetry
 from server import SnapshotStore
 
-
 _UNCHANGED = object()
 _LM_LISTENER = (41, "lmstudio", "/Applications/LM Studio.app/Contents/MacOS/LM Studio")
 _PAIR_LISTENER = (52, "pair", "/Applications/NVIDIA PAIR.app/Contents/MacOS/nvpair-proxy")

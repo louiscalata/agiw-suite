@@ -1,16 +1,17 @@
 """Sol A3 review: no false clear, no inferred owner, and no unsigned relay authority."""
 import json
-from pathlib import Path
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from agiw_win import probes, winsys
 from agiw_win.collect import merge_adapters
+
 from tests import test_collector_safety as safety
-from tests.test_collector_safety import NVIDIA, FAST, LIVE
+from tests.test_collector_safety import FAST, LIVE, NVIDIA
 from tests.test_machines import rows
 from tests.test_pair_hands_off import gpu
 
