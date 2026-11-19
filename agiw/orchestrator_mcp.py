@@ -296,6 +296,11 @@ class Orchestrator:
             return self._github_cache[1]
         environment = {"PATH": os.environ.get("PATH", ""), "HOME": os.environ.get("HOME", "")}
         environment.update({key: value for key, value in os.environ.items() if key.startswith("GH_")})
+        if os.name == "nt":
+            # Windows processes (Python, gh) need these to start and to find gh's config.
+            for key in ("SYSTEMROOT", "WINDIR", "COMSPEC", "PATHEXT", "USERPROFILE", "APPDATA", "LOCALAPPDATA"):
+                if key in os.environ:
+                    environment[key] = os.environ[key]
         result: dict[str, Any] = {}
         for repo in self.config.repos:
             command = [
