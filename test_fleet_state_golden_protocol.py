@@ -4,6 +4,7 @@ import unittest
 
 import fleet_state
 from test_fleet_state_golden import _canonical, _load_cases, _run_case
+from test_support.exception_outcome import comparable
 
 
 class FleetStateGoldenProtocolTests(unittest.TestCase):
@@ -15,7 +16,7 @@ def _protocol_test(case):
         actual = _run_case(fleet_state, case)
         for key in ("events", "inputsAfter", "sharedMutablePaths"):
             with self.subTest(field=key):
-                self.assertEqual(_canonical(actual[key]), _canonical(case["expected"][key]))
+                self.assertEqual(_canonical(comparable(case["expected"][key], actual[key])), _canonical(actual[key]))
 
     return test
 

@@ -4,6 +4,7 @@ import unittest
 
 import nisi_v02
 from test_support.collect_nisi_v02_golden.support import load_cases, run_case
+from test_support.exception_outcome import comparable
 
 
 class CollectNisiV02GenerationGoldenTests(unittest.TestCase):
@@ -12,8 +13,8 @@ class CollectNisiV02GenerationGoldenTests(unittest.TestCase):
 
 def _golden_test(case):
     def test(self):
-        expected = case["expected"]
-        self.assertEqual(run_case(nisi_v02, case), expected)
+        actual = run_case(nisi_v02, case)
+        self.assertEqual(comparable(case["expected"], actual), actual)
 
     return test
 

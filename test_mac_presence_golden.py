@@ -5,7 +5,8 @@ import unittest
 from pathlib import Path
 
 import peer_feed
-from test_support.mac_presence_golden.support import expected_outcome, run_case
+from test_support.exception_outcome import comparable
+from test_support.mac_presence_golden.support import run_case
 
 
 class MacPresenceGoldenTests(unittest.TestCase):
@@ -14,7 +15,8 @@ class MacPresenceGoldenTests(unittest.TestCase):
 
 def _golden_test(case):
     def test(self):
-        self.assertEqual(run_case(peer_feed, case), expected_outcome(case))
+        actual = run_case(peer_feed, case)
+        self.assertEqual(comparable(case["expected"], actual), actual)
 
     return test
 

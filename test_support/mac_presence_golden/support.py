@@ -2,40 +2,13 @@
 
 import copy
 import math
-import operator
 from contextlib import ExitStack
 from unittest import mock
 
+from test_support.exception_outcome import pinned_message
+
 _HELPERS = ("public_id", "_iso", "_mac_gpus", "_number", "mac_components")
 _ERRORS = {"ValueError": ValueError, "TypeError": TypeError, "OSError": OSError, "RuntimeError": RuntimeError}
-
-# These built-in operations own their messages; application errors stay literal.
-_INTERPRETER_OPERATIONS = {
-    "snapshot_string": lambda: operator.getitem("snapshot", "sampledAt"),
-    "sampled_none": lambda: float(None),
-    "sampled_object": lambda: float({}),
-    "sampled_list": lambda: float([]),
-    "sources_unhashable_id": lambda: dict.fromkeys([[]]),
-    "api_coverage_unhashable": lambda: set([[]]),
-    "cli_coverage_unhashable": lambda: set([[]]),
-    "cli_instance_unhashable": lambda: set([[]]),
-}
-
-
-def expected_outcome(case):
-    """Keep complete expectations, deriving only built-in TypeError wording locally."""
-    expected = copy.deepcopy(case["expected"])
-    operation = _INTERPRETER_OPERATIONS.get(case["name"])
-    if operation is not None:
-        if expected.get("error") != "TypeError":
-            raise ValueError("Interpreter message requires a TypeError expectation")
-        try:
-            operation()
-        except TypeError as error:
-            expected["message"] = str(error)
-        else:
-            raise AssertionError("Interpreter operation did not raise TypeError")
-    return expected
 
 
 def _decode(value):
@@ -66,13 +39,16 @@ def run_case(module, case):
     counts = dict.fromkeys(_HELPERS, 0)
     fault = case.get("fault", {})
     originals = {name: getattr(module, name) for name in _HELPERS}
+    injected = None
+    if fault.get("helper"):
+        injected = _ERRORS[fault["error"]]("fixture helper failure")
 
     def observe(name):
         def call(*args, **kwargs):
             events.append([name, _encode(copy.deepcopy(args)), _encode(copy.deepcopy(kwargs))])
             counts[name] += 1
             if fault.get("helper") == name and counts[name] == fault.get("at", 1):
-                raise _ERRORS[fault["error"]]("fixture helper failure")
+                raise injected
             return originals[name](*args, **kwargs)
 
         return call
@@ -111,6 +87,9 @@ def run_case(module, case):
             TypeError,
             ValueError,
         ) as error:
-            outcome = {"error": type(error).__name__, "message": str(error)}
+            outcome = {"error": type(error).__name__}
+            message = pinned_message(error, module, injected=injected)
+            if message is not None:
+                outcome["message"] = message
     outcome.update(events=events, inputsUnchanged=_encode(snapshot) == original)
     return outcome

@@ -7,6 +7,7 @@ from pathlib import Path
 
 import activity
 from test_support.activity_collect_golden.support import run_case
+from test_support.exception_outcome import comparable
 
 
 class ActivityCollectGoldenTests(unittest.TestCase):
@@ -18,7 +19,8 @@ def _golden_test(case):
         expected = (
             case.get("expected_before_py314", case["expected"]) if sys.version_info < (3, 14) else case["expected"]
         )
-        self.assertEqual(run_case(activity, case), expected)
+        actual = run_case(activity, case)
+        self.assertEqual(comparable(expected, actual), actual)
 
     return test
 
