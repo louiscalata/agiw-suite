@@ -41,11 +41,20 @@ jobs:
       matrix:
         python: ['3.9', '3.12']
     steps:
+      # Pull requests run the tests on 3.12 only; 3.9 runs on push to main and every other event. The 3.9 PR job still
+      # reports success (no job-level `if:`, which would show it as skipped), but skips setup so the runner frees fast.
+      - name: Skip note (pull request runs 3.12 only)
+        if: github.event_name == 'pull_request' && matrix.python != '3.12'
+        shell: cmd
+        run: echo Python ${{ matrix.python }} tests run on push to main, not on pull requests.
       - uses: actions/checkout@v7.0.1
+        if: github.event_name != 'pull_request' || matrix.python == '3.12'
       - uses: actions/setup-python@v7.0.0
+        if: github.event_name != 'pull_request' || matrix.python == '3.12'
         with:
           python-version: ${{ matrix.python }}
       - name: Windows edition tests
+        if: github.event_name != 'pull_request' || matrix.python == '3.12'
         working-directory: windows
         # cmd, not the default pwsh: pwsh puts its own module folders first in PSModulePath, and the installer tests
         # start Windows PowerShell 5.1, which then cannot load Microsoft.PowerShell.Security (Get-Acl, Get-FileHash).
