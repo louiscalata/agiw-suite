@@ -2437,6 +2437,119 @@ class FinishRace(PeerLinkCase):
         self.assertIn(pc.link.node, mac.link.trusted())
 
 
+class UnpairPending(PeerLinkCase):
+    """unpair also cancels a pairing that is not saved yet, and the in-flight exchange then fails closed."""
+
+    def setUp(self):
+        self.mac = Node(self, "mac", "example-mac")
+        self.pc = Node(self, "windows", "winpc01")
+        self.pc.hello_to(self.mac)
+        self.mac.hello_to(self.pc)
+
+    def started(self):
+        pin = self.mac.link.invite("winpc01")["pin"]
+        invite_id = next(iter(self.mac.link._outbound))
+        joiner = pl.Spake("joiner", pin, self.mac.link.me(), self.pc.link.me(), invite_id)
+        code, reply = self.mac.link.on_start({**self.pc.link.me(), "invite": invite_id, "x": pl._hex(joiner.public)})
+        self.assertEqual(code, 200)
+        keys = joiner.finish(reply["y"])
+        return {"invite": invite_id, "attempt": reply["attempt"], "confirm": keys["joinerConfirm"]}
+
+    def test_cancel_outbound_invite_by_name_or_node_retires_the_pin(self):
+        for peer in ("winpc01", self.pc.link.node):
+            pin = self.mac.link.invite("winpc01")["pin"]
+            self.assertEqual(len(self.mac.link.snapshot()["invitesShowingPin"]), 1)
+            self.assertEqual(self.mac.link.unpair(peer), {"cancelled": self.pc.link.node})
+            self.assertEqual(self.mac.link.snapshot()["invitesShowingPin"], [])
+            with self.assertRaises(ConnectionError):
+                self.pc.link.accept("example-mac", pin)  # /pair/start answers 404: the PIN is gone
+        self.assertEqual(self.mac.link.trusted(), {})
+        self.assertEqual(self.pc.link.trusted(), {})
+
+    def test_cancel_after_start_makes_the_finish_fail(self):
+        body = self.started()
+        self.assertEqual(self.mac.link.unpair("winpc01"), {"cancelled": self.pc.link.node})
+        self.assertEqual(self.mac.link.on_finish(dict(body))[0], 404)
+        self.assertEqual(self.mac.link.trusted(), {})
+
+    def test_cancel_inbound_invite(self):
+        pin = self.mac.link.invite("winpc01")["pin"]
+        self.assertTrue(self.pc.link.snapshot()["peers"][0]["inviteWaiting"])
+        self.assertEqual(self.pc.link.unpair("example-mac"), {"cancelled": self.mac.link.node})
+        self.assertFalse(self.pc.link.snapshot()["peers"][0]["inviteWaiting"])
+        with self.assertRaises(LookupError):
+            self.pc.link.accept("example-mac", pin)
+        self.assertEqual(self.pc.link.trusted(), {})
+
+    def test_cancel_inbound_invite_while_accept_is_in_flight_pins_nothing_here(self):
+        pin = self.mac.link.invite("winpc01")["pin"]
+        real_http = pl._http
+
+        def http(address, port, method, path, *rest):
+            reply = real_http(address, port, method, path, *rest)
+            if path.endswith("/pair/finish"):
+                self.pc.link.unpair("example-mac")
+            return reply
+
+        with mock.patch.object(pl, "_http", http):
+            with self.assertRaises(PermissionError):
+                self.pc.link.accept("example-mac", pin)
+        self.assertEqual(self.pc.link.trusted(), {})
+
+    def test_cancel_completed_exchange_before_save_pins_nothing(self):
+        body = self.started()
+        link, inner, entries, cancelled = self.mac.link, self.mac.link._lock, [0], []
+
+        class CancelBeforeSave:
+            """The link's own RLock; unpair runs between on_finish's decision and its save."""
+
+            def __enter__(self):
+                entries[0] += 1
+                inner.__enter__()
+                if entries[0] == 2:
+                    cancelled.append(link.unpair("winpc01"))
+                return self
+
+            def __exit__(self, *exc):
+                return inner.__exit__(*exc)
+
+        with (
+            mock.patch.object(link, "_lock", CancelBeforeSave()),
+            mock.patch.object(link.store, "pin", wraps=link.store.pin) as pinned,
+        ):
+            code, _reply = link.on_finish(dict(body))
+        self.assertEqual(cancelled, [{"cancelled": self.pc.link.node}])
+        self.assertEqual(code, 409)
+        self.assertEqual(pinned.call_count, 0)
+        self.assertEqual(link._completed, {})
+        self.assertEqual(link.trusted(), {})
+        self.assertEqual(link.on_finish(dict(body))[0], 404)  # a retry finds nothing either
+
+    def test_unknown_peer_still_raises_the_same_lookup_error(self):
+        self.mac.link.invite("winpc01")
+        with self.assertRaises(LookupError) as raised:
+            self.mac.link.unpair("nobody")
+        self.assertEqual(str(raised.exception), "no single paired machine matches 'nobody'")
+        self.assertEqual(len(self.mac.link.snapshot()["invitesShowingPin"]), 1)
+
+    def test_trusted_unpair_is_unchanged(self):
+        pair(self, self.mac, self.pc)
+        self.assertEqual(self.mac.link.unpair("winpc01"), {"unpaired": self.pc.link.node})
+        self.assertEqual(self.mac.link.trusted(), {})
+        with self.assertRaises(LookupError):
+            self.mac.link.unpair("winpc01")
+
+    def test_cli_reports_a_cancelled_pending_pairing(self):
+        args = mock.Mock(state_dir=self.mac.dir, status_port=1, peer="winpc01")
+        for doc, line in (
+            ({"cancelled": "n1"}, "cancelled the pending pairing with n1\n"),
+            ({"unpaired": "n1"}, "unpaired n1\n"),
+        ):
+            with mock.patch.object(pl, "_control", return_value=doc), mock.patch("sys.stdout") as out:
+                self.assertEqual(pl._cmd_unpair(args), 0)
+            self.assertEqual("".join(c.args[0] for c in out.write.call_args_list), line)
+
+
 class CaseVariants(PeerLinkCase):
     """A default macOS volume and Windows are case-insensitive: a planted case variant opens for the canonical
     name. Variants are never written by this code, so they are never used."""

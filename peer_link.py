@@ -2284,6 +2284,7 @@ class PeerLink:
                     "finishAck": keys["finishAck"],
                     "saved": threading.Event(),
                     "node": joiner["node"],
+                    "name": joiner["name"],
                     "key": keys["link"],
                     "ok": False,
                     "expires": self.clock() + INVITE_TTL,
@@ -2448,6 +2449,8 @@ class PeerLink:
         with self._lock:
             trusted = self.trusted()
             matches = [n for n, p in trusted.items() if peer in (n, p.get("name"))]
+            if not matches:
+                return self._cancel_pending(peer)
             if len(matches) != 1:
                 raise LookupError("no single paired machine matches " + repr(peer[:64]))
             self.store.remove(matches[0])
@@ -2463,6 +2466,24 @@ class PeerLink:
                     del self._completed[invite]
             self._live.pop(matches[0], None)
         return {"unpaired": matches[0]}
+
+    def _cancel_pending(self, peer: str) -> dict:
+        """Cancel a pairing that has not been saved yet: a PIN this node shows, an invite waiting for a PIN
+        here, or a finished exchange still waiting to be pinned. Same exact node-or-name match as unpair.
+        Caller holds self._lock; the in-flight start/finish/accept re-checks see the entry gone and fail."""
+        nodes = {n for n, v in self._inbound.items() if peer in (n, v["peer"]["name"])}
+        nodes |= {v["peer"]["node"] for v in self._outbound.values() if peer in (v["peer"]["node"], v["peer"]["name"])}
+        nodes |= {v["node"] for v in self._completed.values() if peer in (v["node"], v.get("name"))}
+        if len(nodes) != 1:
+            raise LookupError("no single paired machine matches " + repr(peer[:64]))
+        (node,) = nodes
+        self._inbound.pop(node, None)
+        for invite in [i for i, v in self._outbound.items() if v["peer"]["node"] == node]:
+            del self._outbound[invite]
+        for invite in [i for i, v in self._completed.items() if v["node"] == node]:
+            self._completed[invite]["ok"] = False  # Revoke references held by finishes already waiting.
+            del self._completed[invite]
+        return {"cancelled": node}
 
 
 def directed_broadcasts() -> tuple[str, ...]:
@@ -2585,7 +2606,10 @@ def _cmd_accept(args: argparse.Namespace) -> int:
 
 def _cmd_unpair(args: argparse.Namespace) -> int:
     doc = _control(args.state_dir, args.status_port, "POST", "/control/unpair", {"peer": args.peer})
-    print(f"unpaired {doc['unpaired']}")
+    if "cancelled" in doc:
+        print(f"cancelled the pending pairing with {doc['cancelled']}")
+    else:
+        print(f"unpaired {doc['unpaired']}")
     return 0
 
 
