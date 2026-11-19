@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // A complete local demonstration: real Node syntax checks and assertions, a
 // deterministic author/reviewer, one repair, and a report written/read on disk.
-// Only the fixed source below is executed. This is not an untrusted-code sandbox.
+// Candidate text is syntax-checked and matched as data; it is never executed.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs/promises';
@@ -12,7 +12,25 @@ import { pathToFileURL } from 'node:url';
 import { createCandidate, runWorkflow } from '../workflow/engine.mjs';
 import { sha256Text, stableStringify } from '../workflow/contracts.mjs';
 
-export async function runExample() {
+export async function runExampleTests({ candidate, binding }) {
+  const match = /^export const answer = (41|42);\n?$/.exec(candidate.files[0].content);
+  const answer = match ? Number(match[1]) : undefined;
+  let assertionsExecuted = 0, assertionsPassed = 0;
+  const failures = [];
+  for (const [code, assertion] of [
+    ['ANSWER_TYPE', () => assert.equal(typeof answer, 'number')],
+    ['ANSWER_VALUE', () => assert.equal(answer, 42)],
+  ]) {
+    assertionsExecuted += 1;
+    try { assertion(); assertionsPassed += 1; }
+    catch { failures.push({ code, message: code === 'ANSWER_VALUE' ? 'Expected answer to equal 42.' : 'Expected a number.' }); }
+  }
+  return { status: failures.length ? 'FAIL' : 'PASS', evidence: { ...binding,
+    assertionsExecuted, assertionsPassed, failures, reason: failures.length ? 'An acceptance assertion failed.' : '',
+  } };
+}
+
+export async function runExample({ keepReport = true } = {}) {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'nisi-workflow-'));
   const task = {
     taskId: 'example.answer', mode: 'edit', language: 'javascript',
@@ -48,22 +66,7 @@ export async function runExample() {
       },
     },
     tests: {
-      async run({ candidate, binding }) {
-        const module = await import(`data:text/javascript;base64,${Buffer.from(candidate.files[0].content).toString('base64')}`);
-        let assertionsExecuted = 0, assertionsPassed = 0;
-        const failures = [];
-        for (const [code, assertion] of [
-          ['ANSWER_TYPE', () => assert.equal(typeof module.answer, 'number')],
-          ['ANSWER_VALUE', () => assert.equal(module.answer, 42)],
-        ]) {
-          assertionsExecuted += 1;
-          try { assertion(); assertionsPassed += 1; }
-          catch { failures.push({ code, message: code === 'ANSWER_VALUE' ? 'Expected answer to equal 42.' : 'Expected a number.' }); }
-        }
-        return { status: failures.length ? 'FAIL' : 'PASS', evidence: { ...binding,
-          assertionsExecuted, assertionsPassed, failures, reason: failures.length ? 'An acceptance assertion failed.' : '',
-        } };
-      },
+      run: runExampleTests,
     },
     reviewers: [{ id: 'example.reviewer', review({ candidate, checks, tests, binding, reviewerId }) {
       const findings = candidate.files[0].content !== 'export const answer = 42;\n' || checks.status !== 'PASS' || tests.status !== 'PASS'
@@ -83,8 +86,14 @@ export async function runExample() {
     assert.equal(sha256Text(`nisi/run-report/v1\0${stableStringify(readBack)}`), reportSha256);
     return { status: 'PASS', evidence: { ...binding, outcome: report.outcome, reportSha256 } };
   } };
-  const report = await runWorkflow(task, { adapters, reportStore });
-  return { report, reportPath, directory };
+  let completed = false;
+  try {
+    const report = await runWorkflow(task, { adapters, reportStore });
+    completed = true;
+    return { report, reportPath, directory };
+  } finally {
+    if (!keepReport || !completed) await fs.rm(directory, { recursive: true, force: true });
+  }
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {

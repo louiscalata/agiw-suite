@@ -70,25 +70,38 @@ function grantValid(v) {
   return true;
 }
 
+// Resolve a path to the file the operating system would open for it. On POSIX,
+// "link/.." goes through the link's target, as open() does; Node's JavaScript
+// realpath removes "link/.." first and can name a different in-scope file, so
+// use the system realpath there. Windows removes ".." from the path text
+// before the file system sees it, which is what the JavaScript realpath does.
+const resolveLikeOpen = target => process.platform === 'win32' ? fs.realpathSync(target) : fs.realpathSync.native(target);
+
 class ContentConsentGrant {
-  #value; #digest; #clock; #issuedAtMs; #revoked = false; #admitted = 0;
+  #value; #digest; #clock; #issuedAtMs; #revoked = false; #admitted = 0; #lastObservedMs; #expired = false;
 
   constructor(value, digest, clock, issuedAtMs) {
     this.#value = Object.freeze({ ...value, allowedKinds: Object.freeze([...value.allowedKinds]) });
     this.#digest = digest;
     this.#clock = clock;
     this.#issuedAtMs = issuedAtMs;
+    this.#lastObservedMs = issuedAtMs;
   }
 
   get digest() { return this.#digest; }
 
   #live() {
     if (this.#revoked) return 'CONSENT_REVOKED';
+    if (this.#expired) return 'CONSENT_EXPIRED';
     let now;
     try { now = this.#clock(); } catch { return 'CONSENT_CLOCK_INVALID'; }
     if (!isInt(now, 0)) return 'CONSENT_CLOCK_INVALID';
-    if (now < this.#issuedAtMs) return 'CONSENT_CLOCK_REGRESSION';
-    if (now >= this.#issuedAtMs + this.#value.lifetimeMs) return 'CONSENT_EXPIRED';
+    if (now < this.#lastObservedMs) return 'CONSENT_CLOCK_REGRESSION';
+    this.#lastObservedMs = now;
+    if (now >= this.#issuedAtMs + this.#value.lifetimeMs) {
+      this.#expired = true;
+      return 'CONSENT_EXPIRED';
+    }
     return null;
   }
 
@@ -112,8 +125,8 @@ class ContentConsentGrant {
     // that points outside it must not smuggle content past the boundary.
     let resolved, rootResolved;
     try {
-      resolved = fs.realpathSync(filePath);
-      rootResolved = fs.realpathSync(this.#value.scopeRoot);
+      resolved = resolveLikeOpen(filePath);
+      rootResolved = resolveLikeOpen(this.#value.scopeRoot);
     } catch { return fail('CONTENT_PATH_UNRESOLVABLE'); }
     const prefix = rootResolved.endsWith(path.sep) ? rootResolved : rootResolved + path.sep;
     if (!resolved.startsWith(prefix)) return fail('CONTENT_OUT_OF_SCOPE');
@@ -136,6 +149,7 @@ class ContentConsentGrant {
       descriptor = fs.openSync(resolved, flags);
       const opened = fs.fstatSync(descriptor, { bigint: true });
       if (!opened.isFile()) return fail('CONTENT_NOT_REGULAR_FILE');
+      if (opened.nlink > 1n) return fail('CONTENT_HARDLINK_REFUSED');
       if (!sameFile(stat, opened)) return fail('CONTENT_CHANGED_DURING_READ');
       const buffer = Buffer.alloc(this.#value.maxContentBytes + 1);
       let count = 0;

@@ -35,7 +35,7 @@ const snapshot = {
   models: [{ id: 'a', loaded: true }, { id: 'b', loaded: false }],
   machines: [{ host: 'mac', platform: 'mac', state: 'up' }, { host: 'pc', platform: 'windows', state: 'down' }],
 };
-const components = { nisi: { version: '0.2.0', integrity: 'verified', entry: '/Users/someone/secret/nisi.mjs' }, node: { found: true, path: '/usr/local/bin/node' }, check: { state: 'not-run' } };
+const components = { nisi: { version: '0.3.1', integrity: 'verified', entry: '/Users/someone/secret/nisi.mjs' }, node: { found: true, path: '/usr/local/bin/node' }, check: { state: 'not-run' } };
 const jev = { configured: false, state: 'unavailable', message: 'Secure Jev credential storage is unavailable.' };
 
 test('a working Mac shows what is done and what is next', () => {
@@ -45,7 +45,7 @@ test('a working Mac shows what is done and what is next', () => {
   assert.equal(s.activity.status, 'DONE');
   assert.equal(s.model.status, 'DONE');
   assert.equal(s.model.evidence, '1 model loaded of 2 installed.');
-  assert.equal(s.nisi.evidence, 'Nisi 0.2.0 package integrity verified.');
+  assert.equal(s.nisi.evidence, 'Nisi 0.3.1 package integrity verified.');
   assert.equal(s.node.status, 'DONE');
   assert.equal(s.selfcheck.status, 'NOT YET');
   assert.equal(s.selfcheck.link, '/components');

@@ -1,6 +1,6 @@
 {
   "name": "nisi",
-  "version": "0.2.0",
+  "version": "0.3.1",
   "private": false,
   "description": "A Node.js CLI and library for bounded AI-assisted coding workflows and validated run reports.",
   "license": "Apache-2.0",
@@ -27,7 +27,8 @@
     "check:static": "node scripts/require-node.cjs && node tools/check-side-effects.mjs",
     "example:workflow": "node scripts/require-node.cjs && node examples/workflow.mjs",
     "preflight": "node scripts/require-node.cjs",
-    "example:local-model": "node scripts/require-node.cjs && node examples/local-model-workflow.mjs"
+    "example:local-model": "node scripts/require-node.cjs && node examples/local-model-workflow.mjs",
+    "validate:data": "node scripts/require-node.cjs && node bin/nisi.mjs validate"
   },
   "devDependencies": {
     "typescript": "^6.0.3"
@@ -44,15 +45,17 @@
     "gate/*.mjs",
     "history/run-journal-v1.mjs",
     "history/run-journal-store-v1.mjs",
+    "history/validate-data.mjs",
     "policy/*.mjs",
     "serialization/*.mjs",
     "workflow/*.mjs"
   ],
   "keywords": [
+    "workflow",
+    "cli",
+    "llm",
     "canonical-json",
-    "capability-security",
     "static-analysis",
-    "mutation-testing",
     "foundation-models"
   ],
   "main": "./index.mjs",
@@ -66,6 +69,8 @@
     "./serialization": "./serialization/canonical-json-v1.mjs",
     "./adapters/apple-foundation-models": "./adapters/apple-foundation-models.mjs",
     "./adapters/local-chat": "./adapters/local-chat.mjs",
+    "./adapters/jev-advisor": "./adapters/jev-advisor.mjs",
+    "./adapters/jev-client": "./adapters/jev-client.mjs",
     "./history/run-journal": "./history/run-journal-v1.mjs",
     "./history/run-journal-store": "./history/run-journal-store-v1.mjs",
     "./index.mjs": "./index.mjs",
@@ -76,6 +81,8 @@
     "./serialization/canonical-json-v1.mjs": "./serialization/canonical-json-v1.mjs",
     "./adapters/apple-foundation-models.mjs": "./adapters/apple-foundation-models.mjs",
     "./adapters/local-chat.mjs": "./adapters/local-chat.mjs",
+    "./adapters/jev-advisor.mjs": "./adapters/jev-advisor.mjs",
+    "./adapters/jev-client.mjs": "./adapters/jev-client.mjs",
     "./canonical/canonical-json-v1.mjs": "./canonical/canonical-json-v1.mjs",
     "./gate/content-consent.mjs": "./gate/content-consent.mjs",
     "./gate/afm-content-executor.mjs": "./gate/afm-content-executor.mjs",

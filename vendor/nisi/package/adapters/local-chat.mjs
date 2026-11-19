@@ -3,10 +3,15 @@
 // Local OpenAI-compatible chat adapter.
 // This adapter is deliberately separate from the Apple Foundation Models consent path.
 
+import http from 'node:http';
 import { createCandidate, cloneFreeze, sha256Text, validateFindings } from '../workflow/contracts.mjs';
 
 const DEFAULT_MAX_BYTES = 1_048_576;
 const DEFAULT_MAX_TOKENS = 4096;
+// Sent as the OpenAI-compatible `reasoning_effort` field. Reasoning models
+// otherwise spend most of the output budget on hidden thinking; 'none' asks
+// the server to skip it. Omitted by default, so the request body is unchanged.
+export const LOCAL_CHAT_REASONING_EFFORTS = Object.freeze(['none', 'minimal', 'low', 'medium', 'high']);
 const MAX_TIMEOUT = 86_400_000;
 const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const fail = (code, message = code) => { const error = new Error(message); error.code = code; throw error; };
@@ -22,9 +27,51 @@ function validateEndpoint(value) {
   return url.href;
 }
 
+// Default transport for the loopback endpoint. Node's global fetch ends a request that
+// has received no response headers for 300 s (undici's headersTimeout), and these
+// requests are not streamed, so a slow local model would be cut off at five minutes
+// whatever `timeoutMs` says. node:http has no such cap; `timeoutMs` and the caller's
+// signal alone decide when the call stops. It does not follow redirects, and any
+// non-2xx status is refused by the caller, as with `redirect: 'error'`.
+function loopbackFetch(url, { method = 'POST', headers = {}, body, signal } = {}) {
+  // Node's socket errors carry codes such as ECONNREFUSED; the adapter reports its own.
+  const unavailable = cause => Object.assign(new Error('LOCAL_CHAT_UNAVAILABLE'), { code: 'LOCAL_CHAT_UNAVAILABLE', cause });
+  return new Promise((resolve, reject) => {
+    const target = new URL(url);
+    const payload = body === undefined ? undefined : Buffer.from(body);
+    const request = http.request({ host: target.hostname.replace(/^\[|\]$/gu, ''), port: target.port || 80, path: target.pathname + target.search,
+      method, signal, headers: { ...headers, ...(payload ? { 'content-length': String(payload.length) } : {}) } }, res => {
+      const status = res.statusCode;
+      // Statuses a Response cannot carry a body for (204, 205, 304) or cannot represent at all have no body for the caller to read.
+      if (status === 204 || status === 205 || status === 304 || status < 200 || status > 599) {
+        res.destroy();
+        resolve(new Response(null, { status: status >= 200 && status <= 599 ? status : 502 }));
+        return;
+      }
+      // A hand-written body stream: Readable.toWeb throws "Controller is already closed" on
+      // Node 22 when the reader cancels while data is still flowing.
+      let finished = false;
+      const body = new ReadableStream({
+        start(controller) {
+          const finish = action => { if (finished) return; finished = true; try { action(); } catch { /* already closed or cancelled */ } };
+          res.on('data', chunk => { if (finished) return; try { controller.enqueue(chunk); } catch { finished = true; res.destroy(); return; } if (controller.desiredSize !== null && controller.desiredSize <= 0) res.pause(); });
+          res.on('end', () => finish(() => controller.close()));
+          res.on('error', cause => finish(() => controller.error(unavailable(cause))));
+          res.on('aborted', () => finish(() => controller.error(unavailable())));
+        },
+        pull() { res.resume(); },
+        cancel() { finished = true; res.destroy(); },
+      });
+      resolve(new Response(body, { status }));
+    });
+    request.on('error', cause => reject(unavailable(cause)));
+    request.end(payload);
+  });
+}
+
 function config(input, role) {
   if (!isRecord(input)) fail('LOCAL_CHAT_CONFIG_INVALID');
-  const keys = ['endpoint', 'destination', 'model', 'id', 'maxResponseBytes', 'maxRequestBytes', 'maxOutputTokens', 'timeoutMs', 'fetch'];
+  const keys = ['endpoint', 'destination', 'model', 'id', 'maxResponseBytes', 'maxRequestBytes', 'maxOutputTokens', 'reasoningEffort', 'timeoutMs', 'fetch'];
   if (Reflect.ownKeys(input).some(key => !keys.includes(key))) fail('LOCAL_CHAT_CONFIG_INVALID');
   if (input.destination !== 'LOOPBACK_HTTP') fail('LOCAL_CHAT_DESTINATION_REQUIRED');
   const endpoint = validateEndpoint(input.endpoint);
@@ -38,8 +85,10 @@ function config(input, role) {
   if (!Number.isSafeInteger(maxOutputTokens) || maxOutputTokens < 1 || maxOutputTokens > 32768) fail('LOCAL_CHAT_TOKEN_CAP_INVALID');
   if (input.timeoutMs !== undefined && (!Number.isSafeInteger(input.timeoutMs) || input.timeoutMs < 1 || input.timeoutMs > MAX_TIMEOUT)) fail('LOCAL_CHAT_TIMEOUT_INVALID');
   if (input.fetch !== undefined && typeof input.fetch !== 'function') fail('LOCAL_CHAT_FETCH_INVALID');
+  if (input.reasoningEffort !== undefined && !LOCAL_CHAT_REASONING_EFFORTS.includes(input.reasoningEffort)) fail('LOCAL_CHAT_REASONING_EFFORT_INVALID');
   return Object.freeze({ endpoint, model: input.model, id: input.id, maxResponseBytes, maxRequestBytes, maxOutputTokens,
-    timeoutMs: input.timeoutMs ?? 120000, fetch: input.fetch ?? globalThis.fetch, role });
+    reasoningEffort: input.reasoningEffort ?? null,
+    timeoutMs: input.timeoutMs ?? 120000, fetch: input.fetch ?? loopbackFetch, role });
 }
 
 // JSON.parse accepts duplicate names. This small recursive codec rejects them first,
@@ -121,12 +170,12 @@ const INSTRUCTIONS = Object.freeze({
 
 function responseFormat(payload, operation) {
   const object = properties => ({type: 'object', properties, required: Object.keys(properties), additionalProperties: false});
-  const note = {type: 'string', minLength: 1, maxLength: 4096};
+  const note = {type: 'string', minLength: 1, maxLength: 4096, pattern: '\\S'};
   const candidate = object({files: {type: 'array', minItems: 1, maxItems: 256, items: object({
     path: {type: 'string', enum: payload.task.allowedFiles}, content: {type: 'string'},
   })}});
   const schema = operation === 'review'
-    ? object({findings: {type: 'array', maxItems: 256, items: object({code: {type: 'string'}, message: {type: 'string'}})}, summary: note})
+    ? object({findings: {type: 'array', maxItems: 256, items: object({code: {type: 'string', minLength: 1, maxLength: 128, pattern: '\\S'}, message: {type: 'string', minLength: 1, maxLength: 2048, pattern: '\\S'}})}, summary: note})
     : operation === 'repair'
       ? object({status: {type: 'string', enum: ['REPAIRED', 'NO_CHANGE']}, candidate: {anyOf: [candidate, {type: 'null'}]}, note})
       : object({candidate, note});
@@ -135,6 +184,9 @@ function responseFormat(payload, operation) {
 
 async function call(state, payload, operation, receipts, transform) {
   if (typeof state.fetch !== 'function') fail('LOCAL_CHAT_UNAVAILABLE');
+  // The host may replace or edit payload while the response is in flight.
+  // Copy the binding now so the receipt names the candidate this call sent.
+  const bound = isRecord(payload?.binding) ? Object.freeze({ ...payload.binding }) : undefined;
   const controller = new AbortController();
   const started = performance.now();
   let stopCode = null, requestSha256 = null;
@@ -143,9 +195,9 @@ async function call(state, payload, operation, receipts, transform) {
   const upstream = payload.signal;
   const abort = () => stop('ABORTED');
   const metadata = () => ({schemaVersion: 1, operation, adapterId: state.id,
-    requestedModel: state.model, runId: payload.binding?.runId ?? null,
-    taskFingerprint: payload.binding?.taskFingerprint ?? null, attempt: payload.binding?.attempt ?? null,
-    inputCandidateFingerprint: payload.binding?.candidateFingerprint ?? null, requestedMaxOutputTokens: state.maxOutputTokens,
+    requestedModel: state.model, runId: bound?.runId ?? null,
+    taskFingerprint: bound?.taskFingerprint ?? null, attempt: bound?.attempt ?? null,
+    inputCandidateFingerprint: bound?.candidateFingerprint ?? null, requestedMaxOutputTokens: state.maxOutputTokens,
     requestSha256, elapsedMs: Math.round(performance.now() - started)});
   try {
     if (upstream !== undefined && !(upstream instanceof AbortSignal)) fail('LOCAL_CHAT_SIGNAL_INVALID');
@@ -153,6 +205,7 @@ async function call(state, payload, operation, receipts, transform) {
     if (upstream?.aborted) abort();
     if (stopCode) fail(stopCode);
     const body = JSON.stringify({ model: state.model, stream: false, temperature: 0, max_tokens: state.maxOutputTokens,
+      ...(state.reasoningEffort === null ? {} : { reasoning_effort: state.reasoningEffort }),
       response_format: responseFormat(payload, operation),
       messages: [{ role: 'system', content: INSTRUCTIONS[operation] }, {role: 'user', content: promptFor(payload, operation)}] });
     if (Buffer.byteLength(body, 'utf8') > state.maxRequestBytes) fail('LOCAL_CHAT_REQUEST_TOO_LARGE');
@@ -181,7 +234,7 @@ async function call(state, payload, operation, receipts, transform) {
     const content = choice.message?.content;
     if (choice.message?.tool_calls?.length || choice.message?.refusal) fail('LOCAL_CHAT_FINISH_REFUSED');
     if (typeof content !== 'string' || content.trim() === '') fail('LOCAL_CHAT_EMPTY_RESPONSE');
-    const result = cloneFreeze(transform(strictJSON(content)));
+    const result = cloneFreeze(transform(strictJSON(content), bound));
     let usage = null;
     if (envelope.usage !== undefined) {
       const {prompt_tokens: promptTokens, completion_tokens: completionTokens, total_tokens: totalTokens} = envelope.usage;
@@ -201,7 +254,7 @@ async function call(state, payload, operation, receipts, transform) {
   } finally { clearTimeout(timer); try { upstream?.removeEventListener('abort', abort); } catch {} }
 }
 
-function bindingEvidence(payload, extra) { return { ...payload.binding, ...extra }; }
+function bindingEvidence(bound, extra) { return { ...(isRecord(bound) ? bound : {}), ...extra }; }
 function note(value) { if (typeof value !== 'string' || value.trim() === '' || value.length > 4096) fail('LOCAL_CHAT_NOTE_INVALID'); return value; }
 function findingList(value) { if (!Array.isArray(value) || value.length > 256) fail('LOCAL_CHAT_FINDINGS_INVALID'); return value; }
 function exact(value, keys) {
@@ -213,15 +266,15 @@ export function createLocalChatAuthorAdapter(input) {
   const receipts = [];
   return Object.freeze({ id: state.id,
     receipts: () => cloneFreeze(receipts),
-    async draft(payload) { return call(state, payload, 'draft', receipts, output => {
+    async draft(payload) { return call(state, payload, 'draft', receipts, (output, bound) => {
       exact(output, ['candidate', 'note']); if (!isRecord(output.candidate)) fail('LOCAL_CHAT_DRAFT_INVALID');
       const normalized = createCandidate(output.candidate, { authorId: state.id });
-      return { candidate: output.candidate, evidence: bindingEvidence(payload, { candidateFingerprint: normalized.fingerprint, note: note(output.note) }) }; }); },
-    async repair(payload) { return call(state, payload, 'repair', receipts, output => {
+      return { candidate: output.candidate, evidence: bindingEvidence(bound, { candidateFingerprint: normalized.fingerprint, note: note(output.note) }) }; }); },
+    async repair(payload) { return call(state, payload, 'repair', receipts, (output, bound) => {
       exact(output, ['status', 'candidate', 'note']); if (!['REPAIRED', 'NO_CHANGE'].includes(output.status)) fail('LOCAL_CHAT_REPAIR_INVALID');
       if (output.status === 'NO_CHANGE' && output.candidate !== null) fail('LOCAL_CHAT_REPAIR_INVALID');
       const candidate = output.status === 'REPAIRED' ? output.candidate : null; const normalized = candidate ? createCandidate(candidate, { authorId: state.id }) : null;
-      return { status: output.status, candidate, evidence: bindingEvidence(payload, { candidateFingerprint: normalized?.fingerprint ?? payload.binding.candidateFingerprint, baseCandidateFingerprint: payload.binding.candidateFingerprint, note: note(output.note) }) }; }); }
+      return { status: output.status, candidate, evidence: bindingEvidence(bound, { candidateFingerprint: normalized?.fingerprint ?? bound.candidateFingerprint, baseCandidateFingerprint: bound.candidateFingerprint, note: note(output.note) }) }; }); }
   });
 }
 
@@ -230,9 +283,9 @@ export function createLocalChatReviewerAdapter(input) {
   const receipts = [];
   return Object.freeze({ id: state.id,
     receipts: () => cloneFreeze(receipts),
-    async review(payload) { return call(state, payload, 'review', receipts, output => {
+    async review(payload) { return call(state, payload, 'review', receipts, (output, bound) => {
       exact(output, ['findings', 'summary']); const findings = findingList(output.findings); validateFindings(findings, 'LOCAL_CHAT'); const summary = note(output.summary);
-      return { status: findings.length === 0 ? 'PASS' : 'FAIL', evidence: bindingEvidence(payload, { reviewerId: state.id, findings, summary, reason: findings.length === 0 ? '' : summary }) }; }); }
+      return { status: findings.length === 0 ? 'PASS' : 'FAIL', evidence: bindingEvidence(bound, { reviewerId: state.id, findings, summary, reason: findings.length === 0 ? '' : summary }) }; }); }
   });
 }
 

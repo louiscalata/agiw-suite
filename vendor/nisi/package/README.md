@@ -1,247 +1,112 @@
-# Nisi v0.2
+# Nisi
 
-**A Node.js command-line tool and library for AI-assisted coding workflows.**
+[![CI](https://github.com/louiscalata/nisi/actions/workflows/ci.yml/badge.svg)](https://github.com/louiscalata/nisi/actions/workflows/ci.yml)
+[![Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](https://github.com/louiscalata/nisi/blob/main/LICENSE)
+[![Node.js 22+](https://img.shields.io/badge/node-%3E%3D22-339933.svg)](https://github.com/louiscalata/nisi/blob/main/package.json)
 
-Use Nisi when your application needs to coordinate drafting, checks, tests,
-review, and a limited repair cycle. You supply the task and tool integrations;
-Nisi returns proposed file contents and a report showing what passed, what
-failed, and why the run stopped. Fixed criteria and repair limits keep each
-attempt tied to the original request.
+Nisi runs one coding task through draft, checks, tests, separate review and bounded repair, and returns a report. It does not apply the files.
 
-**v0.2.0 is the first public CLI release.** Its command runs a fixed workflow
-demonstration or a fixed local-model JSON demonstration. Applications can use
-the workflow, journal, and store APIs directly. This release does not run
-arbitrary repositories from the command line. The [v0.1 verification
-record](https://github.com/louiscalata/nisi/blob/main/docs/verification.md)
-describes the earlier release. The [v0.2 verification record](https://github.com/louiscalata/nisi/blob/main/docs/verification-v0.2.md)
-records the checks for this release and their limits.
+**Status:** source version 0.3.1, prepared 9 November 2026. The last published git tag is [`v0.3.0`](https://github.com/louiscalata/nisi/releases/tag/v0.3.0) (7 November 2026). This source change does not create the `v0.3.1` tag, a GitHub Release, or an npm publication. Node.js 22 or newer on macOS, Linux and Windows. Apache-2.0. Nisi is not on the npm registry. The v0.3.1 changes are covered by the test suite. There is no new verification record. The [Windows check](https://github.com/louiscalata/nisi/blob/main/docs/verification-v0.3-windows.md) is one PC on v0.3.0 and was not repeated here. Jev pre/post gates for this preparation were **not run** (no API key in the build environment); see [docs/jev](https://github.com/louiscalata/nisi/blob/main/docs/jev/pre-v0.3.1.md).
 
 ## Quick start
 
-Install Node.js 22 or newer, then run the fixed, model-free demonstration:
+Install Node.js 22 or newer. In a checkout of this source:
 
 ```bash
-git clone --branch v0.2.0 --depth 1 https://github.com/louiscalata/nisi.git
+node bin/nisi.mjs demo
+```
+
+After the `v0.3.1` tag exists, this is the same tree:
+
+```bash
+git clone --branch v0.3.1 --depth 1 https://github.com/louiscalata/nisi.git
 cd nisi
 node bin/nisi.mjs demo
 ```
 
-The example drafts an intentionally incorrect JavaScript module, runs a syntax
-check and two assertions, repairs it once, obtains a separate review callback's
-result, and writes and verifies a report. It makes no model calls.
-The output includes:
+You should see this JSON:
 
 ```json
 {
   "outcome": "COMPLETED",
+  "code": null,
   "repairAttempts": 1,
-  "reportStored": true
+  "reportStored": true,
+  "modelCalls": 0
 }
 ```
 
-Run `npm ci` followed by `npm run check` to check the codec and run the test
-suite. The package declares Node.js 22 or newer, and the check script validates
-it directly. The [GitHub release](https://github.com/louiscalata/nisi/releases/tag/v0.2.0)
-also provides an npm-format archive for local installation; Nisi v0.2.0 is not
-published to the npm registry.
+The demo calls no model. It repairs an intentionally incorrect module once, writes a report in a temporary directory, checks it by read-back, and deletes it. `node examples/workflow.mjs` keeps the report.
 
-## Command line
+From a source checkout, `npm ci` then `npm run check` runs the structural check and the tests. Install of a release archive, after one is published, is in [Install and use](https://github.com/louiscalata/nisi/blob/main/docs/install.md).
 
-From a source checkout, run `node bin/nisi.mjs --help` to see the supported
-commands. An installed release archive provides the `nisi` executable.
-`nisi demo` runs the same fixed workflow shown above, with no model call.
-`nisi local-model` runs a fixed JSON-configuration task against a configured
-loopback chat server. It does not execute model-generated programs or apply
-changes to a repository. The host application remains responsible for any
-broader coding task and for deciding whether to apply proposed files.
+## Jev pre- and post-analysis
 
-To use the downloadable `nisi-0.2.0.tgz` archive without cloning the source,
-install it into a new project folder with
-`npm install /path/to/nisi-0.2.0.tgz --ignore-scripts`. Run
-`./node_modules/.bin/nisi demo` on macOS or Linux, or
-`.\node_modules\.bin\nisi.cmd demo` in Windows PowerShell. The archive does not
-install models or start a model server.
+Jev is TypeSafe's hosted System One model, a paid API with no free or open-weight stand-in. Nisi can ask it two questions around a run. Nothing is sent unless you pass a `judge` function or, starting in this version, set `TYPESAFE_API_KEY`.
 
-## What is new in v0.2
+**Pre-analysis** (`planWithJev`) asks whether the task needs the model to reason (`reason` or `direct`) and whether the task is missing information. The default map gives `direct` tasks `reasoningEffort: 'none'` and 1,024 output tokens, and `reason` tasks 4,096 tokens. That choice is a setting, not evidence that the setting is better.
 
-v0.2 adds the public `nisi` command, a **run journal**, and a disk store for it.
-The journal is an append-only, hash-chained record of what a run observed. A host can write it,
-reopen it after a process restart, and check it before relying on its rows.
-These modules live under `history/`. The v0.1 workflow and local-model adapter
-are unchanged; results measured with a separate private adapter do not apply
-to this public package.
+**Post-analysis** (`createJevReviewer`) records Jev's probability that the candidate meets every acceptance criterion. By default the review passes, and it still uses one of the task's required-reviewer slots. `gate: true` fails the review when the probability is below `threshold` (default 0.5) and sends the candidate to repair. If the judge throws or returns an invalid answer, the run ends `BLOCKED` with `REVIEW_UNAVAILABLE`.
 
-- **Run journal** (`history/run-journal-v1.mjs`, import `nisi/history/run-journal`).
-  `createRunJournal(config)` validates every entry (fixed keys, identifier
-  formats, safe integers, one of six states), reports duplicate and conflicting
-  re-appends, refuses invalid retries, revocations, and project mismatches,
-  applies the configured payload redaction before anything is stored, and
-  retires entries past their TTL or beyond the configured maximum by clearing
-  their payloads while keeping their place in the chain. `list(now)` reports
-  each entry's liveness: `RUNNING` with a fresh heartbeat, `UNKNOWN` once the
-  heartbeat is stale, `EXPIRED` after its TTL, or `REVOKED`. `serialize()`
-  produces canonical JSON lines with a header, a SHA-256 chain, and a footer;
-  `reopen(serialized)` rebuilds the journal and returns a recovery report
-  (`COMPLETE`, `INCOMPLETE` for truncated input, or `INVALID`). A journal
-  reopened from damaged input is sealed and refuses further appends. The
-  module imports only `node:crypto` and `node:util`.
-  Fingerprints and duplicate detection use the redacted entry. Changes only to
-  redacted values therefore compare as duplicates; the original values cannot
-  be reconstructed from the journal.
-- **Journal store** (`history/run-journal-store-v1.mjs`, import `nisi/history/run-journal-store`).
-  `writeSerializedJournal` and `readSerializedJournal` move a serialized
-  journal to and from disk through a caller-supplied `fs`. A write validates
-  the chain first, goes through an exclusive temp file in the same directory,
-  syncs the file and its directory, verifies by reading back, and renames into
-  place. Each write attempt uses its own temporary filename, so an orphaned
-  temporary file from a stopped process does not block an identical retry.
-  `expectedPreviousSha256` detects stale **sequential** writes; it is not an
-  atomic guard for concurrent writers. Use one writer per journal and
-  serialize writes in the host. The store reports `committed` and `durable`
-  separately, so a write that landed without confirmed file and directory
-  sync is never reported as durable. A read refuses truncated, non-canonical,
-  malformed-UTF-8, or chain-broken files instead of returning partial data.
+On 16 harder tasks with one local model, each figure from a single run, the Jev plan matched the adapter defaults (14 of 16) and showed no demonstrated gain in accuracy or speed. On 31 labelled answers, Jev's ranking was too weak to gate a run (AUC 0.78). Numbers and the exact data that leaves the machine are in [Local models and Jev](https://github.com/louiscalata/nisi/blob/main/docs/local-models.md#jev-pre--and-post-analysis-optional).
 
-The public package does not include a recovery worker. Package exports are
-limited to the declared runtime modules; old undocumented deep imports may no
-longer resolve. A host owns the journal
-location outside the package and can call `readSerializedJournal` followed by
-`reopen` after a restart. A stopped write may leave a file named
-`journal.jsonl.<sha256>.<uuid>.tmp` beside the journal. Inspect the owner and
-destination before removing an orphan. Journal views and recovery reports carry
-`authorizing: false`; they record observations and grant no authority.
+## What is in 0.3.1
 
-## Use it in an application
+- A built-in Jev client, `nisi/adapters/jev-client`, used when `TYPESAFE_API_KEY` is set and no `judge` is passed.
+- Forty-two more harder tasks, selected with `--tasks v2`. The default remains the 16-task set from v0.3.0.
+- Local-chat calls may run longer than five minutes. Node's `fetch` was cutting them off. An injected `fetch` is unchanged.
+- `nisi validate` checks a run journal, or a directory of journals and workflow reports, and prints PASS or FAIL without printing payloads.
 
-Start with the complete [workflow example](https://github.com/louiscalata/nisi/blob/main/examples/workflow.mjs).
-Replace its fixed task and callbacks with your application's requirements and
-tools. A task defines allowed file names, acceptance criteria, a deadline,
-a repair budget, and the required reviewer count.
+The [changelog](https://github.com/louiscalata/nisi/blob/main/CHANGELOG.md) is the full list. Draft notes for the unpublished tag are in [docs/release-notes/v0.3.1.md](https://github.com/louiscalata/nisi/blob/main/docs/release-notes/v0.3.1.md).
 
-The integration has this shape; `task` and the callbacks below are supplied by
-your application:
+## How it works
 
-```js
-import { runWorkflow } from 'nisi/workflow';
+An **adapter** is a callback object you supply that connects one role to your tool or model. A **candidate** is a snapshot of the changed file names and their complete contents, not a patch. Nisi validates everything an adapter returns.
 
-const report = await runWorkflow(task, {
-  adapters: {
-    authorizeContext: { authorize },
-    author: { id: 'author.primary', draft, repair },
-    staticChecks: { check },
-    tests: { run },
-    reviewers: [{ id: 'reviewer.primary', review }],
-  },
-});
-```
+1. Nisi binds the task and asks your code whether the permitted files may be used.
+2. The author adapter drafts a candidate.
+3. Static checks run, then tests. A failed check skips the tests, and a failed test skips review.
+4. Each reviewer adapter reviews the candidate separately.
+5. A failed check, test or review sends the candidate back to the author for repair, within the repair budget. The repaired candidate returns to step 3 and must pass fresh checks, tests and review.
+6. The run ends with an outcome (`COMPLETED`, `FAILED`, `BLOCKED`, `CANCELLED`, `TIMED_OUT`, `REPAIR_LIMIT` or `NO_PROGRESS`) and a report. Cancellation, a deadline, missing evidence or a repeated candidate also end it.
 
-Within this checkout, the package import resolves to Nisi's workflow module.
-See the [Workflow API](https://github.com/louiscalata/nisi/blob/main/docs/workflow-api.md)
-for callback inputs, return schemas, error outcomes, and optional report storage.
-Your application decides whether to apply the candidate's file contents.
+Nisi never writes the files; your application decides whether to apply the candidate. In review mode you supply the candidate and Nisi skips drafting and repair. The full flow diagram is in [Architecture](https://github.com/louiscalata/nisi/blob/main/docs/architecture.md#execution-flow).
 
-## Local model adapters
+## Check a journal on your machine
 
-For model-generated JSON configuration, start a compatible local chat server
-with JSON-schema output support. Replace both placeholders with different
-configured model names:
+Real run journals are not in this repository. Point the checker at a directory or one file. It reads locally and prints counts, sha256 and reason codes.
 
 ```bash
-node bin/nisi.mjs local-model \
-  http://127.0.0.1:1234/v1/chat/completions AUTHOR_MODEL REVIEWER_MODEL
+scripts/validate-real-data.sh --data-dir /absolute/path/to/your/nisi-data
+scripts/validate-real-data.sh --journal /absolute/path/to/journal.jsonl
 ```
 
-The example checks four fixed assertions and sends the candidate and results
-to the reviewer. It evaluates JSON as data. Invalid arguments produce a setup
-error before any model request. See the
-[local model guide](https://github.com/louiscalata/nisi/blob/main/docs/local-models.md)
-for endpoint requirements, timeouts, and response validation. The server and
-models are configured by the host application.
+`scripts/validate-real-data.sh --smoke` checks only `fixtures/sample-data/`, which is synthetic. `verified: true` on a journal means the hash chain matches the file, not that the events happened or that a signature was checked.
 
-## Architecture
+## Limits
 
-The **Workflow Orchestrator** (`runWorkflow`) calls adapters in sequence and
-validates their result records. An **adapter** is a callback object that connects
-one workflow role to an application tool or model. Separate author and reviewer
-IDs make responsibilities explicit; the host supplies trustworthy implementations.
+- **Scope.** The CLI runs two fixed demonstrations and `validate`. It does not run your repository. `demo` calls no model. `local-model` needs a loopback chat server that you run, an endpoint and two different model names. Neither command runs model-generated code or changes a repository.
+- **Distribution.** Nisi is not on the npm registry. The archive installs no models and starts no model server.
+- **Trust.** Nisi checks what your callbacks report. It cannot see what they did. `COMPLETED` does not authorize applying files or shipping.
+- **Generated code.** If you run generated code, isolate it.
+- **Run journal.** The optional run journal is a hash-chained record of a run. Its `verified: true` means internal consistency, not authenticity.
+- **Data sent to Jev.** Nisi builds a `state` record: the task's id, mode, language, allowed file names and acceptance criteria and, for the reviewer, the candidate's files and whether the tests passed. A `judge` you write decides what is sent. The built-in client sends that `state` as is when `TYPESAFE_API_KEY` is set and no `judge` is passed. With neither, nothing is sent.
+- **Jev as reviewer.** By default it passes, yet counts as a required reviewer. A failing judge blocks the run. The measured ranking was too weak to use as a gate. See the section above.
+- **Not measured.** The benchmarks are integration checks, not accuracy estimates. The local pilot used one loaded model and 12 tasks, and Nisi tied a handwritten checked loop.
+- **Verification.** v0.3.0 and v0.3.1 are covered by tests. v0.3.0 has a one-PC Windows note. v0.3.1 has no verification record of its own, and the Jev gates for this preparation did not run.
 
-In the kitchen analogy, the task is the order, permitted context is the
-ingredients, and the candidate is the plate. The orchestrator is the sous chef
-coordinating stations; the reviewer is the expo checking the plate at the pass.
-A station can be ordinary code, a test process, or a model adapter.
+## Learn more
 
-### The Path of One Plate
+- [Documentation index](https://github.com/louiscalata/nisi/blob/main/docs/README.md)
+- [Install and use](https://github.com/louiscalata/nisi/blob/main/docs/install.md)
+- [Workflow API](https://github.com/louiscalata/nisi/blob/main/docs/workflow-api.md)
+- [Local models and Jev](https://github.com/louiscalata/nisi/blob/main/docs/local-models.md)
+- [Run journal and store](https://github.com/louiscalata/nisi/blob/main/docs/run-journal.md)
+- [Benchmarks](https://github.com/louiscalata/nisi/blob/main/docs/benchmarks.md)
+- [Changelog](https://github.com/louiscalata/nisi/blob/main/CHANGELOG.md)
 
-An edit task follows this path. A repaired candidate must pass fresh checks,
-tests, and review. Cancellation or a deadline can stop the run at any stage.
+## License and support
 
-```mermaid
-flowchart TD
-    order["Take the order · Task specification"]
-    ingredients["Authorize context · Host policy"]
-    cook["Prepare the plate · Author adapter"]
-    checks["Check the work · Static checks and tests"]
-    pass["Inspect at the pass · Reviewer adapters"]
-    accept["Complete the workflow · Return the run report"]
-    repair["Repair the plate · Author adapter"]
-    stop["Stop incomplete · Record the reason"]
-    order --> ingredients
-    ingredients --> cook
-    ingredients -->|Authorization unavailable or refused| stop
-    cook --> checks
-    cook -->|No valid candidate| stop
-    checks -->|Checks and tests pass| pass
-    checks -->|Failed check and repair budget remains| repair
-    checks -->|Missing evidence or no repair available| stop
-    pass -->|All required reviews pass| accept
-    pass -->|Failed review and repair budget remains| repair
-    pass -->|Missing evidence or no repair available| stop
-    repair --> checks
-```
+Apache-2.0, maintained by Louis Calata.
 
-Review mode starts with an existing candidate and runs authorization, checks,
-tests, and review without drafting or repair. The
-[architecture guide](https://github.com/louiscalata/nisi/blob/main/docs/architecture.md)
-defines workflow, pipeline, run, state, stage status, and final outcome.
-
-### Components
-
-| Component | Responsibility |
-|---|---|
-| Workflow Orchestrator | Sequence stages, validate evidence, limit repairs, return a run report |
-| Local Chat Adapters | Send author and reviewer requests to a configured loopback HTTP endpoint |
-| File Access Policy | Admit file content under the separate Apple on-device destination contract |
-| JSON Canonicalizer | Produce stable bytes and digests under Nisi's restricted integer-only JSON profile |
-| Apple Foundation Models Adapter | Run and validate a native advisory helper in a compatible Apple environment |
-| Static Analysis Check | Check selected direct call patterns in the JSON codec |
-| Run Journal | Keep an append-only, hash-chained record of run observations with redaction, liveness, and verified reopen |
-| Journal Store | Write and read a serialized journal through a temp file, sync, read-back, and rename, reporting durability honestly |
-
-Nisi validates what adapters report. `COMPLETED` means the required stages
-returned valid passing evidence; callback honesty and actual file access remain
-host responsibilities. The host also owns applying changes and release decisions.
-
-## Documentation
-
-- [Workflow API reference](https://github.com/louiscalata/nisi/blob/main/docs/workflow-api.md) — task, candidate, callback, and report contracts.
-- [Architecture](https://github.com/louiscalata/nisi/blob/main/docs/architecture.md) — components, terminology, and trust boundaries.
-- [Local models](https://github.com/louiscalata/nisi/blob/main/docs/local-models.md), [file access](https://github.com/louiscalata/nisi/blob/main/docs/file-policy.md), and [Apple integration](https://github.com/louiscalata/nisi/blob/main/docs/apple-foundation-models.md) — integration setup and limits.
-- [v0.1 verification](https://github.com/louiscalata/nisi/blob/main/docs/verification.md) and [v0.2 verification](https://github.com/louiscalata/nisi/blob/main/docs/verification-v0.2.md) — version-scoped results and limits.
-- [Changelog](https://github.com/louiscalata/nisi/blob/main/CHANGELOG.md) — public changes by version.
-- [v0.1 editable README manuscript](https://github.com/louiscalata/nisi/tree/main/docs/editor) — a standalone editor for the earlier README text.
-
-## Support and license
-
-Questions and reproducible reports are welcome in
-[GitHub Issues](https://github.com/louiscalata/nisi/issues). See the
-[contribution policy](https://github.com/louiscalata/nisi/blob/main/CONTRIBUTING.md)
-and [security scope](https://github.com/louiscalata/nisi/blob/main/SECURITY.md).
-Pull requests are not currently accepted. Maintained by Louis Calata; licensed
-under [Apache-2.0](https://github.com/louiscalata/nisi/blob/main/LICENSE).
-
-## Background
-
-Nisi grew out of **initiate online code mode**, the assistant skill Louis uses
-to organize coding work. Its portable rules became this library: fixed scope,
-defined responsibilities, separate review, and bounded repair. The assistant
-skill is optional. Codex and Claude were used during development.
+Questions and reproducible reports are welcome in [GitHub Issues](https://github.com/louiscalata/nisi/issues). Pull requests are not accepted. See [CONTRIBUTING.md](https://github.com/louiscalata/nisi/blob/main/CONTRIBUTING.md), [SECURITY.md](https://github.com/louiscalata/nisi/blob/main/SECURITY.md) and [LICENSE](https://github.com/louiscalata/nisi/blob/main/LICENSE).

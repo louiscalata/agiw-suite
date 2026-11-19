@@ -1,4 +1,4 @@
-"""Verify and copy the exact public Nisi 0.2.0 release, entirely offline."""
+"""Verify and copy the exact public Nisi 0.3.1 release, entirely offline."""
 
 from __future__ import annotations
 import argparse
@@ -11,7 +11,7 @@ import stat
 import tempfile
 
 SOURCE = Path(__file__).resolve().parent / "vendor" / "nisi"
-MANIFEST_SHA256 = "d7cd9f31365ad47f01ccfbfaf2cf29923830abf642c60518cbeb1b9776d8cd23"
+MANIFEST_SHA256 = "24a2c387d19046ed41a85f28673dadd12981a021902f93894a9532380eb9ad00"
 
 
 def _no_symlink_components(path: Path) -> None:

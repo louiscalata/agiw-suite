@@ -8,7 +8,7 @@ const source = readFileSync(new URL('./web/components.js', import.meta.url), 'ut
 function run(components) {
   const els = {};
   const element = () => ({ textContent: '', disabled: false, title: '', addEventListener() {} });
-  const tag = { textContent: 'v0.2.0' };
+  const tag = { textContent: 'v0.3.1' };
   const document = {
     hidden: false, getElementById: id => (els[id] ||= element()), querySelector: q => (q === '#nisiHeading span' ? tag : null), addEventListener() {},
   };
@@ -22,11 +22,11 @@ function run(components) {
 
 test('the Nisi version on Components comes from the reply, in a strict form only', async () => {
   const verified = version => ({ nisi: { integrity: 'verified', version, entry: '/x/nisi.mjs' }, node: { found: true }, check: { state: 'not-run' } });
-  assert.deepEqual(await run(verified('0.2.0')), { tag: 'v0.2.0', integrity: 'Verified · public 0.2.0 payload' });
+  assert.deepEqual(await run(verified('0.3.1')), { tag: 'v0.3.1', integrity: 'Verified · public 0.3.1 payload' });
   assert.deepEqual(await run(verified('0.3.14')), { tag: 'v0.3.14', integrity: 'Verified · public 0.3.14 payload' });
   for (const bad of ['<b>9</b>', '1.2', '1.2.3.4', '1234.1.1', '1.2.3-rc1', ' 1.2.3', '1.2.3\n', '', null, undefined, 7, ['1.2.3'], { toString: () => '1.2.3' }]) {
     const out = await run(verified(bad));
-    assert.equal(out.tag, 'v0.2.0', `the heading is left alone for ${JSON.stringify(bad)}`);
+    assert.equal(out.tag, 'v0.3.1', `the heading is left alone for ${JSON.stringify(bad)}`);
     assert.equal(out.integrity, 'Verified · public payload', JSON.stringify(bad));
   }
   const unverified = await run({ nisi: { integrity: 'mismatch', version: '0.9.9' }, node: {}, check: {} });
@@ -35,6 +35,6 @@ test('the Nisi version on Components comes from the reply, in a strict form only
 
 test('the version is written as text, never as markup, and no version is hard-coded in the script', () => {
   assert.doesNotMatch(source, /innerHTML|outerHTML|insertAdjacentHTML/);
-  assert.doesNotMatch(source, /public 0\.2\.0|'v0\.2\.0'/);
+  assert.doesNotMatch(source, /public \d+\.\d+\.\d+|['"]v\d+\.\d+\.\d+['"]/);
   assert.match(source, /tag\.textContent='v'\+version/);
 });
