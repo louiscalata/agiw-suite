@@ -138,6 +138,10 @@ _WINDOWS_JOB_EVIDENCE = (
     "completionTokens",
     "promptPerSecond",
     "promptTokens",
+    "draftN",
+    "draftNAccepted",
+    "draftAcceptanceRate",
+    "fallbackReason",
     "flags",
 )
 # Result flags the dispatcher journals (reply_flags); anything else is dropped.
@@ -3526,6 +3530,8 @@ def _windows_job_evidence(job: dict[str, Any]) -> dict[str, Any]:
 
 
 def _fold_windows_journal(lines: list[bytes], now: float) -> tuple[dict[str, dict[str, Any]], float | None, bool]:
+    from speculative_telemetry import receipt_speculative_fields
+
     jobs: dict[str, dict[str, Any]] = {}
     latest: float | None = None
     read_complete = True
@@ -3566,6 +3572,10 @@ def _fold_windows_journal(lines: list[bytes], now: float) -> tuple[dict[str, dic
                 "completionTokens": None,
                 "promptPerSecond": None,
                 "promptTokens": None,
+                "draftN": None,
+                "draftNAccepted": None,
+                "draftAcceptanceRate": None,
+                "fallbackReason": None,
                 "flags": [],
                 "cancelRequested": False,
             },
@@ -3605,7 +3615,7 @@ def _fold_windows_journal(lines: list[bytes], now: float) -> tuple[dict[str, dic
                 continue
             if status == "cancelled":
                 # Settled: the worker stopped or skipped the job. There is no answer, so no speed,
-                # size or flag is kept, even if an earlier record carried some.
+                # size, speculative evidence or flag is kept, even if an earlier record carried some.
                 job.update(
                     state="cancelled",
                     settledUnix=unix,
@@ -3614,6 +3624,10 @@ def _fold_windows_journal(lines: list[bytes], now: float) -> tuple[dict[str, dic
                     completionTokens=None,
                     promptPerSecond=None,
                     promptTokens=None,
+                    draftN=None,
+                    draftNAccepted=None,
+                    draftAcceptanceRate=None,
+                    fallbackReason=None,
                     flags=[],
                 )
                 continue
@@ -3627,6 +3641,7 @@ def _fold_windows_journal(lines: list[bytes], now: float) -> tuple[dict[str, dic
             # reported count of 0 tokens cannot vouch for one. (Speed comes from llama-server timings and the
             # count from usage, so a missing count alone does not void a speed.)
             timed = status == "success" and bool(elapsed)  # None (missing/invalid) or 0 s: no speed
+            speculative = receipt_speculative_fields(record=record)
             job.update(
                 state=status,
                 settledUnix=unix,
@@ -3639,6 +3654,10 @@ def _fold_windows_journal(lines: list[bytes], now: float) -> tuple[dict[str, dic
                     _finite_number(record.get("promptPerSecond"), 0.0, 1e6) if timed and prompt_tokens != 0 else None
                 ),
                 promptTokens=prompt_tokens,
+                draftN=speculative["draftN"] if status == "success" else None,
+                draftNAccepted=speculative["draftNAccepted"] if status == "success" else None,
+                draftAcceptanceRate=speculative["draftAcceptanceRate"] if status == "success" else None,
+                fallbackReason=speculative["fallbackReason"],
                 flags=[flag for flag in _WINDOWS_JOB_FLAGS if isinstance(flags, list) and flag in flags[:16]],
             )
         elif event == "cancel-requested":

@@ -86,6 +86,40 @@ class LaneProbe(unittest.TestCase):
         self.assertEqual(row["context"], 32768)
 
 
+    def test_slot_speculative_counts_are_optional_evidence(self):
+        raw = slots((True, 12), (False, 0))
+        raw[0]["speculative"] = {"draft_n": 8, "draft_n_accepted": 4}
+        lane = probes.probe_lane(FAST, fake_fetch({
+            "/health": {"status": "ok"},
+            "/v1/models": {"data": [{"id": "openai/gpt-oss-20b"}]},
+            "/slots": raw,
+        }))
+        self.assertEqual((lane["status"], lane["phase"]), ("busy", "generating"))
+        self.assertEqual(
+            (lane["slots"][0]["draftN"], lane["slots"][0]["draftNAccepted"], lane["slots"][0]["draftAcceptanceRate"]),
+            (8, 4, 0.5),
+        )
+        idle = probes.probe_lane(FAST, fake_fetch({
+            "/health": {"status": "ok"},
+            "/v1/models": {"data": [{"id": "openai/gpt-oss-20b"}]},
+            "/slots": slots((False, 0)),
+        }))
+        self.assertEqual(idle["status"], "idle")
+        self.assertEqual(
+            (idle["slots"][0]["draftN"], idle["slots"][0]["draftNAccepted"], idle["slots"][0]["draftAcceptanceRate"]),
+            (None, None, None),
+        )
+        raw_bad = slots((False, 0))
+        raw_bad[0]["speculative"] = "not-a-dict"
+        malformed = probes.probe_lane(FAST, fake_fetch({
+            "/health": {"status": "ok"},
+            "/v1/models": {"data": [{"id": "openai/gpt-oss-20b"}]},
+            "/slots": raw_bad,
+        }))
+        self.assertEqual(malformed["status"], "idle")
+        self.assertIsNone(malformed["slots"][0]["draftN"])
+
+
 class SlowSlots(unittest.TestCase):
     def test_slots_get_a_longer_timeout_than_health(self):
         seen = {}

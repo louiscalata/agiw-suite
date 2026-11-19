@@ -2492,6 +2492,190 @@ class WindowsJobsJournalTests(unittest.TestCase):
         with mock.patch.object(telemetry, "_WINDOWS_JOBS_PATH", Path("/nonexistent/jobs.jsonl")):
             self.assertEqual(telemetry._windows_jobs(self.NOW)[0]["clientsRecent"], {})
 
+    def test_success_result_projects_draft_counts_and_rate(self):
+        self._journal(
+            [
+                self.rec("enqueued", self.JOB_A, 20, model="gpt-oss-20b", timeout=60),
+                self.rec(
+                    "result",
+                    self.JOB_A,
+                    10,
+                    status="success",
+                    model="gpt-oss-20b",
+                    elapsedSeconds=2.0,
+                    completionTokens=12,
+                    predictedPerSecond=41.5,
+                    timings={"draft_n": 100, "draft_n_accepted": 50},
+                ),
+            ]
+        )
+        jobs, _ = telemetry._windows_jobs(self.NOW)
+        row = {item["id"]: item for item in jobs["recent"]}[self.JOB_A]
+        self.assertEqual(
+            (
+                row["predictedPerSecond"],
+                row["draftN"],
+                row["draftNAccepted"],
+                row["draftAcceptanceRate"],
+                row["fallbackReason"],
+            ),
+            (41.5, 100, 50, 0.5, None),
+        )
+        self.assertEqual(
+            (
+                jobs["lastSuccess"]["draftN"],
+                jobs["lastSuccess"]["draftNAccepted"],
+                jobs["lastSuccess"]["draftAcceptanceRate"],
+            ),
+            (100, 50, 0.5),
+        )
+
+    def test_plain_fallback_reason_is_projected_without_draft_counts(self):
+        self._journal(
+            [
+                self.rec("enqueued", self.JOB_A, 20, model="gpt-oss-20b", timeout=60),
+                self.rec(
+                    "result",
+                    self.JOB_A,
+                    10,
+                    status="success",
+                    model="gpt-oss-20b",
+                    elapsedSeconds=2.0,
+                    completionTokens=8,
+                    predictedPerSecond=20.0,
+                    fallbackReason="load_failure",
+                ),
+            ]
+        )
+        jobs, _ = telemetry._windows_jobs(self.NOW)
+        row = {item["id"]: item for item in jobs["recent"]}[self.JOB_A]
+        self.assertEqual(
+            (row["fallbackReason"], row["draftN"], row["draftNAccepted"], row["draftAcceptanceRate"]),
+            ("load_failure", None, None, None),
+        )
+
+    def test_cancelled_result_clears_speculative_fields(self):
+        self._journal(
+            [
+                self.rec("enqueued", self.JOB_A, 20, timeout=60),
+                self.rec(
+                    "result",
+                    self.JOB_A,
+                    10,
+                    status="cancelled",
+                    elapsedSeconds=1.5,
+                    completionTokens=4,
+                    predictedPerSecond=40.0,
+                    draftN=8,
+                    draftNAccepted=4,
+                    draftAcceptanceRate=0.5,
+                    fallbackReason="load_failure",
+                ),
+            ]
+        )
+        jobs, _ = telemetry._windows_jobs(self.NOW)
+        row = {item["id"]: item for item in jobs["recent"]}[self.JOB_A]
+        self.assertEqual(row["state"], "cancelled")
+        self.assertEqual(
+            (
+                row["predictedPerSecond"],
+                row["draftN"],
+                row["draftNAccepted"],
+                row["draftAcceptanceRate"],
+                row["fallbackReason"],
+            ),
+            (None, None, None, None, None),
+        )
+
+    def test_invalid_fallback_reason_is_dropped(self):
+        self._journal(
+            [
+                self.rec("enqueued", self.JOB_A, 20, model="gpt-oss-20b", timeout=60),
+                self.rec(
+                    "result",
+                    self.JOB_A,
+                    10,
+                    status="success",
+                    model="gpt-oss-20b",
+                    elapsedSeconds=2.0,
+                    completionTokens=8,
+                    predictedPerSecond=20.0,
+                    fallbackReason="unknown",
+                ),
+            ]
+        )
+        jobs, _ = telemetry._windows_jobs(self.NOW)
+        row = {item["id"]: item for item in jobs["recent"]}[self.JOB_A]
+        self.assertIsNone(row["fallbackReason"])
+
+    def test_error_and_zero_completion_still_withhold_tok_s(self):
+        self._journal(
+            [
+                self.rec("enqueued", self.JOB_A, 30, model="gpt-oss-20b", timeout=60),
+                self.rec(
+                    "result",
+                    self.JOB_A,
+                    20,
+                    status="error",
+                    model="gpt-oss-20b",
+                    elapsedSeconds=2.0,
+                    completionTokens=8,
+                    predictedPerSecond=40.0,
+                    draftN=8,
+                    draftNAccepted=4,
+                    fallbackReason="load_failure",
+                ),
+                self.rec("enqueued", self.JOB_B, 18, model="gpt-oss-20b", timeout=60),
+                self.rec(
+                    "result",
+                    self.JOB_B,
+                    10,
+                    status="success",
+                    model="gpt-oss-20b",
+                    elapsedSeconds=0,
+                    completionTokens=8,
+                    predictedPerSecond=40.0,
+                    draftN=8,
+                    draftNAccepted=2,
+                ),
+                self.rec("enqueued", self.JOB_C, 8, model="gpt-oss-20b", timeout=60),
+                self.rec(
+                    "result",
+                    self.JOB_C,
+                    4,
+                    status="success",
+                    model="gpt-oss-20b",
+                    elapsedSeconds=2.0,
+                    completionTokens=0,
+                    predictedPerSecond=40.0,
+                    draftN=6,
+                    draftNAccepted=3,
+                ),
+            ]
+        )
+        jobs, _ = telemetry._windows_jobs(self.NOW)
+        rows = {item["id"]: item for item in jobs["recent"]}
+        self.assertEqual(
+            (rows[self.JOB_A]["predictedPerSecond"], rows[self.JOB_A]["draftN"], rows[self.JOB_A]["fallbackReason"]),
+            (None, None, "load_failure"),
+        )
+        self.assertEqual(
+            (
+                rows[self.JOB_B]["predictedPerSecond"],
+                rows[self.JOB_B]["draftN"],
+                rows[self.JOB_B]["draftAcceptanceRate"],
+            ),
+            (None, 8, 0.25),
+        )
+        self.assertEqual(
+            (
+                rows[self.JOB_C]["predictedPerSecond"],
+                rows[self.JOB_C]["draftN"],
+                rows[self.JOB_C]["draftAcceptanceRate"],
+            ),
+            (None, 6, 0.5),
+        )
+
 
 class WindowsLanesAndHeadlessTests(unittest.TestCase):
     LANES = {
