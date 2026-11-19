@@ -30,6 +30,18 @@ This flag permits a skip only when a required writer cannot be found; it does no
 
 Use existing focused tests appropriate to the change. The source suites use fixtures and mocked model calls; they do not establish live inference, native Windows behavior or clean-Mac distribution acceptance.
 
+## Golden fixture tests
+
+Recent public golden corpora pin current collector and projection behavior with synthetic inputs. Expectations were recorded from executing the then-current functions. A fixture pass is characterization of current source, not device acceptance, native GUI acceptance or live inference.
+
+These corpora are included in the source-check commands above (`unittest discover` from the repository root, and the Windows edition discover under `windows/`). Changing collector or projection behavior may require updating the matching corpus; see each corpus README. Do not copy real machine state into a corpus.
+
+- `test_support/activity_collect_golden/` pins `activity.collect_activity` (261 cases). Replay modules: `test_activity_collect_golden` and `test_activity_collect_active_golden`.
+- `test_support/collect_nisi_v02_golden/` pins `nisi_v02.collect_nisi_v02` (608 cases). Replay modules: `test_collect_nisi_v02_golden` and `test_collect_nisi_v02_generation_golden`.
+- `test_support/fleet_state_golden/` pins `build_fleet_state`. Replay modules: `test_fleet_state_golden` and `test_fleet_state_golden_protocol`. A later change made these cases portable across Python versions.
+- `test_support/mac_presence_golden/` pins Mac presence projection (308 synthetic snapshots). Replay module: `test_mac_presence_golden`.
+- Windows collector goldens live under `windows/tests/fixtures/windows_collect_golden/` (330 cases), with replay tests `windows/tests/test_collect_golden.py`, `windows/tests/test_collect_golden_errors.py` and `windows/tests/test_collect_golden_discovery.py` (portable discovery).
+
 ## Installation and release boundaries
 
 `build.sh` installs and replaces the local application when its owner lock permits. Running it is an installation action. `package-release.sh` creates a separately signed DMG candidate and requires its documented release inputs. Neither source-test success nor a signed candidate establishes notarization or publication. Follow the README and canonical roadmap for those separate gates.

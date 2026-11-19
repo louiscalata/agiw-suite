@@ -124,6 +124,23 @@ class LlamaServerModels(unittest.TestCase):
         )
         self.assertEqual(states(pl.lmstudio_status(base, "mac")()), [("glimmer", "mac", "loaded")])
 
+    def test_lm_studio_list_with_a_malformed_entry_is_refused_not_replaced(self):
+        base, hits = serve(
+            self,
+            {
+                "/api/v0/models": (200, {"data": [{"id": "qwen", "type": "llm"}, {"id": "  "}]}),
+                "/v1/models": (200, {"object": "list", "data": [{"id": "should-not-be-read"}]}),
+            },
+        )
+        with self.assertRaises(ValueError):
+            pl.lmstudio_status(base, "mac")()
+        self.assertEqual(hits, ["/api/v0/models"])
+
+    def test_llama_server_reply_without_a_model_list_is_refused(self):
+        base, _ = serve(self, {"/v1/models": (200, {"object": "list"})})
+        with self.assertRaises(ValueError):
+            pl.lmstudio_status(base, "mac")()
+
     def test_both_endpoints_missing_raises_instead_of_reporting_no_models(self):
         base, hits = serve(self, {})
         with self.assertRaises(OSError) as caught:

@@ -83,7 +83,7 @@ PER_SOURCE_CONNECTIONS = 2
 CONTROL_CHALLENGE_TTL = 10.0
 REQUEST_DEADLINE = 6.0  # absolute, from accept to close, so drip-fed headers cannot hold a slot
 FETCH_DEADLINE = 4.0  # absolute, from connect to last byte
-SELF_STATUS_DEADLINE = 3.0  # control-only provider wait, below the control client's deadline
+SELF_STATUS_DEADLINE = 3.0  # shared provider wait, below both HTTP request deadlines
 STATUS_MAX_AGE = 60.0  # a status whose observedAt is older (or further ahead) than this is refused
 HOST_KINDS = ("mac", "windows", "linux")
 UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
@@ -598,7 +598,7 @@ def _secret_kind(path: str) -> str | None:
     name = os.path.basename(path).casefold()
     if name == "control-token":
         return "token"
-    if name.endswith(".json") and UUID_RE.match(name[:-5]):
+    if name.endswith(".json") and UUID_RE.fullmatch(name[:-5]):
         # Wherever it sits: a 'trusted' folder renamed to anything else can still be reached through an
         # alias (a Windows 8.3 short name TRUSTED), so a record is retired by its own name, not its folder's.
         return "trust"
@@ -786,7 +786,7 @@ def load_identity(state_dir: Path) -> str:
     path = state_dir / "identity.json"
     try:
         value = strict_json(_read_private(path, secret=False)).get("nodeUuid")
-        if isinstance(value, str) and UUID_RE.match(value):
+        if isinstance(value, str) and UUID_RE.fullmatch(value):
             return value
     except (OSError, ValueError, AttributeError):
         pass
@@ -916,7 +916,11 @@ class TrustStore:
             except (OSError, ValueError, subprocess.SubprocessError):
                 continue
             try:
-                if path.stem != pin["nodeUuid"] or not UUID_RE.match(path.stem) or pin.get("host") not in HOST_KINDS:
+                if (
+                    path.stem != pin["nodeUuid"]
+                    or not UUID_RE.fullmatch(path.stem)
+                    or pin.get("host") not in HOST_KINDS
+                ):
                     continue
                 try:
                     # Bound to this record's UUID, so a sealed key cannot be moved to another peer's record.
@@ -1072,7 +1076,7 @@ def read_hello(data: bytes) -> dict | None:
     node, port, name = body.get("node"), body.get("port"), body.get("name")
     if (
         not isinstance(node, str)
-        or not UUID_RE.match(node)
+        or not UUID_RE.fullmatch(node)
         or body.get("host") not in HOST_KINDS
         or not isinstance(name, str)
         or not name
@@ -1277,41 +1281,57 @@ def project_status(doc: dict) -> dict:
 def lmstudio_status(base: str = "http://127.0.0.1:1234", host: str = "mac") -> StatusProvider:
     """Status straight from a local model server's REST listing.
 
-    LM Studio's GET /api/v0/models is tried first. When it fails or carries no `data` list, the
-    OpenAI-style GET /v1/models that llama-server serves is read instead. llama-server lists only
-    the models it serves, so an entry is loaded unless router mode reports another `status.value`.
-    When neither endpoint answers, the error propagates: a missing reading is unknown, never empty.
+    LM Studio's GET /api/v0/models is tried first. When it is unreachable or answers without a
+    `data` list (or with an `error`), the OpenAI-style GET /v1/models that llama-server serves is
+    read instead. llama-server lists only the models it serves, so an entry is loaded unless router
+    mode reports another `status.value`. An LM Studio list with a malformed entry, an oversized
+    reply or JSON that is not strict is refused, never trimmed or replaced. When neither endpoint
+    answers, the error propagates: a missing reading is unknown, never empty.
     """
 
-    def fetch(path: str) -> list:
+    def read(path: str) -> Any:
         with urllib.request.urlopen(base + path, timeout=2) as response:
-            payload = json.loads(response.read(MAX_STATUS_BYTES + 1)[:MAX_STATUS_BYTES])
-        data = payload.get("data") if isinstance(payload, dict) else None
-        if not isinstance(data, list):
-            raise ValueError(f"{path} has no model list")
-        return data
+            raw = response.read(MAX_STATUS_BYTES + 1)
+        if len(raw) > MAX_STATUS_BYTES:
+            raise ValueError(f"{path} reply too large")
+        return strict_json(raw)
+
+    def model_list(payload: Any) -> list | None:
+        if not isinstance(payload, dict) or "error" in payload or not isinstance(payload.get("data"), list):
+            return None
+        return payload["data"]
+
+    def clean_id(item: Any) -> bool:
+        return (
+            isinstance(item, dict)
+            and isinstance(item.get("id"), str)
+            and bool(item["id"].strip())
+            and item["id"].isprintable()
+        )
 
     def provide() -> dict:
         models = []
         try:
-            data = fetch("/api/v0/models")
-        except (OSError, ValueError) as exc:
+            data = model_list(read("/api/v0/models"))
+        except OSError as exc:
             close = getattr(exc, "close", None)  # an HTTPError holds the response open
             if callable(close):
                 close()
             data = None
         if data is not None:
+            # An LM Studio listing that answers is taken whole or refused whole, never trimmed.
+            if not all(clean_id(item) for item in data):
+                raise ValueError("LM Studio inventory invalid")
             for item in data[:MAX_MODELS]:
-                if (
-                    isinstance(item, dict)
-                    and isinstance(item.get("id"), str)
-                    and item.get("type") in (None, "llm", "vlm")
-                ):
+                if item.get("type") in (None, "llm", "vlm"):
                     state = {"loaded": "loaded", "not-loaded": "inactive"}.get(item.get("state"), "unknown")
                     models.append({"id": item["id"][:256], "host": host, "loadedState": state})
         else:
-            for item in fetch("/v1/models")[:MAX_MODELS]:
-                if isinstance(item, dict) and isinstance(item.get("id"), str):
+            data = model_list(read("/v1/models"))
+            if data is None:
+                raise ValueError("/v1/models has no model list")
+            for item in data[:MAX_MODELS]:
+                if clean_id(item):
                     status = item.get("status")
                     value = status.get("value") if isinstance(status, dict) else "loaded"
                     state = {"loaded": "loaded", "unloaded": "inactive"}.get(value, "unknown")
@@ -1337,7 +1357,11 @@ def file_status(path: Path, max_age: float = 30.0) -> StatusProvider:
     def provide() -> dict:
         if time.time() - path.stat().st_mtime > max_age:
             raise ValueError("status file is stale")
-        return json.loads(path.read_bytes()[:MAX_STATUS_BYTES])
+        with path.open("rb") as source:
+            raw = source.read(MAX_STATUS_BYTES + 1)
+        if len(raw) > MAX_STATUS_BYTES:
+            raise ValueError("status file too large")
+        return strict_json(raw)
 
     return provide
 
@@ -1571,6 +1595,9 @@ class LinkHandler(BaseHTTPRequestHandler):
             ns = link.new_control_challenge(nc, token)
             if ns is None:
                 return self._send(429)
+            if self.headers.get("Connection", "").lower() == "keep-alive":
+                self.protocol_version = "HTTP/1.1"
+                self.close_connection = False
             return self._json(200, {"ns": ns, "proof": control_server_proof(token, nc, ns)})
         if self.path == "/control/peers" and self._local_control(b""):
             return self._json(200, link.snapshot())
@@ -1639,7 +1666,10 @@ class LinkHandler(BaseHTTPRequestHandler):
         ) or not link.nonces_for(node).fresh(nonce, time.monotonic()):
             return self._send(403)
         try:
-            body = canonical(project_status(validate_status(link.status_provider(), link.host, time.time())))
+            status = link._bounded_self_status()
+            if "error" in status:
+                return self._send(503)
+            body = canonical(status)
         except Exception:  # noqa: BLE001 - provider failure is reported as unavailable, never as stale data
             return self._send(503)
         if len(body) > MAX_STATUS_BYTES:
@@ -1671,37 +1701,53 @@ def control_request(
     limit: int = (MAX_PEERS + 1) * MAX_STATUS_BYTES,
     deadline: float = 20.0,
 ) -> tuple[int, Any]:
-    """Talk to this user's own peer link on 127.0.0.1. The listener must first prove it holds the
-    control token; the token itself is never sent, so whatever squats on the port learns nothing."""
+    """Authenticate the listener and send the operation on that same socket, without reconnecting."""
     token = load_control_token(state_dir)
     nc = secrets.token_hex(16)
-    status, _h, raw = _http(
-        "127.0.0.1", port, "GET", "/control/hello", {"X-Agiw-Client-Nonce": nc}, None, 1024, deadline=min(deadline, 3.0)
-    )
-    hello = strict_json(raw) if status == 200 and raw else {}
-    ns = hello.get("ns") if isinstance(hello, dict) else None
-    if (
-        not isinstance(ns, str)
-        or not re.fullmatch(r"[0-9a-f]{32}", ns)
-        or not hmac.compare_digest(str(hello.get("proof", "")), control_server_proof(token, nc, ns))
-    ):
-        raise PermissionError(f"the process on 127.0.0.1:{port} is not your peer link; nothing was sent to it")
-    payload = canonical(body) if body is not None else b""
-    status, _h, raw = _http(
-        "127.0.0.1",
-        port,
-        method,
-        path,
-        {
-            "X-Agiw-Control-Nonce": ns,
-            "Content-Type": "application/json",
-            "X-Agiw-Control-Proof": control_client_proof(token, ns, nc, method, path, payload),
-        },
-        payload if body is not None else None,
-        limit,
-        deadline=deadline,
-    )
-    return status, (strict_json(raw) if raw else {})
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=min(deadline, 3.0))
+    try:
+        status, _h, raw = _http(
+            "127.0.0.1",
+            port,
+            "GET",
+            "/control/hello",
+            {"X-Agiw-Client-Nonce": nc},
+            None,
+            1024,
+            deadline=min(deadline, 3.0),
+            connection=conn,
+            keep_alive=True,
+        )
+        hello = strict_json(raw) if status == 200 and raw else {}
+        ns = hello.get("ns") if isinstance(hello, dict) else None
+        if (
+            not isinstance(ns, str)
+            or not re.fullmatch(r"[0-9a-f]{32}", ns)
+            or not hmac.compare_digest(str(hello.get("proof", "")), control_server_proof(token, nc, ns))
+        ):
+            raise PermissionError(f"the process on 127.0.0.1:{port} is not your peer link; nothing was sent to it")
+        if conn.sock is None:
+            raise ConnectionError("peer link closed the authenticated control connection")
+        conn.sock.settimeout(deadline)
+        payload = canonical(body) if body is not None else b""
+        status, _h, raw = _http(
+            "127.0.0.1",
+            port,
+            method,
+            path,
+            {
+                "X-Agiw-Control-Nonce": ns,
+                "Content-Type": "application/json",
+                "X-Agiw-Control-Proof": control_client_proof(token, ns, nc, method, path, payload),
+            },
+            payload if body is not None else None,
+            limit,
+            deadline=deadline,
+            connection=conn,
+        )
+        return status, (strict_json(raw) if raw else {})
+    finally:
+        conn.close()
 
 
 def _http(
@@ -1713,9 +1759,12 @@ def _http(
     body: bytes | None,
     limit: int,
     deadline: float = FETCH_DEADLINE,
+    *,
+    connection: http.client.HTTPConnection | None = None,
+    keep_alive: bool = False,
 ) -> tuple[int, dict, bytes]:
     started = time.monotonic()
-    conn = http.client.HTTPConnection(address, port, timeout=deadline)
+    conn = connection if connection is not None else http.client.HTTPConnection(address, port, timeout=deadline)
     expired = threading.Event()
     held: list[socket.socket] = []  # getresponse() hands the socket to the response and clears conn.sock
 
@@ -1728,12 +1777,19 @@ def _http(
     watchdog.daemon = True
     watchdog.start()
     response = None
+    reusable = False
     try:
-        conn.connect()
+        if conn.sock is None:
+            if not conn.auto_open:
+                raise ConnectionError("peer closed the authenticated connection")
+            conn.connect()
+        conn.auto_open = 0  # Never silently reconnect after authenticating a control listener.
         held.append(conn.sock)
         if expired.is_set():
             raise TimeoutError("peer exceeded the deadline")
-        conn.request(method, path, body=body, headers={**headers, "Connection": "close"})
+        conn.request(
+            method, path, body=body, headers={**headers, "Connection": "keep-alive" if keep_alive else "close"}
+        )
         response = conn.getresponse()
         chunks, size = [], 0
         while True:
@@ -1748,6 +1804,7 @@ def _http(
             chunks.append(chunk)
         if expired.is_set():
             raise TimeoutError("peer exceeded the deadline")
+        reusable = keep_alive and connection is not None
         return response.status, {k.lower(): v for k, v in response.getheaders()}, b"".join(chunks)
     except OSError:
         if expired.is_set():
@@ -1757,7 +1814,8 @@ def _http(
         watchdog.cancel()
         if response is not None:
             response.close()
-        conn.close()
+        if not reusable:
+            conn.close()
 
 
 def _reply_header(nonce: str, server: str, client: str) -> bytes:
@@ -2042,7 +2100,7 @@ class PeerLink:
             self._live.setdefault(node, {}).update(update)
 
     def _bounded_self_status(self) -> dict:
-        """One control-only provider read at a time; a stuck daemon never holds up polling."""
+        """One provider read at a time; a stuck reader cannot retain LAN or control request slots."""
         timeout = {"error": "local status timed out", "code": "timeout"}
         with self._lock:
             previous = getattr(self, "_self_status_worker", None)
@@ -2129,21 +2187,21 @@ class PeerLink:
         return matches[0][0], dict(matches[0][1])
 
     def invite(self, peer: str) -> dict:
-        node, seen = self._resolve(peer)
-        if node in self.trusted():
-            raise ValueError("already paired; unpair first to pair again")
-        pin = f"{secrets.randbelow(1_000_000):06d}"
-        invite_id = secrets.token_hex(16)
-        expires = self.clock() + INVITE_TTL
-        record = {
-            "id": invite_id,
-            "pin": pin,
-            "expires": expires,
-            "attempts": 0,
-            "peer": {"node": node, "name": seen["name"], "host": seen["host"]},
-            "spake": None,
-        }
         with self._lock:
+            node, seen = self._resolve(peer)
+            if node in self.trusted():
+                raise ValueError("already paired; unpair first to pair again")
+            pin = f"{secrets.randbelow(1_000_000):06d}"
+            invite_id = secrets.token_hex(16)
+            expires = self.clock() + INVITE_TTL
+            record = {
+                "id": invite_id,
+                "pin": pin,
+                "expires": expires,
+                "attempts": 0,
+                "peer": {"node": node, "name": seen["name"], "host": seen["host"]},
+                "spake": None,
+            }
             for old in [i for i, v in self._outbound.items() if v["peer"]["node"] == node]:
                 del self._outbound[old]
             self._outbound[invite_id] = record
@@ -2191,8 +2249,12 @@ class PeerLink:
         except ValueError:
             return 400, {"error": "bad exchange"}
         with self._lock:
-            if record.get("attempt") != attempt:
-                return 409, {"error": "superseded by a newer attempt"}
+            if (
+                self._outbound.get(record["id"]) is not record
+                or self.clock() > record["expires"]
+                or record.get("attempt") != attempt
+            ):
+                return 409, {"error": "invite was cancelled or superseded by a newer attempt"}
             record["spake"] = keys
         return 200, {"y": _hex(spake.public), "confirm": keys["inviterConfirm"], "attempt": attempt}
 
@@ -2221,6 +2283,8 @@ class PeerLink:
                     "joinerConfirm": keys["joinerConfirm"],
                     "finishAck": keys["finishAck"],
                     "saved": threading.Event(),
+                    "node": joiner["node"],
+                    "key": keys["link"],
                     "ok": False,
                     "expires": self.clock() + INVITE_TTL,
                 }
@@ -2234,25 +2298,41 @@ class PeerLink:
             if not hmac.compare_digest(confirm, done["joinerConfirm"]):
                 return 403, {"error": "wrong PIN"}
             done["saved"].wait(5.0)
-            if done.get("ok") and self.clock() <= done["expires"]:
-                return 200, {"paired": True, "ack": done["finishAck"]}
+            with self._lock:
+                if self._pairing_current(done):
+                    return 200, {"paired": True, "ack": done["finishAck"]}
             return 409, {"error": "pairing could not be saved on the inviting machine"}
         try:
-            self.store.pin(joiner["node"], joiner["name"], joiner["host"], keys["link"])
-            done["ok"] = True
+            with self._lock:
+                if self._completed.get(record["id"]) is not done:
+                    return 409, {"error": "pairing was revoked before it could be saved"}
+                self.store.pin(joiner["node"], joiner["name"], joiner["host"], keys["link"])
+                self._invalidate()
+                done["ok"] = True
         except PermissionError as exc:
             return 409, {"error": str(exc)}
         finally:
             done["saved"].set()
-        self._invalidate()
-        return 200, {"paired": True, "ack": keys["finishAck"]}
+        with self._lock:
+            if self._pairing_current(done):
+                return 200, {"paired": True, "ack": done["finishAck"]}
+        return 409, {"error": "pairing could not be saved on the inviting machine"}
+
+    def _pairing_current(self, done: dict) -> bool:
+        current = self.trusted().get(done["node"])
+        return (
+            done.get("ok")
+            and self.clock() <= done["expires"]
+            and current is not None
+            and hmac.compare_digest(current["key"], done["key"])
+        )
 
     # pairing: joiner side
     def on_notify(self, body: dict, address: str) -> tuple[int, dict]:
         node, invite_id, port = body.get("node"), body.get("invite"), body.get("port")
         if (
             not isinstance(node, str)
-            or not UUID_RE.match(node)
+            or not UUID_RE.fullmatch(node)
             or node == self.node
             or body.get("host") not in HOST_KINDS
             or not isinstance(body.get("name"), str)
@@ -2294,7 +2374,8 @@ class PeerLink:
             ]
             if len(matches) != 1:
                 raise LookupError("no single pending invite matches " + repr(peer[:64]))
-            invite = dict(matches[0])
+            pending = matches[0]
+            invite = dict(pending)
         spake = Spake("joiner", pin, invite["peer"], self.me(), invite["invite"])
         status, _h, raw = _http(
             invite["address"],
@@ -2343,9 +2424,13 @@ class PeerLink:
         if not hmac.compare_digest(ack, keys["finishAck"]):
             # A bare 200 proves nothing: only the machine holding the PIN-derived keys can make this ack.
             raise PermissionError(f"{invite['peer']['name']}'s confirmation was not authentic; nothing was paired")
-        self.store.pin(invite["peer"]["node"], invite["peer"]["name"], invite["peer"]["host"], keys["link"])
-        self._invalidate()
         with self._lock:
+            # A captured invitation may have been revoked or replaced while the network replied.
+            # Validate its identity and save under the same lock that orders unpair.
+            if self._inbound.get(invite["peer"]["node"]) is not pending or self.clock() > invite["expires"]:
+                raise PermissionError("pairing was revoked or expired before it could be saved")
+            self.store.pin(invite["peer"]["node"], invite["peer"]["name"], invite["peer"]["host"], keys["link"])
+            self._invalidate()
             self._inbound.pop(invite["peer"]["node"], None)
             self._seen.setdefault(
                 invite["peer"]["node"],
@@ -2357,16 +2442,25 @@ class PeerLink:
                     "port": invite["port"],
                 },
             )
-        return {"paired": True, "peer": invite["peer"]["name"]}
+            return {"paired": True, "peer": invite["peer"]["name"]}
 
     def unpair(self, peer: str) -> dict:
-        trusted = self.trusted()
-        matches = [n for n, p in trusted.items() if peer in (n, p.get("name"))]
-        if len(matches) != 1:
-            raise LookupError("no single paired machine matches " + repr(peer[:64]))
-        self.store.remove(matches[0])
-        self._invalidate()
         with self._lock:
+            trusted = self.trusted()
+            matches = [n for n, p in trusted.items() if peer in (n, p.get("name"))]
+            if len(matches) != 1:
+                raise LookupError("no single paired machine matches " + repr(peer[:64]))
+            self.store.remove(matches[0])
+            self._invalidate()
+            # Revoke pending transactions too, including references held across network waits.
+            self._inbound.pop(matches[0], None)
+            for invite, pending in list(self._outbound.items()):
+                if pending["peer"]["node"] == matches[0]:
+                    del self._outbound[invite]
+            for invite, done in list(self._completed.items()):
+                if done["node"] == matches[0]:
+                    done["ok"] = False  # Revoke references held by finishes already waiting for the save.
+                    del self._completed[invite]
             self._live.pop(matches[0], None)
         return {"unpaired": matches[0]}
 
@@ -2406,7 +2500,7 @@ def _control(state_dir: Path, port: int, method: str, path: str, body: dict | No
     return doc
 
 
-def main(argv: list[str] | None = None) -> int:
+def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="peer_link", description=__doc__.split("\n")[0])
     parser.add_argument("--state-dir", type=Path, default=default_state_dir())
     parser.add_argument("--status-port", type=int, default=STATUS_PORT)
@@ -2425,64 +2519,88 @@ def main(argv: list[str] | None = None) -> int:
     accept.add_argument("peer", nargs="?", default="", help="needed only when several invites wait")
     unpair = sub.add_parser("unpair", help="forget a paired machine")
     unpair.add_argument("peer")
-    args = parser.parse_args(argv)
+    return parser
 
-    if args.command == "run":
-        if args.status_file:
-            provider = file_status(args.status_file)
-        elif args.lmstudio or args.host == "mac":
-            provider = lmstudio_status(args.lmstudio or "http://127.0.0.1:1234", args.host)
-        elif args.host == "linux":
-            provider = linux_status()
-        else:
-            parser.error(
-                "--status-file is required on " + args.host + ": serve the observer's own status, "
-                "not whatever LM Studio happens to list"
-            )
-        link = PeerLink(
-            args.state_dir,
-            args.host,
-            args.name,
-            provider,
-            status_port=args.status_port,
-            beacon_port=args.beacon_port,
-            broadcast=directed_broadcasts(),
-        )
-        link.on_change = write_snapshot(args.state_dir / "peers.json")
-        link.start()
-        print(
-            f"agiw peer link: {link.name} {link.node} ({args.host}); tcp/{link.status_port} udp/{link.beacon_port}; "
-            f"{len(link.trusted())} paired",
-            flush=True,
-        )
-        try:
-            while True:
-                time.sleep(3600)
-        except KeyboardInterrupt:
-            link.stop()
-        return 0
-    if args.command == "peers":
-        doc = _control(args.state_dir, args.status_port, "GET", "/control/peers")
-        for row in doc["peers"]:
-            extra = " (invite waiting: run `accept`)" if row["inviteWaiting"] else ""
-            print(f"{row['state']:<10} {row['name'] or '?':<24} {row['host'] or '?':<8} {row['node']}{extra}")
-        if not doc["peers"]:
-            print("no AGIW machines seen yet")
-        return 0
-    if args.command == "invite":
-        doc = _control(args.state_dir, args.status_port, "POST", "/control/invite", {"peer": args.peer})
-        print(f"PIN {doc['pin']}  -  {doc['say']}")
-        return 0
-    if args.command == "accept":
-        import getpass
 
-        pin = getpass.getpass("PIN shown on the other machine: ").strip()
-        doc = _control(args.state_dir, args.status_port, "POST", "/control/accept", {"peer": args.peer, "pin": pin})
-        print(f"paired with {doc['peer']}")
-        return 0
+def _cmd_run(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    if args.status_file:
+        provider = file_status(args.status_file)
+    elif args.lmstudio or args.host == "mac":
+        provider = lmstudio_status(args.lmstudio or "http://127.0.0.1:1234", args.host)
+    elif args.host == "linux":
+        provider = linux_status()
+    else:
+        parser.error(
+            "--status-file is required on " + args.host + ": serve the observer's own status, "
+            "not whatever LM Studio happens to list"
+        )
+    link = PeerLink(
+        args.state_dir,
+        args.host,
+        args.name,
+        provider,
+        status_port=args.status_port,
+        beacon_port=args.beacon_port,
+        broadcast=directed_broadcasts(),
+    )
+    link.on_change = write_snapshot(args.state_dir / "peers.json")
+    link.start()
+    print(
+        f"agiw peer link: {link.name} {link.node} ({args.host}); tcp/{link.status_port} udp/{link.beacon_port}; "
+        f"{len(link.trusted())} paired",
+        flush=True,
+    )
+    try:
+        while True:
+            time.sleep(3600)
+    except KeyboardInterrupt:
+        link.stop()
+    return 0
+
+
+def _cmd_peers(args: argparse.Namespace) -> int:
+    doc = _control(args.state_dir, args.status_port, "GET", "/control/peers")
+    for row in doc["peers"]:
+        extra = " (invite waiting: run `accept`)" if row["inviteWaiting"] else ""
+        print(f"{row['state']:<10} {row['name'] or '?':<24} {row['host'] or '?':<8} {row['node']}{extra}")
+    if not doc["peers"]:
+        print("no AGIW machines seen yet")
+    return 0
+
+
+def _cmd_invite(args: argparse.Namespace) -> int:
+    doc = _control(args.state_dir, args.status_port, "POST", "/control/invite", {"peer": args.peer})
+    print(f"PIN {doc['pin']}  -  {doc['say']}")
+    return 0
+
+
+def _cmd_accept(args: argparse.Namespace) -> int:
+    import getpass
+
+    pin = getpass.getpass("PIN shown on the other machine: ").strip()
+    doc = _control(args.state_dir, args.status_port, "POST", "/control/accept", {"peer": args.peer, "pin": pin})
+    print(f"paired with {doc['peer']}")
+    return 0
+
+
+def _cmd_unpair(args: argparse.Namespace) -> int:
     doc = _control(args.state_dir, args.status_port, "POST", "/control/unpair", {"peer": args.peer})
     print(f"unpaired {doc['unpaired']}")
     return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+    if args.command == "run":
+        return _cmd_run(args, parser)
+    if args.command == "peers":
+        return _cmd_peers(args)
+    if args.command == "invite":
+        return _cmd_invite(args)
+    if args.command == "accept":
+        return _cmd_accept(args)
+    return _cmd_unpair(args)
 
 
 if __name__ == "__main__":

@@ -2151,6 +2151,7 @@ class FixNisiTests(unittest.TestCase):
                 ("route-status", "idle"),
                 ("nisi-status", "recovery-required"),
                 ("marker", "stale"),
+                ("route-status", "idle"),
                 ("owner-lock", "free"),
                 ("server-idle", "idle"),
                 ("recover", "acknowledged"),
@@ -2162,7 +2163,14 @@ class FixNisiTests(unittest.TestCase):
         )
         self.assertEqual(
             [call[0] for call in launcher.calls],
-            [repair.ROUTE_STATUS, repair.NISI_STATUS, repair.NISI_RECOVER, repair.JEV_STATUS, repair.NISI_STATUS],
+            [
+                repair.ROUTE_STATUS,
+                repair.NISI_STATUS,
+                repair.ROUTE_STATUS,
+                repair.NISI_RECOVER,
+                repair.JEV_STATUS,
+                repair.NISI_STATUS,
+            ],
         )
         self.assertTrue(state["message"].startswith("Nisi Inference ready."))
         for text in ("age 9 h 12 min", "owner anonymous (legacy)", "input 81dbab4fcccc", "No model inference was run."):
