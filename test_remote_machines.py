@@ -186,6 +186,53 @@ class RegistryTests(unittest.TestCase):
             with self.subTest(key=key), self.assertRaises(ValueError):
                 remote.validate_config(config(**{key: value}))
 
+    def test_speculative_config_accepted_on_machine_and_lane(self):
+        value = config(speculative={"enabled": False})
+        remote.validate_config(value)
+        value["machines"][0]["speculative"] = {"enabled": True, "backend": "llama.cpp", "modelKey": "draft"}
+        remote.validate_config(value)
+
+    def test_speculative_config_missing_is_valid(self):
+        value = config()
+        remote.validate_config(value)
+        self.assertNotIn("speculative", value["machines"][0])
+        self.assertNotIn("speculative", value["machines"][0]["lanes"][0])
+
+    def test_speculative_config_enabled_requires_backend_and_model(self):
+        value = config()
+        value["machines"][0]["speculative"] = {"enabled": True}
+        with self.assertRaises(ValueError) as caught:
+            remote.validate_config(value)
+        self.assertIn("backend", str(caught.exception))
+
+        value["machines"][0]["speculative"] = {"enabled": True, "backend": "llama.cpp"}
+        with self.assertRaises(ValueError) as caught:
+            remote.validate_config(value)
+        self.assertIn("modelKey", str(caught.exception))
+
+    def test_speculative_config_unknown_field_rejected(self):
+        value = config()
+        value["machines"][0]["speculative"] = {"unknownField": "bad"}
+        with self.assertRaises(ValueError) as caught:
+            remote.validate_config(value)
+        self.assertIn("unknownField", str(caught.exception))
+        self.assertIn("not allowed", str(caught.exception))
+
+    def test_speculative_config_bad_backend_rejected(self):
+        value = config()
+        value["machines"][0]["speculative"] = {"backend": "not-a-backend"}
+        with self.assertRaises(ValueError) as caught:
+            remote.validate_config(value)
+        self.assertIn("backend", str(caught.exception))
+
+    def test_speculative_config_on_lane_validates(self):
+        value = config()
+        value["machines"][0]["lanes"][0]["speculative"] = {"enabled": True, "backend": "llama.cpp"}
+        with self.assertRaises(ValueError) as caught:
+            remote.validate_config(value)
+        self.assertIn("modelKey", str(caught.exception))
+        self.assertIn("lane 'deep'", str(caught.exception))
+
     def test_timeout_and_capability_fields_validated_and_passed_untouched(self):
         for timeout in (0, -1, 6.01, True, "6", float("nan"), float("inf")):
             with self.subTest(timeout=timeout), self.assertRaises(ValueError):
