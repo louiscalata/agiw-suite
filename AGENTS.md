@@ -45,7 +45,7 @@ sh android/monitor-core/check.sh
 python3 -B -m agiw --version
 ```
 
-Expect exit 0. The Python runs print a skip count: router-writer cases, and on Linux the native Windows cases. Report that count. Skips are not acceptance. `MONITOR_ALLOW_ROUTER_FIXTURE_SKIP=1` skips a router dual-read case only when its writer is absent. Nisi verify prints `PASS` and `0.2.0`. The demo prints `COMPLETED`, `reportStored: true`, and `modelCalls: 0`. Jaryo check prints `ok`. `agiw --version` prints `agiw 1.1.0 (agiw-peer/2)`.
+Expect exit 0. The Python runs print a skip count: router-writer cases, and on Linux the native Windows cases. Report that count. Skips are not acceptance. `MONITOR_ALLOW_ROUTER_FIXTURE_SKIP=1` skips a router dual-read case only when its writer is absent. Nisi verify prints `PASS` and `0.3.2`. The demo prints `COMPLETED`, `reportStored: true`, and `modelCalls: 0`. Jaryo check prints `ok`. `agiw --version` prints `agiw 1.1.0 (agiw-peer/2)`.
 
 ```sh
 python3 -B -m agiw doctor
