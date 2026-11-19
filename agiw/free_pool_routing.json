@@ -1,6 +1,6 @@
 {
   "schema": "agiw.free-pool-routing.v1",
-  "version": "2026-11-19.2",
+  "version": "2026-11-19.3",
   "sources": {
     "eligible_models_and_caps": "https://help.openai.com/en/articles/10306912",
     "model_docs": "https://developers.openai.com/api/docs/models",
@@ -24,13 +24,19 @@
       "official": true,
       "daily_cap": 1000000,
       "fleet_ceiling": 800000,
-      "note": "Launch/Grow 1M token group, shared across every model in it. A request that would cross the cap is billed in full."
+      "note": "Launch/Grow 1M token group, shared across every model in it. A request that would cross the cap is billed in full. The pool is org-wide: traffic outside these ledgers (other lanes, Agents sessions, OpenCode) also uses it, so a payer!=openai row blocks the group for the rest of the UTC day.",
+      "block_if_billed_today": true,
+      "blocked_utc_days": [
+        "2026-11-19"
+      ],
+      "blocked_note": "2026-11-19: three 65-136 token probes on 1M/6.2 models came back payer=developer, so the org-wide 1M pool was full. Blocked fleet-wide until 00:00 UTC."
     },
     "official_10M": {
       "official": true,
       "daily_cap": 10000000,
       "fleet_ceiling": 9000000,
-      "note": "Launch/Grow 10M token group, shared across every model in it. A request that would cross the cap is billed in full."
+      "note": "Launch/Grow 10M token group, shared across every model in it. A request that would cross the cap is billed in full.",
+      "block_if_billed_today": true
     },
     "empirical_6.2": {
       "official": false,
@@ -39,8 +45,12 @@
       "legacy_names": [
         "unlisted_6.2"
       ],
-      "note": "Not on the help article's lists. payer=openai was seen empirically but gpt-6.2-sol was also billed payer=developer three times. Sol is off by default; Astra is for small --hard jobs only. Billing on these models depends on request size (Grok's Bot 1, receipts Nov 17-19): all 13 payer=openai calls were <=2,989 total and <=978 output; the three billed Sol calls were 9,998, 18,738 and 3,145 total. --hard does not bypass the size caps.",
-      "block_if_billed_today": true
+      "note": "Not on the help article's lists. Evidence on 2026-11-19 shows these calls share the org's 1M daily pool: after the M5 probes, gpt-5.5 was free at 65 tokens and billed at 136, then gpt-6.1-sol and gpt-6.2-astra were billed at 65 tokens each on the Mac Pro. That matches the help article's 'a request that would cross the cap is billed in full' rule, with the pool nearly full and smaller requests still fitting. So usage counts toward official_1M, and a billed row in either group blocks both for the UTC day. Sol is off; Astra needs --hard.",
+      "block_if_billed_today": true,
+      "counts_toward": "official_1M",
+      "blocked_utc_days": [
+        "2026-11-19"
+      ]
     }
   },
   "limits": {

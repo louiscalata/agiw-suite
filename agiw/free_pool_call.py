@@ -388,10 +388,17 @@ def usage_today(cfg, machine, day=None):
             continue
         model = row.get("resolved") or row.get("model") or row.get("bucket") or ""
         group = normalize_group(cfg, row.get("group") or classify_group(cfg, model))
-        totals[group] = totals.get(group, 0) + _row_tokens(row)
-        if row.get("payer") == "developer":
-            billed.setdefault(group, []).append(model_base(model))
+        for name in _pools(cfg, group):
+            totals[name] = totals.get(name, 0) + _row_tokens(row)
+            if row.get("payer") == "developer":
+                billed.setdefault(name, []).append(model_base(model))
     return totals, billed
+
+
+def _pools(cfg, group):
+    """The group itself plus any pool it is counted toward (the empirical 6.2 models share the 1M pool)."""
+    shared = cfg["groups"].get(group, {}).get("counts_toward")
+    return [group, shared] if shared else [group]
 
 
 def _append(path, row):
@@ -518,9 +525,12 @@ def block_reason(cfg, key, req, state):
         return "needs --hard"
     if req["kind"] in cfg.get("code_kinds", []) and not entry.get("code_trusted"):
         return entry.get("code_trust_note") or "not trusted for code until its probe passes"
-    group_cfg = cfg["groups"][group]
-    if group_cfg.get("block_if_billed_today") and state["billed"].get(group):
-        return f"{group} had a developer-billed call today"
+    for pool in _pools(cfg, group):
+        pool_cfg = cfg["groups"][pool]
+        if utc_day() in pool_cfg.get("blocked_utc_days", []):
+            return f"{pool} is blocked for {utc_day()} in free_pool_routing.json"
+        if pool_cfg.get("block_if_billed_today") and state["billed"].get(pool):
+            return f"{pool} had a developer-billed call today"
     return size_or_budget_reason(cfg, key, req, state)
 
 
@@ -532,12 +542,12 @@ def size_or_budget_reason(cfg, key, req, state):
         return f"--max-output {req['max_out']} is over this model's free cap {max_output}"
     if total > max_total:
         return f"worst case {total} tokens is over this model's free request cap {max_total}"
-    group_cfg = cfg["groups"][group]
     margin = float(cfg.get("limits", {}).get("near_cap_margin", 0.05))
-    allowed = int(group_cfg["fleet_ceiling"] * state["share"] * (1 - margin))
-    used = state["used"].get(group, 0)
-    if used + total > allowed:
-        return f"{group} would reach {used + total} of this machine's {allowed} (near cap)"
+    for pool in _pools(cfg, group):
+        allowed = int(cfg["groups"][pool]["fleet_ceiling"] * state["share"] * (1 - margin))
+        used = state["used"].get(pool, 0)
+        if used + total > allowed:
+            return f"{pool} would reach {used + total} of this machine's {allowed} (near cap)"
     cap = float(cfg.get("limits", {}).get("run_cost_cap_usd", 1.0))
     if state["spent_usd"] + worst_cost(cfg, key, req["est_in"], req["max_out"]) > cap:
         return f"worst-case cost would pass the ${cap:.2f} run cap"

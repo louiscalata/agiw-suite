@@ -11,7 +11,7 @@ from urllib import error as urlerror
 
 from agiw import free_pool_call as fpc
 
-ROUTING = Path(fpc.__file__).with_name("free_pool_routing.json")
+SHIPPED = Path(fpc.__file__).with_name("free_pool_routing.json")
 FAKE_KEY = "fixture-only-key-value"
 SMALL = "Fix the bug: def add(a, b): return a - b"
 
@@ -45,8 +45,14 @@ class RoutingBase(unittest.TestCase):
         self.tmp = TemporaryDirectory()
         self.root = Path(self.tmp.name)
         self.machine_path = self.root / "free_pool_machine.json"
+        # Tests use the shipped config minus any dated fleet-wide day blocks, so they do not depend on today's date.
+        shipped = json.loads(SHIPPED.read_text(encoding="utf-8"))
+        for group in shipped["groups"].values():
+            group.pop("blocked_utc_days", None)
+        self.routing = self.root / "shipped-routing.json"
+        self.routing.write_text(json.dumps(shipped), encoding="utf-8")
         self.write_machine("m5")
-        self.cfg = fpc.load_routing(ROUTING)
+        self.cfg = fpc.load_routing(self.routing)
         self.calls = []
         env = {"OPENAI_FREE_POOL_API_KEY": FAKE_KEY}
         self.env = patch.dict(os.environ, env, clear=False)
@@ -81,8 +87,8 @@ class RoutingBase(unittest.TestCase):
 
         return patch.object(fpc, "_urlopen", side_effect=fake)
 
-    def run_cli(self, *args, routing=ROUTING):
-        argv = [*args, "--machine-config", str(self.machine_path), "--routing", str(routing)]
+    def run_cli(self, *args, routing=None):
+        argv = [*args, "--machine-config", str(self.machine_path), "--routing", str(routing or self.routing)]
         out = io.StringIO()
         with redirect_stdout(out):
             code = fpc.main(argv)
@@ -144,7 +150,7 @@ class ConfigTests(RoutingBase):
     def test_code_kinds_need_a_code_trusted_model(self):
         code, out = self.run_cli(str(self.prompt), "--kind", "small_patch", "--dry-run")
         self.assertEqual((code, out["model"]), (0, "gpt-6.1-sol"))
-        cfg = json.loads(ROUTING.read_text(encoding="utf-8"))
+        cfg = json.loads(self.routing.read_text(encoding="utf-8"))
         for key in cfg["models"]:
             cfg["models"][key]["code_trusted"] = key == "gpt-5.4-mini"
         routing = self.root / "routing.json"
@@ -192,7 +198,7 @@ class GuardTests(RoutingBase):
         self.assertIn("free request cap", out["route"][0]["skipped"])
 
     def test_run_cost_cap(self):
-        cfg = json.loads(ROUTING.read_text(encoding="utf-8"))
+        cfg = json.loads(self.routing.read_text(encoding="utf-8"))
         cfg["models"]["gpt-5.6-terra"]["price_usd_per_1m"] = [2000.0, 2000.0]
         routing = self.root / "routing.json"
         routing.write_text(json.dumps(cfg), encoding="utf-8")
@@ -283,6 +289,29 @@ class GuardTests(RoutingBase):
         with patch.object(fpc, "_row_day", side_effect=lambda row: fpc.utc_day()):
             used, _ = fpc.usage_today(self.cfg, self.machine())
         self.assertEqual(used["empirical_6.2"], 990)
+
+
+class PoolTests(RoutingBase):
+    def test_empirical_usage_counts_toward_the_1m_pool(self):
+        self.seed(model="gpt-6.2-astra", group="empirical_6.2", total_tokens=700, response_id="a1", payer="openai")
+        used, _ = fpc.usage_today(self.cfg, self.machine())
+        self.assertEqual((used["empirical_6.2"], used["official_1M"]), (700, 700))
+
+    def test_billed_1m_row_reroutes_the_kind_to_the_10m_group(self):
+        self.seed(model="gpt-5.5", group="official_1M", total_tokens=136, response_id="b5", payer="developer")
+        code, out = self.run_cli(str(self.prompt), "--kind", "review", "--dry-run")
+        self.assertEqual((code, out["model"]), (0, "gpt-5.6-terra"))
+        code, out = self.run_cli(str(self.prompt), "--model", "gpt-6.2-astra", "--hard", "--no-reroute", "--dry-run")
+        self.assertEqual(code, fpc.EXIT_BUDGET)
+
+    def test_shipped_day_block_applies_fleet_wide(self):
+        cfg = json.loads(self.routing.read_text(encoding="utf-8"))
+        cfg["groups"]["official_1M"]["blocked_utc_days"] = [fpc.utc_day()]
+        routing = self.root / "blocked.json"
+        routing.write_text(json.dumps(cfg), encoding="utf-8")
+        code, out = self.run_cli(str(self.prompt), "--kind", "small_patch", "--dry-run", routing=routing)
+        self.assertEqual((code, out["model"]), (0, "gpt-5.6-terra"))
+        self.assertIn("blocked for", out["route"][0]["skipped"])
 
 
 class EmpiricalTests(RoutingBase):

@@ -27,11 +27,12 @@ o1-preview, gpt-5.1-codex-mini, gpt-4.1-nano, o4-mini, o1-mini, codex-mini-lates
 gpt-5.3-codex are hard-blocked. Requests use the alias; the served snapshot must be the listed one
 (for example `gpt-5.4-mini-2026-03-17`). Other dated snapshots are refused, and dated ids map to their base model's group.
 
-## Probe results (2026-11-19, M5, public toy snippets, <=140 tokens each)
-- payer=openai and both code probes passed: gpt-6.1-sol, gpt-6-sol, gpt-6-astra, gpt-5.6-sol, gpt-6-luna,
-  gpt-5.6-terra, gpt-5.6-luna. gpt-5.4-mini passed text and the trivial fix but stays off code routes (LOU-100).
-- gpt-5.5: the first call was payer=openai (65 tokens) and the second came back payer=developer (136 tokens). The tripwire
-  disabled it and stopped the run. gpt-5.5 is off, and gpt-5.4 and gpt-5.2 stay off until a probe shows payer=openai.
+## Probe results (2026-11-19, public toy snippets, <=140 tokens each)
+- M5, all payer=openai and passing both code probes: gpt-6.1-sol, gpt-6-sol, gpt-6-astra, gpt-5.6-sol, gpt-6-luna,
+  gpt-5.6-terra and gpt-5.6-luna. gpt-5.4-mini passed text and the trivial fix but stays off code routes (LOU-100).
+- After those, gpt-5.5 was free at 65 tokens and then billed (payer=developer) at 136 tokens on the M5. On the Mac Pro,
+  gpt-6.1-sol and gpt-6.2-astra were each billed at 65 tokens, while gpt-5.6-terra (10M) stayed free. Each time the
+  tripwire stopped the run.
 - The Free Pool project returns 403 model_not_found for dated ids, so requests use the alias (`request_id`) and the
   served snapshot must equal the listed one (`listed_id`). Otherwise the response is treated as billed.
 
@@ -68,9 +69,16 @@ the same kind is tried. `--model` still works for older callers and falls back t
 - Timeout: exits 11, is recorded as possibly billed at the worst-case size, and is never retried.
 - Real calls need `--source` and `--lane`. Both are written to every ledger row and to the stdout receipt.
 
-## Root cause of the Sol calls billed to the developer account
-gpt-6.2-sol isn't on the complimentary-token list. Calls of at most 2,989 total and 978 output tokens came back
-payer=openai, and the billed calls were 9,998 (Nov 18 3:39 PM PST), 18,738 (Nov 19 7:00 AM) and 3,145
-(Nov 19 10:19 AM) total. The old M5 guard checked only a daily soft cap, `--hard` skipped the size reroute, and
-payer=developer was logged without disabling the model. Sol is now off by default, and the size caps, tripwire and
-billed-today block cover Astra.
+## Root cause of the developer-billed calls
+The org's 1M complimentary pool is shared with the unlisted gpt-6.2 models and was full. That is the help article's rule
+("a request that would cross the cap is billed in full"): while the pool is almost full, small requests still fit and
+come back payer=openai, and larger ones cross and are billed. It fits all the evidence:
+- The Sol calls billed on Nov 18 3:39 PM and Nov 19 7:00 AM and 10:19 AM PST were 9,998, 18,738 and 3,145 tokens, while
+  calls of at most 2,989 tokens stayed free.
+- On Nov 19, gpt-5.5 (officially 1M) was free at 65 tokens and billed at 136. Then gpt-6.1-sol and gpt-6.2-astra were billed at
+  65 tokens, and the 10M group stayed free.
+- About 4.6M Astra and 4.5M Sol tokens went out that week, about 1.3M a day, which is more than the 1M pool.
+Our ledgers can't see all org traffic (Agents sessions, OpenCode, other lanes), so the guard now counts 6.2 usage toward
+official_1M, blocks a whole group for the UTC day after any payer=developer row, and carries a shipped
+`blocked_utc_days` list for fleet-wide blocks. Earlier, the old M5 guard checked only a daily soft cap, `--hard`
+skipped the size reroute, and payer=developer was logged without disabling anything.
