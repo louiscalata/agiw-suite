@@ -160,29 +160,19 @@ def _coverage(lanes):
     return counts
 
 
-def build_fleet_state(snapshot, inference=None, now=None):
-    """Join declared machines, lane facts, and exact-ID/unmatched host reports.
-
-    ``now`` is epoch seconds, making expiry deterministic in fixture tests. The
-    returned facts retain their producers' timestamps, even when a new enclosing
-    snapshot arrives. Missing timestamps do not borrow the snapshot's clock.
-    Counts of loaded/busy models require fresh complete evidence from every
-    machine. Endpoint coverage never supplies model activity or host health.
-    """
-    snapshot = snapshot if isinstance(snapshot, dict) else {}
-    document = inference if isinstance(inference, dict) else snapshot.get("inference")
-    document = document if isinstance(document, dict) else {}
-    now = time.time() if now is None else now
-    if not _number(now):
-        raise ValueError("now must be finite epoch seconds")
-    rows = [row for row in (snapshot.get("machines") or []) if isinstance(row, dict)]
-    nodes = [node for node in (document.get("nodes") or []) if isinstance(node, dict)]
+def _build_roots(nodes):
+    """Build the configured machine roots from inference nodes."""
     roots = {node["id"]: node for node in nodes if isinstance(node.get("id"), str) and node.get("role") == "machine"}
     # Include a root even when a producer emitted only its configured child.
     for node in nodes:
         parent = node.get("machine")
         if node.get("role") not in ("machine", "client") and isinstance(parent, str):
             roots.setdefault(parent, {"id": parent, "label": parent, "role": "machine"})
+    return roots
+
+
+def _local_identity(snapshot, rows, roots):
+    """Resolve the local machine identity and ensure it exists in roots."""
     local_rows = [
         row
         for row in rows
@@ -196,9 +186,11 @@ def build_fleet_state(snapshot, inference=None, now=None):
     )
     # This observer remains visible when no endpoint or report has answered.
     roots.setdefault(local_id, {"id": local_id, "label": "This Mac" if local_id == "mac" else "This machine"})
-    by_id, peer_reports = {}, {}
-    replacement_ids = [identity for identity, root in roots.items() if root.get("replaces") == "legacy-pc"]
-    replacement_id = replacement_ids[0] if len(replacement_ids) == 1 else None
+    return local_id
+
+
+def _prepare_reports(snapshot, rows, roots):
+    """Prepare source metadata and peer-report attribution candidates."""
     sources = [source for source in (snapshot.get("sources") or []) if isinstance(source, dict)]
     metadata = {id(row): _report_metadata(row, sources) for row in rows}
     eligible = [
@@ -213,6 +205,14 @@ def build_fleet_state(snapshot, inference=None, now=None):
     candidates = marked or eligible
     candidate_ids = {row.get("id") or row.get("host") for row in candidates}
     legacy_peer_id = next(iter(candidate_ids)) if len(candidate_ids) == 1 else None
+    return metadata, legacy_peer_id
+
+
+def _merge_root_rows(snapshot, rows, roots, metadata, local_id, legacy_peer_id):
+    """Merge machine rows into roots and collect peer reports."""
+    by_id, peer_reports = {}, {}
+    replacement_ids = [identity for identity, root in roots.items() if root.get("replaces") == "legacy-pc"]
+    replacement_id = replacement_ids[0] if len(replacement_ids) == 1 else None
     for row in rows:
         identity = row.get("id") or row.get("host")
         if not isinstance(identity, str) or not identity:
@@ -244,7 +244,12 @@ def build_fleet_state(snapshot, inference=None, now=None):
         if identity != report_id:
             peer_reports.setdefault(identity, []).append((report_id, row))
         roots.setdefault(identity, {"id": identity, "label": row.get("label") or row.get("host") or identity})
-    facts, lanes = [], []
+    return by_id, peer_reports
+
+
+def _build_lane_facts(nodes, now):
+    """Build per-lane facts from inference nodes."""
+    lanes = []
     for node in nodes:
         if node.get("role") in ("machine", "client") or not isinstance(node.get("id"), str):
             continue
@@ -280,6 +285,12 @@ def build_fleet_state(snapshot, inference=None, now=None):
                 fact["evidence"]["endpointAnswered"] = True
         fact["evidence"]["healthScope"] = "endpoint identity only; host, hardware and inference activity unknown"
         lanes.append(fact)
+    return lanes
+
+
+def _build_machine_facts(snapshot, roots, lanes, by_id, peer_reports, local_id, now):
+    """Build per-machine facts and attach lane coverage and peer evidence."""
+    facts = []
     for identity, root in roots.items():
         row = by_id.get(identity)
         if row and identity == local_id:
@@ -343,10 +354,12 @@ def build_fleet_state(snapshot, inference=None, now=None):
                 reports.append(evidence)
             fact["evidence"]["peerReports"] = reports
         facts.append(fact)
-    facts.extend(lanes)
-    counts = _coverage(lanes)
+    return facts
+
+
+def _build_registry(status, document, now):
+    """Build the optional registry fact from remote machine status."""
     registry = None
-    status = document.get("remoteMachines")
     if isinstance(status, dict):
         registry, freshness = _fact(
             "remote-machines",
@@ -366,23 +379,11 @@ def build_fleet_state(snapshot, inference=None, now=None):
         )
         if registry["reason"] == "registry_configured":
             registry.update(state="reported", completeness="complete")
-    registry_partial = registry is not None and registry["completeness"] != "complete"
-    if registry_partial and not counts["answering"]:
-        counts["answering"] = None
-    counts["machines"] = len(roots)
-    machine_facts = [fact for fact in facts if fact["scope"] == "machine"]
-    for output, field in (("loaded", "loadedCount"), ("busy", "busyCount")):
-        measured = all(
-            fact["state"] == "reported"
-            and fact["completeness"] == "complete"
-            and fact["evidence"].get("state") == "up"
-            and type(fact["evidence"].get(field)) is int
-            and fact["evidence"][field] >= 0
-            for fact in machine_facts
-        )
-        counts[output] = (
-            sum(fact["evidence"][field] for fact in machine_facts) if measured and not registry_partial else None
-        )
+    return registry
+
+
+def _compose_summary(lanes, counts, registry_partial, registry):
+    """Compose the human-readable coverage summary string."""
     summary = (
         "Answering count unknown; {} lanes configured".format(counts["lanes"])
         if lanes and counts["answering"] is None
@@ -409,6 +410,53 @@ def build_fleet_state(snapshot, inference=None, now=None):
             summary += "; {} {}: {}".format(len(affected), key, names)
     if registry_partial:
         summary = "Partial coverage; {}; ".format(registry["reason"].replace("_", " ")) + summary
+    return summary
+
+
+def build_fleet_state(snapshot, inference=None, now=None):
+    """Join declared machines, lane facts, and exact-ID/unmatched host reports.
+
+    ``now`` is epoch seconds, making expiry deterministic in fixture tests. The
+    returned facts retain their producers' timestamps, even when a new enclosing
+    snapshot arrives. Missing timestamps do not borrow the snapshot's clock.
+    Counts of loaded/busy models require fresh complete evidence from every
+    machine. Endpoint coverage never supplies model activity or host health.
+    """
+    snapshot = snapshot if isinstance(snapshot, dict) else {}
+    document = inference if isinstance(inference, dict) else snapshot.get("inference")
+    document = document if isinstance(document, dict) else {}
+    now = time.time() if now is None else now
+    if not _number(now):
+        raise ValueError("now must be finite epoch seconds")
+    rows = [row for row in (snapshot.get("machines") or []) if isinstance(row, dict)]
+    nodes = [node for node in (document.get("nodes") or []) if isinstance(node, dict)]
+    roots = _build_roots(nodes)
+    local_id = _local_identity(snapshot, rows, roots)
+    metadata, legacy_peer_id = _prepare_reports(snapshot, rows, roots)
+    by_id, peer_reports = _merge_root_rows(snapshot, rows, roots, metadata, local_id, legacy_peer_id)
+    lanes = _build_lane_facts(nodes, now)
+    facts = _build_machine_facts(snapshot, roots, lanes, by_id, peer_reports, local_id, now)
+    facts.extend(lanes)
+    counts = _coverage(lanes)
+    registry = _build_registry(document.get("remoteMachines"), document, now)
+    registry_partial = registry is not None and registry["completeness"] != "complete"
+    if registry_partial and not counts["answering"]:
+        counts["answering"] = None
+    counts["machines"] = len(roots)
+    machine_facts = [fact for fact in facts if fact["scope"] == "machine"]
+    for output, field in (("loaded", "loadedCount"), ("busy", "busyCount")):
+        measured = all(
+            fact["state"] == "reported"
+            and fact["completeness"] == "complete"
+            and fact["evidence"].get("state") == "up"
+            and type(fact["evidence"].get(field)) is int
+            and fact["evidence"][field] >= 0
+            for fact in machine_facts
+        )
+        counts[output] = (
+            sum(fact["evidence"][field] for fact in machine_facts) if measured and not registry_partial else None
+        )
+    summary = _compose_summary(lanes, counts, registry_partial, registry)
     complete = bool(lanes) and not counts["unknown"] and not counts["stale"] and not registry_partial
     return {
         "schemaVersion": 1,
