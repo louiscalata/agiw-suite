@@ -1049,8 +1049,8 @@ def router_unload_guard(*, lock_path=None, route_read=None, install_read=None):
         try:
             fd = os.open(path, os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK
                          | getattr(os, 'O_CLOEXEC', 0))
-        except OSError:
-            raise ControlError(409, 'Router admission lock is unavailable; auto-unload stopped.')
+        except OSError as err:
+            raise ControlError(409, 'Router admission lock is unavailable; auto-unload stopped.') from err
         try:
             held = os.fstat(fd)
             if (not stat.S_ISREG(held.st_mode) or held.st_uid != os.getuid()
@@ -1058,12 +1058,12 @@ def router_unload_guard(*, lock_path=None, route_read=None, install_read=None):
                 raise ControlError(409, 'Router admission lock is unsafe; auto-unload stopped.')
             try:
                 fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except OSError:
-                raise ControlError(409, 'Router admission is busy; auto-unload stopped.')
+            except OSError as err:
+                raise ControlError(409, 'Router admission is busy; auto-unload stopped.') from err
             try:
                 current = path.lstat()
-            except OSError:
-                raise ControlError(409, 'Router admission lock changed; auto-unload stopped.')
+            except OSError as err:
+                raise ControlError(409, 'Router admission lock changed; auto-unload stopped.') from err
             if ((current.st_dev, current.st_ino) != (held.st_dev, held.st_ino)
                     or current.st_nlink != 1):
                 raise ControlError(409, 'Router admission lock changed; auto-unload stopped.')

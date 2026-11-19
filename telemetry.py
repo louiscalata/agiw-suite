@@ -4093,17 +4093,11 @@ def _collect_lmstudio_inventory(
             )
 
 
-def collect_snapshot() -> dict[str, Any]:
-    """Collect bounded local status without touching inference or queue state."""
-    sampled = time.time()
-    observed = _dt.datetime.fromtimestamp(sampled, _dt.timezone.utc).isoformat().replace("+00:00", "Z")
-    sources: list[dict[str, Any]] = []
-    models_by_id: dict[str, dict[str, Any]] = {}
+def _collect_lms_activity(
+    sampled: float, sources: list[dict[str, Any]], models_by_id: dict[str, dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Merge `lms ps` activity into the inventory and append its source. Returns instance observations."""
     instance_observations: list[dict[str, Any]] = []
-
-    pair = None
-    _collect_lmstudio_inventory(sampled, sources, models_by_id)
-
     try:
         cli_payload = _bounded_lms()
         cli_rows = _parse_lms(cli_payload, sampled)
@@ -4155,7 +4149,10 @@ def collect_snapshot() -> dict[str, Any]:
                 row["state"] = "loaded"
             elif row["loaded"] is False:
                 row["state"] = "unloaded"
+    return instance_observations
 
+
+def _flag_oversized_inventory(sources: list[dict[str, Any]], models_by_id: dict[str, dict[str, Any]]) -> None:
     if len(models_by_id) > 256:
         # A complete source can still overflow the projection after API/CLI merging.
         for source in sources:
@@ -4167,44 +4164,38 @@ def collect_snapshot() -> dict[str, Any]:
                     detail="Local combined inventory incomplete: model list exceeds 256 entries; this source cannot establish the loaded count",
                 )
 
-    afm = _afm_status()
-    sources.append(
-        {
-            "id": "afm-executable",
-            "label": "Apple Foundation Models adapter",
-            "state": "live" if afm["state"] == "executable" else "unavailable",
-            "ageSeconds": 0.0,
-            "detail": "Adapter executable metadata sampled on this Mac; inference not tested"
-            if afm["state"] == "executable"
-            else f"Adapter {afm['state']}; inference not tested",
-        }
-    )
 
-    # One observation of both router journal layouts feeds the pipeline, Online Code Mode
-    # and (through last_router_observation) the activity rows of this sample.
-    router_at = time.time()
-    router = observe_router(router_at)
-    pipeline, router_source = _pipeline(router_at, router)
-    sources.append(router_source)
-    online_code_mode = _online_code_mode(sampled, observed, router)
-    _mark_live_route(pipeline, router_source, online_code_mode)
-    windows_worker, worker_source = _windows_worker(sampled)
+def _afm_source(afm: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": "afm-executable",
+        "label": "Apple Foundation Models adapter",
+        "state": "live" if afm["state"] == "executable" else "unavailable",
+        "ageSeconds": 0.0,
+        "detail": "Adapter executable metadata sampled on this Mac; inference not tested"
+        if afm["state"] == "executable"
+        else f"Adapter {afm['state']}; inference not tested",
+    }
+
+
+def _headless_or_unknown(sampled: float) -> dict[str, Any]:
     try:
-        windows_worker["headless"] = _windows_headless(sampled)
+        return _windows_headless(sampled)
     except Exception:
-        windows_worker["headless"] = {
+        return {
             "state": "unknown",
             "reason": "mode file unreadable",
             "expiresInSeconds": None,
             "grantedBy": None,
         }
-    sources.append(worker_source)
+
+
+def _peers_or_error(sampled: float) -> list[dict[str, Any]]:
     try:
         if peer_feed is None:
             raise ImportError("peer_feed missing")
-        peers = peer_feed.peer_feeds(sampled)
+        return peer_feed.peer_feeds(sampled)
     except Exception:
-        peers = [
+        return [
             {
                 "feed": None,
                 "source": {
@@ -4220,8 +4211,10 @@ def collect_snapshot() -> dict[str, Any]:
             }
             for platform in ("windows",)
         ]
-    sources.extend(entry["source"] for entry in peers)
-    windows_live = next(
+
+
+def _windows_live_feed(peers: list[dict[str, Any]]):
+    return next(
         (
             entry["feed"]
             for entry in peers
@@ -4231,8 +4224,11 @@ def collect_snapshot() -> dict[str, Any]:
         ),
         None,
     )
+
+
+def _windows_jobs_or_error(sampled: float) -> tuple[dict[str, Any], dict[str, Any]]:
     try:
-        windows_jobs, jobs_source = _windows_jobs(sampled)
+        return _windows_jobs(sampled)
     except Exception:
         windows_jobs = {
             "schemaVersion": 1,
@@ -4249,10 +4245,12 @@ def collect_snapshot() -> dict[str, Any]:
             "ageSeconds": None,
             "detail": "Windows job journal reader failed",
         }
-    canary, canary_source = _canary(sampled)
-    sources.append(canary_source)
+        return windows_jobs, jobs_source
+
+
+def _nisi_v02_or_unknown(sampled: float, observed: str) -> tuple[dict[str, Any], dict[str, Any]]:
     try:
-        nisi_v02, nisi_v02_source = collect_nisi_v02(sampled)
+        return collect_nisi_v02(sampled)
     except Exception:
         # An optional private-runtime reader must not interrupt local model
         # activity or turn an older activation receipt into a live signal.
@@ -4280,8 +4278,10 @@ def collect_snapshot() -> dict[str, Any]:
             "ageSeconds": None,
             "detail": "Private Nisi Inference evidence reader unavailable",
         }
-    sources.append(nisi_v02_source)
-    sources.append(jobs_source)
+        return nisi_v02, nisi_v02_source
+
+
+def _inventory_complete(sources: list[dict[str, Any]], models_by_id: dict[str, dict[str, Any]]) -> bool:
     # Independent complete inputs may exceed the shared display/publication budget.
     # Carry that loss through every consumer, including presence and history counts.
     models_complete = len(models_by_id) <= 256
@@ -4289,7 +4289,7 @@ def collect_snapshot() -> dict[str, Any]:
         for source in sources:
             if source["id"] in ("lmstudio-api", "lms-ps") and source["state"] == "live":
                 source.update(modelsComplete=False, detail="Combined model inventory truncated; counts unknown")
-    inventory_complete = any(
+    return any(
         source.get("state") == "live"
         and (source["id"] == "lms-ps" or source["id"] == "lmstudio-api" and source.get("route") == "direct")
         for source in sources
@@ -4298,6 +4298,44 @@ def collect_snapshot() -> dict[str, Any]:
         for row in models_by_id.values()
         if not row.get("representedByInstances")
     )
+
+
+def collect_snapshot() -> dict[str, Any]:
+    """Collect bounded local status without touching inference or queue state."""
+    sampled = time.time()
+    observed = _dt.datetime.fromtimestamp(sampled, _dt.timezone.utc).isoformat().replace("+00:00", "Z")
+    sources: list[dict[str, Any]] = []
+    models_by_id: dict[str, dict[str, Any]] = {}
+
+    pair = None
+    _collect_lmstudio_inventory(sampled, sources, models_by_id)
+    instance_observations = _collect_lms_activity(sampled, sources, models_by_id)
+    _flag_oversized_inventory(sources, models_by_id)
+
+    afm = _afm_status()
+    sources.append(_afm_source(afm))
+
+    # One observation of both router journal layouts feeds the pipeline, Online Code Mode
+    # and (through last_router_observation) the activity rows of this sample.
+    router_at = time.time()
+    router = observe_router(router_at)
+    pipeline, router_source = _pipeline(router_at, router)
+    sources.append(router_source)
+    online_code_mode = _online_code_mode(sampled, observed, router)
+    _mark_live_route(pipeline, router_source, online_code_mode)
+    windows_worker, worker_source = _windows_worker(sampled)
+    windows_worker["headless"] = _headless_or_unknown(sampled)
+    sources.append(worker_source)
+    peers = _peers_or_error(sampled)
+    sources.extend(entry["source"] for entry in peers)
+    windows_live = _windows_live_feed(peers)
+    windows_jobs, jobs_source = _windows_jobs_or_error(sampled)
+    canary, canary_source = _canary(sampled)
+    sources.append(canary_source)
+    nisi_v02, nisi_v02_source = _nisi_v02_or_unknown(sampled, observed)
+    sources.append(nisi_v02_source)
+    sources.append(jobs_source)
+    inventory_complete = _inventory_complete(sources, models_by_id)
     snapshot = {
         "schemaVersion": 1,
         "host": "mac",
