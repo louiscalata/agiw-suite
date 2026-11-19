@@ -59,12 +59,18 @@ class FleetRoutingPlanTests(unittest.TestCase):
     def test_responses_only_with_all_required_gates(self):
         hosted = routing.HostedEvidence(True, False, True, True, True)
         route = self.route({MAC: READY}, mode="online", hosted=hosted)
-        self.assertEqual(route.preanalysis, "responses/gpt-5.4-mini")
+        self.assertEqual(route.preanalysis, "responses/gpt-6.2-sol")
         self.assertEqual(route.worker, MAC)
         for gate in ("online_opt_in", "pool_key_verified", "budget_approved", "summary_redacted"):
             with self.subTest(gate=gate):
                 altered = replace(hosted, **{gate: False})
                 self.assertEqual(self.route({MAC: READY}, mode="online", hosted=altered).preanalysis, "local")
+
+    def test_pool_hard_tier_and_unknown_tier(self):
+        hosted = routing.HostedEvidence(True, False, True, True, True, tier="hard")
+        self.assertEqual(self.route({MAC: READY}, mode="online", hosted=hosted).preanalysis, "responses/gpt-6.2-astra")
+        with self.assertRaisesRegex(ValueError, "^TIER_REFUSED$"):
+            self.route({MAC: READY}, mode="online", hosted=replace(hosted, tier="unknown"))
 
     def test_unknown_jev_status_does_not_call_pool_candidate(self):
         hosted = routing.HostedEvidence(True, None, True, True, True)
