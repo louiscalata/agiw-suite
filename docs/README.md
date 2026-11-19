@@ -8,7 +8,10 @@ Start with the [project README](../README.md). Each line says what the page cove
 - [Features and components](features.md): to see every feature, the local-only pipeline, and what Nisi and Jev do and send.
 - [AGIW x ECI Model Tuning Tool](eci-model-tuning.md): ingest score records, rank separate protocols and apply a provisional PC routing policy (unreleased source).
 - [Model fast check](eci-fast-check.md): freeze paired samples, interpret uncertainty, ingest separate screening records and hand off the unrun harness adapter.
+- [ECI check jobs](eci-check-jobs.md): how the check-jobs engine works.
 - [Advanced configuration](advanced-configuration.md): to set resident-model policy, LM Studio port, share recovery, memory readings for sandboxed callers and the Windows edition link.
+- [Remote machine lanes](three-machine-pipeline.md): how to configure lanes in the remote machine registry.
+- [Port roles](three-machine-ports.md): what each port is used for in the pipeline.
 - [Inference Monitor map](inference-monitor.md): to learn what the `/monitor` map nodes, tabs and health states mean.
 - [Monitor display preferences](monitor-preferences.md): Theme and Text size on every page, their storage keys, the native seed and the change message.
 - [agiw command-line tool](cli.md): to pair a Mac and a Windows PC with a PIN, add the firewall rules yourself, run the login service or uninstall.
@@ -16,8 +19,10 @@ Start with the [project README](../README.md). Each line says what the page cove
 ## Status and evidence
 
 - [Status](status.md): what the 1.0.0 (7) download and the v1.1.0 source each cover, the two-machine layout and the open checks.
+- [v1.1.0 release notes](release-notes/v1.1.0.md): what changed in the source release.
 - [Release checklist](release-checklist.md): checks before a signed Mac download, including the clean-Mac install. That install is NOT_RUN until a receipt is stored.
 - [Mac and Windows PC connection record](three-machine-connection.md): the dated record of how the two machines connect, plus the retired Linux history.
+- [Remote machine registry fix](remote-machines-fix-results.md): verification results for the registry fix.
 - [Inference performance](performance.md): tables, methods, the Windows lane layouts, the comparison protocol and the comparison with Ollama and vLLM.
 - [Source review results](source-verification.md): dated review from 3 November 2026, written while the source label was 1.2.0 (13). The checkout label is now 1.1.0 (14).
 
@@ -25,12 +30,14 @@ Start with the [project README](../README.md). Each line says what the page cove
 
 - [Architecture](architecture.md): process boundaries, the evidence model, the local HTTP interface and state ownership.
 - [Development](development.md): to run the local view, source checks, the Nisi CLI and a distribution candidate build.
+- [Python style](python-style.md): Python style conventions and how the project uses Ruff.
 - [Router state contract](router-state-contract.md): the versioned list of router files, fields, limits and failure results the Monitor reads, with the fixtures that test it.
 - [Visual identity (Jaryo)](jaryo-identity.md): the logo, icon and theme decisions. Jaryo is the name of the visual-identity work.
 
 ## Data and assets
 
 - [data/](data/): sanitized JSON records behind the performance, comparison and Jaryo receipts, and the 2026-10-16 three-machine checkpoint. [inference-performance.json](data/inference-performance.json) is the aggregate for the performance page.
+- [remote-machines.example.json](remote-machines.example.json): an example remote machine lane registry.
 - [assets/](assets/): the AGIW mark SVG.
 
 ## Outside this folder
