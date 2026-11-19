@@ -349,7 +349,7 @@ class WorkerWiringTests(unittest.TestCase):
     def job(self):
         return {
             "job_id": "job-jev",
-            "route": {"worker": "m5-macbook-pro"},
+            "route": {"worker": "m5-macbook-pro", "preanalysis": "local", "reason": "strict-local"},
             "program": "repo-patch",
             "payload": self.payload(),
         }
