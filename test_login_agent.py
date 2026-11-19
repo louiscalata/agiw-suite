@@ -82,6 +82,7 @@ class LoginAgentConfigTests(unittest.TestCase):
         self.assertEqual(payload["EnvironmentVariables"]["AGIW_SHARE_USERNAME"], "suiteuser")
         self.assertEqual(mode, 0o600)
 
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "POSIX FIFO check")
     def test_fifo_at_existing_plist_path_refuses_without_blocking(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

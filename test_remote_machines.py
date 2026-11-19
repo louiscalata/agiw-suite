@@ -597,6 +597,8 @@ class ConfigSafetyTests(unittest.TestCase):
         link = self.path.with_name("link.json")
         link.symlink_to(self.path)
         self.assertEqual(remote.load_config(link), {"error": "config_invalid"})
+        if not hasattr(os, "mkfifo"):
+            self.skipTest("POSIX FIFO check")
         fifo = self.path.with_name("pipe.json")
         os.mkfifo(fifo, 0o600)
         # A daemon bounds even the defective implementation's FIFO open.
