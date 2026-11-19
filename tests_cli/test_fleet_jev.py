@@ -129,7 +129,15 @@ class RouterGateTests(unittest.TestCase):
             },
             "underspecified": {"type": "noul", "noul": 0.1},
         }
-        transport = opener(json.dumps({"model": jev.JEV_MODEL, "answers": answers}).encode())
+        transport = opener(
+            json.dumps(
+                {
+                    "model": jev.JEV_MODEL,
+                    "answers": answers,
+                    "usage": {"input_tokens": 457, "output_tokens": 50},
+                }
+            ).encode()
+        )
         client = self.client(jev.JevJudge(KEY, opener=transport))
         client.run("job", PROGRAM)
         client.request.assert_called_once()

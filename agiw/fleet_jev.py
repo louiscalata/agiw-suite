@@ -81,7 +81,8 @@ def _probability(value):
 
 
 def _summary(response):
-    if not isinstance(response, dict) or set(response) != {"model", "answers"}:
+    # TypeSafe may add metadata such as `usage`; only model and answers are required.
+    if not isinstance(response, dict) or "model" not in response or "answers" not in response:
         raise JevError("JEV_RESPONSE_INVALID")
     model, answers = response["model"], response["answers"]
     if not isinstance(model, str) or not MODEL_ID.fullmatch(model):
