@@ -24,6 +24,7 @@ from typing import Callable
 
 import mem_guard
 from durable_model_journal import DurableModelJournal, JournalError
+import speculative_launch
 
 
 MODEL_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/+-]{0,159}\Z")
@@ -685,9 +686,10 @@ class ModelControl:
             )
         return self.read()
 
-    def request(self, action: str, model_id: str, *, action_guard=None) -> dict:
+    def request(self, action: str, model_id: str, *, action_guard=None, speculative=None) -> dict:
         """Accept a model action; an optional internal guard spans the worker's action and
-        confirmation. The guard is entered in the worker before its fresh target check."""
+        confirmation. The guard is entered in the worker before its fresh target check.
+        When speculative is provided and action is 'load', the helper may use a DFlash runner."""
         with self.lock:
             self._check_available()
         snapshot = self.store.read()
@@ -734,7 +736,9 @@ class ModelControl:
             }
             accepted = copy.deepcopy(self.status)
             worker = threading.Thread(
-                target=self._work, args=(action, model_id, model_key, started, action_guard, operation), daemon=True
+                target=self._work,
+                args=(action, model_id, model_key, started, action_guard, operation, speculative),
+                daemon=True,
             )
             operation.worker = worker
             # Start while holding admission so cancel/join never sees an
@@ -753,7 +757,14 @@ class ModelControl:
         return accepted
 
     def _work(
-        self, action: str, model_id: str, model_key: str, started: float, action_guard=None, operation=None
+        self,
+        action: str,
+        model_id: str,
+        model_key: str,
+        started: float,
+        action_guard=None,
+        operation=None,
+        speculative=None,
     ) -> None:
         assert operation is not None
         confirmed = False
@@ -770,7 +781,24 @@ class ModelControl:
                 if action == "load":  # memory may have changed since the request; check it again
                     _memory_gate(snapshot, current, self.memory_config)
                 operation.check()
-                if self.runner is _run_cli:
+
+                def run_plain_load(a, m):
+                    if self.runner is _run_cli:
+                        self.runner(a, m, operation=operation)
+                    else:
+                        operation.attempted = True
+                        self.runner(a, m)
+
+                if action == "load" and speculative is not None:
+                    dflash_runner = getattr(self, "dflash_runner", None)
+                    speculative_launch.load_with_optional_draft(
+                        action,
+                        model_id,
+                        speculative,
+                        run_plain=run_plain_load,
+                        run_dflash=dflash_runner,
+                    )
+                elif self.runner is _run_cli:
                     self.runner(action, model_id, operation=operation)
                 else:
                     # Injectable legacy runners retain their two-argument API.

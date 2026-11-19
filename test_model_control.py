@@ -456,5 +456,149 @@ class HttpControlTest(unittest.TestCase):
         self.assertEqual(self.calls, [("unload", "publisher/model")])
 
 
+class SpeculativeLoadTest(unittest.TestCase):
+    """Tests for speculative decoding integration in model control."""
+
+    def control(self, store, calls, dflash_runner=None):
+        import mem_guard
+
+        ctrl = ModelControl(
+            store,
+            runner=lambda action, model_id: calls.append(("plain", action, model_id)),
+            memory_config=mem_guard.default_config,
+        )
+        if dflash_runner is not None:
+            ctrl.dflash_runner = dflash_runner
+        return ctrl
+
+    def wait_done(self, control):
+        until = time.monotonic() + 2
+        while control.read()["status"] == "running" and time.monotonic() < until:
+            time.sleep(0.01)
+        return control.read()
+
+    def test_default_request_uses_plain_runner_only(self):
+        """Default load without speculative config should only use the plain runner."""
+        calls = []
+        store = MutableStore(unloaded(mem=memory(1, 60)))
+        control = self.control(store, calls)
+        control.request("load", "publisher/model")
+        until = time.monotonic() + 2
+        while not calls and time.monotonic() < until:
+            time.sleep(0.01)
+        self.assertEqual(calls, [("plain", "load", "publisher/model")])
+
+    def test_speculative_config_with_dflash_uses_dflash_runner(self):
+        """Speculative load with DFlash config should use dflash_runner when available."""
+        calls = []
+        dflash_calls = []
+
+        def dflash_runner(action, model_id, fields):
+            dflash_calls.append(("dflash", action, model_id, fields))
+
+        store = MutableStore(unloaded(mem=memory(1, 60)))
+        control = self.control(store, calls, dflash_runner=dflash_runner)
+
+        from speculative_config import normalize_speculative
+
+        config = normalize_speculative(
+            {
+                "enabled": True,
+                "backend": "lmstudio-dflash",
+                "modelKey": "draft-model",
+            }
+        )
+
+        control.request("load", "publisher/model", speculative=config)
+        until = time.monotonic() + 2
+        while not dflash_calls and time.monotonic() < until:
+            time.sleep(0.01)
+        self.assertEqual(len(dflash_calls), 1)
+        self.assertEqual(dflash_calls[0][0], "dflash")
+        self.assertEqual(dflash_calls[0][1], "load")
+        self.assertEqual(dflash_calls[0][2], "publisher/model")
+        self.assertEqual(calls, [])
+
+    def test_speculative_dflash_failure_falls_back_to_plain(self):
+        """When DFlash load fails, should fall back to plain runner."""
+        calls = []
+        dflash_calls = []
+
+        def dflash_runner(action, model_id, fields):
+            dflash_calls.append(("dflash", action, model_id, fields))
+            raise RuntimeError("DFlash failed")
+
+        store = MutableStore(unloaded(mem=memory(1, 60)))
+        control = self.control(store, calls, dflash_runner=dflash_runner)
+
+        from speculative_config import normalize_speculative
+
+        config = normalize_speculative(
+            {
+                "enabled": True,
+                "backend": "lmstudio-dflash",
+                "modelKey": "draft-model",
+            }
+        )
+
+        control.request("load", "publisher/model", speculative=config)
+        until = time.monotonic() + 2
+        while not calls and time.monotonic() < until:
+            time.sleep(0.01)
+        self.assertEqual(len(dflash_calls), 1)
+        self.assertEqual(dflash_calls[0][0], "dflash")
+        self.assertEqual(calls, [("plain", "load", "publisher/model")])
+
+    def test_speculative_config_without_dflash_runner_uses_plain(self):
+        """When speculative config is provided but no dflash_runner, should use plain."""
+        calls = []
+        store = MutableStore(unloaded(mem=memory(1, 60)))
+        control = self.control(store, calls)
+
+        from speculative_config import normalize_speculative
+
+        config = normalize_speculative(
+            {
+                "enabled": True,
+                "backend": "lmstudio-dflash",
+                "modelKey": "draft-model",
+            }
+        )
+
+        control.request("load", "publisher/model", speculative=config)
+        until = time.monotonic() + 2
+        while not calls and time.monotonic() < until:
+            time.sleep(0.01)
+        self.assertEqual(calls, [("plain", "load", "publisher/model")])
+
+    def test_unload_ignores_speculative_config(self):
+        """Unload action should ignore speculative config and always use plain runner."""
+        calls = []
+        dflash_calls = []
+
+        def dflash_runner(action, model_id, fields):
+            dflash_calls.append(("dflash", action, model_id, fields))
+
+        store = MutableStore(inventory())
+        control = self.control(store, calls, dflash_runner=dflash_runner)
+
+        from speculative_config import normalize_speculative
+
+        config = normalize_speculative(
+            {
+                "enabled": True,
+                "backend": "lmstudio-dflash",
+                "modelKey": "draft-model",
+            }
+        )
+
+        control.request("unload", "publisher/model", speculative=config)
+        until = time.monotonic() + 2
+        while not calls and time.monotonic() < until:
+            time.sleep(0.01)
+        self.assertEqual(calls, [("plain", "unload", "publisher/model")])
+        self.assertEqual(dflash_calls, [])
+
+
 if __name__ == "__main__":
     unittest.main()
