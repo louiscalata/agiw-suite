@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import datetime as _dt
 import errno
-import fcntl
 import hashlib
 import http.client
 import json
@@ -22,6 +21,11 @@ import subprocess
 import threading
 import time
 from contextlib import contextmanager
+
+try:
+    import fcntl
+except ImportError:  # no flock (Windows): router lock probes report 'unknown'
+    fcntl = None  # type: ignore[assignment]
 
 try:
     import peer_feed
@@ -634,8 +638,11 @@ def _probe_lock(path: Path, *, bound_ino: int | None = None, links: int = 1) -> 
     with ``links`` links, optionally the inode ``bound_ino`` (a per-run record's runLock),
     then ``LOCK_SH|LOCK_NB``, released at once.  Returns 'held' (someone holds it EX),
     'free', 'missing', 'replaced' (another inode than the record bound), 'unsafe' or
-    'unknown' (any other error, or the path changed during the probe).
+    'unknown' (any other error, or the path changed during the probe).  Without fcntl
+    (Windows) every probe is 'unknown': liveness cannot be ruled out.
     """
+    if fcntl is None:
+        return "unknown"
     try:
         fd = os.open(str(path), os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     except FileNotFoundError:
@@ -847,6 +854,8 @@ def _router_policy(root: Path, install: dict[str, Any]) -> dict[str, Any]:
 
 def _router_drain_probe(path: Path) -> str:
     """'drained', 'draining' or 'unknown' from momentary NB probes of owner.lock."""
+    if fcntl is None:
+        return "unknown"
     try:
         fd = os.open(str(path), os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     except OSError:
