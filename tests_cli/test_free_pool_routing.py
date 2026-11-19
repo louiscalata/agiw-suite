@@ -266,6 +266,33 @@ class GuardTests(RoutingBase):
         self.assertFalse(out["receipt"]["served_model_ok"])
         self.assertIn("gpt-5.4-mini", json.loads((self.root / "free-pool-disabled.json").read_text(encoding="utf-8")))
 
+    def test_repo_flag_selects_a_project_and_unknown_repos_are_refused(self):
+        with self.opener(api_payload()):
+            code, out = self.run_cli(
+                str(self.prompt),
+                "--repo",
+                "louiscalata/nisi",
+                "--source",
+                "claude-code",
+                "--lane",
+                "claude-free-pool",
+                "--kind",
+                "docs_text",
+            )
+        self.assertEqual((code, out["receipt"]["project"], out["receipt"]["lane"]), (0, "nisi", "claude-free-pool"))
+        code, out = self.run_cli(
+            str(self.prompt),
+            "--repo",
+            "someone/other",
+            "--source",
+            "claude-code",
+            "--lane",
+            "claude-free-pool",
+            "--kind",
+            "docs_text",
+        )
+        self.assertEqual((code, out["refused"]), (fpc.EXIT_GATE, "PROJECT_REFUSED"))
+
     def test_real_calls_need_source_and_lane(self):
         with self.opener():
             code, out = self.run_cli(str(self.prompt), "--project", "nisi", "--kind", "docs_text", "--source", "code")

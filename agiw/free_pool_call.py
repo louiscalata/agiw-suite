@@ -873,7 +873,8 @@ def parse_args(argv):
     p.add_argument("--machine-config", default=None)
     for legacy in ("--private", "--strict-free", "--opt-in-astra"):
         p.add_argument(legacy, action="store_true", help="accepted for compatibility; no effect")
-    for legacy in ("--repo", "--org", "--project-id", "--openai-project", "--budget-config"):
+    p.add_argument("--repo", default="", help="OWNER/REPO; the repo name selects one of the four projects")
+    for legacy in ("--org", "--project-id", "--openai-project", "--budget-config"):
         p.add_argument(legacy, default="", help="accepted for compatibility; ignored")
     return p.parse_args(argv)
 
@@ -949,7 +950,9 @@ def _request(cfg, args, text, meta):
         "no_reroute": bool(args.no_reroute),
         "source": args.source.strip() or None,
         "lane": args.lane.strip() or None,
-        "project": canon_project(meta.get("project")) or (args.existing_public or None),
+        "project": canon_project(meta.get("project"))
+        or canon_project(re.split(r"[/\\]", args.repo.strip())[-1] if args.repo else "")
+        or (args.existing_public or args.destined_public or None),
         "prompt": text,
         "prompt_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
         "est_in": est_in,
