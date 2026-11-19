@@ -4,11 +4,19 @@ Clones one public GitHub repo at one commit into a fresh temp dir, asks a patche
 worker's loopback model) for new contents of allowlisted files only, and returns the staged unified
 diff. It never pushes, never writes outside the temp clone and always removes it.
 
+The default patcher asks the loopback model for SEARCH/REPLACE blocks: a path line, a `<<<<<<< SEARCH`
+marker, the exact current lines, `=======`, the replacement and `>>>>>>> REPLACE`. Several blocks may
+touch one or several allowlisted files, so a small model edits a few lines instead of rewriting a whole
+document. Each SEARCH must occur exactly once, with one whitespace-tolerant retry. A reply that is JSON
+`{"files": {"<path>": "<content>"}}` keeps the older full-file behaviour. Either way git judges what
+lands on disk and the staged diff limits still apply.
+
 Jev pre/post analysis is on by default; set jev_analysis=false to skip both phases.
 Skipped means explicitly disabled; not_run means the job blocked before that phase.
 Unavailable means no analyzer or a failed analysis; patching and diff reporting proceed
 without a plan or verdict from that phase. Analyzers are injected, not auto-discovered:
 repo-patch does not invoke a CLI, a hosted service, or a personal ledger for analysis.
+The fleet worker may inject the optional jev-task CLI adapter from `agiw.fleet_jev_task`.
 Analysis input is limited to 12,000 characters (first/last 6,000); receipts record
 its size, hash and truncation flag, not the input. Plans are capped at 4,000 characters
 and verdicts at 64.
@@ -44,6 +52,31 @@ class Refused(RuntimeError):  # noqa: N818 - matches the sibling fleet modules
 
 def _ref(code):
     raise Refused(code)
+
+
+class _DiffRefused(Refused):
+    """A diff-limit refusal that also carries the facts needed to explain it."""
+
+    def __init__(self, code, diff_bytes, changed_lines, excerpt):
+        super().__init__(code)
+        self.diff_bytes = diff_bytes
+        self.changed_lines = changed_lines
+        self.excerpt = excerpt
+
+
+def _diff_excerpt(diff_text):
+    return pilot.sanitize_text(diff_text[:4096], limit=2048)
+
+
+def _changed_line_count(diff_text):
+    """Count + and - lines, but not the +++/--- file headers."""
+    count = 0
+    for line in diff_text.splitlines():
+        if line.startswith("+++") or line.startswith("---"):
+            continue
+        if line.startswith("+") or line.startswith("-"):
+            count += 1
+    return count
 
 
 def _is_git_repo(path):
@@ -322,24 +355,23 @@ def _read_files(workdir, allowlist):
         total += st.st_size
         if total > 262144:
             _ref("FILE_REFUSED")
-        files[rel] = p.read_text(encoding="utf-8", errors="surrogateescape")
+        # Bytes, not text mode: universal-newline reads turn CRLF into LF, so writing back would
+        # rewrite every line of a CRLF file.
+        files[rel] = p.read_bytes().decode("utf-8", "surrogateescape")
     return files
 
 
-def _parse_diff_limits(diff_text, max_changed_lines):
+def _parse_diff_limits(diff_text, max_changed_lines, diff_bytes=None):
     if max_changed_lines is None:
         return
-    count = 0
-    for line in diff_text.splitlines():
-        if line.startswith("+++") or line.startswith("---"):
-            continue
-        if line.startswith("+") or line.startswith("-"):
-            count += 1
+    count = _changed_line_count(diff_text)
     if count > max_changed_lines:
-        _ref("DIFF_TOO_MANY_LINES")
+        if diff_bytes is None:
+            diff_bytes = len(diff_text.encode("utf-8", "surrogateescape"))
+        raise _DiffRefused("DIFF_TOO_MANY_LINES", diff_bytes, count, _diff_excerpt(diff_text))
 
 
-def _blocked(spec, code, analysis, stderr=None):
+def _blocked(spec, code, analysis, stderr=None, patch=None):
     result = {
         "outcome": "BLOCKED",
         "code": code,
@@ -358,6 +390,8 @@ def _blocked(spec, code, analysis, stderr=None):
         stderr = pilot.sanitize_text(stderr, limit=2048)
         if stderr:
             result["git_stderr"] = stderr.encode("utf-8", "replace")[:2048].decode("utf-8", "ignore")
+    if isinstance(patch, dict):
+        result["patch"] = patch
     return result
 
 
@@ -396,7 +430,9 @@ def _apply(workdir, allowlist, out):
             if target.exists() or target.is_symlink():
                 target.unlink()
         else:
-            target.write_text(content, encoding="utf-8")
+            # Bytes, not text mode: on Windows write_text turns every LF into CRLF, and with no
+            # eol attribute git then stages a whole-file rewrite (Q003: 1 edit, 262 changed lines).
+            target.write_bytes(content.encode("utf-8", "surrogateescape"))
 
 
 def _staged_diff(spec, workdir, tmp):
@@ -408,9 +444,11 @@ def _staged_diff(spec, workdir, tmp):
     if any(path not in spec["allowlist"] for path in changed_files):
         _ref("ALLOWLIST_VIOLATION")
     diff = _git_out(["diff", "--cached", "--binary", "--no-color", "--no-ext-diff"], workdir, tmp, t)
+    diff_text = diff.decode("utf-8", "surrogateescape")
+    changed_lines = _changed_line_count(diff_text)
     if len(diff) > spec["max_diff_bytes"]:
-        _ref("DIFF_TOO_LARGE")
-    _parse_diff_limits(diff.decode("utf-8", "surrogateescape"), spec["max_changed_lines"])
+        raise _DiffRefused("DIFF_TOO_LARGE", len(diff), changed_lines, _diff_excerpt(diff_text))
+    _parse_diff_limits(diff_text, spec["max_changed_lines"], len(diff))
     return changed_files, diff
 
 
@@ -467,18 +505,31 @@ def _analyze(analyzer, text, phase, field):
     return {"status": "ok", field: value, **metadata}
 
 
-def _accepts_analysis(patcher):
+def _accepts(patcher, name):
     try:
         params = inspect.signature(patcher).parameters.values()
     except (TypeError, ValueError):
         return False
     return any(
         p.kind == inspect.Parameter.VAR_KEYWORD
-        or (
-            p.name == "analysis" and p.kind in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)
-        )
+        or (p.name == name and p.kind in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY))
         for p in params
     )
+
+
+def _accepts_analysis(patcher):
+    return _accepts(patcher, "analysis")
+
+
+def _last_patch(patcher):
+    """Patch diagnostics recorded by the closure, when the patcher keeps any."""
+    patch = getattr(patcher, "last", None)
+    return patch if isinstance(patch, dict) else None
+
+
+def _patch_field(patcher):
+    patch = _last_patch(patcher)
+    return {"patch": patch} if patch else {}
 
 
 def run(spec, patcher, *, allow_local_source=False, tmp_root=None, jev_pre=None, jev_post=None):
@@ -497,18 +548,22 @@ def run(spec, patcher, *, allow_local_source=False, tmp_root=None, jev_pre=None,
         workdir = _clone(spec, tmp)
         files = _read_files(workdir, spec["allowlist"])
         if spec["jev_analysis"]:
-            text = "\n\n".join([spec["task"]] + [f"--- {path} ---\n{content}" for path, content in files.items()])
+            text = "\n\n".join(
+                [spec["task"]] + [f"--- {path} ---\n{content}".replace("\r\n", "\n") for path, content in files.items()]
+            )
             analysis["jevPre"] = _analyze(jev_pre, text, "pre", "plan")
         try:
             kwargs = {"files": dict(files), "task": spec["task"], "workdir": workdir}
             plan = analysis["jevPre"].get("plan")
             if plan is not None and _accepts_analysis(patcher):
                 kwargs["analysis"] = plan
+            if _accepts(patcher, "allowlist"):
+                kwargs["allowlist"] = list(spec["allowlist"])
             out = patcher(**kwargs)
         except Refused:
             raise
         except Exception:  # noqa: BLE001 - any patcher failure is a BLOCKED job, never a crash
-            return _blocked(spec, "PATCH_FAILED", analysis)
+            return _blocked(spec, "PATCH_FAILED", analysis, patch=_last_patch(patcher))
         _apply(workdir, spec["allowlist"], out)
         changed_files, diff = _staged_diff(spec, workdir, tmp)
         diff_text = diff.decode("utf-8", "surrogateescape")
@@ -524,6 +579,7 @@ def run(spec, patcher, *, allow_local_source=False, tmp_root=None, jev_pre=None,
             "diffSha256": hashlib.sha256(diff).hexdigest(),
             "diffBytes": len(diff),
             **analysis,
+            **_patch_field(patcher),
         }
     except subprocess.CalledProcessError as exc:
         code = "COMMIT_NOT_FOUND" if "checkout" in exc.cmd else "GIT_FAILED"
@@ -532,13 +588,23 @@ def run(spec, patcher, *, allow_local_source=False, tmp_root=None, jev_pre=None,
         return _blocked(spec, "GIT_TIMEOUT", analysis, exc.stderr)
     except OSError:
         return _blocked(spec, "IO_FAILED", analysis)
+    except _DiffRefused as exc:
+        code = str(exc)
+        patch = dict(_last_patch(patcher) or {})
+        patch["error"] = code
+        patch["diffBytes"] = exc.diff_bytes
+        patch["maxDiffBytes"] = spec["max_diff_bytes"]
+        patch["changedLines"] = exc.changed_lines
+        patch["diffExcerpt"] = exc.excerpt
+        return _blocked(spec, code, analysis, patch=patch)
     except Refused as exc:
-        return _blocked(spec, str(exc), analysis)
+        return _blocked(spec, str(exc), analysis, patch=_last_patch(patcher))
     finally:
         _rmtree(tmp)
 
 
 def _strip_fences(text):
+    """Strip one enclosing code fence; kept for callers of the old JSON-only patcher."""
     t = text.strip()
     if t.startswith("```"):
         t = "\n".join(t.splitlines()[1:])
@@ -547,47 +613,664 @@ def _strip_fences(text):
     return t.strip()
 
 
-def chat_patcher(model_endpoint, model, timeout):
+_SEARCH_MARK = re.compile(r"^<{5,9}\s*(?:SEARCH)?\s*$", re.I)
+_DIVIDER_MARK = re.compile(r"^={5,9}\s*$")
+_REPLACE_MARK = re.compile(r"^>{5,9}\s*(?:REPLACE)?\s*$", re.I)
+_FENCE_LINE = re.compile(r"^\s*```")
+_THINKING = re.compile(r"(?is)<think[^>]*>.*?</think[^>]*>")
+_THINKING_OPEN = re.compile(r"(?is)<think[^>]*>")
+_PATH_PREFIX = re.compile(r"^(?:file|path)\s*:\s*", re.I)
+
+
+class _EditRefused(Refused):
+    """A refusal plus the machine reason recorded on the patch diagnostics."""
+
+    def __init__(self, code, reason):
+        super().__init__(code)
+        self.reason = reason
+
+
+def _refused(code, reason):
+    raise _EditRefused(code, reason)
+
+
+def _lf(text):
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _first_non_blank(lines, start=0):
+    for index in range(start, len(lines)):
+        if lines[index].strip():
+            return index
+    return None
+
+
+def _last_non_blank(lines, stop=None):
+    for index in range((len(lines) if stop is None else stop) - 1, -1, -1):
+        if lines[index].strip():
+            return index
+    return None
+
+
+def _clean_edit_text(text):
+    """Normalize newlines, drop reasoning and remove one enclosing code fence."""
+    if not isinstance(text, str) or not text.strip():
+        _refused("PATCH_OUTPUT_INVALID", "NO_EDITS")
+    cleaned = _THINKING.sub(" ", _lf(text))
+    unclosed = _THINKING_OPEN.search(cleaned)
+    if unclosed:
+        cleaned = cleaned[: unclosed.start()]
+    lines = cleaned.split("\n")
+    first = _first_non_blank(lines)
+    if first is not None and _FENCE_LINE.match(lines[first]):
+        del lines[first]
+        last = _last_non_blank(lines)
+        if last is not None and _FENCE_LINE.match(lines[last]):
+            del lines[last]
+    return "\n".join(lines)
+
+
+def _legacy_json_files(text):
+    """The old full-file reply, or None when this is not a JSON files object."""
+    try:
+        data = json.loads(_clean_edit_text(text))
+    except ValueError:
+        return None
+    if isinstance(data, dict) and isinstance(data.get("files"), dict):
+        return data["files"]
+    _refused("PATCH_OUTPUT_INVALID", "INVALID_JSON")
+
+
+def _edit_path(line):
+    value = line.strip().strip("`").strip()
+    if len(value) > 4 and value.startswith("**") and value.endswith("**"):
+        value = value[2:-2].strip()
+    value = _PATH_PREFIX.sub("", value.lstrip("#").strip()).strip("`*").strip()
+    return value or None
+
+
+def _path_before(lines, index):
+    """The path is the last non-empty line before the SEARCH marker, skipping fences."""
+    for position in range(index - 1, -1, -1):
+        line = lines[position]
+        if not line.strip() or _FENCE_LINE.match(line):
+            continue
+        if _SEARCH_MARK.match(line) or _DIVIDER_MARK.match(line) or _REPLACE_MARK.match(line):
+            return None
+        return _edit_path(line)
+    return None
+
+
+def _next_mark(lines, start, pattern):
+    for index in range(start, len(lines)):
+        if pattern.match(lines[index]):
+            return index
+        if pattern is not _SEARCH_MARK and _SEARCH_MARK.match(lines[index]):
+            return None
+    return None
+
+
+def _sole_allowlisted(allowlist):
+    paths = [path for path in (allowlist or []) if isinstance(path, str) and path]
+    return paths[0] if len(paths) == 1 else None
+
+
+def parse_edits(text, allowlist=None):
+    """Parse SEARCH/REPLACE blocks into (path, search, replace) triples."""
+    lines = _clean_edit_text(text).split("\n")
+    edits = []
+    position = 0
+    while position < len(lines):
+        if not _SEARCH_MARK.match(lines[position]):
+            position += 1
+            continue
+        divider = _next_mark(lines, position + 1, _DIVIDER_MARK)
+        end = None if divider is None else _next_mark(lines, divider + 1, _REPLACE_MARK)
+        if divider is None or end is None:
+            _refused("PATCH_OUTPUT_INVALID", "MALFORMED_BLOCK")
+        search = "\n".join(lines[position + 1 : divider])
+        replace = "\n".join(lines[divider + 1 : end])
+        edits.append((_path_before(lines, position), search, replace))
+        position = end + 1
+    if not edits:
+        _refused("PATCH_OUTPUT_INVALID", "NO_EDITS")
+    resolved = []
+    for path, search, replace in edits:
+        if path is None:
+            path = _sole_allowlisted(allowlist)
+            if path is None:
+                _refused("PATCH_OUTPUT_INVALID", "MALFORMED_BLOCK")
+        resolved.append((path, search, replace))
+    return resolved
+
+
+def _trimmed_lines(lines):
+    out = [line.strip() for line in lines]
+    while out and not out[0]:
+        out.pop(0)
+    while out and not out[-1]:
+        out.pop()
+    return out
+
+
+def _line_hits(haystack, needle):
+    if not needle or len(needle) > len(haystack):
+        return []
+    return [at for at in range(len(haystack) - len(needle) + 1) if haystack[at : at + len(needle)] == needle]
+
+
+def _replace_lines(lines, at, count, replace):
+    body = [] if replace == "" else replace.split("\n")
+    return "\n".join(lines[:at] + body + lines[at + count :])
+
+
+def _replace_once(content, search, replace):
+    """Replace the one place SEARCH names; refuse when it is missing or ambiguous.
+
+    Tried in order, each only when the previous found nothing: whole lines exactly, whole lines
+    with surrounding whitespace (and SEARCH's leading/trailing blank lines) ignored, then a raw
+    substring for a SEARCH that quotes part of a line. Any step with several hits refuses.
+    """
+    lines = content.split("\n")
+    exact = _line_hits(lines, search.split("\n"))
+    if len(exact) > 1:
+        _refused("PATCH_OUTPUT_INVALID", "SEARCH_NOT_UNIQUE")
+    if exact:
+        return _replace_lines(lines, exact[0], len(search.split("\n")), replace)
+    needle = _trimmed_lines(search.split("\n"))
+    trimmed = _line_hits([line.strip() for line in lines], needle)
+    if len(trimmed) > 1:
+        _refused("PATCH_OUTPUT_INVALID", "SEARCH_NOT_UNIQUE")
+    if trimmed:
+        return _replace_lines(lines, trimmed[0], len(needle), replace)
+    hits = content.count(search) if search.strip() else 0
+    if hits > 1:
+        _refused("PATCH_OUTPUT_INVALID", "SEARCH_NOT_UNIQUE")
+    if hits == 1:
+        at = content.index(search)
+        return content[:at] + replace + content[at + len(search) :]
+    _refused("PATCH_OUTPUT_INVALID", "SEARCH_NOT_FOUND")
+
+
+def apply_edits(files, edits, allowlist):
+    """Apply edits in order; return the full new content of each edited path."""
+    if not isinstance(edits, list) or not edits:
+        _refused("PATCH_OUTPUT_INVALID", "NO_EDITS")
+    allowed = {path for path in (allowlist or []) if isinstance(path, str)}
+    current = {}
+    crlf = {}
+    for path, content in (files or {}).items():
+        if not isinstance(content, str):
+            _refused("PATCH_OUTPUT_INVALID", "INVALID_JSON")
+        current[path] = _lf(content)
+        crlf[path] = "\r\n" in content
+    out = {}
+    for edit in edits:
+        if not isinstance(edit, (list, tuple)) or len(edit) != 3:
+            _refused("PATCH_OUTPUT_INVALID", "MALFORMED_BLOCK")
+        path, search, replace = edit
+        if not isinstance(path, str) or path not in allowed:
+            _ref("ALLOWLIST_VIOLATION")
+        if not isinstance(search, str) or not isinstance(replace, str):
+            _refused("PATCH_OUTPUT_INVALID", "MALFORMED_BLOCK")
+        existing = current.get(path)
+        if search:
+            if existing is None:
+                _refused("PATCH_OUTPUT_INVALID", "SEARCH_NOT_FOUND")
+            updated = _replace_once(existing, _lf(search), _lf(replace))
+        else:
+            if existing is not None:
+                _refused("PATCH_OUTPUT_INVALID", "EMPTY_SEARCH_EXISTING_FILE")
+            updated = _lf(replace)
+        current[path] = updated
+        out[path] = updated.replace("\n", "\r\n") if crlf.get(path) else updated
+    return out
+
+
+_NO_TOOLS = (
+    "You have no tools. You cannot run commands, browse, or open other files. "
+    "The current contents of each file are included in the user message under "
+    "its ### <path> heading (as excerpts for large files)."
+)
+
+_EDIT_GUIDANCE = (
+    "Always return at least one SEARCH/REPLACE block. Do the parts of the task "
+    "the shown text supports and skip parts that need outside information.\n"
+    "To ADD new text, SEARCH one or two existing lines next to where the text "
+    "belongs and REPLACE them with those same lines plus the new lines."
+)
+
+_RESPOND_ONLY = "Respond only with SEARCH/REPLACE blocks, no explanation."
+
+_FORMAT_BLOCK = f"""Format, repeated once per edit, for one or several files:
+
+path/to/file.md
+<<<<<<< SEARCH
+lines copied exactly from the current file
+=======
+replacement lines
+>>>>>>> REPLACE
+
+{_RESPOND_ONLY}"""
+
+_SYSTEM_PROMPT = f"""You edit files by returning SEARCH/REPLACE blocks.
+
+{_NO_TOOLS}
+
+{_EDIT_GUIDANCE}
+
+{_FORMAT_BLOCK}
+
+Rules:
+- Make the smallest edits that complete the task. Never rewrite a whole file.
+- Copy every SEARCH line exactly from the file, keeping the same whitespace.
+- Keep each SEARCH short but unique: a few lines that appear once in the file.
+- Put the file path on its own line directly above <<<<<<< SEARCH.
+- To create a missing file, leave SEARCH empty and put the new content in REPLACE.
+- Output only the blocks. No commentary, no JSON, no whole-file rewrites.
+
+Example. The current file greeting.txt contains:
+
+```
+hi
+bye
+```
+
+One edit that changes its first line:
+
+greeting.txt
+<<<<<<< SEARCH
+hi
+=======
+hello
+>>>>>>> REPLACE
+
+Insertion example. The current file notes.md contains:
+
+```
+# Notes
+## Usage
+```
+
+Add a paragraph under the heading:
+
+notes.md
+<<<<<<< SEARCH
+## Usage
+=======
+## Usage
+
+Open the notes before starting.
+>>>>>>> REPLACE"""
+
+_RETRY_REMINDER = (
+    "Your previous reply contained no SEARCH/REPLACE blocks. "
+    "The file contents are in the message above. "
+    "Make the best minimal edit for the task now. "
+    "To add text, SEARCH an existing line near where it belongs and REPLACE it "
+    "with that line plus the new text. "
+    "Allowed paths: {paths}. " + _RESPOND_ONLY
+)
+
+_EXCERPT_THRESHOLD = 16000
+_EXCERPT_BUDGET = 16000
+_EXCERPT_CONTEXT = 4
+_EXCERPT_HEAD = 10
+_EXCERPT_SECTION = 40
+
+_EXCERPT_STOPWORDS = frozenset(
+    """
+    this that with from make only docs file each must should into than then
+    there their they have match exactly check first same class against correct any
+    the and for not all are but its about also when what which while where will
+    would could just made docs-only pass finding stale task edit edits files doc
+    one two per via use used
+    """.split()
+)
+
+_EXCERPT_SPELLINGS = {
+    "licence": "license",
+    "license": "licence",
+    "colour": "color",
+    "color": "colour",
+    "behaviour": "behavior",
+    "behavior": "behaviour",
+}
+
+
+def _task_keywords(task):
+    tokens = re.findall(r"[a-z0-9][a-z0-9_./-]*[a-z0-9]|[a-z0-9]", (task or "").lower())
+    words = set()
+
+    def add(word):
+        if len(word) >= 3 and word not in _EXCERPT_STOPWORDS:
+            words.add(word)
+
+    for token in tokens:
+        token = token.rstrip(".,;:!?)")
+        if len(token) < 3 or token in _EXCERPT_STOPWORDS:
+            continue
+        add(token)
+        if "." in token or "/" in token:
+            basename = token.rsplit("/", 1)[-1]
+            add(basename)
+            add(basename.rsplit(".", 1)[0])
+
+    # Work from a snapshot so plural and spelling expansion is bounded.
+    for word in tuple(words):
+        base = word
+        if len(word) >= 5 and word.isalpha():
+            if word.endswith("s"):
+                base = word[:-1]
+                add(base)
+            else:
+                add(word + "s")
+        alternate = _EXCERPT_SPELLINGS.get(base)
+        if alternate:
+            add(alternate)
+            add(alternate + "s")
+    return tuple(sorted(words))
+
+
+def _merge_ranges(ranges):
+    merged = []
+    for start, end in sorted(ranges):
+        if merged and start <= merged[-1][1] + 1:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append((start, end))
+    return merged
+
+
+def _window_text(lines, window):
+    start, end = window
+    return "\n".join(lines[start - 1 : end])
+
+
+def _window_cost(lines, window, prefix=None):
+    start, end = window
+    if prefix is None:
+        text_chars = len(_window_text(lines, window))
+    else:
+        # Each prefix entry counts one separator per line; omit the last one.
+        text_chars = prefix[end] - prefix[start - 1] - 1
+    return text_chars + len(f"[lines {start}-{end}]") + 2
+
+
+def _windows_cost(lines, windows, prefix=None):
+    return sum(_window_cost(lines, window, prefix) for window in windows)
+
+
+def _line_index(lines):
+    """Per-line lookups: char prefix sums, heading levels and the nearest heading above."""
+    prefix = [0]
+    levels = [0] * (len(lines) + 1)
+    above = [0] * (len(lines) + 1)
+    nearest = 0
+    for number, line in enumerate(lines, start=1):
+        prefix.append(prefix[-1] + len(line) + 1)
+        above[number] = nearest
+        heading = re.match(r"^ {0,3}(#{1,6})(?=\s|$)", line)
+        if heading:
+            levels[number] = len(heading.group(1))
+            nearest = number
+    return prefix, levels, above
+
+
+def _keyword_scores(lines, task):
+    """Line number -> sum of rarity weights (1 / lines hit) of the task keywords on that line."""
+    lowered = [line.lower() for line in lines]
+    scores = {}
+    for keyword in _task_keywords(task):
+        pattern = re.compile(r"(?<![a-z0-9])" + re.escape(keyword) + r"(?![a-z0-9])")
+        matches = [number for number, line in enumerate(lowered, 1) if pattern.search(line)]
+        for number in matches:
+            scores[number] = scores.get(number, 0.0) + 1.0 / len(matches)
+    return scores
+
+
+def _section(levels, number, count):
+    """A matched heading through the line before the next same-or-higher heading, capped."""
+    end = min(count, number + _EXCERPT_SECTION - 1)
+    for following in range(number + 1, end + 1):
+        if 0 < levels[following] <= levels[number]:
+            return number, following - 1
+    return number, end
+
+
+def _select_windows(content, task):
+    """Select deterministic, merged, 1-based inclusive excerpt ranges.
+
+    Lines are scored by rare task keywords (word-boundary matches; a matching heading counts
+    double) and taken best first, each with a little context and its nearest heading; a
+    matching heading brings its section. The head always stays. With no matches, the head
+    grows to fill the budget. Ties go to the earlier line.
+    """
+    lines = content.splitlines()
+    count = len(lines)
+    if not count:
+        return []
+    prefix, levels, above = _line_index(lines)
+    scores = _keyword_scores(lines, task)
+
+    def add(windows, candidate, force=False):
+        merged = _merge_ranges(windows + [candidate])
+        if force or _windows_cost(lines, merged, prefix) <= _EXCERPT_BUDGET:
+            return merged
+        return windows
+
+    windows = [(1, min(_EXCERPT_HEAD, count))]
+    ranked = sorted(scores, key=lambda number: (-scores[number] * (2 if levels[number] else 1), number))
+    for number in ranked:
+        if levels[number]:
+            windows = add(windows, _section(levels, number, count))
+        if len(lines[number - 1]) > _EXCERPT_BUDGET:
+            # Keep the exact SEARCH anchor, but don't add context around an oversized line.
+            windows = add(windows, (number, number), force=True)
+        else:
+            context = (max(1, number - _EXCERPT_CONTEXT), min(count, number + _EXCERPT_CONTEXT))
+            windows = add(windows, context)
+        if above[number]:
+            windows = add(windows, (above[number], above[number]))
+    if not scores:
+        while windows[0][1] < count:
+            extended = add(windows, (1, windows[0][1] + 1))
+            if extended == windows:
+                break
+            windows = extended
+    return windows
+
+
+def _fence_for(text):
+    runs = re.findall(r"`{3,}", text)
+    return "`" * (max(len(run) for run in runs) + 1) if runs else "```"
+
+
+def _file_excerpt(content, task):
+    if len(content) <= _EXCERPT_THRESHOLD:
+        return None
+    return content.splitlines(), _select_windows(content, task)
+
+
+def _estimate_max_tokens(task, visible_file_chars):
+    estimate = 512 + len(task) // 4 + visible_file_chars // 6
+    return max(1024, min(pilot.MAX_MAX_TOKENS, estimate))
+
+
+def _auto_max_tokens(files, task):
+    """Estimate from the same file text used by the user prompt."""
+    total = 0
+    for content in (files or {}).values():
+        if not isinstance(content, str):
+            continue
+        excerpt = _file_excerpt(content, task)
+        if excerpt is None:
+            total += len(content)
+        else:
+            lines, windows = excerpt
+            total += sum(len(_window_text(lines, window)) for window in windows)
+    return _estimate_max_tokens(task, total)
+
+
+def _user_prompt(files, task, allowlist, analysis, excerpts=None, *, file_chars=None):
+    parts = [_NO_TOOLS, _EDIT_GUIDANCE, _FORMAT_BLOCK]
+    for path, content in files.items():
+        if file_chars is not None:
+            file_chars[path] = 0
+        if not isinstance(content, str):
+            continue
+        excerpt = _file_excerpt(content, task)
+        if excerpt is not None:
+            lines, windows = excerpt
+            if excerpts is not None:
+                excerpts[path] = [[start, end] for start, end in windows]
+            heading = f"### {path} (excerpt of {len(lines)} lines; copy SEARCH lines exactly from these excerpts)"
+            blocks = [heading]
+            for start, end in windows:
+                text = _window_text(lines, (start, end))
+                fence = _fence_for(text)
+                blocks.append(f"[lines {start}-{end}]\n{fence}\n{text}\n{fence}")
+                if file_chars is not None:
+                    file_chars[path] += len(text)
+            parts.append("\n\n".join(blocks))
+            continue
+
+        body = content if content.endswith("\n") else content + "\n"
+        fence = _fence_for(content)
+        parts.append(f"### {path}\n{fence}\n{body}{fence}")
+        if file_chars is not None:
+            file_chars[path] = len(content)
+
+    missing = [path for path in (allowlist or []) if path not in files]
+    if missing:
+        listed = "\n".join(f"- {path}" for path in missing)
+        parts.append("### Paths that do not exist yet (create them with an empty SEARCH)\n" + listed)
+    parts.append(f"### Task\n{task}")
+    if analysis:
+        parts.append("Jev pre-plan (advisory):\n" + _bound_plan(analysis))
+    parts.append(_FORMAT_BLOCK)
+    return "\n\n".join(parts)
+
+
+def _match_line_endings(original, new):
+    """Keep a CRLF file CRLF when a legacy full-file reply arrives with LF-only content."""
+    if not isinstance(original, str) or not isinstance(new, str):
+        return new
+    if "\r\n" in original and "\r" not in new:
+        return new.replace("\n", "\r\n")
+    return new
+
+
+def _chat_reply(opener, endpoint, prompt, timeout, last):
+    """POST one chat completion and return (content, finish_reason). Refusals record `last`."""
+    body = json.dumps(prompt).encode("utf-8")
+    req = urllib.request.Request(endpoint, data=body, headers={"Content-Type": "application/json"})
+    try:
+        with opener.open(req, timeout=timeout) as resp:
+            raw = resp.read(1024 * 1024 + 1)
+    except (HTTPError, URLError, OSError, ValueError) as exc:
+        last["error"] = "HTTP_ERROR"
+        raise Refused("PATCH_OUTPUT_INVALID") from exc
+    if len(raw) > 1024 * 1024:
+        last["error"] = "BAD_ENVELOPE"
+        raise Refused("PATCH_OUTPUT_INVALID")
+    try:
+        envelope = json.loads(raw.decode("utf-8"))
+        choice = envelope["choices"][0]
+        content = choice["message"]["content"]
+    except (ValueError, KeyError, IndexError, TypeError, AttributeError):
+        last["error"] = "BAD_ENVELOPE"
+        raise Refused("PATCH_OUTPUT_INVALID") from None
+    if not isinstance(content, str):
+        last["error"] = "BAD_ENVELOPE"
+        raise Refused("PATCH_OUTPUT_INVALID")
+    finish = choice.get("finish_reason") if isinstance(choice, dict) else None
+    return content, (finish if isinstance(finish, str) else None)
+
+
+def chat_patcher(model_endpoint, model, timeout, *, max_tokens=None, disable_thinking=False):
     pilot.endpoint(model_endpoint)  # loopback /v1/chat/completions only
     endpoint = model_endpoint
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), pilot.NoRedirect())
+    thinking_off = disable_thinking is True
 
-    def patcher(files, task, workdir, *, analysis=None):
-        user = {"files": files, "task": task}
-        if analysis:
-            user["jevPrePlan"] = _bound_plan(analysis)
-        prompt = {
-            "model": model,
-            "temperature": 0,
-            "messages": [
-                {
-                    "role": "system",
-                    "content": 'Return ONLY JSON {"files":{"<path>":"<full new content>"}} for allowlisted paths.',
-                },
-                {"role": "user", "content": json.dumps(user, sort_keys=True)},
-            ],
+    def patcher(files, task, workdir, *, analysis=None, allowlist=None):
+        excerpts = {}
+        file_chars = {}
+        user = _user_prompt(files, task, allowlist, analysis, excerpts, file_chars=file_chars)
+        if max_tokens is None:
+            tokens = _estimate_max_tokens(task, sum(file_chars.values()))
+        else:
+            tokens = max(pilot.MIN_MAX_TOKENS, min(pilot.MAX_MAX_TOKENS, int(max_tokens)))
+        last = {
+            "format": None,
+            "edits": 0,
+            "maxTokens": tokens,
+            "finishReason": None,
+            "error": None,
+            "outputChars": 0,
+            "outputExcerpt": None,
+            "retries": 0,
+            "promptChars": len(_SYSTEM_PROMPT) + len(user),
+            "fileChars": file_chars,
         }
-        body = json.dumps(prompt).encode("utf-8")
-        req = urllib.request.Request(endpoint, data=body, headers={"Content-Type": "application/json"})
-        try:
-            with opener.open(req, timeout=timeout) as resp:
-                raw = resp.read(1024 * 1024 + 1)
-        except (HTTPError, URLError, OSError, ValueError) as exc:
-            # Keep the refused code unchanged; chain the cause for debugging without putting
-            # response or URL text into the exception message.
-            raise Refused("PATCH_OUTPUT_INVALID") from exc
-        if len(raw) > 1024 * 1024:
-            raise Refused("PATCH_OUTPUT_INVALID")
-        try:
-            envelope = json.loads(raw.decode("utf-8"))
-            content = envelope["choices"][0]["message"]["content"]
-            data = json.loads(_strip_fences(content))
-            files_out = data["files"]
-            if not isinstance(files_out, dict):
-                raise ValueError
-            return files_out
-        except (ValueError, KeyError, IndexError, TypeError, AttributeError):
-            raise Refused("PATCH_OUTPUT_INVALID") from None
+        patcher.last = last
+        if excerpts:
+            last["excerpts"] = excerpts
+
+        def ask(messages):
+            prompt = {"model": model, "temperature": 0, "max_tokens": tokens, "messages": messages}
+            if thinking_off:
+                prompt["chat_template_kwargs"] = {"enable_thinking": False}
+                prompt["reasoning_format"] = "none"
+                prompt["reasoning_effort"] = "none"
+            return _chat_reply(opener, endpoint, prompt, timeout, last)
+
+        def attempt(messages):
+            """Return the parsed files dict, or the Refused instance that stopped this reply."""
+            content, finish = ask(messages)
+            last["finishReason"] = finish
+            last["outputChars"] = len(content)
+            last["outputExcerpt"] = None
+            try:
+                files_out = _legacy_json_files(content)
+                if files_out is not None:
+                    last["format"] = "json-files"
+                    last["edits"] = len(files_out)
+                    last["error"] = None
+                    return {path: _match_line_endings(files.get(path), value) for path, value in files_out.items()}
+                last["format"] = "search-replace"
+                edits = parse_edits(content, allowlist)
+                out = apply_edits(files, edits, allowlist or [])
+            except Refused as exc:
+                last["error"] = getattr(exc, "reason", None)
+                last["outputExcerpt"] = pilot.sanitize_text(content, limit=2048)
+                return exc
+            last["edits"] = len(edits)
+            last["error"] = None
+            return out
+
+        messages = [
+            {"role": "system", "content": _SYSTEM_PROMPT},
+            {"role": "user", "content": user},
+        ]
+        result = attempt(messages)
+        if (
+            isinstance(result, _EditRefused)
+            and result.reason == "NO_EDITS"
+            and last["finishReason"] in ("length", "stop")
+        ):
+            last["retries"] = 1
+            last["firstAttempt"] = {
+                "error": "NO_EDITS",
+                "finishReason": last["finishReason"],
+                "outputChars": last["outputChars"],
+            }
+            reminder = _RETRY_REMINDER.format(paths=", ".join(allowlist or files.keys()))
+            result = attempt(messages + [{"role": "user", "content": reminder}])
+        if isinstance(result, Refused):
+            raise result
+        return result
 
     return patcher
 
@@ -603,10 +1286,12 @@ def execute_job(
     tmp_root=None,
     jev_pre=None,
     jev_post=None,
+    max_tokens=None,
+    disable_thinking=False,
 ):
     if patcher is None:
         timeout = validate_spec(payload, allow_local_source=allow_local_source)["timeout_seconds"]
-        patcher = chat_patcher(model_endpoint, model, timeout)
+        patcher = chat_patcher(model_endpoint, model, timeout, max_tokens=max_tokens, disable_thinking=disable_thinking)
     result = run(
         payload,
         patcher,
@@ -619,6 +1304,8 @@ def execute_job(
     run_id = str(uuid.uuid4())
     store = pilot.report_store_dir(report_store)
     diagnostics = {"git_stderr": result["git_stderr"]} if "git_stderr" in result else {}
+    if isinstance(result.get("patch"), dict):
+        diagnostics["patch"] = result["patch"]
     report = {
         "runId": run_id,
         "outcome": result["outcome"],
