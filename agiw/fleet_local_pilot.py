@@ -301,6 +301,27 @@ def author_evidence(receipts):
     return out
 
 
+def _check_child_plan(data, route):
+    """Project evidence against the validated router summary; never persist extra child fields."""
+    evidence = data.pop("jevPlan", None)
+    if route["preanalysis"] == "local":
+        if evidence is not None:
+            raise Refused("JEV_PLAN_INVALID")
+        return
+    if data.get("code") == "JEV_PLAN_REFUSED" and data.get("report") is None and data["childExitCode"] == 1:
+        return "JEV_PLAN_REFUSED"
+    fields = ("plan", "confidence", "underspecified", "jevModel")
+    if not isinstance(evidence, dict) or not all(
+        k in evidence and not isinstance(evidence[k], bool) and evidence[k] == route["jev"][k] for k in fields
+    ):
+        raise Refused("JEV_PLAN_INVALID")
+    digest = evidence.get("requestSha256")
+    if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+        raise Refused("JEV_PLAN_INVALID")
+    data["jevPlan"] = {k: evidence[k] for k in fields}
+    data["jevPlan"].update(jevModel=sanitize_text(evidence["jevModel"]), requestSha256=digest)
+
+
 def known_workers(path=None):
     """Worker ids the router config knows. Must equal fleet_routing_plan.WORKERS."""
     config = json.loads(Path(path or ROUTER_CONFIG).read_text())
@@ -562,9 +583,12 @@ def execute(
         if not r.stdout:
             raise Refused("NISI_CHILD_FAILED: " + (sanitize_text(r.stderr[:300]) or ""))
         data = json.loads(r.stdout)
+        if not isinstance(data, dict):
+            raise Refused("NISI_OUTPUT_INVALID")
         data["childExitCode"] = r.returncode
+        plan_failure = _check_child_plan(data, cfg["route"])
         data.update(pin=PIN, observedAt=time.time(), leaseScope="preview-only; not a backend reservation")
-        report = data.get("report") if isinstance(data, dict) else {}
+        report = data.get("report")
         data["authorEvidence"] = author_evidence(data.get("authorReceipts"))
         data["modelTimeoutS"] = timeout_s
         data["disableThinking"] = disable_thinking
@@ -574,7 +598,9 @@ def execute(
         data["netPermission"] = ("allow-net+" if net else "none+") + f"guard:127.0.0.1:{urlsplit(url).port or 0}"
         if r.returncode and r.stderr:
             data["childStderr"] = sanitize_text(r.stderr[:300])
-        failure = _verify_stored(store, data)
+        failure = plan_failure or _verify_stored(store, data)
+        if not isinstance(report, dict):
+            report = data["report"] = {}
         data["reportStored"] = report.get("reportStored") is True and failure is None
         data["reportPath"] = data.get("reportStorePath")
         data["runId"] = report.get("runId")

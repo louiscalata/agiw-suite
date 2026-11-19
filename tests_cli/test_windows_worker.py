@@ -244,6 +244,7 @@ class WorkerTests(unittest.TestCase):
         self.assertEqual(receipt["outcome"], "COMPLETED")
         self.assertEqual(receipt["schema_version"], 2)
         self.assertEqual(receipt["route"], self.job()["route"])
+        self.assertIsNone(receipt["jevPlan"])
         self.assertEqual(receipt["workerCommit"], COMMIT)
         verdict = validate_job_receipt(
             receipt, expected_worker="m5-macbook-pro", expected_model="fixture-model", job_id="job-1", now=time.time()
