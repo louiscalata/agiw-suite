@@ -2758,7 +2758,6 @@ _WRAPPERS = {
     "}",
     "timeout",
     "gtimeout",
-    "xargs",
 }
 # Wrapper options that take a separate value (`nice -n 10 xcodebuild`): the value is skipped too.
 _WRAPPER_VALUE_OPTIONS = {
@@ -2769,9 +2768,13 @@ _WRAPPER_VALUE_OPTIONS = {
     "gtimeout": {"-s", "-k"},
     "caffeinate": {"-t", "-w"},
     "stdbuf": {"-i", "-o", "-e"},
-    "xargs": {"-n", "-I", "-L", "-P", "-s", "-E", "-J", "-R", "-S"},
     "exec": {"-a"},
 }
+# xargs runs its operands as a command; GNU and BSD options that take a separate value.
+_XARGS_VALUE_OPTIONS = set(
+    "-a -d -E -I -J -L -n -P -R -S -s --arg-file --delimiter --max-args --max-chars --max-procs "
+    "--process-slot-var".split()
+)
 # xcodebuild invocations that only print information and never build.
 _XCODEBUILD_INFO = {
     "-version",
@@ -2837,6 +2840,39 @@ _COMPOSE_UP_FLAG_OPTIONS = set(
     "--build --detach -d --force-recreate --menu --no-build --no-color --no-deps --no-log-prefix "
     "--no-recreate --no-start --quiet-build --quiet-pull --remove-orphans --renew-anon-volumes -V "
     "--timestamps --wait --watch -w --yes -y".split()
+)
+_COMPOSE_RUN_VALUE_OPTIONS = set(
+    "--cap-add --cap-drop --entrypoint --env -e --env-from-file --label -l --name --publish -p --pull "
+    "--user -u --volume -v --workdir -w".split()
+)
+_COMPOSE_RUN_FLAG_OPTIONS = set(
+    "--build --detach -d --interactive -i --no-TTY -T --no-deps --quiet -q --quiet-build --quiet-pull "
+    "--remove-orphans --rm --service-ports -P --tty -t --use-aliases".split()
+)
+# Subcommands that start containers: (value options, flag options, options may follow operands).
+# `docker container <verb>` is normalised to `docker <verb>`. `create` starts nothing and is not here.
+_DOCKER_START_VERBS = {
+    "run": (_DOCKER_RUN_VALUE_OPTIONS, _DOCKER_RUN_FLAG_OPTIONS, False),
+    "start": ({"--checkpoint", "--checkpoint-dir", "--detach-keys"}, {"--attach", "-a", "--interactive", "-i"}, True),
+}
+_COMPOSE_START_VERBS = {
+    "up": (_COMPOSE_UP_VALUE_OPTIONS, _COMPOSE_UP_FLAG_OPTIONS, True),
+    "run": (_COMPOSE_RUN_VALUE_OPTIONS, _COMPOSE_RUN_FLAG_OPTIONS, False),
+    "start": (set(), set(), True),
+    "restart": ({"--timeout", "-t"}, {"--no-deps"}, True),
+}
+# Lower-case raw-text words for every executable the Bash hook guards (see _may_be_guarded).
+_HOOK_GUARDED_WORDS = (
+    "docker",
+    "lms",
+    "simctl",
+    "simulator",
+    "xcodebuild",
+    "npm",
+    "astra-review",
+    "codex",
+    "ollama",
+    "mlx_lm",
 )
 _ASSIGN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 _OPERATOR_CHARS = set("();<>|&")
@@ -3005,29 +3041,39 @@ def _docker_match(base: str, args: list[str]) -> Optional[tuple[str, str]]:
     if _docker_client_help(args, values, flags):
         return None
     remaining = _command_args(args, _DOCKER_VALUE_OPTIONS if base == "docker" else _COMPOSE_VALUE_OPTIONS)
-    if base == "docker" and remaining[:1] == ["run"]:
+    if base == "docker" and remaining[:1] == ["container"]:
+        # `docker container run` is `docker run`; the management command itself takes only --help.
+        if _docker_client_help(remaining[1:], set(), set()):
+            return None
+        remaining = remaining[1:]
+    if base == "docker" and remaining[:1] and remaining[0] in _DOCKER_START_VERBS:
+        verb = remaining[0]
+        value_options, flag_options, interspersed = _DOCKER_START_VERBS[verb]
         if _docker_client_help(
             remaining[1:],
-            _DOCKER_RUN_VALUE_OPTIONS | _DOCKER_VALUE_OPTIONS,
-            _DOCKER_RUN_FLAG_OPTIONS | _DOCKER_FLAG_OPTIONS,
+            value_options | _DOCKER_VALUE_OPTIONS,
+            flag_options | _DOCKER_FLAG_OPTIONS,
+            interspersed=interspersed,
         ):
             return None
-        return "docker run", "docker"
+        return "docker " + verb, "docker"
     if base == "docker":
         if remaining[:1] != ["compose"]:
             return None
         if _docker_client_help(remaining[1:], _COMPOSE_VALUE_OPTIONS, _COMPOSE_FLAG_OPTIONS):
             return None
         remaining = _command_args(remaining[1:], _COMPOSE_VALUE_OPTIONS)
-    if remaining[:1] == ["up"]:
+    if remaining[:1] and remaining[0] in _COMPOSE_START_VERBS:
+        verb = remaining[0]
+        value_options, flag_options, interspersed = _COMPOSE_START_VERBS[verb]
         if _docker_client_help(
             remaining[1:],
-            _COMPOSE_UP_VALUE_OPTIONS | _COMPOSE_VALUE_OPTIONS | _DOCKER_VALUE_OPTIONS,
-            _COMPOSE_UP_FLAG_OPTIONS | _COMPOSE_FLAG_OPTIONS | _DOCKER_FLAG_OPTIONS,
-            interspersed=True,
+            value_options | _COMPOSE_VALUE_OPTIONS | _DOCKER_VALUE_OPTIONS,
+            flag_options | _COMPOSE_FLAG_OPTIONS | _DOCKER_FLAG_OPTIONS,
+            interspersed=interspersed,
         ):
             return None
-        return ("docker compose up" if base == "docker" else "docker-compose up"), "docker"
+        return ("docker compose " if base == "docker" else "docker-compose ") + verb, "docker"
     return None
 
 
@@ -3066,6 +3112,20 @@ def _match_simple(tokens: list[str], depth: int) -> Optional[tuple[str, str]]:
                     raise ValueError("hook command exceeds shell depth limit")
                 return _match_command(args[index + 1], depth + 1)
         return None
+    # eval re-reads its joined operands as shell text; xargs runs its operands as a command.
+    # Both nest like `sh -c` and share its depth limit.
+    if base in ("eval", "xargs"):
+        if base == "xargs":
+            nested = _command_args(args, _XARGS_VALUE_OPTIONS)
+        else:
+            nested = args[1:] if args[:1] == ["--"] else args
+        if not nested:
+            return None
+        if depth >= 3:
+            raise ValueError("hook command exceeds shell depth limit")
+        if base == "eval":
+            return _match_command(" ".join(nested), depth + 1)
+        return _match_simple(nested, depth + 1)
     if base in ("docker", "docker-compose"):
         return _docker_match(base, args)
     # Other supported clients use help only to print information and exit.
@@ -3113,6 +3173,13 @@ def _match_command(command: Any, depth: int = 0) -> Optional[tuple[str, str]]:
     return strongest
 
 
+def _may_be_guarded(command: str) -> bool:
+    """Conservative raw-text check made before parsing: does any guarded executable's name appear,
+    ignoring case, quotes and backslashes (so `d'o'cker` and `do\\cker` still count)?"""
+    text = re.sub(r"[\"'\\]", "", command).lower()
+    return any(word in text for word in _HOOK_GUARDED_WORDS)
+
+
 def hook_match(payload: Any) -> Optional[tuple[str, str]]:
     """(what, category) for a PreToolUse payload the hook decides on, else None."""
     if not isinstance(payload, dict):
@@ -3121,7 +3188,17 @@ def hook_match(payload: Any) -> Optional[tuple[str, str]]:
     tool_input = payload.get("tool_input")
     tool_input = tool_input if isinstance(tool_input, dict) else {}
     if tool == "Bash":
-        return _match_command(tool_input.get("command"))
+        command = tool_input.get("command")
+        # A command the parser rejects (quoting, token/size/nesting limits, unknown Docker option) is
+        # refused only when its raw text could be guarded work; anything else is allowed, because
+        # unrelated git/python/shell commands must not be blocked by a parser limitation.
+        may_be_guarded = isinstance(command, str) and _may_be_guarded(command)
+        try:
+            return _match_command(command)
+        except ValueError:
+            if may_be_guarded:
+                raise
+            return None
     if tool == "mcp__Claude_Code_iOS_Simulator__control" and tool_input.get("action") == "launch":
         return "iOS Simulator app launch", "simulator"
     if tool == "mcp__Claude_Code_iOS_Simulator__build":
