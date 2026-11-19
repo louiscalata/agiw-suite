@@ -324,8 +324,8 @@ def mutation_results():
             DockerHelpRoleTests,
             "test_actual_client_help_and_unrelated_docker_commands_do_not_probe",
             "compose-service-hides-client-help",
-            "            interspersed=True,",
-            "            interspersed=False,",
+            '    "up": (_COMPOSE_UP_VALUE_OPTIONS, _COMPOSE_UP_FLAG_OPTIONS, True),',
+            '    "up": (_COMPOSE_UP_VALUE_OPTIONS, _COMPOSE_UP_FLAG_OPTIONS, False),',
         ),
         (
             mem_guard,
