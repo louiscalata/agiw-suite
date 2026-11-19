@@ -305,9 +305,9 @@ def generate():
             real_lstat = os.lstat
 
             def observed_lstat(path, *args, **kwargs):
-                if Path(path) == (entry if kind == "reparse-entry" else root if kind == "reparse-root" else None):
+                if Path(path) == (entry if kind == "reparse-entry" else root if kind == "reparse-root" else None):  # noqa: B023 - used only within this loop iteration
                     return SimpleNamespace(st_mode=stat.S_IFDIR | 0o700, st_file_attributes=0x400)
-                return real_lstat(path, *args, **kwargs)
+                return real_lstat(path, *args, **kwargs)  # noqa: B023 - used only within this loop iteration
 
             with mock.patch.object(win.os, "lstat", side_effect=observed_lstat):
                 jobs, source = win.codemode_jobs(root, [], NOW)
@@ -535,8 +535,8 @@ def generate():
                     if listener
                     else "p982\ncServer\nn127.0.0.1:1234->127.0.0.1:50000\np9\ncClient\nn127.0.0.1:50000->127.0.0.1:1234\n"
                 )
-                if "-sTCP:" + target in args:
-                    output = (bad + output if order == "before" else output + bad) if adjacent else bad
+                if "-sTCP:" + target in args:  # noqa: B023 - used only within this loop iteration
+                    output = (bad + output if order == "before" else output + bad) if adjacent else bad  # noqa: B023 - used only within this loop iteration
                 return subprocess.CompletedProcess(args, 0, output, "")
 
             s["localCallers"], source = local_callers.LocalCallers(
