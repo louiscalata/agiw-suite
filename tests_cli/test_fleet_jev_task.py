@@ -78,6 +78,27 @@ def main():
         print("post brief")
         print("[post abc123: 0/3 flagged, 0.1 s, ledger ledger.jsonl]")
         return 0
+    if MODE == "postfile_suffix" and phase == "post":
+        path = text_path[:-4] + ".jevpost.json" if text_path.endswith(".txt") else text_path + ".jevpost.json"
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump({"statedVerdict": "READY"}, handle)
+        print("post brief")
+        print("[post abc123: 2/3 flagged, 0.1 s, ledger ledger.jsonl]")
+        return 0
+    if MODE == "postfile_none" and phase == "post":
+        path = text_path[:-4] + ".jevpost.json" if text_path.endswith(".txt") else text_path + ".jevpost.json"
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump({"statedVerdict": "none"}, handle)
+        print("post brief")
+        print("[post abc123: 2/3 flagged, 0.1 s, ledger ledger.jsonl]")
+        return 0
+    if MODE == "postfile_none_clean" and phase == "post":
+        path = text_path[:-4] + ".jevpost.json" if text_path.endswith(".txt") else text_path + ".jevpost.json"
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump({"statedVerdict": "none"}, handle)
+        print("post brief")
+        print("[post abc123: 0/3 flagged, 0.1 s, ledger ledger.jsonl]")
+        return 0
     return 0
 
 
@@ -276,6 +297,9 @@ class AnalyzerTests(unittest.TestCase):
             ("clean", "OK"),
             ("postfile", "READY"),
             ("postfile_json", "NOT_READY"),
+            ("postfile_suffix", "READY"),
+            ("postfile_none", "FLAGGED"),
+            ("postfile_none_clean", "OK"),
         ):
             with self.subTest(mode=mode):
                 _pre, post = jev.make_analyzers(str(write_fake(self.root, mode)), timeout=5)

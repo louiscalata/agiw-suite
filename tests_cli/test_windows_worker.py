@@ -422,7 +422,16 @@ class PreviewPostTextTests(unittest.TestCase):
                 "reportPath": "/secret/report.json",
                 "reportStorePath": "/secret/store/run.json",
                 "childExitCode": 0,
-                "report": {"outcome": "COMPLETED", "code": None, "reportStored": True},
+                "report": {
+                    "outcome": "COMPLETED",
+                    "code": None,
+                    "reportStored": True,
+                    "stages": [
+                        {"stage": "author", "status": "PASS"},
+                        {"stage": "tests", "status": "PASS"},
+                        {"path": "/secret/skip-me"},
+                    ],
+                },
                 "authorEvidence": [
                     {
                         "status": "RESPONSE_VALIDATED",
@@ -433,8 +442,14 @@ class PreviewPostTextTests(unittest.TestCase):
             },
         )
         self.assertIn("program: tiny-arithmetic.mjs", text)
+        self.assertIn(
+            "acceptance: Exactly one integer answer field equal to six multiplied by seven.",
+            text,
+        )
         self.assertIn("outcome: COMPLETED", text)
         self.assertIn("childExitCode: 0", text)
+        self.assertIn("stage author: PASS", text)
+        self.assertIn("stage tests: PASS", text)
         self.assertIn("RESPONSE_VALIDATED", text)
         self.assertIn('\\"answer\\":42', text)
         self.assertNotIn("/secret/", text)
@@ -442,7 +457,15 @@ class PreviewPostTextTests(unittest.TestCase):
 
     def test_sanitizes_control_characters_and_ignores_non_dict_result(self):
         text = preview_post_text("nisi-smoke.mjs", "not-a-dict")
-        self.assertEqual(text, "program: nisi-smoke.mjs\noutcome:\ncode:\n")
+        self.assertIn("program: nisi-smoke.mjs", text)
+        self.assertIn(
+            "acceptance: Create retry-config.json with exactly backoff exponential, maxRetries 3 and retryDelayMs 250.",
+            text,
+        )
+        self.assertIn("outcome:", text)
+        self.assertIn("code:", text)
+        self.assertNotIn("childExitCode", text)
+        self.assertTrue(text.endswith("\n"))
         dirty = preview_post_text(
             "tiny-extraction.mjs",
             {"report": {"outcome": "FAILED", "code": "BAD\nPATH:/tmp/x"}, "childExitCode": False},
@@ -450,6 +473,7 @@ class PreviewPostTextTests(unittest.TestCase):
         self.assertIn("outcome: FAILED", dirty)
         self.assertIn("code: BAD PATH:/tmp/x", dirty)
         self.assertNotIn("childExitCode", dirty)
+        self.assertIn("acceptance:", dirty)
 
 
 if __name__ == "__main__":

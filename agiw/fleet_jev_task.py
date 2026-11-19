@@ -238,24 +238,39 @@ def _strip_summary(stdout):
     return "\n".join(lines).strip()
 
 
+def _sibling_paths(text_path):
+    """Paths jev-task may write: historical `input.txt.jevpost.json`, and Path.with_suffix."""
+    paths = [text_path + ".jevpost.json"]
+    root, _ext = os.path.splitext(text_path)
+    alt = root + ".jevpost.json"
+    if alt != paths[0]:
+        paths.append(alt)
+    return paths
+
+
 def _sibling_verdict(text_path):
-    path = text_path + ".jevpost.json"
-    try:
-        if not os.path.isfile(path) or os.path.getsize(path) > 65536:
-            return None
-        with open(path, encoding="utf-8", errors="surrogateescape") as handle:
-            data = json.load(handle)
-    except (OSError, TypeError, ValueError):
-        return None
-    if not isinstance(data, dict):
-        return None
-    value = data.get("statedVerdict")
-    if not isinstance(value, str):
-        return None
-    token = value.strip()
-    if token in ("READY", "NOT_READY"):
-        return token
-    return token[:64] if _VERDICT_RE.fullmatch(token) else None
+    """Return a stated READY/NOT_READY verdict. `none` means no stated verdict, not a token."""
+    for path in _sibling_paths(text_path):
+        try:
+            if not os.path.isfile(path) or os.path.getsize(path) > 65536:
+                continue
+            with open(path, encoding="utf-8", errors="surrogateescape") as handle:
+                data = json.load(handle)
+        except (OSError, TypeError, ValueError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        value = data.get("statedVerdict")
+        if not isinstance(value, str):
+            continue
+        token = value.strip()
+        if not token or token.lower() == "none":
+            continue
+        if token in ("READY", "NOT_READY"):
+            return token
+        if _VERDICT_RE.fullmatch(token[:64] if len(token) > 64 else token):
+            return token[:64]
+    return None
 
 
 def _stderr_unavailable(phase, stderr):
