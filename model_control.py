@@ -200,8 +200,8 @@ def _find_lms() -> str:
             or not os.access(fixed, os.X_OK)
         ):
             raise ValueError("unsafe CLI executable")
-    except (OSError, ValueError):
-        raise ControlError(503, "The installed LM Studio CLI is unavailable or unsafe.")
+    except (OSError, ValueError) as err:
+        raise ControlError(503, "The installed LM Studio CLI is unavailable or unsafe.") from err
     return str(fixed)
 
 
@@ -283,8 +283,8 @@ def _run_cli(action: str, model_id: str, *, operation: _Operation | None = None)
             detail = _clean_output(output)
             suffix = f" {detail}" if detail else ""
             raise ControlError(502, f"LM Studio {action} failed (exit {exit_code}).{suffix}")
-    except subprocess.TimeoutExpired:
-        raise ControlError(504, f"LM Studio {action} timed out after {int(timeout)} seconds.")
+    except subprocess.TimeoutExpired as err:
+        raise ControlError(504, f"LM Studio {action} timed out after {int(timeout)} seconds.") from err
     finally:
         try:
             # This worker is the sole reaper. Never signal after wait() reaped

@@ -1072,8 +1072,16 @@ def _local_server_stopped() -> bool:
             kwargs["cancel"] = owner.cancelled
         output = _bounded_command([_find_lms(), "server", "status", "--json"], **kwargs)
         value = _decode(output.encode("utf-8"))
-    except (ControlError, OSError, ValueError, TimeoutError, TypeError, UnicodeError, subprocess.SubprocessError):
-        raise _Stop("needs-action", "LM Studio owner status is unavailable or invalid; no server was started.")
+    except (
+        ControlError,
+        OSError,
+        ValueError,
+        TimeoutError,
+        TypeError,
+        UnicodeError,
+        subprocess.SubprocessError,
+    ) as err:
+        raise _Stop("needs-action", "LM Studio owner status is unavailable or invalid; no server was started.") from err
     port = value.get("port")
     if (
         not set(value) <= {"running", "port"}
@@ -1088,8 +1096,10 @@ def _start_local_api() -> bool:
     """Only start the fixed owner-controlled LM Studio loopback API."""
     try:
         executable = _find_lms()
-    except ControlError:
-        raise _Stop("needs-action", "The owner-controlled LM Studio CLI is unavailable; no server was started.")
+    except ControlError as err:
+        raise _Stop(
+            "needs-action", "The owner-controlled LM Studio CLI is unavailable; no server was started."
+        ) from err
     command = [executable, "server", "start", "--port", str(LOCAL_API_PORT), "--bind", LOCAL_API_HOST]
     owner = _current_owner()
     _raise_if_cancelled(owner)
@@ -1108,7 +1118,7 @@ def _start_local_api() -> bool:
         result = child.wait(timeout=20) == 0
         _raise_if_cancelled(owner)
         return result
-    except subprocess.TimeoutExpired:
+    except subprocess.TimeoutExpired as err:
         group_stopped = _kill_private_group(child)
         try:
             child.wait(timeout=1)
@@ -1118,8 +1128,8 @@ def _start_local_api() -> bool:
             raise _Stop(
                 "needs-action",
                 "LM Studio server start timed out, and its owner process group could not be confirmed terminated. Inspect local owner processes before retrying.",
-            )
-        raise _Stop("needs-action", "LM Studio server start timed out; inspect the local owner state.")
+            ) from err
+        raise _Stop("needs-action", "LM Studio server start timed out; inspect the local owner state.") from err
     finally:
         if owner is not None:
             owner.unregister(child, cleanup_ok=group_stopped)
@@ -1137,10 +1147,10 @@ def _private_dir_fd(path: Path) -> int:
     """Open the launcher's state directory with its own checks: no symlink, owner, 0700-class."""
     try:
         fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-    except FileNotFoundError:
-        raise _Unsafe("state directory is missing")
-    except OSError:
-        raise _Unsafe("state directory is linked or unreadable")
+    except FileNotFoundError as err:
+        raise _Unsafe("state directory is missing") from err
+    except OSError as err:
+        raise _Unsafe("state directory is linked or unreadable") from err
     info = os.fstat(fd)
     if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) & 0o077:
         os.close(fd)
@@ -1157,7 +1167,9 @@ def _read_private(
     except FileNotFoundError:
         raise
     except OSError as error:
-        raise _Unsafe(f"{subject} is a symbolic link" if error.errno == errno.ELOOP else f"{subject} cannot be opened")
+        raise _Unsafe(
+            f"{subject} is a symbolic link" if error.errno == errno.ELOOP else f"{subject} cannot be opened"
+        ) from error
     try:
         before = os.fstat(fd)
         if not stat.S_ISREG(before.st_mode):
@@ -1193,8 +1205,8 @@ def _parse_nisi_marker(raw: bytes) -> dict:
     """The launcher's exact 3-key marker, or the router conversation's 5-key form."""
     try:
         value = _decode(raw)
-    except (ValueError, UnicodeError):
-        raise _Unsafe("marker is not valid JSON")
+    except (ValueError, UnicodeError) as err:
+        raise _Unsafe("marker is not valid JSON") from err
     started = value.get("started_unix")
     digest = value.get("input_sha256")
     if (
@@ -2355,7 +2367,9 @@ class OnlineCodeRepair:
             self._nisi_v02_bridge()
         except _Stop as stop:
             if proof:
-                raise _Stop(stop.status, proof + " " + stop.message.replace(" No model inference was run.", ""))
+                raise _Stop(
+                    stop.status, proof + " " + stop.message.replace(" No model inference was run.", "")
+                ) from stop
             raise
         if proof:
             return "ready", proof + " Router idle, capability inventory complete and Nisi Inference inventory listed."
@@ -2691,20 +2705,20 @@ class OnlineCodeRepair:
     def _fix_nisi_marker(self) -> dict:
         try:
             marker = self._read_nisi_marker()
-        except FileNotFoundError:
+        except FileNotFoundError as err:
             self._step("marker", "missing")
             raise _Stop(
                 "needs-action",
                 "The Nisi pending marker disappeared during the check (another owner may "
                 "have recovered it). Press Fix Nisi Inference again.",
-            )
+            ) from err
         except _Unsafe as unsafe:
             self._step("marker", "unsafe", evidence=unsafe.reason)
             raise _Stop(
                 "needs-action",
                 f"The Nisi pending marker failed its private-file checks ({unsafe.reason}); "
                 "it was not recovered. Inspect it with its owner.",
-            )
+            ) from unsafe
         now = self._clock()
         age = now - marker["started"]
         marker["age"] = age
@@ -2744,12 +2758,14 @@ class OnlineCodeRepair:
                 fd = os.open("owner.lock", os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=dir_fd)
             finally:
                 os.close(dir_fd)
-        except FileNotFoundError:
+        except FileNotFoundError as err:
             self._step("owner-lock", "missing")
-            raise _Stop("needs-action", "The Nisi owner lock is missing; Nisi recovery was not attempted.")
-        except (OSError, _Unsafe):
+            raise _Stop("needs-action", "The Nisi owner lock is missing; Nisi recovery was not attempted.") from err
+        except (OSError, _Unsafe) as err:
             self._step("owner-lock", "unsafe")
-            raise _Stop("needs-action", "The Nisi owner lock is linked or unsafe; Nisi recovery was not attempted.")
+            raise _Stop(
+                "needs-action", "The Nisi owner lock is linked or unsafe; Nisi recovery was not attempted."
+            ) from err
         try:
             info = os.fstat(fd)
             if (
@@ -2762,14 +2778,14 @@ class OnlineCodeRepair:
                 raise _Stop("needs-action", "The Nisi owner lock is not private; Nisi recovery was not attempted.")
             try:
                 fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError:
+            except BlockingIOError as err:
                 self._step("owner-lock", "busy")
-                raise _Stop("needs-action", "A Nisi call is still running; not recovering.")
-            except OSError:
+                raise _Stop("needs-action", "A Nisi call is still running; not recovering.") from err
+            except OSError as err:
                 self._step("owner-lock", "unavailable")
                 raise _Stop(
                     "needs-action", "The Nisi owner lock could not be checked; Nisi recovery was not attempted."
-                )
+                ) from err
             if not _lock_matches_path(fd, self._nisi_pending_path.parent / "owner.lock"):
                 self._step("owner-lock", "changed")
                 raise _Stop("needs-action", "The Nisi owner lock changed; Nisi recovery was not attempted.")
@@ -2839,29 +2855,29 @@ class OnlineCodeRepair:
             )
         try:
             before = self._recovered_names()
-        except (OSError, _Unsafe):
+        except (OSError, _Unsafe) as err:
             self._step("recover", "not-run", evidence="state listing unavailable")
-            raise _Stop("needs-action", "The Nisi state directory could not be listed; nothing was recovered.")
+            raise _Stop("needs-action", "The Nisi state directory could not be listed; nothing was recovered.") from err
         try:
             code, value = self._call(NISI_RECOVER, timeout=NISI_RECOVER_TIMEOUT)
         except _Cancelled:
             # The launcher child was killed mid-call; its rename may or may not have happened.
             self._step("recover", "interrupted")
             raise
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired as err:
             self._step("recover", "no-answer")
             raise _Stop(
                 "needs-action",
                 f"The launcher's recover did not answer within {NISI_RECOVER_TIMEOUT} s; its "
                 "outcome is unknown and it was not retried. Check Nisi status before retrying.",
-            )
-        except (OSError, ValueError, UnicodeError, subprocess.SubprocessError):
+            ) from err
+        except (OSError, ValueError, UnicodeError, subprocess.SubprocessError) as err:
             self._step("recover", "invalid")
             raise _Stop(
                 "needs-action",
                 "The launcher's recover returned no readable result; it was not retried. "
                 "Check Nisi status before retrying.",
-            )
+            ) from err
         if code == 3 and value.get("code") == "NISI_OWNER_BUSY":
             self._step("recover", "owner-busy")
             raise _Stop(
@@ -2892,13 +2908,13 @@ class OnlineCodeRepair:
                 raw, info = _read_private(dir_fd, name, subject="recovered marker")
             finally:
                 os.close(dir_fd)
-        except (OSError, _Unsafe):
+        except (OSError, _Unsafe) as err:
             self._step("recover", "unconfirmed")
             raise _Stop(
                 "needs-action",
                 "The launcher acknowledged recovery, but exactly one new private recovered "
                 "marker was not found. Inspect the Nisi state with its owner.",
-            )
+            ) from err
         if raw != marker["raw"] or (info.st_dev, info.st_ino) != marker["identity"]:
             self._step("recover", "mismatch", evidence=f"file={name}")
             raise _Stop(
@@ -3027,11 +3043,11 @@ class OnlineCodeRepair:
                 reply = _run_bounded([str(command), *arguments], None, timeout)
             lines = reply.stdout.splitlines()
             value = _decode(lines[0]) if len(lines) == 1 else None
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired as err:
             self._step("pc-headless", "error")
             raise _Stop(
                 "needs-action", f"pc-llm did not answer within {timeout} s; check the headless switch before retrying."
-            )
+            ) from err
         except (OSError, ValueError, UnicodeError, subprocess.SubprocessError):
             value = None
         finally:

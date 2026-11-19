@@ -237,21 +237,21 @@ def loopback_get(url, timeout=0.4, limit=1024 * 1024, *, strict=False):
             raise ProbeError("incomplete_body")
         try:
             decoded = body.decode("utf-8", "strict" if strict else "replace")
-        except UnicodeDecodeError:
-            raise ProbeError("invalid_utf8")
+        except UnicodeDecodeError as err:
+            raise ProbeError("invalid_utf8") from err
         return response.status, decoded, (time.monotonic() - started) * 1000
-    except ProbeError:
+    except ProbeError as err:
         if expired.is_set() or time.monotonic() >= deadline:
-            raise ProbeError("timeout")
+            raise ProbeError("timeout") from err
         raise
-    except TimeoutError:
-        raise ProbeError("timeout")
-    except ConnectionRefusedError:
-        raise ProbeError("refused")
-    except http.client.IncompleteRead:
-        raise ProbeError("timeout" if expired.is_set() or time.monotonic() >= deadline else "incomplete_body")
-    except (OSError, http.client.HTTPException):
-        raise ProbeError("timeout" if expired.is_set() or time.monotonic() >= deadline else "unavailable")
+    except TimeoutError as err:
+        raise ProbeError("timeout") from err
+    except ConnectionRefusedError as err:
+        raise ProbeError("refused") from err
+    except http.client.IncompleteRead as err:
+        raise ProbeError("timeout" if expired.is_set() or time.monotonic() >= deadline else "incomplete_body") from err
+    except (OSError, http.client.HTTPException) as err:
+        raise ProbeError("timeout" if expired.is_set() or time.monotonic() >= deadline else "unavailable") from err
     finally:
         if timer is not None:
             timer.cancel()
