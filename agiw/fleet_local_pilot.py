@@ -17,6 +17,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from .fleet_routing_plan import WORKERS, HostedEvidence, WorkerEvidence, plan
+from .windows_worker_receipt_check import valid_route
 
 try:  # POSIX lock; Windows has no fcntl and uses msvcrt.locking instead.
     import fcntl
@@ -324,7 +325,7 @@ def check_worker_id(worker_id):
     return worker_id
 
 
-def route(evidence, source="agent", now=None, worker_id="m5-macbook-pro"):
+def _local_route(evidence, source="agent", now=None, worker_id="m5-macbook-pro"):
     check_worker_id(worker_id)
     result = plan(
         "local",
@@ -337,6 +338,9 @@ def route(evidence, source="agent", now=None, worker_id="m5-macbook-pro"):
     if result.worker != worker_id or result.preanalysis != "local":
         raise Refused(result.reason)
     return asdict(result)
+
+
+route = _local_route  # Public standalone planner.
 
 
 def _is_windows():
@@ -495,9 +499,12 @@ def execute(
     max_output_tokens=None,
     response_format_mode=None,
     request_mode_value=None,
+    route=None,
 ):
     if program not in PROGRAMS:
         raise Refused("PROGRAM_REFUSED")
+    if route is not None and not valid_route(route, worker_id, program):
+        raise Refused("ROUTE_REFUSED")
     check_worker_id(worker_id)
     timeout_s = model_timeout_s(worker_id, timeout_s)
     max_output_tokens = max_tokens(worker_id, max_output_tokens)
@@ -516,6 +523,7 @@ def execute(
         try_lock(lock)
         integrity()
         ev = WorkerEvidence(time.time(), True, True, True, False) if mode == "fixture" else readiness(url, model)
+        local = _local_route(ev, source, worker_id=worker_id)
         cfg = {
             "mode": mode,
             "endpoint": url,
@@ -527,7 +535,7 @@ def execute(
             **({"responseFormat": response_format_mode} if response_format_mode else {}),
             "requestMode": mode_of_request,
             **completion,
-            "route": route(ev, source, worker_id=worker_id),
+            "route": local if route is None else route,
             "reportStore": str(store),
         }
         # Node permission mode confines writes to the report store and reads to the

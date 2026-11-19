@@ -10,6 +10,8 @@ import stat
 import sys
 import time
 
+from . import fleet_jev
+
 LIMIT = 65536
 SOURCE_LIMIT = 4 * 1024 * 1024
 JOB_KIND = "agiw.windows.job-receipt.v1"
@@ -18,14 +20,19 @@ OUTCOMES = ("COMPLETED", "FAILED", "BLOCKED")
 ROUTE_FIELDS = ("worker", "preanalysis", "reason")
 
 
-def valid_route(route, expected_worker):
-    return (
-        isinstance(route, dict)
-        and route.get("worker") == expected_worker
-        and all(
-            isinstance(value, str) and re.fullmatch(r"[a-z0-9][a-z0-9._:/-]{0,63}", value)
-            for value in (route.get("preanalysis"), route.get("reason"))
+def valid_route(route, expected_worker, program=None):
+    if not isinstance(route, dict) or route.get("worker") != expected_worker:
+        return False
+    if route.get("preanalysis") == "local":
+        return set(route) == set(ROUTE_FIELDS) and (
+            route.get("reason") == "strict-local"
+            or (route.get("reason") == "jev-not-applicable" and program == "repo-patch")
         )
+    return (
+        route.get("preanalysis") == "jev"
+        and route.get("reason") == "jev-preanalyzed"
+        and set(route) == {*ROUTE_FIELDS, "jev"}
+        and fleet_jev.valid_evidence(route["jev"], program)
     )
 
 
@@ -185,7 +192,7 @@ def _job_identity_problem(receipt, expected_worker, expected_model, job_id):
 def _job_provenance_problem(receipt, expected_worker):
     if "route" not in receipt:
         return "ROUTE_MISSING"
-    if not valid_route(receipt["route"], expected_worker):
+    if not valid_route(receipt["route"], expected_worker, receipt.get("program")):
         return "ROUTE_INVALID"
     commit = receipt.get("workerCommit")
     if "workerCommit" not in receipt or (commit is not None and not valid_commit(commit)):
@@ -263,8 +270,8 @@ def main(argv=None):
         if not args.expected_worker:
             p.error("--expected-worker is required with --mode job")
         try:
-            receipt = json.loads(read_regular(args.receipt, LIMIT))
-        except (OSError, ValueError, TypeError):
+            receipt = parse_receipt(read_regular(args.receipt, LIMIT))
+        except (OSError, ValueError, TypeError, RecursionError):
             _emit(json.dumps({"kind": JOB_KIND, "valid": False, "reason": "input-unreadable-unsafe-or-malformed"}))
             return 2
         # Saved receipts are checked for shape and identity only; freshness is a dispatch-time check.

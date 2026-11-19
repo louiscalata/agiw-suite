@@ -16,8 +16,19 @@ export function loadKnownWorkers(url = new URL('./fleet-workers.json', import.me
 
 export function checkRoute(cfg, known = loadKnownWorkers()) {
   const worker = cfg?.route?.worker;
+  const route = cfg?.route;
+  const local = route?.preanalysis === 'local' && route.reason === 'strict-local' && !Object.hasOwn(route, 'jev');
+  // The worker already checked the request against this program's manifest and questions.
+  const j = route?.jev, answers = j?.response?.answers;
+  const judged = route?.preanalysis === 'jev' && route.reason === 'jev-preanalyzed' &&
+    ['direct', 'reason'].includes(j?.plan) && j.plan === answers?.plan?.choice &&
+    typeof j.jevModel === 'string' && j.jevModel === j.response.model &&
+    j.confidence === (answers.plan.confidence ?? null) &&
+    (j.confidence === null || (Number.isFinite(j.confidence) && j.confidence >= 0 && j.confidence <= 1)) &&
+    Number.isFinite(j.underspecified) && j.underspecified === answers.underspecified?.noul &&
+    j.request?.state?.task && j.request?.questions;
   if (typeof worker !== 'string' || !known.includes(worker) || cfg.workerId !== worker ||
-      cfg.route.preanalysis !== 'local' || cfg.route.reason !== 'strict-local') {
+      !(local || judged)) {
     throw Error('ROUTE_REFUSED');
   }
   return worker;
