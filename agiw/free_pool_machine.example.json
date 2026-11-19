@@ -1,0 +1,8 @@
+{
+  "machine_id": "m5",
+  "receipts_dir": "receipts",
+  "disabled_file": "free-pool-disabled.json",
+  "openai_project": "proj_REPLACE_ME",
+  "key_env_file": "~/.config/agiw/codex-api-free-pool.env",
+  "extra_ledgers": []
+}

@@ -24,6 +24,10 @@ REFUSED_SOURCES = {"linear", "notion", "granola"}
 # general/mini request the official 10M mini so small jobs stay off the Sol bucket.
 # hard requests Astra and is invoked with --hard. The script may still reroute.
 MODELS = {"general": "gpt-5.4-mini", "mini": "gpt-5.4-mini", "hard": "gpt-6.2-astra"}
+# With a task kind, free_pool_call.py picks the model from free_pool_routing.json and fails over within that kind.
+KINDS = ("small_patch", "large_change", "review", "docs_text", "extraction", "long_context")
+DEFAULT_LANE = "agiw-free-pool-lane"
+_LANE_TAG = re.compile(r"[a-z0-9][a-z0-9._-]{0,63}")
 CALL_ENV = "AGIW_FREE_POOL_CALL"
 MAX_CHARS = 400_000
 MAX_OUTPUT_TOKENS = 400
@@ -96,6 +100,11 @@ def _check_route(request):
         raise PoolRefused("SOURCE_REFUSED")
     if not isinstance(tier, str) or tier not in MODELS:
         raise PoolRefused("TIER_REFUSED")
+    kind, lane = request.get("kind"), request.get("lane")
+    if kind is not None and (not isinstance(kind, str) or kind not in KINDS):
+        raise PoolRefused("KIND_REFUSED")
+    if lane is not None and (not isinstance(lane, str) or not _LANE_TAG.fullmatch(lane)):
+        raise PoolRefused("LANE_REFUSED")
 
 
 def _contains_secret(text):
@@ -147,7 +156,8 @@ def _check_text(text):
 def _checked_input(request, extra_parts=()):
     _check_route(request)
     parts = request.get("parts")
-    if set(request) != {"project", "source", "tier", "parts"} or not isinstance(parts, list):
+    required = {"project", "source", "tier", "parts"}
+    if not required <= set(request) <= required | {"kind", "lane"} or not isinstance(parts, list):
         raise PoolRefused("REQUEST_INVALID")
     total = 0
     checked = []
@@ -347,10 +357,12 @@ class FreePoolLane:
         workdir = tempfile.mkdtemp(prefix="agiw-pool-")
         try:
             prompt_path = _write_prompt(workdir, body)
+            route = ["--kind", request["kind"]] if request.get("kind") else ["--model", model]
             args = _command(script) + [
                 prompt_path,
-                "--model",
-                model,
+                *route,
+                "--lane",
+                request.get("lane") or DEFAULT_LANE,
                 "--project",
                 request["project"],
                 "--source",
@@ -394,6 +406,9 @@ class FreePoolLane:
             "kind": "agiw.free-pool-receipt.v1",
             "project": None,
             "tier": None,
+            "source": None,
+            "lane": None,
+            "task_kind": None,
             "model_requested": None,
             "model_served": None,
             "response_id": None,
@@ -416,7 +431,10 @@ class FreePoolLane:
             receipt.update(
                 project=project,
                 tier=tier,
-                model_requested=model,
+                source=request["source"],
+                lane=request.get("lane") or DEFAULT_LANE,
+                task_kind=request.get("kind"),
+                model_requested=None if request.get("kind") else model,
                 prompt_sha256=_sha256(prompt),
                 parts=[{"name": name, "sha256": _sha256(text), "chars": len(text)} for name, text in parts],
             )
@@ -424,6 +442,10 @@ class FreePoolLane:
             output = result["output_text"]
             if prompt in output or any(text.strip() and text in output for _, text in parts):
                 raise PoolRefused("OUTPUT_ECHO_REFUSED")
+            if result.get("payer") != "openai":
+                # Anything other than an explicit openai payer may be billed to the developer account.
+                receipt.update(model_served=result["model_served"], response_id=result["response_id"])
+                raise PoolRefused("PAYER_REFUSED")
             receipt.update(result, outcome="COMPLETED", code="OK")
         except PoolRefused as exc:
             receipt["code"] = exc.code
@@ -460,6 +482,8 @@ def main(argv=None):
     parser.add_argument("--project", required=True)
     parser.add_argument("--source", choices=("code", "spec"), required=True)
     parser.add_argument("--tier", required=True)
+    parser.add_argument("--kind", choices=KINDS)
+    parser.add_argument("--lane", default=DEFAULT_LANE)
     parser.add_argument("--prompt-file", required=True)
     parser.add_argument("--part", action="append", default=[])
     parser.add_argument("--env-file")
@@ -468,6 +492,10 @@ def main(argv=None):
     try:
         args = parser.parse_args(argv)
         request = {"project": args.project, "tier": args.tier, "source": args.source, "parts": []}
+        if args.kind:
+            request["kind"] = args.kind
+        if args.lane != DEFAULT_LANE:
+            request["lane"] = args.lane
         _check_route(request)
         prompt = _load_part(args.prompt_file)
         remaining = MAX_CHARS - len(prompt["text"])
