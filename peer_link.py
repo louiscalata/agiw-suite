@@ -1279,32 +1279,63 @@ def project_status(doc: dict) -> dict:
 
 
 def lmstudio_status(base: str = "http://127.0.0.1:1234", host: str = "mac") -> StatusProvider:
-    """Status straight from a local LM Studio REST listing."""
+    """Status straight from a local model server's REST listing.
 
-    def provide() -> dict:
-        with urllib.request.urlopen(base + "/api/v0/models", timeout=2) as response:
+    LM Studio's GET /api/v0/models is tried first. When it is unreachable or answers without a
+    `data` list (or with an `error`), the OpenAI-style GET /v1/models that llama-server serves is
+    read instead. llama-server lists only the models it serves, so an entry is loaded unless router
+    mode reports another `status.value`. An LM Studio list with a malformed entry, an oversized
+    reply or JSON that is not strict is refused, never trimmed or replaced. When neither endpoint
+    answers, the error propagates: a missing reading is unknown, never empty.
+    """
+
+    def read(path: str) -> Any:
+        with urllib.request.urlopen(base + path, timeout=2) as response:
             raw = response.read(MAX_STATUS_BYTES + 1)
         if len(raw) > MAX_STATUS_BYTES:
-            raise ValueError("LM Studio reply too large")
-        payload = strict_json(raw)
-        if (
-            not isinstance(payload, dict)
-            or "error" in payload
-            or not isinstance(payload.get("data"), list)
-            or any(
-                not isinstance(item, dict)
-                or not isinstance(item.get("id"), str)
-                or not item["id"].strip()
-                or not item["id"].isprintable()
-                for item in payload["data"]
-            )
-        ):
-            raise ValueError("LM Studio inventory invalid")
+            raise ValueError(f"{path} reply too large")
+        return strict_json(raw)
+
+    def model_list(payload: Any) -> list | None:
+        if not isinstance(payload, dict) or "error" in payload or not isinstance(payload.get("data"), list):
+            return None
+        return payload["data"]
+
+    def clean_id(item: Any) -> bool:
+        return (
+            isinstance(item, dict)
+            and isinstance(item.get("id"), str)
+            and bool(item["id"].strip())
+            and item["id"].isprintable()
+        )
+
+    def provide() -> dict:
         models = []
-        for item in payload["data"][:MAX_MODELS]:
-            if item.get("type") in (None, "llm", "vlm"):
-                state = {"loaded": "loaded", "not-loaded": "inactive"}.get(item.get("state"), "unknown")
-                models.append({"id": item["id"][:256], "host": host, "loadedState": state})
+        try:
+            data = model_list(read("/api/v0/models"))
+        except OSError as exc:
+            close = getattr(exc, "close", None)  # an HTTPError holds the response open
+            if callable(close):
+                close()
+            data = None
+        if data is not None:
+            # An LM Studio listing that answers is taken whole or refused whole, never trimmed.
+            if not all(clean_id(item) for item in data):
+                raise ValueError("LM Studio inventory invalid")
+            for item in data[:MAX_MODELS]:
+                if item.get("type") in (None, "llm", "vlm"):
+                    state = {"loaded": "loaded", "not-loaded": "inactive"}.get(item.get("state"), "unknown")
+                    models.append({"id": item["id"][:256], "host": host, "loadedState": state})
+        else:
+            data = model_list(read("/v1/models"))
+            if data is None:
+                raise ValueError("/v1/models has no model list")
+            for item in data[:MAX_MODELS]:
+                if clean_id(item):
+                    status = item.get("status")
+                    value = status.get("value") if isinstance(status, dict) else "loaded"
+                    state = {"loaded": "loaded", "unloaded": "inactive"}.get(value, "unknown")
+                    models.append({"id": item["id"][:256], "host": host, "loadedState": state})
         now = time.time()
         return {
             "schemaVersion": 1,
