@@ -1107,7 +1107,12 @@ class RepoPatchDiagnosticsTests(unittest.TestCase):
         self.assertEqual(patch["retries"], 1)
         self.assertEqual(
             patch["firstAttempt"],
-            {"error": "NO_EDITS", "finishReason": "length", "outputChars": len(prose)},
+            {
+                "error": "NO_EDITS",
+                "finishReason": "length",
+                "outputChars": len(prose),
+                "outputExcerpt": prose,
+            },
         )
         self.assertEqual(patch["format"], "search-replace")
         self.assertEqual(patch["edits"], 1)
@@ -1156,6 +1161,73 @@ class RepoPatchDiagnosticsTests(unittest.TestCase):
         self.assertEqual(patch["error"], "NO_EDITS")
         self.assertEqual(patch["finishReason"], "length")
         self.assertEqual(patch["outputChars"], len("Still searching for files..."))
+
+    NOOP_REPLY = "README.md\n<<<<<<< SEARCH\nhello\n=======\nhello\n>>>>>>> REPLACE\n"
+
+    def test_no_change_records_excerpt_after_no_edits_then_noop_retry(self):
+        model = _FakeModel([("no blocks", "stop"), (self.NOOP_REPLY, "stop")])
+        self.addCleanup(model.close)
+        out = self.run_patch(rp.chat_patcher(model.url, "m", 5))
+        self.assertEqual(out["outcome"], "FAILED")
+        self.assertEqual(out["code"], "NO_CHANGE")
+        self.assertEqual(len(model.requests), 2)
+        patch = out["patch"]
+        self.assertEqual(patch["retries"], 1)
+        self.assertEqual(patch["noopEdits"], 1)
+        self.assertIn("SEARCH hello", patch["outputExcerpt"])
+        self.assertIn("no blocks", patch["firstAttempt"]["outputExcerpt"])
+        self.assertIsNone(patch["error"])
+
+    def test_all_noop_first_reply_is_retried_with_a_real_edit(self):
+        real = "README.md\n<<<<<<< SEARCH\nhello\n=======\nhi\n>>>>>>> REPLACE\n"
+        model = _FakeModel([(self.NOOP_REPLY, "stop"), (real, "stop")])
+        self.addCleanup(model.close)
+        out = self.run_patch(rp.chat_patcher(model.url, "m", 5))
+        self.assertEqual(out["outcome"], "COMPLETED")
+        self.assertEqual(len(model.requests), 2)
+        patch = out["patch"]
+        self.assertEqual(patch["firstAttempt"]["error"], "NOOP_EDITS")
+        self.assertIn("SEARCH hello", patch["firstAttempt"]["outputExcerpt"])
+        self.assertIn("must differ from the SEARCH text", model.requests[1]["messages"][-1]["content"])
+        self.assertEqual(patch["noopEdits"], 0)
+        self.assertIsNone(patch["outputExcerpt"])
+
+    def test_both_replies_noop_end_no_change_with_excerpt(self):
+        model = _FakeModel([(self.NOOP_REPLY, "stop"), (self.NOOP_REPLY, "stop")])
+        self.addCleanup(model.close)
+        out = self.run_patch(rp.chat_patcher(model.url, "m", 5))
+        self.assertEqual(out["outcome"], "FAILED")
+        self.assertEqual(out["code"], "NO_CHANGE")
+        self.assertEqual(len(model.requests), 2)
+        self.assertEqual(out["patch"]["noopEdits"], 1)
+        self.assertIn("SEARCH hello", out["patch"]["outputExcerpt"])
+
+    def test_whitespace_only_replace_counts_as_noop(self):
+        padded = "README.md\n<<<<<<< SEARCH\nhello\n=======\nhello   \n>>>>>>> REPLACE\n"
+        real = "README.md\n<<<<<<< SEARCH\nhello\n=======\nhi\n>>>>>>> REPLACE\n"
+        model = _FakeModel([(padded, "stop"), (real, "stop")])
+        self.addCleanup(model.close)
+        out = self.run_patch(rp.chat_patcher(model.url, "m", 5))
+        self.assertEqual(out["outcome"], "COMPLETED")
+        self.assertEqual(len(model.requests), 2)
+        self.assertEqual(out["patch"]["firstAttempt"]["error"], "NOOP_EDITS")
+        self.assertEqual(out["patch"]["noopEdits"], 0)
+
+    def test_mixed_reply_with_one_noop_edit_completes_without_retry(self):
+        self.commit_file("README.md", "hello\nbye\n")
+        reply = (
+            "README.md\n<<<<<<< SEARCH\nhello\n=======\nhi\n>>>>>>> REPLACE\n"
+            "README.md\n<<<<<<< SEARCH\nbye\n=======\nbye\n>>>>>>> REPLACE\n"
+        )
+        model = _FakeModel([(reply, "stop")])
+        self.addCleanup(model.close)
+        out = self.run_patch(rp.chat_patcher(model.url, "m", 5))
+        self.assertEqual(out["outcome"], "COMPLETED")
+        self.assertEqual(len(model.requests), 1)
+        self.assertEqual(out["patch"]["noopEdits"], 1)
+        self.assertEqual(out["patch"]["retries"], 0)
+        self.assertIsNone(out["patch"]["outputExcerpt"])
+        self.assertIn("+hi", out["diff"])
 
 
 class LineEndingIOTests(unittest.TestCase):
