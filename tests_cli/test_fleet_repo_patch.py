@@ -737,7 +737,7 @@ class RepoPatchTests(unittest.TestCase):
         ).run_job(
             {
                 "job_id": "job-patch",
-                "route": {"worker": "m5-macbook-pro"},
+                "route": {"worker": "m5-macbook-pro", "preanalysis": "local", "reason": "strict-local"},
                 "program": "repo-patch",
                 "payload": self.spec(),
             }
@@ -790,7 +790,7 @@ class RepoPatchTests(unittest.TestCase):
         ).run_job(
             {
                 "job_id": "job-rp",
-                "route": {"worker": "m5-macbook-pro"},
+                "route": {"worker": "m5-macbook-pro", "preanalysis": "local", "reason": "strict-local"},
                 "program": "repo-patch",
                 "payload": payload,
             }
@@ -832,7 +832,7 @@ class RepoPatchTests(unittest.TestCase):
             ).run_job(
                 {
                     "job_id": "job-git-failed",
-                    "route": {"worker": "m5-macbook-pro"},
+                    "route": {"worker": "m5-macbook-pro", "preanalysis": "local", "reason": "strict-local"},
                     "program": "repo-patch",
                     "payload": payload,
                 }
@@ -871,7 +871,13 @@ class RepoPatchTests(unittest.TestCase):
             str(self.root / "receipts4"),
             execute=execute,
         )
-        receipt = w.run_job({"job_id": "job-3", "route": {"worker": "m5-macbook-pro"}, "program": "nisi-smoke.mjs"})
+        receipt = w.run_job(
+            {
+                "job_id": "job-3",
+                "route": {"worker": "m5-macbook-pro", "preanalysis": "local", "reason": "strict-local"},
+                "program": "nisi-smoke.mjs",
+            }
+        )
         self.assertEqual(receipt["outcome"], "COMPLETED")
         self.assertNotIn("artifact", receipt)
 
@@ -884,7 +890,13 @@ class RepoPatchTests(unittest.TestCase):
             allow_local_source=True,
         )
         with self.assertRaises(ww.Refused) as ctx:
-            w.validate_job({"job_id": "job-1", "route": {"worker": "m5-macbook-pro"}, "program": "repo-patch"})
+            w.validate_job(
+                {
+                    "job_id": "job-1",
+                    "route": {"worker": "m5-macbook-pro", "preanalysis": "local", "reason": "strict-local"},
+                    "program": "repo-patch",
+                }
+            )
         self.assertEqual(str(ctx.exception), "PAYLOAD_REFUSED")
 
     def test_worker_refusal_http_repo(self):
@@ -899,7 +911,7 @@ class RepoPatchTests(unittest.TestCase):
             w.validate_job(
                 {
                     "job_id": "job-2",
-                    "route": {"worker": "m5-macbook-pro"},
+                    "route": {"worker": "m5-macbook-pro", "preanalysis": "local", "reason": "strict-local"},
                     "program": "repo-patch",
                     "payload": self.spec(repo="http://github.com/a/b"),
                 }

@@ -139,9 +139,11 @@ class ReceiptCheckWindowsTests(unittest.TestCase):
         now = time.time()
         r = {
             "kind": rc.JOB_KIND,
-            "schema_version": 1,
+            "schema_version": 2,
             "job_id": "job-1",
             "worker_id": "dual-gpu-pc",
+            "workerCommit": None,
+            "route": {"worker": "dual-gpu-pc", "preanalysis": "local", "reason": "strict-local"},
             "model": "m",
             "outcome": "COMPLETED",
             "reportStored": True,

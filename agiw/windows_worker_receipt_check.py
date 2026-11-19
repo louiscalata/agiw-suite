@@ -13,7 +13,24 @@ import time
 LIMIT = 65536
 SOURCE_LIMIT = 4 * 1024 * 1024
 JOB_KIND = "agiw.windows.job-receipt.v1"
+JOB_SCHEMA_VERSION = 2
 OUTCOMES = ("COMPLETED", "FAILED", "BLOCKED")
+ROUTE_FIELDS = ("worker", "preanalysis", "reason")
+
+
+def valid_route(route, expected_worker):
+    return (
+        isinstance(route, dict)
+        and route.get("worker") == expected_worker
+        and all(
+            isinstance(value, str) and re.fullmatch(r"[a-z0-9][a-z0-9._:/-]{0,63}", value)
+            for value in (route.get("preanalysis"), route.get("reason"))
+        )
+    )
+
+
+def valid_commit(value):
+    return isinstance(value, str) and bool(re.fullmatch(r"[0-9a-f]{40}", value))
 
 
 def identity(s, windows=None):
@@ -145,9 +162,9 @@ def _job_identity_problem(receipt, expected_worker, expected_model, job_id):
     if (
         receipt.get("kind") != JOB_KIND
         or type(receipt.get("schema_version")) is not int
-        or receipt["schema_version"] != 1
+        or receipt["schema_version"] != JOB_SCHEMA_VERSION
     ):
-        return "schema"
+        return "SCHEMA_INVALID"
     if not isinstance(expected_worker, str) or not expected_worker or receipt.get("worker_id") != expected_worker:
         return "worker-mismatch"
     rid = receipt.get("job_id")
@@ -162,6 +179,17 @@ def _job_identity_problem(receipt, expected_worker, expected_model, job_id):
         return "model-mismatch"
     if receipt.get("outcome") not in OUTCOMES:
         return "outcome-invalid"
+    return None
+
+
+def _job_provenance_problem(receipt, expected_worker):
+    if "route" not in receipt:
+        return "ROUTE_MISSING"
+    if not valid_route(receipt["route"], expected_worker):
+        return "ROUTE_INVALID"
+    commit = receipt.get("workerCommit")
+    if "workerCommit" not in receipt or (commit is not None and not valid_commit(commit)):
+        return "WORKER_COMMIT_INVALID"
     return None
 
 
@@ -197,8 +225,10 @@ def validate_job_receipt(receipt, *, expected_worker, expected_model=None, job_i
     if not isinstance(receipt, dict):
         result["reason"] = "not-object"
         return result
-    reason = _job_identity_problem(receipt, expected_worker, expected_model, job_id) or _job_evidence_problem(
-        receipt, now
+    reason = (
+        _job_identity_problem(receipt, expected_worker, expected_model, job_id)
+        or _job_provenance_problem(receipt, expected_worker)
+        or _job_evidence_problem(receipt, now)
     )
     if reason:
         result["reason"] = reason
