@@ -16,7 +16,12 @@ class MemGuardGoldenTests(unittest.TestCase):
 
 def _normalize_usage_wrap(value):
     if isinstance(value, str):
-        return re.sub(r"\}\n +\.\.\.\n", "} ...\n", value)
+        value = re.sub(r"\}\n +\.\.\.\n", "} ...\n", value)
+        return re.sub(
+            r"\(choose from ([A-Za-z0-9_-]+(?:, [A-Za-z0-9_-]+)*)\)",
+            lambda match: "(choose from " + ", ".join(f"'{choice}'" for choice in match[1].split(", ")) + ")",
+            value,
+        )
     if isinstance(value, dict):
         return {key: _normalize_usage_wrap(item) for key, item in value.items()}
     if isinstance(value, list):
