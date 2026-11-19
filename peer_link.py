@@ -1887,6 +1887,9 @@ class PeerLink:
         self._outbound: dict[str, dict] = {}  # invite id -> invite this node shows a PIN for
         self._inbound: dict[str, dict] = {}  # peer uuid -> invite waiting for the user to type a PIN
         self._completed: dict[str, dict] = {}  # invite id -> finished exchange, for idempotent finish retries
+        # peer uuid -> pairing epoch, bumped by unpair under _lock. An inviter save captures it under _lock,
+        # then compares it without _lock (a plain read) while holding _token_lock, and again under _lock.
+        self._pair_epoch: dict[str, int] = {}
         self._trusted_cache: tuple[float, dict] | None = None  # None = reload (monotonic may start near 0)
         self._lock = threading.RLock()
         self._stop = threading.Event()
@@ -2286,6 +2289,7 @@ class PeerLink:
                     "node": joiner["node"],
                     "name": joiner["name"],
                     "key": keys["link"],
+                    "epoch": self._pair_epoch.get(joiner["node"], 0),
                     "ok": False,
                     "expires": self.clock() + INVITE_TTL,
                 }
@@ -2303,13 +2307,23 @@ class PeerLink:
                 if self._pairing_current(done):
                     return 200, {"paired": True, "ack": done["finishAck"]}
             return 409, {"error": "pairing could not be saved on the inviting machine"}
+        node = joiner["node"]
         try:
-            with self._lock:
-                if self._completed.get(record["id"]) is not done:
+            # The save runs without self._lock, so a slow trust folder cannot stall status, snapshots or
+            # discovery. Lock order everywhere is self._lock -> _token_lock, so self._lock is never taken
+            # while _token_lock is held here: the epoch is read bare. unpair bumps it (under self._lock)
+            # before its store.remove (under _token_lock), so either this check sees the bump and nothing is
+            # written, or the write lands before that remove and is deleted by it.
+            with _token_lock:
+                if self._pair_epoch.get(node, 0) != done["epoch"]:
                     return 409, {"error": "pairing was revoked before it could be saved"}
-                self.store.pin(joiner["node"], joiner["name"], joiner["host"], keys["link"])
+                self.store.pin(node, joiner["name"], joiner["host"], keys["link"])
+            with self._lock:
+                if self._completed.get(record["id"]) is not done or self._pair_epoch.get(node, 0) != done["epoch"]:
+                    self._discard_revoked_save(node, keys["link"])
+                    return 409, {"error": "pairing was revoked before it could be saved"}
                 self._invalidate()
-                done["ok"] = True
+                done["ok"] = True  # under the lock and before the event, so a woken retry sees the outcome
         except PermissionError as exc:
             return 409, {"error": str(exc)}
         finally:
@@ -2318,6 +2332,15 @@ class PeerLink:
             if self._pairing_current(done):
                 return 200, {"paired": True, "ack": done["finishAck"]}
         return 409, {"error": "pairing could not be saved on the inviting machine"}
+
+    def _discard_revoked_save(self, node: str, key: bytes) -> None:
+        """Called under self._lock by a finish that lost to a revocation: drop the record it wrote, and only
+        that one. A newer pairing for the same peer has a different key and is left alone."""
+        with _token_lock:
+            current = self.store.load().get(node)
+            if current is not None and hmac.compare_digest(current["key"], key):
+                self.store.remove(node)
+        self._invalidate()
 
     def _pairing_current(self, done: dict) -> bool:
         current = self.trusted().get(done["node"])
@@ -2449,10 +2472,21 @@ class PeerLink:
         with self._lock:
             trusted = self.trusted()
             matches = [n for n, p in trusted.items() if peer in (n, p.get("name"))]
+            # An inviter save still in flight is not in the trust store yet (or not in the cached view of
+            # it), but it is about to be: unpair covers it too.
+            for done in self._completed.values():
+                if (
+                    not done["saved"].is_set()
+                    and peer in (done["node"], done.get("name"))
+                    and done["node"] not in matches
+                ):
+                    matches.append(done["node"])
             if not matches:
                 return self._cancel_pending(peer)
             if len(matches) != 1:
                 raise LookupError("no single paired machine matches " + repr(peer[:64]))
+            # Bumped before the remove: a finish holding _token_lock either sees it or is removed below.
+            self._pair_epoch[matches[0]] = self._pair_epoch.get(matches[0], 0) + 1
             self.store.remove(matches[0])
             self._invalidate()
             # Revoke pending transactions too, including references held across network waits.
