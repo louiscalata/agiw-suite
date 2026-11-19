@@ -1,6 +1,6 @@
 # Isolated AGIW → Nisi 0.3.1 pilot
 
-This is an executable private integration slice, not a deployment of AGIW Suite or a fleet dispatcher. The installed app and original vendor/nisi 0.2.0 are unchanged.
+This is an executable private integration slice, not a deployment of AGIW Suite or a fleet dispatcher. The main repository's `vendor/nisi` now carries the same public Nisi 0.3.1 release.
 
 Pinned official source: the upstream Nisi repository, tag v0.3.1 object `54b1c64b03fd8f7b2bd892945d17f6fae92057e1`, commit `be7a5c99338947baf130bc0d0364eef12cbef5cb`, tree `b9eee926a54eff6d566385022513ce90f2da5cb2`. Retrieved by public HTTPS with credential helpers/global config disabled. Git fsck passed. This verifies object consistency and public-tag correspondence, not an independently verified publisher signature. No npm install or global changes.
 

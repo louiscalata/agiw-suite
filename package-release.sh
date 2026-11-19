@@ -194,7 +194,7 @@ or /usr/bin/python3. In Terminal, run the available path with --version
 (for example, /opt/homebrew/bin/python3 --version) before opening the app.
 
 Copy Inference Monitor.app to Applications, then open it. The app observes local
-inference on this Mac. Public Nisi 0.2.0 is included by default: its Apache-2.0
+inference on this Mac. Public Nisi 0.3.1 is included by default: its Apache-2.0
 workflow library, journal and CLI. Open Browse > Nisi & optional components to
 inspect the package and run a fixed self-check without calling a model.
 Using Nisi requires Node.js 22 or newer for Apple silicon, installed separately.

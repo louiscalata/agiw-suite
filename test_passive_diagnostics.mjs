@@ -184,7 +184,7 @@ test('a completed cached readiness read never chains into an action', async () =
 
 async function componentsHarness() {
   const h = harness(read('./web/components.html'));
-  const state = {nisi: {nisi: {integrity: 'verified', version: '0.2.0', entry: '/fixture/nisi.mjs'},
+  const state = {nisi: {nisi: {integrity: 'verified', version: '0.3.1', entry: '/fixture/nisi.mjs'},
     node: {found: true}, check: {state: 'not-run'}}, jev: {configured: true, state: 'ready'}};
   h.context.fetch = async (url, options = {}) => {
     h.requests.push({url, method: options.method || 'GET', body: options.body});
@@ -241,7 +241,7 @@ for (const page of pages) {
     const bodies = {
       '/api/snapshot': snapshot,
       '/api/inference': {observedAt: new Date().toISOString(), nodes: [], edges: [], tunnel: {state: 'not_measured'}},
-      '/api/components': {nisi: {integrity: 'verified', version: '0.2.0', entry: '/fixture/nisi.mjs'}, node: {found: true}, check: {state: 'passed'}},
+      '/api/components': {nisi: {integrity: 'verified', version: '0.3.1', entry: '/fixture/nisi.mjs'}, node: {found: true}, check: {state: 'passed'}},
       '/api/components/jev': {configured: true, state: 'passed'},
       '/api/eci-tuning': {rankings: {}, pending: [], policy: {}},
       '/api/models/control': {status: 'idle', supported: true},

@@ -5,6 +5,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Inference Monitor 1.1.1 (15) bundles public Nisi 0.3.1 instead of 0.2.0
+  (release asset SHA-256 `345840279d6a778d87d5695fe78375e98bf9b8e86d32cafc4b87d9dfd4f97e4f`, commit `be7a5c9`).
+
 - Repo-patch prompts tell the model the file contents are in the message, require at least one block and show how to insert new text (dropping a sentence that let a small model refuse insertion tasks). Large-file excerpts rank rare task keywords on whole-word matches, add matching headings and their sections, and use a 16,000-character budget. A reply with no blocks is retried once whether it stopped or ran out of tokens, with a reminder naming the allowed paths. `patch.promptChars` and `patch.fileChars` record how much text and of which files reached the prompt.
 
 - The fleet job worker can use a local `jev-task` CLI as the repo-patch analyzer: pass `--jev-task PATH|auto` or set `AGIW_JEV_TASK`. It stays off by default, runs with `--driver never` and a stripped environment, and passes the projected text through a 0600 temp file.
