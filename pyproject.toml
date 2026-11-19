@@ -28,6 +28,7 @@ Documentation = "https://github.com/louiscalata/agiw-suite/blob/main/docs/cli.md
 
 [project.scripts]
 agiw = "agiw.cli:main"
+agiw-orchestrator = "agiw.orchestrator_mcp:main"
 
 [tool.setuptools]
 # Only the CLI package, peer link and frozen machine-state core; other monitor modules are not packaged.

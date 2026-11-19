@@ -5,6 +5,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- `agiw-orchestrator` (LOU-103): a small MCP server (Streamable HTTP on loopback with a bearer
+  token, or stdio for Secure MCP Tunnel) with `status`, `plan`, `queue_task` and `task_result` tools.
+  `plan` calls only `free_pool_call.py` with gpt-5.6-terra, gpt-5.6-luna or gpt-5.4-mini; it never
+  runs code, pushes or merges. See `docs/orchestrator-mcp.md`.
 - Inference Monitor 1.1.1 (15) bundles public Nisi 0.3.1 instead of 0.2.0
   (release asset SHA-256 `345840279d6a778d87d5695fe78375e98bf9b8e86d32cafc4b87d9dfd4f97e4f`, commit `be7a5c9`).
 - Vendored public Nisi 0.3.2 (22 files from the published `nisi-0.3.2.tgz`;
