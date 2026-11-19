@@ -2498,31 +2498,25 @@ class UnpairPending(PeerLinkCase):
 
     def test_cancel_completed_exchange_before_save_pins_nothing(self):
         body = self.started()
-        link, inner, entries, cancelled = self.mac.link, self.mac.link._lock, [0], []
-
-        class CancelBeforeSave:
-            """The link's own RLock; unpair runs between on_finish's decision and its save."""
-
-            def __enter__(self):
-                entries[0] += 1
-                inner.__enter__()
-                if entries[0] == 2:
-                    cancelled.append(link.unpair("winpc01"))
-                return self
-
-            def __exit__(self, *exc):
-                return inner.__exit__(*exc)
-
-        with (
-            mock.patch.object(link, "_lock", CancelBeforeSave()),
-            mock.patch.object(link.store, "pin", wraps=link.store.pin) as pinned,
-        ):
-            code, _reply = link.on_finish(dict(body))
-        self.assertEqual(cancelled, [{"cancelled": self.pc.link.node}])
-        self.assertEqual(code, 409)
+        link, node, results = self.mac.link, self.pc.link.node, []
+        with mock.patch.object(link.store, "pin", wraps=link.store.pin) as pinned:
+            with pl._token_lock:  # on_finish decides, then waits here before it writes
+                worker = pl.threading.Thread(target=lambda: results.append(link.on_finish(dict(body))), daemon=True)
+                worker.start()
+                deadline = time.monotonic() + 5
+                while not link._completed:
+                    self.assertLess(time.monotonic(), deadline, "on_finish never took the invite")
+                    time.sleep(0.005)
+                # A decided inviter save is a pairing about to exist: unpair reports and revokes it.
+                self.assertEqual(link.unpair("winpc01"), {"unpaired": node})
+            worker.join(10)
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(link._pair_epoch.get(node), 1)
+        self.assertEqual(results[0][0], 409)
         self.assertEqual(pinned.call_count, 0)
         self.assertEqual(link._completed, {})
         self.assertEqual(link.trusted(), {})
+        self.assertEqual(link.store.load(), {})
         self.assertEqual(link.on_finish(dict(body))[0], 404)  # a retry finds nothing either
 
     def test_unknown_peer_still_raises_the_same_lookup_error(self):
@@ -2548,6 +2542,189 @@ class UnpairPending(PeerLinkCase):
             with mock.patch.object(pl, "_control", return_value=doc), mock.patch("sys.stdout") as out:
                 self.assertEqual(pl._cmd_unpair(args), 0)
             self.assertEqual("".join(c.args[0] for c in out.write.call_args_list), line)
+
+
+class InviterSaveOutsideLock(PeerLinkCase):
+    """The inviter's finish writes the trust record without holding the link lock. The link is never
+    started, so no socket is opened; the trust store is the real one in a temporary folder."""
+
+    INVITE = "b" * 32
+    KEYS = {"joinerConfirm": "c" * 64, "finishAck": "d" * 64, "link": b"e" * 32}
+    REVOKED = (409, {"error": "pairing was revoked before it could be saved"})
+
+    def setUp(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        state = Path(folder.name)
+        if os.name == "nt" and hasattr(self, "registry_path"):
+            self.register_node_directory(state)
+        self.link = pl.PeerLink(state, "mac", "example-mac", lambda: status("mac"), status_port=0, beacon_port=0)
+        self.link._outbound[self.INVITE] = {
+            "id": self.INVITE,
+            "expires": self.link.clock() + 60,
+            "attempt": "f" * 32,
+            "spake": dict(self.KEYS),
+            "peer": {"node": PEER, "name": "pc", "host": "windows"},
+        }
+        self.body = {"invite": self.INVITE, "attempt": "f" * 32, "confirm": self.KEYS["joinerConfirm"]}
+        self.acked = (200, {"paired": True, "ack": self.KEYS["finishAck"]})
+        self.entered, self.release = pl.threading.Event(), pl.threading.Event()
+        self.pin_calls, self.results, self.workers = [], {}, []
+        real_pin = self.link.store.pin
+
+        def blocked_pin(*args):
+            self.pin_calls.append(args)
+            self.entered.set()
+            self.assertTrue(self.release.wait(10), "the test never released the save")
+            return real_pin(*args)
+
+        patch = mock.patch.object(self.link.store, "pin", blocked_pin)
+        patch.start()
+        self.addCleanup(patch.stop)
+        self.addCleanup(self.finish_workers)
+
+    def spawn(self, name, call):
+        def run():
+            try:
+                self.results[name] = call()
+            except Exception as exc:  # kept as the result, so the test's assertion on it reports it
+                self.results[name] = exc
+
+        worker = pl.threading.Thread(target=run, name=name, daemon=True)
+        self.workers.append(worker)
+        worker.start()
+        return worker
+
+    def finish_workers(self):
+        self.release.set()
+        for worker in self.workers:
+            worker.join(10)
+        self.assertFalse([w.name for w in self.workers if w.is_alive()])
+
+    def warm_trust_cache(self):
+        # trusted() reloads through _token_lock, which the save holds: that stall is a known residual and
+        # is not what these tests measure. A warm cache keeps readers on the link lock alone.
+        self.link._trusted_cache = (time.monotonic() + 3600, self.link.store.load())
+
+    def start_blocked_finish(self):
+        self.spawn("finish", lambda: self.link.on_finish(dict(self.body)))
+        self.assertTrue(self.entered.wait(5), "the inviter save never started")
+
+    def wait_for(self, condition, message):
+        deadline = time.monotonic() + 5
+        while not condition():
+            self.assertLess(time.monotonic(), deadline, message)
+            time.sleep(0.005)
+
+    def link_lock_held_elsewhere(self):
+        if self.link._lock.acquire(blocking=False):
+            self.link._lock.release()
+            return False
+        return True
+
+    def test_snapshot_completes_while_the_inviter_save_is_blocked(self):
+        self.warm_trust_cache()
+        self.link.handle_datagram(pl.make_hello(PEER, "windows", "pc", 8768, time.time()), "192.168.1.2")
+        self.start_blocked_finish()
+        self.assertFalse(self.link_lock_held_elsewhere(), "the save holds the link lock")
+        reader = self.spawn("reader", self.link.snapshot)
+        reader.join(2)
+        self.assertFalse(reader.is_alive(), "snapshot waited for the trust save")
+        row = next(r for r in self.results["reader"]["peers"] if r["node"] == PEER)
+        self.assertFalse(row["paired"], "a save still in flight is not a pairing yet")
+        self.assertEqual(self.link.nonces_for(PEER).limit, 512)  # another link-lock user, same thread
+        self.finish_workers()
+        self.assertEqual(self.results["finish"], self.acked)
+        self.assertEqual(self.link.trusted()[PEER]["key"], self.KEYS["link"])
+        self.assertTrue(self.link.snapshot()["peers"][0]["paired"])
+
+    def unpair_during_the_blocked_save(self, peer, warm):
+        if warm:
+            self.warm_trust_cache()
+        self.start_blocked_finish()
+        self.spawn("unpair", lambda: self.link.unpair(peer))
+        # unpair now waits (on the trust folder) with the link lock held, so it is ordered after the write
+        # and before the finish can look again.
+        self.wait_for(self.link_lock_held_elsewhere, "unpair never reached the link lock")
+        self.finish_workers()
+        self.assertEqual(self.results["unpair"], {"unpaired": PEER})
+        self.assertEqual(self.results["finish"], self.REVOKED)
+        self.assertEqual(len(self.pin_calls), 1)
+        self.assertNotIn(PEER, self.link.trusted())
+        self.assertEqual(self.link.store.load(), {})
+        self.assertFalse((self.link.store.dir / f"{PEER}.json").exists())
+        self.assertEqual(self.link._completed, {})
+        self.assertNotEqual(self.link.on_finish(dict(self.body))[0], 200, "a later retry revived the pairing")
+        self.assertEqual(self.link.store.load(), {})
+
+    def test_unpair_during_the_blocked_save_revokes_it(self):
+        self.unpair_during_the_blocked_save(PEER, warm=True)
+        self.assertEqual(self.link._pair_epoch, {PEER: 1})
+
+    def test_unpair_by_name_with_a_cold_trust_cache_revokes_the_blocked_save(self):
+        self.unpair_during_the_blocked_save("pc", warm=False)
+
+    def test_unpair_before_the_write_starts_means_nothing_is_written(self):
+        with pl._token_lock:  # the finish passes its decision, then waits here before writing
+            self.spawn("finish", lambda: self.link.on_finish(dict(self.body)))
+            self.wait_for(lambda: self.INVITE in self.link._completed, "the finish never took the invite")
+            self.assertEqual(self.link.unpair(PEER), {"unpaired": PEER})
+        self.finish_workers()
+        self.assertEqual(self.results["finish"], self.REVOKED)
+        self.assertEqual(self.pin_calls, [])
+        self.assertEqual(self.link.store.load(), {})
+
+    def test_a_revoked_save_leaves_a_newer_pairing_alone(self):
+        self.start_blocked_finish()
+        done = self.link._completed[self.INVITE]
+        newer = {**PEER_RECORD_PLAIN, "key": b"n" * 32}
+        with (
+            mock.patch.object(self.link.store, "load", return_value={PEER: newer}),
+            mock.patch.object(self.link.store, "remove") as remove,
+        ):
+            with self.link._lock:
+                self.link._pair_epoch[PEER] = done["epoch"] + 1
+                del self.link._completed[self.INVITE]
+            self.finish_workers()
+            self.assertEqual(self.results["finish"], self.REVOKED)
+            remove.assert_not_called()
+
+    def retry_waiting_on_the_blocked_save(self):
+        self.start_blocked_finish()
+        done = self.link._completed[self.INVITE]
+        waiting, real_wait = pl.threading.Event(), done["saved"].wait
+
+        def wait(timeout):
+            waiting.set()
+            return real_wait(timeout)
+
+        patch = mock.patch.object(done["saved"], "wait", wait)
+        patch.start()
+        self.addCleanup(patch.stop)
+        self.spawn("retry", lambda: self.link.on_finish(dict(self.body)))
+        self.assertTrue(waiting.wait(5), "the retry did not wait for the first finish")
+        self.assertNotIn("retry", self.results, "a retry answered before the save finished")
+
+    def test_retry_during_the_blocked_save_is_idempotent(self):
+        self.retry_waiting_on_the_blocked_save()
+        self.finish_workers()
+        self.assertEqual(self.results, {"finish": self.acked, "retry": self.acked})
+        self.assertEqual(len(self.pin_calls), 1)
+        self.assertEqual(self.link.trusted()[PEER]["key"], self.KEYS["link"])
+
+    def test_retry_during_a_revoked_save_is_never_acked(self):
+        self.warm_trust_cache()
+        self.retry_waiting_on_the_blocked_save()
+        self.spawn("unpair", lambda: self.link.unpair(PEER))
+        self.wait_for(self.link_lock_held_elsewhere, "unpair never reached the link lock")
+        self.finish_workers()
+        self.assertEqual(self.results["unpair"], {"unpaired": PEER})
+        self.assertEqual(self.results["finish"], self.REVOKED)
+        code, reply = self.results["retry"]
+        self.assertEqual(code, 409)
+        self.assertNotIn("ack", reply)
+        self.assertEqual(len(self.pin_calls), 1)
+        self.assertEqual(self.link.store.load(), {})
 
 
 class CaseVariants(PeerLinkCase):
