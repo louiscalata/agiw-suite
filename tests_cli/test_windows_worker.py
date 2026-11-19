@@ -16,7 +16,7 @@ from urllib.request import ProxyHandler, Request, build_opener
 
 from agiw import fleet_jev
 from agiw import windows_worker as ww
-from agiw.fleet_local_pilot import NoRedirect
+from agiw.fleet_local_pilot import NoRedirect, preview_post_text
 from agiw.windows_worker_receipt_check import validate_job_receipt
 
 ENDPOINT = "http://127.0.0.1:9/v1/chat/completions"
@@ -319,6 +319,137 @@ class WorkerTests(unittest.TestCase):
         self.assertTrue(ww.authorized("Bearer " + TOKEN.decode(), TOKEN))
         self.assertFalse(ww.authorized("bearer " + TOKEN.decode(), TOKEN))
         self.assertFalse(ww.authorized("Bearer " + "k" * 39, TOKEN))
+
+    def test_preview_job_without_jev_task_omits_jev_post(self):
+        receipt = self.worker(execute=self.fake_success()).run_job(self.job())
+        self.assertEqual(receipt["outcome"], "COMPLETED")
+        self.assertNotIn("jevPost", receipt)
+
+    def test_preview_jev_post_uses_jev_task_cli(self):
+        script = self.root / "fake_jev_task.py"
+        script.write_text(
+            "\n".join(
+                [
+                    "import json, sys",
+                    "argv = sys.argv[1:]",
+                    "open(__file__ + '.calls', 'a', encoding='utf-8').write(json.dumps(argv) + chr(10))",
+                    "phase = argv[0] if argv else ''",
+                    "if phase == 'post':",
+                    "    print(json.dumps({'status': 'ok', 'verdict': 'READY'}))",
+                    "    raise SystemExit(0)",
+                    "raise SystemExit('unexpected ' + phase)",
+                    "",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        for program in ("nisi-smoke.mjs", "tiny-arithmetic.mjs", "tiny-extraction.mjs"):
+            with self.subTest(program=program):
+                calls = Path(str(script) + ".calls")
+                if calls.exists():
+                    calls.unlink()
+                worker = ww.Worker(
+                    "m5-macbook-pro",
+                    "fixture-model",
+                    ENDPOINT,
+                    str(self.receipt_dir),
+                    execute=self.fake_success(
+                        authorEvidence=[{"status": "RESPONSE_VALIDATED", "finishReason": "stop"}]
+                    ),
+                    commit=lambda: COMMIT,
+                    jev_task=str(script),
+                    jev_task_timeout=5,
+                )
+                receipt = worker.run_job(self.job(program=program))
+                self.assertEqual(receipt["outcome"], "COMPLETED")
+                self.assertEqual(receipt["jevPost"]["status"], "ok")
+                self.assertEqual(receipt["jevPost"]["verdict"], "READY")
+                self.assertIn("inputSha256", receipt["jevPost"])
+                self.assertIn("inputChars", receipt["jevPost"])
+                self.assertIsInstance(receipt["jevPost"]["truncated"], bool)
+                argv = json.loads(calls.read_text(encoding="utf-8").splitlines()[-1])
+                self.assertEqual(argv[0], "post")
+                self.assertIn("--text", argv)
+                self.assertIn("--driver", argv)
+                self.assertEqual(argv[argv.index("--driver") + 1], "never")
+                self.assertIn("--kind", argv)
+                self.assertEqual(argv[argv.index("--kind") + 1], "review")
+                saved = json.loads(Path(receipt["receiptPath"]).read_text())
+                self.assertEqual(saved["jevPost"], receipt["jevPost"])
+
+    def test_preview_jev_post_failure_stays_advisory(self):
+        def boom(_text):
+            raise RuntimeError("analyzer exploded")
+
+        worker = self.worker(execute=self.fake_success())
+        worker._jev_analyzers = (lambda _t: {"status": "ok", "plan": "direct"}, boom)
+        receipt = worker.run_job(self.job(program="tiny-arithmetic.mjs"))
+        self.assertEqual(receipt["outcome"], "COMPLETED")
+        self.assertEqual(receipt["jevPost"]["status"], "unavailable")
+        self.assertEqual(receipt["jevPost"]["errorCode"], "JEV_ANALYZER_ERROR")
+        self.assertEqual(receipt["jevPost"]["stage"], "post")
+
+    def test_preview_jev_post_timeout_is_unavailable(self):
+        def timeout(_text):
+            raise TimeoutError("jev-task post timed out")
+
+        worker = self.worker(execute=self.fake_success())
+        worker._jev_analyzers = (lambda _t: {"status": "ok", "plan": "direct"}, timeout)
+        receipt = worker.run_job(self.job(program="tiny-extraction.mjs"))
+        self.assertEqual(receipt["outcome"], "COMPLETED")
+        self.assertEqual(receipt["jevPost"]["status"], "unavailable")
+        self.assertEqual(receipt["jevPost"]["errorCode"], "JEV_TIMEOUT")
+
+    def test_preview_execute_failure_records_post_not_run(self):
+        def failing(mode, url, model, source, program="nisi-smoke.mjs", report_store=None, worker_id=None, **_):
+            raise RuntimeError("fixture failure")
+
+        worker = self.worker(execute=failing)
+        worker._jev_analyzers = (
+            lambda _t: {"status": "ok", "plan": "direct"},
+            lambda _t: {"status": "ok", "verdict": "READY"},
+        )
+        receipt = worker.run_job(self.job())
+        self.assertEqual(receipt["outcome"], "BLOCKED")
+        self.assertEqual(receipt["jevPost"], {"status": "not_run", "reason": "job blocked before post-analysis"})
+
+
+class PreviewPostTextTests(unittest.TestCase):
+    def test_omits_paths_and_includes_allowlisted_fields(self):
+        text = preview_post_text(
+            "tiny-arithmetic.mjs",
+            {
+                "reportPath": "/secret/report.json",
+                "reportStorePath": "/secret/store/run.json",
+                "childExitCode": 0,
+                "report": {"outcome": "COMPLETED", "code": None, "reportStored": True},
+                "authorEvidence": [
+                    {
+                        "status": "RESPONSE_VALIDATED",
+                        "finishReason": "stop",
+                        "outputSample": '{"answer":42}',
+                    }
+                ],
+            },
+        )
+        self.assertIn("program: tiny-arithmetic.mjs", text)
+        self.assertIn("outcome: COMPLETED", text)
+        self.assertIn("childExitCode: 0", text)
+        self.assertIn("RESPONSE_VALIDATED", text)
+        self.assertIn('\\"answer\\":42', text)
+        self.assertNotIn("/secret/", text)
+        self.assertTrue(text.endswith("\n"))
+
+    def test_sanitizes_control_characters_and_ignores_non_dict_result(self):
+        text = preview_post_text("nisi-smoke.mjs", "not-a-dict")
+        self.assertEqual(text, "program: nisi-smoke.mjs\noutcome:\ncode:\n")
+        dirty = preview_post_text(
+            "tiny-extraction.mjs",
+            {"report": {"outcome": "FAILED", "code": "BAD\nPATH:/tmp/x"}, "childExitCode": False},
+        )
+        self.assertIn("outcome: FAILED", dirty)
+        self.assertIn("code: BAD PATH:/tmp/x", dirty)
+        self.assertNotIn("childExitCode", dirty)
 
 
 if __name__ == "__main__":

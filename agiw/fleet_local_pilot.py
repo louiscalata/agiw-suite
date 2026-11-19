@@ -301,6 +301,35 @@ def author_evidence(receipts):
     return out
 
 
+def preview_post_text(program, result):
+    """Project a preview-program result into the bounded string jev-task post reviews.
+
+    Paths, endpoints, tokens and raw payloads are omitted. The hashed stored report is not
+    rewritten; post-analysis is recorded on the job receipt only.
+    """
+    result = result if isinstance(result, dict) else {}
+    report = result.get("report") if isinstance(result.get("report"), dict) else {}
+    name = program if isinstance(program, str) else ""
+    parts = [f"program: {name}"]
+    for key in ("outcome", "code"):
+        value = report.get(key)
+        if isinstance(value, str) and value:
+            parts.append(f"{key}: {sanitize_text(value, 200)}")
+        else:
+            parts.append(f"{key}:")
+    exit_code = result.get("childExitCode")
+    if type(exit_code) is int and not isinstance(exit_code, bool):
+        parts.append(f"childExitCode: {exit_code}")
+    evidence = result.get("authorEvidence")
+    if not isinstance(evidence, list):
+        evidence = result.get("authorReceipts")
+    evidence = author_evidence(evidence)
+    if evidence:
+        parts.append("authorEvidence:")
+        parts.append(json.dumps(evidence, sort_keys=True, ensure_ascii=True))
+    return "\n".join(parts) + "\n"
+
+
 def _check_child_plan(data, route):
     """Project evidence against the validated router summary; never persist extra child fields."""
     evidence = data.pop("jevPlan", None)

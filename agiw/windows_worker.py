@@ -1,9 +1,10 @@
 """Token-authenticated, loopback-first Jev job worker. Single slot, zero retries.
 
 No hosted routes, no model loads, no credential discovery and no token logging.
-Executes one routed Nisi job at a time through the isolated local pilot. Repo-patch jobs may
-inject the local jev-task CLI for advisory pre/post analysis when --jev-task or AGIW_JEV_TASK
-is set; without it, analysis stays unavailable/no_analyzer and no binary is discovered.
+Executes one routed Nisi job at a time through the isolated local pilot. When --jev-task or
+AGIW_JEV_TASK is set, repo-patch jobs inject the local jev-task CLI for advisory pre/post
+analysis, and preview programs run the same CLI for advisory post-analysis after the program
+returns. Without it, analysis stays unavailable/no_analyzer and no binary is discovered.
 """
 
 import argparse
@@ -289,6 +290,8 @@ class Worker:
         failure = None
         report = {}
         result = None
+        preview_post = job.get("program") != fleet_repo_patch.PROGRAM and self._jev_analyzers is not None
+        jev_post_record = None
         try:
             if job["program"] == fleet_repo_patch.PROGRAM:
                 analysis_kwargs = {}
@@ -320,6 +323,9 @@ class Worker:
                     request_mode_value=req_mode,
                     route=route,
                 )
+                if preview_post:
+                    text = pilot.preview_post_text(job.get("program"), result)
+                    jev_post_record = fleet_repo_patch._analyze(self._jev_analyzers[1], text, "post", "verdict")
             report = result.get("report") if isinstance(result, dict) and isinstance(result.get("report"), dict) else {}
             outcome = report.get("outcome")
             if outcome not in receipt_check.OUTCOMES:
@@ -329,6 +335,8 @@ class Worker:
         except Exception as exc:  # noqa: BLE001 - job boundary: any failure must still yield a BLOCKED receipt
             outcome = "BLOCKED"  # a failure is never COMPLETED; no retries
             failure = pilot.sanitize_text(f"{type(exc).__name__}: {exc}")
+            if preview_post and jev_post_record is None:
+                jev_post_record = {"status": "not_run", "reason": "job blocked before post-analysis"}
         finally:
             finished = time.time()
             receipt = {
@@ -358,6 +366,8 @@ class Worker:
                 "started_unix": started,
                 "finished_unix": finished,
             }
+            if jev_post_record is not None:
+                receipt["jevPost"] = jev_post_record
             if job.get("program") == fleet_repo_patch.PROGRAM:
                 receipt["artifact"] = result.get("artifact") if isinstance(result, dict) else None
                 if isinstance(result, dict):
@@ -506,8 +516,9 @@ def main(argv=None):
     p.add_argument(
         "--jev-task",
         default=None,
-        help="Repo-patch Jev analyzer: a path to the jev-task CLI or 'auto' (PATH lookup). Omit to read "
-        "AGIW_JEV_TASK; unset or off keeps analysis unavailable/no_analyzer. The tool's personal ledger is unused.",
+        help="Jev analyzer: a path to the jev-task CLI or 'auto' (PATH lookup). Repo-patch uses pre and "
+        "post; preview programs use post after the program returns. Omit to read AGIW_JEV_TASK; unset or "
+        "off keeps analysis unavailable/no_analyzer. The tool's personal ledger is unused.",
     )
     args = p.parse_args(argv)
     jev_task = args.jev_task if args.jev_task is not None else os.environ.get("AGIW_JEV_TASK")
