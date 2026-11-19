@@ -19,6 +19,8 @@ import tempfile
 from collections import Counter, defaultdict
 from pathlib import Path
 
+from test_support.exception_outcome import comparable
+
 WORKTREE = Path(__file__).resolve().parents[2]
 CORPUS = Path(__file__).with_name("cases.json")
 TARGET = "collect_nisi_v02"
@@ -316,7 +318,7 @@ def main():
                 actual = support.run_case(original, case)
             finally:
                 sys.settrace(previous_trace)
-            if actual != expected:
+            if comparable(expected, actual) != actual:
                 raise AssertionError(f"Original corpus mismatch: {case['mode']}:{case['name']}")
             original_matches += 1
             if not case_outer_exceptions and any(event[0] == "_owned" for event in actual["events"]):

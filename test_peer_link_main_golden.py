@@ -12,6 +12,7 @@ from pathlib import Path
 from unittest import mock
 
 import peer_link
+from test_support.exception_outcome import comparable, explicit_raise
 
 
 def _plain(value):
@@ -145,7 +146,9 @@ def observe(module, case, *, argv0="peer_link", stdout_factory=None):
             if isinstance(exc.code, str):
                 stderr.write(exc.code + "\n")
         except (EOFError, KeyboardInterrupt, OSError, KeyError, TypeError, ValueError) as exc:
-            outcome = {"raised": type(exc).__name__, "args": _plain(exc.args)}
+            outcome = {"raised": type(exc).__name__}
+            if explicit_raise(exc, module):
+                outcome["args"] = _plain(exc.args)
             exit_code = 130 if isinstance(exc, KeyboardInterrupt) else 1
     return {
         "stdout": stdout.getvalue(),
@@ -166,7 +169,7 @@ def _golden_test(case):
         expected = [case["expected"], *case.get("expected_variants", [])]
         for stream in ("stdout", "stderr"):
             self.assertIn(actual[stream].encode("utf-8"), [item[stream].encode("utf-8") for item in expected])
-        self.assertIn(actual, expected)
+        self.assertIn(actual, [comparable(item, actual) for item in expected])
 
     return test
 

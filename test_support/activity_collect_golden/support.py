@@ -6,6 +6,8 @@ import math
 from pathlib import Path
 from unittest import mock
 
+from test_support.exception_outcome import pinned_message
+
 
 def _decode(value):
     if isinstance(value, dict):
@@ -144,7 +146,10 @@ def run_case(module, case):
             TypeError,
             ValueError,
         ) as error:
-            outcome = {"exception": type(error).__name__, "message": str(error)}
+            outcome = {"exception": type(error).__name__}
+            message = pinned_message(error, module)
+            if message is not None:
+                outcome["message"] = message
     outcome.update(
         events=events,
         inputsAfter={

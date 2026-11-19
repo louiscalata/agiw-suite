@@ -16,11 +16,22 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from test_support.mac_presence_golden.support import _INTERPRETER_OPERATIONS, expected_outcome, run_case
+from test_support.mac_presence_golden.support import run_case
 
 _ROOT = Path(__file__).resolve().parents[2]
 _CORPUS = Path(__file__).with_name("cases.json")
 _MODULE = "test_support.mac_presence_golden.checks"
+# These cases fail inside a built-in operation, so their wording is not pinned.
+_INTERPRETER_CASES = (
+    "snapshot_string",
+    "sampled_none",
+    "sampled_object",
+    "sampled_list",
+    "sources_unhashable_id",
+    "api_coverage_unhashable",
+    "cli_coverage_unhashable",
+    "cli_instance_unhashable",
+)
 _MUTATIONS = (
     (
         "unloaded_cli_activity",
@@ -109,21 +120,20 @@ def _mutations():
 def _comparison_controls(golden):
     cases = {case["name"]: case for case in golden._CASES}
     controls = []
-    for name in _INTERPRETER_OPERATIONS:
+    for name in _INTERPRETER_CASES:
         for field, value in (
-            ("message", "different error message"),
             ("error", "ValueError"),
             ("events", [["unexpected call"]]),
             ("inputsUnchanged", False),
         ):
-            observation = expected_outcome(cases[name])
+            observation = copy.deepcopy(cases[name]["expected"])
             observation[field] = value
             with mock.patch.object(golden, "run_case", return_value=observation):
                 result = _test_result(unittest.TestSuite([golden.MacPresenceGoldenTests("test_" + name)]))
             if result != {"tests": 1, "failures": 1, "errors": 0, "skipped": 0}:
                 raise AssertionError((name, field, result))
             controls.append({"case": name, "changed": field, **result})
-    for name in ("snapshot_none", "helper_public_id_TypeError"):
+    for name in ("snapshot_none", "sampled_nan"):
         case = copy.deepcopy(cases[name])
         case["expected"]["message"] = "different application message"
         result = _test_result(

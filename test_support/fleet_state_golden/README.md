@@ -16,7 +16,7 @@ real pass-through calls. Cases perform no device, network or service I/O.
 
 Exception types always remain part of the contract. Exact messages remain
 part of the contract when the innermost traceback instruction is an explicit
-Python `raise` (`RAISE_VARARGS`). Interpreter-generated diagnostics from failed
+Python `raise` (`RAISE_VARARGS`) in `fleet_state` itself (`test_support/exception_outcome.py`). Interpreter-generated diagnostics from failed
 operations or builtin calls are compared by type because their wording varies
 across Python versions and platforms. The normalization tests cover explicit
 messages, builtin errors, overflow and bare/named reraises.

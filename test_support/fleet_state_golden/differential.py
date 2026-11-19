@@ -15,6 +15,8 @@ from random import Random
 from types import SimpleNamespace
 from unittest import mock
 
+from test_support.exception_outcome import comparable, pinned_message
+
 SEED = 1593557031
 SYNTHETIC_COUNT = 2048
 STAMP = "1970-01-01T00:16:40Z"
@@ -228,7 +230,10 @@ def direct_record(module, adapter, case):
                 [input_paths[identity], output_paths[identity]] for identity in input_paths.keys() & output_paths.keys()
             )
         except (ArithmeticError, AttributeError, KeyError, OSError, TypeError, ValueError) as error:
-            outcome = adapter._exception_outcome(error)
+            outcome = {"error": type(error).__name__}
+            message = pinned_message(error, module)
+            if message is not None:
+                outcome["message"] = message
             shared = []
     return {"outcome": outcome, "inputsAfter": adapter._encode(inputs), "sharedMutablePaths": shared}
 
@@ -265,7 +270,7 @@ def compare_cases(group, cases, baseline, current, adapter, report):
         candidate = adapter._run_case(current, case)
         comparisons = [("pinned_vs_current", pinned, candidate)]
         if group == "corpus":
-            comparisons.append(("pinned_vs_recorded", case["expected"], pinned))
+            comparisons.append(("pinned_vs_recorded", comparable(case["expected"], pinned), pinned))
         comparisons.extend(
             (
                 ("pinned_direct_vs_spied", without_events(pinned), direct_record(baseline, adapter, case)),

@@ -18,6 +18,8 @@ import sys
 import unittest
 from pathlib import Path
 
+from test_support.exception_outcome import comparable
+
 WORKTREE = Path(__file__).resolve().parents[2]
 CORPUS = Path(__file__).with_name("cases.json")
 TEST_MODULES = ("test_collect_nisi_v02_golden", "test_collect_nisi_v02_generation_golden")
@@ -430,7 +432,8 @@ def main():
     ordered = sorted(cases, key=lambda case: (any(key.endswith("_size") for key in case), len(case.get("faults", []))))
     try:
         for case in ordered:
-            if support.run_case(module, case) != expected(case):
+            actual = support.run_case(module, case)
+            if comparable(expected(case), actual) != actual:
                 raise RuntimeError(f"Unmodified source does not match case {case['name']}")
         report["baseline_cases_matched"] = len(cases)
         for index, specification in enumerate(specifications, start=1):
@@ -449,7 +452,7 @@ def main():
             for case in ordered:
                 try:
                     actual = support.run_case(module, case)
-                    mismatch = actual != expected(case)
+                    mismatch = comparable(expected(case), actual) != actual
                 except (
                     AssertionError,
                     AttributeError,

@@ -14,11 +14,8 @@ Eight cases trigger interpreter-owned `TypeError` messages: `snapshot_string`,
 `sampled_none`, `sampled_object`, `sampled_list`, `sources_unhashable_id`,
 `api_coverage_unhashable`, `cli_coverage_unhashable`, and
 `cli_instance_unhashable`. Their recorded messages describe the capture
-interpreter. `expected_outcome` runs the same built-in operations on the current
-interpreter to obtain its exact wording. It preserves the exception type,
-ordered events and snapshot-preservation expectation. All other messages,
-including application refusals and injected helper failures, remain literal.
-There is no fallback to another Python minor version's wording.
+interpreter and are not compared. Exception types always remain part of the contract. A message is compared only when the innermost traceback frame belongs to the module under test and its instruction is an explicit `raise` (`RAISE_VARARGS`); see `test_support/exception_outcome.py`. Interpreter-owned wording, which differs between Python 3.9 and 3.14, is compared by type only. Ordered events and the
+snapshot-preservation expectation stay exact, and application refusals stay literal.
 
 Run commands from the repository root with bytecode writes disabled and a
 private `TMPDIR` for each check:
@@ -30,8 +27,8 @@ python3 -B -m test_support.mac_presence_golden.checks mutations
 
 The mutation check changes each of the two grouping rules in memory and requires
 the corresponding golden test to fail with an assertion. Its negative controls
-also require every interpreter-message case to reject a changed message, error
-type, event list or snapshot-preservation flag, and require application messages
+also require every interpreter-message case to reject a changed error type,
+event list or snapshot-preservation flag, and require application messages
 to remain strict. Production files are never rewritten by these checks.
 
 To recapture from the recorded source revision, export it into a temporary

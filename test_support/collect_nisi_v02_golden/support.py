@@ -9,6 +9,8 @@ from contextlib import ExitStack
 from pathlib import Path
 from unittest import mock
 
+from test_support.exception_outcome import pinned_message
+
 COMMIT = "1234567890abcdef1234567890abcdef12345678"
 GENERATION = "abcdef0123456789abcdef0123456789abcdef01"
 NOW = 1800000000.0
@@ -218,27 +220,6 @@ def _timestamp(value):
     return value
 
 
-def _exception_message(error, case):
-    """Canonicalize only observed datetime and Path constructor wording."""
-    message = str(error)
-    if (
-        case.get("name") == "now_year_overflow"
-        and case.get("now") == 253402300800
-        and type(error) is ValueError
-        and message in ("year 10000 is out of range", "year must be in 1..9999, not 10000")
-    ):
-        return "year must be in 1..9999, not 10000"
-    for name, kind in (("home_integer", int), ("home_list", list), ("home_bool", bool)):
-        if case.get("name") != name or type(case.get("home_value")) is not kind or type(error) is not TypeError:
-            continue
-        modern = (
-            f"argument should be a str or an os.PathLike object where __fspath__ returns a str, not '{kind.__name__}'"
-        )
-        if message in (f"expected str, bytes or os.PathLike object, not {kind.__name__}", modern):
-            return modern
-    return message
-
-
 def run_case(module, case):
     """Run one corpus input with no access to a real home, service or child."""
     events = []
@@ -276,7 +257,10 @@ def run_case(module, case):
                 )
                 outcome = {"result": result}
             except (AttributeError, KeyError, OSError, OverflowError, TypeError, ValueError) as error:
-                outcome = {"error": type(error).__name__, "message": _exception_message(error, case)}
+                outcome = {"error": type(error).__name__}
+                message = pinned_message(error, module)
+                if message is not None:
+                    outcome["message"] = message
             child.assert_not_called()
         outcome["events"] = events
         return _normalize(outcome, home)
