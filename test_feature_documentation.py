@@ -58,6 +58,16 @@ class FeatureDocumentationTests(unittest.TestCase):
         self.assertTrue(any(type(lane.get("contextTokens")) is int for lane in lanes))
         self.assertTrue(any(lane.get("thinking") in ("on", "off", "unknown") for lane in lanes))
 
+    def test_example_speculative_opt_in_stays_disabled(self):
+        example = json.loads((REPO / "docs" / "remote-machines.example.json").read_text())
+        objects = list(example["machines"])
+        for machine in example["machines"]:
+            objects.extend(machine["lanes"])
+        seen = [obj["speculative"] for obj in objects if "speculative" in obj]
+        self.assertTrue(seen, "example should show the default-off speculative object")
+        self.assertTrue(all(item.get("enabled") is False for item in seen))
+        self.assertTrue(all(set(item) == {"enabled"} for item in seen))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -40,7 +40,7 @@ Recorded tokens/s figures come from separately configured workers. They do not m
 
 No controlled speedup percentage exists for the three before/after conditions: no AGIW Suite, AGIW Suite on Mac, and AGIW Suite on Mac + PC. None has been run. The Mac benchmark’s non-empty-response rate measures availability, not graded accuracy.
 
-Figures, Windows lane layouts, methods, the comparison protocol and the Ollama and vLLM comparison: [performance.md](performance.md). Sanitized aggregate data: [inference-performance.json](data/inference-performance.json). These records do not change the signed release or close the open checks in [status](status.md#open-checks).
+Figures, Windows lane layouts, methods, the comparison protocol and the Ollama and vLLM comparison: [performance.md](performance.md). Per-machine speculative-decoding opt-in (default off) and the 19 November 2026 trials: [Speculative decoding opt-in](three-machine-pipeline.md#speculative-decoding-opt-in). Sanitized aggregate data: [inference-performance.json](data/inference-performance.json). These records do not change the signed release or close the open checks in [status](status.md#open-checks).
 
 ## Local-only pipeline
 
