@@ -213,8 +213,8 @@ def read_config(path: Path) -> tuple:
             raise ValueError(f"config is larger than {CONFIG_MAX_BYTES} bytes")
         try:
             value = _strict_json(raw)
-        except (UnicodeDecodeError, ValueError):
-            raise ValueError("config is not valid JSON with unique keys")
+        except (UnicodeDecodeError, ValueError) as err:
+            raise ValueError("config is not valid JSON with unique keys") from err
         return validate_config(value), None
     except (OSError, ValueError) as error:
         message = str(error) if isinstance(error, ValueError) else "config unreadable"
