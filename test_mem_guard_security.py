@@ -347,7 +347,7 @@ class MemGuardSecurityTests(unittest.TestCase):
             "xargs -tn1 docker run",
             "xargs -I{} docker run {}",
             "xargs sh -c 'docker run image'",
-            "eval \"xargs -0 docker compose run svc\"",
+            'eval "xargs -0 docker compose run svc"',
         ):
             with self.subTest(command=command):
                 found = mem_guard.hook_match(bash(command))

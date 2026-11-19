@@ -209,8 +209,8 @@ MUTATIONS = (
     ),
     (
         "docker_container_is_normalised",
-        "        remaining = remaining[1:]\n    if base == \"docker\" and remaining[:1]",
-        "        return None\n    if base == \"docker\" and remaining[:1]",
+        '        remaining = remaining[1:]\n    if base == "docker" and remaining[:1]',
+        '        return None\n    if base == "docker" and remaining[:1]',
         "test_docker_container_compose_run_and_start_forms_are_guarded",
     ),
     (
