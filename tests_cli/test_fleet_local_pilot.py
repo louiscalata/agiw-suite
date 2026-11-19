@@ -45,6 +45,45 @@ class PilotTests(unittest.TestCase):
         with self.assertRaises(Refused):
             readiness("http://127.0.0.1:8081/v1/chat/completions", "local", self.getter([{"is_processing": False}], []))
 
+    def lmstudio_getter(self, *, health=None, catalog=None, raise_health=False, raise_catalog=False):
+        def g(url):
+            if url.endswith("/health"):
+                if raise_health:
+                    raise OSError("down")
+                return health if health is not None else {"error": "Unexpected endpoint or method. (GET /health)"}
+            if url.endswith("/api/v0/models"):
+                if raise_catalog:
+                    raise OSError("down")
+                return (
+                    catalog
+                    if catalog is not None
+                    else {"data": [{"id": "local", "state": "loaded", "loaded_context_length": 32768}]}
+                )
+            raise AssertionError("unexpected url " + url)
+
+        return g
+
+    def test_lmstudio_loaded_model_is_ready(self):
+        e = readiness("http://127.0.0.1:1235/v1/chat/completions", "local", self.lmstudio_getter())
+        self.assertEqual((e.local_model_ready, e.authenticated, e.lease_available, e.busy), (True, True, True, False))
+        self.assertEqual(route(e)["worker"], "m5-macbook-pro")
+
+    def test_lmstudio_not_loaded_or_missing_catalog_is_refused(self):
+        cases = (
+            self.lmstudio_getter(catalog={"data": [{"id": "local", "state": "not-loaded"}]}),
+            self.lmstudio_getter(
+                catalog={"data": [{"id": "other", "state": "loaded", "loaded_context_length": 32768}]}
+            ),
+            self.lmstudio_getter(catalog={"data": [{"id": "local", "state": "loaded", "loaded_context_length": 0}]}),
+            self.lmstudio_getter(catalog={"data": []}),
+            self.lmstudio_getter(catalog={"models": []}),
+            self.lmstudio_getter(raise_catalog=True),
+            self.lmstudio_getter(raise_health=True, raise_catalog=True),
+        )
+        for getter in cases:
+            with self.subTest(), self.assertRaises(Refused):
+                readiness("http://127.0.0.1:1235/v1/chat/completions", "local", getter)
+
     def test_notion_refused(self):
         with self.assertRaises(Refused):
             route(WorkerEvidence(time.time(), True, True, True, False), "notion")

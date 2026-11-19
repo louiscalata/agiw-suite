@@ -134,17 +134,41 @@ def detect_models(base_url, getter=get):
     return _model_ids(data["data"], True), "lm-studio"
 
 
+def _lmstudio_loaded(item, model):
+    ctx = item.get("loaded_context_length") if isinstance(item, dict) else None
+    return (
+        isinstance(item, dict)
+        and item.get("id") == model
+        and item.get("state") == "loaded"
+        and type(ctx) is int
+        and ctx > 0
+    )
+
+
 def readiness(url, model, getter=get):
     base = endpoint(url)
-    if getter(base + "/health").get("status") != "ok":
-        raise Refused("HEALTH_NOT_OK")
-    models, source = detect_models(base, getter=getter)
-    if model not in models:
-        raise Refused("MODEL_NOT_VERIFIED")
-    # llama.cpp /slots must explicitly establish every slot is idle. Missing is unknown.
-    slots = getter(base + "/slots")
-    if not isinstance(slots, list) or not slots or any(s.get("is_processing") is not False for s in slots):
-        raise Refused("IDLE_NOT_VERIFIED")
+    try:
+        health = getter(base + "/health")
+    except PROBE_ERRORS:
+        health = None
+    if isinstance(health, dict) and health.get("status") == "ok":
+        models, _source = detect_models(base, getter=getter)
+        if model not in models:
+            raise Refused("MODEL_NOT_VERIFIED")
+        # llama.cpp /slots must explicitly establish every slot is idle. Missing is unknown.
+        slots = getter(base + "/slots")
+        if not isinstance(slots, list) or not slots or any(s.get("is_processing") is not False for s in slots):
+            raise Refused("IDLE_NOT_VERIFIED")
+        return WorkerEvidence(time.time(), True, True, True, False)
+    # LM Studio serves /v1/models but has no llama-server /health or /slots; those
+    # routes return 200 with an Unexpected endpoint error object.
+    try:
+        catalog = getter(base + "/api/v0/models")
+    except PROBE_ERRORS as exc:
+        raise Refused("HEALTH_NOT_OK") from exc
+    items = catalog.get("data") if isinstance(catalog, dict) else None
+    if not isinstance(items, list) or not any(_lmstudio_loaded(item, model) for item in items):
+        raise Refused("MODEL_NOT_VERIFIED" if isinstance(items, list) else "HEALTH_NOT_OK")
     return WorkerEvidence(time.time(), True, True, True, False)
 
 
