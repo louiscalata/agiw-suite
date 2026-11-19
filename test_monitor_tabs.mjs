@@ -66,7 +66,7 @@ test('all stale or unknown lane facts keep answering absence unknown', () => {
   assert.match(all.reason, /Answering count unknown; 4 lanes configured/);
   assert.doesNotMatch(all.reason, /0 of 4 lanes answering/);
   assert.match(all.reason, /stale.*8 s ago/);
-  assert.equal(all.metrics.find(item => item.label === 'Busy models').value, '—');
+  assert.equal(all.metrics.find(item => item.label === 'Busy models').value, 'Not measured');
   const tabs = mapMonitors({fleetState: snapshot.fleetState}, {now});
   assert.match(byId(tabs, 'all').reason, /Answering count unknown/);
   assert.equal(byId(tabs, 'registry:pc:fast').word, 'STALE');
@@ -390,7 +390,7 @@ test('unknown, stale, and disconnected stay different words', () => {
   const incomplete = demoSnapshot();
   incomplete.pipeline.pipelinesComplete = false;
   const running = byId(deriveMonitors(incomplete, {feedFresh: true, fictional: true}), 'all').metrics.find(item => item.label === 'Busy models');
-  assert.equal(running.value, '—', 'an incomplete workflow list cannot establish an absence or fleet total');
+  assert.equal(running.value, 'Not measured', 'an incomplete workflow list cannot establish an absence or fleet total');
 });
 
 test('legacy peer and worker reports cannot bypass the canonical fleet contract', () => {
@@ -485,7 +485,7 @@ test('the demo fixture is labeled fictional and the painter does not inject mark
 test('liveness, readiness, and attachment stay separate from dated acceptance history', () => {
   const empty = deriveMonitors(null, {feedFresh: true})[0];
   assert.equal(empty.evidence.rows.find(row => row.id === 'process').matrix, 'Untested');
-  assert.equal(empty.evidence.rows.find(row => row.id === 'lane').word, 'NOT MEASURED');
+  assert.equal(empty.evidence.rows.find(row => row.id === 'lane').word, 'Not measured');
   assert.equal(empty.evidence.badges.attachment, 'UNKNOWN');
   assert.equal(empty.evidence.rows.some(row => row.id === 'acceptance'), false);
   assert.equal(empty.evidence.rows.some(row => row.id === 'acceptance' && row.matrix === 'Observed'), false);
@@ -539,7 +539,7 @@ test('liveness, readiness, and attachment stay separate from dated acceptance hi
 
   const map = mapEvidence({nodes: [{id: 'mac:lmstudio', modelId: 'example-local', health: 'ok'}]}, {fictional: false});
   assert.equal(map.badges.process, 'SAMPLE');
-  assert.equal(map.badges.lane, 'NOT MEASURED');
+  assert.equal(map.badges.lane, 'Not measured');
   assert.equal(map.badges.attachment, 'NO RUN');
   const down = mapEvidence(null, {feedUnavailable: true});
   assert.equal(down.badges.process, 'DISCONNECTED');

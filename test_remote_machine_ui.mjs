@@ -40,7 +40,7 @@ test('map tabs retain exactly the shared fleet IDs and endpoint state words', ()
   assert.deepEqual(tabs.map(tab => tab.id), ['all', ...shared.fleetState.facts.map(fact => fact.id)]);
   assert.equal(tabs.find(tab => tab.id === 'registry:pro:deep').word, 'UNKNOWN');
   assert.equal(tabs.find(tab => tab.id === 'registry:pc:deep').word, 'ENDPOINT ANSWERING');
-  assert.equal(Object.fromEntries(detailRows(lanes[1])).Model, '—');
+  assert.equal(Object.fromEntries(detailRows(lanes[1])).Model, 'Not measured');
   assert.equal(Object.fromEntries(detailRows(lanes[0])).Model, 'observed/model-c');
   assert.equal(mapMonitors(map, {now: shared.now, feedUnavailable: true}).find(tab => tab.id === 'registry:pc:deep').word, 'ENDPOINT ANSWERING');
 });
@@ -144,6 +144,6 @@ test('a pending fleet lane does not borrow the enclosing snapshot clock',async()
   const now=shared.now*1000;class Clock extends Date{static now(){return now;}}
   const h=mapPage(registryMap(now),Clock);await flush();h.select('registry:pro:deep');
   assert.match(h.lane('registry:pro:deep').textContent,/UNKNOWN.*Not observed/);
-  assert.match(h.elements.detailFacts.textContent,/Observation age—/);
+  assert.match(h.elements.detailFacts.textContent,/Observation ageNot measured/);
   assert.match(h.elements.detailFacts.textContent,/Configured endpointhttp:\/\/127.0.0.1:21003/);
 });

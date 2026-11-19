@@ -41,7 +41,7 @@ test('counts appear only for a complete model list; a missing busy count is ?', 
   const partial = peerMap({ machines: [mac, { ...mac, host: 'pc', platform: 'windows', modelsComplete: false }], self: 'mac', feedFresh: true });
   assert.match(lines(partial)[1], /=== PC +UP +model list incomplete/);
   const noBusy = peerMap({ machines: [{ ...mac, busyCount: null }], self: 'mac', feedFresh: true });
-  assert.match(lines(noBusy)[0], /1 loaded \/ \? busy/);
+  assert.match(lines(noBusy)[0], /1 loaded \/ busy Not measured/);
 });
 
 test('degraded is up but says degraded', () => {
@@ -88,7 +88,7 @@ test('the map names the Mac whether a PC row says mac or macos, and reads the PC
     freshForSeconds: 30, modelsComplete: true, loadedCount: 1, busyCount: null, reason: 'serving' };
   for (const platform of ['mac', 'macos']) {
     const view = peerMap({ machines: [pcSuperset, { id: 'mac', platform, host: 'desk-mac', state: 'unknown', reasonCode: 'not_observed', trust: 'unverified' }], self: 'windows', feedFresh: true });
-    assert.match(lines(view)[0], /^THIS PC +UP +1 loaded \/ \? busy · local · 2 s$/);
+    assert.match(lines(view)[0], /^THIS PC +UP +1 loaded \/ busy Not measured · local · 2 s$/);
     assert.match(lines(view)[1], /^ \|-\?- MAC +UNKNOWN +never observed · unverified$/, platform);
   }
 });

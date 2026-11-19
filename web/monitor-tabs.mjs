@@ -67,7 +67,7 @@ function finiteAge(value) {
 }
 
 function metric(label, value) {
-  return {label, value: value == null || value === '' ? '—' : String(value)};
+  return {label, value: value == null || value === '' ? 'Not measured' : String(value)};
 }
 
 function step(id, label, key, reason, detail) {
@@ -374,7 +374,7 @@ function macMonitor(snapshot, options) {
 
 function laneMetric(worker) {
   const lanes = worker?.lanes;
-  if (!lanes || typeof lanes !== 'object') return '—';
+  if (!lanes || typeof lanes !== 'object') return 'Not measured';
   const parts = [];
   for (const name of ['fast', 'deep']) {
     const lane = lanes[name];
@@ -764,7 +764,7 @@ function laneReading(snapshot, options = {}, selected = null) {
       ? {word: 'ENDPOINT ANSWERING', matrix: 'Observed', detail: 'A lane answered its endpoint probe. Host, hardware and inference readiness are not measured.'}
       : {word: lanes.some(lane => lane.state === 'stale') ? 'STALE' : 'UNKNOWN', matrix: 'Untested', detail: 'No fresh answering endpoint evidence. Host, hardware and readiness remain unknown.'};
   }
-  if (!snapshot) return {word: 'NOT MEASURED', matrix: 'Untested', detail: 'No snapshot.'};
+  if (!snapshot) return {word: 'Not measured', matrix: 'Untested', detail: 'No snapshot.'};
   if (options.fictional !== true) return {word: 'UNKNOWN', matrix: 'Untested', detail: 'Fleet evidence has not been published.'};
   const registry = registryMachineRows(snapshot);
   if (registry.some(row => row.replaces === 'legacy-pc')) {
@@ -835,7 +835,7 @@ function attachmentReading(snapshot, monitor, options) {
 function nisiReading(snapshot) {
   const nisi = snapshot ? component(snapshot, 'nisi') : null;
   if (!nisi) {
-    return {id: 'nisi', label: 'Nisi', matrix: 'Untested', word: 'NOT MEASURED', detail: 'Nisi was not in this sample.', evidence: 'components.nisi'};
+    return {id: 'nisi', label: 'Nisi', matrix: 'Untested', word: 'Not measured', detail: 'Nisi was not in this sample.', evidence: 'components.nisi'};
   }
   if (nisi.state === 'needs-action') {
     return {
@@ -998,7 +998,7 @@ export function mapEvidence(source, {feedUnavailable = false, fictional = false,
   const named = nodes.some(node => node && (node.modelId || node.evidence?.modelId));
   const lane = named
     ? {word: 'INVENTORY', matrix: 'Observed', detail: 'A model id on the map is inventory. It is not readiness. Tokens per second are not readiness.'}
-    : {word: 'NOT MEASURED', matrix: 'Untested', detail: 'No served-model readiness is on this map.'};
+    : {word: 'Not measured', matrix: 'Untested', detail: 'No served-model readiness is on this map.'};
   const attachment = {word: 'NO RUN', matrix: 'Untested', detail: 'The map does not attach a run or attempt.'};
   return {
     badges: {process: process.word, lane: lane.word, attachment: attachment.word},

@@ -4,7 +4,7 @@ import {fleetTileExpectations} from './monitor-harness.mjs';
 const {onlineCodeModeView}=onlineMode;
 const pairs=body=>Object.fromEntries(body.querySelectorAll('dt').map(dt=>[dt.textContent,dt.parentNode.children[dt.parentNode.children.indexOf(dt)+1].textContent]));
 const tiles=body=>Object.fromEntries(body.querySelectorAll('.tile').map(t=>[t.querySelector('.tile-label')?.textContent,t.querySelector('.tile-value')?.textContent]));
-const doubtful=/unknown|unavailable|at least|stale|not current|incomplete|—/i;
+const doubtful=/unknown|unavailable|at least|stale|not current|incomplete|—|not measured/i;
 export function checkTwoSided(item,api,$,fail){
   const d=item.snapshot,e=item.expect||{};
   if(!hasFreshRunInventory(d,1800000000+(item.clockOffset||0)))checkUnknownActivity({$,check:(condition,field,output)=>{if(!condition)fail(item,field,output);}});
