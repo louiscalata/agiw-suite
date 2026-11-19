@@ -267,7 +267,7 @@ def make_plan(datasets, count=200, version=PLAN_VERSION, wall_budget_s=None):
             groups.setdefault(canonical(label), []).append(row["id"])
         n = min(count, len(rows))
         seed = digest([benchmark, version])
-        priority = lambda item_id: (digest([seed, item_id]), item_id)
+        priority = lambda item_id: (digest([seed, item_id]), item_id)  # noqa: B023 - used only within this loop iteration
         selected = sorted((row["id"] for row in rows), key=priority)[:n]
         selected_set = set(selected)
         quotas = {k: sum(item_id in selected_set for item_id in group) for k, group in groups.items()}

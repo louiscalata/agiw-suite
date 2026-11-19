@@ -151,12 +151,11 @@ max-complexity = 15
 # C901 (1): Splitting an existing complex function changes code structure and needs its own behaviour review.
 "durable_model_journal.py" = ["C901"]
 
-# B023 (1): Binding loop variables changes closure behaviour; preserve the AST and review each capture in a follow-up.
 # BLE001 (1): Narrowing an existing broad catch changes fallback or boundary behaviour; review the boundary and logging separately.
 # C901 (6): Splitting an existing complex function changes code structure and needs its own behaviour review.
 # E731 (1): Replacing an assigned lambda with def changes the AST and callable metadata; defer it to a code cleanup.
 # T201 (2): Existing CLI, script or diagnostic print output needs its own output/logging review; preserve its behaviour here.
-"eci_fast_check.py" = ["B023", "BLE001", "C901", "E731", "T201"]
+"eci_fast_check.py" = ["BLE001", "C901", "E731", "T201"]
 
 # C901 (6): Splitting an existing complex function changes code structure and needs its own behaviour review.
 # T201 (5): Existing CLI, script or diagnostic print output needs its own output/logging review; preserve its behaviour here.
@@ -191,10 +190,9 @@ max-complexity = 15
 # C901 (1): Splitting an existing complex function changes code structure and needs its own behaviour review.
 "inference_stats.py" = ["C901"]
 
-# B023 (11): Binding loop variables changes closure behaviour; preserve the AST and review each capture in a follow-up.
 # C901 (2): Splitting an existing complex function changes code structure and needs its own behaviour review.
 # T201 (1): Existing CLI, script or diagnostic print output needs its own output/logging review; preserve its behaviour here.
-"invariant_dimensions.py" = ["B023", "C901", "T201"]
+"invariant_dimensions.py" = ["C901", "T201"]
 
 # E402 (13): Moving an existing import changes module execution order; defer it to a separately reviewed import cleanup.
 # E731 (1): Replacing an assigned lambda with def changes the AST and callable metadata; defer it to a code cleanup.
