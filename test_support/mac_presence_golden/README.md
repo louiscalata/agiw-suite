@@ -15,7 +15,7 @@ Eight cases trigger interpreter-owned `TypeError` messages: `snapshot_string`,
 `api_coverage_unhashable`, `cli_coverage_unhashable`, and
 `cli_instance_unhashable`. Their recorded messages describe the capture
 interpreter and are not compared. Exception types always remain part of the contract. A message is compared only when the innermost traceback frame belongs to the module under test and its instruction is an explicit `raise` (`RAISE_VARARGS`); see `test_support/exception_outcome.py`. Interpreter-owned wording, which differs between Python 3.9 and 3.14, is compared by type only. Ordered events and the
-snapshot-preservation expectation stay exact, and application refusals stay literal.
+snapshot-preservation expectation stay exact, and application refusals stay literal. Injected helper-fault messages also stay literal, because the harness pins the exact fault object it raised.
 
 Run commands from the repository root with bytecode writes disabled and a
 private `TMPDIR` for each check:

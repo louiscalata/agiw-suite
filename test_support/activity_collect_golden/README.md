@@ -43,7 +43,7 @@ The main expectations were recorded from the pinned source under Python 3.15.
 The two `expected_before_py314` variants were recorded from the same source
 under Python 3.9. They apply to supported Python versions before 3.14, whose
 unhashable-list exception messages differ from Python 3.14 and later. Complete
-results, events, and input snapshots are compared in either branch. Exception types always remain part of the contract. A message is compared only when the innermost traceback frame belongs to the module under test and its instruction is an explicit `raise` (`RAISE_VARARGS`); see `test_support/exception_outcome.py`. Interpreter-owned wording, which differs between Python 3.9 and 3.14, is compared by type only.
+results, events, and input snapshots are compared in either branch. Exception types always remain part of the contract. A message is compared only when the innermost traceback frame belongs to the module under test and its instruction is an explicit `raise` (`RAISE_VARARGS`); see `test_support/exception_outcome.py`. Interpreter-owned wording, which differs between Python 3.9 and 3.14, is compared by type only. Injected helper-fault messages remain exact, because the harness pins the exact fault object it raised.
 
 From the repository root, run:
 

@@ -4,8 +4,14 @@ import importlib.util
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
-from test_support.exception_outcome import comparable, explicit_raise, pinned_message
+from test_support.exception_outcome import (
+    comparable,
+    explicit_raise,
+    pinned_exception,
+    pinned_message,
+)
 
 SOURCE = """
 import json
@@ -94,6 +100,42 @@ class GoldenExceptionOutcomeTests(unittest.TestCase):
         expected = {"outcome": {"error": "ValueError", "message": "module diagnostic"}}
         actual = {"outcome": {"error": "TypeError"}}
         self.assertEqual(comparable(expected, actual), expected)
+
+    def _raised_injected(self, fault):
+        with mock.patch.object(self.module, "explicit", side_effect=fault):
+            return self._raised(self.module.explicit)
+
+    def test_injected_helper_fault_keeps_its_message(self):
+        fault = TypeError("fixture helper failure")
+        error = self._raised_injected(fault)
+        self.assertIs(error, fault)
+        self.assertFalse(explicit_raise(error, self.module))
+        self.assertIsNone(pinned_message(error, self.module))
+        self.assertTrue(pinned_exception(error, self.module, injected=fault))
+        self.assertEqual(pinned_message(error, self.module, injected=fault), "fixture helper failure")
+
+    def test_only_the_exact_injected_object_is_pinned(self):
+        fault = TypeError("fixture helper failure")
+        other = TypeError("fixture helper failure")
+        self.assertIsNone(pinned_message(other, self.module, injected=fault))
+        self.assertEqual(
+            pinned_message(other, self.module, injected="fixture helper failure"),
+            "fixture helper failure",
+        )
+
+    def test_injected_fault_comparison_keeps_the_message(self):
+        fault = TypeError("fixture helper failure")
+        error = self._raised_injected(fault)
+        actual = {"error": type(error).__name__}
+        message = pinned_message(error, self.module, injected=fault)
+        if message is not None:
+            actual["message"] = message
+        expected = {"error": "TypeError", "message": "fixture helper failure"}
+        self.assertEqual(comparable(expected, actual), expected)
+        self.assertEqual(actual["message"], "fixture helper failure")
+        changed = {"error": "TypeError", "message": "different helper failure"}
+        self.assertEqual(comparable(changed, actual), changed)
+        self.assertNotEqual(comparable(changed, actual), actual)
 
 
 if __name__ == "__main__":

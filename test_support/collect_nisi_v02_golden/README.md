@@ -26,7 +26,7 @@ so different temporary-directory prefix lengths give identical events.
 
 Exception types always remain part of the contract. A message is compared only when the innermost traceback frame belongs to the module under test and its instruction is an explicit `raise` (`RAISE_VARARGS`); see `test_support/exception_outcome.py`. Interpreter-owned wording, which differs between Python 3.9 and 3.14, is compared by type only. This covers the datetime year-range wording of `now_year_overflow` and the
 Path constructor wording of `home_integer`, `home_list`, and `home_bool`.
-Application-owned messages raised by the collector remain exact.
+Application-owned messages raised by the collector, and injected fault messages, remain exact.
 
 The corpus retains all original 602 inputs and adds these refusal witnesses:
 

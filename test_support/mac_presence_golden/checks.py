@@ -133,7 +133,7 @@ def _comparison_controls(golden):
             if result != {"tests": 1, "failures": 1, "errors": 0, "skipped": 0}:
                 raise AssertionError((name, field, result))
             controls.append({"case": name, "changed": field, **result})
-    for name in ("snapshot_none", "sampled_nan"):
+    for name in ("snapshot_none", "helper_public_id_TypeError"):
         case = copy.deepcopy(cases[name])
         case["expected"]["message"] = "different application message"
         result = _test_result(

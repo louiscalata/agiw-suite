@@ -2,7 +2,8 @@
 
 The interpreter owns the wording of errors raised by built-in operations and
 by the standard library. Only an explicit raise in the module under test is
-stable enough to compare; everything else records the exception type alone.
+stable enough to compare, except when the caught error is the exact fault
+object the harness injected. Everything else records the exception type alone.
 """
 
 import copy
@@ -33,9 +34,25 @@ def explicit_raise(error, module):
     )
 
 
-def pinned_message(error, module):
-    """Return the message only when the module under test raised it explicitly."""
-    return str(error) if explicit_raise(error, module) else None
+def _is_injected(error, injected):
+    """True when error is a harness-injected fault, by identity or message."""
+    if injected is None:
+        return False
+    if isinstance(injected, BaseException):
+        return error is injected
+    if isinstance(injected, str):
+        return str(error) == injected
+    return any((error is item) if isinstance(item, BaseException) else str(error) == item for item in injected)
+
+
+def pinned_exception(error, module, injected=None):
+    """True when message or args should be compared for this error."""
+    return _is_injected(error, injected) or explicit_raise(error, module)
+
+
+def pinned_message(error, module, injected=None):
+    """Return the message for an explicit module raise or an injected fault."""
+    return str(error) if pinned_exception(error, module, injected) else None
 
 
 def comparable(expected, actual):

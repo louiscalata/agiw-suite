@@ -12,7 +12,7 @@ from pathlib import Path
 from unittest import mock
 
 import peer_link
-from test_support.exception_outcome import comparable, explicit_raise
+from test_support.exception_outcome import comparable, pinned_exception
 
 
 def _plain(value):
@@ -84,16 +84,22 @@ def _control_reply(path, case):
     return 200, copy.deepcopy(docs[path])
 
 
-def _input_pin(trace, case):
+def _input_pin(trace, case, injected):
     def read(prompt):
         trace.append(["getpass", prompt])
         if case.get("pin_interrupt"):
-            raise KeyboardInterrupt
+            error = KeyboardInterrupt()
+            injected.append(error)
+            raise error
         if sys.stdin is None:
-            raise EOFError("stdin absent")
+            error = EOFError("stdin absent")
+            injected.append(error)
+            raise error
         line = sys.stdin.readline()
         if not line:
-            raise EOFError("stdin empty")
+            error = EOFError("stdin empty")
+            injected.append(error)
+            raise error
         return line.rstrip("\n")
 
     return read
@@ -102,18 +108,23 @@ def _input_pin(trace, case):
 def observe(module, case, *, argv0="peer_link", stdout_factory=None):
     """Call main with the same module-global seams used by existing CLI tests."""
     trace = []
+    injected = []
     stdout = io.StringIO() if stdout_factory is None else stdout_factory(trace)
     stderr = io.StringIO()
 
     def control(state_dir, port, method, path, body=None):
         trace.append(["control_request", _plain([state_dir, port, method, path, body])])
         if case.get("control_error"):
-            raise OSError("control unavailable")
+            error = OSError("control unavailable")
+            injected.append(error)
+            raise error
         return _control_reply(path, case)
 
     def sleep(seconds):
         trace.append(["sleep", seconds])
-        raise KeyboardInterrupt
+        error = KeyboardInterrupt()
+        injected.append(error)
+        raise error
 
     patches = {
         "default_state_dir": _record(trace, "default_state_dir", Path("state-default")),
@@ -134,7 +145,7 @@ def observe(module, case, *, argv0="peer_link", stdout_factory=None):
             mock.patch.object(module.socket, "gethostname", _record(trace, "gethostname", "machine.test"))
         )
         stack.enter_context(mock.patch.object(module.time, "sleep", sleep))
-        stack.enter_context(mock.patch.object(getpass, "getpass", _input_pin(trace, case)))
+        stack.enter_context(mock.patch.object(getpass, "getpass", _input_pin(trace, case, injected)))
         stack.enter_context(mock.patch.multiple(sys, stdout=stdout, stderr=stderr, stdin=stdin))
         stack.enter_context(mock.patch.object(sys, "argv", [argv0, *case["argv"]]))
         try:
@@ -147,7 +158,7 @@ def observe(module, case, *, argv0="peer_link", stdout_factory=None):
                 stderr.write(exc.code + "\n")
         except (EOFError, KeyboardInterrupt, OSError, KeyError, TypeError, ValueError) as exc:
             outcome = {"raised": type(exc).__name__}
-            if explicit_raise(exc, module):
+            if pinned_exception(exc, module, injected=injected):
                 outcome["args"] = _plain(exc.args)
             exit_code = 130 if isinstance(exc, KeyboardInterrupt) else 1
     return {

@@ -98,12 +98,16 @@ def run_case(module, case):
         "_active_rows": lambda _now: (active, inputs.get("problem", False), inputs.get("listing", "ok")),
     }
 
+    injected = []
+
     def traced(name, implementation):
         def call(*args, **kwargs):
             events.append([name, _snapshot(args), _snapshot(kwargs)])
             fault = inputs.get("errors", {}).get(name)
             if fault is not None:
-                raise errors[fault]("fixture " + name)
+                error = errors[fault]("fixture " + name)
+                injected.append(error)
+                raise error
             return implementation(*args, **kwargs)
 
         return call
@@ -147,7 +151,7 @@ def run_case(module, case):
             ValueError,
         ) as error:
             outcome = {"exception": type(error).__name__}
-            message = pinned_message(error, module)
+            message = pinned_message(error, module, injected=injected)
             if message is not None:
                 outcome["message"] = message
     outcome.update(

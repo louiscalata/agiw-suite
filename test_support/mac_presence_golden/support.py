@@ -39,13 +39,16 @@ def run_case(module, case):
     counts = dict.fromkeys(_HELPERS, 0)
     fault = case.get("fault", {})
     originals = {name: getattr(module, name) for name in _HELPERS}
+    injected = None
+    if fault.get("helper"):
+        injected = _ERRORS[fault["error"]]("fixture helper failure")
 
     def observe(name):
         def call(*args, **kwargs):
             events.append([name, _encode(copy.deepcopy(args)), _encode(copy.deepcopy(kwargs))])
             counts[name] += 1
             if fault.get("helper") == name and counts[name] == fault.get("at", 1):
-                raise _ERRORS[fault["error"]]("fixture helper failure")
+                raise injected
             return originals[name](*args, **kwargs)
 
         return call
@@ -85,7 +88,7 @@ def run_case(module, case):
             ValueError,
         ) as error:
             outcome = {"error": type(error).__name__}
-            message = pinned_message(error, module)
+            message = pinned_message(error, module, injected=injected)
             if message is not None:
                 outcome["message"] = message
     outcome.update(events=events, inputsUnchanged=_encode(snapshot) == original)

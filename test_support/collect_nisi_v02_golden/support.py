@@ -192,7 +192,7 @@ def _normalize(value, home):
     return value
 
 
-def _patched(module, name, original, case, home, events):
+def _patched(module, name, original, case, home, events, injected):
     calls = 0
 
     def wrapped(*args, **kwargs):
@@ -205,7 +205,9 @@ def _patched(module, name, original, case, home, events):
             if "return" in fault:
                 return _expand(copy.deepcopy(fault["return"]), home)
             errors = {"invalid": module._InvalidEvidence, "os": OSError, "value": ValueError, "type": TypeError}
-            raise errors[fault.get("error", "invalid")](fault.get("message", "fixture error"))
+            error = errors[fault.get("error", "invalid")](fault.get("message", "fixture error"))
+            injected.append(error)
+            raise error
         return original(*args, **kwargs)
 
     return wrapped
@@ -223,6 +225,7 @@ def _timestamp(value):
 def run_case(module, case):
     """Run one corpus input with no access to a real home, service or child."""
     events = []
+    injected = []
     with tempfile.TemporaryDirectory(prefix="collect-golden-") as temporary:
         home = Path(temporary) / "home"
         _fixture(module, case, home)
@@ -231,7 +234,7 @@ def run_case(module, case):
         with ExitStack() as stack:
             for name, original in originals.items():
                 stack.enter_context(
-                    mock.patch.object(module, name, _patched(module, name, original, case, home, events))
+                    mock.patch.object(module, name, _patched(module, name, original, case, home, events, injected))
                 )
 
             def default_home():
@@ -258,7 +261,7 @@ def run_case(module, case):
                 outcome = {"result": result}
             except (AttributeError, KeyError, OSError, OverflowError, TypeError, ValueError) as error:
                 outcome = {"error": type(error).__name__}
-                message = pinned_message(error, module)
+                message = pinned_message(error, module, injected=injected)
                 if message is not None:
                     outcome["message"] = message
             child.assert_not_called()
