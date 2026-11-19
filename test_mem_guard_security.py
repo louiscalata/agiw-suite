@@ -307,6 +307,95 @@ class MemGuardSecurityTests(unittest.TestCase):
                 self.assertIsNotNone(found)
                 self.assertEqual(found[1], "docker")
 
+    def test_docker_container_compose_run_and_start_forms_are_guarded(self):
+        cases = {
+            "docker container run image": "docker run",
+            "docker --context fixture container run --rm image": "docker run",
+            "docker start fixture": "docker start",
+            "docker container start -a fixture": "docker start",
+            "docker compose run --rm service": "docker compose run",
+            "docker compose -f fixture.yml run -e A=1 service cmd": "docker compose run",
+            "docker-compose run service": "docker-compose run",
+            "docker compose start": "docker compose start",
+            "docker-compose restart -t 5 service": "docker-compose restart",
+        }
+        for command, label in cases.items():
+            with self.subTest(command=command):
+                self.assertEqual(mem_guard.hook_match(bash(command)), (label, "docker"))
+        for command in (
+            "docker container ls",
+            "docker container --help",
+            "docker container run --help",
+            "docker start fixture --help",
+            "docker compose run --help",
+            "docker-compose restart --help",
+            "docker compose ps",
+            "docker create image",
+        ):
+            with self.subTest(command=command):
+                self.assertIsNone(mem_guard.hook_match(bash(command)))
+
+    def test_eval_and_xargs_operands_are_classified_as_nested_commands(self):
+        for command in (
+            'eval "docker run image"',
+            "eval docker run image",
+            "eval -- 'docker compose up'",
+            "printf x | xargs docker run image",
+            "xargs -n 1 docker run",
+            "xargs --max-procs 4 docker run",
+            "xargs -a list.txt -d , docker container run",
+            "xargs -tn1 docker run",
+            "xargs -I{} docker run {}",
+            "xargs sh -c 'docker run image'",
+            'eval "xargs -0 docker compose run svc"',
+        ):
+            with self.subTest(command=command):
+                found = mem_guard.hook_match(bash(command))
+                self.assertEqual(found and found[1], "docker")
+        for command in ("eval", "eval 'echo docker run'", "xargs", "xargs -n 1 echo", "xargs docker ps"):
+            with self.subTest(command=command):
+                self.assertIsNone(mem_guard.hook_match(bash(command)))
+        command = "docker run image"
+        for _ in range(4):
+            command = "eval " + shlex.quote(command)
+        ctx = hook_context(bash(command))
+        ctx.probes.read.return_value = memory_state(1, 90)
+        self.assertEqual(mem_guard._cmd_hook(ctx), 2)
+        ctx = hook_context(bash("xargs xargs xargs xargs docker run image"))
+        ctx.probes.read.return_value = memory_state(1, 90)
+        self.assertEqual(mem_guard._cmd_hook(ctx), 2)
+
+    def test_unparseable_commands_fail_closed_only_when_they_look_guarded(self):
+        """Decision: a command the hook cannot parse (shlex error, token/size/nesting limit,
+        unknown Docker option) is refused with exit 2 only when its raw text names Docker or another
+        guarded executable (case, quotes and backslashes ignored). Clearly unrelated commands such
+        as git or python are allowed, because a parser limitation must not block ordinary work."""
+        for command in (
+            "git commit -m 'unterminated",
+            'python3 -c "print(1)',
+            "git status; " + "printf x; " * 2100,
+            "sh -c " + shlex.quote("sh -c " + shlex.quote("sh -c " + shlex.quote("sh -c 'git log'"))),
+        ):
+            with self.subTest(command_size=len(command)):
+                ctx = hook_context(bash(command))
+                ctx.probes.read.side_effect = AssertionError("unrelated command read probes")
+                self.assertEqual(mem_guard._cmd_hook(ctx), 0)
+                self.assertEqual(ctx.stderr.getvalue(), "")
+        for command in (
+            "docker run 'unterminated",
+            "d'o'cker run image 'unterminated",
+            "DOCKER_HOST=x docker --unknown-option fixture run image",
+            "docker compose --unknown-option fixture up",
+            "printf x; " * 2100 + "docker run image",
+            'eval "docker run \'unterminated"',
+            "xcodebuild -scheme 'unterminated",
+        ):
+            with self.subTest(command=command[:60]):
+                ctx = hook_context(bash(command))
+                ctx.probes.read.return_value = memory_state(1, 90)
+                self.assertEqual(mem_guard._cmd_hook(ctx), 2)
+                self.assertIn("hook check unavailable", ctx.stderr.getvalue())
+
     def test_fixed_refusal_labels_and_outputs_never_copy_argument_credentials(self):
         secret = "synthetic-credential-7265"
         for command in (

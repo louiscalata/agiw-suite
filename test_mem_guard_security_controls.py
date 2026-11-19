@@ -190,6 +190,30 @@ MUTATIONS = (
         "test_nested_shell_depth_exhaustion_refuses_instead_of_hiding_work",
     ),
     (
+        "unparseable_guarded_text_refuses",
+        "            if may_be_guarded:\n                raise",
+        "            if False:\n                raise",
+        "test_unparseable_commands_fail_closed_only_when_they_look_guarded",
+    ),
+    (
+        "unparseable_unrelated_text_allows",
+        "            if may_be_guarded:\n                raise",
+        "            if True:\n                raise",
+        "test_unparseable_commands_fail_closed_only_when_they_look_guarded",
+    ),
+    (
+        "eval_and_xargs_operands_are_classified",
+        "        return _match_simple(nested, depth + 1)",
+        "        return None",
+        "test_eval_and_xargs_operands_are_classified_as_nested_commands",
+    ),
+    (
+        "docker_container_is_normalised",
+        '        remaining = remaining[1:]\n    if base == "docker" and remaining[:1]',
+        '        return None\n    if base == "docker" and remaining[:1]',
+        "test_docker_container_compose_run_and_start_forms_are_guarded",
+    ),
+    (
         "token_limit_does_not_analyze_a_prefix",
         '            raise ValueError("hook command exceeds token limit")',
         "            break",

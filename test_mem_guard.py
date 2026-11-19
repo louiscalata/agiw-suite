@@ -1871,8 +1871,10 @@ class HookTests(CliCase):
             "",
         ):
             self.assertIsNone(mem_guard.hook_match({"tool_name": "Bash", "tool_input": {"command": command}}), command)
+        # Unparseable commands fail closed only when the raw text names a guarded executable.
+        self.assertIsNone(mem_guard.hook_match({"tool_name": "Bash", "tool_input": {"command": "echo 'unbalanced"}}))
         with self.assertRaises(ValueError):
-            mem_guard.hook_match({"tool_name": "Bash", "tool_input": {"command": "echo 'unbalanced"}})
+            mem_guard.hook_match({"tool_name": "Bash", "tool_input": {"command": "docker run 'unbalanced"}})
         for payload in (
             {"tool_name": "mcp__Claude_Code_iOS_Simulator__control", "tool_input": {"action": "launch"}},
             {"tool_name": "mcp__Claude_Code_iOS_Simulator__build"},
