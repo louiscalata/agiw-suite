@@ -4,8 +4,8 @@ from dataclasses import dataclass
 from math import isfinite
 from typing import Optional
 
+POOL_MODELS = {"general": "gpt-6.2-sol", "hard": "gpt-6.2-astra"}
 ROUTER_TARGET = "nisi-0.3"
-POOL_MODEL = "gpt-5.4-mini"
 WORKERS = {
     "m5-macbook-pro": ("llm", "opencode", "grok", "codex", "claude"),
     "dual-gpu-pc": ("llm", "grok", "codex", "claude"),
@@ -41,6 +41,7 @@ class HostedEvidence:
     pool_key_verified: bool = False
     budget_approved: bool = False
     summary_redacted: bool = False
+    tier: str = "general"
 
 
 @dataclass(frozen=True)
@@ -85,5 +86,8 @@ def plan(
     if hosted.jev_ready is True:
         return RoutePlan(selected, "jev", "jev-first")
     if hosted.jev_ready is False and hosted.pool_key_verified is True and hosted.budget_approved is True:
-        return RoutePlan(selected, f"responses/{POOL_MODEL}", "jev-unavailable-pool-candidate")
+        tier = hosted.tier
+        if not isinstance(tier, str) or tier not in POOL_MODELS:
+            raise ValueError("TIER_REFUSED")
+        return RoutePlan(selected, f"responses/{POOL_MODELS[tier]}", "jev-unavailable-pool-candidate")
     return RoutePlan(selected, "local", "hosted-unavailable")

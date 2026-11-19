@@ -5,6 +5,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Repo-patch prompts tell the model the file contents are in the message, require at least one block and show how to insert new text (dropping a sentence that let a small model refuse insertion tasks). Large-file excerpts rank rare task keywords on whole-word matches, add matching headings and their sections, and use a 16,000-character budget. A reply with no blocks is retried once whether it stopped or ran out of tokens, with a reminder naming the allowed paths. `patch.promptChars` and `patch.fileChars` record how much text and of which files reached the prompt.
+
+- The fleet job worker can use a local `jev-task` CLI as the repo-patch analyzer: pass `--jev-task PATH|auto` or set `AGIW_JEV_TASK`. It stays off by default, runs with `--driver never` and a stripped environment, and passes the projected text through a 0600 temp file.
+- Repo-patch asks the loopback model for SEARCH/REPLACE blocks instead of whole files, so a small model can edit one passage of a large document without exceeding `max_diff_bytes`; a JSON `files` reply is still accepted. Requests now always carry a sized `max_tokens`, honour `disable_thinking` per request, and record `patch` diagnostics (format, edits, effective token cap, finish reason, short error) on the report and the worker receipt.
+
+- Repo-patch now puts the output format and "Respond only with SEARCH/REPLACE blocks, no explanation." before the files and again after the task, says it has no tools, and sends only deterministic excerpts (`[lines start-end]`) for files over 12,000 characters. A `DIFF_TOO_LARGE`/`DIFF_TOO_MANY_LINES` block now records `diffBytes`, `maxDiffBytes`, `changedLines` and a bounded `diffExcerpt` on `patch`; one retry follows a `length` reply that contained no blocks; and a legacy JSON full-file reply keeps a CRLF file's line endings.
+
 - Repo-patch records bounded, advisory Jev pre/post analysis by default. Set `jev_analysis: false` to skip it; without an injected analyzer, both phases report unavailable when reached.
 
 Merged on 14 November 2026:
