@@ -1,7 +1,7 @@
 """Lane process and caller readings with a fake TCP table (runs on any OS)."""
-from pathlib import Path
 import sys
 import unittest
+from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from agiw_win import winsys  # noqa: E402

@@ -6,8 +6,8 @@ import threading
 import time
 import unittest
 
-from inference_collect import loopback_get
 import remote_machines
+from inference_collect import loopback_get
 
 BODY = b'{"data":[{"id":"server/model"}]}'
 

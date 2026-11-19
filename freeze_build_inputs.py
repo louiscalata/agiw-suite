@@ -1,11 +1,11 @@
 """Freeze build inputs without following links or reopening checked source paths."""
 
-from contextlib import ExitStack
 import json
 import os
-from pathlib import Path
 import stat
 import sys
+from contextlib import ExitStack
+from pathlib import Path
 
 
 def freeze_inputs(source_fd, destination, inputs):

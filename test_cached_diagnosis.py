@@ -2,11 +2,11 @@
 
 import copy
 import datetime as dt
-from email.message import Message
 import io
 import json
-from types import SimpleNamespace
 import unittest
+from email.message import Message
+from types import SimpleNamespace
 from unittest import mock
 
 import online_code_repair as repair

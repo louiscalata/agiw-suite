@@ -5,7 +5,7 @@ from unittest import mock
 
 import peer_feed
 import server
-from invariant_pipeline import collect, NOW
+from invariant_pipeline import NOW, collect
 
 
 class CombinedInventoryTests(unittest.TestCase):

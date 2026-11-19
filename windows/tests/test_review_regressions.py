@@ -1,12 +1,13 @@
 """A3 review regressions: unknown evidence must survive machine and public projections."""
 import json
-from pathlib import Path
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from agiw_win import probes  # noqa: E402
+
 from tests.test_machines import record, rows  # noqa: E402
 from tests.test_pair_hands_off import gpu  # noqa: E402
 

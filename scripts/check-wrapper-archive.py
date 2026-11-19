@@ -14,7 +14,6 @@ import sys
 import tarfile
 from pathlib import Path
 
-
 REQUIRED = (
     "Packages/AgiwCore/Tests/AgiwCoreTests/Fixtures/DemoGolden/demo-idle.json",
     "Packages/AgiwCore/Tests/AgiwCoreTests/Fixtures/DemoGolden/demo-generating.json",

@@ -14,7 +14,7 @@ from pathlib import Path
 import inference_collect
 import pc_tunnel
 import remote_machines
-from inference_collect import ProbeError, collect_map, closed_targets, direct_targets
+from inference_collect import ProbeError, closed_targets, collect_map, direct_targets
 
 ROOT = Path(__file__).resolve().parent
 RETIRED_IDS = {"pc:router", "pc:gpt-oss-20b", "pc:qwen3.8-27b"}

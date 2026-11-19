@@ -4,7 +4,6 @@ import copy
 import fcntl
 import json
 import os
-from pathlib import Path
 import signal
 import subprocess
 import sys
@@ -12,12 +11,12 @@ import tempfile
 import threading
 import time
 import unittest
-from unittest import mock
 import uuid
+from pathlib import Path
+from unittest import mock
 
 import online_code_repair as repair
 import telemetry
-
 
 RUN = "bounded-preflight-20260924"
 DIGEST = "a" * 64

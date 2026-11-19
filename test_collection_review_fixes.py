@@ -11,7 +11,6 @@ import inference_collect
 from inference_stats import expire_map, machine_node, make_node
 from server import SnapshotStore
 
-
 # The collector has no built-in PC lanes. These isolated probe fixtures keep the
 # retired router and llama-server layout only to exercise the lane readers.
 LEGACY_FIXTURE_LANES = (

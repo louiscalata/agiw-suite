@@ -1,11 +1,11 @@
 """A1 integration contract: run the real HTTP dispatcher without binding sockets."""
 
-from email.message import Message
-from io import BytesIO
 import itertools
 import json
-from types import SimpleNamespace
 import unittest
+from email.message import Message
+from io import BytesIO
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from server import Handler

@@ -5,23 +5,22 @@ the server nor its configuration. Run ``python3 -B -m eci_fast_check_adapter -h`
 """
 
 import argparse
-from contextlib import contextmanager
-from decimal import Decimal, InvalidOperation
 import http.client
 import json
 import os
-from pathlib import Path
 import re
 import socket
 import sys
 import tempfile
 import threading
 import time
+from contextlib import contextmanager
+from decimal import Decimal, InvalidOperation
+from pathlib import Path
 from urllib.parse import urlsplit
 
 import eci_fast_check as fast
 from remote_machines import PROTECTED_PORTS
-
 
 DEFAULT_MAX_TOKENS = 16384
 MIN_MAX_TOKENS = 8192

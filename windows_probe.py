@@ -10,9 +10,9 @@ dispatcher.  It prints one JSON object with no prompt or output text.
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import re
 import sys
+from pathlib import Path
 
 SCRIPTS = Path.home() / ".codex/skills/local-llm-orchestrator/scripts"
 PROMPT = "Reply with exactly the word READY and nothing else."

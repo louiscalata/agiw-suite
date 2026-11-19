@@ -1,10 +1,10 @@
 """Display-only completion evidence projection tests."""
 
 import json
-from datetime import datetime, timezone
-from pathlib import Path
 import tempfile
 import unittest
+from datetime import datetime, timezone
+from pathlib import Path
 from unittest import mock
 
 import activity

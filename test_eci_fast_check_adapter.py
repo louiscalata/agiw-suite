@@ -3,17 +3,16 @@
 import contextlib
 import io
 import json
-from pathlib import Path
 import tempfile
 import threading
 import time
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import eci_fast_check as fast
 import eci_fast_check_adapter as adapter
 from remote_machines import PROTECTED_PORTS
-
 
 ROOT = Path(__file__).resolve().parent
 MODEL_ID = "fixture-model"

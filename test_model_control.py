@@ -1,11 +1,11 @@
 import json
-from contextlib import contextmanager
-from pathlib import Path
 import tempfile
 import threading
 import time
 import unittest
+from contextlib import contextmanager
 from http.client import HTTPConnection
+from pathlib import Path
 from unittest.mock import patch
 
 from model_control import ControlError, ModelControl, _find_lms, _observed, _run_cli, _target

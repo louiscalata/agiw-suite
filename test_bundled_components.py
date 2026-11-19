@@ -1,12 +1,13 @@
 """Bounded component and ephemeral HTTP regressions; no credentials or inference."""
 
 import json
-from http.client import HTTPConnection
-from pathlib import Path
 import subprocess
 import threading
 import unittest
+from http.client import HTTPConnection
+from pathlib import Path
 from unittest.mock import patch
+
 import bundled_components as components
 import server
 

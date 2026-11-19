@@ -8,18 +8,18 @@ from __future__ import annotations
 
 import argparse
 import copy
-from datetime import datetime, timezone
-from decimal import Decimal
-from fractions import Fraction
 import hashlib
 import inspect
 import json
 import math
 import os
-from pathlib import Path
 import re
 import sys
 import time
+from datetime import datetime, timezone
+from decimal import Decimal
+from fractions import Fraction
+from pathlib import Path
 
 PROTOCOL = "agiw-fast-check-v1"
 # Record schema 2 excludes transport errors from unknown_finish and parsed

@@ -6,13 +6,14 @@ skipped tests are reported as unexecuted, never as killed mutations.
 import ast
 import io
 import json
-from pathlib import Path
 import sys
 import unittest
+from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from agiw_win import probes
+
 from tests import test_build_and_feed as build_tests
 from tests.test_integration_fix2 import QueueDirectoryEvidence
 

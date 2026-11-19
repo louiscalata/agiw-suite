@@ -6,9 +6,9 @@ import copy
 import io
 import json
 import os
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import eci_tuning as e
@@ -631,7 +631,7 @@ class TuningTests(unittest.TestCase):
                 e.ingest([source])
 
     def test_ingest_verifies_bound_baseline_and_refuses_forged_snapshot(self):
-        from test_eci_fast_check import run, rehash
+        from test_eci_fast_check import rehash, run
 
         baseline = run(answer=lambda item: ("A" if int(item["id"]) < 130 else "B", 1, 1))
         candidate = run(baseline=baseline)
@@ -653,7 +653,7 @@ class TuningTests(unittest.TestCase):
         )
 
     def test_ingest_unresolved_baseline_requires_unverified_inconclusive(self):
-        from test_eci_fast_check import run, rehash
+        from test_eci_fast_check import rehash, run
 
         baseline = run(answer=lambda item: ("A" if int(item["id"]) < 130 else "B", 1, 1))
         candidate = run(baseline=baseline)

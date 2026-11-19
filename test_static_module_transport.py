@@ -6,16 +6,16 @@ reconnect as directed, rather than silently retry an empty or truncated response
 """
 
 import concurrent.futures
-from html.parser import HTMLParser
 import http.client
-from http.server import ThreadingHTTPServer
-from pathlib import Path
 import re
 import socket
 import sys
 import threading
 import time
 import unittest
+from html.parser import HTMLParser
+from http.server import ThreadingHTTPServer
+from pathlib import Path
 from unittest import mock
 from urllib.parse import urljoin, urlsplit
 

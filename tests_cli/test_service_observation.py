@@ -9,9 +9,9 @@ from pathlib import Path, PurePosixPath
 from unittest import mock
 
 from support import forbid_real_commands, temp_dir
+
 from agiw import cli
 from agiw.service import LAUNCHD_LABEL, ServiceManager
-
 
 SID = "S-1-5-21-111-222-333-1001"
 

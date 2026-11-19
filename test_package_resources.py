@@ -1,10 +1,10 @@
 """The packagers copy every module the observer imports and every page it serves; reads source text only."""
 
 import ast
-from pathlib import Path
 import re
 import shlex
 import unittest
+from pathlib import Path
 
 REPO = Path(__file__).resolve().parent
 

@@ -2,15 +2,14 @@
 
 import copy
 import json
+import unittest
 from concurrent.futures import Future
 from pathlib import Path
-import unittest
 from unittest import mock
 
+import remote_machines as remote
 from fleet_state import build_fleet_state
 from inference_stats import MAP_SCHEMA, public_map
-import remote_machines as remote
-
 
 FIXTURE = json.loads((Path(__file__).parent / "test_support/fleet-state.json").read_text())
 

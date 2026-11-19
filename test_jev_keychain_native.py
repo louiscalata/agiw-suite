@@ -1,12 +1,12 @@
 """Exercise the actual Swift delegate offline; never invoke Keychain or network."""
 
-from pathlib import Path
 import os
 import platform
 import shutil
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 
 SOURCE = Path(__file__).resolve().parent / "JevKeychain.swift"
 MARKER = "let args = Array(CommandLine.arguments.dropFirst())"

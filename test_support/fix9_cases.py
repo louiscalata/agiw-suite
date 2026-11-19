@@ -8,18 +8,20 @@ invalidate them, rather than relying on every producer to remove its old payload
 
 import copy
 import itertools
-from pathlib import Path
 import sys
 import tempfile
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / "windows"), str(ROOT)]
-from agiw_win import probes, collect
-from agiw_win.server import SnapshotStore
-from agiw_win import server as windows_server
 from unittest import mock
-import peer_feed
+
+from agiw_win import collect, probes
+from agiw_win import server as windows_server
+from agiw_win.server import SnapshotStore
+
 import machine_state
+import peer_feed
 
 NOW = 1_800_000_000.0
 MODES = ("missing", "unreadable", "malformed", "partial", "capped", "stale", "hidden", "future")
@@ -264,10 +266,10 @@ def main():
     busy_bases = {host: healthy(host, active=True) for host in ("mac", "windows")}
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp).resolve()
+        from fix1_dimensions import dimensions as integrated
         from fix9_raw import raw_cases
         from fix10_dimensions import dimensions
         from fix11_dimensions import dimensions as two_sided
-        from fix1_dimensions import dimensions as integrated
 
         for data, changes, inputs in itertools.chain(
             source_cases(bases),
@@ -307,8 +309,8 @@ def main():
                 presence = probes.peer_presence(snapshot, "fixture-pc")
             else:
                 # Root store is the Mac publisher, never constructs a server or binds a socket.
-                from server import SnapshotStore as MacStore
                 import server as mac_server
+                from server import SnapshotStore as MacStore
 
                 # Real Mac telemetry supplies this row. Rebuild it from each
                 # fixture's mutated evidence, never from hand-authored totals.

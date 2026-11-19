@@ -1,12 +1,12 @@
 """Private installer fixtures with the profile's inherited Windows ACL."""
-from contextlib import contextmanager
 import os
-from pathlib import Path
 import shutil
 import stat
 import sys
 import tempfile
 import uuid
+from contextlib import contextmanager
+from pathlib import Path
 
 
 def _retry_readonly(function, path, error):

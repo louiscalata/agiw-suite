@@ -2,7 +2,6 @@
 
 import json
 import os
-from pathlib import Path
 import re
 import shlex
 import stat
@@ -10,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import bundle_nisi

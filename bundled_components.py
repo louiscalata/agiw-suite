@@ -8,14 +8,13 @@ from __future__ import annotations
 
 import json
 import os
-from pathlib import Path
 import re
 import subprocess
 import tempfile
 import threading
+from pathlib import Path
 
 from bundle_nisi import verify_payload
-
 
 ROOT = Path(__file__).resolve().parent
 NODE_PATHS = (Path("/opt/homebrew/bin/node"), Path("/usr/local/bin/node"))

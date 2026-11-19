@@ -7,7 +7,6 @@ import pc_tunnel
 from inference_collect import ProbeError, RateMemory, collect_map, direct_targets, parse_metrics, parse_slots
 from inference_stats import MAP_SCHEMA
 
-
 METRICS = """\
 # HELP llamacpp:prompt_tokens_total counted
 llamacpp:prompt_tokens_total 100

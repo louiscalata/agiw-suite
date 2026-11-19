@@ -11,8 +11,7 @@ from unittest import mock
 
 from support import ROOT, isolate_windows_registry, pl, temp_dir
 
-from agiw import cli
-from agiw import state_lock
+from agiw import cli, state_lock
 from agiw.state_lock import StateLock, StateLockBusy
 
 

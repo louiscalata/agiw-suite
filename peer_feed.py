@@ -23,12 +23,12 @@ import plistlib
 import re
 import secrets
 import socket
-import urllib.parse
 import stat
 import subprocess
 import sys
 import threading
 import time
+import urllib.parse
 from pathlib import Path
 from typing import Any, Callable
 

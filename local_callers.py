@@ -6,8 +6,8 @@ local model is busy or has queued requests, and at most every 2 s per listener.
 
 from __future__ import annotations
 
-import time
 import re
+import time
 from ipaddress import ip_address
 from typing import Any
 

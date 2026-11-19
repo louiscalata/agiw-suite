@@ -14,7 +14,6 @@ import time
 import machine_state
 import peer_link as pl
 
-
 HEALTH_WORDS = {
     "mac_local": {"ok": {"health": "ok"}},
     "windows_observer": {

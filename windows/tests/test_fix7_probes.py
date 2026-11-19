@@ -1,10 +1,10 @@
 """Fix pass 7: refused or incomplete evidence never becomes a known absence."""
 import json
 import os
-from pathlib import Path
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))

@@ -1,11 +1,11 @@
 """Compile production coordination code with synthetic app inventory; never launch Monitor."""
 
-from pathlib import Path
 import os
 import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 
 
 @unittest.skipUnless(sys.platform == "darwin", "native Monitor coordination requires macOS and Cocoa")

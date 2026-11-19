@@ -4,11 +4,11 @@ import copy
 import itertools
 import json
 import os
-from pathlib import Path
 import tempfile
+from pathlib import Path
 from unittest import mock
 
-from agiw_win import probes, collect
+from agiw_win import collect, probes
 
 NOW = 1_800_000_000.0
 MODES = ("missing", "unreadable", "malformed", "partial", "capped", "stale", "hidden", "future")

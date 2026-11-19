@@ -10,7 +10,6 @@ import http.client
 import json
 import math
 import os
-from pathlib import Path
 import re
 import selectors
 import shlex
@@ -22,6 +21,7 @@ import subprocess
 import threading
 import time
 from contextlib import contextmanager
+from pathlib import Path
 
 try:
     import peer_feed
@@ -32,11 +32,9 @@ try:
 except ImportError:  # likewise: without it NVIDIA PAIR is simply unknown
     pair_status = None
 from typing import Any, Iterator
-from machine_state import CLOCK_SKEW_SECONDS
 
-
+from machine_state import CLOCK_SKEW_SECONDS, machines_summary
 from nisi_v02 import collect_nisi_v02
-from machine_state import machines_summary
 
 # Router-concurrency P2 (spec 6.12, R2.9): these readers dual-read the legacy single-run
 # journal (active.json + owner.lock held EX for the whole run) and the per-run layout

@@ -1,15 +1,16 @@
 """Pass 8 regressions: discovery, activity expiry, installer scope and peer reasons."""
 import datetime as dt
 import json
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from unittest import mock
 
 from agiw_win import collect, probes
 from agiw_win.server import SnapshotStore
+
 from tests import test_collector_safety as safety
 
 WINDOWS = Path(__file__).resolve().parents[1]

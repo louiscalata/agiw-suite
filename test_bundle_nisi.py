@@ -1,9 +1,10 @@
 import json
-from pathlib import Path
 import shutil
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
+
 import bundle_nisi as bundle
 
 

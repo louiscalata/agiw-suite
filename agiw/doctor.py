@@ -13,7 +13,6 @@ from pathlib import Path
 from typing import Callable, List, Optional, Tuple
 
 import peer_link as pl
-
 from agiw.redact import redact, show_path
 
 Row = Tuple[str, str]  # (ok | warn | fail | info, text)

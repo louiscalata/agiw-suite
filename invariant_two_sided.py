@@ -9,8 +9,8 @@ import copy
 import itertools
 import json
 import os
-from pathlib import Path
 import tempfile
+from pathlib import Path
 from unittest import mock
 
 import activity
@@ -18,8 +18,8 @@ import agiw_status
 import machine_state
 import server
 import telemetry
-from invariant_pipeline import NOW, API, CLI, collect, peer, callers, iso
-from invariant_dimensions import base, projection, active_projection
+from invariant_dimensions import active_projection, base, projection
+from invariant_pipeline import API, CLI, NOW, callers, collect, iso, peer
 from windows.agiw_win import probes as win
 from windows.agiw_win.collect import Collector
 from windows.agiw_win.server import SnapshotStore as WindowsStore

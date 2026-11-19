@@ -8,10 +8,8 @@ again in its worker before invoking the local CLI.
 from __future__ import annotations
 
 import copy
-from contextlib import nullcontext
 import math
 import os
-from pathlib import Path
 import re
 import selectors
 import signal
@@ -20,11 +18,12 @@ import subprocess
 import threading
 import time
 import uuid
+from contextlib import nullcontext
+from pathlib import Path
 from typing import Callable
 
 import mem_guard
 from durable_model_journal import DurableModelJournal, JournalError
-
 
 MODEL_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/+-]{0,159}\Z")
 MAX_OUTPUT = 64 * 1024

@@ -1,18 +1,19 @@
 """Windows endpoint dataset contract, exercised without a listening socket."""
 import json
 import os
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import time
 import unittest
+from pathlib import Path
 from unittest import mock
 
 WINDOWS = Path(__file__).resolve().parents[1]
 ROOT = WINDOWS.parent
 sys.path.insert(0, str(WINDOWS))
 from agiw_win import server  # noqa: E402
+
 import eci_tuning  # noqa: E402
 
 

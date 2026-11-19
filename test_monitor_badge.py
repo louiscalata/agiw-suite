@@ -9,7 +9,6 @@ import tempfile
 import unittest
 from pathlib import Path
 
-
 SOURCE = Path(__file__).resolve().with_name("Monitor.swift")
 BEGIN = "    private func updateBadge(_ snapshot: [String: Any]) {"
 DEFAULT_MACHINES = object()

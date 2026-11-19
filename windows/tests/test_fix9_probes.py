@@ -1,12 +1,12 @@
 """Raw-boundary regressions complementing the cross-language source matrix."""
 import json
 import os
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 from unittest import mock
 
-from agiw_win import probes, collect
+from agiw_win import collect, probes
 
 SPEC = dict(id='fast', port=1235, alias='model-fast', device='CPU', parallel=2)
 NOW = 1_800_000_000

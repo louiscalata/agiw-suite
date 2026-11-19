@@ -1,16 +1,15 @@
 """Synthetic server wiring checks; no model CLI or live Monitor endpoint."""
 
-from contextlib import redirect_stdout
 import hashlib
 import io
-from pathlib import Path
 import sys
 import tempfile
 import threading
 import time
 import unittest
+from contextlib import redirect_stdout
+from pathlib import Path
 from unittest.mock import patch
-
 
 import peer_feed
 import server as server_source

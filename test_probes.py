@@ -512,6 +512,7 @@ class LocalCallerTests(unittest.TestCase):
 
     def test_production_diagnostics_are_not_a_known_zero(self):
         from unittest.mock import patch
+
         import telemetry
 
         for output in ("lsof: permission denied\n", self.connection() + "lsof: permission denied\n"):
@@ -528,6 +529,7 @@ class LocalCallerTests(unittest.TestCase):
 
     def test_production_uses_process_group_safe_bounded_runner(self):
         from unittest.mock import patch
+
         import telemetry
 
         with patch.object(

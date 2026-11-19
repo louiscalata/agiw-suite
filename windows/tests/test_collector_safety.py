@@ -1,17 +1,16 @@
 """Collector boundaries: an unread adapter stays unknown and PAIR-owned ports are never polled."""
 import json
-from pathlib import Path
 import sys
 import tempfile
 import threading
 import time
 import unittest
+from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from agiw_win import probes, winsys  # noqa: E402
 from agiw_win.collect import Collector, LanePoller, merge_adapters  # noqa: E402
-
 
 NVIDIA = {"index": 0, "name": "NVIDIA GeForce RTX 3080 Ti", "utilizationPercent": 3.0,
           "memoryUsedMiB": 1000.0, "memoryTotalMiB": 12288.0, "temperatureC": 35.0, "powerW": 40.0}

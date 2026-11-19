@@ -11,15 +11,14 @@ import contextlib
 import copy
 import io
 import json
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import eci_fast_check as fast
 import eci_fast_check_adapter as adapter
 import eci_tuning
-
 
 ROOT = Path(__file__).resolve().parent
 MODEL_ID = "fixture-model"

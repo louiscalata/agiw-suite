@@ -2,15 +2,14 @@
 
 import copy
 import json
-from pathlib import Path
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import agiw_status
-from fleet_state import build_fleet_state
 import remote_machines
+from fleet_state import build_fleet_state
 from test_agiw_status import snapshot as legacy_snapshot
-
 
 FIXTURE = json.loads((Path(__file__).parent / "test_support/fleet-state.json").read_text())
 NOW = FIXTURE["now"]

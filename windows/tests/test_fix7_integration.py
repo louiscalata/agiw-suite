@@ -1,17 +1,19 @@
 """Fix pass 7: enrollment trust, process sampling and incomplete collector evidence."""
 import json
-from pathlib import Path
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from agiw_win import buildinfo, collect, probes, winsys
 from agiw_win.server import SnapshotStore
+
 from tests import test_collector_safety as safety
+
 _import_path = sys.path[:]
 try:
     sys.path.append(str(Path(__file__).resolve().parents[2]))

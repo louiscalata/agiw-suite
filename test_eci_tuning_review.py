@@ -6,13 +6,13 @@ on its own; these exercise eci_tuning only.
 
 import inspect
 import json
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import eci_tuning as e
-from test_eci_tuning_correctness import comparable_run, observations, compare_with_items
+from test_eci_tuning_correctness import comparable_run, compare_with_items, observations
 
 
 class TuningReviewFixTests(unittest.TestCase):

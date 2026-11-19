@@ -1,11 +1,11 @@
 """Portable replay of Windows' read-only unlink behavior, including unittest outcomes."""
-from contextlib import contextmanager
 import os
-from pathlib import Path
 import shutil
 import stat
 import tempfile
 import unittest
+from contextlib import contextmanager
+from pathlib import Path
 from unittest import mock
 
 from tests import install_helpers as helpers

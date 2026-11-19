@@ -14,7 +14,7 @@ import unittest
 
 import eci_fast_check as f
 import eci_fast_check_adapter as a
-from test_eci_fast_check import datasets, run, rehash
+from test_eci_fast_check import datasets, rehash, run
 
 FROZEN_V1 = json.loads(r"""
 {
@@ -591,6 +591,7 @@ class RecordVersionTests(unittest.TestCase):
     def test_tuning_ingest_accepts_frozen_v1_record_next_to_clean_v2_record(self):
         import tempfile
         from pathlib import Path
+
         import eci_tuning as e
 
         clean = run(datasets(6))

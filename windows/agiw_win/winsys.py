@@ -10,18 +10,18 @@ sample moment; it is not proof that the client is generating.
 from __future__ import annotations
 
 import ctypes
-import logging
 import ipaddress
+import logging
 import math
 import ntpath
 import os
-from pathlib import Path
 import re
 import socket
 import stat
 import struct
 import threading
 import time
+from pathlib import Path
 from typing import Any
 
 from .jsonutil import loads_strict
@@ -264,9 +264,11 @@ def _read_local_enrollment(path: Path) -> str:
     """
     if not IS_WINDOWS:
         raise OSError("local enrollment requires Windows ownership verification")
-    from . import probes
-    import peer_link
     import msvcrt
+
+    import peer_link
+
+    from . import probes
 
     path = Path(os.path.abspath(path))
     profile = Path(os.path.abspath(Path.home()))

@@ -1,10 +1,10 @@
 import json
-from pathlib import Path
 import socket
 import tempfile
 import threading
 import time
 import unittest
+from pathlib import Path
 from unittest import mock
 
 import live_feed

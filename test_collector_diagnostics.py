@@ -2,15 +2,15 @@
 
 import copy
 import json
-from pathlib import Path
 import sys
-from types import SimpleNamespace
 import unittest
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import inference_collect
-from inference_stats import MAP_SCHEMA
 import server
+from inference_stats import MAP_SCHEMA
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "windows"))
 from agiw_win import server as win_server

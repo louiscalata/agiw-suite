@@ -1,9 +1,9 @@
 """Installer review regressions; source contracts complement the native Windows tests."""
-from pathlib import Path
 import re
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 
 SCRIPT = Path(__file__).resolve().parents[1] / 'install.ps1'
 REPO = SCRIPT.parent.parent

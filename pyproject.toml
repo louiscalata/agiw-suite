@@ -99,29 +99,23 @@ max-complexity = 15
 # BLE001 (4): Narrowing an existing broad catch changes fallback or boundary behaviour; review the boundary and logging separately.
 # C901 (2): Splitting an existing complex function changes code structure and needs its own behaviour review.
 # E731 (1): Replacing an assigned lambda with def changes the AST and callable metadata; defer it to a code cleanup.
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
 # N818 (1): Renaming an existing exception class changes its name and references; review exception API compatibility separately.
-"activity.py" = ["BLE001", "C901", "E731", "I001", "N818"]
+"activity.py" = ["BLE001", "C901", "E731", "N818"]
 
 # B904 (2): Adding exception chaining changes exception behaviour and tracebacks; review it outside the format-only lane.
 # C901 (2): Splitting an existing complex function changes code structure and needs its own behaviour review.
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
 # N818 (1): Renaming an existing exception class changes its name and references; review exception API compatibility separately.
 # T201 (4): Existing CLI, script or diagnostic print output needs its own output/logging review; preserve its behaviour here.
 # UP006 (6): Changing existing annotation syntax changes the AST and needs a Python 3.9 compatibility review.
 # UP035 (2): Changing deprecated typing imports changes the import AST and compatibility assumptions; review it separately.
 # UP045 (11): Changing Optional annotations changes the AST and needs a Python 3.9 compatibility review.
-"agiw/cli.py" = ["B904", "C901", "I001", "N818", "T201", "UP006", "UP035", "UP045"]
-
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"agiw/contract.py" = ["I001"]
+"agiw/cli.py" = ["B904", "C901", "N818", "T201", "UP006", "UP035", "UP045"]
 
 # C901 (1): Splitting an existing complex function changes code structure and needs its own behaviour review.
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
 # UP006 (9): Changing existing annotation syntax changes the AST and needs a Python 3.9 compatibility review.
 # UP035 (2): Changing deprecated typing imports changes the import AST and compatibility assumptions; review it separately.
 # UP045 (3): Changing Optional annotations changes the AST and needs a Python 3.9 compatibility review.
-"agiw/doctor.py" = ["C901", "I001", "UP006", "UP035", "UP045"]
+"agiw/doctor.py" = ["C901", "UP006", "UP035", "UP045"]
 
 # UP045 (2): Changing Optional annotations changes the AST and needs a Python 3.9 compatibility review.
 "agiw/redact.py" = ["UP045"]
@@ -137,70 +131,53 @@ max-complexity = 15
 "agiw/state_lock.py" = ["B904", "N818"]
 
 # C901 (1): Splitting an existing complex function changes code structure and needs its own behaviour review.
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
 # N818 (1): Renaming an existing exception class changes its name and references; review exception API compatibility separately.
 # T201 (3): Existing CLI, script or diagnostic print output needs its own output/logging review; preserve its behaviour here.
-"agiw_status.py" = ["C901", "I001", "N818", "T201"]
+"agiw_status.py" = ["C901", "N818", "T201"]
 
 # B904 (1): Adding exception chaining changes exception behaviour and tracebacks; review it outside the format-only lane.
 # BLE001 (8): Narrowing an existing broad catch changes fallback or boundary behaviour; review the boundary and logging separately.
 # C901 (2): Splitting an existing complex function changes code structure and needs its own behaviour review.
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
 # UP045 (29): Changing Optional annotations changes the AST and needs a Python 3.9 compatibility review.
-"auto_unload.py" = ["B904", "BLE001", "C901", "I001", "UP045"]
+"auto_unload.py" = ["B904", "BLE001", "C901", "UP045"]
 
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
 # T201 (3): Existing CLI, script or diagnostic print output needs its own output/logging review; preserve its behaviour here.
-"bundle_nisi.py" = ["I001", "T201"]
-
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"bundled_components.py" = ["I001"]
+"bundle_nisi.py" = ["T201"]
 
 # C901 (2): Splitting an existing complex function changes code structure and needs its own behaviour review.
 # E731 (1): Replacing an assigned lambda with def changes the AST and callable metadata; defer it to a code cleanup.
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"client_models.py" = ["C901", "E731", "I001"]
+"client_models.py" = ["C901", "E731"]
 
 # C901 (1): Splitting an existing complex function changes code structure and needs its own behaviour review.
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"durable_model_journal.py" = ["C901", "I001"]
+"durable_model_journal.py" = ["C901"]
 
 # B023 (1): Binding loop variables changes closure behaviour; preserve the AST and review each capture in a follow-up.
 # BLE001 (1): Narrowing an existing broad catch changes fallback or boundary behaviour; review the boundary and logging separately.
 # C901 (6): Splitting an existing complex function changes code structure and needs its own behaviour review.
 # E731 (1): Replacing an assigned lambda with def changes the AST and callable metadata; defer it to a code cleanup.
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
 # T201 (2): Existing CLI, script or diagnostic print output needs its own output/logging review; preserve its behaviour here.
-"eci_fast_check.py" = ["B023", "BLE001", "C901", "E731", "I001", "T201"]
+"eci_fast_check.py" = ["B023", "BLE001", "C901", "E731", "T201"]
 
 # C901 (6): Splitting an existing complex function changes code structure and needs its own behaviour review.
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
 # T201 (5): Existing CLI, script or diagnostic print output needs its own output/logging review; preserve its behaviour here.
-"eci_fast_check_adapter.py" = ["C901", "I001", "T201"]
+"eci_fast_check_adapter.py" = ["C901", "T201"]
 
 # BLE001 (1): Narrowing an existing broad catch changes fallback or boundary behaviour; review the boundary and logging separately.
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"eci_job_host.py" = ["BLE001", "I001"]
+"eci_job_host.py" = ["BLE001"]
 
 # BLE001 (6): Narrowing an existing broad catch changes fallback or boundary behaviour; review the boundary and logging separately.
 # C901 (2): Splitting an existing complex function changes code structure and needs its own behaviour review.
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
 # N818 (3): Renaming an existing exception class changes its name and references; review exception API compatibility separately.
-"eci_jobs.py" = ["BLE001", "C901", "I001", "N818"]
+"eci_jobs.py" = ["BLE001", "C901", "N818"]
 
 # BLE001 (3): Narrowing an existing broad catch changes fallback or boundary behaviour; review the boundary and logging separately.
 # C901 (4): Splitting an existing complex function changes code structure and needs its own behaviour review.
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
 # N818 (1): Renaming an existing exception class changes its name and references; review exception API compatibility separately.
 # T201 (6): Existing CLI, script or diagnostic print output needs its own output/logging review; preserve its behaviour here.
-"eci_tuning.py" = ["BLE001", "C901", "I001", "N818", "T201"]
+"eci_tuning.py" = ["BLE001", "C901", "N818", "T201"]
 
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
 # UP032 (1): Changing format() calls to f-strings rewrites expressions and evaluation; review the codemod separately.
-"fleet_state.py" = ["I001", "UP032"]
-
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"freeze_build_inputs.py" = ["I001"]
+"fleet_state.py" = ["UP032"]
 
 # BLE001 (1): Narrowing an existing broad catch changes fallback or boundary behaviour; review the boundary and logging separately.
 # UP035 (1): Changing deprecated typing imports changes the import AST and compatibility assumptions; review it separately.
@@ -209,38 +186,31 @@ max-complexity = 15
 # B904 (6): Adding exception chaining changes exception behaviour and tracebacks; review it outside the format-only lane.
 # BLE001 (1): Narrowing an existing broad catch changes fallback or boundary behaviour; review the boundary and logging separately.
 # C901 (1): Splitting an existing complex function changes code structure and needs its own behaviour review.
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"inference_collect.py" = ["B904", "BLE001", "C901", "I001"]
+"inference_collect.py" = ["B904", "BLE001", "C901"]
 
 # C901 (1): Splitting an existing complex function changes code structure and needs its own behaviour review.
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"inference_stats.py" = ["C901", "I001"]
+"inference_stats.py" = ["C901"]
 
 # B023 (11): Binding loop variables changes closure behaviour; preserve the AST and review each capture in a follow-up.
 # C901 (2): Splitting an existing complex function changes code structure and needs its own behaviour review.
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
 # T201 (1): Existing CLI, script or diagnostic print output needs its own output/logging review; preserve its behaviour here.
-"invariant_dimensions.py" = ["B023", "C901", "I001", "T201"]
+"invariant_dimensions.py" = ["B023", "C901", "T201"]
 
 # E402 (13): Moving an existing import changes module execution order; defer it to a separately reviewed import cleanup.
 # E731 (1): Replacing an assigned lambda with def changes the AST and callable metadata; defer it to a code cleanup.
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
 # T201 (1): Existing CLI, script or diagnostic print output needs its own output/logging review; preserve its behaviour here.
-"invariant_pipeline.py" = ["E402", "E731", "I001", "T201"]
+"invariant_pipeline.py" = ["E402", "E731", "T201"]
 
 # C901 (1): Splitting an existing complex function changes code structure and needs its own behaviour review.
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
 # T201 (1): Existing CLI, script or diagnostic print output needs its own output/logging review; preserve its behaviour here.
-"invariant_two_sided.py" = ["C901", "I001", "T201"]
+"invariant_two_sided.py" = ["C901", "T201"]
 
 # BLE001 (2): Narrowing an existing broad catch changes fallback or boundary behaviour; review the boundary and logging separately.
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"jev_connection.py" = ["BLE001", "I001"]
+"jev_connection.py" = ["BLE001"]
 
 # BLE001 (1): Narrowing an existing broad catch changes fallback or boundary behaviour; review the boundary and logging separately.
 # C901 (1): Splitting an existing complex function changes code structure and needs its own behaviour review.
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"local_callers.py" = ["BLE001", "C901", "I001"]
+"local_callers.py" = ["BLE001", "C901"]
 
 # BLE001 (32): Narrowing an existing broad catch changes fallback or boundary behaviour; review the boundary and logging separately.
 # C901 (6): Splitting an existing complex function changes code structure and needs its own behaviour review.
@@ -252,36 +222,30 @@ max-complexity = 15
 # B904 (2): Adding exception chaining changes exception behaviour and tracebacks; review it outside the format-only lane.
 # BLE001 (3): Narrowing an existing broad catch changes fallback or boundary behaviour; review the boundary and logging separately.
 # C901 (3): Splitting an existing complex function changes code structure and needs its own behaviour review.
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
 # N818 (1): Renaming an existing exception class changes its name and references; review exception API compatibility separately.
-"model_control.py" = ["B904", "BLE001", "C901", "I001", "N818"]
+"model_control.py" = ["B904", "BLE001", "C901", "N818"]
 
 # C901 (1): Splitting an existing complex function changes code structure and needs its own behaviour review.
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
 # N818 (1): Renaming an existing exception class changes its name and references; review exception API compatibility separately.
-"nisi_v02.py" = ["C901", "I001", "N818"]
+"nisi_v02.py" = ["C901", "N818"]
 
 # B904 (20): Adding exception chaining changes exception behaviour and tracebacks; review it outside the format-only lane.
 # BLE001 (6): Narrowing an existing broad catch changes fallback or boundary behaviour; review the boundary and logging separately.
 # C901 (4): Splitting an existing complex function changes code structure and needs its own behaviour review.
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
 # N818 (3): Renaming an existing exception class changes its name and references; review exception API compatibility separately.
-"online_code_repair.py" = ["B904", "BLE001", "C901", "I001", "N818"]
+"online_code_repair.py" = ["B904", "BLE001", "C901", "N818"]
 
 # C901 (1): Splitting an existing complex function changes code structure and needs its own behaviour review.
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"pair_status.py" = ["C901", "I001"]
+"pair_status.py" = ["C901"]
 
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
 # T201 (1): Existing CLI, script or diagnostic print output needs its own output/logging review; preserve its behaviour here.
-"pc_tunnel.py" = ["I001", "T201"]
+"pc_tunnel.py" = ["T201"]
 
 # BLE001 (2): Narrowing an existing broad catch changes fallback or boundary behaviour; review the boundary and logging separately.
 # C901 (5): Splitting an existing complex function changes code structure and needs its own behaviour review.
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
 # N818 (4): Renaming an existing exception class changes its name and references; review exception API compatibility separately.
 # RUF100 (5): An existing noqa becomes redundant under the exact-file baseline; preserve its comment here and remove obsolete suppressions in a separate cleanup.
-"peer_feed.py" = ["BLE001", "C901", "I001", "N818", "RUF100"]
+"peer_feed.py" = ["BLE001", "C901", "N818", "RUF100"]
 
 # B904 (4): Adding exception chaining changes exception behaviour and tracebacks; review it outside the format-only lane.
 # C901 (2): Splitting an existing complex function changes code structure and needs its own behaviour review.
@@ -297,247 +261,101 @@ max-complexity = 15
 # I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
 "remote_machines.py" = ["BLE001", "C901", "I001"]
 
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
 # T201 (3): Existing CLI, script or diagnostic print output needs its own output/logging review; preserve its behaviour here.
-"scripts/check-wrapper-archive.py" = ["I001", "T201"]
+"scripts/check-wrapper-archive.py" = ["T201"]
 
 # C901 (1): Splitting an existing complex function changes code structure and needs its own behaviour review.
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
 # T201 (4): Existing CLI, script or diagnostic print output needs its own output/logging review; preserve its behaviour here.
-"scripts/export-build-inputs.py" = ["C901", "I001", "T201"]
+"scripts/export-build-inputs.py" = ["C901", "T201"]
 
 # T201 (2): Existing CLI, script or diagnostic print output needs its own output/logging review; preserve its behaviour here.
 "scripts/make_sha256sums.py" = ["T201"]
 
 # BLE001 (18): Narrowing an existing broad catch changes fallback or boundary behaviour; review the boundary and logging separately.
 # C901 (7): Splitting an existing complex function changes code structure and needs its own behaviour review.
-# I001 (2): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
 # N818 (6): Renaming an existing exception class changes its name and references; review exception API compatibility separately.
 # UP035 (1): Changing deprecated typing imports changes the import AST and compatibility assumptions; review it separately.
-"telemetry.py" = ["BLE001", "C901", "I001", "N818", "UP035"]
-
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_activity.py" = ["I001"]
-
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_android_source_contract.py" = ["I001"]
+"telemetry.py" = ["BLE001", "C901", "N818", "UP035"]
 
 # B023 (4): Binding loop variables changes closure behaviour; preserve the AST and review each capture in a follow-up.
 # BLE001 (2): Narrowing an existing broad catch changes fallback or boundary behaviour; review the boundary and logging separately.
 # E731 (29): Replacing an assigned lambda with def changes the AST and callable metadata; defer it to a code cleanup.
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_auto_unload.py" = ["B023", "BLE001", "E731", "I001"]
+"test_auto_unload.py" = ["B023", "BLE001", "E731"]
 
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
 # UP032 (1): Changing format() calls to f-strings rewrites expressions and evaluation; review the codemod separately.
-"test_build_architecture.py" = ["I001", "UP032"]
-
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_bundle_nisi.py" = ["I001"]
-
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_bundled_components.py" = ["I001"]
-
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_cached_diagnosis.py" = ["I001"]
-
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_claude_subagent_lifecycle.py" = ["I001"]
-
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_client_models.py" = ["I001"]
-
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_collection_review_fixes.py" = ["I001"]
+"test_build_architecture.py" = ["UP032"]
 
 # B023 (1): Binding loop variables changes closure behaviour; preserve the AST and review each capture in a follow-up.
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
 # UP031 (1): Changing percent-string formatting rewrites expressions and can alter formatting behaviour; review it separately.
-"test_collector_diagnostics.py" = ["B023", "I001", "UP031"]
-
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_comparison_protocol.py" = ["I001"]
-
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_completion_monitor.py" = ["I001"]
-
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_durable_model_journal.py" = ["I001"]
+"test_collector_diagnostics.py" = ["B023", "UP031"]
 
 # B023 (6): Binding loop variables changes closure behaviour; preserve the AST and review each capture in a follow-up.
 # E731 (1): Replacing an assigned lambda with def changes the AST and callable metadata; defer it to a code cleanup.
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_eci_fast_check.py" = ["B023", "E731", "I001"]
+"test_eci_fast_check.py" = ["B023", "E731"]
 
 # B023 (10): Binding loop variables changes closure behaviour; preserve the AST and review each capture in a follow-up.
 # C901 (1): Splitting an existing complex function changes code structure and needs its own behaviour review.
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
 # UP031 (1): Changing percent-string formatting rewrites expressions and can alter formatting behaviour; review it separately.
-"test_eci_fast_check_adapter.py" = ["B023", "C901", "I001", "UP031"]
-
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_eci_fast_check_adapter_correctness.py" = ["I001"]
+"test_eci_fast_check_adapter.py" = ["B023", "C901", "UP031"]
 
 # B023 (1): Binding loop variables changes closure behaviour; preserve the AST and review each capture in a follow-up.
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_eci_fast_check_already_loaded.py" = ["B023", "I001"]
-
-# I001 (2): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_eci_fast_check_legacy.py" = ["I001"]
-
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_eci_fast_check_parse.py" = ["I001"]
+"test_eci_fast_check_already_loaded.py" = ["B023"]
 
 # B023 (4): Binding loop variables changes closure behaviour; preserve the AST and review each capture in a follow-up.
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_eci_fast_check_review.py" = ["B023", "I001"]
+"test_eci_fast_check_review.py" = ["B023"]
 
 # B023 (16): Binding loop variables changes closure behaviour; preserve the AST and review each capture in a follow-up.
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_eci_fast_check_round2.py" = ["B023", "I001"]
+"test_eci_fast_check_round2.py" = ["B023"]
 
 # BLE001 (1): Narrowing an existing broad catch changes fallback or boundary behaviour; review the boundary and logging separately.
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_eci_fast_check_runtime_round2.py" = ["BLE001", "I001"]
+"test_eci_fast_check_runtime_round2.py" = ["BLE001"]
 
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
 # UP031 (1): Changing percent-string formatting rewrites expressions and can alter formatting behaviour; review it separately.
-"test_eci_job_host.py" = ["I001", "UP031"]
+"test_eci_job_host.py" = ["UP031"]
 
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
 # UP031 (4): Changing percent-string formatting rewrites expressions and can alter formatting behaviour; review it separately.
-"test_eci_job_routes.py" = ["I001", "UP031"]
+"test_eci_job_routes.py" = ["UP031"]
 
 # B017 (4): Narrowing an existing assertRaises(Exception) changes test behaviour; review the expected failure separately.
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
 # UP031 (5): Changing percent-string formatting rewrites expressions and can alter formatting behaviour; review it separately.
-"test_eci_jobs.py" = ["B017", "I001", "UP031"]
+"test_eci_jobs.py" = ["B017", "UP031"]
 
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
 # UP031 (1): Changing percent-string formatting rewrites expressions and can alter formatting behaviour; review it separately.
-"test_eci_jobs_context.py" = ["I001", "UP031"]
+"test_eci_jobs_context.py" = ["UP031"]
 
 # C901 (1): Splitting an existing complex function changes code structure and needs its own behaviour review.
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_eci_measured_data.py" = ["C901", "I001"]
+"test_eci_measured_data.py" = ["C901"]
 
 # C901 (1): Splitting an existing complex function changes code structure and needs its own behaviour review.
-# I001 (3): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_eci_tuning.py" = ["C901", "I001"]
+"test_eci_tuning.py" = ["C901"]
 
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_eci_tuning_correctness.py" = ["I001"]
-
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_eci_tuning_rejected.py" = ["I001"]
-
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_eci_tuning_review.py" = ["I001"]
-
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_export_build_inputs.py" = ["I001"]
-
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_feature_documentation.py" = ["I001"]
-
-# I001 (2): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
 # N811 (2): Renaming an existing imported alias changes references and may affect the module API; review it separately.
-"test_fleet_servers.py" = ["I001", "N811"]
-
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_fleet_state.py" = ["I001"]
-
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_fleet_truth.py" = ["I001"]
-
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_fleet_truth_cli.py" = ["I001"]
-
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_font_resources.py" = ["I001"]
-
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_freeze_build_inputs.py" = ["I001"]
-
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_inference_collect.py" = ["I001"]
-
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_inference_stats.py" = ["I001"]
-
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_integration_fix1.py" = ["I001"]
+"test_fleet_servers.py" = ["N811"]
 
 # B023 (3): Binding loop variables changes closure behaviour; preserve the AST and review each capture in a follow-up.
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_jev_connection.py" = ["B023", "I001"]
-
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_jev_keychain_native.py" = ["I001"]
-
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_l2_merge_contract.py" = ["I001"]
-
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_live_feed.py" = ["I001"]
+"test_jev_connection.py" = ["B023"]
 
 # B023 (8): Binding loop variables changes closure behaviour; preserve the AST and review each capture in a follow-up.
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_lmstudio_endpoint.py" = ["B023", "I001"]
-
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_login_agent.py" = ["I001"]
-
-# I001 (2): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_machine_state.py" = ["I001"]
+"test_lmstudio_endpoint.py" = ["B023"]
 
 # B023 (1): Binding loop variables changes closure behaviour; preserve the AST and review each capture in a follow-up.
 "test_mem_guard.py" = ["B023"]
 
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_model_control.py" = ["I001"]
-
 # BLE001 (1): Narrowing an existing broad catch changes fallback or boundary behaviour; review the boundary and logging separately.
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_model_control_ownership.py" = ["BLE001", "I001"]
-
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_monitor_badge.py" = ["I001"]
-
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_monitor_instance.py" = ["I001"]
-
-# I001 (2): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_monitor_poll.py" = ["I001"]
-
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_nisi_v02.py" = ["I001"]
+"test_model_control_ownership.py" = ["BLE001"]
 
 # C901 (2): Splitting an existing complex function changes code structure and needs its own behaviour review.
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_no_gate_writes.py" = ["C901", "I001"]
+"test_no_gate_writes.py" = ["C901"]
 
 # B023 (10): Binding loop variables changes closure behaviour; preserve the AST and review each capture in a follow-up.
 # C901 (1): Splitting an existing complex function changes code structure and needs its own behaviour review.
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_online_code_repair.py" = ["B023", "C901", "I001"]
+"test_online_code_repair.py" = ["B023", "C901"]
 
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
 # UP022 (2): Changing subprocess arguments changes the call AST and compatibility assumptions; review the codemod separately.
-"test_package_release.py" = ["I001", "UP022"]
-
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_package_resources.py" = ["I001"]
-
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_pair_status.py" = ["I001"]
+"test_package_release.py" = ["UP022"]
 
 # B023 (1): Binding loop variables changes closure behaviour; preserve the AST and review each capture in a follow-up.
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_pc_lane_defaults.py" = ["B023", "I001"]
-
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_pc_tunnel.py" = ["I001"]
+"test_pc_lane_defaults.py" = ["B023"]
 
 # B023 (9): Binding loop variables changes closure behaviour; preserve the AST and review each capture in a follow-up.
 "test_peer_feed.py" = ["B023"]
@@ -549,52 +367,34 @@ max-complexity = 15
 # N815 (1): Renaming an existing mixed-case attribute changes references or mirrored external names; review the interface separately.
 "test_peer_link.py" = ["BLE001", "I001", "N802", "N805", "N815"]
 
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_peer_presence.py" = ["I001"]
-
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_pipeline_invariant.py" = ["I001"]
-
 # BLE001 (1): Narrowing an existing broad catch changes fallback or boundary behaviour; review the boundary and logging separately.
 # C901 (2): Splitting an existing complex function changes code structure and needs its own behaviour review.
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
 # T201 (1): Existing CLI, script or diagnostic print output needs its own output/logging review; preserve its behaviour here.
-"test_pipeline_invariants.py" = ["BLE001", "C901", "I001", "T201"]
+"test_pipeline_invariants.py" = ["BLE001", "C901", "T201"]
 
 # B023 (15): Binding loop variables changes closure behaviour; preserve the AST and review each capture in a follow-up.
-# I001 (2): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_probes.py" = ["B023", "I001"]
-
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_registry_transport.py" = ["I001"]
+"test_probes.py" = ["B023"]
 
 # B023 (2): Binding loop variables changes closure behaviour; preserve the AST and review each capture in a follow-up.
 # I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
 "test_remote_machines.py" = ["B023", "I001"]
 
 # B023 (2): Binding loop variables changes closure behaviour; preserve the AST and review each capture in a follow-up.
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_repair_worker_lifecycle.py" = ["B023", "I001"]
+"test_repair_worker_lifecycle.py" = ["B023"]
 
 # E731 (3): Replacing an assigned lambda with def changes the AST and callable metadata; defer it to a code cleanup.
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_review_regressions.py" = ["E731", "I001"]
+"test_review_regressions.py" = ["E731"]
 
 # UP022 (1): Changing subprocess arguments changes the call AST and compatibility assumptions; review the codemod separately.
 # UP031 (7): Changing percent-string formatting rewrites expressions and can alter formatting behaviour; review it separately.
 "test_router_contract.py" = ["UP022", "UP031"]
 
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
 # UP031 (2): Changing percent-string formatting rewrites expressions and can alter formatting behaviour; review it separately.
-"test_run_evidence.py" = ["I001", "UP031"]
+"test_run_evidence.py" = ["UP031"]
 
 # C901 (1): Splitting an existing complex function changes code structure and needs its own behaviour review.
 # E731 (4): Replacing an assigned lambda with def changes the AST and callable metadata; defer it to a code cleanup.
-# I001 (5): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_server.py" = ["C901", "E731", "I001"]
-
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_server_durable_optin.py" = ["I001"]
+"test_server.py" = ["C901", "E731"]
 
 # B023 (1): Binding loop variables changes closure behaviour; preserve the AST and review each capture in a follow-up.
 # E731 (4): Replacing an assigned lambda with def changes the AST and callable metadata; defer it to a code cleanup.
@@ -604,48 +404,35 @@ max-complexity = 15
 # B023 (3): Binding loop variables changes closure behaviour; preserve the AST and review each capture in a follow-up.
 "test_sol7_findings.py" = ["B023"]
 
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_stage7_regressions.py" = ["I001"]
-
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
 # UP031 (1): Changing percent-string formatting rewrites expressions and can alter formatting behaviour; review it separately.
-"test_static_module_transport.py" = ["I001", "UP031"]
+"test_static_module_transport.py" = ["UP031"]
 
 # B023 (1): Binding loop variables changes closure behaviour; preserve the AST and review each capture in a follow-up.
 # E741 (2): Renaming an existing ambiguous variable changes identifiers in the AST; review its uses separately.
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_support/fix10_dimensions.py" = ["B023", "E741", "I001"]
+"test_support/fix10_dimensions.py" = ["B023", "E741"]
 
 # B023 (4): Binding loop variables changes closure behaviour; preserve the AST and review each capture in a follow-up.
 # C901 (1): Splitting an existing complex function changes code structure and needs its own behaviour review.
 # E741 (1): Renaming an existing ambiguous variable changes identifiers in the AST; review its uses separately.
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_support/fix11_dimensions.py" = ["B023", "C901", "E741", "I001"]
-
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_support/fix1_dimensions.py" = ["I001"]
+"test_support/fix11_dimensions.py" = ["B023", "C901", "E741"]
 
 # B023 (1): Binding loop variables changes closure behaviour; preserve the AST and review each capture in a follow-up.
 # E402 (6): Moving an existing import changes module execution order; defer it to a separately reviewed import cleanup.
-# I001 (4): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
 # T201 (1): Existing CLI, script or diagnostic print output needs its own output/logging review; preserve its behaviour here.
-"test_support/fix9_cases.py" = ["B023", "E402", "I001", "T201"]
+"test_support/fix9_cases.py" = ["B023", "E402", "T201"]
 
 # B023 (2): Binding loop variables changes closure behaviour; preserve the AST and review each capture in a follow-up.
 # C901 (1): Splitting an existing complex function changes code structure and needs its own behaviour review.
 # E731 (3): Replacing an assigned lambda with def changes the AST and callable metadata; defer it to a code cleanup.
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_support/fix9_raw.py" = ["B023", "C901", "E731", "I001"]
+"test_support/fix9_raw.py" = ["B023", "C901", "E731"]
 
 # BLE001 (1): Narrowing an existing broad catch changes fallback or boundary behaviour; review the boundary and logging separately.
 # C901 (1): Splitting an existing complex function changes code structure and needs its own behaviour review.
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_support/pipeline_dimensions.py" = ["BLE001", "C901", "I001"]
+"test_support/pipeline_dimensions.py" = ["BLE001", "C901"]
 
 # E402 (4): Moving an existing import changes module execution order; defer it to a separately reviewed import cleanup.
-# I001 (2): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
 # T201 (1): Existing CLI, script or diagnostic print output needs its own output/logging review; preserve its behaviour here.
-"test_support/reproduce-integration-findings.py" = ["E402", "I001", "T201"]
+"test_support/reproduce-integration-findings.py" = ["E402", "T201"]
 
 # N818 (1): Renaming an existing exception class changes its name and references; review exception API compatibility separately.
 # UP031 (2): Changing percent-string formatting rewrites expressions and can alter formatting behaviour; review it separately.
@@ -659,220 +446,111 @@ max-complexity = 15
 "test_support/router_contract/per_run/router_fence.py" = ["UP031"]
 
 # C901 (1): Splitting an existing complex function changes code structure and needs its own behaviour review.
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_support/two_sided_dimensions.py" = ["C901", "I001"]
+"test_support/two_sided_dimensions.py" = ["C901"]
 
 # BLE001 (1): Narrowing an existing broad catch changes fallback or boundary behaviour; review the boundary and logging separately.
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_telemetry.py" = ["BLE001", "I001"]
+"test_telemetry.py" = ["BLE001"]
 
 # C901 (1): Splitting an existing complex function changes code structure and needs its own behaviour review.
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"test_windows_workflow_coverage.py" = ["C901", "I001"]
-
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"tests_cli/test_cli_fix3.py" = ["I001"]
+"test_windows_workflow_coverage.py" = ["C901"]
 
 # B023 (2): Binding loop variables changes closure behaviour; preserve the AST and review each capture in a follow-up.
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"tests_cli/test_cli_fix4.py" = ["B023", "I001"]
+"tests_cli/test_cli_fix4.py" = ["B023"]
 
 # B023 (2): Binding loop variables changes closure behaviour; preserve the AST and review each capture in a follow-up.
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
 # UP031 (3): Changing percent-string formatting rewrites expressions and can alter formatting behaviour; review it separately.
-"tests_cli/test_cli_fix5.py" = ["B023", "I001", "UP031"]
+"tests_cli/test_cli_fix5.py" = ["B023", "UP031"]
 
 # B023 (3): Binding loop variables changes closure behaviour; preserve the AST and review each capture in a follow-up.
 # E731 (1): Replacing an assigned lambda with def changes the AST and callable metadata; defer it to a code cleanup.
 "tests_cli/test_cli_review.py" = ["B023", "E731"]
 
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"tests_cli/test_contract_adapter.py" = ["I001"]
-
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"tests_cli/test_control_failures.py" = ["I001"]
-
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"tests_cli/test_control_snapshot.py" = ["I001"]
-
 # N818 (1): Renaming an existing exception class changes its name and references; review exception API compatibility separately.
 "tests_cli/test_host_kind.py" = ["N818"]
 
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"tests_cli/test_peer_detail_privacy.py" = ["I001"]
-
 # B023 (3): Binding loop variables changes closure behaviour; preserve the AST and review each capture in a follow-up.
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"tests_cli/test_service_fix3.py" = ["B023", "I001"]
+"tests_cli/test_service_fix3.py" = ["B023"]
 
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"tests_cli/test_service_fix4.py" = ["I001"]
-
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
 # UP031 (1): Changing percent-string formatting rewrites expressions and can alter formatting behaviour; review it separately.
-"tests_cli/test_service_observation.py" = ["I001", "UP031"]
-
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"tests_cli/test_service_reinstall.py" = ["I001"]
+"tests_cli/test_service_observation.py" = ["UP031"]
 
 # B023 (13): Binding loop variables changes closure behaviour; preserve the AST and review each capture in a follow-up.
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"tests_cli/test_service_review.py" = ["B023", "I001"]
-
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"tests_cli/test_state_lock.py" = ["I001"]
+"tests_cli/test_service_review.py" = ["B023"]
 
 # BLE001 (4): Narrowing an existing broad catch changes fallback or boundary behaviour; review the boundary and logging separately.
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
 # T201 (1): Existing CLI, script or diagnostic print output needs its own output/logging review; preserve its behaviour here.
-"windows_probe.py" = ["BLE001", "I001", "T201"]
+"windows_probe.py" = ["BLE001", "T201"]
 
 # TODO(LOU-83): exact baseline for server.py, machine_state.py and windows/, which were ruff-excluded until LOU-83. Source bytes are unchanged; burn it down per rule.
-
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"machine_state.py" = ["I001"]
 
 # B904 (3): Adding exception chaining changes exception behaviour and tracebacks; review it outside the format-only lane.
 # BLE001 (16): Narrowing an existing broad catch changes fallback or boundary behaviour; review the boundary and logging separately.
 # C901 (6): Splitting an existing complex function changes code structure and needs its own behaviour review.
 # E731 (1): Replacing an assigned lambda with def changes the AST and callable metadata; defer it to a code cleanup.
-# I001 (3): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
 # T201 (4): Existing CLI, script or diagnostic print output needs its own output/logging review; preserve its behaviour here.
-"server.py" = ["B904", "BLE001", "C901", "E731", "I001", "T201"]
+"server.py" = ["B904", "BLE001", "C901", "E731", "T201"]
 
 # RUF100 (1): Unused noqa comments are removed separately; keep bytes stable in this lint-coverage change.
 "windows/agiw_observer.py" = ["RUF100"]
 
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"windows/agiw_win/buildinfo.py" = ["I001"]
-
 # B023 (1): Binding loop variables changes closure behaviour; preserve the AST and review each capture in a follow-up.
 # C901 (1): Splitting an existing complex function changes code structure and needs its own behaviour review.
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
 # UP037 (2): Unquoting annotations changes runtime annotation evaluation on Python 3.9; review it separately.
-"windows/agiw_win/collect.py" = ["B023", "C901", "I001", "UP037"]
+"windows/agiw_win/collect.py" = ["B023", "C901", "UP037"]
 
 # C901 (1): Splitting an existing complex function changes code structure and needs its own behaviour review.
 # E402 (5): Moving a late import may change module execution order; review it separately.
-# I001 (2): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
 # N818 (1): Renaming an existing exception class changes its name and references; review exception API compatibility separately.
 # RUF100 (3): Unused noqa comments are removed separately; keep bytes stable in this lint-coverage change.
 # T201 (11): Existing CLI, script or diagnostic print output needs its own output/logging review; preserve its behaviour here.
-"windows/agiw_win/server.py" = ["C901", "E402", "I001", "N818", "RUF100", "T201"]
+"windows/agiw_win/server.py" = ["C901", "E402", "N818", "RUF100", "T201"]
 
-# I001 (2): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"windows/agiw_win/winsys.py" = ["I001"]
-
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"windows/tests/install_helpers.py" = ["I001"]
-
-# I001 (2): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
 # T201 (1): Existing CLI, script or diagnostic print output needs its own output/logging review; preserve its behaviour here.
-"windows/tests/mutate_fix2.py" = ["I001", "T201"]
+"windows/tests/mutate_fix2.py" = ["T201"]
 
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
 # T201 (1): Existing CLI, script or diagnostic print output needs its own output/logging review; preserve its behaviour here.
-"windows/tests/mutate_install_cleanup.py" = ["I001", "T201"]
+"windows/tests/mutate_install_cleanup.py" = ["T201"]
 
 # I001 (3): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
 # RUF100 (1): Unused noqa comments are removed separately; keep bytes stable in this lint-coverage change.
 "windows/tests/test_build_and_feed.py" = ["I001", "RUF100"]
 
-# I001 (2): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
 # RUF100 (2): Unused noqa comments are removed separately; keep bytes stable in this lint-coverage change.
-"windows/tests/test_collector_safety.py" = ["I001", "RUF100"]
-
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"windows/tests/test_command_resolution_static.py" = ["I001"]
-
-# I001 (2): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"windows/tests/test_eci_dataset.py" = ["I001"]
-
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"windows/tests/test_fix2_installer_fixtures.py" = ["I001"]
-
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"windows/tests/test_fix3_enrollment.py" = ["I001"]
-
-# I001 (2): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"windows/tests/test_fix3_unknown.py" = ["I001"]
-
-# I001 (2): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"windows/tests/test_fix7_integration.py" = ["I001"]
-
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"windows/tests/test_fix7_native_enrollment.py" = ["I001"]
+"windows/tests/test_collector_safety.py" = ["RUF100"]
 
 # E731 (2): Replacing an assigned lambda with def changes the AST and callable metadata; defer it to a code cleanup.
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"windows/tests/test_fix7_probes.py" = ["E731", "I001"]
-
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"windows/tests/test_fix8_regressions.py" = ["I001"]
-
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"windows/tests/test_fix9_probes.py" = ["I001"]
+"windows/tests/test_fix7_probes.py" = ["E731"]
 
 # B023 (2): Binding loop variables changes closure behaviour; preserve the AST and review each capture in a follow-up.
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"windows/tests/test_gpu_lifecycle.py" = ["B023", "I001"]
-
-# I001 (2): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"windows/tests/test_inference_expiry.py" = ["I001"]
+"windows/tests/test_gpu_lifecycle.py" = ["B023"]
 
 # B023 (1): Binding loop variables changes closure behaviour; preserve the AST and review each capture in a follow-up.
 # E731 (3): Replacing an assigned lambda with def changes the AST and callable metadata; defer it to a code cleanup.
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"windows/tests/test_install.py" = ["B023", "E731", "I001"]
+"windows/tests/test_install.py" = ["B023", "E731"]
 
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
 # N802 (1): Renaming an existing function changes its public name; review API compatibility separately.
 # N805 (1): Renaming a method's first argument changes code; review it separately.
-"windows/tests/test_install_cleanup.py" = ["I001", "N802", "N805"]
-
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"windows/tests/test_install_regressions.py" = ["I001"]
+"windows/tests/test_install_cleanup.py" = ["N802", "N805"]
 
 # B023 (2): Binding loop variables changes closure behaviour; preserve the AST and review each capture in a follow-up.
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"windows/tests/test_integration_fix2.py" = ["B023", "I001"]
+"windows/tests/test_integration_fix2.py" = ["B023"]
 
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"windows/tests/test_json_depth.py" = ["I001"]
-
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
 # RUF100 (2): Unused noqa comments are removed separately; keep bytes stable in this lint-coverage change.
-"windows/tests/test_lane_attribution.py" = ["I001", "RUF100"]
+"windows/tests/test_lane_attribution.py" = ["RUF100"]
 
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"windows/tests/test_lane_config_uniqueness.py" = ["I001"]
-
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
 # RUF100 (3): Unused noqa comments are removed separately; keep bytes stable in this lint-coverage change.
-"windows/tests/test_mac_peer.py" = ["I001", "RUF100"]
+"windows/tests/test_mac_peer.py" = ["RUF100"]
 
 # B023 (4): Binding loop variables changes closure behaviour; preserve the AST and review each capture in a follow-up.
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
 # RUF100 (2): Unused noqa comments are removed separately; keep bytes stable in this lint-coverage change.
-"windows/tests/test_memory_parity.py" = ["B023", "I001", "RUF100"]
+"windows/tests/test_memory_parity.py" = ["B023", "RUF100"]
 
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"windows/tests/test_package_runtime.py" = ["I001"]
-
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
 # RUF100 (2): Unused noqa comments are removed separately; keep bytes stable in this lint-coverage change.
-"windows/tests/test_pair_hands_off.py" = ["I001", "RUF100"]
-
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"windows/tests/test_passive_readiness.py" = ["I001"]
-
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"windows/tests/test_peer_link_composition.py" = ["I001"]
+"windows/tests/test_pair_hands_off.py" = ["RUF100"]
 
 # B023 (1): Binding loop variables changes closure behaviour; preserve the AST and review each capture in a follow-up.
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
 # RUF100 (1): Unused noqa comments are removed separately; keep bytes stable in this lint-coverage change.
-"windows/tests/test_peer_link_reader.py" = ["B023", "I001", "RUF100"]
+"windows/tests/test_peer_link_reader.py" = ["B023", "RUF100"]
 
 # E741 (2): Renaming an ambiguous variable changes code; defer it to a reviewed cleanup.
 # RUF100 (1): Unused noqa comments are removed separately; keep bytes stable in this lint-coverage change.
@@ -891,13 +569,10 @@ max-complexity = 15
 "windows/tests/test_server.py" = ["B007", "B023", "E741", "RUF100"]
 
 # B023 (1): Binding loop variables changes closure behaviour; preserve the AST and review each capture in a follow-up.
-# I001 (2): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"windows/tests/test_sol_review_regressions.py" = ["B023", "I001"]
+"windows/tests/test_sol_review_regressions.py" = ["B023"]
 
 # C901 (1): Splitting an existing complex function changes code structure and needs its own behaviour review.
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
-"windows/tests/test_tray.py" = ["C901", "I001"]
+"windows/tests/test_tray.py" = ["C901"]
 
-# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
 # RUF100 (1): Unused noqa comments are removed separately; keep bytes stable in this lint-coverage change.
-"windows/tests/test_winsys.py" = ["I001", "RUF100"]
+"windows/tests/test_winsys.py" = ["RUF100"]

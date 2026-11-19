@@ -2,12 +2,12 @@
 
 import json
 import os
-from pathlib import Path
 import platform
 import shutil
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 
 
 @unittest.skipUnless(platform.system() == "Darwin" and shutil.which("xcrun"), "Requires macOS Swift toolchain")
@@ -117,9 +117,9 @@ print(String(data: try JSONSerialization.data(withJSONObject: [
         return json.loads(result.stdout)
 
     def test_startup_keeps_monitor_page_and_polls_served_snapshot(self):
+        from server import SnapshotStore
         from test_review_regressions import handler
         from test_server import snapshot
-        from server import SnapshotStore
 
         result = self.run_poll(200)
         store = SnapshotStore()

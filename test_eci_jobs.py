@@ -3,13 +3,13 @@
 import ast
 import copy
 import hashlib
-from datetime import datetime, timedelta, timezone
 import json
 import os
-from pathlib import Path
 import tempfile
 import threading
 import unittest
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from unittest import mock
 
 import eci_fast_check as fast

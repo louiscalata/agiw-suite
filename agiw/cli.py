@@ -8,21 +8,20 @@ signed but not encrypted, and v1.1.0 dispatches no jobs: it only discovers, pair
 from __future__ import annotations
 
 import argparse
-from contextlib import contextmanager
 import getpass
 import http.client
 import json
 import os
 import re
+import socket
 import stat
 import subprocess
 import sys
-import socket
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Callable, List, Optional, Sequence
 
 import peer_link as pl
-
 from agiw import __version__
 from agiw import doctor as doctor_mod
 from agiw.contract import CONTRACT, status_document

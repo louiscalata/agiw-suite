@@ -3,7 +3,6 @@ import fcntl
 import hashlib
 import json
 import os
-from pathlib import Path
 import runpy
 import signal
 import subprocess
@@ -12,6 +11,7 @@ import tempfile
 import threading
 import time
 import unittest
+from pathlib import Path
 from unittest import mock
 
 import telemetry

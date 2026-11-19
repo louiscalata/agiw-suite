@@ -1123,8 +1123,9 @@ class SamplerWiring(unittest.TestCase):
             return {"level": "ok", "availablePercent": 50}, {"id": "mem-guard", "state": "live"}
 
     def run_sampler(self, publisher):
-        import server
         from contextlib import ExitStack
+
+        import server
         from test_server import isolate_sampler_configs
 
         store = server.SnapshotStore()

@@ -1,13 +1,14 @@
 """Native Windows enrollment boundary tests using synthetic files inside this checkout only."""
 import json
 import os
-from pathlib import Path
 import subprocess
 import unittest
-from unittest import mock
 import uuid
+from pathlib import Path
+from unittest import mock
 
 from agiw_win import winsys
+
 from tests.install_helpers import remove_tree
 
 

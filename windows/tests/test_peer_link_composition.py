@@ -4,7 +4,6 @@ Set AGIW_PEER_LINK_PROPOSAL_DIR to a checkout of the published peer-link
 proposal. Its native test guard is imported only in a fresh child process.
 """
 import os
-from pathlib import Path
 import re
 import shutil
 import subprocess
@@ -13,7 +12,7 @@ import tempfile
 import textwrap
 import unittest
 import uuid
-
+from pathlib import Path
 
 _TEST_KEY_PARENT = r"Software\AGIW-test"
 _OWNED_KEY = re.compile(r"Software\\AGIW-test\\[0-9a-f]{32}\Z")

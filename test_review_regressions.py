@@ -108,7 +108,8 @@ class ReviewRegressions(unittest.TestCase):
 
     def test_sampler_reconciles_only_fresh_positive_settlement(self):
         from contextlib import ExitStack
-        from model_control import ModelControl, ControlError
+
+        from model_control import ControlError, ModelControl
         from test_model_control import inventory
         from test_server import MemoryGuardSampleTest
 

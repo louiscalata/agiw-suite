@@ -1,9 +1,9 @@
 """JSON depth bounds do not depend on the interpreter's parser recursion limit."""
 import json
-from pathlib import Path
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))

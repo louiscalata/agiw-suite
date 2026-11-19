@@ -1,11 +1,11 @@
 """Pass 9 dimensions: real bounded journal I/O, clocks, caps, identities and UI evidence."""
 
 import copy
-import itertools
 import errno
+import itertools
 import json
-from pathlib import Path
 import tempfile
+from pathlib import Path
 from unittest import mock
 
 import online_code_repair

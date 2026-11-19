@@ -6,8 +6,8 @@ this module does not store them.
 
 from __future__ import annotations
 
-import math
 import datetime as dt
+import math
 
 from machine_state import finite_number as _finite
 

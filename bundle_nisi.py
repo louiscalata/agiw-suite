@@ -1,14 +1,15 @@
 """Verify and copy the exact public Nisi 0.3.2 release, entirely offline."""
 
 from __future__ import annotations
+
 import argparse
 import hashlib
 import json
 import os
-from pathlib import Path
 import shutil
 import stat
 import tempfile
+from pathlib import Path
 
 SOURCE = Path(__file__).resolve().parent / "vendor" / "nisi"
 MANIFEST_SHA256 = "53940edc65d014c163bf5e34c8243835cd3c068f860e25b5e814a20fe6aafb87"

@@ -11,10 +11,11 @@ import json
 from pathlib import Path
 from unittest import mock
 
+from fix10_dimensions import scenario
+
 import activity
 import telemetry
 from live_feed import LiveFeed
-from fix10_dimensions import scenario
 
 NOW = 1_800_000_000.0
 

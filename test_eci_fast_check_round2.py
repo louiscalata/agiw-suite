@@ -1,8 +1,9 @@
 """Round-two offline regressions; evidence is synthetic and no runtime is called."""
 
-from fractions import Fraction
 import math
 import unittest
+from fractions import Fraction
+
 import eci_fast_check as f
 
 

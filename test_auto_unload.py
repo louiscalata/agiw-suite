@@ -7,11 +7,11 @@ nothing here touches LM Studio, the real config, the real journal or the real lo
 import errno
 import json
 import os
-from pathlib import Path
 import stat
 import tempfile
 import threading
 import unittest
+from pathlib import Path
 from unittest import mock
 
 import auto_unload as au

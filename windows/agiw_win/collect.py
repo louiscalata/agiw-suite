@@ -1,18 +1,15 @@
 """Assemble one Windows snapshot in the dashboard's schema (``host: "windows"``)."""
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
 import datetime as dt
 import inspect
-from pathlib import Path
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from typing import Any, Callable
 
-from . import VERSION
-from . import buildinfo
-from . import probes
-from . import winsys
+from . import VERSION, buildinfo, probes, winsys
 
 WORKER_VERSION = f"win-{VERSION}"  # matches the dashboard's worker-version pattern (<=16 chars)
 # Inclusive deadlines: slot activity/capacity lasts 5 s; inventory/health lasts

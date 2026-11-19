@@ -3,10 +3,11 @@
 import itertools
 from pathlib import Path
 
-import activity
 from agiw_win import collect, probes
 from fix10_dimensions import scenario
-from fix11_dimensions import route_projection, replace_source
+from fix11_dimensions import replace_source, route_projection
+
+import activity
 
 NOW = 1_800_000_000.0
 
