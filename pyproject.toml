@@ -43,10 +43,6 @@ target-version = "py39"
 # Keep this lane in the Python source tree. Windows has a separate edition; the Nisi bundle is pinned.
 # Build/generated trees and historical evidence copies retain their original bytes.
 extend-exclude = [
-    # Exact source-layout assertions in test_setup_page.mjs, test_machines_page.mjs and test_peer_map.mjs.
-    "server.py",
-    "machine_state.py",
-    "windows",
     "vendor",
     "android",
     "jaryo",
@@ -67,6 +63,10 @@ respect-gitignore = false
 include = ["*.py"]
 
 [tool.ruff.format]
+# Linted, but not reformatted yet (LOU-83). server.py and machine_state.py keep exact source-layout assertions in
+# test_setup_page.mjs, test_machines_page.mjs and test_peer_map.mjs (single-quoted route tables, frozenset literal).
+# TODO(LOU-83): reformat windows/ in its own reviewed pull request; it is a separate edition with its own CI.
+exclude = ["server.py", "machine_state.py", "windows/**"]
 quote-style = "double"
 indent-style = "space"
 skip-magic-trailing-comma = false
@@ -727,3 +727,178 @@ max-complexity = 15
 # I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
 # T201 (1): Existing CLI, script or diagnostic print output needs its own output/logging review; preserve its behaviour here.
 "windows_probe.py" = ["BLE001", "I001", "T201"]
+
+# TODO(LOU-83): exact baseline for server.py, machine_state.py and windows/, which were ruff-excluded until LOU-83. Source bytes are unchanged; burn it down per rule.
+
+# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
+"machine_state.py" = ["I001"]
+
+# B904 (3): Adding exception chaining changes exception behaviour and tracebacks; review it outside the format-only lane.
+# BLE001 (16): Narrowing an existing broad catch changes fallback or boundary behaviour; review the boundary and logging separately.
+# C901 (6): Splitting an existing complex function changes code structure and needs its own behaviour review.
+# E731 (1): Replacing an assigned lambda with def changes the AST and callable metadata; defer it to a code cleanup.
+# I001 (3): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
+# T201 (4): Existing CLI, script or diagnostic print output needs its own output/logging review; preserve its behaviour here.
+"server.py" = ["B904", "BLE001", "C901", "E731", "I001", "T201"]
+
+# RUF100 (1): Unused noqa comments are removed separately; keep bytes stable in this lint-coverage change.
+"windows/agiw_observer.py" = ["RUF100"]
+
+# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
+"windows/agiw_win/buildinfo.py" = ["I001"]
+
+# B023 (1): Binding loop variables changes closure behaviour; preserve the AST and review each capture in a follow-up.
+# C901 (1): Splitting an existing complex function changes code structure and needs its own behaviour review.
+# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
+# UP037 (2): Unquoting annotations changes runtime annotation evaluation on Python 3.9; review it separately.
+"windows/agiw_win/collect.py" = ["B023", "C901", "I001", "UP037"]
+
+# C901 (1): Splitting an existing complex function changes code structure and needs its own behaviour review.
+# E402 (5): Moving a late import may change module execution order; review it separately.
+# I001 (2): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
+# N818 (1): Renaming an existing exception class changes its name and references; review exception API compatibility separately.
+# RUF100 (3): Unused noqa comments are removed separately; keep bytes stable in this lint-coverage change.
+# T201 (11): Existing CLI, script or diagnostic print output needs its own output/logging review; preserve its behaviour here.
+"windows/agiw_win/server.py" = ["C901", "E402", "I001", "N818", "RUF100", "T201"]
+
+# I001 (2): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
+"windows/agiw_win/winsys.py" = ["I001"]
+
+# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
+"windows/tests/install_helpers.py" = ["I001"]
+
+# I001 (2): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
+# T201 (1): Existing CLI, script or diagnostic print output needs its own output/logging review; preserve its behaviour here.
+"windows/tests/mutate_fix2.py" = ["I001", "T201"]
+
+# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
+# T201 (1): Existing CLI, script or diagnostic print output needs its own output/logging review; preserve its behaviour here.
+"windows/tests/mutate_install_cleanup.py" = ["I001", "T201"]
+
+# I001 (3): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
+# RUF100 (1): Unused noqa comments are removed separately; keep bytes stable in this lint-coverage change.
+"windows/tests/test_build_and_feed.py" = ["I001", "RUF100"]
+
+# I001 (2): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
+# RUF100 (2): Unused noqa comments are removed separately; keep bytes stable in this lint-coverage change.
+"windows/tests/test_collector_safety.py" = ["I001", "RUF100"]
+
+# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
+"windows/tests/test_command_resolution_static.py" = ["I001"]
+
+# I001 (2): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
+"windows/tests/test_eci_dataset.py" = ["I001"]
+
+# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
+"windows/tests/test_fix2_installer_fixtures.py" = ["I001"]
+
+# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
+"windows/tests/test_fix3_enrollment.py" = ["I001"]
+
+# I001 (2): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
+"windows/tests/test_fix3_unknown.py" = ["I001"]
+
+# I001 (2): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
+"windows/tests/test_fix7_integration.py" = ["I001"]
+
+# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
+"windows/tests/test_fix7_native_enrollment.py" = ["I001"]
+
+# E731 (2): Replacing an assigned lambda with def changes the AST and callable metadata; defer it to a code cleanup.
+# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
+"windows/tests/test_fix7_probes.py" = ["E731", "I001"]
+
+# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
+"windows/tests/test_fix8_regressions.py" = ["I001"]
+
+# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
+"windows/tests/test_fix9_probes.py" = ["I001"]
+
+# B023 (2): Binding loop variables changes closure behaviour; preserve the AST and review each capture in a follow-up.
+# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
+"windows/tests/test_gpu_lifecycle.py" = ["B023", "I001"]
+
+# I001 (2): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
+"windows/tests/test_inference_expiry.py" = ["I001"]
+
+# B023 (1): Binding loop variables changes closure behaviour; preserve the AST and review each capture in a follow-up.
+# E731 (3): Replacing an assigned lambda with def changes the AST and callable metadata; defer it to a code cleanup.
+# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
+"windows/tests/test_install.py" = ["B023", "E731", "I001"]
+
+# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
+# N802 (1): Renaming an existing function changes its public name; review API compatibility separately.
+# N805 (1): Renaming a method's first argument changes code; review it separately.
+"windows/tests/test_install_cleanup.py" = ["I001", "N802", "N805"]
+
+# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
+"windows/tests/test_install_regressions.py" = ["I001"]
+
+# B023 (2): Binding loop variables changes closure behaviour; preserve the AST and review each capture in a follow-up.
+# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
+"windows/tests/test_integration_fix2.py" = ["B023", "I001"]
+
+# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
+"windows/tests/test_json_depth.py" = ["I001"]
+
+# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
+# RUF100 (2): Unused noqa comments are removed separately; keep bytes stable in this lint-coverage change.
+"windows/tests/test_lane_attribution.py" = ["I001", "RUF100"]
+
+# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
+"windows/tests/test_lane_config_uniqueness.py" = ["I001"]
+
+# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
+# RUF100 (3): Unused noqa comments are removed separately; keep bytes stable in this lint-coverage change.
+"windows/tests/test_mac_peer.py" = ["I001", "RUF100"]
+
+# B023 (4): Binding loop variables changes closure behaviour; preserve the AST and review each capture in a follow-up.
+# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
+# RUF100 (2): Unused noqa comments are removed separately; keep bytes stable in this lint-coverage change.
+"windows/tests/test_memory_parity.py" = ["B023", "I001", "RUF100"]
+
+# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
+"windows/tests/test_package_runtime.py" = ["I001"]
+
+# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
+# RUF100 (2): Unused noqa comments are removed separately; keep bytes stable in this lint-coverage change.
+"windows/tests/test_pair_hands_off.py" = ["I001", "RUF100"]
+
+# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
+"windows/tests/test_passive_readiness.py" = ["I001"]
+
+# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
+"windows/tests/test_peer_link_composition.py" = ["I001"]
+
+# B023 (1): Binding loop variables changes closure behaviour; preserve the AST and review each capture in a follow-up.
+# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
+# RUF100 (1): Unused noqa comments are removed separately; keep bytes stable in this lint-coverage change.
+"windows/tests/test_peer_link_reader.py" = ["B023", "I001", "RUF100"]
+
+# E741 (2): Renaming an ambiguous variable changes code; defer it to a reviewed cleanup.
+# RUF100 (1): Unused noqa comments are removed separately; keep bytes stable in this lint-coverage change.
+"windows/tests/test_probes.py" = ["E741", "RUF100"]
+
+# RUF100 (3): Unused noqa comments are removed separately; keep bytes stable in this lint-coverage change.
+"windows/tests/test_review_regressions.py" = ["RUF100"]
+
+# T201 (1): Existing CLI, script or diagnostic print output needs its own output/logging review; preserve its behaviour here.
+"windows/tests/test_run_evidence.py" = ["T201"]
+
+# B007 (1): Renaming an unused loop variable changes code; defer it to a reviewed cleanup.
+# B023 (3): Binding loop variables changes closure behaviour; preserve the AST and review each capture in a follow-up.
+# E741 (4): Renaming an ambiguous variable changes code; defer it to a reviewed cleanup.
+# RUF100 (4): Unused noqa comments are removed separately; keep bytes stable in this lint-coverage change.
+"windows/tests/test_server.py" = ["B007", "B023", "E741", "RUF100"]
+
+# B023 (1): Binding loop variables changes closure behaviour; preserve the AST and review each capture in a follow-up.
+# I001 (2): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
+"windows/tests/test_sol_review_regressions.py" = ["B023", "I001"]
+
+# C901 (1): Splitting an existing complex function changes code structure and needs its own behaviour review.
+# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
+"windows/tests/test_tray.py" = ["C901", "I001"]
+
+# I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
+# RUF100 (1): Unused noqa comments are removed separately; keep bytes stable in this lint-coverage change.
+"windows/tests/test_winsys.py" = ["I001", "RUF100"]
