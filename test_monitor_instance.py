@@ -142,7 +142,10 @@ queued?()
 check(selfExits == 1 && cancellations == 3, "queued callback after teardown cannot exit")
 print("PASS \(checks) production policy/lifecycle assertions")
 """
-        environment = dict(os.environ, DEVELOPER_DIR="/Applications/Xcode.app/Contents/Developer")
+        environment = os.environ
+        xcode_developer_dir = "/Applications/Xcode.app/Contents/Developer"
+        if "DEVELOPER_DIR" not in environment and os.path.isdir(xcode_developer_dir):
+            environment = dict(environment, DEVELOPER_DIR=xcode_developer_dir)
         with tempfile.TemporaryDirectory(prefix="agiw-monitor-instance-") as directory:
             stage = Path(directory)
             swift = stage / "main.swift"
