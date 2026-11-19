@@ -1,7 +1,10 @@
 """Send reviewed project code or specs to the Codex Free Pool.
 
-The source label is a caller attestation, not provenance detection. The content
-filter is a backstop, not a substitute for reviewing files before submission.
+Calls go through free_pool_call.py so its budget ceiling, credit-exhausted
+fail-closed path, and model routing apply. This module never calls the
+Responses API directly and never stores a key. The source label is a caller
+attestation, not provenance detection. The content filter is a backstop, not a
+substitute for reviewing files before submission.
 """
 
 import argparse
@@ -9,21 +12,35 @@ import hashlib
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
+import tempfile
 from fnmatch import fnmatchcase
 from pathlib import Path
-from urllib import error
-from urllib import request as http
 
-from .fleet_routing_plan import POOL_MODELS
-
-MODELS = POOL_MODELS
 ALLOWED_PROJECTS = {"nisi", "jaryo", "opos", "agiw-suite"}
 REFUSED_SOURCES = {"linear", "notion", "granola"}
-ENDPOINT = "https://api.openai.com/v1/responses"
+# general/mini request the official 10M mini so small jobs stay off the Sol bucket.
+# hard requests Astra and is invoked with --hard. The script may still reroute.
+MODELS = {"general": "gpt-5.4-mini", "mini": "gpt-5.4-mini", "hard": "gpt-6.2-astra"}
+CALL_ENV = "AGIW_FREE_POOL_CALL"
 MAX_CHARS = 400_000
-MAX_RESPONSE_BYTES = 4 * 1024 * 1024
-MAX_OUTPUT_TOKENS = 4096
+MAX_OUTPUT_TOKENS = 400
+EXIT_CREDIT = 9
+EXIT_BUDGET = 10
+EXIT_TIMEOUT = 11
+EXIT_CODES = {
+    2: "KEY_REFUSED",
+    4: "HTTP_REFUSED",
+    5: "RESPONSE_INVALID",
+    6: "MODEL_REFUSED",
+    7: "PAYER_REFUSED",
+    8: "CONTENT_GATE_REFUSED",
+    EXIT_CREDIT: "CREDIT_EXHAUSTED",
+    EXIT_BUDGET: "BUDGET_REFUSED",
+    EXIT_TIMEOUT: "CLIENT_TIMEOUT",
+}
 
 _SECRET_FILES = (
     ".env",
@@ -170,97 +187,110 @@ def _sha256(text):
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def _env_key(env_file):
-    if env_file is None:
-        return os.environ.get("OPENAI_API_KEY")
-    key = None
-    with Path(env_file).open(encoding="utf-8") as stream:
-        for line in stream:
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            match = _ENV_ASSIGNMENT.fullmatch(line)
-            if match is None:
-                raise PoolRefused("KEY_REFUSED")
-            if match[1] == "OPENAI_API_KEY":
-                if key is not None:
-                    raise PoolRefused("KEY_REFUSED")
-                key = match[2].strip()
-                if len(key) >= 2 and key[0] in "\"'" and key[-1] == key[0]:
-                    key = key[1:-1]
-    return key
+def resolve_free_pool_call(configured=None, env=None):
+    """Return an explicit or PATH-resolved free_pool_call.py path, or None."""
+    environ = os.environ if env is None else env
+    value = configured if configured is not None else environ.get(CALL_ENV)
+    if isinstance(value, str) and value.strip():
+        path = os.path.abspath(os.path.expanduser(value.strip()))
+        return path if os.path.isfile(path) else None
+    found = shutil.which("free_pool_call.py") or shutil.which("free_pool_call")
+    return os.path.abspath(found) if found else None
 
 
-class _NoRedirect(http.HTTPRedirectHandler):
-    def redirect_request(self, *args):
-        return None  # urllib raises HTTPError rather than issuing another request
+def _command(script):
+    if script.lower().endswith(".py"):
+        return [sys.executable, script]
+    return [script]
 
 
-def _http_code(status):
-    if type(status) is int and 300 <= status < 400:
-        return "REDIRECT_REFUSED"
-    return "HTTP_REFUSED"
+def _child_env(workdir=None, env_file=None, environ=None):
+    """Minimal child environment: no extra host secrets, no key on the argv.
+
+    OPENAI_API_KEY is forwarded only when already present (operator sourced the
+    env file). Otherwise the script reads CODEX_API_FREE_POOL_ENV or its default path.
+    """
+    host = os.environ if environ is None else environ
+    env = {"PATH": host.get("PATH", "")}
+    if host.get("HOME"):
+        env["HOME"] = host["HOME"]
+    if env_file is not None:
+        env["CODEX_API_FREE_POOL_ENV"] = str(env_file)
+    if host.get("OPENAI_API_KEY"):
+        env["OPENAI_API_KEY"] = host["OPENAI_API_KEY"]
+    if os.name == "nt":
+        root = host.get("SYSTEMROOT") or r"C:\Windows"
+        env["SYSTEMROOT"] = root
+        env["WINDIR"] = host.get("WINDIR") or root
+        if workdir:
+            env["TEMP"] = workdir
+            env["TMP"] = workdir
+            if host.get("USERPROFILE"):
+                env["USERPROFILE"] = host["USERPROFILE"]
+        for key in ("COMSPEC", "PATHEXT"):
+            if key in host:
+                env[key] = host[key]
+    elif workdir:
+        env["TMPDIR"] = workdir
+    elif "TMPDIR" in host:
+        env["TMPDIR"] = host["TMPDIR"]
+    return env
+
+
+def _write_prompt(workdir, text):
+    path = os.path.join(workdir, "prompt.txt")
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8", newline="") as handle:
+        handle.write(text)
+    return path
+
+
+def _cleanup(workdir):
+    def retry(func, path, _exc):
+        try:
+            os.chmod(path, 0o700)
+        except OSError:
+            pass
+        try:
+            func(path)
+        except OSError:
+            pass
+
+    if sys.version_info >= (3, 12):
+        shutil.rmtree(workdir, onexc=lambda func, path, exc: retry(func, path, exc))
+    else:
+        shutil.rmtree(workdir, onerror=retry)
+
+
+def _json_object(stdout):
+    text = (stdout or "").strip()
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    candidates = [text] + ([lines[-1], lines[0]] if lines else [])
+    for candidate in candidates:
+        try:
+            data = json.loads(candidate, object_pairs_hook=_unique_object, parse_constant=_reject_constant)
+        except (TypeError, ValueError):
+            continue
+        if isinstance(data, dict):
+            return data
+    return None
 
 
 def _unique_object(pairs):
     obj = dict(pairs)
     if len(obj) != len(pairs):
-        raise PoolRefused("RESPONSE_INVALID")
+        raise ValueError("duplicate")
     return obj
 
 
 def _reject_constant(_value):
-    raise PoolRefused("RESPONSE_INVALID")
+    raise ValueError("nonfinite")
 
 
-def _read_response(opener, req, timeout_s):
-    try:
-        with opener.open(req, timeout=timeout_s) as response:
-            status = response.status
-            raw = response.read(MAX_RESPONSE_BYTES + 1) if type(status) is int and status == 200 else None
-    except error.HTTPError as exc:
-        try:
-            exc.close()
-        finally:
-            raise PoolRefused(_http_code(exc.code)) from None
-    except Exception:  # noqa: BLE001 - transport failures may echo request headers or body
-        raise PoolRefused("TRANSPORT_REFUSED") from None
-    if type(status) is not int or status != 200:
-        raise PoolRefused(_http_code(status))
-    if not isinstance(raw, bytes):
+def _token(value, pattern=r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}"):
+    if not isinstance(value, str) or not re.fullmatch(pattern, value):
         raise PoolRefused("RESPONSE_INVALID")
-    if len(raw) > MAX_RESPONSE_BYTES:
-        raise PoolRefused("RESPONSE_SIZE_REFUSED")
-    try:
-        return json.loads(raw, object_pairs_hook=_unique_object, parse_constant=_reject_constant)
-    except (ValueError, RecursionError):
-        raise PoolRefused("RESPONSE_INVALID") from None
-
-
-def _output_text(output):
-    if not isinstance(output, list):
-        raise PoolRefused("RESPONSE_INVALID")
-    texts = []
-    for item in output:
-        if not isinstance(item, dict):
-            raise PoolRefused("RESPONSE_INVALID")
-        if item.get("type") == "reasoning":
-            continue
-        content = item.get("content")
-        if item.get("type") != "message" or item.get("role") != "assistant" or not isinstance(content, list):
-            raise PoolRefused("RESPONSE_INVALID")
-        for part in content:
-            if not isinstance(part, dict) or part.get("type") != "output_text" or not isinstance(part.get("text"), str):
-                raise PoolRefused("RESPONSE_INVALID")
-            texts.append(part["text"])
-    text = "".join(texts)
-    if not text.strip():
-        raise PoolRefused("RESPONSE_INVALID")
-    try:
-        text.encode("utf-8")
-    except UnicodeError:
-        raise PoolRefused("RESPONSE_INVALID") from None
-    return text
+    return value
 
 
 def _usage_counts(usage, fields):
@@ -272,50 +302,92 @@ def _usage_counts(usage, fields):
     return counts
 
 
-def _response_fields(data, key):
-    if not isinstance(data, dict) or data.get("status") != "completed" or data.get("error") is not None:
+def _script_fields(data):
+    if not isinstance(data, dict):
         raise PoolRefused("RESPONSE_INVALID")
-    model, response_id = data.get("model"), data.get("id")
-    for value in (model, response_id):
-        if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}", value):
-            raise PoolRefused("RESPONSE_INVALID")
-    text = _output_text(data.get("output"))
-    if any(key in value or _contains_secret(value) for value in (model, response_id, text)):
+    text = data.get("output_text")
+    if not isinstance(text, str) or not text.strip():
+        raise PoolRefused("RESPONSE_INVALID")
+    try:
+        text.encode("utf-8")
+    except UnicodeError:
+        raise PoolRefused("RESPONSE_INVALID") from None
+    served = data.get("model") or data.get("model_served")
+    response_id = data.get("response_id") or data.get("id")
+    served = _token(served)
+    response_id = _token(response_id)
+    if any(_contains_secret(value) for value in (served, response_id, text)):
         raise PoolRefused("SECRET_VALUE_REFUSED")
     usage = data.get("usage")
     counts = _usage_counts(usage, ("input_tokens", "output_tokens", "total_tokens"))
     for field, detail in (("input_tokens_details", "cached_tokens"), ("output_tokens_details", "reasoning_tokens")):
-        if field in usage:
+        if isinstance(usage, dict) and field in usage:
             counts[field] = _usage_counts(usage[field], (detail,))
-    return {"model_served": model, "response_id": response_id, "output_text": text, "usage": counts}
+    result = {"model_served": served, "response_id": response_id, "output_text": text, "usage": counts}
+    billing = data.get("billing") if isinstance(data.get("billing"), dict) else {}
+    payer = data.get("payer", billing.get("payer"))
+    if payer is not None:
+        result["payer"] = _token(payer, r"[A-Za-z0-9][A-Za-z0-9._-]{0,32}")
+    return result
+
+
+def _map_exit(code):
+    return EXIT_CODES.get(code, "CALLER_REFUSED")
 
 
 class FreePoolLane:
-    def __init__(self, api_key_source=None, opener=None, timeout_s=300, *, env_file=None):
-        self.api_key_source = api_key_source
+    def __init__(self, api_key_source=None, opener=None, timeout_s=300, *, env_file=None, free_pool_call=None):
+        # api_key_source and opener are accepted for call-compatibility but unused:
+        # the official caller is free_pool_call.py, which loads the key itself.
         self.env_file = env_file
-        self.opener = opener if opener is not None else http.build_opener(http.ProxyHandler({}), _NoRedirect())
+        self.free_pool_call = free_pool_call
         self.timeout_s = timeout_s
 
-    def _api_key(self):
+    def _invoke(self, script, body, request, model):
+        workdir = tempfile.mkdtemp(prefix="agiw-pool-")
         try:
-            key = _env_key(self.env_file) if self.api_key_source is None else self.api_key_source()
-        except Exception:  # noqa: BLE001 - credential providers can raise with secret-bearing messages
-            raise PoolRefused("KEY_REFUSED") from None
-        if not isinstance(key, str) or not _KEY_FORMAT.fullmatch(key):
-            raise PoolRefused("KEY_REFUSED")
-        return key
-
-    def _send(self, body, model, key):
-        payload = {"model": model, "input": body, "max_output_tokens": MAX_OUTPUT_TOKENS, "store": False}
-        req = http.Request(
-            ENDPOINT,
-            data=json.dumps(payload).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        req.add_unredirected_header("Authorization", f"Bearer {key}")
-        return _read_response(self.opener, req, self.timeout_s)
+            prompt_path = _write_prompt(workdir, body)
+            args = _command(script) + [
+                prompt_path,
+                "--model",
+                model,
+                "--project",
+                request["project"],
+                "--source",
+                request["source"],
+                "--private",
+                "--timeout",
+                str(self.timeout_s),
+                "--max-output",
+                str(MAX_OUTPUT_TOKENS),
+            ]
+            if request["tier"] == "hard":
+                args.append("--hard")
+            try:
+                proc = subprocess.run(
+                    args,
+                    cwd=workdir,
+                    env=_child_env(workdir, self.env_file),
+                    stdin=subprocess.DEVNULL,
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    timeout=self.timeout_s,
+                    check=False,
+                )
+            except subprocess.TimeoutExpired as exc:
+                raise PoolRefused("CLIENT_TIMEOUT") from exc
+            except OSError as exc:
+                raise PoolRefused("CALLER_UNAVAILABLE") from exc
+            if proc.returncode != 0:
+                raise PoolRefused(_map_exit(proc.returncode))
+            data = _json_object(proc.stdout)
+            if data is None:
+                raise PoolRefused("RESPONSE_INVALID")
+            return _script_fields(data)
+        finally:
+            _cleanup(workdir)
 
     def run(self, request, prompt):
         receipt = {
@@ -338,9 +410,9 @@ class FreePoolLane:
             model = MODELS[tier]
             if type(self.timeout_s) not in (int, float) or not 0 < self.timeout_s < float("inf"):
                 raise PoolRefused("TIMEOUT_REFUSED")
-            key = self._api_key()
-            if key in body or any(key in name for name, _ in parts):
-                raise PoolRefused("SECRET_VALUE_REFUSED")
+            script = resolve_free_pool_call(self.free_pool_call)
+            if script is None:
+                raise PoolRefused("CALLER_UNAVAILABLE")
             receipt.update(
                 project=project,
                 tier=tier,
@@ -348,7 +420,7 @@ class FreePoolLane:
                 prompt_sha256=_sha256(prompt),
                 parts=[{"name": name, "sha256": _sha256(text), "chars": len(text)} for name, text in parts],
             )
-            result = _response_fields(self._send(body, model, key), key)
+            result = self._invoke(script, body, request, model)
             output = result["output_text"]
             if prompt in output or any(text.strip() and text in output for _, text in parts):
                 raise PoolRefused("OUTPUT_ECHO_REFUSED")
@@ -391,6 +463,7 @@ def main(argv=None):
     parser.add_argument("--prompt-file", required=True)
     parser.add_argument("--part", action="append", default=[])
     parser.add_argument("--env-file")
+    parser.add_argument("--free-pool-call", default=None)
     parser.add_argument("--dry-run", action="store_true")
     try:
         args = parser.parse_args(argv)
@@ -406,7 +479,7 @@ def main(argv=None):
             _with_prompt(request, prompt["text"], prompt["name"])
             sys.stdout.write("OK\n")
             return 0
-        receipt = FreePoolLane(env_file=args.env_file).run(request, prompt["text"])
+        receipt = FreePoolLane(env_file=args.env_file, free_pool_call=args.free_pool_call).run(request, prompt["text"])
         sys.stdout.write(json.dumps(receipt) + "\n")
         return 0 if receipt["outcome"] == "COMPLETED" else 2
     except PoolRefused as exc:

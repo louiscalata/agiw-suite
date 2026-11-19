@@ -1,15 +1,11 @@
 import hashlib
 import io
 import json
-import os
 import unittest
 from contextlib import redirect_stdout
-from email.message import Message
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest.mock import Mock, patch
-from urllib.error import HTTPError
-from urllib.response import addinfourl
+from unittest.mock import patch
 
 from agiw import fleet_routing_plan
 from agiw import free_pool_lane as pool
@@ -18,6 +14,49 @@ FAKE_KEY = "fixture-only-key"
 PART_TEXT = "def answer(): return 42"
 PROMPT = "Review the implementation."
 
+FAKE_SCRIPT = """\
+import json, os, sys, time
+MODE = "__MODE__"
+HERE = os.path.dirname(os.path.abspath(__file__))
+argv = sys.argv[1:]
+open(os.path.join(HERE, os.path.basename(__file__) + ".calls"), "a", encoding="utf-8").write(json.dumps(argv) + chr(10))
+record = {"argv": argv, "env": {k: os.environ.get(k) for k in ("CODEX_API_FREE_POOL_ENV", "HOME") if k in os.environ}}
+open(os.path.join(HERE, os.path.basename(__file__) + ".calls.json"), "w", encoding="utf-8").write(json.dumps(record))
+if MODE == "hang":
+    time.sleep(10)
+    raise SystemExit(0)
+if MODE == "budget":
+    print(json.dumps({"exit": 10, "error": "budget ceiling"}))
+    raise SystemExit(10)
+if MODE == "credit":
+    print(json.dumps({"exit": 9, "message": "credit exhausted, use Zen/local"}))
+    raise SystemExit(9)
+if MODE == "empty":
+    print(json.dumps({"model": "served-model-fixture", "response_id": "resp_fixture", "output_text": "", "usage": {"input_tokens": 1, "output_tokens": 0, "total_tokens": 1}}))
+    raise SystemExit(0)
+if MODE == "malformed":
+    print("{not-json")
+    raise SystemExit(0)
+if MODE == "secret":
+    print(json.dumps({"model": "served-model-fixture", "response_id": "resp_fixture", "output_text": "sk-proj-fixture", "usage": {"input_tokens": 1, "output_tokens": 1, "total_tokens": 2}}))
+    raise SystemExit(0)
+if MODE == "echo":
+    text = open(argv[0], encoding="utf-8").read()
+    print(json.dumps({"model": "served-model-fixture", "response_id": "resp_fixture", "output_text": text, "usage": {"input_tokens": 1, "output_tokens": 1, "total_tokens": 2}}))
+    raise SystemExit(0)
+print(json.dumps({
+    "http_status": 200,
+    "model": "served-model-fixture",
+    "status": "completed",
+    "billing": {"payer": "openai"},
+    "usage": {"input_tokens": 12, "output_tokens": 3, "total_tokens": 15},
+    "response_id": "resp_fixture",
+    "output_text": "Looks good.",
+    "requested_model": "gpt-5.4-mini",
+}))
+raise SystemExit(0)
+"""
+
 
 def request(**changes):
     return {"project": "agiw-suite", "source": "code", "tier": "general", "parts": [part()], **changes}
@@ -25,31 +64,6 @@ def request(**changes):
 
 def part(name="code.py", text=PART_TEXT):
     return {"name": name, "text": text}
-
-
-def response_data(text="Looks good.", **changes):
-    return {
-        "id": "resp_fixture",
-        "status": "completed",
-        "model": "served-model-fixture",
-        "output": [
-            {"type": "reasoning", "summary": []},
-            {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": text}]},
-        ],
-        "usage": {"input_tokens": 12, "output_tokens": 3, "total_tokens": 15},
-        **changes,
-    }
-
-
-class Response(io.BytesIO):
-    def __init__(self, raw, status=200):
-        super().__init__(raw)
-        self.status = status
-        self.read_limit = None
-
-    def read(self, size=-1):
-        self.read_limit = size
-        return super().read(size)
 
 
 class ContentFilterTests(unittest.TestCase):
@@ -156,14 +170,30 @@ class ContentFilterTests(unittest.TestCase):
 
 class FreePoolLaneTests(unittest.TestCase):
     def setUp(self):
-        self.opener = Mock()
-        self.key_source = Mock(return_value=FAKE_KEY)
-        self.lane = pool.FreePoolLane(self.key_source, self.opener)
+        self.tmp = TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
 
-    def test_models_share_the_fleet_policy_mapping(self):
-        self.assertIs(pool.MODELS, fleet_routing_plan.POOL_MODELS)
+    def script(self, mode="ok"):
+        path = self.root / f"free_pool_call_{mode}.py"
+        path.write_text(FAKE_SCRIPT.replace("__MODE__", mode), encoding="utf-8")
+        return str(path)
 
-    def test_refusals_never_load_key_or_open_network(self):
+    def lane(self, mode="ok", **kwargs):
+        kwargs.setdefault("free_pool_call", self.script(mode))
+        return pool.FreePoolLane(**kwargs)
+
+    def test_models_request_mini_and_astra_not_sol(self):
+        self.assertEqual(pool.MODELS["general"], "gpt-5.4-mini")
+        self.assertEqual(pool.MODELS["mini"], "gpt-5.4-mini")
+        self.assertEqual(pool.MODELS["hard"], "gpt-6.2-astra")
+        self.assertNotIn("gpt-6.2-sol", pool.MODELS.values())
+        self.assertNotEqual(pool.MODELS, fleet_routing_plan.POOL_MODELS)
+
+    def test_refusals_never_invoke_the_script(self):
+        script = Path(self.script("ok"))
+        calls = Path(str(script) + ".calls")
+        lane = pool.FreePoolLane(free_pool_call=str(script))
         cases = [
             ("PROJECT_REFUSED", request(project="other"), PROMPT),
             ("SOURCE_REFUSED", request(source="notion"), PROMPT),
@@ -177,32 +207,27 @@ class FreePoolLaneTests(unittest.TestCase):
         ]
         for code, payload, prompt in cases:
             with self.subTest(code=code):
-                receipt = self.lane.run(payload, prompt)
+                receipt = lane.run(payload, prompt)
                 self.assertEqual((receipt["outcome"], receipt["code"]), ("BLOCKED", code))
                 self.assertEqual(receipt["parts"], [])
-        self.key_source.assert_not_called()
-        self.opener.open.assert_not_called()
+        self.assertFalse(calls.exists())
 
-    def test_one_post_for_each_tier_and_metadata_only_receipt(self):
-        for tier, model in (("general", "gpt-6.2-sol"), ("hard", "gpt-6.2-astra")):
+    def test_missing_script_is_unavailable_without_a_network_call(self):
+        receipt = pool.FreePoolLane(free_pool_call=str(self.root / "missing.py")).run(request(), PROMPT)
+        self.assertEqual((receipt["outcome"], receipt["code"]), ("BLOCKED", "CALLER_UNAVAILABLE"))
+
+    def test_success_receipt_from_script_for_each_tier(self):
+        for tier, model, hard in (
+            ("general", "gpt-5.4-mini", False),
+            ("mini", "gpt-5.4-mini", False),
+            ("hard", "gpt-6.2-astra", True),
+        ):
             with self.subTest(tier=tier):
-                self.opener.reset_mock()
-                self.opener.open.return_value = response = Response(json.dumps(response_data()).encode())
-                receipt = self.lane.run(request(tier=tier), PROMPT)
-                self.opener.open.assert_called_once()
-                req = self.opener.open.call_args.args[0]
-                self.assertEqual(self.opener.open.call_args.kwargs, {"timeout": 300})
-                self.assertEqual(req.get_method(), "POST")
-                self.assertEqual(req.full_url, "https://api.openai.com/v1/responses")
-                self.assertEqual(req.get_header("Authorization"), f"Bearer {FAKE_KEY}")
-                self.assertEqual(req.get_header("Content-type"), "application/json")
-                body = json.loads(req.data)
-                self.assertEqual(set(body), {"model", "input", "store", "max_output_tokens"})
-                self.assertEqual(body["model"], model)
-                self.assertIs(body["store"], False)
-                self.assertGreater(body["max_output_tokens"], 0)
-                self.assertEqual(body["input"], f"{PART_TEXT}\n\n{PROMPT}")
-                self.assertEqual(response.read_limit, 4 * 1024 * 1024 + 1)
+                script = self.script("ok")
+                calls = Path(script + ".calls")
+                if calls.exists():
+                    calls.unlink()
+                receipt = pool.FreePoolLane(free_pool_call=script).run(request(tier=tier), PROMPT)
                 self.assertEqual(receipt["kind"], "agiw.free-pool-receipt.v1")
                 self.assertEqual(receipt["project"], "agiw-suite")
                 self.assertEqual(receipt["tier"], tier)
@@ -210,8 +235,9 @@ class FreePoolLaneTests(unittest.TestCase):
                 self.assertEqual(receipt["model_requested"], model)
                 self.assertEqual(receipt["model_served"], "served-model-fixture")
                 self.assertEqual(receipt["response_id"], "resp_fixture")
-                self.assertEqual(receipt["usage"], response_data()["usage"])
+                self.assertEqual(receipt["usage"], {"input_tokens": 12, "output_tokens": 3, "total_tokens": 15})
                 self.assertEqual(receipt["output_text"], "Looks good.")
+                self.assertEqual(receipt["payer"], "openai")
                 self.assertEqual(receipt["prompt_sha256"], hashlib.sha256(PROMPT.encode()).hexdigest())
                 self.assertEqual(
                     receipt["parts"],
@@ -223,84 +249,67 @@ class FreePoolLaneTests(unittest.TestCase):
                         }
                     ],
                 )
-                for value in (FAKE_KEY, PART_TEXT, PROMPT):
+                argv = json.loads(calls.read_text(encoding="utf-8").splitlines()[-1])
+                self.assertEqual(argv[argv.index("--model") + 1], model)
+                self.assertEqual(argv[argv.index("--project") + 1], "agiw-suite")
+                self.assertEqual(argv[argv.index("--source") + 1], "code")
+                self.assertIn("--private", argv)
+                self.assertEqual("--hard" in argv, hard)
+                self.assertNotIn("gpt-6.2-sol", argv)
+                self.assertTrue(any((not flag.startswith("--")) and flag.endswith("prompt.txt") for flag in argv))
+                for value in (FAKE_KEY, PART_TEXT, PROMPT, "OPENAI_API_KEY"):
                     self.assertNotIn(value, json.dumps(receipt))
+                    self.assertNotIn(value, json.dumps(argv))
 
-    def test_key_is_not_echoed_from_errors_or_success_payloads(self):
-        self.key_source.side_effect = RuntimeError(FAKE_KEY)
-        receipt = self.lane.run(request(), PROMPT)
-        self.assertEqual(receipt["code"], "KEY_REFUSED")
-        self.assertNotIn(FAKE_KEY, json.dumps(receipt))
-        self.opener.open.assert_not_called()
+    def test_budget_ceiling_refusal(self):
+        receipt = self.lane("budget").run(request(), PROMPT)
+        self.assertEqual((receipt["outcome"], receipt["code"]), ("BLOCKED", "BUDGET_REFUSED"))
+        self.assertEqual(receipt["output_text"], "")
+        self.assertIsNone(receipt["usage"])
 
-        self.key_source.side_effect = None
-        receipt = self.lane.run(request(), FAKE_KEY)
-        self.assertEqual(receipt["code"], "SECRET_VALUE_REFUSED")
-        self.opener.open.assert_not_called()
+    def test_credit_exhausted_fails_closed(self):
+        receipt = self.lane("credit").run(request(), PROMPT)
+        self.assertEqual((receipt["outcome"], receipt["code"]), ("BLOCKED", "CREDIT_EXHAUSTED"))
+        self.assertEqual(receipt["output_text"], "")
 
-        for error in (OSError(FAKE_KEY), pool.PoolRefused(FAKE_KEY)):
-            self.opener.open.side_effect = error
-            receipt = self.lane.run(request(), PROMPT)
-            self.assertEqual(receipt["code"], "TRANSPORT_REFUSED")
-            self.assertNotIn(FAKE_KEY, json.dumps(receipt))
+    def test_timeout_does_not_retry(self):
+        lane = self.lane("hang", timeout_s=0.2)
+        receipt = lane.run(request(), PROMPT)
+        self.assertEqual((receipt["outcome"], receipt["code"]), ("BLOCKED", "CLIENT_TIMEOUT"))
+        calls = Path(lane.free_pool_call + ".calls")
+        self.assertEqual(len(calls.read_text(encoding="utf-8").splitlines()), 1)
 
-        self.opener.open.side_effect = None
-        self.opener.open.return_value = Response(json.dumps(response_data(text=FAKE_KEY)).encode())
-        receipt = self.lane.run(request(), PROMPT)
-        self.assertEqual(receipt["code"], "SECRET_VALUE_REFUSED")
-        self.assertNotIn(FAKE_KEY, json.dumps(receipt))
+    def test_script_output_echo_and_invalid_payloads_are_blocked(self):
+        receipt = self.lane("echo").run(request(), PROMPT)
+        self.assertEqual((receipt["outcome"], receipt["code"]), ("BLOCKED", "OUTPUT_ECHO_REFUSED"))
+        self.assertNotIn(PROMPT, json.dumps(receipt))
+        for mode, code in (
+            ("empty", "RESPONSE_INVALID"),
+            ("malformed", "RESPONSE_INVALID"),
+            ("secret", "SECRET_VALUE_REFUSED"),
+        ):
+            with self.subTest(mode=mode):
+                blocked = self.lane(mode).run(request(), PROMPT)
+                self.assertEqual((blocked["outcome"], blocked["code"]), ("BLOCKED", code))
+                self.assertNotIn(FAKE_KEY, json.dumps(blocked))
 
-    def test_status_malformed_incomplete_and_oversized_response(self):
-        cases = [
-            ("REDIRECT_REFUSED", b"", 302),
-            ("HTTP_REFUSED", b"", 401),
-            ("RESPONSE_INVALID", b"not json", 200),
-            ("RESPONSE_INVALID", b'{"status":"incomplete","status":"completed"}', 200),
-            ("RESPONSE_INVALID", json.dumps(response_data(status="incomplete")).encode(), 200),
-            ("RESPONSE_INVALID", json.dumps(response_data(usage=None)).encode(), 200),
-            ("RESPONSE_SIZE_REFUSED", b" " * (pool.MAX_RESPONSE_BYTES + 1), 200),
-        ]
-        for code, raw, status in cases:
-            with self.subTest(code=code):
-                self.opener.reset_mock()
-                self.opener.open.return_value = Response(raw, status)
-                receipt = self.lane.run(request(), PROMPT)
-                self.assertEqual((receipt["outcome"], receipt["code"]), ("BLOCKED", code))
-                self.opener.open.assert_called_once()
+    def test_env_file_path_is_forwarded_and_key_stays_off_argv(self):
+        env_file = self.root / "codex.env"
+        env_file.write_text('export OPENAI_API_KEY="fixture-only-key"\n', encoding="utf-8")
+        script = self.script("ok")
+        receipt = pool.FreePoolLane(free_pool_call=script, env_file=str(env_file)).run(request(), PROMPT)
+        self.assertEqual(receipt["outcome"], "COMPLETED")
+        record = json.loads(Path(script + ".calls.json").read_text(encoding="utf-8"))
+        self.assertEqual(record["env"].get("CODEX_API_FREE_POOL_ENV"), str(env_file))
+        self.assertNotIn("fixture-only-key", json.dumps(record["argv"]))
+        self.assertNotIn("fixture-only-key", json.dumps(receipt))
 
-        self.opener.open.side_effect = HTTPError(pool.ENDPOINT, 307, FAKE_KEY, {}, None)
-        receipt = self.lane.run(request(), PROMPT)
-        self.assertEqual(receipt["code"], "REDIRECT_REFUSED")
-        self.assertNotIn(FAKE_KEY, json.dumps(receipt))
-
-    def test_model_cannot_echo_verbatim_input_into_receipt(self):
-        for text in (PART_TEXT, PROMPT):
-            self.opener.open.return_value = Response(json.dumps(response_data(text=f"Echo: {text}")).encode())
-            receipt = self.lane.run(request(), PROMPT)
-            self.assertEqual((receipt["outcome"], receipt["code"]), ("BLOCKED", "OUTPUT_ECHO_REFUSED"))
-            self.assertNotIn(text, json.dumps(receipt))
-
-    def test_default_opener_does_not_follow_redirect_or_use_proxy(self):
-        headers = Message()
-        headers["Location"] = "https://redirect.invalid/"
-        response = addinfourl(io.BytesIO(), headers, pool.ENDPOINT, 302)
-        response.msg = "Found"
-        with patch.dict(os.environ, {"https_proxy": "http://proxy.invalid:8080"}, clear=True):
-            with patch("urllib.request.HTTPSHandler.https_open", return_value=response) as https_open:
-                receipt = pool.FreePoolLane(self.key_source).run(request(), PROMPT)
-        self.assertEqual(receipt["code"], "REDIRECT_REFUSED")
-        https_open.assert_called_once()
-        self.assertEqual(https_open.call_args.args[0].host, "api.openai.com")
-        response.close()
-
-    def test_missing_invalid_key_and_timeout_never_open_network(self):
-        for key in (None, "", "bad\nheader"):
-            with self.subTest(key=key):
-                self.key_source.return_value = key
-                self.assertEqual(self.lane.run(request(), PROMPT)["code"], "KEY_REFUSED")
-        self.lane.timeout_s = float("nan")
-        self.assertEqual(self.lane.run(request(), PROMPT)["code"], "TIMEOUT_REFUSED")
-        self.opener.open.assert_not_called()
+    def test_invalid_timeout_never_invokes_the_script(self):
+        script = self.script("ok")
+        lane = pool.FreePoolLane(free_pool_call=script)
+        lane.timeout_s = float("nan")
+        self.assertEqual(lane.run(request(), PROMPT)["code"], "TIMEOUT_REFUSED")
+        self.assertFalse(Path(script + ".calls").exists())
 
 
 class FreePoolCliTests(unittest.TestCase):
@@ -353,23 +362,3 @@ class FreePoolCliTests(unittest.TestCase):
         with redirect_stdout(stdout):
             self.assertEqual(pool.main([FAKE_KEY]), 2)
         self.assertEqual(stdout.getvalue(), "ARGUMENT_REFUSED\n")
-
-    def test_default_credential_from_environment_or_file(self):
-        opener = Mock()
-        with patch.dict(os.environ, {"OPENAI_API_KEY": FAKE_KEY}):
-            opener.open.return_value = Response(json.dumps(response_data()).encode())
-            receipt = pool.FreePoolLane(opener=opener).run(request(), PROMPT)
-        self.assertEqual(receipt["outcome"], "COMPLETED")
-        self.assertEqual(opener.open.call_args.args[0].get_header("Authorization"), f"Bearer {FAKE_KEY}")
-        with TemporaryDirectory() as directory:
-            env_file = Path(directory) / ".env"
-            env_file.write_text(f'# fixture\nexport OPENAI_API_KEY="{FAKE_KEY}"\n', encoding="utf-8")
-            opener.open.return_value = Response(json.dumps(response_data()).encode())
-            with patch.dict(os.environ, {"OPENAI_API_KEY": "wrong-fixture"}):
-                lane = pool.FreePoolLane(opener=opener, env_file=env_file)
-                self.assertEqual(lane.run(request(), PROMPT)["outcome"], "COMPLETED")
-                self.assertEqual(opener.open.call_args.args[0].get_header("Authorization"), f"Bearer {FAKE_KEY}")
-                env_file.write_text("OPENAI_API_KEY=fixture1\nOPENAI_API_KEY=fixture2\n", encoding="utf-8")
-                opener.reset_mock()
-                self.assertEqual(lane.run(request(), PROMPT)["code"], "KEY_REFUSED")
-                opener.open.assert_not_called()
