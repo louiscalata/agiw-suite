@@ -195,10 +195,9 @@ max-complexity = 15
 # T201 (6): Existing CLI, script or diagnostic print output needs its own output/logging review; preserve its behaviour here.
 "eci_tuning.py" = ["BLE001", "C901", "I001", "N818", "T201"]
 
-# C901 (1): Splitting an existing complex function changes code structure and needs its own behaviour review.
 # I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
 # UP032 (1): Changing format() calls to f-strings rewrites expressions and evaluation; review the codemod separately.
-"fleet_state.py" = ["C901", "I001", "UP032"]
+"fleet_state.py" = ["I001", "UP032"]
 
 # I001 (1): Import sorting changes AST and may change module execution order; defer it to a reviewed import cleanup.
 "freeze_build_inputs.py" = ["I001"]
