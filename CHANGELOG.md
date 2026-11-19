@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Inference Monitor 1.1.1 (15) bundles public Nisi 0.3.1 instead of 0.2.0
   (release asset SHA-256 `345840279d6a778d87d5695fe78375e98bf9b8e86d32cafc4b87d9dfd4f97e4f`, commit `be7a5c9`).
+- Vendored public Nisi 0.3.2 (22 files from the published `nisi-0.3.2.tgz`;
+  asset SHA-256 `940752a97c79ce7e8f23ddf103b3405d8fb8397e1471f582c1df8377599a710a`,
+  tag `v0.3.2` -> commit `40f23fee7fa545544a1e5fcbcc95687c8bb97069`). App version stays
+  1.1.1 (15) until a later release is assigned.
 
 - Repo-patch: the prompt's format example is now placeholders only (`<path/from/allowlist>`, `<exact existing lines ...>`) with "Never output the example itself." and the allowed paths listed; a reply whose edits all target the old example or other non-allowlisted paths gets the one retry with a corrective note (receipt `firstAttempt.error` `EXAMPLE_COPY` or `OFF_ALLOWLIST`) before `ALLOWLIST_VIOLATION`; the no-op retry note quotes the unchanged SEARCH text and says REPLACE must differ.
 - Repo-patch prompts tell the model the file contents are in the message, require at least one block and show how to insert new text (dropping a sentence that let a small model refuse insertion tasks). Large-file excerpts rank rare task keywords on whole-word matches, add matching headings and their sections, and use a 16,000-character budget. A reply with no blocks is retried once whether it stopped or ran out of tokens, with a reminder naming the allowed paths. `patch.promptChars` and `patch.fileChars` record how much text and of which files reached the prompt.

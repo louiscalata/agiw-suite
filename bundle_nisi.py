@@ -1,4 +1,4 @@
-"""Verify and copy the exact public Nisi 0.3.1 release, entirely offline."""
+"""Verify and copy the exact public Nisi 0.3.2 release, entirely offline."""
 
 from __future__ import annotations
 import argparse
@@ -11,7 +11,7 @@ import stat
 import tempfile
 
 SOURCE = Path(__file__).resolve().parent / "vendor" / "nisi"
-MANIFEST_SHA256 = "24a2c387d19046ed41a85f28673dadd12981a021902f93894a9532380eb9ad00"
+MANIFEST_SHA256 = "53940edc65d014c163bf5e34c8243835cd3c068f860e25b5e814a20fe6aafb87"
 
 
 def _no_symlink_components(path: Path) -> None:
@@ -117,7 +117,7 @@ def main() -> int:
         result = (
             copy_bundle(args.destination)
             if args.destination
-            else {"status": "PASS", "version": verify()["version"], "files": 18}
+            else {"status": "PASS", "version": verify()["version"], "files": len(verify()["files"])}
         )
         print(json.dumps(result, sort_keys=True))
         return 0

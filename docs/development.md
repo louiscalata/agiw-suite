@@ -67,7 +67,7 @@ node vendor/nisi/package/bin/nisi.mjs --version
 node vendor/nisi/package/bin/nisi.mjs demo
 ```
 
-Expected results are package verification `PASS`, version `0.2.0`, and a demo report with `outcome: COMPLETED`, `reportStored: true`, and `modelCalls: 0`. The native app checks for an Apple-silicon Node installation at `/opt/homebrew/bin/node` or `/usr/local/bin/node`. Node is a separate prerequisite. Nisi's public CLI provides fixed demonstrations; applications can use its library APIs to define broader workflows. It does not include the private shared router or run arbitrary repository tasks from the command line. See the [public Nisi release](https://github.com/louiscalata/nisi/releases/tag/v0.2.0).
+Expected results are package verification `PASS`, version `0.3.2`, and a demo report with `outcome: COMPLETED`, `reportStored: true`, and `modelCalls: 0`. The native app checks for an Apple-silicon Node installation at `/opt/homebrew/bin/node` or `/usr/local/bin/node`. Node is a separate prerequisite. Nisi's public CLI provides fixed demonstrations; applications can use its library APIs to define broader workflows. It does not include the private shared router or run arbitrary repository tasks from the command line. See the [public Nisi release](https://github.com/louiscalata/nisi/releases/tag/v0.3.2).
 
 ### Local-only model example
 

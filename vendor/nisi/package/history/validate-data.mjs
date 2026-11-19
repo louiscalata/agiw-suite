@@ -8,10 +8,16 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { readSerializedJournal } from './run-journal-store-v1.mjs';
 import { reopen } from './run-journal-v1.mjs';
+import { ADAPTER_STATUSES, REPAIR_STATUSES, RUN_OUTCOMES } from '../workflow/contracts.mjs';
 
 export const MAX_FILE_BYTES = 64 * 1024 * 1024;
 export const MAX_FILES = 500;
-const OUTCOMES = Object.freeze(['COMPLETED', 'FAILED', 'BLOCKED', 'CANCELLED', 'TIMED_OUT', 'REPAIR_LIMIT', 'NO_PROGRESS']);
+const STAGE_STATUSES = Object.freeze({
+  intake: ['PASS'], authorizeContext: ADAPTER_STATUSES,
+  draft: ['PASS', 'UNAVAILABLE'], staticChecks: ADAPTER_STATUSES,
+  tests: ADAPTER_STATUSES, review: ADAPTER_STATUSES,
+  repair: REPAIR_STATUSES, completion: ['UNAVAILABLE'],
+});
 
 function blank(targetKind, reason) {
   return { status: 'FAIL', targetKind, reason, checked: 0, passed: 0, failed: 0, skipped: 0, files: [] };
@@ -55,13 +61,43 @@ function statOf(fileSystem, file) {
   catch (error) { return { error: error?.code === 'ENOENT' ? 'NOT_FOUND' : 'READ_FAILED' }; }
 }
 
+// The lstat size is only a first check: the file can grow or be replaced
+// before it is opened. Read from one descriptor, check its fstat size, and
+// never read more than maxBytes + 1 bytes, so the limit bounds what is read.
+// O_NONBLOCK keeps the open from waiting on a FIFO swapped in after lstat; the
+// fstat check below then refuses it. It has no effect on a regular file.
+function boundedRead(fileSystem, file, maxBytes) {
+  const noFollow = fileSystem.constants?.O_NOFOLLOW;
+  let fd;
+  try { fd = fileSystem.openSync(file, noFollow === undefined ? 'r' : fileSystem.constants.O_RDONLY | noFollow | (fileSystem.constants.O_NONBLOCK || 0)); }
+  catch (error) { return { error: error?.code === 'ELOOP' ? 'SYMLINK' : 'READ_FAILED' }; }
+  try {
+    const stat = fileSystem.fstatSync(fd);
+    if (!stat.isFile()) return { error: 'NOT_A_FILE' };
+    if (stat.size > maxBytes) return { error: 'FILE_TOO_LARGE', bytes: stat.size };
+    // One byte past the fstat size shows a file that grew during the read.
+    const buffer = Buffer.alloc(stat.size + 1);
+    let length = 0;
+    while (length < buffer.length) {
+      const count = fileSystem.readSync(fd, buffer, length, buffer.length - length, null);
+      if (count === 0) break;
+      length += count;
+    }
+    if (length > stat.size) return { error: 'FILE_CHANGED' };
+    return { bytes: buffer.subarray(0, length) };
+  } catch { return { error: 'READ_FAILED' }; }
+  finally { try { fileSystem.closeSync(fd); } catch { /* the read result stands */ } }
+}
+
 function journalRecord(name, file, limits, fileSystem) {
   const found = statOf(fileSystem, file);
   if (found.error) return { name, kind: 'journal', status: 'FAIL', reason: found.error };
   if (found.stat.isSymbolicLink()) return { name, kind: 'journal', status: 'FAIL', reason: 'SYMLINK' };
   if (!found.stat.isFile()) return { name, kind: 'journal', status: 'FAIL', reason: 'NOT_A_FILE' };
   if (found.stat.size > limits.maxBytes) return { name, kind: 'journal', status: 'FAIL', reason: 'FILE_TOO_LARGE', bytes: found.stat.size };
-  const read = readSerializedJournal({ path: file, fs: fileSystem });
+  const bounded = boundedRead(fileSystem, file, limits.maxBytes);
+  if (bounded.error) return { name, kind: 'journal', status: 'FAIL', reason: bounded.error, ...(bounded.bytes === undefined ? {} : { bytes: bounded.bytes }) };
+  const read = readSerializedJournal({ path: file, fs: { readFileSync: () => bounded.bytes } });
   if (read.status !== 'READ') return { name, kind: 'journal', status: 'FAIL', reason: read.reason };
   const recovered = reopen(read.serialized);
   const entries = recovered.report.recoveredIds.length;
@@ -71,15 +107,51 @@ function journalRecord(name, file, limits, fileSystem) {
   return { name, kind: 'journal', status: 'PASS', reason: null, entries, bytes: read.bytes, sha256: read.sha256, verified: read.verified === true };
 }
 
+function reportOutcomeConsistent(value) {
+  const workflowOutcome = value.workflowOutcome === undefined ? value.outcome : value.workflowOutcome;
+  if (!RUN_OUTCOMES.includes(workflowOutcome)) return false;
+  if (workflowOutcome !== value.outcome &&
+      (!['BLOCKED', 'CANCELLED', 'TIMED_OUT'].includes(value.outcome) ||
+       typeof value.reportStoreCode !== 'string' || value.reportStoreCode.length === 0 || value.reportStored === true)) return false;
+  // Minimal legacy reports omit binding and task metadata. Check the recorded
+  // results without requiring a complete modern report or inventing evidence.
+  let endings = ['BLOCKED'];
+  let stopped = false;
+  let repairable = false;
+  for (const { stage, status } of value.stages) {
+    if (stopped && !(repairable && stage === 'repair')) return false;
+    if (status === 'PASS') {
+      endings = stage === 'review' ? ['COMPLETED'] : [];
+      stopped = false;
+      repairable = false;
+    } else if (status === 'REPAIRED') {
+      // A repeated candidate ends NO_PROGRESS even with a REPAIRED response.
+      endings = ['NO_PROGRESS'];
+      stopped = false;
+      repairable = false;
+    } else {
+      stopped = true;
+      repairable = status === 'FAIL' && ['staticChecks', 'tests', 'review'].includes(stage);
+      endings = status === 'NO_CHANGE' ? ['NO_PROGRESS'] : status === 'UNAVAILABLE'
+        ? ['BLOCKED', 'CANCELLED', 'TIMED_OUT'] : status === 'NOT_RUN' || stage === 'authorizeContext'
+          ? ['BLOCKED'] : ['FAILED'];
+      if (repairable && value.repairAttempts > 0) endings.push('REPAIR_LIMIT');
+    }
+  }
+  return endings.includes(workflowOutcome);
+}
+
 function reportShape(value) {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
-  if (value.schemaVersion !== 1 || !OUTCOMES.includes(value.outcome) || !Array.isArray(value.stages)) return null;
+  if (value.schemaVersion !== 1 || (!RUN_OUTCOMES.includes(value.outcome) && !Array.isArray(value.stages))) return null;
+  if (!RUN_OUTCOMES.includes(value.outcome) || !Array.isArray(value.stages)) return { malformed: true };
   const stagesOk = value.stages.every(stage => stage !== null && typeof stage === 'object' && !Array.isArray(stage)
-    && typeof stage.stage === 'string' && stage.stage.length > 0 && stage.stage.length <= 128
-    && typeof stage.status === 'string' && stage.status.length > 0 && stage.status.length <= 128);
+    && typeof stage.stage === 'string' && Object.hasOwn(STAGE_STATUSES, stage.stage)
+    && STAGE_STATUSES[stage.stage].includes(stage.status));
   if (!stagesOk) return { malformed: true };
   if (value.repairAttempts !== undefined && (!Number.isSafeInteger(value.repairAttempts) || value.repairAttempts < 0)) return { malformed: true };
   if (value.code !== undefined && value.code !== null && (typeof value.code !== 'string' || value.code.length > 128)) return { malformed: true };
+  if (!reportOutcomeConsistent(value)) return { malformed: true };
   return {
     outcome: value.outcome,
     code: value.code ?? null,
@@ -94,9 +166,9 @@ function reportRecord(name, file, limits, fileSystem) {
   if (found.stat.isSymbolicLink()) return { name, kind: 'workflow-report', status: 'FAIL', reason: 'SYMLINK' };
   if (!found.stat.isFile()) return { name, kind: 'workflow-report', status: 'FAIL', reason: 'NOT_A_FILE' };
   if (found.stat.size > limits.maxBytes) return { name, kind: 'workflow-report', status: 'FAIL', reason: 'FILE_TOO_LARGE', bytes: found.stat.size };
-  let bytes;
-  try { bytes = fileSystem.readFileSync(file); }
-  catch { return { name, kind: 'workflow-report', status: 'FAIL', reason: 'READ_FAILED' }; }
+  const bounded = boundedRead(fileSystem, file, limits.maxBytes);
+  if (bounded.error) return { name, kind: 'workflow-report', status: 'FAIL', reason: bounded.error, ...(bounded.bytes === undefined ? {} : { bytes: bounded.bytes }) };
+  const { bytes } = bounded;
   let text;
   try { text = new TextDecoder('utf-8', { fatal: true }).decode(bytes); }
   catch { return { name, kind: 'json', status: 'SKIP', reason: 'NOT_A_NISI_RECORD' }; }

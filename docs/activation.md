@@ -39,8 +39,8 @@ Use **Unload** only for an eligible idle instance with zero queued work. Keep **
 
 1. Install **Node.js 22+ for Apple silicon** at `/opt/homebrew/bin/node` or `/usr/local/bin/node`. The native self-check verifies the runtime version and arm64 architecture when it runs.
 2. In AGIW, open **Browse → Nisi & optional components**.
-3. Confirm **Package integrity: Verified · public 0.2.0 payload**, then press **Run Nisi self-check**.
-4. Expect **Nisi 0.2.0 passed its fixed workflow self-check. No model was called.** The checked report requires `COMPLETED`, `reportStored: true` and `modelCalls: 0`.
+3. Confirm **Package integrity: Verified · public 0.3.2 payload**, then press **Run Nisi self-check**.
+4. Expect **Nisi 0.3.2 passed its fixed workflow self-check. No model was called.** The checked report requires `COMPLETED`, `reportStored: true` and `modelCalls: 0`.
 
 This checks the bundled engine and fixed offline example. It does not activate the external coding router or establish model inference. If Node is missing/incompatible, install the required runtime and run the check again; package integrity failure requires repairing the application payload.
 
@@ -57,7 +57,7 @@ node vendor/nisi/package/bin/nisi.mjs local-model \
   http://127.0.0.1:1234/v1/chat/completions AUTHOR_MODEL REVIEWER_MODEL
 ```
 
-Replace `AUTHOR_MODEL` and `REVIEWER_MODEL` with two different configured model IDs before running the last command. Package verification should report `PASS`; version should be `0.2.0`. The model example drafts fixed JSON data, checks it, runs four assertions, obtains separate review and prints a run report. It allows one repair attempt and returns a nonzero exit code if it does not complete.
+Replace `AUTHOR_MODEL` and `REVIEWER_MODEL` with two different configured model IDs before running the last command. Package verification should report `PASS`; version should be `0.3.2`. The model example drafts fixed JSON data, checks it, runs four assertions, obtains separate review and prints a run report. It allows one repair attempt and returns a nonzero exit code if it does not complete.
 
 Configure the server to execute both models locally: a loopback address alone does not prove where a proxy runs inference. This CLI does not execute model-generated programs or run arbitrary repository tasks. The [development guide](development.md#local-only-model-example) explains its scope.
 

@@ -2,7 +2,7 @@
 
 This page describes the 1.0.0 (7) download unless marked otherwise. See [status](status.md) for what the v1.1.0 source changes. The download does not include the per-launch control check that is in that source.
 
-- **Nisi**: the public workflow engine, journal and CLI that the app bundles (version 0.2.0).
+- **Nisi**: the public workflow engine, journal and CLI that the app bundles (version 0.3.2).
 - **Jev**: the optional hosted connection to TypeSafe, used with your own TypeSafe API key.
 - **AGIW x ECI Model Tuning Tool** (unreleased source): compare recorded ECI and components by protocol, inspect pending scores, and explicitly apply a provisional PC routing policy. [Guide and CLI](eci-model-tuning.md).
 
@@ -16,7 +16,7 @@ This page describes the 1.0.0 (7) download unless marked otherwise. See [status]
 | **Understand resources** | See Mac memory pressure and best-effort GPU readings. Model-load admission estimates size and headroom before an explicit load. |
 | **Choose an inventory view** | **Core 6** filters five pinned LLM IDs plus Nomic Embed Text v1.5. **All discovered** expands the Mac inventory; other reported in-use models stay visible. |
 | **Control and recover** | Request guarded local model load or unload. Optional automatic unloading is off by default. |
-| **Inspect public Nisi** | Run the bundled 0.2.0 package’s fixed offline self-check, or explore its workflow engine, journal and CLI. External Node 22+ is required. |
+| **Inspect public Nisi** | Run the bundled 0.3.2 package’s fixed offline self-check, or explore its workflow engine, journal and CLI. External Node 22+ is required. |
 | **Check optional Jev** | Set up your TypeSafe key securely and request a fixed connectivity check. The check sends your key and one test request to TypeSafe; charges may apply. See [Jev](#jev-optional). |
 
 Opening the app starts no coding task or model, and changing a catalog view loads or unloads nothing. Missing or stale observations remain unknown. A loaded model or recorded worker state alone does not prove active generation or a successful route.
@@ -52,13 +52,13 @@ The fixed JSON-configuration example uses a loopback chat endpoint and different
 
 ## Nisi (included)
 
-The 0.2.0 package, its Apache-2.0 license and its pinned manifest are bundled and verified offline. The downloaded app’s **Nisi self-check** is a fixed, model-free example. It uses the external Node runtime, loads no model and installs no weights. Expected report fields:
+The 0.3.2 package, its Apache-2.0 license and its pinned manifest are bundled and verified offline. The downloaded app’s **Nisi self-check** is a fixed, model-free example. It uses the external Node runtime, loads no model and installs no weights. Expected report fields:
 
 ```json
 {"outcome":"COMPLETED","reportStored":true,"modelCalls":0}
 ```
 
-The public CLI provides fixed demonstrations, not arbitrary repository tasks. Library APIs can define broader workflows. The private shared coding router is separately managed and not bundled. [Public Nisi release](https://github.com/louiscalata/nisi/releases/tag/v0.2.0) · [CLI instructions](development.md#public-nisi-cli)
+The public CLI provides fixed demonstrations, not arbitrary repository tasks. Library APIs can define broader workflows. The private shared coding router is separately managed and not bundled. [Public Nisi release](https://github.com/louiscalata/nisi/releases/tag/v0.3.2) · [CLI instructions](development.md#public-nisi-cli)
 
 ## Jev (optional)
 
