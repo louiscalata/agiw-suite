@@ -16,6 +16,7 @@ import time
 
 from inference_stats import edges_for, expire_map, machine_node, make_node
 from machine_state import utc_iso as _iso
+from speculative_config import validate_speculative
 
 _ID = re.compile(r"[a-z][a-z0-9_-]{0,15}\Z")
 _LABEL = re.compile(r"[A-Za-z0-9 ._-]{1,80}\Z")
@@ -66,7 +67,7 @@ def validate_config(document):
     label_rule = "must be 1 to 80 ASCII letters, digits, spaces, periods, underscores or hyphens"
     for machine in machines:
         identity = machine.get("id", "<missing>") if isinstance(machine, dict) else no_machine
-        _fields(machine, {"id", "label", "lanes"}, {"replaces"}, identity, "machine")
+        _fields(machine, {"id", "label", "lanes"}, {"replaces", "speculative"}, identity, "machine")
         label, lanes = machine["label"], machine["lanes"]
         if not isinstance(identity, str) or not _ID.fullmatch(identity):
             _invalid(identity, "id", identity, id_rule)
@@ -82,6 +83,8 @@ def validate_config(document):
             replacements += 1
             if replacements > 1:
                 _invalid(identity, "replaces", machine["replaces"], "only one machine may replace legacy-pc")
+        if "speculative" in machine:
+            validate_speculative(machine["speculative"], identity)
         seen_machines.add(identity)
         seen_lanes = set()
         for lane in lanes:
@@ -89,7 +92,7 @@ def validate_config(document):
             _fields(
                 lane,
                 {"id", "label", "localPort"},
-                {"timeoutSeconds", "contextTokens", "thinking"},
+                {"timeoutSeconds", "contextTokens", "thinking", "speculative"},
                 identity,
                 "lane",
                 lane_id,
@@ -116,6 +119,8 @@ def validate_config(document):
                 _invalid(identity, "contextTokens", lane["contextTokens"], "must be a nonnegative integer", lane_id)
             if "thinking" in lane and lane["thinking"] not in ("on", "off", "unknown"):
                 _invalid(identity, "thinking", lane["thinking"], "must be 'on', 'off' or 'unknown'", lane_id)
+            if "speculative" in lane:
+                validate_speculative(lane["speculative"], identity, lane_id)
             seen_lanes.add(lane_id)
             seen_ports.add(port)
             total += 1
