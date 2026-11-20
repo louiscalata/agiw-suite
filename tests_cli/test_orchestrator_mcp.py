@@ -343,9 +343,7 @@ class OrchestratorMcpTestCase(unittest.TestCase):
             "utc_day": "2026-01-01",
             "machine_id": "m5",
             "share": 0.6,
-            "groups": {
-                "official_10M": {"used": 50, "allowed": 100, "billed_models_today": ["gpt-5.4-mini"]}
-            },
+            "groups": {"official_10M": {"used": 50, "allowed": 100, "billed_models_today": ["gpt-5.4-mini"]}},
         }
         strict_report = {
             **expected,
