@@ -325,16 +325,55 @@ def author_evidence(receipts):
     return out
 
 
+def _acceptance_criteria(program):
+    """Public program-task acceptance lines, sanitized and bounded."""
+    name = program if isinstance(program, str) else ""
+    if not name:
+        return []
+    try:
+        manifest = json.loads((PILOT / "program-tasks.json").read_bytes())
+        criteria = manifest["tasks"][name]["acceptanceCriteria"]
+    except (OSError, KeyError, TypeError, ValueError):
+        return []
+    if not isinstance(criteria, list):
+        return []
+    out = []
+    for item in criteria[:8]:
+        text = sanitize_text(item, 200) if isinstance(item, str) else None
+        if text:
+            out.append(text)
+    return out
+
+
+def _stage_lines(report):
+    """Stage name and status only: the checkable PASS/FAIL evidence on a Nisi report."""
+    stages = report.get("stages")
+    if not isinstance(stages, list):
+        return []
+    out = []
+    for item in stages[:16]:
+        if not isinstance(item, dict):
+            continue
+        stage = sanitize_text(item.get("stage"), 80) if isinstance(item.get("stage"), str) else None
+        status = sanitize_text(item.get("status"), 40) if isinstance(item.get("status"), str) else None
+        if stage and status:
+            out.append(f"stage {stage}: {status}")
+    return out
+
+
 def preview_post_text(program, result):
     """Project a preview-program result into the bounded string jev-task post reviews.
 
     Paths, endpoints, tokens and raw payloads are omitted. The hashed stored report is not
-    rewritten; post-analysis is recorded on the job receipt only.
+    rewritten; post-analysis is recorded on the job receipt only. Acceptance criteria and
+    report stage statuses are included so a successful run has checkable evidence.
     """
     result = result if isinstance(result, dict) else {}
     report = result.get("report") if isinstance(result.get("report"), dict) else {}
     name = program if isinstance(program, str) else ""
     parts = [f"program: {name}"]
+    for criterion in _acceptance_criteria(name):
+        parts.append(f"acceptance: {criterion}")
     for key in ("outcome", "code"):
         value = report.get(key)
         if isinstance(value, str) and value:
@@ -344,6 +383,7 @@ def preview_post_text(program, result):
     exit_code = result.get("childExitCode")
     if type(exit_code) is int and not isinstance(exit_code, bool):
         parts.append(f"childExitCode: {exit_code}")
+    parts.extend(_stage_lines(report))
     evidence = result.get("authorEvidence")
     if not isinstance(evidence, list):
         evidence = result.get("authorReceipts")
