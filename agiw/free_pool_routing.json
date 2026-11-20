@@ -1,0 +1,654 @@
+{
+  "schema": "agiw.free-pool-routing.v1",
+  "version": "2026-11-19.4",
+  "sources": {
+    "eligible_models_and_caps": "https://help.openai.com/en/articles/10306912",
+    "model_docs": "https://developers.openai.com/api/docs/models",
+    "pricing": "https://developers.openai.com/api/docs/pricing",
+    "checked": "2026-11-19",
+    "evidence": "LOU-100 bench (Grok's Bot 2): gpt-5.4-mini 0/3 with corrupt patches; gpt-6.2-sol passed but took shortcuts. gpt-6.2-sol billed payer=developer 2026-11-18 15:39 PST and 2026-11-19 07:00 and 10:19 PST.",
+    "request_ids": "The Free Pool project only allows base aliases (a dated id returned 403 model_not_found on 2026-11-19), so requests use the alias and the served snapshot must equal listed_id."
+  },
+  "fleet": {
+    "split": {
+      "m5": 0.6,
+      "pc": 0.25,
+      "macpro": 0.15
+    },
+    "default_share": 0.15,
+    "reset": "00:00 UTC",
+    "note": "No shared filesystem across machines, so each machine may use only its share of each group's fleet ceiling. The shares sum to 1.0, so the fleet cannot jointly cross a ceiling."
+  },
+  "groups": {
+    "official_1M": {
+      "official": true,
+      "daily_cap": 1000000,
+      "fleet_ceiling": 800000,
+      "note": "Launch/Grow 1M token group, shared across every model in it. A request that would cross the cap is billed in full. The pool is org-wide: traffic outside these ledgers (other lanes, Agents sessions, OpenCode) also uses it, so a payer!=openai row blocks the group for the rest of the UTC day.",
+      "block_if_billed_today": true,
+      "disabled": true,
+      "disabled_reason": "billing unexplained (gpt-5.5 136 tokens payer=developer 2026-11-19)"
+    },
+    "official_10M": {
+      "official": true,
+      "daily_cap": 10000000,
+      "fleet_ceiling": 9000000,
+      "note": "Launch/Grow 10M token group, shared across every model in it. A request that would cross the cap is billed in full.",
+      "block_if_billed_today": true
+    },
+    "empirical_6.2": {
+      "official": false,
+      "daily_cap": null,
+      "fleet_ceiling": 200000,
+      "legacy_names": [
+        "unlisted_6.2"
+      ],
+      "note": "Not on the help article's lists. Evidence on 2026-11-19 shows these calls share the org's 1M daily pool: after the M5 probes, gpt-5.5 was free at 65 tokens and billed at 136, then gpt-6.1-sol and gpt-6.2-astra were billed at 65 tokens each on the Mac Pro. That matches the help article's 'a request that would cross the cap is billed in full' rule, with the pool nearly full and smaller requests still fitting. So usage counts toward official_1M, and a billed row in either group blocks both for the UTC day. Sol is off; Astra needs --hard.",
+      "block_if_billed_today": true,
+      "counts_toward": "official_1M",
+      "disabled": true,
+      "disabled_reason": "billing unexplained (gpt-5.5 136 tokens payer=developer 2026-11-19)"
+    }
+  },
+  "limits": {
+    "run_cost_cap_usd": 1.0,
+    "default_max_output": 1000,
+    "max_output_ceiling": 16000,
+    "input_estimate": "utf8_bytes_div_3",
+    "request_overhead_tokens": 64,
+    "near_cap_margin": 0.05,
+    "default_request_caps": {
+      "max_total_tokens": 2900,
+      "max_output_tokens": 1000,
+      "note": "Applied to any model without its own caps. Raise a cap only with payer=openai evidence at that size."
+    }
+  },
+  "hard_blocks": {
+    "substrings": [
+      "-pro"
+    ],
+    "prefixes": [
+      "gpt-5.3-codex",
+      "gpt-4.5-preview"
+    ],
+    "reason": "-pro and gpt-5.3-codex were billed (gpt-5.5-pro probe returned payer=developer); gpt-4.5-preview is shut down."
+  },
+  "doc_status_blocked": [
+    "deprecated",
+    "shut_down"
+  ],
+  "models": {
+    "gpt-6.1-sol": {
+      "group": "official_1M",
+      "listed_id": "gpt-6.1-sol",
+      "doc_status": "active",
+      "enabled": false,
+      "code_trusted": false,
+      "price_usd_per_1m": [
+        4.0,
+        15.0
+      ],
+      "context": 1050000,
+      "strengths": [
+        "complex_coding",
+        "review",
+        "professional_work"
+      ],
+      "doc": "Near-Astra performance for complex work at a lower cost.",
+      "max_total_tokens": 2900,
+      "max_output_tokens": 1000,
+      "caps_evidence": "No billing evidence above this size yet; conservative default.",
+      "reasoning_effort": "low",
+      "request_id": "gpt-6.1-sol",
+      "code_trust_note": "Passed the 2026-11-19 public probes (bug-fix and unified-diff) with payer=openai. Trivial probes only; review diffs.",
+      "disabled_reason": "billing unexplained (gpt-5.5 136 tokens payer=developer 2026-11-19)"
+    },
+    "gpt-6-astra": {
+      "group": "official_1M",
+      "listed_id": "gpt-6-astra",
+      "doc_status": "active",
+      "enabled": false,
+      "code_trusted": false,
+      "price_usd_per_1m": [
+        20.0,
+        75.0
+      ],
+      "context": 1050000,
+      "strengths": [
+        "complex_reasoning",
+        "complex_coding",
+        "research",
+        "documents"
+      ],
+      "doc": "A reasoning model for complex coding and professional work.",
+      "max_total_tokens": 2900,
+      "max_output_tokens": 1000,
+      "caps_evidence": "No billing evidence above this size yet; conservative default.",
+      "reasoning_effort": "low",
+      "request_id": "gpt-6-astra",
+      "code_trust_note": "Passed the 2026-11-19 public probes (bug-fix and unified-diff) with payer=openai. Trivial probes only; review diffs.",
+      "disabled_reason": "billing unexplained (gpt-5.5 136 tokens payer=developer 2026-11-19)"
+    },
+    "gpt-6-sol": {
+      "group": "official_1M",
+      "listed_id": "gpt-6-sol",
+      "doc_status": "active",
+      "enabled": false,
+      "code_trusted": false,
+      "price_usd_per_1m": [
+        4.0,
+        15.0
+      ],
+      "context": 1050000,
+      "strengths": [
+        "complex_coding",
+        "agentic"
+      ],
+      "doc": "Built to power complex coding and agentic workflows.",
+      "max_total_tokens": 2900,
+      "max_output_tokens": 1000,
+      "caps_evidence": "No billing evidence above this size yet; conservative default.",
+      "reasoning_effort": "low",
+      "request_id": "gpt-6-sol",
+      "code_trust_note": "Passed the 2026-11-19 public probes (bug-fix and unified-diff) with payer=openai. Trivial probes only; review diffs.",
+      "disabled_reason": "billing unexplained (gpt-5.5 136 tokens payer=developer 2026-11-19)"
+    },
+    "gpt-6-luna": {
+      "group": "official_1M",
+      "listed_id": "gpt-6-luna",
+      "doc_status": "active",
+      "enabled": false,
+      "code_trusted": false,
+      "price_usd_per_1m": [
+        0.2,
+        0.75
+      ],
+      "context": 1050000,
+      "strengths": [
+        "high_volume",
+        "extraction",
+        "classification"
+      ],
+      "doc": "Our most efficient model for focused, high-volume tasks.",
+      "max_total_tokens": 2900,
+      "max_output_tokens": 1000,
+      "caps_evidence": "No billing evidence above this size yet; conservative default.",
+      "reasoning_effort": "low",
+      "request_id": "gpt-6-luna",
+      "code_trust_note": "Passed the 2026-11-19 public probes but is not on a code route.",
+      "disabled_reason": "billing unexplained (gpt-5.5 136 tokens payer=developer 2026-11-19)"
+    },
+    "gpt-5.6-sol": {
+      "group": "official_1M",
+      "listed_id": "gpt-5.6-sol",
+      "doc_status": "active",
+      "enabled": false,
+      "code_trusted": false,
+      "price_usd_per_1m": [
+        8.0,
+        30.0
+      ],
+      "context": 1050000,
+      "strengths": [
+        "professional_work",
+        "review",
+        "writing"
+      ],
+      "doc": "GPT-5.6 flagship model for complex professional work.",
+      "max_total_tokens": 2900,
+      "max_output_tokens": 1000,
+      "caps_evidence": "No billing evidence above this size yet; conservative default.",
+      "reasoning_effort": "low",
+      "request_id": "gpt-5.6-sol",
+      "code_trust_note": "Passed the 2026-11-19 public probes but is not on a code route.",
+      "disabled_reason": "billing unexplained (gpt-5.5 136 tokens payer=developer 2026-11-19)"
+    },
+    "gpt-5.5": {
+      "group": "official_1M",
+      "listed_id": "gpt-5.5-2026-04-23",
+      "doc_status": "active",
+      "enabled": false,
+      "code_trusted": false,
+      "price_usd_per_1m": [
+        10.0,
+        45.0
+      ],
+      "context": 1050000,
+      "strengths": [
+        "complex_coding",
+        "professional_work"
+      ],
+      "doc": "A new class of intelligence for coding and professional work.",
+      "max_total_tokens": 2900,
+      "max_output_tokens": 1000,
+      "caps_evidence": "No billing evidence above this size yet; conservative default.",
+      "reasoning_effort": "low",
+      "request_id": "gpt-5.5",
+      "disabled_reason": "billing unexplained (gpt-5.5 136 tokens payer=developer 2026-11-19). Probe on 2026-11-19 returned payer=developer at 136 total tokens (resp_0fe0b3c1...), right after a payer=openai call at 65 tokens. Off until explained."
+    },
+    "gpt-5.4": {
+      "group": "official_1M",
+      "listed_id": "gpt-5.4-2026-03-05",
+      "doc_status": "active",
+      "enabled": false,
+      "code_trusted": false,
+      "price_usd_per_1m": [
+        5.0,
+        22.5
+      ],
+      "context": 1050000,
+      "strengths": [
+        "coding",
+        "professional_work",
+        "long_context"
+      ],
+      "doc": "A more affordable model for coding and professional work.",
+      "max_total_tokens": 2900,
+      "max_output_tokens": 1000,
+      "caps_evidence": "No billing evidence above this size yet; conservative default.",
+      "reasoning_effort": "low",
+      "request_id": "gpt-5.4",
+      "disabled_reason": "billing unexplained (gpt-5.5 136 tokens payer=developer 2026-11-19). Not probed yet: the gpt-5.5 probe came back payer=developer, so other gpt-5.x 1M models stay off until a probe shows payer=openai."
+    },
+    "gpt-5.2": {
+      "group": "official_1M",
+      "listed_id": "gpt-5.2-2025-12-11",
+      "doc_status": "active",
+      "enabled": false,
+      "code_trusted": false,
+      "price_usd_per_1m": [
+        1.75,
+        14.0
+      ],
+      "context": 400000,
+      "strengths": [
+        "professional_work"
+      ],
+      "doc": "Previous flagship model for professional work.",
+      "max_total_tokens": 2900,
+      "max_output_tokens": 1000,
+      "caps_evidence": "No billing evidence above this size yet; conservative default.",
+      "reasoning_effort": "low",
+      "request_id": "gpt-5.2",
+      "disabled_reason": "billing unexplained (gpt-5.5 136 tokens payer=developer 2026-11-19). Not probed yet: the gpt-5.5 probe came back payer=developer, so other gpt-5.x 1M models stay off until a probe shows payer=openai."
+    },
+    "gpt-5.1": {
+      "group": "official_1M",
+      "listed_id": "gpt-5.1-2025-11-13",
+      "doc_status": "deprecated",
+      "request_id": "gpt-5.1"
+    },
+    "gpt-5.1-codex": {
+      "group": "official_1M",
+      "listed_id": "gpt-5.1-codex",
+      "doc_status": "shut_down",
+      "request_id": "gpt-5.1-codex"
+    },
+    "gpt-5-codex": {
+      "group": "official_1M",
+      "listed_id": "gpt-5-codex",
+      "doc_status": "shut_down",
+      "request_id": "gpt-5-codex"
+    },
+    "gpt-5": {
+      "group": "official_1M",
+      "listed_id": "gpt-5-2025-08-07",
+      "doc_status": "deprecated",
+      "request_id": "gpt-5"
+    },
+    "gpt-5-chat-latest": {
+      "group": "official_1M",
+      "listed_id": "gpt-5-chat-latest",
+      "doc_status": "shut_down",
+      "request_id": "gpt-5-chat-latest"
+    },
+    "gpt-4.5-preview": {
+      "group": "official_1M",
+      "listed_id": "gpt-4.5-preview-2025-02-27",
+      "doc_status": "shut_down",
+      "request_id": "gpt-4.5-preview"
+    },
+    "gpt-4.1": {
+      "group": "official_1M",
+      "listed_id": "gpt-4.1-2025-04-14",
+      "doc_status": "deprecated",
+      "request_id": "gpt-4.1"
+    },
+    "gpt-4o": {
+      "group": "official_1M",
+      "listed_id": "gpt-4o-2024-08-06",
+      "listed_snapshots": [
+        "gpt-4o-2024-05-13",
+        "gpt-4o-2024-08-06",
+        "gpt-4o-2024-11-20"
+      ],
+      "doc_status": "deprecated",
+      "request_id": "gpt-4o"
+    },
+    "o3": {
+      "group": "official_1M",
+      "listed_id": "o3-2025-04-16",
+      "doc_status": "deprecated",
+      "request_id": "o3"
+    },
+    "o1-preview": {
+      "group": "official_1M",
+      "listed_id": "o1-preview-2024-09-12",
+      "doc_status": "shut_down",
+      "request_id": "o1-preview"
+    },
+    "o1": {
+      "group": "official_1M",
+      "listed_id": "o1-2024-12-17",
+      "doc_status": "shut_down",
+      "request_id": "o1"
+    },
+    "gpt-5.6-terra": {
+      "group": "official_10M",
+      "listed_id": "gpt-5.6-terra",
+      "doc_status": "active",
+      "enabled": true,
+      "code_trusted": true,
+      "price_usd_per_1m": [
+        4.0,
+        18.0
+      ],
+      "context": 1050000,
+      "strengths": [
+        "balanced",
+        "writing",
+        "review",
+        "long_context"
+      ],
+      "doc": "GPT-5.6 model that balances intelligence and cost (mini tier).",
+      "max_total_tokens": 2900,
+      "max_output_tokens": 1000,
+      "caps_evidence": "No billing evidence above this size yet; conservative default.",
+      "reasoning_effort": "low",
+      "request_id": "gpt-5.6-terra",
+      "code_trust_note": "Passed the 2026-11-19 bug-fix and unified-diff probes on the M5 with payer=openai. Trivial probes only; review diffs.",
+      "verified_machines": [
+        "m5",
+        "pc",
+        "macpro"
+      ],
+      "verified_note": "Enabled on a machine only after one tiny public probe there returned payer=openai."
+    },
+    "gpt-5.6-luna": {
+      "group": "official_10M",
+      "listed_id": "gpt-5.6-luna",
+      "doc_status": "active",
+      "enabled": true,
+      "code_trusted": true,
+      "price_usd_per_1m": [
+        0.4,
+        1.8
+      ],
+      "context": 1050000,
+      "strengths": [
+        "high_volume",
+        "extraction",
+        "classification",
+        "long_context"
+      ],
+      "doc": "GPT-5.6 model optimized for cost-sensitive workloads (nano tier).",
+      "max_total_tokens": 2900,
+      "max_output_tokens": 1000,
+      "caps_evidence": "No billing evidence above this size yet; conservative default.",
+      "reasoning_effort": "low",
+      "request_id": "gpt-5.6-luna",
+      "code_trust_note": "Passed the 2026-11-19 bug-fix and unified-diff probes on the M5 with payer=openai. Trivial probes only; review diffs.",
+      "verified_machines": [
+        "m5",
+        "pc",
+        "macpro"
+      ],
+      "verified_note": "Enabled on a machine only after one tiny public probe there returned payer=openai."
+    },
+    "gpt-5.4-mini": {
+      "group": "official_10M",
+      "listed_id": "gpt-5.4-mini-2026-03-17",
+      "doc_status": "active",
+      "enabled": true,
+      "code_trusted": false,
+      "code_trust_note": "LOU-100: 0/3 with corrupt patches. Kept off code-patch routes.",
+      "price_usd_per_1m": [
+        0.75,
+        4.5
+      ],
+      "context": 400000,
+      "strengths": [
+        "high_volume",
+        "extraction",
+        "docs"
+      ],
+      "doc": "Our strongest mini model yet for coding, computer use, and subagents.",
+      "max_total_tokens": 12000,
+      "max_output_tokens": 4000,
+      "caps_evidence": "payer=openai at 7,874 in / 3,072 out (10,946 total) and 4,585 / 4,376 on 2026-11-19.",
+      "reasoning_effort": "low",
+      "request_id": "gpt-5.4-mini",
+      "verified_machines": [
+        "m5",
+        "pc",
+        "macpro"
+      ],
+      "verified_note": "Enabled on a machine only after one tiny public probe there returned payer=openai."
+    },
+    "gpt-5.4-nano": {
+      "group": "official_10M",
+      "listed_id": "gpt-5.4-nano-2026-03-17",
+      "doc_status": "deprecated",
+      "request_id": "gpt-5.4-nano"
+    },
+    "gpt-5.1-codex-mini": {
+      "group": "official_10M",
+      "listed_id": "gpt-5.1-codex-mini",
+      "doc_status": "shut_down",
+      "request_id": "gpt-5.1-codex-mini"
+    },
+    "gpt-5-mini": {
+      "group": "official_10M",
+      "listed_id": "gpt-5-mini-2025-08-07",
+      "doc_status": "deprecated",
+      "request_id": "gpt-5-mini"
+    },
+    "gpt-5-nano": {
+      "group": "official_10M",
+      "listed_id": "gpt-5-nano-2025-08-07",
+      "doc_status": "deprecated",
+      "request_id": "gpt-5-nano"
+    },
+    "gpt-4.1-mini": {
+      "group": "official_10M",
+      "listed_id": "gpt-4.1-mini-2025-04-14",
+      "doc_status": "deprecated",
+      "request_id": "gpt-4.1-mini"
+    },
+    "gpt-4.1-nano": {
+      "group": "official_10M",
+      "listed_id": "gpt-4.1-nano-2025-04-14",
+      "doc_status": "shut_down",
+      "request_id": "gpt-4.1-nano"
+    },
+    "gpt-4o-mini": {
+      "group": "official_10M",
+      "listed_id": "gpt-4o-mini-2024-07-18",
+      "doc_status": "deprecated",
+      "request_id": "gpt-4o-mini"
+    },
+    "o4-mini": {
+      "group": "official_10M",
+      "listed_id": "o4-mini-2025-04-16",
+      "doc_status": "shut_down",
+      "request_id": "o4-mini"
+    },
+    "o1-mini": {
+      "group": "official_10M",
+      "listed_id": "o1-mini-2024-09-12",
+      "doc_status": "shut_down",
+      "request_id": "o1-mini"
+    },
+    "codex-mini-latest": {
+      "group": "official_10M",
+      "listed_id": "codex-mini-latest",
+      "doc_status": "shut_down",
+      "request_id": "codex-mini-latest"
+    },
+    "gpt-6.2-astra": {
+      "group": "empirical_6.2",
+      "listed_id": "gpt-6.2-astra",
+      "doc_status": "active",
+      "enabled": false,
+      "requires_hard": true,
+      "code_trusted": false,
+      "price_usd_per_1m": [
+        16.0,
+        60.0
+      ],
+      "context": 1050000,
+      "strengths": [
+        "hardest_coding",
+        "complex_reasoning"
+      ],
+      "doc": "Our most capable model for your hardest projects.",
+      "max_total_tokens": 2900,
+      "max_output_tokens": 1000,
+      "caps_evidence": "Largest payer=openai call 2,989 total / 978 output; billed at 3,145 total / 1,649 output.",
+      "reasoning_effort": "low",
+      "request_id": "gpt-6.2-astra",
+      "disabled_reason": "billing unexplained (gpt-5.5 136 tokens payer=developer 2026-11-19)"
+    },
+    "gpt-6.2-sol": {
+      "group": "empirical_6.2",
+      "listed_id": "gpt-6.2-sol",
+      "doc_status": "active",
+      "enabled": false,
+      "disabled_reason": "billing unexplained (gpt-5.5 136 tokens payer=developer 2026-11-19). Billed payer=developer three times (2026-11-18 15:39, 2026-11-19 07:00 and 10:19 PST). Off by default.",
+      "code_trusted": false,
+      "price_usd_per_1m": [
+        4.0,
+        15.0
+      ],
+      "context": 1050000,
+      "strengths": [
+        "coding",
+        "agents"
+      ],
+      "doc": "Our go-to model for everyday work.",
+      "max_total_tokens": 2900,
+      "max_output_tokens": 1000,
+      "caps_evidence": "Largest payer=openai call 2,989 total / 978 output; billed at 3,145 total / 1,649 output.",
+      "reasoning_effort": "low",
+      "request_id": "gpt-6.2-sol"
+    }
+  },
+  "code_kinds": [
+    "small_patch",
+    "large_change"
+  ],
+  "routes": {
+    "small_patch": [
+      "gpt-5.6-terra",
+      "gpt-5.6-luna"
+    ],
+    "large_change": [],
+    "review": [
+      "gpt-5.6-terra",
+      "gpt-5.4-mini",
+      "gpt-5.6-luna"
+    ],
+    "docs_text": [
+      "gpt-5.6-terra",
+      "gpt-5.6-luna",
+      "gpt-5.4-mini"
+    ],
+    "extraction": [
+      "gpt-5.6-luna",
+      "gpt-5.4-mini",
+      "gpt-5.6-terra"
+    ],
+    "long_context": [
+      "gpt-5.6-terra",
+      "gpt-5.6-luna",
+      "gpt-5.4-mini"
+    ]
+  },
+  "route_notes": {
+    "small_patch": "Only 10M models whose code probe passed: 5.6 Terra (mini tier, balances intelligence and cost) then 5.6 Luna. gpt-5.4-mini is excluded (LOU-100 0/3).",
+    "large_change": "local lanes only: no 10M model has passed a larger-change probe, and the 1M group is disabled.",
+    "review": "5.6 Terra first (mini tier), then 5.4 mini (reading, not patching), then 5.6 Luna.",
+    "docs_text": "Writing: 5.6 Terra, 5.6 Luna, 5.4 mini.",
+    "extraction": "Nano/mini tiers are documented for focused high-volume work: 5.6 Luna, 5.4 mini, 5.6 Terra.",
+    "long_context": "1.05M-context 10M models first (5.6 Terra, 5.6 Luna), then 5.4 mini (400K)."
+  },
+  "legacy_model_fallback": {
+    "gpt-6.2-sol": [
+      "gpt-5.6-terra"
+    ],
+    "gpt-6.2-astra": [
+      "gpt-5.6-terra"
+    ],
+    "gpt-5.4-mini": [
+      "gpt-5.6-terra",
+      "gpt-5.6-luna"
+    ]
+  },
+  "routes_1m_when_reenabled": {
+    "small_patch": [
+      "gpt-6.1-sol",
+      "gpt-6-sol",
+      "gpt-5.4",
+      "gpt-5.5",
+      "gpt-5.6-terra",
+      "gpt-6.2-astra"
+    ],
+    "large_change": [
+      "gpt-6-astra",
+      "gpt-6.1-sol",
+      "gpt-5.5",
+      "gpt-6-sol",
+      "gpt-6.2-astra"
+    ],
+    "review": [
+      "gpt-6.1-sol",
+      "gpt-6-astra",
+      "gpt-5.5",
+      "gpt-5.6-sol",
+      "gpt-5.6-terra"
+    ],
+    "docs_text": [
+      "gpt-5.6-terra",
+      "gpt-5.6-sol",
+      "gpt-5.6-luna",
+      "gpt-5.4-mini",
+      "gpt-6-luna"
+    ]
+  },
+  "local_lanes_only": [
+    "large_change"
+  ],
+  "probes_2026_11_19": {
+    "gpt-5.6-terra": {
+      "m5": "resp_01641f5888cfc779016aff4cc18b1c87d0befb53d46aa93f0e",
+      "pc": "resp_07eca800737cd084016aff4e0beeb487d0b3e3fe3eeba76ed4",
+      "macpro": "resp_00fe02da85ad89ba016aff4da72fb487d081a056cce11781a8"
+    },
+    "gpt-5.6-luna": {
+      "m5": "resp_04895a9d44800fd6016aff4cc5627487d09ffe9e7c9783d37b",
+      "pc": "resp_0415af2d15ec8aa9016aff4ee53ba487d0941d820d8dd1d43f",
+      "macpro": "resp_042c7efe791110b1016aff4ee36b8087d0ba73b7bc6d16acf9"
+    },
+    "gpt-5.4-mini": {
+      "m5": "resp_08a0585f4a052da5016aff4d21f52887d0992246fb4b15649d",
+      "pc": "resp_0e57824c6322e797016aff4ee77fb087d086596dee9c90c5b3",
+      "macpro": "resp_0a40189b5f3bf3d2016aff4ee4b86087d0921d4c2ec89f84ef"
+    },
+    "billed": {
+      "gpt-5.5 m5 136 tokens": "resp_0fe0b3c17f46e2ed016aff4d202b7087d09d20c6959e867b68",
+      "gpt-6.1-sol macpro 65 tokens": "resp_0d77c1943fc650e0016aff4d7e46cc87d08eb316a897839f02",
+      "gpt-6.2-astra macpro 65 tokens": "resp_0d0f0bda219f7197016aff4da9026c87d08709d407d9363452"
+    },
+    "note": "All payer=openai unless listed under billed. The 10M models have no billed calls."
+  }
+}
