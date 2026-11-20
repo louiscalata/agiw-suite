@@ -38,6 +38,7 @@ for _root in (Path(__file__).resolve().parents[1], Path(__file__).resolve().pare
             sys.path.append(str(_root))
         break
 PEER_FUTURE_SKEW = import_module("machine_state").PEER_FUTURE_SKEW
+parse_slot_speculative = import_module("speculative_telemetry").parse_slot_speculative
 
 IS_WINDOWS = os.name == "nt"
 CREATE_NO_WINDOW = 0x08000000 if IS_WINDOWS else 0
@@ -321,6 +322,7 @@ def _slot(raw: Any) -> dict[str, Any] | None:
         )
         decoded = current.get("n_decoded") if "n_decoded" in current else raw.get("n_decoded")
         slot["decodedTokens"] = _number(decoded, 0, 1 << 30)
+    slot.update(parse_slot_speculative(raw))
     return slot
 
 
