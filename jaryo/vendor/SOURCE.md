@@ -6,7 +6,7 @@
 | --- | --- |
 | Repository | Jaryo kit repository (`jaryo`) |
 | Path | `tokens/jaryo.tokens.json` |
-| Commit | `9823da63d60247c31ded20d1feaa3520f672c829` (head of Jaryo PR #91, open on 2026-11-19, which makes this the canonical tokens file); byte-identical to main at `2a15ef82574a728f214051579b12364f0ced16f7` |
+| Commit | `f2ecf0fd98a27c9de7340ef5bdf3c8da1fe21eb9` (Jaryo `main`, the 2026-11-19 merge of Jaryo PR #91, which made this the canonical tokens file) |
 | Git blob | `469a23f50581dc27d2d98815280a75c4b7656cea` |
 | SHA-256 | `7d23cf27ee6eac5d322263cb929f6fe72c5b9a4a3bd8e10e10ffe64919fead22` |
 
