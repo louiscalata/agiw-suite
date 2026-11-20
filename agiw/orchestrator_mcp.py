@@ -40,6 +40,7 @@ MODELS = {
     "luna": "gpt-5.6-luna",
     "mini": "gpt-5.4-mini",
 }
+POOL_PROJECTS = ("nisi", "jaryo", "opos", "agiw-suite")
 # Assembled so the scrub check never sees a literal workspace host in source.
 _DOT = "."
 REFUSED_MARKERS = tuple(
@@ -147,7 +148,7 @@ class Orchestrator:
         return self.receipts / "orchestrator-lane.jsonl"
 
     def tool_schemas(self) -> list[dict[str, Any]]:
-        project = {"type": "string", "enum": ["nisi", "jaryo", "opos", "agiw-suite", "none"]}
+        project = {"type": "string", "enum": [*POOL_PROJECTS, "none"]}
         return [
             {
                 "name": "status",
@@ -172,10 +173,10 @@ class Orchestrator:
                     "type": "object",
                     "properties": {
                         "request": {"type": "string"},
-                        "project": project,
+                        "project": {"type": "string", "enum": list(POOL_PROJECTS)},
                         "model": {"type": "string", "enum": list(MODELS)},
                     },
-                    "required": ["request"],
+                    "required": ["request", "project"],
                     "additionalProperties": False,
                 },
                 "annotations": {
@@ -349,7 +350,7 @@ class Orchestrator:
         return result
 
     def _pool_today(self) -> dict[str, Any]:
-        """Whole-pool totals from free_pool_call.py --budget-only (no API call, no key needed)."""
+        """Read guarded pool usage and limits without an API call or a key."""
         script = resolve_free_pool_call(self.config.free_pool_call)
         if not script:
             return {"error": "FREE_POOL_UNAVAILABLE"}
@@ -367,11 +368,24 @@ class Orchestrator:
                 check=False,
             )
             data = _json_object(completed.stdout) if completed.returncode == 0 else None
-            budget = data.get("budget") if isinstance(data, dict) else None
-            if not isinstance(budget, dict):
+            if data is None:
                 return {"error": "BUDGET_UNAVAILABLE"}
-            fields = ("utc_day", "developer_billed", "possibly_billed", "totals", "ceiling", "published_cap")
-            return {key: budget.get(key) for key in fields if key in budget}
+            budget = data.get("budget")
+            if isinstance(budget, dict):
+                fields = ("utc_day", "developer_billed", "possibly_billed", "totals", "ceiling", "published_cap")
+                return {key: budget[key] for key in fields if key in budget}
+            groups = data.get("groups")
+            if not isinstance(groups, dict):
+                return {"error": "BUDGET_UNAVAILABLE"}
+            fields = ("used", "allowed", "billed_models_today")
+            return {
+                **{key: data[key] for key in ("utc_day", "machine_id", "share") if key in data},
+                "groups": {
+                    name: {key: row[key] for key in fields if key in row}
+                    for name, row in groups.items()
+                    if isinstance(row, dict)
+                },
+            }
         except (OSError, subprocess.SubprocessError):
             return {"error": "BUDGET_UNAVAILABLE"}
         finally:
@@ -409,13 +423,24 @@ class Orchestrator:
             result["github"] = self._github()
         return result
 
+    def _pause_planning(self) -> None:
+        _private_file_write(self.paused_path, "payer requires review\n")
+
+    def _require_guard_success(self, returncode: int) -> None:
+        if returncode == 0:
+            return
+        code = _map_exit(returncode)
+        if code == "PAYER_REFUSED":
+            self._pause_planning()
+        raise PoolRefused(code)
+
     def plan(self, arguments: dict[str, Any]) -> dict[str, Any]:
         request = arguments.get("request")
-        project = arguments.get("project", "none")
+        project = arguments.get("project")
         model_name = arguments.get("model", "terra")
         if not isinstance(request, str) or not request or len(request) > 4000:
             raise PoolRefused("REQUEST_INVALID")
-        if project not in {"nisi", "jaryo", "opos", "agiw-suite", "none"}:
+        if project not in POOL_PROJECTS:
             raise PoolRefused("PROJECT_INVALID")
         if model_name not in MODELS:
             raise PoolRefused("MODEL_REFUSED")
@@ -451,10 +476,12 @@ class Orchestrator:
                 "--model",
                 MODELS[model_name],
                 "--project",
-                project if project != "none" else "agiw-suite",
+                project,
                 "--source",
                 "spec",
-                "--private",
+                "--lane",
+                LANE,
+                "--no-reroute",
                 "--timeout",
                 "120",
                 "--max-output",
@@ -469,26 +496,23 @@ class Orchestrator:
                 timeout=150,
                 check=False,
             )
-            if completed.returncode != 0:
-                raise PoolRefused(_map_exit(completed.returncode))
+            self._require_guard_success(completed.returncode)
             data = _json_object(completed.stdout)
             if data is None:
                 raise PoolRefused("OUTPUT_INVALID")
             fields = _script_fields(data)
+            if fields.get("payer") != "openai":
+                self._pause_planning()
+                raise PoolRefused("PAYER_REFUSED")
             output = str(fields.get("output_text", ""))
             parsed = _json_object(output)
-            result: dict[str, Any] = {
+            return {
                 "brief": parsed if parsed is not None else {"brief_text": output},
                 "model_served": fields.get("model_served"),
                 "response_id": fields.get("response_id"),
                 "usage": fields.get("usage", {}),
                 "payer": fields.get("payer"),
             }
-            payer = fields.get("payer")
-            if payer and payer != "openai":
-                result["payer_warning"] = True
-                _private_file_write(self.paused_path, "payer requires review\n")
-            return result
         except subprocess.TimeoutExpired as exc:
             code = "TIMEOUT"
             raise PoolRefused(code) from exc
