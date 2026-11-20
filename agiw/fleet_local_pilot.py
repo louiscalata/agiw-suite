@@ -345,8 +345,17 @@ def _acceptance_criteria(program):
     return out
 
 
+def _count(value):
+    """Length of a list, or a non-negative int as already counted."""
+    if isinstance(value, list):
+        return len(value)
+    if type(value) is int and not isinstance(value, bool) and value >= 0:
+        return value
+    return None
+
+
 def _stage_lines(report):
-    """Stage name and status only: the checkable PASS/FAIL evidence on a Nisi report."""
+    """Stage status plus checkable counts from the Nisi report (assertions, findings)."""
     stages = report.get("stages")
     if not isinstance(stages, list):
         return []
@@ -356,8 +365,93 @@ def _stage_lines(report):
             continue
         stage = sanitize_text(item.get("stage"), 80) if isinstance(item.get("stage"), str) else None
         status = sanitize_text(item.get("status"), 40) if isinstance(item.get("status"), str) else None
-        if stage and status:
-            out.append(f"stage {stage}: {status}")
+        if not stage or not status:
+            continue
+        bits = [f"stage {stage}: {status}"]
+        evidence = item.get("evidence") if isinstance(item.get("evidence"), dict) else {}
+        for key in ("assertionsExecuted", "assertionsPassed"):
+            count = _count(evidence.get(key))
+            if count is not None:
+                bits.append(f"{key}={count}")
+        for key in ("failures", "findings"):
+            count = _count(evidence.get(key))
+            if count is not None:
+                bits.append(f"{key}={count}")
+        summary = sanitize_text(evidence.get("summary"), 160) if isinstance(evidence.get("summary"), str) else None
+        if summary:
+            bits.append(f"summary: {summary}")
+        failures = evidence.get("failures")
+        if isinstance(failures, list) and failures:
+            first = failures[0]
+            if isinstance(first, dict):
+                raw = first.get("message") or first.get("reason") or first.get("name")
+            else:
+                raw = first
+            failure = sanitize_text(raw, 160) if isinstance(raw, str) else None
+            if failure:
+                bits.append(f"failure: {failure}")
+        out.append(" ".join(bits))
+    return out
+
+
+_FILE_NAME = re.compile(r"^[A-Za-z0-9._-]+$")
+
+
+def _candidate_file_lines(report):
+    """Relative candidate file contents a reader can check against acceptance criteria."""
+    candidate = report.get("candidate")
+    if not isinstance(candidate, dict):
+        return []
+    files = candidate.get("files")
+    if not isinstance(files, list):
+        return []
+    out = []
+    for item in files[:8]:
+        if not isinstance(item, dict):
+            continue
+        path = item.get("path")
+        if not isinstance(path, str) or not path:
+            continue
+        name = path.replace("\\", "/")
+        if "/" in name or not _FILE_NAME.fullmatch(name):
+            continue
+        content = item.get("content")
+        if not isinstance(content, str) or not content:
+            continue
+        body = sanitize_text(content, 300)
+        if body:
+            out.append(f"file {name}: {body}")
+    return out
+
+
+def preview_run_failed(result):
+    """True when the preview job itself failed, independently of jev-task flags."""
+    result = result if isinstance(result, dict) else {}
+    report = result.get("report") if isinstance(result.get("report"), dict) else {}
+    if report.get("outcome") != "COMPLETED":
+        return True
+    exit_code = result.get("childExitCode")
+    if type(exit_code) is int and not isinstance(exit_code, bool) and exit_code != 0:
+        return True
+    stages = report.get("stages")
+    if isinstance(stages, list):
+        for item in stages:
+            if not isinstance(item, dict):
+                continue
+            status = item.get("status")
+            if isinstance(status, str) and status != "PASS":
+                return True
+    return False
+
+
+def apply_preview_post_verdict(record, result):
+    """Keep jev-task flags; a failed preview run is still FLAGGED when the text review is clean."""
+    if not isinstance(record, dict) or record.get("status") != "ok":
+        return record
+    if not preview_run_failed(result):
+        return record
+    out = dict(record)
+    out["verdict"] = "FLAGGED"
     return out
 
 
@@ -365,8 +459,9 @@ def preview_post_text(program, result):
     """Project a preview-program result into the bounded string jev-task post reviews.
 
     Paths, endpoints, tokens and raw payloads are omitted. The hashed stored report is not
-    rewritten; post-analysis is recorded on the job receipt only. Acceptance criteria and
-    report stage statuses are included so a successful run has checkable evidence.
+    rewritten; post-analysis is recorded on the job receipt only. Acceptance criteria,
+    relative candidate file contents, and stage status with assertion or finding counts
+    are included so a successful run points to evidence a reader can check.
     """
     result = result if isinstance(result, dict) else {}
     report = result.get("report") if isinstance(result.get("report"), dict) else {}
@@ -383,6 +478,7 @@ def preview_post_text(program, result):
     exit_code = result.get("childExitCode")
     if type(exit_code) is int and not isinstance(exit_code, bool):
         parts.append(f"childExitCode: {exit_code}")
+    parts.extend(_candidate_file_lines(report))
     parts.extend(_stage_lines(report))
     evidence = result.get("authorEvidence")
     if not isinstance(evidence, list):
