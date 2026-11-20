@@ -10,7 +10,7 @@ Start with the [project README](../README.md). Each line says what the page cove
 - [Model fast check](eci-fast-check.md): freeze paired samples, interpret uncertainty, ingest separate screening records and hand off the unrun harness adapter.
 - [ECI check jobs](eci-check-jobs.md): how the check-jobs engine works.
 - [Advanced configuration](advanced-configuration.md): to set resident-model policy, LM Studio port, share recovery, memory readings for sandboxed callers and the Windows edition link.
-- [Remote machine lanes](three-machine-pipeline.md): how to configure lanes in the remote machine registry.
+- [Remote machine lanes](three-machine-pipeline.md): how to configure lanes in the remote machine registry, including default-off speculative decoding opt-in.
 - [Port roles](three-machine-ports.md): what each port is used for in the pipeline.
 - [Inference Monitor map](inference-monitor.md): to learn what the `/monitor` map nodes, tabs and health states mean.
 - [Monitor display preferences](monitor-preferences.md): Theme and Text size on every page, their storage keys, the native seed and the change message.
@@ -23,7 +23,7 @@ Start with the [project README](../README.md). Each line says what the page cove
 - [Release checklist](release-checklist.md): checks before a signed Mac download, including the clean-Mac install. That install is NOT_RUN until a receipt is stored.
 - [Mac and Windows PC connection record](three-machine-connection.md): the dated record of how the two machines connect, plus the retired Linux history.
 - [Remote machine registry fix](remote-machines-fix-results.md): verification results for the registry fix.
-- [Inference performance](performance.md): tables, methods, the Windows lane layouts, the comparison protocol and the comparison with Ollama and vLLM.
+- [Inference performance](performance.md): tables, methods, the Windows lane layouts, the comparison protocol, the comparison with Ollama and vLLM, and the 19 November 2026 speculative-decoding trials.
 - [Source review results](source-verification.md): dated review from 3 November 2026, written while the source label was 1.2.0 (13). The checkout label is now 1.1.0 (14).
 
 ## Build and extend

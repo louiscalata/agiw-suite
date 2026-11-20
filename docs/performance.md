@@ -129,3 +129,16 @@ AGIW's practical opportunity is to make supported runtime state and controls und
 [inference-performance.json](data/inference-performance.json) contains sanitized numeric observations, metric definitions, task distributions and explicit missing comparison values. It excludes private paths, machine hostnames, request text, generated responses, credentials and complete private receipts. The maintainer reviewed the retained worker receipt, dedicated lane-layout measurement script/results, and repeated Mac streaming measurement script/results before extracting these fields.
 
 The tables above and the [sanitized dataset](data/inference-performance.json) retain the numeric record. This documentation leaves the downloadable **1.0.0 (7)** application, its release tag and its package bytes unchanged. Mac App Store acceptance and publication are separate.
+
+## Speculative decoding trials (19 November 2026)
+
+These are historical observations of separately configured runtimes on 19 November 2026. They are not a controlled test of installing AGIW Suite, and they do not establish a speedup for the GitHub or Mac App Store application. Speculative decoding stays off in the suite until a machine or lane opts in. Registry fields, fallback reasons, and receipt shape: [Speculative decoding opt-in](three-machine-pipeline.md#speculative-decoding-opt-in).
+
+| Machine class | Baseline | With a local draft | Acceptance | Decision |
+| --- | --- | --- | --- | --- |
+| Apple silicon workstation | 13.6 tokens/s | 19.4 tokens/s | 42–62% | Keep the measured opt-in |
+| Intel Mac workstation | 0.685 tokens/s | 0.050 tokens/s | 0% (8 drafted, 0 accepted) | Reverted; stays off |
+| Windows workstation | Not measured | Not measured | Pending | Stays off until a passing trial |
+
+The Apple silicon official 4096-token test wall time fell from 286.6 s to 132.6 s in the same trial. The Intel Mac run also stopped after only a few tokens, so its shorter wall time is not a speedup.
+

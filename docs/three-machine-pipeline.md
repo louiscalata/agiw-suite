@@ -20,6 +20,7 @@ The collector reads `~/.config/agiw/remote-machines.json`, or the file selected 
 | Lane `timeoutSeconds` | Optional finite positive number, at most 6 seconds; defaults to 1.5 seconds. Set a longer timeout explicitly for a known slow endpoint. |
 | Lane `contextTokens` | Optional nonnegative integer. Preserved unchanged in the lane record. The monitor does not act on it. The [check-job engine](eci-check-jobs.md#lane-context), which the monitor does not run yet, refuses a check whose `max_tokens` is larger. |
 | Lane `thinking` | Optional `"on"`, `"off"`, or `"unknown"`. Preserved unchanged in the lane record; no behavior consumes it yet. |
+| Machine or lane `speculative` | Optional object that opts a machine or lane into speculative decoding. Omitted or `"enabled": false` leaves a plain load. The feature is off unless `enabled` is true. See [Speculative decoding opt-in](#speculative-decoding-opt-in). |
 
 Unknown fields are rejected. Credentials, addresses, commands, configured model aliases, and remote port mappings are not registry fields. Every request uses exactly `http://127.0.0.1:<localPort>/v1/models`. A logical ID is a stable display identity, never a claim about a particular computer or model.
 
@@ -60,6 +61,29 @@ Each completed lane record carries its observation timestamp and age. A result o
 `contextTokens` and `thinking` are optional operator-supplied metadata. Validation and pass-through do not verify that an endpoint actually supports those settings. Neither field changes probe behavior, context allocation, token budgets, or model requests. The check-job engine uses `contextTokens` only to refuse a check before it runs; it never treats the value as a measured context. Omitted values remain absent. Future capability work needs separately sourced observations bound to the current model and runtime.
 
 The registry's pure configuration and target helpers can support later lane selection, but adding an entry starts no task and grants no execution permission. Hardware inventory, authenticated transport ownership, routing migration, effective context measurement, and reasoning-budget support remain separate integrations. The general Machines and Overview projections do not become whole-machine inventory through this feature.
+
+
+## Speculative decoding opt-in
+
+Speculative decoding is **off by default**. A missing `speculative` object, or one with `"enabled": false`, keeps a plain load: no draft model, no extra launch flags, and no DFlash load attempt. Enable it only on a machine or lane after a measured trial on that machine. There is no global default-on switch.
+
+When `enabled` is true, the object must name a `backend` (`llama.cpp` or `lmstudio-dflash`) and exactly one of `modelKey` or `modelPath` for the draft model. Optional fields: `type` (`draft-dflash` or `draft-simple`), `nMax` and `nMin` (integers 1–32, and `nMin` may not exceed `nMax`), `deviceDraft`, `threadsDraft`, `gpuLayersDraft`, and `fallback` (only `"plain"`, which is the default). Unknown fields are rejected. `modelPath` is a string in the operator's private registry; do not put hostnames, account paths, or other private locations in this repository or in a published receipt.
+
+A lane `speculative` object replaces the machine object entirely. There is no field-level merge. If a planned load cannot run (the draft is missing, the vocab does not match, or the draft load fails), the suite falls back to a plain load and records a reason of `disabled`, `missing_draft`, `vocab_mismatch`, or `load_failure`. Receipts and lane slot status may also include draft token counts, acceptance rate, and tokens/s when the backend reports them.
+
+Do not put measured host names, loopback service ports that identify a live machine, or model catalog identifiers in the registry checked into this repository. The [example registry](remote-machines.example.json) shows only `"enabled": false` placeholders.
+
+### Per-machine policy (19 November 2026)
+
+These are operator trial results, not a speedup claim for the downloadable application. Live launchers stay outside the suite; the registry only records the opt-in.
+
+| Machine class | Opt-in | Result | Policy |
+| --- | --- | --- | --- |
+| Apple silicon workstation | Measured, may stay enabled | About 13.6 → 19.4 tokens/s, 42–62% draft acceptance; a 4096-token official test fell from 286.6 s to 132.6 s | Leave enabled after that passing trial |
+| Intel Mac workstation | Tried and reverted | About 0.685 → 0.050 tokens/s, 0% acceptance (8 drafted, 0 accepted). Generation also stopped almost immediately, so wall time is not a speedup | Keep `"enabled": false`. Do not re-enable unless a later trial is clearly faster |
+| Windows workstation | Not yet measured | Trial still pending | Keep off until a passing live trial. If enabled later, prefer a CPU draft so the draft does not compete with a target that already fills the GPU |
+
+Receipts must not include host paths or raw logs. Tokens/s, acceptance, and the fallback reason are the public evidence fields.
 
 ## Packaging and validation boundaries
 
