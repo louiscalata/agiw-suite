@@ -5,6 +5,9 @@ contacts a lane or a model. The observer runs in the test process on a loopback
 port chosen by the system.
 """
 
+import test_support.posix_only  # noqa: F401  (skips this module on Windows)
+
+# isort: split
 import ast
 import json
 import os

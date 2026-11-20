@@ -11,6 +11,9 @@ test_telemetry.RouterDualReadTests and test_activity.DualReadActivityTests keep 
 to the fixture writers' output and to the prose document, so none of the four can drift alone.
 """
 
+import test_support.posix_only  # noqa: F401  (skips this module on Windows)
+
+# isort: split
 import ast
 import contextlib
 import fcntl

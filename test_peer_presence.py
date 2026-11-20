@@ -3,6 +3,9 @@
 Every share here is a temp directory; nothing writes to /Volumes/SharedChami or reads the real AGIW config.
 """
 
+import test_support.posix_only  # noqa: F401  (skips this module on Windows)
+
+# isort: split
 import errno
 import io
 import json

@@ -4,6 +4,9 @@ Every test drives AutoUnloader with a fake clock, fake snapshots and a fake unlo
 nothing here touches LM Studio, the real config, the real journal or the real lock.
 """
 
+import test_support.posix_only  # noqa: F401  (skips this module on Windows)
+
+# isort: split
 import errno
 import json
 import os

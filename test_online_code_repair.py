@@ -1,5 +1,8 @@
 """Focused owner-bound checks for the explicit Online Code Mode control."""
 
+import test_support.posix_only  # noqa: F401  (skips this module on Windows)
+
+# isort: split
 import copy
 import fcntl
 import json

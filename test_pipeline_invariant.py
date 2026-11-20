@@ -1,5 +1,8 @@
 """Probe-to-publisher regressions; the exhaustive JSON-to-UI matrix runs in Node."""
 
+import test_support.posix_only  # noqa: F401  (skips this module on Windows)
+
+# isort: split
 import unittest
 from unittest import mock
 

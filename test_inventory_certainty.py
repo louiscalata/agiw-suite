@@ -1,5 +1,8 @@
 """Inventory certainty and alias counts across the observer's consumers."""
 
+import test_support.posix_only  # noqa: F401  (skips this module on Windows)
+
+# isort: split
 import unittest
 
 import mem_guard

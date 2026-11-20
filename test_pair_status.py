@@ -1,6 +1,9 @@
 """pair_status reads NVIDIA PAIR's files read-only: an allowlist, never node.key, a bounded log tail,
 and unknown (never down or 0) whenever the files cannot prove otherwise."""
 
+import test_support.posix_only  # noqa: F401  (skips this module on Windows)
+
+# isort: split
 import json
 import os
 import tempfile

@@ -1,5 +1,8 @@
 """Sol7 regressions: hidden sockets, partial aliases and per-instance advice."""
 
+import test_support.posix_only  # noqa: F401  (skips this module on Windows)
+
+# isort: split
 import subprocess
 import unittest
 

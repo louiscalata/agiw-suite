@@ -5,6 +5,9 @@ reuses six HTTPConnection clients with keep-alive requests; those clients must
 reconnect as directed, rather than silently retry an empty or truncated response.
 """
 
+import test_support.posix_only  # noqa: F401  (skips this module on Windows)
+
+# isort: split
 import concurrent.futures
 import http.client
 import re

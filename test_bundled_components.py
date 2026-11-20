@@ -1,5 +1,8 @@
 """Bounded component and ephemeral HTTP regressions; no credentials or inference."""
 
+import test_support.posix_only  # noqa: F401  (skips this module on Windows)
+
+# isort: split
 import json
 import subprocess
 import threading

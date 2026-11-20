@@ -1,5 +1,8 @@
 """Receipt uncertainty and Docker help roles, using only injected runtime boundaries."""
 
+import test_support.posix_only  # noqa: F401  (skips this module on Windows)
+
+# isort: split
 import contextlib
 import io
 import json

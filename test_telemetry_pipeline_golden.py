@@ -1,5 +1,8 @@
 """Full outputs and I/O order recorded from the unmodified router projections."""
 
+import test_support.posix_only  # noqa: F401  (skips this module on Windows)
+
+# isort: split
 import copy
 import json
 import os

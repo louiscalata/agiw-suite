@@ -1,5 +1,8 @@
 """Registry regressions; network cases use ephemeral loopback HTTP servers only."""
 
+import test_support.posix_only  # noqa: F401  (skips this module on Windows)
+
+# isort: split
 import contextlib
 import copy
 import json

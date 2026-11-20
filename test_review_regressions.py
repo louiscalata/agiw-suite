@@ -1,5 +1,8 @@
 """Review regressions: in-memory handlers and isolated probe fixtures, never live services."""
 
+import test_support.posix_only  # noqa: F401  (skips this module on Windows)
+
+# isort: split
 import io
 import json
 import plistlib

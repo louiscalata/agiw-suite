@@ -1,5 +1,8 @@
 """Bounded, content-free Claude hook lifecycle integration fixtures."""
 
+import test_support.posix_only  # noqa: F401  (skips this module on Windows)
+
+# isort: split
 import datetime as dt
 import json
 import tempfile

@@ -1,5 +1,8 @@
 """Synthetic server wiring checks; no model CLI or live Monitor endpoint."""
 
+import test_support.posix_only  # noqa: F401  (skips this module on Windows)
+
+# isort: split
 import hashlib
 import io
 import sys

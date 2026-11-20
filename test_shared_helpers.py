@@ -8,6 +8,9 @@ exception arguments must remain identical.
 
 from __future__ import annotations
 
+import test_support.posix_only  # noqa: F401  (skips this module on Windows)
+
+# isort: split
 import ast
 import datetime as dt
 import tempfile
