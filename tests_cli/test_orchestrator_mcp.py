@@ -27,11 +27,23 @@ class OrchestratorMcpTestCase(unittest.TestCase):
         values.update(kwargs)
         return om.Config(**values)
 
-    def write_free_pool_script(self, payer: str = "openai") -> Path:
+    def write_free_pool_script(self, payer: str = "openai", budget_report: dict | None = None) -> Path:
         directory = Path(self.temporary_directory.name)
         script = directory / "free_pool_call.py"
         payer_path = directory / "payer.txt"
         payer_path.write_text(payer, encoding="utf-8")
+        if budget_report is None:
+            budget_report = {
+                "precheck": "budget-only",
+                "budget": {
+                    "utc_day": "2026-01-01",
+                    "developer_billed": 7,
+                    "possibly_billed": 0,
+                    "totals": {"official_10M": 50},
+                    "ceiling": 100,
+                    "published_cap": 200,
+                },
+            }
         script.write_text(
             "\n".join(
                 [
@@ -41,9 +53,7 @@ class OrchestratorMcpTestCase(unittest.TestCase):
                     "",
                     "directory = os.path.dirname(__file__)",
                     "if '--budget-only' in sys.argv:",
-                    "    budget = {'utc_day': '2026-01-01', 'developer_billed': 7, 'possibly_billed': 0,",
-                    "              'totals': {'official_10M': 50}, 'ceiling': 100, 'published_cap': 200}",
-                    "    print(json.dumps({'precheck': 'budget-only', 'budget': budget}))",
+                    f"    print({json.dumps(budget_report)!r})",
                     "    sys.exit(0)",
                     "with open(os.path.join(directory, 'argv.json'), 'w', encoding='utf-8') as handle:",
                     "    json.dump(sys.argv, handle)",
@@ -61,7 +71,7 @@ class OrchestratorMcpTestCase(unittest.TestCase):
                     "    'model': 'gpt-5.6-terra',",
                     "    'response_id': 'resp_test1',",
                     "    'usage': {'input_tokens': 12, 'output_tokens': 34, 'total_tokens': 46},",
-                    "    'billing': {'payer': payer},",
+                    "    'billing': {'payer': payer} if payer else {},",
                     "}",
                     "print(json.dumps(data))",
                     "",
@@ -108,6 +118,9 @@ class OrchestratorMcpTestCase(unittest.TestCase):
         argv = json.loads((script.parent / "argv.json").read_text(encoding="utf-8"))
         self.assertIn("--model", argv)
         self.assertEqual(argv[argv.index("--model") + 1], "gpt-5.6-terra")
+        self.assertIn("--lane", argv)
+        self.assertEqual(argv[argv.index("--lane") + 1], om.LANE)
+        self.assertIn("--no-reroute", argv)
         self.assertIn("--max-output", argv)
         self.assertEqual(argv[argv.index("--max-output") + 1], "600")
 
@@ -123,8 +136,9 @@ class OrchestratorMcpTestCase(unittest.TestCase):
         script = self.write_free_pool_script()
         orchestrator = om.Orchestrator(self.config(free_pool_call=str(script)))
 
-        sol = orchestrator.call_tool("plan", {"request": "Make a plan.", "model": "sol"})
-        gpt_sol = orchestrator.call_tool("plan", {"request": "Make a plan.", "model": "gpt-6.2-sol"})
+        request = {"request": "Make a plan.", "project": "agiw-suite"}
+        sol = orchestrator.call_tool("plan", {**request, "model": "sol"})
+        gpt_sol = orchestrator.call_tool("plan", {**request, "model": "gpt-6.2-sol"})
 
         self.assertTrue(sol["isError"])
         self.assertEqual(sol["structuredContent"]["code"], "MODEL_REFUSED")
@@ -137,22 +151,57 @@ class OrchestratorMcpTestCase(unittest.TestCase):
         orchestrator = om.Orchestrator(self.config(free_pool_call=str(script)))
         request = "Please inspect " + om.REFUSED_MARKERS[0] + " and make a plan."
 
-        response = orchestrator.call_tool("plan", {"request": request})
+        response = orchestrator.call_tool("plan", {"request": request, "project": "agiw-suite"})
 
         self.assertTrue(response["isError"])
         self.assertEqual(response["structuredContent"]["code"], "SOURCE_REFUSED")
         self.assertFalse((script.parent / "argv.json").exists())
         self.assertFalse(orchestrator.receipt_path.exists())
 
+    def test_plan_requires_an_approved_project_before_calling_the_model(self) -> None:
+        script = self.write_free_pool_script()
+        orchestrator = om.Orchestrator(self.config(free_pool_call=str(script)))
+        for project in ({}, {"project": "none"}, {"project": "other"}):
+            with self.subTest(project=project):
+                result = orchestrator.call_tool("plan", {"request": "Draft a task.", **project})
+                self.assertTrue(result["isError"])
+                self.assertEqual(result["structuredContent"]["code"], "PROJECT_INVALID")
+        self.assertFalse((script.parent / "argv.json").exists())
+
     def test_plan_pauses_after_non_openai_payer(self) -> None:
-        script = self.write_free_pool_script(payer="developer")
+        for payer in ("developer", ""):
+            with self.subTest(payer=payer), tempfile.TemporaryDirectory() as root:
+                script = self.write_free_pool_script(payer=payer)
+                orchestrator = om.Orchestrator(self.config(free_pool_call=str(script), root=Path(root)))
+
+                request = {"request": "Draft a task.", "project": "agiw-suite"}
+                refused = orchestrator.call_tool("plan", request)
+
+                self.assertTrue(refused["isError"])
+                self.assertEqual(refused["structuredContent"]["code"], "PAYER_REFUSED")
+                self.assertNotIn("brief", refused["structuredContent"])
+                self.assertTrue(orchestrator.paused_path.is_file())
+                response = orchestrator.call_tool("plan", request)
+                self.assertTrue(response["isError"])
+                self.assertEqual(response["structuredContent"]["code"], "PAYER_PAUSED")
+
+    def test_plan_pauses_on_guard_payer_refusal_without_reading_model_output(self) -> None:
+        script = self.write_free_pool_script()
+        script.write_text("print('Untrusted guard output')\nraise SystemExit(7)\n", encoding="utf-8")
         orchestrator = om.Orchestrator(self.config(free_pool_call=str(script)))
 
-        result = orchestrator.plan({"request": "Draft a task."})
+        request = {"request": "Draft a task.", "project": "agiw-suite"}
+        refused = orchestrator.call_tool("plan", request)
 
-        self.assertTrue(result["payer_warning"])
-        self.assertTrue(orchestrator.paused_path.exists())
-        response = orchestrator.call_tool("plan", {"request": "Draft another task."})
+        self.assertTrue(refused["isError"])
+        self.assertEqual(refused["structuredContent"]["code"], "PAYER_REFUSED")
+        self.assertTrue(orchestrator.paused_path.is_file())
+        receipt_text = orchestrator.receipt_path.read_text(encoding="utf-8")
+        receipt = json.loads(receipt_text)
+        self.assertEqual(receipt["outcome"], "BLOCKED")
+        self.assertEqual(receipt["code"], "PAYER_REFUSED")
+        self.assertNotIn("Untrusted guard output", receipt_text)
+        response = orchestrator.call_tool("plan", {**request, "model": "luna"})
         self.assertTrue(response["isError"])
         self.assertEqual(response["structuredContent"]["code"], "PAYER_PAUSED")
 
@@ -288,6 +337,28 @@ class OrchestratorMcpTestCase(unittest.TestCase):
         self.assertEqual(status["github"]["example/failure"][0]["ci"], "failure")
         self.assertEqual(status["github"]["example/pending"][0]["ci"], "pending")
         self.assertEqual(status["github"]["example/none"][0]["ci"], "none")
+
+    def test_status_reports_strict_pool_budget_without_extra_fields(self) -> None:
+        expected = {
+            "utc_day": "2026-01-01",
+            "machine_id": "m5",
+            "share": 0.6,
+            "groups": {"official_10M": {"used": 50, "allowed": 100, "billed_models_today": ["gpt-5.4-mini"]}},
+        }
+        strict_report = {
+            **expected,
+            "receipts_dir": "internal",
+            "groups": {
+                "official_10M": {**expected["groups"]["official_10M"], "ledger_file": "internal"},
+            },
+        }
+        script = self.write_free_pool_script(budget_report=strict_report)
+        orchestrator = om.Orchestrator(self.config(free_pool_call=str(script)))
+
+        status = orchestrator.status({"include_github": False})
+
+        self.assertEqual(status["free_pool"]["pool_today"], expected)
+        self.assertFalse((script.parent / "argv.json").exists())
 
 
 class HttpServerTestCase(unittest.TestCase):

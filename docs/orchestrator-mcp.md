@@ -9,7 +9,7 @@ briefs as files. It never runs code, pushes, merges or changes a machine.
 | Tool | What it does |
 | --- | --- |
 | `status` | Lane state, fleet workers (`/v1/ready` through the fleet router configs), the last 10 lane receipts, today's (UTC) call and token totals including any non-`openai` payer, and open PRs with a CI summary for Nisi, Jaryo, OPOS, AGIW Suite and AGIW MCP (read-only `gh pr list`). |
-| `plan` | Turns a request (up to 4,000 characters) into a JSON task brief. |
+| `plan` | Turns a request (up to 4,000 characters) for Nisi, Jaryo, OPOS or AGIW Suite into a JSON task brief. Supply the project with every request. |
 | `queue_task` | Writes a brief to `~/pending-review/dot-orchestrator/inbox/<id>.json` (mode 0600). Queue only. |
 | `task_result` | Lists recent tasks, or reads `results/<id>.json` or `results/<id>.md` for one id. |
 
@@ -22,8 +22,8 @@ briefs as files. It never runs code, pushes, merges or changes a machine.
   (gpt-5.4-mini). The output cap is 600 tokens. Any other model is refused before a process starts.
 - Every attempt appends one line to `receipts/orchestrator-lane.jsonl` with `lane: dot-orchestrator`,
   the model, `response_id`, payer, usage and an outcome code. Prompt and output text are never stored.
-- If a call reports a payer other than `openai`, the server writes `receipts/PAUSED` and `plan`
-  refuses until you remove that file.
+- A billing refusal or a response without `openai` payer attribution writes `receipts/PAUSED` and
+  withholds the brief. Further `plan` calls are blocked while that file exists.
 - Requests that look like workspace links, secrets, `.env` files or raw logs are refused before any
   model call.
 
