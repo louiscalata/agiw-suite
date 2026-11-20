@@ -44,6 +44,7 @@ import hmac
 import http.client
 import ipaddress
 import json
+import logging
 import math
 import ntpath
 import os
@@ -60,6 +61,8 @@ import uuid as uuidlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Callable
+
+_LOG = logging.getLogger(__name__)
 
 PROTOCOL = "agiw-peer/2"
 BEACON_PORT = 8769
@@ -1905,7 +1908,9 @@ class PeerLink:
     def current_control_token(self) -> str | None:
         try:
             return load_control_token(self.state_dir)
-        except Exception:  # noqa: BLE001 - a token that cannot be vouched for serves no control request (503)
+        except (OSError, ValueError, subprocess.SubprocessError) as exc:
+            # A token that cannot be vouched for serves no control request (503): fail closed.
+            _LOG.debug("control token unavailable: %s", type(exc).__name__)
             return None
 
     def new_control_challenge(self, nc: str, token: str) -> str | None:
@@ -2008,7 +2013,8 @@ class PeerLink:
                 continue
             try:
                 self.handle_datagram(data, address)
-            except Exception:  # noqa: BLE001 - one hostile datagram must not stop discovery
+            except Exception as exc:  # noqa: BLE001 - one hostile datagram must not stop discovery; it is dropped, never trusted
+                _LOG.debug("beacon datagram dropped: %s", type(exc).__name__)
                 continue
 
     def handle_datagram(self, data: bytes, address: str) -> None:
@@ -2119,8 +2125,9 @@ class PeerLink:
             def read():
                 try:
                     answer[0] = project_status(validate_status(self.status_provider(), self.host, time.time()))
-                except Exception:  # noqa: BLE001 - provider details must not leak into control answers
-                    pass
+                except Exception as exc:  # noqa: BLE001 - provider details must not leak into control answers
+                    # answer[0] stays the "unavailable" error: fail closed. Only the type is logged.
+                    _LOG.debug("local status provider failed: %s", type(exc).__name__)
 
             worker = threading.Thread(target=read, daemon=True)
             self._self_status_worker = worker

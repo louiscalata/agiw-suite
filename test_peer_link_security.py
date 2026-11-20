@@ -503,3 +503,23 @@ class ControlConnectionSecurity(unittest.TestCase):
         pl.LinkHandler(connection, ("127.0.0.1", 43210), SimpleNamespace(link=link))
         snapshot.assert_called_once_with()
         self.assertIn(b'{"peers":[]}', b"".join(connection.sent))
+
+
+class SilentCatchFailClosed(unittest.TestCase):
+    def _link(self):
+        link = pl.PeerLink.__new__(pl.PeerLink)
+        link.state_dir = Path("unused")
+        return link
+
+    def test_unreadable_control_token_yields_none_and_logs_type_only(self):
+        for exc in (PermissionError("secret-detail"), ValueError("secret-detail")):
+            with mock.patch.object(pl, "load_control_token", side_effect=exc):
+                with self.assertLogs(pl._LOG, level="DEBUG") as logs:
+                    self.assertIsNone(self._link().current_control_token())
+            self.assertIn(type(exc).__name__, logs.output[0])
+            self.assertNotIn("secret-detail", logs.output[0])
+
+    def test_unexpected_token_error_is_not_swallowed(self):
+        with mock.patch.object(pl, "load_control_token", side_effect=RuntimeError("bug")):
+            with self.assertRaises(RuntimeError):
+                self._link().current_control_token()
