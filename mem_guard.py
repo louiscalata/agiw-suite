@@ -32,6 +32,7 @@ import dataclasses
 import errno
 import fcntl
 import json
+import logging
 import math
 import os
 import re
@@ -75,6 +76,24 @@ _OUTPUT_MAX = 8 << 20
 # TZ=UTC0: `ps -o lstart` prints local time, so a time-zone change (travel, a manual change) would
 # otherwise change every recorded start time and make paused jobs unrecognisable.
 _PS_ENV = {"LC_ALL": "C", "TZ": "UTC0", "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"}
+
+
+_LOG = logging.getLogger("mem_guard")
+_LOGGED: set[str] = set()
+
+
+def _debug_once(key: str, exc: BaseException) -> None:
+    """Log a swallowed best-effort failure once per key at debug level (exception type only).
+    Never raises and never changes control flow: the caller still takes its fail-safe path."""
+    try:
+        if key in _LOGGED:
+            return
+        _LOGGED.add(key)
+        _LOG.debug("mem_guard: %s failed (%s); fail-safe path taken", key, type(exc).__name__)
+    except Exception:  # noqa: BLE001 - logging must never break the guard
+        pass
+
+
 _MEMBERS_MAX = 512  # processes per paused job (root included): the writer and the reader share it
 
 STATE_KEYS = (
@@ -131,7 +150,8 @@ def _run(runner: Callable[..., Any], args: list[str], timeout: float, env: Optio
         if result.returncode != 0 or len(out) > _OUTPUT_MAX:
             return None
         return out
-    except Exception:
+    except (OSError, subprocess.SubprocessError, ValueError, TypeError, AttributeError) as exc:
+        _debug_once("run-cmd", exc)
         return None
 
 
@@ -608,7 +628,8 @@ def _ctypes_sysctl(name: str, size: int) -> Optional[bytes]:
         if fn(name.encode("ascii"), buf, ctypes.byref(length), None, 0) != 0:
             return None
         return buf.raw[: length.value]
-    except Exception:
+    except Exception as exc:  # noqa: BLE001 - libc/ctypes failures of any kind read as unknown
+        _debug_once("sysctl-ctypes", exc)
         _LIBC = False if _LIBC is None else _LIBC
         return None
 
@@ -744,7 +765,8 @@ def default_procs() -> Optional[LibProc]:
     if _LIBPROC is None:
         try:
             _LIBPROC = LibProc()
-        except Exception:
+        except Exception as exc:  # noqa: BLE001 - libproc unavailable; callers fall back to ps
+            _debug_once("libproc-init", exc)
             _LIBPROC = False
     return _LIBPROC or None
 
@@ -802,7 +824,8 @@ class LevelFile:
                 with contextlib.suppress(FileNotFoundError):
                     os.unlink(tmp)
             return True
-        except Exception:
+        except (OSError, ValueError, TypeError) as exc:
+            _debug_once("record-write", exc)
             return False
 
     def read(self) -> Optional[dict]:
@@ -911,7 +934,8 @@ class Probes:
         try:
             raw = self._sysctl(name, size)
             return raw if isinstance(raw, (bytes, bytearray)) and raw else None
-        except Exception:
+        except Exception as exc:  # noqa: BLE001 - injected sysctl may raise anything; read as unknown
+            _debug_once("sysctl-read", exc)
             return None
 
     def _cli(self, name: str) -> Optional[str]:
@@ -978,7 +1002,8 @@ class Probes:
             return hit[1] if hit is not None else None  # the latest value; a fresh one follows
         try:
             value = fn()
-        except Exception:
+        except Exception as exc:  # noqa: BLE001 - a failing probe reads as unknown
+            _debug_once("probe-sync", exc)
             value = None
         self._cache[key] = (now, value)
         return value
@@ -992,7 +1017,8 @@ class Probes:
         def run() -> None:
             try:
                 value = fn()
-            except Exception:
+            except Exception as exc:  # noqa: BLE001 - a failing probe reads as unknown
+                _debug_once("probe-bg", exc)
                 value = None
             with self._pending_lock:
                 self._cache[key] = (self._clock(), value)
@@ -1000,7 +1026,8 @@ class Probes:
 
         try:
             threading.Thread(target=run, name=f"mem-guard-{key}", daemon=True).start()
-        except Exception:
+        except RuntimeError as exc:
+            _debug_once("probe-thread", exc)
             with self._pending_lock:
                 self._pending.discard(key)
 
@@ -1030,7 +1057,8 @@ class Probes:
                 try:
                     info = self._statvfs(path)
                     return int(info.f_bavail) * int(info.f_frsize)
-                except Exception:
+                except (OSError, ValueError, TypeError, AttributeError, OverflowError) as exc:
+                    _debug_once("statvfs", exc)
                     continue
             return None
 
@@ -1061,7 +1089,8 @@ class Probes:
             base = grouped[1]
             sims = self.simulators() if any(row["group"] == "ios-simulator" for row in base) else None
             return decorate_consumers(base, models=models, simulators=sims, gpu_alloc_bytes=gpu_alloc_bytes)
-        except Exception:
+        except Exception as exc:  # noqa: BLE001 - consumer listing failed; reads as unknown
+            _debug_once("consumers", exc)
             return None
 
     # -- one state ----------------------------------------------------------------------------
@@ -1072,7 +1101,8 @@ class Probes:
         def safe(fn: Callable[[], Any]) -> Any:
             try:
                 return fn()
-            except Exception:
+            except Exception as exc:  # noqa: BLE001 - a failing probe reads as unknown
+                _debug_once("probe-safe", exc)
                 return None
 
         state["pressure"] = safe(self.pressure)
@@ -1356,12 +1386,13 @@ def admit(
     (fail-open) and heavy work refused (fail-closed)."""
     try:
         return _admit(need_bytes, kind, state or {}, _cfg(cfg), swap_evidence)
-    except Exception:
+    except Exception as exc:  # noqa: BLE001 - admit() must never raise; fail-open light, fail-closed heavy
+        _debug_once("admit", exc)
         k, need = ("heavy", HEAVY_BYTES)
         try:
             k, need = _kind_and_need(need_bytes, kind)
-        except Exception:
-            pass
+        except Exception as exc:  # noqa: BLE001 - unclassifiable request keeps the heavy default (fail-closed)
+            _debug_once("admit-kind", exc)
         if k == "light":
             return Decision(True, "unknown", f"memory state unknown; light work ({gb(need)}) admitted", None, k, need)
         return Decision(False, "unknown", f"memory state unknown; heavy work ({gb(need)}) refused", None, k, need)
@@ -1428,7 +1459,8 @@ def check(
         probes = probes or Probes()
         state = probes.read()
         decision = admit(need_bytes, kind, state, cfg)
-    except Exception:
+    except Exception as exc:  # noqa: BLE001 - probe failure falls back to admit() with unknown state
+        _debug_once("admit-probe", exc)
         return admit(need_bytes, kind, None, cfg)
     if not decision.allowed:
         # Optional diagnostics cannot replace a decision from an established memory reading.
@@ -1467,7 +1499,8 @@ class Journal:
             finally:
                 os.close(fd)
             return True
-        except Exception:
+        except (OSError, ValueError, TypeError) as exc:
+            _debug_once("journal-write", exc)
             return False
 
 
@@ -1498,7 +1531,8 @@ class OsascriptNotifier:
         try:
             self._runner(args, capture_output=True, text=True, timeout=5, check=False)
             return True
-        except Exception:
+        except (OSError, subprocess.SubprocessError) as exc:
+            _debug_once("osascript", exc)
             return False
 
 
@@ -1517,15 +1551,16 @@ class BackgroundNotifier:
         def run() -> None:
             try:
                 self._notifier(title, body)
-            except Exception:
-                pass
+            except Exception as exc:  # noqa: BLE001 - notifier is injected; never kill the worker thread
+                _debug_once("notify-worker", exc)
             finally:
                 self._slots.release()
 
         try:
             threading.Thread(target=run, name="mem-guard-notify", daemon=True).start()
             return True
-        except Exception:
+        except RuntimeError as exc:
+            _debug_once("notify-thread", exc)
             self._slots.release()
             return False
 
@@ -1727,7 +1762,8 @@ class Registry:
         if self._procs is not None:
             try:
                 found = self._identities_libproc(wanted)
-            except Exception:
+            except Exception as exc:  # noqa: BLE001 - libproc read failed; fall back to ps
+                _debug_once("identities-libproc", exc)
                 found = None
             if found is not None:
                 return found
@@ -1768,7 +1804,8 @@ class Registry:
                 check=False,
                 env=_PS_ENV,
             )
-        except Exception:
+        except (OSError, subprocess.SubprocessError, ValueError, TypeError, AttributeError) as exc:
+            _debug_once("identities-ps", exc)
             return None
         out = result.stdout if isinstance(result.stdout, str) else ""
         # ps exits 1 when some pid is gone; that is an answer, not a failure.
@@ -1795,7 +1832,8 @@ class Registry:
         if self._procs is not None:
             try:
                 rows = self._tree_libproc()
-            except Exception:
+            except Exception as exc:  # noqa: BLE001 - libproc read failed; fall back to ps
+                _debug_once("tree-libproc", exc)
                 rows = None
             if rows is not None:
                 return rows
@@ -2462,8 +2500,8 @@ class Watchdog:
             return
         try:
             self.notifier(self.TITLE, body)
-        except Exception:
-            pass
+        except Exception as exc:  # noqa: BLE001 - notifier is injected; a notice must never stop the watchdog
+            _debug_once("watchdog-notify", exc)
 
     def _resume(self, why: str, pids: Optional[set[int]] = None, timeout: float = 2.0) -> list[dict]:
         if self.registry is None:
@@ -2472,7 +2510,8 @@ class Watchdog:
             if not self.registry.paused_jobs():
                 return []
             resumed = self.registry.resume(pids, timeout=timeout)
-        except Exception:
+        except Exception as exc:  # noqa: BLE001 - resume error leaves jobs untouched; a later tick retries
+            _debug_once("watchdog-resume", exc)
             return []
         if not resumed:
             return []
@@ -2531,8 +2570,8 @@ class Watchdog:
             self._notifications(level, previous, reasons, state, now, events)
             if self.registry is not None:
                 self._relief(level, now, events)
-        except Exception:
-            pass
+        except Exception as exc:  # noqa: BLE001 - the guard loop must never crash; no action is taken on error
+            _debug_once("watchdog-tick", exc)
         return events
 
     def _notifications(
@@ -2563,7 +2602,8 @@ class Watchdog:
             self._last_pause_try = now
             try:
                 jobs = self.registry.pause_all(exclude=self._exempt, max_pause_seconds=cfg["max_pause_seconds"])
-            except Exception:
+            except Exception as exc:  # noqa: BLE001 - a failed pause is treated as no jobs paused
+                _debug_once("watchdog-pause", exc)
                 jobs = []
             if jobs:
                 event = {"type": "pause", "level": level, "jobs": [_job_summary(job) for job in jobs]}
@@ -2571,7 +2611,8 @@ class Watchdog:
                 self._log(event)
         try:
             paused = self.registry.paused_jobs()
-        except Exception:
+        except Exception as exc:  # noqa: BLE001 - unreadable registry reads as nothing paused
+            _debug_once("watchdog-paused-jobs", exc)
             paused = []
         if not paused:
             return
@@ -2690,7 +2731,8 @@ class Guard:
             if block["level"] == "unknown":
                 return block, self._source("unavailable", "macOS memory pressure is unreadable")
             return block, self._source("live", f"Memory {block['level']}")
-        except Exception:
+        except Exception as exc:  # noqa: BLE001 - probes failed; report unknown/unavailable
+            _debug_once("snapshot", exc)
             return unknown_block(), self._source("unavailable", "Memory probes failed")
 
     def close(self, timeout: float = 1.0) -> list[dict]:
@@ -2701,11 +2743,12 @@ class Guard:
         self._closed = True
         try:
             self.registry.stop_pausing(timeout)
-        except Exception:
-            pass
+        except Exception as exc:  # noqa: BLE001 - close() never raises
+            _debug_once("close-stop-pausing", exc)
         try:
             return self.watchdog.close(timeout) if self.watchdog is not None else []
-        except Exception:
+        except Exception as exc:  # noqa: BLE001 - close() never raises
+            _debug_once("close-watchdog", exc)
             return []
 
 
@@ -3264,7 +3307,8 @@ def _default_gpu() -> Optional[int]:
 
         gpu, _source = gpu_probe.mac_gpu()
         return _bytes_or_none((gpu or {}).get("allocatedBytes"))
-    except Exception:
+    except (ImportError, OSError, ValueError, TypeError, AttributeError) as exc:
+        _debug_once("gpu-probe", exc)
         return None
 
 
@@ -3381,7 +3425,8 @@ def _resume_overdue(ctx: Context, *, strict: bool = False) -> list[dict]:
     `strict` is set by the hook, where failed recovery must refuse guarded work."""
     try:
         resumed = ctx.registry.resume_overdue()
-    except Exception:
+    except Exception as exc:
+        _debug_once("resume-overdue", exc)
         if strict:
             raise
         return []
@@ -3521,7 +3566,7 @@ def _cmd_hook(ctx: Context) -> int:
         )
         ctx.stderr.write(hook_message(decision, what, consumers) + "\n")
         return 2
-    except (Exception, KeyboardInterrupt):
+    except (Exception, KeyboardInterrupt):  # noqa: BLE001 - the hook refuses (exit 2) on any failure: fail-closed
         # Exception text can contain arguments or credentials; report only the failed boundary.
         with contextlib.suppress(Exception):
             ctx.stderr.write("mem-guard refused: hook check unavailable; check memory status and retry.\n")
