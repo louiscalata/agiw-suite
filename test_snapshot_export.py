@@ -1,5 +1,8 @@
 """GET /api/snapshot from a real observer process on a free port."""
 
+import test_support.posix_only  # noqa: F401  (skips this module on Windows)
+
+# isort: split
 import json
 import os
 import signal

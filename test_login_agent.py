@@ -1,5 +1,8 @@
 """Exercise the login-agent plist writer without touching launchd or an app."""
 
+import test_support.posix_only  # noqa: F401  (skips this module on Windows)
+
+# isort: split
 import os
 import plistlib
 import subprocess

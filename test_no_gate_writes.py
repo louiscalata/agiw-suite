@@ -1,5 +1,8 @@
 """The monitor cannot reach owner actions until L2 is explicitly opened."""
 
+import test_support.posix_only  # noqa: F401  (skips this module on Windows)
+
+# isort: split
 import ast
 import inspect
 import io

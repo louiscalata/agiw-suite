@@ -1,5 +1,8 @@
 """Crash/restart safety checks using fake runners and synthetic inventory only."""
 
+import test_support.posix_only  # noqa: F401  (skips this module on Windows)
+
+# isort: split
 import os
 import subprocess
 import sys

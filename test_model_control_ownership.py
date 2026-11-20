@@ -1,5 +1,8 @@
 """Owned model operations; every runner and process here is a fake."""
 
+import test_support.posix_only  # noqa: F401  (skips this module on Windows)
+
+# isort: split
 import io
 import json
 import subprocess

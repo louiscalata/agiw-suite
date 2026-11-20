@@ -2,6 +2,7 @@
 
 import ast
 import re
+import sys
 import threading
 import unittest
 from http.client import HTTPConnection
@@ -12,7 +13,7 @@ LICENSE = "fonts/OFL-IBM-Plex.txt"
 
 
 def assets(path):
-    tree = ast.parse((ROOT / path).read_text())
+    tree = ast.parse((ROOT / path).read_text(encoding="utf-8"))
     assignment = next(
         node
         for node in tree.body
@@ -23,7 +24,7 @@ def assets(path):
 
 
 def manifest(path):
-    source = (ROOT / path).read_text()
+    source = (ROOT / path).read_text(encoding="utf-8")
     if path.endswith(".ps1"):
         block = next(
             block for block in re.findall(r"foreach \(\$file in (.*?)\) \{", source, re.S) if "'index.html'" in block
@@ -35,7 +36,9 @@ def manifest(path):
 
 class FontResourceParity(unittest.TestCase):
     def test_each_distribution_ships_its_served_fonts_and_license(self):
-        css_fonts = set(re.findall(r'url\("/(fonts/[^"\n]+\.woff2)"\)', (ROOT / "web/jaryo.css").read_text()))
+        css_fonts = set(
+            re.findall(r'url\("/(fonts/[^"\n]+\.woff2)"\)', (ROOT / "web/jaryo.css").read_text(encoding="utf-8"))
+        )
         self.assertEqual(len(css_fonts), 4)
         for script, server in [
             ("build.sh", "server.py"),
@@ -53,12 +56,13 @@ class FontResourceParity(unittest.TestCase):
                     self.assertEqual(served["/" + name], (name, "font/woff2"))
                     self.assertEqual((ROOT / "web" / name).read_bytes()[:4], b"wOF2")
                 self.assertEqual(shipped.count(LICENSE), 1)
-                self.assertIn("SIL OPEN FONT LICENSE Version 1.1", (ROOT / "web" / LICENSE).read_text())
+                self.assertIn("SIL OPEN FONT LICENSE Version 1.1", (ROOT / "web" / LICENSE).read_text(encoding="utf-8"))
                 # Adding typography must not drop the current ECI page resources.
                 for name in ("eci-tuning.html", "eci-tuning.mjs", "eci-tuning.css"):
                     self.assertIn(name, shipped)
                     self.assertIn(name, {value[0] for value in served.values()})
 
+    @unittest.skipIf(sys.platform == "win32", "the Mac monitor server imports fcntl")
     def test_mac_serves_font_bytes_with_same_origin_csp(self):
         # Empty snapshot and explicit fixture capability; no collector or model runs.
         from server import MonitorServer, SnapshotStore

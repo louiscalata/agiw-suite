@@ -1,5 +1,8 @@
 """Run evidence regressions using production collectors and substituted adapters."""
 
+import test_support.posix_only  # noqa: F401  (skips this module on Windows)
+
+# isort: split
 import copy
 import unittest
 from unittest import mock

@@ -7,6 +7,9 @@ The 5,938 original cases and 339 pass-9 cases are retained. Pass 10 adds
 309 two-sided/temporal cases, including all 105 original old-event inputs. Run with --check (or unittest / the JS suite).
 """
 
+import test_support.posix_only  # noqa: F401  (skips this module on Windows)
+
+# isort: split
 import copy
 import itertools
 import json

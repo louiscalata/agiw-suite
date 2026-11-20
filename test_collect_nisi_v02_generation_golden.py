@@ -1,5 +1,8 @@
 """Generation collector outputs recorded from the same unmodified source."""
 
+import test_support.posix_only  # noqa: F401  (skips this module on Windows)
+
+# isort: split
 import unittest
 
 import nisi_v02

@@ -9,6 +9,9 @@ The review-regression tests at the end spawn up to two more `/bin/sleep 60` chil
 (also killed in cleanup) and use virtual pids for everything else.
 """
 
+import test_support.posix_only  # noqa: F401  (skips this module on Windows)
+
+# isort: split
 import errno
 import io
 import json

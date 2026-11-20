@@ -1,5 +1,8 @@
 """Both API stores project identical facts without opening a network socket."""
 
+import test_support.posix_only  # noqa: F401  (skips this module on Windows)
+
+# isort: split
 import copy
 import json
 import sys

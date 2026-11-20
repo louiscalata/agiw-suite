@@ -1,5 +1,8 @@
 """Offline data and policy tests. No model runtime, browser, or live server calls."""
 
+import test_support.posix_only  # noqa: F401  (skips this module on Windows)
+
+# isort: split
 import ast
 import contextlib
 import copy

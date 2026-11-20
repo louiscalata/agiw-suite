@@ -4,6 +4,9 @@ The route object is tested directly, then through an in-process observer on a
 loopback port chosen by the system. Nothing here contacts a lane.
 """
 
+import test_support.posix_only  # noqa: F401  (skips this module on Windows)
+
+# isort: split
 import ast
 import json
 import threading

@@ -1,5 +1,8 @@
 """A1 integration contract: run the real HTTP dispatcher without binding sockets."""
 
+import test_support.posix_only  # noqa: F401  (skips this module on Windows)
+
+# isort: split
 import itertools
 import json
 import unittest

@@ -1,5 +1,8 @@
 """Memory-guard boundary regressions with virtual processes and in-memory state."""
 
+import test_support.posix_only  # noqa: F401  (skips this module on Windows)
+
+# isort: split
 import contextlib
 import copy
 import io

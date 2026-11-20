@@ -1,5 +1,8 @@
 """Full-output main/classify cases recorded from unmodified origin/main."""
 
+import test_support.posix_only  # noqa: F401  (skips this module on Windows)
+
+# isort: split
 import json
 import re
 import sys

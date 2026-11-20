@@ -1,5 +1,8 @@
 """A4 endpoint provenance and bounded loopback inventory regressions."""
 
+import test_support.posix_only  # noqa: F401  (skips this module on Windows)
+
+# isort: split
 import contextlib
 import http.server
 import io

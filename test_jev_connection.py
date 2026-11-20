@@ -1,5 +1,8 @@
 """Mock-only tests for the native Jev helper boundary and manual check action."""
 
+import test_support.posix_only  # noqa: F401  (skips this module on Windows)
+
+# isort: split
 import io
 import json
 import subprocess
