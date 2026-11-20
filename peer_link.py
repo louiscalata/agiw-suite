@@ -1908,8 +1908,7 @@ class PeerLink:
     def current_control_token(self) -> str | None:
         try:
             return load_control_token(self.state_dir)
-        except (OSError, ValueError, subprocess.SubprocessError) as exc:
-            # A token that cannot be vouched for serves no control request (503): fail closed.
+        except Exception as exc:  # noqa: BLE001 - a token that cannot be vouched for serves no control request (503); fail closed
             _LOG.debug("control token unavailable: %s", type(exc).__name__)
             return None
 
