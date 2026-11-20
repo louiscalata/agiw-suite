@@ -512,14 +512,16 @@ class SilentCatchFailClosed(unittest.TestCase):
         return link
 
     def test_unreadable_control_token_yields_none_and_logs_type_only(self):
-        for exc in (PermissionError("secret-detail"), ValueError("secret-detail")):
+        # RuntimeError is the deliberate fail-closed case: an unexpected error
+        # still serves no control, and only its type is logged.
+        excs = (
+            PermissionError("secret-detail"),
+            ValueError("secret-detail"),
+            RuntimeError("secret-detail"),
+        )
+        for exc in excs:
             with mock.patch.object(pl, "load_control_token", side_effect=exc):
                 with self.assertLogs(pl._LOG, level="DEBUG") as logs:
                     self.assertIsNone(self._link().current_control_token())
             self.assertIn(type(exc).__name__, logs.output[0])
             self.assertNotIn("secret-detail", logs.output[0])
-
-    def test_unexpected_token_error_is_not_swallowed(self):
-        with mock.patch.object(pl, "load_control_token", side_effect=RuntimeError("bug")):
-            with self.assertRaises(RuntimeError):
-                self._link().current_control_token()
