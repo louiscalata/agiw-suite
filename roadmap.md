@@ -12,8 +12,8 @@
 
 ## Python conventions preparation — 15 November 2026
 
-- [ ] Prepare the Ruff 0.17.4 format and lint lane with Python 3.9 syntax, 120 columns, double quotes and an exact-file lint baseline. Keep hashed, pinned, vendored, generated and evidence bytes excluded. The docstring-normalising AST comparison and the root, Windows and CLI unittest comparison establish the source result; record their completed counts in the lane review.
-- [ ] Rebuild and independently verify this lane on the newest main after `mon-eci-rejected-view`, `mon-eci-jobs-host` and `mon-eci-jobs-panel` merge, with no competing Python or CI lane. Preparation does not authorize a commit, push, pull request, merge, release or install.
+- [x] Prepare the Ruff 0.17.4 format and lint lane with Python 3.9 syntax, 120 columns, double quotes and an exact-file lint baseline. Keep hashed, pinned, vendored, generated and evidence bytes excluded. The docstring-normalising AST comparison and the root, Windows and CLI unittest comparison establish the source result; record their completed counts in the lane review. The lane later landed, after this preparation step, in PR #184 (`4905bcb`): Ruff `==0.17.4`, `py39`, 120 columns, double quotes and an exact-file baseline in `pyproject.toml`, with the protected trees excluded. Its review recorded the AST gate (170 files equal under Python 3.9.6) and the root, Windows, CLI and Node counts (2,153 / 593 / 222 / 1,089, identical before and after). Rechecked 2026-11-19 on main `f6f864b`: `ruff check .` and `ruff format --check .` pass.
+- [x] Rebuild and independently verify this lane on the newest main after `mon-eci-rejected-view`, `mon-eci-jobs-host` and `mon-eci-jobs-panel` merge, with no competing Python or CI lane. Preparation does not authorize a commit, push, pull request, merge, release or install. Done later, in the landing round: #184 was rebuilt on `74002a3`, after #180 (`mon-eci-rejected-view`), #181 (`mon-eci-jobs-host`), #182 (`mon-eci-jobs-panel`) and #183 had merged, with no other pull request open. All 15 of its checks passed before it merged, and `source-checks.yml` now runs Ruff as the `lint` job, which the required `monitor` job lists in `needs` and requires to succeed.
 
 ## 14 November 2026 merges (#161-#171)
 
@@ -53,7 +53,7 @@
 - [x] New fast-check records carry `schema_version` 2 (transport errors leave `unknown_finish` and `parsed`; unparsed answers pair as wrong). Version 1 records stay valid and are checked with the original version 1 rules; a version 1 record cannot carry version 2 evidence.
 - [x] Screening units: word units and multi-letter abbreviations match in any case, the litre symbol accepts `l` and `L` (`Answer: 5 L` scores against `#### 5`), and `m`/`g` stay case-sensitive so `12 M` and `12 G` stay unparsed.
 - [x] Ingest validates each fast-check record on its own: an invalid record is left out and listed in `rejected_fast_checks` with its SHA-256 `record_id` (or null) and a reason. Only fixed-text validator messages are reported; any other exception gives a generic reason that names only its type. A duplicate valid record still fails the whole ingest.
-- [ ] Land the reviewed staged revision. This lane contains the fast-check runner lane (`claude/fast-check-runner-fixes`) and requires that lane merged first. Real inference, fast checks, full ECI, benchmarks, browser/device acceptance and CI are NOT_RUN in this lane; no commit or push is authorized here.
+- [x] Land the reviewed staged revision. This lane contains the fast-check runner lane (`claude/fast-check-runner-fixes`) and requires that lane merged first. Real inference, fast checks, full ECI, benchmarks, browser/device acceptance and CI are NOT_RUN in this lane; no commit or push is authorized here. Landed later, in a separate landing round: the runner lane merged first as PR #153 (`7da73ab`), then this revision merged as PR #155 (`d439663`, "Fix ECI tuning comparisons and report invalid fast checks"), and all eight of its checks passed. Rechecked 2026-11-19 on main `f6f864b`: the six fast-check and tuning unit-test modules pass (145 fixture tests, no model call). Real inference, real fast-check runs, full ECI, benchmarks and browser/device acceptance remain NOT_RUN.
 
 ## Monitor redesign stage 5 — local evaluation dataset — 12 November 2026
 
@@ -201,7 +201,7 @@ See [Fast check](docs/eci-fast-check.md) for the contract, statistical limits, a
 - [x] Reconcile the competing agent guide with the existing canonical file, preserving source ownership, release and device gates, and the Mac browser prohibition.
 - [x] Describe current same-repository Mac/PC and hosted Linux runner mappings from the workflows, and separate source checks from installation and historical test receipts.
 - [x] Record the guide's integration through PR #114 (`66a660a`).
-- [ ] Review CI receipts for the merged guide revision. Its CI outcome remains unverified in this local source check; integration does not prove CI passed. Product and typography changes remain separate.
+- [x] Review CI receipts for the merged guide revision. Its CI outcome remains unverified in this local source check; integration does not prove CI passed. Product and typography changes remain separate. Reviewed 2026-11-19: all five checks on the PR #114 head `88230d8` passed (`monitor (3.9)`, `monitor (3.14)`, `forced-colors emulation`, `jaryo kit smoke`, `monitor`). The push run of Source checks on merge `66a660a` also passed (Actions run 42962684738).
 
 ## Linux CI availability — 10 November 2026
 

@@ -18,7 +18,7 @@ supported:** on Linux every `agiw` command refuses with exit 2 and changes nothi
 
 ## Install
 
-Available once published (replace `<tag>` with a release tag):
+From a release tag (replace `<tag>`). The `agiw` command is in release tag `v1.1.0`. Fixes merged to `main` after a tag, such as the Windows reinstall stop-and-restart below, are only in a later tag or a checkout:
 
 ```sh
 pipx install "git+https://github.com/louiscalata/agiw-suite@<tag>"
