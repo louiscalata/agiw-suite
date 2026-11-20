@@ -1478,6 +1478,50 @@ class WatchdogTests(ChildCase):
         self.assertEqual([e["type"] for e in dog.tick("garbage")], ["level"])
 
 
+class SwallowedErrorLoggingTests(unittest.TestCase):
+    """LOU-99: best-effort handlers log once at debug (type only) and still fail safe."""
+
+    def setUp(self):
+        mem_guard._LOGGED.discard("unit-test-key")
+        mem_guard._LOGGED.discard("watchdog-tick")
+
+    def test_debug_once_logs_one_record_per_key_with_type_only(self):
+        with self.assertLogs("mem_guard", level="DEBUG") as logs:
+            mem_guard._debug_once("unit-test-key", RuntimeError("secret-argument"))
+            mem_guard._debug_once("unit-test-key", RuntimeError("again"))
+        self.assertEqual(len(logs.records), 1)
+        message = logs.records[0].getMessage()
+        self.assertIn("unit-test-key", message)
+        self.assertIn("RuntimeError", message)
+        self.assertNotIn("secret-argument", message)
+
+    def test_debug_once_never_raises(self):
+        with mock.patch.object(mem_guard._LOG, "debug", side_effect=RuntimeError("logger broke")):
+            mem_guard._debug_once("unit-test-key", ValueError("x"))
+
+    def test_runner_that_cannot_run_reads_unknown(self):
+        def missing(*args, **kwargs):
+            raise FileNotFoundError("no such tool")
+
+        self.assertIsNone(mem_guard._run(missing, ["/usr/bin/true"], 1.0))
+
+    def test_unexpected_exception_in_tick_is_swallowed_and_logged_once(self):
+        with tempfile.TemporaryDirectory() as tmp:
+
+            class Broken:
+                root = Path(tmp)
+
+                def paused_jobs(self):
+                    raise RuntimeError("registry exploded")
+
+                def has_entries(self):
+                    raise RuntimeError("registry exploded")
+
+            dog = mem_guard.Watchdog(lambda: 0.0, None, None, Broken(), None)
+            with self.assertLogs("mem_guard", level="DEBUG"):
+                self.assertIsInstance(dog.tick({"level": "critical"}), list)
+
+
 class GuardTests(unittest.TestCase):
     KEYS = {
         "level",

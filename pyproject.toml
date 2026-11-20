@@ -207,12 +207,11 @@ max-complexity = 15
 # C901 (1): Splitting an existing complex function changes code structure and needs its own behaviour review.
 "local_callers.py" = ["BLE001", "C901"]
 
-# BLE001 (32): Narrowing an existing broad catch changes fallback or boundary behaviour; review the boundary and logging separately.
 # C901 (6): Splitting an existing complex function changes code structure and needs its own behaviour review.
 # N815 (4): Renaming an existing mixed-case attribute changes references or mirrored external names; review the interface separately.
 # UP035 (1): Changing deprecated typing imports changes the import AST and compatibility assumptions; review it separately.
 # UP045 (156): Changing Optional annotations changes the AST and needs a Python 3.9 compatibility review.
-"mem_guard.py" = ["BLE001", "C901", "N815", "UP035", "UP045"]
+"mem_guard.py" = ["C901", "N815", "UP035", "UP045"]
 
 # BLE001 (3): Narrowing an existing broad catch changes fallback or boundary behaviour; review the boundary and logging separately.
 # C901 (3): Splitting an existing complex function changes code structure and needs its own behaviour review.
