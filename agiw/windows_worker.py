@@ -326,6 +326,7 @@ class Worker:
                 if preview_post:
                     text = pilot.preview_post_text(job.get("program"), result)
                     jev_post_record = fleet_repo_patch._analyze(self._jev_analyzers[1], text, "post", "verdict")
+                    jev_post_record = pilot.apply_preview_post_verdict(jev_post_record, result)
             report = result.get("report") if isinstance(result, dict) and isinstance(result.get("report"), dict) else {}
             outcome = report.get("outcome")
             if outcome not in receipt_check.OUTCOMES:

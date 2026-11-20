@@ -16,7 +16,7 @@ from urllib.request import ProxyHandler, Request, build_opener
 
 from agiw import fleet_jev
 from agiw import windows_worker as ww
-from agiw.fleet_local_pilot import NoRedirect, preview_post_text
+from agiw.fleet_local_pilot import NoRedirect, apply_preview_post_verdict, preview_post_text, preview_run_failed
 from agiw.windows_worker_receipt_check import validate_job_receipt
 
 ENDPOINT = "http://127.0.0.1:9/v1/chat/completions"
@@ -413,6 +413,39 @@ class WorkerTests(unittest.TestCase):
         self.assertEqual(receipt["outcome"], "BLOCKED")
         self.assertEqual(receipt["jevPost"], {"status": "not_run", "reason": "job blocked before post-analysis"})
 
+    def test_preview_jev_post_flags_failed_run_even_when_analyzer_says_ok(self):
+        worker = self.worker(
+            execute=self.fake_success(
+                childExitCode=1,
+                report={
+                    "outcome": "FAILED",
+                    "reportStored": True,
+                    "runId": "fail-run",
+                    "storedReportSha256": "b" * 64,
+                    "candidate": {"files": [{"path": "answer.json", "content": '{"answer": 41}'}]},
+                    "stages": [
+                        {
+                            "stage": "tests",
+                            "status": "FAIL",
+                            "evidence": {
+                                "assertionsExecuted": 1,
+                                "assertionsPassed": 0,
+                                "failures": ["answer was 41, expected 42"],
+                            },
+                        }
+                    ],
+                },
+            )
+        )
+        worker._jev_analyzers = (
+            lambda _t: {"status": "ok", "plan": "direct"},
+            lambda _t: {"status": "ok", "verdict": "OK"},
+        )
+        receipt = worker.run_job(self.job(program="tiny-arithmetic.mjs"))
+        self.assertEqual(receipt["outcome"], "FAILED")
+        self.assertEqual(receipt["jevPost"]["status"], "ok")
+        self.assertEqual(receipt["jevPost"]["verdict"], "FLAGGED")
+
 
 class PreviewPostTextTests(unittest.TestCase):
     def test_omits_paths_and_includes_allowlisted_fields(self):
@@ -474,6 +507,120 @@ class PreviewPostTextTests(unittest.TestCase):
         self.assertIn("code: BAD PATH:/tmp/x", dirty)
         self.assertNotIn("childExitCode", dirty)
         self.assertIn("acceptance:", dirty)
+
+    def _clean_result(self):
+        return {
+            "childExitCode": 0,
+            "report": {
+                "outcome": "COMPLETED",
+                "candidate": {"files": [{"path": "answer.json", "content": '{"answer": 42}'}]},
+                "stages": [
+                    {
+                        "stage": "tests",
+                        "status": "PASS",
+                        "evidence": {
+                            "assertionsExecuted": 1,
+                            "assertionsPassed": 1,
+                            "failures": [],
+                        },
+                    },
+                    {
+                        "stage": "review",
+                        "status": "PASS",
+                        "evidence": {
+                            "findings": [],
+                            "summary": "Deterministic arithmetic check, not independent LLM review.",
+                        },
+                    },
+                ],
+            },
+        }
+
+    def test_clean_run_projects_file_and_assertion_evidence(self):
+        text = preview_post_text("tiny-arithmetic.mjs", self._clean_result())
+        self.assertIn('file answer.json: {"answer": 42}', text)
+        self.assertIn("stage tests: PASS assertionsExecuted=1 assertionsPassed=1 failures=0", text)
+        self.assertIn("stage review: PASS findings=0", text)
+        self.assertIn("summary: Deterministic arithmetic check, not independent LLM review.", text)
+        self.assertNotIn("/secret/", text)
+        self.assertFalse(preview_run_failed(self._clean_result()))
+
+    def test_unbacked_run_omits_file_and_assertion_evidence(self):
+        result = {
+            "childExitCode": 0,
+            "report": {
+                "outcome": "COMPLETED",
+                "stages": [{"stage": "tests", "status": "PASS"}],
+            },
+        }
+        text = preview_post_text("tiny-arithmetic.mjs", result)
+        self.assertIn("outcome: COMPLETED", text)
+        self.assertIn("stage tests: PASS", text)
+        self.assertNotIn("file ", text)
+        self.assertNotIn("assertionsExecuted=", text)
+        self.assertFalse(preview_run_failed(result))
+
+    def test_failed_run_projects_failure_evidence(self):
+        result = {
+            "childExitCode": 1,
+            "report": {
+                "outcome": "FAILED",
+                "candidate": {"files": [{"path": "answer.json", "content": '{"answer": 41}'}]},
+                "stages": [
+                    {
+                        "stage": "tests",
+                        "status": "FAIL",
+                        "evidence": {
+                            "assertionsExecuted": 1,
+                            "assertionsPassed": 0,
+                            "failures": ["answer was 41, expected 42"],
+                        },
+                    }
+                ],
+            },
+        }
+        text = preview_post_text("tiny-arithmetic.mjs", result)
+        self.assertIn("outcome: FAILED", text)
+        self.assertIn("childExitCode: 1", text)
+        self.assertIn('file answer.json: {"answer": 41}', text)
+        self.assertIn("stage tests: FAIL assertionsExecuted=1 assertionsPassed=0 failures=1", text)
+        self.assertIn("failure: answer was 41, expected 42", text)
+        self.assertTrue(preview_run_failed(result))
+
+    def test_candidate_paths_must_be_a_single_component(self):
+        text = preview_post_text(
+            "tiny-arithmetic.mjs",
+            {
+                "report": {
+                    "outcome": "COMPLETED",
+                    "candidate": {
+                        "files": [
+                            {"path": "/secret/home/answer.json", "content": '{"answer": 42}'},
+                            {"path": "..\\..\\keys.txt", "content": "secret"},
+                        ]
+                    },
+                }
+            },
+        )
+        self.assertNotIn("file answer.json:", text)
+        self.assertNotIn("/secret/", text)
+        self.assertNotIn("keys.txt", text)
+
+    def test_apply_preview_post_verdict_flags_failures_only(self):
+        ok = {"status": "ok", "verdict": "OK", "inputChars": 10}
+        self.assertEqual(apply_preview_post_verdict(ok, self._clean_result())["verdict"], "OK")
+        flagged = {"status": "ok", "verdict": "FLAGGED", "inputChars": 10}
+        self.assertEqual(
+            apply_preview_post_verdict(flagged, self._clean_result())["verdict"],
+            "FLAGGED",
+        )
+        failed = {
+            "report": {"outcome": "FAILED", "stages": [{"stage": "tests", "status": "FAIL"}]},
+            "childExitCode": 1,
+        }
+        self.assertEqual(apply_preview_post_verdict(ok, failed)["verdict"], "FLAGGED")
+        unavailable = {"status": "unavailable", "errorCode": "JEV_TIMEOUT"}
+        self.assertIs(apply_preview_post_verdict(unavailable, failed), unavailable)
 
 
 if __name__ == "__main__":
