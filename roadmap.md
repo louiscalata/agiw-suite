@@ -474,3 +474,19 @@ These historical checks establish reviewed source revisions and a signed local i
 ## Monitor visual alignment — 2026-11-12
 
 - [ ] Verify the Copper, Plex, ledger and responsive inspector presentation in hosted browser checks at narrow and desktop sizes, then separately on devices. Source changes do not establish rendered or native acceptance.
+
+## Planner JSON output validation — 20 November 2026
+
+- [x] Reproduce a preexisting false-success path: malformed model content could
+  become a completed plan. Require one JSON object containing exactly `title`,
+  `goal`, `steps`, `acceptance`, `risks`, and `lane_hint`, with unique keys,
+  nonblank strings, list limits of 8/5/3, and one of the existing five lanes.
+  Preserve valid content and empty lists. Refuse invalid nonblank content as
+  `OUTPUT_INVALID` with a `BLOCKED` receipt instead of salvaging prose.
+- [x] Preserve the existing `RESPONSE_INVALID` envelope check and the project,
+  payer, budget, credit and no-reroute guards. Planning still creates no task.
+- [x] Independently review the correction and verify regression controls through
+  the real tool/plan path with provider execution mocked. This is source evidence;
+  it does not establish live-provider behavior or installed-service acceptance.
+- [ ] Complete CI and integrate the reviewed source revision. Live-provider and
+  installed-service verification remain separate gates.
