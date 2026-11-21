@@ -7,24 +7,26 @@ A menu-bar monitor for engineers who run local models: activity, memory pressure
 [![Windows edition](https://github.com/louiscalata/agiw-suite/actions/workflows/windows-edition.yml/badge.svg)](https://github.com/louiscalata/agiw-suite/actions/workflows/windows-edition.yml)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
-The app to install is **1.0.0 (7)** for Apple silicon, macOS 13 or later. It is Developer ID signed, Apple-notarized, and published on GitHub only. There is no Mac App Store release. The source tag [v1.1.0](https://github.com/louiscalata/agiw-suite/releases/tag/v1.1.0) (build 14) has no app attached. Building it does not reproduce the 1.0.0 ZIP. No screen capture of the Jaryo interface is stored in this repository.
+The latest Mac download is **1.1.1 (15)** for Apple silicon, macOS 13 or later. It is Developer ID signed and published on GitHub. It has no Apple notarization ticket, so Gatekeeper may block the first open. There is no Mac App Store release. The earlier [v1.1.0](https://github.com/louiscalata/agiw-suite/releases/tag/v1.1.0) tag contains source only. No screen capture of the Jaryo interface is stored in this repository.
 
-**[Download 1.0.0 (7)](https://github.com/louiscalata/agiw-suite/releases/download/v1.0.0/AGIW-Inference-Monitor-1.0.0-7-arm64.zip)** · [v1.0.0 notes](https://github.com/louiscalata/agiw-suite/releases/tag/v1.0.0) · [SHA256SUMS.txt](https://github.com/louiscalata/agiw-suite/releases/download/v1.0.0/SHA256SUMS.txt) · [v1.1.0 source notes](docs/release-notes/v1.1.0.md)
+**[Download 1.1.1 (15)](https://github.com/louiscalata/agiw-suite/releases/download/v1.1.1/AGIW-Inference-Monitor-1.1.1-arm64.dmg)** · [SHA-256](https://github.com/louiscalata/agiw-suite/releases/download/v1.1.1/AGIW-Inference-Monitor-1.1.1-arm64.dmg.sha256) · [v1.1.1 release notes](https://github.com/louiscalata/agiw-suite/releases/tag/v1.1.1)
 
-> **Security warning.** The 1.0.0 (7) download has a known issue: its local control routes do not authenticate callers. Another process or account on your Mac can load or unload models, change auto-unload settings and trigger the Jev check. Jev is an optional hosted TypeSafe connection that uses your own API key; its check can incur charges. Quit the app when local callers on your Mac are not trusted. The v1.1.0 source requires a per-launch capability on those routes. That check is not in the 1.0.0 (7) ZIP. Details: [SECURITY.md](SECURITY.md#known-issue-in-v100-build-7-local-control-authentication).
+The 1.1.1 app requires a per-launch capability on its local control routes. The older 1.0.0 (7) ZIP remains affected by the [local-control authentication issue](SECURITY.md#known-issue-in-v100-build-7-local-control-authentication).
 
 ## What is verified
 
 | Surface | State |
 | --- | --- |
-| Mac download 1.0.0 (7) | Published for Apple silicon. The local-control authentication issue above is still in that ZIP. |
+| Mac download 1.1.1 (15) | Signed Apple-silicon DMG. Notarization and a quarantined clean-Mac first install are pending. |
 | Native macOS GUI of this source | **Not yet verified on hardware.** |
 | Windows installer | **Not yet released.** The Windows code in this repository is a preview. |
 | Galaxy Z Flip6 inner and cover screens | **Not yet tested on a physical Galaxy Z Flip6.** |
 | This checkout's loopback observer | Starts with the command below. It does not replace the Mac app. |
 | `agiw` command | Installs from this checkout. On Linux every command refuses and changes nothing. |
 
-## Install the 1.0.0 download
+<a id="install-the-100-download"></a>
+
+## Install the Mac app
 
 Requirements (Apple silicon, macOS 13 or later):
 
@@ -32,9 +34,9 @@ Requirements (Apple silicon, macOS 13 or later):
 - Optional: Apple-silicon (arm64) Node.js 22+ at `/opt/homebrew/bin/node` or `/usr/local/bin/node`, for the Nisi self-check. Nisi is the public workflow engine bundled with the app.
 - Model weights and services such as LM Studio are separate.
 
-1. Put the ZIP and `SHA256SUMS.txt` in one folder and run `shasum -a 256 -c SHA256SUMS.txt`. Expect `OK`.
-2. Extract the ZIP, quit any running copy of the app, and copy `Inference Monitor.app` into Applications.
-3. Open it (read the security warning above first). Click the chip icon in the menu bar for the compact monitor, or right-click it and choose **Open Dashboard Window**.
+1. Put the DMG and its checksum file in one folder. Run `shasum -a 256 -c AGIW-Inference-Monitor-1.1.1-arm64.dmg.sha256` and expect `OK`.
+2. Open the DMG, quit any running copy of the app, and copy `Inference Monitor.app` into Applications.
+3. Before opening the app, read the [Gatekeeper note in the release](https://github.com/louiscalata/agiw-suite/releases/tag/v1.1.1). Click the chip icon in the menu bar for the compact monitor, or right-click it and choose **Open Dashboard Window**.
 4. Expect your LM Studio models and Mac memory readings. A reading that is missing or stale shows as unknown.
 5. Optional: open **Browse → Nisi & optional components**, then click **Run Nisi self-check** to run the fixed offline check.
 
@@ -61,7 +63,7 @@ Expect `agiw 1.1.0 (agiw-peer/2)`. A user install may also place an `agiw` scrip
 
 ## How it works
 
-This describes the 1.0.0 (7) download.
+This describes the 1.1.1 (15) download.
 
 1. The app starts a local Python process (the observer) that listens only on IPv4 loopback.
 2. The observer samples the Mac: LM Studio inventory and activity, memory pressure and best-effort GPU readings. It can also read a separately configured Windows PC worker through SSH forwards.
