@@ -1,12 +1,12 @@
 # Features and components
 
-This page describes the 1.0.0 (7) download unless marked otherwise. See [status](status.md) for what the v1.1.0 source changes. The download does not include the per-launch control check that is in that source.
+This guide describes the [1.1.1 Mac download (build 15)](https://github.com/louiscalata/agiw-suite/releases/tag/v1.1.1) and labels features that are available only in source. The released app authenticates local controls with a per-launch capability. See [release status](status.md) for distribution and native checks.
 
 - **Nisi**: the public workflow engine, journal and CLI that the app bundles (version 0.3.2).
 - **Jev**: the optional hosted connection to TypeSafe, used with your own TypeSafe API key.
 - **AGIW x ECI Model Tuning Tool** (unreleased source): compare recorded ECI and components by protocol, inspect pending scores, and explicitly apply a provisional PC routing policy. [Guide and CLI](eci-model-tuning.md).
 
-**Known issue:** the 1.0.0 (7) download does not authenticate callers of its local control routes (model load or unload, auto-unload settings, the Jev check). See [SECURITY.md](../SECURITY.md#known-issue-in-v100-build-7-local-control-authentication).
+**Older Build 7:** the 1.0.0 (7) download has a [local-control authentication issue](../SECURITY.md#known-issue-in-v100-build-7-local-control-authentication) affecting model load and unload, auto-unload settings, and the Jev check.
 
 ## What you can see and control
 
@@ -23,7 +23,7 @@ Opening the app starts no coding task or model, and changing a catalog view load
 
 ### Recovery
 
-Route and worker recovery depends on separately installed maintainer integrations (`chami-dispatch`, `pc-llm`, the private router and a configured share). These are not bundled and are not general-purpose setup tools. In the v1.1.0 source, the native launcher leaves owner recovery closed. Read the [known local-control issue](../SECURITY.md#known-issue-in-v100-build-7-local-control-authentication) before using the released app.
+Route and worker recovery depends on separately installed maintainer integrations (`chami-dispatch`, `pc-llm`, the private router and a configured share). These are not bundled and are not general-purpose setup tools. The standard launch paths keep owner recovery closed. See [route and worker recovery](activation.md#optional-use-an-existing-coding-router-or-pc-worker) for the conditions that apply to a separate owner setup.
 
 ### Not bundled
 
