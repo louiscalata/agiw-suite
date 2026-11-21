@@ -124,6 +124,7 @@ def _safe_json_loads(text: str) -> Any | None:
 
 def _parse_plan_brief(output: str) -> dict[str, Any]:
     """Accept only the complete, closed planner JSON contract; never salvage text."""
+
     def unique_object(pairs):
         result = dict(pairs)
         if len(result) != len(pairs):
@@ -134,22 +135,21 @@ def _parse_plan_brief(output: str) -> dict[str, Any]:
         brief = json.loads(output, object_pairs_hook=unique_object)
     except (TypeError, ValueError, RecursionError):
         raise PoolRefused("OUTPUT_INVALID") from None
-    if not isinstance(brief, dict) or set(brief) != {
-        "title", "goal", "steps", "acceptance", "risks", "lane_hint"
-    }:
+    if not isinstance(brief, dict) or set(brief) != {"title", "goal", "steps", "acceptance", "risks", "lane_hint"}:
         raise PoolRefused("OUTPUT_INVALID")
     for key in ("title", "goal"):
         if not isinstance(brief[key], str) or not brief[key].strip():
             raise PoolRefused("OUTPUT_INVALID")
     for key, maximum in (("steps", 8), ("acceptance", 5), ("risks", 3)):
         items = brief[key]
-        if (not isinstance(items, list) or len(items) > maximum or
-                any(not isinstance(item, str) or not item.strip() for item in items)):
+        if (
+            not isinstance(items, list)
+            or len(items) > maximum
+            or any(not isinstance(item, str) or not item.strip() for item in items)
+        ):
             raise PoolRefused("OUTPUT_INVALID")
     lane = brief["lane_hint"]
-    if not isinstance(lane, str) or lane not in {
-        "codex", "opencode", "pc-worker", "monterey-worker", "human"
-    }:
+    if not isinstance(lane, str) or lane not in {"codex", "opencode", "pc-worker", "monterey-worker", "human"}:
         raise PoolRefused("OUTPUT_INVALID")
     return brief
 

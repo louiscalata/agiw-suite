@@ -40,12 +40,11 @@ class PlanOutputTestCase(unittest.TestCase):
                 "billing": {"payer": payer} if payer else {},
             }
             completed = subprocess.CompletedProcess([], returncode, json.dumps(envelope), "")
-            with patch.dict(os.environ, {}, clear=True), patch.object(
-                om.subprocess, "run", return_value=completed
-            ) as run:
-                result = orchestrator.call_tool(
-                    "plan", {"request": "Draft a small task.", "project": project}
-                )
+            with (
+                patch.dict(os.environ, {}, clear=True),
+                patch.object(om.subprocess, "run", return_value=completed) as run,
+            ):
+                result = orchestrator.call_tool("plan", {"request": "Draft a small task.", "project": project})
             receipts = orchestrator._receipt_rows()
             if project in om.POOL_PROJECTS:
                 run.assert_called_once()
@@ -79,8 +78,18 @@ class PlanOutputTestCase(unittest.TestCase):
 
     def test_rejects_malformed_nonobject_and_surrounding_prose(self):
         valid = json.dumps(self.brief())
-        for output in ("plain text", "{", "[]", "null", '"text"', "true", "3",
-                       "Here is the plan:\n" + valid, valid + "\nDone", valid + valid):
+        for output in (
+            "plain text",
+            "{",
+            "[]",
+            "null",
+            '"text"',
+            "true",
+            "3",
+            "Here is the plan:\n" + valid,
+            valid + "\nDone",
+            valid + valid,
+        ):
             with self.subTest(output=output):
                 self.invalid(output)
 
@@ -116,8 +125,21 @@ class PlanOutputTestCase(unittest.TestCase):
 
     def test_rejects_wrong_array_types_entries_and_excess_lengths(self):
         for key, maximum in (("steps", 8), ("acceptance", 5), ("risks", 3)):
-            for value in (None, False, 0, "step", {}, [None], [True], [1], [[]], [{}],
-                          [""], [" \t\n"], ["entry"] * (maximum + 1)):
+            for value in (
+                None,
+                False,
+                0,
+                "step",
+                {},
+                [None],
+                [True],
+                [1],
+                [[]],
+                [{}],
+                [""],
+                [" \t\n"],
+                ["entry"] * (maximum + 1),
+            ):
                 with self.subTest(key=key, value=value):
                     self.invalid(json.dumps(self.brief(**{key: value})))
 
@@ -129,18 +151,25 @@ class PlanOutputTestCase(unittest.TestCase):
     def test_valid_boundaries_preserve_exact_brief_and_metadata(self):
         for lane in ("codex", "opencode", "pc-worker", "monterey-worker", "human"):
             for full in (False, True):
-                expected = self.brief(lane_hint=lane, steps=[" step "] * (8 if full else 0),
-                                      acceptance=["check"] * (5 if full else 0),
-                                      risks=["risk"] * (3 if full else 0))
+                expected = self.brief(
+                    lane_hint=lane,
+                    steps=[" step "] * (8 if full else 0),
+                    acceptance=["check"] * (5 if full else 0),
+                    risks=["risk"] * (3 if full else 0),
+                )
                 with self.subTest(lane=lane, full=full):
                     result, receipts, paused = self.invoke(" \n" + json.dumps(expected) + "\t")
                     self.assertFalse(result["isError"])
-                    self.assertEqual(result["structuredContent"], {
-                        "brief": expected, "model_served": "gpt-5.6-terra",
-                        "response_id": "resp_fixture", "usage": {
-                            "input_tokens": 2, "output_tokens": 3, "total_tokens": 5},
-                        "payer": "openai",
-                    })
+                    self.assertEqual(
+                        result["structuredContent"],
+                        {
+                            "brief": expected,
+                            "model_served": "gpt-5.6-terra",
+                            "response_id": "resp_fixture",
+                            "usage": {"input_tokens": 2, "output_tokens": 3, "total_tokens": 5},
+                            "payer": "openai",
+                        },
+                    )
                     self.assertEqual(receipts[0]["outcome"], "COMPLETED")
                     self.assertEqual(receipts[0]["code"], "COMPLETED")
                     self.assertFalse(paused)
