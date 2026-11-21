@@ -1,6 +1,6 @@
 # Advanced configuration
 
-Optional routing, recovery and memory controls require separately configured components. Start with the [release installation guide](../README.md#install-the-100-download).
+Optional routing, recovery and memory controls require separately configured components. Start with the [release installation guide](../README.md#install-the-mac-app).
 
 ## Resident model budget
 

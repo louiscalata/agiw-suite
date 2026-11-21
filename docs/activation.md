@@ -1,16 +1,16 @@
 # Activate AGIW Suite
 
-The installation steps describe the 1.0.0 (7) download, which has the [known local-control authentication issue](../SECURITY.md#known-issue-in-v100-build-7-local-control-authentication). The v1.1.0 source requires a per-launch capability on those control routes. That check is not in the download. In a native app built from this checkout, the dashboard window opens **Overview** with the Fleet ledger and its controls; from the compact popover's `/monitor` page, use **Overview** to reach it. **Components** opens the component checks. A standalone browser preview has observation access only.
+Start with the [1.1.1 (15) Apple-silicon download](https://github.com/louiscalata/agiw-suite/releases/tag/v1.1.1). Its local control routes require a per-launch capability. The app is Developer ID signed and has no Apple notarization ticket. This guide covers the GitHub edition. The Mac App Store edition has separate menus, runtime packaging and acceptance requirements.
 
-Start with the **GitHub 1.0.0 (7) Apple-silicon application**. This guide explains how to launch the monitor, connect local models and run the included Nisi tools. The Mac App Store edition has separate menus, runtime packaging and acceptance requirements.
+The dashboard window opens **Overview** with the Fleet ledger. The compact popover opens `/monitor`; use **Overview** to reach the ledger and **Components** for component checks. A standalone browser preview has observation access only.
 
-[Download and verify](../README.md#install-the-100-download) · [Architecture](architecture.md) · [Configuration](advanced-configuration.md) · [Developer commands](development.md)
+[Download and verify](../README.md#install-the-mac-app) · [Architecture](architecture.md) · [Configuration](advanced-configuration.md) · [Developer commands](development.md)
 
 ## Quick start: get the monitor running
 
-1. Download the application ZIP and `SHA256SUMS.txt` from the [v1.0.0 release](https://github.com/louiscalata/agiw-suite/releases/tag/v1.0.0). Verify the ZIP with `shasum -a 256 -c SHA256SUMS.txt` in the download folder; expect `OK`.
+1. Download and verify the DMG using the [installation guide](../README.md#install-the-mac-app).
 2. Make sure Python 3.9+ is executable at `/opt/homebrew/bin/python3`, `/usr/local/bin/python3` or `/usr/bin/python3`. The GitHub app uses an external interpreter.
-3. Extract the ZIP, quit an existing Monitor edition, and copy **Inference Monitor.app** to Applications. Open it in Finder.
+3. Open the DMG, quit an existing Monitor edition, and copy **Inference Monitor.app** to Applications. Read the [release's Gatekeeper note](https://github.com/louiscalata/agiw-suite/releases/tag/v1.1.1) before opening the app.
 4. Click its **chip icon in the Mac menu bar** to open the compact monitor. Right-click that icon and choose **Open Dashboard Window** for the full view. This is a menu-bar app; no Dock icon is expected.
 5. Wait for the first reading. **LIVE · STREAM** or **LIVE · 1s** confirms a fresh observer feed. Select **This Mac** to inspect resources. Model cards can remain unavailable until you connect a model service.
 
@@ -19,7 +19,7 @@ You have now launched the Monitor. Local model generation, the Nisi self-check, 
 ## Connect and monitor local models
 
 1. Install/configure LM Studio and download a model suited to the Mac's available memory. Model weights are separate from AGIW.
-2. In LM Studio's **Developer** tab, start its API server on **127.0.0.1:1234**. The Monitor's sampler takes the port from `AGIW_LMSTUDIO_API_PORT` or `lms server status`, with 1234 as the fallback; the unreleased `/monitor` map reuses that verified inventory and endpoint ([details](advanced-configuration.md#lm-studio-port-and-nvidia-pair)). See the [official server instructions](https://lmstudio.ai/docs/developer/core/server).
+2. In LM Studio's **Developer** tab, start its API server on **127.0.0.1:1234**. The Monitor's sampler takes the port from `AGIW_LMSTUDIO_API_PORT` or `lms server status`, with 1234 as the fallback; the `/monitor` map reuses that verified inventory and endpoint ([details](advanced-configuration.md#lm-studio-port-and-nvidia-pair)). See the [official server instructions](https://lmstudio.ai/docs/developer/core/server).
 3. With LM Studio's CLI installed, its equivalent explicit command is:
 
    ```sh

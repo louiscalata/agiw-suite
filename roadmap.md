@@ -1,5 +1,13 @@
 # AGIW Suite roadmap and release evidence
 
+## Current Mac release · November 20, 2026
+
+- [x] Publish [v1.1.1](https://github.com/louiscalata/agiw-suite/releases/tag/v1.1.1) for Apple silicon, macOS 13 or later. The Developer ID–signed DMG contains build 15 from `54479a1`, with the per-launch local-control capability and bundled Nisi 0.3.2.
+- [x] Check the published asset digest against the local DMG and verify its image checksum and the mounted app's strict code signature on the maintainer Mac.
+- [ ] Complete notarization for a release candidate, validate its ticket and run a quarantined first install on a clean supported Mac. Native rendering and the full Jev credential lifecycle remain open. Source CI, signatures and archive checks do not establish those results.
+
+Earlier release records below describe their own source revisions and artifacts.
+
 ## Shared helpers phase 2 — 15 November 2026
 
 - [x] Recheck fresh main `4905bcb`: the numeric helpers and fleet/remote UTC aliases are already shared. Inventory exact production function bodies before selecting changes: 10 cross-file groups / 24 functions; after this lane, 9 / 22 remain, including the two deliberate caller-local Jaryo delegates.
@@ -231,9 +239,9 @@ The manual Jaryo kit smoke uses the supported Ubuntu 22.04 image: the pinned Chr
 - [x] The full Node and Python source suites and the focused diagnosis, gate and lifecycle tests pass on the rebased tree; exact counts and skip reasons are in the pull request. Skipped cases remain unverified coverage.
 - [ ] Native/rendered app, hosted CI and model execution remain NOT_RUN.
 
-## Current source and artifact status · 2026-11-03
+## Historical source and artifact checkpoint · 2026-11-03
 
-The canonical roadmap remains this file. The downloadable application is **1.0.0 (7)**. `Info.plist` in this checkout is **1.1.0 (14)**, tagged `v1.1.0` on 9 November 2026 as a source release with no app attached. The earlier label 1.2.0 (13) was not shipped. The repository's release record lists only v1.0.0 as a binary download: rc.1, rc.2 and source-preview release pages were withdrawn on 18 October, while their tags remain. Historical release evidence below describes those earlier checkpoints, not current rollback availability.
+At this checkpoint, the downloadable application was **1.0.0 (7)** and the source version was **1.1.0 (14)**, tagged `v1.1.0` on 9 November 2026 as a source release with no app attached. The earlier label 1.2.0 (13) was not shipped. The release record then listed only v1.0.0 as a binary download: rc.1, rc.2 and source-preview release pages were withdrawn on 18 October, while their tags remain. Historical release evidence below describes those earlier checkpoints, not current rollback availability.
 
 The 1.0.0 download has the [known local-control authentication issue](SECURITY.md#known-issue-in-v100-build-7-local-control-authentication). The per-launch capability is in the v1.1.0 source. It is not in the signed ZIP. Native rendering, a quarantined clean-Mac first install and the full Jev credential-entry lifecycle remain open. The Windows observer source is included as an unreleased preview; external Windows model workers and the private router are separate.
 
@@ -357,7 +365,7 @@ At publication, rc.2 and rc.1 were available; their release downloads were withd
 - [ ] Complete the successor's native menu-bar/dashboard rendering and animation checks and quarantined first-install acceptance on a clean supported Mac as release-validation follow-up. Build 6's native window now opens and basic rendering was inspected; that evidence does not transfer automatically to the successor.
 - [ ] Review the Mac App Store successor's sandbox, runtime and optional-service privacy design. The Mac App Store edition has its own source, package, privacy and native acceptance binding; GitHub results do not close its gates.
 
-The current GitHub download is the regular v1.0.0 release of notarized Build 7. Build 6 remains held after its observed native Jev setup failure. Build 7 passed the narrow process-survival regression, native model-free Nisi self-check and one existing-key fixed hosted probe. These results do not complete Jev UI/credential lifecycle, task routing, provider model identity, animation or clean-Mac acceptance. Public v1.0.0 publication is verified above; native validation remains open. Build 5 rc.1 was retained for rollback at this September checkpoint; its release download was withdrawn on 18 October as recorded above.
+At the September checkpoint, the regular v1.0.0 release carried the notarized Build 7. Build 6 remains held after its observed native Jev setup failure. Build 7 passed the narrow process-survival regression, native model-free Nisi self-check and one existing-key fixed hosted probe. These results do not complete Jev UI/credential lifecycle, task routing, provider model identity, animation or clean-Mac acceptance. Public v1.0.0 publication is verified above; native validation remains open. Build 5 rc.1 was retained for rollback at this September checkpoint; its release download was withdrawn on 18 October as recorded above.
 The first 6-GiB heavy-build admission was refused (exit 75, macOS memory pressure warning). After the owner authorized unloading the two resident models, memory returned to normal and a signed Build 6 candidate was produced from `efab5c1`. Publication review caught an outdated NOTICE claiming Nisi runtime source was excluded and clarified Jev's API-key/request-metadata transmission. The corrected signed candidate from `cbd623d` supersedes that earlier candidate and has completed notarization and the exact export audit. Build 5 preservation here describes that September checkpoint; it does not establish current rollback availability.
 
 This is the canonical roadmap for this repository and its GitHub distribution candidates. The Monitor's active engineering roadmap remains in its original checkout until an owner accepts a cutover. Source publication, verified local installation and binary distribution acceptance are recorded separately.
