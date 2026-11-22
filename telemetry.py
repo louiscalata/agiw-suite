@@ -1647,13 +1647,11 @@ def _router_queued(row: dict[str, Any]) -> bool:
 
 
 def _router_projection(observation: dict[str, Any], now: float) -> dict[str, Any]:
-    """activeRuns, queuedRuns, lanes, counts and admission for the online-code snapshot."""
     rows = observation["rows"]
     active, queued = [], []
-    counts = {"running": 0, "queued": 0, "unresolved": 0}
+    running, unresolved = 0, 0
     for row in rows:
-        is_queued = _router_queued(row)
-        if is_queued:
+        if _router_queued(row):
             note = row["note"] or {}
             until = note.get("untilUnix")
             queued.append(
@@ -1670,7 +1668,6 @@ def _router_projection(observation: dict[str, Any], now: float) -> dict[str, Any
                     "stage": row["stage"],
                 }
             )
-            counts["queued"] += 1
         else:
             active.append(
                 {
@@ -1688,9 +1685,9 @@ def _router_projection(observation: dict[str, Any], now: float) -> dict[str, Any
                 }
             )
             if row["live"]:
-                counts["running"] += 1
+                running += 1
             elif row["state"] != "changing":
-                counts["unresolved"] += 1
+                unresolved += 1
     active_count, queued_count = len(active), len(queued)
     complete = (
         not observation["error"]
@@ -1700,8 +1697,6 @@ def _router_projection(observation: dict[str, Any], now: float) -> dict[str, Any
         and queued_count <= _ROUTER_PROJECTED
         and all(
             row["state"] not in ("unreadable", "unverified", "changing")
-            # A lock/process verified in this observation establishes
-            # liveness independently of the last checkpoint's age.
             and (
                 (
                     row["live"]
@@ -1722,7 +1717,7 @@ def _router_projection(observation: dict[str, Any], now: float) -> dict[str, Any
         "activeRuns": active[:_ROUTER_PROJECTED],
         "queuedRuns": queued[:_ROUTER_PROJECTED],
         "lanes": observation["lanes"],
-        "runCounts": counts,
+        "runCounts": {"running": running, "queued": queued_count, "unresolved": unresolved},
         "runCountsComplete": complete,
         "admission": observation["admission"],
         "install": observation["install"],
