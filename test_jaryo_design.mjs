@@ -78,6 +78,31 @@ test('check and help exit 0', () => {
   });
 });
 
+test('contrast audit runs through a directory link and stays quiet on import', {
+  skip: typeof import.meta.main !== 'boolean',
+}, async () => {
+  const linkDir = await mkdtemp(join(tmpdir(), 'jaryo-contrast-'));
+  try {
+    const link = join(linkDir, 'kit');
+    symlinkSync(kit, link, 'junction');
+    const entry = join(link, 'contrast.mjs');
+    const direct = spawnSync(process.execPath, [entry], { encoding: 'utf8' });
+    assert.equal(direct.status, 0, direct.stderr);
+    assert.match(direct.stdout, /\b[1-9]\d* pairs; 0 failures\b/);
+    assert.equal(direct.stderr, '');
+
+    const script = join(kit, 'contrast.mjs');
+    const imported = spawnSync(process.execPath, [
+      '--input-type=module', '--eval', `await import(${JSON.stringify(pathToFileURL(entry).href)})`, script,
+    ], { encoding: 'utf8' });
+    assert.equal(imported.status, 0, imported.stderr);
+    assert.equal(imported.stdout, '');
+    assert.equal(imported.stderr, '');
+  } finally {
+    await rm(linkDir, { recursive: true, force: true });
+  }
+});
+
 test('javascript files parse', () => {
   for (const file of [
     'jaryo/behavior.mjs', 'jaryo/boot.js', 'jaryo/cli.mjs', 'jaryo/contract.mjs',
