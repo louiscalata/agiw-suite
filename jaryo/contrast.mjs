@@ -7,8 +7,8 @@ export function contrastRatio(a, b) {
     const c=hex.slice(1).match(/../g).map(v=>parseInt(v,16)/255).map(v=>v<=0.04045?v/12.92:((v+0.055)/1.055)**2.4);
     return .2126*c[0]+.7152*c[1]+.0722*c[2];
   };
-  const values=[luminance(a),luminance(b)].sort((x,y)=>y-x);
-  return (values[0]+.05)/(values[1]+.05);
+  const values = [luminance(a), luminance(b)];
+  return (Math.max(...values) + .05) / (Math.min(...values) + .05);
 }
 export function contrastPairs(tokens) {
   const results=[];
