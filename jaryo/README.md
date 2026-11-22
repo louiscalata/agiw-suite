@@ -63,7 +63,7 @@ There was no token/export generator in this kit. `generate.mjs` now exports `pri
 node jaryo/generate.mjs
 node jaryo/generate.mjs --check
 node jaryo/cli.mjs check
-node jaryo/contrast.mjs
+node jaryo/contrast-cli.mjs
 node jaryo/cli.mjs tokens
 node jaryo/cli.mjs mcp
 ```
