@@ -28,7 +28,8 @@ Refused = RefusedError  # established name used by callers and tests
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, *args):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        fp.close()
         raise Refused("REDIRECT_REFUSED")
 
 
