@@ -1647,9 +1647,9 @@ def _router_queued(row: dict[str, Any]) -> bool:
 
 
 def _router_projection(observation: dict[str, Any], now: float) -> dict[str, Any]:
-    """activeRuns, queuedRuns, lanes, counts and admission for the online-code snapshot."""
     rows = observation["rows"]
     active, queued = [], []
+    running, unresolved = 0, 0
     for row in rows:
         if _router_queued(row):
             note = row["note"] or {}
@@ -1684,22 +1684,19 @@ def _router_projection(observation: dict[str, Any], now: float) -> dict[str, Any
                     "collision": row["collision"],
                 }
             )
-    counts = {
-        "running": sum(1 for row in rows if row["live"] and not _router_queued(row)),
-        "queued": sum(1 for row in rows if _router_queued(row)),
-        # A row changing under observation is re-checked next sample, not an unresolved run.
-        "unresolved": sum(1 for row in rows if not row["live"] and row["state"] != "changing"),
-    }
+            if row["live"]:
+                running += 1
+            elif row["state"] != "changing":
+                unresolved += 1
+    active_count, queued_count = len(active), len(queued)
     complete = (
         not observation["error"]
         and not observation["truncated"]
         and _router_namespace_initialized()
-        and len(active) <= _ROUTER_PROJECTED
-        and len(queued) <= _ROUTER_PROJECTED
+        and active_count <= _ROUTER_PROJECTED
+        and queued_count <= _ROUTER_PROJECTED
         and all(
             row["state"] not in ("unreadable", "unverified", "changing")
-            # A lock/process verified in this observation establishes
-            # liveness independently of the last checkpoint's age.
             and (
                 (
                     row["live"]
@@ -1720,12 +1717,14 @@ def _router_projection(observation: dict[str, Any], now: float) -> dict[str, Any
         "activeRuns": active[:_ROUTER_PROJECTED],
         "queuedRuns": queued[:_ROUTER_PROJECTED],
         "lanes": observation["lanes"],
-        "runCounts": counts,
+        "runCounts": {"running": running, "queued": queued_count, "unresolved": unresolved},
         "runCountsComplete": complete,
         "admission": observation["admission"],
         "install": observation["install"],
         "runIdCollisions": list(observation.get("collisions") or []),
-        "runsTruncated": observation["truncated"] or len(active) > _ROUTER_PROJECTED or len(queued) > _ROUTER_PROJECTED,
+        "runsTruncated": observation["truncated"]
+        or active_count > _ROUTER_PROJECTED
+        or queued_count > _ROUTER_PROJECTED,
     }
 
 
