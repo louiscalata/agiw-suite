@@ -10,6 +10,7 @@ import os
 import time
 import urllib.request
 from pathlib import Path
+from urllib.error import HTTPError
 from urllib.parse import urlsplit
 
 from . import fleet_jev
@@ -151,8 +152,11 @@ class FleetRouterClient:
         for name in self.workers:
             try:
                 status, ready = self.request(name, "GET", "/v1/ready")
+            except HTTPError as error:
+                error.close()
+                continue
             except pilot.PROBE_ERRORS:
-                continue  # unreachable, 401, redirect or malformed: unknown, not eligible
+                continue
             if status != 200 or not isinstance(ready, dict):
                 continue
             if ready.get("worker_id") != name:
@@ -213,6 +217,9 @@ class FleetRouterClient:
             body["request_mode"] = row["request_mode"]
         try:
             status, receipt = self.request(name, "POST", "/v1/jobs", body)
+        except HTTPError as error:
+            error.close()
+            return {"outcome": "BLOCKED", "reason": "DISPATCH_FAILED", "worker": name, "job_id": job_id}
         except pilot.PROBE_ERRORS:
             return {"outcome": "BLOCKED", "reason": "DISPATCH_FAILED", "worker": name, "job_id": job_id}
         if status != 200:

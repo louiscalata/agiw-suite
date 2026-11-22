@@ -7,8 +7,10 @@ import threading
 import time
 import unittest
 import uuid
+from io import BytesIO
 from pathlib import Path
 from unittest.mock import Mock, call
+from urllib.error import HTTPError
 
 from agiw import fleet_jev as jev
 from agiw import fleet_router_client as rc
@@ -174,6 +176,45 @@ class RouterClientTests(unittest.TestCase):
         result = client.run("job-1")
         self.assertEqual(result["outcome"], "BLOCKED")
         self.assertEqual(result["reason"], "no-verified-local-worker")
+
+    def test_closes_http_error_bodies_at_router_refusal_boundaries(self):
+        worker = "m5-macbook-pro"
+        ready = (200, {"worker_id": worker, "model_ready": True, "busy": False})
+        for method, path, status, reason in (
+            ("GET", "/v1/ready", 401, "no-verified-local-worker"),
+            ("POST", "/v1/jobs", 503, "DISPATCH_FAILED"),
+        ):
+            with self.subTest(method=method):
+                body = BytesIO(b"response")
+                error = HTTPError("http://127.0.0.1:9" + path, status, "fixture", None, body)
+                client = rc.FleetRouterClient({worker: {}}, jev_preanalysis="off")
+                client.request = Mock(side_effect=[error] if method == "GET" else [ready, error])
+                self.assertEqual(
+                    client.run("job"),
+                    {
+                        "outcome": "BLOCKED",
+                        "reason": reason,
+                        "worker": None if method == "GET" else worker,
+                        "job_id": "job",
+                    },
+                )
+                self.assertTrue(body.closed)
+                self.assertEqual(client.request.call_args_list[0], call(worker, "GET", "/v1/ready"))
+                self.assertEqual(client.request.call_count, 1 if method == "GET" else 2)
+                self.assertEqual(client.request.call_args.args[:3], (worker, method, path))
+
+    def test_direct_request_caller_can_read_the_http_error_body(self):
+        worker = "m5-macbook-pro"
+        url = "http://127.0.0.1:9"
+        body = BytesIO(b"response")
+        error = HTTPError(url + "/v1/ready", 401, "fixture", None, body)
+        client = rc.FleetRouterClient({worker: {"url": url, "token": TOKEN}}, opener=Mock(open=Mock(side_effect=error)))
+        with error:
+            with self.assertRaises(HTTPError) as raised:
+                client.request(worker, "GET", "/v1/ready")
+            self.assertIs(raised.exception, error)
+            self.assertEqual(raised.exception.read(), b"response")
+        self.assertTrue(body.closed)
 
     def test_lan_url_rejected_without_allow_lan(self):
         with self.assertRaises(rc.Refused):
