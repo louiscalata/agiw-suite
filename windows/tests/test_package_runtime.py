@@ -44,12 +44,21 @@ class WindowsPackageRuntimeTests(unittest.TestCase):
                 "assert pathlib.Path(remote_machines.__file__).parent == pathlib.Path.cwd(); "
                 "print('staged Windows observer import: PASS')"
             )
+            command = [sys.executable, "-I", "-B", "-W", "error", "-c"]
             result = subprocess.run(
-                [sys.executable, "-I", "-B", "-c", code], cwd=stage,
+                [*command, code], cwd=stage,
                 capture_output=True, text=True, timeout=15,
             )
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertIn("staged Windows observer import: PASS", result.stdout)
+
+            warning = subprocess.run(
+                [*command, "import warnings; warnings.warn('staged package warning'); " + code],
+                cwd=stage, capture_output=True, text=True, timeout=15,
+            )
+            self.assertEqual(warning.returncode, 1, warning.stdout + warning.stderr)
+            self.assertEqual(warning.stdout, "")
+            self.assertIn("UserWarning: staged package warning", warning.stderr)
 
 
 if __name__ == "__main__":
