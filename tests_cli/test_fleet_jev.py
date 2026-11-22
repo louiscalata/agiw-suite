@@ -2,6 +2,7 @@ import io
 import json
 import unittest
 from unittest.mock import Mock, patch
+from urllib.error import HTTPError
 
 from agiw import fleet_jev as jev
 from agiw import fleet_router_client as rc
@@ -58,6 +59,20 @@ class JevTests(unittest.TestCase):
         with self.assertRaisesRegex(jev.JevError, "^JEV_API_KEY_REQUIRED$"):
             jev.JevJudge(None, opener=transport)({}, {})
         transport.open.assert_called_once()
+
+    def test_discarded_http_error_body_is_closed_once(self):
+        for status, close_fails in ((404, False), (503, False), (503, True)):
+            with self.subTest(status=status, close_fails=close_fails), io.BytesIO(b"fixture") as body:
+                error = HTTPError(jev.JEV_ENDPOINT, status, "Unavailable", None, body)
+                self.addCleanup(error.close)
+                transport = Mock(open=Mock(side_effect=error))
+                side_effect = OSError("close failed") if close_fails else None
+                with patch.object(error, "close", wraps=error.close, side_effect=side_effect) as close:
+                    with self.assertRaisesRegex(jev.JevError, "^JEV_UNAVAILABLE$"):
+                        jev.JevJudge(KEY, opener=transport)({}, {})
+                    close.assert_called_once_with()
+                    self.assertIs(body.closed, not close_fails)
+                transport.open.assert_called_once()
 
     def test_answers_fail_closed(self):
         answers = response()["answers"]

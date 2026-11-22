@@ -5,6 +5,7 @@ import math
 import re
 import urllib.request
 from pathlib import Path
+from urllib.error import HTTPError
 
 JEV_ENDPOINT = "https://api.typesafe.ai/v1/systemone"
 JEV_MODEL = "jev-1.14.0"
@@ -144,7 +145,12 @@ class JevJudge:
                 headers={"Content-Type": "application/json", "Authorization": "Bearer " + self._key},
                 method="POST",
             )
-            with opener.open(req, timeout=self.timeout_s) as response:
+            try:
+                response = opener.open(req, timeout=self.timeout_s)
+            except HTTPError as error:
+                error.close()
+                raise
+            with response:
                 if response.status != 200:
                     raise ValueError
                 raw = response.read(RESPONSE_LIMIT + 1)
