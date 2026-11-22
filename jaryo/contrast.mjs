@@ -30,7 +30,7 @@ export function contrastPairs(tokens) {
 export function checkContrast(tokens) {
   return contrastPairs(tokens).filter(p=>p.ratio<p.minimum).map(p=>`${p.theme} ${p.foreground}/${p.background}: ${p.ratio.toFixed(3)}:1 < ${p.minimum}:1 (${p.role})`);
 }
-if (process.argv[1] && fileURLToPath(import.meta.url)===process.argv[1]) {
+if (import.meta.main ?? (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1])) {
   const tokens=JSON.parse(readFileSync(new URL('./tokens.json',import.meta.url),'utf8'));
   const pairs=contrastPairs(tokens), failures=checkContrast(tokens);
   for (const p of pairs) console.log(`${p.ratio>=p.minimum?'PASS':'FAIL'} ${p.theme} ${p.foreground}/${p.background} ${p.ratio.toFixed(3)}:1 >= ${p.minimum}:1`);
