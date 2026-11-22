@@ -179,6 +179,7 @@ class SnapshotStore:
         self.previous: dict[str, dict] = {}
         self.sequence = 0
         self.collector_diagnostics = []
+        self._slot_activity_expires_at = None
 
     def diagnostics(self):
         with self.lock:
@@ -198,7 +199,7 @@ class SnapshotStore:
                 self.snapshot.update(sequence=self.sequence, collectorDiagnostics=copy.deepcopy(self.collector_diagnostics))
             self.changed.notify_all()
 
-    def publish(self, data: dict) -> None:
+    def publish(self, data: dict, *, slot_observed_at: float | None = None) -> None:
         data = probes.enforce_snapshot_evidence(data)
         now = data["sampledAt"]
         rows = data.get("models", [])
@@ -247,6 +248,9 @@ class SnapshotStore:
                         events=copy.deepcopy(self.events), intervalSeconds=1, fullSampledAt=now,
                         collectorDiagnostics=copy.deepcopy(self.collector_diagnostics))
             self.snapshot = data
+            self._slot_activity_expires_at = (
+                slot_observed_at + LANE_ACTIVITY_FRESH_SECONDS if known and slot_observed_at is not None else None
+            )
             self.changed.notify_all()
 
     def _aged(self, data):
@@ -277,16 +281,9 @@ class SnapshotStore:
                     row.update(reason=AGED_REASONS.get(row.get("reasonCode"), "stale"), health="unknown", loadedCount=None,
                                detail="No fresh observation inside its window; state unknown")
         sampled = data.get("sampledAt")
-        if isinstance(sampled, (int, float)):
-            # A recent snapshot can still be carrying older slot observations.
-            elapsed = now - sampled
-            if elapsed > FULL_SAMPLE_MAX_AGE or (
-                data.get("activityKnown") is True and any(
-                    row["ageSeconds"] + elapsed > LANE_ACTIVITY_FRESH_SECONDS
-                    for row in data.get("models", []) if row["loaded"] is True
-                )
-            ):
-                data["activityKnown"] = False
+        if (isinstance(sampled, (int, float)) and now - sampled > FULL_SAMPLE_MAX_AGE
+                or self._slot_activity_expires_at is not None and now > self._slot_activity_expires_at):
+            data["activityKnown"] = False
         data["fleetState"] = fleet
         if isinstance(data.get("inference"), dict):
             data["inference"]["fleetState"] = fleet
@@ -595,7 +592,8 @@ def sample(store: SnapshotStore, collector: Collector, stop: threading.Event, in
         started = time.monotonic()
         stage = "collect_snapshot"
         try:
-            data = collector.collect()
+            slot_observations: list[float] = []
+            data = collector.collect(slot_observations=slot_observations)
             data["dashboardPort"] = dashboard_port
             stage = "inference"
             attach(data, "pc", rates=_INFERENCE_RATES, vram=vram_from_gpus(data.get("pcGpus")),
@@ -606,7 +604,7 @@ def sample(store: SnapshotStore, collector: Collector, stop: threading.Event, in
                 data["sources"] = [*data.get("sources", []), publish_source(outcome, started, targets)]
             if peer_link_status_to is not None:
                 data["sources"] = [*data.get("sources", []), peer_link_feed_source(feed, started)]
-            store.publish(data)
+            store.publish(data, slot_observed_at=min(slot_observations, default=None))
             # The pairing service refuses a status file older than 30 s, so it is refreshed every publish interval.
             if peer_link_status_to is not None and started - last_feed >= publish_every:
                 last_feed = started

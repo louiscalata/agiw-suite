@@ -520,7 +520,7 @@ class PeerLinkFeed(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "state" / probes.PEER_LINK_STATUS_FILE_NAME
             snapshot = self.snapshot()
-            collector = SimpleNamespace(share_root=Path(tmp), host="test-pc", collect=lambda: deepcopy(snapshot))
+            collector = SimpleNamespace(share_root=Path(tmp), host="test-pc", collect=lambda **_: deepcopy(snapshot))
             stop = mock.Mock()
             stop.is_set.side_effect = [False, False, True]
             store = server.SnapshotStore()

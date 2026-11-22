@@ -277,8 +277,8 @@ class Collector:
                     "status": "slots_unknown", "phase": None, "slots": [], "slotsBusy": None, "slotsTotal": None,
                     "liveTokensPerSecond": None,
                     "detail": f"Activity unknown; last observation {display_age:.0f} s ago ({lane['status']} then)"}
-        # Keep the age precise for readers that apply the same deadline later.
-        return {**lane, "ageSeconds": max(0.0, age),
+        return {**lane, "ageSeconds": display_age,
+                "_slot_observed_at": at if lane["status"] in ("idle", "busy") else None,
                 "liveTokensPerSecond": lane.get("liveTokensPerSecond") if age <= 5.0 else None}
 
     def close(self) -> None:
@@ -392,7 +392,7 @@ class Collector:
         census = self.pair_census.sample() if self.pair_census is not None else None
         return probes.pair_component(census)
 
-    def collect(self) -> dict[str, Any]:
+    def collect(self, *, slot_observations: list[float] | None = None) -> dict[str, Any]:
         sampled = self.clock()
         observed = dt.datetime.fromtimestamp(sampled, dt.timezone.utc).isoformat().replace("+00:00", "Z")
         sources: list[dict[str, Any]] = []
@@ -445,9 +445,15 @@ class Collector:
                         poller.set_polling(ownership == "allowed" and key == (
                             spec["id"], spec["port"], spec["alias"], process.get("pid"), process.get("created")))
         lanes = [self._lane(spec, sampled) for spec in specs]
+        observation_times = []
         for lane in lanes:
+            at = lane.pop("_slot_observed_at", None)
+            if at is not None:
+                observation_times.append(at)
             lane["process"] = servers.get(lane["id"])
             lane["callers"] = None if callers is None else [c for c in callers if c["lane"] == lane["id"]]
+        if slot_observations is not None and len(observation_times) == len(lanes):
+            slot_observations.extend(observation_times)
         # A lane port held by NVIDIA PAIR is never an AGIW lane, whatever it serves (P2).
         foreign = probes.mark_foreign_lanes(lanes)
         rows = []

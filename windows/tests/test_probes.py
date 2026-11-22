@@ -1335,7 +1335,7 @@ class PCPresenceModels(unittest.TestCase):
             probes.validate_status(previous)
             probes.write_json_atomic(target, previous, probes.STATUS_MAX_BYTES, stop_at=root)
             previous_bytes = target.read_bytes()
-            collector = SimpleNamespace(share_root=root, host="test-pc", collect=lambda: deepcopy(snapshot))
+            collector = SimpleNamespace(share_root=root, host="test-pc", collect=lambda **_: deepcopy(snapshot))
             stop = mock.Mock()
             stop.is_set.side_effect = [False, True]
             store, errors = SnapshotStore(), io.StringIO()
