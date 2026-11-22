@@ -370,6 +370,19 @@ class SharedRowSchema(unittest.TestCase):
         parsed = machine_state_time(out[0]["observedAt"])
         self.assertAlmostEqual(parsed, NOW + 0.75, delta=0.001)
 
+    def test_machine_rows_keep_the_observed_second(self):
+        for observed, timestamp in (
+            (1_700_000_000.9999998, "2023-11-14T22:13:20.999Z"),
+            (1_700_000_001.0, "2023-11-14T22:13:21.000Z"),
+        ):
+            peer = dict(record("target-mac", "macos", age=0, verified=True), observedUnix=observed)
+            for row in rows([peer], sampled=observed):
+                with self.subTest(observed=observed, role=row["role"]):
+                    self.assertEqual(row["observedAt"], timestamp)
+                    self.assertEqual(row["state"], "up")
+                    expired = machine_state.expire_machines([row], observed + row["freshForSeconds"] + 0.01)[0]
+                    self.assertEqual((expired["state"], expired["reasonCode"]), ("unknown", "stale"))
+
     def test_a_demoted_row_does_not_keep_saying_observed(self):
         snapshot = {
             "sources": [{"id": "lane-inventory", "state": "unavailable"}, {"id": "agiw-peers", "state": "unavailable"}],
