@@ -157,7 +157,9 @@ class FleetRouterClient:
                 continue
             if ready.get("worker_id") != name:
                 continue
-            busy = ready.get("busy") is True
+            busy = ready.get("busy")
+            if busy is not True and busy is not False:
+                continue
             workers[name] = routing.WorkerEvidence(
                 observed_at=now,
                 local_model_ready=ready.get("model_ready") is True,

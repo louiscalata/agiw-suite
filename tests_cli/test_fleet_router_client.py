@@ -8,7 +8,9 @@ import time
 import unittest
 import uuid
 from pathlib import Path
+from unittest.mock import Mock, call
 
+from agiw import fleet_jev as jev
 from agiw import fleet_router_client as rc
 from agiw import windows_worker as ww
 
@@ -41,13 +43,13 @@ class RouterClientTests(unittest.TestCase):
 
         return execute
 
-    def start_worker(self, name="m5-macbook-pro", stored=True):
+    def start_worker(self, name="m5-macbook-pro", stored=True, execute=None):
         worker = ww.Worker(
             name,
             "fixture-model",
             "http://127.0.0.1:9/v1/chat/completions",
             str(self.root / "receipts"),
-            execute=self.fake_execute(stored),
+            execute=self.fake_execute(stored) if execute is None else execute,
             probe=lambda: (["fixture-model"], "llama-server"),
             commit=lambda: "a" * 40,
         )
@@ -83,6 +85,73 @@ class RouterClientTests(unittest.TestCase):
             receipt["route"], {"worker": "m5-macbook-pro", "preanalysis": "local", "reason": "strict-local"}
         )
         self.assertEqual(receipt["workerCommit"], "a" * 40)
+
+    def test_router_requires_known_idle_state_before_jev_or_dispatch(self):
+        worker = "m5-macbook-pro"
+        for fields in ({}, {"busy": None}, {"busy": 0}, {"busy": "false"}, {"busy": True}):
+            with self.subTest(fields=fields):
+                judge = Mock()
+                client = rc.FleetRouterClient({worker: {}}, judge=judge)
+                client.request = Mock(return_value=(200, {"worker_id": worker, "model_ready": True, **fields}))
+                self.assertEqual(
+                    client.run("job"),
+                    {"outcome": "BLOCKED", "reason": "no-verified-local-worker", "worker": None, "job_id": "job"},
+                )
+                client.request.assert_called_once_with(worker, "GET", "/v1/ready")
+                judge.assert_not_called()
+
+    def test_required_jev_preanalysis_controls_dispatch_and_stored_receipt(self):
+        worker = "m5-macbook-pro"
+        program = "tiny-arithmetic.mjs"
+        execute = Mock(wraps=self.fake_execute())
+        judge = Mock(
+            side_effect=[
+                {"model": jev.JEV_MODEL, "answers": {"plan": {"choice": "direct"}, "underspecified": {"noul": value}}}
+                for value in (0.5, 0.49)
+            ]
+        )
+        workers, _ = rc.load_workers(self.config(self.start_worker(execute=execute)))
+        client = rc.FleetRouterClient(workers, judge=judge)
+        client.request = Mock(wraps=client.request)
+        trace = Mock()
+        trace.attach_mock(client.request, "request")
+        trace.attach_mock(judge, "judge")
+        state = jev.task_state(program)
+        questions = jev.plan_questions()
+        readiness = call.request(worker, "GET", "/v1/ready")
+        preanalysis = call.judge(state, questions)
+
+        self.assertEqual(
+            client.run("blocked", program),
+            {
+                "outcome": "BLOCKED",
+                "reason": "JEV_PREANALYSIS_FAILED:JEV_UNDERSPECIFIED",
+                "worker": worker,
+                "job_id": "blocked",
+            },
+        )
+        self.assertEqual(trace.mock_calls, [readiness, preanalysis])
+        execute.assert_not_called()
+        self.assertEqual(list((self.root / "receipts").glob("*.json")), [])
+
+        result = client.run("accepted", program)
+        self.assertEqual((result["outcome"], result["worker"], result["job_id"]), ("COMPLETED", worker, "accepted"))
+        self.assertIs(result["reportStored"], True)
+        execute.assert_called_once()
+        body = client.request.call_args.args[3]
+        self.assertEqual(
+            trace.mock_calls,
+            [readiness, preanalysis, readiness, preanalysis, call.request(worker, "POST", "/v1/jobs", body)],
+        )
+        self.assertEqual((body["job_id"], body["program"]), ("accepted", program))
+        self.assertEqual(body["route"]["jev"]["request"], {"state": state, "questions": questions})
+        self.assertEqual(execute.call_args.kwargs["route"], body["route"])
+        receipt_path = Path(result["receipt_path"])
+        self.assertEqual(list((self.root / "receipts").glob("*.json")), [receipt_path])
+        receipt = json.loads(receipt_path.read_text())
+        self.assertEqual((receipt["job_id"], receipt["worker_id"], receipt["program"]), ("accepted", worker, program))
+        self.assertEqual(receipt["route"], body["route"])
+        self.assertEqual(receipt["route"]["preanalysis"], "jev")
 
     def test_unreachable_worker_not_selected(self):
         # Reserve then release a port so nothing is listening there.
