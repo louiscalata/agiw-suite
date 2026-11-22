@@ -9,6 +9,7 @@ import tempfile
 import threading
 import time
 import unittest
+from contextlib import ExitStack, redirect_stdout
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest import mock
@@ -137,6 +138,17 @@ print(json.dumps({'server': str(Path(agiw_win.server.__file__).resolve()),
         ]}
         store.publish(stale)
         self.assertIsNone(store.read()["history"][-1]["loaded"])
+
+    def test_older_model_without_residency_or_age_still_reads(self):
+        store = SnapshotStore()
+        now = 1_770_000_000.0
+        model = {"host": "windows", "id": "fast", "name": "Fast", "state": "loaded", "source": "llama-models"}
+        store.publish({"sampledAt": now, "models": [model]})
+        with mock.patch.object(observer_server.time, "time", return_value=now + 0.1):
+            snapshot = store.read()
+        self.assertFalse(snapshot["activityKnown"])
+        self.assertEqual(snapshot["models"], [model])
+        self.assertIsNone(snapshot["history"][-1]["loaded"])
 
 
 class EndToEnd(unittest.TestCase):
@@ -270,6 +282,62 @@ class EndToEnd(unittest.TestCase):
         self.assertEqual(data["pcAdapters"][0]["name"], "AMD Radeon RX 5700 XT")
         self.assertEqual(data["memory"]["level"], "ok")
         self.assertEqual(data["share"]["state"], "ready")
+
+    def test_snapshot_activity_expires_at_the_oldest_slot_observation(self):
+        observed = 1_770_000_000.0
+        self.fast_state["busy"] = True
+        self.collector.collect()
+        with ExitStack() as patches:
+            for poller in self.collector._pollers.values():
+                _, lane = poller.read()
+                at = observed if lane["id"] == "fast" else observed + 0.5
+                patches.enter_context(mock.patch.object(poller, "read", return_value=(at, lane)))
+            self.collector.clock = lambda: observed + 4.004
+            collected = self.collector.collect()
+            stop = mock.Mock()
+            stop.is_set.side_effect = (False, True)
+            with mock.patch.object(observer_server, "attach"):
+                sample(self.store, self.collector, stop)
+            output = io.StringIO()
+            with mock.patch.object(observer_server, "Collector", return_value=self.collector), \
+                    mock.patch.object(observer_server.winsys, "local_lane_identities", return_value={}), \
+                    redirect_stdout(output):
+                self.assertEqual(observer_server.main(["--once", "--share-root", self.tmp.name]), 0)
+            self.assertIs(type(collected), dict)
+            self.assertEqual(output.getvalue(), json.dumps(collected, indent=1, default=str) + "\n")
+
+        self.assertEqual([lane["ageSeconds"] for lane in collected["lanes"]], [4.0, 3.5])
+
+        sequence = self.store.sequence
+        with mock.patch.object(observer_server.time, "time", return_value=observed + 5):
+            status, body, _ = self.get("/api/snapshot")
+            self.assertEqual(status, 200)
+            fresh = json.loads(body)
+            self.assertTrue(fresh["activityKnown"])
+            self.assertEqual(fresh["history"][-1]["active"], 1)
+            for field in ("lanes", "models"):
+                self.assertEqual(fresh[field], collected[field])
+            self.assertEqual(fresh["windowsWorker"]["lanes"], collected["windowsWorker"]["lanes"])
+
+        with mock.patch.object(observer_server.time, "time", return_value=observed + 5.001):
+            status, body, _ = self.get("/api/snapshot")
+            self.assertEqual(status, 200)
+            expired = json.loads(body)
+            self.assertFalse(expired["activityKnown"])
+            streamed, stream_sequence = self.store.wait_for_change(sequence, 0)
+            self.assertEqual(stream_sequence, sequence)
+            self.assertIsNotNone(streamed)
+            self.assertFalse(streamed["activityKnown"])
+            self.assertTrue(self.store.snapshot["activityKnown"])
+            self.store.publish_error("collect_snapshot", RuntimeError("fixture"))
+            self.assertFalse(self.store.read()["activityKnown"])
+            self.store.publish(collected)
+            self.assertTrue(self.store.read()["activityKnown"])
+
+        with mock.patch.object(observer_server.time, "time", return_value=observed + 7.005):
+            self.assertFalse(self.store.read()["activityKnown"])
+        for field in ("sampledAt", "observedAt", "models", "history"):
+            self.assertEqual(expired[field], fresh[field])
 
     def test_activity_transition_is_recorded(self):
         self.store.publish(self.collector.collect())
@@ -453,7 +521,6 @@ class EndToEnd(unittest.TestCase):
         # inventory deadline preserves health/residency, never current slots.
         # Pass 9 cleared expired published slots; retaining total=2 here was a
         # stale expectation. The recorded total belongs only in lastObservation.
-        from contextlib import ExitStack
         observed = 1000.0
         self.collector.clock = lambda: observed
         self.fast_state["busy"] = True

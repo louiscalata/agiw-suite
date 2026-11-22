@@ -9,7 +9,7 @@ import sys
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import inference_collect
 import server
@@ -125,7 +125,7 @@ class CollectorDiagnosticsTests(unittest.TestCase):
     def test_windows_sample_failure_does_not_renew_old_sample(self):
         store = win_server.SnapshotStore()
         store.publish(sample())
-        collector = SimpleNamespace(collect=lambda: (_ for _ in ()).throw(OSError("private share")))
+        collector = SimpleNamespace(collect=Mock(side_effect=OSError("private share")))
         with patch("sys.stderr"):
             win_server.sample(store, collector, StopAfterOne())
         self.assertEqual(store.snapshot["sampledAt"], 100)
