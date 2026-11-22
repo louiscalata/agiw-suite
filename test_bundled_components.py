@@ -92,10 +92,14 @@ class ComponentTests(unittest.TestCase):
         owner = components.BundledComponents()
         barrier = threading.Barrier(9)
         answers = []
+        errors = []
 
         def request():
             barrier.wait()
-            answers.append(owner.request_check())
+            try:
+                answers.append(owner.request_check())
+            except Warning as error:
+                errors.append(error)
 
         with patch.object(components, "threading") as module:
             module.Thread.return_value.start.return_value = None
@@ -105,6 +109,8 @@ class ComponentTests(unittest.TestCase):
             barrier.wait()
             for thread in threads:
                 thread.join(timeout=2)
+            if errors:
+                raise errors[0]
             self.assertEqual(len(answers), 8)
             self.assertEqual(module.Thread.call_count, 1)
             self.assertTrue(all(answer["state"] == "running" for answer in answers))
