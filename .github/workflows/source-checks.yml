@@ -52,6 +52,7 @@ jobs:
       - name: Python tests
         env:
           PYTHONDONTWRITEBYTECODE: '1'
+          PYTHONWARNINGS: error
           # The 45 router dual-read integration tests require state writers
           # owned by the separate router project, not this source package.
           MONITOR_ALLOW_ROUTER_FIXTURE_SKIP: '1'
@@ -62,6 +63,7 @@ jobs:
         working-directory: windows
         env:
           PYTHONDONTWRITEBYTECODE: '1'
+          PYTHONWARNINGS: error
         run: python3 -B -m unittest discover -s tests -p 'test_*.py' -q
       - name: Mac build input checks
         run: |

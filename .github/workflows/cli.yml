@@ -36,11 +36,13 @@ jobs:
       - name: CLI tests (fake service runner; peers on 127.0.0.1 only)
         env:
           PYTHONDONTWRITEBYTECODE: '1'
+          PYTHONWARNINGS: error
         run: python -B -m unittest discover -s tests_cli -v
       - name: Install and start the command
         shell: bash
         run: |
           python -m pip install .
+          export PYTHONWARNINGS=error
           agiw --help
           agiw --version
           python -m agiw --version

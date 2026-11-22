@@ -61,6 +61,7 @@ jobs:
         shell: cmd
         env:
           PYTHONDONTWRITEBYTECODE: '1'
+          PYTHONWARNINGS: error
         run: python -B -m unittest discover -s tests -p "test_*.py" -v
 
   # The root JavaScript suite is what failed on a Windows checkout (CRLF in two unpinned text
