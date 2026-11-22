@@ -13,7 +13,7 @@ import { runInNewContext } from 'node:vm';
 import { applyTheme, escapeHtml, nextIndex, pipelineMarkup, readThemeChoice } from './jaryo/behavior.mjs';
 import { checkKit, contrastRatio } from './jaryo/contract.mjs';
 import { parseArgs, run } from './jaryo/cli.mjs';
-import { kitRoot } from './jaryo/install.mjs';
+import { installKit, kitRoot } from './jaryo/install.mjs';
 import { frameMessage, handleMessage, readFrames } from './jaryo/mcp.mjs';
 import { resolveTheme } from './jaryo/theme.mjs';
 
@@ -100,6 +100,37 @@ test('contrast audit runs through a directory link and stays quiet on import', {
     assert.equal(imported.stderr, '');
   } finally {
     await rm(linkDir, { recursive: true, force: true });
+  }
+});
+
+test('the installed contrast audit counts its failed rows and rejects malformed colors before output', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'jaryo-contrast-report-'));
+  try {
+    const installed = installKit(directory);
+    const tokenPath = join(installed, 'tokens.json');
+    const entry = realpathSync(join(installed, 'contrast.mjs'));
+    const tokens = JSON.parse(readFileSync(tokenPath, 'utf8'));
+    tokens.palette.dark.muted = tokens.palette.dark.surface;
+    fs.writeFileSync(tokenPath, JSON.stringify(tokens));
+
+    const report = spawnSync(process.execPath, [entry], { encoding: 'utf8' });
+    assert.equal(report.status, 1, report.stderr);
+    assert.equal(report.stderr, '');
+    const lines = report.stdout.trimEnd().split('\n');
+    assert.equal(lines.length, 45);
+    assert.equal(lines.at(-1), '44 pairs; 2 failures');
+    assert.deepEqual(lines.filter(line => line.startsWith('FAIL')).map(line => line.split(' ').slice(0, 3).join(' ')), [
+      'FAIL dark muted/bg', 'FAIL dark muted/surface',
+    ]);
+
+    tokens.palette.dark.accent_identity = 'transparent';
+    fs.writeFileSync(tokenPath, JSON.stringify(tokens));
+    const invalid = spawnSync(process.execPath, [entry], { encoding: 'utf8' });
+    assert.equal(invalid.status, 1);
+    assert.equal(invalid.stdout, '');
+    assert.match(invalid.stderr, /Expected opaque six-digit color: transparent/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
   }
 });
 

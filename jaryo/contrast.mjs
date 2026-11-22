@@ -31,9 +31,14 @@ export function checkContrast(tokens) {
   return contrastPairs(tokens).filter(p=>p.ratio<p.minimum).map(p=>`${p.theme} ${p.foreground}/${p.background}: ${p.ratio.toFixed(3)}:1 < ${p.minimum}:1 (${p.role})`);
 }
 if (import.meta.main ?? (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1])) {
-  const tokens=JSON.parse(readFileSync(new URL('./tokens.json',import.meta.url),'utf8'));
-  const pairs=contrastPairs(tokens), failures=checkContrast(tokens);
-  for (const p of pairs) console.log(`${p.ratio>=p.minimum?'PASS':'FAIL'} ${p.theme} ${p.foreground}/${p.background} ${p.ratio.toFixed(3)}:1 >= ${p.minimum}:1`);
-  console.log(`${pairs.length} pairs; ${failures.length} failures`);
-  process.exitCode=failures.length?1:0;
+  const tokens = JSON.parse(readFileSync(new URL('./tokens.json', import.meta.url), 'utf8'));
+  const pairs = contrastPairs(tokens);
+  let failures = 0;
+  for (const { theme, foreground, background, ratio, minimum } of pairs) {
+    const failed = ratio < minimum;
+    if (failed) failures += 1;
+    console.log(`${failed ? 'FAIL' : 'PASS'} ${theme} ${foreground}/${background} ${ratio.toFixed(3)}:1 >= ${minimum}:1`);
+  }
+  console.log(`${pairs.length} pairs; ${failures} failures`);
+  process.exitCode = failures ? 1 : 0;
 }
