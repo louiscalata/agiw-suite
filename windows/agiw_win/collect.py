@@ -277,7 +277,8 @@ class Collector:
                     "status": "slots_unknown", "phase": None, "slots": [], "slotsBusy": None, "slotsTotal": None,
                     "liveTokensPerSecond": None,
                     "detail": f"Activity unknown; last observation {display_age:.0f} s ago ({lane['status']} then)"}
-        return {**lane, "ageSeconds": display_age,
+        # Keep the age precise for readers that apply the same deadline later.
+        return {**lane, "ageSeconds": max(0.0, age),
                 "liveTokensPerSecond": lane.get("liveTokensPerSecond") if age <= 5.0 else None}
 
     def close(self) -> None:

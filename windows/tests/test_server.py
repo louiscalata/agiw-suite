@@ -9,6 +9,7 @@ import tempfile
 import threading
 import time
 import unittest
+from contextlib import ExitStack
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest import mock
@@ -271,6 +272,40 @@ class EndToEnd(unittest.TestCase):
         self.assertEqual(data["memory"]["level"], "ok")
         self.assertEqual(data["share"]["state"], "ready")
 
+    def test_snapshot_activity_expires_at_the_oldest_slot_observation(self):
+        observed = 1_770_000_000.0
+        self.fast_state["busy"] = True
+        self.collector.collect()
+        with ExitStack() as patches:
+            for poller in self.collector._pollers.values():
+                _, lane = poller.read()
+                at = observed if lane["id"] == "fast" else observed + 0.5
+                patches.enter_context(mock.patch.object(poller, "read", return_value=(at, lane)))
+            self.collector.clock = lambda: observed + 4.004
+            self.store.publish(self.collector.collect())
+
+        sequence = self.store.sequence
+        with mock.patch.object(observer_server.time, "time", return_value=observed + 5):
+            status, body, _ = self.get("/api/snapshot")
+            self.assertEqual(status, 200)
+            fresh = json.loads(body)
+            self.assertTrue(fresh["activityKnown"])
+            self.assertEqual(fresh["history"][-1]["active"], 1)
+
+        with mock.patch.object(observer_server.time, "time", return_value=observed + 5.001):
+            status, body, _ = self.get("/api/snapshot")
+            self.assertEqual(status, 200)
+            expired = json.loads(body)
+            self.assertFalse(expired["activityKnown"])
+            streamed, stream_sequence = self.store.wait_for_change(sequence, 0)
+            self.assertEqual(stream_sequence, sequence)
+            self.assertIsNotNone(streamed)
+            self.assertFalse(streamed["activityKnown"])
+
+        self.assertTrue(self.store.snapshot["activityKnown"])
+        for field in ("sampledAt", "observedAt", "models", "history"):
+            self.assertEqual(expired[field], fresh[field])
+
     def test_activity_transition_is_recorded(self):
         self.store.publish(self.collector.collect())
         self.deep_state["busy"] = True
@@ -453,7 +488,6 @@ class EndToEnd(unittest.TestCase):
         # inventory deadline preserves health/residency, never current slots.
         # Pass 9 cleared expired published slots; retaining total=2 here was a
         # stale expectation. The recorded total belongs only in lastObservation.
-        from contextlib import ExitStack
         observed = 1000.0
         self.collector.clock = lambda: observed
         self.fast_state["busy"] = True

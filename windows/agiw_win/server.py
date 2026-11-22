@@ -277,8 +277,16 @@ class SnapshotStore:
                     row.update(reason=AGED_REASONS.get(row.get("reasonCode"), "stale"), health="unknown", loadedCount=None,
                                detail="No fresh observation inside its window; state unknown")
         sampled = data.get("sampledAt")
-        if isinstance(sampled, (int, float)) and now - sampled > FULL_SAMPLE_MAX_AGE:
-            data["activityKnown"] = False
+        if isinstance(sampled, (int, float)):
+            # A recent snapshot can still be carrying older slot observations.
+            elapsed = now - sampled
+            if elapsed > FULL_SAMPLE_MAX_AGE or (
+                data.get("activityKnown") is True and any(
+                    row["ageSeconds"] + elapsed > LANE_ACTIVITY_FRESH_SECONDS
+                    for row in data.get("models", []) if row["loaded"] is True
+                )
+            ):
+                data["activityKnown"] = False
         data["fleetState"] = fleet
         if isinstance(data.get("inference"), dict):
             data["inference"]["fleetState"] = fleet
