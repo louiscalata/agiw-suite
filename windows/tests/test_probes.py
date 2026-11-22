@@ -5,6 +5,7 @@ import sys
 import tempfile
 import time
 import unittest
+from io import BytesIO
 from pathlib import Path
 from urllib.error import HTTPError
 
@@ -64,7 +65,8 @@ class LaneProbe(unittest.TestCase):
         # Codex finding 7: no answer is unknown residency, never "unloaded".
         row = probes.lane_model_row(down, FAST, 0)
         self.assertEqual((row["state"], row["loaded"]), ("unknown", None))
-        loading = probes.probe_lane(FAST, fake_fetch({"/health": HTTPError("u", 503, "Loading", {}, None)}))
+        with HTTPError("u", 503, "Loading", {}, BytesIO()) as error:
+            loading = probes.probe_lane(FAST, fake_fetch({"/health": error}))
         self.assertEqual(loading["status"], "loading")
 
     def test_malformed_slots_are_unknown_not_idle(self):

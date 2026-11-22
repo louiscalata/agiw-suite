@@ -43,7 +43,7 @@ class CollectGoldenDiscoveryTests(unittest.TestCase):
     def discover_probes(self, mode):
         environment = {key: value for key, value in os.environ.items() if not key.startswith("GIT_CONFIG_")}
         result = subprocess.run(
-            [sys.executable, "-I", "-B", "-c", DISCOVERY, str(ROOT), mode],
+            [sys.executable, "-I", "-B", "-W", "error", "-c", DISCOVERY, str(ROOT), mode],
             cwd=ROOT / "windows",
             env=environment,
             check=True,
