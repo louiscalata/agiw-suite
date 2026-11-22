@@ -31,7 +31,7 @@ Stdout is one JSON line, `{"port": 8765, "pid": ...}`. `http://127.0.0.1:8765/` 
 
 ```sh
 MONITOR_ALLOW_ROUTER_FIXTURE_SKIP=1 PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest discover -p 'test_*.py' -q
-node --test test_*.mjs
+node --require ./test_support/warnings-as-errors.cjs --test test_*.mjs
 (cd windows && PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest discover -s tests -p 'test_*.py' -q)
 bash -n build.sh login-agent.sh package-release.sh
 python3 -B bundle_nisi.py --verify
@@ -71,7 +71,7 @@ The CLI workflow runs `PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest discover
 
 ### Web
 
-`node --test test_*.mjs` and the two `node --check` lines cover the pages. Forced-colors emulation is the Ubuntu job in source checks. Windows High Contrast on hardware is NOT_RUN.
+`node --require ./test_support/warnings-as-errors.cjs --test test_*.mjs` and the two `node --check` lines cover the pages. Forced-colors emulation is the Ubuntu job in source checks. Windows High Contrast on hardware is NOT_RUN.
 
 ## CI
 

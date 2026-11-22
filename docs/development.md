@@ -18,7 +18,7 @@ For an isolated source checkout, run the clean GitHub runner's test commands:
 
 ```sh
 MONITOR_ALLOW_ROUTER_FIXTURE_SKIP=1 PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest discover -p 'test_*.py' -q
-node --test test_*.mjs
+node --require ./test_support/warnings-as-errors.cjs --test test_*.mjs
 (cd windows && PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest discover -s tests -p 'test_*.py' -q)
 ```
 

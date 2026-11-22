@@ -77,4 +77,4 @@ jobs:
         with:
           node-version: '22'
       - name: Root JavaScript tests
-        run: node --test test_*.mjs
+        run: node --require ./test_support/warnings-as-errors.cjs --test test_*.mjs

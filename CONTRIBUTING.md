@@ -12,7 +12,7 @@ Run from the repository root on macOS with Python and Node.js available:
 
 ```sh
 PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest discover -p 'test_*.py' -q
-node --test test_*.mjs
+node --require ./test_support/warnings-as-errors.cjs --test test_*.mjs
 python3 -B -m unittest discover -s tests_cli -q                            # the agiw command-line tool
 (cd windows && python3 -B -m unittest discover -s tests -p 'test_*.py' -q)  # the Windows edition
 ```

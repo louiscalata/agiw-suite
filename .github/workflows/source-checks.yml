@@ -58,7 +58,7 @@ jobs:
           MONITOR_ALLOW_ROUTER_FIXTURE_SKIP: '1'
         run: python3 -B -m unittest discover -p 'test_*.py' -q
       - name: JavaScript tests
-        run: node --test test_*.mjs
+        run: node --require ./test_support/warnings-as-errors.cjs --test test_*.mjs
       - name: Windows edition tests
         working-directory: windows
         env:
