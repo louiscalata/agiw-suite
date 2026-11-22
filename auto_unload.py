@@ -975,7 +975,7 @@ class AutoUnloader:
             limit = normal if embedding else threshold
             if limit < normal:
                 tight_targets.add(instance)
-            idle_seconds = int(max(0.0, mono - track["lastActive"]))
+            idle = max(0.0, mono - track["lastActive"])
             if known_idle:
                 reason = None
             elif state in ACTIVE_STATES or (type(queued) is int and queued > 0):
@@ -996,8 +996,8 @@ class AutoUnloader:
                 {
                     "model": key if key_ok else instance,
                     "instanceId": instance,
-                    "idleSeconds": idle_seconds,
-                    "eta": max(0, limit - idle_seconds),
+                    "idleSeconds": int(idle),
+                    "eta": math.ceil(max(0.0, limit - idle)),
                     "blocked": reason,
                 }
             )
