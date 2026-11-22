@@ -1,4 +1,3 @@
-/** Node-only WCAG sRGB contrast audit of every semantic color pairing used by the kit. */
 export function contrastRatio(a, b) {
   const luminance = hex => {
     if (!/^#[0-9a-f]{6}$/i.test(hex || '')) throw new Error(`Expected opaque six-digit color: ${hex}`);
