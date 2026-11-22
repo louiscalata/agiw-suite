@@ -997,7 +997,7 @@ class AutoUnloader:
                     "model": key if key_ok else instance,
                     "instanceId": instance,
                     "idleSeconds": int(idle),
-                    "eta": int(math.ceil(max(0.0, limit - idle))),
+                    "eta": math.ceil(max(0.0, limit - idle)),
                     "blocked": reason,
                 }
             )

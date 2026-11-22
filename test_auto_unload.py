@@ -9,6 +9,7 @@ import test_support.posix_only  # noqa: F401  (skips this module on Windows)
 # isort: split
 import errno
 import json
+import math
 import os
 import stat
 import tempfile
@@ -281,6 +282,22 @@ class StartupGraceTests(Base):
         self.assertEqual(self.control.calls, [])
         self.drive(unloader, 5, make)
         self.assertEqual(self.control.calls, [OTHER])
+
+    def test_fractional_idle_countdown_preserves_float_subtraction(self):
+        self.write_config({"enabled": False})
+        self.clock.mono = 0.0
+        unloader = self.make()
+        make = lambda: snapshot(self.clock, self.pair_and(row(OTHER)))
+        unloader.tick(make())
+        elapsed = math.nextafter(1.0, 0.0)
+        self.clock.mono = elapsed
+        self.clock.wall += elapsed
+        [candidate] = unloader.tick(make())["candidates"]
+        self.assertEqual(tuple(candidate), au.CANDIDATE_KEYS)
+        self.assertEqual(1200 - elapsed, 1199.0)
+        self.assertEqual((candidate["idleSeconds"], candidate["eta"]), (0, 1199))
+        self.assertIs(type(candidate["idleSeconds"]), int)
+        self.assertIs(type(candidate["eta"]), int)
 
     def test_newly_loaded_model_gets_its_own_grace(self):
         unloader = self.make()
