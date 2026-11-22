@@ -69,10 +69,10 @@ stage_app="$stage_dir/Inference Monitor.app"
 mkdir -p "$stage_app/Contents/MacOS" "$stage_app/Contents/Resources/web"
 "$python_path" "$input_dir/bundle_nisi.py" --destination "$stage_app/Contents/Resources/nisi"
 
-xcrun swiftc -O -target arm64-apple-macosx13.0 \
+xcrun swiftc -O -warnings-as-errors -target arm64-apple-macosx13.0 \
     -framework Cocoa -framework WebKit -framework Metal \
     "$input_dir/Monitor.swift" -o "$stage_app/Contents/MacOS/InferenceMonitor"
-xcrun swiftc -O -target arm64-apple-macosx13.0 -framework Cocoa -framework Security \
+xcrun swiftc -O -warnings-as-errors -target arm64-apple-macosx13.0 -framework Cocoa -framework Security \
     "$input_dir/JevKeychain.swift" -o "$stage_app/Contents/MacOS/JevKeychain"
 if [[ "$(lipo -archs "$stage_app/Contents/MacOS/InferenceMonitor")" != arm64 ]]; then
     echo "Compiled app must contain only arm64; installation refused." >&2

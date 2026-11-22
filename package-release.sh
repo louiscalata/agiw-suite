@@ -147,10 +147,10 @@ stage_dmg="$stage_dir/$release_name.dmg"
 mkdir -p "$stage_app/Contents/MacOS" "$stage_app/Contents/Resources/web" "$stage_app/Contents/Resources/Legal" "$mount_dir"
 /usr/bin/python3 "$input_dir/bundle_nisi.py" --destination "$stage_app/Contents/Resources/nisi"
 
-xcrun swiftc -O -target "$arch-apple-macosx13.0" \
+xcrun swiftc -O -warnings-as-errors -target "$arch-apple-macosx13.0" \
     -framework Cocoa -framework WebKit -framework Metal \
     "$input_dir/Monitor.swift" -o "$stage_app/Contents/MacOS/InferenceMonitor"
-xcrun swiftc -O -target "$arch-apple-macosx13.0" -framework Cocoa -framework Security \
+xcrun swiftc -O -warnings-as-errors -target "$arch-apple-macosx13.0" -framework Cocoa -framework Security \
     "$input_dir/JevKeychain.swift" -o "$stage_app/Contents/MacOS/JevKeychain"
 cp "$input_dir/Info.plist" "$stage_app/Contents/Info.plist"
 for resource in "${resources[@]}"; do
