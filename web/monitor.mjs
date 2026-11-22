@@ -335,11 +335,11 @@ let held = null;
 let muted = false;
 let baseline = null;
 
-/** Project membership and words exclusively from fleet facts; source nodes only supply scoped readings. */
 export function fleetMap(map, now = Date.now() / 1000) {
   if (!map) return map;
-  const facts = fleetFacts(map, {now});
-  const nodes = facts.map(fact => {
+  const ids = new Set();
+  const expired = new Set();
+  const nodes = fleetFacts(map, {now}).map(fact => {
     const evidence = fact.evidence || {};
     const fresh = fact.state !== 'stale' && fact.state !== 'unknown';
     const node = {...evidence, ...fact, factState: fact.state,
@@ -349,20 +349,25 @@ export function fleetMap(map, now = Date.now() / 1000) {
       modelId: fact.modelId || evidence.modelId || null,
       endpoint: evidence.configuredEndpoint || evidence.endpoint || null,
       observationSource: fact.source};
-    // Endpoint identity has no activity, rates, hardware or queue measurements.
     for (const key of ['promptTokensPerSecond', 'generationTokensPerSecond', 'latencyMs', 'queueDepth',
       'slotsBusy', 'slotsTotal', 'contextUsed', 'contextLimit', 'vramUsedMiB', 'vramTotalMiB']) {
       if (!fresh || String(fact.source).startsWith('registry')) node[key] = key === 'latencyMs' && fresh ? evidence[key] ?? null : null;
     }
+    ids.add(node.id);
+    if (!fresh) expired.add(node.id);
     return node;
   });
-  const ids = new Set(nodes.map(node => node.id));
-  const expired = new Set(nodes.filter(node => ['stale', 'unknown'].includes(node.factState)).map(node => node.id));
-  const edges = (map.edges || []).filter(edge => ids.has(edge.from) && ids.has(edge.to)
-    && (!['upstream', 'caller'].includes(edge.kind) || !expired.has(edge.from) && !expired.has(edge.to)));
+  const targets = new Map();
+  const edges = (map.edges || []).filter(edge => {
+    if (!ids.has(edge.from) || !ids.has(edge.to)
+        || (['upstream', 'caller'].includes(edge.kind) && (expired.has(edge.from) || expired.has(edge.to)))) return false;
+    if (!targets.has(edge.from)) targets.set(edge.from, new Set());
+    targets.get(edge.from).add(edge.to);
+    return true;
+  });
   for (const node of nodes) {
     if (node.role !== 'machine' && ids.has(node.parentId)
-        && !edges.some(edge => edge.from === node.parentId && edge.to === node.id))
+        && !targets.get(node.parentId)?.has(node.id))
       edges.push({from: node.parentId, to: node.id, kind: 'hosts'});
   }
   return {...map, nodes, edges};

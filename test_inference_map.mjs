@@ -113,3 +113,26 @@ test('map facts expire independently without hiding configured membership or his
   assert.equal(Object.fromEntries(detailRows(old.nodes.find(node => node.id === 'registry:pc:fast')))['Last reported model'], 'pc/fast');
   assert.deepEqual(fleetMap({nodes: [{id: 'invented'}]}, sharedFleet.now).nodes, []);
 });
+
+test('map keeps ordered source edges and adds only missing host links', () => {
+  const first = {from: 'mac', to: 'mac:lmstudio', kind: 'caller'};
+  const second = {...first, kind: 'hosts'};
+  const source = {
+    fleetState: sharedFleet.fleetState,
+    edges: [
+      first,
+      {from: 'registry:pc', to: 'registry:pc:fast', kind: 'caller'},
+      second,
+      {from: 'mac', to: 'missing', kind: 'hosts'},
+    ],
+  };
+  const {edges} = fleetMap(source, sharedFleet.now);
+  assert.deepEqual(edges, [
+    first, second,
+    {from: 'registry:pc', to: 'registry:pc:fast', kind: 'hosts'},
+    {from: 'registry:pc', to: 'registry:pc:deep', kind: 'hosts'},
+    {from: 'registry:pro', to: 'registry:pro:deep', kind: 'hosts'},
+  ]);
+  assert.equal(edges[0], first);
+  assert.equal(edges[1], second);
+});
