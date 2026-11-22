@@ -13,4 +13,4 @@ export TWO_SIDED_REPORT="$reports/A1-two-sided.json"
 export AGIW_VIEWS_REPORT="$reports/A2-two-sided-views.json"
 export FIX10_REPORT="$reports/A3.json"
 export AGIW_A4_REPORT="$reports/A4.json"
-node --test ./test_pipeline_invariant.mjs ./test_two_sided_views.mjs ./test_fix9_invariant.mjs ./test_pipeline_invariants.mjs
+node --require ./test_support/warnings-as-errors.cjs --test ./test_pipeline_invariant.mjs ./test_two_sided_views.mjs ./test_fix9_invariant.mjs ./test_pipeline_invariants.mjs
