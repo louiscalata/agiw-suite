@@ -11,6 +11,7 @@ from io import BytesIO
 from pathlib import Path
 from unittest.mock import Mock, call
 from urllib.error import HTTPError
+from urllib.request import Request
 
 from agiw import fleet_jev as jev
 from agiw import fleet_router_client as rc
@@ -215,6 +216,20 @@ class RouterClientTests(unittest.TestCase):
             self.assertIs(raised.exception, error)
             self.assertEqual(raised.exception.read(), b"response")
         self.assertTrue(body.closed)
+
+    def test_redirect_refusal_closes_the_original_body(self):
+        body = BytesIO(b"fixture")
+        response = Mock(wraps=body)
+        handler = rc.NoRedirect()
+        parent = Mock()
+        handler.add_parent(parent)
+        request = Request("http://127.0.0.1:9/original")
+        with self.assertRaisesRegex(rc.Refused, "^REDIRECT_REFUSED$"):
+            handler.http_error_302(request, response, 302, "fixture", {"location": "/ignored"})
+        response.close.assert_called_once_with()
+        self.assertTrue(body.closed)
+        response.read.assert_not_called()
+        parent.open.assert_not_called()
 
     def test_lan_url_rejected_without_allow_lan(self):
         with self.assertRaises(rc.Refused):
