@@ -1500,16 +1500,15 @@ class PromptContentTests(unittest.TestCase):
         self.assertEqual(patcher.last["retries"], 1)
 
     def test_q003_crlf_doc_through_run_reaches_prompt_under_windows_text_mode(self):
-        fixture = RepoPatchTests("setUp")
-        fixture.setUp()
-        self.addCleanup(fixture.tearDown)
+        RepoPatchTests.setUp(self)
+        self.addCleanup(RepoPatchTests.tearDown, self)
         doc = _q003_doc("\r\n")
-        (fixture.work / "docs").mkdir()
-        (fixture.work / "docs" / "architecture.md").write_bytes(doc.encode("utf-8"))
-        git(["-c", "core.autocrlf=false", "add", "-A"], fixture.work)
-        git(["commit", "-m", "doc"], fixture.work)
-        git(["push", "origin", "main"], fixture.work)
-        commit = git(["rev-parse", "HEAD"], fixture.work).stdout.strip()
+        (self.work / "docs").mkdir()
+        (self.work / "docs" / "architecture.md").write_bytes(doc.encode("utf-8"))
+        git(["-c", "core.autocrlf=false", "add", "-A"], self.work)
+        git(["commit", "-m", "doc"], self.work)
+        git(["push", "origin", "main"], self.work)
+        commit = git(["rev-parse", "HEAD"], self.work).stdout.strip()
         reply = "docs/architecture.md\n<<<<<<< SEARCH\n## Stage 1\n=======\n## Stage 1\n\nreportSha256 note.\n>>>>>>> REPLACE"
         model = _FakeModel([(reply, "stop")])
         self.addCleanup(model.close)
@@ -1519,10 +1518,10 @@ class PromptContentTests(unittest.TestCase):
 
         with mock.patch.object(Path, "write_text", windows_write_text):
             out = rp.run(
-                fixture.spec(commit=commit, allowlist=["docs/architecture.md"], max_diff_bytes=6144),
+                RepoPatchTests.spec(self, commit=commit, allowlist=["docs/architecture.md"], max_diff_bytes=6144),
                 rp.chat_patcher(model.url, "m", 5),
                 allow_local_source=True,
-                tmp_root=fixture.tmp_root,
+                tmp_root=self.tmp_root,
             )
         user = model.requests[0]["messages"][1]["content"]
         self.assertIn(doc, user)
