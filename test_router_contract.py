@@ -686,7 +686,8 @@ class RouterContractDocumentTests(unittest.TestCase):
                         imported.add((node.module or ".").split(".")[0])
                 self.assertLessEqual(imported, {"fcntl", "itertools", "json", "os", "re", "time", "pathlib"})
                 result = subprocess.run(
-                    [sys.executable, "-I", "-B", "-c", "import runpy, sys; runpy.run_path(sys.argv[1])", str(path)],
+                    [sys.executable, "-I", "-B", "-W", "error", "-c",
+                     "import runpy, sys; runpy.run_path(sys.argv[1])", str(path)],
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     timeout=60,
