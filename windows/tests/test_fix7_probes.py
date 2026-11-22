@@ -40,6 +40,19 @@ class Evidence(unittest.TestCase):
         self.assertIsNone(lane['slotsBusy'])
         self.assertEqual(probes.lane_health(lane)['state'], 'unknown')
 
+    def test_health_status_is_not_an_incomplete_response_byte_count(self):
+        for status, expected in ((200, 'unreachable'), (503, 'loading')):
+            with self.subTest(status=status):
+                response = mock.Mock(status=status)
+                response.read.side_effect = probes.http.client.IncompleteRead(b' ' * 503)
+                connection = mock.Mock()
+                connection.getresponse.return_value = response
+                with mock.patch.object(probes.http.client, 'HTTPConnection', return_value=connection):
+                    lane = probes.probe_lane(SPEC)
+                self.assertEqual(lane['status'], expected)
+                response.close.assert_called_once_with()
+                connection.close.assert_called_once_with()
+
     def test_health_requires_a_recognised_status(self):
         for health in (None, [], {}, {'status': 5}, {'status': {'x': 1}}, {'status': 'error'}):
             with self.subTest(health=health):

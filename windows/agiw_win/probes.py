@@ -403,7 +403,7 @@ def probe_lane(
         lane["detail"] = "Lane port ownership unavailable; not probed"
         return lane
     except Exception as error:  # noqa: BLE001 - any failure is "unreachable"
-        loading = "503" in str(error)
+        loading = str(error).partition(":")[0] == "HTTP Error 503"
         lane["status"] = "loading" if loading else "unreachable"
         lane["detail"] = "Model loading (health 503)" if loading else "No answer on the lane port"
         return lane
