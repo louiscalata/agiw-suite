@@ -11,6 +11,7 @@ java {
 // and without this the middle dot is compiled as U+00C2 U+00B7 ("Â·").
 tasks.withType<JavaCompile>().configureEach {
     options.encoding = "UTF-8"
+    options.compilerArgs.add("-Werror")
 }
 
 dependencies {
