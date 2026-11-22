@@ -30,6 +30,7 @@ import json
 import os
 import re
 import shutil
+import socket
 import stat
 import subprocess
 import sys
@@ -38,7 +39,7 @@ import time
 import urllib.request
 import uuid
 from pathlib import Path, PurePosixPath
-from urllib.error import HTTPError, URLError
+from urllib.error import HTTPError
 from urllib.parse import urlsplit
 
 from . import fleet_local_pilot as pilot
@@ -1223,9 +1224,16 @@ def _chat_reply(opener, endpoint, prompt, timeout, last):
     body = json.dumps(prompt).encode("utf-8")
     req = urllib.request.Request(endpoint, data=body, headers={"Content-Type": "application/json"})
     try:
-        with opener.open(req, timeout=timeout) as resp:
-            raw = resp.read(1024 * 1024 + 1)
-    except (HTTPError, URLError, OSError, ValueError) as exc:
+        try:
+            with opener.open(req, timeout=timeout) as resp:
+                raw = resp.read(1024 * 1024 + 1)
+        except HTTPError as exc:
+            last["httpStatus"] = exc.code
+            raise
+        except (TimeoutError, socket.timeout):
+            last["timeout"] = True
+            raise
+    except (OSError, ValueError) as exc:
         last["error"] = "HTTP_ERROR"
         raise Refused("PATCH_OUTPUT_INVALID") from exc
     if len(raw) > 1024 * 1024:
