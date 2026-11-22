@@ -44,14 +44,29 @@ class StatsModelTests(unittest.TestCase):
             label="Router",
             health="ok",
             endpoint="127.0.0.1:1234",
-            models=[{"id": "gpt-oss-20b", "upstream": "http://127.0.0.1:1245/v1"}],
+            models=[
+                {"id": "qwen3.8-27b", "upstream": "http://127.0.0.1:1236/v1"},
+                {"id": "gpt-oss-20b", "upstream": "http://127.0.0.1:01245/v1"},
+                {"id": "alias", "upstream": "http://127.0.0.1:1245/v1"},
+            ],
         )
-        other = lane()
+        gpt = lane()
         qwen = lane(id="pc:qwen3.8-27b", label="qwen3.8-27b", endpoint="127.0.0.1:1236", model_id="qwen3.8-27b")
-        edges = edges_for([machine_node("pc", "PC", [router, other, qwen]), router, other, qwen])
-        upstreams = [edge for edge in edges if edge["kind"] == "upstream"]
+        alias = lane(id="pc:alias", endpoint="127.0.0.1:1236", upstream="127.0.0.1:1245")
+        unmatched = lane(id="pc:unmatched", endpoint="1245")
+        nodes = [router, gpt, qwen, alias, unmatched]
+        upstreams = [
+            edge for edge in edges_for([machine_node("pc", "PC", nodes), *nodes]) if edge["kind"] == "upstream"
+        ]
         self.assertEqual(
-            upstreams, [{"from": "pc:router", "to": "pc:gpt-oss-20b", "kind": "upstream", "modelId": "gpt-oss-20b"}]
+            upstreams,
+            [
+                {"from": "pc:router", "to": "pc:qwen3.8-27b", "kind": "upstream", "modelId": "qwen3.8-27b"},
+                {"from": "pc:router", "to": "pc:gpt-oss-20b", "kind": "upstream", "modelId": "gpt-oss-20b"},
+                {"from": "pc:router", "to": "pc:alias", "kind": "upstream", "modelId": "gpt-oss-20b"},
+                {"from": "pc:router", "to": "pc:gpt-oss-20b", "kind": "upstream", "modelId": "alias"},
+                {"from": "pc:router", "to": "pc:alias", "kind": "upstream", "modelId": "alias"},
+            ],
         )
 
     def test_a_caller_becomes_a_node_only_when_one_is_reported(self):
