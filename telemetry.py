@@ -1650,8 +1650,10 @@ def _router_projection(observation: dict[str, Any], now: float) -> dict[str, Any
     """activeRuns, queuedRuns, lanes, counts and admission for the online-code snapshot."""
     rows = observation["rows"]
     active, queued = [], []
+    counts = {"running": 0, "queued": 0, "unresolved": 0}
     for row in rows:
-        if _router_queued(row):
+        is_queued = _router_queued(row)
+        if is_queued:
             note = row["note"] or {}
             until = note.get("untilUnix")
             queued.append(
@@ -1668,6 +1670,7 @@ def _router_projection(observation: dict[str, Any], now: float) -> dict[str, Any
                     "stage": row["stage"],
                 }
             )
+            counts["queued"] += 1
         else:
             active.append(
                 {
@@ -1684,18 +1687,17 @@ def _router_projection(observation: dict[str, Any], now: float) -> dict[str, Any
                     "collision": row["collision"],
                 }
             )
-    counts = {
-        "running": sum(1 for row in rows if row["live"] and not _router_queued(row)),
-        "queued": sum(1 for row in rows if _router_queued(row)),
-        # A row changing under observation is re-checked next sample, not an unresolved run.
-        "unresolved": sum(1 for row in rows if not row["live"] and row["state"] != "changing"),
-    }
+            if row["live"]:
+                counts["running"] += 1
+            elif row["state"] != "changing":
+                counts["unresolved"] += 1
+    active_count, queued_count = len(active), len(queued)
     complete = (
         not observation["error"]
         and not observation["truncated"]
         and _router_namespace_initialized()
-        and len(active) <= _ROUTER_PROJECTED
-        and len(queued) <= _ROUTER_PROJECTED
+        and active_count <= _ROUTER_PROJECTED
+        and queued_count <= _ROUTER_PROJECTED
         and all(
             row["state"] not in ("unreadable", "unverified", "changing")
             # A lock/process verified in this observation establishes
@@ -1725,7 +1727,9 @@ def _router_projection(observation: dict[str, Any], now: float) -> dict[str, Any
         "admission": observation["admission"],
         "install": observation["install"],
         "runIdCollisions": list(observation.get("collisions") or []),
-        "runsTruncated": observation["truncated"] or len(active) > _ROUTER_PROJECTED or len(queued) > _ROUTER_PROJECTED,
+        "runsTruncated": observation["truncated"]
+        or active_count > _ROUTER_PROJECTED
+        or queued_count > _ROUTER_PROJECTED,
     }
 
 
