@@ -3021,10 +3021,9 @@ def _iso_utc(unix: Any, *, millis: bool = False) -> str | None:
     value = _number(unix, low=0, high=4e9)
     if value is None:
         return None
-    text = dt.datetime.fromtimestamp(value, dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
-    # A row's observedAt keeps the milliseconds: a whole-second floor would age the row up to 1 s early. Text shown
-    # to a person stays in whole seconds.
-    return text + (f".{int(value % 1 * 1000):03d}Z" if millis else "Z")
+    if millis:
+        return import_module("machine_state").utc_iso_milliseconds(value)
+    return dt.datetime.fromtimestamp(value, dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _age_words(age: float) -> str:
