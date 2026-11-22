@@ -226,11 +226,15 @@ def client_nodes(nodes):
 
 def edges_for(nodes):
     by_id = {node["id"]: node for node in nodes}
+    router = by_id.get("pc:router")
+    models = (router or {}).get("models") or []
     edges = []
+    lanes = {}
     for node in nodes:
-        if node["role"] == "machine":
+        role = node["role"]
+        if role == "machine":
             continue
-        if node["role"] == "client":
+        if role == "client":
             owner = node["id"].rsplit(":caller:", 1)[0]
             if owner in by_id:
                 edges.append({"from": owner, "to": node["id"], "kind": "caller"})
@@ -238,15 +242,20 @@ def edges_for(nodes):
         parent = node["machine"]
         if parent in by_id:
             edges.append({"from": parent, "to": node["id"], "kind": "hosts"})
-    router = by_id.get("pc:router")
-    for model in (router or {}).get("models") or []:
+        if models and role == "llama":
+            endpoint = node.get("upstream") or node.get("endpoint")
+            if isinstance(endpoint, str):
+                _, separator, port = endpoint.rpartition(":")
+                if separator:
+                    lanes.setdefault(port, []).append(node["id"])
+    for model in models:
         port = _url_port(model.get("upstream"))
         if port is None:
             continue
-        for node in nodes:
-            endpoint = node.get("upstream") or node.get("endpoint")
-            if node["role"] == "llama" and isinstance(endpoint, str) and endpoint.endswith(f":{port}"):
-                edges.append({"from": "pc:router", "to": node["id"], "kind": "upstream", "modelId": model["id"]})
+        edges.extend(
+            {"from": "pc:router", "to": node_id, "kind": "upstream", "modelId": model["id"]}
+            for node_id in lanes.get(str(port), ())
+        )
     return edges
 
 
