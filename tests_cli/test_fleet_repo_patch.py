@@ -9,9 +9,11 @@ import threading
 import time
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from io import BytesIO
 from pathlib import Path
 from unittest import mock
 from unittest.mock import Mock
+from urllib.error import HTTPError, URLError
 
 if not shutil.which("git"):
     raise unittest.SkipTest("git not available")
@@ -707,6 +709,44 @@ class RepoPatchTests(unittest.TestCase):
         self.assertEqual(result["patch"]["error"], "MALFORMED_BLOCK")
         stored = json.loads(Path(result["reportPath"]).read_text(encoding="utf-8"))
         self.assertEqual(stored["patch"]["error"], "MALFORMED_BLOCK")
+        self.assertNotIn("httpStatus", stored["patch"])
+        self.assertNotIn("timeout", stored["patch"])
+
+    def test_stored_transport_diagnostics_record_known_facts(self):
+        endpoint = "http://127.0.0.1:9/v1/chat/completions"
+        http_error = HTTPError(endpoint, 503, "fixture detail", None, BytesIO(b"fixture detail"))
+        self.addCleanup(http_error.close)
+        cases = (
+            ("http status", http_error, {"httpStatus": 503}),
+            ("timeout", TimeoutError("fixture detail"), {"timeout": True}),
+            ("socket timeout", socket.timeout("fixture detail"), {"timeout": True}),
+            ("wrapped timeout", URLError(TimeoutError("fixture detail")), {}),
+            ("io", OSError("fixture detail"), {}),
+            ("value", ValueError("fixture detail"), {}),
+        )
+        for name, failure, expected in cases:
+            with self.subTest(name=name):
+                opener = Mock(open=Mock(side_effect=failure))
+                with mock.patch.object(rp.urllib.request, "build_opener", return_value=opener):
+                    result = rp.execute_job(
+                        self.spec(jev_analysis=False),
+                        model_endpoint=endpoint,
+                        model="m",
+                        report_store=str(self.store),
+                        allow_local_source=True,
+                        tmp_root=self.tmp_root,
+                    )
+                opener.open.assert_called_once()
+                report_text = Path(result["reportPath"]).read_text(encoding="utf-8")
+                stored = json.loads(report_text)
+                self.assertEqual((stored["outcome"], stored["code"]), ("BLOCKED", "PATCH_OUTPUT_INVALID"))
+                self.assertEqual(stored["changedFiles"], [])
+                self.assertEqual(stored["patch"], result["patch"])
+                self.assertEqual(stored["patch"]["error"], "HTTP_ERROR")
+                self.assertEqual(stored["patch"]["outputChars"], 0)
+                actual = {key: stored["patch"][key] for key in ("httpStatus", "timeout") if key in stored["patch"]}
+                self.assertEqual(actual, expected)
+                self.assertNotIn("fixture detail", report_text)
 
     def test_worker_passes_thinking_and_tokens_to_repo_patch(self):
         seen = {}
