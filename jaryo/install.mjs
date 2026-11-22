@@ -13,6 +13,7 @@ export const KIT_FILES = [
   'vendor/SOURCE.md',
   'generate.mjs',
   'contrast.mjs',
+  'contrast-cli.mjs',
   'patterns.css',
   'interactions.mjs',
   'decision.mjs',

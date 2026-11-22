@@ -78,23 +78,41 @@ test('check and help exit 0', () => {
   });
 });
 
-test('contrast audit runs through a directory link and stays quiet on import', {
-  skip: typeof import.meta.main !== 'boolean',
-}, async () => {
+test('contrast audit runs through links and its library stays quiet on import', async () => {
   const linkDir = await mkdtemp(join(tmpdir(), 'jaryo-contrast-'));
   try {
-    const link = join(linkDir, 'kit');
+    const link = join(linkDir, 'linked kit');
     symlinkSync(kit, link, 'junction');
-    const entry = join(link, 'contrast.mjs');
-    const direct = spawnSync(process.execPath, [entry], { encoding: 'utf8' });
+    const entry = join(kit, 'contrast-cli.mjs');
+    const aliases = [join(link, 'contrast-cli.mjs')];
+    if (process.platform !== 'win32') {
+      const fileLink = join(linkDir, 'linked contrast.mjs');
+      symlinkSync(entry, fileLink, 'file');
+      aliases.push(fileLink);
+    }
+    const options = { cwd: linkDir, encoding: 'utf8' };
+    const direct = spawnSync(process.execPath, [entry], options);
     assert.equal(direct.status, 0, direct.stderr);
-    assert.match(direct.stdout, /\b[1-9]\d* pairs; 0 failures\b/);
+    const lines = direct.stdout.trimEnd().split('\n');
+    assert.equal(lines.length, 45);
+    assert.equal(lines.at(-1), '44 pairs; 0 failures');
     assert.equal(direct.stderr, '');
+    for (const alias of aliases) {
+      const linked = spawnSync(process.execPath, [alias], options);
+      assert.equal(linked.status, 0, linked.stderr);
+      assert.equal(linked.stdout, direct.stdout);
+      assert.equal(linked.stderr, '');
+    }
 
-    const script = join(kit, 'contrast.mjs');
+    const library = join(kit, 'contrast.mjs');
+    const linkedLibrary = pathToFileURL(join(link, 'contrast.mjs')).href;
     const imported = spawnSync(process.execPath, [
-      '--input-type=module', '--eval', `await import(${JSON.stringify(pathToFileURL(entry).href)})`, script,
-    ], { encoding: 'utf8' });
+      '--input-type=module', '--eval', `
+        import assert from 'node:assert/strict';
+        const audit = await import(${JSON.stringify(linkedLibrary)});
+        assert.deepEqual(Object.keys(audit), ['checkContrast', 'contrastPairs', 'contrastRatio']);
+      `, library,
+    ], options);
     assert.equal(imported.status, 0, imported.stderr);
     assert.equal(imported.stdout, '');
     assert.equal(imported.stderr, '');
@@ -108,12 +126,13 @@ test('the installed contrast audit counts its failed rows and rejects malformed 
   try {
     const installed = installKit(directory);
     const tokenPath = join(installed, 'tokens.json');
-    const entry = realpathSync(join(installed, 'contrast.mjs'));
+    const entry = join(installed, 'contrast-cli.mjs');
+    const options = { cwd: tmpdir(), encoding: 'utf8' };
     const tokens = JSON.parse(readFileSync(tokenPath, 'utf8'));
     tokens.palette.dark.muted = tokens.palette.dark.surface;
     fs.writeFileSync(tokenPath, JSON.stringify(tokens));
 
-    const report = spawnSync(process.execPath, [entry], { encoding: 'utf8' });
+    const report = spawnSync(process.execPath, [entry], options);
     assert.equal(report.status, 1, report.stderr);
     assert.equal(report.stderr, '');
     const lines = report.stdout.trimEnd().split('\n');
@@ -125,10 +144,12 @@ test('the installed contrast audit counts its failed rows and rejects malformed 
 
     tokens.palette.dark.accent_identity = 'transparent';
     fs.writeFileSync(tokenPath, JSON.stringify(tokens));
-    const invalid = spawnSync(process.execPath, [entry], { encoding: 'utf8' });
-    assert.equal(invalid.status, 1);
-    assert.equal(invalid.stdout, '');
-    assert.match(invalid.stderr, /Expected opaque six-digit color: transparent/);
+    for (const flags of [[], ['--unhandled-rejections=none']]) {
+      const invalid = spawnSync(process.execPath, [...flags, entry], options);
+      assert.equal(invalid.status, 1);
+      assert.equal(invalid.stdout, '');
+      assert.match(invalid.stderr, /Expected opaque six-digit color: transparent/);
+    }
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -137,6 +158,7 @@ test('the installed contrast audit counts its failed rows and rejects malformed 
 test('javascript files parse', () => {
   for (const file of [
     'jaryo/behavior.mjs', 'jaryo/boot.js', 'jaryo/cli.mjs', 'jaryo/contract.mjs',
+    'jaryo/contrast-cli.mjs', 'jaryo/contrast.mjs',
     'jaryo/install.mjs', 'jaryo/mcp.mjs', 'jaryo/theme.mjs',
   ]) {
     const result = spawnSync(process.execPath, ['--check', join(repo, file)], { encoding: 'utf8' });
