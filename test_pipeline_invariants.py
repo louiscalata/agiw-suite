@@ -527,8 +527,7 @@ def check():
     )
     if result.returncode not in (0, 1):
         raise RuntimeError(result.stderr)
-    report = json.loads(result.stdout)
-    return report
+    return json.loads(result.stdout)
 
 
 class PipelineInvariantTests(unittest.TestCase):

@@ -201,12 +201,11 @@ class JevConnectionTests(unittest.TestCase):
             def run(args, **kwargs):
                 if args[-1] == "status-revision":
                     return self._result({"configured": True, "available": True, "revision": "credential-a"})
-                result = (
+                return (
                     subprocess.CompletedProcess([], 0, receipt.encode(), b"provider secret")
                     if isinstance(receipt, str)
                     else self._result(receipt)
                 )
-                return result
 
             with mock.patch.object(jev_connection.subprocess, "run", side_effect=run):
                 connection.request_check()

@@ -348,12 +348,11 @@ def router_run_inventory(data):
     pipeline = data.get('pipeline') or {}
     pipeline_rows = pipeline.get('pipelines') or []
     router_source = next((s for s in data.get('sources', []) if s.get('id') == 'pipeline-router'), None)
-    inventory = {'observedAt': (telemetry.last_router_observation() or {}).get('observedAt'),
-                 'complete': pipeline.get('pipelinesComplete') is True and source_current(router_source),
-                 'counts': {'running': sum(r.get('live') is True and r.get('status') == 'running' for r in pipeline_rows),
-                            'queued': sum(r.get('live') is True and r.get('status') in ('waiting', 'admitting') for r in pipeline_rows),
-                            'unresolved': sum(r.get('live') is not True for r in pipeline_rows)}}
-    return inventory
+    return {'observedAt': (telemetry.last_router_observation() or {}).get('observedAt'),
+            'complete': pipeline.get('pipelinesComplete') is True and source_current(router_source),
+            'counts': {'running': sum(r.get('live') is True and r.get('status') == 'running' for r in pipeline_rows),
+                       'queued': sum(r.get('live') is True and r.get('status') in ('waiting', 'admitting') for r in pipeline_rows),
+                       'unresolved': sum(r.get('live') is not True for r in pipeline_rows)}}
 
 
 def expire_run_evidence(data, now):
