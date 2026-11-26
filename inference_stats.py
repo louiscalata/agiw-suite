@@ -347,7 +347,6 @@ def apply_rates(machines, nodes):
 
 
 def public_map(document):
-    """A bounded copy for agiw-status. None when the document is not the map schema."""
     if not isinstance(document, dict) or document.get("schema") != MAP_SCHEMA:
         return None
     nodes = document.get("nodes")
@@ -359,36 +358,34 @@ def public_map(document):
         or len(edges) > MAX_MAP_EDGES
     ):
         return None
+    copied = []
     try:
-        copied = [
-            make_node(
-                id=node["id"],
-                machine=node["machine"],
-                role=node["role"],
-                label=node["label"],
-                health=node["health"],
-                endpoint=node.get("endpoint"),
-                model_id=node.get("modelId"),
-                upstream=node.get("upstream"),
-                reason=node.get("reason"),
-                observed_at=node.get("observedAt"),
-                prompt_tokens_per_second=node.get("promptTokensPerSecond"),
-                generation_tokens_per_second=node.get("generationTokensPerSecond"),
-                latency_ms=node.get("latencyMs"),
-                queue_depth=node.get("queueDepth"),
-                slots_busy=node.get("slotsBusy"),
-                slots_total=node.get("slotsTotal"),
-                context_used=node.get("contextUsed"),
-                context_limit=node.get("contextLimit"),
-                vram_used_mib=node.get("vramUsedMiB"),
-                vram_total_mib=node.get("vramTotalMiB"),
-                detail=node.get("detail"),
-                models=node.get("models"),
-                callers=node.get("callers"),
+        for source in nodes:
+            node = make_node(
+                id=source["id"],
+                machine=source["machine"],
+                role=source["role"],
+                label=source["label"],
+                health=source["health"],
+                endpoint=source.get("endpoint"),
+                model_id=source.get("modelId"),
+                upstream=source.get("upstream"),
+                reason=source.get("reason"),
+                observed_at=source.get("observedAt"),
+                prompt_tokens_per_second=source.get("promptTokensPerSecond"),
+                generation_tokens_per_second=source.get("generationTokensPerSecond"),
+                latency_ms=source.get("latencyMs"),
+                queue_depth=source.get("queueDepth"),
+                slots_busy=source.get("slotsBusy"),
+                slots_total=source.get("slotsTotal"),
+                context_used=source.get("contextUsed"),
+                context_limit=source.get("contextLimit"),
+                vram_used_mib=source.get("vramUsedMiB"),
+                vram_total_mib=source.get("vramTotalMiB"),
+                detail=source.get("detail"),
+                models=source.get("models"),
+                callers=source.get("callers"),
             )
-            for node in nodes
-        ]
-        for source, node in zip(nodes, copied):
             if source.get("observationSource") == "registry":
                 interval = source.get("probeIntervalSeconds", 3)
                 age = source.get("ageSeconds")
@@ -426,6 +423,7 @@ def public_map(document):
                 if value not in ("on", "off", "unknown"):
                     raise ValueError("thinking")
                 node["thinking"] = value
+            copied.append(node)
     except (KeyError, TypeError, ValueError):
         return None
     return {"schema": MAP_SCHEMA, "nodes": copied, "edges": edges_for(copied)}
