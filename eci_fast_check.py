@@ -774,11 +774,11 @@ def identity(model, hardware, settings):
         ):
             string(settings.get(key), nullable=True)
         sha(settings.get("prompt_template_sha256"), nullable=True)
-        if "prompt_template" in settings:
-            if not isinstance(settings["prompt_template"], dict) or digest(settings["prompt_template"]) != settings.get(
-                "prompt_template_sha256"
-            ):
-                raise ValidationError("prompt template hash disagrees with manifest")
+        if "prompt_template" in settings and (
+            not isinstance(settings["prompt_template"], dict)
+            or digest(settings["prompt_template"]) != settings.get("prompt_template_sha256")
+        ):
+            raise ValidationError("prompt template hash disagrees with manifest")
         for key in ("max_tokens", "ctx", "n_epochs"):
             numeric(settings.get(key), low=1, nullable=True, integer=True)
         numeric(settings.get("seed"), nullable=True, integer=True)

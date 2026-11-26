@@ -417,15 +417,14 @@ def ingest(paths, hint=None, require_normalized=False, _documents=None):
         data = load(path) if _documents is None else _documents[path]
         source_dates.append(text(data.get("as_of"), "as_of") if isinstance(data, dict) else None)
         source_ingested.append(text(data.get("ingested_at"), "ingested_at") if isinstance(data, dict) else None)
-        if require_normalized:
-            if (
-                not isinstance(data, dict)
-                or type(data.get("schema_version")) is not int
-                or data["schema_version"] != 1
-                or not all(isinstance(data.get(key), list) for key in ("runs", "items"))
-                or not isinstance(data.get("fast_checks", []), list)
-            ):
-                raise ValidationError("expected normalized dataset version 1 with collections")
+        if require_normalized and (
+            not isinstance(data, dict)
+            or type(data.get("schema_version")) is not int
+            or data["schema_version"] != 1
+            or not all(isinstance(data.get(key), list) for key in ("runs", "items"))
+            or not isinstance(data.get("fast_checks", []), list)
+        ):
+            raise ValidationError("expected normalized dataset version 1 with collections")
         validate_eci_provenance(data, dedicated_fast_checks=True)
         if path.name == "run_manifest.json":
             # Attached via --manifest to a refit below; standalone validation only.

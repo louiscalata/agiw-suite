@@ -565,11 +565,14 @@ def peer_feeds(now: float, *, peer_reader: Callable | None = None, share_reader:
                     row = _feed_failure("linux", source["host"], failures[0])
             if previous is None or (not previous["feed"] and row["feed"]):
                 merged[key] = row
-            elif previous["feed"] and row["feed"] and previous["source"]["trust"] == source["trust"]:
-                if peer_link._parse_iso(row["feed"]["observedAt"]) > peer_link._parse_iso(
-                    previous["feed"]["observedAt"]
-                ):
-                    merged[key] = row
+            elif (
+                previous["feed"]
+                and row["feed"]
+                and previous["source"]["trust"] == source["trust"]
+                and peer_link._parse_iso(row["feed"]["observedAt"])
+                > peer_link._parse_iso(previous["feed"]["observedAt"])
+            ):
+                merged[key] = row
     modern = [
         row
         for row in merged.values()
