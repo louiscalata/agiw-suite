@@ -584,9 +584,9 @@ class SnapshotStore:
         """Wait for a publish; on timeout also age machine evidence when the sampler has stopped."""
         with self.changed:
             if not self.changed.wait_for(lambda: self.snapshot is not None and self.sequence != last_sequence,
-                                         timeout=timeout):
-                if self.snapshot is None or not self.snapshot.get('machines'):
-                    return None, last_sequence
+                                         timeout=timeout) and (
+                    self.snapshot is None or not self.snapshot.get('machines')):
+                return None, last_sequence
             return self._read_locked(), self.sequence
 
 

@@ -456,9 +456,8 @@ class _OwnerChildren:
             self._children[child.pid] = child
             # Cancellation can win between Popen returning and registration.
             # In that case the new child must be killed before its caller runs.
-            if self.cancelled.is_set():
-                if not _kill_private_group(child):
-                    self.signal_failed = True
+            if self.cancelled.is_set() and not _kill_private_group(child):
+                self.signal_failed = True
 
     def unregister(self, child: subprocess.Popen, *, cleanup_ok: bool = True) -> None:
         with self._lock:
