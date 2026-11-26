@@ -69,8 +69,7 @@ def baseline_source(commit):
 def run_tests(names, module=None):
     suite = unittest.defaultTestLoader.loadTestsFromNames(names)
     with mock.patch.object(regressions, "probes", module or probes):
-        result = unittest.TextTestRunner(stream=io.StringIO(), verbosity=2).run(suite)
-    return result
+        return unittest.TextTestRunner(stream=io.StringIO(), verbosity=2).run(suite)
 
 
 def result_record(result):
