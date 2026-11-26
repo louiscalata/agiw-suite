@@ -1045,11 +1045,8 @@ def _window_text(lines, window):
 
 def _window_cost(lines, window, prefix=None):
     start, end = window
-    if prefix is None:
-        text_chars = len(_window_text(lines, window))
-    else:
-        # Each prefix entry counts one separator per line; omit the last one.
-        text_chars = prefix[end] - prefix[start - 1] - 1
+    # Each prefix entry counts one separator per line; omit the last one.
+    text_chars = len(_window_text(lines, window)) if prefix is None else prefix[end] - prefix[start - 1] - 1
     return text_chars + len(f"[lines {start}-{end}]") + 2
 
 

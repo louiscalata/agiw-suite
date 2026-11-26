@@ -383,10 +383,9 @@ def _stage_lines(report):
         failures = evidence.get("failures")
         if isinstance(failures, list) and failures:
             first = failures[0]
-            if isinstance(first, dict):
-                raw = first.get("message") or first.get("reason") or first.get("name")
-            else:
-                raw = first
+            raw = (
+                (first.get("message") or first.get("reason") or first.get("name")) if isinstance(first, dict) else first
+            )
             failure = sanitize_text(raw, 160) if isinstance(raw, str) else None
             if failure:
                 bits.append(f"failure: {failure}")
