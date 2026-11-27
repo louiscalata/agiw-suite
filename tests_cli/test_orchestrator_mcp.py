@@ -3,9 +3,11 @@ from __future__ import annotations
 import io
 import json
 import os
+import socket
 import stat
 import tempfile
 import threading
+import time
 import unittest
 import urllib.error
 import urllib.request
@@ -380,6 +382,15 @@ class HttpServerTestCase(unittest.TestCase):
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
         port = self.server.server_address[1]
+        deadline = time.monotonic() + 5.0
+        while True:
+            try:
+                with socket.create_connection(("127.0.0.1", port), timeout=0.1):
+                    break
+            except OSError:
+                if time.monotonic() >= deadline:
+                    self.fail("HTTP server did not become ready in time")
+                time.sleep(0.01)
         self.url = f"http://127.0.0.1:{port}/mcp"
         self.health_url = f"http://127.0.0.1:{port}/healthz"
         self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
@@ -407,13 +418,33 @@ class HttpServerTestCase(unittest.TestCase):
             headers["Authorization"] = "Bearer " + token
         if origin is not None:
             headers["Origin"] = origin
-        request = urllib.request.Request(url, data=data, headers=headers, method=method)
-        try:
-            response = self.opener.open(request, timeout=2)
-        except urllib.error.HTTPError as error:
-            return error.code, error.read()
-        with response:
-            return response.status, response.read()
+        headers["Connection"] = "close"
+        last_error = None
+        for _ in range(3):
+            request = urllib.request.Request(url, data=data, headers=headers, method=method)
+            try:
+                response = self.opener.open(request, timeout=2)
+            except urllib.error.HTTPError as error:
+                try:
+                    return error.code, error.read()
+                finally:
+                    error.close()
+            except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError) as error:
+                last_error = error
+                continue
+            except urllib.error.URLError as error:
+                if isinstance(
+                    error.reason,
+                    (ConnectionAbortedError, ConnectionResetError, BrokenPipeError),
+                ):
+                    last_error = error
+                    continue
+                raise
+            with response:
+                return response.status, response.read()
+        if last_error is not None:
+            raise last_error
+        raise AssertionError("request failed without a response")
 
     def test_http_auth_routes_origin_and_notifications(self) -> None:
         status, _body = self.request(
