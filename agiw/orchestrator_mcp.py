@@ -777,6 +777,33 @@ def _handler_class(  # noqa: C901 - one small HTTP handler class
             if body:
                 self.wfile.write(body)
 
+        def _discard_known_body(self) -> None:
+            raw = self.headers.get("Content-Length")
+            if raw is None:
+                return
+            try:
+                length = int(raw)
+            except ValueError:
+                return
+            if length <= 0 or length > MAX_BODY:
+                return
+            previous = self.connection.gettimeout()
+            try:
+                self.connection.settimeout(1.0)
+                remaining = length
+                while remaining > 0:
+                    chunk = self.rfile.read(min(remaining, 65536))
+                    if not chunk:
+                        break
+                    remaining -= len(chunk)
+            except OSError:
+                pass
+            finally:
+                try:
+                    self.connection.settimeout(previous)
+                except OSError:
+                    pass
+
         def _unauthorized(self) -> None:
             self._send(
                 HTTPStatus.UNAUTHORIZED,
@@ -800,10 +827,12 @@ def _handler_class(  # noqa: C901 - one small HTTP handler class
 
         def do_POST(self) -> None:
             if self.path != "/mcp":
+                self._discard_known_body()
                 self._send(HTTPStatus.NOT_FOUND)
                 return
             origin = self.headers.get("Origin")
             if origin is not None and origin not in origins:
+                self._discard_known_body()
                 self._send(HTTPStatus.FORBIDDEN, b'{"error":"forbidden"}')
                 return
             authorization = self.headers.get("Authorization", "")
@@ -811,6 +840,7 @@ def _handler_class(  # noqa: C901 - one small HTTP handler class
             if not authorization.startswith(prefix) or not hmac.compare_digest(
                 authorization[len(prefix) :].encode("utf-8", "surrogateescape"), token.encode("utf-8")
             ):
+                self._discard_known_body()
                 self._unauthorized()
                 return
             try:

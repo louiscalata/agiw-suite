@@ -507,6 +507,66 @@ class HttpServerTestCase(unittest.TestCase):
         )
         self.assertEqual(status, 202)
 
+    def _post_and_read_status(self, path: str, extra_headers: str = "") -> int:
+        host, port = self.server.server_address[:2]
+        body = b'{"jsonrpc":"2.0","id":1,"method":"ping"}'
+        headers = (
+            f"POST {path} HTTP/1.0\r\n"
+            f"Host: 127.0.0.1:{port}\r\n"
+            "Content-Type: application/json\r\n"
+            f"Content-Length: {len(body)}\r\n"
+            f"{extra_headers}"
+            "\r\n"
+        ).encode("ascii")
+        with socket.create_connection((host, port), timeout=2) as sock:
+            sock.sendall(headers)
+            sock.sendall(body)
+            sock.shutdown(socket.SHUT_WR)
+            chunks: list[bytes] = []
+            while True:
+                data = sock.recv(4096)
+                if not data:
+                    break
+                chunks.append(data)
+        status_line = b"".join(chunks).split(b"\r\n", 1)[0]
+        parts = status_line.split()
+        self.assertGreaterEqual(len(parts), 2, msg=status_line.decode("latin1", "replace"))
+        return int(parts[1])
+
+    def test_rejected_post_bodies_are_consumed_before_the_next_request(self) -> None:
+        # Send headers and body in two writes so the body is already in the
+        # server receive buffer when an early 401/403/404 is sent. If that
+        # body is left unread, Windows can RST the socket and the client
+        # never sees the status line.
+        self.assertEqual(self._post_and_read_status("/mcp"), 401)
+        self.assertEqual(
+            self._post_and_read_status("/mcp", "Authorization: Bearer wrong-token\r\n"),
+            401,
+        )
+        self.assertEqual(
+            self._post_and_read_status(
+                "/mcp",
+                "Authorization: Bearer test-token\r\nOrigin: https://evil.example\r\n",
+            ),
+            403,
+        )
+        self.assertEqual(
+            self._post_and_read_status("/mcp/other", "Authorization: Bearer test-token\r\n"),
+            404,
+        )
+        status, body = self.request(
+            self.url,
+            body={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {"protocolVersion": "2025-06-18"},
+            },
+            token="test-token",
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(body)["result"]["protocolVersion"], "2025-06-18")
+
     def test_non_loopback_host_is_refused(self) -> None:
         config = om.Config(root=self.root, host="0.0.0.0", port=0, token="test-token")
 
